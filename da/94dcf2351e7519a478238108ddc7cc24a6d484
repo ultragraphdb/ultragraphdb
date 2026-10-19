@@ -1,0 +1,21 @@
+AGENTS.md
+  s_e7d9aa044e41ea::t_be4ea15f4abc8b 115-117
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_2c4a8b4bb934b5 18-20,57,76-142,154-155,161,164-167,169,172-186,192-202,206,208-209,217-218,224-226,253-257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "da94dcf2351e7519a478238108ddc7cc24a6d484",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
