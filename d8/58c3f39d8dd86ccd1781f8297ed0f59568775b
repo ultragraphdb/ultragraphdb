@@ -1,0 +1,78 @@
+AGENTS.md
+  s_e7d9aa044e41ea::t_129bea4429bd63 1-261
+ugdb_common/common_version/Cargo.toml
+  s_e7d9aa044e41ea::t_5065f65a6afd97 1-15
+ugdb_common/common_version/src/lib.rs
+  s_e7d9aa044e41ea::t_4165cfbab657f1 1-8
+makefile
+  s_e7d9aa044e41ea::t_0c0a3a725f1ecf 12
+  s_e7d9aa044e41ea::t_6db8ef0552bfc2 9-11
+  s_e7d9aa044e41ea::t_92208b382ab418 13-15
+  s_e7d9aa044e41ea::t_60a02e578da455 1-8,16-46
+.gitignore
+  s_e7d9aa044e41ea::t_700f238b900cbb 6-11
+Cargo.toml
+  s_e7d9aa044e41ea::t_e7f07dda6647b0 1-43
+MODULE.bazel
+  s_e7d9aa044e41ea::t_7ec7c0897ba383 1-87
+BUILD.bazel
+  s_e7d9aa044e41ea::t_9f8eb10360902e 1-9
+ugdb_common/common_version/BUILD.bazel
+  s_e7d9aa044e41ea::t_1daeed09fb812c 1-54
+.bazelrc
+  s_e7d9aa044e41ea::t_5e79a50a7f6907 1-24
+ugdb_common/common_version/src/types/product.rs
+  s_e7d9aa044e41ea::t_8464dcc36687f8 1-11
+rustfmt.toml
+  s_e7d9aa044e41ea::t_c3e2df34912806 1
+ugdb_common/common_version/src/types/mod.rs
+  s_e7d9aa044e41ea::t_56e18b97665eb9 1-8
+.bazelversion
+  s_e7d9aa044e41ea::t_2968575f427872 1
+README.md
+  s_e7d9aa044e41ea::t_45bb5ab329d596 1-18
+ugdb_common/common_version/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_15c9306ad2c5cc 1-7
+ugdb_common/common_version/tests/mod.rs
+  s_e7d9aa044e41ea::t_c44a2e306d07c2 1-7
+ugdb_common/common_version/tests/types/product_tests.rs
+  s_e7d9aa044e41ea::t_33f2c9260a9acd 1-11
+.bazelignore
+  s_e7d9aa044e41ea::t_1270dc4a65da54 1-8
+Cargo.lock
+  s_e7d9aa044e41ea::t_0e200d31ff21e8 1-7
+MODULE.bazel.lock
+  s_e7d9aa044e41ea::t_35fba5809e1d97 1-913
+scripts/build.sh
+  s_e7d9aa044e41ea::t_f6dfa044ead335 1-12
+scripts/check.sh
+  s_e7d9aa044e41ea::t_3999b830c26170 1-24
+scripts/count.sh
+  s_e7d9aa044e41ea::t_9b8db11c93a459 1-14
+scripts/doc.sh
+  s_e7d9aa044e41ea::t_cd8491db23d326 1-13
+scripts/fix.sh
+  s_e7d9aa044e41ea::t_bd4f5ae861f836 1-13
+scripts/format.sh
+  s_e7d9aa044e41ea::t_3dba2f3e80b0c2 1-19
+scripts/test.sh
+  s_e7d9aa044e41ea::t_3d48c240aafd4d 1-39
+scripts/update.sh
+  s_e7d9aa044e41ea::t_78c227b664f900 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d858c3f39d8dd86ccd1781f8297ed0f59568775b",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
