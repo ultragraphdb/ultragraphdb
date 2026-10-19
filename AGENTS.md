@@ -112,7 +112,9 @@ requested scope. If something could not be verified, say that clearly.
 
 ultragraphdb is a distributed graph database in Rust, ported from Dgraph (Apache-2.0,
 `github.com/dgraph-io/dgraph`). It keeps Dgraph's DQL query language and leaves out its GraphQL layer.
-Storage is redb, the cache is moka, and replication and partitioning are part of the database.
+Storage is fjall, the cache is moka, and replication and partitioning are part of the database. A
+transaction is one request, `commit_now`, checked by its read set or by an upsert block's conditions; see
+`openspec/notes/dgraph-port-overview.md` §Transactions.
 
 ### Ported code and attribution
 

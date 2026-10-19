@@ -15,8 +15,9 @@ ultragraphdb ports Dgraph to Rust in five steps:
 4. **Run it in production.**
 5. **Re-architect** the handful of decisions that limit Dgraph, on the tested Rust codebase.
 
-Three components change during the port itself: Badger becomes redb, Ristretto becomes moka, and the
-GraphQL layer is cut. Everything else keeps Dgraph's design until step 5.
+Four things change during the port itself: Badger becomes fjall, Ristretto becomes moka, the GraphQL
+layer is cut, and a transaction is one request (§Transactions). Everything else keeps Dgraph's design
+until step 5.
 
 **Why this order.** Dgraph's mechanisms are sound; the codebase is under-tested and was left unmaintained
 for years. Re-architecting it in Go means changing code that cannot be verified. A consolidated, tested
@@ -53,7 +54,7 @@ ported code (about 90.6k test lines across the repository).
 
 | Go dependency | Rust | Status |
 |---|---|---|
-| `dgraph-io/badger/v4` (storage) | `redb` | Decided |
+| `dgraph-io/badger/v4` (storage) | `fjall` | Decided |
 | `dgraph-io/ristretto/v2` (cache) | `moka` | Decided |
 | `go.etcd.io/etcd/raft/v3` (consensus) | `raft-rs` (TiKV's port of etcd raft) | Decided |
 | `google.golang.org/grpc`, `protobuf` | `tonic`, `prost` | Decided |
@@ -72,11 +73,73 @@ and `Ready` loop are etcd raft's, so `worker/draft.go` and `conn/node.go` port l
 
 ## API and client
 
-ultragraphdb serves Dgraph's gRPC API, `api.proto`, unchanged, so a request Go Dgraph accepts reaches
-ultragraphdb in the same bytes and the two can be compared on the same traffic. `ugdb_proto/proto_dgraph`
-generates it. The client is `ultragraph_client`, with `UltraGraphClient` and `UltraGraphError`, copied
-from `dgraph-rs` and renamed; it speaks to both servers. Its `test-utils` fixture starts a Go Dgraph
-container, which serves the differential runs as well as the client's acceptance test.
+ultragraphdb serves Dgraph's gRPC API, `api.proto`, unchanged on the wire, and accepts the subset of it
+that §Transactions describes. A request in that subset means the same to Go Dgraph, so the two can be
+compared on the same traffic. `ugdb_proto/proto_dgraph` generates the API. The client is
+`ultragraph_client`, with `UltraGraphClient` and `UltraGraphError`, copied from `dgraph-rs` and
+renamed; it speaks to both servers. Its `test-utils` fixture starts a Go Dgraph container, which serves
+the differential runs as well as the client's acceptance test.
+
+## Transactions
+
+**The port holds the transaction; the store applies what the port decided.** Two properties of a
+replicated, sharded database place it there:
+
+* **A transaction spans nodes.** Predicates are sharded across groups, so one mutation writes keys on
+  several machines, and its conflict check is global. Zero's oracle hands out the start timestamp, checks
+  the transaction against the commits since then, and assigns the commit timestamp.
+* **Replicas apply deterministically.** Each group is a Raft state machine, and every replica applies the
+  same entries to the same state. A store able to abort a write could abort on one replica what another
+  committed. A write reaches the store with its outcome decided, and the store applies it.
+
+So the store runs without transactions of its own, as Badger runs in managed mode in Dgraph.
+
+**A transaction is one request.** It carries a read timestamp, the preconditions the client relied on,
+and the mutations; the server keeps no state between requests. In `api.proto` terms it is a `Request`
+with `commit_now = true`. A read-only query is a request too, at its own timestamp. Mutations without
+`commit_now` and `CommitOrAbort` are refused, because they leave a transaction open across requests.
+
+That removes Dgraph's uncommitted layer. Dgraph proposes a mutation through Raft when the client sends
+it, holds it in the Alpha's memory under its start timestamp, and decides it in a second round at commit:
+two Raft rounds per transaction, state for clients that walk away, and the gap between Zero's decision
+and the group's apply where the stale reads arise. A one-request transaction is proposed once and decided
+and applied in the same step.
+
+The same reasoning stands behind H-Store, VoltDB, Calvin and TigerBeetle (Stonebraker et al., "The End
+of an Architectural Era", VLDB 2007), and FoundationDB's servers hold no transaction state either: its
+client buffers writes and sends its read ranges and writes in one commit.
+
+**Two forms of precondition, both supported.** Which one an application prefers is not decidable at this
+stage, and one application may need both, so the port carries both:
+
+| Form | The request carries | Outcome | Serializable by |
+|---|---|---|---|
+| **Read-set check** | The read timestamp, and the keys and index ranges the client's queries read at it | Aborts when any of them was committed after the read timestamp; the client retries | Validation at commit, FoundationDB's model |
+| **Server-side conditions** | A DQL upsert block: the query and its `@if` mutations | Runs inside the group's apply thread, in Raft order and in batches; the conditions decide, and it never aborts | Serial execution, TigerBeetle's model |
+
+The read-set check serves arbitrary client logic: read, compute anything, submit. Server-side conditions
+serve guards and invariants on hot keys, where retries would pile up. Read-only queries run in parallel
+on store snapshots and take part in neither.
+
+Both forms give serializability, and strict serializability, because Zero is one timestamp oracle and
+commit order follows real time. Dgraph today checks only the keys a transaction writes
+(`zero/oracle.go`, `hasConflict`), and index keys only under `@upsert` (`posting/list.go`,
+`GetConflictKey`): snapshot isolation that admits write skew.
+
+**What it costs.**
+
+* A transaction cannot read its own writes; the client computes dependent writes locally.
+* Under the read-set check, retries are the client's, and on hot keys they repeat.
+* A query in a read-set transaction returns what it read. `Response.txn.keys` can carry it back; large
+  traversals coarsen to whole-predicate ranges.
+* `ultragraph_client` replaces `Txn<ReadWrite>`'s `mutate` and `commit` with a one-request transaction.
+* scrith's manager moves to this model.
+
+**Which form performs best is measured, not assumed.** The benchmark compares the execution models on
+scrith's workload of guards, upserts and hot envelope predicates, with key skew from uniform to Zipfian:
+Dgraph's write-key check, the read-set check, and serial execution of upsert blocks. It records
+throughput, p99, the abort rate, and the head-of-line blocking the longest upsert causes on the serial
+thread.
 
 ## Threads and the async runtime
 
@@ -88,49 +151,62 @@ The loop model is hybrid:
   raft-rs groups, taking the `Ready` of every group it holds in one batch. A Dgraph Alpha belongs to
   one group and runs each loop as its own goroutine; a fixed pool keeps the thread count bounded when
   a node holds several groups.
-* **One writer thread per redb file.** redb admits one write transaction at a time, so commits and
-  rollups queue to that thread and it writes them in batches.
+* **One apply thread per group writes to the store.** It applies the committed entries of one `Ready`,
+  upsert blocks included, and writes them as one fjall write batch.
 * **Batched channels between them.** A loop takes everything waiting in one receive, so a busy
   system pays one wake-up per batch rather than one per message.
 * **Each loop is a step function** over its inputs, so a simulation can drive the loops
   deterministically, with no runtime and no clock of its own.
 
-## Storage: Badger to redb
+## Storage: Badger to fjall
 
 Dgraph runs Badger in managed mode: every key carries its commit timestamp, and a read takes the newest
-version at or below its read timestamp. redb is a single-writer store of copy-on-write B+trees with
-multi-version reads and no versions of its own, so the port maps each Badger use explicitly:
+version at or below its read timestamp. fjall is an LSM-tree store, as Badger is, with atomic write
+batches across keyspaces, snapshots, range and prefix scans, and compaction filters. Its sequence numbers
+are its own, so the port keeps Dgraph's commit timestamp in the key and uses fjall's plain database, the
+one without transactions:
 
-| Badger use in Dgraph | redb |
+| Badger use in Dgraph | fjall |
 |---|---|
 | Versioned keys, read at a timestamp | The version in the key, `(key, ts)` with `ts` descending, so "newest at or below" is one seek |
-| Rollups writing a complete posting list and discarding older versions | A write of the complete list and range deletes of the versions it replaces |
-| Concurrent writers: the apply loop's commits, background rollups | One writer per file: commits and rollups go through a single writer thread in batches |
-| The Stream framework: snapshots to followers, backups, export, predicate moves | Streamed range scans |
-| No sync on commit by default, `--survive filesystem` for sync | `Durability::None` with a periodic `Durability::Immediate` commit recording the applied Raft index; the Raft log carries durability |
+| Rollups writing a complete posting list and discarding older versions | A write of the complete list; a compaction filter drops the versions below the discard timestamp, as Badger's compaction does |
+| Writes from the apply loop and from background rollups | Atomic write batches from the group's apply thread |
+| The Stream framework: snapshots to followers, backups, export, predicate moves | Streamed range scans over a snapshot |
+| No sync on commit by default, `--survive filesystem` for sync | Writes reach OS buffers; the applied Raft index is written in the same batch, and the Raft log carries durability |
 
-**Visibility.** Dgraph's stale reads come from its visibility layer above Badger, which is itself
-multi-version: writes held in memory until Zero decides, commits written by the apply loop afterwards,
-the `MaxAssigned` and `WaitForTs` gate, and the posting-list cache updated after the write. The port
-replaces that layer with three rules:
+**Visibility.** Dgraph's stale reads come from its visibility layer above Badger: writes held in memory
+until Zero decides, commits written by the apply loop afterwards, the `MaxAssigned` and `WaitForTs` gate,
+and the posting-list cache updated after the write. One-request transactions remove the first of these,
+and three rules replace the rest:
 
-1. **One commit, one redb write transaction**, holding the data, its index entries and its reverse edges.
-2. **One read, one redb read transaction**, opened at an applied Raft index, with no second visibility
-   mechanism beside it.
+1. **A commit never spans write batches.** A batch holds every commit of one `Ready`, each with its data,
+   its index entries and its reverse edges, and records the applied Raft index.
+2. **A read at timestamp `t` waits until every commit at or below `t` is applied, then reads one store
+   snapshot.** The wait makes the read complete; the snapshot keeps it whole while later batches and
+   compactions run.
 3. **Cache entries keyed by version**, `(key, version)`, so the cache holds only what that version's
    snapshot holds.
 
 A reader then sees a commit whole or not at all, and an index read and a scan of the same snapshot agree.
 
-**What to measure early.** redb's own benchmark (Ryzen 9950X3D, NVMe) places it 3.5–4.5× behind RocksDB
-and fjall on batch writes and 2–4× behind on removals, with files 2–4.5× larger than RocksDB's. Rollups
-and version garbage collection are removals, so the port measures them on Dgraph's own workloads.
+**The commit path is not storage-bound in Dgraph.** Moving `/dgraph` onto tmpfs raised Dgraph's commit
+rate by 1–3 % (`dgraph-bench.md` §6 in scrith), and the two patches in `dgraph-investigation.md` lifted it
+23 % without touching storage.
+
+**What to measure early.** Paths that run storage at full speed in Dgraph too, measured in the Linux VM
+where the Dgraph benchmarks ran:
+
+* the apply thread's batches of Dgraph-shaped commits at 14.5k and 50k commits/s;
+* rollups and the compaction filter over a large predicate;
+* a bulk load and a snapshot install;
+* the size of the files after each.
 
 ## Correctness oracles
 
-Dgraph has no conformance suite. The port checks itself against four sources:
+Dgraph has no conformance suite. The port checks itself against five sources:
 
-1. **Go Dgraph v25.5.0 beside the port.** The same data and the same DQL, answers compared.
+1. **Go Dgraph v25.5.0 beside the port.** The same data and the same DQL, answers compared, for every
+   request in the subset ultragraphdb accepts.
 2. **Dgraph's Go tests,** ported with the code they test.
 3. **Dgraph's issue tracker:** 2,594 closed issues and 51 open on 2026-10-20, 21 of them labelled `bug`.
    A closed bug with a reproduction is a regression test. Closed by area: query language 103, crash 35,
@@ -138,14 +214,16 @@ Dgraph has no conformance suite. The port checks itself against four sources:
 4. **The scrith probes.** Index-rooted reads missing commits below the read point, and reverse edges
    doing the same, measured on v25.4.0 and v25.5.0 and matching no upstream issue (`dgraph-bench.md` §3 in
    scrith).
+5. **Elle,** Jepsen's isolation checker, over append and register histories. Go Dgraph admits write skew,
+   so it is no oracle for isolation; Elle checks the serializability both precondition forms claim.
 
 ## Stages
 
 | Stage | Contents | Checked by |
 |---|---|---|
-| 1. Single node | One Alpha and one Zero on redb and moka: `posting`, `query`, `dql`, `tok`, `types`, `schema`, `edgraph`, and `worker` for one group | Differential DQL; the tracker's query, index and mutation reproductions; the visibility probes |
-| 2. Replication | Raft groups of three replicas: `worker`'s proposal and apply loop, `conn`, `raftwal`, Zero | The crash and data-loss reproductions; fault injection |
-| 3. Several groups | Tablets across groups, predicate moves | Differential DQL across group layouts |
+| 1. Single node | One Alpha and one Zero on fjall and moka: `posting`, `query`, `dql`, `tok`, `types`, `schema`, `edgraph`, and `worker` for one group; one-request transactions in both forms | Differential DQL; the tracker's query, index and mutation reproductions; the visibility probes; Elle |
+| 2. Replication | Raft groups of three replicas: `worker`'s proposal and apply loop, `conn`, `raftwal`, Zero | The crash and data-loss reproductions; fault injection; Elle under faults |
+| 3. Several groups | Tablets across groups, predicate moves | Differential DQL across group layouts; Elle across groups |
 | 4. Known bugs | The open issues, triaged | Their reproductions |
 | 5. Re-architecture | The decisions below | The benchmarks that located them |
 
@@ -172,3 +250,8 @@ path, and states that it was changed (Apache-2.0 §4(b), §4(c)). `AGENTS.md` ho
 1. Which Dgraph features beyond GraphQL are in scope for stage 1: ACL, multi-tenancy namespaces, backups,
    the bulk and live loaders, vector indexes, change data capture?
 2. Does Zero stay a separate process, as in Dgraph?
+3. How does a read-set transaction carry its read set to the server? `Request` has a `start_ts` for the
+   read timestamp and no field for keys or ranges.
+4. How is a read set bounded: past what size does a query's read set coarsen to whole-predicate ranges?
+5. How is an upsert block spanning several groups ordered: by a Calvin-style sequence that Zero assigns
+   across groups, or is a serially executed upsert confined to one group?
