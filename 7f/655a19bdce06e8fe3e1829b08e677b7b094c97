@@ -1,0 +1,30 @@
+.claude/commands/opsx/apply.md
+  h_080fb89ca1f0c4 1-155
+.claude/commands/opsx/archive.md
+  h_080fb89ca1f0c4 1-160
+.claude/commands/opsx/explore.md
+  h_080fb89ca1f0c4 1-174
+.claude/commands/opsx/propose.md
+  h_080fb89ca1f0c4 1-109
+.claude/skills/openspec-apply-change/SKILL.md
+  h_080fb89ca1f0c4 1-159
+.claude/skills/openspec-archive-change/SKILL.md
+  h_080fb89ca1f0c4 1-117
+.claude/skills/openspec-explore/SKILL.md
+  h_080fb89ca1f0c4 1-289
+.claude/skills/openspec-propose/SKILL.md
+  h_080fb89ca1f0c4 1-113
+openspec/config.yaml
+  h_080fb89ca1f0c4 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f655a19bdce06e8fe3e1829b08e677b7b094c97",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
