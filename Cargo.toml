@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "ugdb_common/*",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98.1"
+readme = "README.md"
+license = "Apache-2.0"
+repository = "https://github.com/marvin-hansen/ultragraphdb"
+authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
+publish = false
+
+
+[workspace.dependencies]
+# ==============
+# Internal crates
+# ==============
+## Common
+common_version = { path = "ugdb_common/common_version" }
+
+# ==============
+# External crates
+# ==============
+
+
+[workspace.lints.clippy]
+all = "warn"
+# Repo-wide lint policy. Member crates opt in with `[lints] workspace = true`.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+deprecated_safe = { level = "warn", priority = -1 }
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+# unwind preserves drop, which is critical for security code relying on drop.
+panic = "unwind"

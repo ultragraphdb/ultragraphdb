@@ -1,0 +1,24 @@
+# Bazel configuration for ultragraphdb.
+#
+# Don't create bazel-* symlinks in the project root directory.
+# Instead, set a prefix and put it in .gitignore
+build --symlink_prefix=target-bzl/
+
+# Write build outputs in a platform-specific directory; avoid outputs being wiped and rewritten
+# when switching between platforms.
+common --experimental_platform_in_output_dir
+common --noannounce_rc
+common --color=yes
+common --ui_event_filters=-INFO
+common --enable_platform_specific_config
+
+build --keep_going
+build --jobs=auto
+build --show_timestamps
+
+# Standard test ergonomics: show failing logs and retry known flaky tests once.
+test --test_output=errors
+test --flaky_test_attempts=2
+
+# Allow developers to extend configuration locally (ignored in version control).
+try-import %workspace%/.bazelrc.local
