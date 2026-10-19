@@ -1,0 +1,226 @@
+ugdb_client/ultragraph_client/BUILD.bazel
+  s_e7d9aa044e41ea::t_7ef3a0185be1aa 113
+  s_e7d9aa044e41ea::t_dc9e46ff8685ee 1-112,114-138
+AGENTS.md
+  s_e7d9aa044e41ea::t_b2f16af4274ec9 158-165
+  s_e7d9aa044e41ea::t_bfadf6d096984d 139-151
+  s_e7d9aa044e41ea::t_0ba7c59b98336b 225-230
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_2a8856fdb67649 172,174
+  s_e7d9aa044e41ea::t_babdbd138cca41 88-90
+  s_e7d9aa044e41ea::t_a1b52a3f59c187 58-59
+  s_e7d9aa044e41ea::t_48f7aafca0e4bd 70-87,91-97
+  s_e7d9aa044e41ea::t_3cbcd17c494583 1-57,60-69,98-171,173
+Cargo.lock
+  s_e7d9aa044e41ea::t_4c83d6d3ceee84 5-148,152-1458
+MODULE.bazel.lock
+  s_e7d9aa044e41ea::t_f0af7c32a8351a 13,18-19,25,29,33,45,48-49,53,60,80-83,90-96,107-108,118,133-134,136-138,141,144-146,149-150,159-160,178,181,191-197,200,202,206,212,214-215,219,222-224,226-227,238,240,249,251,259-260,263-264,277,286,296,305,307-309,311-313,518-843,848,858,861,866,869,872-874,879,882,884,895,897,901-903,906,908,912,917,919,922,928,930,932,934,936,939,943,952,954,956,961-962,974,980,996,1001,1004,1009,1011,1020,1026,1029,1039,1041,1043,1045,1047,1049,1052-1053,1062,1071,1073,1075,1080-1081,1083,1085,1087,1092,1096-1097,1101,1103,1105,1108,1111,1113,1117,1119,1124-1125,1136-1137,1139,1141,1143,1145-1147,1149,1151,1160,1163,1166,1168,1170,1174,1179,1201,1236,1240-1242
+bazel/toolchains/prost_toolchain/BUILD.bazel
+  s_e7d9aa044e41ea::t_ad3971ac155a93 1-56
+bazel/toolchains/proto_toolchain/BUILD.bazel
+  s_e7d9aa044e41ea::t_3a39ae2896f808 1-9
+ugdb_client/ultragraph_client/Cargo.toml
+  s_e7d9aa044e41ea::t_e0da9b4673ee54 1-60
+ugdb_client/ultragraph_client/src/errors/auth_error/auth_error_display.rs
+  s_e7d9aa044e41ea::t_048536a66ea4e3 1-40
+ugdb_client/ultragraph_client/src/errors/auth_error/auth_error_error.rs
+  s_e7d9aa044e41ea::t_6697f075ad67b6 1-9
+ugdb_client/ultragraph_client/src/errors/auth_error/mod.rs
+  s_e7d9aa044e41ea::t_ff6883706a1d61 1-86
+ugdb_client/ultragraph_client/src/errors/connect_error/connect_error_display.rs
+  s_e7d9aa044e41ea::t_63015684783acb 1-33
+ugdb_client/ultragraph_client/src/errors/connect_error/connect_error_error.rs
+  s_e7d9aa044e41ea::t_fd18fc96d5296a 1-9
+ugdb_client/ultragraph_client/src/errors/connect_error/mod.rs
+  s_e7d9aa044e41ea::t_91aa03fdf6b988 1-89
+ugdb_client/ultragraph_client/src/errors/connection_string_error/connection_string_error_display.rs
+  s_e7d9aa044e41ea::t_9a81513f676207 1-52
+ugdb_client/ultragraph_client/src/errors/connection_string_error/connection_string_error_error.rs
+  s_e7d9aa044e41ea::t_ed6b680b327351 1-10
+ugdb_client/ultragraph_client/src/errors/connection_string_error/mod.rs
+  s_e7d9aa044e41ea::t_edb10c14a8a52a 1-106
+ugdb_client/ultragraph_client/src/errors/mod.rs
+  s_e7d9aa044e41ea::t_ecf55497cb1d98 1-9
+ugdb_client/ultragraph_client/src/errors/transaction_error/mod.rs
+  s_e7d9aa044e41ea::t_0714f4f734f29e 1-91
+ugdb_client/ultragraph_client/src/errors/transaction_error/transaction_error_display.rs
+  s_e7d9aa044e41ea::t_78f0e943693154 1-36
+ugdb_client/ultragraph_client/src/errors/transaction_error/transaction_error_error.rs
+  s_e7d9aa044e41ea::t_830739605f6f71 1-9
+ugdb_client/ultragraph_client/src/errors/ultragraph_error/mod.rs
+  s_e7d9aa044e41ea::t_7f5d74b85096bf 1-112
+ugdb_client/ultragraph_client/src/errors/ultragraph_error/ultragraph_error_display.rs
+  s_e7d9aa044e41ea::t_d9fc65c91c1c95 1-21
+ugdb_client/ultragraph_client/src/errors/ultragraph_error/ultragraph_error_error.rs
+  s_e7d9aa044e41ea::t_ea7ffa016c296e 1-10
+ugdb_client/ultragraph_client/src/errors/ultragraph_error/ultragraph_error_from.rs
+  s_e7d9aa044e41ea::t_3fd1ad4394780a 1-44
+ugdb_client/ultragraph_client/src/lib.rs
+  s_e7d9aa044e41ea::t_fc59b20d1b71f3 1-169
+ugdb_client/ultragraph_client/src/types/ca_certificate/mod.rs
+  s_e7d9aa044e41ea::t_d3b3fa50d175d0 1-31
+ugdb_client/ultragraph_client/src/types/client_config/client_config_debug.rs
+  s_e7d9aa044e41ea::t_cfbfceac6b7bd8 1-23
+ugdb_client/ultragraph_client/src/types/client_config/mod.rs
+  s_e7d9aa044e41ea::t_e21752c126341a 1-186
+ugdb_client/ultragraph_client/src/types/connection_string/connection_string_debug.rs
+  s_e7d9aa044e41ea::t_5b8c9f82870a26 1-25
+ugdb_client/ultragraph_client/src/types/connection_string/connection_string_from_str.rs
+  s_e7d9aa044e41ea::t_3e6c3f892509ef 1-16
+ugdb_client/ultragraph_client/src/types/connection_string/mod.rs
+  s_e7d9aa044e41ea::t_acf7d0897b6064 1-349
+ugdb_client/ultragraph_client/src/types/lease_range.rs
+  s_e7d9aa044e41ea::t_d1220535982abd 1-49
+ugdb_client/ultragraph_client/src/types/mod.rs
+  s_e7d9aa044e41ea::t_17a3e1ceb7a65f 1-17
+ugdb_client/ultragraph_client/src/types/mutation/mod.rs
+  s_e7d9aa044e41ea::t_468ceb1741b68a 1-92
+ugdb_client/ultragraph_client/src/types/read_only.rs
+  s_e7d9aa044e41ea::t_8223d7bd6c2bc6 1-12
+ugdb_client/ultragraph_client/src/types/read_write.rs
+  s_e7d9aa044e41ea::t_47f2cc2f451e8d 1-9
+ugdb_client/ultragraph_client/src/types/response/mod.rs
+  s_e7d9aa044e41ea::t_6c54d6fad869a8 1-67
+ugdb_client/ultragraph_client/src/types/secret/mod.rs
+  s_e7d9aa044e41ea::t_4511f2d155c83e 1-38
+ugdb_client/ultragraph_client/src/types/secret/secret_debug.rs
+  s_e7d9aa044e41ea::t_a099bbf5aaac1d 1-15
+ugdb_client/ultragraph_client/src/types/secret/secret_display.rs
+  s_e7d9aa044e41ea::t_f45d19b3a43161 1-13
+ugdb_client/ultragraph_client/src/types/tls_mode.rs
+  s_e7d9aa044e41ea::t_91d1c6c913ece0 1-44
+ugdb_client/ultragraph_client/src/types/token_cache/mod.rs
+  s_e7d9aa044e41ea::t_a45ca3148f0000 1-106
+ugdb_client/ultragraph_client/src/types/token_cache/token_cache_debug.rs
+  s_e7d9aa044e41ea::t_968a202844bfdd 1-24
+ugdb_client/ultragraph_client/src/types/txn/mod.rs
+  s_e7d9aa044e41ea::t_d81ee6cb9107bc 1-338
+ugdb_client/ultragraph_client/src/types/txn/txn_drop.rs
+  s_e7d9aa044e41ea::t_0ad104909031ba 1-19
+ugdb_client/ultragraph_client/src/types/txn/txn_read_only.rs
+  s_e7d9aa044e41ea::t_6f6f87c7e14c85 1-26
+ugdb_client/ultragraph_client/src/types/txn/txn_read_write.rs
+  s_e7d9aa044e41ea::t_0ca694ae008f71 1-83
+ugdb_client/ultragraph_client/src/types/ultragraph_client/mod.rs
+  s_e7d9aa044e41ea::t_36abc16f851aaa 1-198
+ugdb_client/ultragraph_client/src/types/ultragraph_client/no_certificate_verification.rs
+  s_e7d9aa044e41ea::t_3db39930aadf40 1-82
+ugdb_client/ultragraph_client/src/types/ultragraph_client/ultragraph_client_admin.rs
+  s_e7d9aa044e41ea::t_adc859b767e163 1-249
+ugdb_client/ultragraph_client/src/types/ultragraph_client/ultragraph_client_auth.rs
+  s_e7d9aa044e41ea::t_2e395bf9100f90 1-157
+ugdb_client/ultragraph_client/src/types/ultragraph_client/ultragraph_client_debug.rs
+  s_e7d9aa044e41ea::t_8b487e66c4368d 1-17
+ugdb_client/ultragraph_client/src/types/ultragraph_client/ultragraph_client_txn.rs
+  s_e7d9aa044e41ea::t_5093fb28d88360 1-29
+ugdb_client/ultragraph_client/src/utils_test/errors/fixture_error.rs
+  s_e7d9aa044e41ea::t_9bf55ceaf53dcb 1-148
+ugdb_client/ultragraph_client/src/utils_test/errors/mod.rs
+  s_e7d9aa044e41ea::t_fd27c17741412f 1-3
+ugdb_client/ultragraph_client/src/utils_test/fixtures.rs
+  s_e7d9aa044e41ea::t_721ac654658e03 1-70
+ugdb_client/ultragraph_client/src/utils_test/mod.rs
+  s_e7d9aa044e41ea::t_3e0dbdb27e7b1f 1-120
+ugdb_client/ultragraph_client/src/utils_test/traits/instance_provider.rs
+  s_e7d9aa044e41ea::t_6ff2c20f64b68b 1-16
+ugdb_client/ultragraph_client/src/utils_test/traits/mod.rs
+  s_e7d9aa044e41ea::t_bbb91e065f3afd 1-3
+ugdb_client/ultragraph_client/src/utils_test/types/container_provider/mod.rs
+  s_e7d9aa044e41ea::t_63ff0b745b357f 1-187
+ugdb_client/ultragraph_client/src/utils_test/types/dgraph_instance/mod.rs
+  s_e7d9aa044e41ea::t_d34db0726b70f7 1-211
+ugdb_client/ultragraph_client/src/utils_test/types/endpoint/mod.rs
+  s_e7d9aa044e41ea::t_5b5aea3339c38f 1-127
+ugdb_client/ultragraph_client/src/utils_test/types/exclusivity.rs
+  s_e7d9aa044e41ea::t_b6b632ab321ae5 1-21
+ugdb_client/ultragraph_client/src/utils_test/types/existing_provider/mod.rs
+  s_e7d9aa044e41ea::t_751973dacb708c 1-150
+ugdb_client/ultragraph_client/src/utils_test/types/health_report/mod.rs
+  s_e7d9aa044e41ea::t_4bd0a234f7871f 1-122
+ugdb_client/ultragraph_client/src/utils_test/types/mod.rs
+  s_e7d9aa044e41ea::t_cadf94f1a82b6d 1-8
+ugdb_client/ultragraph_client/src/utils_test/types/run_id/mod.rs
+  s_e7d9aa044e41ea::t_411ce491fcac33 1-49
+ugdb_client/ultragraph_client/src/utils_test/types/strategy.rs
+  s_e7d9aa044e41ea::t_96d20aca1f8262 1-55
+ugdb_client/ultragraph_client/tests/dgraph_container_test.rs
+  s_e7d9aa044e41ea::t_85a12c332b673b 1-477
+ugdb_client/ultragraph_client/tests/errors/auth_error_tests.rs
+  s_e7d9aa044e41ea::t_4f03251ad54d11 1-46
+ugdb_client/ultragraph_client/tests/errors/connect_error_tests.rs
+  s_e7d9aa044e41ea::t_04ee7d8a14dcc5 1-47
+ugdb_client/ultragraph_client/tests/errors/connection_string_error_tests.rs
+  s_e7d9aa044e41ea::t_b8977841af7c0c 1-51
+ugdb_client/ultragraph_client/tests/errors/mod.rs
+  s_e7d9aa044e41ea::t_184e7fed21838d 1-14
+ugdb_client/ultragraph_client/tests/errors/transaction_error_tests.rs
+  s_e7d9aa044e41ea::t_c78a298fabd11d 1-47
+ugdb_client/ultragraph_client/tests/errors/ultragraph_error_tests.rs
+  s_e7d9aa044e41ea::t_8e21c9f8abfea8 1-86
+ugdb_client/ultragraph_client/tests/lib_tests.rs
+  s_e7d9aa044e41ea::t_2217923597ad1f 1-13
+ugdb_client/ultragraph_client/tests/types/ca_certificate_tests.rs
+  s_e7d9aa044e41ea::t_70698d7368073b 1-71
+ugdb_client/ultragraph_client/tests/types/client_config_tests.rs
+  s_e7d9aa044e41ea::t_6c96fb13cf9525 1-60
+ugdb_client/ultragraph_client/tests/types/connection_string_tests.rs
+  s_e7d9aa044e41ea::t_89f619c5898592 1-264
+ugdb_client/ultragraph_client/tests/types/lease_range_tests.rs
+  s_e7d9aa044e41ea::t_8c9ff94c8e629c 1-31
+ugdb_client/ultragraph_client/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_388d062a82d336 1-18
+ugdb_client/ultragraph_client/tests/types/mutation_tests.rs
+  s_e7d9aa044e41ea::t_4fa3c3b83e7d06 1-51
+ugdb_client/ultragraph_client/tests/types/secret_tests.rs
+  s_e7d9aa044e41ea::t_43eeb2e52accfa 1-56
+ugdb_client/ultragraph_client/tests/types/tls_mode_tests.rs
+  s_e7d9aa044e41ea::t_7bf2a3c2ceca5b 1-25
+ugdb_client/ultragraph_client/tests/utils_test/errors/fixture_error_tests.rs
+  s_e7d9aa044e41ea::t_54052b9e184d3a 1-54
+ugdb_client/ultragraph_client/tests/utils_test/errors/mod.rs
+  s_e7d9aa044e41ea::t_cf56ea16f2580e 1-2
+ugdb_client/ultragraph_client/tests/utils_test/mod.rs
+  s_e7d9aa044e41ea::t_e789ac7f083a3b 1-4
+ugdb_client/ultragraph_client/tests/utils_test/types/endpoint_tests.rs
+  s_e7d9aa044e41ea::t_d58ed560644f45 1-95
+ugdb_client/ultragraph_client/tests/utils_test/types/exclusivity_tests.rs
+  s_e7d9aa044e41ea::t_726eed0b6d3a8b 1-7
+ugdb_client/ultragraph_client/tests/utils_test/types/health_report_tests.rs
+  s_e7d9aa044e41ea::t_2ebf622d96cbea 1-57
+ugdb_client/ultragraph_client/tests/utils_test/types/mod.rs
+  s_e7d9aa044e41ea::t_15ecdae4c531a8 1-8
+ugdb_client/ultragraph_client/tests/utils_test/types/strategy_tests.rs
+  s_e7d9aa044e41ea::t_f765e205b74773 1-51
+ugdb_client/ultragraph_client/tests/utils_test_tests.rs
+  s_e7d9aa044e41ea::t_5bedafe9fd222b 1-15
+ugdb_proto/proto_dgraph/BUILD.bazel
+  s_e7d9aa044e41ea::t_c9243618728498 1-20
+ugdb_proto/proto_dgraph/Cargo.toml
+  s_e7d9aa044e41ea::t_d672c81ff8f0dc 1-28
+ugdb_proto/proto_dgraph/build.rs
+  s_e7d9aa044e41ea::t_9045253c72a2d1 1-11
+ugdb_proto/proto_dgraph/proto/api.proto
+  s_e7d9aa044e41ea::t_a0045eba1aa01a 1-276
+ugdb_proto/proto_dgraph/src/lib.rs
+  s_e7d9aa044e41ea::t_7c8be9e6cfaef5 1-13
+Cargo.toml
+  s_e7d9aa044e41ea::t_a779ead46a85e1 4,6,25-28,33-41
+MODULE.bazel
+  s_e7d9aa044e41ea::t_2265dc497ebf51 11-12,69-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a8ed2128d6219b772ee265ca904adbfe684d12e2",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
