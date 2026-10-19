@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "ugdb_client/*",
     "ugdb_common/*",
+    "ugdb_proto/*",
 ]
 
 [workspace.package]
@@ -20,10 +22,23 @@ publish = false
 # ==============
 ## Common
 common_version = { path = "ugdb_common/common_version" }
+## Client
+ultragraph_client = { path = "ugdb_client/ultragraph_client" }
+## Proto
+proto_dgraph = { path = "ugdb_proto/proto_dgraph" }
 
 # ==============
 # External crates
 # ==============
+docker_utils = "0.3"
+prost = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
+serde_json = "1.0"
+tokio = "1"
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
+tonic-prost = "0.14"
+tonic-prost-build = "0.14"
+ureq = "3.3"
 
 
 [workspace.lints.clippy]

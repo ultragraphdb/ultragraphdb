@@ -1,0 +1,56 @@
+load("@rules_rust//extensions/prost:defs.bzl", "rust_prost_toolchain")
+load("@rules_rust//rust:defs.bzl", "rust_library_group")
+
+# Why this exists rather than rules_rs' default prost toolchain.
+#
+# THE PLUGINS AND THE RUNTIMES ARE DIFFERENT KINDS OF THING, and the default toolchain takes
+# both from rules_rs' own internal hub. A plugin is a BINARY protoc runs at build time: its
+# version shapes the code that is emitted and is otherwise invisible. A runtime is LINKED into
+# the generated crate, so `proto_dgraph`'s `DgraphClient::new(channel)` takes exactly the
+# `tonic::transport::Channel` that its runtime defines.
+#
+# The default toolchain pins tonic 0.14.5 / prost 0.14.3 in a separate repository, while this
+# workspace resolves tonic 0.14.6 / prost 0.14.4 through @crates. Two repositories mean two
+# rlibs and two distinct types with the same name, which does not unify -- so the bindings would
+# hand //ugdb_client/ultragraph_client a Channel it cannot pass.
+#
+# So: plugins from rules_rs, runtimes from @crates. That is what keeps the generated code and
+# its one consumer on the same tonic, and it needs no fork of rules_rs and no version pins of
+# our own -- the plugin binaries are public aliases in rules_rs.
+
+rust_library_group(
+    name = "prost_runtime",
+    deps = ["@crates//:prost"],
+)
+
+# tonic 0.14 moved the prost codec out of the `tonic` crate into `tonic-prost`, and
+# protoc-gen-tonic emits `tonic_prost::ProstCodec::default()` for every method. Without
+# tonic-prost here the generated service code fails with E0433 (unresolved crate `tonic_prost`)
+# even though the plugin and prost runtime resolve fine.
+rust_library_group(
+    name = "tonic_runtime",
+    deps = [
+        ":prost_runtime",
+        "@crates//:tonic",
+        "@crates//:tonic-prost",
+    ],
+)
+
+rust_prost_toolchain(
+    name = "prost_toolchain_impl",
+    prost_plugin = "@rules_rs//rs/private/prost:protoc-gen-prost__protoc-gen-prost",
+    prost_runtime = ":prost_runtime",
+    # The one attribute still taken from rules_rs, and it is inert here: api.proto imports no
+    # well-known type, so nothing generated references prost_types at all.
+    prost_types = "@rules_rs//rs/private/prost:prost-types",
+    tonic_plugin = "@rules_rs//rs/private/prost:protoc-gen-tonic__protoc-gen-tonic",
+    tonic_runtime = ":tonic_runtime",
+    visibility = ["//visibility:public"],
+)
+
+toolchain(
+    name = "prost_toolchain",
+    toolchain = ":prost_toolchain_impl",
+    toolchain_type = "@rules_rust//extensions/prost:toolchain_type",
+    visibility = ["//visibility:public"],
+)
