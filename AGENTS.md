@@ -230,6 +230,23 @@ for the `test-utils` fixture, and `tests/dgraph_container_test.rs`, the acceptan
 running Dgraph, tagged `integration_test` and run with
 `bazel test //... --test_tag_filters=integration_test`. `make test` leaves it out.
 
+### TDD and BDD
+
+The port is written test first, at two levels:
+
+* **BDD, for behaviour.** Every `#### Scenario:` in a spec under `openspec/` is a Gherkin scenario of the
+  same name in the owning crate's `features/` folder, run by `cucumber` from `tests/bdd.rs` with the
+  libtest harness off (`harness = false` in `Cargo.toml`, `use_libtest_harness = False` in
+  `BUILD.bazel`), tagged `bdd-test`. A scenario is written, and seen to fail, before the code that makes
+  it pass. A traceability test fails when a spec scenario has no feature scenario of the same name.
+* **TDD, for units.** A ported Go file's tests are ported first, under `tests/` as below, and fail
+  before the code is ported. Where Dgraph's output has to be byte-identical (key encodings, tokens,
+  packed UIDs, value encodings), golden vectors generated from the Go source sit under
+  `testdata/golden/` and the Rust test reads them.
+
+The order inside every task group is the same: scenarios and tests, then code, then refactoring with
+both green.
+
 The tests folder replicates the exact src folder structure, for example:
 
 tests/errors/mod.rs # contains tests for each error type in a separate file
