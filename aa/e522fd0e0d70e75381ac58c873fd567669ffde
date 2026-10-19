@@ -1,0 +1,18 @@
+doc/writing_guides/AiStyleguide.md
+  h_080fb89ca1f0c4 1-169
+doc/writing_guides/ElementsOfStyle.md
+  h_080fb89ca1f0c4 1-156
+doc/writing_guides/ParamedicEditing.md
+  h_080fb89ca1f0c4 1-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aae522fd0e0d70e75381ac58c873fd567669ffde",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
