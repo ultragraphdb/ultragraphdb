@@ -1,3 +1,6 @@
+# The workspace's root file, a data dependency of the harness tests that read the source tree.
+exports_files(["MODULE.bazel"])
+
 ###############################################################################
 # RUST RELEASE MODE OPTIMIZATION
 ###############################################################################

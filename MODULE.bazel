@@ -97,4 +97,12 @@ crate.from_cargo(
     generate_lint_config = True,
     platform_triples = RUST_PLATFORMS,
 )
+
+# cucumber embeds env!("CARGO_MANIFEST_DIR") as a fallback for relative feature paths (src/parser/basic.rs:83), and
+# rules_rs refuses compiled output embedding the sandbox path. The BDD runners pass absolute paths, so a relative
+# value is inert. Proved in the stage-1 design, "BDD with cucumber-rs".
+crate.annotation(
+    crate = "cucumber",
+    rustc_env = {"CARGO_MANIFEST_DIR": "."},
+)
 use_repo(crate, "crates")

@@ -30,10 +30,18 @@ echo "=============="
 command bazel test //... --test_tag_filters=unit-test
 
 echo ""
+echo "=============="
+echo "Run BDD tests"
+echo "=============="
+
+command bazel test //... --test_tag_filters=bdd-test
+
+echo ""
 echo "====================="
 echo "All Tests Passed"
 echo "====================="
 echo ""
 echo "* ✅ Passed: doc tests"
 echo "* ✅ Passed: unit tests"
+echo "* ✅ Passed: BDD tests"
 echo ""

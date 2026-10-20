@@ -31,7 +31,8 @@ prefix `0xFF` to an empty key without error.
 
 #### Scenario: A uid of zero is rejected
 - **WHEN** a data key carrying uid 0 is parsed
-- **THEN** parsing fails with `Invalid UID with value 0 for key:` followed by the key
+- **THEN** parsing fails with `Invalid UID with value 0 for key:` followed by the key's bytes after its prefix and
+  namespace, as a decimal byte list
 
 #### Scenario: An attribute containing a hyphen round-trips
 - **WHEN** a key for attribute `first-name` in namespace 7 is built and parsed
@@ -68,14 +69,14 @@ attribute.
 - **THEN** both are reserved, and only `0-dgraph.type` is pre-defined
 
 ### Requirement: Registered reserved namespaces
-A plugin SHALL be able to claim predicates and types under `dgraph.` by prefix or by exact name, and to lock a
-predicate's values to a trust marker, as Dgraph's `RegisterReservedNamespace` allows; names SHALL be bare and owned
-once, an exact claim SHALL win over a prefix and the longest prefix over shorter ones, and a conflicting registration
-SHALL panic.
+A plugin SHALL be able to claim predicates and types under `dgraph.` by prefix or by exact name, and to lock
+predicates' values to a trust marker by exact name or by prefix, as Dgraph's `RegisterReservedNamespace` allows; names
+SHALL be bare and owned once; for a value lock an exact name SHALL win over a prefix and the longest prefix over shorter
+ones; a conflicting registration SHALL panic.
 
 #### Scenario: The longest prefix owns a name
-- **WHEN** plugins register the prefixes `dgraph.acme.` and `dgraph.acme.billing.`
-- **THEN** `dgraph.acme.billing.total` belongs to the second and `dgraph.acme.users` to the first
+- **WHEN** plugins lock the values of the prefixes `dgraph.acme.` and `dgraph.acme.billing.` to two different markers
+- **THEN** `dgraph.acme.billing.total` is locked to the second marker and `dgraph.acme.users` to the first
 
 #### Scenario: Registering a name twice panics
 - **WHEN** two plugins register the exact name `dgraph.acme.key`

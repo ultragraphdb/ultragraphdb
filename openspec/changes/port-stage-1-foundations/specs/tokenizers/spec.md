@@ -4,7 +4,7 @@
 Each index token SHALL start with its tokenizer's identifier byte, equal to Dgraph's: term `0x01`, exact `0x02`, exact
 with a language `0x03`, year `0x04`, geo `0x05`, int `0x06`, float `0x07`, fulltext `0x08`, bool `0x09`, trigram `0x0A`,
 hash `0x0B`, sha256 `0x0C`, bigfloat `0x0D`, ngram `0x0F`, month `0x41`, day `0x42`, hour `0x43`. The identifier
-`0x0E` SHALL name the vector index factory, which produces no tokens.
+`0x0E` SHALL name the vector index factory, whose one token for any value is `float`.
 
 #### Scenario: Every tokenizer's tokens match the golden vectors
 - **WHEN** each tokenizer tokenizes its golden inputs

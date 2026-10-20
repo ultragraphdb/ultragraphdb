@@ -24,6 +24,21 @@ ultragraphdb_common_version = { path = "ultragraphdb_common_version" }
 ultragraphdb_client = { path = "ultragraphdb_client" }
 ## Proto
 ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto_dgraph" }
+ultragraphdb_proto_pb = { path = "ultragraphdb_proto_pb" }
+## Core: the pure packages ported from Dgraph
+ultragraphdb_core_algo = { path = "ultragraphdb_core_algo" }
+ultragraphdb_core_chunker = { path = "ultragraphdb_core_chunker" }
+ultragraphdb_core_codec = { path = "ultragraphdb_core_codec" }
+ultragraphdb_core_dql = { path = "ultragraphdb_core_dql" }
+ultragraphdb_core_facets = { path = "ultragraphdb_core_facets" }
+ultragraphdb_core_keys = { path = "ultragraphdb_core_keys" }
+ultragraphdb_core_lex = { path = "ultragraphdb_core_lex" }
+ultragraphdb_core_schema = { path = "ultragraphdb_core_schema" }
+ultragraphdb_core_text = { path = "ultragraphdb_core_text" }
+ultragraphdb_core_tok = { path = "ultragraphdb_core_tok" }
+ultragraphdb_core_types = { path = "ultragraphdb_core_types" }
+## Test
+ultragraphdb_test_bdd = { path = "ultragraphdb_test_bdd" }
 
 # ==============
 # External crates
@@ -37,6 +52,17 @@ tonic = { version = "0.14", default-features = false, features = ["transport", "
 tonic-prost = "0.14"
 tonic-prost-build = "0.14"
 ureq = "3.3"
+# Byte-exact formats of the ported packages (stage 1 design, "External libraries for the byte-exact formats").
+bcrypt = "0.19"
+blake2 = "0.11"
+dashu-base = "0.6"
+dashu-int = "0.6"
+rust-stemmers = "1.2"
+serde = { version = "1.0", features = ["derive"] }
+unicode-normalization = "0.1"
+# Test-only: BDD scenarios from the specs, run without the libtest harness.
+cucumber = "0.23"
+futures = "0.3"
 
 
 [workspace.lints.clippy]

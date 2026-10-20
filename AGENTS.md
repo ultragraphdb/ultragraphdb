@@ -143,7 +143,20 @@ is `//ultragraphdb_<name>`. A binary keeps its own name: the `ultragraph` binary
 |---|---|---|---|
 | `ultragraphdb_common_version` | `ultragraphdb_common_version` | — | `PRODUCT_NAME`; the workspace's first crate |
 | `ultragraphdb_proto_dgraph` | `ultragraphdb_proto_dgraph` | — | Dgraph's gRPC API, `api.proto`, generated unchanged: the server serves it and the client calls it. Built twice, see *Structure exemptions* |
+| `ultragraphdb_proto_pb` | `ultragraphdb_proto_pb` | `ultragraphdb_proto_dgraph` | Dgraph's internal messages and services, `pb.proto`, with the Badger messages it imports (`badgerpb4.proto`), as modules `pb` and `badgerpb4`. Generated without tonic's transport, whose `connect` clashes with Zero's `Connect` RPC. Built twice, see *Structure exemptions* |
 | `ultragraphdb_client` | `ultragraphdb_client` | `ultragraphdb_proto_dgraph` | `UltraGraphClient`, `UltraGraphError` and the transaction types, over `ultragraphdb_proto_dgraph`; it speaks to ultragraphdb and Go Dgraph alike. Behind `test-utils`: the `DgraphInstance` fixture, which serves the acceptance test and differential runs against Go Dgraph |
+| `ultragraphdb_test_bdd` | `ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir`, `testdata_dir`, `workspace_root`; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors; `trace` and `TraceReport`, tracing spec scenarios to feature scenarios; `check_declarations`, which holds every crate with features to a feature suite declared for Cargo and Bazel, and the test script to running the BDD tag after the unit tag |
+| `ultragraphdb_core_lex` | `ultragraphdb_core_lex` | — | Dgraph's `lex`: `Lexer`, `Item`, `ItemType`, `ItemIterator`, `StateFn`, the IRI helpers, `LexError` |
+| `ultragraphdb_core_keys` | `ultragraphdb_core_keys` | — | Dgraph's `x/keys.go`: the key builders and `parse` into `ParsedKey`, namespaces and reserved predicates, `KeyError` |
+| `ultragraphdb_core_codec` | `ultragraphdb_core_codec` | `ultragraphdb_proto_pb` | Dgraph's `codec`: `Encoder`, `Decoder`, `SeekPos` over `pb::UidPack`, and the go-groupvarint port beneath them |
+| `ultragraphdb_core_algo` | `ultragraphdb_core_algo` | `ultragraphdb_proto_pb`, `ultragraphdb_core_codec` | Dgraph's `algo`: sorted UID-list intersection, merge and difference, packed and unpacked, `Uint64Heap` |
+| `ultragraphdb_core_text` | `ultragraphdb_core_text` | — | Go's `x/text/collate` with its CLDR 23 tables and `x/text/language`'s base inference: `Collator`, `Tag`, `Base`, `Confidence`, `language_base`, `LanguageError` |
+| `ultragraphdb_core_types` | `ultragraphdb_core_types` | `ultragraphdb_proto_pb`, `ultragraphdb_proto_dgraph`, `ultragraphdb_core_text` | Dgraph's `types`: `TypeId`, `Val`, conversion and marshalling, sorting and comparison, `BigFloat`, `DateTime`, passwords, geometries with their WKB and GeoJSON encodings, geo tokens and filters over a port of golang/geo's S2; `TextCollator`, `TypesError` |
+| `ultragraphdb_core_tok` | `ultragraphdb_core_tok` | `ultragraphdb_core_types`, `ultragraphdb_core_text`, `ultragraphdb_proto_pb` | Dgraph's `tok`: `Tokenizer` and the registry, the bleve analysis it runs (segmentation, stop words, stemmers), the index options and the vector-index factory interface, `TokError`, `OptionsError` |
+| `ultragraphdb_core_facets` | `ultragraphdb_core_facets` | `ultragraphdb_core_types`, `ultragraphdb_core_tok`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `types/facets`: facet inference, encoding, term tokens and `sort_and_validate`, `FacetTypeId`, `FacetsError` |
+| `ultragraphdb_core_dql` | `ultragraphdb_core_dql` | `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_core_keys`, `ultragraphdb_proto_pb`, `ultragraphdb_proto_dgraph` | Dgraph's `dql`: `parse` into `GraphQuery` and its trees, `parse_mutation`, upsert blocks, `DqlError` |
+| `ultragraphdb_core_schema` | `ultragraphdb_core_schema` | `ultragraphdb_core_lex`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_core_keys`, `ultragraphdb_proto_pb` | Dgraph's schema parser: `parse` into `ParsedSchema`, the initial and pre-defined schema, `SchemaError` |
+| `ultragraphdb_core_chunker` | `ultragraphdb_core_chunker` | `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_core_facets`, `ultragraphdb_core_keys`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `chunker`: `parse_rdf`, `parse_rdfs`, `parse_json` and `NQuadBuffer` into `api::NQuad`, `data_format`, `ChunkerError` |
 
 ### Structure exemptions
 
@@ -152,6 +165,8 @@ is `//ultragraphdb_<name>`. A binary keeps its own name: the `ultragraph` binary
 `rust_prost_library` and never reads `src/lib.rs`, so the `api` module name is the contract both
 toolchains agree on. Consumers import `ultragraphdb_proto_dgraph::api`, and its generated stub keeps Dgraph's name,
 `ultragraphdb_proto_dgraph::api::dgraph_client::DgraphClient`.
+`ultragraphdb_proto_pb` keeps its public `pb` and `badgerpb4` modules at its root for the same reason, named after
+the proto packages: `ultragraphdb_proto_pb::pb::Posting`.
 
 ### External dependencies
 
@@ -160,11 +175,18 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 
 | Crate                                 | Version               | Used by                             | Why                                                                                                     |
 |---------------------------------------|-----------------------|-------------------------------------|---------------------------------------------------------------------------------------------------------|
-| `prost`, `tonic`, `tonic-prost`       | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_client` | Generated protobuf types and the gRPC surface                                                           |
-| `tonic-prost-build`                   | 0.14                  | `ultragraphdb_proto_dgraph` (build)              | Cargo-side codegen. Bazel generates the same crate with `rust_prost_library` and the toolchains under `bazel/toolchains/` |
+| `prost`, `tonic`, `tonic-prost`       | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb`, `ultragraphdb_client` | Generated protobuf types and the gRPC surface                                                           |
+| `tonic-prost-build`                   | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` (build) | Cargo-side codegen. Bazel generates the same crate with `rust_prost_library` and the toolchains under `bazel/toolchains/` |
 | `rustls`                              | 0.23, `ring` + `tls12` | `ultragraphdb_client`                 | TLS to the server                                                                                       |
 | `tokio`                               | 1                     | `ultragraphdb_client`                 | The client's token cache lock; the test runtime                                                         |
 | `docker_utils`, `ureq`, `serde_json`  | 0.3 / 3.3 / 1.0       | `ultragraphdb_client` (`test-utils`)  | Start a Dgraph container and read its health report, for the acceptance test                            |
+| `bcrypt` | 0.19 | `ultragraphdb_core_types` | Hashes and verifies passwords as Go's bcrypt does, `$2a$` hashes included |
+| `blake2` | 0.11 | `ultragraphdb_core_tok` | BLAKE2b-256 of the hash tokenizer |
+| `dashu-base`, `dashu-int` | 0.6 | `ultragraphdb_core_types` | Exact integer arithmetic beneath the port of Go's `math/big` for 200-bit big floats |
+| `rust-stemmers` | 1.2 | `ultragraphdb_core_tok` | The Snowball stemmers of nine languages, checked against Go on golden vectors |
+| `unicode-normalization` | 0.1 | `ultragraphdb_core_tok` | NFKC at Unicode 17.0.0, as Go's `x/text` v0.41 |
+| `serde`, `serde_json` | 1.0 | `ultragraphdb_test_bdd`, `ultragraphdb_core_chunker`; every core crate's tests | Golden files; the chunker's JSON mutations, with `raw_value` so a number keeps its text |
+| `cucumber`, `futures` | 0.23 / 0.3 | every crate's `bdd` test | The BDD scenarios, run without the libtest harness; `futures::executor::block_on` drives them |
 
 ## Building and Running
 

@@ -24,3 +24,6 @@ rustc-ice-*.txt
 
 # RustRover
 .idea/
+
+# Binary built by `go build` in the golden-vector generator
+tools/golden/golden

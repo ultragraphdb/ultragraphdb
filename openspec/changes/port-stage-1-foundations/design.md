@@ -51,6 +51,7 @@ fork.
 | `ultragraphdb_core_types` | `ultragraphdb_core_types` | `types` |
 | `ultragraphdb_core_lex` | `ultragraphdb_core_lex` | `lex` |
 | `ultragraphdb_core_tok` | `ultragraphdb_core_tok` | `tok`, `tok/index`, `tok/options`, `tok/constraints`, and from `tok/hnsw` the option and metric names, `AllowedOptions` and the `__vector_` suffix constants |
+| `ultragraphdb_core_text` | `ultragraphdb_core_text` | From Go's `golang.org/x/text`: `collate` with its CLDR 23 tables, and the part of `language` that reduces a tag to its base; BSD-3-Clause, its notice kept in every ported file |
 | `ultragraphdb_core_facets` | `ultragraphdb_core_facets` | `types/facets`, which imports `tok` while `tok` imports `types` |
 | `ultragraphdb_core_dql` | `ultragraphdb_core_dql` | `dql` |
 | `ultragraphdb_core_schema` | `ultragraphdb_core_schema` | `schema/parse.go`, `schema/state.go`, the in-memory part of `schema/schema.go` |
@@ -120,10 +121,10 @@ noticing.
 | Stop words (28 languages) | ported tables | Copied from bleve's lists |
 | NFKC | `unicode-normalization` | Unicode 17.0.0, as Go's `x/text` v0.41 |
 | Word boundaries | tables generated from Unicode 8.0.0 `WordBreakProperty.txt` | bleve's `blevesearch/segment` v0.9.1 is built from Unicode 8.0.0, and `unicode-segmentation` compiles in a later version that cannot be pinned |
-| Collation keys | a port of Go's `x/text/collate` with its CLDR 23 tables | Go writes its own key format (`00 00` level separators), which ICU and ICU4X keys do not reproduce |
-| S2 cells and covers | an S2 port | See Risks |
-| WKB, GeoJSON | `geo-types`, `wkb`, `geojson` | WKB little-endian, as go-geom writes it |
-| Big floats | Go's `math/big` parse and format algorithms, ported onto `dashu-float` and `dashu-int` arithmetic | See "Big floats: Go's algorithms on dashu" |
+| Collation keys, language bases | `ultragraphdb_core_text`, a port of Go's `x/text/collate` with its CLDR 23 tables and of `x/text/language`'s base inference | Go writes its own key format (`00 00` level separators), which ICU and ICU4X keys do not reproduce |
+| S2 cells and covers | a port of `golang/geo`'s `s2` (Apache-2.0) and of the Go math functions it calls, in `ultragraphdb_core_types` | The `s2` crate (0.2.0) has a region coverer but no `Loop` or `ShapeIndex`, on which loop covers depend; Rust's `libm` differs from Go's math by up to 1,022 ulp |
+| WKB, GeoJSON | a port of go-geom v1.6.1's geometries and its `wkb` and `geojson` encodings (BSD-2-Clause), in `ultragraphdb_core_types` | Dgraph's errors carry go-geom's and `encoding/json`'s texts (`unexpected EOF`, a type error with its path) and its JSON prints coordinates as Go prints a float64; WKB little-endian, as go-geom writes it |
+| Big floats | Go's `math/big` parse, format, `Mul` and `Quo`, ported onto `dashu-int` arithmetic | See "Big floats: Go's algorithms on dashu" |
 
 Each choice is confirmed by the golden vectors of its tokenizer or type before the tokenizer is called ported.
 
@@ -143,11 +144,13 @@ formatting is checked on the 2,746 that Go accepts, parsing on the 2,430 written
 | `astro-float` 0.9.6 alone | 644 of 2,000 random agree | 372 of 2,746 agree |
 | Go's `scan`, `pow5`, `roundShortest` and `%g` ported onto `dashu` | All 2,430 decimal inputs agree | All 2,746 agree |
 
-`dashu-float`'s operations at an explicit precision (`Context::<HalfEven>::new(p).mul`, `div`) are correctly rounded
-single operations on exact operands, as Go's `Mul` and `Quo` are, so replaying Go's steps reproduces Go's results,
-its misroundings included. `astro-float` allocates precision in whole 64-bit words (200 bits become 256), so it cannot
-hold Go's 200-bit values. The port is about 250 lines plus Go's scanner syntax (underscores, base prefixes, `p`
-exponents, `Inf`), which the measurement did not cover. Both crates are pure Rust and build for static musl.
+Go's `Mul` and `Quo` are correctly rounded single operations on exact operands; the port computes each exactly on
+`dashu-int` and rounds it once to the requested precision, so replaying Go's steps reproduces Go's results, its
+misroundings included. The measurement replayed them with `dashu-float`'s operations at an explicit precision
+(`Context::<HalfEven>::new(p).mul`, `div`), which round the same way. `astro-float` allocates precision in whole
+64-bit words (200 bits become 256), so it cannot hold Go's 200-bit values. The port is about 250 lines plus Go's
+scanner syntax (underscores, base prefixes, `p` exponents, `Inf`), which the measurement did not cover. `dashu-int`
+and `dashu-base` are pure Rust and build for static musl.
 
 ### GraphQL cut, its reserved names kept
 
@@ -164,8 +167,10 @@ ports the registry entry with the option set; the index itself is stage 2.
 - [Porting `x/text/collate` is a large table port] → Exact-with-language tokens and language sorting depend on its
   keys. Task group 2 opens with a spike that ports it for the golden strings' languages first and measures the
   tables' size.
-- [The S2 region coverer differs from Go's `golang/geo`] → Geo tokens would differ and geo queries would miss.
-  The geo tokenizer is accepted only when its golden vectors pass; a port of the coverer is the fallback.
+- [Go's arithmetic differs between architectures] → Go on arm64 fuses multiply-adds and saturates out-of-range
+  float-to-int conversions, amd64 does neither fusing nor saturation. The port computes without fusing and saturates;
+  golden vectors are generated with fusing off. Both are Dgraph portability bugs, recorded in
+  `openspec/notes/dgraph-bugs-found-in-port.md`.
 - [Word-break tables generated from Unicode 8.0.0 diverge from current Unicode] → That is the point: they split as
   bleve does. The golden corpus includes text from every script bleve's tests cover.
 - [Dgraph's error texts are part of the contract] → Clients and tests match on them. Error texts are copied,
@@ -181,4 +186,4 @@ New crates only; nothing existing changes besides `scripts/test.sh` and the work
 
 ## Open Questions
 
-- Which S2 implementation reproduces `golang/geo`'s region covers, or is a port of its coverer needed?
+None: the S2 question is settled by the port of `golang/geo`, measured against about 527,000 Go checks.

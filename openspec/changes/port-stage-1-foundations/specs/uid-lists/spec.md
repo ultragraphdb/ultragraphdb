@@ -32,8 +32,8 @@ Seeking a decoder SHALL return the UIDs of the target's block at or after the ta
 - **THEN** decoding returns the 500 UIDs from 5,010 on, and the seek returns the rest of the target's block from 5,010
 
 ### Requirement: Sorted-set operations over UID lists
-Intersection, union (merge), difference and index-of SHALL operate on sorted UID lists and on packed lists, and SHALL
-return sorted, duplicate-free results.
+Intersection, union (merge), difference and index-of SHALL operate on sorted UID lists and on packed lists as Dgraph's
+`algo` does: results are sorted, merges remove duplicates, and an intersection keeps a UID duplicated in both inputs.
 
 #### Scenario: Intersection of packed and plain lists agrees
 - **WHEN** two lists are intersected as plain lists and as packed lists
