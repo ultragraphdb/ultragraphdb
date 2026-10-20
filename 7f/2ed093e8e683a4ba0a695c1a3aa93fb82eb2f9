@@ -1,0 +1,137 @@
+openspec/changes/port-stage-1-foundations/specs/port-testing/spec.md
+  s_e7d9aa044e41ea::t_7437888c1b75a0 3-10,13,15,17-19,21-23,25-28,30-32,34-36,39-41,43-45,49
+openspec/changes/port-stage-4-replication/design.md
+  s_e7d9aa044e41ea::t_d125ab3a80bc35 8-17,24-25,33-34,46-47,51-53,56-58,64-67,71-74,77-81,84-101,103,105-109,113-118,122-126,130-134,138-139,142-143,148-149,153-155
+AGENTS.md
+  s_e7d9aa044e41ea::t_96da8ae997aa5b 241-242
+openspec/changes/port-stage-1-foundations/design.md
+  s_e7d9aa044e41ea::t_07552b5f805744 19-20,47,51,53-54,74-75,87-93,111-113,132-134,137-138,152
+openspec/changes/port-stage-1-foundations/proposal.md
+  s_e7d9aa044e41ea::t_48da193a2f5537 13-14,20-21,38-39,42
+openspec/changes/port-stage-1-foundations/specs/dql-parsing/spec.md
+  s_e7d9aa044e41ea::t_ec4435fa58776c 64-66,78,83-90
+openspec/changes/port-stage-1-foundations/specs/key-encoding/spec.md
+  s_e7d9aa044e41ea::t_0c5d9a14249b6c 4-7,22-26,34,48-49,53-54,61-64,67-82
+openspec/changes/port-stage-1-foundations/specs/mutation-input/spec.md
+  s_e7d9aa044e41ea::t_84dfaddbb222e8 9,37,46-47
+openspec/changes/port-stage-1-foundations/specs/scalar-types/spec.md
+  s_e7d9aa044e41ea::t_f70cd21b34a9fc 47,50-51,62-63,70-71,75,94-97,100-105,108-109
+openspec/changes/port-stage-1-foundations/specs/schema-parsing/spec.md
+  s_e7d9aa044e41ea::t_1d4a3ffae313db 19-22,24,28,36,71-73,77-78,80-83
+openspec/changes/port-stage-1-foundations/specs/tokenizers/spec.md
+  s_e7d9aa044e41ea::t_0e7cea863930a1 4-7,14-16,22-25,31-34,40-43,52-55,65-68,74-77,79-80,83-84,87-88,92,95-98,100,102,105-107,115
+openspec/changes/port-stage-1-foundations/specs/uid-lists/spec.md
+  s_e7d9aa044e41ea::t_f763f24a9a15e7 4-6,21-23,26-27,30-32,35-36
+openspec/changes/port-stage-1-foundations/tasks.md
+  s_e7d9aa044e41ea::t_190b1a70eaae2e 9-12,16,28,43,45,51,53-55,57,59-60,62,64-68,70,72-74,76,78-87
+openspec/changes/port-stage-2-storage/design.md
+  s_e7d9aa044e41ea::t_e2217139588642 46-48,54-66,80-81,85-91,96-99,104-113,123-125,136
+openspec/changes/port-stage-2-storage/proposal.md
+  s_e7d9aa044e41ea::t_0f7a7bf484ce54 17,23-32
+openspec/changes/port-stage-2-storage/specs/index-maintenance/spec.md
+  s_e7d9aa044e41ea::t_d81de7cc7ff3f1 4-5,25-26,33-35,50-51,53-60
+openspec/changes/port-stage-2-storage/specs/kv-store/spec.md
+  s_e7d9aa044e41ea::t_aeb553fac885c6 4-6,21-22,32-35,37-39,49-52,54-55,66-68,75-76,79-81,84-85
+openspec/changes/port-stage-2-storage/specs/local-commit/spec.md
+  s_e7d9aa044e41ea::t_7d8d55f5e72a2a 16-18,30-32,38-41
+openspec/changes/port-stage-2-storage/specs/posting-cache/spec.md
+  s_e7d9aa044e41ea::t_28165a2b731ba3 23-30
+openspec/changes/port-stage-2-storage/specs/posting-lists/spec.md
+  s_e7d9aa044e41ea::t_3e7f6b0ae12f96 5-6,16-18,22-23,46,54-57,63-70,78-79,91
+openspec/changes/port-stage-2-storage/specs/schema-changes/spec.md
+  s_e7d9aa044e41ea::t_fa80c5521021d7 6-7,13-15,22,28-31,41-47,49-51,55-57,67-70,73
+openspec/changes/port-stage-2-storage/specs/schema-storage/spec.md
+  s_e7d9aa044e41ea::t_02c9759545e85e 16-18,23-26
+openspec/changes/port-stage-2-storage/specs/vector-index/spec.md
+  s_e7d9aa044e41ea::t_7cab3af6051d96 31-32,36
+openspec/changes/port-stage-2-storage/tasks.md
+  s_e7d9aa044e41ea::t_1c002e0236708d 10,31,53-54,59,64
+openspec/changes/port-stage-3-single-node/design.md
+  s_e7d9aa044e41ea::t_a6caa22447d91a 14-16,42-45,49-52,90-92,94,100-104,109-111,125-126
+openspec/changes/port-stage-3-single-node/proposal.md
+  s_e7d9aa044e41ea::t_d210ce884ab328 15,23-28,45,53-54,58
+openspec/changes/port-stage-3-single-node/specs/access-control/spec.md
+  s_e7d9aa044e41ea::t_67c43473cd3127 3-10,12-14,18,26,30-31,42-45,48-49,55-63,65-68,75-76
+openspec/changes/port-stage-3-single-node/specs/alter-operations/spec.md
+  s_e7d9aa044e41ea::t_22381a9e605415 4-6,17-21,24,35-38,40-41
+openspec/changes/port-stage-3-single-node/specs/grpc-api/spec.md
+  s_e7d9aa044e41ea::t_9d8bb15e682856 4-6,18-19,30,34-36,39-44
+openspec/changes/port-stage-3-single-node/specs/http-api/spec.md
+  s_e7d9aa044e41ea::t_4db096dd44eda6 5-8,23-24
+openspec/changes/port-stage-3-single-node/specs/namespaces/spec.md
+  s_e7d9aa044e41ea::t_0f02446da0cfbc 4-7
+openspec/changes/port-stage-3-single-node/specs/one-request-transactions/spec.md
+  s_e7d9aa044e41ea::t_c0b853954c6234 5-6,17,21-26,43-47,51,57-60,63,71-72,76,80-83,86-88,99-100,105-108
+openspec/changes/port-stage-3-single-node/specs/query-execution/spec.md
+  s_e7d9aa044e41ea::t_c7f5a394b0b23e 5,14-18,22,28-29,32-35,45-46,49-51,57-60,102-104
+openspec/changes/port-stage-3-single-node/specs/query-output/spec.md
+  s_e7d9aa044e41ea::t_3b93e3cb34ff5c 4-6,17-18,24-27,37,41
+openspec/changes/port-stage-3-single-node/specs/server-processes/spec.md
+  s_e7d9aa044e41ea::t_be533b3b8ded81 4,21,24-26
+openspec/changes/port-stage-3-single-node/specs/timestamps-and-leases/spec.md
+  s_e7d9aa044e41ea::t_20be9496f04cc9 4-5,8,16-17,19-20,23-25,28-49,53-54,56-57
+openspec/changes/port-stage-3-single-node/tasks.md
+  s_e7d9aa044e41ea::t_0491852d588569 2-5,10-11,16,18,47,49,57,63-64,74,82
+openspec/changes/port-stage-4-replication/proposal.md
+  s_e7d9aa044e41ea::t_4630097e031c2c 11,15-17,21,47
+openspec/changes/port-stage-4-replication/specs/fault-tolerance/spec.md
+  s_e7d9aa044e41ea::t_f86c9105a970bd 4-6,8-15,22-23,27-28
+openspec/changes/port-stage-4-replication/specs/group-membership/spec.md
+  s_e7d9aa044e41ea::t_f666a9c2cbd6f8 4-7,10,14,17-18,31-32,39-40,43-44
+openspec/changes/port-stage-4-replication/specs/group-replication/spec.md
+  s_e7d9aa044e41ea::t_4e9577d8c7d8eb 4-6,10,18,33-56,58-59,65-72,74-78,82-83,85-87,91-92,94-97,101-102
+openspec/changes/port-stage-4-replication/specs/group-snapshots/spec.md
+  s_e7d9aa044e41ea::t_2c5935338d3c72 4-12,19-22,24-28,43
+openspec/changes/port-stage-4-replication/specs/raft-log-storage/spec.md
+  s_e7d9aa044e41ea::t_c1401e94f4347a 6,13-14,17,25,29-30,33-36,42-44
+openspec/changes/port-stage-4-replication/specs/raft-transport/spec.md
+  s_e7d9aa044e41ea::t_5720d3b116901b 4-6,13-14,17,25-26
+openspec/changes/port-stage-4-replication/specs/zero-replication/spec.md
+  s_e7d9aa044e41ea::t_b7f7eb79d9ce99 4-7,10-11,15-16,20-30
+openspec/changes/port-stage-4-replication/tasks.md
+  s_e7d9aa044e41ea::t_55bef51e148353 8,26-29,52,56-57
+openspec/changes/port-stage-5-sharding-and-operations/design.md
+  s_e7d9aa044e41ea::t_72c85db5c105a7 44-45,55-56,74-77,91-94
+openspec/changes/port-stage-5-sharding-and-operations/proposal.md
+  s_e7d9aa044e41ea::t_762f695cc2a65c 20-25,48-49
+openspec/changes/port-stage-5-sharding-and-operations/specs/admin-operations/spec.md
+  s_e7d9aa044e41ea::t_48ceb2a66b83fb 5-7,10-11,15
+openspec/changes/port-stage-5-sharding-and-operations/specs/backup-restore/spec.md
+  s_e7d9aa044e41ea::t_266d0a0dd6a251 4-9,15,17-18,26-27,38,42-44,51
+openspec/changes/port-stage-5-sharding-and-operations/specs/bulk-loader/spec.md
+  s_e7d9aa044e41ea::t_c44400a489f40a 4-6,9,17-19,25,27
+openspec/changes/port-stage-5-sharding-and-operations/specs/cross-group-queries/spec.md
+  s_e7d9aa044e41ea::t_53bc7eff221e76 8,12-13
+openspec/changes/port-stage-5-sharding-and-operations/specs/cross-group-transactions/spec.md
+  s_e7d9aa044e41ea::t_50afc99756aa06 17-19,22-23,27-28,32-34,37-39
+openspec/changes/port-stage-5-sharding-and-operations/specs/export/spec.md
+  s_e7d9aa044e41ea::t_b994455c8c9f06 4-6,14
+openspec/changes/port-stage-5-sharding-and-operations/specs/live-loader/spec.md
+  s_e7d9aa044e41ea::t_9b9b13bedcf35c 4-6,17-18
+openspec/changes/port-stage-5-sharding-and-operations/specs/predicate-moves/spec.md
+  s_e7d9aa044e41ea::t_5b6e0fc56f921b 4-6,13,22-24,32-36,39-40,45-48
+openspec/changes/port-stage-5-sharding-and-operations/specs/rebalancing/spec.md
+  s_e7d9aa044e41ea::t_15fddc2f123d66 4-7,10,18-21,24
+openspec/changes/port-stage-5-sharding-and-operations/specs/tablets/spec.md
+  s_e7d9aa044e41ea::t_0a2b9f4121cb10 3-7,26-27,34-36,41-44
+openspec/changes/port-stage-5-sharding-and-operations/tasks.md
+  s_e7d9aa044e41ea::t_1ed9ac1d526093 7-8,10,33,58-59,65,69
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_a02b34a974bcb9 127-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f2ed093e8e683a4ba0a695c1a3aa93fb82eb2f9",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
