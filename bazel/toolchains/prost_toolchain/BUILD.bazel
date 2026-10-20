@@ -6,13 +6,13 @@ load("@rules_rust//rust:defs.bzl", "rust_library_group")
 # THE PLUGINS AND THE RUNTIMES ARE DIFFERENT KINDS OF THING, and the default toolchain takes
 # both from rules_rs' own internal hub. A plugin is a BINARY protoc runs at build time: its
 # version shapes the code that is emitted and is otherwise invisible. A runtime is LINKED into
-# the generated crate, so `proto_dgraph`'s `DgraphClient::new(channel)` takes exactly the
+# the generated crate, so `ultragraphdb_proto_dgraph`'s `DgraphClient::new(channel)` takes exactly the
 # `tonic::transport::Channel` that its runtime defines.
 #
 # The default toolchain pins tonic 0.14.5 / prost 0.14.3 in a separate repository, while this
 # workspace resolves tonic 0.14.6 / prost 0.14.4 through @crates. Two repositories mean two
 # rlibs and two distinct types with the same name, which does not unify -- so the bindings would
-# hand //ugdb_client/ultragraph_client a Channel it cannot pass.
+# hand //ultragraphdb_client a Channel it cannot pass.
 #
 # So: plugins from rules_rs, runtimes from @crates. That is what keeps the generated code and
 # its one consumer on the same tonic, and it needs no fork of rules_rs and no version pins of

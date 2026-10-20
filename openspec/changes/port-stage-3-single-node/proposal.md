@@ -50,9 +50,9 @@ None.
 
 ## Impact
 
-- New crates under `ugdb_query/`, `ugdb_server/` and `ugdb_bin/`, and the binary `ultragraph` with the subcommands
+- New crates `ultragraphdb_query_*`, `ultragraphdb_server_*` and `ultragraphdb_bin`, and the binary `ultragraph` with the subcommands
   `alpha`, `zero` and `acl`, as Dgraph's one binary carries its subcommands.
-- `ultragraph_client`: `Txn<ReadWrite>`'s `mutate` and `commit` become one-request transactions; its acceptance
+- `ultragraphdb_client`: `Txn<ReadWrite>`'s `mutate` and `commit` become one-request transactions; its acceptance
   test runs against both servers.
 - Dgraph's black-box query tests (`query/*_test.go`, `dgraph/cmd/alpha/*_test.go`, `acl/acl_test.go`) are ported as
   BDD suites; the behaviour both servers share runs against ultragraphdb and against Go Dgraph v25.5.0.

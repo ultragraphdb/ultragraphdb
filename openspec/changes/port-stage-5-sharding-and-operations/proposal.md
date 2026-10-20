@@ -45,7 +45,7 @@ None.
 
 ## Impact
 
-- New crates under `ugdb_cluster/`, `ugdb_ops/` and `ugdb_tools/`; S3 access (`object_store`), gzip and an S2 codec
+- New crates `ultragraphdb_cluster_*`, `ultragraphdb_ops_*` and `ultragraphdb_tool_*`; S3 access (`object_store`), gzip and an S2 codec
   (`minlz`, compatible with the klauspost S2 format Dgraph's backups use) join the dependencies.
-- `server_zero` gains tablets and the rebalancer; `server_alpha` gains fan-out, moves and the admin interface.
+- `ultragraphdb_server_zero` gains tablets and the rebalancer; `ultragraphdb_server_alpha` gains fan-out, moves and the admin interface.
 - The chunker's file and stream readers, deferred from stage 1, arrive with the loaders.

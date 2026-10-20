@@ -14,8 +14,8 @@ code, and TDD for each ported Go file.
   scenarios without features as pending.
 - Golden vectors: a Go program built against the Dgraph source writes the byte-exact outputs of keys, packed
   UIDs, value encodings and tokens, and the Rust tests read them.
-- Dgraph's internal protobuf messages (`protos/pb.proto`) generated as `proto_pb`, beside the existing
-  `proto_dgraph`.
+- Dgraph's internal protobuf messages (`protos/pb.proto`) generated as `ultragraphdb_proto_pb`, beside the existing
+  `ultragraphdb_proto_dgraph`.
 - The pure packages ported, in import order: `tok/constraints`, `tok/options`, `tok/index`, the pure parts of
   `x`, `lex`, `codec`, `algo`, `types`, `tok`, `types/facets`, `dql`, `schema` (parsing and in-memory state), and
   `chunker` (RDF and JSON parsing).
@@ -47,7 +47,7 @@ None; `openspec/specs/` holds no specs yet.
 
 ## Impact
 
-- New crates under `ugdb_core/` and `ugdb_proto/proto_pb`; new test-only dependencies `cucumber` and its
+- New crates `ultragraphdb_core_*`, `ultragraphdb_proto_pb` and `ultragraphdb_test_bdd`; new test-only dependencies `cucumber` and its
   runtime, and libraries for the byte-exact formats (BLAKE2b, bcrypt, Snowball stemmers, S2, WKB).
 - `scripts/test.sh` runs the `bdd-test` tag beside `doc-test` and `unit-test`.
 - A Go toolchain is needed to regenerate golden vectors, not to build or test.

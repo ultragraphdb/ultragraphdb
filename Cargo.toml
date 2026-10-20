@@ -1,9 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "ugdb_client/*",
-    "ugdb_common/*",
-    "ugdb_proto/*",
+    "ultragraphdb_*",
 ]
 
 [workspace.package]
@@ -21,11 +19,11 @@ publish = false
 # Internal crates
 # ==============
 ## Common
-common_version = { path = "ugdb_common/common_version" }
+ultragraphdb_common_version = { path = "ultragraphdb_common_version" }
 ## Client
-ultragraph_client = { path = "ugdb_client/ultragraph_client" }
+ultragraphdb_client = { path = "ultragraphdb_client" }
 ## Proto
-proto_dgraph = { path = "ugdb_proto/proto_dgraph" }
+ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto_dgraph" }
 
 # ==============
 # External crates

@@ -50,6 +50,6 @@ None. `schema-storage` extends stage 1's `schema-parsing` without changing its r
 
 ## Impact
 
-- New crates under `ugdb_store/`; `fjall` and `moka` join `[workspace.dependencies]`.
-- `core_schema` gains loading and saving through the store.
+- New crates `ultragraphdb_store_*`; `fjall` and `moka` join `[workspace.dependencies]`.
+- `ultragraphdb_core_schema` gains loading and saving through the store.
 - The commit path differs from Dgraph's by design; stages 3 to 5 build on the single-batch commit.

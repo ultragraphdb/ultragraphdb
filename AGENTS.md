@@ -135,22 +135,23 @@ Code written here from scratch carries this repository's header alone:
 
 ### Crates
 
-Crates are grouped in folders named `ugdb_<group>/`, and every crate is a workspace member through the
-group's glob in the root `Cargo.toml`.
+Every crate sits in a top-level folder named `ultragraphdb_<name>`, the folder named as the crate, with no grouping
+folders; the root `Cargo.toml` takes them all as members through the glob `ultragraphdb_*`, and a crate's Bazel package
+is `//ultragraphdb_<name>`. A binary keeps its own name: the `ultragraph` binary is built by `ultragraphdb_bin`.
 
-| Crate               | Path                              | Depends on     | Provides                                                                                                                                                                                                                 |
-|---------------------|-----------------------------------|----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `common_version`    | `ugdb_common/common_version`      | —              | `PRODUCT_NAME`; the workspace's first crate                                                                                                                                                                              |
-| `proto_dgraph`      | `ugdb_proto/proto_dgraph`         | —              | Dgraph's gRPC API, `api.proto`, generated unchanged: the server serves it and the client calls it. Built twice, see *Structure exemptions*                                                                               |
-| `ultragraph_client` | `ugdb_client/ultragraph_client`   | `proto_dgraph` | `UltraGraphClient`, `UltraGraphError` and the transaction types, over `proto_dgraph`; it speaks to ultragraphdb and Go Dgraph alike. Behind `test-utils`: the `DgraphInstance` fixture, which serves the acceptance test and differential runs against Go Dgraph |
+| Crate | Path | Depends on | Provides |
+|---|---|---|---|
+| `ultragraphdb_common_version` | `ultragraphdb_common_version` | — | `PRODUCT_NAME`; the workspace's first crate |
+| `ultragraphdb_proto_dgraph` | `ultragraphdb_proto_dgraph` | — | Dgraph's gRPC API, `api.proto`, generated unchanged: the server serves it and the client calls it. Built twice, see *Structure exemptions* |
+| `ultragraphdb_client` | `ultragraphdb_client` | `ultragraphdb_proto_dgraph` | `UltraGraphClient`, `UltraGraphError` and the transaction types, over `ultragraphdb_proto_dgraph`; it speaks to ultragraphdb and Go Dgraph alike. Behind `test-utils`: the `DgraphInstance` fixture, which serves the acceptance test and differential runs against Go Dgraph |
 
 ### Structure exemptions
 
-`ugdb_proto/proto_dgraph` keeps a public `api` module at its root. Cargo builds the crate from
+`ultragraphdb_proto_dgraph` keeps a public `api` module at its root. Cargo builds the crate from
 `src/lib.rs` via `tonic-prost-build`, while Bazel generates it from `proto/api.proto` with
 `rust_prost_library` and never reads `src/lib.rs`, so the `api` module name is the contract both
-toolchains agree on. Consumers import `proto_dgraph::api`, and its generated stub keeps Dgraph's name,
-`proto_dgraph::api::dgraph_client::DgraphClient`.
+toolchains agree on. Consumers import `ultragraphdb_proto_dgraph::api`, and its generated stub keeps Dgraph's name,
+`ultragraphdb_proto_dgraph::api::dgraph_client::DgraphClient`.
 
 ### External dependencies
 
@@ -159,11 +160,11 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 
 | Crate                                 | Version               | Used by                             | Why                                                                                                     |
 |---------------------------------------|-----------------------|-------------------------------------|---------------------------------------------------------------------------------------------------------|
-| `prost`, `tonic`, `tonic-prost`       | 0.14                  | `proto_dgraph`, `ultragraph_client` | Generated protobuf types and the gRPC surface                                                           |
-| `tonic-prost-build`                   | 0.14                  | `proto_dgraph` (build)              | Cargo-side codegen. Bazel generates the same crate with `rust_prost_library` and the toolchains under `bazel/toolchains/` |
-| `rustls`                              | 0.23, `ring` + `tls12` | `ultragraph_client`                 | TLS to the server                                                                                       |
-| `tokio`                               | 1                     | `ultragraph_client`                 | The client's token cache lock; the test runtime                                                         |
-| `docker_utils`, `ureq`, `serde_json`  | 0.3 / 3.3 / 1.0       | `ultragraph_client` (`test-utils`)  | Start a Dgraph container and read its health report, for the acceptance test                            |
+| `prost`, `tonic`, `tonic-prost`       | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_client` | Generated protobuf types and the gRPC surface                                                           |
+| `tonic-prost-build`                   | 0.14                  | `ultragraphdb_proto_dgraph` (build)              | Cargo-side codegen. Bazel generates the same crate with `rust_prost_library` and the toolchains under `bazel/toolchains/` |
+| `rustls`                              | 0.23, `ring` + `tls12` | `ultragraphdb_client`                 | TLS to the server                                                                                       |
+| `tokio`                               | 1                     | `ultragraphdb_client`                 | The client's token cache lock; the test runtime                                                         |
+| `docker_utils`, `ureq`, `serde_json`  | 0.3 / 3.3 / 1.0       | `ultragraphdb_client` (`test-utils`)  | Start a Dgraph container and read its health report, for the acceptance test                            |
 
 ## Building and Running
 
@@ -224,7 +225,7 @@ Test targets live in the crate's own `BUILD.bazel`, beside the library. A crate 
 through `tests/mod.rs` takes one `rust_test` with `crate_root = "tests/mod.rs"`, tagged `unit-test`.
 A `rust_test_suite` over `*_tests.rs` fits only when every test file stands alone.
 
-`ultragraph_client` has three test roots, one per `[[test]]` in its `Cargo.toml` under
+`ultragraphdb_client` has three test roots, one per `[[test]]` in its `Cargo.toml` under
 `autotests = false`: `tests/lib_tests.rs` for the crate as consumers get it, `tests/utils_test_tests.rs`
 for the `test-utils` fixture, and `tests/dgraph_container_test.rs`, the acceptance test against a
 running Dgraph, tagged `integration_test` and run with
@@ -280,7 +281,7 @@ The usage of a prelude file is prohibited.
 
 When importing from a crate, always import directly from the root level, for example:
 
-`use common_version::PRODUCT_NAME;`
+`use ultragraphdb_common_version::PRODUCT_NAME;`
 
 ## Code conventions
 

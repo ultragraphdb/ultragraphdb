@@ -75,8 +75,8 @@ and `Ready` loop are etcd raft's, so `worker/draft.go` and `conn/node.go` port l
 
 ultragraphdb serves Dgraph's gRPC API, `api.proto`, unchanged on the wire, and accepts the subset of it
 that §Transactions describes. A request in that subset means the same to Go Dgraph, so the two can be
-compared on the same traffic. `ugdb_proto/proto_dgraph` generates the API. The client is
-`ultragraph_client`, with `UltraGraphClient` and `UltraGraphError`, copied from `dgraph-rs` and
+compared on the same traffic. `ultragraphdb_proto_dgraph` generates the API. The client is
+`ultragraphdb_client`, with `UltraGraphClient` and `UltraGraphError`, copied from `dgraph-rs` and
 renamed; it speaks to both servers. Its `test-utils` fixture starts a Go Dgraph container, which serves
 the differential runs as well as the client's acceptance test.
 
@@ -134,7 +134,7 @@ taking one indexed value.
 * Under the read-set check, retries are the client's, and on hot keys they repeat.
 * A query in a read-set transaction returns what it read. `Response.txn.keys` can carry it back; large
   traversals coarsen to whole-predicate ranges.
-* `ultragraph_client` replaces `Txn<ReadWrite>`'s `mutate` and `commit` with a one-request transaction.
+* `ultragraphdb_client` replaces `Txn<ReadWrite>`'s `mutate` and `commit` with a one-request transaction.
 * scrith's manager moves to this model.
 
 **Which form performs best is measured, not assumed.** The benchmark compares the execution models on

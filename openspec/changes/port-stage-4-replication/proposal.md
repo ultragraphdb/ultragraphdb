@@ -41,7 +41,7 @@ None.
 
 ## Impact
 
-- New crates under `ugdb_raft/`; `raft` (raft-rs) joins `[workspace.dependencies]`.
-- `server_alpha` and `server_zero` run their state through Raft; the apply thread takes committed entries
+- New crates `ultragraphdb_raft_*`; `raft` (raft-rs) joins `[workspace.dependencies]`.
+- `ultragraphdb_server_alpha` and `ultragraphdb_server_zero` run their state through Raft; the apply thread takes committed entries
   instead of requests.
 - Commit timestamps, uids and the watermark travel in the Raft entries; Zero refuses commit leases to non-leaders.

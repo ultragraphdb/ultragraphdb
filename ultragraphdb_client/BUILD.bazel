@@ -1,0 +1,138 @@
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+# all_crate_deps needs one correction here. Cargo's `ultragraphdb_proto_dgraph` path dep maps to the Bazel label
+# //ultragraphdb_proto_dgraph, but in that package the name `ultragraphdb_proto_dgraph` belongs to the
+# proto_library -- rust_prost_library runs as an aspect over its `proto` attribute, so the
+# generated crate is the separate :ultragraphdb_proto_dgraph_bindings target. Depending on the proto_library
+# directly fails analysis before rustc ever runs.
+BASE_DEPS = [
+    dep
+    for dep in all_crate_deps(normal = True)
+    if dep != "//ultragraphdb_proto_dgraph"
+] + ["//ultragraphdb_proto_dgraph:ultragraphdb_proto_dgraph_bindings"]
+
+DEV_DEPS = BASE_DEPS + [
+    dep
+    for dep in all_crate_deps(normal_dev = True)
+    if dep not in BASE_DEPS
+]
+
+# The three optional dependencies the `test-utils` feature turns on. Named here rather than
+# inferred, because whether all_crate_deps returns an optional dependency is a property of the
+# resolved feature set and this target is the one that decides that set.
+TEST_UTILS_DEPS = [
+    "@crates//:docker_utils",
+    "@crates//:serde_json",
+    "@crates//:ureq",
+]
+
+# The library as a consumer gets it. src/utils_test is excluded rather than merely cfg'd out:
+# the module is behind a feature this target does not enable, so its files are not inputs.
+rust_library(
+    name = "ultragraphdb_client",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/utils_test/**"],
+    ),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = [
+        "client",
+        "ultragraphdb_client",
+    ],
+    visibility = ["//visibility:public"],
+    deps = BASE_DEPS,
+)
+
+# The same crate with the acceptance fixture compiled in.
+#
+# A SECOND TARGET, not a flag on the first. Two things force it: a rust_library has one feature
+# set, and a consumer of the client must not link a Docker client. Same crate_name, so a test
+# depending on this one sees exactly the crate that ships, plus `utils_test`.
+rust_library(
+    name = "ultragraphdb_client_test_utils",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_features = ["test-utils"],
+    crate_name = "ultragraphdb_client",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = [
+        "client",
+        "ultragraphdb_client",
+    ],
+    visibility = ["//visibility:public"],
+    deps = BASE_DEPS + [dep for dep in TEST_UTILS_DEPS if dep not in BASE_DEPS],
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_client",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_client",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# `rust_test`, not `rust_test_suite`: the suite macro generates one test per source file and sets
+# `crate_root` itself. The three roots match the three `[[test]]` entries in Cargo.toml.
+
+# The client's own unit tests: types, parsing and error mapping. No fixture, no infrastructure --
+# and it links the library as a CONSUMER gets it, which is what makes it a test of the shipped
+# crate rather than of a feature-enabled variant.
+rust_test(
+    name = "ultragraphdb_client_unit_test",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = [
+            "tests/dgraph_container_test.rs",
+            "tests/utils_test_tests.rs",
+            "tests/utils_test/**",
+        ],
+    ),
+    crate_root = "tests/lib_tests.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = DEV_DEPS + [":ultragraphdb_client"],
+)
+
+# The fixture's own unit tests: the strategy branch, the endpoint contract, the health report
+# parser and the error surface. Still pure logic -- no Docker, no network -- so it is a unit test
+# too; only the code under test needs the feature.
+rust_test(
+    name = "ultragraphdb_client_utils_test",
+    srcs = ["tests/utils_test_tests.rs"] + glob(["tests/utils_test/**/*.rs"]),
+    crate_root = "tests/utils_test_tests.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = DEV_DEPS + [":ultragraphdb_client_test_utils"],
+)
+
+# Needs a running Dgraph: starts a dgraph/standalone container and drives the real client against
+# it. Every scenario shares that one instance and several are destructive, so they are sequenced
+# inside a single test function -- Bazel runs test functions concurrently and does not honour
+# --test-threads=1. See the module docs in tests/dgraph_container_test.rs.
+#
+#   bazel test --test_tag_filters=integration_test \
+#     //ultragraphdb_client:ultragraphdb_client_integration_test
+rust_test(
+    name = "ultragraphdb_client_integration_test",
+    srcs = ["tests/dgraph_container_test.rs"],
+    # The Cargo-side half of the same "needs infrastructure" fact the tag states to Bazel: the
+    # test is #[ignore] so `cargo test` stays hermetic. Bazel runs the same binary and would
+    # honour that too, reporting green having run nothing.
+    args = ["--include-ignored"],
+    crate_root = "tests/dgraph_container_test.rs",
+    tags = ["integration_test"],
+    visibility = ["//visibility:public"],
+    deps = DEV_DEPS + [":ultragraphdb_client_test_utils"],
+)

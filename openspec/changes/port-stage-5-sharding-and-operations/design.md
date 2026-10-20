@@ -36,15 +36,15 @@ Backup, restore and export are started through GraphQL `/admin` mutations in Dgr
 
 | Crate | Path | Ports |
 |---|---|---|
-| `cluster_tablets` | `ugdb_cluster/cluster_tablets` | Zero's tablet map, assignment, size accounting, the rebalancer and backoff |
-| `cluster_move` | `ugdb_cluster/cluster_move` | `predicate_move.go` and Zero's `movePredicate` |
-| `ops_export` | `ugdb_ops/ops_export` | `export.go` |
-| `ops_backup` | `ugdb_ops/ops_backup` | `backup*.go`, `backup/`, the restore map and reduce, online and offline restore |
-| `tool_xidmap` | `ugdb_tools/tool_xidmap` | `xidmap`, persisted in fjall |
-| `tool_live` | `ugdb_tools/tool_live` | `dgraph/cmd/live` over `ultragraph_client`, as the `ultragraph live` subcommand |
-| `tool_bulk` | `ugdb_tools/tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
+| `ultragraphdb_cluster_tablets` | `ultragraphdb_cluster_tablets` | Zero's tablet map, assignment, size accounting, the rebalancer and backoff |
+| `ultragraphdb_cluster_move` | `ultragraphdb_cluster_move` | `predicate_move.go` and Zero's `movePredicate` |
+| `ultragraphdb_ops_export` | `ultragraphdb_ops_export` | `export.go` |
+| `ultragraphdb_ops_backup` | `ultragraphdb_ops_backup` | `backup*.go`, `backup/`, the restore map and reduce, online and offline restore |
+| `ultragraphdb_tool_xidmap` | `ultragraphdb_tool_xidmap` | `xidmap`, persisted in fjall |
+| `ultragraphdb_tool_live` | `ultragraphdb_tool_live` | `dgraph/cmd/live` over `ultragraphdb_client`, as the `ultragraph live` subcommand |
+| `ultragraphdb_tool_bulk` | `ultragraphdb_tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
 
-The chunker's file and stream readers (gzip) join `core_chunker`.
+The chunker's file and stream readers (gzip) join `ultragraphdb_core_chunker`.
 
 ### Tablets, fan-out and moves as Dgraph has them
 

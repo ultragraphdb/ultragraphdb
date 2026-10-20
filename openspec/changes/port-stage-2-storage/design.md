@@ -34,12 +34,12 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 
 | Crate | Path | Ports |
 |---|---|---|
-| `store_kv` | `ugdb_store/store_kv` | The managed-mode Badger surface Dgraph uses, over fjall |
-| `store_posting` | `ugdb_store/store_posting` | `posting` (`list.go`, `mvcc.go`, `lists.go`, `index.go`, `writer.go`, `size.go`), the local commit |
-| `store_hnsw` | `ugdb_store/store_hnsw` | `tok/hnsw` |
-| `store_apply` | `ugdb_store/store_apply` | `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft |
+| `ultragraphdb_store_kv` | `ultragraphdb_store_kv` | The managed-mode Badger surface Dgraph uses, over fjall |
+| `ultragraphdb_store_posting` | `ultragraphdb_store_posting` | `posting` (`list.go`, `mvcc.go`, `lists.go`, `index.go`, `writer.go`, `size.go`), the local commit |
+| `ultragraphdb_store_hnsw` | `ultragraphdb_store_hnsw` | `tok/hnsw` |
+| `ultragraphdb_store_apply` | `ultragraphdb_store_apply` | `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft |
 
-`core_schema` gains loading and saving through `store_kv`.
+`ultragraphdb_core_schema` gains loading and saving through `ultragraphdb_store_kv`.
 
 ### The store
 
@@ -122,11 +122,11 @@ differ:
   immutable `Arc`s, replaced on write.
 - [HNSW's in-memory caches `nodeAllEdges` and `deadNodes`] → Dgraph loads `deadNodes` once and never refreshes it
   (`helper.go:748-768`). Both follow commits as the posting cache does, invalidated by the same writer. The dead list
-  itself is written by index maintenance (`posting/index.go:113-152`), so it belongs to `store_apply`.
+  itself is written by index maintenance (`posting/index.go:113-152`), so it belongs to `ultragraphdb_store_apply`.
 
 ## Migration Plan
 
-New crates; stage 1's `core_schema` gains a storage-backed loader. Go-written Badger directories are not read;
+New crates; stage 1's `ultragraphdb_core_schema` gains a storage-backed loader. Go-written Badger directories are not read;
 data moves through export and the loaders (stage 5).
 
 ## Open Questions

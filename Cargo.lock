@@ -147,10 +147,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
-name = "common_version"
-version = "0.1.0"
-
-[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -717,16 +713,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proto_dgraph"
-version = "0.0.1"
-dependencies = [
- "prost",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
-]
-
-[[package]]
 name = "pulldown-cmark"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,17 +1236,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
-name = "ultragraph_client"
+name = "ultragraphdb_client"
 version = "0.1.0"
 dependencies = [
  "docker_utils",
  "prost",
- "proto_dgraph",
  "rustls",
  "serde_json",
  "tokio",
  "tonic",
+ "ultragraphdb_proto_dgraph",
  "ureq",
+]
+
+[[package]]
+name = "ultragraphdb_common_version"
+version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_proto_dgraph"
+version = "0.0.1"
+dependencies = [
+ "prost",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
 ]
 
 [[package]]

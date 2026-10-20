@@ -39,11 +39,11 @@ round trip to the Raft goroutine, in Zero and in the Alpha (`zero/raft.go:56-62`
 
 | Crate | Path | Ports |
 |---|---|---|
-| `raft_storage` | `ugdb_raft/raft_storage` | `raftwal` as raft-rs `Storage` on fjall; the log dump tool |
-| `raft_transport` | `ugdb_raft/raft_transport` | `conn/raft_server.go`, `pool.go`, the batching of `node.go` |
-| `raft_node` | `ugdb_raft/raft_node` | `conn/node.go`'s node core, the Ready loop, proposals and their waiters, configuration changes |
+| `ultragraphdb_raft_storage` | `ultragraphdb_raft_storage` | `raftwal` as raft-rs `Storage` on fjall; the log dump tool |
+| `ultragraphdb_raft_transport` | `ultragraphdb_raft_transport` | `conn/raft_server.go`, `pool.go`, the batching of `node.go` |
+| `ultragraphdb_raft_node` | `ultragraphdb_raft_node` | `conn/node.go`'s node core, the Ready loop, proposals and their waiters, configuration changes |
 
-`server_alpha` gains `draft.go`'s apply dispatch, snapshots and membership; `server_zero` gains Zero's Raft state
+`ultragraphdb_server_alpha` gains `draft.go`'s apply dispatch, snapshots and membership; `ultragraphdb_server_zero` gains Zero's Raft state
 machine.
 
 ### The log in fjall

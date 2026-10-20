@@ -37,12 +37,12 @@ separate process.
 
 | Crate | Path | Ports |
 |---|---|---|
-| `query_task` | `ugdb_query/query_task` | `worker/task.go`, `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`, `match.go`, `aggregator.go` |
-| `query_engine` | `ugdb_query/query_engine` | `query/` without `outputnode_graphql.go`: subgraphs, functions, variables, aggregation, math, groupby, recurse, shortest, cascade, normalize, expand, mutations' uid assignment and edge expansion, JSON and RDF output |
-| `server_zero` | `ugdb_server/server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers |
-| `server_acl` | `ugdb_server/server_acl` | `acl/`, `edgraph/access.go`, `access_control.go`, `predicate_acl.go`, `anonymous.go`, `authn.go`, `x/tenancy.go`, JWTs |
-| `server_alpha` | `ugdb_server/server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers |
-| `bin_ultragraph` | `ugdb_bin/bin_ultragraph` | `dgraph/cmd/root.go`, `alpha/run.go`, `zero/run.go`, `acl/acl.go`'s command: the `ultragraph` binary and its `alpha`, `zero` and `acl` subcommands |
+| `ultragraphdb_query_task` | `ultragraphdb_query_task` | `worker/task.go`, `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`, `match.go`, `aggregator.go` |
+| `ultragraphdb_query_engine` | `ultragraphdb_query_engine` | `query/` without `outputnode_graphql.go`: subgraphs, functions, variables, aggregation, math, groupby, recurse, shortest, cascade, normalize, expand, mutations' uid assignment and edge expansion, JSON and RDF output |
+| `ultragraphdb_server_zero` | `ultragraphdb_server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers |
+| `ultragraphdb_server_acl` | `ultragraphdb_server_acl` | `acl/`, `edgraph/access.go`, `access_control.go`, `predicate_acl.go`, `anonymous.go`, `authn.go`, `x/tenancy.go`, JWTs |
+| `ultragraphdb_server_alpha` | `ultragraphdb_server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers |
+| `ultragraphdb_bin` | `ultragraphdb_bin` | `dgraph/cmd/root.go`, `alpha/run.go`, `zero/run.go`, `acl/acl.go`'s command: the `ultragraph` binary and its `alpha`, `zero` and `acl` subcommands |
 
 ### All writes go through the group's apply thread
 
@@ -73,7 +73,7 @@ Alternatives:
 
 ### Upsert blocks run the query engine inside the apply thread
 
-The apply thread calls `query_engine` synchronously on a read view of the store snapshot plus the batch's scratch
+The apply thread calls `ultragraphdb_query_engine` synchronously on a read view of the store snapshot plus the batch's scratch
 layers. Query execution therefore has a synchronous entry point over a read view; the async gRPC edge awaits the
 apply thread's result.
 
@@ -97,8 +97,8 @@ which also serves as the baseline in the isolation benchmark.
 ### Conformance against Go Dgraph
 
 Dgraph's query tests are black-box tests against a cluster (`query/integration_test.go:19`). They are ported as BDD
-features whose steps drive `ultragraph_client`. Scenarios tagged `@differential` also run against Go Dgraph
-v25.5.0 in a container (`dgraph/standalone:v25.5.0`; the fixture pins v25.4.0 today) through `ultragraph_client`'s
+features whose steps drive `ultragraphdb_client`. Scenarios tagged `@differential` also run against Go Dgraph
+v25.5.0 in a container (`dgraph/standalone:v25.5.0`; the fixture pins v25.4.0 today) through `ultragraphdb_client`'s
 `DgraphInstance` fixture, with uids and latencies
 normalised, and pass when both servers agree and match the expectation; Dgraph's test data (`populateCluster`,
 `common_test.go:355`) is loaded into both. Scenarios of behaviour the port changes run against ultragraphdb alone. Multi-request tests (`alpha/txn_test.go`) are rewritten as one-request
@@ -127,7 +127,7 @@ integration tests, tagged `integration_test`.
 
 ## Migration Plan
 
-New crates and binaries. `ultragraph_client` changes its read-write transaction API to one request, which
+New crates and binaries. `ultragraphdb_client` changes its read-write transaction API to one request, which
 scrith's manager adopts.
 
 ## Open Questions

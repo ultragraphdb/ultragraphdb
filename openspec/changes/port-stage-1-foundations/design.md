@@ -44,23 +44,23 @@ fork.
 
 | Crate | Path | Ports |
 |---|---|---|
-| `proto_pb` | `ugdb_proto/proto_pb` | `protos/pb.proto`, with the Badger `pb.proto` messages it imports (`KV`, `KVList`, `Match`) |
-| `core_keys` | `ugdb_core/core_keys` | `x/keys.go`, the reserved and pre-defined predicate tables, the pure helpers of `x` |
-| `core_codec` | `ugdb_core/core_codec` | `codec` and the group-varint encoding |
-| `core_algo` | `ugdb_core/core_algo` | `algo` without the count-min sketch |
-| `core_types` | `ugdb_core/core_types` | `types` |
-| `core_lex` | `ugdb_core/core_lex` | `lex` |
-| `core_tok` | `ugdb_core/core_tok` | `tok`, `tok/index`, `tok/options`, `tok/constraints`, and from `tok/hnsw` the option and metric names, `AllowedOptions` and the `__vector_` suffix constants |
-| `core_facets` | `ugdb_core/core_facets` | `types/facets`, which imports `tok` while `tok` imports `types` |
-| `core_dql` | `ugdb_core/core_dql` | `dql` |
-| `core_schema` | `ugdb_core/core_schema` | `schema/parse.go`, `schema/state.go`, the in-memory part of `schema/schema.go` |
-| `core_chunker` | `ugdb_core/core_chunker` | `chunker`'s RDF and JSON parsers |
-| `test_bdd` | `ugdb_test/test_bdd` | The traceability check and shared step helpers |
+| `ultragraphdb_proto_pb` | `ultragraphdb_proto_pb` | `protos/pb.proto`, with the Badger `pb.proto` messages it imports (`KV`, `KVList`, `Match`) |
+| `ultragraphdb_core_keys` | `ultragraphdb_core_keys` | `x/keys.go`, the reserved and pre-defined predicate tables, the pure helpers of `x` |
+| `ultragraphdb_core_codec` | `ultragraphdb_core_codec` | `codec` and the group-varint encoding |
+| `ultragraphdb_core_algo` | `ultragraphdb_core_algo` | `algo` without the count-min sketch |
+| `ultragraphdb_core_types` | `ultragraphdb_core_types` | `types` |
+| `ultragraphdb_core_lex` | `ultragraphdb_core_lex` | `lex` |
+| `ultragraphdb_core_tok` | `ultragraphdb_core_tok` | `tok`, `tok/index`, `tok/options`, `tok/constraints`, and from `tok/hnsw` the option and metric names, `AllowedOptions` and the `__vector_` suffix constants |
+| `ultragraphdb_core_facets` | `ultragraphdb_core_facets` | `types/facets`, which imports `tok` while `tok` imports `types` |
+| `ultragraphdb_core_dql` | `ultragraphdb_core_dql` | `dql` |
+| `ultragraphdb_core_schema` | `ultragraphdb_core_schema` | `schema/parse.go`, `schema/state.go`, the in-memory part of `schema/schema.go` |
+| `ultragraphdb_core_chunker` | `ultragraphdb_core_chunker` | `chunker`'s RDF and JSON parsers |
+| `ultragraphdb_test_bdd` | `ultragraphdb_test_bdd` | The traceability check and shared step helpers |
 
 One crate per Go package keeps the mapping from a Rust file to its Dgraph source obvious, which the attribution
 rule needs anyway. The crate graph mirrors Dgraph's imports, and Cargo refuses a cycle.
 
-Alternative: one `ugdb_core` crate holding everything. That rebuilds and re-tests all of stage 1 on any change,
+Alternative: one `ultragraphdb_core` crate holding everything. That rebuilds and re-tests all of stage 1 on any change,
 and loses the import graph as a check.
 
 ### Byte-identical formats, checked by golden vectors
@@ -93,12 +93,12 @@ tokenizer can be checked.
 - Proved on 2026-10-20 in a scratch copy of this workspace (Bazel 9.3.0, `rules_rs` 0.1.0, `cucumber` 0.23.0): both
   build systems ran the same 2 scenarios; a failing step failed the Bazel target; missing feature files failed it with
   a parsing error rather than passing on zero scenarios.
-- `test_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
+- `ultragraphdb_test_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
   `openspec/changes/*/specs/`, and every `Scenario:` under `**/features/`. It fails on an archived spec's
   scenario without a feature, on a feature no spec declares, and on a duplicated scenario name; a change's
   scenarios without features are listed as pending, because all five stages' changes exist before their code.
   A stage's change is archived only when none of its scenarios is pending.
-- `test_bdd` also holds the declaration test, which checks that every crate with features declares its suite for
+- `ultragraphdb_test_bdd` also holds the declaration test, which checks that every crate with features declares its suite for
   both build systems. Equal scenario counts under Cargo and Bazel are compared by `scripts/bdd_counts.sh` when a
   stage closes, because a test cannot run both build systems.
 - Dgraph's Go tests are ported to `tests/` as `AGENTS.md` describes, a ported test file named after its Go file.

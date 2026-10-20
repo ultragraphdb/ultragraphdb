@@ -6,7 +6,7 @@ The Alpha SHALL serve `service Dgraph` from Dgraph's `api.proto` (dgo v250): `Lo
 that file.
 
 #### Scenario: The Go client and the Rust client both connect
-- **WHEN** dgo v250 and `ultragraph_client` each connect, check the version and run a query
+- **WHEN** dgo v250 and `ultragraphdb_client` each connect, check the version and run a query
 - **THEN** both succeed against ultragraphdb as they do against Go Dgraph
 
 #### Scenario: CheckVersion reports the server version
