@@ -238,7 +238,8 @@ The port is written test first, at two levels:
   same name in the owning crate's `features/` folder, run by `cucumber` from `tests/bdd.rs` with the
   libtest harness off (`harness = false` in `Cargo.toml`, `use_libtest_harness = False` in
   `BUILD.bazel`), tagged `bdd-test`. A scenario is written, and seen to fail, before the code that makes
-  it pass. A traceability test fails when a spec scenario has no feature scenario of the same name.
+  it pass. A traceability test fails when an archived spec's scenario has no feature scenario of the same name,
+  and lists a change's scenarios without features as pending; a change is archived when none is pending.
 * **TDD, for units.** A ported Go file's tests are ported first, under `tests/` as below, and fail
   before the code is ported. Where Dgraph's output has to be byte-identical (key encodings, tokens,
   packed UIDs, value encodings), golden vectors generated from the Go source sit under

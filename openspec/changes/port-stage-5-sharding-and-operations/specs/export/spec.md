@@ -1,8 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Exports read one timestamp across groups
-An export SHALL read every group at one timestamp and write, per group, the data as gzipped RDF or JSON and the
-schema, in Dgraph's formats and file names, without the GraphQL schema file.
+An export SHALL read every group at one timestamp and write, per group, `dgraph.r<read_ts>.u<MMDD.HHMM>/g<NN>.rdf.gz`
+or `g<NN>.json.gz` and `g<NN>.schema.gz`, in Dgraph's formats, to the filesystem or an S3-compatible store, without
+`g<NN>.gql_schema.gz`.
 
 #### Scenario: An RDF export matches Go Dgraph's
 - **WHEN** the same data is exported as RDF from ultragraphdb and from Go Dgraph
@@ -10,7 +11,7 @@ schema, in Dgraph's formats and file names, without the GraphQL schema file.
 
 #### Scenario: A JSON export lists namespaces
 - **WHEN** data in two namespaces is exported as JSON
-- **THEN** each object carries its `namespace`
+- **THEN** each object carries its `namespace` as `0x<hex>`
 
 ### Requirement: Exports load back
 An export SHALL load into an empty cluster through the live loader and reproduce the data and schema.

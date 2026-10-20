@@ -1,22 +1,28 @@
 ## ADDED Requirements
 
 ### Requirement: Faults are injected and histories checked
-A harness SHALL run three-replica Alpha and Zero groups as processes, kill and restart them, partition them, and
-slow their links, while workloads record histories that Elle checks.
+A harness SHALL run three-replica Alpha and Zero groups as processes, kill and restart them, partition them, and slow
+their links, while workloads record Jepsen histories as EDN or JSON, an operation cut by a kill recorded as `:info`,
+which `elle-cli` checks.
 
-#### Scenario: Histories stay serializable under faults
-- **WHEN** list-append and register workloads in both transaction forms run while the harness kills Alphas and
-  Zeros and partitions the network
-- **THEN** Elle finds no anomaly in the recorded histories
+#### Scenario: Histories stay strict serializable under faults
+- **WHEN** list-append and rw-register workloads in the read-set and upsert-block forms run while the harness kills
+  Alphas and Zeros and partitions the network
+- **THEN** `elle-cli` reports `true` for `strict-serializable`, an `unknown` result counting as a failure
+
+#### Scenario: Write-key transactions stay snapshot isolated under faults
+- **WHEN** the same workloads run as requests checked on their write keys
+- **THEN** `elle-cli` reports `true` for `snapshot-isolation`
 
 #### Scenario: No acknowledged write is lost
 - **WHEN** a workload records every acknowledged write while the harness kills and restarts replicas
 - **THEN** after the faults stop and the group recovers, every acknowledged write is readable
 
 ### Requirement: A partitioned leader does not commit
-A leader cut off from its quorum SHALL commit nothing, and after the partition heals it SHALL rejoin without
-forcing a new term.
+A leader cut off from its quorum SHALL commit nothing, and after the partition heals it SHALL step down on hearing the
+new leader without disturbing it.
 
 #### Scenario: An isolated leader rejoins quietly
 - **WHEN** a group's leader is partitioned, a new leader is elected, and the partition heals
-- **THEN** the old leader committed nothing while isolated and rejoins as a follower without raising the term
+- **THEN** the old leader committed nothing while isolated, steps down on hearing the new leader, and the new leader
+  keeps its term and leadership

@@ -10,14 +10,15 @@ code, and TDD for each ported Go file.
 ## What Changes
 
 - A BDD harness: every spec scenario runs as a Gherkin scenario of the same name under `cucumber`, in Cargo and
-  Bazel alike, and a traceability check fails when a scenario has no feature.
+  Bazel alike; a traceability check fails when an archived spec's scenario has no feature and lists a change's
+  scenarios without features as pending.
 - Golden vectors: a Go program built against the Dgraph source writes the byte-exact outputs of keys, packed
   UIDs, value encodings and tokens, and the Rust tests read them.
 - Dgraph's internal protobuf messages (`protos/pb.proto`) generated as `proto_pb`, beside the existing
   `proto_dgraph`.
 - The pure packages ported, in import order: `tok/constraints`, `tok/options`, `tok/index`, the pure parts of
-  `x`, `lex`, `codec`, `algo`, `types` and `types/facets`, `tok`, `dql`, `schema` (parsing and in-memory
-  state), and `chunker` (RDF and JSON parsing).
+  `x`, `lex`, `codec`, `algo`, `types`, `tok`, `types/facets`, `dql`, `schema` (parsing and in-memory state), and
+  `chunker` (RDF and JSON parsing).
 - GraphQL-only code in these packages is left out (`x.GqlError`, `ExportedGQLSchema`). The reserved
   `dgraph.graphql.*` predicates and types stay, because data written by Go Dgraph holds them.
 
@@ -34,10 +35,11 @@ code, and TDD for each ported Go file.
   passwords, and facet values.
 - `tokenizers`: the index tokenizers, their identifier bytes and sortable encodings, language handling,
   stemming, stop words and the tokenizer registry.
-- `dql-parsing`: DQL queries, variables, fragments, language lists, mutation blocks and upsert blocks.
+- `dql-parsing`: DQL queries, variables, fragments, language lists, mutation blocks, upsert blocks, and N-Quads
+  converted to directed edges.
 - `schema-parsing`: the schema language (predicates, types, directives, index options) and the in-memory
   schema state.
-- `mutation-input`: RDF N-Quad and JSON mutation input parsed into edges.
+- `mutation-input`: RDF and JSON mutation input parsed into N-Quads.
 
 ### Modified Capabilities
 

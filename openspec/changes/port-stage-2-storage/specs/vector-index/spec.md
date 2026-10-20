@@ -28,11 +28,12 @@ one search.
 
 #### Scenario: An empty index returns nothing
 - **WHEN** an index holding no vectors is searched
-- **THEN** the result is empty and the search does not fail
+- **THEN** the index reports an empty-index result, which the caller treats as no neighbours, and the search returns
+  an empty result without error
 
 ### Requirement: Index parameters
 The index SHALL default to 3 levels, an `efConstruction` of 150 and an `efSearch` of 90, and an `exponent` `e`
-SHALL set them to `e`, `50e` and `30e`.
+SHALL set each of `maxLevels`, `efConstruction` and `efSearch` not given explicitly to `e`, `50e` and `30e`.
 
 #### Scenario: The exponent sets the parameters
 - **WHEN** an hnsw index is declared with `exponent: "4"`

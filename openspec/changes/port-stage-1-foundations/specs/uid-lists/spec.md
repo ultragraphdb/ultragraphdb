@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: UID lists pack into Dgraph's UidPack format
-A sorted UID list SHALL encode into `UidPack` blocks byte-identical to Dgraph's `codec`: a block closes when it
-holds the block size (256 in production) or when the next UID's upper 32 bits differ; a block stores its first
-UID as `base` and the rest as u32 deltas in group-varint groups of four, zero-padded.
+A sorted UID list SHALL encode into `UidPack` blocks byte-identical to Dgraph's `codec`: a block closes when it holds
+the block size (256 in production) or when the next UID's upper 32 bits differ; a block stores its first UID as `base`
+and the rest as u32 deltas in group-varint groups of four, zero-padded.
 
 #### Scenario: Encoding matches the golden vectors
 - **WHEN** the golden UID lists are encoded with block size 256
@@ -18,20 +18,22 @@ UID as `base` and the rest as u32 deltas in group-varint groups of four, zero-pa
 - **THEN** its single block has base 7, count 1 and deltas `00 00 00 00 00`
 
 ### Requirement: Packed lists decode, seek and round-trip
-Decoding SHALL return the encoded UIDs in order, and seeking SHALL return the UIDs at or after a target.
+Decoding SHALL return the encoded UIDs in order, and decoding from a target SHALL return every UID at or after it.
+Seeking a decoder SHALL return the UIDs of the target's block at or after the target (`SeekStart`) or after it
+(`SeekCurrent`), and `Next` SHALL return the following blocks.
 
 #### Scenario: Lists of every length round-trip
-- **WHEN** each sorted list of length 0 to 100, including lists spanning a change in the upper 32 bits, is
-  encoded and decoded
+- **WHEN** each sorted list of length 0 to 100, including lists spanning a change in the upper 32 bits, is encoded and
+  decoded
 - **THEN** the decoded list equals the input
 
-#### Scenario: Seek returns the suffix at or after the target
-- **WHEN** a packed list of 1000 UIDs is sought to a UID inside it and to one between two of its UIDs
-- **THEN** both return exactly the UIDs greater than or equal to the target
+#### Scenario: Decoding and seeking from a target
+- **WHEN** a packed list of the 1,000 UIDs 10, 20, …, 10,000 is decoded from 5,005 and a decoder is sought to 5,005
+- **THEN** decoding returns the 500 UIDs from 5,010 on, and the seek returns the rest of the target's block from 5,010
 
 ### Requirement: Sorted-set operations over UID lists
-Intersection, union (merge), difference and index-of SHALL operate on sorted UID lists and on packed lists,
-and SHALL return sorted, duplicate-free results.
+Intersection, union (merge), difference and index-of SHALL operate on sorted UID lists and on packed lists, and SHALL
+return sorted, duplicate-free results.
 
 #### Scenario: Intersection of packed and plain lists agrees
 - **WHEN** two lists are intersected as plain lists and as packed lists

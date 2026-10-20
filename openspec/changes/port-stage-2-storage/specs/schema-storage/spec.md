@@ -13,9 +13,14 @@ state SHALL be loaded from them at startup, per namespace.
 - **THEN** the loaded schema does not hold the predicate
 
 ### Requirement: Writes to an unknown predicate create its schema
-A write to a predicate the schema does not hold SHALL add it with the type inferred from the value, as Dgraph
-does, at the write's timestamp.
+A write to a predicate the schema does not hold SHALL add it with the type inferred from the value, in the request's
+commit batch at its commit timestamp; a request that fails SHALL create no schema. Dgraph writes it at the start
+timestamp and keeps it after an abort.
 
 #### Scenario: A first write defines the predicate
 - **WHEN** `<0x1> <nickname> "Al"` is written and `nickname` has no schema
 - **THEN** the schema holds `nickname` with type default
+
+#### Scenario: A failed write defines no predicate
+- **WHEN** a request writing `<0x1> <alias> "Al"` fails before it commits and `alias` had no schema
+- **THEN** the schema does not hold `alias`

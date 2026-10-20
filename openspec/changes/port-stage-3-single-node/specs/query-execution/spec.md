@@ -2,7 +2,7 @@
 
 ### Requirement: Results equal Go Dgraph's
 For the same data, schema and DQL, a query SHALL return the same result as Go Dgraph v25.5.0, after normalising
-assigned uids and the latency fields.
+assigned uids and the latency fields; vector cases SHALL use data small enough that the index search is exact.
 
 #### Scenario: The ported query suites agree with Go Dgraph
 - **WHEN** the ported cases of `query/query0_test.go` to `query4_test.go`, `query_facets_test.go`,
@@ -11,22 +11,27 @@ assigned uids and the latency fields.
 - **THEN** every case gives the same normalised result or the same error text
 
 ### Requirement: Root functions and filters
-Every DQL function SHALL behave as in Dgraph, at the root and in `@filter` with `and`, `or` and `not`: `eq`,
-`le`, `ge`, `lt`, `gt`, `between`, `anyofterms`, `allofterms`, `anyoftext`, `alloftext`, `regexp`, `match`,
-`ngram`, `near`, `within`, `contains`, `intersects`, `has`, `uid`, `uid_in`, `type`, `checkpwd` and `similar_to`. A
-function needing an index SHALL be refused at the root of an unindexed predicate and allowed in a filter.
+Every DQL function SHALL behave as in Dgraph, at the root and in `@filter` with `and`, `or` and `not`: `eq`, `le`, `ge`,
+`lt`, `gt`, `between`, `anyofterms`, `allofterms`, `anyoftext`, `alloftext`, `anyof`, `allof`, `regexp`, `match`,
+`ngram`, `near`, `within`, `contains`, `intersects`, `has`, `uid`, `uid_in`, `type` and `similar_to`. The comparisons and
+`regexp` SHALL run in a filter on an unindexed predicate; every other indexed function SHALL be refused without its
+index, at the root and in a filter, with Dgraph's errors. `checkpwd` SHALL be a selection on a password predicate.
 
 #### Scenario: eq at the root of an unindexed predicate is refused
 - **WHEN** `{ q(func: eq(nick, "x")) { uid } }` runs and `nick` has no index
-- **THEN** the query fails with Dgraph's error that the predicate is not indexed
+- **THEN** the query fails with `Predicate nick is not indexed`
 
 #### Scenario: eq in a filter works without an index
 - **WHEN** `{ q(func: has(name)) @filter(eq(nick, "x")) { uid } }` runs and `nick` has no index
 - **THEN** it returns the nodes whose `nick` is `x`
 
-#### Scenario: regexp needs a trigram index
-- **WHEN** `regexp(name, /^Al.*/)` runs on a predicate indexed by trigram
+#### Scenario: regexp at the root uses the trigram index
+- **WHEN** `regexp(name, /^Al.*/)` runs at the root on a predicate indexed by trigram
 - **THEN** it returns the names matching the expression
+
+#### Scenario: A term function in a filter needs its index
+- **WHEN** `@filter(anyofterms(bio, "rust"))` runs and `bio` has no term index
+- **THEN** the query fails with Dgraph's error that the predicate is not indexed
 
 #### Scenario: Geo functions answer over the geo index
 - **WHEN** `near`, `within`, `contains` and `intersects` run over the golden polygons
@@ -37,16 +42,21 @@ function needing an index SHALL be refused at the root of an unindexed predicate
 - **THEN** it returns the 3 nearest nodes
 
 #### Scenario: checkpwd verifies a password
-- **WHEN** `checkpwd(password, "secret1")` is asked of a node whose password is `secret1`
-- **THEN** the result is true, and false for any other string
+- **WHEN** `{ q(func: uid(0x1)) { checkpwd(password, "secret1") } }` runs and the node's password is `secret1`
+- **THEN** it returns `"checkpwd(password)": true`, and false for any other string
 
 ### Requirement: Pagination and ordering
-`first`, `offset` and `after` SHALL paginate as in Dgraph, a negative `first` taking from the end; `orderasc` and
-`orderdesc` SHALL sort by one or more keys, with nodes lacking the key last, and by language when tagged.
+`first`, `offset` and `after` SHALL paginate as in Dgraph, a negative `first` taking from the end, ignoring `offset`, and
+being refused with sorting; `orderasc` and `orderdesc` SHALL sort by one or more keys, with nodes lacking the key last,
+and by language when tagged.
 
 #### Scenario: A negative first takes from the end
 - **WHEN** a block with 10 results asks for `first: -3`
 - **THEN** it returns the last 3
+
+#### Scenario: A negative first with sorting is refused
+- **WHEN** a block asks for `first: -3` and `orderasc: name`
+- **THEN** it fails with `We do not yet support negative or infinite count with sorting`
 
 #### Scenario: Multi-key sorting puts missing values last
 - **WHEN** nodes are sorted by `orderasc: age, orderdesc: name` and some lack `age`
@@ -89,8 +99,9 @@ with `numpaths` and facet weights, `@cascade` with fields, `@normalize`, `expand
 - **THEN** the result holds every predicate of `Person` the node has
 
 ### Requirement: Facets, languages and counts
-Facets SHALL be retrieved, filtered, ordered and assigned to variables; language lists SHALL select values in
-order with `@.` as the untagged fallback; `count(predicate)` and the count index SHALL answer as Dgraph does.
+Facets SHALL be retrieved, filtered, ordered and assigned to variables; language lists SHALL select values in order,
+`@.` selecting the untagged value, else any tagged one; `count(predicate)` and the count index SHALL answer as Dgraph
+does.
 
 #### Scenario: A language list falls back in order
 - **WHEN** `name@fr:en` is asked of a node holding `name@en` only

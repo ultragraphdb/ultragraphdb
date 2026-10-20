@@ -2,9 +2,10 @@
 
 ### Requirement: The Alpha's HTTP endpoints
 The Alpha SHALL serve `/login`, `/query` (with `debug`, `timeout`, `startTs`, `hash`, `be`, `ro`, `respFormat`),
-`/mutate` (requiring `commitNow=true`), `/alter`, `/health` (with `all`), `/state`, `/admin/shutdown`,
-`/admin/draining` and `/admin/config/cache_mb`, with Dgraph's request and response bodies; `/commit` SHALL be
-refused, and the GraphQL endpoints SHALL not be served.
+`/mutate` (requiring `commitNow=true` and refusing `startTs` without a read set), `/alter`, `/health` (with `all`),
+`/state`, and as direct handlers `/admin/shutdown`, `/admin/draining` and `/admin/config/cache_mb`, which Dgraph routes
+through its GraphQL admin server, with Dgraph's request and response bodies; `/commit` SHALL be refused, and `/graphql`,
+`/admin`, `/admin/schema` and `/probe/graphql` SHALL not be served.
 
 #### Scenario: A query over HTTP returns Dgraph's envelope
 - **WHEN** a DQL query is posted to `/query`
@@ -19,7 +20,8 @@ refused, and the GraphQL endpoints SHALL not be served.
 - **THEN** the response is 404
 
 ### Requirement: Zero's HTTP endpoints
-Zero SHALL serve `/health`, `/state` and `/assign?what=uids|timestamps|nsids&num=N`.
+Zero SHALL serve `/health` (plain `OK`, or JSON when asked with `Accept: application/json`), and, unless admin HTTP is
+disabled, `/state` and `/assign?what=uids|timestamps|nsids&num=N` behind the admin guard.
 
 #### Scenario: Zero assigns UIDs over HTTP
 - **WHEN** `/assign?what=uids&num=100` is requested

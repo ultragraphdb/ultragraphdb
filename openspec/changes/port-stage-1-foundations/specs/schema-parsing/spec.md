@@ -16,12 +16,16 @@ and type updates (name, fields), equal to Dgraph's `schema.Parse` output.
 The parser SHALL refuse what Dgraph refuses, with Dgraph's error text.
 
 #### Scenario: A duplicate tokenizer is refused
+- **WHEN** `name: string @index(term, term) .` is parsed
+- **THEN** parsing fails with `Duplicate tokenizers defined for predicate 0-name`
+
+#### Scenario: Two sortable tokenizers are refused
 - **WHEN** `name: string @index(exact, exact) .` is parsed
-- **THEN** parsing fails naming the duplicate tokenizer
+- **THEN** parsing fails with `Only one index tokenizer can be sortable for 0-name`
 
 #### Scenario: An index on uid is refused
 - **WHEN** `friend: uid @index(exact) .` is parsed
-- **THEN** parsing fails with `Indexing not allowed` for the predicate
+- **THEN** parsing fails with `Indexing not allowed on predicate 0-friend of type uid`
 
 #### Scenario: A tokenizer invalid for the type is refused
 - **WHEN** `alive: bool @index(geo) .` is parsed
@@ -29,7 +33,7 @@ The parser SHALL refuse what Dgraph refuses, with Dgraph's error text.
 
 #### Scenario: A list of bool is refused
 - **WHEN** `friend: [bool] .` is parsed
-- **THEN** parsing fails with `Unsupported type for list: [bool]`
+- **THEN** parsing fails with `Unsupported type for list: [bool].`
 
 #### Scenario: An unclosed list type is refused
 - **WHEN** `friend: [string .` is parsed
@@ -64,15 +68,16 @@ options, validated against the registry's hnsw factory.
 - **THEN** the update carries an hnsw vector index with metric euclidean and exponent 4
 
 ### Requirement: In-memory schema state
-The schema state SHALL hold the current predicate and type definitions per namespace and SHALL answer the
-questions later stages ask of it: value type, list, tokenizers, reverse, count, upsert, lang, noconflict,
-unique and vector index.
+The schema state SHALL hold the current predicate and type definitions per namespace, SHALL answer the questions later
+stages ask of it (value type, list, tokenizers, reverse, count, upsert, lang, noconflict and vector index), and SHALL
+return a predicate's full update, `unique` included. The initial schema and types SHALL be Dgraph's, per namespace.
 
 #### Scenario: The state answers for a parsed predicate
 - **WHEN** `email: string @index(exact) @upsert @unique .` is loaded into the state
-- **THEN** the state reports type string, tokenizer exact, upsert true and unique true for `email`
+- **THEN** the state reports type string, tokenizer exact and upsert true for `email`, and its update carries unique
+  true
 
-#### Scenario: The initial schema is present
-- **WHEN** an empty state is initialised for namespace 0
-- **THEN** it holds Dgraph's initial predicates and types, `dgraph.type` and the `dgraph.graphql.*` entries
-  among them
+#### Scenario: The initial schema is Dgraph's
+- **WHEN** the complete initial schema and types are taken for namespaces 0 and 5
+- **THEN** namespace 0's hold Dgraph's initial predicates and types, `dgraph.type`, the ACL entries and the
+  `dgraph.graphql.*` entries among them, and namespace 5's lack `dgraph.namespace.name` and `dgraph.namespace.id`

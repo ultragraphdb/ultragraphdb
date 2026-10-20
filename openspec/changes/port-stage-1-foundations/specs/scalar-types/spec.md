@@ -44,11 +44,11 @@ Conversions SHALL accept and refuse the same inputs as Dgraph's `types.Convert`,
 
 #### Scenario: Floats format as Go's shortest G form
 - **WHEN** the float 2.5e-7 is converted to string
-- **THEN** the result equals Dgraph's string for the same value
+- **THEN** the result is `2.5E-07`
 
 ### Requirement: Datetime parsing accepts Dgraph's forms
-Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339 and RFC 3339 without a zone, and SHALL
-refuse a zone offset out of range.
+Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 3339 without a zone, and
+`2006-01-02 15:04:05 -0700 MST`, and SHALL refuse a zone offset out of range.
 
 #### Scenario: Partial dates parse
 - **WHEN** `2018`, `2018-10` and `2018-10-03` are parsed
@@ -59,19 +59,20 @@ refuse a zone offset out of range.
 - **THEN** parsing fails with `time zone offset hour out of range`
 
 ### Requirement: Value inference
-Inferring a type from an untyped value SHALL follow Dgraph's order: bool, int, float, datetime, then default.
+Inferring a type from an untyped value SHALL follow Dgraph's order, the first matching shape deciding: bool (`true`,
+`TRUE`, `True`, `false`, `FALSE`, `False`), datetime (four digits and `-`), int, float, then default.
 
 #### Scenario: Untyped values infer their type
 - **WHEN** `true`, `TRUE`, `t`, `2018`, `2018-10`, `1World` and `2.99792e8` are inferred
 - **THEN** the types are bool, bool, default, int, datetime, default and float
 
 ### Requirement: Passwords are bcrypt hashes
-A password SHALL be stored as a bcrypt hash at cost 10, SHALL be at least 6 characters long, and SHALL verify
-against hashes Dgraph wrote.
+A password SHALL be stored as a bcrypt hash at cost 10, SHALL be at least 6 bytes long, and SHALL verify against
+hashes Dgraph wrote.
 
 #### Scenario: A short password is refused
 - **WHEN** the string `abc` is converted to password
-- **THEN** conversion fails with `Password too short`
+- **THEN** conversion fails with `Password too short, i.e. should have at least 6 chars`
 
 #### Scenario: A Dgraph-written hash verifies
 - **WHEN** a golden password and its Go-generated bcrypt hash are checked
@@ -90,13 +91,19 @@ identifier, and SHALL order strings of a language by that language's collation.
 - **THEN** the order equals Dgraph's
 
 ### Requirement: Facet values
-A facet's value SHALL be inferred in Dgraph's order (quoted string, int, float, bool, datetime) and encoded as
-that type's binary; facets SHALL be sorted by key, and a repeated key SHALL be refused.
+A facet's value SHALL be inferred in Dgraph's order (empty or quoted string, int with base prefixes allowed, float,
+`true` or `false`, datetime) and encoded as that type's binary, and any other value SHALL be refused with
+`Could not parse the facet value : [<v>]`; string facets SHALL carry their term tokens. Sorting and validating a facet
+list SHALL order it by key and refuse a repeated key with `Repeated keys are not allowed in facets. But got <key>`.
 
 #### Scenario: Facet types are inferred
-- **WHEN** the facets `since=2006-01-02T15:04:05`, `weight=0.7`, `close=true` and `note="x"` are parsed
-- **THEN** their types are datetime, float, bool and string, sorted by key
+- **WHEN** the facets `since=2006-01-02T15:04:05`, `weight=0.7`, `close=true`, `note="x"` and `n=0x10` are parsed
+- **THEN** their types are datetime, float, bool, string and int, and `n` holds 16
+
+#### Scenario: An unquoted text facet is refused
+- **WHEN** the facet `note=abc` is parsed
+- **THEN** parsing fails with `Could not parse the facet value : [abc]`
 
 #### Scenario: A repeated facet key is refused
-- **WHEN** a facet list names `weight` twice
-- **THEN** parsing fails
+- **WHEN** a facet list naming `weight` twice is sorted and validated
+- **THEN** it fails with `Repeated keys are not allowed in facets. But got weight`

@@ -124,8 +124,9 @@ on store snapshots and take part in neither.
 
 Both forms give serializability, and strict serializability, because Zero is one timestamp oracle and
 commit order follows real time. Dgraph today checks only the keys a transaction writes
-(`zero/oracle.go`, `hasConflict`), and index keys only under `@upsert` (`posting/list.go`,
-`GetConflictKey`): snapshot isolation that admits write skew.
+(`zero/oracle.go`, `hasConflict`), and an index key conflicts across different uids only under `@upsert`
+(`posting/list.go`, `GetConflictKey`): snapshot isolation that admits write skew, and, without `@upsert`, two nodes
+taking one indexed value.
 
 **What it costs.**
 

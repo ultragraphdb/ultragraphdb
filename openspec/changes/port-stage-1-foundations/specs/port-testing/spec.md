@@ -1,48 +1,49 @@
 ## ADDED Requirements
 
-### Requirement: Every spec scenario is an executable feature scenario
-Each `#### Scenario:` in a spec under `openspec/specs/` or an active change SHALL have a Gherkin scenario of the
-same name in a `.feature` file of the crate that implements it, run by `cucumber` from that crate's
-`tests/bdd.rs`.
+### Requirement: Spec scenarios are traced to feature scenarios
+The traceability test SHALL match every `#### Scenario:` of the specs under `openspec/specs/` and
+`openspec/changes/*/specs/` with the Gherkin scenarios of the same name under `**/features/`, and SHALL fail on an
+archived spec's scenario without a feature and on a feature scenario no spec declares. A scenario of a change not
+yet archived and without a feature SHALL be reported as pending.
 
-#### Scenario: A spec scenario without a feature fails the build
-- **WHEN** a spec declares a scenario that no `.feature` file in the workspace names
+#### Scenario: An archived scenario without a feature fails
+- **WHEN** a spec under `openspec/specs/` declares a scenario that no `.feature` file names
 - **THEN** the traceability test fails and names the scenario and its spec file
 
-#### Scenario: A feature scenario without a spec is reported
+#### Scenario: A feature scenario without a spec fails
 - **WHEN** a `.feature` file names a scenario that no spec declares
-- **THEN** the traceability test fails and names the feature file and scenario
+- **THEN** the traceability test fails and names the feature file and the scenario
 
-### Requirement: Feature scenarios run under Cargo and Bazel with equal counts
-A crate's feature scenarios SHALL run under `cargo test` and under a Bazel `rust_test` tagged `bdd-test`, and
-both SHALL report the same number of scenarios executed.
+#### Scenario: A change's scenarios without features are pending
+- **WHEN** a change under `openspec/changes/` declares scenarios that no `.feature` file names yet
+- **THEN** the traceability test passes and lists them as pending, by change
 
-#### Scenario: Cargo and Bazel run the same scenarios
-- **WHEN** a crate's BDD suite runs under `cargo test -p <crate> --test bdd` and under `bazel test` with
-  `--test_tag_filters=bdd-test`
-- **THEN** both report the same count of passed scenarios and zero skipped scenarios
+#### Scenario: Scenario names are unique
+- **WHEN** two specs declare scenarios with the same name
+- **THEN** the traceability test fails and names both spec files
 
-#### Scenario: make test runs the BDD suites
-- **WHEN** `make test` runs
-- **THEN** it runs every target tagged `bdd-test` after the doc tests and unit tests
+### Requirement: Feature suites are declared for both build systems
+Every crate holding a `features/` folder SHALL declare its feature suite as `[[test]] name = "bdd"` with
+`harness = false` in `Cargo.toml` and as a `rust_test` with `use_libtest_harness = False`, the feature files as
+`data`, tagged `bdd-test`, in its `BUILD.bazel`; `scripts/test.sh` SHALL run the `bdd-test` tag after the unit tests.
 
-### Requirement: Scenarios and ported tests precede the code they test
-A ported Go file's tests SHALL be ported, and the scenarios for its behaviour written, before the file itself is
-ported; each SHALL be observed failing before it passes.
+#### Scenario: A crate with features declares both suites
+- **WHEN** the declaration test reads each crate holding a `features/` folder
+- **THEN** each declares the Cargo test and the Bazel target as required, and the test names any that does not
 
-#### Scenario: A task group records the failing run
-- **WHEN** a task group ports a Go file
-- **THEN** its first task adds the scenarios and ported tests, and its tasks record that they failed before the
-  code task made them pass
+#### Scenario: The test script runs the BDD suites
+- **WHEN** the declaration test reads `scripts/test.sh`
+- **THEN** it finds a Bazel test run filtered on `bdd-test` after the run filtered on `unit-test`
 
 ### Requirement: Byte-exact behaviour is checked against golden vectors from the Go source
-Where an output must equal Dgraph's byte for byte, a Go program built against the Dgraph source SHALL generate
-the expected outputs into `testdata/golden/`, and the Rust test SHALL compare against them.
+Where an output must equal Dgraph's byte for byte, a Go program built against the Dgraph source SHALL generate the
+expected outputs into the crate's `testdata/golden/`, each file recording the Dgraph commit it came from, and the
+Rust test SHALL compare against them.
 
-#### Scenario: Golden vectors regenerate deterministically
-- **WHEN** the golden generator runs twice against the same Dgraph commit
-- **THEN** it writes identical files, and each file records the Dgraph commit it came from
+#### Scenario: Every golden file names its Dgraph commit
+- **WHEN** the golden files of the workspace are read
+- **THEN** each records the Dgraph commit it was generated from
 
 #### Scenario: A golden mismatch names the input
 - **WHEN** a Rust output differs from its golden vector
-- **THEN** the test fails and reports the input, the expected bytes and the actual bytes in hexadecimal
+- **THEN** the comparison fails and reports the input, the expected bytes and the actual bytes in hexadecimal

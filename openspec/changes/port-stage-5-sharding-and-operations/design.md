@@ -41,8 +41,8 @@ Backup, restore and export are started through GraphQL `/admin` mutations in Dgr
 | `ops_export` | `ugdb_ops/ops_export` | `export.go` |
 | `ops_backup` | `ugdb_ops/ops_backup` | `backup*.go`, `backup/`, the restore map and reduce, online and offline restore |
 | `tool_xidmap` | `ugdb_tools/tool_xidmap` | `xidmap`, persisted in fjall |
-| `tool_live` | `ugdb_tools/tool_live` | `dgraph/cmd/live` over `ultragraph_client` |
-| `tool_bulk` | `ugdb_tools/tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go` |
+| `tool_live` | `ugdb_tools/tool_live` | `dgraph/cmd/live` over `ultragraph_client`, as the `ultragraph live` subcommand |
+| `tool_bulk` | `ugdb_tools/tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
 
 The chunker's file and stream readers (gzip) join `core_chunker`.
 
@@ -52,8 +52,8 @@ Ported from `tablet.go`, `groups.go` and `predicate_move.go`: first-writer assig
 reserved predicates in group 1, read-only lookups that create nothing, ownership checks at apply and at task
 time with the membership checksum gate, hedged tasks, the move protocol (commit block, move timestamp, stream
 rolled up at it, clean-then-ingest at the destination, forced reassignment, checksum-gated cleanup at the source),
-one move at a time, and the rebalancer with its backoff. Tablet sizes come from fjall's per-key-range size
-estimates in place of Badger's table infos.
+moves queued one at a time, and the rebalancer with its backoff. fjall 3.1 reports disk space per keyspace only, so
+the store sums tablet sizes per predicate prefix in place of Badger's table infos; task 1.4 settles how.
 
 ### Transactions spanning groups
 
@@ -71,8 +71,10 @@ follows Calvin's sequencing under the first candidate and has no counterpart und
 
 ### The admin interface
 
-Export, backup, restore, listing backups and tablet moves are started by the superadmin and run as tasks with
-status, as Dgraph's task queue (`worker/queue.go`) runs them. Its transport is open (see Open Questions).
+Export, backup, restore, listing backups and tablet moves are started by the superadmin. Export, backup and restore
+run as tasks with a status (queued, running, success, failed) on Dgraph's task queue (`worker/queue.go`), which in
+Dgraph runs only backup and export; restore and moves answer synchronously there. Its transport is open (see Open
+Questions).
 
 ### Formats as Dgraph writes them
 
@@ -86,8 +88,10 @@ keyspace in place of Badger's stream writer.
   is; task group 4 starts with the decision.
 - [Zero ordering whole requests makes Zero the bottleneck the investigation measured] → Measured in the stage's
   benchmark against the prepare-and-decide candidate.
-- [Moves of large predicates take hours] → Dgraph's move timeout (`max(2h, size / 256 KiB/s)`) is ported; moves are
-  measured on a multi-gigabyte predicate, as Dgraph's `largemove` test does.
+- [Moves of large predicates take hours] → Dgraph's move timeout (`max(2h, max(on-disk, uncompressed) / 256 KiB/s)`)
+  is ported; moves are measured on a multi-gigabyte predicate, as Dgraph's `largemove` test does.
+- [A failed import deletes all data] → As in Dgraph: an import replaces every group's store, and a failure drops all
+  data in every group.
 - [Dgraph has no small, routinely run test of a move under load] → Written fresh as features in this stage.
 
 ## Migration Plan

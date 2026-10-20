@@ -12,7 +12,7 @@ request, checked by its read set or run serially as an upsert block.
   languages, counts, vector similarity, and schema queries; JSON and RDF output.
 - The request path ported from `edgraph`: queries, mutations, upsert blocks, `Alter`, `CheckVersion`, `RunDQL`,
   `AllocateIDs`, login, namespaces.
-- Zero's timestamp and ID leases and its oracle for one group, in its own process, reached over gRPC.
+- Zero's timestamp and ID leases and its done watermark, in its own process, reached over gRPC.
 - **BREAKING (relative to Dgraph's API):** mutations without `commit_now`, requests with mutations and a
   `start_ts`, and `CommitOrAbort` are refused; HTTP `/commit` likewise.
 - Two transaction forms: a read-set check, and upsert blocks run serially in the group's apply thread; a request
@@ -20,8 +20,12 @@ request, checked by its read set or run serially as an upsert block.
 - Access control and namespaces: logins, JWTs, predicate permissions, guardians, the superadmin, namespace
   creation, deletion and isolation; user and group management through DQL instead of GraphQL.
 - The Alpha's and Zero's HTTP endpoints, without GraphQL.
-- **Behaviour change (Dgraph bug fixed):** `AllocateIDs` leases the kind of ID it is asked for; Dgraph leases
-  UIDs for every lease type (`edgraph/zero.go`, `worker/mutation.go:608`).
+- **Behaviour changes:**
+  - `AllocateIDs` leases the kind of ID it is asked for, and leased timestamps never hold reads back; Dgraph leases uids
+    for every lease type (`edgraph/zero.go`, `worker/mutation.go:608`).
+  - A request setting an `@unique` predicate runs as an upsert block in the apply thread, so uniqueness holds under
+    concurrency.
+  - Draining refuses requests with `UNAVAILABLE`; Dgraph returns a plain error naming its GraphQL draining mutation.
 - GraphQL removed from `query` and `edgraph`: `outputnode_graphql.go`, `QueryGraphQL`, persisted queries, the
   GraphQL schema updates in `Alter`, and the `IsGraphql` context flag, replaced by an explicit internal-writer flag.
 
@@ -38,7 +42,7 @@ request, checked by its read set or run serially as an upsert block.
 - `access-control`: logins, tokens, permissions, guardians and the ACL data.
 - `namespaces`: creating, listing, dropping and isolating namespaces.
 - `http-api`: the Alpha's and Zero's HTTP endpoints.
-- `server-processes`: the Alpha and Zero binaries, their configuration, health and state.
+- `server-processes`: the Alpha and Zero processes, their configuration, health and state.
 
 ### Modified Capabilities
 
@@ -46,9 +50,10 @@ None.
 
 ## Impact
 
-- New crates under `ugdb_query/` and `ugdb_server/`, and the binaries `ultragraph-alpha` and `ultragraph-zero`.
+- New crates under `ugdb_query/`, `ugdb_server/` and `ugdb_bin/`, and the binary `ultragraph` with the subcommands
+  `alpha`, `zero` and `acl`, as Dgraph's one binary carries its subcommands.
 - `ultragraph_client`: `Txn<ReadWrite>`'s `mutate` and `commit` become one-request transactions; its acceptance
   test runs against both servers.
 - Dgraph's black-box query tests (`query/*_test.go`, `dgraph/cmd/alpha/*_test.go`, `acl/acl_test.go`) are ported as
-  BDD suites run against ultragraphdb and against Go Dgraph v25.5.0.
+  BDD suites; the behaviour both servers share runs against ultragraphdb and against Go Dgraph v25.5.0.
 - Multi-request tests (`alpha/txn_test.go`) are rewritten as one-request transactions.

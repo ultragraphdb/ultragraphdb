@@ -1,8 +1,8 @@
 ## ADDED Requirements
 
 ### Requirement: Index tokens follow the value
-Setting an indexed value SHALL add the subject to the index key of each of its tokens, and changing or deleting
-the value SHALL remove the subject from the old value's tokens. A language-tagged value SHALL be tokenized by the
+Setting an indexed value SHALL add the subject to the index key of each of its tokens, and changing or deleting the
+value SHALL remove the subject from the old value's tokens. A language-tagged value SHALL be tokenized by the
 language's tokenizer.
 
 #### Scenario: Setting an indexed value adds its tokens
@@ -22,17 +22,17 @@ language's tokenizer.
 - **THEN** the index holds the German stem's token
 
 ### Requirement: Reverse edges
-For a predicate with `@reverse`, setting `a → b` SHALL add `a` to the reverse key of `b`, deleting it SHALL
-remove `a`, and overwriting a single uid predicate SHALL move `a` to the new target's reverse key.
+For a predicate with `@reverse`, setting `a → b` SHALL add `a` to the reverse key of `b`, deleting it SHALL remove
+`a`, and overwriting a single uid predicate SHALL move `a` to the new target's reverse key.
 
 #### Scenario: A reverse edge follows its forward edge
 - **WHEN** `friend: uid @reverse .` is set from `0x1` to `0x2` and then to `0x3`
 - **THEN** the reverse key of `0x3` contains `0x1` and the reverse key of `0x2` does not
 
 ### Requirement: Count indexes
-For a predicate with `@count`, the subject SHALL be listed under the count key of its current number of
-postings, and a set that adds no posting SHALL leave the count unchanged; with `@reverse` as well, the reverse
-count keys SHALL be kept likewise.
+For a predicate with `@count`, the subject SHALL be listed under the count key of its current number of postings when
+that number is above zero and under no count key otherwise, a non-list predicate counting as one, and a set that adds
+no posting SHALL leave the count unchanged; with `@reverse` as well, the reverse count keys SHALL be kept likewise.
 
 #### Scenario: Adding a third uid moves the count
 - **WHEN** `friend: [uid] @count .` holds two uids for `0x1` and a third is added
@@ -47,10 +47,14 @@ count keys SHALL be kept likewise.
 - **THEN** the reverse count keys of `0x2` reflect one more incoming edge
 
 ### Requirement: Deleting all of a predicate for a subject
-A delete of `<s> <p> *` SHALL remove every posting of `p` for `s`, their index tokens and reverse edges, and set
-its count to zero.
+A delete of `<s> <p> *` SHALL remove every posting of `p` for `s`, its index tokens or reverse edges, and the subject
+from its count key.
 
-#### Scenario: A star delete clears index and reverse entries
-- **WHEN** `<0x1> <friend> * .` is deleted on an indexed, reversed, counted predicate
-- **THEN** `0x1` has no `friend` postings, appears in no reverse key of its former targets, and is listed under
-  count 0
+#### Scenario: A star delete clears reverse and count entries
+- **WHEN** `<0x1> <friend> * .` is deleted on `friend: [uid] @reverse @count .`
+- **THEN** `0x1` has no `friend` postings, appears in no reverse key of its former targets, is listed under no count
+  key, and each former target's reverse count drops by one
+
+#### Scenario: A star delete clears index entries
+- **WHEN** `<0x1> <name> * .` is deleted on an indexed `name`
+- **THEN** no index key of `name` contains `0x1`

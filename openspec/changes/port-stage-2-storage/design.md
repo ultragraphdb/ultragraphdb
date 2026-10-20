@@ -43,20 +43,27 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 
 ### The store
 
-- **Key encoding.** `user key ‖ !version` (big-endian), so a key's versions sort newest first and "newest at or
-  below `t`" is one seek to `key ‖ !t`. Dgraph's code at `mvcc.go:858` works around rollups placing older
-  versions above newer ones in Badger's LSM; with the version in the key that ordering cannot arise.
+- **Key encoding.** `user key ‖ !version` (big-endian), as Badger encodes it, so a key's versions sort newest first
+  and "newest at or below `t`" is one seek to `key ‖ !t`. Reads seek with a merging iterator rather than a point get,
+  as `mvcc.go:858` does, because a rollup can write a version below versions already in higher levels.
 - **Per-version metadata** in a value prefix: the meta byte, the discard flag, the tombstone flag.
 - **One fjall keyspace for data,** plus one for store metadata (applied timestamp, banned namespaces, discard
   timestamp). fjall's plain `Database` is used; its transactional databases are not, because the store never
   decides anything.
 - **Garbage collection** is a compaction filter. A filter is created per compaction run and receives the run's
-  items in key order (`lsm-tree`'s `CompactionFilter::filter_item(&mut self, ..)`), so it sees each key's
-  versions newest first and drops those older than the newest discard-flagged version at or below the discard
-  timestamp, Badger's rule. Versions outside a run are kept until a run covers them.
-- **Prefix drops** use fjall's range deletion, followed by clearing the cache.
-- **Banned namespaces** are a persisted set; writes to them are dropped and reads filter them, as Badger's
-  `BanNamespace` does.
+  items in key order (`lsm-tree`'s `CompactionFilter::filter_item(&mut self, ..)`), so it sees each key's versions
+  newest first and drops those older than the newest discard-flagged or tombstone version at or below the discard
+  timestamp, Badger's rule (`badger/levels.go:815-835`); the tombstone itself is dropped only when compacting into
+  the last level, and no item above the last level is destroyed without a tombstone, so an older copy below cannot
+  return. Versions outside a run are kept until a run covers them.
+- **Prefix drops** write a point tombstone for every key under the prefix, in batches through the writer, then clear
+  the cache; compaction reclaims the space, and lsm-tree's `drop_range` can drop tables wholly inside the prefix.
+  fjall 3.1 offers no range deletion; dropping everything uses `Keyspace::clear`.
+- **Banned namespaces** are a persisted set; a batch drops the writes addressed to them and writes the rest, and reads
+  filter them. Badger refuses such writes with `ErrBannedKey`, which Dgraph ignores (`draft.go:984`).
+- **Durability.** A fjall write batch flushes to its journal only as its persist mode says; every commit batch is
+  written with the mode stage 4's durability setting chooses, and after a crash the store's applied timestamp names
+  the last batch it holds.
 
 Alternative: redb. Decided against on 2026-10-20 (`dgraph-port-overview.md`).
 
@@ -70,29 +77,40 @@ Alternative: redb. Decided against on 2026-10-20 (`dgraph-port-overview.md`).
 - Not ported: `pendingTxns`, the oracle's waiters, `ProcessDelta`, `shouldAbort`, `ResetTxns*`,
   `detectPendingTxns`, the `deltas` and `maxVersions` maps, `FillContext`. Conflict keys (`GetConflictKey`) are
   ported in stage 3 with the commit decision, where they belong.
-- One writer per store applies commits in order. The applied timestamp advances with each batch, and a read at
-  `t` waits until it reaches `t`.
+- One writer per store applies commits in order. The applied timestamp advances after each batch and its cache
+  update, and a read at `t` waits until every commit timestamp assigned at or below `t` is applied.
 
 ### The cache
 
-moka keyed by the list's key, holding an `Arc` of the list and the commit timestamp it reflects. A commit
-replaces or removes the entries of the lists it wrote before the writer lock is released; a reader at `t`
-uses an entry only if it reflects every commit at or below `t`, which the applied timestamp tells it. Readers
-above the last commit, the common case, therefore hit; in Dgraph they miss, because a hit requires
-`readTs ≤ maxTs` (`mvcc.go:776-781`, the fix for issue #9597).
+moka keyed by the list's key, holding an `Arc` of the list and the commit timestamp it reflects. A commit replaces
+or removes the entries of the lists it wrote before the writer lock is released; a reader at `t` uses an entry only
+if it reflects every commit at or below `t`, which the applied timestamp tells it. A reader that missed inserts its
+list only if no commit to that key was applied after its snapshot, checked under the writer lock; Dgraph inserts
+unconditionally (`mvcc.go:883-891`), which lets a list read before a commit replace the commit's entry. Readers above
+a list's newest version, the common case, therefore hit; in Dgraph they miss, because a hit requires
+`readTs ≤ maxTs` of that list (`mvcc.go:776-781`, the fix for issue #9597).
 
 ### Rollups
 
 A background thread rolls up lists in batches, as Dgraph's `incrRollupi` does (priority for lists with more than
-500 deltas), at a timestamp no higher than the oldest open read, and writes each rollup as its own batch through
-the same writer. Rollups pause while an index rebuild runs.
+500 deltas): it takes a fresh timestamp, waits until every commit below it is applied, rolls up there, and writes each
+rollup as its own batch through the same writer (`mvcc.go:92-117`). A rollup leaves the versions below it readable,
+so open reads bound only the discard timestamp. A rollup that removes split parts deletes their keys. Rollups pause
+while an index rebuild runs.
 
 ### Rebuilds and drops
 
 Ported as Dgraph has them: the `needs*Rebuild` decision tables, the dual schema (`mutSchema` for writes, the
-query schema for reads), the two-phase rebuild through a temporary keyspace, list-type changes and the
-undo on failure. Drops remove split parts too; Dgraph's `DeletePredicate` and `DeleteData` drop only the
-default prefix and leave split parts behind (`index.go:1881`, `1894`).
+interim query schema of `GetQuerySchema` for reads, `index.go:1132-1160`), the two-phase rebuild through a temporary
+store (vector indexes rebuild in place, as `RunWithoutTemp` does), and type changes with their refusals. Two parts
+differ:
+
+- A failed rebuild keeps the previous schema's indexes complete. Dgraph drops indexes and rewrites list values before
+  the build and restores only the schema record on failure (`worker/mutation.go:120-129`, `262-275`); the port builds
+  into the temporary store first and drops the old entries only after the build succeeds.
+- Drops remove split parts too; Dgraph's `DeletePredicate` and `DeleteData` drop only the default prefix and leave
+  split parts behind (`index.go:1881`, `1894`). Dropping everything in a namespace also removes its schema and type
+  keys, which Dgraph removes in memory only (`schema.go:150-168`).
 
 ## Risks / Trade-offs
 
@@ -102,8 +120,9 @@ default prefix and leave split parts behind (`index.go:1881`, `1894`).
   per group already; the writer batches commits from one apply step.
 - [Updating cached lists in place] → Dgraph mutates shared maps unless `refresh=true`. Lists in the cache are
   immutable `Arc`s, replaced on write.
-- [HNSW's in-memory caches of neighbours and dead nodes] → They must follow commits as the posting cache does;
-  they are invalidated by the same writer.
+- [HNSW's in-memory caches `nodeAllEdges` and `deadNodes`] → Dgraph loads `deadNodes` once and never refreshes it
+  (`helper.go:748-768`). Both follow commits as the posting cache does, invalidated by the same writer. The dead list
+  itself is written by index maintenance (`posting/index.go:113-152`), so it belongs to `store_apply`.
 
 ## Migration Plan
 
@@ -114,4 +133,4 @@ data moves through export and the loaders (stage 5).
 
 - Does the compaction filter alone keep version garbage bounded under Dgraph's rollup rate, or is a background
   sweep over hot keys needed as well?
-- What bounds a rebuild's temporary keyspace: memory with spill to disk, or a fjall keyspace from the start?
+- Which store holds a rebuild's temporary entries: memory with spill to disk, or a fjall keyspace from the start?

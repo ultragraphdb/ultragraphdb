@@ -1,19 +1,21 @@
 Every task group runs in the same order: write the feature scenarios and port the Go tests (they fail), port the
-code (they pass), refactor with both green. Black-box scenarios run against ultragraphdb and against Go Dgraph
-v25.5.0; a group is done when both agree and its suites pass under Cargo and Bazel with equal counts.
+code (they pass), refactor with both green. Scenarios of behaviour Go Dgraph shares are tagged `@differential` and
+run against ultragraphdb and Go Dgraph v25.5.0, passing when both agree; scenarios of the port's own behaviour (the
+one-request rule, the transaction forms, the fixed `AllocateIDs`, the admin replacements for GraphQL) run against
+ultragraphdb alone.
 
 ## 1. Conformance harness
 
 - [ ] 1.1 BDD step library driving `ultragraph_client` against a target server; normalisation of uids and latencies
-- [ ] 1.2 Go Dgraph v25.5.0 as a second target through the `DgraphInstance` fixture; Dgraph's test data (`populateCluster`) loaded into both
-- [ ] 1.3 A feature run that passes only when both targets agree
+- [ ] 1.2 Go Dgraph v25.5.0 as a second target through the `DgraphInstance` fixture, re-pinned from v25.4.0 to `dgraph/standalone:v25.5.0`, with the harness's address whitelisted; Dgraph's test data (`populateCluster`) loaded into both
+- [ ] 1.3 The `@differential` tag: such a scenario passes only when both targets agree; untagged scenarios run against ultragraphdb alone
 
 ## 2. Zero: timestamps and leases → `server_zero`
 
 - [ ] 2.1 Port `zero_test.go`'s lease cases; scenarios: timestamps-and-leases
-- [ ] 2.2 Port `assign.go`: UID, namespace and timestamp leases, the persisted high-water marks, read-only timestamp reuse
+- [ ] 2.2 Port `assign.go`: uid, namespace and timestamp leases, high-water marks persisted in Zero's store, bump leases, overflow refusal, per-namespace uid rate limits, read-only timestamp reuse
 - [ ] 2.3 Port the done watermark and its stream to the Alpha; leased-timestamp reports (applied, abandoned)
-- [ ] 2.4 The `Zero` gRPC subset an Alpha uses, the HTTP handlers, the `ultragraph-zero` binary
+- [ ] 2.4 The `Zero` gRPC subset an Alpha uses, the HTTP handlers, the `ultragraph zero` subcommand in `bin_ultragraph`
 
 ## 3. Task processing → `query_task`
 
@@ -42,9 +44,9 @@ v25.5.0; a group is done when both agree and its suites pass under Cargo and Baz
 
 ## 7. Transactions → `server_alpha`
 
-- [ ] 7.1 Features from `alpha/upsert_test.go` (56) and `alpha/txn_test.go`, rewritten as one-request transactions; scenarios: one-request-transactions
+- [ ] 7.1 Features from `alpha/upsert_test.go` (55) and `alpha/txn_test.go`, rewritten as one-request transactions; scenarios: one-request-transactions
 - [ ] 7.2 The apply thread: batches, leased commit timestamps, stacked scratch layers, one store batch, reports to Zero
-- [ ] 7.3 Upsert blocks in the apply thread: query, `@if`, `uid()` and `val()` substitution, condition validation
+- [ ] 7.3 Upsert blocks in the apply thread: query, conditions as filters over `uid(0)`, `uid()` and `val()` substitution, condition validation, `@unique` requests as upsert blocks
 - [ ] 7.4 Port `GetConflictKey` and the write-key check against the group's per-key commit record
 - [ ] 7.5 Decide the read-set carrier (design, open question 1) and record it in the design and the overview
 - [ ] 7.6 The read-set form: read tokens in query responses, ranges for index scans, the check at commit
@@ -52,14 +54,14 @@ v25.5.0; a group is done when both agree and its suites pass under Cargo and Baz
 
 ## 8. Alter → `server_alpha`
 
-- [ ] 8.1 Features from `alpha/alter_test.go` and the schema cases of `run_test.go`; scenarios: alter-operations
+- [ ] 8.1 Features from `edgraph/alter_test.go` and the schema cases of `alpha/run_test.go`; scenarios: alter-operations
 - [ ] 8.2 Port `Alter`: schema changes, background runs, drops, guardian checks, groot recreation
 
 ## 9. Access control → `server_acl`
 
 - [ ] 9.1 Port `access_test.go`, the FORK capability and anonymous tests; features from `acl/acl_test.go` without GraphQL; scenarios: access-control
-- [ ] 9.2 Port login, JWTs, refresh, the ACL cache and its refresh, query, mutation and alter authorization, guardians, the superadmin, the capabilities
-- [ ] 9.3 Port the `ultragraph acl` command over one-request DQL
+- [ ] 9.2 Port the admin-source check, login, JWTs, refresh, the ACL cache and its refresh, query, mutation and alter authorization, guardians, the groot guard, the superadmin, the capabilities and anonymous postures, ACL-off behaviour
+- [ ] 9.3 Port the `ultragraph acl` subcommand over one-request DQL
 
 ## 10. Namespaces → `server_alpha`
 
@@ -69,7 +71,7 @@ v25.5.0; a group is done when both agree and its suites pass under Cargo and Baz
 ## 11. HTTP and processes → `server_alpha`, `server_zero`
 
 - [ ] 11.1 Features from `alpha/http_test.go`; scenarios: http-api, server-processes
-- [ ] 11.2 Port the HTTP handlers without GraphQL; health, state, draining, shutdown; the `ultragraph-alpha` binary
+- [ ] 11.2 Port the HTTP handlers without GraphQL; health, state, draining, shutdown; the `ultragraph alpha` subcommand
 
 ## 12. The client → `ultragraph_client`
 
@@ -77,6 +79,6 @@ v25.5.0; a group is done when both agree and its suites pass under Cargo and Baz
 
 ## 13. Close the stage
 
-- [ ] 13.1 Traceability green; `make test` green; the conformance features agree on both targets
+- [ ] 13.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the conformance features agree on both targets
 - [ ] 13.2 The isolation benchmark: Dgraph's write-key check, the read-set check and serial upsert blocks on scrith's workload, uniform to Zipfian skew; throughput, p99, abort rate, head-of-line blocking; results in the overview
 - [ ] 13.3 Attribution headers; `AGENTS.md` crate table updated

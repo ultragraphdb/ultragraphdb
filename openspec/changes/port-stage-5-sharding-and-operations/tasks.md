@@ -4,10 +4,10 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 
 ## 1. Tablets → `cluster_tablets`, `server_zero`, `server_alpha`
 
-- [ ] 1.1 Port `zero/tablet_test.go`'s assignment cases; scenarios: tablets
-- [ ] 1.2 Port Zero's tablet map: `ShouldServe`, `Inform`, reserved predicates in group 1, the race rule, read-only lookups
+- [ ] 1.1 Scenarios: tablets; Dgraph has no unit tests of tablet assignment to port
+- [ ] 1.2 Port Zero's tablet map: `ShouldServe`, `Inform` answering with the owner's tablet, reserved predicates in group 1, the race rule, read-only lookups, the delete instruction for unserved tablets
 - [ ] 1.3 Port the Alpha's tablet cache, `BelongsTo`, `BelongsToReadOnly`, the ownership check at apply, the checksum gate
-- [ ] 1.4 Tablet size reports from fjall's size estimates
+- [ ] 1.4 Tablet size reports summed per predicate prefix by the store; decide the method, since fjall reports disk space per keyspace only
 
 ## 2. Fan-out → `server_alpha`, `query_task`
 
@@ -30,7 +30,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 
 - [ ] 5.1 Scenarios: predicate-moves; a small move under load, written fresh
 - [ ] 5.2 Port the commit block, the move timestamp, the source stream rolled up at it, clean-then-ingest, forced reassignment, checksum-gated cleanup
-- [ ] 5.3 The move through the admin interface; refusals; one move at a time; the multi-gigabyte move with a killed destination
+- [ ] 5.3 The move through the admin interface; refusals; queued moves; the move timestamp kept across size reports; the multi-gigabyte move with a killed destination
 
 ## 6. Rebalancing → `cluster_tablets`
 
@@ -55,18 +55,18 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 ## 10. Backup and restore → `ops_backup`
 
 - [ ] 10.1 Port `backup_manifest_test.go`, `backup_handler_test.go`, `backup_test.go`, `backup/run_test.go`; features from `systest/backup` and `systest/online-restore`; scenarios: backup-restore
-- [ ] 10.2 Port backups: the per-group stream since a timestamp, the file format, manifests and summaries, file and S3 handlers
-- [ ] 10.3 Port the restore chain rules, the map and reduce phases over fjall, offline and online restore, lease bumps; the refusal of encrypted backups
+- [ ] 10.2 Port backups: the per-group stream since the previous backup's read timestamp, S2 compression, the file format, manifests and summaries, file and S3 handlers
+- [ ] 10.3 Port the restore chain rules, the map and reduce phases over fjall, offline and online restore, lease bumps for both; the refusal of encrypted manifests
 
 ## 11. Bulk loader and import → `tool_bulk`
 
 - [ ] 11.1 Port `merge_shards_test.go`, `placement_test.go`, `shard_map_test.go`; features from `systest/bulk_live/bulk`, `systest/integration2/bulk_loader_test.go`, `dgraphimport`; scenarios: bulk-loader
 - [ ] 11.2 Port the map, shuffle and reduce phases writing fjall stores by sorted ingestion; placement; split lists, counts and vectors
-- [ ] 11.3 Port import into a running cluster: draining, streaming to each group's replicas, dropping on failure
+- [ ] 11.3 Port import into a running cluster: draining, replacing each group's store by streaming to its replicas, deleting all data on failure
 
 ## 12. Close the stage and the port
 
-- [ ] 12.1 Traceability green; `make test` green; the fault schedules with moves pass
+- [ ] 12.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules with moves pass
 - [ ] 12.2 Load Go Dgraph's export of scrith's data and run scrith's suites against ultragraphdb
 - [ ] 12.3 Measure commits per second with one, two and three groups against Go Dgraph's measured 8–10% gain from three groups; results in the overview
 - [ ] 12.4 Attribution headers; `AGENTS.md` crate table updated

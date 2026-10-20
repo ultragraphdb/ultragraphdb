@@ -5,7 +5,7 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 
 - [ ] 1.1 Add `raft` (raft-rs); port `raftwal/storage_test.go` (11) and `encryption_test.go`'s format-independent cases; scenarios: raft-log-storage
 - [ ] 1.2 Implement raft-rs `Storage` over fjall: entries, terms, first and last index, hard state, configuration, snapshot metadata, compaction
-- [ ] 1.3 The node identifiers and checkpoint; the two durability modes; the kill-during-append test
+- [ ] 1.3 The node identifiers; the two durability modes; the kill-during-append test
 - [ ] 1.4 The entry payload codec (`key ‖ pb.Proposal`, `pb.ZeroProposal`), proposal key generation, the log dump tool
 
 ## 2. Transport → `raft_transport`
@@ -23,9 +23,10 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 ## 4. The Alpha group → `server_alpha`
 
 - [ ] 4.1 Port `draft_test.go`, `proposal_test.go`; scenarios: group-replication (quorum, determinism, proposals, restarts, leased timestamps)
-- [ ] 4.2 Proposals: keys, retries, the limiter, deduplication; leased commit timestamps in the entries
-- [ ] 4.3 The apply dispatch over committed entries (mutations, schema, drops, timestamp reports), feeding stage 3's apply thread; checkpoints
-- [ ] 4.4 Restart from snapshot and log, skipping entries at or below the checkpoint
+- [ ] 4.2 Proposals: keys, retries carrying the same bytes, the limiter, schema proposals' single attempt
+- [ ] 4.3 Entries carrying commit timestamps in append order, blank-node uids and watermark entries; the apply thread's order check; abandonment reported after the new leader's first own-term entry; Zero refusing leases to non-leaders
+- [ ] 4.4 The apply dispatch over committed entries (mutations, schema, drops, watermarks), feeding stage 3's apply thread; the applied index and applied proposal keys in the store batch
+- [ ] 4.5 Reads on every replica gated by the applied watermark; restart from snapshot and log, skipping entries at or below the stored applied index
 
 ## 5. Snapshots → `server_alpha`
 
@@ -48,10 +49,10 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 
 - [ ] 8.1 The process harness: start, kill, restart, partition and slow links by proxy; history recording in Elle's format
 - [ ] 8.2 Scenarios: fault-tolerance; Dgraph's Jepsen schedules (kill-alpha, kill-zero, partition-ring)
-- [ ] 8.3 Elle runs of both transaction forms under each schedule, tagged `integration_test`
+- [ ] 8.3 `elle-cli` runs under each schedule: `strict-serializable` for the read-set and upsert-block forms, `snapshot-isolation` for write-key requests, tagged `integration_test`
 
 ## 9. Close the stage
 
-- [ ] 9.1 Traceability green; `make test` green; the fault schedules pass
-- [ ] 9.2 Measure commits per second for a three-replica group against stage 3's single replica, and against Go Dgraph's measured 11.8k and 14.5k; results in the overview
+- [ ] 9.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules pass
+- [ ] 9.2 Measure commits per second for a three-replica group against stage 3's single replica, against Go Dgraph v25.5.0 stock (11.8k) and patched (14.5k) with one Zero and one Alpha, and against Go Dgraph with three Alpha replicas measured the same way; results in the overview
 - [ ] 9.3 Attribution headers; `AGENTS.md` crate table updated

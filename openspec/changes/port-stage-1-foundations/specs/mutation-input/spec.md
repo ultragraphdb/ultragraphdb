@@ -6,7 +6,7 @@ facets and namespace label, equal to Dgraph's `chunker` RDF parser, and SHALL be
 it.
 
 #### Scenario: Dgraph's RDF parser cases pass
-- **WHEN** the 133 cases of Dgraph's RDF parser table are parsed
+- **WHEN** the 130 cases of Dgraph's RDF parser table are parsed
 - **THEN** each gives Dgraph's N-Quad or Dgraph's error
 
 #### Scenario: A typed literal takes its type
@@ -34,7 +34,7 @@ objects become edges, `|` separates a predicate from its facet, and a node witho
 - **THEN** the result holds `name` for both nodes and a `friend` edge from `_:a` to `_:b`
 
 #### Scenario: A facet travels with its predicate
-- **WHEN** `{"uid": "_:a", "friend": {"uid": "_:b"}, "friend|close": true}` is parsed
+- **WHEN** `{"uid": "_:a", "friend": {"uid": "_:b", "friend|close": true}}` is parsed
 - **THEN** the `friend` edge carries the facet `close` with bool value true
 
 #### Scenario: A negative uid is refused
@@ -43,13 +43,5 @@ objects become edges, `|` separates a predicate from its facet, and a node witho
 
 #### Scenario: A node without uid gets a blank node
 - **WHEN** a JSON object without `uid` is parsed
-- **THEN** it is assigned a blank node of the form `_:dg.<id>.<n>`, and two parses of one input differ only in
-  `<id>`
-
-### Requirement: N-Quads become directed edges
-An N-Quad SHALL convert into a directed edge with entity, attribute, value or value id, value type, language,
-facets and operation, as Dgraph's conversion does.
-
-#### Scenario: A value N-Quad becomes a value edge
-- **WHEN** `<0x1> <name> "A"@en .` is converted for a set
-- **THEN** the edge has entity 0x1, attribute `name`, string value `A`, language `en` and operation SET
+- **THEN** it is assigned `_:dg.<id>.<n>`, with `<id>` a random u32 drawn once per process and `<n>` a process-wide
+  counter from 1

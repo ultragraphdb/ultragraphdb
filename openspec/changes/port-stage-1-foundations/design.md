@@ -16,7 +16,8 @@ Stage 1 covers the packages at the bottom of that graph. None of them reads stor
 later stage names their types: keys, posting and UID-pack messages, scalar values, tokens, parsed queries and
 schemas, edges.
 
-The fork adds code upstream Dgraph lacks (the ngram tokenizer among it); the port follows the fork.
+The fork is v25.5.0 plus six performance and dependency commits that do not change behaviour; the port follows the
+fork.
 
 ## Goals / Non-Goals
 
@@ -43,13 +44,14 @@ The fork adds code upstream Dgraph lacks (the ngram tokenizer among it); the por
 
 | Crate | Path | Ports |
 |---|---|---|
-| `proto_pb` | `ugdb_proto/proto_pb` | `protos/pb.proto`, with the Badger `pb.proto` messages it imports (`KV`, `KVList`) |
+| `proto_pb` | `ugdb_proto/proto_pb` | `protos/pb.proto`, with the Badger `pb.proto` messages it imports (`KV`, `KVList`, `Match`) |
 | `core_keys` | `ugdb_core/core_keys` | `x/keys.go`, the reserved and pre-defined predicate tables, the pure helpers of `x` |
 | `core_codec` | `ugdb_core/core_codec` | `codec` and the group-varint encoding |
 | `core_algo` | `ugdb_core/core_algo` | `algo` without the count-min sketch |
-| `core_types` | `ugdb_core/core_types` | `types` and `types/facets` |
+| `core_types` | `ugdb_core/core_types` | `types` |
 | `core_lex` | `ugdb_core/core_lex` | `lex` |
-| `core_tok` | `ugdb_core/core_tok` | `tok`, `tok/index`, `tok/options`, `tok/constraints` |
+| `core_tok` | `ugdb_core/core_tok` | `tok`, `tok/index`, `tok/options`, `tok/constraints`, and from `tok/hnsw` the option and metric names, `AllowedOptions` and the `__vector_` suffix constants |
+| `core_facets` | `ugdb_core/core_facets` | `types/facets`, which imports `tok` while `tok` imports `types` |
 | `core_dql` | `ugdb_core/core_dql` | `dql` |
 | `core_schema` | `ugdb_core/core_schema` | `schema/parse.go`, `schema/state.go`, the in-memory part of `schema/schema.go` |
 | `core_chunker` | `ugdb_core/core_chunker` | `chunker`'s RDF and JSON parsers |
@@ -69,7 +71,8 @@ are the simplest way to guarantee identical results, and they keep Go-written ba
 
 The golden generator is a Go program under `tools/golden/`, with a `go.mod` that points at the fork via a
 `replace`. It writes JSON files under each crate's `testdata/golden/`, recording the Dgraph commit, and
-`scripts/golden.sh` runs it. Bazel and Cargo read the committed files; neither needs Go.
+`scripts/golden.sh` runs it. Ngram and geo tokens come out of Dgraph in map-iteration order, so the generator sorts
+them bytewise and the Rust tests compare sorted. Bazel and Cargo read the committed files; neither needs Go.
 
 Alternative: assert only semantic equality (same query results). That needs a running stage 3 before any
 tokenizer can be checked.
@@ -81,8 +84,13 @@ tokenizer can be checked.
   `BUILD.bazel` declares a `rust_test` with `use_libtest_harness = False`, the feature files as `data`, tagged
   `bdd-test`.
 - `test_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
-  `openspec/changes/*/specs/`, and every `Scenario:` under `**/features/`, and fails on a name present on one
-  side only.
+  `openspec/changes/*/specs/`, and every `Scenario:` under `**/features/`. It fails on an archived spec's
+  scenario without a feature, on a feature no spec declares, and on a duplicated scenario name; a change's
+  scenarios without features are listed as pending, because all five stages' changes exist before their code.
+  A stage's change is archived only when none of its scenarios is pending.
+- `test_bdd` also holds the declaration test, which checks that every crate with features declares its suite for
+  both build systems. Equal scenario counts under Cargo and Bazel are compared by `scripts/bdd_counts.sh` when a
+  stage closes, because a test cannot run both build systems.
 - Dgraph's Go tests are ported to `tests/` as `AGENTS.md` describes, a ported test file named after its Go file.
   Table-driven Go tests keep their tables, so a case maps back to its Go line.
 - `scripts/test.sh` runs `--test_tag_filters=bdd-test` after the unit tests.
@@ -100,8 +108,9 @@ noticing.
 | Snowball stemmers (da, fi, hu, nl, no, ro, ru, sv, tr) | `rust-stemmers` | Checked per language against golden vectors |
 | English (Porter), Lucene light stemmers (de, es, fr, it, pt), ar, ckb, hi | ported from bleve | bleve's English stemmer is Porter, not Snowball English |
 | Stop words (28 languages) | ported tables | Copied from bleve's lists |
-| Word boundaries, NFKC | `unicode-segmentation`, `unicode-normalization` | Unicode version pinned to bleve's where they differ |
-| Collation keys | to be chosen by the spike in task group 2 | See Risks |
+| NFKC | `unicode-normalization` | Unicode 17.0.0, as Go's `x/text` v0.41 |
+| Word boundaries | tables generated from Unicode 8.0.0 `WordBreakProperty.txt` | bleve's `blevesearch/segment` v0.9.1 is built from Unicode 8.0.0, and `unicode-segmentation` compiles in a later version that cannot be pinned |
+| Collation keys | a port of Go's `x/text/collate` with its CLDR 23 tables | Go writes its own key format (`00 00` level separators), which ICU and ICU4X keys do not reproduce |
 | S2 cells and covers | an S2 port | See Risks |
 | WKB, GeoJSON | `geo-types`, `wkb`, `geojson` | WKB little-endian, as go-geom writes it |
 | Big floats | `dashu-float` or a ported formatter | Go's shortest `g` text at 200-bit precision; pure Rust, so it builds for static musl |
@@ -120,13 +129,13 @@ ports the registry entry with the option set; the index itself is stage 2.
 
 ## Risks / Trade-offs
 
-- [Collation keys differ from Go's `x/text/collate`] → Exact-with-language tokens and language sorting depend on
-  them. Task group 2 opens with a spike comparing candidate libraries (ICU4X, a port of `x/text/collate`) on the
-  golden strings; a port of Go's tables is the fallback.
+- [Porting `x/text/collate` is a large table port] → Exact-with-language tokens and language sorting depend on its
+  keys. Task group 2 opens with a spike that ports it for the golden strings' languages first and measures the
+  tables' size.
 - [The S2 region coverer differs from Go's `golang/geo`] → Geo tokens would differ and geo queries would miss.
   The geo tokenizer is accepted only when its golden vectors pass; a port of the coverer is the fallback.
-- [Unicode versions differ between bleve's segmenter and the Rust crates] → Word boundaries could split
-  differently on recent scripts. The golden corpus includes text from every script bleve's tests cover.
+- [Word-break tables generated from Unicode 8.0.0 diverge from current Unicode] → That is the point: they split as
+  bleve does. The golden corpus includes text from every script bleve's tests cover.
 - [Dgraph's error texts are part of the contract] → Clients and tests match on them. Error texts are copied,
   and the ported parser tests assert them.
 - [Bazel and cucumber-rs] → `cucumber` expects to find feature files relative to the crate. The first task
@@ -140,5 +149,4 @@ New crates only; nothing existing changes besides `scripts/test.sh` and the work
 
 ## Open Questions
 
-- Which collation library produces Go's `x/text/collate` keys, or is a port of its tables needed?
-- Which S2 implementation reproduces `golang/geo`'s region covers?
+- Which S2 implementation reproduces `golang/geo`'s region covers, or is a port of its coverer needed?

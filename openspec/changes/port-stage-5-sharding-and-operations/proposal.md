@@ -17,8 +17,12 @@ Dgraph included.
 - Full and incremental backups to the filesystem and S3, manifests, restore offline and online.
 - The live loader over one-request transactions, the bulk loader writing per-group fjall stores, and import into
   a running cluster.
-- **Behaviour change:** backups are unencrypted, because encryption at rest is cut; an encrypted Go backup is
-  refused with an error that says so.
+- **Behaviour changes:**
+  - Backups are unencrypted, because encryption at rest is cut; an encrypted Go backup is refused with an error that
+    says so.
+  - Restore runs as a task with a status, as export and backup do, and export is confined to the superadmin.
+  - Offline restores raise the uid and namespace leases; Dgraph's do not.
+  - A tablet keeps its move timestamp across size reports, and `Inform` answers with the owner's tablet.
 
 ## Capabilities
 
@@ -41,7 +45,7 @@ None.
 
 ## Impact
 
-- New crates under `ugdb_cluster/`, `ugdb_ops/` and `ugdb_tools/`; S3 access (`object_store`) and gzip join the
-  dependencies.
+- New crates under `ugdb_cluster/`, `ugdb_ops/` and `ugdb_tools/`; S3 access (`object_store`), gzip and an S2 codec
+  (`minlz`, compatible with the klauspost S2 format Dgraph's backups use) join the dependencies.
 - `server_zero` gains tablets and the rebalancer; `server_alpha` gains fan-out, moves and the admin interface.
 - The chunker's file and stream readers, deferred from stage 1, arrive with the loaders.

@@ -61,8 +61,9 @@ Fragments SHALL be expanded where they are spread, and a cycle among fragments S
 - **THEN** parsing fails with `Cycle detected`
 
 ### Requirement: Mutation and upsert blocks
-A mutation block (`set`, `delete`) SHALL parse into N-Quads, and an upsert block SHALL parse into its query, its
-mutations, and each mutation's `@if` condition. The keyword `mutation` alone SHALL be refused.
+A mutation block (`set`, `delete`) SHALL parse into its set and delete N-Quad text, unparsed, and an upsert block SHALL
+parse into its query, its mutations, and each mutation's condition as written. The keyword `mutation` alone SHALL be
+refused.
 
 #### Scenario: An empty upsert block is refused
 - **WHEN** `upsert {}` is parsed
@@ -74,8 +75,16 @@ mutations, and each mutation's `@if` condition. The keyword `mutation` alone SHA
 
 #### Scenario: A condition spanning lines parses
 - **WHEN** an upsert block's mutation carries `@if(eq(len(m), 1) AND gt(len(f), 0))` split across lines
-- **THEN** the mutation's condition is that expression
+- **THEN** the mutation's condition is the text `@if(...)` as written, newlines included
 
 #### Scenario: The mutation keyword is refused
 - **WHEN** `mutation { set { _:a <name> "x" . } }` is parsed as a mutation
 - **THEN** parsing fails with `Unexpected token: [mutation]`
+
+### Requirement: N-Quads become directed edges
+An N-Quad SHALL convert into a directed edge with entity, attribute, value or value id, value type, language and
+facets, as Dgraph's `dql/mutation.go` converts it, the operation left at its zero value, SET, for the caller to set.
+
+#### Scenario: A value N-Quad becomes a value edge
+- **WHEN** `<0x1> <name> "A"@en .` is converted
+- **THEN** the edge has entity 1, attribute `name`, value bytes `A` of type default, language `en` and operation SET

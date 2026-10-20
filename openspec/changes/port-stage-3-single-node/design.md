@@ -11,8 +11,9 @@ group (`draft.go:966`). An upsert block's query runs at the start timestamp, out
 rests on `@upsert` conflict keys. The port replaces both: a transaction is one request
 (`dgraph-port-overview.md`, §Transactions).
 
-The fork's embedded mode (`worker/embedded.go`, `hooks/config.go`) already calls Zero's functions in-process for
-one group. Stage 3 follows the same shape over gRPC, because Zero stays a separate process.
+The fork's embedded mode (`worker/embedded.go`, `hooks/config.go`, `InitForLite`) replaces Zero's network calls with
+hooks the host supplies, over one group. Stage 3 keeps the same seam and implements it over gRPC, because Zero stays a
+separate process.
 
 ## Goals / Non-Goals
 
@@ -38,14 +39,17 @@ one group. Stage 3 follows the same shape over gRPC, because Zero stays a separa
 |---|---|---|
 | `query_task` | `ugdb_query/query_task` | `worker/task.go`, `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`, `match.go`, `aggregator.go` |
 | `query_engine` | `ugdb_query/query_engine` | `query/` without `outputnode_graphql.go`: subgraphs, functions, variables, aggregation, math, groupby, recurse, shortest, cascade, normalize, expand, mutations' uid assignment and edge expansion, JSON and RDF output |
-| `server_zero` | `ugdb_server/server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers; binary `ultragraph-zero` |
-| `server_acl` | `ugdb_server/server_acl` | `acl/`, `edgraph/access*.go`, `predicate_acl.go`, JWTs |
-| `server_alpha` | `ugdb_server/server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers; binary `ultragraph-alpha` |
+| `server_zero` | `ugdb_server/server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers |
+| `server_acl` | `ugdb_server/server_acl` | `acl/`, `edgraph/access.go`, `access_control.go`, `predicate_acl.go`, `anonymous.go`, `authn.go`, `x/tenancy.go`, JWTs |
+| `server_alpha` | `ugdb_server/server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers |
+| `bin_ultragraph` | `ugdb_bin/bin_ultragraph` | `dgraph/cmd/root.go`, `alpha/run.go`, `zero/run.go`, `acl/acl.go`'s command: the `ultragraph` binary and its `alpha`, `zero` and `acl` subcommands |
 
 ### All writes go through the group's apply thread
 
-Every request carrying mutations is queued to the group's apply thread. The thread takes what is waiting, as one
-batch, and for each request in order:
+Every request carrying mutations is queued to the group's apply thread; one carrying neither a read set nor an upsert
+block first takes its start timestamp from Zero, as Dgraph's does on arrival (`edgraph/server.go:1570-1572`), and a
+request setting an `@unique` predicate becomes an upsert block, its uniqueness query checked in the thread. The thread
+takes what is waiting, as one batch, and for each request in order:
 
 1. takes its commit timestamp from a block leased from Zero for the batch;
 2. checks it: an upsert block runs its query and conditions against the state so far, earlier requests of the
@@ -83,24 +87,28 @@ which also serves as the baseline in the isolation benchmark.
 - `outputnode_graphql.go`, `ToJson`'s GraphQL field, `QueryGraphQL`, persisted queries, GraphQL schema updates in
   `Alter`: not ported.
 - The `IsGraphql` context flag, which Dgraph also uses to let internal writers touch reserved predicates
-  (`server.go:351`, `2361`), becomes an explicit internal-writer flag.
+  (`server.go:351`, `2362`), becomes an explicit internal-writer flag.
+- `/admin/shutdown`, `/admin/draining` and `/admin/config/cache_mb`, which Dgraph serves through its GraphQL admin
+  server, become direct HTTP handlers.
 - User and group management, through GraphQL `/admin` in Dgraph, becomes DQL on the ACL predicates and the
-  `ultragraph acl` command, both one-request.
+  `ultragraph acl` subcommand, both one-request.
 - Namespace management in tests uses the gRPC namespace calls.
 
 ### Conformance against Go Dgraph
 
 Dgraph's query tests are black-box tests against a cluster (`query/integration_test.go:19`). They are ported as BDD
-features whose steps drive `ultragraph_client`, and the same features run against Go Dgraph v25.5.0 in a
-container through `ultragraph_client`'s `DgraphInstance` fixture, with uids and latencies normalised. A scenario
-passes when both servers agree and match the expectation; Dgraph's test data (`populateCluster`,
-`common_test.go:355`) is loaded into both. Multi-request tests (`alpha/txn_test.go`) are rewritten as one-request
+features whose steps drive `ultragraph_client`. Scenarios tagged `@differential` also run against Go Dgraph
+v25.5.0 in a container (`dgraph/standalone:v25.5.0`; the fixture pins v25.4.0 today) through `ultragraph_client`'s
+`DgraphInstance` fixture, with uids and latencies
+normalised, and pass when both servers agree and match the expectation; Dgraph's test data (`populateCluster`,
+`common_test.go:355`) is loaded into both. Scenarios of behaviour the port changes run against ultragraphdb alone. Multi-request tests (`alpha/txn_test.go`) are rewritten as one-request
 transactions and run against ultragraphdb alone.
 
 ### Isolation checked by Elle
 
-A workload generator records histories of list-append and register transactions against ultragraphdb in both
-transaction forms, and Elle (Jepsen's checker, run as `elle-cli`) checks them for serializability. The runs are
+A workload generator records Jepsen histories of list-append and rw-register transactions against ultragraphdb, and
+Elle (Jepsen's checker, run as `elle-cli`) checks them: `strict-serializable` for the read-set and upsert-block forms,
+`snapshot-isolation` for requests checked on their write keys. The runs are
 integration tests, tagged `integration_test`.
 
 ## Risks / Trade-offs
@@ -114,6 +122,8 @@ integration tests, tagged `integration_test`.
 - [Read-your-writes timing differs] → Dgraph answers a commit before the Alpha applies it and relies on the next
   read's wait. The port answers after the apply thread has written the batch, so a read at a later timestamp waits
   only for the watermark.
+- [Conformance runs reach the server from outside loopback] → `Login` and `Alter` need a whitelisted source; the
+  harness whitelists its own address on both servers.
 
 ## Migration Plan
 

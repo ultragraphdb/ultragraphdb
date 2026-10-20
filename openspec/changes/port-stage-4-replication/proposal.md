@@ -8,15 +8,17 @@ threads driving Raft groups, one apply thread per group, tonic at the network ed
 ## What Changes
 
 - Raft log storage on fjall implementing raft-rs's `Storage`: entries, hard state, configuration, snapshot
-  metadata, compaction, and Dgraph's per-node identifiers and checkpoint.
+  metadata, compaction, and Dgraph's per-node identifiers.
 - The Raft transport over tonic: batched message streams per peer, connection pools, health heartbeats,
   unreachable reports, `JoinCluster` and `IsPeer`.
 - The Alpha's Raft node ported from `worker/draft.go` and `proposal.go`: the Ready loop, proposals with retries,
-  deduplication and the pending-proposal limit, the apply thread fed from committed entries, checkpoints.
+  deduplication and the pending-proposal limit, the apply thread fed from committed entries.
+- Commit timestamps, blank-node uids and Zero's done watermark carried in the entries, so every replica applies the
+  same values; the applied index and applied proposal keys kept in the store's batches.
 - Snapshots ported from `draft.go` and `snapshot.go`: their timestamp, their proposal, and the stream that brings a
   lagging replica up to date, in full or since its last snapshot.
 - Membership: joining, learners, removal through Zero, leadership transfer at shutdown.
-- Zero as a Raft group: membership state, leases, the done watermark and the stream to Alphas replicated.
+- Zero as a Raft group: membership state, the leases' high-water marks and the cluster ID replicated.
 - Leadership read from an atomic the loop publishes, in place of Dgraph's two `Status()` round trips per check,
   for Zero and the Alpha.
 - A fault-injection harness: killed processes, partitions, slow links, with Elle checking histories under faults.
@@ -42,4 +44,4 @@ None.
 - New crates under `ugdb_raft/`; `raft` (raft-rs) joins `[workspace.dependencies]`.
 - `server_alpha` and `server_zero` run their state through Raft; the apply thread takes committed entries
   instead of requests.
-- Leased commit timestamps travel in the Raft entries, so every replica applies the same timestamps.
+- Commit timestamps, uids and the watermark travel in the Raft entries; Zero refuses commit leases to non-leaders.

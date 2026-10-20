@@ -7,7 +7,7 @@ Bazel with equal counts.
 - [ ] 1.1 Add `fjall` to `[workspace.dependencies]`; create `ugdb_store/store_kv`
 - [ ] 1.2 Scenarios: kv-store (versions, reads at a timestamp, snapshot scans, atomic batches, drops, banned namespaces)
 - [ ] 1.3 Implement versioned keys, per-version metadata, `get_at`, the per-key version iterator, snapshot prefix and range scans
-- [ ] 1.4 Implement write batches at a version, out-of-order and same-version writes, tombstones, prefix drops, drop-all, banned namespaces
+- [ ] 1.4 Implement write batches at a version with a persist mode, out-of-order and same-version writes, tombstones, prefix drops by point tombstones, drop-all by `Keyspace::clear`, banned namespaces, reads refused below the discard timestamp
 - [ ] 1.5 Implement the discard timestamp, its bound by open readers, and the compaction filter; scenarios: garbage collection
 - [ ] 1.6 Crash test: kill during a batch, reopen, check all-or-nothing
 
@@ -28,7 +28,7 @@ Bazel with equal counts.
 ## 4. The cache → `store_posting`
 
 - [ ] 4.1 Add `moka`; scenarios: posting-cache; port the cache cases of `mvcc_test.go`, adapted from ristretto timing to moka
-- [ ] 4.2 Implement the cache of immutable lists keyed by key, updated under the writer lock, and its validity rule
+- [ ] 4.2 Implement the cache of immutable lists keyed by key, updated under the writer lock, its validity rule, and fills refused after a newer commit
 - [ ] 4.3 Run the cached-versus-uncached differential test under concurrent commits
 
 ## 5. Rollups → `store_posting`
@@ -50,17 +50,17 @@ Bazel with equal counts.
 ## 8. Schema changes and drops → `store_apply`
 
 - [ ] 8.1 Port `index_test.go` (18, the `TestNeeds*Rebuild` tables first); scenarios: schema-changes
-- [ ] 8.2 Port the decision tables, the dual schema, `DropIndexes` with split prefixes, `BuildData`, the two-phase rebuilder over a temporary keyspace, the background task gate
-- [ ] 8.3 Port drops: predicate, type, namespace data, namespace (banned), everything; with split parts removed
+- [ ] 8.2 Port the decision tables, the dual and interim schemas, `DropIndexes` with split prefixes after a successful build, `BuildData`, the two-phase rebuilder over a temporary store, vector rebuilds in place, the background task gate, type-change refusals
+- [ ] 8.3 Port drops: predicate, type, namespace data, everything in a namespace (schema and type keys included), namespace (banned), everything; with split parts removed
 
 ## 9. Vector index → `store_hnsw`
 
 - [ ] 9.1 Port `persistent_hnsw_test.go` (15), `kernels_test.go` (7), `ef_recall_test.go` (3); scenarios: vector-index
-- [ ] 9.2 Port the storage layout, insert, delete, the dead list, search with options, the transaction adapter over the local commit
+- [ ] 9.2 Port the storage layout, insert, delete, search with options (the empty-index result), the transaction adapter over the local commit; the dead list in `store_apply`'s index maintenance
 - [ ] 9.3 Invalidate the HNSW in-memory caches through the writer
 
 ## 10. Close the stage
 
-- [ ] 10.1 Traceability green; `make test` green with equal Cargo and Bazel counts; `make fix` and `make format` clean
+- [ ] 10.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; `make fix` and `make format` clean
 - [ ] 10.2 Measure: batches of Dgraph-shaped commits at 14.5k and 50k commits/s, rollups with the compaction filter over a large predicate, file sizes; record the results in the overview
 - [ ] 10.3 Attribution headers on every ported file; `AGENTS.md` crate table updated

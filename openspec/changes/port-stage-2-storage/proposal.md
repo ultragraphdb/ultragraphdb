@@ -14,14 +14,22 @@ query engine or a Raft log depends on them.
   below a discard timestamp by a compaction filter.
 - Posting lists ported from `posting`: the immutable part, deltas by commit timestamp, delete-all markers,
   rollups and split lists.
-- **BREAKING (relative to Dgraph's internals):** the uncommitted delta layer is gone. A request's writes are
+- The uncommitted delta layer is gone. A request's writes are
   built in a scratch layer visible to that request alone and written as one batch at the commit timestamp; the
   pending-transaction table, the oracle's waiters and `ProcessDelta` are not ported.
 - The posting cache on moka, updated in the same critical section as the write it reflects.
 - Index, reverse and count maintenance, schema changes with background index rebuilds, and drops.
 - The HNSW vector index from `tok/hnsw`, stored in posting lists.
-- **Behaviour change (Dgraph bug fixed):** dropping a predicate or a namespace's data removes its split-list parts,
-  which Dgraph leaves behind.
+- **Behaviour changes (Dgraph bugs fixed):**
+  - Dropping a predicate or a namespace's data removes its split-list parts, and a rollup deletes the parts it
+    removes; Dgraph leaves both behind.
+  - Dropping everything in a namespace removes its schema and type keys; Dgraph removes them in memory only, and
+    they return at restart.
+  - A read below the discard timestamp is refused; Dgraph returns what survived collection, silently.
+  - A failed rebuild leaves the previous schema's indexes complete; Dgraph restores the schema record over indexes
+    already dropped.
+  - A predicate created by a write is created in that write's commit batch; Dgraph creates it at the start timestamp
+    and keeps it after an abort.
 
 ## Capabilities
 

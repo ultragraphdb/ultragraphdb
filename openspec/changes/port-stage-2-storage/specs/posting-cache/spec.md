@@ -20,6 +20,14 @@ batch, and a rollup SHALL replace or remove the entry of the list it rolled up.
 - **WHEN** a commit writes a list that is cached
 - **THEN** no read that sees the batch in the store returns the cached list from before the batch
 
+### Requirement: A reader fills the cache only with a current list
+A reader that missed the cache SHALL insert the list it read from the store only if no commit to that key was applied
+after the reader's snapshot, checked under the writer lock.
+
+#### Scenario: A stale fill is refused
+- **WHEN** a reader misses, a commit then writes the key, and the reader then inserts its list
+- **THEN** the insert is refused and a read at the commit's timestamp reflects the commit
+
 ### Requirement: Schema changes and drops clear the cache
 A schema change, an index rebuild and any drop SHALL clear the cache.
 

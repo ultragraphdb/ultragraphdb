@@ -1,9 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Namespaces are created, listed and dropped by the superadmin
-`CreateNamespace` SHALL lease a namespace ID, write the initial schema and types into it, and create its guardians
-group and groot user with the default password; `ListNamespaces` SHALL list them; `DropNamespace` SHALL refuse
-namespace 0 and succeed for an unknown namespace without effect.
+`CreateNamespace` SHALL lease a namespace ID, write the initial schema and types into it, and create its guardians group
+and groot user with the default password; `ListNamespaces` SHALL list them; `DropNamespace` SHALL refuse namespace 0 and
+succeed for an unknown namespace without effect. With ACL on these calls SHALL need the superadmin, and with ACL off the
+admin source and token.
 
 #### Scenario: A created namespace has its own groot
 - **WHEN** the superadmin creates a namespace and groot logs into it with the default password

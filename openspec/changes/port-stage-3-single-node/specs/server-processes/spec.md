@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Alpha and Zero are separate processes
-`ultragraph-zero` and `ultragraph-alpha` SHALL run as separate processes, the Alpha reaching Zero over gRPC for
+`ultragraph zero` and `ultragraph alpha` SHALL run as separate processes, the Alpha reaching Zero over gRPC for
 timestamps, leases and membership, as Dgraph's Alpha reaches Zero.
 
 #### Scenario: An Alpha starts against a running Zero
@@ -18,11 +18,12 @@ predicates and Zero's leases, as Dgraph's do.
 
 #### Scenario: State lists the group's predicates
 - **WHEN** data is written to `name` and `/state` is read from Zero
-- **THEN** group 1 lists `name` among its tablets
+- **THEN** group 1 lists `0-name` among its tablets
 
 ### Requirement: Draining and shutdown
-In draining mode the Alpha SHALL refuse new requests with `UNAVAILABLE`; a shutdown SHALL finish the requests in
-flight and stop.
+In draining mode the Alpha SHALL refuse new requests with `UNAVAILABLE` and a message naming
+`/admin/draining?enable=false`, where Dgraph returns a plain error naming its GraphQL draining mutation; a shutdown
+SHALL finish the requests in flight and stop.
 
 #### Scenario: Draining refuses new requests
 - **WHEN** draining is switched on and a query arrives
