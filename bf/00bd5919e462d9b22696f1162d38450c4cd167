@@ -1,0 +1,23 @@
+openspec/changes/port-stage-1-foundations/design.md
+  s_e7d9aa044e41ea::t_5adb8b62810327 83-95,126,130-151,173-174
+openspec/changes/port-stage-1-foundations/specs/scalar-types/spec.md
+  s_e7d9aa044e41ea::t_712a056624c70d 49-67
+openspec/changes/port-stage-1-foundations/tasks.md
+  s_e7d9aa044e41ea::t_55087ff57897c6 7-8,48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bf00bd5919e462d9b22696f1162d38450c4cd167",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
