@@ -1,0 +1,133 @@
+AGENTS.md
+  s_e7d9aa044e41ea::t_8c4f038f323508 138-140,142-146,150,153-154,163-167,228,284
+Cargo.lock
+  s_e7d9aa044e41ea::t_7c0d45ce61187b 1239,1248,1252-1265
+Cargo.toml
+  s_e7d9aa044e41ea::t_f80f95d66d1fa5 4,22,24,26
+bazel/toolchains/prost_toolchain/BUILD.bazel
+  s_e7d9aa044e41ea::t_600843f83da58b 9,15
+openspec/changes/port-stage-1-foundations/design.md
+  s_e7d9aa044e41ea::t_17964835205a79 47-58,63,96,101
+openspec/changes/port-stage-1-foundations/proposal.md
+  s_e7d9aa044e41ea::t_07247bc70e26df 17-18,50
+openspec/changes/port-stage-1-foundations/tasks.md
+  s_e7d9aa044e41ea::t_92a648d86ccbdc 9,12,20,25,31,36,43,50,58,63,71,77
+openspec/changes/port-stage-2-storage/design.md
+  s_e7d9aa044e41ea::t_3766c5cc64a3b4 37-40,42,125,129
+openspec/changes/port-stage-2-storage/proposal.md
+  s_e7d9aa044e41ea::t_acd5f0db5ff345 53-54
+openspec/changes/port-stage-2-storage/tasks.md
+  s_e7d9aa044e41ea::t_4cf9f28d018ed6 5,7,14,21,28,34,39,42,44,50,56,59
+openspec/changes/port-stage-3-single-node/design.md
+  s_e7d9aa044e41ea::t_d3b373f82a8dbe 40-45,76,100-101,130
+openspec/changes/port-stage-3-single-node/proposal.md
+  s_e7d9aa044e41ea::t_5d07191ea48bc0 53,55
+openspec/changes/port-stage-3-single-node/specs/grpc-api/spec.md
+  s_e7d9aa044e41ea::t_db62b57bfaa220 9
+openspec/changes/port-stage-3-single-node/tasks.md
+  s_e7d9aa044e41ea::t_925a8d21967636 9,13,18,20,26,34,39,45,55,60,66,71,76
+openspec/changes/port-stage-4-replication/design.md
+  s_e7d9aa044e41ea::t_e7c6e8af3959de 42-44,46
+openspec/changes/port-stage-4-replication/proposal.md
+  s_e7d9aa044e41ea::t_9d5664fc08d7ae 44-45
+openspec/changes/port-stage-4-replication/tasks.md
+  s_e7d9aa044e41ea::t_614ed2188414e5 4,11,17,23,31,37,43
+openspec/changes/port-stage-5-sharding-and-operations/design.md
+  s_e7d9aa044e41ea::t_fceb99f64c2671 39-47
+openspec/changes/port-stage-5-sharding-and-operations/proposal.md
+  s_e7d9aa044e41ea::t_52d18c03a358d0 48,50
+openspec/changes/port-stage-5-sharding-and-operations/tasks.md
+  s_e7d9aa044e41ea::t_759061cc179225 5,12,17,22,29,35,40,45,50,55,61
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_e267ac74ebda68 78-79,137
+scripts/format.sh
+  s_e7d9aa044e41ea::t_26ccd0fc478bb6 15
+ultragraphdb_client/BUILD.bazel
+  s_e7d9aa044e41ea::t_c56b4fbf04b795 6-7,9,14-15,35,45,57,61,66,74,81,93,105,112,117,126,128,137
+ultragraphdb_client/Cargo.toml
+  s_e7d9aa044e41ea::t_099dc521cb022a 2,27
+ultragraphdb_client/src/lib.rs
+  s_e7d9aa044e41ea::t_292f01d856a9e0 17,19,53,55
+ultragraphdb_client/src/types/mutation/mod.rs
+  s_e7d9aa044e41ea::t_830aa73faaa575 5
+ultragraphdb_client/src/types/response/mod.rs
+  s_e7d9aa044e41ea::t_84abf88f994276 7
+ultragraphdb_client/src/types/txn/mod.rs
+  s_e7d9aa044e41ea::t_77ed47ecde03fc 14-15
+ultragraphdb_client/src/types/txn/txn_read_write.rs
+  s_e7d9aa044e41ea::t_ac19924ec52878 8
+ultragraphdb_client/src/types/ultragraph_client/mod.rs
+  s_e7d9aa044e41ea::t_af97ca3abb1dab 17-18
+ultragraphdb_client/src/types/ultragraph_client/ultragraph_client_admin.rs
+  s_e7d9aa044e41ea::t_46c444361e8773 9
+ultragraphdb_client/src/types/ultragraph_client/ultragraph_client_auth.rs
+  s_e7d9aa044e41ea::t_e7379d86775ee7 9
+ultragraphdb_client/src/utils_test/mod.rs
+  s_e7d9aa044e41ea::t_060ad6b7972283 9-10
+ultragraphdb_client/tests/dgraph_container_test.rs
+  s_e7d9aa044e41ea::t_70abcf17cb0186 8,13,15,47-48,55
+ultragraphdb_client/tests/errors/auth_error_tests.rs
+  s_e7d9aa044e41ea::t_10bc0028a7d3e3 6
+ultragraphdb_client/tests/errors/connect_error_tests.rs
+  s_e7d9aa044e41ea::t_834a2200b87778 6
+ultragraphdb_client/tests/errors/connection_string_error_tests.rs
+  s_e7d9aa044e41ea::t_30a5ffac4c1934 5
+ultragraphdb_client/tests/errors/transaction_error_tests.rs
+  s_e7d9aa044e41ea::t_e104034bedcd49 6
+ultragraphdb_client/tests/errors/ultragraph_error_tests.rs
+  s_e7d9aa044e41ea::t_834aa1b100cc30 6
+ultragraphdb_client/tests/types/ca_certificate_tests.rs
+  s_e7d9aa044e41ea::t_16a6d808c88f4a 5
+ultragraphdb_client/tests/types/client_config_tests.rs
+  s_e7d9aa044e41ea::t_5cdf5a347d5a98 5
+ultragraphdb_client/tests/types/connection_string_tests.rs
+  s_e7d9aa044e41ea::t_ba271ab638b6cb 5
+ultragraphdb_client/tests/types/lease_range_tests.rs
+  s_e7d9aa044e41ea::t_2159a6cb089385 5
+ultragraphdb_client/tests/types/mutation_tests.rs
+  s_e7d9aa044e41ea::t_36483d13198d81 5
+ultragraphdb_client/tests/types/secret_tests.rs
+  s_e7d9aa044e41ea::t_6e6f98e95ad315 5
+ultragraphdb_client/tests/types/tls_mode_tests.rs
+  s_e7d9aa044e41ea::t_d11c365479e243 5
+ultragraphdb_client/tests/utils_test/errors/fixture_error_tests.rs
+  s_e7d9aa044e41ea::t_e813f878db2ced 1
+ultragraphdb_client/tests/utils_test/types/endpoint_tests.rs
+  s_e7d9aa044e41ea::t_2ecf5331dced5a 1-2,92
+ultragraphdb_client/tests/utils_test/types/exclusivity_tests.rs
+  s_e7d9aa044e41ea::t_34fb5f521d675e 1
+ultragraphdb_client/tests/utils_test/types/health_report_tests.rs
+  s_e7d9aa044e41ea::t_34e81b1ca8a99e 1-2
+ultragraphdb_client/tests/utils_test/types/strategy_tests.rs
+  s_e7d9aa044e41ea::t_6ed1562abf41a1 1
+ultragraphdb_common_version/BUILD.bazel
+  s_e7d9aa044e41ea::t_890fbdf14542d7 7,16,24,31,40,49
+ultragraphdb_common_version/Cargo.toml
+  s_e7d9aa044e41ea::t_a3565807192259 2
+ultragraphdb_common_version/src/types/product.rs
+  s_e7d9aa044e41ea::t_ccd7bf7d6eb4ee 9
+ultragraphdb_common_version/tests/types/product_tests.rs
+  s_e7d9aa044e41ea::t_17968021f1a122 6
+ultragraphdb_proto_dgraph/BUILD.bazel
+  s_e7d9aa044e41ea::t_86a80d3514205d 6,17-18
+ultragraphdb_proto_dgraph/Cargo.toml
+  s_e7d9aa044e41ea::t_9ac38253e25986 2
+ultragraphdb_proto_dgraph/src/lib.rs
+  s_e7d9aa044e41ea::t_60298cd2123af9 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a26700fc35c78ff9d72d02ca0e4fb3901e68399",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
