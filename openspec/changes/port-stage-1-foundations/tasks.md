@@ -4,8 +4,8 @@ its unit tests pass under Cargo and Bazel with equal counts.
 
 ## 1. Harness
 
-- [ ] 1.1 Prove one `cucumber` feature running under `cargo test` and under Bazel `rust_test` with `use_libtest_harness = False`, feature files as runfiles, tagged `bdd-test`
-- [ ] 1.2 Add `cucumber` and its runtime to `[workspace.dependencies]`; extend `scripts/test.sh` with the `bdd-test` run
+- [ ] 1.1 Add `cucumber` and `futures` to `[workspace.dependencies]` and the `cucumber` `crate.annotation` (`rustc_env` `CARGO_MANIFEST_DIR = "."`) to `MODULE.bazel`, as proved in the design
+- [ ] 1.2 Extend `scripts/test.sh` with the `bdd-test` run
 - [ ] 1.3 Create `ugdb_test/test_bdd` with the traceability test (archived scenarios, pending scenarios, unique names) and the declaration test; scenarios: port-testing
 - [ ] 1.4 Add `scripts/bdd_counts.sh`, comparing each crate's scenario counts under Cargo and Bazel
 - [ ] 1.5 Create `tools/golden/` (Go module with a `replace` to `../../fork/dgraph`) and `scripts/golden.sh`; each vector file records the Dgraph commit
@@ -45,6 +45,7 @@ its unit tests pass under Cargo and Bazel with equal counts.
 - [ ] 7.1 Golden vectors for every type's binary and string forms; port the conversion, value, scalar type, password, sort, geo, s2 and s2index tests; scenarios: scalar-types (all but facet values)
 - [ ] 7.2 Port type identifiers, `Convert`, `Marshal`, `ParseTime`, `TypeForValue`, sorting and comparison
 - [ ] 7.3 Port passwords (bcrypt), geo values (WKB, GeoJSON) and the S2 index helpers with the library chosen in 2.2
+- [ ] 7.4 Port Go's big-float parse (`floatconv.scan`, `pow5`, the scanner's syntax) and shortest formatting (`ftoa.roundShortest`, `%g`) onto `dashu-float` and `dashu-int`; golden vectors include exact midpoints and powers of two; scenarios: big floats
 
 ## 8. `tok` → `core_tok`
 

@@ -80,9 +80,19 @@ tokenizer can be checked.
 ### BDD with cucumber-rs; TDD with ported Go tests
 
 - Each crate has `features/<capability>/*.feature`, one Gherkin scenario per spec scenario, word for word, and
-  `tests/bdd.rs` running them with `cucumber`. `Cargo.toml` declares `[[test]] name = "bdd" harness = false`;
-  `BUILD.bazel` declares a `rust_test` with `use_libtest_harness = False`, the feature files as `data`, tagged
-  `bdd-test`.
+  `tests/bdd.rs` running them with `cucumber` under `futures::executor::block_on`. `Cargo.toml` declares
+  `[[test]] name = "bdd" harness = false`; `BUILD.bazel` declares a `rust_test` with `use_libtest_harness = False`, the
+  feature files as `data`, tagged `bdd-test`.
+- The runner finds its features at runtime: under Bazel in `$TEST_SRCDIR/$TEST_WORKSPACE/<package>/features`, under
+  Cargo in `$CARGO_MANIFEST_DIR/features`, read from the environment and never through `env!`, because `rules_rs`
+  refuses any compiled output that embeds the sandbox path.
+- `cucumber` 0.23 embeds `env!("CARGO_MANIFEST_DIR")` as a fallback for relative feature paths
+  (`src/parser/basic.rs:83`), which `rules_rs` refuses; `MODULE.bazel` sets that variable to `.` for the crate with a
+  `crate.annotation(crate = "cucumber", rustc_env = ...)`. The runner passes absolute paths, so the fallback is never
+  used.
+- Proved on 2026-10-20 in a scratch copy of this workspace (Bazel 9.3.0, `rules_rs` 0.1.0, `cucumber` 0.23.0): both
+  build systems ran the same 2 scenarios; a failing step failed the Bazel target; missing feature files failed it with
+  a parsing error rather than passing on zero scenarios.
 - `test_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
   `openspec/changes/*/specs/`, and every `Scenario:` under `**/features/`. It fails on an archived spec's
   scenario without a feature, on a feature no spec declares, and on a duplicated scenario name; a change's
@@ -113,9 +123,31 @@ noticing.
 | Collation keys | a port of Go's `x/text/collate` with its CLDR 23 tables | Go writes its own key format (`00 00` level separators), which ICU and ICU4X keys do not reproduce |
 | S2 cells and covers | an S2 port | See Risks |
 | WKB, GeoJSON | `geo-types`, `wkb`, `geojson` | WKB little-endian, as go-geom writes it |
-| Big floats | `dashu-float` or a ported formatter | Go's shortest `g` text at 200-bit precision; pure Rust, so it builds for static musl |
+| Big floats | Go's `math/big` parse and format algorithms, ported onto `dashu-float` and `dashu-int` arithmetic | See "Big floats: Go's algorithms on dashu" |
 
 Each choice is confirmed by the golden vectors of its tokenizer or type before the tokenizer is called ported.
+
+### Big floats: Go's algorithms on dashu
+
+Dgraph stores and prints a bigfloat with Go's `big.Float` at 200 bits (`UnmarshalText`, `MarshalText`). Go's parse is
+not correctly rounded: it keeps the decimal mantissa exact and multiplies or divides by 5^n held at 264 bits
+(`math/big/floatconv.go`), which is inexact for n above about 113. Go's shortest formatting uses a symmetric half-ulp
+interval, also at powers of two, where a correct round trip has a narrower interval below (`math/big/ftoa.go`,
+`roundShortest`). Measured on 2026-10-20 against 2,751 Go vectors (36 hand-picked, 2,000 random up to 70 digits and
+exponents of ±400, 400 exact midpoints between adjacent 200-bit values, 315 powers of two from 2^-1100 to 2^1100);
+formatting is checked on the 2,746 that Go accepts, parsing on the 2,430 written as plain decimals:
+
+| Candidate | Parse | Format |
+|---|---|---|
+| `dashu-float` 0.6.2 alone: correctly rounded parse, shortest round-trip search | 187 of 400 midpoints differ; random and hand-picked decimals agree | 36 of 315 powers of two differ; the other 2,431 agree |
+| `astro-float` 0.9.6 alone | 644 of 2,000 random agree | 372 of 2,746 agree |
+| Go's `scan`, `pow5`, `roundShortest` and `%g` ported onto `dashu` | All 2,430 decimal inputs agree | All 2,746 agree |
+
+`dashu-float`'s operations at an explicit precision (`Context::<HalfEven>::new(p).mul`, `div`) are correctly rounded
+single operations on exact operands, as Go's `Mul` and `Quo` are, so replaying Go's steps reproduces Go's results,
+its misroundings included. `astro-float` allocates precision in whole 64-bit words (200 bits become 256), so it cannot
+hold Go's 200-bit values. The port is about 250 lines plus Go's scanner syntax (underscores, base prefixes, `p`
+exponents, `Inf`), which the measurement did not cover. Both crates are pure Rust and build for static musl.
 
 ### GraphQL cut, its reserved names kept
 
@@ -138,8 +170,8 @@ ports the registry entry with the option set; the index itself is stage 2.
   bleve does. The golden corpus includes text from every script bleve's tests cover.
 - [Dgraph's error texts are part of the contract] → Clients and tests match on them. Error texts are copied,
   and the ported parser tests assert them.
-- [Bazel and cucumber-rs] → `cucumber` expects to find feature files relative to the crate. The first task
-  proves a feature run under both build systems before any other scenario is written.
+- [A `cucumber` release changes how it embeds its manifest path] → The annotation and the build would then diverge;
+  the declaration test and the first BDD suite fail at once if it does.
 - [Blank-node names in JSON input carry a random component] → Differential tests normalise `_:dg.<id>.<n>` to
   `<n>`.
 

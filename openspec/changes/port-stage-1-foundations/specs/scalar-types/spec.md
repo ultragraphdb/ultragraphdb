@@ -46,6 +46,25 @@ Conversions SHALL accept and refuse the same inputs as Dgraph's `types.Convert`,
 - **WHEN** the float 2.5e-7 is converted to string
 - **THEN** the result is `2.5E-07`
 
+### Requirement: Big floats parse and format as Go's math/big
+A bigfloat value SHALL be parsed and formatted as Go's `big.Float` at 200 bits does, byte for byte: parsing as
+`UnmarshalText` (base prefixes `0x`, `0b`, `0o`, underscores, `Inf`, and Go's rounding through a 264-bit power of five,
+which is not always correctly rounded), and formatting as `MarshalText`, the shortest digits within Go's symmetric
+half-ulp interval in `%g` layout.
+
+#### Scenario: Big-float golden vectors match Go
+- **WHEN** the golden big-float inputs are parsed and formatted: hand-picked, random, exact midpoints between adjacent
+  200-bit values, and powers of two
+- **THEN** every 200-bit value equals Go's and every text equals Go's `MarshalText`
+
+#### Scenario: A power of two formats as Go shortens it
+- **WHEN** 2^-1100 at 200 bits is formatted
+- **THEN** the text is `7.3621518290228626754368661771449651176491350325096363488672e-332`
+
+#### Scenario: Go's big-float syntax is accepted
+- **WHEN** `1_000`, `0x1.8p1`, `Inf` and `NaN` are parsed as bigfloat
+- **THEN** the first three give `1000`, `3` and `+Inf`, and `NaN` is refused
+
 ### Requirement: Datetime parsing accepts Dgraph's forms
 Datetime parsing SHALL accept a year, a year and month, a date, RFC 3339, RFC 3339 without a zone, and
 `2006-01-02 15:04:05 -0700 MST`, and SHALL refuse a zone offset out of range.
