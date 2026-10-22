@@ -1,0 +1,16 @@
+README.md
+  h_080fb89ca1f0c4 3,18
+ROADMAP.md
+  h_080fb89ca1f0c4 1-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d4fad8b3398b198e98605ba32b75934377c67b36",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
