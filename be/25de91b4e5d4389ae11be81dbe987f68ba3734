@@ -1,0 +1,14 @@
+Cargo.toml
+  h_080fb89ca1f0c4 12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be25de91b4e5d4389ae11be81dbe987f68ba3734",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
