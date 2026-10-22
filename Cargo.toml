@@ -13,7 +13,6 @@ repository = "https://github.com/causalcenter/ultragraphdb.git"
 authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
 publish = false
 
-
 [workspace.dependencies]
 # ==============
 # Internal crates
