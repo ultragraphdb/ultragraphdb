@@ -1,6 +1,6 @@
 # ultragraphdb
 
-A distributed graph database in Rust, ported from [Dgraph](https://github.com/dgraph-io/dgraph). 
+A next generation distributed graph database in Rust.  
 
 ## Build
 
@@ -15,4 +15,4 @@ make test    # build, then the doc tests and unit tests
 
 ## License
 
-Apache-2.0; see `LICENSE`. Code ported from Dgraph keeps its original copyright notices.
+Apache-2.0; see `LICENSE`. 
