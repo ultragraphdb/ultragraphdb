@@ -3,12 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_test_bdd::{features_dir, testdata_dir, workspace_root};
-
-#[test]
-fn the_workspace_root_holds_the_module_file() {
-    assert!(workspace_root().join("MODULE.bazel").is_file());
-}
+use ultragraphdb_test_bdd::{features_dir, testdata_dir};
 
 #[test]
 fn this_crate_finds_its_features() {

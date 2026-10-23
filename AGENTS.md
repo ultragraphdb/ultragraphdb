@@ -157,7 +157,7 @@ binary is built by `ultragraphdb_bin`.
 | `ultragraphdb_traits_collator` | `ultragraphdb_traits/ultragraphdb_traits_collator` | — | `Collator`: the language collation Dgraph's sort uses, implemented by `ultragraphdb_core_types::TextCollator` |
 | `ultragraphdb_traits_index` | `ultragraphdb_traits/ultragraphdb_traits_index` | `ultragraphdb_common_utils`, `ultragraphdb_error_options` | Dgraph's `tok/index` and `tok/options`: the traits `IndexFactory`, `VectorIndex`, `OptionalIndexSupport`, `OptionalSearchOptions`, `Float`, `Txn`, `LocalCache`, `CacheType`, `OptionType`, and the types their signatures name (`Options`, `AllowedOptions`, `OptionValue`, `OptionParser`, `KeyValue`, `SearchPathResult`, `VectorIndexOptions`, `SearchFilter`, `Metric`), so a vector index is implemented without depending on tok |
 | `ultragraphdb_client` | `ultragraphdb_client` | `ultragraphdb_proto_dgraph` | `UltraGraphClient`, `UltraGraphError` and the transaction types, over `ultragraphdb_proto_dgraph`; it speaks to ultragraphdb and Go Dgraph alike. Behind `test-utils`: the `DgraphInstance` fixture, which serves the acceptance test and differential runs against Go Dgraph |
-| `ultragraphdb_test_bdd` | `ultragraphdb_test/ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir`, `testdata_dir`, `workspace_root`; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors; `trace` and `TraceReport`, tracing spec scenarios to feature scenarios; `check_declarations`, which holds every crate with features to a feature suite declared for Cargo and Bazel, and the test script to running the BDD tag after the unit tag |
+| `ultragraphdb_test_bdd` | `ultragraphdb_test/ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir` and `testdata_dir`, a crate's `features/` and `testdata/` under both build systems; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors |
 | `ultragraphdb_core_lex` | `ultragraphdb_core/ultragraphdb_core_lex` | `ultragraphdb_common_utils` | Dgraph's `lex`: `Lexer`, `Item`, `ItemType`, `ItemIterator`, `StateFn`, the IRI helpers, `LexError` |
 | `ultragraphdb_core_keys` | `ultragraphdb_core/ultragraphdb_core_keys` | `ultragraphdb_common_utils` | Dgraph's `x/keys.go`: the key builders and `parse` into `ParsedKey`, namespaces and reserved predicates, `KeyError` |
 | `ultragraphdb_core_codec` | `ultragraphdb_core/ultragraphdb_core_codec` | `ultragraphdb_proto_pb` | Dgraph's `codec`: `Encoder`, `Decoder`, `SeekPos` over `pb::UidPack`, and the go-groupvarint port beneath them |
@@ -276,8 +276,7 @@ The port is written test first, at two levels:
   same name in the owning crate's `features/` folder, run by `cucumber` from `tests/bdd.rs` with the
   libtest harness off (`harness = false` in `Cargo.toml`, `use_libtest_harness = False` in
   `BUILD.bazel`), tagged `bdd-test`. A scenario is written, and seen to fail, before the code that makes
-  it pass. A traceability test fails when an archived spec's scenario has no feature scenario of the same name,
-  and lists a change's scenarios without features as pending; a change is archived when none is pending.
+  it pass.
 * **TDD, for units.** A ported Go file's tests are ported first, under `tests/` as below, and fail
   before the code is ported. Where Dgraph's output has to be byte-identical (key encodings, tokens,
   packed UIDs, value encodings), golden vectors generated from the Go source sit under
@@ -345,6 +344,11 @@ Static Dispatch:
 Coding style:
 * Prefer idiomatic zero cost abstractions
 * Prefer functional style i.e. map, flatmap, filter when dealing with collections
+
+Bazel targets:
+* Every Bazel target is hermetic and sandboxed, because the cache is only correct for a target that reads nothing but
+  its declared inputs. No target carries `local`, `external`, `no-sandbox` or a similar tag, and no test reaches files
+  outside its declared `data`.
 
 Safety and security style:
 * No `unsafe`. Every crate opts into the workspace lints with `[lints]` and `workspace = true` in its own

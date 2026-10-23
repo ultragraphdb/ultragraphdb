@@ -53,6 +53,6 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 
 ## 9. Close the stage
 
-- [ ] 9.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules pass
+- [ ] 9.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules pass
 - [ ] 9.2 Measure commits per second for a three-replica group against stage 3's single replica, against Go Dgraph v25.5.0 stock (11.8k) and patched (14.5k) with one Zero and one Alpha, and against Go Dgraph with three Alpha replicas measured the same way; results in the overview
 - [ ] 9.3 Attribution headers; `AGENTS.md` crate table updated

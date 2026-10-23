@@ -2210,7 +2210,6 @@ dependencies = [
  "cucumber",
  "futures",
  "serde",
- "serde_json",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_facets",
  "ultragraphdb_core_keys",

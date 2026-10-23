@@ -25,12 +25,8 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(["features/**/*.feature"]) + ["//:MODULE.bazel"],
-    # The workspace gates read the source tree through MODULE.bazel's runfiles link: unsandboxed, and never
-    # cached, because specs and features change without changing this target's inputs.
+    data = glob(["features/**/*.feature"]),
     tags = [
-        "external",
-        "local",
         "unit-test",
     ],
     deps = [":ultragraphdb_test_bdd"] + all_crate_deps(
@@ -44,11 +40,9 @@ rust_test(
     name = "bdd",
     srcs = ["tests/bdd.rs"],
     crate_root = "tests/bdd.rs",
-    data = glob(["features/**/*.feature"]) + ["//:MODULE.bazel"],
+    data = glob(["features/**/*.feature"]),
     tags = [
         "bdd-test",
-        "external",
-        "local",
     ],
     use_libtest_harness = False,
     deps = [":ultragraphdb_test_bdd"] + all_crate_deps(

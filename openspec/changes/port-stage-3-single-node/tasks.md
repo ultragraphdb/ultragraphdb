@@ -79,6 +79,6 @@ ultragraphdb alone.
 
 ## 13. Close the stage
 
-- [ ] 13.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the conformance features agree on both targets
+- [ ] 13.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the conformance features agree on both targets
 - [ ] 13.2 The isolation benchmark: Dgraph's write-key check, the read-set check and serial upsert blocks on scrith's workload, uniform to Zipfian skew; throughput, p99, abort rate, head-of-line blocking; results in the overview
 - [ ] 13.3 Attribution headers; `AGENTS.md` crate table updated

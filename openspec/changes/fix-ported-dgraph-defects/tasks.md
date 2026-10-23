@@ -61,5 +61,5 @@
 ## 10. Close
 
 - [ ] 10.1 The ledger's "The port" column states each entry's remedied behaviour
-- [ ] 10.2 Traceability: no scenario of this change pending for the stage-1 groups; `scripts/bdd_counts.sh` reports equal counts
+- [ ] 10.2 Every scenario of this change has its feature; `scripts/bdd_counts.sh` reports equal counts
 - [ ] 10.3 `make test` green; `make fix` and `make format` clean

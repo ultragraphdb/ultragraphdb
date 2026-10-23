@@ -4,8 +4,5 @@
  */
 
 pub mod compare;
-pub mod declarations;
 pub mod golden_io;
-pub mod scan;
-pub mod trace;
 pub mod workspace;

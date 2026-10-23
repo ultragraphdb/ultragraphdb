@@ -3,7 +3,7 @@
 
 Feature: Tokenizers
   Dgraph's index tokenizers, their registry, text analysis and the hnsw factory entry
-  (openspec/changes/port-stage-1-foundations/specs/tokenizers/spec.md).
+  (openspec/specs/tokenizers/spec.md).
 
   Scenario: Every tokenizer's tokens match the golden vectors
     When each tokenizer tokenizes its golden inputs

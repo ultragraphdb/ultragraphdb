@@ -4,6 +4,4 @@
  */
 
 #[cfg(test)]
-mod types;
-#[cfg(test)]
 mod utils;

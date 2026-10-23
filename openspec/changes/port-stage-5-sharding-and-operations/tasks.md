@@ -69,7 +69,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 
 ## 12. Close the stage and the port
 
-- [ ] 12.1 No scenario of this stage pending in the traceability test; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules with moves pass
+- [ ] 12.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules with moves pass
 - [ ] 12.2 Load Go Dgraph's export of scrith's data and run scrith's suites against ultragraphdb
 - [ ] 12.3 Measure commits per second with one, two and three groups against Go Dgraph's measured 8–10% gain from three groups; results in the overview
 - [ ] 12.4 Attribution headers; `AGENTS.md` crate table updated
