@@ -35,6 +35,10 @@ impl InstanceProvider for ExistingProvider {
 ///
 /// A deadline rather than an attempt count: attempts times delay silently shrinks the real wait
 /// whenever an attempt is itself slow, which is precisely what happens on a loaded runner.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the fixture waits on a real Dgraph container in wall-clock time"
+)]
 pub fn wait_until_healthy(endpoint: &Endpoint) -> Result<HealthReport, FixtureError> {
     let deadline = Instant::now() + Duration::from_secs(READY_TIMEOUT_SECS);
     let mut attempts = 0_u32;

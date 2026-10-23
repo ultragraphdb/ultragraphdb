@@ -47,6 +47,10 @@ const ACL_MOUNT_DIR: &str = "/dgraph-test-acl";
 
 /// Dgraph signs ACL tokens with an HMAC read from a FILE. `--acl` has no inline form -- only
 /// `secret-file=<path>` -- which is the whole reason `docker_utils` needed volume support.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the fixture's ACL secret for a disposable container is drawn from the process's randomness"
+)]
 fn acl_secret_path() -> Result<std::path::PathBuf, FixtureError> {
     let dir = std::env::temp_dir().join(ACL_DIR_NAME);
     std::fs::create_dir_all(&dir)

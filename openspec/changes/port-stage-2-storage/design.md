@@ -145,7 +145,9 @@ process during a batch (task 1.6) and by stage 4's process kills.
   cannot decode is kept and counted, because a filter error or panic ends fjall's compaction worker and poisons the
   database. It reads `D` and the horizon from shared atomics, because fjall starts compactions inside `open`, before the
   store has read them from its metadata; until it has, `D` is 0 and the filter drops nothing. The filter is a trait
-  object (`Box<dyn CompactionFilter>` from an `Arc<dyn Factory>`) because fjall's API requires one.
+  object (`Box<dyn CompactionFilter>` from an `Arc<dyn Factory>`) because fjall's API requires one. The simulator's stepped executor holds its queued tasks as
+  private `Box<dyn FnOnce() + Send>` values, the second exception: the tasks of different crates have different types,
+  and the `Executor` trait itself stays generic.
 - **No write lands below a deletion of the same key:** once the sweep has removed the deletion, such a write would be
   the newest version for reads above the deletion's timestamp. A rollup whose key gained a deletion above the
   rollup's version is discarded and redone.
@@ -181,6 +183,9 @@ process during a batch (task 1.6) and by stage 4's process kills.
   database is reopened, and a batch whose persist failed is absent in this process and may be replayed from the journal
   at reopening. The port stops applying, reports the error and recovers only by reopening; a failed compaction poisons
   the store the same way.
+- **Settings compaction acts on are synced when set.** The discard timestamp, the tombstone horizon and a banned
+  namespace are durable when the call that sets them returns: compaction collects by them, so a setting lost to a power
+  loss after compaction used it would let reads between the lost and the used value return collected data silently.
 
 Alternative: redb. Decided against on 2026-10-20 (`dgraph-port-overview.md`).
 

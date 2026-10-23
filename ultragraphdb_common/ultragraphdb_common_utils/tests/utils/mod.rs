@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod go_farm_tests;
+#[cfg(test)]
 mod go_fmt_tests;
 #[cfg(test)]
 pub(crate) mod go_json_tests;

@@ -10,8 +10,8 @@ edition.workspace = true
 rust-version.workspace = true
 readme.workspace = true
 # Contains ports of Go's strconv, fmt, strings, unicode, unicode/utf8 and encoding/json code (BSD-3-Clause, see
-# LICENSE-GO) beside this repository's Apache-2.0 code.
-license = "Apache-2.0 AND BSD-3-Clause"
+# LICENSE-GO) and of go-farm's Fingerprint64 (MIT, see LICENSE-GO-FARM) beside this repository's Apache-2.0 code.
+license = "Apache-2.0 AND BSD-3-Clause AND MIT"
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true
@@ -25,6 +25,10 @@ ultragraphdb_error_json = { workspace = true }
 ultragraphdb_error_num = { workspace = true }
 # Exact decimal digits of a float, where Go's shortest formatting breaks a tie to even.
 dashu-int = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_test_bdd = { workspace = true }
+serde = { workspace = true }
 
 [[test]]
 name = "unit"

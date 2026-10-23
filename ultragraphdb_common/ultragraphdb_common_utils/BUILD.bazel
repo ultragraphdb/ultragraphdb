@@ -38,6 +38,7 @@ rust_test(
     name = "ultragraphdb_common_utils_tests",
     srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/mod.rs",
+    data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_common_utils"] + all_crate_deps(

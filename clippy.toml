@@ -3,10 +3,22 @@
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
 
+# Storage code takes its clock, its randomness and its threads from what it is given, so that a simulation run is a
+# function of its seed (stage 2 design, "The store boundary and the storage simulator"). The production
+# implementations in ultragraphdb_store_kv and the few other uses carry #[allow(clippy::disallowed_methods)] with
+# their reason; `make check` denies any other use.
+#
 # A fused multiply-add rounds once where Go on Dgraph's default amd64 builds rounds twice, which changes the last bit
 # of S2 vertices and can change geo index tokens between nodes (ledger 11). The golden vectors are generated unfused
 # (scripts/golden.sh), and the port computes unfused.
 disallowed-methods = [
     { path = "f64::mul_add", reason = "fusing changes S2 results from Go's unfused arithmetic (ledger 11)" },
     { path = "f32::mul_add", reason = "fusing changes S2 results from Go's unfused arithmetic (ledger 11)" },
+    { path = "std::time::Instant::now", reason = "storage code reads the clock it is given, so a simulation replays" },
+    { path = "std::time::Instant::elapsed", reason = "storage code reads the clock it is given, so a simulation replays" },
+    { path = "std::time::SystemTime::now", reason = "storage code reads the clock it is given, so a simulation replays" },
+    { path = "std::thread::spawn", reason = "storage code runs on the Executor it is given, so a simulation replays" },
+    { path = "std::thread::Builder::spawn", reason = "storage code runs on the Executor it is given, so a simulation replays" },
+    { path = "std::thread::scope", reason = "storage code runs on the Executor it is given, so a simulation replays" },
+    { path = "std::hash::RandomState::new", reason = "storage code draws from the streams it is given, so a simulation replays" },
 ]

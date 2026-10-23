@@ -75,6 +75,10 @@ fn a_value_ten_thousand_deep_builds_and_drops() {
 }
 
 #[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test clones on a small stack to prove the clone does not recurse"
+)]
 fn a_clone_is_equal_and_copies_ten_thousand_deep() {
     let v = go_json::unmarshal(br#"{"a":[1,{"b":null,"c":"x"},[]],"d":true,"a":{}}"#).unwrap();
     assert_eq!(v.clone(), v);

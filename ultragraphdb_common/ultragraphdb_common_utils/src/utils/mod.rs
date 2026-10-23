@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod go_farm;
 pub mod go_fmt;
 pub mod go_json;
 pub mod go_strconv;

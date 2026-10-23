@@ -58,6 +58,10 @@ pub(crate) const MAX_DEPTH: usize = 1000;
 pub(crate) const TOO_DEEP: &str = "Query nested more than 1000 levels deep";
 
 /// Runs `f` on a thread with a 256 KiB stack.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the tests run the parser on a small stack to prove it does not recurse"
+)]
 pub(crate) fn on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
         .stack_size(256 * 1024)

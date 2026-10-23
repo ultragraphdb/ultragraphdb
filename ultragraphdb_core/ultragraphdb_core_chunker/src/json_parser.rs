@@ -235,6 +235,10 @@ fn try_parse_as_geo(b: &str, nq: &mut api::NQuad) -> Result<bool, ChunkerError> 
 static NEXT_IDX: AtomicU64 = AtomicU64::new(0);
 
 /// A random number drawn once per process, against collisions with the blank nodes a user names.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Dgraph draws its blank-node salt from the process's randomness; the chunker is outside the storage simulation"
+)]
 fn random_id() -> u32 {
     static RANDOM_ID: OnceLock<u32> = OnceLock::new();
     // RandomState is seeded from the operating system's randomness; it is not cryptographic, nor needs to be.

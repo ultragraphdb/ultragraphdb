@@ -1,0 +1,79 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+rust_library(
+    name = "ultragraphdb_store_sim",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_store_sim"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+# Runs the store workload over fresh seeds; outside `make test`, it carries no test tag.
+rust_binary(
+    name = "store_sim_fuzz",
+    srcs = ["src/bin/store_sim_fuzz.rs"],
+    crate_root = "src/bin/store_sim_fuzz.rs",
+    lint_config = lint_config(),
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_store_sim"],
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_store_sim",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_store_sim",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It
+# holds the fixed seed set of the simulator, which needs no file system.
+rust_test(
+    name = "ultragraphdb_store_sim_tests",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_store_sim"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_store_sim"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

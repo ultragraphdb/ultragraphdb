@@ -11,6 +11,7 @@ members = [
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
     "ultragraphdb_proto/*",
+    "ultragraphdb_store/*",
     "ultragraphdb_test/*",
     "ultragraphdb_traits/*",
 ]
@@ -49,14 +50,18 @@ ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
 ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
+ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store" }
 ## Proto
 ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
 ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
+## Store: storage over the Store trait
+ultragraphdb_store_sim = { path = "ultragraphdb_store/ultragraphdb_store_sim" }
 ## Test
 ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
 ## Traits
 ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
 ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }
+ultragraphdb_traits_store = { path = "ultragraphdb_traits/ultragraphdb_traits_store" }
 
 # ==============
 # External crates

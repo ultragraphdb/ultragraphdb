@@ -65,6 +65,10 @@ fn from_geojson_matches_go() {
 }
 
 #[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test decodes on a small stack to prove the decoder does not recurse"
+)]
 fn nested_collections_decode_without_recursion() {
     // Go nests JSON 10000 deep, so a GeometryCollection may nest 4999 deep; a thread with a small stack decodes it.
     // The geometry is dropped on the test's thread: dropping a Geometry recurses into its members.

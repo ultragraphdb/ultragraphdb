@@ -25,6 +25,7 @@ require (
 	github.com/dgraph-io/dgo/v250 v250.0.0 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.4.2 // indirect
 	github.com/dgraph-io/simdjson-go v0.3.0 // indirect
+	github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da // indirect
 	github.com/dgryski/go-groupvarint v0.0.0-20230630160417-2bfb7969fb3c // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/fgprof v0.9.5 // indirect

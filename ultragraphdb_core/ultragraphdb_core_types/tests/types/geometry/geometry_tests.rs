@@ -147,6 +147,10 @@ fn nested_wkb(depth: usize) -> Vec<u8> {
 }
 
 #[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test decodes on a small stack to prove the decoder does not recurse"
+)]
 fn deeply_nested_collections_are_read_written_and_dropped_without_recursion() {
     // WKB nests collections without a limit and go-geom recurses into them on Go's growable stack; on a thread's
     // fixed stack a recursive walk overflows long before 100000 levels.

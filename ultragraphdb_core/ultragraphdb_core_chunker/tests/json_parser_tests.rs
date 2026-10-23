@@ -613,6 +613,10 @@ fn json_that_does_not_parse_is_refused() {
 }
 
 #[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test parses on a small stack to prove the parser does not recurse"
+)]
 fn a_value_ten_thousand_deep_is_read_without_recursion() {
     // Go nests values up to 10000 deep; a chain of 9999 objects is 9999 edges and one value, read on a thread
     // with a small stack.

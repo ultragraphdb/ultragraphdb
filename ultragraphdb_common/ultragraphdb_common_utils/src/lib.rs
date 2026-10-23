@@ -4,13 +4,15 @@
  */
 
 //! The Go standard-library behaviour the port reproduces, once for every crate: one module per Go package,
-//! named after it, and the types of `encoding/json`'s decoder, [`JsonDecoder`] and [`JsonValue`].
+//! named after it, and the types of `encoding/json`'s decoder, [`JsonDecoder`] and [`JsonValue`]; and go-farm's
+//! `Fingerprint64` in [`go_farm`].
 //!
 //! ```
-//! use ultragraphdb_common_utils::{JsonDecoder, go_json, go_strconv, go_strings};
+//! use ultragraphdb_common_utils::{JsonDecoder, go_farm, go_json, go_strconv, go_strings};
 //! use ultragraphdb_error_json::JsonError;
 //!
 //! # fn main() -> Result<(), JsonError> {
+//! assert_eq!(go_farm::fingerprint64(b"abc"), 0x24a5b3a074e7f369);
 //! assert_eq!(go_strconv::parse_int("0x1f", 0), Ok(31));
 //! assert_eq!(go_strconv::quote("a\u{7f}"), r#""a\x7f""#);
 //! assert_eq!(go_strings::to_lower("İSTANBUL"), "istanbul");
@@ -35,4 +37,4 @@ mod utils;
 
 pub use crate::types::json_decoder::JsonDecoder;
 pub use crate::types::json_value::JsonValue;
-pub use crate::utils::{go_fmt, go_json, go_strconv, go_strings, go_unicode, go_utf8};
+pub use crate::utils::{go_farm, go_fmt, go_json, go_strconv, go_strings, go_unicode, go_utf8};

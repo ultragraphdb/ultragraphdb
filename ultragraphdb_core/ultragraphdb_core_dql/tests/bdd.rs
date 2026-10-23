@@ -148,6 +148,10 @@ fn nested_query(depth: usize) -> String {
 }
 
 /// Parses the query on a thread with a 256 KiB stack.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test runs the parser on a small stack to prove it does not recurse"
+)]
 fn parse_on_small_stack(query: String) -> Result<ParseResult, DqlError> {
     std::thread::Builder::new()
         .stack_size(256 * 1024)
@@ -166,6 +170,10 @@ fn parse_nested(s: &mut Steps, depth: String) {
 
 #[when(
     regex = r#"^a filter of ([\d,]+) "(\w+)" functions joined by "(\w+)" is parsed, cloned and dropped$"#
+)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test runs the parser on a small stack to prove it does not recurse"
 )]
 fn parse_flat_filter(s: &mut Steps, terms: String, function: String, op: String) {
     let terms: usize = terms.replace(',', "").parse().expect("a count");
