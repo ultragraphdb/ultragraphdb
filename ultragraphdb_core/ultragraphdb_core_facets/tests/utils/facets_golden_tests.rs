@@ -64,8 +64,29 @@ struct FacetForCase {
     val_for: Option<ValForJson>,
 }
 
+/// The golden facets Go accepts and the port refuses, with the ledger entry
+/// (`openspec/notes/dgraph-bugs-found-in-port.md`) and the port's result. A `\x` or octal escape writes bytes that
+/// are not UTF-8 into the value, which Go keeps and tokenizes; a string value holds valid UTF-8 (the user's Q4 for
+/// entries 17, 18 and 31, and their decision for facets).
+const FACET_FOR_DEVIATIONS: &[(&str, u32, &str)] = &[
+    (r#""\xff""#, 17, "Facet value of k is not valid UTF-8"),
+    (r#""a\xffb c""#, 17, "Facet value of k is not valid UTF-8"),
+    (r#""\377""#, 17, "Facet value of k is not valid UTF-8"),
+];
+
 fn check_facet_for(c: &FacetForCase) -> Result<(), String> {
     let got = facet_for(&c.key, &c.val);
+    if let Some(&(_, _, expected)) = FACET_FOR_DEVIATIONS.iter().find(|(v, _, _)| *v == c.val) {
+        // Go accepts the facet, whose value is not UTF-8; the port refuses it.
+        let go_not_utf8 = c
+            .facet
+            .as_ref()
+            .is_some_and(|f| std::str::from_utf8(&unhex(&f.value)).is_err());
+        return match got {
+            Err(e) if go_not_utf8 && e.to_string() == expected => Ok(()),
+            got => Err(format!("{:?}: {got:?}, listed {expected:?}", c.val)),
+        };
+    }
     let (want, f) = match (&c.facet, got) {
         (None, Err(e)) if e.to_string() == c.err => return Ok(()),
         (Some(want), Ok(f)) => (want, f),
@@ -85,13 +106,11 @@ fn check_facet_for(c: &FacetForCase) -> Result<(), String> {
         Some(Value::Str(s)) => s.clone(),
         other => return Err(format!("{:?}: {other:?}", c.val)),
     };
-    // Go's JSON encoder writes each byte that is not UTF-8 as U+FFFD.
-    if v.tid().enum_value() != want_vf.tid || String::from_utf8_lossy(&s) != want_vf.str {
+    if v.tid().enum_value() != want_vf.tid || s != want_vf.str {
         return Err(format!(
-            "{:?}: val_for {:?} {:?} != {} {:?}",
+            "{:?}: val_for {:?} {s:?} != {} {:?}",
             c.val,
             v.tid(),
-            String::from_utf8_lossy(&s),
             want_vf.tid,
             want_vf.str
         ));
@@ -109,6 +128,12 @@ fn facet_for_matches_go() {
         .filter_map(|c| check_facet_for(c).err())
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    for (val, _, _) in FACET_FOR_DEVIATIONS {
+        assert!(
+            g.cases().iter().any(|c| c.val == *val && c.facet.is_some()),
+            "{val:?} is a golden facet"
+        );
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,8 +185,8 @@ const DEVIATIONS: &[(&str, u32, &str)] = &[
 /// The facet value of a golden case Go encodes, `None` for the deviations and the unknown type.
 fn to_binary_input(name: &str) -> Option<FacetValue> {
     Some(match name {
-        "string" => FacetValue::Str(b"READ WRITE".to_vec()),
-        "empty string" => FacetValue::Str(Vec::new()),
+        "string" => FacetValue::Str("READ WRITE".to_string()),
+        "empty string" => FacetValue::Str(String::new()),
         "int" => FacetValue::Int(3),
         "negative int" => FacetValue::Int(-1),
         "float" => FacetValue::Float(30000.56),

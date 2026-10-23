@@ -196,12 +196,16 @@ fn facet_for_tells_why() {
 }
 
 #[test]
-fn facet_for_keeps_bytes_a_hex_escape_writes() {
-    let f = facet_for("k", r#""a\xffb c""#).unwrap();
-    assert_eq!(f.value, b"a\xffb c");
-    // The term tokenizer splits at the byte that is not UTF-8, as Go's does.
-    assert_eq!(f.tokens, ["\u{1}a", "\u{1}b", "\u{1}c"]);
-    assert_eq!(facet_for("k", r#""\377""#).unwrap().value, [0xff]);
+fn facet_for_refuses_escapes_that_are_not_utf8() {
+    // Go keeps the bytes and tokenizes them; a string value is valid UTF-8 (ledger 17, 18, 31).
+    for val in [r#""a\xffb c""#, r#""\377""#] {
+        let err = facet_for("k", val).unwrap_err();
+        assert_eq!(err.0, FacetsErrorEnum::InvalidUtf8("k".to_string()));
+        assert_eq!(err.to_string(), "Facet value of k is not valid UTF-8");
+    }
+    let f = facet_for("k", r#""caf\xc3\xa9""#).unwrap();
+    assert_eq!(f.value, "café".as_bytes());
+    assert_eq!(f.tokens, ["\u{1}café"]);
 }
 
 #[test]
@@ -217,7 +221,7 @@ fn to_binary_encodes_the_value_of_its_type() {
     let t = parse_time("2006-01-02T15:04:05Z").unwrap();
     let cases: [(FacetValue, ValType, Vec<u8>); 5] = [
         (
-            FacetValue::Str(b"READ WRITE".to_vec()),
+            FacetValue::Str("READ WRITE".to_string()),
             ValType::String,
             b"READ WRITE".to_vec(),
         ),
@@ -255,9 +259,9 @@ fn a_facet_value_encodes_its_variant() {
     let t = parse_time("2006-01-02T15:04:05Z").unwrap();
     let cases = [
         (
-            FacetValue::Str(b"\xff".to_vec()),
+            FacetValue::Str("é".to_string()),
             ValType::String,
-            b"\xff".to_vec(),
+            "é".as_bytes().to_vec(),
         ),
         (
             FacetValue::Int(3),

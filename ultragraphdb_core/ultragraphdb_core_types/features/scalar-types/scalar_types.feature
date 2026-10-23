@@ -26,6 +26,22 @@ Feature: Scalar types
     When the float 1e20 is converted to int
     Then conversion fails with "Float out of int64 range"
 
+  Scenario: Two to the 63 is not an int
+    When the float 9223372036854775808 is converted to int
+    Then conversion fails with "Float out of int64 range"
+
+  Scenario: A float beyond int64 seconds is not a datetime
+    When the floats "1e19", "+Inf" and "NaN" and the bigfloat "1e19" are each converted to datetime
+    Then each conversion fails with "Float out of int64 range"
+
+  Scenario: Bytes that are not UTF-8 do not become a string
+    When the binary value with the bytes "e697ff" is converted to string
+    Then conversion fails with "Value is not valid UTF-8 for type string"
+
+  Scenario: Valid UTF-8 bytes become a string
+    When the binary value of "日本" is converted to string
+    Then the result is "日本"
+
   Scenario: Not a number is refused as a float
     When the string "NaN" is converted to float
     Then conversion fails with "Got invalid value: NaN"

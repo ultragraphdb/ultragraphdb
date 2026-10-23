@@ -45,7 +45,7 @@ Feature: Mutation input
     When the JSON `[{"name": "a"}, {"name": "b"}]` is parsed
     Then each node is assigned `_:dg.<id>.<n>`, with one random u32 `<id>` and consecutive counters `<n>` from 1 up
 
-  # The remedies of openspec/changes/fix-ported-dgraph-defects (ledger 19, 21, 22, 23, 24).
+  # The remedies of ledger 19, 21, 22, 23 and 24 (openspec/specs/mutation-input/spec.md).
 
   Scenario: A null geometry literal is refused
     When the RDF line `<a> <p> "null"^^<geo:geojson> .` is parsed

@@ -278,15 +278,19 @@ fn less_vals<C: Collator>(a: &Val, b: &Val, cl: Option<&Collation<'_, C>>) -> bo
         _ if matches!(a.tid(), TypeId::STRING | TypeId::DEFAULT) => {
             let sa = match a.safe() {
                 Some(Value::Str(s)) => s,
-                _ => Vec::new(),
+                _ => String::new(),
             };
             let sb = match b.safe() {
                 Some(Value::Str(s)) => s,
-                _ => Vec::new(),
+                _ => String::new(),
             };
             // Use language comparator.
             match cl {
-                Some(cl) => cl.collator.compare_bytes(&cl.language, &sa, &sb) == Ordering::Less,
+                Some(cl) => {
+                    cl.collator
+                        .compare_bytes(&cl.language, sa.as_bytes(), sb.as_bytes())
+                        == Ordering::Less
+                }
                 None => sa < sb,
             }
         }

@@ -14,15 +14,15 @@ use ultragraphdb_proto_dgraph::api::facet::ValType;
 use crate::errors::facets_error::FacetsError;
 
 /// A facet value with its type: Dgraph's `(interface{}, api.Facet_ValType)` pair, whose Go value can be of another
-/// type than the facet type names, on which `ToBinary` panics (ledger 20). A string stays bytes, because a `\x`
-/// escape in a facet can write bytes that are not UTF-8.
+/// type than the facet type names, on which `ToBinary` panics (ledger 20). A string is valid UTF-8, as every string
+/// value is: [`facet_for`](crate::facet_for) refuses a quoted value whose escapes write bytes that are not.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FacetValue {
     Int(i64),
     Float(f64),
     Bool(bool),
     DateTime(DateTime),
-    Str(Vec<u8>),
+    Str(String),
 }
 
 impl FacetValue {
@@ -49,7 +49,7 @@ impl FacetValue {
             FacetValue::Float(f) => f.to_bits().to_le_bytes().to_vec(),
             FacetValue::Bool(b) => vec![u8::from(*b)],
             FacetValue::DateTime(t) => t.marshal_binary()?,
-            FacetValue::Str(s) => s.clone(),
+            FacetValue::Str(s) => s.as_bytes().to_vec(),
         };
         Ok(api::Facet {
             key: key.to_string(),

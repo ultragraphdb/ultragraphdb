@@ -28,7 +28,8 @@ struct BigFloatCase {
 
 fn str_of(v: Val) -> String {
     match v.into_value() {
-        Some(Value::Str(b)) | Some(Value::Bytes(b)) => String::from_utf8(b).unwrap(),
+        Some(Value::Str(s)) => s,
+        Some(Value::Bytes(b)) => String::from_utf8(b).unwrap(),
         other => panic!("{other:?}"),
     }
 }

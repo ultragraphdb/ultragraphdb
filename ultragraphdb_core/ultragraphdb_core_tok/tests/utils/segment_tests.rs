@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use ultragraphdb_core_tok::{SegmentType, word_segments};
 
-use crate::golden::{cases, unhex};
+use crate::golden::{cases, untext};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SegmentCase {
@@ -19,23 +19,23 @@ struct SegmentCase {
 #[test]
 fn test_word_segments_golden() {
     let cases: Vec<SegmentCase> = cases("tok_segment");
-    assert!(cases.len() > 2000);
+    assert!(cases.len() > 1900);
     let mut failures = Vec::new();
     for c in &cases {
-        let input = unhex(&c.input);
+        let input = untext(&c.input);
         let (segs, err) = word_segments(&input);
-        let got: Vec<(Vec<u8>, u8)> = segs.iter().map(|(b, t)| (b.to_vec(), *t as u8)).collect();
-        let want: Vec<(Vec<u8>, u8)> = c
+        let got: Vec<(String, u8)> = segs
+            .iter()
+            .map(|(s, t)| (s.to_string(), *t as u8))
+            .collect();
+        let want: Vec<(String, u8)> = c
             .segments
             .iter()
-            .map(|s| unhex(s))
+            .map(|s| untext(s))
             .zip(c.types.iter().copied())
             .collect();
         if got != want || err.unwrap_or("") != c.error {
-            failures.push(format!(
-                "{:?}: want {want:?}, got {got:?}",
-                String::from_utf8_lossy(&input)
-            ));
+            failures.push(format!("{input:?}: want {want:?}, got {got:?}"));
         }
     }
     assert!(
@@ -49,7 +49,7 @@ fn test_word_segments_golden() {
 
 #[test]
 fn test_word_segments_types() {
-    let (segs, err) = word_segments("Now  is the.\n End. 3.5 漢字 カタカナ 한국".as_bytes());
+    let (segs, err) = word_segments("Now  is the.\n End. 3.5 漢字 カタカナ 한국");
     assert!(err.is_none());
     let types: Vec<SegmentType> = segs.iter().map(|s| s.1).collect();
     assert_eq!(types[0], SegmentType::Letter);
@@ -59,9 +59,18 @@ fn test_word_segments_types() {
 }
 
 #[test]
-fn test_word_segments_stop_at_invalid_byte_after_han() {
-    // segment stops when the rune after a Han segment is invalid, dropping the rest.
-    let (segs, err) = word_segments(b"\xe6\x97\xa5\xff abc");
+fn test_word_segments_go_on_after_han() {
+    // segment drops the rest of the input after a Han segment when an invalid byte follows (ledger 18); text holds
+    // no invalid byte, and a replacement character is a segment of its own.
+    let (segs, err) = word_segments("日\u{fffd} abc");
     assert!(err.is_none());
-    assert!(segs.is_empty());
+    assert_eq!(
+        segs,
+        vec![
+            ("日", SegmentType::Ideo),
+            ("\u{fffd}", SegmentType::None),
+            (" ", SegmentType::None),
+            ("abc", SegmentType::Letter)
+        ]
+    );
 }

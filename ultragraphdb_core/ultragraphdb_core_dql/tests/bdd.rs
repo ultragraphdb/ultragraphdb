@@ -6,20 +6,27 @@
 use std::collections::HashMap;
 
 use cucumber::{World, then, when};
-use serde::Deserialize;
-use serde_json::Value as Json;
 use ultragraphdb_core_dql::{
     DqlError, NQuad, ParseResult, Request, delete_predicate_edge, parse, parse_dql, parse_mutation,
 };
 use ultragraphdb_core_types::{TypeId, Value};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_pb::pb;
-use ultragraphdb_test_bdd::Golden;
+
+use crate::golden_parse::{Compared, check_parse, deviations_listed, golden, request};
 
 // Shared with the unit tests, which use all of it.
 #[allow(dead_code)]
 #[path = "parser/tree_json.rs"]
 mod tree_json;
+
+// Shared with the unit tests, which also compare the mutation and DQL outcomes.
+#[allow(dead_code)]
+#[path = "parser/golden_parse.rs"]
+mod golden_parse;
+
+#[path = "parser/parser_deviations.rs"]
+mod parser_deviations;
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -30,6 +37,11 @@ struct Steps {
     object_error: Option<DqlError>,
     mismatches: Vec<String>,
     compared: usize,
+    deviations: usize,
+    /// Whether the query was parsed on a thread with a 256 KiB stack.
+    small_stack: bool,
+    /// The functions a flat filter chain joins.
+    terms: usize,
 }
 
 impl Steps {
@@ -48,43 +60,12 @@ impl Steps {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct Outcome {
-    ok: Json,
-    err: String,
-    is_err: bool,
-    stable: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct Case {
-    input: String,
-    variables: Option<HashMap<String, String>>,
-    parse: Outcome,
-}
-
-fn golden() -> Golden<Case> {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/dql_parse.json");
-    ultragraphdb_test_bdd::load_golden::<Case>(&path)
-}
-
-fn request(c: &Case) -> Request {
-    match &c.variables {
-        Some(vars) => Request::with_variables(c.input.clone(), vars.clone()),
-        None => Request::new(c.input.clone()),
-    }
-}
-
 #[when("each query of the golden DQL corpus is parsed")]
 fn golden_trees(s: &mut Steps) {
-    for c in golden()
-        .cases()
-        .iter()
-        .filter(|c| c.parse.stable && !c.parse.is_err)
-    {
+    for c in golden().cases().iter().filter(|c| c.parse.has_tree()) {
         s.compared += 1;
         match parse(&request(c)) {
-            Ok(res) if tree_json::result(&res) == c.parse.ok => {}
+            Ok(res) if c.parse.admits(&Ok(tree_json::result(&res))) => {}
             other => s.mismatches.push(format!("{:?}: {other:?}", c.input)),
         }
     }
@@ -103,26 +84,29 @@ fn golden_trees_equal(s: &mut Steps) {
 
 #[when("the ported cases of Dgraph's dql/parser_test.go run")]
 fn golden_outcomes(s: &mut Steps) {
-    for c in golden().cases().iter().filter(|c| c.parse.stable) {
+    for c in golden().cases() {
         s.compared += 1;
-        let ok = match parse(&request(c)) {
-            Ok(res) => !c.parse.is_err && tree_json::result(&res) == c.parse.ok,
-            Err(e) => c.parse.is_err && e.to_string() == c.parse.err,
-        };
-        if !ok {
-            s.mismatches.push(c.input.clone());
+        match check_parse(c) {
+            Ok(Compared::AsGo) => {}
+            Ok(Compared::Deviation) => s.deviations += 1,
+            Err(e) => s.mismatches.push(e),
         }
     }
 }
 
 #[then("every case gives Dgraph's result or Dgraph's error text")]
 fn golden_outcomes_equal(s: &mut Steps) {
-    assert!(s.compared > 1500, "only {} cases compared", s.compared);
+    assert!(s.compared > 2000, "only {} cases compared", s.compared);
     assert!(
         s.mismatches.is_empty(),
         "{} cases differ: {:?}",
         s.mismatches.len(),
         s.mismatches.first()
+    );
+    assert_eq!(
+        s.deviations,
+        deviations_listed(),
+        "every deviation names a golden case"
     );
 }
 
@@ -135,6 +119,112 @@ fn parse_query(s: &mut Steps, query: String) {
 fn parse_query_with_a(s: &mut Steps, query: String, a: String) {
     let vars = HashMap::from([("$a".to_string(), a)]);
     s.parsed = Some(parse(&Request::with_variables(query, vars)));
+}
+
+#[when(expr = "the query {string} is parsed with the variables {string}")]
+fn parse_query_with_variables(s: &mut Steps, query: String, variables: String) {
+    let vars = variables
+        .split(", ")
+        .filter_map(|kv| kv.split_once(": "))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    s.parsed = Some(parse(&Request::with_variables(query, vars)));
+}
+
+#[then(expr = "the error holds {string} and {string}, in that order")]
+fn error_holds_both(s: &mut Steps, first: String, second: String) {
+    assert_eq!(s.error(), format!("{first}\n{second}"));
+}
+
+/// `{ q(func: uid(1)) { a { a { ... a } } } }`, its innermost predicate inside `depth` braces: a tree of `depth`
+/// levels.
+fn nested_query(depth: usize) -> String {
+    let inner = depth.saturating_sub(2);
+    format!(
+        "{{ q(func: uid(1)) {{ {}a{} }} }}",
+        "a { ".repeat(inner),
+        " }".repeat(inner)
+    )
+}
+
+/// Parses the query on a thread with a 256 KiB stack.
+fn parse_on_small_stack(query: String) -> Result<ParseResult, DqlError> {
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || parse(&Request::new(query)))
+        .expect("thread")
+        .join()
+        .expect("parsed")
+}
+
+#[when(regex = r"^a query whose selection blocks nest ([\d,]+) levels deep is parsed$")]
+fn parse_nested(s: &mut Steps, depth: String) {
+    let depth = depth.replace(',', "").parse().expect("a depth");
+    s.parsed = Some(parse_on_small_stack(nested_query(depth)));
+    s.small_stack = true;
+}
+
+#[when(
+    regex = r#"^a filter of ([\d,]+) "(\w+)" functions joined by "(\w+)" is parsed, cloned and dropped$"#
+)]
+fn parse_flat_filter(s: &mut Steps, terms: String, function: String, op: String) {
+    let terms: usize = terms.replace(',', "").parse().expect("a count");
+    let filter = vec![format!("{function}(a, 1)"); terms].join(&format!(" {op} "));
+    let query = format!("{{ q(func: uid(1)) @filter({filter}) {{ a }} }}");
+    s.parsed = Some(
+        std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let res = parse(&Request::new(query));
+                drop(res.clone());
+                res
+            })
+            .expect("thread")
+            .join()
+            .expect("parsed"),
+    );
+    s.small_stack = true;
+    s.terms = terms;
+}
+
+#[then("it parses into one filter tree and nothing overflows the stack")]
+fn one_filter_tree(s: &mut Steps) {
+    assert!(s.small_stack, "the query was parsed on the default stack");
+    let res = s.result();
+    assert_eq!(res.query().len(), 1);
+    let filter = res.query()[0].filter().expect("a filter");
+    // Counts the functions at the leaves, without recursion.
+    let mut leaves = 0;
+    let mut todo = vec![filter];
+    while let Some(node) = todo.pop() {
+        if node.func().is_some() {
+            leaves += 1;
+        }
+        todo.extend(node.child());
+    }
+    assert_eq!(leaves, s.terms);
+}
+
+#[then(expr = "parsing fails with {string} and nothing overflows the stack")]
+fn fails_on_small_stack(s: &mut Steps, want: String) {
+    assert!(s.small_stack, "the query was parsed on the default stack");
+    assert_eq!(s.error(), want);
+}
+
+#[then(regex = r"^it parses into a tree ([\d,]+) levels deep$")]
+fn tree_depth(s: &mut Steps, depth: String) {
+    let want: usize = depth.replace(',', "").parse().expect("a depth");
+    let res = s.result();
+    assert_eq!(res.query().len(), 1);
+    // Walks down the only child at each level, without recursion.
+    let mut levels = 1;
+    let mut node = &res.query()[0];
+    while let [child] = node.children() {
+        levels += 1;
+        node = child;
+    }
+    assert!(node.children().is_empty(), "a level with several children");
+    assert_eq!(levels, want);
 }
 
 #[when(expr = "the request {string} is parsed as DQL")]

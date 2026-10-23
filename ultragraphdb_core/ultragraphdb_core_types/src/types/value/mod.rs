@@ -13,14 +13,14 @@ use crate::types::geometry::Geometry;
 
 /// The value of a [`Val`](crate::Val): raw bytes before conversion, or a converted Go value.
 ///
-/// A Go string holds any bytes, not only UTF-8, and Dgraph converts binary values to strings and back unchanged,
-/// so [`Value::Str`] holds bytes too; [`Value::str`] builds one from text.
+/// A Go string holds any bytes, and Dgraph converts binary values to strings unchanged; this port refuses bytes that
+/// are not UTF-8 when converting them to a string, so [`Value::Str`] holds text.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// `[]byte`: a binary value, or the unconverted form of any type.
     Bytes(Vec<u8>),
-    /// `string`: string, default and password values, as Go's bytes.
-    Str(Vec<u8>),
+    /// `string`: string, default and password values.
+    Str(String),
     /// `int64`.
     Int(i64),
     /// `float64`.
@@ -42,7 +42,7 @@ pub enum Value {
 impl Value {
     /// A string value from text.
     pub fn str(s: impl AsRef<str>) -> Value {
-        Value::Str(s.as_ref().as_bytes().to_vec())
+        Value::Str(s.as_ref().to_owned())
     }
 
     /// Go's `%T` of the value, as Dgraph's messages print it.

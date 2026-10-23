@@ -68,17 +68,20 @@ pub fn copy_facets(fcs: &[api::Facet], param: Option<&pb::FacetParams>) -> Vec<a
 
 /// Dgraph's `valAndValType`: the value a facet's text stands for and its type. The first that fits wins: an
 /// empty or double-quoted string, an int (`strconv.ParseInt(val, 0, 64)`, so base prefixes and underscores), a
-/// float, `true` or `false`, a datetime.
-fn facet_value(val: &str) -> Result<FacetValue, FacetsError> {
+/// float, `true` or `false`, a datetime. A quoted value whose escapes write bytes that are not UTF-8 is refused
+/// for `key`.
+fn facet_value(key: &str, val: &str) -> Result<FacetValue, FacetsError> {
     if val.is_empty() {
-        return Ok(FacetValue::Str(Vec::new()));
+        return Ok(FacetValue::Str(String::new()));
     }
     // strings should be in quotes.
     if val.len() >= 2 && val.starts_with('"') && val.ends_with('"') {
-        return match go_strconv::unquote(val) {
-            Some(uq) => Ok(FacetValue::Str(uq)),
-            None => Err(FacetsError::new(FacetsErrorEnum::Unquote(val.to_string()))),
+        let Some(uq) = go_strconv::unquote(val) else {
+            return Err(FacetsError::new(FacetsErrorEnum::Unquote(val.to_string())));
         };
+        return String::from_utf8(uq)
+            .map(FacetValue::Str)
+            .map_err(|_| FacetsError::new(FacetsErrorEnum::InvalidUtf8(key.to_string())));
     }
     match go_strconv::parse_int(val, 0) {
         Ok(i) => return Ok(FacetValue::Int(i)),
@@ -114,16 +117,16 @@ fn facet_value(val: &str) -> Result<FacetValue, FacetsError> {
 /// Dgraph's `FacetFor`: the facet `key` with the value `val` stands for, in its binary form; a string value also
 /// gets its term tokens, sorted.
 ///
-/// A `\x` or octal escape in a quoted value can write bytes that are not UTF-8. The value keeps them; the term
-/// tokenizer splits words at them, as Go's does.
+/// A `\x` or octal escape in a quoted value can write bytes that are not UTF-8. Dgraph keeps them and tokenizes
+/// them; this port refuses the facet, as a string value is valid UTF-8 (ledger 17, 18, 31).
 ///
 /// # Errors
 ///
-/// [`FacetsErrorEnum::Unquote`] for a quoted value that is not a Go string literal, [`FacetsErrorEnum::Number`]
-/// for an int or float out of range, [`FacetsErrorEnum::NaN`], and [`FacetsErrorEnum::Unparsable`] for a value of
-/// no type, e.g. unquoted text.
+/// [`FacetsErrorEnum::Unquote`] for a quoted value that is not a Go string literal, [`FacetsErrorEnum::InvalidUtf8`]
+/// for one whose escapes write bytes that are not UTF-8, [`FacetsErrorEnum::Number`] for an int or float out of
+/// range, [`FacetsErrorEnum::NaN`], and [`FacetsErrorEnum::Unparsable`] for a value of no type, e.g. unquoted text.
 pub fn facet_for(key: &str, val: &str) -> Result<api::Facet, FacetsError> {
-    let v = facet_value(val)?;
+    let v = facet_value(key, val)?;
     let mut facet = v.to_binary(key)?;
     if let FacetValue::Str(s) = &v {
         let mut tokens = get_term_tokens(&[s])?;

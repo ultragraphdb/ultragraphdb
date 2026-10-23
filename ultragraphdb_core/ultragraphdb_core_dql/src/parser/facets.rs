@@ -20,12 +20,13 @@ use crate::types::facet_item::FacetItem;
 use crate::types::facet_order::FacetOrder;
 use crate::types::facet_res::FacetRes;
 
-pub(crate) fn parse_facets(it: &mut It<'_, '_>) -> Result<FacetRes, DqlError> {
+/// Parses `@facets` of a block at `level`: a facet list, or a facets filter.
+pub(crate) fn parse_facets(it: &mut It<'_, '_>, level: usize) -> Result<FacetRes, DqlError> {
     if let Some(res) = try_parse_facet_list(it)? {
         return Ok(res);
     }
     Ok(FacetRes {
-        ft: parse_filter(it)?,
+        ft: parse_filter(it, level)?,
         ..FacetRes::default()
     })
 }

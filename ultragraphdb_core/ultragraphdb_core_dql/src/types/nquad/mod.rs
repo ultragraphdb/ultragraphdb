@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_core_keys::{ValueTypeInfo, value_type};
-use ultragraphdb_core_types::{TypeId, Value, marshal};
+use ultragraphdb_core_types::{TypeId, Value, marshal_binary};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_pb::pb;
 
@@ -134,15 +134,12 @@ impl NQuad {
 fn byte_val(value: &api::Value) -> Result<(Vec<u8>, TypeId), DqlError> {
     let p = type_val_from(value);
     let tid = p.tid();
-    // These three would have already been marshalled to bytes by the client or in the parse function.
-    let p = if matches!(tid, TypeId::GEO | TypeId::DATETIME | TypeId::BIGFLOAT) {
-        p
-    } else {
-        marshal(&p, TypeId::BINARY)?
-    };
-    match p.into_value() {
-        Some(Value::Bytes(b)) => Ok((b, tid)),
-        _ => Ok((Vec::new(), tid)),
+    match (tid, p.value()) {
+        // These three would have already been marshalled to bytes by the client or in the parse function.
+        (TypeId::GEO | TypeId::DATETIME | TypeId::BIGFLOAT, Some(Value::Bytes(b))) => {
+            Ok((b.clone(), tid))
+        }
+        _ => Ok((marshal_binary(&p)?, tid)),
     }
 }
 

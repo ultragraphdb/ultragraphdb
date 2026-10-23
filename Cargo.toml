@@ -28,18 +28,11 @@ publish = false
 # ==============
 # Internal crates
 # ==============
+## Client
+ultragraphdb_client = { path = "ultragraphdb_client" }
 ## Common
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
-## Error
-ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
-ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
-ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
-## Client
-ultragraphdb_client = { path = "ultragraphdb_client" }
-## Proto
-ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
-ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
 ## Core: the pure packages ported from Dgraph
 ultragraphdb_core_algo = { path = "ultragraphdb_core/ultragraphdb_core_algo" }
 ultragraphdb_core_chunker = { path = "ultragraphdb_core/ultragraphdb_core_chunker" }
@@ -52,11 +45,18 @@ ultragraphdb_core_schema = { path = "ultragraphdb_core/ultragraphdb_core_schema"
 ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }
 ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
 ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
+## Error
+ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
+ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
+ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
+## Proto
+ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
+ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
+## Test
+ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
 ## Traits
 ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
 ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }
-## Test
-ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
 
 # ==============
 # External crates

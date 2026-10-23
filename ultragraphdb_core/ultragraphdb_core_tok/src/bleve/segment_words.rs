@@ -43,24 +43,24 @@ enum Label {
     TestEof,
 }
 
-/// The segments of `input` as blevesearch/segment's direct `Segmenter` returns them, each as its offset in `input`,
-/// its length and its type, and the error it stopped on.
+/// The segments of `input` as blevesearch/segment's direct `Segmenter` returns them, each with its type, and the
+/// error it stopped on.
 ///
-/// Each step runs `SegmentWords(data, atEOF = true)` on the rest of the input, which returns the first segment
-/// only. A step that finds no segment ends the segmentation without an error: segment does so when a Hangul,
-/// Han, Hiragana, Katakana or non-word segment is followed by an invalid UTF-8 byte, and the rest of the input is
-/// then dropped.
-pub(crate) fn word_segments(
-    input: &[u8],
-) -> (Vec<(usize, usize, SegmentType)>, Option<&'static str>) {
+/// Each step runs `SegmentWords(data, atEOF = true)` on the rest of the input's bytes, which returns the first
+/// segment only; a step that finds none ends the segmentation. A segment ends after a whole rune; one that would
+/// not end on a char boundary ends the segmentation with segment's parse error.
+pub(crate) fn word_segments(input: &str) -> (Vec<(&str, SegmentType)>, Option<&'static str>) {
     let mut out = Vec::new();
     let mut start = 0;
     while start < input.len() {
-        match segment_words(&input[start..]) {
+        match segment_words(&input.as_bytes()[start..]) {
             Err(e) => return (out, Some(e)),
             Ok(None) => break,
             Ok(Some(f)) => {
-                out.push((start + f.start, f.end - f.start, f.typ));
+                let Some(text) = input.get(start + f.start..start + f.end) else {
+                    return (out, Some(PARSE_ERROR));
+                };
+                out.push((text, f.typ));
                 start += f.advance;
             }
         }
@@ -208,7 +208,7 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
                     _ => None,
                 };
                 if let Some(finish) = finish {
-                    return Ok(finish_token(data, finish, start_pos, end_pos));
+                    return Ok(Some(finish_token(data, finish, start_pos, end_pos)));
                 }
                 label = Label::Again;
             }
@@ -238,14 +238,16 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
     Ok(None)
 }
 
-/// The finish actions of segment_words.rl with `atEOF` set and one token wanted: the token, or none when the
-/// rune after a checked token is invalid.
-fn finish_token(data: &[u8], finish: Finish, start_pos: isize, end_pos: isize) -> Option<Found> {
+/// The finish actions of segment_words.rl with `atEOF` set and one token wanted: the token.
+///
+/// segment's Hangul, Han, Hiragana, Katakana and non-word actions return no token when the rune after it decodes
+/// as an invalid byte, which at the end of the input drops the token and the rest (ledger 18). The input is a
+/// `&str`, so no invalid byte follows, and the check is left out.
+fn finish_token(data: &[u8], finish: Finish, start_pos: isize, end_pos: isize) -> Found {
     let (start, mut end) = (start_pos as usize, end_pos as usize);
     let typ = match finish {
-        Finish::Number => return Some(found(start, end, SegmentType::Number)),
-        Finish::Word => return Some(found(start, end, SegmentType::Letter)),
-        Finish::Hangul => SegmentType::Letter,
+        Finish::Number => SegmentType::Number,
+        Finish::Word | Finish::Hangul => SegmentType::Letter,
         Finish::Ideo => SegmentType::Ideo,
         Finish::None => {
             let mut last = start;
@@ -256,10 +258,7 @@ fn finish_token(data: &[u8], finish: Finish, start_pos: isize, end_pos: isize) -
             SegmentType::None
         }
     };
-    if go_utf8::decode_rune(&data[end + 1..]) == (go_utf8::RUNE_ERROR, 1) {
-        return None;
-    }
-    Some(found(start, end, typ))
+    found(start, end, typ)
 }
 
 fn found(start: usize, end: usize, typ: SegmentType) -> Found {

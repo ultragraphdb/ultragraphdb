@@ -107,7 +107,7 @@ pub(crate) fn get_query(it: &mut It<'_, '_>) -> Result<GraphQuery, DqlError> {
         }
         let item = it.item();
         match item.typ() {
-            ITEM_LEFT_CURL => godeep(it, &mut gq)?,
+            ITEM_LEFT_CURL => godeep(it, &mut gq, 1)?,
             ITEM_AT => {
                 it.next();
                 let item = it.item();
@@ -118,7 +118,7 @@ pub(crate) fn get_query(it: &mut It<'_, '_>) -> Result<GraphQuery, DqlError> {
                                 return Err(ierr(item, "Repeated filter at root"));
                             }
                             seen_filter = true;
-                            gq.filter = parse_filter(it)?;
+                            gq.filter = parse_filter(it, 1)?;
                         }
                         "normalize" => gq.normalize = true,
                         "cascade" => parse_cascade(it, &mut gq)?,
@@ -263,7 +263,7 @@ fn get_root(it: &mut It<'_, '_>) -> Result<GraphQuery, DqlError> {
                 if gq.func.is_some() {
                     return Err(ierr(item, "Only one function allowed at root"));
                 }
-                let gen_fn = parse_function(it, Some(&mut gq))?;
+                let gen_fn = parse_function(it, Some(&mut gq), 1)?;
                 if !valid_func_name(&gen_fn.name) {
                     return Err(ierr(
                         item,
@@ -282,7 +282,7 @@ fn get_root(it: &mut It<'_, '_>) -> Result<GraphQuery, DqlError> {
                     return Err(ierr(item, "Invalid query"));
                 };
                 if peek[0].val() == "uid" {
-                    let gen_fn = parse_function(it, Some(&mut gq))?;
+                    let gen_fn = parse_function(it, Some(&mut gq), 1)?;
                     f.needs_var = gen_fn.needs_var;
                     f.name = gen_fn.name;
                 } else {

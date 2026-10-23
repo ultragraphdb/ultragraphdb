@@ -9,8 +9,9 @@ package main
 //   - tok_segment: blevesearch/segment's word segments and their types over Unicode 8.0.0's WordBreakTest inputs
 //     (the segment module's tables_test.go, read as Go source) and the text corpus (tok_corpus.go);
 //   - tok_analysis: the token stream of Dgraph's term and fulltext analyzer (unicode tokenizer, to_lower,
-//     NFKC), built as tok/bleve.go builds it, with each token's offsets and type;
-//   - tok_cjk_bigram: that stream through bleve's cjk_bigram filter, as Dgraph's zh, ja and ko stemmer;
+//     NFKC), built as tok/bleve.go builds it, with each token's offsets and type, and the port's stream where it
+//     differs, lowercased by tokToLower (ledger 16, 30);
+//   - tok_cjk_bigram: those streams through bleve's cjk_bigram filter, as Dgraph's zh, ja and ko stemmer;
 //   - tok_stemmers: each stemmer filter Dgraph's langStemmers names, over words built from the language's
 //     sentences, its stop words, the string literals of bleve's tests and stemmer source, and the suffixes of the
 //     Snowball stemmer for the language (snowballstem v0.9.0's among tables, read as Go source).
@@ -23,9 +24,11 @@ import (
 	"math/rand"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	stdunicode "unicode"
 	"unicode/utf8"
 
 	"github.com/blevesearch/bleve/v2/analysis"
@@ -52,7 +55,8 @@ func tokModuleDir(path string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// tokWordBreakTests are the inputs of segment's unicodeWordTests (Unicode 8.0.0's WordBreakTest.txt).
+// tokWordBreakTests are the inputs of segment's unicodeWordTests (Unicode 8.0.0's WordBreakTest.txt) that are valid
+// UTF-8, as every string value in the port is.
 func tokWordBreakTests() []string {
 	path := filepath.Join(tokModuleDir("github.com/blevesearch/segment"), "tables_test.go")
 	f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
@@ -80,7 +84,9 @@ func tokWordBreakTests() []string {
 						check(err)
 						b = append(b, byte(n))
 					}
-					out = append(out, string(b))
+					if utf8.Valid(b) {
+						out = append(out, string(b))
+					}
 				}
 			}
 		}
@@ -130,6 +136,41 @@ func tokAnalyzer() analysis.Analyzer {
 	return a
 }
 
+// tokToLower is the port's to_lower (ledger 16, 30): every rune by unicode.ToLower, and a Σ ending the term as ς.
+// bleve's toLowerDeferredCopy leaves stale bytes after a rune whose lowercase form is shorter, and skips the
+// final-sigma rule once a rune's lowercase form is wider; its comment ("exactly like bytes.ToLower()") and its test
+// (ὈΔΥΣΣ to ὀδυσς) state this behaviour.
+func tokToLower(s []byte) []byte {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		r, wid := utf8.DecodeRune(s[i:])
+		l := stdunicode.ToLower(r)
+		if l != r && l == 'σ' && i+wid == len(s) {
+			l = 'ς'
+		}
+		out = utf8.AppendRune(out, l)
+		i += wid
+	}
+	return out
+}
+
+// tokToLowerFilter is bleve's to_lower filter over tokToLower.
+type tokToLowerFilter struct{}
+
+func (tokToLowerFilter) Filter(input analysis.TokenStream) analysis.TokenStream {
+	for _, t := range input {
+		t.Term = tokToLower(t.Term)
+	}
+	return input
+}
+
+// tokPortAnalyzer is tokAnalyzer with tokToLowerFilter in place of to_lower: the analysis the port runs.
+func tokPortAnalyzer() analysis.Analyzer {
+	a := tokAnalyzer().(*analysis.DefaultAnalyzer)
+	return &analysis.DefaultAnalyzer{Tokenizer: a.Tokenizer,
+		TokenFilters: []analysis.TokenFilter{tokToLowerFilter{}, a.TokenFilters[1]}}
+}
+
 type tokStreamToken struct {
 	Term  string `json:"term"` // hex
 	Start int    `json:"start"`
@@ -140,6 +181,17 @@ type tokStreamToken struct {
 type tokStreamCase struct {
 	Input  string           `json:"input"` // hex
 	Tokens []tokStreamToken `json:"tokens"`
+	// Fixed is the port's stream, by tokPortAnalyzer, where it differs from Dgraph's.
+	Fixed []tokStreamToken `json:"fixed,omitempty"`
+}
+
+// tokStreamCaseOf is the case of input, the streams of Dgraph's analyzer a and the port's p, each through filter.
+func tokStreamCaseOf(in string, a, p analysis.Analyzer, filter func(analysis.TokenStream) analysis.TokenStream) tokStreamCase {
+	c := tokStreamCase{Input: hex.EncodeToString([]byte(in)), Tokens: tokStream(filter(a.Analyze([]byte(in))))}
+	if fixed := tokStream(filter(p.Analyze([]byte(in)))); !reflect.DeepEqual(fixed, c.Tokens) {
+		c.Fixed = fixed
+	}
+	return c
 }
 
 func tokStream(ts analysis.TokenStream) []tokStreamToken {
@@ -151,21 +203,22 @@ func tokStream(ts analysis.TokenStream) []tokStreamToken {
 }
 
 func genTokAnalysis() (any, error) {
-	a := tokAnalyzer()
+	a, p := tokAnalyzer(), tokPortAnalyzer()
+	none := func(ts analysis.TokenStream) analysis.TokenStream { return ts }
 	var out []tokStreamCase
 	for _, in := range append(tokWordBreakTests(), tokCorpus()...) {
-		out = append(out, tokStreamCase{Input: hex.EncodeToString([]byte(in)), Tokens: tokStream(a.Analyze([]byte(in)))})
+		out = append(out, tokStreamCaseOf(in, a, p, none))
 	}
 	return out, nil
 }
 
 func genTokCjkBigram() (any, error) {
-	a := tokAnalyzer()
+	a, p := tokAnalyzer(), tokPortAnalyzer()
 	f, err := registry.NewCache().TokenFilterNamed("cjk_bigram")
 	check(err)
 	var out []tokStreamCase
 	for _, in := range tokCorpus() {
-		out = append(out, tokStreamCase{Input: hex.EncodeToString([]byte(in)), Tokens: tokStream(f.Filter(a.Analyze([]byte(in))))})
+		out = append(out, tokStreamCaseOf(in, a, p, f.Filter))
 	}
 	return out, nil
 }

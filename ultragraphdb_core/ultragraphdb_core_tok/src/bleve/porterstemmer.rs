@@ -8,11 +8,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 /// bleve's `stemmer_porter` on one term: go-porterstemmer's `StemWithoutLowerCasing` over its runes.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    go_utf8::encode(&stem_without_lower_casing(go_utf8::runes(term)))
+pub(crate) fn stem(term: &str) -> String {
+    stem_without_lower_casing(term.chars().collect())
+        .iter()
+        .collect()
 }
 
 /// go-porterstemmer's `isConsonant`: a `y` is a consonant at the start and after a vowel. Go recurses once per `y`

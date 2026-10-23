@@ -57,9 +57,11 @@ rust_test(
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(
     name = "bdd",
-    # bdd.rs includes the unit tests' tree-to-JSON walker by path.
+    # bdd.rs includes the unit tests' tree-to-JSON walker and golden cases by path.
     srcs = [
         "tests/bdd.rs",
+        "tests/parser/golden_parse.rs",
+        "tests/parser/parser_deviations.rs",
         "tests/parser/tree_json.rs",
     ],
     crate_root = "tests/bdd.rs",

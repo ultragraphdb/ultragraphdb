@@ -57,7 +57,7 @@ fn binary_of(v: &Val) -> Result<Vec<u8>, String> {
 
 fn text_of(v: &Val) -> String {
     match marshal(v, TypeId::STRING).unwrap().into_value() {
-        Some(Value::Str(s)) => String::from_utf8(s).unwrap(),
+        Some(Value::Str(s)) => s,
         other => panic!("{other:?}"),
     }
 }
@@ -162,9 +162,12 @@ fn decode_golden(w: &mut Steps) {
     for c in encodings() {
         let tid = TypeId::new(c.from);
         let bin = unhex(&c.out.unwrap().bin);
-        let original = convert(&Val::bytes(tid, unhex(&c.input)), tid).unwrap();
+        // A malformed input (a vector of 3 bytes, a datetime with trailing bytes, a string that is not UTF-8) is not a
+        // value of its type.
+        let Ok(original) = convert(&Val::bytes(tid, unhex(&c.input)), tid) else {
+            continue;
+        };
         if binary_of(&original) != Ok(bin.clone()) {
-            // A malformed input (a vector of 3 bytes, a datetime with trailing bytes) is not a value of its type.
             continue;
         }
         let decoded = convert(&Val::bytes(TypeId::BINARY, bin.clone()), tid);
@@ -192,10 +195,51 @@ fn decoded_match(w: &mut Steps) {
 
 // ---------- Conversions ----------
 
-#[when(expr = "the float 1e20 is converted to int")]
-fn float_to_int(w: &mut Steps) {
-    let v = Val::bytes(TypeId::FLOAT, 1e20f64.to_bits().to_le_bytes().to_vec());
+#[when(expr = "the float {word} is converted to int")]
+fn float_to_int(w: &mut Steps, f: String) {
+    let f: f64 = f.parse().unwrap();
+    let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
     w.error = convert(&v, TypeId::INT).unwrap_err().to_string();
+}
+
+/// The error text of a conversion, or the value it gave.
+fn outcome(r: Result<Val, ultragraphdb_core_types::TypesError>) -> String {
+    match r {
+        Ok(v) => format!("{v:?}"),
+        Err(e) => e.to_string(),
+    }
+}
+
+#[when(
+    expr = "the floats {string}, {string} and {string} and the bigfloat {string} are each converted to datetime"
+)]
+fn floats_to_datetime(w: &mut Steps, a: String, b: String, c: String, big: String) {
+    for f in [a, b, c] {
+        let f: f64 = f.parse().unwrap();
+        let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
+        w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
+    }
+    let v = Val::bytes(TypeId::BIGFLOAT, big.into_bytes());
+    w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
+}
+
+#[then(expr = "each conversion fails with {string}")]
+fn each_conversion_fails(w: &mut Steps, msg: String) {
+    assert_eq!(w.failures, vec![msg; 4]);
+}
+
+#[when(expr = "the binary value with the bytes {string} is converted to string")]
+fn invalid_binary_to_string(w: &mut Steps, bytes: String) {
+    w.error = outcome(convert(
+        &Val::bytes(TypeId::BINARY, unhex(&bytes)),
+        TypeId::STRING,
+    ));
+}
+
+#[when(expr = "the binary value of {string} is converted to string")]
+fn binary_to_string(w: &mut Steps, s: String) {
+    w.text =
+        text_of(&convert(&Val::bytes(TypeId::BINARY, s.into_bytes()), TypeId::STRING).unwrap());
 }
 
 #[when(expr = "the string {string} is converted to float")]
@@ -476,7 +520,7 @@ fn sort_german(w: &mut Steps, lang: String) {
     let mut rows: Vec<Vec<Val>> = c
         .input
         .iter()
-        .map(|s| vec![Val::new(TypeId::STRING, Value::Str(s.as_bytes().to_vec()))])
+        .map(|s| vec![Val::new(TypeId::STRING, Value::str(s))])
         .collect();
     let mut uids: Vec<u64> = (1..=rows.len() as u64).map(|i| i * 100).collect();
     sort(&mut rows, &mut uids, &[false], &lang, &TextCollator).unwrap();

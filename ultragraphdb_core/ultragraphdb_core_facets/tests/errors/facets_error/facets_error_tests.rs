@@ -8,7 +8,7 @@ use ultragraphdb_proto_dgraph::api;
 
 #[test]
 fn each_failure_has_its_kind_and_dgraph_text() {
-    let cases: [(&str, FacetsErrorEnum, &str); 5] = [
+    let cases: [(&str, FacetsErrorEnum, &str); 6] = [
         (
             "abc",
             FacetsErrorEnum::Unparsable("abc".to_string()),
@@ -34,6 +34,11 @@ fn each_failure_has_its_kind_and_dgraph_text() {
             "\"a\u{85}\\q\"",
             FacetsErrorEnum::Unquote("\"a\u{85}\\q\"".to_string()),
             r#"could not unquote "\"a\u0085\\q\"":: invalid syntax"#,
+        ),
+        (
+            r#""\xff""#,
+            FacetsErrorEnum::InvalidUtf8("k".to_string()),
+            "Facet value of k is not valid UTF-8",
         ),
     ];
     for (input, kind, text) in cases {

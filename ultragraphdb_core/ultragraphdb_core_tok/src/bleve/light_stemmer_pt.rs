@@ -6,13 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 /// bleve's `stemmer_pt_light` on one term.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    let mut s = go_utf8::runes(term);
+pub(crate) fn stem(term: &str) -> String {
+    let mut s: Vec<char> = term.chars().collect();
     if s.len() < 4 {
-        return go_utf8::encode(&s);
+        return s.iter().collect();
     }
     s = remove_suffix(s);
     if s.len() > 3 && s[s.len() - 1] == 'a' {
@@ -32,7 +30,7 @@ pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
             c => c,
         };
     }
-    go_utf8::encode(&s)
+    s.iter().collect()
 }
 
 fn ends_with(s: &[char], suffix: &str) -> bool {

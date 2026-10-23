@@ -12,22 +12,6 @@ use unicode_normalization::UnicodeNormalization;
 
 /// Go's `norm.NFKC.Bytes`. Go's normalizer keeps text in the Stream-Safe Text Format, inserting U+034F COMBINING
 /// GRAPHEME JOINER after 30 non-starters in a row, so the text is made stream-safe before it is composed.
-///
-/// An invalid UTF-8 byte is a normalization boundary that Go copies as it is; the lowercase filter before this one
-/// leaves such bytes in some terms (see `to_lower_deferred_copy`), so each valid run is normalized on its own.
-pub(crate) fn nfkc(term: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(term.len());
-    for chunk in term.utf8_chunks() {
-        out.extend(
-            chunk
-                .valid()
-                .chars()
-                .stream_safe()
-                .nfkc()
-                .collect::<String>()
-                .into_bytes(),
-        );
-        out.extend_from_slice(chunk.invalid());
-    }
-    out
+pub(crate) fn nfkc(term: &str) -> String {
+    term.chars().stream_safe().nfkc().collect()
 }

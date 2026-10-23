@@ -17,4 +17,6 @@ pub(crate) struct FragmentNode {
     pub entered: bool,
     /// Exited in the depth-first expansion.
     pub exited: bool,
+    /// Once exited, the levels the fragment's expanded children span.
+    pub height: usize,
 }

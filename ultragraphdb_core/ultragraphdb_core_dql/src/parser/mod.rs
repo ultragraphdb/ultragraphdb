@@ -37,6 +37,25 @@ pub(crate) use self::variables::parse_var_name;
 /// The parser's cursor over the lexed items.
 pub(crate) type It<'l, 'a> = ItemIterator<'l, 'a>;
 
+/// How many levels deep a query may nest in its text. A query's root block is level 1; a block's children sit one
+/// level below it, the contents of each bracket of a filter or math expression one level below the bracket's
+/// surroundings (a filter's or math function's own bracket included), and a function nested in a function one
+/// level below the function holding it. Blocks a fragment expands into count at the level they land on. A flat
+/// chain of operators, `a or b or c` or `x + y + z`, adds no level whatever its length, as in Dgraph, so a filter or
+/// math tree can be as deep as its chain is long; every walk over the trees therefore keeps its own stack. Dgraph's
+/// parser recurses without a bound (ledger 32).
+pub(crate) const MAX_DEPTH: usize = 1000;
+
+/// Refuses a level past [`MAX_DEPTH`] with `Query nested more than 1000 levels deep`.
+pub(crate) fn check_depth(level: usize) -> Result<(), DqlError> {
+    if level > MAX_DEPTH {
+        return Err(DqlError::parse(format!(
+            "Query nested more than {MAX_DEPTH} levels deep"
+        )));
+    }
+    Ok(())
+}
+
 /// An error at an item's position, Go's `item.Errorf`.
 pub(crate) fn ierr(item: &Item<'_>, msg: impl Display) -> DqlError {
     DqlError::from(item.errorf(msg))
@@ -177,7 +196,7 @@ pub fn parse_with_need_vars(r: &Request, need_vars: &[String]) -> Result<ParseRe
         res.query_vars = Vec::with_capacity(res.query.len());
         for qu in &mut res.query {
             // Try expanding fragments using fragment map.
-            fragment::expand_fragments(qu, &mut fmap)?;
+            fragment::expand_fragments(qu, &mut fmap, 1)?;
             // Substitute all DQL variables with corresponding values.
             variables::substitute_variables(qu, &vmap)?;
             // Collect vars used and defined in Result struct.

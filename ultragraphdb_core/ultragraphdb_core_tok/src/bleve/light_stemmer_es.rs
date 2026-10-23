@@ -6,11 +6,9 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 /// bleve's `stemmer_es_light` on one term.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    let mut s = go_utf8::runes(term);
+pub(crate) fn stem(term: &str) -> String {
+    let mut s: Vec<char> = term.chars().collect();
     let l = s.len();
     if l >= 5 {
         match s[l - 1] {
@@ -28,5 +26,5 @@ pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
             _ => {}
         }
     }
-    go_utf8::encode(&s)
+    s.iter().collect()
 }

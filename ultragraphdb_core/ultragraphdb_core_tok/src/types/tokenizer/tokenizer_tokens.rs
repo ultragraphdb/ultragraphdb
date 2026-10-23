@@ -30,6 +30,8 @@ impl Tokenizer {
     ///
     /// The ngram tokenizer's tokens are in no particular order in Dgraph, which collects them in a map; this port
     /// returns them sorted. Geo tokens come in cell order.
+    ///
+    /// A string value is valid UTF-8; the exact, hash, trigram and sha256 tokenizers read its bytes, as Dgraph's do.
     pub fn tokens(&self, v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
         match self.kind() {
             Kind::BigFloat => match v {
@@ -64,10 +66,9 @@ impl Tokenizer {
                     ));
                 };
                 let Some(l) = lang else {
-                    return Ok(vec![s.clone()]);
+                    return Ok(vec![s.as_bytes().to_vec()]);
                 };
-                // Go keys the string's bytes, which need not be valid UTF-8.
-                let key = l.collator.key_bytes(s);
+                let key = l.collator.key_bytes(s.as_bytes());
                 let mut term = Vec::with_capacity(l.lang_base.len() + 2 + key.len());
                 term.extend_from_slice(l.lang_base.as_bytes());
                 term.push(IDENT_DELIMITER);
@@ -88,7 +89,7 @@ impl Tokenizer {
                     return Ok(Vec::new());
                 }
                 Ok(remove_duplicates(
-                    s.windows(3).map(<[u8]>::to_vec).collect(),
+                    s.as_bytes().windows(3).map(<[u8]>::to_vec).collect(),
                 ))
             }
             Kind::Hash => {
@@ -97,7 +98,7 @@ impl Tokenizer {
                         "Hash tokenizer only supported for string types",
                     ));
                 };
-                Ok(vec![Blake2b256::digest(s).to_vec()])
+                Ok(vec![Blake2b256::digest(s.as_bytes()).to_vec()])
             }
             Kind::FullText(lang) => {
                 let Some(tokens) = analyzed(lang, v) else {
@@ -108,7 +109,7 @@ impl Tokenizer {
             Kind::NGram(lang) => Ok(ngram_tokens(lang, v)),
             Kind::Sha256 => match v {
                 // The first 64 characters hold a query's SHA-256 in hex.
-                Value::Str(s) if s.len() >= 64 => Ok(vec![s[..64].to_vec()]),
+                Value::Str(s) if s.len() >= 64 => Ok(vec![s.as_bytes()[..64].to_vec()]),
                 _ => Ok(Vec::new()),
             },
             // A vector predicate takes one mutation at a time; its one token says so.
@@ -118,7 +119,7 @@ impl Tokenizer {
 }
 
 /// The text of a string value, `None` for the empty string and any other type.
-fn text(v: &Value) -> Option<&[u8]> {
+fn text(v: &Value) -> Option<&str> {
     match v {
         Value::Str(s) if !s.is_empty() => Some(s),
         _ => None,
@@ -183,7 +184,7 @@ fn term_tokens(lang: &str, v: &Value) -> Vec<Vec<u8>> {
     match lang_base(lang).as_str() {
         // Chinese, Japanese, Thai, Lao, Burmese, Tibetan and Khmer (km, kxm) do not use spaces as delimiters.
         "zh" | "ja" | "th" | "lo" | "my" | "bo" | "km" | "kxm" => {
-            remove_duplicates(s.split(|&b| b == b' ').map(<[u8]>::to_vec).collect())
+            remove_duplicates(s.split(' ').map(|w| w.as_bytes().to_vec()).collect())
         }
         _ => unique_terms(analyze(s)),
     }
@@ -199,10 +200,10 @@ fn analyzed(lang: &str, v: &Value) -> Option<Vec<AnalysisToken>> {
 
 /// Dgraph's `generateNGrams`: the shingles of `terms` at the `(first word, words)` spans, each of 30 bytes or more
 /// as its BLAKE2b-256 digest, deduplicated and, in this port, sorted.
-fn shingles(terms: &[&[u8]], spans: impl Iterator<Item = (usize, usize)>) -> Vec<Vec<u8>> {
+fn shingles(terms: &[&str], spans: impl Iterator<Item = (usize, usize)>) -> Vec<Vec<u8>> {
     let mut set = HashSet::new();
     for (i, n) in spans {
-        let shingle = terms[i..i + n].join(&b' ');
+        let shingle = terms[i..i + n].join(" ").into_bytes();
         if shingle.len() < MAX_SHINGLE_LEN {
             set.insert(shingle);
         } else {
@@ -219,7 +220,7 @@ pub(crate) fn ngram_tokens(lang: &str, v: &Value) -> Vec<Vec<u8>> {
     let Some(tokens) = analyzed(lang, v) else {
         return Vec::new();
     };
-    let terms: Vec<&[u8]> = tokens.iter().map(AnalysisToken::term).collect();
+    let terms: Vec<&str> = tokens.iter().map(AnalysisToken::term).collect();
     let n = terms.len();
     shingles(
         &terms,
@@ -232,7 +233,7 @@ pub(crate) fn ngram_query_tokens(lang: &str, v: &Value) -> Vec<Vec<u8>> {
     let Some(tokens) = analyzed(lang, v) else {
         return Vec::new();
     };
-    let terms: Vec<&[u8]> = tokens.iter().map(AnalysisToken::term).collect();
+    let terms: Vec<&str> = tokens.iter().map(AnalysisToken::term).collect();
     let n = terms.len();
     let gram = n.min(3);
     shingles(&terms, (0..n).filter(|i| i + gram <= n).map(|i| (i, gram)))

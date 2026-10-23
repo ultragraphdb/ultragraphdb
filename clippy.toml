@@ -1,0 +1,12 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# A fused multiply-add rounds once where Go on Dgraph's default amd64 builds rounds twice, which changes the last bit
+# of S2 vertices and can change geo index tokens between nodes (ledger 11). The golden vectors are generated unfused
+# (scripts/golden.sh), and the port computes unfused.
+disallowed-methods = [
+    { path = "f64::mul_add", reason = "fusing changes S2 results from Go's unfused arithmetic (ledger 11)" },
+    { path = "f32::mul_add", reason = "fusing changes S2 results from Go's unfused arithmetic (ledger 11)" },
+]

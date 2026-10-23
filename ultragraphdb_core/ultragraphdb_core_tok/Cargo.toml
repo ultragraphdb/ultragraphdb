@@ -9,9 +9,8 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 readme.workspace = true
-# Contains a port of Go's bytes.ToLower (BSD-3-Clause, see LICENSE-GO) and of go-porterstemmer (MIT, see
-# LICENSE-PORTERSTEMMER) beside this repository's Apache-2.0 code.
-license = "Apache-2.0 AND BSD-3-Clause AND MIT"
+# Contains a port of go-porterstemmer (MIT, see LICENSE-PORTERSTEMMER) beside this repository's Apache-2.0 code.
+license = "Apache-2.0 AND MIT"
 repository.workspace = true
 authors.workspace = true
 publish.workspace = true

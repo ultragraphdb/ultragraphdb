@@ -9,7 +9,7 @@
 
 //! LatLng ↔ Point conversions and the leaf cell of a LatLng, against Go.
 
-use super::golden::{Checker, cell, f, hx, load, same, same_point};
+use super::golden::{Checker, cell, f, hx, load, pt, same, same_point};
 use serde::Deserialize;
 use ultragraphdb_core_types::{CellId, LatLng, Point};
 
@@ -143,4 +143,33 @@ fn latlng_is_valid() {
     assert!(LatLng::from_degrees(90.0, 180.0).is_valid());
     assert!(!LatLng::from_degrees(120.0, 200.0).is_valid());
     assert!(!LatLng::from_degrees(-100.0, -360.0).is_valid());
+}
+
+#[derive(Deserialize)]
+struct FmaCase {
+    lat_deg: String,
+    lng_deg: String,
+    point: [String; 3],
+    back_lat: String,
+    fused_point: [String; 3],
+    fused_back_lat: String,
+}
+
+/// A lat/lng whose point and latitude read back differ in their last bit when Go fuses multiply-adds, as it does on
+/// arm64 (ledger 11): the port computes the unfused values, which Go computes on Dgraph's default amd64 builds.
+#[test]
+fn latlng_point_is_computed_unfused() {
+    let k: FmaCase = load("fma.json");
+    assert!(
+        !same_point(pt(&k.fused_point), &k.point) && k.back_lat != k.fused_back_lat,
+        "the vector separates fused from unfused arithmetic"
+    );
+    let p = Point::from_lat_lng(LatLng::from_degrees(f(&k.lat_deg), f(&k.lng_deg)));
+    assert!(
+        same_point(p, &k.point),
+        "point {p:?}, Go unfused {:?}",
+        k.point
+    );
+    let back = LatLng::from_point(p).lat().radians();
+    assert_eq!(hx(back), k.back_lat, "Go fused {}", k.fused_back_lat);
 }

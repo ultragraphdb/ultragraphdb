@@ -27,7 +27,7 @@ impl Stemmer {
     }
 
     /// The stem of one term; `cjk_bigram` keeps it.
-    pub fn stem(&self, term: &[u8]) -> Vec<u8> {
+    pub fn stem(&self, term: &str) -> String {
         match self.kind {
             Kind::Porter => porterstemmer::stem(term),
             Kind::Arabic => stemmer_ar::stem(term),
@@ -39,7 +39,7 @@ impl Stemmer {
             Kind::ItalianLight => light_stemmer_it::stem(term),
             Kind::PortugueseLight => light_stemmer_pt::stem(term),
             Kind::Snowball(a) => snowball::stem(a, term),
-            Kind::CjkBigram => term.to_vec(),
+            Kind::CjkBigram => term.to_string(),
         }
     }
 }

@@ -24,6 +24,7 @@ use crate::types::arg::Arg;
 use crate::types::filter_tree::FilterTree;
 use crate::types::function::Function;
 use crate::types::graph_query::GraphQuery;
+use crate::types::recurse_args::RecurseArgs;
 use crate::types::regex_args::RegexArgs;
 use crate::types::var_context::VarContext;
 use crate::types::var_info::VarInfo;
@@ -77,50 +78,67 @@ pub(crate) fn parse_value(v: &VarInfo) -> Result<Val, DqlError> {
     }
 }
 
-/// Checks the declared types of the query parameters, and the values given against them.
+/// Go's `errors.Join`: nothing when nothing failed, otherwise every failure's text, one per line.
+fn join(failures: Vec<DqlError>) -> Result<(), DqlError> {
+    if failures.is_empty() {
+        return Ok(());
+    }
+    let texts: Vec<String> = failures.iter().map(DqlError::to_string).collect();
+    Err(DqlError::parse(texts.join("\n")))
+}
+
+/// Checks the declared types of the query parameters, and the values given against them. Go reports the first
+/// failure its map iteration meets; the port reports every failure, in the order of the names (ledger 12).
 pub(crate) fn check_value_type(vm: &VarMap) -> Result<(), DqlError> {
-    for (k, v) in vm {
-        let mut typ = v.typ.as_str();
-        if typ.is_empty() {
+    join(
+        vm.iter()
+            .filter_map(|(k, v)| check_variable(k, v).err())
+            .collect(),
+    )
+}
+
+/// Checks one query parameter's declared type, and its value against it.
+fn check_variable(k: &str, v: &VarInfo) -> Result<(), DqlError> {
+    let mut typ = v.typ.as_str();
+    if typ.is_empty() {
+        return Err(DqlError::parse(format!(
+            "Type of variable {k} not specified"
+        )));
+    }
+    // Ensure value is not nil if the variable is required.
+    if let Some(t) = typ.strip_suffix('!') {
+        if v.value.is_empty() {
             return Err(DqlError::parse(format!(
-                "Type of variable {k} not specified"
+                "Variable {k} should be initialised"
             )));
         }
-        // Ensure value is not nil if the variable is required.
-        if let Some(t) = typ.strip_suffix('!') {
-            if v.value.is_empty() {
-                return Err(DqlError::parse(format!(
-                    "Variable {k} should be initialised"
-                )));
+        typ = t;
+    }
+    // Type check the values.
+    if !v.value.is_empty() {
+        let wrap = |what: &str, e: &dyn std::fmt::Display| {
+            DqlError::parse(format!("Expected {what} but got {}: {e}", v.value))
+        };
+        match typ {
+            "int" => {
+                go_strconv::parse_int(&v.value, 0).map_err(|e| wrap("an int", &e))?;
             }
-            typ = t;
-        }
-        // Type check the values.
-        if !v.value.is_empty() {
-            let wrap = |what: &str, e: &dyn std::fmt::Display| {
-                DqlError::parse(format!("Expected {what} but got {}: {e}", v.value))
-            };
-            match typ {
-                "int" => {
-                    go_strconv::parse_int(&v.value, 0).map_err(|e| wrap("an int", &e))?;
-                }
-                "float" => {
-                    go_strconv::parse_float(&v.value, 64).map_err(|e| wrap("a float", &e))?;
-                }
-                "bool" => {
-                    go_strconv::parse_bool(&v.value).map_err(|e| wrap("a bool", &e))?;
-                }
-                "float32vector" => {
-                    parse_vfloat(&v.value).map_err(|e| wrap("a vector32float", &e))?;
-                }
-                // Value is a valid string. No checks required.
-                "string" => {}
-                _ => {
-                    return Err(DqlError::parse(format!(
-                        "Type {} not supported",
-                        go_strconv::quote(typ)
-                    )));
-                }
+            "float" => {
+                go_strconv::parse_float(&v.value, 64).map_err(|e| wrap("a float", &e))?;
+            }
+            "bool" => {
+                go_strconv::parse_bool(&v.value).map_err(|e| wrap("a bool", &e))?;
+            }
+            "float32vector" => {
+                parse_vfloat(&v.value).map_err(|e| wrap("a vector32float", &e))?;
+            }
+            // Value is a valid string. No checks required.
+            "string" => {}
+            _ => {
+                return Err(DqlError::parse(format!(
+                    "Type {} not supported",
+                    go_strconv::quote(typ)
+                )));
             }
         }
     }
@@ -145,12 +163,68 @@ fn substitute_in_place(s: &mut String, vmap: &VarMap) -> Result<(), DqlError> {
     Ok(())
 }
 
-/// Substitutes the query parameters throughout a block.
+/// Substitutes the query parameters throughout a block: in each block, its arguments, ids, math expression and
+/// function, then its children, then its filters and recursion arguments, as Go's recursion takes them. The
+/// blocks wait on a stack rather than in recursive calls, so that the call stack stays flat however deep they
+/// nest.
 pub(crate) fn substitute_variables(gq: &mut GraphQuery, vmap: &VarMap) -> Result<(), DqlError> {
-    for val in gq.args.values_mut() {
-        // v won't be empty as it's handled in parseDqlVariables.
-        substitute_in_place(val, vmap)?;
+    /// A block to enter, or the parts of a block whose children are done.
+    enum Visit<'g> {
+        Enter(&'g mut GraphQuery),
+        Leave {
+            filter: &'g mut Option<FilterTree>,
+            facets_filter: &'g mut Option<FilterTree>,
+            recurse_args: &'g mut RecurseArgs,
+        },
     }
+    let mut stack = vec![Visit::Enter(gq)];
+    while let Some(visit) = stack.pop() {
+        match visit {
+            Visit::Enter(gq) => {
+                substitute_block(gq, vmap)?;
+                let GraphQuery {
+                    children,
+                    filter,
+                    facets_filter,
+                    recurse_args,
+                    ..
+                } = gq;
+                stack.push(Visit::Leave {
+                    filter,
+                    facets_filter,
+                    recurse_args,
+                });
+                stack.extend(children.iter_mut().rev().map(Visit::Enter));
+            }
+            Visit::Leave {
+                filter,
+                facets_filter,
+                recurse_args,
+            } => {
+                if let Some(f) = filter {
+                    substitute_variables_filter(f, vmap)?;
+                }
+                if let Some(f) = facets_filter {
+                    substitute_variables_filter(f, vmap)?;
+                }
+                substitute_recurse_args(recurse_args, vmap)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Substitutes the query parameters of one block, its children aside: its arguments, ids, math expression and
+/// function.
+fn substitute_block(gq: &mut GraphQuery, vmap: &VarMap) -> Result<(), DqlError> {
+    // v won't be empty as it's handled in parseDqlVariables. Every argument that fails is reported, in the order
+    // of the arguments' names (ledger 12).
+    join(
+        gq.args
+            .values_mut()
+            .filter_map(|val| substitute_in_place(val, vmap).err())
+            .collect(),
+    )?;
     if gq.uid.is_empty()
         && let Some(id_val) = gq.args.get("id")
     {
@@ -174,22 +248,18 @@ pub(crate) fn substitute_variables(gq: &mut GraphQuery, vmap: &VarMap) -> Result
             }
         }
     }
-    for child in &mut gq.children {
-        substitute_variables(child, vmap)?;
-    }
-    if let Some(f) = &mut gq.filter {
-        substitute_variables_filter(f, vmap)?;
-    }
-    if let Some(f) = &mut gq.facets_filter {
-        substitute_variables_filter(f, vmap)?;
-    }
-    if let Some(var_map) = &gq.recurse_args.var_map {
+    Ok(())
+}
+
+/// Substitutes the query parameters `@recurse` gives its depth and loop as.
+fn substitute_recurse_args(recurse_args: &mut RecurseArgs, vmap: &VarMap) -> Result<(), DqlError> {
+    if let Some(var_map) = &recurse_args.var_map {
         // Update the depth if the query gives the depth as a variable.
         if let Some(var_name) = var_map.get("depth") {
             let val = vmap
                 .get(var_name)
                 .ok_or_else(|| DqlError::parse(format!("variable {var_name} not defined")))?;
-            gq.recurse_args.depth = go_strconv::parse_uint(&val.value, 0).map_err(|e| {
+            recurse_args.depth = go_strconv::parse_uint(&val.value, 0).map_err(|e| {
                 DqlError::parse(format!("{var_name} should be type of integer: {e}"))
             })?;
         }
@@ -198,7 +268,7 @@ pub(crate) fn substitute_variables(gq: &mut GraphQuery, vmap: &VarMap) -> Result
             let val = vmap
                 .get(var_name)
                 .ok_or_else(|| DqlError::parse(format!("variable {var_name} not defined")))?;
-            gq.recurse_args.allow_loop = go_strconv::parse_bool(&val.value).map_err(|e| {
+            recurse_args.allow_loop = go_strconv::parse_bool(&val.value).map_err(|e| {
                 DqlError::parse(format!("{var_name} should be type of boolean: {e}"))
             })?;
         }
@@ -215,32 +285,42 @@ fn reg_exp_variable_filter(f: &mut Function, idx: usize) -> Result<(), DqlError>
     Ok(())
 }
 
+/// Substitutes the query parameters throughout a filter, each node before its children; the nodes wait on a stack
+/// rather than in recursive calls.
 fn substitute_variables_filter(f: &mut FilterTree, vmap: &VarMap) -> Result<(), DqlError> {
-    if let Some(func) = &mut f.func {
-        substitute_in_place(&mut func.attr, vmap)?;
-        for idx in 0..func.args.len() {
-            if !func.args[idx].is_dql_var {
-                continue;
-            }
-            let name = func.args[idx].value.clone();
-            if func.name == "uid" {
-                // This is to support DQL variables in uid functions.
-                let id_val = vmap.get(&name).ok_or_else(|| {
-                    DqlError::parse(format!("Couldn't find value for DQL variable: [{name}]"))
-                })?;
-                let uids = parse_id(&id_val.value)?;
-                func.uid.extend(uids);
-                continue;
-            }
-            substitute_in_place(&mut func.args[idx].value, vmap)?;
-            // We need to parse the regexp after substituting it from a DQL Variable.
-            if func.name == "regexp" && vmap.contains_key(&name) {
-                reg_exp_variable_filter(func, idx)?;
-            }
+    let mut stack = vec![f];
+    while let Some(node) = stack.pop() {
+        let FilterTree { func, child, .. } = node;
+        if let Some(func) = func {
+            substitute_filter_function(func, vmap)?;
         }
+        stack.extend(child.iter_mut().rev());
     }
-    for child in &mut f.child {
-        substitute_variables_filter(child, vmap)?;
+    Ok(())
+}
+
+/// Substitutes the query parameters of a filter's function.
+fn substitute_filter_function(func: &mut Function, vmap: &VarMap) -> Result<(), DqlError> {
+    substitute_in_place(&mut func.attr, vmap)?;
+    for idx in 0..func.args.len() {
+        if !func.args[idx].is_dql_var {
+            continue;
+        }
+        let name = func.args[idx].value.clone();
+        if func.name == "uid" {
+            // This is to support DQL variables in uid functions.
+            let id_val = vmap.get(&name).ok_or_else(|| {
+                DqlError::parse(format!("Couldn't find value for DQL variable: [{name}]"))
+            })?;
+            let uids = parse_id(&id_val.value)?;
+            func.uid.extend(uids);
+            continue;
+        }
+        substitute_in_place(&mut func.args[idx].value, vmap)?;
+        // We need to parse the regexp after substituting it from a DQL Variable.
+        if func.name == "regexp" && vmap.contains_key(&name) {
+            reg_exp_variable_filter(func, idx)?;
+        }
     }
     Ok(())
 }

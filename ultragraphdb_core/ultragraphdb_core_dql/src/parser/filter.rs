@@ -9,7 +9,7 @@
 //! The `@filter` directive: functions combined with `and`, `or`, `not` and brackets.
 
 use super::function::parse_function;
-use super::{It, ierr};
+use super::{It, check_depth, ierr};
 use crate::errors::dql_error::DqlError;
 use crate::state::{ITEM_LEFT_CURL, ITEM_LEFT_ROUND, ITEM_NAME, ITEM_RIGHT_CURL, ITEM_RIGHT_ROUND};
 use crate::types::filter_tree::FilterTree;
@@ -47,8 +47,13 @@ fn eval_stack(
     Ok(())
 }
 
-/// Parses the filter directive into a tree; `None` for `@filter()`.
-pub(crate) fn parse_filter(it: &mut It<'_, '_>) -> Result<Option<FilterTree>, DqlError> {
+/// Parses the filter directive of a block at `level` into a tree; `None` for `@filter()`. Each bracket nests a
+/// level below the block, the filter's own the first, and none may reach past [`MAX_DEPTH`](super::MAX_DEPTH);
+/// operators add no level.
+pub(crate) fn parse_filter(
+    it: &mut It<'_, '_>,
+    level: usize,
+) -> Result<Option<FilterTree>, DqlError> {
     it.next();
     let item = it.item();
     if item.typ() != ITEM_LEFT_ROUND {
@@ -56,6 +61,9 @@ pub(crate) fn parse_filter(it: &mut It<'_, '_>) -> Result<Option<FilterTree>, Dq
     }
     // opStack is used to collect the operators in right order.
     let mut op_stack = vec![FilterTree::with_op("(")];
+    // The brackets open around the current item.
+    let mut brackets = 1;
+    check_depth(level + brackets)?;
     // valueStack is used to collect the values.
     let mut value_stack: Vec<FilterTree> = Vec::new();
 
@@ -76,13 +84,14 @@ pub(crate) fn parse_filter(it: &mut It<'_, '_>) -> Result<Option<FilterTree>, Dq
         } else if inner.typ() == ITEM_NAME {
             // Value.
             it.prev();
-            let f = parse_function(it, None)?;
-            value_stack.push(FilterTree {
-                func: Some(f),
-                ..FilterTree::default()
-            });
+            let f = parse_function(it, None, level + brackets)?;
+            let mut leaf = FilterTree::default();
+            leaf.func = Some(f);
+            value_stack.push(leaf);
         } else if inner.typ() == ITEM_LEFT_ROUND {
             // Just push to op stack.
+            brackets += 1;
+            check_depth(level + brackets)?;
             op_stack.push(FilterTree::with_op("("));
         } else if inner.typ() == ITEM_RIGHT_ROUND {
             // Pop op stack until we see a (.
@@ -96,6 +105,7 @@ pub(crate) fn parse_filter(it: &mut It<'_, '_>) -> Result<Option<FilterTree>, Dq
             if op_stack.pop().is_none() {
                 return Err(ierr(inner, "Invalid filter statement"));
             }
+            brackets -= 1;
             if op_stack.is_empty() {
                 // The parentheses are balanced out. Let's break.
                 break;

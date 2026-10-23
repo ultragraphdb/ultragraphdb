@@ -8,6 +8,8 @@ mod dql_tests;
 #[cfg(test)]
 mod errors;
 #[cfg(test)]
+mod math_tests;
+#[cfg(test)]
 mod mutation_tests;
 #[cfg(test)]
 mod parser;

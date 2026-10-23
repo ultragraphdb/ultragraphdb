@@ -52,6 +52,7 @@ Bazel with equal counts.
 - [ ] 8.1 Port `index_test.go` (18, the `TestNeeds*Rebuild` tables first); scenarios: schema-changes
 - [ ] 8.2 Port the decision tables, the dual and interim schemas, `DropIndexes` with split prefixes after a successful build, `BuildData`, the two-phase rebuilder over a temporary store, vector rebuilds in place, the background task gate, type-change refusals
 - [ ] 8.3 Port drops: predicate, type, namespace data, everything in a namespace (schema and type keys included), namespace (banned), everything; with split parts removed
+- [ ] 8.4 Ledger 7 and 8: a namespace's data drop removes its `0x04` parts with its `0x00` data in one durable step; the complete namespace drop removes `[0x00,ns]`, `[0x04,ns]`, `[0x01,ns]`, `[0x02,ns]` physically, then writes the namespace's initial schema at ts 1; rollups of a predicate or namespace pause across its drop
 
 ## 9. Vector index → `ultragraphdb_store_hnsw`
 

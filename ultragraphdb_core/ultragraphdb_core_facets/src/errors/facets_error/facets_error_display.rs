@@ -26,6 +26,9 @@ impl fmt::Display for FacetsError {
                     go_strconv::quote(val)
                 )
             }
+            FacetsErrorEnum::InvalidUtf8(key) => {
+                write!(f, "Facet value of {key} is not valid UTF-8")
+            }
             FacetsErrorEnum::Number(msg) => f.write_str(msg),
             FacetsErrorEnum::NaN => f.write_str("Got invalid value: NaN"),
             FacetsErrorEnum::Unparsable(val) => {

@@ -58,7 +58,7 @@ fn math(t: Option<&MathTree>) -> Json {
         None => Json::Null,
         Some(Value::Int(i)) => json!(i.to_string()),
         Some(Value::Float(f)) => json!(format_e(*f)),
-        Some(Value::Str(s)) => json!(String::from_utf8_lossy(s)),
+        Some(Value::Str(s)) => json!(s),
         Some(Value::Bool(b)) => json!(b.to_string()),
         Some(v) => json!(format!("{v:?}")),
     };

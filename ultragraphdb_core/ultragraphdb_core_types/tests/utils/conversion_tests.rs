@@ -699,6 +699,27 @@ fn test_convert_float_to_int() {
 }
 
 #[test]
+fn test_convert_float_to_int_at_the_int64_bounds() {
+    // Dgraph lets 2^63 through, which converts to MinInt64 on amd64 and MaxInt64 on arm64 (ledger 10).
+    let cases: [(f64, Result<i64, &str>); 4] = [
+        (9_223_372_036_854_775_808.0, Err("Float out of int64 range")),
+        (9_223_372_036_854_774_784.0, Ok(9_223_372_036_854_774_784)),
+        (-9_223_372_036_854_775_808.0, Ok(i64::MIN)),
+        (
+            -9_223_372_036_854_777_856.0,
+            Err("Float out of int64 range"),
+        ),
+    ];
+    for (f, want) in cases {
+        let out = conv(TypeId::FLOAT, bs_f64(f), TypeId::INT);
+        match want {
+            Ok(i) => assert_eq!(out, ok(TypeId::INT, Value::Int(i))),
+            Err(e) => assert_eq!(out, Err(e.to_string())),
+        }
+    }
+}
+
+#[test]
 fn test_convert_string_to_int() {
     let cases: [(&str, Result<i64, &str>); 9] = [
         ("1", Ok(1)),
@@ -777,6 +798,108 @@ fn test_convert_float_to_date_time() {
             ok(TypeId::DATETIME, Value::DateTime(want))
         );
     }
+}
+
+#[test]
+fn test_convert_float_to_date_time_outside_int64() {
+    for f in [
+        1e19,
+        -1e19,
+        9_223_372_036_854_775_808.0,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+    ] {
+        assert_eq!(
+            conv(TypeId::FLOAT, bs_f64(f), TypeId::DATETIME),
+            Err("Float out of int64 range".into()),
+            "{f}"
+        );
+    }
+}
+
+#[test]
+fn test_convert_big_float_to_date_time_outside_int64() {
+    for text in [
+        "1e19",
+        "9223372036854775808",
+        "-9223372036854775809",
+        "+Inf",
+        "-Inf",
+    ] {
+        assert_eq!(
+            conv(TypeId::BIGFLOAT, text.into(), TypeId::DATETIME),
+            Err("Float out of int64 range".into()),
+            "{text}"
+        );
+    }
+    for text in ["9223372036854775807.5", "-9223372036854775808", "1.5"] {
+        assert!(
+            conv(TypeId::BIGFLOAT, text.into(), TypeId::DATETIME).is_ok(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn test_convert_invalid_utf8_to_string_is_refused() {
+    let invalid = vec![0xe6, 0x97, 0xff];
+    let refused = |name: &str| Err(format!("Value is not valid UTF-8 for type {name}"));
+    for (from, to, name) in [
+        (TypeId::BINARY, TypeId::STRING, "string"),
+        (TypeId::BINARY, TypeId::DEFAULT, "string"),
+        (TypeId::STRING, TypeId::STRING, "string"),
+        (TypeId::DEFAULT, TypeId::DEFAULT, "string"),
+        (TypeId::PASSWORD, TypeId::STRING, "string"),
+        (TypeId::BINARY, TypeId::PASSWORD, "password"),
+        (TypeId::PASSWORD, TypeId::PASSWORD, "password"),
+    ] {
+        assert_eq!(
+            conv(from, invalid.clone(), to),
+            refused(name),
+            "{from:?} to {to:?}"
+        );
+    }
+    // Binary keeps the bytes, and valid UTF-8 converts.
+    assert_eq!(
+        conv(TypeId::STRING, invalid.clone(), TypeId::BINARY),
+        ok(TypeId::BINARY, Value::Bytes(invalid.clone()))
+    );
+    assert_eq!(
+        conv(TypeId::BINARY, "日本".into(), TypeId::STRING),
+        ok(TypeId::STRING, s("日本"))
+    );
+    let bin = Val::new(TypeId::BINARY, Value::Bytes(invalid));
+    assert_eq!(
+        marshal(&bin, TypeId::STRING).map_err(|e| e.to_string()),
+        refused("string")
+    );
+}
+
+#[test]
+fn test_marshal_binary() {
+    use ultragraphdb_core_types::marshal_binary;
+    assert_eq!(
+        marshal_binary(&Val::new(TypeId::INT, Value::Int(-2))).unwrap(),
+        bs_i64(-2)
+    );
+    assert_eq!(
+        marshal_binary(&Val::new(TypeId::STRING, s("ab"))).unwrap(),
+        b"ab".to_vec()
+    );
+    // Go's ValueForType of binary holds a *[]byte, on which toBinary's assertion panics.
+    assert_eq!(
+        marshal_binary(&Val::nil(TypeId::GEO))
+            .unwrap_err()
+            .to_string(),
+        "interface conversion: interface {} is *[]uint8, not []uint8"
+    );
+    assert_eq!(
+        marshal_binary(&Val::new(TypeId::INT, Value::Bool(true)))
+            .unwrap_err()
+            .to_string(),
+        "interface conversion: interface {} is bool, not int64"
+    );
 }
 
 #[test]
@@ -942,10 +1065,408 @@ fn variant(v: Option<&Value>) -> &'static str {
 fn marshal_bytes(v: &Val, to: TypeId) -> Result<Vec<u8>, String> {
     match marshal(v, to).map_err(|e| e.to_string())?.into_value() {
         Some(Value::Bytes(b)) => Ok(b),
-        Some(Value::Str(s)) => Ok(s),
+        Some(Value::Str(s)) => Ok(s.into_bytes()),
         None => Err("<nil>".into()),
         Some(other) => panic!("marshal gave {other:?}"),
     }
+}
+
+/// A port result that differs from Go's.
+#[derive(Debug)]
+enum Expected {
+    /// The conversion fails with this text.
+    Err(&'static str),
+    /// The conversion succeeds, and the value marshals to binary and to string as these texts.
+    Marshals {
+        bin: &'static str,
+        str: &'static str,
+    },
+}
+
+/// The golden conversions on which the port differs from Go: the case, as `from -> to of input`, the ledger entry of
+/// `openspec/notes/dgraph-bugs-found-in-port.md` (`None` where Go panics, which the port does not), and the port's
+/// result.
+const DEVIATIONS: &[(&str, Option<u32>, Expected)] = &[
+    // Go panics on SetFloat64(NaN); the port returns the panic text as its error.
+    (
+        "3 -> 11 of 010000000000f87f",
+        None,
+        Expected::Err("Float.SetFloat64(NaN)"),
+    ),
+    // Go converts to a *big.Float and then panics asserting a big.Float in Marshal; the port marshals the value.
+    (
+        "4 -> 11 of 00",
+        None,
+        Expected::Marshals { bin: "0", str: "0" },
+    ),
+    (
+        "4 -> 11 of 01",
+        None,
+        Expected::Marshals { bin: "1", str: "1" },
+    ),
+    (
+        "4 -> 11 of 0105",
+        None,
+        Expected::Marshals { bin: "1", str: "1" },
+    ),
+    (
+        "5 -> 11 of 01000000000000000000000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "-6.7953645788713455e+09",
+            str: "-6795364579",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ebb4b37e500000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "1.136214245e+09",
+            str: "1136214245",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ece17b88000000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "1.4516064e+09",
+            str: "1451606400",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ec28be770000f4240ffff",
+        None,
+        Expected::Marshals {
+            bin: "1.257894000001e+09",
+            str: "1257894000",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000e774eac70000f4240ffff",
+        None,
+        Expected::Marshals {
+            bin: "-4.409999999e+06",
+            str: "-4409999.999",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000df76694f000000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "-2.1503268e+09",
+            str: "-2150326800",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ed2a0ba821dcd6500fe98",
+        None,
+        Expected::Marshals {
+            bin: "1.5276942105e+09",
+            str: "1527694210",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ed29cbaf100000000059f",
+        None,
+        Expected::Marshals {
+            bin: "1.527432177e+09",
+            str: "1527432177",
+        },
+    ),
+    (
+        "5 -> 11 of 020000000ed29dbece075bcd15014a0f",
+        None,
+        Expected::Marshals {
+            bin: "1.5274987021234567e+09",
+            str: "1527498702",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ed29e0c35000000000000",
+        None,
+        Expected::Marshals {
+            bin: "1.527518517e+09",
+            str: "1527518517",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000ed29caca50000000005dc",
+        None,
+        Expected::Marshals {
+            bin: "1.527428517e+09",
+            str: "1527428517",
+        },
+    ),
+    (
+        "5 -> 11 of 01000000497786387f3b9ac9ffffff",
+        None,
+        Expected::Marshals {
+            bin: "-4.8521162319337225e+09",
+            str: "-4852116232",
+        },
+    ),
+    (
+        "5 -> 11 of 01000000497786388000000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "-4.8521162319337225e+09",
+            str: "-4852116232",
+        },
+    ),
+    (
+        "5 -> 11 of 01fffffffffc3c478000000000ffff",
+        None,
+        Expected::Marshals {
+            bin: "-6.8585229788713455e+09",
+            str: "-6858522979",
+        },
+    ),
+    (
+        "5 -> 11 of 01000000109d53740432f2d800ffff",
+        None,
+        Expected::Marshals {
+            bin: "-9.223372036854776e+09",
+            str: "-9223372037",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000c51d079fb08a7f1ffffff",
+        None,
+        Expected::Marshals {
+            bin: "9.223372036854776e+09",
+            str: "9223372037",
+        },
+    ),
+    (
+        "5 -> 11 of 010000000eb04dabc000000007ffff",
+        None,
+        Expected::Marshals {
+            bin: "9.518256e+08",
+            str: "951825600",
+        },
+    ),
+    // Go converts a float outside int64 as its platform does; the port refuses it.
+    (
+        "3 -> 5 of 408cb5781daf1544",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 408cb5781daf15c4",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 50efe2d6e41a4b44",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 2 of 000000000000e043",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 000000000000e043",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of ffffffffffffef7f",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 010000000000f87f",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 000000000000f07f",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 000000000000f0ff",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of f3ff4d451e429e75",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 031e4b99bf11ae74",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 9c8428183c3faed4",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 322668df4d6b156d",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of cf81def8e1fa90f0",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of f49bd58cf46e9ff8",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 9001f27bfb101fef",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 9df221c8196421c8",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 0acce81aa5efa2fc",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of f18158dc7a20eb55",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 6dfd1a0e69fce06f",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of f8dd5ae781eb6575",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 7067318d759b494a",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 0cc4e40fc70e57f1",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 9b3c7a288b3ae97a",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 0856421604d9b7fb",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 8ad6b20bea64787a",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of f99a4e5c1f3e256e",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of 9fa1d6fc01b89478",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of a302b0eab4088deb",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of c224a2f6fa547e64",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "3 -> 5 of fd570ecd72c329cf",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 31653231",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 3132333435363738393031323334353637383930313233343536373839302e313233",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 392e33653138",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 2d392e33653138",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 2b496e66",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 2d496e66",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+    (
+        "11 -> 5 of 3165343030",
+        Some(10),
+        Expected::Err("Float out of int64 range"),
+    ),
+];
+
+/// The golden conversions whose Go string holds bytes that are not UTF-8: a string value holds valid UTF-8, so the
+/// port refuses each (the user's Q4, ledger 17, 18 and 31). Each is checked to hold such bytes in Go and to fail with
+/// [`not_utf8`] in the port: 159 binary inputs each converted to default, password and string (477), the string form
+/// of 316 binary results, and 4 default and string inputs converted to default and string.
+const NOT_UTF8_CASES: usize = 797;
+
+/// The port's refusal of bytes that are not UTF-8 as a value of type `to`.
+fn not_utf8(to: i32) -> String {
+    let name = if to == TypeId::PASSWORD.enum_value() {
+        "password"
+    } else {
+        "string"
+    };
+    format!("Value is not valid UTF-8 for type {name}")
+}
+
+fn is_utf8(hex: &str) -> bool {
+    std::str::from_utf8(&unhex(hex)).is_ok()
+}
+
+/// How a golden case compares.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    /// The port gives Go's result.
+    Equal,
+    /// The port gives the result its `DEVIATIONS` entry names.
+    Deviation,
+    /// Go's string holds bytes that are not UTF-8, and the port refuses them.
+    NotUtf8,
 }
 
 fn check_rendered(
@@ -953,7 +1474,8 @@ fn check_rendered(
     input_plain: &[u8],
     out: &Val,
     want: &Rendered,
-) -> Result<(), String> {
+    deviation: Option<&Expected>,
+) -> Result<Outcome, String> {
     let ctx = format!("{} -> {} of {}", c.from, c.to, c.input);
     if variant(out.value()) != variant_of(&want.go_type) && !want.nil {
         return Err(format!(
@@ -964,7 +1486,7 @@ fn check_rendered(
     }
     if want.nil {
         return if out.value().is_none() {
-            Ok(())
+            Ok(Outcome::Equal)
         } else {
             Err(format!("{ctx}: want nil, got {:?}", out.value()))
         };
@@ -984,24 +1506,46 @@ fn check_rendered(
         let Some(Value::Str(h)) = out.value() else {
             return Err(format!("{ctx}: no hash"));
         };
-        if !h.starts_with(b"$2a$") {
+        if !h.starts_with("$2a$") {
             return Err(format!("{ctx}: hash {h:?}"));
         }
         if c.from == TypeId::PASSWORD.enum_value() {
             // A password value converted to itself is the stored hash, unchanged.
-            return if h[..7] == unhex(&want.str) {
-                Ok(())
+            return if h.as_bytes().get(..7) == Some(&unhex(&want.str)[..]) {
+                Ok(Outcome::Equal)
             } else {
                 Err(format!("{ctx}: {h:?}"))
             };
         }
-        return verify_password(input_plain, h).map_err(|e| format!("{ctx}: {e}"));
-    }
-    if !want.panic.is_empty() {
-        // Go panics asserting a *big.Float; this port marshals the value, checked above.
-        return Ok(());
+        return verify_password(input_plain, h)
+            .map(|()| Outcome::Equal)
+            .map_err(|e| format!("{ctx}: {e}"));
     }
     let bin = marshal_bytes(out, TypeId::BINARY);
+    let st = marshal_bytes(out, TypeId::STRING);
+    if !want.panic.is_empty() {
+        // Go panics in Marshal; the port marshals the value.
+        let Some(Expected::Marshals { bin: b, str: s }) = deviation else {
+            return Err(format!(
+                "{ctx}: Go panics ({}), no deviation listed",
+                want.panic
+            ));
+        };
+        return if bin.as_deref() == Ok(b.as_bytes()) && st.as_deref() == Ok(s.as_bytes()) {
+            Ok(Outcome::Deviation)
+        } else {
+            Err(format!(
+                "{ctx}: binary {:?} and string {:?}, listed {b:?} and {s:?}",
+                bin.map(|b| String::from_utf8_lossy(&b).into_owned()),
+                st.map(|b| String::from_utf8_lossy(&b).into_owned())
+            ))
+        };
+    }
+    if deviation.is_some() {
+        return Err(format!(
+            "{ctx}: listed as a deviation, but the port converts it as Go does"
+        ));
+    }
     match &bin {
         Ok(b) if want.bin_err.is_empty() && *b == unhex(&want.bin) => {}
         Err(e) if !want.bin_err.is_empty() && *e == want.bin_err => {}
@@ -1012,20 +1556,19 @@ fn check_rendered(
             ));
         }
     }
-    let st = marshal_bytes(out, TypeId::STRING);
     match &st {
-        Ok(b) if want.str_err.is_empty() && *b == unhex(&want.str) => {}
-        Err(e) if !want.str_err.is_empty() && *e == want.str_err => {}
-        _ => {
-            return Err(format!(
-                "{ctx}: string {:?}, Go {:?} / {}",
-                st.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()),
-                String::from_utf8_lossy(&unhex(&want.str)),
-                want.str_err
-            ));
+        Ok(b) if want.str_err.is_empty() && *b == unhex(&want.str) => Ok(Outcome::Equal),
+        Err(e) if !want.str_err.is_empty() && *e == want.str_err => Ok(Outcome::Equal),
+        Err(e) if want.str_err.is_empty() && !is_utf8(&want.str) && *e == not_utf8(9) => {
+            Ok(Outcome::NotUtf8)
         }
+        _ => Err(format!(
+            "{ctx}: string {:?}, Go {:?} / {}",
+            st.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()),
+            String::from_utf8_lossy(&unhex(&want.str)),
+            want.str_err
+        )),
     }
-    Ok(())
 }
 
 #[test]
@@ -1033,6 +1576,7 @@ fn test_golden_conversion_matrix() {
     let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_convert.json");
     let golden = ultragraphdb_test_bdd::load_golden::<ConvCase>(&path);
     let mut failures = Vec::new();
+    let (mut deviations, mut not_utf8_cases) = (0, 0);
     for c in golden.cases() {
         let (input, plain) = match c.input.strip_prefix("string:") {
             Some(v) => (
@@ -1044,18 +1588,44 @@ fn test_golden_conversion_matrix() {
                 (Val::bytes(TypeId::new(c.from), b.clone()), b)
             }
         };
+        let name = format!("{} -> {} of {}", c.from, c.to, c.input);
+        let deviation = DEVIATIONS
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .map(|(_, _, e)| e);
         let out = convert(&input, TypeId::new(c.to));
-        let res = match (&out, &c.out) {
-            (Err(e), None) if !c.err.is_empty() && e.to_string() == c.err => Ok(()),
-            (Err(e), None) if !c.panic.is_empty() && e.to_string() == c.panic => Ok(()),
-            (Ok(v), Some(want)) => check_rendered(c, &plain, v, want),
+        let res = match (&out, &c.out, deviation) {
+            (Err(e), None, None) if !c.err.is_empty() && e.to_string() == c.err => {
+                Ok(Outcome::Equal)
+            }
+            // Go panics converting; the port fails with the listed text.
+            (Err(e), None, Some(Expected::Err(t)))
+                if !c.panic.is_empty() && e.to_string() == *t =>
+            {
+                Ok(Outcome::Deviation)
+            }
+            // Go converts; the port refuses with the listed text.
+            (Err(e), Some(_), Some(Expected::Err(t))) if e.to_string() == *t => {
+                Ok(Outcome::Deviation)
+            }
+            (Err(e), Some(want), None)
+                if !is_utf8(&want.str)
+                    && want.str_err.is_empty()
+                    && e.to_string() == not_utf8(c.to) =>
+            {
+                Ok(Outcome::NotUtf8)
+            }
+            (Ok(v), Some(want), _) => check_rendered(c, &plain, v, want, deviation),
             _ => Err(format!(
-                "{} -> {} of {}: {:?}, Go err {:?} panic {:?}",
-                c.from, c.to, c.input, out, c.err, c.panic
+                "{name}: {out:?}, Go err {:?} panic {:?}, listed {deviation:?}",
+                c.err, c.panic
             )),
         };
-        if let Err(e) = res {
-            failures.push(e);
+        match res {
+            Ok(Outcome::Equal) => {}
+            Ok(Outcome::Deviation) => deviations += 1,
+            Ok(Outcome::NotUtf8) => not_utf8_cases += 1,
+            Err(e) => failures.push(e),
         }
     }
     assert!(
@@ -1065,6 +1635,12 @@ fn test_golden_conversion_matrix() {
         golden.cases().len(),
         failures.join("\n")
     );
+    assert_eq!(
+        deviations,
+        DEVIATIONS.len(),
+        "every deviation names a golden case"
+    );
+    assert_eq!(not_utf8_cases, NOT_UTF8_CASES, "cases refused as not UTF-8");
 }
 
 #[test]
@@ -1078,10 +1654,6 @@ fn test_marshal_json() {
     assert_eq!(
         j(Val::new(TypeId::STRING, Value::str("a<b\"\n"))),
         r#""a\u003cb\"\n""#
-    );
-    assert_eq!(
-        j(Val::new(TypeId::STRING, Value::Str(vec![b'a', 0xff]))),
-        r#""a\ufffd""#
     );
     assert_eq!(j(Val::nil(TypeId::DEFAULT)), r#""""#);
     assert_eq!(

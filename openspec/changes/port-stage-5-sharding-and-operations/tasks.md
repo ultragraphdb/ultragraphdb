@@ -66,6 +66,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 - [ ] 11.1 Port `merge_shards_test.go`, `placement_test.go`, `shard_map_test.go`; features from `systest/bulk_live/bulk`, `systest/integration2/bulk_loader_test.go`, `dgraphimport`; scenarios: bulk-loader
 - [ ] 11.2 Port the map, shuffle and reduce phases writing fjall stores by sorted ingestion; placement; split lists, counts and vectors
 - [ ] 11.3 Port import into a running cluster: draining, replacing each group's store by streaming to its replicas, deleting all data on failure
+- [ ] 11.4 Ledger 28: the bulk loader leases namespace identifiers from Zero's namespace counter, not with `AllocateTimestamps`
 
 ## 12. Close the stage and the port
 

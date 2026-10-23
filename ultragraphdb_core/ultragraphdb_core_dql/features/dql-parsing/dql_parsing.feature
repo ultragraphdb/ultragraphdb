@@ -5,8 +5,8 @@
 
 Feature: DQL parsing
   A DQL query parses into Dgraph's query tree, with its variables, typed parameters, language lists and fragments
-  checked as Dgraph checks them; mutation and upsert blocks parse into their N-Quad text and conditions; an N-Quad
-  converts into a directed edge.
+  checked as Dgraph checks them, every failing variable reported, and its nesting bounded at 1,000 levels; mutation
+  and upsert blocks parse into their N-Quad text and conditions; an N-Quad converts into a directed edge.
 
   Scenario: Parsed queries match Dgraph's trees
     When each query of the golden DQL corpus is parsed
@@ -36,6 +36,22 @@ Feature: DQL parsing
   Scenario: An int parameter refuses a float
     When the query "query test($a: int) { q(func: uid(0x1)) { x as count(uid) p : math(x + $a) } }" is parsed with $a = "3.3"
     Then parsing fails with "Expected an int but got 3.3"
+
+  Scenario: Two undeclared variables are both named
+    When the query "query test($a: int) { q(func: uid(0x1)) { name } }" is parsed with the variables "$a: 3, $after: 0x123, $b: 5"
+    Then the error holds "Type of variable $after not specified" and "Type of variable $b not specified", in that order
+
+  Scenario: A query nested 1,001 levels deep is refused
+    When a query whose selection blocks nest 1,001 levels deep is parsed
+    Then parsing fails with "Query nested more than 1000 levels deep" and nothing overflows the stack
+
+  Scenario: A long flat filter chain parses
+    When a filter of 5,000 "eq" functions joined by "or" is parsed, cloned and dropped
+    Then it parses into one filter tree and nothing overflows the stack
+
+  Scenario: A query nested 1,000 levels deep parses
+    When a query whose selection blocks nest 1,000 levels deep is parsed
+    Then it parses into a tree 1,000 levels deep
 
   Scenario: A language list parses in order
     When the query "{ me(func: uid(0x1)) { name@en:ru:hu } }" is parsed

@@ -6,11 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::{go_unicode, go_utf8};
+use ultragraphdb_common_utils::go_unicode;
 
 /// bleve's `stemmer_fr_light` on one term.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    go_utf8::encode(&stem_runes(go_utf8::runes(term)))
+pub(crate) fn stem(term: &str) -> String {
+    stem_runes(term.chars().collect()).iter().collect()
 }
 
 fn ends_with(s: &[char], suffix: &str) -> bool {

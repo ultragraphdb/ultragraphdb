@@ -3,15 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, algo/packed.go. Changed for ultragraphdb: translated to Rust; a nil pack is None, and
- * index-of returns None where Go returns -1.
+ * index-of returns None where Go returns -1; IntersectSortedPacked folds every list, and DifferencePacked is the plain
+ * difference over all blocks.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_codec::{Decoder, Encoder, SeekPos, exact_len};
-use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
+use ultragraphdb_core_codec::{Decoder, Encoder, SeekPos, decode, encode, exact_len};
+use ultragraphdb_proto_pb::pb::{List, UidBlock, UidPack};
 
 use crate::types::elem::Elem;
 use crate::types::uint64_heap::Uint64Heap;
+use crate::uidlist::difference;
 
 /// Packs the UIDs of `u` for which `f(uid, index)` holds, `index` counting from 0 in `u`, with `u`'s block size.
 pub fn apply_filter_packed(u: &UidPack, mut f: impl FnMut(u64, usize) -> bool) -> Option<UidPack> {
@@ -91,9 +93,8 @@ pub fn intersect_with_lin_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Op
     result.done()
 }
 
-/// Intersects packed lists from the shortest on. As in Dgraph, whose loop over the further lists assigns each
-/// intersection to a shadowed variable, the result is the intersection of the two shortest lists; the port returns it
-/// without computing the intersections Dgraph discards. Lists of equal length keep their order.
+/// Intersects packed lists from the shortest to the longest, as `intersect_sorted` intersects plain ones. Lists of
+/// equal length keep their order.
 pub fn intersect_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
     if lists.is_empty() {
         return Encoder::new(10).done();
@@ -108,13 +109,21 @@ pub fn intersect_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
         return copy_uid_pack(ls[0].0);
     }
 
-    intersect_with_lin_packed(ls[0].0, ls[1].0)
+    let mut out = intersect_with_lin_packed(ls[0].0, ls[1].0);
+    // Intersect from smallest to largest.
+    for &(l, _) in &ls[2..] {
+        out = intersect_with_lin_packed(out.as_ref(), l);
+        // Break if we reach size 0 as we can no longer
+        // add any element.
+        if out.as_ref().map_or(0, exact_len) == 0 {
+            break;
+        }
+    }
+    out
 }
 
-/// The UIDs of `u` not in `v`, packed with `u`'s block size: a copy of `u` when `v` is `None`, `None` when `u` is.
-///
-/// As in Dgraph, the result stops at the end of the block of `u` being read when `v`'s last block runs out: any
-/// further blocks of `u` are left out.
+/// The UIDs of `u` not in `v`, packed with `u`'s block size: a copy of `u` when `v` is `None`, `None` when `u` is or
+/// when no UID remains. The result is `difference` over every block of both lists, duplicates included.
 pub fn difference_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Option<UidPack> {
     let Some(v) = v else {
         // If v is None, then it's empty so the value of u - v is just u.
@@ -122,65 +131,8 @@ pub fn difference_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Option<Uid
     };
     let u = u?;
 
-    let mut result = Encoder::new(u.block_size as usize);
-
-    let mut u_dec = Decoder::new(u);
-    let mut v_dec = Decoder::new(v);
-    let (mut u_idx, mut v_idx) = (0, 0);
-
-    loop {
-        // Break if the end of a list has been reached.
-        if u_dec.uids().is_empty() || v_dec.uids().is_empty() {
-            break;
-        }
-
-        // Load the next block of the encoded lists if necessary.
-        if u_idx == u_dec.uids().len() {
-            if !u_dec.valid() {
-                break;
-            }
-            u_dec.next_block();
-            u_idx = 0;
-        }
-
-        if v_idx == v_dec.uids().len() {
-            if !v_dec.valid() {
-                break;
-            }
-            v_dec.next_block();
-            v_idx = 0;
-        }
-
-        let (uuids, vuids) = (u_dec.uids(), v_dec.uids());
-        let (u_len, v_len) = (uuids.len(), vuids.len());
-
-        while u_idx < u_len && v_idx < v_len {
-            let uid = uuids[u_idx];
-            let vid = vuids[v_idx];
-
-            if uid < vid {
-                while u_idx < u_len && uuids[u_idx] < vid {
-                    result.add(uuids[u_idx]);
-                    u_idx += 1;
-                }
-            } else if uid == vid {
-                u_idx += 1;
-                v_idx += 1;
-            } else {
-                v_idx += 1;
-                while v_idx < v_len && vuids[v_idx] < uid {
-                    v_idx += 1;
-                }
-            }
-        }
-
-        while u_idx < u_len && v_idx >= v_len {
-            result.add(uuids[u_idx]);
-            u_idx += 1;
-        }
-    }
-
-    result.done()
+    let out = difference(&List { uids: decode(u, 0) }, &List { uids: decode(v, 0) });
+    encode(&out.uids, u.block_size as usize)
 }
 
 /// Merges sorted packed lists into one without duplicates, packed with the first present list's block size (the

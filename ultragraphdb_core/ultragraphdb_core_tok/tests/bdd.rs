@@ -7,7 +7,7 @@ use blake2::{Blake2b256, Digest};
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_tok::{
-    IDENT_NGRAM, IDENT_TERM, build_tokens, get_factory_create_spec_from_spec,
+    IDENT_NGRAM, IDENT_TERM, analyze, build_tokens, get_factory_create_spec_from_spec,
     get_ngram_query_tokens, get_ngram_tokens, get_tokenizer, get_tokenizer_for_lang, lang_base,
 };
 use ultragraphdb_core_types::{TypeId, Val, Value, convert};
@@ -20,6 +20,7 @@ struct Steps {
     texts: Vec<String>,
     mismatches: Vec<String>,
     compared: usize,
+    deviating: usize,
     flag: bool,
     error: String,
 }
@@ -34,6 +35,10 @@ struct TokensCase {
     tokens: Vec<String>,
     sorted: bool,
     error: String,
+    /// The port's tokens where they differ from Dgraph's; the unit test `test_tokens_golden` names each such case
+    /// with its ledger entry.
+    #[serde(default)]
+    fixed: Option<Vec<String>>,
 }
 
 fn golden() -> Vec<TokensCase> {
@@ -48,6 +53,13 @@ fn unhex(s: &str) -> Vec<u8> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
         .collect()
+}
+
+/// The golden cases whose port tokens differ from Dgraph's (ledger 14, 16, 30).
+const DEVIATING: usize = 366;
+
+fn untext(s: &str) -> String {
+    String::from_utf8(unhex(s)).unwrap()
 }
 
 fn enc(id: u8, s: &[u8]) -> Vec<u8> {
@@ -67,7 +79,7 @@ fn value(c: &TokensCase) -> Value {
         .unwrap()
     };
     match c.kind.as_str() {
-        "string" => Value::Str(unhex(&c.input)),
+        "string" => Value::Str(untext(&c.input)),
         "int" => Value::Int(c.input.parse().unwrap()),
         "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16).unwrap())),
         "bool" => Value::Bool(c.input == "true"),
@@ -86,8 +98,8 @@ fn compare(c: &TokensCase) -> Result<(), String> {
             &get_tokenizer_for_lang(&get_tokenizer(&c.tokenizer).unwrap(), &c.lang),
         )
         .map_err(|e| e.to_string()),
-        "ngram" => Ok(get_ngram_tokens(unhex(&c.input), &c.lang)),
-        _ => Ok(get_ngram_query_tokens(unhex(&c.input), &c.lang)),
+        "ngram" => Ok(get_ngram_tokens(untext(&c.input), &c.lang)),
+        _ => Ok(get_ngram_query_tokens(untext(&c.input), &c.lang)),
     };
     let got = got.map(|mut t| {
         if c.sorted {
@@ -96,7 +108,12 @@ fn compare(c: &TokensCase) -> Result<(), String> {
         t
     });
     let want = if c.error.is_empty() {
-        Ok(c.tokens.iter().map(|t| unhex(t)).collect())
+        Ok(c.fixed
+            .as_ref()
+            .unwrap_or(&c.tokens)
+            .iter()
+            .map(|t| unhex(t))
+            .collect())
     } else {
         Err(c.error.clone())
     };
@@ -113,6 +130,7 @@ fn compare(c: &TokensCase) -> Result<(), String> {
 fn compare_all(w: &mut Steps, cases: impl Iterator<Item = TokensCase>) {
     for c in cases {
         w.compared += 1;
+        w.deviating += usize::from(c.fixed.is_some());
         if let Err(e) = compare(&c) {
             w.mismatches.push(e);
         }
@@ -146,7 +164,8 @@ fn every_tokenizer(w: &mut Steps) {
 #[then(expr = "every token, identifier byte included, equals Dgraph's")]
 fn every_token_equal(w: &mut Steps) {
     no_mismatches(w);
-    assert!(w.compared > 17_000);
+    assert_eq!(w.deviating, DEVIATING);
+    assert!(w.compared > 15_000);
 }
 
 #[when(expr = "the ints MinInt64, -1, 0, 1 and MaxInt64 are tokenized")]
@@ -421,6 +440,44 @@ fn hnsw_metric(w: &mut Steps, metric: String) {
 #[then(expr = "the options are refused with {string}")]
 fn refused_with(w: &mut Steps, msg: String) {
     assert_eq!(w.error, msg);
+}
+
+#[when(expr = "{string} tagged {string} is tokenized for the ngram index and for an ngram query")]
+fn ngram_index_and_query(w: &mut Steps, s: String, lang: String) {
+    let ngram = get_tokenizer_for_lang(&get_tokenizer("ngram").unwrap(), &lang);
+    w.groups = vec![
+        build_tokens(&Value::str(s.as_str()), &ngram).unwrap(),
+        get_ngram_query_tokens(&s, &lang),
+    ];
+}
+
+#[then(expr = "both yield the same stemmed shingles, starting with {string}")]
+fn same_shingles(w: &mut Steps, stem: String) {
+    let (index, query) = (&w.groups[0], &w.groups[1]);
+    assert!(!query.is_empty());
+    assert!(
+        query.iter().all(|q| index.contains(q)),
+        "query tokens {query:?} are not all index tokens {index:?}"
+    );
+    let stem = enc(IDENT_NGRAM, stem.as_bytes());
+    for tokens in [index, query] {
+        assert!(tokens.iter().any(|t| t.starts_with(&stem)), "{tokens:?}");
+    }
+}
+
+#[then(expr = "the token is the term {string}")]
+fn the_term(w: &mut Steps, term: String) {
+    assert_eq!(w.tokens, vec![enc(IDENT_TERM, term.as_bytes())]);
+}
+
+#[when(expr = "{string} is lowercased")]
+fn lowercased(w: &mut Steps, s: String) {
+    w.texts = analyze(&s).iter().map(|t| t.term().to_string()).collect();
+}
+
+#[then(expr = "the result is {string}")]
+fn the_result(w: &mut Steps, want: String) {
+    assert_eq!(w.texts, vec![want]);
 }
 
 fn main() {

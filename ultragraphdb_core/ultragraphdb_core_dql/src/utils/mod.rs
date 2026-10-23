@@ -4,3 +4,4 @@
  */
 
 pub(crate) mod go_fmt;
+pub(crate) mod tree_debug;

@@ -17,7 +17,7 @@ fn to_string(values: &[Vec<Val>]) -> Vec<String> {
         .iter()
         .map(
             |v| match marshal(&v[0], TypeId::STRING).unwrap().into_value() {
-                Some(Value::Str(s)) => String::from_utf8(s).unwrap(),
+                Some(Value::Str(s)) => s,
                 other => panic!("{other:?}"),
             },
         )
@@ -292,18 +292,52 @@ struct LangSortCase {
     out_hex: Vec<String>,
 }
 
+/// The golden language sorts whose strings hold invalid UTF-8, by language, with the ledger entries of
+/// `openspec/notes/dgraph-bugs-found-in-port.md` and the port's expected result: a string value holds valid UTF-8, so
+/// these inputs are not expressible (the user's Q4, entries 17, 18 and 31); converting their bytes to a string is
+/// refused with `Value is not valid UTF-8 for type string`.
+const NOT_EXPRESSIBLE: &[(&str, &str, &str)] = &[
+    ("en", "17, 18, 31", "not expressible"),
+    ("hu", "17, 18, 31", "not expressible"),
+    ("da", "17, 18, 31", "not expressible"),
+    ("cs", "17, 18, 31", "not expressible"),
+    ("ja", "17, 18, 31", "not expressible"),
+    ("fr-CA", "17, 18, 31", "not expressible"),
+    ("en-u-kn-true", "17, 18, 31", "not expressible"),
+    ("en-u-ks-identic", "17, 18, 31", "not expressible"),
+    ("en-u-ka-shifted", "17, 18, 31", "not expressible"),
+    ("en-u-ks-level1", "17, 18, 31", "not expressible"),
+    ("xx-invalid-tag-!", "17, 18, 31", "not expressible"),
+];
+
 #[test]
 fn test_golden_language_sort_orders() {
     let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_sort_lang.json");
     let golden = ultragraphdb_test_bdd::load_golden::<LangSortCase>(&path);
     assert!(golden.cases().len() >= 33);
-    let mut invalid = 0;
+    let (mut checked, mut not_expressible) = (0, 0);
     for c in golden.cases() {
-        let input: Vec<Vec<u8>> = c.in_hex.iter().map(|s| unhex(s)).collect();
-        invalid += input
+        let input: Result<Vec<String>, _> = c
+            .in_hex
             .iter()
-            .filter(|s| std::str::from_utf8(s).is_err())
-            .count();
+            .map(|s| String::from_utf8(unhex(s)))
+            .collect();
+        let Ok(input) = input else {
+            assert!(
+                NOT_EXPRESSIBLE.iter().any(|&(lang, _, _)| lang == c.lang),
+                "{}: invalid UTF-8 in a case not listed",
+                c.lang
+            );
+            // Go sorts these bytes as strings; the port refuses them as a string value.
+            for b in c.in_hex.iter().map(|s| unhex(s)) {
+                if std::str::from_utf8(&b).is_err() {
+                    let err = convert(&Val::bytes(TypeId::STRING, b), TypeId::STRING).unwrap_err();
+                    assert_eq!(err.to_string(), "Value is not valid UTF-8 for type string");
+                }
+            }
+            not_expressible += 1;
+            continue;
+        };
         let mut rows: Vec<Vec<Val>> = input
             .into_iter()
             .map(|s| vec![Val::new(TypeId::STRING, Value::Str(s))])
@@ -313,15 +347,21 @@ fn test_golden_language_sort_orders() {
         let out: Vec<Vec<u8>> = rows
             .iter()
             .map(|r| match r[0].value() {
-                Some(Value::Str(s)) => s.clone(),
+                Some(Value::Str(s)) => s.as_bytes().to_vec(),
                 other => panic!("{other:?}"),
             })
             .collect();
         let want: Vec<Vec<u8>> = c.out_hex.iter().map(|s| unhex(s)).collect();
         assert_eq!(out, want, "{}", c.lang);
         assert_eq!(uids, c.uids, "{}", c.lang);
+        checked += 1;
     }
-    assert_eq!(invalid, 11 * 27, "strings holding invalid UTF-8");
+    assert_eq!(
+        not_expressible,
+        NOT_EXPRESSIBLE.len(),
+        "every listed case is in the golden file"
+    );
+    assert!(checked >= 22, "{checked} language sorts checked");
 }
 
 #[test]

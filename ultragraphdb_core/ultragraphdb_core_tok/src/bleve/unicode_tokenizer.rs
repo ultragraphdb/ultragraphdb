@@ -11,19 +11,16 @@ use crate::types::analysis_token::AnalysisToken;
 use crate::types::segment_type::SegmentType;
 use crate::types::token_type::TokenType;
 
-/// bleve's `UnicodeTokenizer.Tokenize`: every word segment but the `None` ones, typed, each with its position in
-/// `input`. A token's offsets count the bytes of the segments before it, as bleve counts them.
-pub(crate) fn tokenize(input: &[u8]) -> Vec<(usize, AnalysisToken)> {
+/// bleve's `UnicodeTokenizer.Tokenize`: every word segment but the `None` ones, typed. A token's offsets count the
+/// bytes of the segments before it, as bleve counts them.
+pub(crate) fn tokenize(input: &str) -> Vec<AnalysisToken> {
     let (segments, _) = word_segments(input);
     let mut start = 0;
     let mut out = Vec::new();
-    for (pos, len, typ) in segments {
-        let end = start + len;
+    for (text, typ) in segments {
+        let end = start + text.len();
         if typ != SegmentType::None {
-            out.push((
-                pos,
-                AnalysisToken::new(&input[pos..pos + len], start, end, convert_type(typ)),
-            ));
+            out.push(AnalysisToken::new(text, start, end, convert_type(typ)));
         }
         start = end;
     }

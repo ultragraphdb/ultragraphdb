@@ -32,7 +32,7 @@ pub fn value_for_type(id: TypeId) -> Val {
         TypeId::BOOL => Value::Bool(false),
         TypeId::DATETIME => Value::DateTime(DateTime::zero()),
         TypeId::BIGFLOAT => Value::BigFloat(BigFloat::zero(BIG_FLOAT_PRECISION)),
-        TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD => Value::Str(Vec::new()),
+        TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD => Value::Str(String::new()),
         TypeId::GEO => Value::Geo(Geometry::collection(Vec::new())),
         TypeId::UID => Value::Uid(0),
         TypeId::VFLOAT => Value::VFloat(Vec::new()),

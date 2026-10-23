@@ -2,7 +2,9 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, types/conversion.go. Changed for ultragraphdb: translated to Rust.
+ * Ported from Dgraph v25.5.0, types/conversion.go. Changed for ultragraphdb: translated to Rust; a float outside int64
+ * is refused as an int and as a datetime, bytes that are not UTF-8 are refused as a string, and `toBinary` returns
+ * an error where Go panics.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -28,7 +30,7 @@ const NANO_SECONDS_IN_SEC: i64 = 1_000_000_000;
 fn go_value(v: &Value) -> String {
     match v {
         Value::Bytes(b) => go_fmt::byte_slice(b),
-        Value::Str(s) => String::from_utf8_lossy(s).into_owned(),
+        Value::Str(s) => s.clone(),
         Value::Int(i) => i.to_string(),
         Value::Float(f) => go_strconv::format_float(*f, b'g', 64),
         Value::Bool(b) => go_strconv::format_bool(*b).into(),
@@ -62,6 +64,26 @@ fn lossy(data: &[u8]) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
 
+/// The bytes as the string value of a type named `type_name`, refused when they are not UTF-8: Go keeps them as they
+/// are, and text analysis then reads past them or drops what follows (ledger 17, 18, 31).
+fn utf8(data: &[u8], type_name: &str) -> Result<String, TypesError> {
+    String::from_utf8(data.to_vec()).map_err(|_| {
+        TypesError::conversion(format!("Value is not valid UTF-8 for type {type_name}"))
+    })
+}
+
+/// 2^63, the least float above int64.
+const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
+
+/// Whether a float lies in int64, from -2^63 to below 2^63. NaN does not.
+fn in_int64(f: f64) -> bool {
+    (-TWO_POW_63..TWO_POW_63).contains(&f)
+}
+
+fn float_out_of_range() -> TypesError {
+    TypesError::conversion("Float out of int64 range")
+}
+
 /// The little-endian int64 in the first eight bytes, Dgraph's `invalid data for int64` for fewer.
 fn le_i64(data: &[u8]) -> Result<i64, TypesError> {
     match data.first_chunk::<8>() {
@@ -92,12 +114,25 @@ fn big_float_from_f64(f: f64, prec: u32) -> Result<BigFloat, TypesError> {
     BigFloat::from_f64(f, prec).ok_or_else(|| TypesError::conversion("Float.SetFloat64(NaN)"))
 }
 
-/// Go's `time.Unix(secs, nsecs).UTC()` from a float of seconds, as Dgraph splits it. Go converts out-of-range
-/// floats to int64 as its platform does; this port saturates, as Go on arm64 does.
+/// Go's `time.Unix(secs, nsecs).UTC()` from a float of seconds, as Dgraph splits it. Go converts floats outside int64
+/// to int64 as its platform does, so this port refuses them, NaN and the infinities included, before `secs` is taken
+/// (ledger 10).
 fn date_time_from_float_secs(secs: i64, float_secs: f64) -> DateTime {
     let frac = float_secs - secs as f64;
     let nsecs = (frac * NANO_SECONDS_IN_SEC as f64) as i64;
     DateTime::from_unix(secs, nsecs)
+}
+
+/// Whether a big float lies in int64, from -2^63 to below 2^63.
+fn big_float_in_int64(t: &BigFloat) -> bool {
+    let bound = |f: f64| BigFloat::from_f64(f, 64);
+    match (bound(-TWO_POW_63), bound(TWO_POW_63)) {
+        (Some(lo), Some(hi)) => {
+            t.compare(&lo) != std::cmp::Ordering::Less && t.compare(&hi) == std::cmp::Ordering::Less
+        }
+        // from_f64 refuses NaN alone, and both bounds are finite.
+        _ => false,
+    }
 }
 
 /// Dgraph's `ParseVFloat`: `[a, b, ...]` or `[a b ...]` of float32 values, or an empty string.
@@ -152,7 +187,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
     match from_id {
         TypeId::BINARY => match to_id {
             TypeId::BINARY => ok(Value::Bytes(data.clone())),
-            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(data.clone())),
+            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
             TypeId::INT => ok(Value::Int(le_i64(data)?)),
             TypeId::FLOAT => ok(Value::Float(le_f64(data)?)),
             TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
@@ -165,7 +200,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
             },
             TypeId::DATETIME => ok(Value::DateTime(DateTime::unmarshal_binary(data)?)),
             TypeId::GEO => ok(Value::Geo(Geometry::unmarshal_wkb(data)?)),
-            TypeId::PASSWORD => ok(Value::Str(data.clone())),
+            TypeId::PASSWORD => ok(Value::Str(utf8(data, "password")?)),
             TypeId::VFLOAT => {
                 if data.len() % 4 != 0 {
                     return Err(TypesError::conversion(format!(
@@ -188,7 +223,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 ok(Value::Float(f))
             }
             TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
-            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(data.clone())),
+            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
             TypeId::BOOL => ok(Value::Bool(go_strconv::parse_bool(data)?)),
             TypeId::DATETIME => ok(Value::DateTime(parse_time(data)?)),
             TypeId::GEO => {
@@ -205,7 +240,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                     ))),
                 }
             }
-            TypeId::PASSWORD => ok(Value::Str(encrypt(data)?.into_bytes())),
+            TypeId::PASSWORD => ok(Value::Str(encrypt(data)?)),
             TypeId::VFLOAT => ok(Value::VFloat(parse_vfloat(data)?)),
             _ => Err(cant_convert(from_id, to_id)),
         },
@@ -234,10 +269,15 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 TypeId::INT => ok(Value::Int(t.to_i64())),
                 TypeId::BOOL => ok(Value::Bool(!t.is_zero())),
                 TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10))),
-                TypeId::DATETIME => ok(Value::DateTime(date_time_from_float_secs(
-                    t.to_i64(),
-                    t.to_f64(),
-                ))),
+                TypeId::DATETIME => {
+                    if !big_float_in_int64(&t) {
+                        return Err(float_out_of_range());
+                    }
+                    ok(Value::DateTime(date_time_from_float_secs(
+                        t.to_i64(),
+                        t.to_f64(),
+                    )))
+                }
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -251,8 +291,9 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 )?)),
                 TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
                 TypeId::INT => {
-                    if vc > i64::MAX as f64 || vc < i64::MIN as f64 || vc.is_nan() {
-                        return Err(TypesError::conversion("Float out of int64 range"));
+                    // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10).
+                    if !in_int64(vc) {
+                        return Err(float_out_of_range());
                     }
                     ok(Value::Int(vc as i64))
                 }
@@ -260,7 +301,12 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 TypeId::STRING | TypeId::DEFAULT => {
                     ok(Value::str(go_strconv::format_float(vc, b'G', 64)))
                 }
-                TypeId::DATETIME => ok(Value::DateTime(date_time_from_float_secs(vc as i64, vc))),
+                TypeId::DATETIME => {
+                    if !in_int64(vc) {
+                        return Err(float_out_of_range());
+                    }
+                    ok(Value::DateTime(date_time_from_float_secs(vc as i64, vc)))
+                }
                 TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
                 _ => Err(cant_convert(from_id, to_id)),
             }
@@ -323,7 +369,8 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
         }
         TypeId::PASSWORD => match to_id {
             TypeId::BINARY => ok(Value::Bytes(data.clone())),
-            TypeId::STRING | TypeId::PASSWORD => ok(Value::Str(data.clone())),
+            TypeId::STRING => ok(Value::Str(utf8(data, "string")?)),
+            TypeId::PASSWORD => ok(Value::Str(utf8(data, "password")?)),
             _ => Err(cant_convert(from_id, to_id)),
         },
         TypeId::VFLOAT => match to_id {
@@ -361,7 +408,7 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 return Err(assertion(val, "[]uint8"));
             };
             match to_id {
-                _ if is_str => ok(Value::Str(vc.clone())),
+                _ if is_str => ok(Value::Str(utf8(vc, "string")?)),
                 TypeId::BINARY => ok(Value::Bytes(vc.clone())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
@@ -372,7 +419,7 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
             };
             match to_id {
                 _ if is_str => ok(Value::Str(vc.clone())),
-                TypeId::BINARY => ok(Value::Bytes(vc.clone())),
+                TypeId::BINARY => ok(Value::Bytes(vc.as_bytes().to_vec())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -446,7 +493,7 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
             };
             match to_id {
                 TypeId::STRING => ok(Value::Str(vc.clone())),
-                TypeId::BINARY => ok(Value::Bytes(vc.clone())),
+                TypeId::BINARY => ok(Value::Bytes(vc.as_bytes().to_vec())),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
@@ -464,12 +511,30 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
     }
 }
 
-/// Dgraph's `toBinary`.
-fn to_binary(id: TypeId, value: &Value) -> Result<Vec<u8>, TypesError> {
-    match marshal(&Val::new(id, value.clone()), TypeId::BINARY)?.into_value() {
-        Some(Value::Bytes(b)) => Ok(b),
-        _ => Ok(Vec::new()),
+/// Dgraph's `toBinary`: a converted value in its binary form, as [`marshal`] writes it to [`TypeId::BINARY`].
+///
+/// # Errors
+///
+/// [`marshal`]'s errors; for a nil value, Go's panic text: Go's `ValueForType` of binary holds a `*[]byte`, on which
+/// `toBinary`'s assertion panics.
+pub fn marshal_binary(v: &Val) -> Result<Vec<u8>, TypesError> {
+    let not_bytes = |go_type: &str| {
+        TypesError::conversion(format!(
+            "interface conversion: interface {{}} is {go_type}, not []uint8"
+        ))
+    };
+    if v.value().is_none() {
+        return Err(not_bytes("*[]uint8"));
     }
+    match marshal(v, TypeId::BINARY)?.into_value() {
+        Some(Value::Bytes(b)) => Ok(b),
+        // marshal writes every value it accepts to binary as bytes.
+        other => Err(not_bytes(other.as_ref().map_or("<nil>", Value::go_type))),
+    }
+}
+
+fn to_binary(id: TypeId, value: &Value) -> Result<Vec<u8>, TypesError> {
+    marshal_binary(&Val::new(id, value.clone()))
 }
 
 fn expected(go_type: &str, v: &Value) -> TypesError {
@@ -484,9 +549,9 @@ fn expected(go_type: &str, v: &Value) -> TypesError {
 pub fn object_value(id: TypeId, value: &Value) -> Result<api::Value, TypesError> {
     use api::value::Val as V;
     let v = match (id, value) {
-        (TypeId::STRING, Value::Str(s)) => V::StrVal(lossy(s)),
+        (TypeId::STRING, Value::Str(s)) => V::StrVal(s.clone()),
         (TypeId::STRING, v) => return Err(expected("string", v)),
-        (TypeId::DEFAULT, Value::Str(s)) => V::DefaultVal(lossy(s)),
+        (TypeId::DEFAULT, Value::Str(s)) => V::DefaultVal(s.clone()),
         (TypeId::DEFAULT, v) => return Err(expected("string", v)),
         (TypeId::INT, Value::Int(i)) => V::IntVal(*i),
         (TypeId::INT, v) => return Err(expected("int64", v)),
@@ -499,7 +564,7 @@ pub fn object_value(id: TypeId, value: &Value) -> Result<api::Value, TypesError>
         (TypeId::BIGFLOAT, v) => V::BigfloatVal(to_binary(id, v)?),
         (TypeId::GEO, v) => V::GeoVal(to_binary(id, v)?),
         (TypeId::DATETIME, v) => V::DatetimeVal(to_binary(id, v)?),
-        (TypeId::PASSWORD, Value::Str(s)) => V::PasswordVal(lossy(s)),
+        (TypeId::PASSWORD, Value::Str(s)) => V::PasswordVal(s.clone()),
         (TypeId::PASSWORD, v) => {
             return Err(TypesError::conversion(format!(
                 "Expected value of type password. Got type: {}",
@@ -542,7 +607,7 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
         (TypeId::BIGFLOAT, Some(Value::BigFloat(b))) => b.marshal_text(),
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {
-            crate::utils::json::encode_string(s)
+            crate::utils::json::encode_string(s.as_bytes())
         }
         (
             TypeId::INT

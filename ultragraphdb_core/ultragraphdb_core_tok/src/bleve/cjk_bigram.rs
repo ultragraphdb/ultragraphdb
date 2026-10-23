@@ -8,8 +8,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 use crate::types::analysis_token::AnalysisToken;
 use crate::types::token_type::TokenType;
 
@@ -39,8 +37,7 @@ impl Ring {
         let (Some(prev), Some(curr)) = (&self.previous, &self.recent) else {
             return None;
         };
-        let mut term = prev.term().to_vec();
-        term.extend_from_slice(curr.term());
+        let term = format!("{}{}", prev.term(), curr.term());
         Some(AnalysisToken::new(
             term,
             prev.start(),
@@ -71,21 +68,11 @@ pub(crate) fn filter(input: Vec<AnalysisToken>) -> Vec<AnalysisToken> {
             rv.push(tok);
             continue;
         }
-        // bleve slices the term by the lengths of the runes it decoded, an invalid byte counting as the three bytes
-        // of U+FFFD, which reads past the term into its buffer; Go panics past the buffer's end, this port stops.
-        let mut term = tok.term().to_vec();
-        term.extend_from_slice(tok.tail());
-        let mut sofar = 0;
-        for run in go_utf8::runes(tok.term()) {
-            let rlen = run.len_utf8();
-            let (from, to) = (sofar.min(term.len()), (sofar + rlen).min(term.len()));
-            let token = AnalysisToken::new(
-                &term[from..to],
-                tok.start().saturating_add(sofar),
-                tok.start().saturating_add(sofar + rlen),
-                tok.typ(),
-            );
-            sofar += rlen;
+        // bleve slices the term by the widths of its runes, counting an invalid byte as the three bytes of U+FFFD,
+        // which reads past the term (ledger 17); a `&str` term holds no invalid byte, and each rune is a token.
+        for (sofar, run) in tok.term().char_indices() {
+            let start = tok.start() + sofar;
+            let token = AnalysisToken::new(run, start, start + run.len_utf8(), tok.typ());
             if r.recent.as_ref().is_some_and(|v| token.start() != v.end())
                 && let Some(t) = r.flush()
             {

@@ -12,9 +12,9 @@ use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_core_types::{TypeId, Val, Value};
 
 use crate::errors::dql_error::DqlError;
-use crate::parser::It;
 use crate::parser::parse_var_name;
 use crate::parser::variables::{VarMap, parse_value};
+use crate::parser::{It, check_depth};
 use crate::state::{ITEM_COMMA, ITEM_DOLLAR, ITEM_LEFT_ROUND, ITEM_NAME, ITEM_RIGHT_ROUND};
 use crate::types::math_tree::MathTree;
 
@@ -156,23 +156,92 @@ fn is_math_func(f: &str) -> bool {
     )
 }
 
-/// Parses the arguments of a math function (or the expression of `math`) whose name is the current item; with
-/// `again`, a further argument after a comma. Whether a comma ended it, so another argument follows.
-pub(crate) fn parse_math_func(
-    it: &mut It<'_, '_>,
-    again: bool,
-) -> Result<(MathTree, bool), DqlError> {
-    if !again {
-        it.next();
-        if it.item().typ() != ITEM_LEFT_ROUND {
-            return Err(DqlError::parse("Expected ( after math"));
+/// The operator and value stacks of one parenthesized argument list, Go's `parseMathFunc` call.
+struct MathFrame {
+    op_stack: Vec<MathTree>,
+    value_stack: Vec<MathTree>,
+}
+
+impl MathFrame {
+    fn new() -> Self {
+        Self {
+            // opStack is used to collect the operators in right order.
+            op_stack: vec![MathTree::with_fn("(")],
+            // valueStack is used to collect the values.
+            value_stack: Vec::new(),
         }
     }
-    // opStack is used to collect the operators in right order.
-    let mut op_stack = vec![MathTree::with_fn("(")];
-    // valueStack is used to collect the values.
-    let mut value_stack: Vec<MathTree> = Vec::new();
+}
 
+/// What parsing a frame's items asks for.
+enum MathStep {
+    /// The arguments of a nested function follow, each in a frame of its own.
+    Args,
+    /// The frame's expression, and whether a comma ended it so that another argument follows.
+    Done(Box<MathTree>, bool),
+}
+
+/// Parses the expression of `math(...)`, the current item being `math`, for a math block at `level`; whether a
+/// comma ended it.
+///
+/// Go's `parseMathFunc` recurses into the arguments of each nested function; this keeps a stack of frames instead.
+/// Each bracket, a function's own among them, nests a level below the math block, and none may reach past
+/// [`MAX_DEPTH`](crate::parser::MAX_DEPTH); operators add no level.
+pub(crate) fn parse_math_func(
+    it: &mut It<'_, '_>,
+    level: usize,
+) -> Result<(MathTree, bool), DqlError> {
+    let mut frames: Vec<MathFrame> = Vec::new();
+    // The brackets open around the current item, each frame's own among them.
+    let mut brackets = 0;
+    // Whether the next frame continues an argument list after a comma, inside the same bracket.
+    let mut again = false;
+    loop {
+        if !again {
+            it.next();
+            if it.item().typ() != ITEM_LEFT_ROUND {
+                return Err(DqlError::parse("Expected ( after math"));
+            }
+        }
+        brackets += 1;
+        check_depth(level + brackets)?;
+        frames.push(MathFrame::new());
+        // Parse the innermost frame until it asks for a new frame.
+        again = loop {
+            let Some(frame) = frames.last_mut() else {
+                return Err(DqlError::parse("Empty stack"));
+            };
+            match math_items(it, frame, level, &mut brackets)? {
+                MathStep::Args => break false,
+                MathStep::Done(tree, more) => {
+                    frames.pop();
+                    match frames.last_mut() {
+                        None => return Ok((*tree, more)),
+                        Some(outer) => {
+                            outer.value_stack.push(*tree);
+                            if more {
+                                break true;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+}
+
+/// Parses a frame's items, up to the end of its argument or a nested function's arguments; `brackets` counts the
+/// brackets open below the math block at `level`.
+fn math_items(
+    it: &mut It<'_, '_>,
+    frame: &mut MathFrame,
+    level: usize,
+    brackets: &mut usize,
+) -> Result<MathStep, DqlError> {
+    let MathFrame {
+        op_stack,
+        value_stack,
+    } = frame;
     while it.next() {
         let item = it.item();
         let lval = item.val().to_lowercase();
@@ -194,11 +263,11 @@ pub(crate) fn parse_math_func(
                 if math_op_precedence(&top_op.fn_name) < op_pred {
                     break;
                 }
-                eval_math_stack(&mut op_stack, &mut value_stack)?;
+                eval_math_stack(op_stack, value_stack)?;
             }
             op_stack.push(MathTree::with_fn(&op)); // Push current operator.
             if it.peek(1)?[0].typ() == ITEM_LEFT_ROUND {
-                parse_math_args(it, &mut value_stack)?;
+                return Ok(MathStep::Args);
             }
         } else if item.typ() == ITEM_NAME {
             // Value.
@@ -209,8 +278,7 @@ pub(crate) fn parse_math_func(
                         item.val()
                     )));
                 }
-                parse_math_args(it, &mut value_stack)?;
-                continue;
+                return Ok(MathStep::Args);
             }
             // We will try to parse the constant as an Int first, if that fails we move to float.
             let mut child = MathTree::default();
@@ -224,6 +292,8 @@ pub(crate) fn parse_math_func(
             value_stack.push(child);
         } else if item.typ() == ITEM_LEFT_ROUND {
             // Just push to op stack.
+            *brackets += 1;
+            check_depth(level + *brackets)?;
             op_stack.push(MathTree::with_fn("("));
         } else if item.typ() == ITEM_COMMA || item.typ() == ITEM_RIGHT_ROUND {
             // Pop op stack until we see a (.
@@ -231,12 +301,13 @@ pub(crate) fn parse_math_func(
                 if top_op.fn_name == "(" {
                     break;
                 }
-                eval_math_stack(&mut op_stack, &mut value_stack)?;
+                eval_math_stack(op_stack, value_stack)?;
             }
             // Pop away the (.
             if op_stack.pop().is_none() {
                 return Err(DqlError::parse("Invalid Math expression"));
             }
+            *brackets -= 1;
             if item.typ() == ITEM_COMMA {
                 if !op_stack.is_empty() {
                     return Err(DqlError::parse("Invalid math expression."));
@@ -249,7 +320,7 @@ pub(crate) fn parse_math_func(
                 }
                 return value_stack
                     .pop()
-                    .map(|res| (res, true))
+                    .map(|res| MathStep::Done(Box::new(res), true))
                     .ok_or_else(|| DqlError::parse("Empty stack"));
             }
             if op_stack.is_empty() {
@@ -257,11 +328,9 @@ pub(crate) fn parse_math_func(
                 break;
             }
         } else if item.typ() == ITEM_DOLLAR {
-            let var = parse_var_name(it)?;
-            value_stack.push(MathTree {
-                var,
-                ..MathTree::default()
-            });
+            let mut child = MathTree::default();
+            child.var = parse_var_name(it)?;
+            value_stack.push(child);
         } else {
             return Err(DqlError::parse(format!(
                 "Unexpected item while parsing math expression: {item}"
@@ -286,34 +355,23 @@ pub(crate) fn parse_math_func(
     }
     value_stack
         .pop()
-        .map(|res| (res, false))
+        .map(|res| MathStep::Done(Box::new(res), false))
         .ok_or_else(|| DqlError::parse("Empty stack"))
 }
 
-/// Parses the comma-separated arguments of a nested math function onto the value stack.
-fn parse_math_args(it: &mut It<'_, '_>, value_stack: &mut Vec<MathTree>) -> Result<(), DqlError> {
-    let mut again = false;
-    loop {
-        let (child, more) = parse_math_func(it, again)?;
-        again = more;
-        value_stack.push(child);
-        if !again {
-            return Ok(());
-        }
-    }
-}
-
-/// Substitutes the query parameters of a math expression with their typed values.
+/// Substitutes the query parameters of a math expression with their typed values, each node before its children;
+/// the nodes wait on a stack rather than in recursive calls.
 pub(crate) fn subs(t: &mut MathTree, vmap: &VarMap) -> Result<(), DqlError> {
-    if t.var.starts_with('$') {
-        let va = vmap
-            .get(&t.var)
-            .ok_or_else(|| DqlError::parse("Variable not found in math"))?;
-        t.const_val = parse_value(va)?;
-        t.var = String::new();
-    }
-    for i in &mut t.child {
-        subs(i, vmap)?;
+    let mut stack = vec![t];
+    while let Some(t) = stack.pop() {
+        if t.var.starts_with('$') {
+            let va = vmap
+                .get(&t.var)
+                .ok_or_else(|| DqlError::parse("Variable not found in math"))?;
+            t.const_val = parse_value(va)?;
+            t.var = String::new();
+        }
+        stack.extend(t.child.iter_mut().rev());
     }
     Ok(())
 }

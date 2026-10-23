@@ -22,10 +22,6 @@ pub(crate) fn stop_words(lang: &str) -> Option<&'static [&'static str]> {
 pub(crate) fn filter(words: &[&str], input: Vec<AnalysisToken>) -> Vec<AnalysisToken> {
     input
         .into_iter()
-        .filter(|t| {
-            words
-                .binary_search_by(|w| w.as_bytes().cmp(t.term()))
-                .is_err()
-        })
+        .filter(|t| words.binary_search(&t.term()).is_err())
         .collect()
 }

@@ -76,3 +76,15 @@ Feature: Tokenizers
   Scenario: hnsw options are validated
     When the hnsw factory is given metric "manhattan"
     Then the options are refused with "Can't create a vector index for manhattan"
+
+  Scenario: A German value's ngram index tokens match its query tokens
+    When "Katzen und Auffassung" tagged "de" is tokenized for the ngram index and for an ngram query
+    Then both yield the same stemmed shingles, starting with "katz"
+
+  Scenario: İstanbul lowercases whole
+    When "İstanbul" is tokenized by the term tokenizer
+    Then the token is the term "istanbul"
+
+  Scenario: A final sigma after a widening rune becomes final
+    When "ȺΣ" is lowercased
+    Then the result is "ⱥς"

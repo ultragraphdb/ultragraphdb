@@ -40,7 +40,7 @@ fn query_tokens(
 fn form_data(g: &Geometry) -> String {
     let src = Val::bytes(TypeId::GEO, g.marshal_wkb().unwrap());
     match convert(&src, TypeId::STRING).unwrap().into_value() {
-        Some(Value::Str(s)) => String::from_utf8(s).unwrap(),
+        Some(Value::Str(s)) => s,
         other => panic!("{other:?}"),
     }
 }

@@ -26,6 +26,9 @@ pub enum FacetsErrorEnum {
     RepeatedKey(String),
     /// This quoted value is not a Go string literal: `could not unquote "<value>":: invalid syntax`.
     Unquote(String),
+    /// The quoted value of the facet with this key writes bytes that are not UTF-8:
+    /// `Facet value of <key> is not valid UTF-8`.
+    InvalidUtf8(String),
     /// A number does not fit its type; the message is Go's `strconv` error, e.g.
     /// `strconv.ParseInt: parsing "99999999999999999999": value out of range`.
     Number(String),
@@ -54,6 +57,11 @@ impl FacetsError {
     #[allow(non_snake_case)]
     pub fn Unquote(msg: String) -> Self {
         Self(FacetsErrorEnum::Unquote(msg))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn InvalidUtf8(key: String) -> Self {
+        Self(FacetsErrorEnum::InvalidUtf8(key))
     }
 
     #[allow(non_snake_case)]

@@ -40,6 +40,7 @@ ultragraphdb alone.
 
 - [ ] 6.1 Scenarios: grpc-api; port the request checks and refusals (one-request rule, `best_effort`, empty request, limits)
 - [ ] 6.2 Port `parseRequest`, `doQuery`, `processQuery`, `CheckVersion`, `RunDQL`, `AllocateIDs` (the named lease kind)
+- [ ] 6.4 Ledger 9 and 3: `AllocateIDs` converts the lease type once at the API edge into `enum LeaseKind { Uid, Namespace, Timestamp }` and routes it by an exhaustive match, timestamps through Zero's `Timestamps`; a filtered read with `after:` past a list's last UID returns nothing and is excluded from the differential runs against Go Dgraph
 - [ ] 6.3 Port mutation parsing, uid assignment, edge expansion (`S * *`), validation and the internal-writer flag
 
 ## 7. Transactions → `ultragraphdb_server_alpha`

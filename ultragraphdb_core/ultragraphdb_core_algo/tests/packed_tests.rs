@@ -330,13 +330,201 @@ struct AlgoCase {
     results: Vec<OpResult>,
 }
 
-/// The packed operations' results equal Dgraph's on the golden inputs, which hold duplicates, lists across 2^32
-/// and the inputs where Dgraph's DifferencePacked and IntersectSortedPacked drop UIDs.
+/// The golden cases on which Dgraph's packed operation returns other UIDs than its plain counterpart: the case, the
+/// packed operation, the ledger entry of `openspec/notes/dgraph-bugs-found-in-port.md`, and the port's expected
+/// result, which is the plain operation's result in the same case. Entry 1: IntersectSortedPacked returns the
+/// intersection of the two shortest lists; entry 2: DifferencePacked drops `u`'s blocks after `v` runs out; entry 25:
+/// a UID of `u` in a later block of `v` survives.
+const DEVIATIONS: &[(&str, &str, u32, &str)] = &[
+    (
+        "lists/k=3/dups=true",
+        "intersect_sorted_packed",
+        1,
+        "intersect_sorted",
+    ),
+    (
+        "lists/shortest-two-share",
+        "intersect_sorted_packed",
+        1,
+        "intersect_sorted",
+    ),
+    (
+        "pair/n=1/m=100/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=1/m=400/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=3/m=100/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=3/m=100/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=3/m=400/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=3/m=400/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=11/m=100/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=11/m=100/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=11/m=400/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=11/m=400/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=1/dups=false",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=1/dups=true",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=3/dups=true",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=100/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=100/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=400/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=100/m=400/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=1/dups=true",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=3/dups=false",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=3/dups=true",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=11/dups=false",
+        "difference_packed",
+        2,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=100/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=100/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=400/dups=false",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    (
+        "pair/n=400/m=400/dups=true",
+        "difference_packed",
+        25,
+        "difference",
+    ),
+    ("ratio/n=10/m=1200", "difference_packed", 25, "difference"),
+    ("ratio/n=10/m=3000", "difference_packed", 25, "difference"),
+    ("ratio/n=10/m=6000", "difference_packed", 25, "difference"),
+    ("blocks/u-outlasts-v", "difference_packed", 2, "difference"),
+];
+
+/// The plain operation whose result a packed operation equals.
+fn plain_op(packed: &str) -> Option<&'static str> {
+    match packed {
+        "intersect_with_lin_packed" => Some("intersect_with"),
+        "difference_packed" => Some("difference"),
+        "merge_sorted_packed" => Some("merge_sorted"),
+        "intersect_sorted_packed" => Some("intersect_sorted"),
+        _ => None,
+    }
+}
+
+/// The packed operations' results equal the plain operations' golden results in the same case, which hold duplicates,
+/// lists across 2^32 and the inputs where Dgraph's DifferencePacked and IntersectSortedPacked drop or keep UIDs. Dgraph's
+/// own packed result equals its plain one in every case but the `DEVIATIONS`; with no lists there is no plain result,
+/// and Dgraph's packed one, no pack, is the expected one.
 #[test]
 fn packed_operations_match_golden() {
     let path = testdata_dir().join("golden/algo_setops.json");
     let golden = load_golden::<AlgoCase>(&path);
     let mut checked = 0;
+    let mut deviations_seen = 0;
     for case in golden.cases() {
         let packs: Vec<Option<UidPack>> = case
             .lists
@@ -366,17 +554,65 @@ fn packed_operations_match_golden() {
                 _ => continue,
             };
             assert!(!r.panics, "{} {}: Dgraph panicked", case.name, r.op);
+            let plain_name = plain_op(&r.op).expect("a packed operation has a plain one");
+            let plain = case.results.iter().find(|p| p.op == plain_name);
+            let deviation = DEVIATIONS
+                .iter()
+                .find(|&&(name, op, _, _)| name == case.name && op == r.op);
+            let want = match plain {
+                Some(plain) => {
+                    assert!(!plain.panics, "{} {}: Dgraph panicked", case.name, plain.op);
+                    if let Some(&(_, _, entry, expected)) = deviation {
+                        assert_eq!(expected, plain.op, "{} {}", case.name, r.op);
+                        assert_ne!(
+                            r.out, plain.out,
+                            "{} {}: Dgraph's packed result is listed under entry {entry} but equals the plain one",
+                            case.name, r.op
+                        );
+                        deviations_seen += 1;
+                    } else {
+                        assert_eq!(
+                            r.out, plain.out,
+                            "{} {}: Dgraph's packed result differs from the plain one and is not a deviation",
+                            case.name, r.op
+                        );
+                    }
+                    &plain.out
+                }
+                None => {
+                    assert!(
+                        case.lists.is_empty() && deviation.is_none(),
+                        "{} {}: no plain result",
+                        case.name,
+                        r.op
+                    );
+                    assert_eq!(
+                        r.out_nil,
+                        actual.is_none(),
+                        "{} {}: nil pack",
+                        case.name,
+                        r.op
+                    );
+                    &r.out
+                }
+            };
+            // An encoder that was given no UID returns no pack, so an empty result is no pack.
             assert_eq!(
-                r.out_nil,
+                want.is_empty(),
                 actual.is_none(),
-                "{} {}: nil pack",
+                "{} {}: no pack",
                 case.name,
                 r.op
             );
-            assert_eq!(r.out, decoded(actual), "{} {}", case.name, r.op);
+            assert_eq!(want, &decoded(actual), "{} {}", case.name, r.op);
             checked += 1;
         }
     }
+    assert_eq!(
+        DEVIATIONS.len(),
+        deviations_seen,
+        "every deviation names a golden case"
+    );
     assert!(
         checked > 200,
         "the golden file holds packed results, {checked} checked"

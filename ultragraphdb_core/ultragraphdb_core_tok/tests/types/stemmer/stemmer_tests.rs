@@ -6,8 +6,8 @@
 use serde::Deserialize;
 use ultragraphdb_core_tok::{AnalysisToken, Stemmer, analyze};
 
-use crate::golden::{cases, unhex};
-use crate::utils::bleve_tests::{StreamCase, stream, want};
+use crate::golden::cases;
+use crate::utils::bleve_tests::check_streams;
 
 #[derive(Debug, Clone, Deserialize)]
 struct StemmerCase {
@@ -26,13 +26,8 @@ fn test_stemmers_golden() {
         let bad: Vec<String> = c
             .words
             .iter()
-            .filter(|(i, o)| s.stem(i.as_bytes()) != o.as_bytes())
-            .map(|(i, o)| {
-                format!(
-                    "{i} -> {o}, got {}",
-                    String::from_utf8_lossy(&s.stem(i.as_bytes()))
-                )
-            })
+            .filter(|(i, o)| s.stem(i) != *o)
+            .map(|(i, o)| format!("{i} -> {o}, got {}", s.stem(i)))
             .collect();
         if !bad.is_empty() {
             failures.push(format!(
@@ -49,29 +44,8 @@ fn test_stemmers_golden() {
 
 #[test]
 fn test_cjk_bigram_golden() {
-    let cases: Vec<StreamCase> = cases("tok_cjk_bigram");
     let cjk = Stemmer::named("cjk_bigram").unwrap();
-    let failures: Vec<String> = cases
-        .iter()
-        .filter_map(|c| {
-            let input = unhex(&c.input);
-            let got = stream(&cjk.filter(analyze(&input)));
-            (got != want(c)).then(|| {
-                format!(
-                    "{:?}: want {:?}, got {got:?}",
-                    String::from_utf8_lossy(&input),
-                    want(c)
-                )
-            })
-        })
-        .collect();
-    assert!(
-        failures.is_empty(),
-        "{} of {} differ:\n{}",
-        failures.len(),
-        cases.len(),
-        failures[..failures.len().min(5)].join("\n")
-    );
+    check_streams("tok_cjk_bigram", |input| cjk.filter(analyze(input)));
 }
 
 #[test]
@@ -83,5 +57,5 @@ fn test_stemmer_for_lang() {
     let out = Stemmer::for_lang("de")
         .unwrap()
         .filter(vec![AnalysisToken::of("katzen")]);
-    assert_eq!(out[0].term(), b"katz");
+    assert_eq!(out[0].term(), "katz");
 }

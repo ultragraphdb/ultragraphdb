@@ -76,10 +76,13 @@ pub fn get_tokenizers<S: AsRef<str>>(names: &[S]) -> Result<Vec<Tokenizer>, TokE
         .collect()
 }
 
-/// Dgraph's `GetTokenizerForLang`: the term and fulltext tokenizers for `lang`, and the exact tokenizer with the
-/// collator of `lang` (English when the tag does not parse). Every other tokenizer, and every tokenizer when
-/// `lang` is empty, comes back unchanged; so does ngram, whose language only [`get_ngram_tokens`](crate::get_ngram_tokens)
-/// and [`get_ngram_query_tokens`](crate::get_ngram_query_tokens) take.
+/// Dgraph's `GetTokenizerForLang`: the term, fulltext and ngram tokenizers for `lang`, and the exact tokenizer with
+/// the collator of `lang` (English when the tag does not parse). Every other tokenizer, and every tokenizer when
+/// `lang` is empty, comes back unchanged.
+///
+/// Dgraph returns its ngram tokenizer unchanged, so an ngram index always takes English stop words and stemming
+/// while its queries take the query's language (ledger 14); this port gives ngram the language, as the query side
+/// ([`get_ngram_tokens`](crate::get_ngram_tokens), [`get_ngram_query_tokens`](crate::get_ngram_query_tokens)) does.
 pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
     if lang.is_empty() {
         return t.clone();
@@ -87,6 +90,7 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
     match t.kind() {
         Kind::FullText(_) => Tokenizer::new(Kind::FullText(lang.to_string())),
         Kind::Term(_) => Tokenizer::new(Kind::Term(lang.to_string())),
+        Kind::NGram(_) => Tokenizer::new(Kind::NGram(lang.to_string())),
         Kind::Exact(_) => {
             let tag = Tag::parse(lang)
                 .or_else(|_| Tag::parse("en"))
@@ -96,7 +100,19 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
                 collator: Collator::new(&tag),
             }))))
         }
-        _ => t.clone(),
+        Kind::BigFloat
+        | Kind::Geo
+        | Kind::Int
+        | Kind::Float
+        | Kind::Year
+        | Kind::Month
+        | Kind::Day
+        | Kind::Hour
+        | Kind::Bool
+        | Kind::Trigram
+        | Kind::Hash
+        | Kind::Sha256
+        | Kind::Factory(_) => t.clone(),
     }
 }
 

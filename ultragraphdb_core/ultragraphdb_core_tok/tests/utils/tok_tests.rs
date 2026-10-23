@@ -15,7 +15,7 @@ use ultragraphdb_core_tok::{
 };
 use ultragraphdb_core_types::{DateTime, TypeId, Val, Value, convert};
 
-use crate::golden::{cases, unhex};
+use crate::golden::{LOWERCASE_DEVIATIONS, cases, unhex, untext};
 
 fn enc(id: u8, s: &str) -> Vec<u8> {
     let mut v = vec![id];
@@ -491,6 +491,9 @@ struct TokensCase {
     tokens: Vec<String>,
     sorted: bool,
     error: String,
+    /// The port's tokens, where they differ from Dgraph's.
+    #[serde(default)]
+    fixed: Option<Vec<String>>,
 }
 
 fn converted(kind: &str, text: &str) -> Value {
@@ -510,7 +513,7 @@ fn converted(kind: &str, text: &str) -> Value {
 
 fn golden_value(c: &TokensCase) -> Value {
     match c.kind.as_str() {
-        "string" => Value::Str(unhex(&c.input)),
+        "string" => Value::Str(untext(&c.input)),
         "int" => Value::Int(c.input.parse().unwrap()),
         "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16).unwrap())),
         "bool" => Value::Bool(c.input == "true"),
@@ -519,58 +522,116 @@ fn golden_value(c: &TokensCase) -> Value {
     }
 }
 
+/// The golden ngram index cases whose tokens differ from Dgraph's because the port's `get_tokenizer_for_lang` gives
+/// ngram the language (ledger 14), by language and input. The port's result is the case's `fixed` field, which the
+/// generator writes as Go's `GetNGramTokens` for the language, the golden `ngram` case of the same input.
+const NGRAM_LANG_DEVIATIONS: &[(&str, &str, u32)] = &[
+    ("de", "Katzen und Auffassung und Auffassung", 14),
+    (
+        "de",
+        "Die Katzen und die Hunde spielten fröhlich im großen Garten.",
+        14,
+    ),
+    (
+        "de",
+        "Häuser, Bäume, Straßen und Gärten; ÄÖÜ äöü ß ẞ STRASSE",
+        14,
+    ),
+    (
+        "es",
+        "deseándoles muchas alegrías a las señoritas y los señores programadores de Dgraph",
+        14,
+    ),
+    (
+        "es",
+        "Los niños estaban corriendo rápidamente por las calles de las ciudades.",
+        14,
+    ),
+    ("zh", "他是一个薪水很高的商人", 14),
+    ("zh", "他是 一个好人", 14),
+    ("zh", "第一轮 第二轮 第一轮", 14),
+    ("zh", "我爱北京天安门。Dgraph是图数据库, 版本25", 14),
+];
+
+/// The ledger entry a golden case deviates by: [`NGRAM_LANG_DEVIATIONS`] for an ngram index case with a language,
+/// [`LOWERCASE_DEVIATIONS`] for an analyzed case of the inputs it names.
+fn deviation(c: &TokensCase) -> Option<u32> {
+    if c.kind != "string" {
+        return None;
+    }
+    let input = untext(&c.input);
+    if c.tokenizer == "ngram"
+        && c.via == "build"
+        && let Some(&(_, _, ledger)) = NGRAM_LANG_DEVIATIONS
+            .iter()
+            .find(|(lang, i, _)| *lang == c.lang && *i == input)
+    {
+        return Some(ledger);
+    }
+    LOWERCASE_DEVIATIONS
+        .iter()
+        .find(|(i, _)| *i == input)
+        .map(|&(_, ledger)| ledger)
+}
+
+/// The port's tokens of a golden case.
+fn port_tokens(c: &TokensCase) -> Result<Vec<Vec<u8>>, String> {
+    let got = match c.via.as_str() {
+        "build" => build_tokens(
+            &golden_value(c),
+            &get_tokenizer_for_lang(&tokenizer(&c.tokenizer), &c.lang),
+        )
+        .map_err(|e| e.to_string()),
+        "ngram" => Ok(get_ngram_tokens(untext(&c.input), &c.lang)),
+        _ => Ok(get_ngram_query_tokens(untext(&c.input), &c.lang)),
+    };
+    got.map(|mut t| {
+        if c.sorted {
+            t.sort();
+        }
+        t
+    })
+}
+
 #[test]
 fn test_tokens_golden() {
     let cases: Vec<TokensCase> = cases("tok_tokens");
     assert!(cases.len() > 10_000);
     let mut failures = Vec::new();
-    let mut invalid_exact = 0;
+    let mut deviating = (Vec::new(), Vec::new());
     for c in &cases {
-        let v = golden_value(c);
-        let got: Result<Vec<Vec<u8>>, String> = match c.via.as_str() {
-            "build" => build_tokens(
-                &v,
-                &get_tokenizer_for_lang(&tokenizer(&c.tokenizer), &c.lang),
-            )
-            .map_err(|e| e.to_string()),
-            "ngram" => Ok(get_ngram_tokens(unhex(&c.input), &c.lang)),
-            _ => Ok(get_ngram_query_tokens(unhex(&c.input), &c.lang)),
-        };
-        let got = got.map(|mut t| {
-            if c.sorted {
-                t.sort();
+        let decoded = |t: &[String]| t.iter().map(|t| unhex(t)).collect::<Vec<_>>();
+        let want: Result<Vec<Vec<u8>>, String> = match (&c.fixed, deviation(c)) {
+            (Some(fixed), Some(ledger)) => {
+                assert_ne!(fixed, &c.tokens, "{c:?}: Dgraph differs");
+                if ledger == 14 {
+                    let go = cases
+                        .iter()
+                        .find(|g| g.via == "ngram" && g.lang == c.lang && g.input == c.input);
+                    assert_eq!(go.map(|g| &g.tokens), Some(fixed), "{c:?}: GetNGramTokens");
+                    deviating.0.push((c.lang.clone(), untext(&c.input)));
+                } else {
+                    deviating.1.push(untext(&c.input));
+                }
+                Ok(decoded(fixed))
             }
-            t
-        });
-        let want: Result<Vec<Vec<u8>>, String> = if c.error.is_empty() {
-            Ok(c.tokens.iter().map(|t| unhex(t)).collect())
-        } else {
-            Err(c.error.clone())
+            (None, _) if c.error.is_empty() => Ok(decoded(&c.tokens)),
+            (None, _) => Err(c.error.clone()),
+            (Some(_), None) => panic!("{c:?}: a fixed result on a case no table names"),
         };
-        // An exact token with a language keys the value's bytes, which may be invalid UTF-8; those cases are counted.
-        if c.tokenizer == "exact"
-            && !c.lang.is_empty()
-            && c.kind == "string"
-            && std::str::from_utf8(&unhex(&c.input)).is_err()
-        {
-            invalid_exact += 1;
-        }
+        let got = port_tokens(c);
         if got != want {
             failures.push(format!(
                 "{} {:?} via {} of {} {:?}: want {want:?}, got {got:?}",
-                c.tokenizer,
-                c.lang,
-                c.via,
-                c.kind,
-                if c.kind == "string" {
-                    String::from_utf8_lossy(&unhex(&c.input)).into_owned()
-                } else {
-                    c.input.clone()
-                }
+                c.tokenizer, c.lang, c.via, c.kind, c.input
             ));
         }
     }
-    assert_eq!(invalid_exact, 160);
+    // Every entry deviates on a case of its own; a lowercase input on several tokenizers and languages.
+    deviating.1.sort();
+    deviating.1.dedup();
+    assert_eq!(deviating.0.len(), NGRAM_LANG_DEVIATIONS.len());
+    assert_eq!(deviating.1.len(), LOWERCASE_DEVIATIONS.len());
     assert!(
         failures.is_empty(),
         "{} of {} differ:\n{}",

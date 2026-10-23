@@ -6,14 +6,12 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 /// bleve's `stemmer_it_light` on one term.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    let mut s = go_utf8::runes(term);
+pub(crate) fn stem(term: &str) -> String {
+    let mut s: Vec<char> = term.chars().collect();
     let l = s.len();
     if l < 6 {
-        return go_utf8::encode(&s);
+        return s.iter().collect();
     }
     for r in s.iter_mut() {
         *r = match *r {
@@ -33,5 +31,5 @@ pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
         _ => l,
     };
     s.truncate(keep);
-    go_utf8::encode(&s)
+    s.iter().collect()
 }

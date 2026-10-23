@@ -275,46 +275,53 @@ func dqlRequest(req *api.Request) any {
 	return map[string]any{"query": req.Query, "mutations": mutations}
 }
 
-// dqlOutcome is one parse: its JSON result or its error text. Stable is false when repeated runs disagree, which
-// Go's random map iteration causes where several entries could fail first.
-type dqlOutcome struct {
-	Ok     any    `json:"ok"`
-	Err    string `json:"err"`
-	IsErr  bool   `json:"is_err"`
-	Stable bool   `json:"stable"`
+// dqlRunResult is one parse: its JSON result or its error text.
+type dqlRunResult struct {
+	Ok    any    `json:"ok"`
+	Err   string `json:"err"`
+	IsErr bool   `json:"is_err"`
 }
 
-func dqlRun(f func() (any, error)) dqlOutcome {
-	run := func() (out dqlOutcome) {
+// dqlOutcome holds the distinct results of 41 runs of one parse, in the order first seen. There is more than one
+// where Go's random map iteration decides which of several failing entries is reported.
+type dqlOutcome struct {
+	Outcomes []dqlRunResult `json:"outcomes"`
+}
+
+func dqlRun(f func() (any, error)) *dqlOutcome {
+	run := func() (out dqlRunResult) {
 		defer func() {
 			if r := recover(); r != nil {
-				out = dqlOutcome{Err: fmt.Sprintf("panic: %v", r), IsErr: true}
+				out = dqlRunResult{Err: fmt.Sprintf("panic: %v", r), IsErr: true}
 			}
 		}()
 		v, err := f()
 		if err != nil {
-			return dqlOutcome{Err: err.Error(), IsErr: true}
+			return dqlRunResult{Err: err.Error(), IsErr: true}
 		}
-		return dqlOutcome{Ok: v}
+		return dqlRunResult{Ok: v}
 	}
-	first := run()
-	first.Stable = true
-	a := fmt.Sprintf("%#v", first.Ok) + first.Err
-	for range 40 {
-		next := run()
-		if fmt.Sprintf("%#v", next.Ok)+next.Err != a {
-			first.Stable = false
+	out := &dqlOutcome{}
+	seen := map[string]bool{}
+	for range 41 {
+		r := run()
+		key := fmt.Sprintf("%#v", r.Ok) + r.Err
+		if !seen[key] {
+			seen[key] = true
+			out.Outcomes = append(out.Outcomes, r)
 		}
 	}
-	return first
+	return out
 }
 
+// dqlParseCase is one input. Mutation and Dql are null for an input given with variables, which those parsers do
+// not take.
 type dqlParseCase struct {
 	Input     string            `json:"input"`
 	Variables map[string]string `json:"variables"`
-	Parse     dqlOutcome        `json:"parse"`
-	Mutation  dqlOutcome        `json:"mutation"`
-	Dql       dqlOutcome        `json:"dql"`
+	Parse     *dqlOutcome       `json:"parse"`
+	Mutation  *dqlOutcome       `json:"mutation"`
+	Dql       *dqlOutcome       `json:"dql"`
 }
 
 func genDqlParse() (any, error) {

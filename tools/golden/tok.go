@@ -9,7 +9,8 @@ package main
 //   - tok_tokens: BuildTokens of every tokenizer over typed values and the text corpus (tok_corpus.go), with the
 //     languages GetTokenizerForLang takes, and the ngram tokens and query tokens of GetNGramTokens and
 //     GetNGramQueryTokens. Ngram and geo tokens come out of a Go map, so they are sorted; every other list is in
-//     Dgraph's order.
+//     Dgraph's order. Where the port's tokens differ, the case holds them too: Dgraph's tokens of the text lowercased
+//     by tokLowerWords (ledger 16, 30), and the ngram index tokens of GetNGramTokens with the language (ledger 14).
 //   - tok_lang_base: LangBase over language tags.
 //   - tok_registry: each registered tokenizer's name, type, identifier, sortable and lossy flags.
 //   - tok_hnsw_options: the hnsw factory's parsed options, its errors and FactoryCreateSpec names.
@@ -18,8 +19,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
+
+	"github.com/blevesearch/segment"
 
 	"github.com/dgraph-io/dgraph/v25/protos/pb"
 	"github.com/dgraph-io/dgraph/v25/tok"
@@ -47,6 +51,63 @@ type tokTokensCase struct {
 	Tokens []string `json:"tokens"` // hex, identifier byte included
 	Sorted bool     `json:"sorted"`
 	Error  string   `json:"error"`
+	// Fixed are the port's tokens where they differ from Tokens (hex, identifier byte included).
+	Fixed []string `json:"fixed,omitempty"`
+}
+
+// tokSpaceSplit are the language bases whose term tokens split the text on spaces, unanalyzed.
+var tokSpaceSplit = map[string]bool{"zh": true, "ja": true, "th": true, "lo": true, "my": true, "bo": true,
+	"km": true, "kxm": true}
+
+// tokLowerWords is s with each word segment lowercased by tokToLower. Dgraph's term, fulltext and ngram tokens of it
+// are the port's tokens of s, as to_lower then changes no term. It panics where lowercasing changes the segments'
+// types, where that would not hold.
+func tokLowerWords(s string) string {
+	segTypes := func(b []byte) ([]int, [][]byte) {
+		var types []int
+		var segs [][]byte
+		seg := segment.NewWordSegmenterDirect(b)
+		for seg.Segment() {
+			types = append(types, seg.Type())
+			segs = append(segs, seg.Bytes())
+		}
+		check(seg.Err())
+		return types, segs
+	}
+	types, segs := segTypes([]byte(s))
+	var out []byte
+	for i, w := range segs {
+		if types[i] != segment.None {
+			w = tokToLower(w)
+		}
+		out = append(out, w...)
+	}
+	if lowered, _ := segTypes(out); !reflect.DeepEqual(lowered, types) {
+		panic(fmt.Sprintf("lowercasing %q changes its segments", s))
+	}
+	return string(out)
+}
+
+// tokPortTokens are the port's tokens of the string s where they may differ from Dgraph's, nil where they cannot:
+// the analyzed tokenizers over tokLowerWords(s), and ngram with its language for the index too.
+func tokPortTokens(name, lang, via, s string) []string {
+	if !(name == "fulltext" || name == "ngram" || (name == "term" && !tokSpaceSplit[tok.LangBase(lang)])) {
+		return nil
+	}
+	lower := tokLowerWords(s)
+	var toks []string
+	var err error
+	switch {
+	case via == "ngram_query":
+		toks, err = tok.GetNGramQueryTokens([]string{lower}, lang)
+	case name == "ngram":
+		toks, err = tok.GetNGramTokens([]string{lower}, lang)
+	default:
+		t, _ := tok.GetTokenizer(name)
+		toks, err = tok.BuildTokens(lower, tok.GetTokenizerForLang(t, lang))
+	}
+	check(err)
+	return toks
 }
 
 // tokTokenLangs are language tags reduced by LangBase: "" (none), every language with a stemmer, stop words or space
@@ -63,17 +124,28 @@ var tokMixedLangs = []string{"", "en", "de", "fr", "ru", "ar", "hi", "tr", "el",
 
 func genTokTokens() (any, error) {
 	var out []tokTokensCase
-	add := func(name, lang, via, kind, input string, toks []string, err error, sorted bool) {
+	hexes := func(toks []string, sorted bool) []string {
+		if sorted {
+			sort.Strings(toks)
+		}
+		out := []string{}
+		for _, t := range toks {
+			out = append(out, hex.EncodeToString([]byte(t)))
+		}
+		return out
+	}
+	// fixed are the port's tokens, nil where they equal Dgraph's.
+	add := func(name, lang, via, kind, input string, toks []string, err error, sorted bool, fixed []string) {
 		c := tokTokensCase{Tokenizer: name, Lang: lang, Via: via, Kind: kind, Input: input, Sorted: sorted,
 			Tokens: []string{}}
 		if err != nil {
 			c.Error = err.Error()
 		} else {
-			if sorted {
-				sort.Strings(toks)
-			}
-			for _, t := range toks {
-				c.Tokens = append(c.Tokens, hex.EncodeToString([]byte(t)))
+			c.Tokens = hexes(toks, sorted)
+			if fixed != nil {
+				if f := hexes(fixed, sorted); !reflect.DeepEqual(f, c.Tokens) {
+					c.Fixed = f
+				}
 			}
 		}
 		out = append(out, c)
@@ -84,7 +156,11 @@ func genTokTokens() (any, error) {
 			panic("no tokenizer " + name)
 		}
 		toks, err := tok.BuildTokens(v, tok.GetTokenizerForLang(t, lang))
-		add(name, lang, "build", kind, input, toks, err, name == "ngram" || name == "geo")
+		var fixed []string
+		if s, ok := v.(string); ok {
+			fixed = tokPortTokens(name, lang, "build", s)
+		}
+		add(name, lang, "build", kind, input, toks, err, name == "ngram" || name == "geo", fixed)
 	}
 
 	// Sortable and typed tokenizers.
@@ -106,7 +182,7 @@ func genTokTokens() (any, error) {
 	for _, s := range bigs {
 		v, err := types.Convert(types.Val{Tid: types.StringID, Value: []byte(s)}, types.BigFloatID)
 		if err != nil {
-			add("bigfloat", "", "build", "bigfloat", s, nil, err, false)
+			add("bigfloat", "", "build", "bigfloat", s, nil, err, false, nil)
 			continue
 		}
 		build("bigfloat", "", "bigfloat", s, v.Value)
@@ -122,7 +198,7 @@ func genTokTokens() (any, error) {
 	for _, s := range times {
 		v, err := types.Convert(types.Val{Tid: types.StringID, Value: []byte(s)}, types.DateTimeID)
 		if err != nil {
-			add("year", "", "build", "datetime", s, nil, err, false)
+			add("year", "", "build", "datetime", s, nil, err, false, nil)
 			continue
 		}
 		for _, name := range []string{"year", "month", "day", "hour"} {
@@ -150,7 +226,7 @@ func genTokTokens() (any, error) {
 	for _, s := range geos {
 		v, err := types.Convert(types.Val{Tid: types.StringID, Value: []byte(s)}, types.GeoID)
 		if err != nil {
-			add("geo", "", "build", "geo", s, nil, err, true)
+			add("geo", "", "build", "geo", s, nil, err, true, nil)
 			continue
 		}
 		build("geo", "", "geo", s, v.Value)
@@ -189,12 +265,14 @@ func genTokTokens() (any, error) {
 				build(name, lang, "string", in, s)
 			}
 			toks, err := tok.GetNGramTokens([]string{s}, lang)
-			add("ngram", lang, "ngram", "string", in, toks, err, true)
+			add("ngram", lang, "ngram", "string", in, toks, err, true, tokPortTokens("ngram", lang, "ngram", s))
 			toks, err = tok.GetNGramQueryTokens([]string{s}, lang)
-			add("ngram", lang, "ngram_query", "string", in, toks, err, true)
+			add("ngram", lang, "ngram_query", "string", in, toks, err, true,
+				tokPortTokens("ngram", lang, "ngram_query", s))
 		}
 	}
-	// GetTokenizerForLang keeps the ngram tokenizer as it is, whatever the language.
+	// GetTokenizerForLang keeps the ngram tokenizer as it is, whatever the language; the port gives it the language
+	// (ledger 14).
 	for _, lang := range []string{"de", "es", "zh"} {
 		for _, s := range tokLangSentences[lang] {
 			build("ngram", lang, "string", hex.EncodeToString([]byte(s)), s)

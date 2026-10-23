@@ -6,12 +6,13 @@ package main
 // The text corpus of ultragraphdb_core_tok's golden vectors (tok.go, tok_analysis.go): sentences per language for
 // every language Dgraph stems, removes stop words from or splits on spaces, the sentences of Dgraph's
 // tok/tok_test.go, text exercising each word-break class bleve's segmenter distinguishes, and random strings drawn
-// with a fixed seed.
+// with a fixed seed; all of it valid UTF-8.
 
 import (
 	"math/rand"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // tokLangSentences are sentences per language, keyed by the language tag Dgraph is given.
@@ -77,8 +78,7 @@ var tokMixedCorpus = []string{
 	"한국어 텍스트 한글", "I ❤ 🍕 👍🏽 🇩🇪🇺🇸🇫 👨\u200d👩\u200d👧",
 	"été café ñ ñ Å Å", "ﬁnancial ﬂow ﬀ ŉ ǅ", "ＡＢＣ１２３ ｱｲｳ",
 	"Ⅻ ⅻ ①②③ ½ ² ㎏ ℃", "ΟΔΟΣ ΣΣ Σ ΣΑ", "İSTANBUL ıi Iİ", "STRASSE straße ẞ", "ȺȾ Ⱥbc aȺ ȺΣ",
-	"tab\tnew\nline\r\ncr\rend\u0085nel\u2028ls\u2029ps\vvt\fff", "a\x00b", "abc\xffdef", "\xff\xfeabc", "日本\xff語",
-	"abc \xc3 def", "ひら\xffがな", "カタ\xc3カナ", "\xe2\x82", "1\xff2",
+	"tab\tnew\nline\r\ncr\rend\u0085nel\u2028ls\u2029ps\vvt\fff", "a\x00b",
 	"a" + strings.Repeat("́", 40) + " b", "a" + strings.Repeat("̣́", 20) + " c",
 	"x" + strings.Repeat("̕", 33), strings.Repeat("abcdefghij", 31),
 	"١٢٣ ۴۵۶ ०१२ ๑๒๓ 12٣", "soft\u00adhyphen zero\u200bwidth word\u2060joiner\ufeffbom",
@@ -94,7 +94,8 @@ var tokMixedCorpus = []string{
 }
 
 // tokRandomStrings draws n strings from runes of every word-break class bleve's segmenter distinguishes, with a
-// fixed seed.
+// fixed seed, and keeps those that are valid UTF-8. A string value is valid UTF-8 in the port (ledger 17, 18, 31),
+// so text that is not never reaches its tokenizers; the draws stay as they were, so the strings kept are the same.
 func tokRandomStrings(seed int64, n int) []string {
 	pools := [][]rune{
 		[]rune("abcxyzABCXYZ"), []rune("0123456789"), []rune(" \t"), []rune(".,;:'\"!?-_/@#"),
@@ -111,13 +112,15 @@ func tokRandomStrings(seed int64, n int) []string {
 		k := 1 + r.Intn(24)
 		for j := 0; j < k; j++ {
 			if r.Intn(60) == 0 {
-				b.WriteByte(byte(0x80 + r.Intn(0x80))) // an invalid byte now and then
+				b.WriteByte(byte(0x80 + r.Intn(0x80))) // an invalid byte now and then, which drops the string
 				continue
 			}
 			p := pools[r.Intn(len(pools))]
 			b.WriteRune(p[r.Intn(len(p))])
 		}
-		out = append(out, b.String())
+		if utf8.ValidString(b.String()) {
+			out = append(out, b.String())
+		}
 	}
 	return out
 }

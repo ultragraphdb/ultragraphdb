@@ -6,6 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+mod graph_query_clone;
+mod graph_query_debug;
+mod graph_query_drop;
+mod graph_query_part_eq;
+
 use std::collections::BTreeMap;
 
 use ultragraphdb_proto_pb::pb;
@@ -21,7 +26,7 @@ use crate::types::var_context::VarContext;
 use crate::types::vars::Vars;
 
 /// A parsed query block in tree form, Dgraph's `GraphQuery`: the root of a block, or a predicate inside one.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Default)]
 pub struct GraphQuery {
     pub(crate) uid: Vec<u64>,
     pub(crate) attr: String,
@@ -197,30 +202,46 @@ impl GraphQuery {
         !self.fragment.is_empty()
     }
 
+    /// Collects the variables the tree defines and needs: in each block, its own, then its children's, then its
+    /// filter's, math expression's and shortest path's, as Go's recursion takes them. The blocks wait on a stack
+    /// rather than in recursive calls.
     pub(crate) fn collect_vars(&self, v: &mut Vars) {
-        if !self.var.is_empty() {
-            v.defines.push(self.var.clone());
+        /// A block to enter, or a block whose children are done.
+        enum Visit<'g> {
+            Enter(&'g GraphQuery),
+            Leave(&'g GraphQuery),
         }
-        if let Some(fv) = &self.facet_var {
-            v.defines.extend(fv.values().cloned());
-        }
-        v.needs
-            .extend(self.needs_var.iter().map(|va| va.name.clone()));
-        for ch in &self.children {
-            ch.collect_vars(v);
-        }
-        if let Some(f) = &self.filter {
-            f.collect_vars(v);
-        }
-        if let Some(m) = &self.math_exp {
-            m.collect_vars(v);
-        }
-        for f in [&self.shortest_path_args.from, &self.shortest_path_args.to]
-            .into_iter()
-            .flatten()
-        {
-            if let Some(nv) = f.needs_var.first() {
-                v.needs.push(nv.name.clone());
+        let mut stack = vec![Visit::Enter(self)];
+        while let Some(visit) = stack.pop() {
+            match visit {
+                Visit::Enter(gq) => {
+                    if !gq.var.is_empty() {
+                        v.defines.push(gq.var.clone());
+                    }
+                    if let Some(fv) = &gq.facet_var {
+                        v.defines.extend(fv.values().cloned());
+                    }
+                    v.needs
+                        .extend(gq.needs_var.iter().map(|va| va.name.clone()));
+                    stack.push(Visit::Leave(gq));
+                    stack.extend(gq.children.iter().rev().map(Visit::Enter));
+                }
+                Visit::Leave(gq) => {
+                    if let Some(f) = &gq.filter {
+                        f.collect_vars(v);
+                    }
+                    if let Some(m) = &gq.math_exp {
+                        m.collect_vars(v);
+                    }
+                    for f in [&gq.shortest_path_args.from, &gq.shortest_path_args.to]
+                        .into_iter()
+                        .flatten()
+                    {
+                        if let Some(nv) = f.needs_var.first() {
+                            v.needs.push(nv.name.clone());
+                        }
+                    }
+                }
             }
         }
     }

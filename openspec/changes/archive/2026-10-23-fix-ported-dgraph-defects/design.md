@@ -44,8 +44,9 @@ The user decided the five questions neither class settled (2026-10-23). A separa
   predicate-deletion edge becomes the infallible `delete_predicate_edge(attr, namespace)`, so no N-Quad, and no missing
   value, is involved. The wire type `api::NQuad` keeps both optional fields, because `api.proto` is served unchanged.
 - **A facet value carries its type (20).** `enum FacetValue { Int(i64), Float(f64), Bool(bool), DateTime(DateTime),
-  Str(Vec<u8>) }` replaces the `(Value, ValType)` pair. `to_binary` encodes each variant directly and keeps a `Result`
-  only for a datetime's zone offset. Facet strings stay bytes, because a `\x` escape can produce non-UTF-8 bytes.
+  Str(String) }` replaces the `(Value, ValType)` pair. `to_binary` encodes each variant directly and keeps a `Result`
+  only for a datetime's zone offset. A facet string that a `\x` or octal escape makes invalid UTF-8 is refused when the
+  facet is parsed (`Facet value of <key> is not valid UTF-8`), as the user decided on 2026-10-23.
 - **String values are valid UTF-8, so analysis takes `&str` (17, 18, 31, with Q4).** Converting to the string or default
   type refuses invalid UTF-8 (`Value is not valid UTF-8 for type string`), which makes the string value variant a
   `String`. The text-analysis pipeline then takes `&str`:
@@ -86,6 +87,11 @@ The user decided the five questions neither class settled (2026-10-23). A separa
 - **Q3, every failure (12).** Each failing variable or argument contributes Dgraph's text for it, in key order, joined by
   newlines as Go's `errors.Join` joins errors. Key order is the order the ordered map already gives; source order would
   need an insertion-ordered map, and client variables have no source position.
+- **Nesting depth (ledger 32).** The user set the limit at 1,000 levels of nesting written in the query's text: blocks
+  inside blocks, parentheses in filters and math, functions inside functions. A flat operator chain adds no level, as
+  Dgraph accepts it, so a filter tree can still be as deep as its chain is long; every walk over the trees (parsing,
+  `Clone`, `Drop`, `PartialEq`, `Debug`, `debug_string`, fragment expansion, variable substitution and collection)
+  therefore uses an explicit stack.
 - **Q5, no Go index keys enter.** Go Dgraph's backups are not restored, so no index key Go wrote reaches the port:
   export and the loaders build every index from values, with the port's tokens. A backup the port writes checks each
   string value for valid UTF-8 before writing it, so a restore reads only what the store accepts.

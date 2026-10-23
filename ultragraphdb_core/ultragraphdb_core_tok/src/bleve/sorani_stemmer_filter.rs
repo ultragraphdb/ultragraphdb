@@ -7,30 +7,28 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_common_utils::go_utf8;
-
 /// bleve's `stemmer_ckb` on one term.
-pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
-    let mut input = term.to_vec();
-    let mut len = go_utf8::runes(&input).len();
-    let ends = |b: &[u8], s: &str| b.ends_with(s.as_bytes());
+pub(crate) fn stem(term: &str) -> String {
+    let mut input = term.to_string();
+    let mut len = input.chars().count();
+    let ends = |b: &str, s: &str| b.ends_with(s);
 
     // postposition
     if len > 5 && ends(&input, "دا") {
         input = truncate_runes(&input, 2);
-        len = go_utf8::runes(&input).len();
+        len = input.chars().count();
     } else if len > 4 && ends(&input, "نا") {
         input = truncate_runes(&input, 1);
-        len = go_utf8::runes(&input).len();
+        len = input.chars().count();
     } else if len > 6 && ends(&input, "ەوە") {
         input = truncate_runes(&input, 3);
-        len = go_utf8::runes(&input).len();
+        len = input.chars().count();
     }
 
     // possessive pronoun
     if len > 6 && (ends(&input, "مان") || ends(&input, "یان") || ends(&input, "تان")) {
         input = truncate_runes(&input, 3);
-        len = go_utf8::runes(&input).len();
+        len = input.chars().count();
     }
 
     // indefinite singular ezafe
@@ -70,7 +68,7 @@ pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
 }
 
 /// bleve's `truncateRunes`.
-fn truncate_runes(input: &[u8], num: usize) -> Vec<u8> {
-    let r = go_utf8::runes(input);
-    go_utf8::encode(&r[..r.len() - num])
+fn truncate_runes(input: &str, num: usize) -> String {
+    let r: Vec<char> = input.chars().collect();
+    r[..r.len() - num].iter().collect()
 }

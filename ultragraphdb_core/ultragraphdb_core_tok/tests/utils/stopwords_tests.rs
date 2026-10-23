@@ -9,10 +9,7 @@
 use ultragraphdb_core_tok::{AnalysisToken, filter_stopwords, stop_words};
 
 fn stream(terms: &[&str]) -> Vec<AnalysisToken> {
-    terms
-        .iter()
-        .map(|t| AnalysisToken::of(t.as_bytes()))
-        .collect()
+    terms.iter().map(|t| AnalysisToken::of(*t)).collect()
 }
 
 #[test]

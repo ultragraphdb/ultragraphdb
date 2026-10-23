@@ -26,6 +26,7 @@ fix whose correct behaviour the evidence settles. The user decided the remaining
   - Q2, entry 10: float and bigfloat to datetime refuse a value outside int64 seconds, as float to int does.
   - Q3, entry 12: a parse error reports every failing variable and argument.
   - Q4, entries 17, 18 and 31: a string value holding invalid UTF-8 is refused when the mutation arrives.
+  - Ledger 32: a query nests at most 1,000 levels deep (decided 2026-10-23).
   - Q5 needs no remedy: Go Dgraph's backups are not restored. Data from Go Dgraph enters through export and the
     loaders, which build every index from values, and a backup the port writes validates its string values as UTF-8.
 - **Guards for what is already right**: no fused multiply-add in geometry (11); Dgraph's paired tests of its two JSON
@@ -55,14 +56,10 @@ delta is `ADDED`.
 - `scalar-types` (stage 1): 2^63 and out-of-range datetimes are refused; string values are valid UTF-8.
 - `tokenizers` (stage 1): ngram index tokens use the value's language; lowercasing keeps every rune and the final
   sigma.
-- `dql-parsing` (stage 1): every failing variable is reported; predicate-deletion edges and value edges are built from
+- `dql-parsing` (stage 1): query nesting is bounded at 1,000 levels; every failing variable is reported; predicate-deletion edges and value edges are built from
   typed objects.
 - `mutation-input` (stage 1): null geometries, trailing JSON and the list language; the format option; the JSON number
   outcomes Dgraph's paired tests assert.
-- `schema-changes` (stage 2): a namespace's data drop removes split parts.
-- `query-execution` (stage 3): `after:` past a list's last UID under a filter returns nothing.
-- `bulk-loader` (stage 5): namespaces are leased from the namespace counter.
-- `backup-restore` (stage 5): a backup validates every string value as UTF-8 before writing it.
 
 ## Impact
 
@@ -70,7 +67,8 @@ delta is `ADDED`.
   Public signatures change in codec (`Decoder`), dql (`to_delete_pred_edge`, value edges), facets (`to_binary`) and
   tok (the analysis functions and `AnalysisToken`).
 - **Golden files** stay Go's output; the tests that read them declare each deviation by name.
-- **Later stages:** stage 2 (the drops), stage 3 (`AllocateIDs`, value validation, `after:`) and stage 5 (bulk
-  loader, restore) adopt the requirements added here when they are built.
+- **Later stages:** the remedies of ledger 3 (its query path), 7, 8, 9 and 28 and the backup UTF-8 check are
+  requirements and tasks of the stage changes that build that code: stage 2 (task 8.4), stage 3 (task 6.4) and
+  stage 5 (tasks 10.3 and 11.4).
 - **Policy:** this change assumes the workspace's no-panic policy; a panic Dgraph raises becomes a `Result` with a clear
   error.

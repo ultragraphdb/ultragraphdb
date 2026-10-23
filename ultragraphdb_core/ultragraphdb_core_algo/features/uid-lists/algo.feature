@@ -20,3 +20,20 @@ Feature: Sorted-set operations over UID lists
     Given the UIDs 1 to 100 packed and the plain list of the UIDs 1 to 11
     When the packed list is intersected with the plain one after UID 200
     Then the intersection is empty
+
+  Scenario: Three packed lists intersect to their common UIDs
+    Given the UID lists "1, 2, 3, 9", "2, 3, 9, 10, 11" and "9, 20, 21, 22, 23, 24"
+    When they are packed and intersected
+    Then the result is "9"
+
+  Scenario: A packed difference reads every block of the first list
+    When the UIDs 2 to 15 packed in blocks of 5 have the UIDs "1" subtracted
+    Then the result is the UIDs 2 to 15
+
+  Scenario: A UID in a later block of the second list is subtracted
+    When the UIDs "642" have the UIDs "1, 2, 3, 4, 5, 642" packed in blocks of 5 subtracted
+    Then the result is empty
+
+  Scenario: Subtracting an empty pack keeps the first list
+    When the UIDs "1, 2, 3" have an empty pack of block size 5 subtracted
+    Then the result is "1, 2, 3"

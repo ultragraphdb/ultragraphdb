@@ -5,8 +5,8 @@
 
 use cucumber::{World, given, then, when};
 use ultragraphdb_core_algo::{
-    intersect_compressed_with, intersect_with, intersect_with_lin_packed, merge_sorted,
-    merge_sorted_packed,
+    difference_packed, intersect_compressed_with, intersect_sorted_packed, intersect_with,
+    intersect_with_lin_packed, merge_sorted, merge_sorted_packed,
 };
 use ultragraphdb_core_codec::{decode, encode};
 use ultragraphdb_proto_pb::pb::{List, UidPack};
@@ -22,6 +22,8 @@ struct Steps {
     merged: Vec<Vec<u64>>,
     pack: Option<UidPack>,
     intersection: Vec<u64>,
+    /// The decoded result of a packed intersection or difference.
+    result: Vec<u64>,
 }
 
 fn parse_uids(text: &str) -> Vec<u64> {
@@ -127,6 +129,55 @@ fn intersect_after(w: &mut Steps, after: u64) {
 #[then("the intersection is empty")]
 fn intersection_empty(w: &mut Steps) {
     assert!(w.intersection.is_empty(), "{:?}", w.intersection);
+}
+
+#[when("they are packed and intersected")]
+fn intersect_packed(w: &mut Steps) {
+    let packs: Vec<Option<UidPack>> = w.lists.iter().map(|l| encode(l, BLOCK_SIZE)).collect();
+    w.result = decoded(intersect_sorted_packed(
+        &packs.iter().map(Option::as_ref).collect::<Vec<_>>(),
+    ));
+}
+
+#[when(
+    expr = "the UIDs {int} to {int} packed in blocks of {int} have the UIDs {string} subtracted"
+)]
+fn subtract_from_range(w: &mut Steps, first: u64, last: u64, block_size: usize, v: String) {
+    let u = encode(&(first..=last).collect::<Vec<_>>(), block_size);
+    let v = encode(&parse_uids(&v), block_size);
+    w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
+}
+
+#[when(expr = "the UIDs {string} have the UIDs {string} packed in blocks of {int} subtracted")]
+fn subtract_packed(w: &mut Steps, u: String, v: String, block_size: usize) {
+    let u = encode(&parse_uids(&u), block_size);
+    let v = encode(&parse_uids(&v), block_size);
+    w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
+}
+
+#[when(expr = "the UIDs {string} have an empty pack of block size {int} subtracted")]
+fn subtract_empty_pack(w: &mut Steps, u: String, block_size: u32) {
+    let u = encode(&parse_uids(&u), BLOCK_SIZE);
+    let v = UidPack {
+        block_size,
+        ..UidPack::default()
+    };
+    w.result = decoded(difference_packed(u.as_ref(), Some(&v)));
+}
+
+#[then(expr = "the result is {string}")]
+fn result_is(w: &mut Steps, text: String) {
+    assert_eq!(w.result, parse_uids(&text));
+}
+
+#[then(expr = "the result is the UIDs {int} to {int}")]
+fn result_is_range(w: &mut Steps, first: u64, last: u64) {
+    assert_eq!(w.result, (first..=last).collect::<Vec<_>>());
+}
+
+#[then("the result is empty")]
+fn result_empty(w: &mut Steps) {
+    assert!(w.result.is_empty(), "{:?}", w.result);
 }
 
 fn main() {

@@ -204,11 +204,12 @@ pub(crate) fn parse_type_list(it: &mut It<'_, '_>, gq: &mut GraphQuery) -> Resul
     Ok(())
 }
 
-/// Parses the directive or language list after an `@`, the current item, onto `curp`; `None` where no
-/// directive is allowed.
+/// Parses the directive or language list after an `@`, the current item, onto `curp`, a block at `level`; `None`
+/// where no directive is allowed.
 pub(crate) fn parse_directive(
     it: &mut It<'_, '_>,
     curp: Option<&mut GraphQuery>,
+    level: usize,
 ) -> Result<(), DqlError> {
     let mut valid = true;
     it.prev();
@@ -240,7 +241,7 @@ pub(crate) fn parse_directive(
     match item.val() {
         // because @facets can come w/t '()'
         "facets" => {
-            let res = parse_facets(it)?;
+            let res = parse_facets(it, level)?;
             if let Some(f) = res.f {
                 curp.facet_var = res.vmap;
                 curp.facets_order = res.facets_order;
@@ -271,7 +272,7 @@ pub(crate) fn parse_directive(
                         "Use AND, OR and round brackets instead of multiple filter directives.",
                     ));
                 }
-                let filter = parse_filter(it)?;
+                let filter = parse_filter(it, level)?;
                 if is_expand
                     && filter
                         .as_ref()
