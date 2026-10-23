@@ -1,0 +1,77 @@
+<!doctype html>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UltraGraphDB — Coming soon</title>
+  <meta name="description" content="UltraGraphDB is a distributed graph database written in Rust. Early development; coming soon.">
+  <style>
+    :root {
+      --bg: #fafafa;
+      --fg: #1a1a1a;
+      --muted: #666;
+      --accent: #b7410e;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121212;
+        --fg: #e8e8e8;
+        --muted: #9a9a9a;
+        --accent: #e8743b;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.5;
+      text-align: center;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      max-width: 36rem;
+    }
+    h1 { margin: 0 0 0.5rem; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -0.02em; }
+    .tagline { margin: 0 0 2rem; color: var(--muted); font-size: 1.125rem; }
+    .status {
+      display: inline-block;
+      margin: 0 0 1.5rem;
+      padding: 0.25rem 0.75rem;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    p { margin: 0 0 1rem; }
+    footer { color: var(--muted); font-size: 0.875rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>UltraGraphDB</h1>
+    <p class="tagline">A distributed graph database written in Rust.</p>
+    <p class="status">Early development</p>
+    <p>UltraGraphDB is in an early stage of development and not yet ready for use.</p>
+    <p><strong>Coming soon.</strong></p>
+  </main>
+  <footer>&copy; 2026 Marvin Hansen &middot; Apache-2.0</footer>
+</body>
+</html>
