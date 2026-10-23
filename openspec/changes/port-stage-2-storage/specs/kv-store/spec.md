@@ -129,7 +129,18 @@ older than its newest discard-flagged or deletion version at or below `D`, SHALL
 every version above `D`. A sweep at one snapshot SHALL remove a deletion at `T` at or below `H` when no version of its
 key remains below `T`, and no write SHALL land below a deletion of the same key. `H` SHALL equal `D` unless the store's
 owner sets it lower. The compaction filter SHALL keep any item it cannot decode, and until the store has loaded `D` the
-filter SHALL drop nothing. `D` SHALL never exceed the oldest open reader's timestamp.
+filter SHALL drop nothing. `D` SHALL never exceed the oldest open reader's timestamp. A version a prefix drop writes
+(the namespace's initial schema and types) SHALL carry the fenced flag and SHALL never be collected. A version the
+filter collects SHALL stay collected across a restart.
+
+#### Scenario: The initial schema a drop writes survives garbage collection
+- **WHEN** everything in a namespace is dropped, its initial schema is written at timestamp 1, the discard timestamp is
+  raised above the drop and the store compacts
+- **THEN** the namespace's initial schema is still read at the discard timestamp
+
+#### Scenario: A collected version stays collected after a restart
+- **WHEN** a version below the discard timestamp is collected, its deletion is swept and the store is closed and reopened
+- **THEN** a read above the deletion's timestamp finds no version of the key
 
 #### Scenario: Versions below a discard point are collected
 - **WHEN** a key holds deltas at 2 and 4, a complete version with the discard flag at 5 and a delta at 8, the discard

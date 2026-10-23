@@ -262,7 +262,7 @@ fn run_drop(
     stop(inner, DropStage::RecordSynced)?;
     inner.remove_dropped(&record);
     stop(inner, DropStage::DataRemoved)?;
-    let batch = inner.batch_record(record.entries.clone(), None);
+    let batch = inner.drop_entries_record(&record);
     inner.write(batch);
     inner.sync();
     stop(inner, DropStage::EntriesSynced)?;

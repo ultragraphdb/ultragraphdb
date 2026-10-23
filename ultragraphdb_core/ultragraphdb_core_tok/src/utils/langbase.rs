@@ -10,7 +10,8 @@
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
-use ultragraphdb_core_text::language_base;
+use tracing::{error, warn};
+use ultragraphdb_core_text::{Tag, language_base};
 
 const EN_BASE: &str = "en";
 
@@ -19,7 +20,8 @@ static LANG_BASE_CACHE: LazyLock<RwLock<HashMap<String, String>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Dgraph's `LangBase`: the BCP 47 base of a language tag, or `en` when the tag is empty, does not parse, is
-/// undefined or its base is inferred with no confidence. Results are cached, as Dgraph caches them.
+/// undefined or its base is inferred with no confidence; a reverted tag is logged as a warning, after an error for one
+/// that does not parse. Results are cached, as Dgraph caches them.
 ///
 /// ```
 /// use ultragraphdb_core_tok::lang_base;
@@ -39,7 +41,13 @@ pub fn lang_base(lang: &str) -> String {
     {
         return s.clone();
     }
-    let base = language_base(lang).unwrap_or_else(|| EN_BASE.to_string());
+    let base = language_base(lang).unwrap_or_else(|| {
+        if let Err(e) = Tag::parse(lang) {
+            error!(lang, error = %e, "While trying to parse lang");
+        }
+        warn!(lang, "Unable to find lang. Reverting to English.");
+        EN_BASE.to_string()
+    });
     LANG_BASE_CACHE
         .write()
         .unwrap_or_else(|e| e.into_inner())

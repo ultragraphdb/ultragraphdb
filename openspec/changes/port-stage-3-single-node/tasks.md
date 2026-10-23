@@ -74,6 +74,7 @@ ultragraphdb alone.
 
 - [ ] 11.1 Features from `alpha/http_test.go`; scenarios: http-api, server-processes
 - [ ] 11.2 Port the HTTP handlers without GraphQL; health, state, draining, shutdown; the `ultragraph alpha` subcommand
+- [ ] 11.3 Both processes install telemetry through `ultragraphdb_common_telemetry` at start: `--log-level`, `--log-format plain|json`, `--otlp-endpoint`; spans for each request, query and commit; Prometheus metrics on the HTTP port with Dgraph's metric names where Dgraph exports them
 
 ## 12. The client → `ultragraphdb_client`
 

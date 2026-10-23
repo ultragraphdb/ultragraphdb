@@ -12,12 +12,12 @@ module(
 ###############################################################################
 # Bazel Rules: https://registry.bazel.build/home/
 ###############################################################################
-bazel_dep(name = "rules_rs", version = "0.1.0")
+bazel_dep(name = "rules_rs", version = "0.1.3")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "36.2", repo_name = "com_google_protobuf")
 bazel_dep(name = "platforms", version = "1.1.0")
-bazel_dep(name = "rules_cc", version = "0.2.25")
-bazel_dep(name = "llvm", version = "0.8.24")
+bazel_dep(name = "rules_cc", version = "0.2.27")
+bazel_dep(name = "llvm", version = "0.8.25")
 
 ###############################################################################
 # Hermetic LLVM: the cc toolchain: github.com/hermeticbuild/hermetic-llvm

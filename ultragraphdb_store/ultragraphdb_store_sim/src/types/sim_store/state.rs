@@ -16,6 +16,9 @@ pub type StoredKey = (Vec<u8>, Reverse<u64>);
 const DISCARD: u8 = 0x01;
 /// The flag bit of a deletion.
 const TOMBSTONE: u8 = 0x02;
+/// The flag bit of a version a prefix drop wrote once its prefixes were empty, which compaction never collects, as
+/// `ultragraphdb_store_kv` fences it.
+const FENCED: u8 = 0x04;
 
 /// What a simulated store holds: the data keyspace, each version's bytes framed as `[meta][flags][value]`, and the
 /// metadata keyspace's entries.
@@ -52,13 +55,15 @@ pub struct Decoded {
     pub meta: u8,
     pub discard: bool,
     pub deletion: bool,
+    pub fenced: bool,
     pub value: Vec<u8>,
 }
 
-/// The framed bytes of `entry`.
-pub fn encode(entry: &Entry) -> Vec<u8> {
-    let flags =
-        if entry.discard() { DISCARD } else { 0 } | if entry.is_deletion() { TOMBSTONE } else { 0 };
+/// The framed bytes of `entry`, fenced when a prefix drop writes it.
+pub fn encode(entry: &Entry, fenced: bool) -> Vec<u8> {
+    let flags = if entry.discard() { DISCARD } else { 0 }
+        | if entry.is_deletion() { TOMBSTONE } else { 0 }
+        | if fenced { FENCED } else { 0 };
     let mut bytes = vec![entry.meta(), flags];
     bytes.extend_from_slice(entry.value().unwrap_or_default());
     bytes
@@ -67,10 +72,11 @@ pub fn encode(entry: &Entry) -> Vec<u8> {
 /// The version framed in `bytes`, or why it cannot be decoded.
 pub fn decode(bytes: &[u8]) -> Result<Decoded, String> {
     match bytes {
-        [meta, flags, value @ ..] if flags & !(DISCARD | TOMBSTONE) == 0 => Ok(Decoded {
+        [meta, flags, value @ ..] if flags & !(DISCARD | TOMBSTONE | FENCED) == 0 => Ok(Decoded {
             meta: *meta,
             discard: flags & DISCARD != 0,
             deletion: flags & TOMBSTONE != 0,
+            fenced: flags & FENCED != 0,
             value: value.to_vec(),
         }),
         [_, flags, ..] => Err(format!("unknown version flags {flags:#04x}")),

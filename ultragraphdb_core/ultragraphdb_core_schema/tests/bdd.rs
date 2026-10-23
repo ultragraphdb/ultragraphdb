@@ -7,10 +7,13 @@ use cucumber::{World, then, when};
 use ultragraphdb_core_keys::parse_namespace;
 use ultragraphdb_core_schema::{
     ParsedSchema, SchemaError, SchemaMode, SchemaState, complete_initial_schema,
-    complete_initial_types, parse, parse_with_namespace,
+    complete_initial_types, parse, parse_with_namespace, schema_entry, type_entry,
 };
 use ultragraphdb_core_types::TypeId;
+use ultragraphdb_error_store::go_hex_dump;
 use ultragraphdb_proto_pb::pb;
+use ultragraphdb_store_sim::{CapturedEvent, FaultConfig, LogCapture, Seed, SimClock, SimStore};
+use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 // Shared with the unit tests, which use all of it.
 #[allow(dead_code)]
@@ -24,6 +27,68 @@ struct Steps {
     mismatches: Vec<String>,
     compared: usize,
     initial: Vec<(u64, Vec<pb::SchemaUpdate>, Vec<pb::TypeUpdate>)>,
+    /// The schema state before the store was closed, and as loaded after it was reopened.
+    stored: Option<(SchemaDump, SchemaDump)>,
+    /// The events a load logged, and the predicates it loaded.
+    logged: Option<(Vec<CapturedEvent>, Vec<String>)>,
+}
+
+/// A schema key whose attribute length runs past its end: Dgraph's `x.Parse` refuses it.
+const UNPARSEABLE_KEY: [u8; 12] = [0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, b'a'];
+
+/// A schema state's predicates and types, sorted by name.
+type SchemaDump = (Vec<pb::SchemaUpdate>, Vec<pb::TypeUpdate>);
+
+fn dump(state: &SchemaState) -> SchemaDump {
+    let mut preds = state.predicates();
+    preds.sort();
+    let mut types = state.types();
+    types.sort();
+    (
+        preds
+            .iter()
+            .filter_map(|p| state.get(SchemaMode::Query, p))
+            .collect(),
+        types.iter().filter_map(|t| state.get_type(t)).collect(),
+    )
+}
+
+/// Writes `text`, parsed in namespace `ns`, at `ts` as one batch, and sets it in `state`.
+fn apply_schema(store: &SimStore, state: &SchemaState, text: &str, ns: u64, ts: u64) {
+    let (preds, types) = parse_with_namespace(text, ns)
+        .expect("the schema parses")
+        .into_parts();
+    let mut batch = WriteBatch::new();
+    for p in &preds {
+        batch.push(schema_entry(p, ts).expect("a namespaced predicate"));
+    }
+    for t in &types {
+        batch.push(type_entry(t, ts).expect("a namespaced type"));
+    }
+    batch.set_applied_ts(ts);
+    store
+        .apply(batch, PersistMode::Buffer)
+        .expect("the batch is written");
+    preds
+        .into_iter()
+        .for_each(|p| state.set(&p.predicate.clone(), p));
+    types
+        .into_iter()
+        .for_each(|t| state.set_type(&t.type_name.clone(), t));
+}
+
+/// Closes the store, synced, and reopens it, then loads a fresh state from it.
+fn reopen_and_load(store: &SimStore) -> SchemaDump {
+    store.sync().expect("the store syncs");
+    store.crash();
+    store.recover();
+    let state = SchemaState::new();
+    state.load_from_db(store).expect("the schema loads");
+    dump(&state)
+}
+
+fn new_store() -> SimStore {
+    SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
 }
 
 impl Steps {
@@ -216,6 +281,98 @@ fn ns5_lacks(s: &mut Steps, a: String, b: String) {
         );
     }
     assert!(types5.iter().all(|t| t.type_name != "5-dgraph.namespace"));
+}
+
+#[when("a schema is applied and the store is closed and reopened")]
+fn schema_applied_and_reopened(s: &mut Steps) {
+    let store = new_store();
+    let state = SchemaState::new();
+    apply_schema(
+        &store,
+        &state,
+        "name: string @index(exact, term) @upsert @lang .\nfriend: [uid] @reverse @count .\n\
+         vec: float32vector @index(hnsw(metric:\"cosine\")) .\ntype Person {\n name\n friend\n}",
+        0,
+        2,
+    );
+    apply_schema(
+        &store,
+        &state,
+        "age: int @index(int) .\ntype Animal {\n age\n}",
+        5,
+        3,
+    );
+    let before = dump(&state);
+    assert_eq!((before.0.len(), before.1.len()), (4, 2));
+    s.stored = Some((before, reopen_and_load(&store)));
+}
+
+#[then("the loaded schema state equals the state before closing")]
+fn loaded_equals_before(s: &mut Steps) {
+    let (before, after) = s.stored.as_ref().expect("the store was reopened");
+    assert_eq!(after, before);
+}
+
+#[when("a predicate's schema is deleted and the store is reopened")]
+fn predicate_deleted_and_reopened(s: &mut Steps) {
+    let store = new_store();
+    let state = SchemaState::new();
+    apply_schema(
+        &store,
+        &state,
+        "name: string @index(exact) .\nage: int .",
+        0,
+        2,
+    );
+    state
+        .delete(&store, "0-name", 3)
+        .expect("the schema is deleted");
+    let before = dump(&state);
+    s.stored = Some((before, reopen_and_load(&store)));
+}
+
+#[then("the loaded schema does not hold the predicate")]
+fn loaded_lacks_predicate(s: &mut Steps) {
+    let (before, after) = s.stored.as_ref().expect("the store was reopened");
+    let names: Vec<&str> = after.0.iter().map(|p| p.predicate.as_str()).collect();
+    assert_eq!(names, ["0-age"]);
+    assert_eq!(after, before);
+}
+
+#[when("the schema is loaded from a store holding a schema key that does not parse")]
+fn load_unparseable_key(w: &mut Steps) {
+    let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
+    apply_schema(&store, &w.state, "name: string .", 0, 5);
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(UNPARSEABLE_KEY.to_vec(), 6, 0x01, vec![1]).with_discard());
+    store
+        .apply(batch, PersistMode::Buffer)
+        .expect("the batch is written");
+    let capture = LogCapture::new();
+    tracing::subscriber::with_default(capture.subscriber(), || {
+        w.state
+            .load_from_db(&store)
+            .expect("the load skips the key");
+    });
+    w.logged = Some((capture.events(), w.state.predicates()));
+}
+
+#[then(
+    "the load skips the key and emits an error event `Error while parsing key` with the key as a field"
+)]
+fn unparseable_key_logged(w: &mut Steps) {
+    let (events, predicates) = w.logged.take().expect("loaded");
+    assert_eq!(predicates, vec!["0-name".to_string()], "the key is skipped");
+    let refused: Vec<&CapturedEvent> = events
+        .iter()
+        .filter(|e| e.message() == Some("Error while parsing key"))
+        .collect();
+    assert_eq!(refused.len(), 1, "{events:?}");
+    assert_eq!(refused[0].level(), tracing::Level::ERROR);
+    assert_eq!(
+        refused[0].field("key"),
+        Some(go_hex_dump(&UNPARSEABLE_KEY).as_str())
+    );
 }
 
 fn main() {

@@ -8,6 +8,7 @@
 
 use std::collections::HashSet;
 
+use tracing::error;
 use ultragraphdb_core_keys::parse_namespace;
 use ultragraphdb_core_tok::{
     FactoryCreateSpec, Tokenizer, VEC_DEAD, VEC_ENTRY, VEC_KEYWORD,
@@ -88,8 +89,8 @@ impl SchemaState {
         self.read().types.keys().cloned().collect()
     }
 
-    /// Dgraph's `Tokenizer`: the tokenizers of a predicate, none when the state has no schema for it (it may have
-    /// been dropped while a query was running).
+    /// Dgraph's `Tokenizer`: the tokenizers of a predicate, none, logged as an error, when the state has no schema
+    /// for it (it may have been dropped while a query was running).
     ///
     /// # Errors
     ///
@@ -99,6 +100,7 @@ impl SchemaState {
     pub fn tokenizer(&self, mode: SchemaMode, pred: &str) -> Result<Vec<Tokenizer>, SchemaError> {
         let s = self.read();
         let Some(schema) = s.schema_for(mode, pred) else {
+            error!(pred, "Schema state not found");
             return Ok(Vec::new());
         };
         schema
@@ -115,8 +117,8 @@ impl SchemaState {
     ///
     /// # Errors
     ///
-    /// `Schema state not found for <pred>.` when the state has no schema for it, or the error of a specification
-    /// the registry refuses.
+    /// `Schema state not found for <pred>.`, also logged, when the state has no schema for it, or the error of a
+    /// specification the registry refuses.
     pub fn factory_create_spec(
         &self,
         mode: SchemaMode,
@@ -124,6 +126,7 @@ impl SchemaState {
     ) -> Result<Vec<FactoryCreateSpec>, SchemaError> {
         let s = self.read();
         let Some(schema) = s.schema_for(mode, pred) else {
+            error!(pred, "Schema state not found");
             return Err(SchemaError::state(format!(
                 "Schema state not found for {pred}."
             )));
@@ -139,11 +142,14 @@ impl SchemaState {
     }
 
     /// Dgraph's `VectorIndexes`: the names of a predicate's vector indexes with their options, e.g.
-    /// `hnsw("metric":"cosine")`; none when [`factory_create_spec`](Self::factory_create_spec) fails, which Dgraph
-    /// logs.
+    /// `hnsw("metric":"cosine")`; none when [`factory_create_spec`](Self::factory_create_spec) fails, logged as an
+    /// error.
     pub fn vector_indexes(&self, mode: SchemaMode, pred: &str) -> Vec<String> {
         self.factory_create_spec(mode, pred)
-            .unwrap_or_default()
+            .unwrap_or_else(|e| {
+                error!(pred, error = %e, "Vector Tokenizers error");
+                Vec::new()
+            })
             .iter()
             .map(FactoryCreateSpec::name)
             .collect()

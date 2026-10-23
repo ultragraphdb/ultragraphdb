@@ -3,12 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Ported from Dgraph v25.5.0: `schema` (parsing and in-memory state): the schema language and the schema state.
+//! Ported from Dgraph v25.5.0: `schema`: the schema language, the schema state, and its storage.
 //!
 //! [`parse`] turns schema text into predicate updates (`pb::SchemaUpdate`) and type updates (`pb::TypeUpdate`),
 //! each named by its namespaced attribute (`0-name`); [`parse_with_namespace`] places every one in a given
 //! namespace. [`SchemaState`] holds the current definitions and answers for them; [`initial_schema`] and
-//! [`initial_types`] are the definitions every namespace starts with. Loading and storing the schema is stage 2's.
+//! [`initial_types`] are the definitions every namespace starts with. [`schema_entry`] and [`type_entry`] are the
+//! store entries of a definition, and [`SchemaState::load_from_db`] loads the state from a
+//! [`Store`](ultragraphdb_traits_store::Store).
 //!
 //! ```
 //! use ultragraphdb_core_schema::{SchemaError, SchemaMode, SchemaState, parse};
@@ -39,6 +41,7 @@ mod types;
 
 pub use crate::errors::schema_error::{SchemaError, SchemaErrorEnum};
 pub use crate::parse::{has_tokenizer_or_vector_index_spec, parse, parse_with_namespace};
+pub use crate::schema::entries::{schema_entry, type_entry};
 pub use crate::schema::initial::{
     complete_initial_schema, complete_initial_types, initial_schema, initial_types,
 };

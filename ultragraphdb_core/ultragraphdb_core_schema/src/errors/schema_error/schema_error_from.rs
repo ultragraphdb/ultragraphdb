@@ -5,6 +5,7 @@
 
 use ultragraphdb_core_keys::KeyError;
 use ultragraphdb_core_lex::{LexError, LexErrorEnum};
+use ultragraphdb_error_store::StoreError;
 
 use super::{SchemaError, SchemaErrorEnum};
 
@@ -29,5 +30,11 @@ impl From<LexError> for SchemaError {
 impl From<KeyError> for SchemaError {
     fn from(e: KeyError) -> Self {
         SchemaError::new(SchemaErrorEnum::Key(e.to_string()))
+    }
+}
+
+impl From<StoreError> for SchemaError {
+    fn from(e: StoreError) -> Self {
+        SchemaError::new(SchemaErrorEnum::Store(e))
     }
 }

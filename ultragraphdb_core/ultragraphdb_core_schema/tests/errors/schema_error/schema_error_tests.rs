@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_schema::{SchemaErrorEnum, SchemaMode, SchemaState, parse};
+use ultragraphdb_core_schema::{SchemaError, SchemaErrorEnum, SchemaMode, SchemaState, parse};
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 
 #[test]
 fn lexing_errors_keep_the_lexer_text() {
@@ -54,4 +55,19 @@ fn state_errors_name_the_predicate() {
     assert_eq!(e.to_string(), "Schema state not found for 0-agea.");
     let e: &dyn std::error::Error = &e;
     assert!(e.source().is_none());
+}
+
+#[test]
+fn store_errors_keep_the_store_text() {
+    let e = SchemaError::from(StoreError::TsTooOld());
+    assert_eq!(e, SchemaError::Store(StoreError::TsTooOld()));
+    assert!(matches!(&e.0, SchemaErrorEnum::Store(s) if s.0 == StoreErrorEnum::TsTooOld));
+    assert_eq!(e.to_string(), "Transaction is too old");
+}
+
+#[test]
+fn decode_errors_keep_their_text() {
+    let e = SchemaError::Decode("Error while loading schema from db: bad".into());
+    assert!(matches!(e.0, SchemaErrorEnum::Decode(_)));
+    assert_eq!(e.to_string(), "Error while loading schema from db: bad");
 }

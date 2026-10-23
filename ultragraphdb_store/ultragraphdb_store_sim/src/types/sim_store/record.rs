@@ -13,10 +13,11 @@ use crate::types::sim_store::state::{DropRecord, State, encode};
 /// prefix of the records written since the last sync.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Record {
-    /// A write batch, its entries to banned namespaces already dropped.
+    /// A write batch, its entries to banned namespaces already dropped; fenced when a prefix drop writes it.
     Batch {
         entries: Vec<Entry>,
         applied_ts: Option<u64>,
+        fenced: bool,
     },
     /// The drop record written to the metadata keyspace.
     StartDrop(DropRecord),
@@ -39,11 +40,12 @@ impl Record {
             Record::Batch {
                 entries,
                 applied_ts,
+                fenced,
             } => {
                 for entry in entries {
                     state.data.insert(
                         (entry.key().to_vec(), Reverse(entry.version())),
-                        encode(entry),
+                        encode(entry, *fenced),
                     );
                 }
                 if let Some(ts) = applied_ts {

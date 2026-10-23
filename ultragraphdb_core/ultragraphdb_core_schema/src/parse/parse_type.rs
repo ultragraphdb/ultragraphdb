@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use tracing::warn;
 use ultragraphdb_core_keys::{namespace_attr, parse_attr};
 use ultragraphdb_core_lex::{ITEM_EOF, Item, ItemIterator};
 use ultragraphdb_proto_pb::pb;
@@ -91,7 +92,7 @@ pub(crate) fn parse_type_declaration(
                 }
                 return Ok(pb::TypeUpdate { type_name, fields });
             }
-            ITEM_TEXT => fields.push(parse_type_field(it, ns)?),
+            ITEM_TEXT => fields.push(parse_type_field(it, &type_name, ns)?),
             ITEM_NEW_LINE => {
                 // Ignore empty lines.
             }
@@ -107,10 +108,11 @@ pub(crate) fn parse_type_declaration(
 }
 
 /// Dgraph's `parseTypeField`: a field's name, which the iterator is on, through the end of its line. The old
-/// format, `name: [type!]!`, is accepted for backwards compatibility and its type ignored; Dgraph logs a warning
-/// about it.
+/// format, `name: [type!]!`, is accepted for backwards compatibility and its type ignored, with a warning naming
+/// the type and the field.
 fn parse_type_field(
     it: &mut ItemIterator<'_, '_>,
+    type_name: &str,
     ns: u64,
 ) -> Result<pb::SchemaUpdate, SchemaError> {
     let field = pb::SchemaUpdate {
@@ -184,5 +186,11 @@ fn parse_type_field(
             ))
             .into());
     }
+
+    warn!(
+        type_name,
+        field = parse_attr(&field.predicate).unwrap_or(&field.predicate),
+        "Type declaration includes deprecated information about field type which will be ignored."
+    );
     Ok(field)
 }

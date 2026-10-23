@@ -50,3 +50,11 @@ fn test_write_failures_say_the_store_must_be_reopened() {
         "The store is poisoned by an earlier failed write and must be reopened"
     );
 }
+
+#[test]
+fn test_open_failures_give_their_reason() {
+    assert_eq!(
+        StoreError::OpenFailed("locked".into()).to_string(),
+        "Opening the store failed: locked"
+    );
+}

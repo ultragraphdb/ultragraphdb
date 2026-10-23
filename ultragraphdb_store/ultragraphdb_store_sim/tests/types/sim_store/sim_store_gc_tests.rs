@@ -144,3 +144,38 @@ fn test_the_discard_timestamp_never_decreases() {
     s.set_discard_ts(4).unwrap();
     assert_eq!(s.discard_ts(), 6);
 }
+
+#[test]
+fn test_the_initial_schema_a_drop_writes_survives_garbage_collection() {
+    // A prefix drop fences the entries it writes: compaction never collects them, as on fjall, where a version the
+    // drop removed can reach a compaction beneath a removal its filter is not shown. A drop of everything clears and
+    // fences nothing.
+    let s = store();
+    let schema = b"\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04name".to_vec();
+    write(
+        &s,
+        Entry::put(schema.clone(), 5, 0x01, b"old".to_vec()).with_discard(),
+    );
+    s.drop_prefixes(
+        7,
+        &[schema[..9].to_vec()],
+        vec![Entry::put(schema.clone(), 1, 0x01, b"initial".to_vec())],
+    )
+    .unwrap();
+    write(
+        &s,
+        Entry::put(schema.clone(), 8, 0x01, b"new".to_vec()).with_discard(),
+    );
+    s.set_discard_ts(9).unwrap();
+    s.compact().unwrap();
+    assert_eq!(held(&s, &schema), vec![(8, false), (1, false)]);
+    s.drop_all(vec![Entry::put(schema.clone(), 1, 0x01, b"root".to_vec())])
+        .unwrap();
+    write(
+        &s,
+        Entry::put(schema.clone(), 3, 0x01, b"new".to_vec()).with_discard(),
+    );
+    s.set_discard_ts(4).unwrap();
+    s.compact().unwrap();
+    assert_eq!(held(&s, &schema), vec![(3, false)]);
+}

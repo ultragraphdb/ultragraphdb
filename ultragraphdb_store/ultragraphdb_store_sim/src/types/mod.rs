@@ -4,6 +4,7 @@
  */
 
 pub mod breach;
+pub mod captured_event;
 pub mod contents;
 pub mod corruption;
 pub mod drop_stage;
@@ -11,6 +12,7 @@ pub mod event;
 pub mod fault;
 pub mod fault_config;
 pub mod invariant;
+pub mod log_capture;
 pub mod op_record;
 pub mod run_outcome;
 pub mod seed;

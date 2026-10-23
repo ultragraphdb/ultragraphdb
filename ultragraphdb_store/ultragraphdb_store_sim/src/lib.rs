@@ -9,7 +9,8 @@
 //! [`Simulation`] that runs a workload over them and stops at the first broken invariant, naming its seed.
 //!
 //! A crate above the store tests its own operations here, from its own tests: it runs its workload through
-//! [`Simulation::run`] and adds its own rules by returning [`SimContext::violation`].
+//! [`Simulation::run`] and adds its own rules by returning [`SimContext::violation`]. A [`LogCapture`] installed on
+//! the test's thread records the `tracing` events the run emits, without timestamps, so a seed replays them too.
 //!
 //! ```
 //! use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload};
@@ -23,6 +24,7 @@ mod types;
 mod utils;
 
 pub use crate::types::breach::Breach;
+pub use crate::types::captured_event::CapturedEvent;
 pub use crate::types::contents::Contents;
 pub use crate::types::corruption::Corruption;
 pub use crate::types::drop_stage::DropStage;
@@ -30,6 +32,7 @@ pub use crate::types::event::Event;
 pub use crate::types::fault::Fault;
 pub use crate::types::fault_config::FaultConfig;
 pub use crate::types::invariant::Invariant;
+pub use crate::types::log_capture::LogCapture;
 pub use crate::types::op_record::OpRecord;
 pub use crate::types::run_outcome::RunOutcome;
 pub use crate::types::seed::Seed;

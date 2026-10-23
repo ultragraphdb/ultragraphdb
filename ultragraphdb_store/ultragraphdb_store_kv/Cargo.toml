@@ -1,0 +1,57 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_store_kv"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+autotests = false
+autobins = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ultragraphdb_error_store = { workspace = true }
+ultragraphdb_traits_store = { workspace = true }
+fjall = { workspace = true }
+moka = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_store_sim = { workspace = true }
+ultragraphdb_test_bdd = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+
+# Writes batches and drops into a store until it is killed: the crash test's data dependency.
+[[bin]]
+name = "kv_crash_writer"
+path = "src/bin/kv_crash_writer.rs"
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"
+
+# A batch of 1 GiB, apart so that it runs beside the other tests rather than after them.
+[[test]]
+name = "batch_gib"
+path = "tests/batch_gib.rs"
+
+# Kills the writer binary during a batch and during a drop, then reopens its store.
+[[test]]
+name = "crash"
+path = "tests/crash.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

@@ -10,11 +10,13 @@ use ultragraphdb_traits_store::{Direction, Entry, Item, Scan, key_namespace};
 use crate::types::contents::Contents;
 use crate::types::stored_version::StoredVersion;
 
-/// One version as the model keeps it: `value` is `None` for a deletion.
+/// One version as the model keeps it: `value` is `None` for a deletion; `fenced` when a prefix drop wrote it, which
+/// compaction never collects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelVersion {
     pub meta: u8,
     pub discard: bool,
+    pub fenced: bool,
     pub value: Option<Vec<u8>>,
 }
 
@@ -68,7 +70,7 @@ impl ModelState {
                 entries,
                 applied_ts,
             } => {
-                self.write(entries);
+                self.write(entries, false);
                 if let Some(ts) = applied_ts {
                     self.applied_ts = self.applied_ts.max(*ts);
                 }
@@ -82,16 +84,17 @@ impl ModelState {
                     self.horizon = None;
                 }
                 let admitted = self.admitted(entries);
-                self.write(&admitted);
+                self.write(&admitted, prefixes.is_some());
             }
         }
     }
 
-    fn write(&mut self, entries: &[Entry]) {
+    fn write(&mut self, entries: &[Entry], fenced: bool) {
         for e in entries {
             let version = ModelVersion {
                 meta: e.meta(),
                 discard: e.discard(),
+                fenced,
                 value: e.value().map(<[u8]>::to_vec),
             };
             self.keys
@@ -102,7 +105,7 @@ impl ModelState {
     }
 
     /// Compaction under discard timestamp `discard`: each key loses the values older than its newest
-    /// discard-flagged value or deletion at or below `discard`; deletions stay.
+    /// discard-flagged value or deletion at or below `discard`; deletions and the values a prefix drop fenced stay.
     pub fn compact(&mut self, discard: u64) {
         for versions in self.keys.values_mut() {
             let cut = versions
@@ -111,7 +114,7 @@ impl ModelState {
                 .find(|(v, m)| **v <= discard && (m.discard || m.value.is_none()))
                 .map(|(v, _)| *v);
             if let Some(cut) = cut {
-                versions.retain(|v, m| *v >= cut || m.value.is_none());
+                versions.retain(|v, m| *v >= cut || m.value.is_none() || m.fenced);
             }
         }
     }

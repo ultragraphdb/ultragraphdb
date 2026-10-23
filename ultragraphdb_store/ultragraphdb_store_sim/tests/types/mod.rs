@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod breach;
 #[cfg(test)]
+mod captured_event;
+#[cfg(test)]
 mod contents;
 #[cfg(test)]
 mod drop_stage_tests;
@@ -13,6 +15,8 @@ mod drop_stage_tests;
 mod fault_config;
 #[cfg(test)]
 mod invariant;
+#[cfg(test)]
+mod log_capture;
 #[cfg(test)]
 mod seed_tests;
 #[cfg(test)]

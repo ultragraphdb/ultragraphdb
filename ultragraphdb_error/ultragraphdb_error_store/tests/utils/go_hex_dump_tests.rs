@@ -35,3 +35,9 @@ fn test_dump_pads_a_line_shorter_than_eight_bytes() {
 fn test_dump_of_nothing_is_empty() {
     assert_eq!(dump(b""), "");
 }
+
+#[test]
+fn test_exported_dump_is_the_one_the_error_prints() {
+    let data = b"\x00\x01key with a namespace";
+    assert_eq!(ultragraphdb_error_store::go_hex_dump(data), dump(data));
+}

@@ -29,13 +29,14 @@ ultragraphdb_proto_pb = { workspace = true }
 blake2 = { workspace = true }
 rust-stemmers = { workspace = true }
 unicode-normalization = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 
 [[test]]
 name = "unit"

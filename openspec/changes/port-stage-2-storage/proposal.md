@@ -65,6 +65,9 @@ query engine or a Raft log depends on them.
   - A write whose stored key, escaped and versioned, exceeds 65,535 bytes is refused, besides one whose user key
     exceeds Badger's 65,000 bytes; a key dense in zero bytes reaches the first limit below 65,000 bytes.
 
+- **Behaviour change, schema loading (ledger 42):** a predicate or type whose newest version is a deletion is not loaded
+  at start; Dgraph's `loadFromDB` loads the deletion's empty value and brings the definition back.
+
 - A `Store` trait between the port and fjall, synchronous and shaped in batches, with a simulated implementation that
   injects storage faults (failed batches that poison the store, process crash, power loss, failed and corrupted reads,
   slow operations) under a seeded, deterministic scheduler and checks invariants against a shadow model after every
@@ -75,6 +78,7 @@ query engine or a Raft log depends on them.
 ### New Capabilities
 
 - `kv-store`: the versioned store over fjall and its garbage collection.
+- `telemetry`: structured `tracing` events where the ported code logs, and the logging and OTLP span facility binaries install.
 - `storage-simulation`: the `Store` trait, the simulated store and its faults, seeded deterministic runs, invariants.
 - `posting-lists`: reading, merging, rolling up and splitting posting lists.
 - `local-commit`: a request's edges applied over its earlier edges, committed in one batch at its commit timestamp.

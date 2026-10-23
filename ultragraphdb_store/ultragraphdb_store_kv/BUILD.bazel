@@ -1,0 +1,121 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+rust_library(
+    name = "ultragraphdb_store_kv",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_store_kv"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+# Writes batches and drops into a store until the crash test kills it; a data dependency of the tests that kill it.
+rust_binary(
+    name = "kv_crash_writer",
+    srcs = ["src/bin/kv_crash_writer.rs"],
+    crate_root = "src/bin/kv_crash_writer.rs",
+    lint_config = lint_config(),
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_store_kv"] + all_crate_deps(normal = True),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_store_kv",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_store_kv",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It holds
+# the simulator's store workload run on fjall beside the simulated store. Every store lives under TEST_TMPDIR.
+rust_test(
+    name = "ultragraphdb_store_kv_tests",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = [
+            "tests/batch_gib.rs",
+            "tests/bdd.rs",
+            "tests/crash.rs",
+            "tests/crash_harness.rs",
+        ],
+    ),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# A batch of 1 GiB: about 2 GiB of memory and 20 s, so it runs as a target of its own beside the others. It keeps the
+# unit-test tag, so `make test` runs it.
+rust_test(
+    name = "batch_gib",
+    size = "large",
+    srcs = ["tests/batch_gib.rs"],
+    crate_root = "tests/batch_gib.rs",
+    tags = ["unit-test"],
+    deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# Kills the writer binary, a declared data dependency, during a batch and during a drop; its stores live under
+# TEST_TMPDIR.
+rust_test(
+    name = "crash",
+    size = "medium",
+    srcs = [
+        "tests/crash.rs",
+        "tests/crash_harness.rs",
+    ],
+    crate_root = "tests/crash.rs",
+    data = [":kv_crash_writer"],
+    env = {"KV_CRASH_WRITER": "$(rootpath :kv_crash_writer)"},
+    tags = ["unit-test"],
+    deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files and the crash writer are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = [
+        "tests/bdd.rs",
+        "tests/crash_harness.rs",
+    ],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + [":kv_crash_writer"],
+    env = {"KV_CRASH_WRITER": "$(rootpath :kv_crash_writer)"},
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

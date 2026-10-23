@@ -55,6 +55,8 @@ ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store
 ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
 ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
 ## Store: storage over the Store trait
+ultragraphdb_store_kv = { path = "ultragraphdb_store/ultragraphdb_store_kv" }
+ultragraphdb_store_posting = { path = "ultragraphdb_store/ultragraphdb_store_posting" }
 ultragraphdb_store_sim = { path = "ultragraphdb_store/ultragraphdb_store_sim" }
 ## Test
 ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
@@ -83,6 +85,19 @@ dashu-int = "0.6"
 rust-stemmers = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 unicode-normalization = "0.1"
+# Structured logging; library crates emit events and never install a subscriber.
+tracing = "0.1"
+# Telemetry, installed once by a binary through ultragraphdb_common_telemetry: the 0.33 OpenTelemetry release
+# train, tracing-opentelemetry 0.34 built on it, the OTLP span exporter over tonic 0.14 and prost 0.14.
+tracing-subscriber = { version = "0.3.23", features = ["fmt", "json", "env-filter"] }
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+# fjall is pinned exactly for its #[doc(hidden)] major_compact and
+# rotate_memtable_and_wait, which Store::compact calls.
+fjall = "=3.1.12"
+moka = { version = "0.12.16", features = ["sync"] }
 # Test-only: BDD scenarios from the specs, run without the libtest harness.
 cucumber = "0.23"
 futures = "0.3"

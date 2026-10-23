@@ -288,3 +288,30 @@ fn test_a_record_after_an_unchecked_recovery_is_refused() {
         .unwrap_err();
     assert!(breach.detail().contains("follows a recovery"));
 }
+
+#[test]
+fn test_the_model_keeps_what_a_prefix_drop_wrote_through_a_compaction() {
+    let (_, store) = observed(|s| {
+        s.drop_prefixes(
+            3,
+            &[b"\x01".to_vec()],
+            vec![Entry::put(b"\x01s".to_vec(), 1, 0x01, b"initial".to_vec())],
+        )
+        .unwrap();
+        s.apply(
+            batch(
+                vec![Entry::put(b"\x01s".to_vec(), 4, 0x01, b"new".to_vec()).with_discard()],
+                Some(4),
+            ),
+            PersistMode::Buffer,
+        )
+        .unwrap();
+        s.set_discard_ts(5).unwrap();
+        s.compact().unwrap();
+    });
+    assert_eq!(
+        store.contents().versions(b"\x01s").len(),
+        2,
+        "the fenced version stays"
+    );
+}

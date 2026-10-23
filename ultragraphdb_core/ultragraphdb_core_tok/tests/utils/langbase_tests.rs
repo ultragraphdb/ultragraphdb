@@ -8,7 +8,9 @@
  */
 
 use serde::Deserialize;
+use tracing::Level;
 use ultragraphdb_core_tok::lang_base;
+use ultragraphdb_store_sim::LogCapture;
 
 use crate::golden::cases;
 
@@ -60,4 +62,48 @@ fn test_lang_base_golden() {
         // A second lookup reads the cache.
         assert_eq!(lang_base(&c.input), c.out, "{:?} cached", c.input);
     }
+}
+
+/// The events Dgraph's `LangBase` logs: an error for a tag that does not parse, and a warning for every tag
+/// reverted to English, once per tag while it is cached. The tags are used by no other test, so the cache, shared by
+/// every thread, is empty for them.
+#[test]
+fn test_lang_base_logs_a_tag_reverted_to_english() {
+    let capture = LogCapture::new();
+    tracing::subscriber::with_default(capture.subscriber(), || {
+        assert_eq!(lang_base("x-ugdbtel"), "en");
+        assert_eq!(lang_base("not a tag!"), "en");
+        assert_eq!(lang_base("not a tag!"), "en");
+        assert_eq!(lang_base("de-AT"), "de");
+    });
+    let captured = capture.events();
+    let seen: Vec<(Level, Option<&str>, Option<&str>)> = captured
+        .iter()
+        .map(|e| (e.level(), e.message(), e.field("lang")))
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            (
+                Level::WARN,
+                Some("Unable to find lang. Reverting to English."),
+                Some("x-ugdbtel")
+            ),
+            (
+                Level::ERROR,
+                Some("While trying to parse lang"),
+                Some("not a tag!")
+            ),
+            (
+                Level::WARN,
+                Some("Unable to find lang. Reverting to English."),
+                Some("not a tag!")
+            ),
+        ]
+    );
+    assert!(
+        captured[1].field("error").is_some_and(|e| !e.is_empty()),
+        "{:?}",
+        captured[1]
+    );
 }

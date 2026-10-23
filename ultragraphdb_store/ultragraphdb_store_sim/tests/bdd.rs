@@ -8,17 +8,10 @@ use std::collections::BTreeSet;
 use cucumber::{World, then, when};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{
-    Contents, Corruption, DropStage, Event, Fault, FaultConfig, Invariant, RunOutcome, Seed,
-    SimClock, SimStore, Simulation, StoreWorkload, Violation,
+    Contents, DropStage, Event, Fault, FaultConfig, Invariant, RunOutcome, Seed, SimClock,
+    SimStore, Simulation, StoreWorkload, Violation,
 };
-use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
-
-/// The key read, the point read's result and the scan's items.
-type CorruptedRead = (
-    Vec<u8>,
-    Result<Option<Item>, StoreError>,
-    Vec<Result<Item, StoreError>>,
-);
+use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -27,7 +20,6 @@ struct Steps {
     recovered: Vec<(Contents, u64)>,
     /// Per seed: the refusal of the write after the failure, and the store after reopening.
     poisoned: Vec<(Result<(), StoreError>, Contents)>,
-    read: Option<CorruptedRead>,
     violation: Option<Result<RunOutcome, Violation>>,
 }
 
@@ -66,27 +58,6 @@ fn held(contents: &Contents, i: u64) -> u64 {
 
 fn new_store(seed: u64) -> SimStore {
     SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new())
-}
-
-#[when("the posting-list operations of a workload run on the simulated store")]
-fn run_workload(w: &mut Steps) {
-    // Group 0 runs the store's own workload over posting-list keys and meta bytes; task group 2 adds the posting-list
-    // operations and runs the same workload on fjall.
-    w.runs = (1..=10)
-        .map(|seed| StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2))
-        .collect();
-}
-
-#[then("they pass the same checks as on fjall")]
-fn same_checks(w: &mut Steps) {
-    assert_eq!(w.runs.len(), 10);
-    for run in &w.runs {
-        let outcome = run.as_ref().unwrap_or_else(|v| panic!("{v}"));
-        assert!(
-            !outcome.contents().keys().is_empty(),
-            "the workload wrote nothing"
-        );
-    }
 }
 
 #[when("a seed is run twice")]
@@ -254,34 +225,6 @@ fn drop_finished(w: &mut Steps) {
         assert_eq!((contents.applied_ts(), contents.discard_ts()), (0, 0));
         assert!(contents.banned().is_empty());
     }
-}
-
-#[when("a stored posting list's bytes are corrupted and the list is read")]
-fn corrupted_read(w: &mut Steps) {
-    let store = new_store(1);
-    let key = batch_key(1, 0);
-    store
-        .apply(batch(1), PersistMode::Buffer)
-        .expect("no fault is configured");
-    store.corrupt(&key, 1, Corruption::Truncate);
-    let snapshot = store.snapshot(5).expect("no fault is configured");
-    let got = snapshot.get(&key);
-    let scanned = snapshot.scan(&Scan::prefix(key.clone())).collect();
-    w.read = Some((key, got, scanned));
-}
-
-#[then("the read fails with an error naming the key, and no value is returned")]
-fn corrupted_refused(w: &mut Steps) {
-    let (key, got, scanned) = w.read.take().expect("read");
-    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
-    let error = got.expect_err("a corrupted value is refused");
-    assert!(matches!(&error.0, StoreErrorEnum::Corrupted { key: k, .. } if *k == key));
-    assert!(error.to_string().contains(&hex), "{error}");
-    assert_eq!(scanned.len(), 1, "the scan ends at the corrupted value");
-    assert!(matches!(
-        &scanned[0],
-        Err(StoreError(StoreErrorEnum::Corrupted { .. }))
-    ));
 }
 
 #[when("a run breaks an invariant")]

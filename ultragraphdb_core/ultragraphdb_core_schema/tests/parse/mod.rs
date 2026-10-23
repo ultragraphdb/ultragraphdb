@@ -7,3 +7,5 @@
 mod parse_golden_tests;
 #[cfg(test)]
 mod parse_tests;
+#[cfg(test)]
+mod parse_type_tests;

@@ -70,7 +70,7 @@ pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
 | `golang/snappy`, `klauspost/compress` | `lz4_flex` for backups; `flate2` over `miniz_oxide` for gzip exports | Decided |
 | `dgraph-io/simdjson-go`, `encoding/json` | A port of Go's `encoding/json` in `ultragraphdb_common_utils` | Decided |
 | `minio/minio-go` (backups) | `object_store` | Proposed |
-| OpenTelemetry, OpenCensus, Prometheus | `tracing`, `opentelemetry`, a Prometheus exporter | Proposed |
+| `glog`, OpenTelemetry, OpenCensus, Prometheus | `tracing` and `tracing-subscriber` for logs; `opentelemetry` with `tracing-opentelemetry` and OTLP for spans; a Prometheus exporter for metrics (stage 3) | Decided |
 | `gqlgen`, `gqlparser`, `graphql-go`, `graphql-transport-ws` | — | Cut with GraphQL |
 | `IBM/sarama` (Kafka change data capture), `go-sql-driver/mysql`, `mark3labs/mcp-go` | — | Cut |
 

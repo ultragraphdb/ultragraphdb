@@ -37,6 +37,9 @@ pub enum StoreErrorEnum {
     WriteFailed(String),
     /// A write refused because an earlier one failed: the store recovers only by reopening.
     Poisoned,
+    /// The store could not be opened: its directory is held by another process or unreadable, or its recovery
+    /// failed.
+    OpenFailed(String),
 }
 
 impl StoreError {
@@ -68,5 +71,10 @@ impl StoreError {
     #[allow(non_snake_case)]
     pub fn Poisoned() -> Self {
         Self(StoreErrorEnum::Poisoned)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn OpenFailed(reason: String) -> Self {
+        Self(StoreErrorEnum::OpenFailed(reason))
     }
 }

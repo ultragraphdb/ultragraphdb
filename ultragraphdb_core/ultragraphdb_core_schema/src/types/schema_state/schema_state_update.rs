@@ -6,8 +6,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use tracing::debug;
 use ultragraphdb_core_keys::parse_namespace;
+use ultragraphdb_core_types::TypeId;
 use ultragraphdb_proto_pb::pb;
+use ultragraphdb_proto_pb::pb::schema_update::Directive;
 
 use super::SchemaState;
 use crate::errors::schema_error::SchemaError;
@@ -56,9 +59,17 @@ impl SchemaState {
             .retain(|typ, _| !parse_namespace(typ).is_ok_and(|ns| ns == del_ns));
     }
 
-    /// Dgraph's `Set`: sets the schema of a predicate in memory. Schema mutations flow through stage 2's update,
-    /// which also stores them.
+    /// Dgraph's `Set`: sets the schema of a predicate in memory, logged at debug; [`schema_entry`](crate::schema_entry)
+    /// is the entry that stores it.
     pub fn set(&self, pred: &str, schema: pb::SchemaUpdate) {
+        debug!(
+            attr = pred,
+            value_type = value_type(&schema),
+            tokenizer = ?schema.tokenizer,
+            directive = directive(schema.directive),
+            count = schema.count,
+            "Setting schema for attr"
+        );
         self.write().predicate.insert(pred.to_string(), schema);
     }
 
@@ -72,8 +83,24 @@ impl SchemaState {
         self.write().mut_schema.remove(pred);
     }
 
-    /// Dgraph's `SetType`: sets a type definition in memory.
+    /// Dgraph's `SetType`: sets a type definition in memory, logged at debug.
     pub fn set_type(&self, type_name: &str, typ: pb::TypeUpdate) {
+        debug!(type_name, typ = ?typ, "Setting type definition for type");
         self.write().types.insert(type_name.to_string(), typ);
     }
+}
+
+/// The schema's value type as Dgraph's `logUpdate` writes it: its name, in brackets for a list.
+fn value_type(schema: &pb::SchemaUpdate) -> String {
+    let name = TypeId::new(schema.value_type).name();
+    if schema.list {
+        format!("[{name}]")
+    } else {
+        name.to_string()
+    }
+}
+
+/// The directive as Go's `%v` writes a protobuf enum: its name, or its number when it has none.
+fn directive(value: i32) -> String {
+    Directive::try_from(value).map_or_else(|_| value.to_string(), |d| d.as_str_name().to_string())
 }

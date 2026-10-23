@@ -10,3 +10,4 @@ mod errors;
 mod utils;
 
 pub use crate::errors::store_error::{StoreError, StoreErrorEnum};
+pub use crate::utils::go_hex_dump::go_hex_dump;

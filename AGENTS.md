@@ -353,6 +353,16 @@ Bazel targets:
 Safety and security style:
 * No `unsafe`. Every crate opts into the workspace lints with `[lints]` and `workspace = true` in its own
   `Cargo.toml`; new crates MUST include this.
-* Avoid macros in all lib code i.e. everything under /src. Macros for testing are permissible when used
-  sparingly i.e. for bulk testing many types implementing the same trait.
+* Define no macros in lib code, i.e. everything under /src; macros defined in tests are permissible when used
+  sparingly, e.g. for bulk testing many types implementing the same trait. Macros from external crates, such as
+  `tracing`'s, are used freely.
+
+Logging and telemetry:
+* Library crates log through `tracing`: a structured event (fields, not a formatted string) wherever the ported Go code
+  logs (`glog`, `x.Printf`, Badger's logger), at Dgraph's level, and wherever the port survives a failure an operator
+  needs to see. A library crate never installs a subscriber.
+* A binary installs the subscriber once, through `ultragraphdb_common_telemetry`: the level filter, plain or JSON
+  lines, and spans exported over OTLP when an endpoint is configured.
+* Simulator tests capture events with the simulator's subscriber, which records no wall-clock time, so a seed still
+  replays.
 * Avoid the introduction of external crates unless it is necessary.

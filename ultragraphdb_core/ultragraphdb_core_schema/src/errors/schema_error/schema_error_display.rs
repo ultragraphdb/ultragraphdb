@@ -16,7 +16,9 @@ impl fmt::Display for SchemaError {
             SchemaErrorEnum::Lexing(m)
             | SchemaErrorEnum::Parse(m)
             | SchemaErrorEnum::State(m)
-            | SchemaErrorEnum::Key(m) => f.write_str(m),
+            | SchemaErrorEnum::Key(m)
+            | SchemaErrorEnum::Decode(m) => f.write_str(m),
+            SchemaErrorEnum::Store(e) => write!(f, "{e}"),
             SchemaErrorEnum::Located {
                 line,
                 column,

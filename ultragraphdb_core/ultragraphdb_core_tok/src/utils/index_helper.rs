@@ -7,6 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use tracing::error;
 use ultragraphdb_traits_index::Float;
 
 use crate::errors::tok_error::TokError;
@@ -34,25 +35,31 @@ pub fn bytes_to_float<T: Float>(encoded: &[u8], float_bits: FloatBits) -> Result
 }
 
 /// Dgraph's `BytesAsFloatArray`: `encoded` as floats of `float_bits`, written to `ret_val`. Empty input gives an
-/// empty vector; input whose length is not a multiple of the float width leaves `ret_val` as it is (Go logs the
-/// error).
+/// empty vector; input whose length is not a multiple of the float width leaves `ret_val` as it is and is logged as
+/// an error, as Go logs it.
 pub fn bytes_as_float_array<T: Float>(encoded: &[u8], ret_val: &mut Vec<T>, float_bits: FloatBits) {
     if encoded.is_empty() {
         ret_val.clear();
         return;
     }
     match float_bits {
-        FloatBits::F32 => {
-            if let (floats, []) = encoded.as_chunks::<4>() {
+        FloatBits::F32 => match encoded.as_chunks::<4>() {
+            (floats, []) => {
                 ret_val.clear();
                 ret_val.extend(floats.iter().map(|b| T::from_f32(f32::from_le_bytes(*b))));
             }
-        }
-        FloatBits::F64 => {
-            if let (floats, []) = encoded.as_chunks::<8>() {
+            _ => log_invalid_length(encoded),
+        },
+        FloatBits::F64 => match encoded.as_chunks::<8>() {
+            (floats, []) => {
                 ret_val.clear();
                 ret_val.extend(floats.iter().map(|b| T::from_f64(f64::from_le_bytes(*b))));
             }
-        }
+            _ => log_invalid_length(encoded),
+        },
     }
+}
+
+fn log_invalid_length(encoded: &[u8]) {
+    error!(len = encoded.len(), encoded = ?encoded, "Invalid byte slice length");
 }

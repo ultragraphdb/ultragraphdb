@@ -289,6 +289,25 @@ impl Inner {
         Record::Batch {
             entries,
             applied_ts,
+            fenced: false,
+        }
+    }
+
+    /// The batch of the entries `record` writes once its data is gone, fenced for a prefix drop: a version the drop
+    /// removed can reach a fjall compaction beneath a removal its filter is not shown, so compaction never collects
+    /// what a prefix drop wrote (`ultragraphdb_store_kv`). A drop of everything clears, which leaves nothing behind.
+    pub fn drop_entries_record(&self, record: &DropRecord) -> Record {
+        match self.batch_record(record.entries.clone(), None) {
+            Record::Batch {
+                entries,
+                applied_ts,
+                ..
+            } => Record::Batch {
+                entries,
+                applied_ts,
+                fenced: record.prefixes.is_some(),
+            },
+            other => other,
         }
     }
 
@@ -304,7 +323,7 @@ impl Inner {
     /// Removes what `record` covers and writes its entries, from wherever the drop had come.
     pub fn finish_drop(&mut self, record: &DropRecord) {
         self.remove_dropped(record);
-        let entries = self.batch_record(record.entries.clone(), None);
+        let entries = self.drop_entries_record(record);
         self.write(entries);
         self.sync();
         self.write(Record::EndDrop);

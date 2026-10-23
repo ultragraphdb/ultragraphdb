@@ -28,6 +28,7 @@ impl fmt::Display for StoreError {
             StoreErrorEnum::Poisoned => {
                 f.write_str("The store is poisoned by an earlier failed write and must be reopened")
             }
+            StoreErrorEnum::OpenFailed(reason) => write!(f, "Opening the store failed: {reason}"),
         }
     }
 }

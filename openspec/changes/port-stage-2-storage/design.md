@@ -51,6 +51,15 @@ The store crates sit in the `ultragraphdb_store/` group folder, which the root `
 alone for it. `ultragraphdb_common_utils` gains `go_farm`, an in-house port of go-farm's `Fingerprint64` (MIT, from
 dgryski/go-farm) checked against golden vectors generated from Go, for posting identities and stage 3's conflict keys.
 
+### Logging and telemetry
+
+Dgraph logs through `glog` and survives many failures with a log line; the port logs the same events through
+`tracing`, as structured events at Dgraph's level, and adds one wherever it survives a failure an operator needs to
+see. Library crates only emit; `ultragraphdb_common_telemetry` is what a binary calls once to install the subscriber
+(level filter, plain or JSON lines) and, when an OTLP endpoint is configured, the `tracing-opentelemetry` layer exporting
+spans. Without a subscriber an event costs a check of a static flag, so the simulator stays deterministic; its own
+subscriber records events in order without wall-clock time. Stage 3's binaries install it and add metrics.
+
 ### The store boundary and the storage simulator
 
 Everything above the store reaches it through one synchronous trait, `Store` (`ultragraphdb_traits_store`), shaped in
@@ -76,7 +85,8 @@ port's own storage logic meets the disk.
   simulator moves it. Storage code takes its clock, its randomness and its threads from what it is given. Background
   work (rollups, rebuilds, the parallel apply of `applyMutations`) runs on an `Executor` the caller passes, which the
   simulator steps. The posting cache sits behind the `ListCache` trait: in production it is moka, built with
-  `build_with_hasher` and a fixed hasher; in the simulator it is a deterministic map with seeded eviction, since moka
+  `build_with_hasher` and std's per-process `RandomState`, since cache keys hold
+  client-chosen terms and a fixed hasher would let crafted keys collide; in the simulator it is a deterministic map with seeded eviction, since moka
   reads `Instant` on every access and evicts on wall-clock intervals. Outside `ultragraphdb_store_kv`, no storage code
   names fjall, moka, `Instant::now`, `SystemTime::now`, `thread::spawn` or an ambient random source. The workspace
   `clippy.toml` lists `Instant::now`, `Instant::elapsed`, `SystemTime::now`, `thread::spawn`, `thread::Builder::spawn`,
@@ -148,6 +158,18 @@ process during a batch (task 1.6) and by stage 4's process kills.
   object (`Box<dyn CompactionFilter>` from an `Arc<dyn Factory>`) because fjall's API requires one. The simulator's stepped executor holds its queued tasks as
   private `Box<dyn FnOnce() + Send>` values, the second exception: the tasks of different crates have different types,
   and the `Executor` trait itself stays generic.
+- **fjall replays its active journal at every open,** flushed items included (`db.rs:700-735`), and rotates it only
+  past 64 MB (`worker_pool.rs:192`): a version the filter destroyed would return at the next open. The filter therefore
+  records each stored key it collects, and the store writes a journaled removal for each: at the end of `compact`, at the
+  start of `sweep_deletions` in the same batch as the deletions' removals, and in a commit batch once 100,000 are
+  pending. A collected version lies below a discard point at or below `D`, so no read the store serves returns it in the
+  meantime.
+- **The entries a prefix drop writes are fenced.** fjall's own garbage-collection watermark rises only at a memtable
+  rotation with no snapshot open or every 10,000 snapshot closes, so versions a drop removed can still reach a later
+  compaction under its removals, which the filter is never shown, and the filter would then collect the drop's own
+  initial schema below them. A third flag bit, fenced (`0x04`), marks the entries a prefix drop writes; the filter never
+  collects a fenced version. Drop-all needs no fence: `Keyspace::clear` leaves nothing behind. The cost is one small
+  version per fenced entry staying on disk below `D`, where no read sees it, until a later drop of the prefix removes it.
 - **No write lands below a deletion of the same key:** once the sweep has removed the deletion, such a write would be
   the newest version for reads above the deletion's timestamp. A rollup whose key gained a deletion above the
   rollup's version is discarded and redone.
@@ -183,6 +205,11 @@ process during a batch (task 1.6) and by stage 4's process kills.
   database is reopened, and a batch whose persist failed is absent in this process and may be replayed from the journal
   at reopening. The port stops applying, reports the error and recovers only by reopening; a failed compaction poisons
   the store the same way.
+- **What corruption the port detects.** On fjall, a corrupted block fails its checksum and surfaces as a failed read,
+  which the port reports. The simulator's corrupted-value fault garbles a value's bytes to test the decoders above the
+  store; they refuse a value whose structure no longer decodes, and a flip that leaves a valid encoding (a protobuf name
+  byte turned into another valid byte) is beyond any decoder, so the simulator's workloads draw only the corruptions a
+  checksum-free decoder can see.
 - **Settings compaction acts on are synced when set.** The discard timestamp, the tombstone horizon and a banned
   namespace are durable when the call that sets them returns: compaction collects by them, so a setting lost to a power
   loss after compaction used it would let reads between the lost and the used value return collected data silently.
@@ -194,7 +221,12 @@ Alternative: redb. Decided against on 2026-10-20 (`dgraph-port-overview.md`).
 - A request owns a scratch layer per touched list: Dgraph's `MutableLayer.currentEntries`. Applying an edge reads the
   list with the request's earlier edges on top of the state at its read timestamp, and index, reverse and count
   maintenance read and write through it. Scratch layers stack: a request applied after another in one batch reads
-  that request's writes, as stage 3's batches and upsert queries need.
+  that request's writes, as stage 3's batches and upsert queries need. A scratch layer and the layers stacked under it
+  are seen at the request's own read timestamp only; Dgraph's `iterate` also shows them to reads at later timestamps,
+  while its `findPosting` and `listLen` do not.
+- The writer's `commit_with` hook runs under the writer lock before commit timestamps are assigned: the commit-time
+  schema conversion and the refusal of requests that read before a drop or schema change run there. A request the hook
+  refuses fails together with every later request of the batch whose writes stack on its own.
 - Dgraph's read strategy is ported with two completions. A list built without a store read (`GetFromDelta`,
   `lists.go:257-296`) is completed from the store before any read of it in the same request, and `GetScalarList`
   (`oracle.go:158-185`) reads through the merging iterator rather than a point get, so index maintenance always finds
@@ -251,7 +283,20 @@ were never written; it also splits a large commit across transactions on `ErrTxn
 port a rollup and a commit are each one atomic batch. A rollup leaves the versions below it readable, so open reads
 bound only the discard timestamp. Rollups pause while an index rebuild runs. A rollup whose key a drop covered after
 the rollup's read is discarded, checked under the writer lock, so a rollup read before a drop cannot write dropped
-data back after it; Dgraph's drops start no task that stops rollups (`draft.go:116-197`).
+data back after it; Dgraph's drops start no task that stops rollups (`draft.go:116-197`). The check is the cache's
+epoch, which every drop, schema change and rebuild advances under the writer lock, so a rollup is discarded on any of
+them, and also when its main key gained a deletion above the version it read. A list without deltas is not rewritten
+(Dgraph rewrites it at `minTs + 1`). Rollup runs are serialised, as Dgraph's one rollup goroutine is.
+
+- **A split list's parts are read with its main key, through one snapshot.** A lazy read of a part would need a
+  snapshot at the list's `minTs`, which is refused below the discard timestamp, and a cached main key combined with
+  parts from a newer snapshot breaks once a rollup rewrites them.
+- **The local counter starts at the applied timestamp plus two after an open.** A rollup writes at the newest commit
+  plus one, which can be the applied timestamp plus one; a counter restarting there would write a delta over that
+  complete version.
+- **A cache entry's timestamp is the applied timestamp at the miss,** not the list's newest version, because the store
+  does not report deletions; a fill is made with `try_lock` on the writer, so it never waits for a commit and a read
+  inside a commit hook cannot deadlock.
 
 ### Rebuilds and drops
 

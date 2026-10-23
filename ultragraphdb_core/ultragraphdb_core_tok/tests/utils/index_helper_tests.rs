@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use tracing::Level;
 use ultragraphdb_core_tok::{FloatBits, TokErrorEnum, bytes_as_float_array, bytes_to_float};
+use ultragraphdb_store_sim::LogCapture;
 
 #[test]
 fn test_bytes_to_float() {
@@ -57,4 +59,22 @@ fn test_bytes_as_float_array() {
     assert_eq!(wide.len(), 1);
     bytes_as_float_array(&[], &mut out, FloatBits::F32);
     assert!(out.is_empty());
+}
+
+/// Dgraph's `BytesAsFloatArray` logs input whose length is not a multiple of the width, with its length and bytes.
+#[test]
+fn test_bytes_as_float_array_logs_a_length_not_a_multiple_of_the_width() {
+    let capture = LogCapture::new();
+    let mut floats = vec![9.0f32];
+    tracing::subscriber::with_default(capture.subscriber(), || {
+        bytes_as_float_array(&[1, 2, 3, 4, 5], &mut floats, FloatBits::F32);
+        bytes_as_float_array(&1.5f32.to_le_bytes(), &mut floats, FloatBits::F32);
+    });
+    assert_eq!(floats, vec![1.5]);
+    let events = capture.events();
+    assert_eq!(events.len(), 1, "only the refused input logs: {events:?}");
+    assert_eq!(events[0].level(), Level::ERROR);
+    assert_eq!(events[0].message(), Some("Invalid byte slice length"));
+    assert_eq!(events[0].field("len"), Some("5"));
+    assert_eq!(events[0].field("encoded"), Some("[1, 2, 3, 4, 5]"));
 }

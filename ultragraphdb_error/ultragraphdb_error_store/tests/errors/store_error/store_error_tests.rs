@@ -37,6 +37,10 @@ fn test_constructors_build_their_variant() {
         StoreErrorEnum::WriteFailed("w".into())
     );
     assert_eq!(StoreError::Poisoned().0, StoreErrorEnum::Poisoned);
+    assert_eq!(
+        StoreError::OpenFailed("o".into()).0,
+        StoreErrorEnum::OpenFailed("o".into())
+    );
 }
 
 #[test]

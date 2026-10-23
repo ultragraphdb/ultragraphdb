@@ -7,6 +7,7 @@
  */
 
 mod schema_state_query;
+mod schema_state_store;
 mod schema_state_update;
 
 use std::collections::HashMap;
@@ -20,7 +21,10 @@ use crate::types::schema_mode::SchemaMode;
 /// attribute (`0-name`), and the schemas being applied in the background while indexes are built.
 ///
 /// Every method takes `&self` and locks internally, as Dgraph's `sync.RWMutex` does, so one state can be shared
-/// between threads. Loading it from and storing it to disk is stage 2's.
+/// between threads. It is loaded from a [`Store`](ultragraphdb_traits_store::Store) with
+/// [`load_from_db`](Self::load_from_db) and [`load`](Self::load); a definition is stored by an entry of
+/// [`schema_entry`](crate::schema_entry) or [`type_entry`](crate::type_entry) in the caller's batch, and deleted with
+/// [`delete`](Self::delete) and [`delete_type`](Self::delete_type).
 #[derive(Debug, Default)]
 pub struct SchemaState {
     inner: RwLock<Inner>,

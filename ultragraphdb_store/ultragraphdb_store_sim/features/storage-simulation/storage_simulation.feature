@@ -5,11 +5,9 @@
 
 Feature: Storage simulation
   The port reaches its store through the Store trait; the simulated store injects storage faults under a seeded,
-  deterministic run and checks the store against a shadow model after every step and every recovery.
-
-  Scenario: The posting lists run on the simulated store
-    When the posting-list operations of a workload run on the simulated store
-    Then they pass the same checks as on fjall
+  deterministic run and checks the store against a shadow model after every step and every recovery. The scenarios
+  that need posting lists, "The posting lists run on the simulated store" and "A corrupted value is refused", run in
+  ultragraphdb_store_posting's features.
 
   Scenario: A seed replays its run
     When a seed is run twice
@@ -26,10 +24,6 @@ Feature: Storage simulation
   Scenario: A drop interrupted by a power loss finishes at recovery
     When a drop of everything has synced its record and a power loss is injected before it deletes the record
     Then after recovery the store holds only the entries the drop was given
-
-  Scenario: A corrupted value is refused
-    When a stored posting list's bytes are corrupted and the list is read
-    Then the read fails with an error naming the key, and no value is returned
 
   Scenario: A violated invariant names its seed
     When a run breaks an invariant
