@@ -34,12 +34,43 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 
 | Crate | Path | Ports |
 |---|---|---|
-| `ultragraphdb_store_kv` | `ultragraphdb_store_kv` | The managed-mode Badger surface Dgraph uses, over fjall |
+| `ultragraphdb_store_kv` | `ultragraphdb_store_kv` | The managed-mode Badger surface Dgraph uses: the `Store` trait and its fjall implementation |
+| `ultragraphdb_store_sim` | `ultragraphdb_store_sim` | Written fresh: the simulated `Store`, its faults, the seeded workloads and their invariants |
 | `ultragraphdb_store_posting` | `ultragraphdb_store_posting` | `posting` (`list.go`, `mvcc.go`, `lists.go`, `index.go`, `writer.go`, `size.go`), the local commit |
 | `ultragraphdb_store_hnsw` | `ultragraphdb_store_hnsw` | `tok/hnsw` |
 | `ultragraphdb_store_apply` | `ultragraphdb_store_apply` | `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft |
 
 `ultragraphdb_core_schema` gains loading and saving through `ultragraphdb_store_kv`.
+
+### The store boundary and the storage simulator
+
+Everything above the store reaches it through one synchronous trait, `Store`, shaped in batches: apply a write batch at
+a version with a persist mode, read a key at a timestamp, read many keys at one timestamp in one call, scan a prefix or
+range of a snapshot, drop a prefix, set the discard timestamp, sync. `ultragraphdb_store_kv` implements it over fjall;
+`ultragraphdb_store_sim` implements it in memory for the simulator. fjall 3.1 does its file I/O through `std::fs` and
+runs its own worker threads, so a fault cannot be injected beneath it; the simulator injects faults at this boundary,
+which is where the port's own storage logic meets the disk.
+
+- **Faults.** A write batch that fails before or after it is applied; a process crash, which loses what was not yet
+  handed to the operating system; a power loss, which loses what was not synced; a read that fails; a stored value
+  whose bytes are corrupted, which the posting-list decoder must refuse; slow operations, in simulated time.
+- **Determinism.** A run is a function of its seed: the workload, the faults and the order in which the simulator steps
+  the apply loop and its readers are drawn from separate streams derived from it, and time advances only when the
+  simulator moves it. Storage code takes its clock, its randomness and its threads from what it is given; outside
+  `ultragraphdb_store_kv`, no storage code names fjall, `Instant::now`, `SystemTime::now`, `thread::spawn` or an
+  ambient random source. A failing run prints its seed, and the seed replays it.
+- **Workloads and invariants.** Each component adds its operations as it lands: batches, posting-list mutations,
+  rollups and splits, index maintenance and rebuilds, drops, the discard timestamp. A shadow model holds what must be
+  true, and after every step and every recovery the simulator checks it: a batch is visible whole or not at all, a
+  synced batch survives any crash, the applied timestamp names the last batch the store holds, a read returns only a
+  value that was written at or below its timestamp, a dropped prefix stays dropped.
+- **Where it runs.** The simulator needs no file system, so a fixed set of seeds runs as an ordinary hermetic Bazel
+  test in `make test`; longer runs over fresh seeds are a binary run outside it.
+
+The pattern is Apache Iggy's simulator (`core/simulator`), which runs the real server over in-memory doubles on a
+seeded cooperative executor. Iggy simulates at the file level because it owns its file format; the port owns its
+format at the store boundary, so that is where it simulates. Faults in fjall's own recovery are tested from outside
+the process: kills during a batch here, a fault-injecting file system in stage 4's harness.
 
 ### The store
 
@@ -64,7 +95,8 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 - **Banned namespaces** are a persisted set; a batch drops the writes addressed to them and writes the rest, and reads
   filter them. Badger refuses such writes with `ErrBannedKey`, which Dgraph ignores (`draft.go:984`).
 - **Durability.** A fjall write batch flushes to its journal only as its persist mode says; every commit batch is
-  written with the mode stage 4's durability setting chooses, and after a crash the store's applied timestamp names
+  written with the mode stage 4's durability setting chooses (from stage 4 the Raft log carries durability, and the
+  store is rebuilt from a snapshot and the log's entries after its applied index), and after a crash the store's applied timestamp names
   the last batch it holds.
 
 Alternative: redb. Decided against on 2026-10-20 (`dgraph-port-overview.md`).

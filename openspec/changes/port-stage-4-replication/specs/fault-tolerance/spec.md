@@ -26,3 +26,17 @@ new leader without disturbing it.
 - **WHEN** a group's leader is partitioned, a new leader is elected, and the partition heals
 - **THEN** the old leader committed nothing while isolated, steps down on hearing the new leader, and the new leader
   keeps its term and leadership
+
+### Requirement: A group runs in a deterministic simulator
+A group of three replicas and its Zero SHALL run in one process on a seeded cooperative executor over the simulated log
+storage, network and clock; the run SHALL be a function of its seed, and after each step the replicated state SHALL be
+checked against a shadow model.
+
+#### Scenario: A seed replays a run with crashes and partitions
+- **WHEN** a seed whose run crashes a leader and partitions a follower is run twice
+- **THEN** both runs commit the same entries in the same order and inject the same faults
+
+#### Scenario: Simulated faults lose no acknowledged write
+- **WHEN** a run injects storage faults, crashes, restarts and partitions over many steps
+- **THEN** every write acknowledged to a client is applied on every replica that recovers
+

@@ -3,10 +3,12 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 
 ## 1. Log storage → `ultragraphdb_raft_storage`
 
-- [ ] 1.1 Add `raft` (raft-rs); port `raftwal/storage_test.go` (11) and `encryption_test.go`'s format-independent cases; scenarios: raft-log-storage
-- [ ] 1.2 Implement raft-rs `Storage` over fjall: entries, terms, first and last index, hard state, configuration, snapshot metadata, compaction
-- [ ] 1.3 The node identifiers; the two durability modes; the kill-during-append test
-- [ ] 1.4 The entry payload codec (`key ‖ pb.Proposal`, `pb.ZeroProposal`), proposal key generation, the log dump tool
+- [ ] 1.1 Add `raft` (raft-rs) and `compio`; port `raftwal/storage_test.go` (11) and `encryption_test.go`'s format-independent cases; scenarios: raft-log-storage
+- [ ] 1.2 The asynchronous storage trait; its compio implementation; its simulated implementation with failures before and after an operation, torn writes reported and unreported, process crash and power loss, from a seeded stream
+- [ ] 1.3 The log: segments of framed, checksummed records, preallocation, the two-copy superblock, recovery to the last valid record, truncation of a conflicting suffix, compaction by segment
+- [ ] 1.4 raft-rs `Storage` over the log: entries, terms, first and last index, hard state, configuration, snapshot metadata
+- [ ] 1.5 The node identifiers; the two durability modes; the kill-during-append test; the storage-fault tests on the simulated implementation
+- [ ] 1.6 The entry payload codec (`key ‖ pb.Proposal`, `pb.ZeroProposal`), proposal key generation, the log dump tool
 
 ## 2. Transport → `ultragraphdb_raft_transport`
 
@@ -19,6 +21,8 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 - [ ] 3.1 Scenarios: group-replication (election, leadership reads)
 - [ ] 3.2 The Raft thread pool, batched mailboxes, the Ready handling order, the step-function loop, the leadership atomics
 - [ ] 3.3 Configuration changes and their waiters
+
+- [ ] 3.4 The deterministic simulator: the seeded cooperative executor, the simulated network and clock, the Raft threads stepped by it, the shadow model and its checks; scenarios: fault-tolerance (the simulator); a fixed seed set as a hermetic Bazel test
 
 ## 4. The Alpha group → `ultragraphdb_server_alpha`
 

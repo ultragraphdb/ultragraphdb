@@ -2,11 +2,21 @@ Every task group runs in the same order: write the feature scenarios and port th
 code (they pass), refactor with both green. A group is done when its BDD suite and unit tests pass under Cargo and
 Bazel with equal counts.
 
+## 0. Store boundary and simulator → `ultragraphdb_store_kv`, `ultragraphdb_store_sim`
+
+- [ ] 0.1 Scenarios: storage-simulation; the `Store` trait, synchronous and shaped in batches, with no implementation yet
+- [ ] 0.2 `ultragraphdb_store_sim`: the in-memory `Store`, the seed and its derived streams, simulated time, the step scheduler, seed replay
+- [ ] 0.3 The fault classes: failed batch before and after applying, process crash, power loss, failed read, corrupted value, slow operation
+- [ ] 0.4 The shadow model and the invariants checked after each step and each recovery; a fixed seed set as a hermetic Bazel test, and a fuzz binary run outside `make test`
+- [ ] 0.5 The determinism rule enforced: storage crates take clock, randomness and threads as given; clippy `disallowed-methods` for `Instant::now`, `SystemTime::now` and `thread::spawn` in them
+
+Each later group adds its operations to the simulator's workload and its rules to the shadow model before it is done.
+
 ## 1. Store over fjall → `ultragraphdb_store_kv`
 
 - [ ] 1.1 Add `fjall` to `[workspace.dependencies]`; create `ultragraphdb_store_kv`
 - [ ] 1.2 Scenarios: kv-store (versions, reads at a timestamp, snapshot scans, atomic batches, drops, banned namespaces)
-- [ ] 1.3 Implement versioned keys, per-version metadata, `get_at`, the per-key version iterator, snapshot prefix and range scans
+- [ ] 1.3 Implement the `Store` trait over fjall: versioned keys, per-version metadata, `get_at`, the per-key version iterator, snapshot prefix and range scans
 - [ ] 1.4 Implement write batches at a version with a persist mode, out-of-order and same-version writes, tombstones, prefix drops by point tombstones, drop-all by `Keyspace::clear`, banned namespaces, reads refused below the discard timestamp
 - [ ] 1.5 Implement the discard timestamp, its bound by open readers, and the compaction filter; scenarios: garbage collection
 - [ ] 1.6 Crash test: kill during a batch, reopen, check all-or-nothing

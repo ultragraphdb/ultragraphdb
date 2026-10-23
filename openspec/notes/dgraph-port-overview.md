@@ -61,6 +61,7 @@ pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
 | `dgraph-io/badger/v4` (storage) | `fjall` | Decided |
 | `dgraph-io/ristretto/v2` (cache) | `moka` | Decided |
 | `go.etcd.io/etcd/raft/v3` (consensus) | `raft-rs` (TiKV's port of etcd raft) | Decided |
+| `raftwal` (Dgraph's own Raft log) | An append-only log of the port's own, over `compio` (io_uring on Linux) | Decided |
 | `google.golang.org/grpc`, `protobuf` | `tonic`, `prost` | Decided |
 | `blevesearch/bleve` (tokenizers, stemmers) | A port of bleve's analysis in `ultragraphdb_core_tok`; `rust-stemmers` for the Snowball languages | Decided |
 | `golang/geo`, `twpayne/go-geom`, `paulmach/go.geojson` | Ports of golang/geo's S2 and of go-geom in `ultragraphdb_core_types` | Decided |
@@ -147,14 +148,16 @@ Dgraph's write-key check, the read-set check, and serial execution of upsert blo
 throughput, p99, the abort rate, and the head-of-line blocking the longest upsert causes on the serial
 thread.
 
-## Threads and the async runtime
+## Threads and the async runtimes
 
 The loop model is hybrid:
 
 * **The network edge is async.** tonic serves the gRPC API and the connections between nodes on a
   tokio runtime, where many idle connections cost little.
 * **The long-running loops run on a fixed pool of dedicated threads.** Each thread drives a set of
-  raft-rs groups, taking the `Ready` of every group it holds in one batch. A Dgraph Alpha belongs to
+  raft-rs groups, taking the `Ready` of every group it holds in one batch. Each Raft thread runs one compio
+  runtime for the Raft log's file I/O, completion-based on io_uring on Linux; the Ready loop stays a synchronous
+  step function and waits on its own appends. A Dgraph Alpha belongs to
   one group and runs each loop as its own goroutine; a fixed pool keeps the thread count bounded when
   a node holds several groups.
 * **One apply thread per group writes to the store.** It applies the committed entries of one `Ready`,

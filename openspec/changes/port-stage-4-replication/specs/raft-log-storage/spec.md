@@ -2,8 +2,8 @@
 
 ### Requirement: The log implements raft-rs storage
 The Raft log SHALL implement raft-rs's `Storage`: initial state, entries in a range within a size limit, the term
-of an index, the first and last index, and the snapshot, for one group per keyspace, together with the node's
-Raft ID and group ID.
+of an index, the first and last index, and the snapshot, for one log per group, together with the node's
+Raft ID and group ID, one log per group.
 
 #### Scenario: Entries read back as written
 - **WHEN** entries 1 to 1,000 are appended and entries 200 to 300 are read
@@ -30,7 +30,8 @@ so that the first index becomes `i + 1` and the term of `i` is still answered.
   answered
 
 ### Requirement: Persistence and durability modes
-The hard state, entries and snapshot metadata of one `Ready` SHALL be persisted in one atomic fjall batch. In
+The entries and hard state of one `Ready` SHALL be made durable together: after a crash the log SHALL hold all or none
+of a `Ready`'s entries, and its hard state SHALL match its entries. In
 `process` mode (the default, as in Dgraph) they SHALL survive a crash of the process, and the log and the store SHALL
 be synced once a minute; in `filesystem` mode the log SHALL be synced, when the `Ready` must sync, before a
 follower's messages leave, and the store SHALL be synced after each applied batch.
@@ -51,3 +52,30 @@ entry by entry.
 #### Scenario: A log dump lists proposals
 - **WHEN** the dump tool reads a group's log
 - **THEN** it lists each entry's index, term, type, proposal key and decoded proposal
+
+### Requirement: Records are framed and checksummed
+Each log record SHALL carry its length and the CRC32C of its body, and recovery SHALL end the log at the first record
+that is short or fails its checksum; the hard state, configuration, snapshot metadata and node identifiers SHALL sit
+in two checksummed superblock copies written alternately.
+
+#### Scenario: A torn tail is removed at recovery
+- **WHEN** the last record of a segment is written half and the process crashes
+- **THEN** after recovery the log ends at the record before it and holds every entry synced before it
+
+#### Scenario: A torn write the device reported as complete is refused
+- **WHEN** a record is written short while the write reports success, and the log is reopened
+- **THEN** the record's checksum fails and the log ends before it
+
+#### Scenario: A torn superblock write keeps the other copy
+- **WHEN** a superblock write is torn
+- **THEN** recovery reads the other copy and the hard state it holds
+
+### Requirement: Log I/O runs through one storage trait
+All log file access SHALL go through an asynchronous storage trait with two implementations: compio for production,
+and a simulated one that injects a failure before or after an operation, torn writes reported and unreported, process
+crashes and power loss.
+
+#### Scenario: A power loss keeps every synced entry
+- **WHEN** the log runs on the simulated storage and a power loss is injected after some appends were synced
+- **THEN** after recovery the log holds every synced entry and no entry in part
+

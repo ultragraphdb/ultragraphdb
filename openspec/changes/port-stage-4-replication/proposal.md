@@ -7,8 +7,12 @@ threads driving Raft groups, one apply thread per group, tonic at the network ed
 
 ## What Changes
 
-- Raft log storage on fjall implementing raft-rs's `Storage`: entries, hard state, configuration, snapshot
-  metadata, compaction, and Dgraph's per-node identifiers.
+- Raft log storage implementing raft-rs's `Storage` in an append-only log of its own: segments of framed, checksummed
+  records and a two-copy superblock for hard state, configuration, snapshot metadata and Dgraph's per-node
+  identifiers. Its file I/O runs through an asynchronous storage trait, on compio (io_uring on Linux) in production and
+  on a simulated implementation that injects torn writes, crashes and power loss.
+- A deterministic simulator running a group and its Zero in one process on a seeded executor, over the simulated log
+  storage, network and clock, checked against a shadow model after each step.
 - The Raft transport over tonic: batched message streams per peer, connection pools, health heartbeats,
   unreachable reports, `JoinCluster` and `IsPeer`.
 - The Alpha's Raft node ported from `worker/draft.go` and `proposal.go`: the Ready loop, proposals with retries,
@@ -27,7 +31,7 @@ threads driving Raft groups, one apply thread per group, tonic at the network ed
 
 ### New Capabilities
 
-- `raft-log-storage`: the Raft log, hard state and snapshot metadata on fjall.
+- `raft-log-storage`: the Raft log, hard state and snapshot metadata in a log of its own, over compio.
 - `raft-transport`: messages between replicas, connections and their health.
 - `group-replication`: a group of replicas committing, applying and recovering.
 - `group-snapshots`: snapshots and bringing a lagging replica up to date.
@@ -41,7 +45,7 @@ None.
 
 ## Impact
 
-- New crates `ultragraphdb_raft_*`; `raft` (raft-rs) joins `[workspace.dependencies]`.
+- New crates `ultragraphdb_raft_*`; `raft` (raft-rs) and `compio` join `[workspace.dependencies]`.
 - `ultragraphdb_server_alpha` and `ultragraphdb_server_zero` run their state through Raft; the apply thread takes committed entries
   instead of requests.
 - Commit timestamps, uids and the watermark travel in the Raft entries; Zero refuses commit leases to non-leaders.

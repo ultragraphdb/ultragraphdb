@@ -39,25 +39,48 @@ round trip to the Raft goroutine, in Zero and in the Alpha (`zero/raft.go:56-62`
 
 | Crate | Path | Ports |
 |---|---|---|
-| `ultragraphdb_raft_storage` | `ultragraphdb_raft_storage` | `raftwal` as raft-rs `Storage` on fjall; the log dump tool |
+| `ultragraphdb_raft_storage` | `ultragraphdb_raft_storage` | `raftwal` as raft-rs `Storage`: an append-only log of its own over an async storage trait, with a compio implementation and a simulated one; the log dump tool |
 | `ultragraphdb_raft_transport` | `ultragraphdb_raft_transport` | `conn/raft_server.go`, `pool.go`, the batching of `node.go` |
 | `ultragraphdb_raft_node` | `ultragraphdb_raft_node` | `conn/node.go`'s node core, the Ready loop, proposals and their waiters, configuration changes |
 
 `ultragraphdb_server_alpha` gains `draft.go`'s apply dispatch, snapshots and membership; `ultragraphdb_server_zero` gains Zero's Raft state
 machine.
 
-### The log in fjall
+### The Raft log: an append-only log of its own, over compio
 
-One keyspace per group, keyed by index, beside the store's keyspaces; hard state, configuration, snapshot metadata
-and the node's identifiers in a metadata keyspace. One fjall batch per Ready holds that Ready's entries and hard
-state. Dgraph's on-disk WAL layout (`wal.meta`, slot tables) is not reproduced; the entry payload is
-(`key ‖ pb.Proposal`), so a dump tool can compare logs of both implementations.
+Dgraph keeps its Raft log outside Badger, in `raftwal`'s own mmap'd files (`wal.meta`, slot tables); the port also
+keeps it outside the store, in a log of its own, with its own layout. The log is where durability lives: an append and
+its sync sit on the commit path, so the log gets asynchronous, completion-based I/O, and its recovery code, the hardest
+to get right, gets a simulator at the file level.
+
+- **Layout.** One directory per group: segment files of framed records, preallocated, and a superblock. A record is its
+  length, the CRC32C of its body, and the body: index, term, kind and payload. The superblock holds the hard state, the
+  configuration, the snapshot's metadata and the node's identifiers, written alternately to two checksummed copies so a
+  torn write leaves the other intact.
+- **Appends and recovery.** One `Ready` appends its entries as one run of records and, when the hard state changes,
+  writes the superblock after them; both are synced together when the `Ready` must sync. Recovery reads forward and
+  ends the log at the first record that is short or fails its checksum, which removes a torn tail, including one the
+  device wrote short without reporting it. A conflicting append truncates the log at the conflict before writing.
+  Compaction deletes the segments wholly at or below the snapshot's index.
+- **The storage trait.** All file access goes through an asynchronous trait over files and directories: open, read and
+  write at an offset, length, truncate, sync a file, sync a directory, rename, remove, list. The production
+  implementation runs on compio, completion-based on io_uring on Linux and on the platform's poller elsewhere; compio is
+  chosen over tokio as the leaner and faster runtime. Each Raft thread runs one compio runtime and drives the log I/O
+  of the groups it holds; the Ready loop stays a synchronous step function and waits on its own appends. The transport
+  stays on tonic and its tokio runtime.
+- **The simulated implementation** holds files in memory and injects, as a seeded stream draws them, a failure before
+  or after an operation, a torn write that reports its error, a torn write that reports success, a process crash, and a
+  power loss that discards what was not synced. It is Apache Iggy's `SimStorage` (`core/simulator/src/storage.rs`)
+  pattern, under the same trait as production.
+- **The entry payload** is (`key ‖ pb.Proposal`), as Dgraph writes it, so a dump tool can compare logs of both
+  implementations.
 
 raft-rs (`raft` 0.7) encodes its messages with rust-protobuf 2, or prost 0.11 through `prost-codec`; neither is tonic
 0.14's prost, so Raft messages cross the transport as encoded bytes.
 
-Alternative: `raft-engine`, TiKV's log store. A second storage engine to operate, where fjall already provides
-atomic batches and its own journal.
+Alternatives: a fjall keyspace per group, which ties the log's durability to the store's journal and gives no file
+level to simulate; `raft-engine`, TiKV's log store, a second storage engine with its own threads and no seam for
+fault injection.
 
 ### Durability modes as Dgraph has them
 
@@ -125,6 +148,17 @@ exempt (`proposal.go:125-312`, `draft.go:1108-1153`); schema proposals take one 
 (`proposal.go:192-195`). Zero's proposals retry with fresh keys and doubling timeouts up to 32 s
 (`zero/raft.go:97-185`).
 
+### The deterministic simulator
+
+A group of three replicas and its Zero run in one process on a seeded cooperative executor: the real Raft node, apply
+thread and log code, over the simulated log storage, a simulated network (delays, drops, duplicates, partitions) and a
+simulated clock. raft-rs draws election timeouts from `rand::rng()`, so the simulator sets `max_election_tick` to
+`min_election_tick + 1`. Task order, network faults, storage faults, crashes and restarts each draw from their own
+stream of the run's seed; a failing run prints its seed, and the seed replays it. After each step the simulator checks
+the replicated state against a shadow model: no acknowledged write lost, every replica applying the same entries in the
+same order, no two leaders in a term committing. A fixed seed set is a hermetic Bazel test; long runs are a binary run
+outside `make test`. The model is Iggy's simulator, which runs its real consensus this way.
+
 ### The fault harness
 
 Processes on one host or in containers, controlled by a Rust harness: kill and restart, network partitions by proxy,
@@ -152,4 +186,4 @@ keep working.
 
 - Should `filesystem` durability be the default, given that the Raft log alone carries durability once the store
   syncs rarely?
-- What size bound on the fjall log replaces Dgraph's four-WAL-file snapshot trigger?
+- What size bound on the log's segments replaces Dgraph's four-WAL-file snapshot trigger?

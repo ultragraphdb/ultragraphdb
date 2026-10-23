@@ -2,7 +2,7 @@
 
 ### Requirement: Snapshots are taken at a safe point
 The leader SHALL check once a minute and propose a snapshot when none exists, when the log holds more than Dgraph's
-bound (4 WAL files in Dgraph, a size bound on fjall), or when 30 minutes have passed and the applied index is 10,000
+bound (4 WAL files in Dgraph, a size bound on the log's segments), or when 30 minutes have passed and the applied index is 10,000
 entries past the first; the snapshot SHALL be at the latest applied index, since no pending transactions bound it, with
 a read timestamp equal to the highest commit timestamp applied at or below that index. A snapshot at or below the
 current one SHALL change nothing. The discard timestamp SHALL follow the snapshot's read timestamp, bounded by the

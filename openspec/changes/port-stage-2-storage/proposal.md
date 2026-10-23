@@ -31,11 +31,16 @@ query engine or a Raft log depends on them.
   - A predicate created by a write is created in that write's commit batch; Dgraph creates it at the start timestamp
     and keeps it after an abort.
 
+- A `Store` trait between the port and fjall, synchronous and shaped in batches, with a simulated implementation that
+  injects storage faults (failed batches, process crash, power loss, failed and corrupted reads, slow operations) under
+  a seeded, deterministic scheduler and checks invariants against a shadow model after every step.
+
 ## Capabilities
 
 ### New Capabilities
 
 - `kv-store`: the versioned store over fjall and its garbage collection.
+- `storage-simulation`: the `Store` trait, the simulated store and its faults, seeded deterministic runs, invariants.
 - `posting-lists`: reading, merging, rolling up and splitting posting lists.
 - `local-commit`: a request's writes, visible to itself, committed as one batch at one timestamp.
 - `posting-cache`: the moka cache and when it is updated or cleared.
