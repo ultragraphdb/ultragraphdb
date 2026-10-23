@@ -1,0 +1,37 @@
+openspec/notes/dgraph-bugs-found-in-port.md
+  s_e7d9aa044e41ea::t_19a3259edeb569 5-7,9-41
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_64e02f9bf55801 233
+openspec/specs/dql-parsing/spec.md
+  s_e7d9aa044e41ea::t_c863eef2488341 1-95
+openspec/specs/key-encoding/spec.md
+  s_e7d9aa044e41ea::t_62615fb4806a30 1-89
+openspec/specs/mutation-input/spec.md
+  s_e7d9aa044e41ea::t_149c8402eb58dd 1-51
+openspec/specs/port-testing/spec.md
+  s_e7d9aa044e41ea::t_04e5820cfcca8a 1-55
+openspec/specs/scalar-types/spec.md
+  s_e7d9aa044e41ea::t_76314298f2d828 1-133
+openspec/specs/schema-parsing/spec.md
+  s_e7d9aa044e41ea::t_a15a7b9d4b3419 1-87
+openspec/specs/tokenizers/spec.md
+  s_e7d9aa044e41ea::t_8d5ab49f733d20 1-120
+openspec/specs/uid-lists/spec.md
+  s_e7d9aa044e41ea::t_fc4f8a7ef53156 1-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "158d5e2d2c6802735a8adaa0500a8fd280785385",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
