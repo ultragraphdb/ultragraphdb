@@ -42,7 +42,7 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 | `ultragraphdb_store_kv` | `ultragraphdb_store/ultragraphdb_store_kv` | `ultragraphdb_error_store`, `ultragraphdb_traits_store`; `fjall`, `moka` | The managed-mode Badger surface Dgraph uses, as the `Store` over fjall; the production `ListCache` over moka and the thread-backed `Executor` |
 | `ultragraphdb_store_sim` | `ultragraphdb_store/ultragraphdb_store_sim` | `ultragraphdb_error_store`, `ultragraphdb_traits_store` | Written fresh: the simulated `Store`, its faults, the deterministic `ListCache`, the stepped `Executor`, the seeded workloads and their invariants |
 | `ultragraphdb_store_posting` | `ultragraphdb_store/ultragraphdb_store_posting` | `ultragraphdb_error_store`, `ultragraphdb_traits_store`, `ultragraphdb_common_utils`, `ultragraphdb_core_algo`, `ultragraphdb_core_codec`, `ultragraphdb_core_keys`, `ultragraphdb_core_types`, `ultragraphdb_proto_pb` | `posting` (`list.go`, `mvcc.go`, `lists.go`, `writer.go`, `size.go`), the local commit; `PostingError` |
-| `ultragraphdb_store_hnsw` | `ultragraphdb_store/ultragraphdb_store_hnsw` | `ultragraphdb_store_posting`, `ultragraphdb_core_keys`, `ultragraphdb_traits_index` | `tok/hnsw`; `HnswError` |
+| `ultragraphdb_store_hnsw` | `ultragraphdb_store/ultragraphdb_store_hnsw` | `ultragraphdb_store_posting`, `ultragraphdb_core_keys`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_common_utils`, `ultragraphdb_error_options`, `ultragraphdb_proto_pb`, `ultragraphdb_traits_index`, `ultragraphdb_traits_store`, `tracing` | `tok/hnsw`; `HnswError` |
 | `ultragraphdb_store_apply` | `ultragraphdb_store/ultragraphdb_store_apply` | `ultragraphdb_store_posting`, `ultragraphdb_store_hnsw`, `ultragraphdb_core_keys`, `ultragraphdb_core_schema`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_proto_pb` | `posting/index.go` (index maintenance, rebuilds, drops), `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft; `ApplyError` |
 
 The store crates sit in the `ultragraphdb_store/` group folder, which the root `Cargo.toml` takes as members with
@@ -333,6 +333,13 @@ Ported from `tok/hnsw` and stored as Dgraph stores it (the vector-index spec). I
 `deadNodes` live for one insert or one search, as in Dgraph: every insert and search builds a fresh `persistentHNSW`
 (`tok/index_factory.go:56-60`, `tok/hnsw/persistent_factory.go:97-169`). The dead list itself is written by index
 maintenance (`posting/index.go:113-152`), so it belongs to `ultragraphdb_store_apply`.
+
+The stage-1 traits `VectorIndex`, `IndexFactory`, `OptionalIndexSupport` and `OptionalSearchOptions` are reshaped so
+`PersistentHnsw` implements them: each method generic over a cache is bounded `C: CacheType<Error = Self::Error>`, and
+`insert` takes the transaction it writes through, as Go's insert writes only through a `*TxnCache`
+(`persistent_hnsw.go:444-448`). An HNSW option below 1 (`maxLevels`, `efConstruction`, `efSearch`, `exponent: "0"`) is
+refused when the schema change carrying it arrives, so no stored schema holds one; Go accepts it and panics on search.
+The index's build keeps the same check.
 
 ## Risks / Trade-offs
 
