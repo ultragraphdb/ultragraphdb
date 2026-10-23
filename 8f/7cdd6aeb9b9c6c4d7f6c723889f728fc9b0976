@@ -1,0 +1,19 @@
+ultragraphdb_store/ultragraphdb_store_sim/README.md
+  s_e7d9aa044e41ea::t_e382bb4760f432 65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8f7cdd6aeb9b9c6c4d7f6c723889f728fc9b0976",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
