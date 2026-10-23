@@ -2828,7 +2828,6 @@ dependencies = [
  "futures",
  "prost",
  "serde",
- "serde_json",
  "tracing",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_keys",

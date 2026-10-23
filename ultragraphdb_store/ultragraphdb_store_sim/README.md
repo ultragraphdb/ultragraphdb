@@ -62,8 +62,7 @@ few hundred steps see most of them. `Fault` forces one at a chosen point in a te
 
 Each detector was checked against planted bugs: seven in the simulated store (lost synced batches, a partial batch,
 over-eager collection, a read above its timestamp, drop entries not written, a crash losing buffered batches, bans
-ignored), each reported under the right invariant; a disabled cache update in the posting commit, caught at once; the
-journaled removals of collected keys disabled in the fjall store, caught by the crash runs.
+ignored), each reported under the right invariant, and a disabled cache update in the posting commit, caught at once.
 
 ## Injected but not detected
 
