@@ -376,7 +376,7 @@ fn loop_contains_point() {
             let c = cl.center();
             points.insert((c.x().to_bits(), c.y().to_bits(), c.z().to_bits()));
             for k in 0..4 {
-                let v = cl.vertex(k);
+                let v = cl.vertex(k).unwrap();
                 vertices.push(v);
                 points.insert((v.x().to_bits(), v.y().to_bits(), v.z().to_bits()));
             }
@@ -470,4 +470,26 @@ fn loop_vertex_wraps() {
     assert_eq!(l.vertex(3), l.vertex(0));
     assert_eq!(l.vertex(4), l.vertex(1));
     assert_eq!(l.vertex(7), l.vertex(1));
+}
+
+#[test]
+fn a_loop_of_no_points_is_the_empty_loop() {
+    // Go's loop of no vertices divides by its vertex count in ContainsPoint and panics.
+    let l = Loop::from_points(Vec::new());
+    assert!(l.is_empty());
+    assert!(!l.contains_point(Point::from_lat_lng(LatLng::from_degrees(1.0, 2.0))));
+    assert!(
+        Loop::regular(
+            Point::from_lat_lng(LatLng::from_degrees(1.0, 2.0)),
+            Angle::from_radians(0.1),
+            0
+        )
+        .is_empty()
+    );
+    // A loop of points that are not finite: Go's exact predicates panic on them.
+    let nan = Point::from_vector(R3Vector::new(f64::NAN, 0.0, 1.0));
+    let p = Point::from_lat_lng(LatLng::from_degrees(1.0, 2.0));
+    let q = Point::from_lat_lng(LatLng::from_degrees(3.0, 4.0));
+    let l = Loop::from_points(vec![p, nan, q]);
+    let _ = l.contains_point(p);
 }

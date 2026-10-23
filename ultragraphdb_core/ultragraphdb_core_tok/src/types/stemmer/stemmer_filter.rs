@@ -13,7 +13,7 @@ use crate::types::stemmer::{Kind, Stemmer};
 impl Stemmer {
     /// The filter's `Filter`: each token's term stemmed, or, for `cjk_bigram`, the CJK bigrams of the stream.
     pub fn filter(&self, input: Vec<AnalysisToken>) -> Vec<AnalysisToken> {
-        if self.0 == Kind::CjkBigram {
+        if self.kind == Kind::CjkBigram {
             return cjk_bigram::filter(input);
         }
         input
@@ -28,7 +28,7 @@ impl Stemmer {
 
     /// The stem of one term; `cjk_bigram` keeps it.
     pub fn stem(&self, term: &[u8]) -> Vec<u8> {
-        match self.0 {
+        match self.kind {
             Kind::Porter => porterstemmer::stem(term),
             Kind::Arabic => stemmer_ar::stem(term),
             Kind::Sorani => sorani_stemmer_filter::stem(term),

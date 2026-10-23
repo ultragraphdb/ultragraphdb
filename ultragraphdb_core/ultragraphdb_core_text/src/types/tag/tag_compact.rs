@@ -25,7 +25,11 @@ use crate::utils::tag_index::partition_point;
 static SPECIAL_TAGS: LazyLock<Vec<FullTag>> = LazyLock::new(|| {
     SPECIAL_TAGS_STR
         .split(' ')
-        .map(|t| parse::parse(t).unwrap_or_else(|(_, e)| panic!("special tag {t}: {e}")))
+        .map(|t| {
+            parse::parse(t)
+                .map_err(|(_, e)| e)
+                .expect("the constant SPECIAL_TAGS_STR holds valid tags")
+        })
         .collect()
 });
 

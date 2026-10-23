@@ -53,7 +53,8 @@ pub(crate) fn peek_one_or_eof<'l, 'a>(it: &It<'l, 'a>) -> &'l Item<'a> {
         Some(item) => item,
         None => {
             let mut before = it.clone();
-            before.restore(-1);
+            // -1, before the first item, is always in range; there the iterator answers the out-of-range item.
+            let _ = before.restore(-1);
             before.item()
         }
     }

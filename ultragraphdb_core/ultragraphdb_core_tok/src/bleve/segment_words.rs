@@ -86,7 +86,12 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
     loop {
         match label {
             Label::Resume => {
-                let c = data[p as usize];
+                // Only an end-of-input transition without a finish moves p past the end, where Go indexes past the
+                // data and panics; the scan ends there instead.
+                let Some(&c) = usize::try_from(p).ok().and_then(|i| data.get(i)) else {
+                    label = Label::TestEof;
+                    continue;
+                };
                 let mut keys = S_KEY_OFFSETS[cs] as isize;
                 let mut trans = S_INDEX_OFFSETS[cs] as isize;
                 let mut matched = false;
@@ -199,7 +204,8 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
                         };
                         None
                     }
-                    a => unreachable!("segment: no action {a}"),
+                    // Go's switch has no default: a code it does not name does nothing.
+                    _ => None,
                 };
                 if let Some(finish) = finish {
                     return Ok(finish_token(data, finish, start_pos, end_pos));

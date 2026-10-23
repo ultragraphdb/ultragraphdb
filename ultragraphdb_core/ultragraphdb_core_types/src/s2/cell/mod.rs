@@ -83,15 +83,16 @@ impl Cell {
     }
 
     /// Returns the k-th vertex of the cell (k = 0,1,2,3) in CCW order (lower left, lower right,
-    /// upper right, upper left in the UV plane).
-    pub fn vertex(&self, k: usize) -> Point {
-        Point(self.vertex_raw(k).0.normalize())
+    /// upper right, upper left in the UV plane); `None` for any other k, where Go indexes past the vertices and
+    /// panics.
+    pub fn vertex(&self, k: usize) -> Option<Point> {
+        self.vertex_raw(k).map(|v| Point(v.0.normalize()))
     }
 
-    /// Returns the unnormalized k-th vertex of the cell (k = 0,1,2,3) in CCW order.
-    pub fn vertex_raw(&self, k: usize) -> Point {
-        let v = self.uv.vertices()[k];
-        Point(face_uv_to_xyz(self.face, v.x, v.y))
+    /// Returns the unnormalized k-th vertex of the cell (k = 0,1,2,3) in CCW order; `None` for any other k.
+    pub fn vertex_raw(&self, k: usize) -> Option<Point> {
+        let v = self.uv.vertices().get(k).copied()?;
+        Some(Point(face_uv_to_xyz(self.face, v.x, v.y)))
     }
 
     /// Returns the bounds of this cell in (u,v)-space.
@@ -135,14 +136,12 @@ impl Cell {
         longitude(Point(face_uv_to_xyz(self.face, u, v))).radians()
     }
 
+    /// The corner `(i, j)`, each 0 for the low and 1 for the high bound; the callers pass only 0 and 1, and any
+    /// other value reads as 1, where Go panics.
     fn corner(&self, i: usize, j: usize) -> (f64, f64) {
-        match (i, j) {
-            (0, 0) => (self.uv.x.lo, self.uv.y.lo),
-            (0, 1) => (self.uv.x.lo, self.uv.y.hi),
-            (1, 0) => (self.uv.x.hi, self.uv.y.lo),
-            (1, 1) => (self.uv.x.hi, self.uv.y.hi),
-            _ => panic!("i and/or j is out of bounds"),
-        }
+        let u = if i == 0 { self.uv.x.lo } else { self.uv.x.hi };
+        let v = if j == 0 { self.uv.y.lo } else { self.uv.y.hi };
+        (u, v)
     }
 
     /// Returns the bounding rectangle of this cell.
@@ -247,8 +246,8 @@ impl Cell {
         // bounding cap with minimal surface area, but they are both pretty close.
         let c = self.uv.center();
         let mut cap = Cap::from_point(Point(face_uv_to_xyz(self.face, c.x, c.y).normalize()));
-        for k in 0..4 {
-            cap = cap.add_point(self.vertex(k));
+        for v in (0..4).filter_map(|k| self.vertex(k)) {
+            cap = cap.add_point(v);
         }
         cap
     }

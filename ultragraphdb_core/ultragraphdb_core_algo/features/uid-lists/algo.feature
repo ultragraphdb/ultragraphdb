@@ -15,3 +15,8 @@ Feature: Sorted-set operations over UID lists
     Given the UID lists "1, 3, 5", "3, 4" and "5, 6"
     When they are merged as plain lists and as packed lists
     Then both results are "1, 3, 4, 5, 6"
+
+  Scenario: Intersecting from past a pack's last UID returns nothing
+    Given the UIDs 1 to 100 packed and the plain list of the UIDs 1 to 11
+    When the packed list is intersected with the plain one after UID 200
+    Then the intersection is empty

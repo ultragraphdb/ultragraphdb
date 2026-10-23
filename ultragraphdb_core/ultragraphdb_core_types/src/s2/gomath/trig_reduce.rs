@@ -48,7 +48,8 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     let lz = hi.leading_zeros();
     let e = (BIAS as u64).wrapping_sub(lz as u64 + 1);
     // Clear implicit mantissa bit and shift into place.
-    let mut hi = shl(hi, lz + 1) | shr(lo, 64 - (lz + 1));
+    // Go's uint subtraction wraps when hi is 0, and its shift by the result gives 0.
+    let mut hi = shl(hi, lz + 1) | shr(lo, 64u32.wrapping_sub(lz + 1));
     hi >>= 64 - SHIFT;
     // Include the exponent and convert to a float.
     hi |= e << SHIFT;

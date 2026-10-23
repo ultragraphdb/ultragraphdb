@@ -27,7 +27,7 @@ pub(crate) fn resolve_tokenizers(updates: &[pb::SchemaUpdate]) -> Result<(), Sch
         if (typ == TypeId::UID || typ == TypeId::DEFAULT || typ == TypeId::PASSWORD) && indexed {
             return Err(SchemaError::parse(format!(
                 "Indexing not allowed on predicate {} of type {}",
-                parse_attr(&schema.predicate),
+                parse_attr(&schema.predicate)?,
                 typ.name()
             )));
         }
@@ -46,7 +46,7 @@ pub(crate) fn resolve_tokenizers(updates: &[pb::SchemaUpdate]) -> Result<(), Sch
         } else if has_index && !indexed {
             return Err(SchemaError::parse(format!(
                 "Tokenizers present without indexing on attr {}",
-                parse_attr(&schema.predicate)
+                parse_attr(&schema.predicate)?
             )));
         }
         // check for valid tokenizer types and duplicates
@@ -60,14 +60,14 @@ pub(crate) fn resolve_tokenizers(updates: &[pb::SchemaUpdate]) -> Result<(), Sch
                 return Err(SchemaError::parse(format!(
                     "Tokenizer: {} isn't valid for predicate: {} of type: {}",
                     tokenizer.name(),
-                    parse_attr(&schema.predicate),
+                    parse_attr(&schema.predicate)?,
                     typ.name()
                 )));
             }
             if !seen.insert(tokenizer.name()) {
                 return Err(SchemaError::parse(format!(
                     "Duplicate tokenizers present for attr {}",
-                    parse_attr(&schema.predicate)
+                    parse_attr(&schema.predicate)?
                 )));
             }
             if tokenizer.is_sortable() {

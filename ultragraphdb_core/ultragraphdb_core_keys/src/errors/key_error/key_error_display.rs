@@ -11,6 +11,7 @@ use std::fmt::{Display, Formatter, Result};
 use ultragraphdb_common_utils::{go_fmt, go_strconv};
 
 use super::{KeyError, KeyErrorEnum};
+use crate::keys::NS_SEPARATOR;
 
 impl Display for KeyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
@@ -68,6 +69,42 @@ impl Display for KeyError {
             KeyErrorEnum::SplitNonDefaultPrefix => {
                 write!(f, "only keys with default prefix can have a split key")
             }
+            KeyErrorEnum::MissingNamespaceSeparator { attr } => write!(
+                f,
+                "Attribute {} has no namespace separator {}",
+                go_strconv::quote(attr),
+                go_strconv::quote(NS_SEPARATOR)
+            ),
+            KeyErrorEnum::InvalidNamespace { attr, error } => write!(
+                f,
+                "Invalid namespace in attribute {}: {error}",
+                go_strconv::quote(attr)
+            ),
+            KeyErrorEnum::AttributeTooLong { len } => write!(
+                f,
+                "Attribute of {len} bytes is too long for a key, which holds at most {}",
+                u16::MAX - 1
+            ),
+            KeyErrorEnum::TrustMarkerMissing => write!(
+                f,
+                "x.RegisterReservedNamespace: ValueLocked is set but TrustMarker is nil; a value-locked predicate \
+                 with no TrustMarker is unwritable by everyone, including its owner"
+            ),
+            KeyErrorEnum::QualifiedReservedName { name } => write!(
+                f,
+                "x.RegisterReservedNamespace: name {} must be bare, without the {} namespace separator",
+                go_strconv::quote(name),
+                go_strconv::quote(NS_SEPARATOR)
+            ),
+            KeyErrorEnum::EmptyValueLockedPrefix => write!(
+                f,
+                "x.RegisterReservedNamespace: value-locked prefix must not be empty"
+            ),
+            KeyErrorEnum::AlreadyRegistered { kind, name } => write!(
+                f,
+                "x.RegisterReservedNamespace: {kind} {} already registered",
+                go_strconv::quote(name)
+            ),
         }
     }
 }

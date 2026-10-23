@@ -7,15 +7,15 @@
 ## 2. uid-lists: codec and algo (ledger 1–5, 25–27)
 
 - [ ] 2.1 Feature scenarios for the uid-lists requirements of this change; run red
-- [ ] 2.2 `Decoder::sought` replaces `Decoder::unpositioned`; callers in codec and algo build through it (4)
-- [ ] 2.3 `peek_next_base` returns `Option<u64>`; `linear_seek(u64::MAX)` returns the last block (5)
-- [ ] 2.4 `seek_to_block`: `blocks.get(prev)`, unpack when the target block differs from the one held, `uids.last()` for an empty block; the `# Panics` sections go (3, 4, 27)
+- [x] 2.2 `Decoder::sought` replaces `Decoder::unpositioned`; callers in codec and algo build through it (4)
+- [x] 2.3 `peek_next_base` returns `Option<u64>`; `linear_seek(u64::MAX)` returns the last block (5)
+- [x] 2.4 `seek_to_block`: `blocks.get(prev)`, unpack when the target block differs from the one held, `uids.last()` for an empty block; the `# Panics` sections go (3, 4, 27)
 - [ ] 2.5 `intersect_sorted_packed` folds every list; `difference_packed` equals `difference` over all blocks; golden comparisons use the plain results (1, 2, 25, 26)
 
 ## 3. key-encoding (ledger 6)
 
-- [ ] 3.1 Feature scenario; run red
-- [ ] 3.2 `parse` returns `InvalidFormat` when the type byte is missing; golden `panics` cases expect the error
+- [x] 3.1 Feature scenario; run red
+- [x] 3.2 `parse` returns `InvalidFormat` when the type byte is missing; golden `panics` cases expect the error
 
 ## 4. scalar-types (ledger 10, 19, Q2, Q4)
 
@@ -34,23 +34,23 @@
 
 ## 6. facets (ledger 20)
 
-- [ ] 6.1 `FacetValue` replaces the `(Value, ValType)` pair; `to_binary` encodes each variant; the chunker builds `FacetValue` directly
-- [ ] 6.2 The golden `panic` cases of `facets_to_binary` are covered as not expressible; the other cases pass unchanged
+- [x] 6.1 `FacetValue` replaces the `(Value, ValType)` pair; `to_binary` encodes each variant; the chunker builds `FacetValue` directly
+- [x] 6.2 The golden `panic` cases of `facets_to_binary` are covered as not expressible; the other cases pass unchanged
 
 ## 7. dql-parsing (ledger 12, 13, 29)
 
 - [ ] 7.1 Feature scenarios; run red
-- [ ] 7.2 `Object` enum from `NQuad::object()`; value edges take `&api::Value`; an N-Quad with neither object is refused with `Unknown value type for nquad` (13)
-- [ ] 7.3 `delete_predicate_edge(attr, namespace)` replaces `to_delete_pred_edge` (13, 29)
+- [x] 7.2 `Object` enum from `NQuad::object()`; value edges take `&api::Value`; an N-Quad with neither object is refused with `Unknown value type for nquad` (13)
+- [x] 7.3 `delete_predicate_edge(attr, namespace)` replaces `to_delete_pred_edge` (13, 29)
 - [ ] 7.4 Every failing variable and argument reported, in key order, joined by newlines (12)
 
 ## 8. mutation-input (ledger 19, 21, 22, 23, 24)
 
-- [ ] 8.1 Feature scenarios; run red
-- [ ] 8.2 `parse_json` refuses non-whitespace after the first value with Go's `after top-level value` text and no longer re-decodes (22)
-- [ ] 8.3 List items under `predicate@lang` carry the language (23)
-- [ ] 8.4 `data_format`: the `rdf` or `json` option wins, otherwise the extension (21)
-- [ ] 8.5 The null-geometry refusal and the JSON number outcomes pass as scenarios (19, 24)
+- [x] 8.1 Feature scenarios; run red
+- [x] 8.2 `parse_json` refuses non-whitespace after the first value with Go's `after top-level value` text and no longer re-decodes (22)
+- [x] 8.3 List items under `predicate@lang` carry the language (23)
+- [x] 8.4 `data_format`: the `rdf` or `json` option wins, otherwise the extension (21)
+- [x] 8.5 The null-geometry refusal and the JSON number outcomes pass as scenarios (19, 24)
 
 ## 9. Later stages' requirements
 

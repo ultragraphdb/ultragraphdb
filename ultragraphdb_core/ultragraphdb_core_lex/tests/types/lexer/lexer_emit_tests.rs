@@ -154,3 +154,22 @@ fn test_positions_golden() {
         assert_eq!(validate, case.validate, "input {:?}", case.input);
     }
 }
+
+#[test]
+fn test_emit_eof_and_ignore_before_start_take_nothing() {
+    // Go slices the input from start to pos and panics when pos is before start; the port takes the empty text.
+    let mut l = Lexer::new("ab");
+    l.next();
+    l.ignore();
+    l.backup();
+    l.ignore();
+    assert_eq!((l.start(), l.pos(), l.column()), (0, 0, 1));
+    l.next();
+    l.ignore();
+    l.backup();
+    l.emit(ITEM_EOF);
+    let mut it = l.new_iterator();
+    assert!(it.next());
+    assert_eq!((it.item().typ(), it.item().val()), (ITEM_EOF, ""));
+    assert!(!it.next());
+}

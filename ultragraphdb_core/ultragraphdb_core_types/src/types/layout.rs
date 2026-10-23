@@ -39,6 +39,19 @@ impl Layout {
         }
     }
 
+    /// The wider of two layouts as go-geom's collection `Layout` chooses it: XYZ and XYM are each other's widening
+    /// to XYZM, and otherwise the larger value wins. It is a join, so a collection's layout is the join of its
+    /// members' in any order.
+    pub(crate) fn widest(self, other: Layout) -> Layout {
+        if (self == Layout::XYZ && other == Layout::XYM)
+            || (self == Layout::XYM && other == Layout::XYZ)
+        {
+            Layout::XYZM
+        } else {
+            self.max(other)
+        }
+    }
+
     /// go-geom's `String`.
     pub fn name(self) -> String {
         match self.0 {

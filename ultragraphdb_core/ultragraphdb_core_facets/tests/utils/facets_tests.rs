@@ -7,9 +7,9 @@
 //! of Dgraph's `chunker/rdf_parser_test.go` and `json_parser_test.go`.
 
 use ultragraphdb_core_facets::{
-    FacetsErrorEnum, copy_facets, facet_for, sort_and_validate, to_binary, type_id_for, val_for,
+    FacetValue, FacetsErrorEnum, copy_facets, facet_for, sort_and_validate, type_id_for, val_for,
 };
-use ultragraphdb_core_types::{DateTime, TypeId, Value, parse_time};
+use ultragraphdb_core_types::{TypeId, Value, parse_time};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::facet::ValType;
 use ultragraphdb_proto_pb::pb;
@@ -212,28 +212,34 @@ fn facet_for_does_not_trim_the_value() {
 
 #[test]
 fn to_binary_encodes_the_value_of_its_type() {
+    // Go's ToBinary takes a value and a type, and its unchecked type assertion panics when they disagree (ledger
+    // 20); a FacetValue carries its type.
     let t = parse_time("2006-01-02T15:04:05Z").unwrap();
-    let cases: [(Value, ValType, Vec<u8>); 5] = [
+    let cases: [(FacetValue, ValType, Vec<u8>); 5] = [
         (
-            Value::str("READ WRITE"),
+            FacetValue::Str(b"READ WRITE".to_vec()),
             ValType::String,
             b"READ WRITE".to_vec(),
         ),
-        (Value::Int(3), ValType::Int, 3i64.to_le_bytes().to_vec()),
         (
-            Value::Float(30000.56),
+            FacetValue::Int(3),
+            ValType::Int,
+            3i64.to_le_bytes().to_vec(),
+        ),
+        (
+            FacetValue::Float(30000.56),
             ValType::Float,
             30000.56f64.to_bits().to_le_bytes().to_vec(),
         ),
-        (Value::Bool(true), ValType::Bool, vec![1]),
+        (FacetValue::Bool(true), ValType::Bool, vec![1]),
         (
-            Value::DateTime(t),
+            FacetValue::DateTime(t),
             ValType::Datetime,
             t.marshal_binary().unwrap(),
         ),
     ];
     for (v, vt, bytes) in cases {
-        let f = to_binary("car", &v, vt).unwrap();
+        let f = v.to_binary("car").unwrap();
         assert_eq!(f.key, "car");
         assert_eq!(f.val_type(), vt);
         assert_eq!(f.value, bytes);
@@ -245,11 +251,37 @@ fn to_binary_encodes_the_value_of_its_type() {
 }
 
 #[test]
-fn to_binary_refuses_a_value_of_another_type() {
-    // Go's unchecked type assertion panics here.
-    assert!(to_binary("k", &Value::Int(3), ValType::String).is_err());
-    assert!(to_binary("k", &Value::str("3"), ValType::Int).is_err());
-    assert!(to_binary("k", &Value::DateTime(DateTime::default()), ValType::Bool).is_err());
+fn a_facet_value_encodes_its_variant() {
+    let t = parse_time("2006-01-02T15:04:05Z").unwrap();
+    let cases = [
+        (
+            FacetValue::Str(b"\xff".to_vec()),
+            ValType::String,
+            b"\xff".to_vec(),
+        ),
+        (
+            FacetValue::Int(3),
+            ValType::Int,
+            3i64.to_le_bytes().to_vec(),
+        ),
+        (
+            FacetValue::Float(0.5),
+            ValType::Float,
+            0.5f64.to_bits().to_le_bytes().to_vec(),
+        ),
+        (FacetValue::Bool(true), ValType::Bool, vec![1]),
+        (
+            FacetValue::DateTime(t),
+            ValType::Datetime,
+            t.marshal_binary().unwrap(),
+        ),
+    ];
+    for (v, vt, bytes) in cases {
+        assert_eq!(v.val_type(), vt);
+        let f = v.to_binary("car").unwrap();
+        assert_eq!((f.key.as_str(), f.val_type(), f.value), ("car", vt, bytes));
+        assert!(f.tokens.is_empty() && f.alias.is_empty());
+    }
 }
 
 #[test]

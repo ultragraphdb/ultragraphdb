@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	geom "github.com/twpayne/go-geom"
 	"github.com/twpayne/go-geom/encoding/geojson"
@@ -24,6 +25,7 @@ import (
 func init() {
 	register("types_geo_index", "ultragraphdb_core_types", genTypesGeoIndex)
 	register("types_geo_query", "ultragraphdb_core_types", genTypesGeoQuery)
+	register("types_geojson", "ultragraphdb_core_types", genTypesGeoJSON)
 }
 
 func goldenGeoms() []geom.T {
@@ -267,4 +269,107 @@ func genTypesGeoQuery() (any, error) {
 		f.Queries = append(f.Queries, q)
 	}
 	return []any{f}, nil // one case: the file holds a slice of cases
+}
+
+type geoJSONCase struct {
+	In  string `json:"in"` // hex: some inputs are not UTF-8
+	Err string `json:"err,omitempty"`
+	Nil bool   `json:"nil,omitempty"`
+	Out string `json:"out,omitempty"` // the geometry as geojson.Marshal writes it
+}
+
+// genTypesGeoJSON records go-geom's geojson.Unmarshal, Go's json.Unmarshal into geojson.Geometry, of valid
+// geometries, every syntax error context of encoding/json and the type errors of the struct's fields.
+func genTypesGeoJSON() (any, error) {
+	inputs := []string{
+		`{"type":"Point","coordinates":[1,2]}`,
+		`{"type":"Point","coordinates":[1.5,-2.25,3]}`,
+		`{"type":"Point","coordinates":[]}`,
+		`{"type":"Point"}`,
+		`{"type":"Point","coordinates":null}`,
+		`{"type":"LineString","coordinates":[[0,0],[1,1]]}`,
+		`{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]}`,
+		`{"type":"MultiPoint","coordinates":[[1,2],null,[3,4]]}`,
+		`{"type":"MultiLineString","coordinates":[[[1,2],[3,4]]]}`,
+		`{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,0]]]]}`,
+		`{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]},null]}`,
+		`{"TYPE":"Point","Coordinates":[3,4]}`,
+		`{"type":"Point","type":"LineString","coordinates":[[0,0],[1,1]]}`,
+		`{"type":"Point","coordinates":[1,2],"bbox":[0,0,1,1],"crs":{"type":"name"},"extra":1}`,
+		`null`,
+		` {"type":"Point","coordinates":[1,2]} `,
+		// Type errors.
+		`"Point"`,
+		`[1,2]`,
+		`{"type":1,"coordinates":[1,2]}`,
+		`{"type":1,"crs":2}`,
+		`{"crs":2,"type":1}`,
+		`{"type":1,"type":"Point","coordinates":[1,2]}`,
+		`{"type":"Point","crs":"x"}`,
+		`{"type":"Point","crs":{"type":1}}`,
+		`{"type":"Point","crs":{"properties":1}}`,
+		`{"type":"Point","coordinates":"x"}`,
+		`{"type":"Point","coordinates":[1,"x"]}`,
+		`{"type":"Point","coordinates":[1,1e400]}`,
+		`{"type":"LineString","coordinates":[[0,0],"x"]}`,
+		`{"type":"Polygon","coordinates":[[[0,0],[1,true]]]}`,
+		`{"type":"GeometryCollection","geometries":"x"}`,
+		`{"type":"GeometryCollection","geometries":[1]}`,
+		`{"type":"GeometryCollection","geometries":[{"type":1}]}`,
+		`{"type":"Curve","coordinates":[1,2]}`,
+		`{"type":"Point","coordinates":[1]}`,
+		`{}`,
+		// Syntax errors.
+		``,
+		` `,
+		`x`,
+		`{`,
+		`{"type"`,
+		`{"type":`,
+		`{"type":"Point"`,
+		`{"type":"Point",`,
+		`{1}`,
+		`{"type" 1}`,
+		`{"type":"Point" "x"}`,
+		`{"type":"Point"]`,
+		`{"type":"Point",}`,
+		`{"type":"Point","coordinates":[1 2]}`,
+		`{"type":"Point","coordinates":[1,]}`,
+		`{"type":"Point","coordinates":[1,2}`,
+		`{"type":"Point","coordinates":[1.]}`,
+		`{"type":"Point","coordinates":[1.x]}`,
+		`{"type":"Point","coordinates":[1e]}`,
+		`{"type":"Point","coordinates":[-]}`,
+		`{"type":"Point","coordinates":[01]}`,
+		`{"type":tru}`,
+		`{"type":"\x"}`,
+		`{"type":"\u12x4"}`,
+		"{\"type\":\"a\x01\"}",
+		"{\"type\":\"a\xffb\"}",
+		"\xff",
+		"\xef\xbb\xbf{}",
+		`{"type":"Point","coordinates":[1,2]}x`,
+		`{"type":"Point","coordinates":[1,2]} {}`,
+		strings.Repeat("[", 10001) + strings.Repeat("]", 10001),
+		`{"type":"Point","coordinates":` + strings.Repeat("[", 10000) + strings.Repeat("]", 10000) + `}`,
+		`{"type":"Point","coordinates":` + strings.Repeat("[", 9999) + strings.Repeat("]", 9999) + `}`,
+	}
+	var cases []geoJSONCase
+	for _, in := range inputs {
+		c := geoJSONCase{In: h([]byte(in))}
+		var g geom.T
+		if err := geojson.Unmarshal([]byte(in), &g); err != nil {
+			c.Err = err.Error()
+		} else if g == nil {
+			c.Nil = true
+		} else {
+			b, err := geojson.Marshal(g)
+			if err != nil {
+				return nil, err
+			}
+			c.Out = string(b)
+		}
+		cases = append(cases, c)
+	}
+	return cases, nil
 }

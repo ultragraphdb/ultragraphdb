@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use serde::Deserialize;
-use ultragraphdb_core_dql::NQuad;
+use ultragraphdb_core_dql::{NQuad, Object, delete_predicate_edge};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::value::Val;
 use ultragraphdb_proto_pb::pb;
@@ -159,10 +159,6 @@ fn check(
     want: &GOutcome,
     got: Result<pb::DirectedEdge, ultragraphdb_core_dql::DqlError>,
 ) {
-    // Go dereferences a missing object value and panics; there is no answer to compare.
-    if want.err == "panic" {
-        return;
-    }
     match (want.edge.as_ref(), got) {
         (Some(w), Ok(g)) => assert_eq!(*w, edge(&g), "{what} {n:?}"),
         (None, Err(e)) => assert_eq!(
@@ -174,10 +170,22 @@ fn check(
     }
 }
 
+/// The golden outcomes the port cannot express, with the ledger entry (`openspec/notes/dgraph-bugs-found-in-port.md`)
+/// and what the port has instead. `ToDeletePredEdge` takes an N-Quad, and panics on one without an object value
+/// (ledger 13) and checks only its subject (29); the port's [`delete_predicate_edge`] takes the attribute and the
+/// namespace, so no N-Quad form of the golden file reaches it, and it is checked in
+/// `delete_predicate_edge_is_dropattrs_edge`.
+const DEVIATIONS: &[(&str, &str, &str)] = &[(
+    "to_delete_pred_edge of every case",
+    "13, 29",
+    "not expressible: delete_predicate_edge(attr, namespace)",
+)];
+
 /// N-Quads of every value type, subjects and objects as uids, blank nodes and missing ones, into edges as
-/// Dgraph's `ToEdgeUsing` and `ToDeletePredEdge` convert them.
+/// Dgraph's `ToEdgeUsing` converts them; its `ToDeletePredEdge` outcomes are the one [`DEVIATIONS`] entry.
 #[test]
 fn test_golden_edges() {
+    assert_eq!(DEVIATIONS.len(), 1);
     let path = ultragraphdb_test_bdd::testdata_dir().join("golden/dql_edges.json");
     let golden = ultragraphdb_test_bdd::load_golden::<Case>(&path);
     assert!(golden.cases().len() > 100);
@@ -189,13 +197,61 @@ fn test_golden_edges() {
             &c.to_edge_using,
             nq.to_edge_using(&c.new_to_uid),
         );
-        check(
-            "to_delete_pred_edge",
-            &c.nquad,
-            &c.to_delete_pred_edge,
-            nq.to_delete_pred_edge(),
-        );
+        // Go panics only in ToDeletePredEdge, the deviation above.
+        assert_ne!(c.to_edge_using.err, "panic", "{:?}", c.nquad);
+        assert!(c.to_delete_pred_edge.edge.is_some() || !c.to_delete_pred_edge.err.is_empty());
     }
+}
+
+/// Go's DropAttr converts `* <attr> "_STAR_ALL"` with a string value; its edge is the one the golden file records
+/// for `* name "hello"` with the star's bytes.
+#[test]
+fn delete_predicate_edge_is_dropattrs_edge() {
+    let e = delete_predicate_edge("name", 2);
+    assert_eq!(
+        edge(&e),
+        GEdge {
+            entity: 0,
+            attr: "name".to_string(),
+            value: hex(b"_STAR_ALL"),
+            value_type: 9,
+            value_id: 0,
+            lang: String::new(),
+            op: 1,
+            facets: Vec::new(),
+            namespace: 2,
+        }
+    );
+}
+
+#[test]
+fn an_nquad_without_an_object_has_none() {
+    // Go's CreateValueEdge dereferences the missing value and panics (ledger 13).
+    let nq = NQuad::new(api::NQuad {
+        subject: "0x1".into(),
+        predicate: "name".into(),
+        ..api::NQuad::default()
+    });
+    let err = nq.object().expect_err("no object");
+    assert_eq!(
+        err.to_string(),
+        r#"Unknown value type for nquad: subject:"0x1" predicate:"name""#
+    );
+    let with_id = NQuad::new(api::NQuad {
+        object_id: "0x2".into(),
+        ..nq.nquad().clone()
+    });
+    assert_eq!(with_id.object().unwrap(), Object::Uid("0x2"));
+    let value = api::Value {
+        val: Some(Val::IntVal(3)),
+    };
+    let with_value = NQuad::new(api::NQuad {
+        object_value: Some(value.clone()),
+        ..with_id.nquad().clone()
+    });
+    assert_eq!(with_value.object().unwrap(), Object::Value(&value));
+    let e = with_value.create_value_edge(1, &value).unwrap();
+    assert_eq!((e.entity, e.value_type), (1, 2));
 }
 
 #[test]

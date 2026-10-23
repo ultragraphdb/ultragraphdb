@@ -33,30 +33,32 @@ impl<'a> Lexer<'a> {
     }
 
     /// Emits `start..pos` as an item of type `t` and moves `start` to `pos`. Nothing is emitted when `pos` is
-    /// before `start`, except EOF.
+    /// before `start`, except EOF, which then carries the empty text where Go's slice panics.
     pub fn emit(&mut self, t: ItemType) {
         if t != ITEM_EOF && self.pos < self.start {
             // Let ItemEOF go through.
             return;
         }
-        let val = Cow::Borrowed(&self.input[self.start..self.pos]);
+        let val = Cow::Borrowed(self.input.get(self.start..self.pos).unwrap_or_default());
         self.items.push(Item::new(t, val, self.line, self.column));
         self.move_start_to_pos();
     }
 
-    /// Skips `start..pos`: for runes without syntactical meaning (e.g. comments).
+    /// Skips `start..pos`: for runes without syntactical meaning (e.g. comments). With `pos` before `start` it skips
+    /// nothing and moves `start` back to `pos`, where Go's slice panics.
     pub fn ignore(&mut self) {
         self.move_start_to_pos();
     }
 
     fn move_start_to_pos(&mut self) {
         // check if we are about to move start to a new line
-        for r in self.input[self.start..self.pos].chars() {
+        let text = self.input.get(self.start..self.pos).unwrap_or_default();
+        for r in text.chars() {
             if is_end_of_line(r) {
-                self.line += 1;
+                self.line = self.line.saturating_add(1);
                 self.column = 0;
             } else {
-                self.column += r.len_utf8() as i32;
+                self.column = self.column.saturating_add(r.len_utf8() as i32);
             }
         }
         self.start = self.pos;

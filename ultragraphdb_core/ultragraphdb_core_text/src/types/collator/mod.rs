@@ -26,7 +26,7 @@ static TAGS: LazyLock<Vec<Tag>> = LazyLock::new(|| {
         .split(',')
         .map(|s| {
             Tag::parse_with(CanonType::RAW, s)
-                .unwrap_or_else(|e| panic!("collation locale {s}: {e}"))
+                .expect("the constant AVAILABLE_LOCALES holds valid locale tags")
         })
         .collect()
 });

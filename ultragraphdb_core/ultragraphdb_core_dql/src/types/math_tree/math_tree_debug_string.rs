@@ -9,25 +9,28 @@
 use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_core_types::{TypeId, Value};
 
+use crate::errors::dql_error::DqlError;
+
 use super::MathTree;
 
 impl MathTree {
     /// The tree as text, `(+ a (exp 1E+00))`: Go's `debugString`, for tests and debugging.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On an inner node whose operator Go's `debugString` does not know, as Go's `x.Fatalf`.
-    pub fn debug_string(&self) -> String {
+    /// [`DqlErrorEnum::UnknownOperator`](crate::DqlErrorEnum::UnknownOperator) on an inner node whose operator Go's
+    /// `debugString` does not know, among them `floor`, `ceil` and `since`, which parse; Go's `x.Fatalf` exits.
+    pub fn debug_string(&self) -> Result<String, DqlError> {
         let mut buf = String::with_capacity(20);
-        self.string_helper(&mut buf);
-        buf
+        self.string_helper(&mut buf)?;
+        Ok(buf)
     }
 
-    fn string_helper(&self, buf: &mut String) {
+    fn string_helper(&self, buf: &mut String) -> Result<(), DqlError> {
         if !self.var.is_empty() {
             // Leaf node.
             buf.push_str(&self.var);
-            return;
+            return Ok(());
         }
         if let Some(v) = self.const_val.value() {
             // Leaf node.
@@ -38,7 +41,7 @@ impl MathTree {
                 (TypeId::INT, Value::Int(i)) => buf.push_str(&i.to_string()),
                 _ => {}
             }
-            return;
+            return Ok(());
         }
         // Non-leaf node.
         buf.push('(');
@@ -47,12 +50,13 @@ impl MathTree {
             | ">" | "<=" | ">=" | "==" | "!=" | "u-" | "logbase" | "pow" | "dot" => {
                 buf.push_str(&self.fn_name)
             }
-            op => panic!("Unknown operator: {op:?}"),
+            op => return Err(DqlError::UnknownOperator(op.to_string())),
         }
         for c in &self.child {
             buf.push(' ');
-            c.string_helper(buf);
+            c.string_helper(buf)?;
         }
         buf.push(')');
+        Ok(())
     }
 }

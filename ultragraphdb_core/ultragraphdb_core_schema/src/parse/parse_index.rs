@@ -146,7 +146,7 @@ fn parse_token_or_vector_index_spec(
                 .errorf(format!(
                     "IndexFactory: {} isn't valid for predicate: {} of type: {}",
                     factory.name(),
-                    parse_attr(predicate),
+                    parse_attr(predicate)?,
                     typ.name()
                 ))
                 .into());
@@ -179,7 +179,7 @@ fn parse_token_or_vector_index_spec(
             .errorf(format!(
                 "Tokenizer: {} isn't valid for predicate: {} of type: {}",
                 tokenizer.name(),
-                parse_attr(predicate),
+                parse_attr(predicate)?,
                 typ.name()
             ))
             .into());

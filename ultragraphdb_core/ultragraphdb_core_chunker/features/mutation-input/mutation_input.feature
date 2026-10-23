@@ -44,3 +44,33 @@ Feature: Mutation input
   Scenario: A node without uid gets a blank node
     When the JSON `[{"name": "a"}, {"name": "b"}]` is parsed
     Then each node is assigned `_:dg.<id>.<n>`, with one random u32 `<id>` and consecutive counters `<n>` from 1 up
+
+  # The remedies of openspec/changes/fix-ported-dgraph-defects (ledger 19, 21, 22, 23, 24).
+
+  Scenario: A null geometry literal is refused
+    When the RDF line `<a> <p> "null"^^<geo:geojson> .` is parsed
+    Then parsing fails with `invalid ObjectValue` and nothing panics
+
+  Scenario: A second JSON document is refused
+    When `[{"name":"a"}] [{"name":"b"}]` is parsed as a set mutation
+    Then parsing fails with `invalid character '[' after top-level value`
+
+  Scenario: Trailing data after a JSON object is refused
+    When `{"name":"a"} xyz` is parsed as a set mutation
+    Then parsing fails with `invalid character 'x' after top-level value`
+
+  Scenario: List items under a tagged key carry the language
+    When `{"tags@en": ["a", "b"]}` is parsed as a set mutation
+    Then both N-Quads have predicate `tags` and language `en`
+
+  Scenario: Deleting a float zero deletes that value
+    When `{"uid": "0x1", "p": 0.0}` is parsed as a delete mutation
+    Then the N-Quad's object is the float 0, not `*`
+
+  Scenario: An integer beyond int64 is refused
+    When `{"uid": "0x1", "p": 27670116110564327426}` is parsed as a set mutation
+    Then parsing fails with `strconv.ParseInt: parsing "27670116110564327426": value out of range`
+
+  Scenario: The json option reads an rdf file as JSON
+    When the format of `a.rdf` with the option `json` is decided
+    Then it is JSON

@@ -12,6 +12,7 @@ mod chunker_error_error;
 
 use ultragraphdb_core_lex::LexError;
 use ultragraphdb_core_types::TypesError;
+use ultragraphdb_error_json::JsonError;
 
 /// Why an RDF line or a JSON mutation could not be parsed into N-Quads. `Display` gives Dgraph's error text, which
 /// clients match on.
@@ -33,9 +34,9 @@ pub enum ChunkerErrorEnum {
     Rdf(String),
     /// A typed literal's value does not convert to its type, with the conversion's text.
     Types(TypesError),
-    /// The input is not JSON, or its root is neither an object nor an array; serde_json's text where Go's
-    /// encoding/json has its own.
-    Json(String),
+    /// The input is not one JSON value, or its root is neither an object nor an array, with Go's `encoding/json`
+    /// text, e.g. `unexpected EOF` or `invalid character 'x' after top-level value`.
+    Json(JsonError),
     /// A JSON object to delete has no uid: `UID must be present and non-zero while deleting edges`.
     EmptyUid,
     /// The JSON is not a mutation Dgraph takes, with Dgraph's text, e.g. `only array of map allowed at root` or a
@@ -77,8 +78,8 @@ impl ChunkerError {
     }
 
     #[allow(non_snake_case)]
-    pub fn Json(msg: String) -> Self {
-        Self(ChunkerErrorEnum::Json(msg))
+    pub fn Json(value: JsonError) -> Self {
+        Self(ChunkerErrorEnum::Json(value))
     }
 
     #[allow(non_snake_case)]
@@ -101,11 +102,5 @@ impl From<LexError> for ChunkerError {
 impl From<TypesError> for ChunkerError {
     fn from(e: TypesError) -> Self {
         Self::new(ChunkerErrorEnum::Types(e))
-    }
-}
-
-impl From<serde_json::Error> for ChunkerError {
-    fn from(e: serde_json::Error) -> Self {
-        Self::new(ChunkerErrorEnum::Json(e.to_string()))
     }
 }

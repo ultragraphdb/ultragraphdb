@@ -11,16 +11,16 @@ fn int(i: i64) -> Val {
 
 #[test]
 fn test_compare_vals() {
-    assert!(compare_vals("ge", &int(3), &int(3)));
-    assert!(compare_vals("gt", &int(4), &int(3)));
-    assert!(!compare_vals("gt", &int(3), &int(3)));
-    assert!(compare_vals("le", &int(3), &int(3)));
-    assert!(compare_vals("lt", &int(2), &int(3)));
-    assert!(compare_vals("eq", &int(3), &int(3)));
+    assert!(compare_vals("ge", &int(3), &int(3)).unwrap());
+    assert!(compare_vals("gt", &int(4), &int(3)).unwrap());
+    assert!(!compare_vals("gt", &int(3), &int(3)).unwrap());
+    assert!(compare_vals("le", &int(3), &int(3)).unwrap());
+    assert!(compare_vals("lt", &int(2), &int(3)).unwrap());
+    assert!(compare_vals("eq", &int(3), &int(3)).unwrap());
     // Values of different types never compare.
     let f = Val::new(TypeId::FLOAT, Value::Float(3.0));
-    assert!(!compare_vals("ge", &int(3), &f));
-    assert!(!compare_vals("eq", &int(3), &f));
+    assert!(!compare_vals("ge", &int(3), &f).unwrap());
+    assert!(!compare_vals("eq", &int(3), &f).unwrap());
 }
 
 #[test]
@@ -30,7 +30,8 @@ fn test_compare_between() {
 }
 
 #[test]
-#[should_panic(expected = "Unknown ineqType ne")]
 fn test_compare_vals_unknown_op() {
-    compare_vals("ne", &int(1), &int(1));
+    // Dgraph's x.Fatalf exits the process with this text.
+    let err = compare_vals("ne", &int(1), &int(1)).unwrap_err();
+    assert_eq!(err.to_string(), "Unknown ineqType ne");
 }

@@ -38,7 +38,10 @@ impl Reader<'_> {
     }
 
     fn read_u32(&mut self, big: bool) -> Result<u32, TypesError> {
-        let b: [u8; 4] = self.read_full(4)?.try_into().expect("4 bytes");
+        let b: [u8; 4] = self
+            .read_full(4)?
+            .try_into()
+            .expect("read_full returns exactly the 4 bytes asked for");
         Ok(if big {
             u32::from_be_bytes(b)
         } else {
@@ -66,7 +69,10 @@ impl Reader<'_> {
 
     fn read_flat1(&mut self, big: bool, stride: usize) -> Result<Vec<f64>, TypesError> {
         let n = self.read_u32(big)? as usize;
-        self.read_floats(big, n * stride)
+        let len = n
+            .checked_mul(stride)
+            .ok_or_else(|| TypesError::geo(UNEXPECTED_EOF))?;
+        self.read_floats(big, len)
     }
 }
 
@@ -96,7 +102,69 @@ impl Geometry {
     }
 }
 
+/// A multi-geometry or collection being read: the geometry so far, the members left to read, the member kind a
+/// multi-geometry takes with its Go type name, and the layout an empty collection keeps.
+struct Open {
+    g: Geometry,
+    left: u32,
+    member: Option<(GeometryKind, &'static str)>,
+    layout: Layout,
+}
+
+impl Open {
+    fn close(self) -> Geometry {
+        if self.member.is_none() && self.g.geoms().is_empty() {
+            return Geometry::empty_collection(self.layout);
+        }
+        self.g
+    }
+}
+
+/// What one geometry's header and body read to: a whole geometry, or a multi-geometry or collection whose members
+/// follow.
+enum Read {
+    Done(Geometry),
+    Open(Open),
+}
+
+/// go-geom's `Read`, its recursion into the members of multi-geometries and collections kept on a stack: WKB nests
+/// collections without a limit, which a recursion would overflow a thread's stack with.
 fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
+    let mut stack: Vec<Open> = Vec::new();
+    loop {
+        let mut done = match read_one(r)? {
+            Read::Done(g) => Some(g),
+            Read::Open(open) if open.left == 0 => Some(open.close()),
+            Read::Open(open) => {
+                stack.push(open);
+                None
+            }
+        };
+        while let Some(m) = done.take() {
+            let Some(top) = stack.last_mut() else {
+                return Ok(m);
+            };
+            if let Some((member, want)) = top.member
+                && m.kind() != member
+            {
+                return Err(TypesError::geo(format!(
+                    "wkb: got {}, want {want}",
+                    m.kind().go_type()
+                )));
+            }
+            top.g.push(m)?;
+            top.left -= 1;
+            if top.left == 0
+                && let Some(open) = stack.pop()
+            {
+                done = Some(open.close());
+            }
+        }
+    }
+}
+
+/// Reads one geometry's byte order, type and body; a multi-geometry's or collection's members are left to read.
+fn read_one(r: &mut Reader<'_>) -> Result<Read, TypesError> {
     let order = r.read_full(1)?[0];
     let big = match order {
         0 => true,
@@ -113,18 +181,18 @@ fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
     };
     let stride = layout.stride();
     match t % 1000 {
-        1 => Ok(Geometry::from_flat(
+        1 => Ok(Read::Done(Geometry::from_flat(
             GeometryKind::Point,
             layout,
             r.read_floats(big, stride)?,
             Vec::new(),
-        )),
-        2 => Ok(Geometry::from_flat(
+        ))),
+        2 => Ok(Read::Done(Geometry::from_flat(
             GeometryKind::LineString,
             layout,
             r.read_flat1(big, stride)?,
             Vec::new(),
-        )),
+        ))),
         3 => {
             let n = r.read_u32(big)?;
             let (mut flat, mut ends) = (Vec::new(), Vec::new());
@@ -132,12 +200,12 @@ fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
                 flat.extend(r.read_flat1(big, stride)?);
                 ends.push(flat.len());
             }
-            Ok(Geometry::from_flat(
+            Ok(Read::Done(Geometry::from_flat(
                 GeometryKind::Polygon,
                 layout,
                 flat,
                 ends,
-            ))
+            )))
         }
         code @ (4..=6) => {
             let (kind, member, want) = match code {
@@ -153,32 +221,19 @@ fn read(r: &mut Reader<'_>) -> Result<Geometry, TypesError> {
                     "*geom.Polygon",
                 ),
             };
-            let n = r.read_u32(big)?;
-            let mut g = Geometry::empty_multi(kind, layout);
-            for _ in 0..n {
-                let m = read(r)?;
-                if m.kind() != member {
-                    return Err(TypesError::geo(format!(
-                        "wkb: got {}, want {want}",
-                        m.kind().go_type()
-                    )));
-                }
-                g.push(m)?;
-            }
-            Ok(g)
+            Ok(Read::Open(Open {
+                left: r.read_u32(big)?,
+                g: Geometry::empty_multi(kind, layout),
+                member: Some((member, want)),
+                layout,
+            }))
         }
-        7 => {
-            let n = r.read_u32(big)?;
-            let mut g = Geometry::collection(Vec::new());
-            for _ in 0..n {
-                let m = read(r)?;
-                g.push(m)?;
-            }
-            if g.is_empty() && g.geoms().is_empty() {
-                g = Geometry::empty_collection(layout);
-            }
-            Ok(g)
-        }
+        7 => Ok(Read::Open(Open {
+            left: r.read_u32(big)?,
+            g: Geometry::collection(Vec::new()),
+            member: None,
+            layout,
+        })),
         _ => Err(TypesError::geo(format!("wkb: unsupported type: {t}"))),
     }
 }
@@ -197,13 +252,60 @@ fn put_flat1(out: &mut Vec<u8>, coords: &[f64], stride: usize) {
     put_floats(out, coords);
 }
 
-fn write(out: &mut Vec<u8>, g: &Geometry) -> Result<(), TypesError> {
+/// go-geom's `Write`, its recursion into the members of collections kept on a stack: a collection's header, then
+/// each member in order.
+fn write(out: &mut Vec<u8>, root: &Geometry) -> Result<(), TypesError> {
+    // Every geometry in writing order with its parent's place, then each one's layout and emptiness, those of a
+    // collection without a layout joined from its members, deepest first, so that no subtree is walked twice.
+    let mut nodes: Vec<(&Geometry, Option<usize>)> = Vec::new();
+    let mut stack = vec![(root, None)];
+    while let Some((g, parent)) = stack.pop() {
+        let at = nodes.len();
+        nodes.push((g, parent));
+        if g.kind() == GeometryKind::GeometryCollection {
+            stack.extend(g.geoms().iter().rev().map(|m| (m, Some(at))));
+        }
+    }
+    let joined = |g: &Geometry| {
+        g.kind() == GeometryKind::GeometryCollection && g.layout == Layout::NO_LAYOUT
+    };
+    let mut shape: Vec<(Layout, bool)> = nodes
+        .iter()
+        .map(|(g, _)| match g.kind() {
+            GeometryKind::GeometryCollection => (g.layout, true),
+            _ => (g.layout, g.flat_coords().is_empty()),
+        })
+        .collect();
+    for i in (0..nodes.len()).rev() {
+        if let Some(p) = nodes[i].1 {
+            let (layout, empty) = shape[i];
+            let parent = &mut shape[p];
+            if joined(nodes[p].0) {
+                parent.0 = parent.0.widest(layout);
+            }
+            parent.1 &= empty;
+        }
+    }
+    nodes
+        .iter()
+        .zip(shape)
+        .try_for_each(|((g, _), (layout, empty))| write_one(out, g, layout, empty))
+}
+
+/// Writes one geometry of `layout`, its own or for a collection without one its members' widest, and `empty`
+/// whether it holds no coordinates; a collection's header and member count alone. The members of a multi-geometry
+/// are points, lines or polygons, which hold no members of their own.
+fn write_one(
+    out: &mut Vec<u8>,
+    g: &Geometry,
+    layout: Layout,
+    empty: bool,
+) -> Result<(), TypesError> {
     out.push(1);
     let mut code = kind_code(g.kind());
-    let layout = g.layout();
     match layout {
         Layout::NO_LAYOUT => {
-            if g.kind() != GeometryKind::GeometryCollection || !g.is_empty() {
+            if g.kind() != GeometryKind::GeometryCollection || !empty {
                 return Err(TypesError::geo(format!(
                     "geom: unsupported layout {}",
                     layout.name()
@@ -249,7 +351,7 @@ fn write(out: &mut Vec<u8>, g: &Geometry) -> Result<(), TypesError> {
                     }
                     None => Geometry::point_empty(layout),
                 };
-                write(out, &p)?;
+                write_one(out, &p, layout, p.is_empty())?;
             }
         }
         GeometryKind::MultiLineString => {
@@ -262,22 +364,18 @@ fn write(out: &mut Vec<u8>, g: &Geometry) -> Result<(), TypesError> {
                     g.flat_coords()[offset..end].to_vec(),
                     Vec::new(),
                 );
-                write(out, &ls)?;
+                write_one(out, &ls, layout, ls.is_empty())?;
                 offset = end;
             }
         }
         GeometryKind::MultiPolygon => {
             put_u32(out, g.num_polygons() as u32);
             for i in 0..g.num_polygons() {
-                write(out, &g.polygon_at(i))?;
+                let p = g.polygon_at(i);
+                write_one(out, &p, layout, p.is_empty())?;
             }
         }
-        GeometryKind::GeometryCollection => {
-            put_u32(out, g.geoms().len() as u32);
-            for m in g.geoms() {
-                write(out, m)?;
-            }
-        }
+        GeometryKind::GeometryCollection => put_u32(out, g.geoms().len() as u32),
     }
     Ok(())
 }

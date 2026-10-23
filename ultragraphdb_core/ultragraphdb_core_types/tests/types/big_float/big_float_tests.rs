@@ -132,7 +132,7 @@ fn test_conversions() {
         Ordering::Equal
     );
     assert_eq!(
-        one.quo(&BigFloat::from_i64(3, 200), 53).text_g(-1),
+        one.quo(&BigFloat::from_i64(3, 200), 53).unwrap().text_g(-1),
         "0.3333333333333333"
     );
 }
@@ -147,4 +147,40 @@ fn test_unmarshal_errors() {
         BigFloat::unmarshal_text("", 200).unwrap_err(),
         "math/big: cannot unmarshal \"\" into a *big.Float (EOF)"
     );
+}
+
+#[test]
+fn test_quo_of_zero_by_zero_or_inf_by_inf_is_nan() {
+    // Go's Quo panics with ErrNaN.
+    let (zero, inf) = (BigFloat::zero(53), BigFloat::inf(false, 53));
+    assert_eq!(zero.quo(&zero, 53), None);
+    assert_eq!(inf.quo(&inf, 53), None);
+    assert_eq!(zero.quo(&inf, 53).map(|z| z.is_zero()), Some(true));
+    assert_eq!(inf.quo(&zero, 53).map(|z| z.is_inf()), Some(true));
+}
+
+#[test]
+fn test_a_precision_of_zero_is_gos_default() {
+    // Go gives SetInt64 and Parse 64 bits and SetFloat64 53 at precision 0; the port divided by a zero mantissa.
+    let five = BigFloat::from_i64(5, 0);
+    assert_eq!(five.prec(), 64);
+    assert_eq!(BigFloat::from_f64(0.5, 0).unwrap().prec(), 53);
+    let two = BigFloat::unmarshal_text("2", 0).unwrap();
+    assert_eq!(two.prec(), 64);
+    let q = five.quo(&two, 0).unwrap();
+    assert_eq!((q.prec(), q.text_g(-1)), (64, "2.5".to_string()));
+    assert!(BigFloat::unmarshal_text("1e1", u32::MAX).is_ok());
+}
+
+#[test]
+fn test_an_exponent_past_int64_is_an_overflow() {
+    // Go's int64 sums wrap here; the port's overflowed.
+    for text in [
+        "1.5e-9223372036854775808",
+        "1.5e9223372036854775807",
+        "0x1.8p-9223372036854775808",
+    ] {
+        let err = BigFloat::unmarshal_text(text, 200).unwrap_err();
+        assert!(err.ends_with("(exponent overflow)"), "{text}: {err}");
+    }
 }

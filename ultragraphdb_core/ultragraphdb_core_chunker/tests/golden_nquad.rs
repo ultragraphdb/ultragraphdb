@@ -71,11 +71,10 @@ pub struct RdfsCase {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JsonCase {
     pub name: String,
-    pub input: String,
+    pub input_hex: String,
     pub op: i32,
     pub err: String,
     pub errs: Vec<String>,
-    pub err_json: bool,
     pub nquads: Vec<NQuadJson>,
     pub hints: Vec<HintJson>,
     pub stable: bool,

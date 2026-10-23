@@ -2182,6 +2182,7 @@ name = "ultragraphdb_common_utils"
 version = "0.1.0"
 dependencies = [
  "dashu-int",
+ "ultragraphdb_error_json",
  "ultragraphdb_error_num",
 ]
 
@@ -2215,6 +2216,7 @@ dependencies = [
  "ultragraphdb_core_keys",
  "ultragraphdb_core_lex",
  "ultragraphdb_core_types",
+ "ultragraphdb_error_json",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
@@ -2276,6 +2278,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ultragraphdb_common_utils",
+ "ultragraphdb_error_num",
  "ultragraphdb_test_bdd",
 ]
 
@@ -2349,12 +2352,17 @@ dependencies = [
  "serde_json",
  "ultragraphdb_common_utils",
  "ultragraphdb_core_text",
+ "ultragraphdb_error_json",
  "ultragraphdb_error_num",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
  "ultragraphdb_traits_collator",
 ]
+
+[[package]]
+name = "ultragraphdb_error_json"
+version = "0.1.0"
 
 [[package]]
 name = "ultragraphdb_error_num"

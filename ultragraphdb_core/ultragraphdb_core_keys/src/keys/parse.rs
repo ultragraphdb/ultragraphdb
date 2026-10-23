@@ -14,8 +14,13 @@ use crate::keys::{
 };
 use crate::types::parsed_key::ParsedKey;
 
+/// The u64 in the first eight bytes; every caller checks that `bytes` holds at least eight.
 fn be_u64(bytes: &[u8]) -> u64 {
-    u64::from_be_bytes(bytes[..8].try_into().expect("eight bytes"))
+    u64::from_be_bytes(
+        bytes[..8]
+            .try_into()
+            .expect("a slice of exactly eight bytes"),
+    )
 }
 
 /// Parses a key into its parts. The parsed key does not borrow the key.
@@ -30,9 +35,8 @@ fn be_u64(bytes: &[u8]) -> u64 {
 /// than 8 bytes or of 0, a count shorter than 4 bytes, a split key whose start uid is not exactly 8 bytes (at least
 /// 8 for an index key), and an unknown data type.
 ///
-/// # Panics
-///
-/// As Dgraph does, on a key that ends right after its attribute and is not a schema or type key.
+/// A key that ends right after its attribute and is not a schema or type key is refused with
+/// [`InvalidFormat`](KeyErrorEnum::InvalidFormat), as every other truncation is; Dgraph panics on it (ledger 6).
 pub fn parse(key: &[u8]) -> Result<ParsedKey, KeyError> {
     if key.len() < 9 {
         return Err(KeyError::new(KeyErrorEnum::KeyTooShort));
@@ -72,8 +76,12 @@ pub fn parse(key: &[u8]) -> Result<ParsedKey, KeyError> {
         return Ok(p);
     }
 
-    p.byte_type = k[0];
-    let k = &k[1..];
+    let Some((&byte_type, k)) = k.split_first() else {
+        return Err(KeyError::new(KeyErrorEnum::InvalidFormat {
+            key: key.to_vec(),
+        }));
+    };
+    p.byte_type = byte_type;
 
     match p.byte_type {
         BYTE_DATA | BYTE_REVERSE => {
@@ -119,7 +127,11 @@ pub fn parse(key: &[u8]) -> Result<ParsedKey, KeyError> {
                     parsed: p,
                 }));
             }
-            p.count = u32::from_be_bytes(k[..4].try_into().expect("four bytes"));
+            p.count = u32::from_be_bytes(
+                k[..4]
+                    .try_into()
+                    .expect("a slice of exactly four bytes, the length checked above"),
+            );
             if p.has_start_uid {
                 if k.len() != 12 {
                     return Err(KeyError::new(KeyErrorEnum::StartUidLength {

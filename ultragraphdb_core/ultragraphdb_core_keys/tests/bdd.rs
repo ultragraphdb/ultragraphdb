@@ -3,15 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::panic;
-
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_keys::{
     KeyError, ParsedKey, ReservedNamespace, TrustMarker, count_key, data_key, index_key,
     is_pre_defined_predicate, is_reserved_predicate, namespace_attr, parse, parse_namespace_attr,
-    register_reserved_namespace, reserved_predicate_value_lock, reverse_key, schema_key, split_key,
-    type_key,
+    predicate_prefix, register_reserved_namespace, reserved_predicate_value_lock, reverse_key,
+    schema_key, split_key, type_key,
 };
 
 #[derive(Debug, Default, World)]
@@ -24,7 +22,7 @@ struct Steps {
     formatted: String,
     checked: Vec<(String, bool, bool)>,
     markers: Vec<TrustMarker>,
-    second_panicked: Option<bool>,
+    second_refusal: Option<String>,
 }
 
 /// One case of `testdata/golden/keys.json`, the fields a key builder takes.
@@ -61,13 +59,13 @@ fn build(case: &GoldenKey) -> Option<Vec<u8>> {
         None => (case.kind.as_str(), false),
     };
     let key = match kind {
-        "data" => data_key(&attr, case.uid),
-        "reverse" => reverse_key(&attr, case.uid),
-        "index" => index_key(&attr, &hex_bytes(&case.term)),
-        "count" => count_key(&attr, case.count, false),
-        "count_rev" => count_key(&attr, case.count, true),
-        "schema" => schema_key(&attr),
-        "type" => type_key(&attr),
+        "data" => data_key(&attr, case.uid).unwrap(),
+        "reverse" => reverse_key(&attr, case.uid).unwrap(),
+        "index" => index_key(&attr, &hex_bytes(&case.term)).unwrap(),
+        "count" => count_key(&attr, case.count, false).unwrap(),
+        "count_rev" => count_key(&attr, case.count, true).unwrap(),
+        "schema" => schema_key(&attr).unwrap(),
+        "type" => type_key(&attr).unwrap(),
         _ => return None,
     };
     Some(if split {
@@ -79,7 +77,7 @@ fn build(case: &GoldenKey) -> Option<Vec<u8>> {
 
 #[when(expr = "the data key for attribute {string} in namespace {int} and uid {int} is built")]
 fn build_data_key(w: &mut Steps, attr: String, ns: u64, uid: u64) {
-    w.key = data_key(&namespace_attr(ns, &attr), uid);
+    w.key = data_key(&namespace_attr(ns, &attr), uid).unwrap();
 }
 
 #[then(expr = "it equals the bytes {string}")]
@@ -124,7 +122,7 @@ fn build_uid_keys(w: &mut Steps, attr: String) {
     // Built in an order other than the numeric one, so that sorting has something to do.
     w.uid_keys = [256u64, 1 << 40, 2, 1]
         .iter()
-        .map(|&uid| (uid, data_key(&namespace_attr(0, &attr), uid)))
+        .map(|&uid| (uid, data_key(&namespace_attr(0, &attr), uid).unwrap()))
         .collect();
 }
 
@@ -138,20 +136,23 @@ fn uid_order(w: &mut Steps) {
 
 #[when(expr = "a data key for namespace {int}, attribute {string} and uid {int} is parsed")]
 fn parse_data_key(w: &mut Steps, ns: u64, attr: String, uid: u64) {
-    w.parsed = Some(parse(&data_key(&namespace_attr(ns, &attr), uid)));
+    w.parsed = Some(parse(&data_key(&namespace_attr(ns, &attr), uid).unwrap()));
 }
 
 #[then(expr = "the result is a data key with namespace {int}, attribute {string} and uid {int}")]
 fn parsed_data_key(w: &mut Steps, ns: u64, attr: String, uid: u64) {
     let pk = w.parsed.take().expect("parsed").expect("parses");
     assert!(pk.is_data());
-    assert_eq!(parse_namespace_attr(pk.attr()), (ns, attr.as_str()));
+    assert_eq!(
+        parse_namespace_attr(pk.attr()).unwrap(),
+        (ns, attr.as_str())
+    );
     assert_eq!(pk.uid(), uid);
 }
 
 #[when(expr = "a data key for attribute {string} carrying uid 0 is parsed")]
 fn parse_uid_zero(w: &mut Steps, attr: String) {
-    w.key = data_key(&namespace_attr(0, &attr), 0);
+    w.key = data_key(&namespace_attr(0, &attr), 0).unwrap();
     w.parsed = Some(parse(&w.key));
 }
 
@@ -169,17 +170,20 @@ fn fails_with_key(w: &mut Steps, message: String) {
 
 #[when(expr = "a data key for attribute {string} in namespace {int} is built and parsed")]
 fn build_and_parse(w: &mut Steps, attr: String, ns: u64) {
-    w.parsed = Some(parse(&data_key(&namespace_attr(ns, &attr), 1)));
+    w.parsed = Some(parse(&data_key(&namespace_attr(ns, &attr), 1).unwrap()));
 }
 
 #[then(expr = "the parsed attribute is {string} and the namespace is {int}")]
 fn parsed_attr(w: &mut Steps, attr: String, ns: u64) {
     let pk = w.parsed.take().expect("parsed").expect("parses");
-    assert_eq!(parse_namespace_attr(pk.attr()), (ns, attr.as_str()));
+    assert_eq!(
+        parse_namespace_attr(pk.attr()).unwrap(),
+        (ns, attr.as_str())
+    );
 }
 
 fn split_data_key(attr: &str, uid: u64, start: u64) -> Vec<u8> {
-    split_key(&data_key(&namespace_attr(0, attr), uid), start).expect("a data key splits")
+    split_key(&data_key(&namespace_attr(0, attr), uid).unwrap(), start).expect("a data key splits")
 }
 
 #[when(
@@ -194,7 +198,7 @@ fn parsed_split(w: &mut Steps, attr: String, uid: u64, start: u64) {
     let pk = w.parsed.take().expect("parsed").expect("parses");
     assert!(pk.is_data());
     assert!(pk.has_start_uid());
-    assert_eq!(parse_namespace_attr(pk.attr()), (0, attr.as_str()));
+    assert_eq!(parse_namespace_attr(pk.attr()).unwrap(), (0, attr.as_str()));
     assert_eq!((pk.uid(), pk.start_uid()), (uid, start));
 }
 
@@ -222,7 +226,10 @@ fn combine(w: &mut Steps, ns: u64, pred: String) {
 )]
 fn combined(w: &mut Steps, formatted: String, ns: u64, pred: String) {
     assert_eq!(w.formatted, formatted);
-    assert_eq!(parse_namespace_attr(&w.formatted), (ns, pred.as_str()));
+    assert_eq!(
+        parse_namespace_attr(&w.formatted).unwrap(),
+        (ns, pred.as_str())
+    );
 }
 
 #[when(expr = "{string} and {string} are checked")]
@@ -230,7 +237,10 @@ fn check_names(w: &mut Steps, a: String, b: String) {
     w.checked = [a, b]
         .into_iter()
         .map(|n| {
-            let (reserved, pre_defined) = (is_reserved_predicate(&n), is_pre_defined_predicate(&n));
+            let (reserved, pre_defined) = (
+                is_reserved_predicate(&n).unwrap(),
+                is_pre_defined_predicate(&n).unwrap(),
+            );
             (n, reserved, pre_defined)
         })
         .collect();
@@ -256,7 +266,8 @@ fn register_prefixes(w: &mut Steps, first: String, second: String) {
                 .with_predicate_prefix(prefix)
                 .with_value_locked_prefixes([prefix.as_str()])
                 .with_trust_marker(*marker),
-        );
+        )
+        .unwrap();
     }
 }
 
@@ -269,14 +280,31 @@ fn longest_prefix(w: &mut Steps, second: String, first: String) {
 #[when(expr = "two plugins register the exact name {string}")]
 fn register_twice(w: &mut Steps, name: String) {
     let plugin = || ReservedNamespace::new().with_predicates([name.as_str()]);
-    register_reserved_namespace(plugin());
-    w.second_panicked =
-        Some(panic::catch_unwind(|| register_reserved_namespace(plugin())).is_err());
+    register_reserved_namespace(plugin()).expect("the first registration is accepted");
+    w.second_refusal = register_reserved_namespace(plugin())
+        .err()
+        .map(|e| e.to_string());
 }
 
-#[then("the second registration panics")]
-fn second_panics(w: &mut Steps) {
-    assert_eq!(w.second_panicked, Some(true));
+#[then(expr = "the second registration is refused with {string}")]
+fn second_refused(w: &mut Steps, message: String) {
+    assert_eq!(w.second_refusal.as_deref(), Some(message.as_str()));
+}
+
+#[when(expr = "the predicate prefix of {string} in namespace {int} is parsed as a key")]
+fn parse_predicate_prefix(w: &mut Steps, attr: String, ns: u64) {
+    w.key = predicate_prefix(&namespace_attr(ns, &attr)).expect("the prefix builds");
+    w.parsed = Some(parse(&w.key));
+}
+
+#[then(expr = "parsing fails with {string} and nothing panics")]
+fn fails_without_panic(w: &mut Steps, message: String) {
+    let err = w
+        .parsed
+        .take()
+        .expect("parsed")
+        .expect_err("the prefix is refused");
+    assert!(err.to_string().starts_with(&message), "{err}");
 }
 
 fn main() {

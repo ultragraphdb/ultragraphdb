@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, chunker/rdf_parser.go. Changed for ultragraphdb: translated to Rust; a line of bytes
- * that are not UTF-8 is read as Go reads it, each such byte one U+FFFD.
+ * that are not UTF-8 is read as Go reads it, each such byte one U+FFFD, and a lexing error's column counts each
+ * such byte once, as Go's lexer does.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -12,7 +13,9 @@ use std::collections::HashMap;
 use ultragraphdb_common_utils::{go_strconv, go_unicode, go_utf8};
 use ultragraphdb_core_facets::facet_for;
 use ultragraphdb_core_keys::{STAR, predicate_lang};
-use ultragraphdb_core_lex::{ITEM_EOF, ItemIterator, Lexer};
+use ultragraphdb_core_lex::{
+    ITEM_EOF, ItemIterator, LexError, LexErrorEnum, Lexer, is_end_of_line,
+};
 use ultragraphdb_core_types::{TypeId, Val, convert, object_value};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::value::Val as ApiVal;
@@ -38,7 +41,8 @@ fn sane(s: &str) -> bool {
 /// predicates. All N-Quads are held at once.
 ///
 /// Bytes that are not UTF-8 are read as Go reads them, each one U+FFFD, which a literal's value keeps as Go's
-/// unquoting does; an IRI holds the replacement where Go keeps the raw byte, which a dgo string cannot hold.
+/// unquoting does; an IRI holds the replacement where Go keeps the raw byte, which a dgo string cannot hold. A
+/// lexing error names the line and column Go names, counting each such byte as one column, as Go's lexer does.
 ///
 /// # Errors
 ///
@@ -46,15 +50,77 @@ fn sane(s: &str) -> bool {
 pub fn parse_rdfs(b: &[u8]) -> Result<(Vec<api::NQuad>, pb::Metadata), ChunkerError> {
     let mut nqs = Vec::new();
     for line in b.split(|&c| c == b'\n') {
-        let line = go_utf8::go_string(line);
-        match parse_rdf(&line, &mut Lexer::new(&line)) {
+        let text = go_utf8::go_string(line);
+        match parse_rdf(&text, &mut Lexer::new(&text)) {
             Ok(nq) => nqs.push(nq),
             Err(e) if e.0 == ChunkerErrorEnum::Empty => {}
-            Err(e) => return Err(e),
+            Err(e) => return Err(with_go_column(e, line, &text)),
         }
     }
     let md = calculate_type_hints(&nqs);
     Ok((nqs, md))
+}
+
+/// The offsets in `text`, the line read as Go reads it, of each rune Go's lexer reads from `line`, the line's
+/// bytes, paired with their offsets there: a byte that is not UTF-8 is one byte in `line` and U+FFFD, three bytes,
+/// in `text`.
+fn go_offsets(line: &[u8]) -> Vec<(usize, usize)> {
+    let mut out = Vec::with_capacity(line.len() + 1);
+    let (mut i, mut j) = (0, 0);
+    while i < line.len() {
+        out.push((j, i));
+        let (r, n) = go_utf8::decode_rune(&line[i..]);
+        i += n;
+        j += if r == go_utf8::RUNE_ERROR && n == 1 {
+            3
+        } else {
+            n
+        };
+    }
+    out.push((j, i));
+    out
+}
+
+/// A lexing error of the line with Go's column: the lexer counts the bytes of `text`, where Go's counts those of
+/// `line`, so a column after a byte that is not UTF-8 is moved back by two for each.
+fn with_go_column(e: ChunkerError, line: &[u8], text: &str) -> ChunkerError {
+    let ChunkerErrorEnum::Lex(LexError(LexErrorEnum::Lexing(msg))) = &e.0 else {
+        return e;
+    };
+    // `parse_rdf` lexes the line trimmed: `while lexing <trimmed> at line L column C: <message>`.
+    let trimmed = text.trim();
+    let Some(rest) = msg.strip_prefix(&format!("while lexing {trimmed} at line ")) else {
+        return e;
+    };
+    let parsed = rest.split_once(" column ").and_then(|(l, rest)| {
+        let (c, message) = rest.split_once(": ")?;
+        Some((l.parse::<usize>().ok()?, c.parse::<usize>().ok()?, message))
+    });
+    let Some((line_no, column, message)) = parsed else {
+        return e;
+    };
+    // The offset in `text` where the error's line starts, after line_no - 1 line ends.
+    let start = text.len() - text.trim_start().len();
+    let line_start = match line_no.checked_sub(2) {
+        None => 0,
+        Some(ends) => trimmed
+            .char_indices()
+            .filter(|&(_, c)| is_end_of_line(c))
+            .nth(ends)
+            .map_or(0, |(i, c)| i + c.len_utf8()),
+    };
+    let offsets = go_offsets(line);
+    let go_offset = |j: usize| {
+        offsets
+            .iter()
+            .find(|&&(t, _)| t >= j)
+            .map_or(line.len(), |&(_, b)| b)
+    };
+    let go_column =
+        go_offset(start + line_start + column).saturating_sub(go_offset(start + line_start));
+    ChunkerError::new(ChunkerErrorEnum::Lex(LexError::Lexing(format!(
+        "while lexing {trimmed} at line {line_no} column {go_column}: {message}"
+    ))))
 }
 
 fn trim_spaces(s: &str) -> &str {

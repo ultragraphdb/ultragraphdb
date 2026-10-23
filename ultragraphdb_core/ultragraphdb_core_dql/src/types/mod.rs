@@ -16,6 +16,7 @@ pub(crate) mod group_by_attr;
 pub(crate) mod math_tree;
 pub(crate) mod mutation;
 pub(crate) mod nquad;
+pub(crate) mod object;
 pub(crate) mod pair;
 pub(crate) mod parse_result;
 pub(crate) mod recurse_args;

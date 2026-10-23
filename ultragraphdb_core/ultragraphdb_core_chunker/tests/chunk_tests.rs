@@ -32,11 +32,13 @@ fn test_data_format() {
 }
 
 #[test]
-fn the_extension_wins_over_the_format_option_except_rdf_over_json() {
-    assert_eq!(data_format("a.RDF", "json"), InputFormat::Rdf);
-    // Dgraph's comment gives the extension precedence, but its code tests for RDF, name or option, first.
+fn the_format_option_wins_over_the_extension() {
+    // Dgraph's code lets RDF, by name or option, win; the loaders' help gives the option precedence (ledger 21).
+    assert_eq!(data_format("a.RDF", "json"), InputFormat::Json);
     assert_eq!(data_format("a.Json.GZ", "rdf"), InputFormat::Rdf);
     assert_eq!(data_format("a.Json.GZ", "other"), InputFormat::Json);
+    assert_eq!(data_format("a.rdf", "JSON"), InputFormat::Json);
+    assert_eq!(data_format("a.rdf.gz", ""), InputFormat::Rdf);
     assert_eq!(data_format("a.txt", "RDF"), InputFormat::Rdf);
     assert_eq!(data_format("a.txt", "Json"), InputFormat::Json);
     assert_eq!(data_format("a.gz", ""), InputFormat::Unknown);

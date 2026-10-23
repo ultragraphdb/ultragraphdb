@@ -19,6 +19,9 @@ impl fmt::Display for NumError {
             NumErrorEnum::Range { func, num } => {
                 write!(f, "strconv.{func}: parsing {num}: value out of range")
             }
+            NumErrorEnum::Base { func, num, base } => {
+                write!(f, "strconv.{func}: parsing {num}: invalid base {base}")
+            }
         }
     }
 }

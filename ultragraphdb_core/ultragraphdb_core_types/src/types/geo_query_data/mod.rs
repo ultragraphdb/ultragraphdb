@@ -44,7 +44,8 @@ impl GeoQueryData {
         self.qtype
     }
 
-    /// Dgraph's `MatchesFilter`: whether a stored geometry satisfies the query.
+    /// Dgraph's `MatchesFilter`: whether a stored geometry satisfies the query. A geometry Dgraph panics on, an
+    /// empty point or one with a coordinate that is not finite, does not.
     pub fn matches_filter(&self, g: &Geometry) -> bool {
         match self.qtype {
             QueryType::Within => self.is_within(g),
@@ -56,7 +57,10 @@ impl GeoQueryData {
     fn is_within(&self, g: &Geometry) -> bool {
         match g.kind() {
             GeometryKind::Point => {
-                let p = point_from_coord(g.coords());
+                // A point Dgraph panics on matches nothing.
+                let Ok(p) = point_from_coord(g.coords()) else {
+                    return false;
+                };
                 if let Some(pt) = self.pt {
                     return pt.approx_equal(p);
                 }
@@ -106,10 +110,11 @@ impl GeoQueryData {
 
     fn intersects(&self, g: &Geometry) -> bool {
         match g.kind() {
-            GeometryKind::Point => {
-                let p = point_from_coord(g.coords());
-                self.loops.iter().any(|l| l.contains_point(p))
-            }
+            GeometryKind::Point => match point_from_coord(g.coords()) {
+                Ok(p) => self.loops.iter().any(|l| l.contains_point(p)),
+                // A point Dgraph panics on matches nothing.
+                Err(_) => false,
+            },
             GeometryKind::Polygon => match loop_from_polygon(g) {
                 Ok(l) => self.loops.iter().any(|q| loop_intersects(&l, q)),
                 Err(_) => false,

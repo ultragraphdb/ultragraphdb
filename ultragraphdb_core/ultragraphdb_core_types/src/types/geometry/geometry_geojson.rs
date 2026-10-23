@@ -2,8 +2,9 @@
  * Copyright (c) 2013, Tom Payne. All rights reserved.
  * SPDX-License-Identifier: BSD-2-Clause
  *
- * Ported from go-geom v1.6.1, encoding/geojson/geojson.go. Changed for ultragraphdb: translated to Rust over this
- * crate's port of encoding/json; Go's JSON layout of the geometry struct and of float64 coordinates.
+ * Ported from go-geom v1.6.1, encoding/geojson/geojson.go. Changed for ultragraphdb: translated to Rust over the
+ * port of encoding/json in ultragraphdb_common_utils, with Go 1.27's type errors; Go's JSON layout of the geometry
+ * struct and of float64 coordinates; nested geometry collections decoded on a stack rather than by recursion.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -11,9 +12,15 @@ use crate::errors::types_error::TypesError;
 use crate::types::geometry::Geometry;
 use crate::types::geometry_kind::GeometryKind;
 use crate::types::layout::Layout;
-use crate::utils::json::{self, JsonValue, type_error};
+use crate::utils::json::{self, JsonValue};
 use crate::utils::json_float::json_float;
 use ultragraphdb_common_utils::go_strconv;
+use ultragraphdb_error_json::JsonError;
+
+/// Go's `UnmarshalTypeError` of a value at the root of what it is decoded into, its text.
+fn type_error(value: &str, go_type: &str) -> String {
+    JsonError::UnmarshalType(value.into(), go_type.into(), String::new(), String::new()).to_string()
+}
 
 /// go-geom's `geojson.Geometry`: the type and the raw coordinates or member geometries (`None` when absent or
 /// null).
@@ -43,33 +50,24 @@ impl Decoder {
         }
     }
 
-    /// Go's `UnmarshalTypeError.Error` (Go 1.27): the value's kind, where it sits, and the Go type it missed.
+    /// Go's `UnmarshalTypeError` (Go 1.27): the value's kind, where it sits, and the Go type it missed.
     fn error(&mut self, value: &str, go_type: &str) {
         if self.first.is_some() {
             return;
         }
-        let msg = if self.path.is_empty() {
-            json::type_error(
-                value,
-                if go_type.is_empty() {
-                    self.root_type
-                } else {
-                    go_type
-                },
-            )
+        let go_type = if go_type.is_empty() && self.path.is_empty() {
+            self.root_type
         } else {
-            let field = self.path.join(".");
-            let numeric = self
-                .path
-                .last()
-                .is_some_and(|t| t.bytes().all(|c| c.is_ascii_digit()));
-            let into = if numeric { "" } else { "Go struct field " };
-            format!(
-                "json: cannot unmarshal {value} into {into}{}.{field} of type {go_type}",
-                self.root
-            )
+            go_type
         };
-        self.first = Some(msg);
+        // Below the root, the root type's name and the path; a root type without a name gives none.
+        let (root, field) = if self.path.is_empty() {
+            ("", String::new())
+        } else {
+            (self.root, self.path.join("."))
+        };
+        let e = JsonError::UnmarshalType(value.into(), go_type.into(), root.into(), field);
+        self.first = Some(e.to_string());
     }
 
     fn finish<T>(self, v: T) -> Result<T, TypesError> {
@@ -166,13 +164,31 @@ impl Decoder {
         }
     }
 
-    /// A `geojson.Geometry` object's fields.
-    fn geometry(&mut self, members: &[(String, JsonValue)]) -> GeoJson {
+    /// A `geojson.CRS` object's fields: `type`, a string, and `properties`, a `map[string]interface{}`.
+    fn crs(&mut self, members: &[(String, JsonValue)]) {
+        for (k, val) in members {
+            let (field, go_type) = match k.to_ascii_lowercase().as_str() {
+                "type" if !matches!(val, JsonValue::Null | JsonValue::String(_)) => {
+                    ("type", "string")
+                }
+                "properties" if !matches!(val, JsonValue::Null | JsonValue::Object(_)) => {
+                    ("properties", "map[string]interface {}")
+                }
+                _ => continue,
+            };
+            self.path.push(field.into());
+            self.error(val.kind(), go_type);
+            self.path.pop();
+        }
+    }
+
+    /// A `geojson.Geometry` object's fields; the raw coordinates and member geometries are moved out.
+    fn geometry(&mut self, members: Vec<(String, JsonValue)>) -> GeoJson {
         let mut g = GeoJson::default();
         for (k, val) in members {
             let field = k.to_ascii_lowercase();
             match field.as_str() {
-                "type" => match val {
+                "type" => match &val {
                     JsonValue::String(s) => g.kind = s.clone(),
                     JsonValue::Null => {}
                     other => {
@@ -181,16 +197,17 @@ impl Decoder {
                         self.path.pop();
                     }
                 },
-                "coordinates" => g.coordinates = (*val != JsonValue::Null).then(|| val.clone()),
-                "geometries" => g.geometries = (*val != JsonValue::Null).then(|| val.clone()),
-                "crs" => match val {
-                    JsonValue::Null | JsonValue::Object(_) => {}
-                    other => {
-                        self.path.push("crs".into());
-                        self.error(other.kind(), "geojson.CRS");
-                        self.path.pop();
+                "coordinates" => g.coordinates = (val != JsonValue::Null).then_some(val),
+                "geometries" => g.geometries = (val != JsonValue::Null).then_some(val),
+                "crs" => {
+                    self.path.push("crs".into());
+                    match &val {
+                        JsonValue::Null => {}
+                        JsonValue::Object(crs) => self.crs(crs),
+                        other => self.error(other.kind(), "geojson.CRS"),
                     }
-                },
+                    self.path.pop();
+                }
                 _ => {}
             }
         }
@@ -241,7 +258,7 @@ impl GeoJson {
     pub(crate) fn from_value(v: &JsonValue) -> Result<Option<GeoJson>, TypesError> {
         let members = match v {
             JsonValue::Null => return Ok(None),
-            JsonValue::Object(m) => m,
+            JsonValue::Object(m) => m.clone(),
             other => {
                 return Err(TypesError::geo(type_error(
                     other.kind(),
@@ -249,13 +266,44 @@ impl GeoJson {
                 )));
             }
         };
-        let mut d = Decoder::new("Geometry", "geojson.Geometry");
+        // go-geom unmarshals into a `**Geometry`, a type without a name, so a field's error names no root.
+        let mut d = Decoder::new("", "geojson.Geometry");
         let g = d.geometry(members);
         d.finish(Some(g))
     }
 
-    /// go-geom's `Geometry.Decode`.
-    pub(crate) fn decode(&self) -> Result<Geometry, TypesError> {
+    /// go-geom's `Geometry.Decode`. A collection's members are decoded depth first, as Go's recursion decodes
+    /// them, on a stack of the collections being decoded: Go's JSON nests them up to 4999 deep.
+    pub(crate) fn decode(self) -> Result<Geometry, TypesError> {
+        if self.kind != "GeometryCollection" {
+            return self.decode_one();
+        }
+        // The collections being decoded: the members left and the geometries decoded.
+        let mut stack = vec![(self.collection_members()?.into_iter(), Vec::new())];
+        while let Some((members, done)) = stack.last_mut() {
+            match members.next() {
+                Some(m) if m.kind == "GeometryCollection" => {
+                    let members = m.collection_members()?.into_iter();
+                    stack.push((members, Vec::new()));
+                }
+                Some(m) => done.push(m.decode_one()?),
+                None => {
+                    let Some((_, done)) = stack.pop() else {
+                        break;
+                    };
+                    let g = Geometry::collection(done);
+                    match stack.last_mut() {
+                        Some((_, parent)) => parent.push(g),
+                        None => return Ok(g),
+                    }
+                }
+            }
+        }
+        Ok(Geometry::collection(Vec::new()))
+    }
+
+    /// [`GeoJson::decode`] of a geometry that is not a collection.
+    fn decode_one(self) -> Result<Geometry, TypesError> {
         let kind = self.kind.as_str();
         let mut d = match kind {
             "Point" => Decoder::new("Coord", "geom.Coord"),
@@ -286,7 +334,6 @@ impl GeoJson {
                     GeometryKind::MultiPolygon,
                     Layout::NO_LAYOUT,
                 )),
-                "GeometryCollection" => self.decode_collection(),
                 _ => Err(TypesError::geo(format!(
                     "geojson: unsupported type: {kind}"
                 ))),
@@ -330,44 +377,41 @@ impl GeoJson {
                     &coords.into_iter().map(unwrap2).collect::<Vec<_>>(),
                 )
             }
-            "GeometryCollection" => self.decode_collection(),
             _ => Err(TypesError::geo(format!(
                 "geojson: unsupported type: {kind}"
             ))),
         }
     }
 
-    fn decode_collection(&self) -> Result<Geometry, TypesError> {
-        let members = match &self.geometries {
-            None => Vec::new(),
-            Some(JsonValue::Array(items)) => {
-                let mut d = Decoder::new("", "[]geojson.Geometry");
-                let mut out = Vec::new();
-                for (i, item) in items.iter().enumerate() {
-                    let g = d.at(i, |d| match item {
-                        JsonValue::Object(m) => d.geometry(m),
-                        JsonValue::Null => GeoJson::default(),
-                        other => {
-                            d.error(other.kind(), "geojson.Geometry");
-                            GeoJson::default()
-                        }
-                    });
-                    out.push(g);
-                }
-                d.finish(out)?
-            }
-            Some(other) => {
+    /// The members of a `GeometryCollection`: Go's `json.Unmarshal` of its raw geometries into
+    /// `[]*geojson.Geometry`, a null member a geometry without a type.
+    fn collection_members(self) -> Result<Vec<GeoJson>, TypesError> {
+        let Some(mut geometries) = self.geometries else {
+            return Ok(Vec::new());
+        };
+        let items = match &mut geometries {
+            JsonValue::Array(items) => std::mem::take(items),
+            other => {
                 return Err(TypesError::geo(type_error(
                     other.kind(),
                     "[]geojson.Geometry",
                 )));
             }
         };
-        let geoms = members
-            .iter()
-            .map(GeoJson::decode)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Geometry::collection(geoms))
+        let mut d = Decoder::new("", "[]geojson.Geometry");
+        let mut out = Vec::with_capacity(items.len());
+        for (i, mut item) in items.into_iter().enumerate() {
+            let g = d.at(i, |d| match &mut item {
+                JsonValue::Object(m) => d.geometry(std::mem::take(m)),
+                JsonValue::Null => GeoJson::default(),
+                other => {
+                    d.error(other.kind(), "geojson.Geometry");
+                    GeoJson::default()
+                }
+            });
+            out.push(g);
+        }
+        d.finish(out)
     }
 }
 
@@ -430,63 +474,86 @@ fn push_coords2(out: &mut String, flat: &[f64], ends: &[usize], stride: usize) -
     Some(())
 }
 
-fn encode(out: &mut String, g: &Geometry) -> Option<()> {
-    out.push_str("{\"type\":\"");
-    out.push_str(g.kind().name());
-    out.push_str("\",");
-    let stride = g.layout().stride();
-    match g.kind() {
-        GeometryKind::GeometryCollection => {
-            out.push_str("\"geometries\":[");
-            for (i, m) in g.geoms().iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                encode(out, m)?;
+/// go-geom's GeoJSON encoding, its recursion into the members of collections kept on a stack: WKB nests
+/// collections without a limit, which a recursion would overflow a thread's stack with.
+fn encode(out: &mut String, root: &Geometry) -> Option<()> {
+    let mut stack: Vec<std::iter::Enumerate<std::slice::Iter<'_, Geometry>>> = Vec::new();
+    let mut next = Some(root);
+    loop {
+        if let Some(g) = next.take() {
+            out.push_str("{\"type\":\"");
+            out.push_str(g.kind().name());
+            out.push_str("\",");
+            if g.kind() == GeometryKind::GeometryCollection {
+                out.push_str("\"geometries\":[");
+                stack.push(g.geoms().iter().enumerate());
+            } else {
+                encode_coordinates(out, g)?;
+                out.push('}');
             }
-            out.push(']');
         }
-        kind => {
-            out.push_str("\"coordinates\":");
-            match kind {
-                GeometryKind::Point => {
-                    if g.is_empty() {
-                        out.push_str("[]");
-                    } else {
-                        push_coord(out, g.flat_coords())?;
+        // The next member of the innermost open collection, closing those whose members are written.
+        loop {
+            let Some(members) = stack.last_mut() else {
+                return Some(());
+            };
+            match members.next() {
+                Some((i, m)) => {
+                    if i > 0 {
+                        out.push(',');
                     }
+                    next = Some(m);
+                    break;
                 }
-                GeometryKind::LineString => push_coords1(out, g.flat_coords(), stride)?,
-                GeometryKind::Polygon | GeometryKind::MultiLineString => {
-                    push_coords2(out, g.flat_coords(), g.ends(), stride)?
-                }
-                GeometryKind::MultiPoint => {
-                    out.push('[');
-                    for (i, c) in g.multi_point_coords().into_iter().enumerate() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        match c {
-                            Some(c) => push_coord(out, c)?,
-                            None => out.push_str("null"),
-                        }
-                    }
-                    out.push(']');
-                }
-                _ => {
-                    out.push('[');
-                    for i in 0..g.num_polygons() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        let p = g.polygon_at(i);
-                        push_coords2(out, p.flat_coords(), p.ends(), stride)?;
-                    }
-                    out.push(']');
+                None => {
+                    stack.pop();
+                    out.push_str("]}");
                 }
             }
         }
     }
-    out.push('}');
+}
+
+/// The `"coordinates"` member of a geometry that is not a collection.
+fn encode_coordinates(out: &mut String, g: &Geometry) -> Option<()> {
+    let stride = g.layout().stride();
+    out.push_str("\"coordinates\":");
+    match g.kind() {
+        GeometryKind::Point => {
+            if g.is_empty() {
+                out.push_str("[]");
+            } else {
+                push_coord(out, g.flat_coords())?;
+            }
+        }
+        GeometryKind::LineString => push_coords1(out, g.flat_coords(), stride)?,
+        GeometryKind::Polygon | GeometryKind::MultiLineString => {
+            push_coords2(out, g.flat_coords(), g.ends(), stride)?
+        }
+        GeometryKind::MultiPoint => {
+            out.push('[');
+            for (i, c) in g.multi_point_coords().into_iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                match c {
+                    Some(c) => push_coord(out, c)?,
+                    None => out.push_str("null"),
+                }
+            }
+            out.push(']');
+        }
+        _ => {
+            out.push('[');
+            for i in 0..g.num_polygons() {
+                if i > 0 {
+                    out.push(',');
+                }
+                let p = g.polygon_at(i);
+                push_coords2(out, p.flat_coords(), p.ends(), stride)?;
+            }
+            out.push(']');
+        }
+    }
     Some(())
 }

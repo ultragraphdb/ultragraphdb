@@ -33,6 +33,9 @@ pub enum DqlErrorEnum {
     Parse(String),
     /// A uid could not be parsed or an N-Quad not converted into an edge.
     Conversion(String),
+    /// A filter or math tree's `debug_string` met an inner node whose operator it does not know:
+    /// `Unknown operator: "<op>"`, the text Go's `x.Fatalf` exits the process with.
+    UnknownOperator(String),
 }
 
 impl DqlError {
@@ -70,5 +73,10 @@ impl DqlError {
     #[allow(non_snake_case)]
     pub fn Conversion(msg: String) -> Self {
         Self(DqlErrorEnum::Conversion(msg))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn UnknownOperator(op: String) -> Self {
+        Self(DqlErrorEnum::UnknownOperator(op))
     }
 }

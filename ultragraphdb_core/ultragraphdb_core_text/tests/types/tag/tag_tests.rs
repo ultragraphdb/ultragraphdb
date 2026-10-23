@@ -78,3 +78,59 @@ fn string() {
         assert_eq!(Tag::parse(input).unwrap().to_string(), want, "{input}");
     }
 }
+
+/// SplitMix64, so that a failing input reproduces.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+}
+
+#[test]
+fn parsing_and_collating_arbitrary_tags_does_not_panic() {
+    // Go's parser recovers its own panics; the port's parser runs without a guard, so every input must return.
+    const PIECES: [&str; 24] = [
+        "-",
+        "_",
+        "x",
+        "u",
+        "t",
+        "en",
+        "de",
+        "zh",
+        "Hant",
+        "Latn",
+        "US",
+        "419",
+        "001",
+        "co",
+        "phonebk",
+        "kn",
+        "true",
+        "1994",
+        "a",
+        "0",
+        "abcdefghi",
+        "é",
+        "\u{0}",
+        "--",
+    ];
+    let mut rng = Rng(7);
+    for _ in 0..200_000 {
+        let n = (rng.next() % 12) as usize;
+        let s: String = (0..n)
+            .map(|_| PIECES[(rng.next() % PIECES.len() as u64) as usize])
+            .collect();
+        if let Ok(tag) = Tag::parse(&s) {
+            let _ = tag.base();
+            let _ = tag.to_string();
+            let _ = ultragraphdb_core_text::Collator::new(&tag);
+        }
+    }
+}

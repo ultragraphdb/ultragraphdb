@@ -15,29 +15,35 @@ use dashu_int::UBig;
 use crate::types::big_float::{BigFloat, Form};
 
 impl BigFloat {
-    /// Go's `z.SetPrec(prec).Mul(x, y)`: the product rounded to `prec` bits.
-    pub(crate) fn mul(&self, y: &BigFloat, prec: u32) -> BigFloat {
+    /// Go's `z.SetPrec(prec).Mul(x, y)`: the product rounded to `prec` bits. `None` for zero times infinity, where
+    /// Go panics with `ErrNaN`.
+    pub(crate) fn mul(&self, y: &BigFloat, prec: u32) -> Option<BigFloat> {
         let neg = self.neg != y.neg;
-        match (&self.form, &y.form) {
+        Some(match (&self.form, &y.form) {
             (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) => {
                 BigFloat::from_parts(neg, a * b, ea + eb, prec)
             }
-            (Form::Inf, Form::Zero) | (Form::Zero, Form::Inf) => {
-                panic!("big: multiplication of zero with infinity")
-            }
+            (Form::Inf, Form::Zero) | (Form::Zero, Form::Inf) => return None,
             (Form::Inf, _) | (_, Form::Inf) => BigFloat::inf(neg, prec),
             _ => BigFloat {
                 prec,
                 neg,
                 form: Form::Zero,
             },
-        }
+        })
     }
 
-    /// Go's `z.SetPrec(prec).Quo(x, y)`: the quotient rounded to `prec` bits.
-    pub fn quo(&self, y: &BigFloat, prec: u32) -> BigFloat {
+    /// Go's `z.SetPrec(prec).Quo(x, y)`: the quotient rounded to `prec` bits; a precision of 0 is the larger of
+    /// the operands', as Go's is. `None` for zero by zero and infinity by infinity, where Go panics with
+    /// `ErrNaN{"division of zero by zero or infinity by infinity"}`.
+    pub fn quo(&self, y: &BigFloat, prec: u32) -> Option<BigFloat> {
+        let prec = if prec == 0 {
+            self.prec.max(y.prec)
+        } else {
+            prec
+        };
         let neg = self.neg != y.neg;
-        match (&self.form, &y.form) {
+        Some(match (&self.form, &y.form) {
             (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) => {
                 // Shift the dividend so the quotient has at least prec + 2 bits; the remainder is the sticky bit.
                 let shift =
@@ -51,16 +57,14 @@ impl BigFloat {
                 z.set_rounded(q, ea - eb - shift as i64, r != UBig::ZERO);
                 z
             }
-            (Form::Zero, Form::Zero) | (Form::Inf, Form::Inf) => {
-                panic!("big: division of zero by zero or infinity by infinity")
-            }
+            (Form::Zero, Form::Zero) | (Form::Inf, Form::Inf) => return None,
             (Form::Zero, _) | (_, Form::Inf) => BigFloat {
                 prec,
                 neg,
                 form: Form::Zero,
             },
             _ => BigFloat::inf(neg, prec),
-        }
+        })
     }
 
     /// Go's `Cmp`: -0 equals +0, infinities compare as such.
@@ -88,25 +92,13 @@ impl BigFloat {
         if mx != my {
             return mx.cmp(&my);
         }
-        if mx == 1 || mx == -1 {
-            let mag = self.cmp_abs(y);
+        if let (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) =
+            (&self.form, &y.form)
+        {
+            let mag = cmp_abs(a, *ea, b, *eb);
             return if mx == -1 { mag.reverse() } else { mag };
         }
         Ordering::Equal
-    }
-
-    fn cmp_abs(&self, y: &BigFloat) -> Ordering {
-        let (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) =
-            (&self.form, &y.form)
-        else {
-            unreachable!("finite operands")
-        };
-        let (ga, gb) = (self.go_exp(), y.go_exp());
-        if ga != gb {
-            return ga.cmp(&gb);
-        }
-        let e = (*ea).min(*eb);
-        (a << (ea - e) as usize).cmp(&(b << (eb - e) as usize))
     }
 
     /// Go's `Float64`: the nearest float64, half to even, with Go's handling of denormals and overflow.
@@ -136,7 +128,7 @@ impl BigFloat {
             Form::Finite { mant, exp } => (mant, exp),
             _ => return sign * f64::INFINITY,
         };
-        let m = u64::try_from(&m).expect("at most 53 bits");
+        let m = u64::try_from(&m).expect("r is rounded to p <= 53 bits above");
         let n = 64 - i64::from(m.leading_zeros());
         let (m53, e53) = (m << (53 - n), me - (53 - n));
         let unbiased = e53 + 52;
@@ -170,11 +162,22 @@ impl BigFloat {
                     } else {
                         mant >> (-*exp) as usize
                     };
-                    let i = u64::try_from(&i).expect("fits in 63 bits") as i64;
+                    let i = u64::try_from(&i).expect("a value of go_exp <= 63, checked above, fits")
+                        as i64;
                     return if self.neg { -i } else { i };
                 }
                 if self.neg { i64::MIN } else { i64::MAX }
             }
         }
     }
+}
+
+/// The order of the magnitudes `a × 2^ea` and `b × 2^eb` of two finite values.
+fn cmp_abs(a: &UBig, ea: i64, b: &UBig, eb: i64) -> Ordering {
+    let (ga, gb) = (a.bit_len() as i64 + ea, b.bit_len() as i64 + eb);
+    if ga != gb {
+        return ga.cmp(&gb);
+    }
+    let e = ea.min(eb);
+    (a << (ea - e) as usize).cmp(&(b << (eb - e) as usize))
 }

@@ -62,12 +62,26 @@ fn lossy(data: &[u8]) -> String {
     String::from_utf8_lossy(data).into_owned()
 }
 
-fn le_i64(data: &[u8]) -> i64 {
-    i64::from_le_bytes(data[..8].try_into().expect("8 bytes"))
+/// The little-endian int64 in the first eight bytes, Dgraph's `invalid data for int64` for fewer.
+fn le_i64(data: &[u8]) -> Result<i64, TypesError> {
+    match data.first_chunk::<8>() {
+        Some(b) => Ok(i64::from_le_bytes(*b)),
+        None => Err(TypesError::conversion(format!(
+            "invalid data for int64 {}",
+            go_fmt::byte_slice(data)
+        ))),
+    }
 }
 
-fn le_f64(data: &[u8]) -> f64 {
-    f64::from_bits(u64::from_le_bytes(data[..8].try_into().expect("8 bytes")))
+/// The little-endian float64 in the first eight bytes, Dgraph's `invalid data for float` for fewer.
+fn le_f64(data: &[u8]) -> Result<f64, TypesError> {
+    match data.first_chunk::<8>() {
+        Some(b) => Ok(f64::from_bits(u64::from_le_bytes(*b))),
+        None => Err(TypesError::conversion(format!(
+            "invalid data for float {}",
+            go_fmt::byte_slice(data)
+        ))),
+    }
 }
 
 fn parse_big_float(data: &[u8]) -> Result<BigFloat, TypesError> {
@@ -139,24 +153,8 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
         TypeId::BINARY => match to_id {
             TypeId::BINARY => ok(Value::Bytes(data.clone())),
             TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(data.clone())),
-            TypeId::INT => {
-                if data.len() < 8 {
-                    return Err(TypesError::conversion(format!(
-                        "invalid data for int64 {}",
-                        go_fmt::byte_slice(data)
-                    )));
-                }
-                ok(Value::Int(le_i64(data)))
-            }
-            TypeId::FLOAT => {
-                if data.len() < 8 {
-                    return Err(TypesError::conversion(format!(
-                        "invalid data for float {}",
-                        go_fmt::byte_slice(data)
-                    )));
-                }
-                ok(Value::Float(le_f64(data)))
-            }
+            TypeId::INT => ok(Value::Int(le_i64(data)?)),
+            TypeId::FLOAT => ok(Value::Float(le_f64(data)?)),
             TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
             TypeId::BOOL => match data.first() {
                 None | Some(0) => ok(Value::Bool(false)),
@@ -212,13 +210,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
             _ => Err(cant_convert(from_id, to_id)),
         },
         TypeId::INT => {
-            if data.len() < 8 {
-                return Err(TypesError::conversion(format!(
-                    "invalid data for int64 {}",
-                    go_fmt::byte_slice(data)
-                )));
-            }
-            let vc = le_i64(data);
+            let vc = le_i64(data)?;
             match to_id {
                 TypeId::INT => ok(Value::Int(vc)),
                 TypeId::BINARY => ok(Value::Bytes(vc.to_le_bytes().to_vec())),
@@ -250,13 +242,7 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
             }
         }
         TypeId::FLOAT => {
-            if data.len() < 8 {
-                return Err(TypesError::conversion(format!(
-                    "invalid data for float {}",
-                    go_fmt::byte_slice(data)
-                )));
-            }
-            let vc = le_f64(data);
+            let vc = le_f64(data)?;
             match to_id {
                 TypeId::FLOAT => ok(Value::Float(vc)),
                 TypeId::BIGFLOAT => ok(Value::BigFloat(big_float_from_f64(
@@ -314,7 +300,11 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 TypeId::BIGFLOAT => {
                     let x = big_float_from_f64(NANO_SECONDS_IN_SEC as f64, 53)?;
                     let y = big_float_from_f64(t.unix_nano() as f64, 53)?;
-                    ok(Value::BigFloat(y.quo(&x, 53)))
+                    // x is 1e9, so the quotient is never NaN.
+                    let q = y.quo(&x, 53).ok_or_else(|| {
+                        TypesError::big_float("division of zero by zero or infinity by infinity")
+                    })?;
+                    ok(Value::BigFloat(q))
                 }
                 _ => Err(cant_convert(from_id, to_id)),
             }

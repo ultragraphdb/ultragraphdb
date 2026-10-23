@@ -40,13 +40,12 @@ impl Uint64Heap {
         self.elems.get(i)
     }
 
-    /// Replaces the element at `i`, which [`fix`](Self::fix) then moves to its place.
-    ///
-    /// # Panics
-    ///
-    /// When `i` is out of range.
-    pub fn set(&mut self, i: usize, elem: Elem) {
-        self.elems[i] = elem;
+    /// Replaces the element at `i`, which [`fix`](Self::fix) then moves to its place, and returns the element it
+    /// replaced; `None`, and the heap unchanged, when `i` is out of range.
+    pub fn set(&mut self, i: usize, elem: Elem) -> Option<Elem> {
+        self.elems
+            .get_mut(i)
+            .map(|slot| std::mem::replace(slot, elem))
     }
 
     /// Adds an element: Go's `heap.Push`.
@@ -63,8 +62,12 @@ impl Uint64Heap {
         self.elems.pop()
     }
 
-    /// Restores the order after the element at `i` changed: Go's `heap.Fix`.
+    /// Restores the order after the element at `i` changed: Go's `heap.Fix`. Does nothing when `i` is out of
+    /// range, where Go's panics.
     pub fn fix(&mut self, i: usize) {
+        if i >= self.elems.len() {
+            return;
+        }
         if !self.down(i, self.elems.len()) {
             self.up(i);
         }

@@ -92,8 +92,48 @@ pub fn is_sortable(tid: TypeId) -> bool {
     )
 }
 
+/// Refuses rows Dgraph's sort would index past: a non-empty row shorter or longer than the first, fewer
+/// directions than the first row has values, and uids or facets other than one per row (`exact_uids`) or fewer.
+fn check_shape(
+    values: &[Vec<Val>],
+    uids: usize,
+    facets: Option<usize>,
+    desc: usize,
+    exact_uids: bool,
+) -> Result<(), TypesError> {
+    let width = values.first().map_or(0, Vec::len);
+    if let Some((i, row)) = values
+        .iter()
+        .enumerate()
+        .find(|(_, row)| !row.is_empty() && row.len() != width)
+    {
+        return Err(TypesError::compare(format!(
+            "Sort row {i} holds {} values where the first holds {width}",
+            row.len()
+        )));
+    }
+    if uids < values.len() || exact_uids && uids != values.len() {
+        return Err(TypesError::compare(format!(
+            "Sort has {} rows of values but {uids} uids",
+            values.len()
+        )));
+    }
+    if let Some(facets) = facets.filter(|&f| f < values.len()) {
+        return Err(TypesError::compare(format!(
+            "Sort has {} rows of values but {facets} facets",
+            values.len()
+        )));
+    }
+    if desc < width {
+        return Err(TypesError::compare(format!(
+            "Sort has {desc} directions for rows of {width} values"
+        )));
+    }
+    Ok(())
+}
+
 fn check_sortable(values: &[Vec<Val>]) -> Result<(), TypesError> {
-    values[0].iter().try_for_each(|v| {
+    values.iter().take(1).flatten().try_for_each(|v| {
         if is_sortable(v.tid()) {
             Ok(())
         } else {
@@ -124,10 +164,11 @@ pub fn sort_top_n<C: Collator>(
     n: usize,
     collator: &C,
 ) -> Result<(), TypesError> {
-    if values.is_empty() || values[0].is_empty() {
+    if values.first().is_none_or(Vec::is_empty) {
         return Ok(());
     }
     check_sortable(values)?;
+    check_shape(values, uids.len(), None, desc.len(), true)?;
     let cl = collation(lang, collator);
     let len = values.len();
     let mut s = ByValue {
@@ -167,10 +208,17 @@ pub fn sort_with_facet<C: Collator>(
     lang: &str,
     collator: &C,
 ) -> Result<(), TypesError> {
-    if values.is_empty() || values[0].is_empty() {
+    if values.first().is_none_or(Vec::is_empty) {
         return Ok(());
     }
     check_sortable(values)?;
+    check_shape(
+        values,
+        uids.len(),
+        facets.as_deref().map(<[pb::Facets]>::len),
+        desc.len(),
+        false,
+    )?;
     let cl = collation(lang, collator);
     let len = values.len();
     go_sort::sort(&mut ByValue {

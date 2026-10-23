@@ -5,8 +5,6 @@
 
 //! `parse` against Dgraph's own parse of every golden key and of malformed keys, error texts included.
 
-use std::panic;
-
 use ultragraphdb_core_keys::{
     BYTE_DATA, BYTE_UNUSED, KeyErrorEnum, ParsedKey, attr_in_root_namespace, data_key, parse,
     split_key,
@@ -36,21 +34,61 @@ fn check_parsed(input: &str, expected: &ParsedCase, pk: &ParsedKey) {
     assert_eq!(pk.is_type(), expected.is_type, "{input}");
     assert_eq!(pk.to_string(), expected.string, "{input}");
     if !expected.skip_predicate.is_empty() {
-        compare(input, &expected.skip_predicate, &pk.skip_predicate());
-        compare(input, &expected.data_prefix, &pk.data_prefix());
-        compare(input, &expected.index_prefix, &pk.index_prefix());
-        compare(input, &expected.reverse_prefix, &pk.reverse_prefix());
-        compare(input, &expected.count_prefix, &pk.count_prefix(false));
-        compare(input, &expected.count_rev_prefix, &pk.count_prefix(true));
+        compare(
+            input,
+            &expected.skip_predicate,
+            &pk.skip_predicate().unwrap(),
+        );
+        compare(input, &expected.data_prefix, &pk.data_prefix().unwrap());
+        compare(input, &expected.index_prefix, &pk.index_prefix().unwrap());
+        compare(
+            input,
+            &expected.reverse_prefix,
+            &pk.reverse_prefix().unwrap(),
+        );
+        compare(
+            input,
+            &expected.count_prefix,
+            &pk.count_prefix(false).unwrap(),
+        );
+        compare(
+            input,
+            &expected.count_rev_prefix,
+            &pk.count_prefix(true).unwrap(),
+        );
     }
 }
 
-fn check(input: &str, key: &[u8], parsed: Option<&ParsedCase>, error: &str, panics: bool) {
-    if panics {
+/// The golden cases where the port differs from Dgraph: the case (a key kind of `keys.json` with `/attr` for each of
+/// its non-empty attributes, or a name of `keys_parse_errors.json`), the ledger entry
+/// (`openspec/notes/dgraph-bugs-found-in-port.md`) and the port's result. Dgraph panics on each: a key ending right
+/// after its attribute that is not a schema or type key, as every predicate prefix of a non-empty attribute does.
+const DEVIATIONS: &[(&str, u32, &str)] = &[
+    ("predicate_prefix/attr", 6, "Invalid format for key"),
+    ("predicate prefix", 6, "Invalid format for key [0 2 97 97]"),
+];
+
+fn check(
+    case: &str,
+    input: &str,
+    key: &[u8],
+    parsed: Option<&ParsedCase>,
+    error: &str,
+    panics: bool,
+) {
+    let deviation = DEVIATIONS.iter().find(|(name, _, _)| *name == case);
+    assert_eq!(
+        panics,
+        deviation.is_some(),
+        "{input}: Dgraph panics exactly on the deviating cases"
+    );
+    if let Some((_, ledger, want)) = deviation {
+        let err = parse(key).expect_err(input);
         assert!(
-            panic::catch_unwind(|| parse(key)).is_err(),
-            "{input}: Dgraph panics"
+            matches!(err.0, KeyErrorEnum::InvalidFormat { .. }),
+            "{input}: ledger {ledger}"
         );
+        assert!(err.to_string().starts_with(want), "{input}: {err}");
         return;
     }
     match (parse(key), parsed) {
@@ -69,7 +107,12 @@ fn test_golden_parse() {
             "{} {} {:?} {}",
             case.kind, case.namespace, case.attr, case.key
         );
+        let name = match case.attr.is_empty() {
+            true => case.kind.clone(),
+            false => format!("{}/attr", case.kind),
+        };
         check(
+            &name,
             &input,
             &unhex(&case.key),
             case.parsed.as_ref(),
@@ -91,6 +134,7 @@ fn test_golden_parse_errors() {
     assert!(cases.len() > 30);
     for case in &cases {
         check(
+            &case.name,
             &case.name,
             &unhex(&case.key),
             case.parsed.as_ref(),
@@ -114,7 +158,7 @@ fn test_parse_unused_prefix_is_empty() {
 
 #[test]
 fn test_parse_ignores_bytes_after_unsplit_suffix() {
-    let mut key = data_key(&attr_in_root_namespace("name"), 5);
+    let mut key = data_key(&attr_in_root_namespace("name"), 5).unwrap();
     key.extend([1, 2, 3]);
     let pk = parse(&key).expect("parses");
     assert_eq!(
@@ -139,7 +183,8 @@ fn test_parse_rejects_attribute_that_is_not_utf8() {
 
 #[test]
 fn test_parse_split_key_round_trip() {
-    let key = split_key(&data_key(&attr_in_root_namespace("name"), 9), 1000).expect("splits");
+    let key =
+        split_key(&data_key(&attr_in_root_namespace("name"), 9).unwrap(), 1000).expect("splits");
     let pk = parse(&key).expect("parses");
     assert_eq!(
         (pk.uid(), pk.start_uid(), pk.has_start_uid()),

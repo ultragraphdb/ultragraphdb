@@ -9,7 +9,7 @@ use cucumber::{World, then, when};
 use serde::Deserialize;
 use serde_json::Value as Json;
 use ultragraphdb_core_dql::{
-    DqlError, NQuad, ParseResult, Request, parse, parse_dql, parse_mutation,
+    DqlError, NQuad, ParseResult, Request, delete_predicate_edge, parse, parse_dql, parse_mutation,
 };
 use ultragraphdb_core_types::{TypeId, Value};
 use ultragraphdb_proto_dgraph::api;
@@ -26,6 +26,8 @@ struct Steps {
     parsed: Option<Result<ParseResult, DqlError>>,
     request: Option<Result<api::Request, DqlError>>,
     edge: Option<pb::DirectedEdge>,
+    conversion: Option<Result<pb::DirectedEdge, DqlError>>,
+    object_error: Option<DqlError>,
     mismatches: Vec<String>,
     compared: usize,
 }
@@ -241,6 +243,43 @@ fn value_edge(s: &mut Steps) {
     assert_eq!(e.value_type, pb::posting::ValType::Default as i32);
     assert_eq!(e.lang, "en");
     assert_eq!(e.op, pb::directed_edge::Op::Set as i32);
+}
+
+#[when(expr = "the N-Quad with subject {string}, predicate {string} and no object becomes an edge")]
+fn convert_objectless(s: &mut Steps, subject: String, predicate: String) {
+    let nq = NQuad::new(api::NQuad {
+        subject,
+        predicate,
+        ..api::NQuad::default()
+    });
+    s.object_error = nq.object().err();
+    s.conversion = Some(nq.to_edge_using(&HashMap::new()));
+}
+
+#[then(expr = "the conversion fails with {string} and nothing panics")]
+fn conversion_fails(s: &mut Steps, message: String) {
+    let err = s.object_error.as_ref().expect("the N-Quad has no object");
+    assert!(err.to_string().starts_with(&message), "{err}");
+    let err = s
+        .conversion
+        .take()
+        .expect("converted")
+        .expect_err("the N-Quad has no object");
+    assert!(err.to_string().starts_with(&message), "{err}");
+}
+
+#[when(expr = "the deletion edge of predicate {string} in namespace {int} is built")]
+fn deletion_edge(s: &mut Steps, predicate: String, namespace: u64) {
+    s.edge = Some(delete_predicate_edge(&predicate, namespace));
+}
+
+#[then(expr = "its value is {string}, its type is string and its operation is DEL")]
+fn star_edge(s: &mut Steps, value: String) {
+    let e = s.edge.as_ref().expect("edge");
+    assert_eq!(e.value, value.as_bytes());
+    assert_eq!(e.value_type, pb::posting::ValType::String as i32);
+    assert_eq!(e.op, pb::directed_edge::Op::Del as i32);
+    assert_eq!((e.entity, e.attr.as_str(), e.namespace), (0, "name", 0));
 }
 
 fn main() {

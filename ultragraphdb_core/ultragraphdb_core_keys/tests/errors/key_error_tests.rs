@@ -16,11 +16,11 @@ fn test_kind_and_display() {
     assert_eq!(err.to_string(), "Key length less than 9");
     assert!(err.source().is_none());
 
-    let err =
-        split_key(&schema_key(&attr_in_root_namespace("a")), 1).expect_err("not a default prefix");
+    let err = split_key(&schema_key(&attr_in_root_namespace("a")).unwrap(), 1)
+        .expect_err("not a default prefix");
     assert_eq!(err.0, KeyErrorEnum::SplitNonDefaultPrefix);
 
-    let err = parse(&data_key(&attr_in_root_namespace("a"), 0)).expect_err("uid 0");
+    let err = parse(&data_key(&attr_in_root_namespace("a"), 0).unwrap()).expect_err("uid 0");
     assert!(matches!(err.0, KeyErrorEnum::ZeroUid { .. }));
     assert_eq!(
         err.to_string(),

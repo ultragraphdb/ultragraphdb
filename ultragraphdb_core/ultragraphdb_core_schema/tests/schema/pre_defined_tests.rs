@@ -114,10 +114,15 @@ fn pre_defined_checks_are_dgraphs() {
         let changed: Vec<bool> = preds
             .iter_mut()
             .map(check_and_modify_pre_def_predicate)
-            .collect();
+            .collect::<Result<_, _>>()
+            .expect("parsed predicates are namespaced");
         assert_eq!(changed, c.pred_changed, "{ctx}");
         compare_updates(&preds, &c.preds_after).unwrap_or_else(|m| panic!("{ctx}: {m}"));
-        let type_changed: Vec<bool> = types.iter().map(is_pre_def_type_changed).collect();
+        let type_changed: Vec<bool> = types
+            .iter()
+            .map(is_pre_def_type_changed)
+            .collect::<Result<_, _>>()
+            .expect("parsed types are namespaced");
         assert_eq!(type_changed, c.type_changed, "{ctx}");
     }
 }
@@ -127,6 +132,25 @@ fn dgraph_xid_without_unique_is_upgraded() {
     let parsed =
         parse_with_namespace("dgraph.xid: string @index(exact) @upsert .", 0).expect("parses");
     let (mut preds, _) = parsed.into_parts();
-    assert!(!check_and_modify_pre_def_predicate(&mut preds[0]));
+    assert!(!check_and_modify_pre_def_predicate(&mut preds[0]).unwrap());
     assert!(preds[0].unique);
+}
+
+#[test]
+fn a_name_without_a_namespace_is_refused() {
+    // Dgraph panics splitting the name.
+    let mut update = pb::SchemaUpdate {
+        predicate: "dgraph.xid".to_string(),
+        ..Default::default()
+    };
+    let err = check_and_modify_pre_def_predicate(&mut update).expect_err("no namespace");
+    assert_eq!(
+        err.to_string(),
+        r#"Attribute "dgraph.xid" has no namespace separator "-""#
+    );
+    let update = pb::TypeUpdate {
+        type_name: "dgraph.graphql".to_string(),
+        ..Default::default()
+    };
+    assert!(is_pre_def_type_changed(&update).is_err());
 }

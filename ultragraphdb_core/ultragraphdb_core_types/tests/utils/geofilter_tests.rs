@@ -343,3 +343,56 @@ fn test_golden_geo_queries() {
         }
     }
 }
+
+#[test]
+fn test_geo_inputs_dgraph_panics_on_are_refused() {
+    // Dgraph asserts against a function without a name.
+    let err = get_geo_tokens(&pb::SrcFunction::default()).unwrap_err();
+    assert_eq!(err.to_string(), "Invalid function");
+    // A near distance of NaN or infinity passes Go's sign check and reaches exact predicates, where Go's big.Float
+    // panics; the port refuses it.
+    for d in ["NaN", "+Inf", "Inf"] {
+        let src = pb::SrcFunction {
+            name: "near".into(),
+            args: vec!["[-122.0, 37.0]".into(), d.into()],
+            ..Default::default()
+        };
+        let err = get_geo_tokens(&src).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "Invalid max distance specified for a near query",
+            "{d}"
+        );
+    }
+    assert!(query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0), f64::NAN).is_err());
+    // A polygon of no rings: go-geom's LinearRing(0) indexes past its ends.
+    let no_rings = Geometry::polygon(Layout::XY, &[]).unwrap();
+    assert_eq!(
+        query_tokens_geo(QueryType::Intersects, &no_rings, 0.0)
+            .unwrap_err()
+            .to_string(),
+        "Can't convert ring with less than 4 pts"
+    );
+    // An empty point: Dgraph's pointFromCoord indexes its missing coordinates.
+    let empty = Geometry::point_empty(Layout::XY);
+    let err = query_tokens_geo(QueryType::Intersects, &empty, 0.0).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Invalid coordinates []: a point needs two finite numbers"
+    );
+    assert!(ultragraphdb_core_types::index_geo_tokens(&empty).is_err());
+    // A non-finite coordinate reaches Go's exact predicates, whose big.Float panics on NaN.
+    let nan = Geometry::point(Layout::XY, &[f64::NAN, 0.0]).unwrap();
+    let err = query_tokens_geo(QueryType::Intersects, &nan, 0.0).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Invalid coordinates [NaN 0]: a point needs two finite numbers"
+    );
+    let ring = [[0.0, 0.0], [f64::NAN, 0.0], [1.0, 1.0], [0.0, 0.0]];
+    assert!(query_tokens_geo(QueryType::Intersects, &poly(&ring), 0.0).is_err());
+    // A stored geometry Dgraph would panic on matches nothing.
+    let (_, q) = query_tokens_geo(QueryType::Intersects, &load_polygon("zip.json"), 0.0).unwrap();
+    for g in [no_rings, empty, nan, poly(&ring)] {
+        assert!(!q.matches_filter(&g), "{g:?}");
+    }
+}

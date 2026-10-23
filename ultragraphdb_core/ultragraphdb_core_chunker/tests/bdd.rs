@@ -4,7 +4,9 @@
  */
 
 use cucumber::{World, then, when};
-use ultragraphdb_core_chunker::{ChunkerError, ChunkerErrorEnum, JsonOp, parse_json, parse_rdf};
+use ultragraphdb_core_chunker::{
+    ChunkerError, ChunkerErrorEnum, InputFormat, JsonOp, data_format, parse_json, parse_rdf,
+};
 use ultragraphdb_core_lex::Lexer;
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::value::Val;
@@ -22,6 +24,7 @@ struct Steps {
     error: Option<ChunkerError>,
     mismatches: Vec<String>,
     compared: usize,
+    format: Option<InputFormat>,
 }
 
 impl Steps {
@@ -123,6 +126,63 @@ fn json(s: &mut Steps, text: String) {
         Ok((nqs, _)) => s.nquads = nqs,
         Err(e) => s.error = Some(e),
     }
+}
+
+#[when(regex = r"^(`.+`) is parsed as a (set|delete) mutation$")]
+fn json_mutation(s: &mut Steps, text: String, op: String) {
+    let op = if op == "set" {
+        JsonOp::Set
+    } else {
+        JsonOp::Delete
+    };
+    match parse_json(quoted(&text).as_bytes(), op) {
+        Ok((nqs, _)) => s.nquads = nqs,
+        Err(e) => s.error = Some(e),
+    }
+}
+
+#[then(regex = r"^parsing fails with (`.+`)$")]
+fn parsing_fails_with(s: &mut Steps, text: String) {
+    let e = s.error.as_ref().unwrap_or_else(|| panic!("{:?}", s.nquads));
+    assert_eq!(e.to_string(), quoted(&text));
+}
+
+#[then(regex = r"^parsing fails with (`.+`) and nothing panics$")]
+fn parsing_fails_without_panic(s: &mut Steps, text: String) {
+    // A panic would have failed the When step; the line is refused with the text.
+    parsing_fails_with(s, text);
+}
+
+#[then(regex = r"^both N-Quads have predicate `(\S+)` and language `(\S+)`$")]
+fn predicate_and_language(s: &mut Steps, predicate: String, lang: String) {
+    assert!(s.error.is_none(), "{:?}", s.error);
+    assert_eq!(s.nquads.len(), 2, "{:?}", s.nquads);
+    for nq in &s.nquads {
+        assert_eq!(
+            (nq.predicate.as_str(), nq.lang.as_str()),
+            (predicate.as_str(), lang.as_str())
+        );
+    }
+}
+
+#[then("the N-Quad's object is the float 0, not `*`")]
+fn float_zero(s: &mut Steps) {
+    assert_eq!(
+        s.only().object_value,
+        Some(api::Value {
+            val: Some(Val::DoubleVal(0.0))
+        })
+    );
+}
+
+#[when(regex = r"^the format of `(.+)` with the option `(.+)` is decided$")]
+fn format_decided(s: &mut Steps, filename: String, option: String) {
+    s.format = Some(data_format(&filename, &option));
+}
+
+#[then("it is JSON")]
+fn it_is_json(s: &mut Steps) {
+    assert_eq!(s.format, Some(InputFormat::Json));
 }
 
 #[then("the result holds `name` for both nodes and a `friend` edge from `_:a` to `_:b`")]

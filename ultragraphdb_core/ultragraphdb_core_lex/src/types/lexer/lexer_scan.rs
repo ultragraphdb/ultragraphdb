@@ -34,16 +34,12 @@ impl Lexer<'_> {
         }
     }
 
-    /// Moves back by the rune last read, including a read at the end of the input.
-    ///
-    /// # Panics
-    ///
-    /// When there is no read to undo, as Go's assertion does.
+    /// Moves back by the rune last read, including a read at the end of the input. Does nothing when there is no
+    /// read to undo, where Go's assertion exits the process.
     pub fn backup(&mut self) {
-        let rw = self
-            .width_stack
-            .last_mut()
-            .expect("Backup should not be called when the width tracker stack is empty");
+        let Some(rw) = self.width_stack.last_mut() else {
+            return;
+        };
         let width = rw.width;
         if rw.count == 1 {
             self.width_stack.pop(); // pop the item from the stack

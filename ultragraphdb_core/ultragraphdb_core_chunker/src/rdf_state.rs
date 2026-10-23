@@ -119,7 +119,7 @@ fn lex_text(l: &mut Lexer<'_>) -> Option<StateFn> {
                 return Some(LEX_COMMENT);
             }
             Some('*') => {
-                l.set_depth(l.depth() + 1);
+                l.set_depth(l.depth().saturating_add(1));
                 l.emit(ITEM_STAR);
             }
             Some(LEFT_ROUND) => {
@@ -173,7 +173,7 @@ fn lex_uid_node(l: &mut Lexer<'_>, styp: ItemType, sfn: StateFn) -> Option<State
     if r.is_none() {
         return l.errorf("Unexpected end of uid subject");
     }
-    let input = &l.input()[l.start()..l.pos()];
+    let input = l.input().get(l.start()..l.pos()).unwrap_or_default();
     if go_strconv::parse_uint(input, 0).is_err() {
         return l.errorf(format!("Unable to convert '{input}' to UID"));
     }
@@ -223,12 +223,12 @@ fn lex_subject(l: &mut Lexer<'_>) -> Option<StateFn> {
     match l.next() {
         // The subject is an IRI, so we lex till we encounter '>'.
         Some(LS_THAN) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_iri_ref(l, ITEM_SUBJECT, LEX_TEXT)
         }
         // The subject represents a blank node.
         Some(UNDERSCORE) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_blank_node(l, ITEM_SUBJECT, LEX_TEXT)
         }
         // See if its an uid
@@ -242,7 +242,7 @@ fn lex_predicate(l: &mut Lexer<'_>) -> Option<StateFn> {
     if r != Some(LS_THAN) {
         return l.errorf(format!("Invalid character in lexPredicate: '{}'", go_c(r)));
     }
-    l.set_depth(l.depth() + 1);
+    l.set_depth(l.depth().saturating_add(1));
     lex_iri_ref(l, ITEM_PREDICATE, LEX_TEXT)
 }
 
@@ -288,7 +288,7 @@ fn lex_literal(l: &mut Lexer<'_>) -> Option<StateFn> {
         }
     }
     l.emit(ITEM_LITERAL);
-    l.set_depth(l.depth() + 1);
+    l.set_depth(l.depth().saturating_add(1));
     match l.peek() {
         Some(AT) => lex_language(l),
         Some(CARET) => lex_object_type(l),
@@ -314,11 +314,11 @@ fn lex_object(l: &mut Lexer<'_>) -> Option<StateFn> {
     // The object can be an IRI, blank node, literal.
     match l.next() {
         Some(LS_THAN) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_iri_ref(l, ITEM_OBJECT, LEX_TEXT)
         }
         Some(UNDERSCORE) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_blank_node(l, ITEM_OBJECT, LEX_TEXT)
         }
         Some(QUOTE) => lex_literal(l),
@@ -330,11 +330,11 @@ fn lex_label(l: &mut Lexer<'_>) -> Option<StateFn> {
     // Graph label can either be an IRI or a blank node according to spec.
     match l.next() {
         Some(LS_THAN) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_iri_ref(l, ITEM_LABEL, LEX_TEXT)
         }
         Some(UNDERSCORE) => {
-            l.set_depth(l.depth() + 1);
+            l.set_depth(l.depth().saturating_add(1));
             lex_blank_node(l, ITEM_LABEL, LEX_TEXT)
         }
         r => l.errorf(format!("Invalid char: '{}' at lexLabel", go_c(r))),
@@ -438,7 +438,7 @@ fn lex_variable(l: &mut Lexer<'_>) -> Option<StateFn> {
         ));
     }
     l.emit(ITEM_RIGHT_ROUND);
-    l.set_depth(l.depth() + 1);
+    l.set_depth(l.depth().saturating_add(1));
 
     Some(LEX_TEXT)
 }

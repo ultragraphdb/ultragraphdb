@@ -8,11 +8,12 @@
 
 //! Namespaced attribute names: an attribute held in memory is `hex(namespace)-predicate`.
 //!
-//! Like Dgraph, the parsers expect a well-formed name and panic on one without a separator or with a namespace that
-//! is not hexadecimal; Dgraph builds every such name itself.
+//! Dgraph builds every such name itself, and its parsers panic on one without a separator or with a namespace that
+//! is not hexadecimal; the port's refuse it with a [`KeyError`].
 
 use ultragraphdb_common_utils::go_strconv;
 
+use crate::errors::key_error::KeyError;
 use crate::keys::{NS_SEPARATOR, ROOT_NAMESPACE};
 
 /// The namespace as the eight big-endian bytes a key carries.
@@ -37,68 +38,79 @@ pub fn attr_in_root_namespace(attr: &str) -> String {
 
 /// The namespace and the predicate of a namespaced attribute.
 ///
-/// # Panics
+/// # Errors
 ///
-/// When `attr` has no separator or its namespace is not hexadecimal.
-pub fn parse_namespace_attr(attr: &str) -> (u64, &str) {
-    let (ns, pred) = split(attr);
-    (str_to_uint(ns), pred)
+/// [`MissingNamespaceSeparator`](crate::KeyErrorEnum::MissingNamespaceSeparator) when `attr` has no separator and
+/// [`InvalidNamespace`](crate::KeyErrorEnum::InvalidNamespace) when its namespace is not hexadecimal; Dgraph
+/// panics on both.
+pub fn parse_namespace_attr(attr: &str) -> Result<(u64, &str), KeyError> {
+    let (ns, pred) = split(attr)?;
+    Ok((str_to_uint(attr, ns)?, pred))
 }
 
 /// The namespace, as a key's eight bytes, and the predicate of a namespaced attribute.
 ///
-/// # Panics
+/// # Errors
 ///
 /// As [`parse_namespace_attr`].
-pub fn parse_namespace_bytes(attr: &str) -> ([u8; 8], &str) {
-    let (ns, pred) = parse_namespace_attr(attr);
-    (namespace_to_bytes(ns), pred)
+pub fn parse_namespace_bytes(attr: &str) -> Result<([u8; 8], &str), KeyError> {
+    let (ns, pred) = parse_namespace_attr(attr)?;
+    Ok((namespace_to_bytes(ns), pred))
 }
 
 /// The predicate of a namespaced attribute.
 ///
-/// # Panics
+/// # Errors
 ///
-/// When `attr` has no separator.
-pub fn parse_attr(attr: &str) -> &str {
-    split(attr).1
+/// [`MissingNamespaceSeparator`](crate::KeyErrorEnum::MissingNamespaceSeparator) when `attr` has no separator,
+/// on which Dgraph panics.
+pub fn parse_attr(attr: &str) -> Result<&str, KeyError> {
+    Ok(split(attr)?.1)
 }
 
 /// The namespace of a namespaced attribute; a name without a separator is read whole as the namespace.
 ///
-/// # Panics
+/// # Errors
 ///
-/// When the namespace is not hexadecimal.
-pub fn parse_namespace(attr: &str) -> u64 {
-    str_to_uint(attr.split_once(NS_SEPARATOR).map_or(attr, |(ns, _)| ns))
+/// [`InvalidNamespace`](crate::KeyErrorEnum::InvalidNamespace) when the namespace is not hexadecimal, on which
+/// Dgraph panics.
+pub fn parse_namespace(attr: &str) -> Result<u64, KeyError> {
+    str_to_uint(
+        attr,
+        attr.split_once(NS_SEPARATOR).map_or(attr, |(ns, _)| ns),
+    )
 }
 
 /// [`parse_attr`] of every attribute.
-pub fn parse_attr_list(attrs: &[String]) -> Vec<String> {
+///
+/// # Errors
+///
+/// As [`parse_attr`], for the first attribute it refuses.
+pub fn parse_attr_list(attrs: &[String]) -> Result<Vec<String>, KeyError> {
     attrs
         .iter()
-        .map(|attr| parse_attr(attr).to_string())
+        .map(|attr| parse_attr(attr).map(str::to_string))
         .collect()
 }
 
-/// Whether the predicate of a namespaced attribute is a reverse one, `~name`.
+/// Whether the predicate of a namespaced attribute is a reverse one, `~name`. An empty predicate is not, where
+/// Dgraph panics reading its first byte.
 ///
-/// # Panics
+/// # Errors
 ///
-/// When `attr` has no separator or its predicate is empty.
-pub fn is_reverse_attr(attr: &str) -> bool {
-    parse_attr(attr).as_bytes()[0] == b'~'
+/// As [`parse_attr`].
+pub fn is_reverse_attr(attr: &str) -> Result<bool, KeyError> {
+    Ok(parse_attr(attr)?.starts_with('~'))
 }
 
-fn split(attr: &str) -> (&str, &str) {
+fn split(attr: &str) -> Result<(&str, &str), KeyError> {
     attr.split_once(NS_SEPARATOR)
-        .unwrap_or_else(|| panic!("attribute {attr:?} has no namespace separator {NS_SEPARATOR:?}"))
+        .ok_or_else(|| KeyError::MissingNamespaceSeparator(attr.to_string()))
 }
 
 // For consistency, use base16 to encode/decode the namespace.
-fn str_to_uint(s: &str) -> u64 {
-    go_strconv::parse_uint(s, 16)
-        .unwrap_or_else(|_| panic!("namespace {s:?} is not a hexadecimal u64"))
+fn str_to_uint(attr: &str, s: &str) -> Result<u64, KeyError> {
+    go_strconv::parse_uint(s, 16).map_err(|e| KeyError::InvalidNamespace(attr.to_string(), e))
 }
 
 fn uint_to_str(ns: u64) -> String {

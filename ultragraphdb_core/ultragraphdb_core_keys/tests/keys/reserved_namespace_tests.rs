@@ -6,8 +6,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use std::panic::{self, UnwindSafe};
-
 use ultragraphdb_core_keys::{
     ROOT_NAMESPACE, ReservedNamespace, TrustMarker, is_registered_reserved_predicate,
     is_registered_reserved_type, namespace_attr, register_reserved_namespace,
@@ -22,22 +20,29 @@ fn ns(name: &str) -> String {
     namespace_attr(ROOT_NAMESPACE, name)
 }
 
-/// The panic message of `f`, or `None` when it returns.
-fn panic_message(f: impl FnOnce() + UnwindSafe) -> Option<String> {
-    panic::catch_unwind(f)
-        .err()
-        .map(|payload| match payload.downcast::<String>() {
-            Ok(s) => *s,
-            Err(payload) => payload
-                .downcast::<&str>()
-                .map(|s| s.to_string())
-                .unwrap_or_default(),
-        })
+/// The error text of a registration, or `None` when it is accepted. Dgraph panics with the same text.
+fn refusal(ns: ReservedNamespace) -> Option<String> {
+    register_reserved_namespace(ns).err().map(|e| e.to_string())
+}
+
+/// Registers a namespace that must be accepted.
+fn register(ns: ReservedNamespace) {
+    register_reserved_namespace(ns).expect("the registration is accepted");
+}
+
+/// Whether the namespaced predicate is registered; the test names are all namespaced.
+fn registered_predicate(pred: &str) -> bool {
+    is_registered_reserved_predicate(pred).expect("a namespaced predicate")
+}
+
+/// Whether the namespaced type is registered.
+fn registered_type(typ: &str) -> bool {
+    is_registered_reserved_type(typ).expect("a namespaced type")
 }
 
 #[test]
 fn test_reserved_namespace_registry() {
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicate_prefix("dgraph.testns.rel.")
             .with_predicates(["dgraph.testns.xid", "dgraph.testns.cfg"])
@@ -47,26 +52,20 @@ fn test_reserved_namespace_registry() {
     );
 
     // Dynamic prefix members.
-    assert!(is_registered_reserved_predicate(&ns(
-        "dgraph.testns.rel.owner"
-    )));
+    assert!(registered_predicate(&ns("dgraph.testns.rel.owner")));
     // Exact predicate members.
-    assert!(is_registered_reserved_predicate(&ns("dgraph.testns.xid")));
-    assert!(is_registered_reserved_predicate(&ns("dgraph.testns.cfg")));
+    assert!(registered_predicate(&ns("dgraph.testns.xid")));
+    assert!(registered_predicate(&ns("dgraph.testns.cfg")));
     // Not owned: a sibling under the same prefix root, a different reserved
     // namespace, and an ordinary predicate.
-    assert!(!is_registered_reserved_predicate(&ns(
-        "dgraph.testns.other"
-    )));
-    assert!(!is_registered_reserved_predicate(&ns(
-        "dgraph.graphql.schema"
-    )));
-    assert!(!is_registered_reserved_predicate(&ns("person.name")));
+    assert!(!registered_predicate(&ns("dgraph.testns.other")));
+    assert!(!registered_predicate(&ns("dgraph.graphql.schema")));
+    assert!(!registered_predicate(&ns("person.name")));
 
     // Types are tracked separately from predicates.
-    assert!(is_registered_reserved_type(&ns("dgraph.testns.node")));
-    assert!(!is_registered_reserved_type(&ns("dgraph.testns.xid"))); // a predicate, not a type
-    assert!(!is_registered_reserved_type(&ns("dgraph.graphql")));
+    assert!(registered_type(&ns("dgraph.testns.node")));
+    assert!(!registered_type(&ns("dgraph.testns.xid"))); // a predicate, not a type
+    assert!(!registered_type(&ns("dgraph.graphql")));
 
     // Value lock matches the bare predicate, like is_other_reserved_predicate.
     // cfg is locked to the registered marker; xid is owned but not locked.
@@ -82,12 +81,8 @@ fn test_reserved_namespace_registry() {
 // names exist under `dgraph.`).
 #[test]
 fn test_reserved_namespace_rejects_unregistered() {
-    assert!(!is_registered_reserved_predicate(&ns(
-        "dgraph.unregistered.pred"
-    )));
-    assert!(!is_registered_reserved_type(&ns(
-        "dgraph.unregistered.type"
-    )));
+    assert!(!registered_predicate(&ns("dgraph.unregistered.pred")));
+    assert!(!registered_type(&ns("dgraph.unregistered.type")));
     assert_eq!(
         reserved_predicate_value_lock("dgraph.unregistered.pred"),
         None
@@ -98,7 +93,7 @@ fn test_reserved_namespace_rejects_unregistered() {
 // ownership is matched case-insensitively, so the value lock must be too.
 #[test]
 fn test_reserved_predicate_value_lock_case_insensitive() {
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicates(["dgraph.casetest.Secret"])
             .with_value_locked(["dgraph.casetest.Secret"])
@@ -116,23 +111,19 @@ fn test_reserved_predicate_value_lock_case_insensitive() {
             "value lock must hold regardless of case: {p:?}"
         );
     }
-    assert!(is_registered_reserved_predicate(&ns(
-        "DGRAPH.CASETEST.SECRET"
-    )));
+    assert!(registered_predicate(&ns("DGRAPH.CASETEST.SECRET")));
 }
 
 // Confirms the invariant is enforced at registration (init time): ValueLocked
 // without a TrustMarker would make the predicate unwritable by everyone, so it
-// panics rather than failing silently at mutation time.
+// is refused rather than failing silently at mutation time.
 #[test]
 fn test_register_reserved_namespace_requires_trust_marker() {
-    let message = panic_message(|| {
-        register_reserved_namespace(
-            ReservedNamespace::new()
-                .with_predicates(["dgraph.nomarker.cfg"])
-                .with_value_locked(["dgraph.nomarker.cfg"]), // TrustMarker intentionally left unset.
-        );
-    });
+    let message = refusal(
+        ReservedNamespace::new()
+            .with_predicates(["dgraph.nomarker.cfg"])
+            .with_value_locked(["dgraph.nomarker.cfg"]), // TrustMarker intentionally left unset.
+    );
     assert_eq!(
         message.as_deref(),
         Some(
@@ -147,14 +138,12 @@ fn test_register_reserved_namespace_requires_trust_marker() {
 // predicate would stay publicly writable — it must fail closed at startup instead.
 #[test]
 fn test_register_reserved_namespace_rejects_qualified_name() {
-    let message = panic_message(|| {
-        register_reserved_namespace(
-            ReservedNamespace::new()
-                .with_predicates(["dgraph.qualtest.secret"])
-                .with_value_locked([namespace_attr(ROOT_NAMESPACE, "dgraph.qualtest.secret")])
-                .with_trust_marker(TEST_TRUST),
-        );
-    });
+    let message = refusal(
+        ReservedNamespace::new()
+            .with_predicates(["dgraph.qualtest.secret"])
+            .with_value_locked([namespace_attr(ROOT_NAMESPACE, "dgraph.qualtest.secret")])
+            .with_trust_marker(TEST_TRUST),
+    );
     assert_eq!(
         message.as_deref(),
         Some(
@@ -164,14 +153,12 @@ fn test_register_reserved_namespace_rejects_qualified_name() {
     );
 }
 
-// Confirms a name claimed twice panics rather than silently overwriting (for value
+// Confirms a name claimed twice is refused rather than silently overwriting (for value
 // locks, last-writer-wins would let import order pick the TrustMarker).
 #[test]
 fn test_register_reserved_namespace_rejects_duplicate() {
-    let message = panic_message(|| {
-        register_reserved_namespace(ReservedNamespace::new().with_predicates(["dgraph.duptest.x"]));
-        register_reserved_namespace(ReservedNamespace::new().with_predicates(["dgraph.duptest.x"]));
-    });
+    register(ReservedNamespace::new().with_predicates(["dgraph.duptest.x"]));
+    let message = refusal(ReservedNamespace::new().with_predicates(["dgraph.duptest.x"]));
     assert_eq!(
         message.as_deref(),
         Some("x.RegisterReservedNamespace: predicate \"dgraph.duptest.x\" already registered")
@@ -180,10 +167,8 @@ fn test_register_reserved_namespace_rejects_duplicate() {
 
 #[test]
 fn test_register_reserved_namespace_rejects_duplicate_type_and_value_lock() {
-    let message = panic_message(|| {
-        register_reserved_namespace(ReservedNamespace::new().with_types(["dgraph.duptype.T"]));
-        register_reserved_namespace(ReservedNamespace::new().with_types(["dgraph.duptype.t"]));
-    });
+    register(ReservedNamespace::new().with_types(["dgraph.duptype.T"]));
+    let message = refusal(ReservedNamespace::new().with_types(["dgraph.duptype.t"]));
     assert_eq!(
         message.as_deref(),
         Some("x.RegisterReservedNamespace: type \"dgraph.duptype.t\" already registered")
@@ -194,10 +179,8 @@ fn test_register_reserved_namespace_rejects_duplicate_type_and_value_lock() {
             .with_value_locked(["dgraph.duplock.x"])
             .with_trust_marker(TEST_TRUST)
     };
-    let message = panic_message(|| {
-        register_reserved_namespace(lock());
-        register_reserved_namespace(lock());
-    });
+    register(lock());
+    let message = refusal(lock());
     assert_eq!(
         message.as_deref(),
         Some(
@@ -212,7 +195,7 @@ fn test_register_reserved_namespace_rejects_duplicate_type_and_value_lock() {
 // yet writable by anyone through /mutate.
 #[test]
 fn test_value_locked_prefixes() {
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicate_prefix("dgraph.prefixlock.rel.")
             .with_predicates(["dgraph.prefixlock.xid"])
@@ -257,7 +240,7 @@ fn test_value_locked_exact_wins_over_prefix() {
     let exact_trust = TrustMarker::new("exactTrust");
 
     // The namespace that owns the whole sub-namespace by prefix.
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicate_prefix("dgraph.precedence.rel.")
             .with_value_locked_prefixes(["dgraph.precedence.rel."])
@@ -266,7 +249,7 @@ fn test_value_locked_exact_wins_over_prefix() {
     // A second namespace pinning one predicate inside it to its own marker. Note
     // there is no cross-kind conflict check, so this registration is accepted — the
     // precedence rule is what decides the overlap.
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicates(["dgraph.precedence.rel.special"])
             .with_value_locked(["dgraph.precedence.rel.special"])
@@ -289,14 +272,12 @@ fn test_value_locked_exact_wins_over_prefix() {
 // prefix matches every predicate in the cluster.
 #[test]
 fn test_value_locked_prefix_rejects_empty() {
-    let message = panic_message(|| {
-        register_reserved_namespace(
-            ReservedNamespace::new()
-                .with_predicate_prefix("dgraph.emptylock.")
-                .with_value_locked_prefixes([""])
-                .with_trust_marker(TrustMarker::new("emptyTrust")),
-        );
-    });
+    let message = refusal(
+        ReservedNamespace::new()
+            .with_predicate_prefix("dgraph.emptylock.")
+            .with_value_locked_prefixes([""])
+            .with_trust_marker(TrustMarker::new("emptyTrust")),
+    );
     assert_eq!(
         message.as_deref(),
         Some("x.RegisterReservedNamespace: value-locked prefix must not be empty")
@@ -314,14 +295,14 @@ fn test_value_locked_longest_prefix_wins() {
     let narrow_trust = TrustMarker::new("narrowTrust");
 
     // The broad prefix registers FIRST, so a first-match lookup would return it.
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_predicate_prefix("dgraph.longestpfx.rel.")
             .with_value_locked_prefixes(["dgraph.longestpfx.rel."])
             .with_trust_marker(broad_trust),
     );
     // A second namespace locks a narrower sub-prefix to its own marker.
-    register_reserved_namespace(
+    register(
         ReservedNamespace::new()
             .with_value_locked_prefixes(["dgraph.longestpfx.rel.secret."])
             .with_trust_marker(narrow_trust),
@@ -342,17 +323,15 @@ fn test_value_locked_longest_prefix_wins() {
 }
 
 // Mirrors the ValueLocked invariant: a locked prefix with no marker would be
-// unwritable by everyone, including its owner, so it must panic at registration.
+// unwritable by everyone, including its owner, so it must be refused at registration.
 #[test]
 fn test_value_locked_prefixes_require_trust_marker() {
     assert!(
-        panic_message(|| {
-            register_reserved_namespace(
-                ReservedNamespace::new()
-                    .with_predicate_prefix("dgraph.prefixnomarker.rel.")
-                    .with_value_locked_prefixes(["dgraph.prefixnomarker.rel."]), // TrustMarker intentionally left unset.
-            );
-        })
+        refusal(
+            ReservedNamespace::new()
+                .with_predicate_prefix("dgraph.prefixnomarker.rel.")
+                .with_value_locked_prefixes(["dgraph.prefixnomarker.rel."]), // TrustMarker intentionally left unset.
+        )
         .is_some()
     );
 }
@@ -363,16 +342,14 @@ fn test_value_locked_prefixes_require_trust_marker() {
 #[test]
 fn test_value_locked_prefixes_reject_qualified() {
     assert!(
-        panic_message(|| {
-            register_reserved_namespace(
-                ReservedNamespace::new()
-                    .with_value_locked_prefixes([namespace_attr(
-                        ROOT_NAMESPACE,
-                        "dgraph.qualprefix.rel.",
-                    )])
-                    .with_trust_marker(TEST_TRUST),
-            );
-        })
+        refusal(
+            ReservedNamespace::new()
+                .with_value_locked_prefixes([namespace_attr(
+                    ROOT_NAMESPACE,
+                    "dgraph.qualprefix.rel.",
+                )])
+                .with_trust_marker(TEST_TRUST),
+        )
         .is_some()
     );
 }
@@ -381,15 +358,13 @@ fn test_value_locked_prefixes_reject_qualified() {
 // would silently pick the TrustMarker.
 #[test]
 fn test_value_locked_prefixes_reject_duplicate() {
-    let message = panic_message(|| {
-        let plugin = || {
-            ReservedNamespace::new()
-                .with_value_locked_prefixes(["dgraph.dupprefix.rel."])
-                .with_trust_marker(TEST_TRUST)
-        };
-        register_reserved_namespace(plugin());
-        register_reserved_namespace(plugin());
-    });
+    let plugin = || {
+        ReservedNamespace::new()
+            .with_value_locked_prefixes(["dgraph.dupprefix.rel."])
+            .with_trust_marker(TEST_TRUST)
+    };
+    register(plugin());
+    let message = refusal(plugin());
     assert_eq!(
         message.as_deref(),
         Some(
@@ -398,19 +373,16 @@ fn test_value_locked_prefixes_reject_duplicate() {
     );
 }
 
-// A panic while the registry is held leaves it usable for later registrations and lookups.
+// A refused registration leaves the registry usable for later registrations and lookups.
 #[test]
-fn test_registry_survives_a_panicking_registration() {
-    assert!(
-        panic_message(|| {
-            register_reserved_namespace(
-                ReservedNamespace::new().with_predicates(["dgraph.poison.a", "dgraph.poison.a"]),
-            );
-        })
-        .is_some()
+fn test_registry_survives_a_refused_registration() {
+    assert_eq!(
+        refusal(ReservedNamespace::new().with_predicates(["dgraph.poison.a", "dgraph.poison.a"]))
+            .as_deref(),
+        Some("x.RegisterReservedNamespace: predicate \"dgraph.poison.a\" already registered")
     );
-    // The first claim landed before the duplicate panicked, as in Dgraph.
-    assert!(is_registered_reserved_predicate(&ns("dgraph.poison.a")));
-    register_reserved_namespace(ReservedNamespace::new().with_types(["dgraph.poison.T"]));
-    assert!(is_registered_reserved_type(&ns("dgraph.poison.t")));
+    // The first claim landed before the duplicate was refused, as it does before Dgraph panics.
+    assert!(registered_predicate(&ns("dgraph.poison.a")));
+    register(ReservedNamespace::new().with_types(["dgraph.poison.T"]));
+    assert!(registered_type(&ns("dgraph.poison.t")));
 }

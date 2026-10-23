@@ -30,18 +30,13 @@ pub fn apply_filter(u: &mut List, mut f: impl FnMut(u64, usize) -> bool) {
 }
 
 /// Intersects the packed list's UIDs from `after_uid` on with `v`, writing the result to `o`. Leaves `o` unchanged
-/// when `pack` is `None`.
-///
-/// # Panics
-///
-/// As Dgraph's does, when `after_uid` lies past the pack's last UID and the binary strategy is chosen, which
-/// [`Decoder::seek_to_block`] then refuses.
+/// when `pack` is `None`, and writes nothing when `after_uid` lies past the pack's last UID, where Dgraph's panics
+/// with the binary strategy (ledger 3).
 pub fn intersect_compressed_with(pack: Option<&UidPack>, after_uid: u64, v: &List, o: &mut List) {
     let Some(pack) = pack else {
         return;
     };
-    let mut dec = Decoder::unpositioned(pack);
-    dec.seek(after_uid, SeekPos::Start);
+    let mut dec = Decoder::sought(pack, after_uid, SeekPos::Start);
     let mut n = dec.approx_len();
     let mut m = v.uids.len();
 
@@ -85,8 +80,7 @@ pub fn intersect_compressed_with_lin_jump(dec: &mut Decoder, v: &[u64], o: &mut 
     }
 }
 
-/// Intersects the decoder's UIDs with `q` by binary search over the shorter list, appending to `o`. The decoder
-/// must have been sought. Based on the paper "Fast Intersection Algorithms for Sorted Sequences",
+/// Intersects the decoder's UIDs with `q` by binary search over the shorter list, appending to `o`. Based on the paper "Fast Intersection Algorithms for Sorted Sequences",
 /// <https://link.springer.com/chapter/10.1007/978-3-642-12476-1_3>.
 pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[u64], o: &mut Vec<u64>) {
     let ld = exact_len(dec.pack());
@@ -361,7 +355,10 @@ pub fn merge_sorted_more_mem(lists: &[&List]) -> List {
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("a merge thread panicked"))
+            .map(|h| {
+                h.join()
+                    .expect("a merge thread runs only the panic-free merge, so it returns")
+            })
             .collect()
     });
     merge_sorted_more_mem(&res.iter().collect::<Vec<_>>())
@@ -434,7 +431,10 @@ pub fn merge_sorted(lists: &[&List]) -> List {
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("a merge thread panicked"))
+            .map(|h| {
+                h.join()
+                    .expect("a merge thread runs only the panic-free merge, so it returns")
+            })
             .collect()
     });
 

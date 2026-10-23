@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_keys::KeyError;
 use ultragraphdb_core_lex::{LexError, LexErrorEnum};
 
 use super::{SchemaError, SchemaErrorEnum};
@@ -22,5 +23,11 @@ impl From<LexError> for SchemaError {
             },
             _ => SchemaErrorEnum::Parse(e.to_string()),
         })
+    }
+}
+
+impl From<KeyError> for SchemaError {
+    fn from(e: KeyError) -> Self {
+        SchemaError::new(SchemaErrorEnum::Key(e.to_string()))
     }
 }

@@ -15,35 +15,60 @@ pub(crate) fn stem(term: &[u8]) -> Vec<u8> {
     go_utf8::encode(&stem_without_lower_casing(go_utf8::runes(term)))
 }
 
+/// go-porterstemmer's `isConsonant`: a `y` is a consonant at the start and after a vowel. Go recurses once per `y`
+/// of a run, on its growable stack; this walks the run back to the letter before it and counts its parity.
 fn is_consonant(s: &[char], i: usize) -> bool {
     match s[i] {
         'a' | 'e' | 'i' | 'o' | 'u' => false,
-        'y' => i == 0 || !is_consonant(s, i - 1),
+        'y' => {
+            let run = s[..=i].iter().rev().take_while(|&&c| c == 'y').count();
+            // The run's first `y` follows a letter that is not a `y`, a consonant unless a vowel.
+            let first = match (i + 1 - run).checked_sub(1).map(|before| s[before]) {
+                None => true,
+                Some(before) => matches!(before, 'a' | 'e' | 'i' | 'o' | 'u'),
+            };
+            first == (run % 2 == 1)
+        }
         _ => true,
     }
 }
 
+/// [`is_consonant`] of every letter, in one pass.
+fn consonants(s: &[char]) -> Vec<bool> {
+    let mut out: Vec<bool> = Vec::with_capacity(s.len());
+    for &c in s {
+        let consonant = match c {
+            'a' | 'e' | 'i' | 'o' | 'u' => false,
+            'y' => out.last().is_none_or(|&before| !before),
+            _ => true,
+        };
+        out.push(consonant);
+    }
+    out
+}
+
 fn measure(s: &[char]) -> u32 {
+    let c = consonants(s);
     let len = s.len();
     let mut result = 0;
     let mut i = 0;
     if len == 0 {
         return result;
     }
-    while is_consonant(s, i) {
+    while c[i] {
         i += 1;
         if i >= len {
             return result;
         }
     }
     'outer: while i < len {
-        while !is_consonant(s, i) {
+        while !c[i] {
             i += 1;
             if i >= len {
                 break 'outer;
             }
         }
-        while is_consonant(s, i) {
+        while c[i] {
             i += 1;
             if i >= len {
                 result += 1;
@@ -62,7 +87,7 @@ fn has_suffix(s: &[char], suffix: &str) -> bool {
 }
 
 fn contains_vowel(s: &[char]) -> bool {
-    (0..s.len()).any(|i| !is_consonant(s, i))
+    consonants(s).contains(&false)
 }
 
 fn has_repeat_double_consonant_suffix(s: &[char]) -> bool {

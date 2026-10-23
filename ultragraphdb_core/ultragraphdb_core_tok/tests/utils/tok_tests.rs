@@ -601,6 +601,7 @@ fn test_registry_golden() {
         let Some(t) = t else { continue };
         assert_eq!(t.name(), c.name);
         assert_eq!(t.type_name(), c.typ, "{}", c.name);
+        assert_eq!(Some(t.type_id()), TypeId::for_name(&c.typ), "{}", c.name);
         assert_eq!(t.identifier(), c.identifier, "{}", c.name);
         assert_eq!(t.is_sortable(), c.sortable, "{}", c.name);
         assert_eq!(t.is_lossy(), c.lossy, "{}", c.name);
@@ -612,4 +613,18 @@ fn test_registry_golden() {
             c.name
         );
     }
+}
+
+#[test]
+fn test_full_text_tokens_of_a_long_run_of_y_do_not_overflow_the_stack() {
+    // The Porter stemmer decides whether a `y` is a consonant from the letter before it; go-porterstemmer recurses
+    // once per `y` of a run and lives on Go's growable stack, which a thread's fixed stack is not.
+    // A suffix that step 2 removes makes it measure the stem, which asks about every `y` of the run.
+    let run = format!("{}ational", "y".repeat(100_000));
+    let tokens = get_full_text_tokens(&[run.as_str()], "en").unwrap();
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(
+        get_full_text_tokens(&["yyyy"], "en").unwrap(),
+        vec![b"\x08yyyi".to_vec()]
+    );
 }

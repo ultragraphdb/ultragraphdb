@@ -28,6 +28,8 @@ pub enum LexErrorEnum {
     },
     /// `ItemIterator::peek` asked for more items than remain.
     PeekOutOfRange,
+    /// `ItemIterator::restore` was given a position outside `-1..=len`, on which Go's assertion exits the process.
+    RestoreOutOfRange { pos: isize, len: isize },
     /// A quoted string did not start with `"`.
     NoOpeningQuote,
     /// A quoted string was not closed before the end of the input.
@@ -63,6 +65,11 @@ impl LexError {
     #[allow(non_snake_case)]
     pub fn PeekOutOfRange() -> Self {
         Self(LexErrorEnum::PeekOutOfRange)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn RestoreOutOfRange(pos: isize, len: isize) -> Self {
+        Self(LexErrorEnum::RestoreOutOfRange { pos, len })
     }
 
     #[allow(non_snake_case)]

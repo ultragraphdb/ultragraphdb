@@ -6,7 +6,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_dql::{Request, VarType, parse, parse_mutation};
+use ultragraphdb_core_dql::{DqlErrorEnum, Request, VarType, parse, parse_mutation};
 use ultragraphdb_core_types::{TypeId, Value};
 
 use crate::test_helpers::{child_attrs, contains, no_err, split, vars};
@@ -501,6 +501,7 @@ fn test_parse_query_with_var_val_agg_nested() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     no_err(&err);
 }
@@ -533,6 +534,7 @@ fn test_parse_query_with_var_val_agg_nested2() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         "(+ (+ (* c (u- 1E+00)) (u- b)) (* (u- b) c))",
@@ -540,6 +542,7 @@ fn test_parse_query_with_var_val_agg_nested2() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -569,6 +572,7 @@ fn test_parse_query_with_var_val_agg_nested4() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -598,6 +602,7 @@ fn test_parse_query_with_var_val_agg_nested5() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -627,6 +632,7 @@ fn test_parse_query_with_var_val_agg_log_sqrt() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         "(sqrt (ln a))",
@@ -634,6 +640,7 @@ fn test_parse_query_with_var_val_agg_log_sqrt() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -663,6 +670,7 @@ fn test_parse_query_with_var_val_dot_product() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -692,6 +700,7 @@ fn test_parse_query_with_var_val_dot_product2() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -724,6 +733,7 @@ fn test_parse_query_with_var_val_agg_nested_conditional() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         "(cond (!= a 1E+01) (exp (+ (+ a b) 1E+00)) (ln d))",
@@ -731,6 +741,7 @@ fn test_parse_query_with_var_val_agg_nested_conditional() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         "(cond (== a 1E+01) (exp (+ (+ a b) 1E+00)) (ln e))",
@@ -738,6 +749,7 @@ fn test_parse_query_with_var_val_agg_nested_conditional() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -767,6 +779,7 @@ fn test_parse_query_with_var_val_agg_nested3() {
             .math_exp()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2578,7 +2591,7 @@ fn test_parse_filter_root() {
     let _ = &res.query()[0].filter().unwrap();
     assert_eq!(
         r#"(allofterms name "alice")"#,
-        res.query()[0].filter().unwrap().debug_string()
+        res.query()[0].filter().unwrap().debug_string().unwrap()
     );
     assert_eq!(
         vec!["friends", "gender", "age", "hometown"],
@@ -2592,6 +2605,7 @@ fn test_parse_filter_root() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         r#"(neq a "b")"#,
@@ -2599,6 +2613,7 @@ fn test_parse_filter_root() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         r#"(namefilter name "a")"#,
@@ -2606,6 +2621,7 @@ fn test_parse_filter_root() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2673,7 +2689,7 @@ fn test_parse_filter_root2() {
     let _ = &res.query()[0].filter().unwrap();
     assert_eq!(
         r#"(gt count(friends) "10")"#,
-        res.query()[0].filter().unwrap().debug_string()
+        res.query()[0].filter().unwrap().debug_string().unwrap()
     );
     assert_eq!(vec!["friends", "hometown"], child_attrs(&res.query()[0]));
     assert_eq!(vec!["name"], child_attrs(&res.query()[0].children()[0]));
@@ -2726,6 +2742,7 @@ fn test_parse_filter_simplest() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         r#"(neq a "b")"#,
@@ -2733,6 +2750,7 @@ fn test_parse_filter_simplest() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         r#"(namefilter name "a")"#,
@@ -2740,6 +2758,7 @@ fn test_parse_filter_simplest() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2771,6 +2790,7 @@ fn test_parse_filter_op() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2855,6 +2875,7 @@ fn test_parse_filter_op_not1() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2885,6 +2906,7 @@ fn test_parse_filter_op_not2() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2916,6 +2938,7 @@ fn test_parse_filter_op2() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -2946,6 +2969,7 @@ fn test_parse_filter_brac() {
             .filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -3495,7 +3519,11 @@ fn test_parse_iri_ref() {
     );
     assert_eq!(
         r#"(allofterms http://verygood.com/what/about/you "good better bad")"#,
-        gq.query()[0].children()[1].filter().unwrap().debug_string()
+        gq.query()[0].children()[1]
+            .filter()
+            .unwrap()
+            .debug_string()
+            .unwrap()
     );
 }
 
@@ -3519,7 +3547,11 @@ fn test_parse_iri_ref2() {
     );
     assert_eq!(
         r#"(allofterms http://verygood.com/what/about/you "good better bad")"#,
-        gq.query()[0].children()[1].filter().unwrap().debug_string()
+        gq.query()[0].children()[1]
+            .filter()
+            .unwrap()
+            .debug_string()
+            .unwrap()
     );
     assert_eq!(
         "http://helloworld.com/how/are/you",
@@ -4669,6 +4701,7 @@ fn test_facets_filter_simple() {
             .facets_filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
 }
 
@@ -4710,6 +4743,7 @@ fn test_facets_filter_all() {
             .facets_filter()
             .unwrap()
             .debug_string()
+            .unwrap()
     );
     assert_eq!(
         vec!["name", "gender"],
@@ -4819,7 +4853,7 @@ fn test_facets_filter_at_value() {
     let _ = &name_child.facets_filter().unwrap();
     assert_eq!(
         r#"(eq some.facet "true")"#,
-        name_child.facets_filter().unwrap().debug_string()
+        name_child.facets_filter().unwrap().debug_string().unwrap()
     );
 }
 
@@ -6578,4 +6612,30 @@ fn test_empty_id() {
     let r = vars(q, &[("$a", " ")]);
     let err = parse(&r).err();
     assert!(err.is_some());
+}
+
+#[test]
+fn test_debug_string_of_an_operator_it_does_not_know_is_refused() {
+    // floor parses, but Go's debugString knows no floor and exits the process with x.Fatalf.
+    let query = r#"
+	{
+		me(func: uid(0x01)) {
+			val(d)
+		}
+
+		var(func: uid(0x0a)) {
+			a as age
+			d as math(floor(a))
+		}
+	}
+"#;
+    let (res, err) = split(parse(&Request::new(query)));
+    no_err(&err);
+    let err = res.query()[1].children()[1]
+        .math_exp()
+        .unwrap()
+        .debug_string()
+        .expect_err("floor is unknown to debugString");
+    assert_eq!(err.0, DqlErrorEnum::UnknownOperator("floor".to_string()));
+    assert_eq!(err.to_string(), r#"Unknown operator: "floor""#);
 }

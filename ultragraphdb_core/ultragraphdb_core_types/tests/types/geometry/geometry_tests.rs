@@ -133,3 +133,53 @@ fn test_multi_polygon_members() {
         mp
     );
 }
+
+/// WKB of `depth` collections nested one in another around a point.
+fn nested_wkb(depth: usize) -> Vec<u8> {
+    let mut wkb = Vec::new();
+    for _ in 0..depth {
+        wkb.extend([1, 7, 0, 0, 0, 1, 0, 0, 0]);
+    }
+    wkb.extend([1, 1, 0, 0, 0]);
+    wkb.extend(1.0f64.to_le_bytes());
+    wkb.extend(2.0f64.to_le_bytes());
+    wkb
+}
+
+#[test]
+fn deeply_nested_collections_are_read_written_and_dropped_without_recursion() {
+    // WKB nests collections without a limit and go-geom recurses into them on Go's growable stack; on a thread's
+    // fixed stack a recursive walk overflows long before 100000 levels.
+    let worker = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(|| {
+            let wkb = nested_wkb(100_000);
+            let g = Geometry::unmarshal_wkb(&wkb).unwrap();
+            assert_eq!(g.kind(), GeometryKind::GeometryCollection);
+            assert_eq!(g.layout(), Layout::XY);
+            assert!(!g.is_empty());
+            assert_eq!(g.marshal_wkb().unwrap(), wkb);
+            let copy = g.clone();
+            assert_eq!(copy.marshal_wkb().unwrap(), wkb);
+            let text = g.to_geojson().unwrap();
+            assert!(text.starts_with(
+                r#"{"type":"GeometryCollection","geometries":[{"type":"GeometryCollection""#
+            ));
+            let point = r#"{"type":"Point","coordinates":[1,2]}"#;
+            let at = text.find(point).unwrap() + point.len();
+            assert_eq!(text[at..], "]}".repeat(100_000));
+            drop(copy);
+            drop(g);
+        })
+        .unwrap();
+    worker.join().unwrap();
+    // A shallow collection keeps go-geom's results.
+    let g = Geometry::unmarshal_wkb(&nested_wkb(2)).unwrap();
+    assert_eq!(
+        g.to_geojson().unwrap(),
+        r#"{"type":"GeometryCollection","geometries":[{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}]}"#
+    );
+    let empty = Geometry::unmarshal_wkb(&[1, 7, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+    assert!(empty.is_empty());
+    assert_eq!(empty.marshal_wkb().unwrap(), [1, 7, 0, 0, 0, 0, 0, 0, 0]);
+}

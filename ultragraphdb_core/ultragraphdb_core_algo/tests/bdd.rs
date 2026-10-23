@@ -20,6 +20,8 @@ struct Steps {
     /// Per pair of lists: the plain, the packed and the packed-with-plain intersection.
     intersections: Vec<(String, [Vec<u64>; 3])>,
     merged: Vec<Vec<u64>>,
+    pack: Option<UidPack>,
+    intersection: Vec<u64>,
 }
 
 fn parse_uids(text: &str) -> Vec<u64> {
@@ -107,6 +109,24 @@ fn merge(w: &mut Steps) {
 fn merged_are(w: &mut Steps, text: String) {
     let want = parse_uids(&text);
     assert_eq!(w.merged, vec![want.clone(), want]);
+}
+
+#[given(expr = "the UIDs 1 to {int} packed and the plain list of the UIDs 1 to {int}")]
+fn packed_and_plain(w: &mut Steps, packed: u64, plain: u64) {
+    w.pack = encode(&(1..=packed).collect::<Vec<_>>(), BLOCK_SIZE);
+    w.lists = vec![(1..=plain).collect()];
+}
+
+#[when(expr = "the packed list is intersected with the plain one after UID {int}")]
+fn intersect_after(w: &mut Steps, after: u64) {
+    let mut out = List::default();
+    intersect_compressed_with(w.pack.as_ref(), after, &list(&w.lists[0]), &mut out);
+    w.intersection = out.uids;
+}
+
+#[then("the intersection is empty")]
+fn intersection_empty(w: &mut Steps) {
+    assert!(w.intersection.is_empty(), "{:?}", w.intersection);
 }
 
 fn main() {

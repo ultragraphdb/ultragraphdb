@@ -9,14 +9,18 @@
 //! with their values and parsers.
 //!
 //! ```
+//! use ultragraphdb_error_options::OptionsError;
 //! use ultragraphdb_traits_index::{AllowedOptions, OptionValue, Options};
 //!
+//! # fn main() -> Result<(), OptionsError> {
 //! let mut allowed = AllowedOptions::new();
 //! allowed.add_int_option("exponent");
 //! let mut opts = Options::new();
-//! opts.set_opt("exponent", allowed.get_parsed_option("exponent", "4").unwrap());
+//! opts.set_opt("exponent", allowed.get_parsed_option("exponent", "4")?);
 //! assert_eq!(opts.get_opt::<i64>("exponent"), Ok(Some(4)));
 //! assert_eq!(opts.get_interface_opt("exponent"), Some(&OptionValue::Int(4)));
+//! # Ok(())
+//! # }
 //! ```
 
 mod traits;

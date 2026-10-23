@@ -16,7 +16,9 @@ fn test_sharded_map() {
     a.set(1, int(1));
     a.set(31, int(31));
     assert_eq!(a.len(), 2);
-    assert_eq!(a.shard(1).len(), 2);
+    assert_eq!(a.shard(1).map(|s| s.len()), Some(2));
+    // Go indexes past the shards and panics.
+    assert_eq!(a.shard(NUM_SHARDS), None);
     assert_eq!(a.get(31), Some(&int(31)));
     assert_eq!(a.get(2), None);
     let mut b = ShardedMap::new();

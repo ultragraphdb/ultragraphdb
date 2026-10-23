@@ -7,13 +7,32 @@
  */
 
 use ultragraphdb_common_utils::go_strconv;
+use ultragraphdb_core_keys::STAR;
 use ultragraphdb_core_types::{TypeId, Val, Value, bytes_as_float_array};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::value::Val as ApiVal;
+use ultragraphdb_proto_pb::pb;
 
 use crate::errors::dql_error::DqlError;
 
 pub(crate) const ERR_INVALID_UID: &str = "UID must to be greater than 0";
+
+/// The edge deleting the whole predicate `attr` of `namespace`: entity 0, the bytes `_STAR_ALL` as a string value
+/// and the operation DEL, the edge Dgraph's DropAttr builds. Dgraph builds it from an N-Quad `* attr "_STAR_ALL"`
+/// with `ToDeletePredEdge`, which panics on an N-Quad without an object value (ledger 13) and checks the subject
+/// alone (29); this takes no N-Quad.
+pub fn delete_predicate_edge(attr: &str, namespace: u64) -> pb::DirectedEdge {
+    pb::DirectedEdge {
+        // This along with edge.ObjectValue == x.Star would indicate that we want to delete the predicate.
+        entity: 0,
+        attr: attr.to_string(),
+        namespace,
+        value: STAR.as_bytes().to_vec(),
+        value_type: TypeId::STRING.enum_value(),
+        op: pb::directed_edge::Op::Del as i32,
+        ..pb::DirectedEdge::default()
+    }
+}
 
 /// Parses a uid, `0x1f` or `31` (Go's base prefixes and underscores).
 ///

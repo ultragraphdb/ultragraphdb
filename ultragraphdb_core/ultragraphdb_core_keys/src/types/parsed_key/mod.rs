@@ -8,6 +8,7 @@
 
 mod parsed_key_display;
 
+use crate::errors::key_error::KeyError;
 use crate::keys::key_builders::generate_key;
 use crate::keys::{
     BYTE_COUNT, BYTE_COUNT_REV, BYTE_DATA, BYTE_INDEX, BYTE_REVERSE, BYTE_SCHEMA, BYTE_SPLIT,
@@ -120,41 +121,42 @@ impl ParsedKey {
 
     /// The first key after the keys of this key's predicate. Useful when iterating in the reverse order.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On a key of the [`BYTE_UNUSED`](crate::BYTE_UNUSED) prefix, whose attribute is empty, as in Dgraph.
-    pub fn skip_predicate(&self) -> Vec<u8> {
+    /// As every key builder: on a key of the [`BYTE_UNUSED`](crate::BYTE_UNUSED) prefix, whose attribute is empty,
+    /// where Dgraph panics, and on an attribute of `u16::MAX` bytes. The other prefix methods alike.
+    pub fn skip_predicate(&self) -> Result<Vec<u8>, KeyError> {
         self.prefix_with(self.byte_prefix, 0xFF)
     }
 
     // TODO(Naman): Remove these functions as they are unused.
 
     /// The prefix of the data keys of this key's predicate, under this key's prefix.
-    pub fn data_prefix(&self) -> Vec<u8> {
+    pub fn data_prefix(&self) -> Result<Vec<u8>, KeyError> {
         self.prefix_with(self.byte_prefix, BYTE_DATA)
     }
 
     /// The prefix of the index keys of this key's predicate.
-    pub fn index_prefix(&self) -> Vec<u8> {
+    pub fn index_prefix(&self) -> Result<Vec<u8>, KeyError> {
         self.prefix_with(DEFAULT_PREFIX, BYTE_INDEX)
     }
 
     /// The prefix of the reverse keys of this key's predicate.
-    pub fn reverse_prefix(&self) -> Vec<u8> {
+    pub fn reverse_prefix(&self) -> Result<Vec<u8>, KeyError> {
         self.prefix_with(DEFAULT_PREFIX, BYTE_REVERSE)
     }
 
     /// The prefix of the count keys, or with `reverse` the reverse count keys, of this key's predicate.
-    pub fn count_prefix(&self, reverse: bool) -> Vec<u8> {
+    pub fn count_prefix(&self, reverse: bool) -> Result<Vec<u8>, KeyError> {
         self.prefix_with(
             DEFAULT_PREFIX,
             if reverse { BYTE_COUNT_REV } else { BYTE_COUNT },
         )
     }
 
-    fn prefix_with(&self, prefix: u8, last: u8) -> Vec<u8> {
-        let mut buf = generate_key(prefix, &self.attr, 1);
+    fn prefix_with(&self, prefix: u8, last: u8) -> Result<Vec<u8>, KeyError> {
+        let mut buf = generate_key(prefix, &self.attr, 1)?;
         buf.push(last);
-        buf
+        Ok(buf)
     }
 }

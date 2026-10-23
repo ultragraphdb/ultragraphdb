@@ -85,3 +85,18 @@ fn test_unix() {
     );
     assert_eq!(DateTime::zero().unix(), -62135596800);
 }
+
+#[test]
+fn test_new_with_extreme_fields_wraps_as_go_does() {
+    // Go's time.Date wraps its int arithmetic; the port's overflowed.
+    for v in [i64::MIN, i64::MAX] {
+        let _ = DateTime::new(2006, v, 2, 15, 4, 5, 0, Zone::Utc);
+        let _ = DateTime::new(2006, 1, v, 15, 4, 5, 0, Zone::Utc);
+        let _ = DateTime::new(v, 1, 2, v, v, v, v, Zone::Utc);
+        let _ = DateTime::utc(2006, 1, 2, 15, 4, v, v);
+    }
+    assert_eq!(
+        DateTime::new(2006, 13, 2, 15, 4, 5, 0, Zone::Utc),
+        DateTime::new(2007, 1, 2, 15, 4, 5, 0, Zone::Utc)
+    );
+}

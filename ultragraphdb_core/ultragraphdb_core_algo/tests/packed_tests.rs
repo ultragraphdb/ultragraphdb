@@ -382,3 +382,25 @@ fn packed_operations_match_golden() {
         "the golden file holds packed results, {checked} checked"
     );
 }
+
+#[test]
+fn merge_sorted_packed_skips_an_empty_block() {
+    // A corrupt block with no UIDs between two others: Dgraph indexes the empty block and panics; the port moves on.
+    let mut pack = new_uid_pack(&(1..=10).collect::<Vec<_>>()).expect("the list is not empty");
+    pack.blocks.push(ultragraphdb_proto_pb::pb::UidBlock {
+        base: 11,
+        deltas: Vec::new(),
+        num_uids: 0,
+    });
+    pack.blocks.extend(
+        new_uid_pack(&(21..=30).collect::<Vec<_>>())
+            .expect("the list is not empty")
+            .blocks,
+    );
+    let other = new_uid_pack(&[5, 25]).expect("the list is not empty");
+    let want: Vec<u64> = (1..=10).chain(21..=30).collect();
+    assert_eq!(
+        want,
+        decoded(merge_sorted_packed(&[Some(&pack), Some(&other)]))
+    );
+}

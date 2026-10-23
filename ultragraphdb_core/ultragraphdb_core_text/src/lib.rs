@@ -14,12 +14,15 @@
 //!   not be valid UTF-8, as a Go string's need not: Dgraph's string values are arbitrary bytes.
 //!
 //! ```
-//! use ultragraphdb_core_text::{Collator, Tag};
+//! use ultragraphdb_core_text::{Collator, LanguageError, Tag};
 //!
-//! let de = Collator::new(&Tag::parse("de").unwrap());
+//! # fn main() -> Result<(), LanguageError> {
+//! let de = Collator::new(&Tag::parse("de")?);
 //! assert!(de.key("Äpfel") < de.key("Birnen"));
 //! assert_eq!(de.compare("Äpfel", "Birnen"), std::cmp::Ordering::Less);
 //! assert_eq!(de.compare_bytes(b"\xff", "\u{fffd}".as_bytes()), std::cmp::Ordering::Greater);
+//! # Ok(())
+//! # }
 //! ```
 
 mod errors;

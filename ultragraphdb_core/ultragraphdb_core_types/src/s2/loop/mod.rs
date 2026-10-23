@@ -90,8 +90,12 @@ pub struct Loop {
 }
 
 impl Loop {
-    /// Constructs a loop from the given points.
+    /// Constructs a loop from the given points. No points make the empty loop: Go's loop of no vertices divides by
+    /// its vertex count and panics on most of its methods.
     pub fn from_points(pts: Vec<Point>) -> Loop {
+        if pts.is_empty() {
+            return Loop::empty();
+        }
         let mut l = Loop {
             vertices: pts,
             origin_inside: false,
@@ -295,6 +299,7 @@ impl Loop {
     /// automatically for methods that do index math such as Edge. i.e., Vertex(NumEdges() + n)
     /// is the same as Vertex(n).
     pub fn vertex(&self, i: usize) -> Point {
+        // from_points never builds a loop of no vertices.
         self.vertices[i % self.vertices.len()]
     }
 

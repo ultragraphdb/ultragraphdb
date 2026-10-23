@@ -9,40 +9,50 @@
 
 use ultragraphdb_traits_index::Float;
 
-/// Dgraph's `BytesToFloat`: the little-endian float of `float_bits` (32 or 64) bits at the start of `encoded`, as
-/// `T`.
+use crate::errors::tok_error::TokError;
+use crate::types::float_bits::FloatBits;
+
+/// Dgraph's `BytesToFloat`: the little-endian float of `float_bits` at the start of `encoded`, as `T`. A width
+/// other than 32 and 64, on which Go panics with `Invalid floatBits`, is no [`FloatBits`].
 ///
-/// # Panics
+/// # Errors
 ///
-/// On any other width, as Go panics with `Invalid floatBits`, and when `encoded` is shorter than the width.
-pub fn bytes_to_float<T: Float>(encoded: &[u8], float_bits: usize) -> T {
+/// [`TokErrorEnum::ShortFloat`](crate::TokErrorEnum::ShortFloat) when `encoded` is shorter than the width, on
+/// which Go panics.
+pub fn bytes_to_float<T: Float>(encoded: &[u8], float_bits: FloatBits) -> Result<T, TokError> {
+    let short = || TokError::ShortFloat(encoded.len(), float_bits.bits());
     match float_bits {
-        32 => T::from_f32(f32::from_le_bytes(
-            encoded[..4].try_into().expect("4 bytes"),
-        )),
-        64 => T::from_f64(f64::from_le_bytes(
-            encoded[..8].try_into().expect("8 bytes"),
-        )),
-        _ => panic!("Invalid floatBits"),
+        FloatBits::F32 => encoded
+            .first_chunk::<4>()
+            .map(|b| T::from_f32(f32::from_le_bytes(*b)))
+            .ok_or_else(short),
+        FloatBits::F64 => encoded
+            .first_chunk::<8>()
+            .map(|b| T::from_f64(f64::from_le_bytes(*b)))
+            .ok_or_else(short),
     }
 }
 
-/// Dgraph's `BytesAsFloatArray`: `encoded` as floats of `float_bits` bits, written to `ret_val`. Empty input gives
-/// an empty vector; input whose length is not a multiple of the float width leaves `ret_val` as it is (Go logs the
+/// Dgraph's `BytesAsFloatArray`: `encoded` as floats of `float_bits`, written to `ret_val`. Empty input gives an
+/// empty vector; input whose length is not a multiple of the float width leaves `ret_val` as it is (Go logs the
 /// error).
-pub fn bytes_as_float_array<T: Float>(encoded: &[u8], ret_val: &mut Vec<T>, float_bits: usize) {
-    let float_bytes = float_bits / 8;
+pub fn bytes_as_float_array<T: Float>(encoded: &[u8], ret_val: &mut Vec<T>, float_bits: FloatBits) {
     if encoded.is_empty() {
         ret_val.clear();
         return;
     }
-    if !encoded.len().is_multiple_of(float_bytes) {
-        return;
+    match float_bits {
+        FloatBits::F32 => {
+            if let (floats, []) = encoded.as_chunks::<4>() {
+                ret_val.clear();
+                ret_val.extend(floats.iter().map(|b| T::from_f32(f32::from_le_bytes(*b))));
+            }
+        }
+        FloatBits::F64 => {
+            if let (floats, []) = encoded.as_chunks::<8>() {
+                ret_val.clear();
+                ret_val.extend(floats.iter().map(|b| T::from_f64(f64::from_le_bytes(*b))));
+            }
+        }
     }
-    ret_val.clear();
-    ret_val.extend(
-        encoded
-            .chunks_exact(float_bytes)
-            .map(|c| bytes_to_float::<T>(c, float_bits)),
-    );
 }

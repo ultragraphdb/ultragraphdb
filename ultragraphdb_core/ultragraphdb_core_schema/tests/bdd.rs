@@ -85,7 +85,7 @@ fn pred_in_namespace(s: &mut Steps, pred: String, ns: String) {
     };
     let p = s.only_pred();
     assert_eq!(p.predicate, pred);
-    assert_eq!(parse_namespace(&p.predicate), want);
+    assert_eq!(parse_namespace(&p.predicate), Ok(want));
 }
 
 #[then(expr = "the update carries an hnsw vector index with metric {string} and exponent {string}")]
@@ -142,7 +142,9 @@ fn load_state(s: &mut Steps, text: String) {
 fn state_reports(s: &mut Steps, tokenizer: String, pred: String) {
     assert_eq!(s.state.type_of(&pred).expect("defined"), TypeId::STRING);
     assert_eq!(
-        s.state.tokenizer_names(SchemaMode::Query, &pred),
+        s.state
+            .tokenizer_names(SchemaMode::Query, &pred)
+            .expect("the tokenizers exist"),
         [tokenizer]
     );
     assert!(s.state.has_upsert(&pred));

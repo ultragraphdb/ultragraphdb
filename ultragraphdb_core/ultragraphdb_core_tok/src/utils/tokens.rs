@@ -10,10 +10,11 @@
 use ultragraphdb_core_types::Value;
 
 use crate::errors::tok_error::TokError;
+use crate::types::tokenizer::tokenizer_tokens::ngram_tokens;
 use crate::types::tokenizer::{Kind, Tokenizer};
-use crate::utils::ident::IDENT_TERM;
+use crate::utils::ident::{IDENT_NGRAM, IDENT_TERM};
 use crate::utils::tok::{
-    build_ngram_query_tokens, build_tokens, get_tokenizer_by_id, ngram_for_lang,
+    build_ngram_query_tokens, build_tokens, encode_token, get_tokenizer_by_id,
 };
 
 fn one_arg<S: AsRef<[u8]>>(func_args: &[S]) -> Result<Value, TokError> {
@@ -52,8 +53,11 @@ pub fn get_full_text_tokens<S: AsRef<[u8]>>(
 /// Dgraph's `GetNGramTokens`: the ngram tokens of a string for `lang`, sorted. Go reads the first function argument
 /// without checking the count; this port takes the argument.
 pub fn get_ngram_tokens(arg: impl AsRef<[u8]>, lang: &str) -> Vec<Vec<u8>> {
-    build_tokens(&Value::Str(arg.as_ref().to_vec()), &ngram_for_lang(lang))
-        .expect("the ngram tokenizer takes every value")
+    // build_tokens with the ngram tokenizer of lang, whose tokens take every value.
+    ngram_tokens(lang, &Value::Str(arg.as_ref().to_vec()))
+        .into_iter()
+        .map(|tok| encode_token(&tok, IDENT_NGRAM))
+        .collect()
 }
 
 /// Dgraph's `GetNGramQueryTokens`: the ngram query tokens of a string for `lang`, sorted.

@@ -38,6 +38,9 @@ pub enum TokErrorEnum {
     UnknownFactory(String),
     /// A vector index option was refused.
     Options(OptionsError),
+    /// `bytes_to_float` was given fewer bytes than a float of `bits` bits takes, on which Go panics indexing past
+    /// them.
+    ShortFloat { len: usize, bits: usize },
 }
 
 impl TokError {
@@ -89,6 +92,11 @@ impl TokError {
     #[allow(non_snake_case)]
     pub fn Options(value: OptionsError) -> Self {
         Self(TokErrorEnum::Options(value))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn ShortFloat(len: usize, bits: usize) -> Self {
+        Self(TokErrorEnum::ShortFloat { len, bits })
     }
 }
 

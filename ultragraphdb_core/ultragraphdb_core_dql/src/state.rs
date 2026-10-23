@@ -88,14 +88,14 @@ fn lex_upsert_block(l: &mut Lexer<'_>) -> Option<StateFn> {
     loop {
         match l.next() {
             Some(RIGHT_CURL) => {
-                l.set_block_depth(l.block_depth() - 1);
+                l.set_block_depth(l.block_depth().saturating_sub(1));
                 l.emit(ITEM_RIGHT_CURL);
                 if l.block_depth() == 0 {
                     return Some(LEX_TOP_LEVEL);
                 }
             }
             Some(LEFT_CURL) => {
-                l.set_block_depth(l.block_depth() + 1);
+                l.set_block_depth(l.block_depth().saturating_add(1));
                 l.emit(ITEM_LEFT_CURL);
             }
             Some(r) if is_space_or_eol(r) => l.ignore(),
@@ -191,14 +191,14 @@ fn lex_inside_mutation(l: &mut Lexer<'_>) -> Option<StateFn> {
                 return Some(StateFn::new(lex_if_content));
             }
             Some(RIGHT_CURL) => {
-                l.set_depth(l.depth() - 1);
+                l.set_depth(l.depth().saturating_sub(1));
                 l.emit(ITEM_RIGHT_CURL);
                 if l.depth() == 0 {
                     return Some(LEX_TOP_LEVEL);
                 }
             }
             Some(LEFT_CURL) => {
-                l.set_depth(l.depth() + 1);
+                l.set_depth(l.depth().saturating_add(1));
                 l.emit(ITEM_LEFT_CURL);
                 if l.depth() >= 2 {
                     return Some(StateFn::new(lex_text_mutation));
@@ -225,14 +225,14 @@ fn lex_inside_schema(l: &mut Lexer<'_>) -> Option<StateFn> {
             Some(RIGHT_ROUND) => l.emit(ITEM_RIGHT_ROUND),
             Some(LEFT_ROUND) => l.emit(ITEM_LEFT_ROUND),
             Some(RIGHT_CURL) => {
-                l.set_depth(l.depth() - 1);
+                l.set_depth(l.depth().saturating_sub(1));
                 l.emit(ITEM_RIGHT_CURL);
                 if l.depth() == 0 {
                     return Some(LEX_TOP_LEVEL);
                 }
             }
             Some(LEFT_CURL) => {
-                l.set_depth(l.depth() + 1);
+                l.set_depth(l.depth().saturating_add(1));
                 l.emit(ITEM_LEFT_CURL);
             }
             Some(LEFT_SQUARE) => l.emit(ITEM_LEFT_SQUARE),
@@ -289,12 +289,12 @@ fn lex_func_or_arg(l: &mut Lexer<'_>) -> Option<StateFn> {
             l.emit(ITEM_MATH_OP);
         } else if r == LEFT_ROUND {
             l.emit(ITEM_LEFT_ROUND);
-            l.set_arg_depth(l.arg_depth() + 1);
+            l.set_arg_depth(l.arg_depth().saturating_add(1));
         } else if r == RIGHT_ROUND {
             if l.arg_depth() == 0 {
                 return l.errorf("Unexpected right round bracket");
             }
-            l.set_arg_depth(l.arg_depth() - 1);
+            l.set_arg_depth(l.arg_depth().saturating_sub(1));
             l.emit(ITEM_RIGHT_ROUND);
             if empty {
                 return l.errorf("Empty Argument");
@@ -359,7 +359,7 @@ fn lex_top_level(l: &mut Lexer<'_>) -> Option<StateFn> {
     loop {
         match l.next() {
             Some(LEFT_CURL) => {
-                l.set_depth(l.depth() + 1); // one level down.
+                l.set_depth(l.depth().saturating_add(1)); // one level down.
                 l.emit(ITEM_LEFT_CURL);
                 return Some(StateFn::new(lex_identify_mutation_or_query));
             }
@@ -371,7 +371,7 @@ fn lex_top_level(l: &mut Lexer<'_>) -> Option<StateFn> {
                 l.emit(ITEM_TEXT);
                 l.next();
                 l.emit(ITEM_LEFT_ROUND);
-                l.set_arg_depth(l.arg_depth() + 1);
+                l.set_arg_depth(l.arg_depth().saturating_add(1));
                 return Some(LEX_QUERY);
             }
             Some(r) if is_space_or_eol(r) => l.ignore(),
@@ -429,14 +429,14 @@ fn lex_query(l: &mut Lexer<'_>) -> Option<StateFn> {
         match l.next() {
             Some(PERIOD) => l.emit(ITEM_PERIOD),
             Some(RIGHT_CURL) => {
-                l.set_depth(l.depth() - 1);
+                l.set_depth(l.depth().saturating_sub(1));
                 l.emit(ITEM_RIGHT_CURL);
                 if l.depth() == 0 {
                     return Some(LEX_TOP_LEVEL);
                 }
             }
             Some(LEFT_CURL) => {
-                l.set_depth(l.depth() + 1);
+                l.set_depth(l.depth().saturating_add(1));
                 l.emit(ITEM_LEFT_CURL);
             }
             None => return l.errorf("Unclosed action"),
@@ -449,7 +449,7 @@ fn lex_query(l: &mut Lexer<'_>) -> Option<StateFn> {
                 l.emit(ITEM_LEFT_ROUND);
                 l.accept_run(is_space);
                 l.ignore();
-                l.set_arg_depth(l.arg_depth() + 1);
+                l.set_arg_depth(l.arg_depth().saturating_add(1));
                 return Some(StateFn::new(lex_func_or_arg));
             }
             Some(COLON) => l.emit(ITEM_COLON),

@@ -227,10 +227,14 @@ fn exact_sign(a: Point, b: Point, c: Point, perturb: bool) -> Direction {
     }
 
     // Construct multiple-precision versions of the sorted points and compute
-    // their precise 3x3 determinant.
-    let xa = PreciseVector::from_vector(pa.0);
-    let xb = PreciseVector::from_vector(pb.0);
-    let xc = PreciseVector::from_vector(pc.0);
+    // their precise 3x3 determinant. A point that is not finite has none, where Go's big.Float panics.
+    let (Some(xa), Some(xb), Some(xc)) = (
+        PreciseVector::from_vector(pa.0),
+        PreciseVector::from_vector(pb.0),
+        PreciseVector::from_vector(pc.0),
+    ) else {
+        return Direction::Indeterminate;
+    };
     let xb_cross_xc = xb.cross(&xc);
     let det = xa.dot(&xb_cross_xc);
 

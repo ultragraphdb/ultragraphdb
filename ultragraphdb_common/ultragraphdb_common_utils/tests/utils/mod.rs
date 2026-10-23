@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod go_fmt_tests;
 #[cfg(test)]
+pub(crate) mod go_json_tests;
+#[cfg(test)]
 mod go_strconv_tests;
 #[cfg(test)]
 mod go_strings_tests;

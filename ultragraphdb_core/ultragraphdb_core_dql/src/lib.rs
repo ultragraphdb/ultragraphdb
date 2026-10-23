@@ -10,14 +10,17 @@
 //! and conditions kept as text; [`NQuad::to_edge_using`] turns an N-Quad into a directed edge.
 //!
 //! ```
-//! use ultragraphdb_core_dql::{Request, parse};
+//! use ultragraphdb_core_dql::{DqlError, Request, parse};
 //!
-//! let res = parse(&Request::new("{ me(func: uid(0x1)) { name@en:ru friends(first: 2) { name } } }")).unwrap();
+//! # fn main() -> Result<(), DqlError> {
+//! let res = parse(&Request::new("{ me(func: uid(0x1)) { name@en:ru friends(first: 2) { name } } }"))?;
 //! let me = &res.query()[0];
 //! assert_eq!(me.alias(), "me");
 //! assert_eq!(me.uid(), [1]);
 //! assert_eq!(me.children()[0].langs(), ["en", "ru"]);
 //! assert_eq!(me.children()[1].args()["first"], "2");
+//! # Ok(())
+//! # }
 //! ```
 
 mod dql;
@@ -32,7 +35,7 @@ mod utils;
 
 pub use crate::dql::parse_dql;
 pub use crate::errors::dql_error::{DqlError, DqlErrorEnum};
-pub use crate::mutation::{parse_uid, type_val_from};
+pub use crate::mutation::{delete_predicate_edge, parse_uid, type_val_from};
 pub use crate::parser::function::is_inequality_fn;
 pub use crate::parser::{parse, parse_with_need_vars};
 pub use crate::parser_mutation::parse_mutation;
@@ -46,6 +49,7 @@ pub use crate::types::group_by_attr::GroupByAttr;
 pub use crate::types::math_tree::MathTree;
 pub use crate::types::mutation::Mutation;
 pub use crate::types::nquad::NQuad;
+pub use crate::types::object::Object;
 pub use crate::types::parse_result::ParseResult;
 pub use crate::types::recurse_args::RecurseArgs;
 pub use crate::types::request::Request;

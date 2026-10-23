@@ -9,8 +9,6 @@
 
 //! The BCP 47 parser of `internal/language`.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use crate::errors::language_error::{LanguageError, LanguageErrorEnum};
 use crate::tables::language_tables::{
     LANG_AMI, LANG_BNN, LANG_CMN, LANG_HAK, LANG_HSN, LANG_JBO, LANG_LB, LANG_NAN, LANG_NB,
@@ -88,16 +86,11 @@ pub(crate) fn make(s: &str) -> FullTag {
 
 /// Parses a BCP 47 string. On failure it returns the part of the tag that could be parsed with the error; an
 /// unknown subtag is stripped and reported as a value error. Go recovers from a panic in the parser as `und`
-/// with a syntax error; so does this port.
+/// with a syntax error; the port's parser does not panic.
 pub(crate) fn parse(s: &str) -> Result<FullTag, (FullTag, LanguageError)> {
     if s.is_empty() {
         return Err((FullTag::default(), LanguageError::syntax()));
     }
-    let result = catch_unwind(AssertUnwindSafe(|| parse_unchecked(s)));
-    result.unwrap_or_else(|_| Err((FullTag::default(), LanguageError::syntax())))
-}
-
-fn parse_unchecked(s: &str) -> Result<FullTag, (FullTag, LanguageError)> {
     if s.len() <= MAX_ALT_TAG_LEN {
         let mut b = [0u8; MAX_ALT_TAG_LEN];
         for (i, c) in s.char_indices() {

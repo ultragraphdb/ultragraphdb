@@ -200,3 +200,15 @@ fn angle_contains_vertex_cases() {
         .count();
     assert_eq!(count, 1);
 }
+
+#[test]
+fn robust_sign_of_points_that_are_not_finite_is_indeterminate() {
+    // Go's big.Float panics on NaN in the exact predicate.
+    use ultragraphdb_core_types::{Direction, Point, R3Vector, robust_sign};
+    let nan = Point::from_vector(R3Vector::new(f64::NAN, 0.0, 1.0));
+    let inf = Point::from_vector(R3Vector::new(f64::INFINITY, 0.0, 1.0));
+    let a = Point::from_vector(R3Vector::new(1.0, 0.0, 0.0));
+    let b = Point::from_vector(R3Vector::new(0.0, 1.0, 0.0));
+    assert_eq!(robust_sign(a, b, nan), Direction::Indeterminate);
+    assert_eq!(robust_sign(a, inf, b), Direction::Indeterminate);
+}

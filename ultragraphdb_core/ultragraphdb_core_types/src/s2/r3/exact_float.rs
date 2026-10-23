@@ -18,9 +18,12 @@ pub(crate) struct ExactFloat {
 }
 
 impl ExactFloat {
-    /// The exact value of a finite float64.
-    pub(crate) fn from_f64(x: f64) -> ExactFloat {
-        assert!(x.is_finite(), "ExactFloat requires a finite value");
+    /// The exact value of a finite float64; `None` for NaN and the infinities, on which Go's `big.Float` panics or
+    /// which its arithmetic turns into a panicking NaN.
+    pub(crate) fn from_f64(x: f64) -> Option<ExactFloat> {
+        if !x.is_finite() {
+            return None;
+        }
         let bits = x.to_bits();
         let negative = bits >> 63 != 0;
         let biased = ((bits >> 52) & 0x7ff) as i64;
@@ -31,10 +34,10 @@ impl ExactFloat {
             (fraction | (1u64 << 52), biased - 1075)
         };
         let m = IBig::from(m);
-        ExactFloat {
+        Some(ExactFloat {
             mantissa: if negative { -m } else { m },
             exponent: e,
-        }
+        })
     }
 
     /// The sign: -1, 0 or +1.

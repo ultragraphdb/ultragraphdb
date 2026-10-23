@@ -6,4 +6,6 @@
 #[cfg(test)]
 mod codec_tests;
 #[cfg(test)]
+mod errors;
+#[cfg(test)]
 mod types;

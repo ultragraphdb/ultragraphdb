@@ -20,13 +20,13 @@ fn test_golden_reserved() {
     for c in golden.cases() {
         let ns_attr = attr_in_root_namespace(&c.name);
         assert_eq!(
-            is_reserved_predicate(&ns_attr),
+            is_reserved_predicate(&ns_attr).unwrap(),
             c.is_reserved_predicate,
             "{}",
             c.name
         );
         assert_eq!(
-            is_pre_defined_predicate(&ns_attr),
+            is_pre_defined_predicate(&ns_attr).unwrap(),
             c.is_pre_defined_predicate,
             "{}",
             c.name
@@ -39,20 +39,25 @@ fn test_golden_reserved() {
             c.name
         );
         assert_eq!(
-            is_internal_predicate(&ns_attr),
+            is_internal_predicate(&ns_attr).unwrap(),
             c.is_internal_predicate,
             "{}",
             c.name
         );
-        assert_eq!(is_reserved_type(&ns_attr), c.is_reserved_type, "{}", c.name);
         assert_eq!(
-            is_pre_defined_type(&ns_attr),
+            is_reserved_type(&ns_attr).unwrap(),
+            c.is_reserved_type,
+            "{}",
+            c.name
+        );
+        assert_eq!(
+            is_pre_defined_type(&ns_attr).unwrap(),
             c.is_pre_defined_type,
             "{}",
             c.name
         );
         assert_eq!(
-            is_registered_reserved_predicate(&ns_attr),
+            is_registered_reserved_predicate(&ns_attr).unwrap(),
             c.is_registered_reserved_predicate,
             "{}",
             c.name
@@ -84,11 +89,11 @@ fn test_all_acl_predicates() {
 
 #[test]
 fn test_reserved_name_need_not_be_pre_defined() {
-    assert!(is_reserved_predicate("0-dgraph.blah"));
-    assert!(!is_pre_defined_predicate("0-dgraph.blah"));
-    assert!(is_reserved_predicate("0-dgraph.type"));
-    assert!(is_pre_defined_predicate("0-dgraph.type"));
-    assert!(!is_reserved_predicate("0-person.name"));
+    assert!(is_reserved_predicate("0-dgraph.blah").unwrap());
+    assert!(!is_pre_defined_predicate("0-dgraph.blah").unwrap());
+    assert!(is_reserved_predicate("0-dgraph.type").unwrap());
+    assert!(is_pre_defined_predicate("0-dgraph.type").unwrap());
+    assert!(!is_reserved_predicate("0-person.name").unwrap());
 }
 
 #[test]
@@ -99,11 +104,14 @@ fn test_graphql_names_stay_reserved() {
         "dgraph.graphql.p_query",
     ] {
         assert!(
-            is_pre_defined_predicate(&attr_in_root_namespace(pred)),
+            is_pre_defined_predicate(&attr_in_root_namespace(pred)).unwrap(),
             "{pred}"
         );
     }
     for typ in ["dgraph.graphql", "dgraph.graphql.persisted_query"] {
-        assert!(is_pre_defined_type(&attr_in_root_namespace(typ)), "{typ}");
+        assert!(
+            is_pre_defined_type(&attr_in_root_namespace(typ)).unwrap(),
+            "{typ}"
+        );
     }
 }

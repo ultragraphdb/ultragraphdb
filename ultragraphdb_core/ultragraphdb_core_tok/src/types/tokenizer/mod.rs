@@ -105,7 +105,16 @@ impl Tokenizer {
 
     /// The value type it tokenizes, `TypeForName` of [`type_name`](Self::type_name).
     pub fn type_id(&self) -> TypeId {
-        TypeId::for_name(self.type_name()).expect("every tokenizer names a type")
+        match &self.0 {
+            Kind::BigFloat => TypeId::BIGFLOAT,
+            Kind::Geo => TypeId::GEO,
+            Kind::Int => TypeId::INT,
+            Kind::Float => TypeId::FLOAT,
+            Kind::Year | Kind::Month | Kind::Day | Kind::Hour => TypeId::DATETIME,
+            Kind::Bool => TypeId::BOOL,
+            Kind::Factory(_) => TypeId::VFLOAT,
+            _ => TypeId::STRING,
+        }
     }
 
     /// Whether it tokenizes values of type `typ`, the check Dgraph's schema parser makes for `@index`.

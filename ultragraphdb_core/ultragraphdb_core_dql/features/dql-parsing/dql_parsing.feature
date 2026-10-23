@@ -68,3 +68,11 @@ Feature: DQL parsing
   Scenario: A value N-Quad becomes a value edge
     When the N-Quad <0x1> <name> "A"@en . is converted into a directed edge
     Then the edge has entity 1, attribute "name", value bytes "A" of type default, language "en" and operation SET
+
+  Scenario: An N-Quad without an object is refused as a value edge
+    When the N-Quad with subject "0x1", predicate "name" and no object becomes an edge
+    Then the conversion fails with "Unknown value type for nquad" and nothing panics
+
+  Scenario: A predicate-deletion edge carries the star value
+    When the deletion edge of predicate "name" in namespace 0 is built
+    Then its value is "_STAR_ALL", its type is string and its operation is DEL

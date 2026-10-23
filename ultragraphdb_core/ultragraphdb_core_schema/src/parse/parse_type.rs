@@ -84,7 +84,7 @@ pub(crate) fn parse_type_declaration(
                             .item()
                             .errorf(format!(
                                 "Duplicate fields with name: {}",
-                                parse_attr(&field.predicate)
+                                parse_attr(&field.predicate)?
                             ))
                             .into());
                     }

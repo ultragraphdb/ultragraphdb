@@ -51,10 +51,11 @@ fn test_backup_after_eof_is_zero_width() {
 }
 
 #[test]
-#[should_panic(expected = "Backup should not be called when the width tracker stack is empty")]
-fn test_backup_on_empty_stack_panics() {
+fn test_backup_on_empty_stack_does_nothing() {
+    // Go's assertion exits the process with "Backup should not be called when the width tracker stack is empty".
     let mut l = Lexer::new("a");
     l.backup();
+    assert_eq!(l.pos(), 0);
 }
 
 #[test]
@@ -84,4 +85,17 @@ fn test_peek_two() {
     l.backup();
     l.backup();
     assert_eq!(l.pos(), 0);
+}
+
+#[test]
+fn test_backup_without_a_read_does_nothing() {
+    // Go's assertion exits the process; the port has no read to undo and stays where it is.
+    let mut l = Lexer::new("ab");
+    l.backup();
+    assert_eq!(l.pos(), 0);
+    l.next();
+    l.backup();
+    l.backup();
+    assert_eq!(l.pos(), 0);
+    assert_eq!(l.next(), Some('a'));
 }

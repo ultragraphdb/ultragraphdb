@@ -60,10 +60,13 @@ impl DateTime {
         if data.len() != want {
             return Err(TypesError::time("Time.UnmarshalBinary: invalid length"));
         }
-        let sec = i64::from_be_bytes(data[1..9].try_into().expect("8 bytes"));
-        let nsec = i32::from_be_bytes(data[9..13].try_into().expect("4 bytes"));
+        // The length is 15 or 16, checked above, so each range holds exactly the bytes it is read as.
+        let sec = i64::from_be_bytes(data[1..9].try_into().expect("bytes 1 to 9 of 15 or more"));
+        let nsec = i32::from_be_bytes(data[9..13].try_into().expect("bytes 9 to 13 of 15 or more"));
         let mut offset = i32::from(i16::from_be_bytes(
-            data[13..15].try_into().expect("2 bytes"),
+            data[13..15]
+                .try_into()
+                .expect("bytes 13 to 15 of 15 or more"),
         )) * 60;
         if version == VERSION_V2 {
             offset += i32::from(data[15]);

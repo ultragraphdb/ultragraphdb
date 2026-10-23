@@ -21,7 +21,8 @@ use ultragraphdb_proto_pb::pb::metadata::HintType;
 ///
 /// As Go's channel, the channel holds 10 batches and a push waits while it is full. Go's `Ch()` hands out the
 /// channel; here [`NQuadBuffer::new`] returns its receiver, which a consumer may move to another thread. Batches
-/// for a dropped receiver are discarded, where Go's sender would block forever.
+/// for a dropped receiver are discarded, where Go's sender would block forever, and so are batches sent after
+/// [`NQuadBuffer::flush`], where Go's send on the closed channel panics.
 #[derive(Debug)]
 pub struct NQuadBuffer {
     batch_size: i32,
@@ -45,16 +46,14 @@ impl NQuadBuffer {
     }
 
     fn send(&self, batch: Vec<api::NQuad>) {
-        let ch = self.nq_ch.as_ref().expect("NQuadBuffer used after flush");
-        // A dropped receiver discards the batch.
-        let _ = ch.send(batch);
+        // A dropped receiver, or a channel closed by flush, discards the batch.
+        if let Some(ch) = &self.nq_ch {
+            let _ = ch.send(batch);
+        }
     }
 
-    /// Dgraph's `Push`: adds an N-Quad, sending the batch when it is full.
-    ///
-    /// # Panics
-    ///
-    /// When a full batch is sent after [`NQuadBuffer::flush`], as Go's send on the closed channel does.
+    /// Dgraph's `Push`: adds an N-Quad, sending the batch when it is full; after [`NQuadBuffer::flush`] a full
+    /// batch is discarded.
     pub fn push(&mut self, nq: api::NQuad) {
         self.nquads.push(nq);
         if self.batch_size > 0 && self.nquads.len() >= self.batch_size as usize {

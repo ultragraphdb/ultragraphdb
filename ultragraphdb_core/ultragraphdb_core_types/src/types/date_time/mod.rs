@@ -66,7 +66,7 @@ impl DateTime {
         nsec: i64,
         zone: Zone,
     ) -> Self {
-        let (year, m) = norm(year, month - 1, 12);
+        let (year, m) = norm(year, month.wrapping_sub(1), 12);
         let month = m + 1;
         let (sec, nsec) = norm(sec, nsec, 1_000_000_000);
         let (min, sec) = norm(min, sec, 60);
@@ -164,18 +164,18 @@ impl DateTime {
     }
 }
 
-/// Go's `norm`: moves `lo` into `[0, base)`, carrying into `hi`.
+/// Go's `norm`: moves `lo` into `[0, base)`, carrying into `hi`, wrapping as Go's int arithmetic does.
 fn norm(hi: i64, lo: i64, base: i64) -> (i64, i64) {
     let (mut hi, mut lo) = (hi, lo);
     if lo < 0 {
-        let n = (-lo - 1) / base + 1;
-        hi -= n;
-        lo += n * base;
+        let n = lo.wrapping_neg().wrapping_sub(1) / base + 1;
+        hi = hi.wrapping_sub(n);
+        lo = lo.wrapping_add(n.wrapping_mul(base));
     }
     if lo >= base {
         let n = lo / base;
-        hi += n;
-        lo -= n * base;
+        hi = hi.wrapping_add(n);
+        lo = lo.wrapping_sub(n.wrapping_mul(base));
     }
     (hi, lo)
 }

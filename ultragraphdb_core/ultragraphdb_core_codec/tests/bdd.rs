@@ -6,7 +6,7 @@
 use cucumber::{World, given, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_codec::{Decoder, SeekPos, decode, encode};
-use ultragraphdb_proto_pb::pb::UidPack;
+use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
 
 #[derive(Debug, Clone, Deserialize)]
 struct GoldenBlock {
@@ -188,14 +188,13 @@ fn decode_from(w: &mut Steps, target: u64) {
 fn seek(w: &mut Steps, target: u64, name: String) {
     let pos = whence(&name);
     w.seek = Some((target, pos));
-    w.result = Decoder::unpositioned(pack_of(w)).seek(target, pos).to_vec();
+    w.result = Decoder::sought(pack_of(w), target, pos).uids().to_vec();
 }
 
 #[when("the decoder moves to the next block")]
 fn next_block(w: &mut Steps) {
     let (target, pos) = w.seek.expect("a decoder sought");
-    let mut decoder = Decoder::unpositioned(pack_of(w));
-    decoder.seek(target, pos);
+    let mut decoder = Decoder::sought(pack_of(w), target, pos);
     w.result = decoder.next_block().to_vec();
 }
 
@@ -214,6 +213,49 @@ fn result_holds(w: &mut Steps, n: usize, first: u64, last: u64) {
         w.result, run,
         "the result is the input's run from {first} to {last}"
     );
+}
+
+#[when(expr = "a decoder seeks to block {int} and then to block {int} with {word}")]
+fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, name: String) {
+    let pos = whence(&name);
+    let mut decoder = Decoder::new(pack_of(w));
+    decoder.seek_to_block(first, pos);
+    w.result = decoder.seek_to_block(second, pos).to_vec();
+}
+
+#[given(expr = "a pack of the blocks {string}, an empty block of base {int}, and {string}")]
+fn pack_with_empty_block(w: &mut Steps, first: String, base: u64, last: String) {
+    let range = |text: &str| -> Vec<u64> {
+        let (from, to) = text.split_once('-').expect("a range");
+        (from.parse().expect("a UID")..=to.parse().expect("a UID")).collect()
+    };
+    let (first, last) = (range(&first), range(&last));
+    let mut pack = encode(&first, 10).expect("the first block packs");
+    pack.blocks.push(UidBlock {
+        base,
+        deltas: Vec::new(),
+        num_uids: 0,
+    });
+    pack.blocks
+        .extend(encode(&last, 10).expect("the last block packs").blocks);
+    w.uids = first.into_iter().chain(last).collect();
+    w.pack = Some(pack);
+}
+
+#[when(expr = "a decoder seeks to block {int} with {word}")]
+fn seek_to_block_once(w: &mut Steps, target: u64, name: String) {
+    let pos = whence(&name);
+    w.result = Decoder::new(pack_of(w)).seek_to_block(target, pos).to_vec();
+}
+
+#[when(expr = "a decoder seeks linearly to {int}")]
+fn linear_seek(w: &mut Steps, target: u64) {
+    w.result = Decoder::new(pack_of(w)).linear_seek(target).to_vec();
+}
+
+#[then(expr = "the result is {string}")]
+fn result_is(w: &mut Steps, text: String) {
+    assert_eq!(w.result, parse_uids(&text));
 }
 
 fn main() {

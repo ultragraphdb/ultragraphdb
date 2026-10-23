@@ -199,7 +199,7 @@ fn validate_empty_block_item(it: &mut It<'_, '_>, val: &str) -> Result<(), DqlEr
         }
         Ok(())
     })();
-    it.restore(save_pos);
+    it.restore(save_pos)?;
     res
 }
 

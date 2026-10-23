@@ -8,9 +8,8 @@
 
 use std::collections::BTreeMap;
 
+use ultragraphdb_common_utils::JsonValue;
 use ultragraphdb_proto_dgraph::api;
-
-use crate::types::json_value::JsonValue;
 
 /// What parsing a JSON object answers: the node it names, its namespace, and the facets of the edge into it.
 #[derive(Debug, Default)]

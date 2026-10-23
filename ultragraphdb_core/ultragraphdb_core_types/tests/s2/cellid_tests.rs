@@ -182,7 +182,9 @@ fn cell_ids_match_go() {
             format!("{t} cell center")
         });
         for (i, v) in k.vertices.iter().enumerate() {
-            c.check(same_point(cl.vertex(i), v), || format!("{t} vertex {i}"));
+            c.check(same_point(cl.vertex(i).unwrap(), v), || {
+                format!("{t} vertex {i}")
+            });
         }
         c.check(same_rect(cl.rect_bound(), &k.rect_bound), || {
             format!(
@@ -501,4 +503,25 @@ fn cell_id_common_ancestor_level() {
         assert_eq!(a.common_ancestor_level(b), want, "{a:?} {b:?}");
         assert_eq!(b.common_ancestor_level(a), want, "{b:?} {a:?}");
     }
+}
+
+#[test]
+fn cell_inputs_go_panics_on_answer() {
+    // Go indexes past a cell's four vertices and past the face table for an invalid id, and shifts by a level
+    // outside 0 to 30 as Go's shifts do, to 0.
+    let cell = Cell::from_cell_id(CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0)));
+    assert!(cell.vertex(3).is_some());
+    assert_eq!(cell.vertex(4), None);
+    assert_eq!(cell.vertex_raw(9), None);
+    let _ = Cell::from_cell_id(CellId::SENTINEL).rect_bound();
+    let id = CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0));
+    for level in [-1, 31, 64, i64::MIN, i64::MAX] {
+        let _ = id.parent(level);
+        let _ = id.child_begin_at_level(level);
+        let _ = id.child_end_at_level(level);
+        let _ = CellId::from_face_pos_level(1, 0, level);
+    }
+    let _ = id.vertex_neighbors(30);
+    let _ = id.vertex_neighbors(i64::MAX);
+    assert_eq!(id.parent(MAX_LEVEL), id);
 }

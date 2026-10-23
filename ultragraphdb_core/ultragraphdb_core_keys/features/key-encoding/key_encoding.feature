@@ -52,6 +52,10 @@ Feature: Key encoding
     When plugins register the value-locked prefixes "dgraph.acme." and "dgraph.acme.billing."
     Then "dgraph.acme.billing.total" belongs to the second and "dgraph.acme.users" to the first
 
-  Scenario: Registering a name twice panics
+  Scenario: Registering a name twice is refused
     When two plugins register the exact name "dgraph.acme.key"
-    Then the second registration panics
+    Then the second registration is refused with 'x.RegisterReservedNamespace: predicate "dgraph.acme.key" already registered'
+
+  Scenario: A predicate prefix does not parse as a key
+    When the predicate prefix of "aa" in namespace 0 is parsed as a key
+    Then parsing fails with "Invalid format for key" and nothing panics

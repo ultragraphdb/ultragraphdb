@@ -101,11 +101,11 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
     if inval_sep || prev == b'_' {
         return Err(ERR_INVAL_SEP);
     }
-    let text = std::str::from_utf8(&digits).expect("ASCII digits");
+    let text = std::str::from_utf8(&digits).expect("the loop above pushes ASCII digits alone");
     let mant = if text.is_empty() {
         UBig::ZERO
     } else {
-        UBig::from_str_radix(text, b).expect("digits of base b")
+        UBig::from_str_radix(text, b).expect("the loop above pushes digits below base b alone")
     };
     if dp >= 0 {
         count = dp - count;
@@ -164,23 +164,30 @@ fn scan_exponent(r: &mut Scanner<'_>) -> Result<(i64, u32), String> {
 }
 
 impl BigFloat {
-    /// Go's `pow5`: 5^n at this precision, multiplying by squares of 5 held at 64 more bits.
-    fn pow5(n: u64, prec: u32) -> BigFloat {
+    /// Go's `pow5`: 5^n at this precision, multiplying by squares of 5 held at 64 more bits. `None` only where a
+    /// product is zero times infinity, which no power of 5 reaches.
+    fn pow5(n: u64, prec: u32) -> Option<BigFloat> {
         const POW5_MAX: u64 = 27;
         if n <= POW5_MAX {
-            return BigFloat::from_parts(false, UBig::from(5u8).pow(n as usize), 0, prec);
+            return Some(BigFloat::from_parts(
+                false,
+                UBig::from(5u8).pow(n as usize),
+                0,
+                prec,
+            ));
         }
+        let wide = prec.saturating_add(64);
         let mut z = BigFloat::from_parts(false, UBig::from(5u8).pow(POW5_MAX as usize), 0, prec);
-        let mut f = BigFloat::from_parts(false, UBig::from(5u8), 0, prec + 64);
+        let mut f = BigFloat::from_parts(false, UBig::from(5u8), 0, wide);
         let mut n = n - POW5_MAX;
         while n > 0 {
             if n & 1 != 0 {
-                z = z.mul(&f, prec);
+                z = z.mul(&f, prec)?;
             }
-            f = f.mul(&f, prec + 64);
+            f = f.mul(&f, wide)?;
             n >>= 1;
         }
-        z
+        Some(z)
     }
 
     /// Go's `Float.scan` with base 0: the sign, mantissa, exponent, and the decimal exponent applied through
@@ -217,31 +224,31 @@ impl BigFloat {
                 _ => exp2 += fcount * 4,
             }
         }
+        // Go's int64 sums wrap on an exponent near its limits; the port refuses them as the overflow they are.
+        const OVERFLOW: &str = "exponent overflow";
         if ebase == 10 {
-            exp5 += exp;
+            exp5 = exp5.checked_add(exp).ok_or(OVERFLOW)?;
         }
-        exp2 += exp;
-        let go_exp = mant.bit_len() as i64 + exp2;
+        exp2 = exp2.checked_add(exp).ok_or(OVERFLOW)?;
+        let go_exp = (mant.bit_len() as i64).checked_add(exp2).ok_or(OVERFLOW)?;
         if !(MIN_EXP..=MAX_EXP).contains(&go_exp) {
-            return Err("exponent overflow".into());
+            return Err(OVERFLOW.into());
+        }
+        if exp5 == 0 {
+            return Ok(BigFloat::from_parts(neg, mant, exp2, prec));
         }
         let z = BigFloat {
             prec,
             neg,
             form: Form::Finite { mant, exp: exp2 },
         };
-        if exp5 == 0 {
-            let Form::Finite { mant, exp } = z.form else {
-                unreachable!("finite")
-            };
-            return Ok(BigFloat::from_parts(neg, mant, exp, prec));
-        }
-        let p = BigFloat::pow5(exp5.unsigned_abs(), prec + 64);
-        Ok(if exp5 < 0 {
-            z.quo(&p, prec)
+        let nan = || String::from("NaN");
+        let p = BigFloat::pow5(exp5.unsigned_abs(), prec.saturating_add(64)).ok_or_else(nan)?;
+        if exp5 < 0 {
+            z.quo(&p, prec).ok_or_else(nan)
         } else {
-            z.mul(&p, prec)
-        })
+            z.mul(&p, prec).ok_or_else(nan)
+        }
     }
 
     /// Go's `Float.Parse(s, 0)`: `Inf` and `inf` with an optional sign, or a number by `scan` that must consume
@@ -263,8 +270,9 @@ impl BigFloat {
         Ok(f)
     }
 
-    /// Go's `UnmarshalText` at a precision, with its error text.
+    /// Go's `UnmarshalText` at a precision, with its error text; a precision of 0 is 64, as Go's is.
     pub fn unmarshal_text(text: impl AsRef<[u8]>, prec: u32) -> Result<BigFloat, String> {
+        let prec = if prec == 0 { 64 } else { prec };
         let text = text.as_ref();
         BigFloat::parse(text, prec).map_err(|e| {
             format!(

@@ -28,12 +28,16 @@ fn range_error(func: &'static str, s: &[u8]) -> NumError {
     NumError::Range(func, quote(s))
 }
 
+fn base_error(func: &'static str, s: &[u8], base: u32) -> NumError {
+    NumError::Base(func, quote(s), base)
+}
+
 fn lower(c: u8) -> u8 {
     c | (b'x' - b'X')
 }
 
 /// Go's `strconv.ParseUint(s, base, 64)` for base 0 (prefixes `0b`, `0o`, `0x`, a leading `0` for octal,
-/// underscores between digits) or 2 to 36.
+/// underscores between digits) or 2 to 36; any other base is refused with Go's `invalid base` error.
 pub fn parse_uint<S: AsRef<[u8]> + ?Sized>(s: &S, base: u32) -> Result<u64, NumError> {
     parse_uint_as("ParseUint", s.as_ref(), base)
 }
@@ -44,7 +48,8 @@ fn parse_uint_as(func: &'static str, s: &[u8], base: u32) -> Result<u64, NumErro
     }
     let base0 = base == 0;
     let (base, digits): (u64, &[u8]) = match (base0, s[0], s.get(1).map(|&c| lower(c))) {
-        (false, _, _) => (u64::from(base), s),
+        (false, _, _) if (2..=36).contains(&base) => (u64::from(base), s),
+        (false, _, _) => return Err(base_error(func, s, base)),
         (true, b'0', Some(b'b')) if s.len() >= 3 => (2, &s[2..]),
         (true, b'0', Some(b'o')) if s.len() >= 3 => (8, &s[2..]),
         (true, b'0', Some(b'x')) if s.len() >= 3 => (16, &s[2..]),
@@ -91,6 +96,7 @@ fn parse_int_as(func: &'static str, s: &[u8], base: u32) -> Result<i64, NumError
         Ok(un) => un,
         Err(NumError(NumErrorEnum::Syntax { .. })) => return Err(syntax_error(func, s)),
         Err(NumError(NumErrorEnum::Range { .. })) => u64::MAX,
+        Err(NumError(NumErrorEnum::Base { base, .. })) => return Err(base_error(func, s, base)),
     };
     let cutoff = 1u64 << 63;
     if !neg && un >= cutoff || neg && un > cutoff {
@@ -440,8 +446,12 @@ fn shortest_digits(f: f64, bits: u32) -> (Vec<u8>, i64) {
     } else {
         format!("{:e}", f.abs())
     };
-    let (mant, exp) = sci.split_once('e').expect("Rust's {:e} has an exponent");
-    let exp: i64 = exp.parse().expect("Rust's {:e} exponent is an integer");
+    let (mant, exp) = sci
+        .split_once('e')
+        .expect("`{:e}` above writes the exponent after an `e`");
+    let exp: i64 = exp
+        .parse()
+        .expect("`{:e}` above writes the exponent as a decimal integer");
     let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
     let dp = exp + 1;
     let v = if bits == 32 {
@@ -511,7 +521,8 @@ fn round_half_even(d: &[u8], dp: i64, n: usize) -> (Vec<u8>, i64) {
 }
 
 fn round_trips(d: &[u8], dp: i64, v: f64, bits: u32) -> bool {
-    let text = format!("0.{}e{dp}", std::str::from_utf8(d).expect("digits"));
+    let digits: String = d.iter().map(|&c| char::from(c)).collect();
+    let text = format!("0.{digits}e{dp}");
     if bits == 32 {
         text.parse::<f32>().is_ok_and(|x| f64::from(x) == v)
     } else {
@@ -520,7 +531,8 @@ fn round_trips(d: &[u8], dp: i64, v: f64, bits: u32) -> bool {
 }
 
 /// Go's `strconv.FormatFloat(f, fmt, -1, bit_size)` for `fmt` one of `e`, `E`, `f`, `g`, `G`: the shortest digits
-/// that read back as `f`, as a float32 when `bit_size` is 32.
+/// that read back as `f`, as a float32 when `bit_size` is 32. Any other `fmt` gives `%` and the byte, Go's text for
+/// an unknown format; Go's `b`, `x` and `X` are not ported.
 pub fn format_float(f: f64, fmt: u8, bit_size: u32) -> String {
     let bits = bit_size;
     let f = if bits == 32 { f64::from(f as f32) } else { f };
@@ -545,14 +557,20 @@ pub fn format_float(f: f64, fmt: u8, bit_size: u32) -> String {
     match fmt {
         b'e' | b'E' => fmt_e(&mut out, neg, &d, dp, nd - 1, fmt),
         b'f' => fmt_f(&mut out, neg, &d, dp, (nd - dp).max(0)),
-        _ => {
+        b'g' | b'G' => {
             let prec = nd;
             let exp = dp - 1;
             if !(-4..6).contains(&exp) {
-                fmt_e(&mut out, neg, &d, dp, prec - 1, fmt + b'e' - b'g');
+                let e = if fmt == b'G' { b'E' } else { b'e' };
+                fmt_e(&mut out, neg, &d, dp, prec - 1, e);
             } else {
                 fmt_f(&mut out, neg, &d, dp, (prec - dp).max(0));
             }
+        }
+        // Unknown format.
+        _ => {
+            out.push('%');
+            out.push(char::from(fmt));
         }
     }
     out

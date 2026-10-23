@@ -22,6 +22,10 @@ impl Display for LexError {
                 message,
             } => write!(f, "line {line} column {column}: {message}"),
             LexErrorEnum::PeekOutOfRange => f.write_str("Out of range for peek"),
+            LexErrorEnum::RestoreOutOfRange { pos, len } => write!(
+                f,
+                "Assert failed: cannot restore the item iterator to {pos}, outside -1..={len}"
+            ),
             LexErrorEnum::NoOpeningQuote => f.write_str("String should start with quote."),
             LexErrorEnum::UnexpectedEndOfInput => f.write_str("Unexpected end of input."),
             // Go formats the EOF rune (-1) with %c as the replacement character.

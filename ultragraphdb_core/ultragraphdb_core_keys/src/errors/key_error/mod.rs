@@ -9,9 +9,13 @@
 mod key_error_display;
 mod key_error_error;
 
+use ultragraphdb_error_num::NumError;
+
 use crate::types::parsed_key::ParsedKey;
 
-/// Why a key could not be parsed or split. `Display` gives Dgraph's error text.
+/// Why a key could not be built, parsed or split, a namespaced attribute could not be parsed, or a reserved
+/// namespace could not be registered. `Display` gives Dgraph's error text, or for a failure on which Dgraph panics,
+/// its panic text or a text naming the input and the reason.
 ///
 /// The classification is the public field `.0`; branch on it.
 ///
@@ -45,6 +49,24 @@ pub enum KeyErrorEnum {
     InvalidDataType,
     /// Only a key with the default prefix can be split.
     SplitNonDefaultPrefix,
+    /// A namespaced attribute has no namespace separator, on which Dgraph panics indexing past its split.
+    MissingNamespaceSeparator { attr: String },
+    /// A namespaced attribute's namespace is not a hexadecimal u64, on which Dgraph's `strToUint` exits the process;
+    /// `error` is Go's `strconv` error.
+    InvalidNamespace { attr: String, error: NumError },
+    /// A predicate of `len` bytes, `u16::MAX` or more, does not fit a key's attribute length, on which Dgraph's
+    /// `AssertTrue` exits the process.
+    AttributeTooLong { len: usize },
+    /// A reserved namespace locks values without a trust marker. Dgraph panics with the same text.
+    TrustMarkerMissing,
+    /// A reserved namespace names a predicate, type, prefix or lock with the namespace separator. Dgraph panics with
+    /// the same text.
+    QualifiedReservedName { name: String },
+    /// A reserved namespace locks the empty prefix. Dgraph panics with the same text.
+    EmptyValueLockedPrefix,
+    /// A reserved name is registered twice; `kind` is `predicate`, `type`, `value-locked predicate` or
+    /// `value-locked prefix`. Dgraph panics with the same text.
+    AlreadyRegistered { kind: &'static str, name: String },
 }
 
 impl KeyError {
@@ -105,5 +127,40 @@ impl KeyError {
     #[allow(non_snake_case)]
     pub fn SplitNonDefaultPrefix() -> Self {
         Self(KeyErrorEnum::SplitNonDefaultPrefix)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn MissingNamespaceSeparator(attr: String) -> Self {
+        Self(KeyErrorEnum::MissingNamespaceSeparator { attr })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn InvalidNamespace(attr: String, error: NumError) -> Self {
+        Self(KeyErrorEnum::InvalidNamespace { attr, error })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn AttributeTooLong(len: usize) -> Self {
+        Self(KeyErrorEnum::AttributeTooLong { len })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn TrustMarkerMissing() -> Self {
+        Self(KeyErrorEnum::TrustMarkerMissing)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn QualifiedReservedName(name: String) -> Self {
+        Self(KeyErrorEnum::QualifiedReservedName { name })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EmptyValueLockedPrefix() -> Self {
+        Self(KeyErrorEnum::EmptyValueLockedPrefix)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn AlreadyRegistered(kind: &'static str, name: String) -> Self {
+        Self(KeyErrorEnum::AlreadyRegistered { kind, name })
     }
 }

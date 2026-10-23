@@ -17,7 +17,7 @@ mod num_error_error;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NumError(pub NumErrorEnum);
 
-/// The classification of a [`NumError`]: Go's `ErrSyntax` and `ErrRange`. `func` is the Go function that failed
+/// The classification of a [`NumError`]: Go's `ErrSyntax`, `ErrRange` and invalid base. `func` is the Go function that failed
 /// (`ParseInt`, `ParseUint`, `ParseFloat`, `ParseBool`, `Atoi`); `num` is its input as Go's `strconv.Quote`
 /// writes it, quotes and escapes included.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -26,6 +26,12 @@ pub enum NumErrorEnum {
     Syntax { func: &'static str, num: String },
     /// The input is a number out of the range of the function's type.
     Range { func: &'static str, num: String },
+    /// The base is neither 0 nor 2 to 36: Go's `baseError`.
+    Base {
+        func: &'static str,
+        num: String,
+        base: u32,
+    },
 }
 
 impl NumError {
@@ -37,5 +43,10 @@ impl NumError {
     #[allow(non_snake_case)]
     pub fn Range(func: &'static str, num: String) -> Self {
         Self(NumErrorEnum::Range { func, num })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Base(func: &'static str, num: String, base: u32) -> Self {
+        Self(NumErrorEnum::Base { func, num, base })
     }
 }

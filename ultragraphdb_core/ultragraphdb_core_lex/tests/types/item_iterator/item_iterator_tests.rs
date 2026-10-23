@@ -72,29 +72,53 @@ fn test_save_restore() {
     it.next();
     it.next();
     assert_eq!(it.item().val(), "c");
-    it.restore(pos);
+    it.restore(pos).expect("a saved position");
     assert_eq!(it.item().val(), "a");
-    it.restore(-1);
+    it.restore(-1).expect("the start");
     assert!(it.next());
     assert_eq!(it.item().val(), "a");
-    it.restore(4);
+    it.restore(4).expect("the end");
     assert!(!it.next());
 }
 
 #[test]
-#[should_panic]
-fn test_restore_past_end_panics() {
+fn test_restore_past_end_is_refused() {
+    // Go's assertion exits the process.
     let l = three_items();
     let mut it = l.new_iterator();
-    it.restore(5);
+    let err = it.restore(5).expect_err("past the end");
+    assert_eq!(err.0, LexErrorEnum::RestoreOutOfRange { pos: 5, len: 4 });
+    assert_eq!(
+        err.to_string(),
+        "Assert failed: cannot restore the item iterator to 5, outside -1..=4"
+    );
+    assert_eq!(
+        it.save(),
+        -1,
+        "a refused restore does not move the iterator"
+    );
 }
 
 #[test]
-#[should_panic]
-fn test_restore_before_start_panics() {
+fn test_restore_before_start_is_refused() {
     let l = three_items();
     let mut it = l.new_iterator();
-    it.restore(-2);
+    assert!(it.restore(-2).is_err());
+}
+
+#[test]
+fn test_peek_of_more_items_than_exist_is_refused() {
+    let l = three_items();
+    let it = l.new_iterator();
+    assert_eq!(
+        it.peek(usize::MAX).map(<[_]>::len),
+        Err(ultragraphdb_core_lex::LexError::PeekOutOfRange())
+    );
+    assert_eq!(
+        it.peek(5).map(<[_]>::len),
+        Err(ultragraphdb_core_lex::LexError::PeekOutOfRange())
+    );
+    assert_eq!(it.peek(4).map(<[_]>::len), Ok(4));
 }
 
 #[test]

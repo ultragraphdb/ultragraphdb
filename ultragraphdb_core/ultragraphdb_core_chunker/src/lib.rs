@@ -11,18 +11,20 @@
 //! loaders.
 //!
 //! ```
-//! use ultragraphdb_core_chunker::{JsonOp, parse_json, parse_rdf};
+//! use ultragraphdb_core_chunker::{ChunkerError, JsonOp, parse_json, parse_rdf};
 //! use ultragraphdb_core_lex::Lexer;
 //!
+//! # fn main() -> Result<(), ChunkerError> {
 //! let line = r#"<alice> <name> "Alice"@en (since=2006) ."#;
-//! let nq = parse_rdf(line, &mut Lexer::new(line)).unwrap();
+//! let nq = parse_rdf(line, &mut Lexer::new(line))?;
 //! assert_eq!((nq.subject.as_str(), nq.predicate.as_str(), nq.lang.as_str()), ("alice", "name", "en"));
 //! assert_eq!(nq.facets[0].key, "since");
 //!
-//! let (nqs, _) = parse_json(br#"{"uid": "_:a", "friend": {"uid": "_:b", "friend|close": true}}"#, JsonOp::Set)
-//!     .unwrap();
+//! let (nqs, _) = parse_json(br#"{"uid": "_:a", "friend": {"uid": "_:b", "friend|close": true}}"#, JsonOp::Set)?;
 //! assert_eq!((nqs[0].subject.as_str(), nqs[0].object_id.as_str()), ("_:a", "_:b"));
 //! assert_eq!(nqs[0].facets[0].key, "close");
+//! # Ok(())
+//! # }
 //! ```
 
 mod chunk;
@@ -31,7 +33,6 @@ mod json_parser;
 mod rdf_parser;
 mod rdf_state;
 mod types;
-mod utils;
 
 pub use crate::chunk::data_format;
 pub use crate::errors::chunker_error::{ChunkerError, ChunkerErrorEnum};

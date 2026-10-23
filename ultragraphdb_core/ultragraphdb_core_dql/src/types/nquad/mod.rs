@@ -11,13 +11,14 @@ mod nquad_debug;
 use std::collections::HashMap;
 
 use ultragraphdb_common_utils::go_strconv;
-use ultragraphdb_core_keys::{STAR, ValueTypeInfo, value_type};
+use ultragraphdb_core_keys::{ValueTypeInfo, value_type};
 use ultragraphdb_core_types::{TypeId, Value, marshal};
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_pb::pb;
 
 use crate::errors::dql_error::DqlError;
 use crate::mutation::{ERR_INVALID_UID, type_val_from};
+use crate::types::object::Object;
 
 /// An N-Quad of the API, with its conversion into directed edges: Dgraph's `dql.NQuad`.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -52,44 +53,40 @@ impl NQuad {
         out
     }
 
-    /// A directed edge from the subject to the N-Quad's value; predicate, language and facets come from the
-    /// N-Quad.
+    /// A directed edge from the subject to `value`, the N-Quad's object value as [`object`](Self::object) gives
+    /// it; predicate, language and facets come from the N-Quad.
     ///
     /// # Errors
     ///
     /// When the value cannot be marshalled to bytes.
-    pub fn create_value_edge(&self, subject_uid: u64) -> Result<pb::DirectedEdge, DqlError> {
+    pub fn create_value_edge(
+        &self,
+        subject_uid: u64,
+        value: &api::Value,
+    ) -> Result<pb::DirectedEdge, DqlError> {
         let mut out = self.create_edge_prototype(subject_uid);
-        self.copy_value(&mut out)?;
+        let (value, t) = byte_val(value)?;
+        out.value = value;
+        out.value_type = t.enum_value();
         Ok(out)
     }
 
-    /// The edge deleting a whole predicate, from an N-Quad of the form `* p *`.
+    /// The N-Quad's object, decided as Go's `x.ValueType` decides it: the value when there is one, otherwise the
+    /// object id.
     ///
     /// # Errors
     ///
-    /// When the subject is not `*`, or the value cannot be marshalled.
-    pub fn to_delete_pred_edge(&self) -> Result<pb::DirectedEdge, DqlError> {
-        // Go also compares the object value's protobuf text with `*`; a value message's text names its field,
-        // so it never is, and only the subject decides.
-        if self.0.subject != STAR {
-            return Err(DqlError::conversion(format!(
-                "Subject and object both should be *. Got: {}",
+    /// `Unknown value type for nquad: <nquad>` when the N-Quad has neither, Dgraph's text from `ToEdgeUsing`; Go's
+    /// `CreateValueEdge` dereferences the missing value and panics (ledger 13).
+    pub fn object(&self) -> Result<Object<'_>, DqlError> {
+        match (self.value_type(), &self.0.object_value) {
+            (ValueTypeInfo::Plain | ValueTypeInfo::Multi, Some(value)) => Ok(Object::Value(value)),
+            (ValueTypeInfo::Uid, _) => Ok(Object::Uid(&self.0.object_id)),
+            _ => Err(DqlError::conversion(format!(
+                "Unknown value type for nquad: {}",
                 self.go_debug()
-            )));
+            ))),
         }
-        let mut out = pb::DirectedEdge {
-            // This along with edge.ObjectValue == x.Star would indicate that we want to delete the predicate.
-            entity: 0,
-            attr: self.0.predicate.clone(),
-            namespace: self.0.namespace,
-            lang: self.0.lang.clone(),
-            facets: self.0.facets.clone(),
-            op: pb::directed_edge::Op::Del as i32,
-            ..pb::DirectedEdge::default()
-        };
-        self.copy_value(&mut out)?;
-        Ok(out)
     }
 
     /// The directed edge of the N-Quad, its subject and object resolved to uids: a uid itself, or a blank node or
@@ -110,9 +107,9 @@ impl NQuad {
                 self.go_debug()
             )));
         }
-        match self.value_type() {
-            ValueTypeInfo::Uid => {
-                let o_uid = to_uid(&self.0.object_id, new_to_uid)?;
+        match self.object()? {
+            Object::Uid(object_id) => {
+                let o_uid = to_uid(object_id, new_to_uid)?;
                 if o_uid == 0 {
                     return Err(DqlError::conversion(format!(
                         "ObjectId should be > 0 for nquad: {}",
@@ -121,38 +118,7 @@ impl NQuad {
                 }
                 Ok(self.create_uid_edge(s_uid, o_uid))
             }
-            ValueTypeInfo::Plain | ValueTypeInfo::Multi => self.create_value_edge(s_uid),
-            _ => Err(DqlError::conversion(format!(
-                "Unknown value type for nquad: {}",
-                self.go_debug()
-            ))),
-        }
-    }
-
-    fn copy_value(&self, out: &mut pb::DirectedEdge) -> Result<(), DqlError> {
-        let (value, t) = self.byte_val()?;
-        out.value = value;
-        out.value_type = t.enum_value();
-        Ok(())
-    }
-
-    /// The value as bytes with its type, inferred from the type of the API value. Go dereferences a missing value
-    /// and panics; here it is an empty string.
-    fn byte_val(&self) -> Result<(Vec<u8>, TypeId), DqlError> {
-        let p = match &self.0.object_value {
-            Some(v) => type_val_from(v),
-            None => type_val_from(&api::Value::default()),
-        };
-        let tid = p.tid();
-        // These three would have already been marshalled to bytes by the client or in the parse function.
-        let p = if matches!(tid, TypeId::GEO | TypeId::DATETIME | TypeId::BIGFLOAT) {
-            p
-        } else {
-            marshal(&p, TypeId::BINARY)?
-        };
-        match p.into_value() {
-            Some(Value::Bytes(b)) => Ok((b, tid)),
-            _ => Ok((Vec::new(), tid)),
+            Object::Value(value) => self.create_value_edge(s_uid, value),
         }
     }
 
@@ -161,6 +127,22 @@ impl NQuad {
         let has_lang = !self.0.lang.is_empty();
         let has_special_id = self.0.object_id.is_empty();
         value_type(has_value, has_lang, has_special_id)
+    }
+}
+
+/// The value as bytes with its type, inferred from the type of the API value.
+fn byte_val(value: &api::Value) -> Result<(Vec<u8>, TypeId), DqlError> {
+    let p = type_val_from(value);
+    let tid = p.tid();
+    // These three would have already been marshalled to bytes by the client or in the parse function.
+    let p = if matches!(tid, TypeId::GEO | TypeId::DATETIME | TypeId::BIGFLOAT) {
+        p
+    } else {
+        marshal(&p, TypeId::BINARY)?
+    };
+    match p.into_value() {
+        Some(Value::Bytes(b)) => Ok((b, tid)),
+        _ => Ok((Vec::new(), tid)),
     }
 }
 

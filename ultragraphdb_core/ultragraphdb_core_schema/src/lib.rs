@@ -11,9 +11,10 @@
 //! [`initial_types`] are the definitions every namespace starts with. Loading and storing the schema is stage 2's.
 //!
 //! ```
-//! use ultragraphdb_core_schema::{SchemaMode, SchemaState, parse};
+//! use ultragraphdb_core_schema::{SchemaError, SchemaMode, SchemaState, parse};
 //!
-//! let parsed = parse("name: string @index(exact, term) @upsert .\nfriend: [uid] @reverse .").unwrap();
+//! # fn main() -> Result<(), SchemaError> {
+//! let parsed = parse("name: string @index(exact, term) @upsert .\nfriend: [uid] @reverse .")?;
 //! assert_eq!(parsed.preds()[0].predicate, "0-name");
 //! assert_eq!(parsed.preds()[0].tokenizer, ["exact", "term"]);
 //!
@@ -26,6 +27,8 @@
 //!
 //! let err = parse("friend: [bool] .").unwrap_err();
 //! assert_eq!(err.to_string(), "line 1 column 9: Unsupported type for list: [bool].");
+//! # Ok(())
+//! # }
 //! ```
 
 mod errors;
@@ -33,7 +36,6 @@ mod parse;
 mod schema;
 mod state;
 mod types;
-mod utils;
 
 pub use crate::errors::schema_error::{SchemaError, SchemaErrorEnum};
 pub use crate::parse::{has_tokenizer_or_vector_index_spec, parse, parse_with_namespace};

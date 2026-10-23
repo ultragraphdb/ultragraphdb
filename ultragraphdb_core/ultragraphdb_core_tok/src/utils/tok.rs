@@ -29,8 +29,7 @@ pub const TOKENIZER_NAMES: [&str; 17] = [
 /// ```
 /// use ultragraphdb_core_tok::get_tokenizer;
 ///
-/// let term = get_tokenizer("term").unwrap();
-/// assert_eq!(term.identifier(), 0x01);
+/// assert_eq!(get_tokenizer("term").map(|t| t.identifier()), Some(0x01));
 /// assert!(get_tokenizer("Term").is_none());
 /// ```
 pub fn get_tokenizer(name: &str) -> Option<Tokenizer> {
@@ -91,7 +90,7 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
         Kind::Exact(_) => {
             let tag = Tag::parse(lang)
                 .or_else(|_| Tag::parse("en"))
-                .expect("en parses");
+                .expect("the constant tag en parses");
             Tokenizer::new(Kind::Exact(Some(Box::new(ExactLang {
                 lang_base: lang_base(lang),
                 collator: Collator::new(&tag),
@@ -101,20 +100,19 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
     }
 }
 
-/// The ngram tokenizer for `lang`, as Dgraph's `NGramTokenizer{lang: lang}`.
-pub(crate) fn ngram_for_lang(lang: &str) -> Tokenizer {
-    Tokenizer::new(Kind::NGram(lang.to_string()))
-}
-
 /// Dgraph's `BuildTokens`: the tokens of a value, each prefixed with the tokenizer's identifier, ready to become
 /// index keys.
 ///
 /// ```
-/// use ultragraphdb_core_tok::{build_tokens, get_tokenizer};
+/// use ultragraphdb_core_tok::{TokError, build_tokens, get_tokenizer};
 /// use ultragraphdb_core_types::Value;
 ///
-/// let tokens = build_tokens(&Value::str("Tokenizer works works!"), &get_tokenizer("term").unwrap()).unwrap();
+/// # fn main() -> Result<(), TokError> {
+/// let term = get_tokenizer("term").ok_or(TokError::UnknownTokenizer("term".into()))?;
+/// let tokens = build_tokens(&Value::str("Tokenizer works works!"), &term)?;
 /// assert_eq!(tokens, vec![b"\x01tokenizer".to_vec(), b"\x01works".to_vec()]);
+/// # Ok(())
+/// # }
 /// ```
 pub fn build_tokens(val: &Value, t: &Tokenizer) -> Result<Vec<Vec<u8>>, TokError> {
     let id = t.identifier();

@@ -409,11 +409,12 @@ impl<'r, R: Region> Coverer<'r, R> {
         // If there are too many cells and the covering is very large, use the
         // RegionCoverer to compute a new covering. (This avoids possible O(n^2)
         // behavior of the simpler algorithm below.)
-        let excess = covering.len() as i64 - self.max_cells;
+        // Saturating where Go's int64 arithmetic wraps on a max cells near its limits.
+        let excess = (covering.len() as i64).saturating_sub(self.max_cells);
         if excess <= 0 || self.is_canonical(covering) {
             return;
         }
-        if excess * covering.len() as i64 > 10000 {
+        if excess.saturating_mul(covering.len() as i64) > 10000 {
             let rc = RegionCoverer::default();
             *covering = rc.covering(&covering.clone());
             return;

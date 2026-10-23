@@ -637,3 +637,35 @@ fn test_is_print_is_reexported() {
     assert!(go_strconv::is_print('a'));
     assert!(!go_strconv::is_print('\u{ad}'));
 }
+
+#[test]
+fn test_parse_with_an_invalid_base_is_refused() {
+    // Go's baseError; a base of 1 overflowed the port's cutoff.
+    assert_eq!(
+        text(go_strconv::parse_uint("10", 1)),
+        Err(r#"strconv.ParseUint: parsing "10": invalid base 1"#.to_string())
+    );
+    assert_eq!(
+        text(go_strconv::parse_uint("10", 37)),
+        Err(r#"strconv.ParseUint: parsing "10": invalid base 37"#.to_string())
+    );
+    assert_eq!(
+        text(go_strconv::parse_int("-10", 1)),
+        Err(r#"strconv.ParseInt: parsing "-10": invalid base 1"#.to_string())
+    );
+    // An empty input is a syntax error before the base is checked, as in Go.
+    assert_eq!(
+        text(go_strconv::parse_uint("", 1)),
+        Err(r#"strconv.ParseUint: parsing "": invalid syntax"#.to_string())
+    );
+    assert_eq!(go_strconv::parse_uint("z", 36), Ok(35));
+}
+
+#[test]
+fn test_format_float_with_an_unknown_format_is_gos_text() {
+    // Go's formatDigits appends '%' and the format byte; the port computed an exponent character from it.
+    assert_eq!(go_strconv::format_float(1e21, 1, 64), "%\u{1}");
+    assert_eq!(go_strconv::format_float(1.5, b'q', 64), "%q");
+    assert_eq!(go_strconv::format_float(f64::NAN, b'q', 64), "NaN");
+    assert_eq!(go_strconv::format_float(1e21, b'G', 64), "1E+21");
+}

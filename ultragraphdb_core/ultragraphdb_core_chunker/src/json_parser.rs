@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, chunker/json_parser.go. Changed for ultragraphdb: translated to Rust; serde_json
- * in place of encoding/json and simdjson.
+ * Ported from Dgraph v25.5.0, chunker/json_parser.go. Changed for ultragraphdb: translated to Rust; the port of
+ * Go's encoding/json in ultragraphdb_common_utils in place of encoding/json and simdjson.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -12,20 +12,18 @@ use std::hash::{BuildHasher, Hasher};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ultragraphdb_common_utils::go_strconv;
-use ultragraphdb_core_facets::{facet_for, to_binary};
+use ultragraphdb_common_utils::{JsonValue, go_json, go_strconv};
+use ultragraphdb_core_facets::{FacetValue, facet_for};
 use ultragraphdb_core_keys::STAR;
 use ultragraphdb_core_types::{
     Geometry, TypeId, Value, float_array_as_bytes, object_value, parse_time, parse_vfloat,
 };
 use ultragraphdb_proto_dgraph::api;
-use ultragraphdb_proto_dgraph::api::facet::ValType;
 use ultragraphdb_proto_dgraph::api::value::Val as ApiVal;
 use ultragraphdb_proto_pb::pb;
 
 use crate::errors::chunker_error::ChunkerError;
 use crate::types::json_op::JsonOp;
-use crate::types::json_value::JsonValue;
 use crate::types::nquad_buffer::NQuadBuffer;
 
 pub(crate) fn strip_spaces(s: &str) -> String {
@@ -62,24 +60,22 @@ fn quote_for_unquote(s: &str) -> String {
 /// Dgraph's `handleBasicFacetsType`: a JSON facet value as a facet: a datetime string as a datetime, any other
 /// string as a string with its term tokens, a number with a `.` as a float, any other as an int, a bool.
 fn handle_basic_facets_type(key: &str, facet_val: &JsonValue) -> Result<api::Facet, String> {
-    let (json_value, value_type) = match facet_val {
+    let value = match facet_val {
         JsonValue::String(v) => match parse_time(v) {
-            Ok(t) => (Value::DateTime(t), ValType::Datetime),
+            Ok(t) => FacetValue::DateTime(t),
             // FacetFor already converts the value to binary.
             Err(_) => return facet_for(key, &quote_for_unquote(v)).map_err(|e| e.to_string()),
         },
-        JsonValue::Number(n) if n.contains('.') => (
-            Value::Float(go_strconv::parse_float(n, 64).map_err(|e| e.to_string())?),
-            ValType::Float,
-        ),
-        JsonValue::Number(n) => (
-            Value::Int(go_strconv::parse_int(n, 10).map_err(|e| e.to_string())?),
-            ValType::Int,
-        ),
-        JsonValue::Bool(b) => (Value::Bool(*b), ValType::Bool),
+        JsonValue::Number(n) if n.contains('.') => {
+            FacetValue::Float(go_strconv::parse_float(n, 64).map_err(|e| e.to_string())?)
+        }
+        JsonValue::Number(n) => {
+            FacetValue::Int(go_strconv::parse_int(n, 10).map_err(|e| e.to_string())?)
+        }
+        JsonValue::Bool(b) => FacetValue::Bool(*b),
         _ => return Err("facet value can only be string/number/bool".to_string()),
     };
-    to_binary(key, &json_value, value_type).map_err(|e| e.to_string())
+    value.to_binary(key).map_err(|e| e.to_string())
 }
 
 /// Dgraph's `parseMapFacets`: the facets of a scalar list predicate, given as maps from a value's index to the
@@ -103,6 +99,8 @@ pub(crate) fn parse_map_facets(
                 facet_val.go_v()
             )));
         };
+        // A Go map: the last of duplicate indices wins.
+        let fm: BTreeMap<&str, &JsonValue> = fm.iter().map(|(k, v)| (k.as_str(), v)).collect();
         let mut idx_map = HashMap::with_capacity(fm.len());
         for (sidx, val) in fm {
             let key = &fname[prefix.len()..];
@@ -200,6 +198,15 @@ pub(crate) fn handle_basic_type(
     Ok(())
 }
 
+/// Go's `json.Marshal` of a `map[string]interface{}`: the names sorted.
+fn marshal_map(m: &BTreeMap<String, JsonValue>) -> String {
+    let members: Vec<String> = m
+        .iter()
+        .map(|(k, v)| format!("{}:{}", go_json::encode_string(k.as_bytes()), v.marshal()))
+        .collect();
+    format!("{{{}}}", members.join(","))
+}
+
 /// Dgraph's `handleGeoType`: whether an object of exactly `type` and `coordinates` is a GeoJSON geometry, set as
 /// the N-Quad's object. An object GeoJSON refuses is not a geometry, and parses as a node.
 pub(crate) fn handle_geo_type(
@@ -209,8 +216,7 @@ pub(crate) fn handle_geo_type(
     if val.len() != 2 || !val.contains_key("type") || !val.contains_key("coordinates") {
         return Ok(false);
     }
-    let b = JsonValue::Object(val.clone()).marshal();
-    try_parse_as_geo(&b, nq)
+    try_parse_as_geo(&marshal_map(val), nq)
 }
 
 /// Dgraph's `tryParseAsGeo`.

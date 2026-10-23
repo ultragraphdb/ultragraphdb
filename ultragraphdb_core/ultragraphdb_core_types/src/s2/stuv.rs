@@ -193,9 +193,10 @@ const FACE_UVW_AXES: [[R3Vector; 3]; 6] = [
     ],
 ];
 
-/// Returns the given axis of the given face.
+/// Returns the given axis of the given face. A face past 5, of an invalid cell id, reads as face 5, as the default
+/// arms of the other face functions read it; Go indexes past the table and panics.
 fn uvw_axis(face: usize, axis: usize) -> R3Vector {
-    FACE_UVW_AXES[face][axis]
+    FACE_UVW_AXES.get(face).unwrap_or(&FACE_UVW_AXES[5])[axis]
 }
 
 /// Returns the u-axis for the given face.

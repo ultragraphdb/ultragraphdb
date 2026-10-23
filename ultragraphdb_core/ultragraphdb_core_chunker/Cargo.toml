@@ -26,8 +26,7 @@ ultragraphdb_core_facets = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_proto_dgraph = { workspace = true }
 ultragraphdb_proto_pb = { workspace = true }
-# RawValue keeps a JSON number's text, which Go's json.Number decodes from.
-serde_json = { workspace = true, features = ["raw_value"] }
+ultragraphdb_error_json = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_test_bdd = { workspace = true }

@@ -4,3 +4,4 @@
  */
 
 pub(crate) mod facet_type_id;
+pub(crate) mod facet_value;

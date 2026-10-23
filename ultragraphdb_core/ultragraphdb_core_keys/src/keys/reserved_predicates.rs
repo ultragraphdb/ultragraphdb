@@ -7,10 +7,11 @@
  */
 
 //! The reserved, pre-defined, ACL and internal predicate and type names. Checks that take a namespaced attribute
-//! panic, as Dgraph's do, on a name without the namespace separator.
+//! refuse a name without the namespace separator, on which Dgraph's panic.
 
 use ultragraphdb_common_utils::go_strings;
 
+use crate::errors::key_error::KeyError;
 use crate::keys::namespace_attr::{namespace_attr, parse_attr};
 
 // These predicates appear for queries that have * as predicate in them.
@@ -66,18 +67,24 @@ pub fn is_other_reserved_predicate(pred: &str) -> bool {
 /// 1. `dgraph.type` (reserved = true,  pre_defined = true )
 /// 2. `dgraph.blah` (reserved = true,  pre_defined = false)
 /// 3. `person.name` (reserved = false, pre_defined = false)
-pub fn is_reserved_predicate(pred: &str) -> bool {
-    is_reserved_name(parse_attr(pred))
+///
+/// # Errors
+///
+/// As [`parse_attr`](crate::parse_attr), and alike for the other checks of a namespaced name.
+pub fn is_reserved_predicate(pred: &str) -> Result<bool, KeyError> {
+    Ok(is_reserved_name(parse_attr(pred)?))
 }
 
 /// Whether the namespaced predicate is defined by Dgraph internally in the initial schema: `dgraph.type`, the ACL
 /// predicates and the [other reserved](is_other_reserved_predicate) ones. These may not be dropped, nor may any
 /// schema update differ from the initial internal schema for them.
-pub fn is_pre_defined_predicate(pred: &str) -> bool {
-    let pred = parse_attr(pred);
-    STAR_ALL_PREDICATES.contains(&go_strings::to_lower(pred).as_str())
-        || is_acl_predicate(pred)
-        || is_other_reserved_predicate(pred)
+pub fn is_pre_defined_predicate(pred: &str) -> Result<bool, KeyError> {
+    let pred = parse_attr(pred)?;
+    Ok(
+        STAR_ALL_PREDICATES.contains(&go_strings::to_lower(pred).as_str())
+            || is_acl_predicate(pred)
+            || is_other_reserved_predicate(pred),
+    )
 }
 
 /// Whether the bare predicate is one of the ACL feature's reserved predicates, in any case.
@@ -99,20 +106,20 @@ pub fn all_acl_predicates() -> Vec<String> {
 }
 
 /// Whether the namespaced predicate is internal, in any case. Currently, `uid` is the only such candidate.
-pub fn is_internal_predicate(pred: &str) -> bool {
-    INTERNAL_PREDICATES.contains(&go_strings::to_lower(parse_attr(pred)).as_str())
+pub fn is_internal_predicate(pred: &str) -> Result<bool, KeyError> {
+    Ok(INTERNAL_PREDICATES.contains(&go_strings::to_lower(parse_attr(pred)?).as_str()))
 }
 
 /// Whether the namespaced type is reserved for internal usage, i.e., prefixed with `dgraph.` in any case.
 /// Pre-defined types are a subset of reserved types; see [`is_pre_defined_type`].
-pub fn is_reserved_type(typ: &str) -> bool {
-    is_reserved_name(parse_attr(typ))
+pub fn is_reserved_type(typ: &str) -> Result<bool, KeyError> {
+    Ok(is_reserved_name(parse_attr(typ)?))
 }
 
 /// Whether the namespaced type is defined by Dgraph internally, for example `dgraph.graphql` or the ACL types.
 /// Case-sensitive, as in Dgraph.
-pub fn is_pre_defined_type(typ: &str) -> bool {
-    PRE_DEFINED_TYPES.contains(&parse_attr(typ))
+pub fn is_pre_defined_type(typ: &str) -> Result<bool, KeyError> {
+    Ok(PRE_DEFINED_TYPES.contains(&parse_attr(typ)?))
 }
 
 // Whether the given name is prefixed with `dgraph.`.

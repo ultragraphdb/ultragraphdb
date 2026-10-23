@@ -582,22 +582,58 @@ fn delete_of_a_bare_uid_deletes_every_predicate() {
 
 #[test]
 fn json_that_does_not_parse_is_refused() {
-    for input in [
-        "",
-        "{",
-        r#"{"a":}"#,
-        "[1]",
-        r#""abc""#,
-        "{\"a\":\"b\"}\u{1}",
+    for (input, err) in [
+        ("", "EOF"),
+        ("{", "unexpected EOF"),
+        (
+            r#"{"a":}"#,
+            "invalid character '}' looking for beginning of value",
+        ),
+        ("[1]", "only array of map allowed at root"),
+        (
+            r#""abc""#,
+            "json: cannot unmarshal string into Go value of type []interface {}",
+        ),
+        // Go decodes the first value and ignores what follows it (ledger 22).
+        (
+            "{\"a\":\"b\"}\u{1}",
+            "invalid character '\\x01' after top-level value",
+        ),
     ] {
-        let res = parse_json(input.as_bytes(), JsonOp::Set);
-        if input.ends_with('\u{1}') {
-            // Go decodes the first value and ignores what follows it.
-            assert!(res.is_ok(), "{input:?}: {res:?}");
-        } else {
-            assert!(res.is_err(), "{input:?}");
-        }
+        let e = parse_json(input.as_bytes(), JsonOp::Set).unwrap_err();
+        assert_eq!(e.to_string(), err, "{input:?}");
+        assert!(
+            matches!(
+                e.0,
+                ChunkerErrorEnum::Json(_) | ChunkerErrorEnum::JsonMutation(_)
+            ),
+            "{input:?}"
+        );
     }
+}
+
+#[test]
+fn a_value_ten_thousand_deep_is_read_without_recursion() {
+    // Go nests values up to 10000 deep; a chain of 9999 objects is 9999 edges and one value, read on a thread
+    // with a small stack.
+    let depth = 9999;
+    let input = format!(r#"{}"x"{}"#, r#"{"p":"#.repeat(depth), "}".repeat(depth));
+    let nqs = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || parse_json(input.as_bytes(), JsonOp::Set).map(|(nqs, _)| nqs.len()))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(nqs, Ok(depth));
+    let input = format!("[{}{}]", "[".repeat(9999), "]".repeat(9999));
+    let err = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || parse_json(input.as_bytes(), JsonOp::Set).map(|_| ()))
+        .unwrap()
+        .join()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(err.to_string(), "only array of map allowed at root");
 }
 
 #[test]

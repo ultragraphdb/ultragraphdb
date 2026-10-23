@@ -3,4 +3,5 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub(crate) mod go_json;
+#[cfg(test)]
+mod errors;

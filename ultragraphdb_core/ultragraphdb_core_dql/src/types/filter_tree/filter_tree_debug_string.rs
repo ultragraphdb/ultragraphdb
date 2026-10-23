@@ -6,21 +6,24 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use crate::errors::dql_error::DqlError;
+
 use super::FilterTree;
 
 impl FilterTree {
     /// The tree as text, `(AND (eq name "a") (NOT (has age)))`: Go's `debugString`, for tests and debugging.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// On an inner node whose operator is not `and`, `or` or `not`, as Go's `x.Fatalf`.
-    pub fn debug_string(&self) -> String {
+    /// [`DqlErrorEnum::UnknownOperator`](crate::DqlErrorEnum::UnknownOperator) on an inner node whose operator is
+    /// not `and`, `or` or `not`, where Go's `x.Fatalf` exits.
+    pub fn debug_string(&self) -> Result<String, DqlError> {
         let mut buf = String::with_capacity(20);
-        self.string_helper(&mut buf);
-        buf
+        self.string_helper(&mut buf)?;
+        Ok(buf)
     }
 
-    fn string_helper(&self, buf: &mut String) {
+    fn string_helper(&self, buf: &mut String) -> Result<(), DqlError> {
         if let Some(f) = self.func.as_ref().filter(|f| !f.name.is_empty()) {
             // Leaf node.
             buf.push('(');
@@ -49,7 +52,7 @@ impl FilterTree {
                 }
             }
             buf.push(')');
-            return;
+            return Ok(());
         }
         // Non-leaf node.
         buf.push('(');
@@ -57,12 +60,13 @@ impl FilterTree {
             "and" => buf.push_str("AND"),
             "or" => buf.push_str("OR"),
             "not" => buf.push_str("NOT"),
-            op => panic!("Unknown operator: {op:?}"),
+            op => return Err(DqlError::UnknownOperator(op.to_string())),
         }
         for c in &self.child {
             buf.push(' ');
-            c.string_helper(buf);
+            c.string_helper(buf)?;
         }
         buf.push(')');
+        Ok(())
     }
 }

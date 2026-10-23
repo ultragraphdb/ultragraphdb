@@ -8,13 +8,14 @@
 
 use ultragraphdb_common_utils::go_strconv;
 use ultragraphdb_core_tok::get_term_tokens;
-use ultragraphdb_core_types::{TypeId, Val, Value, convert, marshal, parse_time};
+use ultragraphdb_core_types::{TypeId, Val, convert, parse_time};
 use ultragraphdb_error_num::NumErrorEnum;
 use ultragraphdb_proto_dgraph::api;
 use ultragraphdb_proto_dgraph::api::facet::ValType;
 use ultragraphdb_proto_pb::pb;
 
 use crate::errors::facets_error::{FacetsError, FacetsErrorEnum};
+use crate::types::facet_value::FacetValue;
 
 /// Dgraph's `SortAndValidate`: sorts the facets by key and refuses a key named twice.
 ///
@@ -68,19 +69,19 @@ pub fn copy_facets(fcs: &[api::Facet], param: Option<&pb::FacetParams>) -> Vec<a
 /// Dgraph's `valAndValType`: the value a facet's text stands for and its type. The first that fits wins: an
 /// empty or double-quoted string, an int (`strconv.ParseInt(val, 0, 64)`, so base prefixes and underscores), a
 /// float, `true` or `false`, a datetime.
-fn val_and_val_type(val: &str) -> Result<(Value, ValType), FacetsError> {
+fn facet_value(val: &str) -> Result<FacetValue, FacetsError> {
     if val.is_empty() {
-        return Ok((Value::str(""), ValType::String));
+        return Ok(FacetValue::Str(Vec::new()));
     }
     // strings should be in quotes.
     if val.len() >= 2 && val.starts_with('"') && val.ends_with('"') {
         return match go_strconv::unquote(val) {
-            Some(uq) => Ok((Value::Str(uq), ValType::String)),
+            Some(uq) => Ok(FacetValue::Str(uq)),
             None => Err(FacetsError::new(FacetsErrorEnum::Unquote(val.to_string()))),
         };
     }
     match go_strconv::parse_int(val, 0) {
-        Ok(i) => return Ok((Value::Int(i), ValType::Int)),
+        Ok(i) => return Ok(FacetValue::Int(i)),
         // Only digits is a big integer; anything else may still be a float.
         Err(e)
             if matches!(e.0, NumErrorEnum::Range { .. })
@@ -93,17 +94,17 @@ fn val_and_val_type(val: &str) -> Result<(Value, ValType), FacetsError> {
     match go_strconv::parse_float(val, 64) {
         // NaN cannot be stored as it is: it serializes into invalid JSON.
         Ok(f) if f.is_nan() => return Err(FacetsError::new(FacetsErrorEnum::NaN)),
-        Ok(f) => return Ok((Value::Float(f), ValType::Float)),
+        Ok(f) => return Ok(FacetValue::Float(f)),
         Err(e) if matches!(e.0, NumErrorEnum::Range { .. }) => {
             return Err(FacetsError::new(FacetsErrorEnum::Number(e.to_string())));
         }
         Err(_) => {}
     }
     if val == "true" || val == "false" {
-        return Ok((Value::Bool(val == "true"), ValType::Bool));
+        return Ok(FacetValue::Bool(val == "true"));
     }
     if let Ok(t) = parse_time(val) {
-        return Ok((Value::DateTime(t), ValType::Datetime));
+        return Ok(FacetValue::DateTime(t));
     }
     Err(FacetsError::new(FacetsErrorEnum::Unparsable(
         val.to_string(),
@@ -122,9 +123,9 @@ fn val_and_val_type(val: &str) -> Result<(Value, ValType), FacetsError> {
 /// for an int or float out of range, [`FacetsErrorEnum::NaN`], and [`FacetsErrorEnum::Unparsable`] for a value of
 /// no type, e.g. unquoted text.
 pub fn facet_for(key: &str, val: &str) -> Result<api::Facet, FacetsError> {
-    let (v, vt) = val_and_val_type(val)?;
-    let mut facet = to_binary(key, &v, vt)?;
-    if let Value::Str(s) = &v {
+    let v = facet_value(val)?;
+    let mut facet = v.to_binary(key)?;
+    if let FacetValue::Str(s) = &v {
         let mut tokens = get_term_tokens(&[s])?;
         tokens.sort();
         facet.tokens = tokens
@@ -133,31 +134,6 @@ pub fn facet_for(key: &str, val: &str) -> Result<api::Facet, FacetsError> {
             .collect();
     }
     Ok(facet)
-}
-
-/// Dgraph's `ToBinary`: the facet `key` with `value`, a value of `source_type`, in its binary form, without
-/// tokens.
-///
-/// # Errors
-///
-/// [`FacetsErrorEnum::Types`] when `value` is not of `source_type`, where Go's type assertion panics.
-pub fn to_binary(
-    key: &str,
-    value: &Value,
-    source_type: ValType,
-) -> Result<api::Facet, FacetsError> {
-    let source_tid = type_id_for_val_type(source_type);
-    let bytes = match marshal(&Val::new(source_tid, value.clone()), TypeId::BINARY)?.into_value() {
-        Some(Value::Bytes(b)) => b,
-        _ => Vec::new(),
-    };
-    Ok(api::Facet {
-        key: key.to_string(),
-        value: bytes,
-        val_type: source_type as i32,
-        tokens: Vec::new(),
-        alias: String::new(),
-    })
 }
 
 fn type_id_for_val_type(vt: ValType) -> TypeId {

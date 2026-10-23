@@ -12,7 +12,6 @@
 mod errors;
 mod keys;
 mod types;
-mod utils;
 mod values;
 mod x;
 

@@ -23,12 +23,18 @@ use crate::types::schema_mode::SchemaMode;
 
 impl SchemaState {
     /// Dgraph's `Namespaces`: the namespaces the types are in.
-    pub fn namespaces(&self) -> HashSet<u64> {
-        self.read()
+    ///
+    /// # Errors
+    ///
+    /// The [`KeyError`](ultragraphdb_core_keys::KeyError) of a type name whose namespace does not parse, which only
+    /// [`set_type`](Self::set_type) can store and on which Dgraph exits the process.
+    pub fn namespaces(&self) -> Result<HashSet<u64>, SchemaError> {
+        Ok(self
+            .read()
             .types
             .keys()
             .map(|typ| parse_namespace(typ))
-            .collect()
+            .collect::<Result<_, _>>()?)
     }
 
     /// Dgraph's `GetIndexingPredicates`: the predicates whose indexes are being built, in no order.
@@ -85,18 +91,23 @@ impl SchemaState {
     /// Dgraph's `Tokenizer`: the tokenizers of a predicate, none when the state has no schema for it (it may have
     /// been dropped while a query was running).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// When the schema names a tokenizer that does not exist, as Dgraph's assertion does; parsing refuses one.
-    pub fn tokenizer(&self, mode: SchemaMode, pred: &str) -> Vec<Tokenizer> {
+    /// `Invalid tokenizer <name>` when the schema names a tokenizer that does not exist, which parsing refuses and
+    /// only a schema [`set`](Self::set) directly can hold; Dgraph's assertion exits the process with that text. The
+    /// same for [`tokenizer_names`](Self::tokenizer_names) and [`has_tokenizer`](Self::has_tokenizer).
+    pub fn tokenizer(&self, mode: SchemaMode, pred: &str) -> Result<Vec<Tokenizer>, SchemaError> {
         let s = self.read();
         let Some(schema) = s.schema_for(mode, pred) else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         schema
             .tokenizer
             .iter()
-            .map(|name| get_tokenizer(name).unwrap_or_else(|| panic!("Invalid tokenizer {name}")))
+            .map(|name| {
+                get_tokenizer(name)
+                    .ok_or_else(|| SchemaError::state(format!("Invalid tokenizer {name}")))
+            })
             .collect()
     }
 
@@ -139,18 +150,24 @@ impl SchemaState {
     }
 
     /// Dgraph's `TokenizerNames`: the names of a predicate's tokenizers.
-    pub fn tokenizer_names(&self, mode: SchemaMode, pred: &str) -> Vec<String> {
-        self.tokenizer(mode, pred)
+    pub fn tokenizer_names(
+        &self,
+        mode: SchemaMode,
+        pred: &str,
+    ) -> Result<Vec<String>, SchemaError> {
+        Ok(self
+            .tokenizer(mode, pred)?
             .iter()
             .map(|t| t.name().to_string())
-            .collect()
+            .collect())
     }
 
     /// Dgraph's `HasTokenizer`: whether a predicate has the tokenizer with identifier `id`.
-    pub fn has_tokenizer(&self, mode: SchemaMode, id: u8, pred: &str) -> bool {
-        self.tokenizer(mode, pred)
+    pub fn has_tokenizer(&self, mode: SchemaMode, id: u8, pred: &str) -> Result<bool, SchemaError> {
+        Ok(self
+            .tokenizer(mode, pred)?
             .iter()
-            .any(|t| t.identifier() == id)
+            .any(|t| t.identifier() == id))
     }
 
     /// Dgraph's `IsReversed`: whether a predicate has a reverse edge.

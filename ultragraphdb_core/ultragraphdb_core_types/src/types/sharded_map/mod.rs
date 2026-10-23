@@ -17,7 +17,7 @@ pub const NUM_SHARDS: usize = 30;
 /// Dgraph's `ShardedMap`: values by uid in [`NUM_SHARDS`] maps, a uid's shard being `uid % NUM_SHARDS`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShardedMap {
-    shards: Vec<HashMap<u64, Val>>,
+    shards: [HashMap<u64, Val>; NUM_SHARDS],
 }
 
 impl Default for ShardedMap {
@@ -30,7 +30,7 @@ impl ShardedMap {
     /// Dgraph's `NewShardedMap`.
     pub fn new() -> Self {
         Self {
-            shards: (0..NUM_SHARDS).map(|_| HashMap::new()).collect(),
+            shards: std::array::from_fn(|_| HashMap::new()),
         }
     }
 
@@ -52,9 +52,9 @@ impl ShardedMap {
         self.shards.is_empty()
     }
 
-    /// Dgraph's `GetShardOrNil`: shard `key`.
-    pub fn shard(&self, key: usize) -> &HashMap<u64, Val> {
-        &self.shards[key]
+    /// Dgraph's `GetShardOrNil`: shard `key`, `None` past the last shard, where Go indexes past them and panics.
+    pub fn shard(&self, key: usize) -> Option<&HashMap<u64, Val>> {
+        self.shards.get(key)
     }
 
     /// Dgraph's `Set`.

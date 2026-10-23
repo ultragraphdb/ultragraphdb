@@ -37,7 +37,7 @@ fn try_parse_facet_item(it: &mut It<'_, '_>) -> Result<Option<FacetItem>, DqlErr
     let mut res = FacetItem::default();
     let (mut item, ok) = try_parse_item_type(it, ITEM_NAME);
     if !ok {
-        it.restore(save_pos);
+        it.restore(save_pos)?;
         return Ok(None);
     }
     let is_orderasc = item.val() == "orderasc";
@@ -76,13 +76,13 @@ fn try_parse_facet_item(it: &mut It<'_, '_>) -> Result<Option<FacetItem>, DqlErr
 fn try_parse_facet_list(it: &mut It<'_, '_>) -> Result<Option<FacetRes>, DqlError> {
     let save_pos = it.save();
     let no_parse = |it: &mut It<'_, '_>| {
-        it.restore(save_pos);
+        it.restore(save_pos)?;
         Ok(None)
     };
 
     // Skip past '('
     if !try_parse_item_type(it, ITEM_LEFT_ROUND).1 {
-        it.restore(save_pos);
+        it.restore(save_pos)?;
         return Ok(Some(FacetRes {
             f: Some(pb::FacetParams {
                 all_keys: true,

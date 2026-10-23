@@ -227,26 +227,31 @@ pub fn merge_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
         }
 
         let li = me.list_idx();
-        let decoder = &mut decoders[li];
-        // Reached the end of this list. Remove it from the heap.
-        let last_block = decoder.block_idx() + 1 == decoder.pack().blocks.len();
-        if positions[li] + 1 == decoder.uids().len() && last_block {
+        let (Some(decoder), Some(position)) = (decoders.get_mut(li), positions.get_mut(li)) else {
             h.pop();
             continue;
-        }
+        };
 
         // Increment counters.
-        positions[li] += 1;
-        if positions[li] >= decoder.uids().len() {
-            // Reached the end of the current block. Decode the next block
-            // and reset the block counter.
+        *position += 1;
+        // Reached the end of the current block. Decode the next block and reset the block counter; an empty block,
+        // which only a corrupt pack holds and on which Dgraph panics, contributes nothing.
+        while *position >= decoder.uids().len() && decoder.valid() {
             decoder.next_block();
-            positions[li] = 0;
+            *position = 0;
         }
 
-        // Update current value and re-heapify.
-        h.set(0, Elem::new(decoder.uids()[positions[li]], li));
-        h.fix(0); // Faster than pop followed by push.
+        match decoder.uids().get(*position) {
+            // Update current value and re-heapify.
+            Some(&next) => {
+                h.set(0, Elem::new(next, li));
+                h.fix(0); // Faster than pop followed by push.
+            }
+            // Reached the end of this list. Remove it from the heap.
+            None => {
+                h.pop();
+            }
+        }
     }
 
     result.done()
@@ -256,8 +261,7 @@ pub fn merge_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
 pub fn index_of_packed(u: Option<&UidPack>, uid: u64) -> Option<usize> {
     let u = u?;
 
-    let mut decoder = Decoder::unpositioned(u);
-    decoder.seek(uid, SeekPos::Start);
+    let mut decoder = Decoder::sought(u, uid, SeekPos::Start);
     // Need to re-unpack this block since seek might make uids return an array with missing
     // elements in this block. We need them to make the correct calculation.
     let uids = decoder.unpack_block();
@@ -270,8 +274,10 @@ pub fn index_of_packed(u: Option<&UidPack>, uid: u64) -> Option<usize> {
         return None;
     }
 
-    let before: usize = u.blocks[..decoder.block_idx()]
+    let before: usize = u
+        .blocks
         .iter()
+        .take(decoder.block_idx())
         .map(|b| b.num_uids as usize)
         .sum();
     Some(uidx + before)

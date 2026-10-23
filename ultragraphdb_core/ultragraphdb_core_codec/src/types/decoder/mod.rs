@@ -13,7 +13,8 @@ use crate::types::seek_pos::SeekPos;
 
 /// Reads a [`UidPack`] back into UIDs, one block at a time.
 ///
-/// The UIDs a method returns belong to the decoder and change on its next call.
+/// A decoder exists only once positioned: it always holds the unpack of its current block, from the last seek's
+/// position on. The UIDs a method returns belong to the decoder and change on its next call.
 #[derive(Debug, Clone)]
 pub struct Decoder<'a> {
     pack: &'a UidPack,
@@ -22,20 +23,21 @@ pub struct Decoder<'a> {
 }
 
 impl<'a> Decoder<'a> {
-    /// A decoder holding the pack's first block: Go's `NewDecoder`.
+    /// A decoder holding the pack's first block: Go's `NewDecoder`, and `sought(pack, 0, Start)`.
     pub fn new(pack: &'a UidPack) -> Self {
-        let mut decoder = Self::unpositioned(pack);
-        decoder.seek(0, SeekPos::Start);
-        decoder
+        Self::sought(pack, 0, SeekPos::Start)
     }
 
-    /// A decoder at the first block with nothing unpacked yet, Go's `Decoder{Pack: pack}`: a seek positions it.
-    pub fn unpositioned(pack: &'a UidPack) -> Self {
-        Self {
+    /// A decoder positioned by [`seek`](Self::seek)ing `uid` with `whence`: Go's `Decoder{Pack: pack}` followed by
+    /// `Seek`, in one step, so that no decoder exists without the unpack of its current block.
+    pub fn sought(pack: &'a UidPack, uid: u64, whence: SeekPos) -> Self {
+        let mut decoder = Self {
             pack,
             block_idx: 0,
             uids: Vec::new(),
-        }
+        };
+        decoder.seek(uid, whence);
+        decoder
     }
 
     pub fn pack(&self) -> &'a UidPack {
@@ -85,13 +87,14 @@ impl<'a> Decoder<'a> {
     }
 
     /// Finds the block holding `uid` and unpacks it whole, which is faster than [`seek`](Self::seek) when the result
-    /// is intersected anyway. The search starts at the current block unless `uid` lies before it.
+    /// is intersected anyway. The search starts at the current block unless `uid` lies before it; a decoder past the
+    /// last block searches from the last block. Empty when no UID lies at or after `uid`, and an empty block
+    /// contributes nothing.
     ///
-    /// # Panics
-    ///
-    /// As Dgraph's does, when the decoder has moved past the last block, or when it was never positioned and `uid`
-    /// lies inside the first block.
+    /// Dgraph's panics past the last block (ledger 3) and on an empty block (4), and after a backward seek into the
+    /// first block returns the block it held (27); the port returns the target's block.
     pub fn seek_to_block(&mut self, uid: u64, whence: SeekPos) -> &[u64] {
+        let held_block_idx = self.block_idx;
         let mut prev_block_idx = self.block_idx;
         self.block_idx = 0;
         if uid == 0 {
@@ -99,14 +102,16 @@ impl<'a> Decoder<'a> {
         }
 
         let blocks = &self.pack.blocks;
-        // If for some reason we are searching an older uid, we need to search the entire pack. As in Dgraph, this
-        // panics when the decoder has moved past the last block.
-        if prev_block_idx > 0 && uid < blocks[prev_block_idx].base {
+        // If for some reason we are searching an older uid, we need to search the entire pack.
+        if prev_block_idx > 0 && blocks.get(prev_block_idx).is_some_and(|b| uid < b.base) {
             prev_block_idx = 0;
         }
 
+        // A decoder past the last block searches nothing after it, so idx is the block count.
         let idx = prev_block_idx
-            + blocks[prev_block_idx..].partition_point(|b| !whence.reached(b.base, uid));
+            + blocks.get(prev_block_idx..).map_or(0, |rest| {
+                rest.partition_point(|b| !whence.reached(b.base, uid))
+            });
         // The first block.Base >= uid.
         if idx == 0 {
             return self.unpack_block();
@@ -120,12 +125,11 @@ impl<'a> Decoder<'a> {
         // Either idx is past the last block, or it is the first block whose base is greater than uid: in both cases
         // the previous block is where uid would be.
         self.block_idx = idx - 1;
-        if self.block_idx != prev_block_idx {
+        if self.block_idx != held_block_idx {
             self.unpack_block();
         }
 
-        // As in Dgraph, this panics when the block was not unpacked: a seek must position the decoder first.
-        if uid <= self.uids[self.uids.len() - 1] {
+        if self.uids.last().is_some_and(|&last| uid <= last) {
             return &self.uids;
         }
 
@@ -169,22 +173,24 @@ impl<'a> Decoder<'a> {
     }
 
     /// Moves forward to the last block whose base is at most `seek`, or stays at the current block when the next
-    /// base is greater, and unpacks it. Go's version never returns for `u64::MAX`; this one stops past the last
-    /// block and returns nothing.
+    /// base is greater, and unpacks it. For `u64::MAX` it stays on the last block, as Go's documentation states;
+    /// Go's version never returns for it (ledger 5).
     pub fn linear_seek(&mut self, seek: u64) -> &[u64] {
-        while self.block_idx < self.pack.blocks.len() && seek >= self.peek_next_base() {
+        while let Some(next) = self.peek_next_base()
+            && seek >= next
+        {
             self.block_idx += 1;
         }
 
         self.unpack_block()
     }
 
-    /// The base of the next block without advancing, or `u64::MAX` past the last one.
-    pub fn peek_next_base(&self) -> u64 {
+    /// The base of the next block without advancing, or `None` at or past the last one.
+    pub fn peek_next_base(&self) -> Option<u64> {
         self.pack
             .blocks
-            .get(self.block_idx + 1)
-            .map_or(u64::MAX, |b| b.base)
+            .get(self.block_idx.saturating_add(1))
+            .map(|b| b.base)
     }
 
     /// Whether the decoder has not moved past the last block.

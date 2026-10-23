@@ -13,9 +13,10 @@ use super::{SchemaError, SchemaErrorEnum};
 impl fmt::Display for SchemaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            SchemaErrorEnum::Lexing(m) | SchemaErrorEnum::Parse(m) | SchemaErrorEnum::State(m) => {
-                f.write_str(m)
-            }
+            SchemaErrorEnum::Lexing(m)
+            | SchemaErrorEnum::Parse(m)
+            | SchemaErrorEnum::State(m)
+            | SchemaErrorEnum::Key(m) => f.write_str(m),
             SchemaErrorEnum::Located {
                 line,
                 column,

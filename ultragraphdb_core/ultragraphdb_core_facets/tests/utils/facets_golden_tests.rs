@@ -6,10 +6,9 @@
 //! Golden vectors from `tools/golden/facets.go`.
 
 use serde::Deserialize;
-use ultragraphdb_core_facets::{facet_for, sort_and_validate, to_binary, val_for};
+use ultragraphdb_core_facets::{FacetValue, facet_for, sort_and_validate, val_for};
 use ultragraphdb_core_types::{DateTime, TypeId, Value, marshal, parse_time};
 use ultragraphdb_proto_dgraph::api;
-use ultragraphdb_proto_dgraph::api::facet::ValType;
 use ultragraphdb_test_bdd::{Golden, compare_bytes, load_golden, testdata_dir};
 
 fn golden<T: for<'de> Deserialize<'de>>(name: &str) -> Golden<T> {
@@ -121,51 +120,97 @@ struct ToBinaryCase {
     facet: Option<FacetJson>,
 }
 
-fn to_binary_input(name: &str) -> Value {
-    match name {
-        "string" => Value::str("READ WRITE"),
-        "empty string" => Value::str(""),
-        "int" | "int as string" | "int as bool" | "unknown type" => {
-            Value::Int(if name == "int" { 3 } else { 1 })
-        }
-        "negative int" => Value::Int(-1),
-        "float" => Value::Float(30000.56),
-        "inf" => Value::Float(f64::INFINITY),
-        "true" | "bool as float" => Value::Bool(true),
-        "false" => Value::Bool(false),
-        "datetime" => Value::DateTime(parse_time("2006-01-02T15:04:05+07:00").unwrap()),
-        "utc datetime" => Value::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0)),
-        "string as int" => Value::str("3"),
-        "float as int" => Value::Float(1.5),
-        "string as datetime" => Value::str("2006"),
-        other => panic!("no input for {other}"),
-    }
+/// The golden cases the port cannot express, with the ledger entry (`openspec/notes/dgraph-bugs-found-in-port.md`)
+/// and what the port has instead. Each hands Go's `ToBinary` a value of another Go type than the facet type names,
+/// on which `Marshal`'s unchecked assertion panics (ledger 20); a [`FacetValue`] carries its type, so no such pair
+/// exists.
+const DEVIATIONS: &[(&str, u32, &str)] = &[
+    (
+        "int as string",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+    (
+        "string as int",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+    (
+        "float as int",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+    (
+        "bool as float",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+    (
+        "int as bool",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+    (
+        "string as datetime",
+        20,
+        "not expressible: FacetValue carries its type",
+    ),
+];
+
+/// The facet value of a golden case Go encodes, `None` for the deviations and the unknown type.
+fn to_binary_input(name: &str) -> Option<FacetValue> {
+    Some(match name {
+        "string" => FacetValue::Str(b"READ WRITE".to_vec()),
+        "empty string" => FacetValue::Str(Vec::new()),
+        "int" => FacetValue::Int(3),
+        "negative int" => FacetValue::Int(-1),
+        "float" => FacetValue::Float(30000.56),
+        "inf" => FacetValue::Float(f64::INFINITY),
+        "true" => FacetValue::Bool(true),
+        "false" => FacetValue::Bool(false),
+        "datetime" => FacetValue::DateTime(parse_time("2006-01-02T15:04:05+07:00").unwrap()),
+        "utc datetime" => FacetValue::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0)),
+        _ => return None,
+    })
 }
 
 #[test]
 fn to_binary_matches_go() {
     let g = golden::<ToBinaryCase>("facets_to_binary");
+    let mut deviating = 0;
     for c in g.cases() {
-        let vt = ValType::try_from(c.val_type).unwrap_or(ValType::String);
-        let raw = api::Facet {
-            val_type: c.val_type,
-            ..Default::default()
-        };
-        let got = if raw.val_type != vt as i32 {
-            // A type the enum does not name: to_binary takes the enum, so ask type_id_for, which refuses it as Go
-            // does.
-            ultragraphdb_core_facets::type_id_for(&raw).map(|_| unreachable!())
-        } else {
-            to_binary("k", &to_binary_input(&c.name), vt)
+        let deviation = DEVIATIONS.iter().find(|(name, _, _)| *name == c.name);
+        assert_eq!(
+            !c.panic.is_empty(),
+            deviation.is_some(),
+            "{}: Go panics exactly on the deviating cases",
+            c.name
+        );
+        if deviation.is_some() {
+            assert!(to_binary_input(&c.name).is_none(), "{}", c.name);
+            deviating += 1;
+            continue;
+        }
+        let got = match to_binary_input(&c.name) {
+            Some(value) => {
+                assert_eq!(value.val_type() as i32, c.val_type, "{}", c.name);
+                value.to_binary("k")
+            }
+            // A type the enum does not name: a facet value carries one it names, so ask type_id_for, which refuses
+            // it as Go does.
+            None => ultragraphdb_core_facets::type_id_for(&api::Facet {
+                val_type: c.val_type,
+                ..Default::default()
+            })
+            .map(|_| api::Facet::default()),
         };
         match (&c.facet, got) {
             (Some(want), Ok(f)) => compare_facet(&c.name, want, &f).unwrap(),
-            // Go panics on its unchecked type assertion; the port refuses.
-            (None, Err(_)) if !c.panic.is_empty() => {}
             (None, Err(e)) => assert_eq!(e.to_string(), c.err, "{}", c.name),
             (_, got) => panic!("{}: {got:?}, want {:?} / {:?}", c.name, c.facet, c.err),
         }
     }
+    assert_eq!(deviating, DEVIATIONS.len());
 }
 
 #[derive(Debug, Deserialize)]

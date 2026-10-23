@@ -39,3 +39,19 @@ Feature: Packing, decoding and seeking UID lists
     Then the result holds 11 UIDs from 5020 to 5120
     When the decoder moves to the next block
     Then the result holds 256 UIDs from 5130 to 7680
+
+  Scenario: A backward seek returns the target's block
+    Given the UIDs 1 to 40 in steps of 1, packed with block size 10
+    When a decoder seeks to block 35 and then to block 5 with SeekCurrent
+    Then the result holds 10 UIDs from 1 to 10
+
+  Scenario: An empty block contributes nothing to a seek
+    Given a pack of the blocks "1-10", an empty block of base 11, and "21-30"
+    When a decoder seeks to block 15 with SeekStart
+    Then the result holds 10 UIDs from 21 to 30
+
+  Scenario: A linear seek to the largest UID stays on the last block
+    Given the UID list "1, 2, 3"
+    When the list is encoded with block size 2
+    And a decoder seeks linearly to 18446744073709551615
+    Then the result is "3"

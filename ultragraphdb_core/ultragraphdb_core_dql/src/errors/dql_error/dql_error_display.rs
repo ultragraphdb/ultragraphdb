@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use ultragraphdb_common_utils::go_strconv;
+
 use super::{DqlError, DqlErrorEnum};
 
 impl fmt::Display for DqlError {
@@ -19,6 +21,10 @@ impl fmt::Display for DqlError {
                 message,
             } => {
                 write!(f, "line {line} column {column}: {message}")
+            }
+            // x.Fatalf("Unknown operator: %q", op)
+            DqlErrorEnum::UnknownOperator(op) => {
+                write!(f, "Unknown operator: {}", go_strconv::quote(op))
             }
         }
     }

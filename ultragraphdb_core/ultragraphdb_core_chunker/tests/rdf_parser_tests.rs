@@ -1453,6 +1453,12 @@ fn bytes_that_are_not_utf8_become_replacement_characters() {
         err.to_string(),
         "while lexing \u{fffd} at line 1 column 0: Invalid input: \u{fffd} at lexText"
     );
+    // Go's lexer counts such a byte as one column, where U+FFFD is three bytes.
+    let err = parse_rdfs(b"<a\xff\xfe> \xfd").unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "while lexing <a\u{fffd}\u{fffd}> \u{fffd} at line 1 column 5: Invalid input: \u{fffd} at lexText"
+    );
 }
 
 #[test]

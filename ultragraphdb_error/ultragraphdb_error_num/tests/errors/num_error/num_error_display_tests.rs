@@ -21,3 +21,11 @@ fn test_display_is_gos_text() {
         "strconv.ParseFloat: parsing \"\\xff\": invalid syntax"
     );
 }
+
+#[test]
+fn test_base_display_is_gos_text() {
+    assert_eq!(
+        NumError::Base("ParseUint", "\"10\"".to_string(), 1).to_string(),
+        "strconv.ParseUint: parsing \"10\": invalid base 1"
+    );
+}

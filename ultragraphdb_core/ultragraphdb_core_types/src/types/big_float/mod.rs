@@ -58,18 +58,20 @@ impl BigFloat {
         }
     }
 
-    /// Go's `SetInt64` at a precision (exact for 64 bits and more).
+    /// Go's `SetInt64` at a precision (exact for 64 bits and more); a precision of 0 is 64, as Go's is.
     pub fn from_i64(v: i64, prec: u32) -> Self {
+        let prec = if prec == 0 { 64 } else { prec };
         let neg = v < 0;
         Self::from_parts(neg, UBig::from(v.unsigned_abs()), 0, prec)
     }
 
-    /// Go's `SetFloat64` at a precision (exact for 53 bits and more). `None` for NaN, where Go panics with
-    /// `Float.SetFloat64(NaN)`.
+    /// Go's `SetFloat64` at a precision (exact for 53 bits and more); a precision of 0 is 53, as Go's is. `None`
+    /// for NaN, where Go panics with `Float.SetFloat64(NaN)`.
     pub fn from_f64(v: f64, prec: u32) -> Option<Self> {
         if v.is_nan() {
             return None;
         }
+        let prec = if prec == 0 { 53 } else { prec };
         let neg = v.is_sign_negative();
         if v.is_infinite() {
             return Some(Self::inf(neg, prec));
@@ -124,9 +126,10 @@ impl BigFloat {
     }
 
     /// Sets `±mant × 2^exp + sticky` rounded to this precision, with Go's exponent range checks (`setExpAndRound`):
-    /// an exponent below `MinExp` underflows to zero, above `MaxExp` overflows to infinity.
+    /// an exponent below `MinExp` underflows to zero, above `MaxExp` overflows to infinity. A precision of 0 holds
+    /// only zero, as Go's `SetPrec(0)` leaves it.
     pub(crate) fn set_rounded(&mut self, mant: UBig, exp: i64, sticky: bool) {
-        if mant == UBig::ZERO {
+        if mant == UBig::ZERO || self.prec == 0 {
             self.form = Form::Zero;
             return;
         }

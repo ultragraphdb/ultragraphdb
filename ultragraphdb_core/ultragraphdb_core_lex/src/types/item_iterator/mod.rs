@@ -61,12 +61,16 @@ impl<'l, 'a> ItemIterator<'l, 'a> {
 
     /// Moves the iterator to a position [`ItemIterator::save`] returned.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// When the position is before the start (-1) or past the items, as Go's assertion does.
-    pub fn restore(&mut self, pos: isize) {
-        assert!(pos <= self.len() && pos >= -1, "Assert failed");
+    /// [`LexErrorEnum::RestoreOutOfRange`] when the position is before the start (-1) or past the items, and the
+    /// iterator stays where it is; Go's assertion exits the process.
+    pub fn restore(&mut self, pos: isize) -> Result<(), LexError> {
+        if !(-1..=self.len()).contains(&pos) {
+            return Err(LexError::RestoreOutOfRange(pos, self.len()));
+        }
         self.idx = pos;
+        Ok(())
     }
 
     /// The current position, for [`ItemIterator::restore`].
@@ -80,12 +84,10 @@ impl<'l, 'a> ItemIterator<'l, 'a> {
     ///
     /// [`LexErrorEnum::PeekOutOfRange`] when fewer than `num` items follow.
     pub fn peek(&self, num: usize) -> Result<&'l [Item<'a>], LexError> {
-        let from = self.idx + 1;
-        let to = from + num as isize;
-        if to > self.len() {
-            return Err(LexError::new(LexErrorEnum::PeekOutOfRange));
-        }
-        Ok(&self.items[from as usize..to as usize])
+        usize::try_from(self.idx + 1)
+            .ok()
+            .and_then(|from| self.items.get(from..from.checked_add(num)?))
+            .ok_or(LexError::new(LexErrorEnum::PeekOutOfRange))
     }
 
     /// The next item, without consuming it.

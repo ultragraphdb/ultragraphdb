@@ -8,6 +8,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+mod geometry_clone;
+mod geometry_drop;
 pub(crate) mod geometry_geojson;
 mod geometry_wkb;
 
@@ -17,7 +19,10 @@ use crate::types::layout::Layout;
 
 /// A go-geom geometry: its kind and layout, and go-geom's flat representation (all coordinates in one vector,
 /// `ends` closing each ring or line, `endss` each polygon of a multipolygon), or the members of a collection.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Collections nest without a limit in WKB, so a geometry is cloned, dropped, encoded and walked from a stack
+/// rather than by recursion; `PartialEq` and `Debug` recurse into the members.
+#[derive(Debug, PartialEq)]
 pub struct Geometry {
     kind: GeometryKind,
     layout: Layout,
@@ -199,10 +204,9 @@ impl Geometry {
     }
 
     pub(crate) fn empty_collection(layout: Layout) -> Self {
-        Self {
-            layout,
-            ..Self::collection(Vec::new())
-        }
+        let mut g = Self::collection(Vec::new());
+        g.layout = layout;
+        g
     }
 
     pub(crate) fn from_flat(
@@ -252,20 +256,21 @@ impl Geometry {
         self.kind
     }
 
-    /// go-geom's `Layout`; a collection without one takes the widest of its members'.
+    /// go-geom's `Layout`; a collection without one takes the widest of its members'. go-geom recurses into the
+    /// members; widest is a join (XYZ and XYM join to XYZM), so the members of nested collections without a layout
+    /// are joined from a stack, in any order, to the same result.
     pub fn layout(&self) -> Layout {
         if self.kind != GeometryKind::GeometryCollection || self.layout != Layout::NO_LAYOUT {
             return self.layout;
         }
         let mut max = Layout::NO_LAYOUT;
-        for g in &self.geoms {
-            let l = g.layout();
-            if (l == Layout::XYZ && max == Layout::XYM) || (l == Layout::XYM && max == Layout::XYZ)
-            {
-                max = Layout::XYZM;
-            } else if l > max {
-                max = l;
+        let mut stack: Vec<&Geometry> = self.geoms.iter().collect();
+        while let Some(g) = stack.pop() {
+            if g.kind == GeometryKind::GeometryCollection && g.layout == Layout::NO_LAYOUT {
+                stack.extend(&g.geoms);
+                continue;
             }
+            max = max.widest(g.layout);
         }
         max
     }
@@ -297,10 +302,16 @@ impl Geometry {
 
     /// go-geom's `Empty`.
     pub fn is_empty(&self) -> bool {
-        match self.kind {
-            GeometryKind::GeometryCollection => self.geoms.iter().all(Geometry::is_empty),
-            _ => self.flat_coords.is_empty(),
+        // A collection is empty when every geometry in it is, nested collections walked from a stack.
+        let mut stack = vec![self];
+        while let Some(g) = stack.pop() {
+            match g.kind {
+                GeometryKind::GeometryCollection => stack.extend(&g.geoms),
+                _ if !g.flat_coords.is_empty() => return false,
+                _ => {}
+            }
         }
+        true
     }
 
     /// go-geom's `NumPolygons` of a multipolygon.
@@ -308,9 +319,10 @@ impl Geometry {
         self.endss.len()
     }
 
-    /// go-geom's `MultiPolygon.Polygon(i)`.
+    /// go-geom's `MultiPolygon.Polygon(i)`; the empty polygon past the last one, where go-geom indexes past them and
+    /// panics.
     pub fn polygon_at(&self, i: usize) -> Geometry {
-        let ends = &self.endss[i];
+        let ends = self.endss.get(i).map_or(&[][..], Vec::as_slice);
         if ends.is_empty() {
             return Self::flat(
                 GeometryKind::Polygon,
@@ -320,17 +332,22 @@ impl Geometry {
                 Vec::new(),
             );
         }
-        let offset = self.endss[..i]
+        let offset = self
+            .endss
             .iter()
+            .take(i)
             .rev()
             .find_map(|e| e.last().copied())
             .unwrap_or(0);
-        let end = *ends.last().expect("nonempty");
+        let end = ends.last().copied().unwrap_or(offset);
         Self::flat(
             GeometryKind::Polygon,
             self.layout,
-            self.flat_coords[offset..end].to_vec(),
-            ends.iter().map(|e| e - offset).collect(),
+            self.flat_coords
+                .get(offset..end)
+                .unwrap_or_default()
+                .to_vec(),
+            ends.iter().map(|e| e.saturating_sub(offset)).collect(),
             Vec::new(),
         )
     }
@@ -340,10 +357,18 @@ impl Geometry {
         self.ends.len()
     }
 
-    /// go-geom's `Polygon.LinearRing(i)`: the ring's flat coordinates.
+    /// go-geom's `Polygon.LinearRing(i)`: the ring's flat coordinates; none past the last ring, where go-geom
+    /// indexes past them and panics.
     pub fn linear_ring(&self, i: usize) -> &[f64] {
-        let offset = if i > 0 { self.ends[i - 1] } else { 0 };
-        &self.flat_coords[offset..self.ends[i]]
+        let offset = i
+            .checked_sub(1)
+            .and_then(|prev| self.ends.get(prev))
+            .copied()
+            .unwrap_or(0);
+        self.ends
+            .get(i)
+            .and_then(|&end| self.flat_coords.get(offset..end))
+            .unwrap_or_default()
     }
 
     /// go-geom's `Coords` of a point: its coordinates.

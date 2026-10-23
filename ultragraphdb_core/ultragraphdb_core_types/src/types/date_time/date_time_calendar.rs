@@ -33,7 +33,11 @@ pub(crate) fn date_to_abs_days(year: i64, month: u32, day: i64) -> u64 {
     let cyear = (y % 100) as u32;
     let cday = 1461 * cyear / 4;
     let centurydays = 146097u64.wrapping_mul(century) / 4;
-    centurydays.wrapping_add((i64::from(cday.wrapping_add(ayday)) + day - 1) as u64)
+    centurydays.wrapping_add(
+        i64::from(cday.wrapping_add(ayday))
+            .wrapping_add(day)
+            .wrapping_sub(1) as u64,
+    )
 }
 
 /// Year, month, day, hour, minute, second of a time as presented in its zone.

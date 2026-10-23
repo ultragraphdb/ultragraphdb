@@ -49,7 +49,7 @@ pub fn index_cells(g: &Geometry) -> Result<(Vec<CellId>, Vec<CellId>), TypesErro
         ));
     }
     match g.kind() {
-        GeometryKind::Point => Ok(index_cells_for_point(g, MIN_CELL_LEVEL, MAX_CELL_LEVEL)),
+        GeometryKind::Point => index_cells_for_point(g, MIN_CELL_LEVEL, MAX_CELL_LEVEL),
         GeometryKind::Polygon => {
             let l = loop_from_polygon(g)?;
             let cover = cover_loop(&l, MIN_CELL_LEVEL, MAX_CELL_LEVEL, MAX_CELLS);
@@ -71,8 +71,32 @@ pub fn index_cells(g: &Geometry) -> Result<(Vec<CellId>, Vec<CellId>), TypesErro
 }
 
 /// Dgraph's `pointFromCoord`: GeoJSON's `[lng, lat]` as an S2 point.
-pub(crate) fn point_from_coord(c: &[f64]) -> Point {
-    Point::from_lat_lng(LatLng::from_degrees(c[1], c[0]))
+///
+/// # Errors
+///
+/// When the coordinates are fewer than two, where Go indexes past them and panics, or either is not finite,
+/// which Go's exact predicates later panic on.
+pub(crate) fn point_from_coord(c: &[f64]) -> Result<Point, TypesError> {
+    Ok(Point::from_lat_lng(lat_lng_from_coord(c)?))
+}
+
+/// GeoJSON's `[lng, lat]` as a latitude and longitude, refused as [`point_from_coord`] refuses it.
+fn lat_lng_from_coord(c: &[f64]) -> Result<LatLng, TypesError> {
+    match c {
+        [lng, lat, ..] if lng.is_finite() && lat.is_finite() => {
+            Ok(LatLng::from_degrees(*lat, *lng))
+        }
+        _ => {
+            let coords: Vec<String> = c
+                .iter()
+                .map(|f| go_strconv::format_float(*f, b'g', 64))
+                .collect();
+            Err(TypesError::geo(format!(
+                "Invalid coordinates [{}]: a point needs two finite numbers",
+                coords.join(" ")
+            )))
+        }
+    }
 }
 
 /// Go's `%+v` of a go-geom polygon, which Dgraph prints in an error.
@@ -98,7 +122,8 @@ pub fn loop_from_polygon(p: &Geometry) -> Result<Loop, TypesError> {
     let stride = p.stride();
     let r = p.linear_ring(0);
     let n = r.len().checked_div(stride).unwrap_or(0);
-    if n < 4 {
+    // A polygon's stride is at least 2, so each of the n points holds two coordinates.
+    if n < 4 || stride < 2 {
         return Err(TypesError::geo("Can't convert ring with less than 4 pts"));
     }
     if r[0] != r[(n - 1) * stride] || r[1] != r[(n - 1) * stride + 1] {
@@ -111,7 +136,7 @@ pub fn loop_from_polygon(p: &Geometry) -> Result<Loop, TypesError> {
     let reverse = is_clockwise(r, stride);
     let pts = (0..n - 1)
         .map(|i| point_from_coord(coord(if reverse { n - 1 - i } else { i })))
-        .collect();
+        .collect::<Result<_, _>>()?;
     let mut l = Loop::from_points(pts);
     if l.cap_bound().radius().degrees() > 90.0 {
         l.invert();
@@ -135,11 +160,10 @@ fn index_cells_for_point(
     p: &Geometry,
     min_level: i64,
     max_level: i64,
-) -> (Vec<CellId>, Vec<CellId>) {
-    let c = p.coords();
-    let cell = CellId::from_lat_lng(LatLng::from_degrees(c[1], c[0]));
+) -> Result<(Vec<CellId>, Vec<CellId>), TypesError> {
+    let cell = CellId::from_lat_lng(lat_lng_from_coord(p.coords())?);
     let cells = (min_level..=max_level).map(|l| cell.parent(l)).collect();
-    (cells, vec![cell.parent(max_level)])
+    Ok((cells, vec![cell.parent(max_level)]))
 }
 
 /// Dgraph's `getParentCells`: every ancestor of the cover's cells down to `min_level`, each once.

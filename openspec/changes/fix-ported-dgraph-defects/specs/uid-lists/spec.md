@@ -23,7 +23,8 @@ packed versions do not (ledger 1, 2, 25, 26).
 - **THEN** the result is `[1,2,3]`
 
 ### Requirement: Decoders seek without panicking or hanging
-A decoder SHALL exist only once positioned by a seek. Seeking SHALL return the block holding the target, or nothing
+A decoder SHALL exist only once positioned by a seek. Seeking to a block SHALL return the whole block holding the
+target, untruncated as Go's `SeekToBlock` returns it, or nothing
 when no UID lies at or after it: past the last UID, backwards into an earlier block, onto an empty block, and to
 `u64::MAX`. `linear_seek(u64::MAX)` SHALL return the last block, as Go's documentation of `LinearSeek` states and as
 Go returns for `u64::MAX - 1` (ledger 3, 4, 5, 27).
@@ -34,7 +35,7 @@ Go returns for `u64::MAX - 1` (ledger 3, 4, 5, 27).
 
 #### Scenario: A backward seek returns the target's block
 - **WHEN** a decoder over `1..40` in blocks of 10 seeks to 35 and then to 5
-- **THEN** the second seek returns `5..10`
+- **THEN** the second seek returns the block `1..10`
 
 #### Scenario: An empty block contributes nothing to a seek
 - **WHEN** a pack holds a block whose UID count is 0 and a seek targets it

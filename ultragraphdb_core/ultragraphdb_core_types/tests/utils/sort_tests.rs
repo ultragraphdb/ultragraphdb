@@ -323,3 +323,28 @@ fn test_golden_language_sort_orders() {
     }
     assert_eq!(invalid, 11 * 27, "strings holding invalid UTF-8");
 }
+
+#[test]
+fn test_sort_of_mismatched_shapes_is_refused() {
+    // Dgraph indexes the uids, directions and the second row by the first's shape and panics past them.
+    let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
+    let mut values = vec![vec![int(2), int(1)], vec![int(1)]];
+    let err = sort(&mut values, &mut [1, 2], &[false, false], "", &TextCollator).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Sort row 1 holds 1 values where the first holds 2"
+    );
+    let mut values = vec![vec![int(2)], vec![int(1)]];
+    let err = sort(&mut values, &mut [1], &[false], "", &TextCollator).unwrap_err();
+    assert_eq!(err.to_string(), "Sort has 2 rows of values but 1 uids");
+    let err = sort(&mut values, &mut [1, 2], &[], "", &TextCollator).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "Sort has 0 directions for rows of 1 values"
+    );
+    let err = sort_top_n(&mut values, &mut [1, 2, 3], &[false], "", 1, &TextCollator).unwrap_err();
+    assert_eq!(err.to_string(), "Sort has 2 rows of values but 3 uids");
+    // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them.
+    let mut values = vec![vec![int(2)], vec![], vec![int(1)]];
+    sort(&mut values, &mut [1, 2, 3], &[false], "", &TextCollator).unwrap();
+}

@@ -178,3 +178,25 @@ fn coverings_of_dgraph_loops_are_valid() {
         }
     }
 }
+
+#[test]
+fn extreme_parameters_do_not_overflow() {
+    // Go's int64 arithmetic wraps on a max cells near its limits, and denormalize requires its levels in range.
+    use ultragraphdb_core_types::CellUnion;
+    let l = Loop::regular(
+        Point::from_lat_lng(LatLng::from_degrees(10.0, 20.0)),
+        ultragraphdb_core_types::Angle::from_radians(0.01),
+        8,
+    );
+    let _ = RegionCoverer::new(5, 16, 0, i64::MIN).covering(&l);
+    let _ = RegionCoverer::new(5, 16, 0, i64::MAX).covering(&l);
+    let mut u: CellUnion = RegionCoverer::new(5, 8, 1, 4).covering(&l);
+    let len = u.len();
+    u.denormalize(i64::MIN, i64::MIN);
+    assert_eq!(
+        u.len(),
+        len,
+        "clamped to level 0 and level mod 1, which change nothing"
+    );
+    u.denormalize(4, i64::MAX);
+}

@@ -17,7 +17,8 @@ mod schema_error_from;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SchemaError(pub SchemaErrorEnum);
 
-/// The classification of a [`SchemaError`]. Each variant holds the complete message Dgraph produces.
+/// The classification of a [`SchemaError`]. Each variant holds the complete message Dgraph produces, or the error
+/// of a name Dgraph panics on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SchemaErrorEnum {
     /// The lexer refused the text: `while lexing <input> at line L column C: <message>`.
@@ -32,6 +33,9 @@ pub enum SchemaErrorEnum {
     Parse(String),
     /// The schema state holds no definition for the predicate, or one it cannot read.
     State(String),
+    /// A namespaced name does not parse, e.g. it has no namespace separator: the
+    /// [`KeyError`](ultragraphdb_core_keys::KeyError)'s text. Dgraph panics on it.
+    Key(String),
 }
 
 impl SchemaError {
@@ -74,5 +78,10 @@ impl SchemaError {
     #[allow(non_snake_case)]
     pub fn State(msg: String) -> Self {
         Self(SchemaErrorEnum::State(msg))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Key(msg: String) -> Self {
+        Self(SchemaErrorEnum::Key(msg))
     }
 }

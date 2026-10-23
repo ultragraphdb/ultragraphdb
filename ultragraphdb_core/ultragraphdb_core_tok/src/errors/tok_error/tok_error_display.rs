@@ -16,6 +16,9 @@ impl fmt::Display for TokError {
             | TokErrorEnum::UnknownFactory(m) => f.write_str(m),
             TokErrorEnum::Geo(e) => e.fmt(f),
             TokErrorEnum::Options(e) => e.fmt(f),
+            TokErrorEnum::ShortFloat { len, bits } => {
+                write!(f, "cannot read a {bits}-bit float from {len} bytes")
+            }
         }
     }
 }

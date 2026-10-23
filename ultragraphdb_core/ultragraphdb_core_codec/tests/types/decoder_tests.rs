@@ -88,7 +88,7 @@ fn decode_from_a_target_matches_golden() {
 fn seek_matches_golden() {
     for case in golden_cases() {
         let pack = pack(&case);
-        let mut dec = Decoder::unpositioned(&pack);
+        let mut dec = Decoder::new(&pack);
         for pos in ["start", "current"] {
             for step in steps(&case, "seek", pos) {
                 let actual = dec.seek(step.target, whence(pos));
@@ -144,11 +144,11 @@ fn a_new_decoder_holds_the_first_block() {
     assert_eq!(0, dec.block_idx());
     assert_eq!(&uids[..10], dec.uids());
     assert_eq!(30, dec.approx_len());
-    assert_eq!(11, dec.peek_next_base());
+    assert_eq!(Some(11), dec.peek_next_base());
     assert!(dec.valid());
     assert_eq!(&uids[10..20], dec.next_block());
     assert_eq!(&uids[20..], dec.next_block());
-    assert_eq!(u64::MAX, dec.peek_next_base());
+    assert_eq!(None, dec.peek_next_base());
     assert!(dec.valid());
     assert!(dec.next_block().is_empty());
     assert!(!dec.valid());
@@ -157,21 +157,30 @@ fn a_new_decoder_holds_the_first_block() {
 }
 
 #[test]
-fn linear_seek_past_the_last_uid_ends_the_decoder() {
-    // Go's LinearSeek never returns for u64::MAX, whose next base past the last block reads as u64::MAX; the port
-    // stops past the last block.
+fn linear_seek_to_the_largest_uid_stays_on_the_last_block() {
+    // Go's LinearSeek never returns for u64::MAX, whose next base past the last block reads as u64::MAX (ledger 5);
+    // the port returns the last block, as Go's documentation states and as Go returns for u64::MAX - 1.
     let pack = encode(&[1, 2, 3], 2).expect("the list packs");
     let mut dec = Decoder::new(&pack);
-    assert!(dec.linear_seek(u64::MAX).is_empty());
-    assert!(!dec.valid());
+    assert_eq!([3], dec.linear_seek(u64::MAX));
+    assert!(dec.valid());
 }
 
 #[test]
-#[should_panic]
-fn seek_to_block_past_the_last_block_panics_as_dgraph_does() {
-    // Dgraph's SeekToBlock indexes the current block, which a decoder past the last block does not have.
+fn seek_to_block_past_the_last_block_returns_nothing() {
+    // Dgraph's SeekToBlock indexes the current block, which a decoder past the last block does not have, and panics
+    // (ledger 3); the port searches from the last block and finds no UID after the target.
     let pack = encode(&[1, 2, 3], 2).expect("the list packs");
-    let mut dec = Decoder::new(&pack);
-    assert!(dec.seek(4, SeekPos::Start).is_empty());
-    dec.seek_to_block(5, SeekPos::Current);
+    let mut dec = Decoder::sought(&pack, 4, SeekPos::Start);
+    assert!(dec.uids().is_empty());
+    assert!(dec.seek_to_block(5, SeekPos::Current).is_empty());
+}
+
+#[test]
+fn a_sought_decoder_holds_the_target_block() {
+    let uids: Vec<u64> = (1..=25).collect();
+    let pack = encode(&uids, 10).expect("the list packs");
+    let dec = Decoder::sought(&pack, 15, SeekPos::Start);
+    assert_eq!(1, dec.block_idx());
+    assert_eq!(&uids[14..20], dec.uids());
 }

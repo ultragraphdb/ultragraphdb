@@ -96,7 +96,9 @@ fn test_buffer_uid_pack() {
 
         let mut actual_buffer = Vec::new();
         decode_to_buffer(&mut actual_buffer, &pack);
-        let enc = encode_from_buffer(&actual_buffer, 256).expect("a non-empty buffer packs");
+        let enc = encode_from_buffer(&actual_buffer, 256)
+            .expect("decode_to_buffer writes valid varints")
+            .expect("a non-empty buffer packs");
         assert_eq!(exact_len(&pack), exact_len(&enc));
 
         let mut prev = 0u64;
@@ -127,7 +129,7 @@ fn stepped_pack(n: u64, step: usize, block_size: usize) -> UidPack {
 fn test_seek() {
     const N: u64 = 10001;
     let pack = stepped_pack(N, 10, 10);
-    let mut dec = Decoder::unpositioned(&pack);
+    let mut dec = Decoder::new(&pack);
 
     struct Case {
         input: u64,
@@ -176,7 +178,7 @@ fn test_seek() {
     }
 
     // Go resets dec.blockIdx to 0; a new decoder starts there.
-    let mut dec = Decoder::unpositioned(&pack);
+    let mut dec = Decoder::new(&pack);
     for i in (100..10000).step_by(100) {
         let uids = dec.linear_seek(i);
         assert!(uids.contains(&i), "linear seek {i} returned {uids:?}");
@@ -187,7 +189,7 @@ fn test_seek() {
 fn test_linear_seek() {
     const N: u64 = 10001;
     let pack = stepped_pack(N, 10, 10);
-    let mut dec = Decoder::unpositioned(&pack);
+    let mut dec = Decoder::new(&pack);
 
     for i in (0..2 * N).step_by(10) {
         let uids = dec.linear_seek(i);
@@ -218,7 +220,7 @@ fn test_decoder() {
     }
     let pack = enc.done().expect("the list is not empty");
 
-    let mut dec = Decoder::unpositioned(&pack);
+    let mut dec = Decoder::new(&pack);
     for i in (3..N).step_by(3) {
         let uids = dec.seek(i, SeekPos::Start);
         assert_eq!(i, uids[0]);

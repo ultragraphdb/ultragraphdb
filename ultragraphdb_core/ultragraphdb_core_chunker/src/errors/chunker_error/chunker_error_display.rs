@@ -16,9 +16,8 @@ impl fmt::Display for ChunkerError {
         match &self.0 {
             ChunkerErrorEnum::Empty => f.write_str("RDF: harmless error, e.g. comment line"),
             ChunkerErrorEnum::Lex(e) => e.fmt(f),
-            ChunkerErrorEnum::Rdf(msg)
-            | ChunkerErrorEnum::Json(msg)
-            | ChunkerErrorEnum::JsonMutation(msg) => f.write_str(msg),
+            ChunkerErrorEnum::Rdf(msg) | ChunkerErrorEnum::JsonMutation(msg) => f.write_str(msg),
+            ChunkerErrorEnum::Json(e) => e.fmt(f),
             ChunkerErrorEnum::Types(e) => e.fmt(f),
             ChunkerErrorEnum::EmptyUid => {
                 f.write_str("UID must be present and non-zero while deleting edges")

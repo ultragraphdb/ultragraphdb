@@ -76,3 +76,13 @@ fn pred_hints_turn_into_list_on_disagreement() {
     assert_eq!(md.pred_hints["b"], HintType::List as i32);
     assert_eq!(md.pred_hints["c"], HintType::List as i32);
 }
+
+#[test]
+fn a_batch_after_flush_is_discarded() {
+    // Go's send on the closed channel panics; the port discards the batch.
+    let (mut buf, rx) = NQuadBuffer::new(1);
+    buf.flush();
+    buf.push(nq("a"));
+    buf.flush();
+    assert!(rx.recv().is_err());
+}

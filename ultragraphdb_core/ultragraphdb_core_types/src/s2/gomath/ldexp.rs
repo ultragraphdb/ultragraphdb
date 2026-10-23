@@ -18,9 +18,10 @@ pub(crate) fn ldexp(frac: f64, exp: i64) -> f64 {
         return frac;
     }
     let (frac, e) = normalize(frac);
-    let mut exp = exp + e;
+    // Wrapping, as Go's int arithmetic does for an exponent near its limits.
+    let mut exp = exp.wrapping_add(e);
     let mut x = frac.to_bits();
-    exp += ((x >> SHIFT) & MASK) as i64 - BIAS;
+    exp = exp.wrapping_add(((x >> SHIFT) & MASK) as i64 - BIAS);
     if exp < -1075 {
         return 0f64.copysign(frac); // underflow
     }

@@ -11,9 +11,13 @@ mod stemmer_filter;
 
 use rust_stemmers::Algorithm;
 
-/// A stemmer token filter of bleve v2.5.7 that Dgraph's `langStemmers` names.
+/// A stemmer token filter of bleve v2.5.7 that Dgraph's `langStemmers` names: a filter and its name, an entry of
+/// the table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Stemmer(Kind);
+pub struct Stemmer {
+    kind: Kind,
+    name: &'static str,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -97,7 +101,8 @@ impl Stemmer {
         LANG_STEMMERS
             .binary_search_by_key(&lang, |&(l, _, _)| l)
             .ok()
-            .map(|i| Stemmer(LANG_STEMMERS[i].2))
+            .and_then(|i| LANG_STEMMERS.get(i))
+            .map(|&(_, name, kind)| Stemmer { kind, name })
     }
 
     /// The stemmer of a bleve filter name `langStemmers` uses, such as `stemmer_porter`.
@@ -105,15 +110,11 @@ impl Stemmer {
         LANG_STEMMERS
             .iter()
             .find(|&&(_, n, _)| n == name)
-            .map(|&(_, _, k)| Stemmer(k))
+            .map(|&(_, name, kind)| Stemmer { kind, name })
     }
 
     /// The bleve filter name.
     pub fn name(&self) -> &'static str {
-        LANG_STEMMERS
-            .iter()
-            .find(|&&(_, _, k)| k == self.0)
-            .map(|&(_, n, _)| n)
-            .expect("every stemmer is in LANG_STEMMERS")
+        self.name
     }
 }

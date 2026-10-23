@@ -166,7 +166,7 @@ impl CellId {
     /// level. (Normally there are four neighbors, but the closest vertex may only have three
     /// neighbors if it is one of the 8 cube vertices.)
     pub fn vertex_neighbors(&self, level: i64) -> Vec<CellId> {
-        let half_size = size_ij(level + 1);
+        let half_size = size_ij(level.wrapping_add(1));
         let size = half_size << 1;
         let (f, i, j, _) = self.face_ij_orientation();
 
@@ -402,14 +402,23 @@ impl CellId {
     }
 }
 
-/// Returns the lowest-numbered bit that is on for cells at the given level.
+/// Returns the lowest-numbered bit that is on for cells at the given level. A level outside 0 to 30 gives Go's
+/// result, 0: Go shifts by the count as a uint64, and a shift of 64 bits or more is 0.
 pub(crate) fn lsb_for_level(level: i64) -> u64 {
-    1u64 << (2 * (MAX_LEVEL - level)) as u32
+    go_shl(MAX_LEVEL.wrapping_sub(level).wrapping_mul(2))
 }
 
-/// Returns the edge length of this CellID in (i,j)-space.
+/// Returns the edge length of this CellID in (i,j)-space, Go's 0 for a level below -33 or above 30.
 pub(crate) fn size_ij(level: i64) -> i64 {
-    1 << (MAX_LEVEL - level) as u32
+    go_shl(MAX_LEVEL.wrapping_sub(level)) as i64
+}
+
+/// Go's `1 << uint64(n)`: 0 for a count of 64 or more, a negative count among them.
+fn go_shl(n: i64) -> u64 {
+    u32::try_from(n)
+        .ok()
+        .and_then(|n| 1u64.checked_shl(n))
+        .unwrap_or(0)
 }
 
 /// Returns a leaf cell given its cube face (range 0..5) and IJ coordinates.

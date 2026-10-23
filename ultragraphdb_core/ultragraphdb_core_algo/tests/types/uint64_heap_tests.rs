@@ -64,3 +64,15 @@ fn new_orders_its_elements() {
     );
     assert_eq!(out[2], (5, 4));
 }
+
+#[test]
+fn set_and_fix_out_of_range_change_nothing() {
+    let mut h = Uint64Heap::new(vec![Elem::new(1, 0), Elem::new(2, 1)]);
+    assert_eq!(h.set(2, Elem::new(0, 2)), None);
+    h.fix(2);
+    assert_eq!(h.len(), 2);
+    assert_eq!(top(&h), 1);
+    assert_eq!(h.set(0, Elem::new(3, 0)), Some(Elem::new(1, 0)));
+    h.fix(0);
+    assert_eq!(top(&h), 2);
+}

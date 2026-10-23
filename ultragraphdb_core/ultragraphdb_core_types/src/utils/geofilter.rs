@@ -39,12 +39,11 @@ fn args_error(name: &str, want: usize, got: usize) -> TypesError {
 }
 
 /// Dgraph's `GetGeoTokens`: the index tokens a geo function looks up, and the data its candidates are filtered by.
-///
-/// # Panics
-///
-/// On an empty function name, which Dgraph asserts against.
+/// An empty function name is refused with `Invalid function`, the text of Dgraph's assertion against it.
 pub fn get_geo_tokens(src: &pb::SrcFunction) -> Result<(Vec<String>, GeoQueryData), TypesError> {
-    assert!(!src.name.is_empty(), "Invalid function");
+    if src.name.is_empty() {
+        return Err(TypesError::geo("Invalid function"));
+    }
     let name = src.name.to_lowercase();
     let args = &src.args;
     match name.as_str() {
@@ -91,10 +90,11 @@ pub fn query_tokens_geo(
     let mut pt: Option<Point> = None;
     match g.kind() {
         GeometryKind::Point => {
-            let p = point_from_coord(g.coords());
+            let p = point_from_coord(g.coords())?;
             pt = Some(p);
             if qt == QueryType::Near {
-                if max_distance <= 0.0 {
+                // A distance of NaN or infinity passes Go's check and panics in its exact predicates.
+                if max_distance <= 0.0 || !max_distance.is_finite() {
                     return Err(TypesError::geo(
                         "Invalid max distance specified for a near query",
                     ));

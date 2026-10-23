@@ -7,8 +7,6 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use crate::types::builder::Builder;
 use crate::types::lang_id::LangId;
 use crate::types::region_id::RegionId;
@@ -26,25 +24,22 @@ pub(crate) enum Part<'a> {
 }
 
 /// `language.Raw.Compose`: a tag from its parts, later parts overwriting earlier ones, without
-/// canonicalization. A panic is recovered as `und`, as Go does.
+/// canonicalization. Go recovers a panic as `und`; the port's builder does not panic.
 pub(crate) fn compose_raw(parts: &[Part<'_>]) -> Tag {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut b = Builder::default();
-        for part in parts {
-            match part {
-                Part::Tag(t) => b.set_tag(&t.tag()),
-                Part::Base(l) => b.tag.lang_id = *l,
-                Part::Script(s) => b.tag.script_id = *s,
-                Part::Region(r) => b.tag.region_id = *r,
-                Part::Extensions(exts) => {
-                    b.clear_extensions();
-                    for e in exts.iter().flatten() {
-                        b.set_ext(e);
-                    }
+    let mut b = Builder::default();
+    for part in parts {
+        match part {
+            Part::Tag(t) => b.set_tag(&t.tag()),
+            Part::Base(l) => b.tag.lang_id = *l,
+            Part::Script(s) => b.tag.script_id = *s,
+            Part::Region(r) => b.tag.region_id = *r,
+            Part::Extensions(exts) => {
+                b.clear_extensions();
+                for e in exts.iter().flatten() {
+                    b.set_ext(e);
                 }
             }
         }
-        Tag::make(b.make())
-    }));
-    result.unwrap_or_default()
+    }
+    Tag::make(b.make())
 }

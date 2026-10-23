@@ -9,7 +9,6 @@
  */
 
 use std::collections::HashSet;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use serde::Deserialize;
 use ultragraphdb_core_algo::{
@@ -17,7 +16,7 @@ use ultragraphdb_core_algo::{
     intersect_compressed_with_lin_jump, intersect_sorted, intersect_with, intersect_with_bin,
     intersect_with_jump, intersect_with_lin, merge_sorted, merge_sorted_more_mem,
 };
-use ultragraphdb_core_codec::{Decoder, Encoder, SeekPos, encode};
+use ultragraphdb_core_codec::{Decoder, Encoder, encode};
 use ultragraphdb_proto_pb::pb::List;
 use ultragraphdb_test_bdd::{load_golden, testdata_dir};
 
@@ -419,8 +418,7 @@ fn test_intersect_compressed_with_lin_jump() {
             let (common_nums, block_nums, other_nums) = fill_nums(&mut rng, n1, n2);
 
             let pack = block_pack(&block_nums, 10).unwrap_or_default();
-            let mut dec = Decoder::unpositioned(&pack);
-            dec.seek(0, SeekPos::Start);
+            let mut dec = Decoder::new(&pack);
 
             let mut actual = Vec::new();
             intersect_compressed_with_lin_jump(&mut dec, &other_nums, &mut actual);
@@ -438,8 +436,7 @@ fn test_intersect_compressed_with_bin() {
     let (common_nums, block_nums, other_nums) = fill_nums_diff(&mut rng, n1 / 10, n1, n2);
 
     let pack = block_pack(&block_nums, 10).expect("the list is not empty");
-    let mut dec = Decoder::unpositioned(&pack);
-    dec.seek(0, SeekPos::Start);
+    let mut dec = Decoder::new(&pack);
 
     let mut actual = Vec::new();
     intersect_compressed_with_bin(&mut dec, &other_nums, &mut actual);
@@ -458,8 +455,7 @@ fn test_intersect_compressed_with_bin_missing_size() {
 
             // Set the block size to 0 to verify that the method still works in this case.
             let pack = block_pack(&block_nums, 0).unwrap_or_default();
-            let mut dec = Decoder::unpositioned(&pack);
-            dec.seek(0, SeekPos::Start);
+            let mut dec = Decoder::new(&pack);
 
             let mut actual = Vec::new();
             intersect_compressed_with_bin(&mut dec, &other_nums, &mut actual);
@@ -523,8 +519,7 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
         }
         "intersect_compressed_with_lin_jump" | "intersect_compressed_with_bin" => {
             let pack = encode(pair().0, case.block_size).expect("the golden list is not empty");
-            let mut dec = Decoder::unpositioned(&pack);
-            dec.seek(0, SeekPos::Start);
+            let mut dec = Decoder::new(&pack);
             if r.op == "intersect_compressed_with_bin" {
                 intersect_compressed_with_bin(&mut dec, pair().1, &mut out);
             } else {
@@ -543,24 +538,60 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
     Some((out, i, k))
 }
 
+/// The golden cases where the port differs from Dgraph: the case, its operation and argument, the ledger entry
+/// (`openspec/notes/dgraph-bugs-found-in-port.md`), and the port's result. Dgraph panics on each, indexing past the
+/// last block when `after_uid` lies past the pack's last UID and the binary strategy is chosen.
+const DEVIATIONS: &[(&str, &str, u64, u32, &[u64])] = &[
+    (
+        "pair/n=100/m=11/dups=true",
+        "intersect_compressed_with",
+        218,
+        3,
+        &[],
+    ),
+    (
+        "pair/n=400/m=100/dups=true",
+        "intersect_compressed_with",
+        997,
+        3,
+        &[],
+    ),
+    (
+        "pair/n=400/m=400/dups=false",
+        "intersect_compressed_with",
+        1600,
+        3,
+        &[],
+    ),
+];
+
 /// The plain-list operations' results equal Dgraph's on the golden inputs, duplicates included, where the
-/// strategies differ; where Dgraph panics, the port panics too.
+/// strategies differ; where Dgraph panics, the port returns the result its [`DEVIATIONS`] entry names.
 #[test]
 fn plain_operations_match_golden() {
     let path = testdata_dir().join("golden/algo_setops.json");
     let golden = load_golden::<AlgoCase>(&path);
-    let (mut checked, mut panicked) = (0, 0);
+    let (mut checked, mut deviating) = (0, 0);
     for case in golden.cases() {
         for r in &case.results {
             let label = format!("{} {} {}", case.name, r.op, r.arg);
-            match catch_unwind(AssertUnwindSafe(|| run_plain(case, r))) {
-                Err(_) => {
-                    assert!(r.panics, "{label}: the port panicked, Dgraph did not");
-                    panicked += 1;
+            let deviation = DEVIATIONS
+                .iter()
+                .find(|(name, op, arg, _, _)| *name == case.name && *op == r.op && *arg == r.arg);
+            assert_eq!(
+                r.panics,
+                deviation.is_some(),
+                "{label}: Dgraph panics exactly on the deviating cases"
+            );
+            let Some((out, i, k)) = run_plain(case, r) else {
+                continue;
+            };
+            match deviation {
+                Some((_, _, _, ledger, want)) => {
+                    assert_eq!(*want, out, "{label}: the port's result for ledger {ledger}");
+                    deviating += 1;
                 }
-                Ok(None) => {}
-                Ok(Some((out, i, k))) => {
-                    assert!(!r.panics, "{label}: Dgraph panicked, the port did not");
+                None => {
                     assert_eq!(r.out, out, "{label}");
                     assert_eq!((r.i, r.k), (i, k), "{label}: offsets");
                     checked += 1;
@@ -572,8 +603,9 @@ fn plain_operations_match_golden() {
         checked > 800,
         "the golden file holds plain results, {checked} checked"
     );
-    assert!(
-        panicked > 0,
-        "the golden file holds the inputs Dgraph panics on"
+    assert_eq!(
+        deviating,
+        DEVIATIONS.len(),
+        "every deviation is in the golden file"
     );
 }

@@ -17,11 +17,17 @@ fn parsed(key: &[u8]) -> ParsedKey {
 fn test_is_of_type() {
     let attr = attr_in_root_namespace("name");
     let cases: [(Vec<u8>, &[u8]); 5] = [
-        (data_key(&attr, 1), &[BYTE_DATA]),
-        (reverse_key(&attr, 1), &[BYTE_REVERSE]),
-        (index_key(&attr, b"t"), &[BYTE_INDEX]),
-        (count_key(&attr, 1, false), &[BYTE_COUNT, BYTE_COUNT_REV]),
-        (count_key(&attr, 1, true), &[BYTE_COUNT, BYTE_COUNT_REV]),
+        (data_key(&attr, 1).unwrap(), &[BYTE_DATA]),
+        (reverse_key(&attr, 1).unwrap(), &[BYTE_REVERSE]),
+        (index_key(&attr, b"t").unwrap(), &[BYTE_INDEX]),
+        (
+            count_key(&attr, 1, false).unwrap(),
+            &[BYTE_COUNT, BYTE_COUNT_REV],
+        ),
+        (
+            count_key(&attr, 1, true).unwrap(),
+            &[BYTE_COUNT, BYTE_COUNT_REV],
+        ),
     ];
     for (key, types) in &cases {
         let pk = parsed(key);
@@ -47,7 +53,7 @@ fn test_is_of_type() {
             );
         }
     }
-    let schema = parsed(&schema_key(&attr));
+    let schema = parsed(&schema_key(&attr).unwrap());
     assert!(
         [BYTE_DATA, BYTE_REVERSE, BYTE_INDEX, BYTE_COUNT, BYTE_SCHEMA]
             .iter()
@@ -59,19 +65,19 @@ fn test_is_of_type() {
 fn test_display() {
     let attr = attr_in_root_namespace("name");
     assert_eq!(
-        parsed(&data_key(&attr, 3)).to_string(),
+        parsed(&data_key(&attr, 3).unwrap()).to_string(),
         "UID: 3, Attr: 0-name, Data key, prefix; 0, byte: 0"
     );
     assert_eq!(
-        parsed(&index_key(&attr, &[1, 255])).to_string(),
+        parsed(&index_key(&attr, &[1, 255]).unwrap()).to_string(),
         "UID: 0, Attr: 0-name, IsIndex: true, Term: [1 255]"
     );
     assert_eq!(
-        parsed(&count_key(&attr, 9, true)).to_string(),
+        parsed(&count_key(&attr, 9, true).unwrap()).to_string(),
         "UID: 0, Attr: 0-name, IsCount/Ref: true, Count: 9"
     );
     assert_eq!(
-        parsed(&schema_key(&attr)).to_string(),
+        parsed(&schema_key(&attr).unwrap()).to_string(),
         "UID: 0, Attr: 0-name, Data key, prefix; 1, byte: 0"
     );
 }

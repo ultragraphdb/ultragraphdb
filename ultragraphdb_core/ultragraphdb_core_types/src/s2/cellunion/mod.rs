@@ -160,8 +160,11 @@ impl CellUnion {
     /// Replaces this CellUnion with an expanded version of the CellUnion where any cell whose
     /// level is less than minLevel or where (level - minLevel) is not a multiple of levelMod
     /// is replaced by its children, until either both of these conditions are satisfied or
-    /// the maximum level is reached.
+    /// the maximum level is reached. A min level outside 0 to 30 and a level mod outside 1 to 3 are clamped to those
+    /// ranges, as the RegionCoverer clamps its own; Go requires them and overflows or loops without end on others.
     pub fn denormalize(&mut self, min_level: i64, level_mod: i64) {
+        let min_level = min_level.clamp(0, MAX_LEVEL);
+        let level_mod = level_mod.clamp(1, 3);
         let mut denorm: Vec<CellId> = Vec::new();
         for &id in &self.0 {
             let level = id.level();

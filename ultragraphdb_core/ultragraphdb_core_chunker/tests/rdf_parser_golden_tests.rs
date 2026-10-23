@@ -10,17 +10,35 @@ use ultragraphdb_core_lex::Lexer;
 
 use crate::golden_nquad::{RdfCase, RdfsCase, golden, nquad_json, unhex};
 
+/// The cases whose port result differs from Go's: the input, the entry of
+/// `openspec/notes/dgraph-bugs-found-in-port.md`, and the port's error.
+///
+/// Entry 19: Dgraph's ObjectValue panics on a typed literal that converts to no geometry; the port refuses it as it
+/// refuses a typed literal with no value.
+const DEVIATIONS: &[(&str, u32, &str)] = &[(
+    r#"<a> <p> "null"^^<geo:geojson> ."#,
+    19,
+    "invalid ObjectValue",
+)];
+
 fn check_rdf(c: &RdfCase) -> Result<(), String> {
+    if let Some((_, _, want)) = DEVIATIONS.iter().find(|(input, _, _)| *input == c.input) {
+        let got = parse_rdf(&c.input, &mut Lexer::new(&c.input));
+        return match &got {
+            Err(e) if e.to_string() == *want => Ok(()),
+            _ => Err(format!("{:?}: deviation: {got:?}, want {want:?}", c.input)),
+        };
+    }
     if !c.valid_utf8 {
-        // Go lexes each byte that is not UTF-8 as one rune of width 1; the port replaces it by U+FFFD (three
-        // bytes) first, so the N-Quad is the same as Go's, written as JSON, and an error is an error.
+        // Go lexes each byte that is not UTF-8 as one rune of width 1. The port reads it as U+FFFD, which an IRI
+        // keeps and Go's JSON writes in place of the raw byte in the golden file, and counts it as one column.
         let got = parse_rdfs(&unhex(&c.input_hex));
         return match (&c.nquad, got) {
             (Some(want), Ok((nqs, _))) if nqs.len() == 1 && *want == nquad_json(&nqs[0], false) => {
                 Ok(())
             }
             (None, Ok((nqs, _))) if c.empty && nqs.is_empty() => Ok(()),
-            (None, Err(_)) if !c.empty => Ok(()),
+            (None, Err(e)) if !c.empty && e.to_string() == c.err => Ok(()),
             (_, got) => Err(format!(
                 "{:?}: {got:?}, want {:?} / {:?}",
                 c.input, c.nquad, c.err
@@ -31,8 +49,6 @@ fn check_rdf(c: &RdfCase) -> Result<(), String> {
     match (&c.nquad, &got) {
         (Some(want), Ok(nq)) if *want == nquad_json(nq, false) => Ok(()),
         (None, Err(e)) if c.empty && e.0 == ChunkerErrorEnum::Empty => Ok(()),
-        // Dgraph panics on `"null"^^<geo:geojson>`; the port refuses the line.
-        (None, Err(_)) if !c.panic.is_empty() => Ok(()),
         (None, Err(e)) if !c.empty && e.to_string() == c.err => Ok(()),
         _ => Err(format!(
             "{:?}: {got:?}, want {:?} / {:?}",
@@ -57,6 +73,18 @@ fn parse_rdf_matches_go() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+#[test]
+fn every_deviation_names_a_golden_case_where_go_panics() {
+    let g = golden::<RdfCase>("chunker_rdf");
+    for (input, ledger, _) in DEVIATIONS {
+        let c = g.cases().iter().find(|c| c.input == *input);
+        assert!(
+            c.is_some_and(|c| !c.panic.is_empty()),
+            "{input} (ledger {ledger}): no golden case where Go panics"
+        );
+    }
 }
 
 #[test]

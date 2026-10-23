@@ -165,7 +165,7 @@ fn test_schema_index_custom() {
     check_schema(&state, &[name, address, age, friend]);
     assert!(state.is_indexed(Q, &root("name")));
     assert!(!state.is_reversed(Q, &root("name")));
-    assert_eq!(state.tokenizer(Q, &root("age"))[0].name(), "int");
+    assert_eq!(state.tokenizer(Q, &root("age")).unwrap()[0].name(), "int");
 }
 
 // Rust-only cases: every accessor of the state, in both modes.
@@ -182,9 +182,9 @@ age: int .
     let name = root("name");
     let friend = root("friend");
     let age = root("age");
-    assert_eq!(state.tokenizer_names(Q, &name), ["exact", "term"]);
-    assert!(state.has_tokenizer(Q, IDENT_TERM, &name));
-    assert!(!state.has_tokenizer(Q, IDENT_TERM, &age));
+    assert_eq!(state.tokenizer_names(Q, &name).unwrap(), ["exact", "term"]);
+    assert!(state.has_tokenizer(Q, IDENT_TERM, &name).unwrap());
+    assert!(!state.has_tokenizer(Q, IDENT_TERM, &age).unwrap());
     assert!(state.has_count(Q, &name) && !state.has_count(Q, &age));
     assert!(state.has_upsert(&name) && !state.has_upsert(&age));
     assert!(state.has_lang(&name) && !state.has_lang(&age));
@@ -194,8 +194,8 @@ age: int .
     assert!(!state.is_indexed(Q, &age));
     {
         let missing = root("nope");
-        assert!(state.tokenizer(Q, &missing).is_empty());
-        assert!(state.tokenizer_names(Q, &missing).is_empty());
+        assert!(state.tokenizer(Q, &missing).unwrap().is_empty());
+        assert!(state.tokenizer_names(Q, &missing).unwrap().is_empty());
         assert!(!state.has_count(Q, &missing));
         assert!(!state.has_upsert(&missing));
         assert!(!state.has_lang(&missing));
@@ -222,8 +222,8 @@ fn write_mode_reads_the_mutation_schema_first() {
     assert_eq!(state.indexing_predicates(), std::slice::from_ref(&name));
     assert!(state.is_indexed(W, &name) && !state.is_indexed(Q, &name));
     assert!(state.has_count(W, &name) && !state.has_count(Q, &name));
-    assert!(state.has_tokenizer(W, IDENT_EXACT, &name));
-    assert!(!state.has_tokenizer(Q, IDENT_EXACT, &name));
+    assert!(state.has_tokenizer(W, IDENT_EXACT, &name).unwrap());
+    assert!(!state.has_tokenizer(Q, IDENT_EXACT, &name).unwrap());
     assert_eq!(state.get(W, &name), Some(indexed));
     assert_eq!(state.get(Q, &name), Some(su(&name, 9)));
     state.delete_mut_schema(&name);
@@ -285,7 +285,7 @@ fn types_and_namespaces() {
         type_names,
         [namespace_attr(1, "Person"), namespace_attr(2, "Animal")]
     );
-    assert_eq!(state.namespaces(), HashSet::from([1, 2]));
+    assert_eq!(state.namespaces().unwrap(), HashSet::from([1, 2]));
     assert_eq!(
         state
             .get_type(&namespace_attr(1, "Person"))
@@ -299,11 +299,11 @@ fn types_and_namespaces() {
     state.delete_preds_for_ns(1);
     assert_eq!(state.predicates(), [namespace_attr(2, "name")]);
     assert_eq!(state.types(), [namespace_attr(2, "Animal")]);
-    assert_eq!(state.namespaces(), HashSet::from([2]));
+    assert_eq!(state.namespaces().unwrap(), HashSet::from([2]));
 
     state.delete_all();
     assert!(state.predicates().is_empty() && state.types().is_empty());
-    assert!(state.namespaces().is_empty());
+    assert!(state.namespaces().unwrap().is_empty());
 }
 
 #[test]
@@ -315,4 +315,36 @@ fn parse_text_replaces_the_state() {
     // A failed load leaves the state empty, as Go's ParseBytes, which drops everything first.
     assert!(state.parse_text("c: foo .\n").is_err());
     assert!(state.predicates().is_empty());
+}
+
+#[test]
+fn an_unknown_tokenizer_set_directly_is_refused() {
+    // Parsing refuses an unknown tokenizer; a schema set directly can hold one, on which Dgraph's assertion exits.
+    let state = SchemaState::new();
+    let mut update = su(&root("name"), 9);
+    update.tokenizer = vec!["bogus".to_string()];
+    update.set_directive(Directive::Index);
+    state.set(&root("name"), update);
+    let err = state
+        .tokenizer(Q, &root("name"))
+        .expect_err("unknown tokenizer");
+    assert_eq!(err.to_string(), "Invalid tokenizer bogus");
+    assert!(state.tokenizer_names(Q, &root("name")).is_err());
+    assert!(state.has_tokenizer(Q, IDENT_TERM, &root("name")).is_err());
+}
+
+#[test]
+fn a_type_without_a_namespace_is_refused_or_kept() {
+    // Dgraph exits the process on a name whose namespace does not parse.
+    let state = SchemaState::new();
+    state.set_type(
+        "nonamespace",
+        pb::TypeUpdate {
+            type_name: "nonamespace".to_string(),
+            ..Default::default()
+        },
+    );
+    assert!(state.namespaces().is_err());
+    state.delete_preds_for_ns(0);
+    assert!(state.get_type("nonamespace").is_some());
 }

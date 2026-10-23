@@ -23,6 +23,7 @@ workspace = true
 
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_error_json = { workspace = true }
 ultragraphdb_error_num = { workspace = true }
 ultragraphdb_traits_collator = { workspace = true }
 ultragraphdb_proto_pb = { workspace = true }

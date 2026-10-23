@@ -10,8 +10,6 @@
 mod tag_compact;
 mod tag_display;
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use crate::errors::language_error::LanguageError;
 use crate::types::base::Base;
 use crate::types::confidence::Confidence;
@@ -41,9 +39,10 @@ impl Tag {
         Tag::parse_with(CanonType::DEFAULT, s)
     }
 
-    /// `CanonType.Parse`: parses and canonicalizes with `c`. A panic in Go's parser is recovered as a syntax error.
+    /// `CanonType.Parse`: parses and canonicalizes with `c`. Go recovers a panic in its parser as a syntax error;
+    /// the port's parser, canonicalization and compaction refuse with errors and do not panic.
     pub(crate) fn parse_with(c: CanonType, s: &str) -> Result<Tag, LanguageError> {
-        let result = catch_unwind(AssertUnwindSafe(|| match parse::parse(s) {
+        match parse::parse(s) {
             Err((_, err)) => Err(err),
             Ok(tt) => {
                 let (mut tt, changed) = canonicalize(c, tt);
@@ -52,8 +51,7 @@ impl Tag {
                 }
                 Ok(Tag::make(tt))
             }
-        }));
-        result.unwrap_or_else(|_| Err(LanguageError::syntax()))
+        }
     }
 
     /// The internal form of the tag.

@@ -37,20 +37,23 @@ impl SchemaState {
         s.mut_schema.clear();
     }
 
-    /// Dgraph's `DeletePredsForNs`: drops the predicates, their background schemas and the types of a namespace.
+    /// Dgraph's `DeletePredsForNs`: drops the predicates, their background schemas and the types of a namespace. A
+    /// name whose namespace does not parse, which only a direct [`set`](Self::set) can store, is in no namespace and
+    /// stays; Dgraph exits the process on it.
     pub fn delete_preds_for_ns(&self, del_ns: u64) {
         let mut s = self.write();
         let preds: Vec<String> = s
             .predicate
             .keys()
-            .filter(|pred| parse_namespace(pred) == del_ns)
+            .filter(|pred| parse_namespace(pred).is_ok_and(|ns| ns == del_ns))
             .cloned()
             .collect();
         for pred in preds {
             s.predicate.remove(&pred);
             s.mut_schema.remove(&pred);
         }
-        s.types.retain(|typ, _| parse_namespace(typ) != del_ns);
+        s.types
+            .retain(|typ, _| !parse_namespace(typ).is_ok_and(|ns| ns == del_ns));
     }
 
     /// Dgraph's `Set`: sets the schema of a predicate in memory. Schema mutations flow through stage 2's update,

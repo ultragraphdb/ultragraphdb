@@ -72,12 +72,13 @@ attribute.
 A plugin SHALL be able to claim predicates and types under `dgraph.` by prefix or by exact name, and to lock
 predicates' values to a trust marker by exact name or by prefix, as Dgraph's `RegisterReservedNamespace` allows; names
 SHALL be bare and owned once; for a value lock an exact name SHALL win over a prefix and the longest prefix over shorter
-ones; a conflicting registration SHALL panic.
+ones; a conflicting registration SHALL be refused with Dgraph's text, where Dgraph panics.
 
 #### Scenario: The longest prefix owns a name
 - **WHEN** plugins lock the values of the prefixes `dgraph.acme.` and `dgraph.acme.billing.` to two different markers
 - **THEN** `dgraph.acme.billing.total` is locked to the second marker and `dgraph.acme.users` to the first
 
-#### Scenario: Registering a name twice panics
+#### Scenario: Registering a name twice is refused
 - **WHEN** two plugins register the exact name `dgraph.acme.key`
-- **THEN** the second registration panics
+- **THEN** the second registration is refused with `x.RegisterReservedNamespace: predicate "dgraph.acme.key" already
+  registered`

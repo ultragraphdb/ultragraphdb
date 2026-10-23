@@ -32,6 +32,7 @@ publish = false
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
 ## Error
+ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
 ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
 ## Client

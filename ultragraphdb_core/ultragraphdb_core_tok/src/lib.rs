@@ -11,12 +11,16 @@
 //! Snowball ones over `rust-stemmers`) and the CJK bigram filter.
 //!
 //! ```
-//! use ultragraphdb_core_tok::{build_tokens, get_tokenizer, get_tokenizer_for_lang};
+//! use ultragraphdb_core_tok::{TokError, build_tokens, get_tokenizer, get_tokenizer_for_lang};
 //! use ultragraphdb_core_types::Value;
 //!
-//! let fulltext = get_tokenizer_for_lang(&get_tokenizer("fulltext").unwrap(), "en");
-//! let tokens = build_tokens(&Value::str("Stemming works!"), &fulltext).unwrap();
+//! # fn main() -> Result<(), TokError> {
+//! let fulltext = get_tokenizer("fulltext").ok_or(TokError::UnknownTokenizer("fulltext".into()))?;
+//! let fulltext = get_tokenizer_for_lang(&fulltext, "en");
+//! let tokens = build_tokens(&Value::str("Stemming works!"), &fulltext)?;
 //! assert_eq!(tokens, vec![b"\x08stem".to_vec(), b"\x08work".to_vec()]);
+//! # Ok(())
+//! # }
 //! ```
 
 mod bleve;
@@ -28,6 +32,7 @@ mod utils;
 pub use crate::errors::tok_error::{TokError, TokErrorEnum};
 pub use crate::types::analysis_token::AnalysisToken;
 pub use crate::types::factory_create_spec::FactoryCreateSpec;
+pub use crate::types::float_bits::FloatBits;
 pub use crate::types::segment_type::SegmentType;
 pub use crate::types::stemmer::Stemmer;
 pub use crate::types::token_type::TokenType;

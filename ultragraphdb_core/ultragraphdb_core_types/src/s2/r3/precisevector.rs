@@ -19,13 +19,13 @@ pub(crate) struct PreciseVector {
 }
 
 impl PreciseVector {
-    /// Creates a high precision vector from the given Vector.
-    pub(crate) fn from_vector(v: R3Vector) -> PreciseVector {
-        PreciseVector {
-            x: ExactFloat::from_f64(v.x),
-            y: ExactFloat::from_f64(v.y),
-            z: ExactFloat::from_f64(v.z),
-        }
+    /// Creates a high precision vector from the given Vector; `None` when a component is not finite.
+    pub(crate) fn from_vector(v: R3Vector) -> Option<PreciseVector> {
+        Some(PreciseVector {
+            x: ExactFloat::from_f64(v.x)?,
+            y: ExactFloat::from_f64(v.y)?,
+            z: ExactFloat::from_f64(v.z)?,
+        })
     }
 
     /// Returns the standard dot product of v and ov.
