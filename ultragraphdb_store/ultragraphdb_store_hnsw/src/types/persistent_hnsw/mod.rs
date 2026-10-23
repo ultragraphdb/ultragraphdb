@@ -16,6 +16,7 @@
 
 mod persistent_hnsw_insert;
 mod persistent_hnsw_search;
+mod persistent_hnsw_vector_index;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};

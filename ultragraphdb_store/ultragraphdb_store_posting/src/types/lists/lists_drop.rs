@@ -35,6 +35,64 @@ where
         Ok(())
     }
 
+    /// Drops every key under `prefixes` at a fresh timestamp, which it returns, then writes `entries`, as
+    /// [`Lists::drop_prefixes`] does. The timestamp is taken under the writer lock and held in flight until the drop
+    /// is done, so every read at or above it waits for the drop, as it waits for a commit being written, and sees none
+    /// of the dropped data; a read below it may see either side.
+    pub fn drop_prefixes_now(
+        &self,
+        prefixes: &[Vec<u8>],
+        entries: Vec<Entry>,
+    ) -> Result<u64, PostingError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_failed()?;
+        let ts = self.hold_fresh_ts();
+        let result = self.store.drop_prefixes(ts, prefixes, entries);
+        self.bump_epoch();
+        self.release_held(ts);
+        if let Err(error) = result {
+            tracing::error!(drop_ts = ts, %error, "prefix drop failed; the store must be reopened");
+            self.fail_writes(None);
+            return Err(error.into());
+        }
+        Ok(ts)
+    }
+
+    /// Drops every key at a fresh timestamp, which it returns, then writes `entries`, holding reads at or above it
+    /// as [`Lists::drop_prefixes_now`] does.
+    pub fn drop_all_now(&self, entries: Vec<Entry>) -> Result<u64, PostingError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_failed()?;
+        let ts = self.hold_fresh_ts();
+        let result = self.store.drop_all(entries);
+        self.bump_epoch();
+        self.release_held(ts);
+        if let Err(error) = result {
+            tracing::error!(drop_ts = ts, %error, "drop of everything failed; the store must be reopened");
+            self.fail_writes(None);
+            return Err(error.into());
+        }
+        Ok(ts)
+    }
+
+    /// A fresh timestamp, held in flight for the read gate.
+    fn hold_fresh_ts(&self) -> u64 {
+        let mut state = lock(&self.state);
+        let ts = state.ts.fresh();
+        state.in_flight = Some(ts);
+        ts
+    }
+
+    /// Ends the hold of [`Lists::hold_fresh_ts`] and wakes the reads waiting on it.
+    fn release_held(&self, ts: u64) {
+        let mut state = lock(&self.state);
+        if state.in_flight == Some(ts) {
+            state.in_flight = None;
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+
     /// Drops every key, then writes `entries`, as [`Lists::drop_prefixes`] drops a prefix.
     pub fn drop_all(&self, entries: Vec<Entry>) -> Result<(), PostingError> {
         let _writer = lock(&self.writer);

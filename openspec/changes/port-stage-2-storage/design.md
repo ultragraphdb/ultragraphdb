@@ -43,7 +43,7 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
 | `ultragraphdb_store_sim` | `ultragraphdb_store/ultragraphdb_store_sim` | `ultragraphdb_error_store`, `ultragraphdb_traits_store` | Written fresh: the simulated `Store`, its faults, the deterministic `ListCache`, the stepped `Executor`, the seeded workloads and their invariants |
 | `ultragraphdb_store_posting` | `ultragraphdb_store/ultragraphdb_store_posting` | `ultragraphdb_error_store`, `ultragraphdb_traits_store`, `ultragraphdb_common_utils`, `ultragraphdb_core_algo`, `ultragraphdb_core_codec`, `ultragraphdb_core_keys`, `ultragraphdb_core_types`, `ultragraphdb_proto_pb` | `posting` (`list.go`, `mvcc.go`, `lists.go`, `writer.go`, `size.go`), the local commit; `PostingError` |
 | `ultragraphdb_store_hnsw` | `ultragraphdb_store/ultragraphdb_store_hnsw` | `ultragraphdb_store_posting`, `ultragraphdb_core_keys`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_common_utils`, `ultragraphdb_error_options`, `ultragraphdb_proto_pb`, `ultragraphdb_traits_index`, `ultragraphdb_traits_store`, `tracing` | `tok/hnsw`; `HnswError` |
-| `ultragraphdb_store_apply` | `ultragraphdb_store/ultragraphdb_store_apply` | `ultragraphdb_store_posting`, `ultragraphdb_store_hnsw`, `ultragraphdb_core_keys`, `ultragraphdb_core_schema`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_proto_pb` | `posting/index.go` (index maintenance, rebuilds, drops), `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft; `ApplyError` |
+| `ultragraphdb_store_apply` | `ultragraphdb_store/ultragraphdb_store_apply` | `ultragraphdb_store_posting`, `ultragraphdb_store_hnsw`, `ultragraphdb_core_keys`, `ultragraphdb_core_schema`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_common_utils`, `ultragraphdb_error_num`, `ultragraphdb_error_store`, `ultragraphdb_proto_pb`, `ultragraphdb_traits_index`, `ultragraphdb_traits_store`, `tracing` | `posting/index.go` (index maintenance, rebuilds, drops), `worker/mutation.go`'s `runMutation` and schema changes, `draft.go`'s `applyMutations` without Raft; `ApplyError` |
 
 The store crates sit in the `ultragraphdb_store/` group folder, which the root `Cargo.toml` takes as members with
 `ultragraphdb_store/*`. Each crate above the trait runs its tests on both `Store` implementations.
@@ -326,13 +326,21 @@ refusals. These parts differ:
 - Drops remove split parts too; Dgraph's `DeletePredicate` and `DeleteData` drop only the default prefix and leave
   split parts behind (`index.go:1881`, `1894`). Dropping everything in a namespace also removes its schema and type
   keys, which Dgraph removes in memory only (`schema.go:150-168`).
+- Three builds run while commits are held back rather than in the background: reverse edges on a predicate with
+  `@count` in the old or the new schema, a list-type rewrite, and every vector build. Writes beside them would compute
+  counts from reverse lists the build has not yet written; Dgraph has the same race (`index.go:1200-1217`,
+  `1759-1793`), and the simulator found it in the port (ledger 54). Every other build runs in the background as above.
+- A vector rebuild is one request at the change's timestamp: it deletes the HNSW predicates' lists and inserts every
+  vector, so a failed build writes nothing and the previous index stays.
 
 ### The vector index
 
 Ported from `tok/hnsw` and stored as Dgraph stores it (the vector-index spec). Its in-memory caches `nodeAllEdges` and
 `deadNodes` live for one insert or one search, as in Dgraph: every insert and search builds a fresh `persistentHNSW`
 (`tok/index_factory.go:56-60`, `tok/hnsw/persistent_factory.go:97-169`). The dead list itself is written by index
-maintenance (`posting/index.go:113-152`), so it belongs to `ultragraphdb_store_apply`.
+maintenance (`posting/index.go:113-152`), so it belongs to `ultragraphdb_store_apply`. `VectorIndex::insert` takes the
+source of its level draws, a uniform value in [0, 1) from a seeded source the caller supplies, so a seed replays the
+graph. `HnswFactory` keeps no map of indexes, since every insert and search builds its own, so its `find` returns none.
 
 The stage-1 traits `VectorIndex`, `IndexFactory`, `OptionalIndexSupport` and `OptionalSearchOptions` are reshaped so
 `PersistentHnsw` implements them: each method generic over a cache is bounded `C: CacheType<Error = Self::Error>`, and

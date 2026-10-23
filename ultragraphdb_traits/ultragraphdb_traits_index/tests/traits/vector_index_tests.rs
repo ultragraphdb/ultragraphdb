@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, OptionalIndexSupport, OptionalSearchOptions, SearchFilter,
-    SearchPathResult, VectorIndex, VectorIndexOptions, accept_all,
+    SearchPathResult, Txn, VectorIndex, VectorIndexOptions, accept_all,
 };
 
 /// A cache the brute-force index never reads.
@@ -27,6 +27,46 @@ impl CacheType for NoCache {
     fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
         Err("empty".to_string())
     }
+}
+
+/// A transaction the brute-force index writes nothing through.
+struct NoTxn;
+
+impl Txn for NoTxn {
+    type Error = String;
+
+    fn start_ts(&self) -> u64 {
+        0
+    }
+
+    fn get(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn get_with_lock_held(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn add_mutation(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn add_mutation_with_lock_held(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn lock_key(&self, _: &[u8]) {}
+
+    fn unlock_key(&self, _: &[u8]) {}
+}
+
+/// No draw is ever made: the brute-force index has no levels.
+fn no_draw() -> f64 {
+    0.0
 }
 
 /// An index that searches every vector, nearest by euclidean distance.
@@ -73,7 +113,7 @@ impl BruteForce {
 impl OptionalIndexSupport<f32> for BruteForce {
     type Error = String;
 
-    fn search_with_path<C: CacheType>(
+    fn search_with_path<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         query: &[f32],
@@ -91,7 +131,7 @@ impl OptionalIndexSupport<f32> for BruteForce {
 }
 
 impl VectorIndex<f32> for BruteForce {
-    fn search<C: CacheType>(
+    fn search<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         query: &[f32],
@@ -101,7 +141,7 @@ impl VectorIndex<f32> for BruteForce {
         Ok(self.nearest(query, max_results, filter, None))
     }
 
-    fn search_with_uid<C: CacheType>(
+    fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
         query_uid: u64,
@@ -111,11 +151,12 @@ impl VectorIndex<f32> for BruteForce {
         self.search(c, &self.vector_of(query_uid)?, max_results, filter)
     }
 
-    fn insert<C: CacheType>(
+    fn insert<X: Txn<Error = Self::Error>>(
         &self,
-        _: &C,
+        _: &X,
         uuid: u64,
         vec: &[f32],
+        _: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, Self::Error> {
         if self.vector_of(uuid).is_ok() {
             return Err(format!("{uuid} exists"));
@@ -127,7 +168,7 @@ impl VectorIndex<f32> for BruteForce {
 }
 
 impl OptionalSearchOptions<f32> for BruteForce {
-    fn search_with_options<C: CacheType>(
+    fn search_with_options<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         query: &[f32],
@@ -137,7 +178,7 @@ impl OptionalSearchOptions<f32> for BruteForce {
         Ok(self.nearest(query, max_results, opts.filter(), opts.distance_threshold()))
     }
 
-    fn search_with_uid_and_options<C: CacheType>(
+    fn search_with_uid_and_options<C: CacheType<Error = Self::Error>>(
         &self,
         c: &C,
         query_uid: u64,
@@ -160,7 +201,7 @@ fn index() -> BruteForce {
         (3, [3.0, 0.0]),
         (4, [10.0, 0.0]),
     ] {
-        ix.insert(&NoCache, uid, &v).unwrap();
+        ix.insert(&NoTxn, uid, &v, &mut no_draw).unwrap();
     }
     ix
 }
@@ -168,12 +209,12 @@ fn index() -> BruteForce {
 #[test]
 fn test_a_vector_index_inserts_and_searches() {
     let ix = index();
-    let kv = ix.insert(&NoCache, 5, &[1.0, 1.0]).unwrap();
+    let kv = ix.insert(&NoTxn, 5, &[1.0, 1.0], &mut no_draw).unwrap();
     assert_eq!(
         (kv[0].entity(), kv[0].attr(), kv[0].value().len()),
         (5, "vec", 8)
     );
-    assert!(ix.insert(&NoCache, 5, &[0.0, 0.0]).is_err());
+    assert!(ix.insert(&NoTxn, 5, &[0.0, 0.0], &mut no_draw).is_err());
     assert_eq!(
         ix.search(&NoCache, &[0.9, 0.0], 2, accept_all::<f32>),
         Ok(vec![2, 1])

@@ -96,6 +96,17 @@ impl StoreModel {
                 "the matched recovery outcome vanished",
             ));
         };
+        // A deletion the recovery lost never happened: only those the surviving state holds, or written at or below
+        // its applied timestamp and since swept, still bound later writes.
+        let state = &outcome.state;
+        self.deletions.retain(|key, version| {
+            *version <= state.applied_ts
+                || state
+                    .keys
+                    .get(key)
+                    .and_then(|versions| versions.get(version))
+                    .is_some_and(|v| v.value.is_none())
+        });
         self.current = Arc::new(outcome.state);
         self.base = outcome.base;
         self.pending = outcome.pending;

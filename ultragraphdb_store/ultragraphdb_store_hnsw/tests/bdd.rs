@@ -39,6 +39,7 @@ struct Steps {
     within: Vec<(Metric, f64, Vec<f64>)>,
     empty: Option<EmptySearch>,
     parameters: (usize, usize, usize),
+    heir_lists: Vec<Vec<u64>>,
 }
 
 fn lists(w: &Steps) -> &TestLists {
@@ -184,6 +185,56 @@ fn equals_brute_force(w: &mut Steps) {
     for (metric, found, brute) in &w.compared {
         assert_eq!(found, brute, "{metric:?}");
     }
+}
+
+#[when("the entry point's vector is deleted and another vector is inserted")]
+fn entry_deleted(w: &mut Steps) {
+    w.lists = Some(new_lists());
+    w.pred = pred("emb");
+    let o = opts(&[
+        ("maxLevels", "3"),
+        ("efConstruction", "6"),
+        ("efSearch", "6"),
+    ]);
+    let mut rng = SimRng::new(5);
+    for uid in 1..=12 {
+        let v = random_vector(&mut rng, 3);
+        insert(lists(w), &w.pred, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+    }
+    let ts = lists(w).latest_ts();
+    let heir_key = key(&format!("{}{VEC_KEYWORD}", w.pred), 2);
+    w.heir_lists = decode_uint64_matrix(&index_value(lists(w), &heir_key, ts).unwrap()).unwrap();
+    // Uid 1 is the entry point; uid 2 is the first node holding a vector after it.
+    delete(lists(w), &w.pred, 1).unwrap();
+    w.uid = 13;
+    let v = random_vector(&mut rng, 3);
+    insert(lists(w), &w.pred, &o, 13, &v, &mut || draw(&mut rng)).unwrap();
+}
+
+#[then(
+    "the first node holding a vector becomes the entry point with its neighbour lists kept, and the new vector is inserted"
+)]
+fn handed_over(w: &mut Steps) {
+    // Dgraph rewrites uid 2 with empty lists at every level and does not insert 13 (ledger 45).
+    let ts = lists(w).latest_ts();
+    let entry = index_value(lists(w), &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts).unwrap();
+    assert_eq!(bytes_to_uint64(&entry), Some(2));
+    let vec_key = format!("{}{VEC_KEYWORD}", w.pred);
+    let heir =
+        decode_uint64_matrix(&index_value(lists(w), &key(&vec_key, 2), ts).unwrap()).unwrap();
+    assert!(heir.iter().any(|l| !l.is_empty()), "{heir:?}");
+    for (before, after) in w.heir_lists.iter().zip(&heir) {
+        assert!(
+            before
+                .iter()
+                .filter(|&&u| u != 1)
+                .all(|u| after.contains(u)),
+            "{before:?} -> {after:?}"
+        );
+    }
+    let new =
+        decode_uint64_matrix(&index_value(lists(w), &key(&vec_key, w.uid), ts).unwrap()).unwrap();
+    assert!(new.iter().any(|l| !l.is_empty()), "13 is linked: {new:?}");
 }
 
 #[when("a search carries a distance threshold")]

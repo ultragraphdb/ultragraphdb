@@ -74,7 +74,8 @@ pub fn golden_edges(edges: &[KeyValue]) -> Vec<String> {
     names
 }
 
-fn run<T: HnswFloat>(c: &GraphCase) {
+/// Runs the case; whether it stopped where Go's entry point hands over (see [`hands_over`]).
+fn run<T: HnswFloat>(c: &GraphCase) -> bool {
     let pairs: Vec<(&str, &str)> = c
         .options
         .iter()
@@ -96,6 +97,10 @@ fn run<T: HnswFloat>(c: &GraphCase) {
                     .insert(key(&c.pred, op.uid), vec_bytes(&v));
                 let index = PersistentHnsw::<T>::new(&c.pred, &o, c.bits).unwrap();
                 let edges = index.insert(&TxnCache::new(&txn, 1), op.uid, &v, &mut draw);
+                if let Some(heir) = go_hands_over(c, op) {
+                    hands_over(c, op, heir, &edges.unwrap());
+                    return true;
+                }
                 match edges {
                     Ok(edges) => {
                         assert_eq!(&golden_edges(&edges), op.edges.as_ref().unwrap(), "{at}");
@@ -150,17 +155,62 @@ fn run<T: HnswFloat>(c: &GraphCase) {
         .collect();
     assert_eq!(contents, c.contents, "{}: the store after the run", c.name);
     assert!(searched > 50, "{}", c.name);
+    false
+}
+
+/// The node Go's insert makes the entry point by wiping it, when the entry point lost its vector: the insert writes
+/// exactly the entry naming another node and that node's empty lists, and nothing of the node inserted.
+fn go_hands_over(c: &GraphCase, op: &GraphOp) -> Option<u64> {
+    let go = op.edges.as_ref()?;
+    let prefix = format!("{}__vector_entry/1/", c.pred);
+    let heir = go.iter().find_map(|e| e.strip_prefix(&prefix))?;
+    let heir = u64::from_str_radix(heir, 16).ok()?;
+    (heir != op.uid && go.len() == 2).then_some(heir)
+}
+
+/// Deviation (ledger 45): in `dead` and `dead_entry`, uid 3, the entry point, loses its vector, and Go's next insert
+/// rewrites the first node holding a vector with empty lists at every level and returns without inserting its node.
+/// The port names that node the entry point, keeps its lists and inserts the node from it, so the run follows Go's
+/// up to that insert and its own after it.
+fn hands_over(c: &GraphCase, op: &GraphOp, heir: u64, edges: &[KeyValue]) {
+    let names = golden_edges(edges);
+    let go = op.edges.clone().unwrap_or_default();
+    let entry = format!("{}__vector_entry/1/{}", c.pred, hex(&heir.to_be_bytes()));
+    let lists_of = |uid: u64| format!("{}__vector_/{uid}/", c.pred);
+    let wiped = |e: &String| e.starts_with(&lists_of(heir)) && e.ends_with(&"0".repeat(32));
+    assert!(
+        go.contains(&entry) && go.iter().any(wiped),
+        "{}: Go wipes {heir}: {go:?}",
+        c.name
+    );
+    assert!(names.contains(&entry), "{}: {names:?}", c.name);
+    assert!(
+        !names.iter().any(wiped),
+        "{}: {heir} keeps its lists: {names:?}",
+        c.name
+    );
+    assert!(
+        names.iter().any(|e| e.starts_with(&lists_of(op.uid))),
+        "{}: {} is inserted: {names:?}",
+        c.name,
+        op.uid
+    );
 }
 
 #[test]
 fn test_graph_runs_equal_gos() {
     let golden = graph_golden();
     assert_eq!(golden.cases().len(), 10);
+    let mut handed_over = Vec::new();
     for c in golden.cases() {
-        if c.bits == 32 {
-            run::<f32>(c);
+        let stopped = if c.bits == 32 {
+            run::<f32>(c)
         } else {
-            run::<f64>(c);
+            run::<f64>(c)
+        };
+        if stopped {
+            handed_over.push(c.name.as_str());
         }
     }
+    assert_eq!(handed_over, vec!["dead", "dead_entry"]);
 }

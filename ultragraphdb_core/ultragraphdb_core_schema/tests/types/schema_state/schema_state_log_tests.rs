@@ -51,7 +51,7 @@ fn store_with(text: &str) -> SimStore {
 /// The events `f` logs.
 fn logged(f: impl FnOnce()) -> Vec<CapturedEvent> {
     let capture = LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), f);
+    capture.capture(f);
     capture.events()
 }
 

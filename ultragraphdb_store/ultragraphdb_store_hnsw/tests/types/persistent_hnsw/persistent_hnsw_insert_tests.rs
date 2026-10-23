@@ -357,3 +357,57 @@ fn test_a_predicate_without_a_namespace_is_a_key_error() {
         assert!(matches!(e.0, HnswErrorEnum::Key(_)), "{name}: {e}");
     }
 }
+
+/// Deviation (ledger 45): when the entry point has lost its vector, Dgraph makes the first node in key order holding
+/// one the entry point by rewriting it with empty neighbour lists at every level, wiping its edges, and returns
+/// without inserting the new vector (`helper.go:419-428`, `persistent_hnsw.go:577-580`). The port moves the entry
+/// point to that node, keeps its lists, and inserts the new vector from it.
+#[test]
+fn test_a_dead_entry_point_hands_over_and_the_insert_goes_ahead() {
+    let txn = MapTxn::default();
+    let index = || flat_ph();
+    for (uid, v) in [(3u64, [0.0, 0.0]), (6, [1.0, 0.0]), (9, [2.0, 0.0])] {
+        txn.db
+            .borrow_mut()
+            .insert(key(PRED, uid), float64_array_as_bytes(&v));
+        index()
+            .insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.99)
+            .unwrap();
+    }
+    let lists_of = |uid: u64| {
+        decode_uint64_matrix(&txn.db.borrow()[&key(&format!("{PRED}{VEC_KEYWORD}"), uid)]).unwrap()
+    };
+    let six_before = lists_of(6);
+    assert!(six_before.iter().any(|l| !l.is_empty()), "{six_before:?}");
+    // The entry point, 3, loses its vector.
+    txn.db.borrow_mut().remove(&key(PRED, 3));
+    txn.db
+        .borrow_mut()
+        .insert(key(PRED, 12), float64_array_as_bytes(&[1.5, 0.0]));
+    let edges = index()
+        .insert(&TxnCache::new(&txn, 1), 12, &[1.5, 0.0], &mut || 0.99)
+        .unwrap();
+    let entry = txn.db.borrow()[&key(&format!("{PRED}{VEC_ENTRY}"), 1)].clone();
+    assert_eq!(bytes_to_uint64(&entry), Some(6));
+    let names = edge_names(&edges);
+    assert!(
+        names.contains(&"0-a__vector_entry_1".to_string()),
+        "{names:?}"
+    );
+    assert!(names.contains(&"0-a__vector__12".to_string()), "{names:?}");
+    assert!(
+        lists_of(12).iter().any(|l| !l.is_empty()),
+        "12 was inserted"
+    );
+    let six_after = lists_of(6);
+    assert!(
+        six_before
+            .iter()
+            .zip(&six_after)
+            .all(|(before, after)| before
+                .iter()
+                .filter(|&&u| u != 3)
+                .all(|u| after.contains(u))),
+        "6 keeps its edges: {six_before:?} -> {six_after:?}"
+    );
+}

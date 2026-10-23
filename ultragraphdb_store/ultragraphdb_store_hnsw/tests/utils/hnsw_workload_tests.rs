@@ -43,16 +43,13 @@ fn test_seeds_with_faults() {
     assert!(searches > 1000, "only {searches} searches checked");
 }
 
-/// Tracing caches each callsite's interest process-wide, and a test thread hitting a callsite first, without a
-/// subscriber, can leave it cached as uninteresting while this test captures; a first run registers every callsite
-/// the workload reaches, and each captured run rebuilds the cache under its subscriber.
+/// The capture keeps tracing's process-wide callsite interest asking its subscriber, so events whose callsites
+/// another test thread reached first are recorded too.
 #[test]
 fn test_a_seed_replays_its_run_and_its_events() {
-    HnswWorkload::run(Seed::new(7), HnswWorkload::faults(), 250, 2).expect("run");
     let run = || {
         let capture = ultragraphdb_store_sim::LogCapture::new();
-        let outcome = tracing::subscriber::with_default(capture.subscriber(), || {
-            tracing::callsite::rebuild_interest_cache();
+        let outcome = capture.capture(|| {
             HnswWorkload::run(Seed::new(7), HnswWorkload::faults(), 250, 2).expect("run")
         });
         (outcome, capture.events())

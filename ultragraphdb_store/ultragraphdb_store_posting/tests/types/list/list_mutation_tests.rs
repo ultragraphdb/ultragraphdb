@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_keys::{attr_in_root_namespace, data_key};
+use ultragraphdb_proto_pb::pb::{DirectedEdge, SchemaUpdate, directed_edge, posting};
 use ultragraphdb_store_posting::{List, SET};
 
 use crate::utils::helpers::{add, del_uid, key, set_uid, uid_schema, uids};
@@ -53,4 +55,36 @@ fn test_with_a_count_index_a_delete_removes_the_requests_set() {
     );
     add(&mut l, 1, &set_uid(9));
     assert_eq!(l.delta().unwrap().postings[1].op, SET);
+}
+
+/// Deviation: with a count index, Dgraph's `insertPosting` replaces a set the scratch layer holds by the overwrite
+/// count maintenance makes of a second set of the same uid (`list.go:375-394`, `index.go:557-560`), and an overwrite
+/// adds nothing to the length (`getLengthDelta`): the list's length then misses the uid, and the counts maintained
+/// from it go wrong. The port keeps the set, the overwrite's value and facets taken.
+#[test]
+fn test_an_overwrite_of_a_set_in_the_scratch_layer_stays_a_set() {
+    let key = data_key(&attr_in_root_namespace("friend"), 1).unwrap();
+    let mut list = List::empty(key);
+    list.set_ts(5);
+    let schema = SchemaUpdate {
+        value_type: posting::ValType::Uid as i32,
+        list: true,
+        count: true,
+        ..SchemaUpdate::default()
+    };
+    let set = DirectedEdge {
+        value_id: 3,
+        op: directed_edge::Op::Set as i32,
+        ..DirectedEdge::default()
+    };
+    list.add_mutation(&set, Some(&schema)).unwrap();
+    let ovr = DirectedEdge {
+        op: directed_edge::Op::Ovr as i32,
+        ..set
+    };
+    list.add_mutation(&ovr, Some(&schema)).unwrap();
+    assert_eq!(list.get_length(5).unwrap(), 1);
+    assert_eq!(list.delta().unwrap().postings[0].op, SET);
+    list.commit_mutation(6);
+    assert_eq!(list.get_length(6).unwrap(), 1);
 }

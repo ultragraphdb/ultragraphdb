@@ -73,6 +73,19 @@ impl SchemaState {
         self.write().predicate.insert(pred.to_string(), schema);
     }
 
+    /// Drops a predicate and its background schema from memory alone: what a drop does once it removes the
+    /// predicate's keys from the store itself, where Dgraph's `Delete` writes a deletion of the schema key.
+    pub fn remove_predicate(&self, pred: &str) {
+        let mut s = self.write();
+        s.predicate.remove(pred);
+        s.mut_schema.remove(pred);
+    }
+
+    /// Drops a type from memory alone, as [`SchemaState::remove_predicate`] a predicate.
+    pub fn remove_type(&self, type_name: &str) {
+        self.write().types.remove(type_name);
+    }
+
     /// Dgraph's `SetMutSchema`: sets the schema being applied to a predicate in the background.
     pub fn set_mut_schema(&self, pred: &str, schema: pb::SchemaUpdate) {
         self.write().mut_schema.insert(pred.to_string(), schema);

@@ -55,3 +55,52 @@ fn test_the_discard_timestamp_stays_at_or_below_the_oldest_open_request() {
     lists.set_discard_ts(later).unwrap();
     assert_eq!(lists.store().discard_ts(), later);
 }
+
+/// A drop that takes its timestamp under the writer holds every read at or above it until it is done, as a commit
+/// being written holds them, so no read at the drop's timestamp sees the data it removes.
+#[test]
+fn test_a_drop_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
+    let (lists, probe) = crate::utils::helpers::probe_lists();
+    let k = key("held", 1);
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request
+        .get(&k)
+        .unwrap()
+        .add_mutation(&set_uid(1), None)
+        .unwrap();
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    let expected = lists.peek_ts();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (inner, record) = (std::sync::Arc::clone(&lists), std::sync::Arc::clone(&seen));
+    probe.on_next_drop(Box::new(move || {
+        let mut seen = record.lock().unwrap();
+        seen.push(inner.try_gate(expected - 1).unwrap());
+        seen.push(inner.try_gate(expected).unwrap());
+    }));
+    let ts = lists
+        .drop_prefixes_now(std::slice::from_ref(&k), Vec::new())
+        .unwrap();
+    assert_eq!(ts, expected);
+    assert_eq!(*seen.lock().unwrap(), vec![true, false]);
+    assert!(lists.try_gate(ts).unwrap());
+    assert!(uids(&lists.read(&k, ts).unwrap(), ts, 0).is_empty());
+}
+
+#[test]
+fn test_a_drop_of_everything_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
+    let (lists, probe) = crate::utils::helpers::probe_lists();
+    let expected = lists.peek_ts();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let (inner, record) = (std::sync::Arc::clone(&lists), std::sync::Arc::clone(&seen));
+    probe.on_next_drop(Box::new(move || {
+        *record.lock().unwrap() = Some(inner.try_gate(expected).unwrap());
+    }));
+    let epoch = lists.epoch();
+    let ts = lists.drop_all_now(Vec::new()).unwrap();
+    assert_eq!(ts, expected);
+    assert_eq!(*seen.lock().unwrap(), Some(false));
+    assert_eq!(lists.epoch(), epoch + 1);
+    assert!(lists.try_gate(ts).unwrap());
+}

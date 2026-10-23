@@ -30,3 +30,7 @@ Feature: Vector index
   Scenario: The exponent sets the parameters
     When an hnsw index is declared with `exponent: "4"`
     Then it uses 4 levels, an `efConstruction` of 200 and an `efSearch` of 120
+
+  Scenario: A dead entry point hands over without wiping a node
+    When the entry point's vector is deleted and another vector is inserted
+    Then the first node holding a vector becomes the entry point with its neighbour lists kept, and the new vector is inserted

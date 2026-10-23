@@ -349,7 +349,7 @@ fn load_unparseable_key(w: &mut Steps) {
         .apply(batch, PersistMode::Buffer)
         .expect("the batch is written");
     let capture = LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    capture.capture(|| {
         w.state
             .load_from_db(&store)
             .expect("the load skips the key");

@@ -84,3 +84,65 @@ fn test_another_request_does_not_see_uncommitted_writes() {
     assert_eq!(writer.read_ts(), ts);
     assert_eq!(writer.lists().count(), 1);
 }
+
+/// The keys a request read are those it holds through a store read; a list written blind and never read is not
+/// one, and becomes one once a read completes it.
+#[test]
+fn test_the_keys_read_leave_out_lists_written_blind() {
+    let lists = new_lists();
+    let (read, blind) = (key("read", 1), key("blind", 1));
+    let mut request = lists.request(lists.latest_ts());
+    request.get(&read).unwrap();
+    request
+        .get_from_delta(&blind)
+        .add_mutation(&set_uid(3), None)
+        .unwrap();
+    assert_eq!(
+        request.read_keys().collect::<Vec<_>>(),
+        vec![read.as_slice()]
+    );
+    request.get(&blind).unwrap();
+    assert_eq!(request.read_keys().count(), 2);
+}
+
+/// A fork reads as its request does, the batch's earlier writes included, and starts with none of the request's own
+/// lists; absorbing it takes its lists and entries back, so parts of one request can be applied apart and committed
+/// as one.
+#[test]
+fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
+    let lists = new_lists();
+    let (a, b) = (key("fork", 1), key("fork", 2));
+    let mut batch = lists.batch();
+    let mut first = batch.request(lists.latest_ts());
+    first
+        .get(&a)
+        .unwrap()
+        .add_mutation(&set_uid(1), None)
+        .unwrap();
+    batch.push(first);
+    let mut request = batch.request(lists.latest_ts());
+    request.get(&b).unwrap();
+    let mut fork = request.fork();
+    assert_eq!(fork.read_ts(), request.read_ts());
+    assert_eq!(fork.lists().count(), 0);
+    let read_ts = fork.read_ts();
+    assert_eq!(uids(fork.get(&a).unwrap(), read_ts, 0), vec![1]);
+    fork.get(&a)
+        .unwrap()
+        .add_mutation(&set_uid(2), None)
+        .unwrap();
+    fork.add_entry(ultragraphdb_traits_store::Entry::deletion(
+        key("fork", 3),
+        1,
+    ));
+    request.absorb(fork);
+    assert_eq!(request.lists().count(), 2);
+    assert_eq!(uids(request.get(&a).unwrap(), read_ts, 0), vec![1, 2]);
+    batch.push(request);
+    let ts = lists.commit(batch).unwrap();
+    assert_eq!(uids(&lists.read(&a, ts[1]).unwrap(), ts[1], 0), vec![1, 2]);
+    assert_eq!(
+        lists.store().contents().versions(&key("fork", 3))[0].version(),
+        ts[1]
+    );
+}

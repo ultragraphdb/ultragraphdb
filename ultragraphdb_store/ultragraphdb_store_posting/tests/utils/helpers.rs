@@ -192,6 +192,7 @@ pub struct Probe {
     inner: SimStore,
     on_apply: Arc<Mutex<Option<ProbeHook>>>,
     on_snapshot: Arc<Mutex<Option<ProbeHook>>>,
+    on_drop: Arc<Mutex<Option<ProbeHook>>>,
 }
 
 impl std::fmt::Debug for Probe {
@@ -206,6 +207,7 @@ impl Probe {
             inner,
             on_apply: Arc::default(),
             on_snapshot: Arc::default(),
+            on_drop: Arc::default(),
         }
     }
 
@@ -221,6 +223,11 @@ impl Probe {
     /// Runs `hook` inside the next snapshot, before it is opened.
     pub fn on_next_snapshot(&self, hook: ProbeHook) {
         *self.on_snapshot.lock().expect("hook") = Some(hook);
+    }
+
+    /// Runs `hook` inside the next drop, of prefixes or of everything, before it removes anything.
+    pub fn on_next_drop(&self, hook: ProbeHook) {
+        *self.on_drop.lock().expect("hook") = Some(hook);
     }
 
     fn run(slot: &Mutex<Option<ProbeHook>>) {
@@ -250,10 +257,12 @@ impl Store for Probe {
         prefixes: &[Vec<u8>],
         entries: Vec<Entry>,
     ) -> Result<(), StoreError> {
+        Self::run(&self.on_drop);
         self.inner.drop_prefixes(ts, prefixes, entries)
     }
 
     fn drop_all(&self, entries: Vec<Entry>) -> Result<(), StoreError> {
+        Self::run(&self.on_drop);
         self.inner.drop_all(entries)
     }
 

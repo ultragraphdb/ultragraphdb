@@ -43,6 +43,8 @@ pub struct Request<'a, S, C> {
     held: BTreeMap<Vec<u8>, Held>,
     stacked: BTreeMap<Vec<u8>, Vec<Arc<PostingList>>>,
     entries: Vec<Entry>,
+    versioned: Vec<Entry>,
+    advance_epoch: bool,
 }
 
 impl<'a, S, C> Request<'a, S, C>
@@ -62,6 +64,8 @@ where
             held: BTreeMap::new(),
             stacked,
             entries: Vec::new(),
+            versioned: Vec::new(),
+            advance_epoch: false,
         }
     }
 
@@ -119,6 +123,56 @@ where
         self.entries.push(entry);
     }
 
+    /// Writes `entry` at the version it names, in the request's commit batch: what a rebuild's swap writes, its built
+    /// lists and their deletions at the rebuild's timestamp. The caller keeps the store's rule that no write lands
+    /// below a deletion of its key.
+    pub fn add_entry_at_version(&mut self, entry: Entry) {
+        self.versioned.push(entry);
+    }
+
+    /// Makes the request's commit advance the cache's epoch under the writer lock, with its batch: what a write that
+    /// changes lists outside their deltas needs, so that no cached list or fill read before it serves a read after it,
+    /// and no rollup read before it is written.
+    pub fn advance_epoch_on_commit(&mut self) {
+        self.advance_epoch = true;
+    }
+
+    /// The keys of the lists the request read from the store: those it holds, less those it wrote blind and has not
+    /// read since.
+    pub fn read_keys(&self) -> impl Iterator<Item = &[u8]> {
+        self.held
+            .iter()
+            .filter(|(_, h)| !h.blind)
+            .map(|(k, _)| k.as_slice())
+    }
+
+    /// A request reading as this one does, at its read timestamp with the same writes of its batch stacked beneath,
+    /// holding none of its lists: a part of the request applied apart, on another thread, and taken back with
+    /// [`Request::absorb`].
+    pub fn fork(&self) -> Request<'a, S, C> {
+        Request::new(self.lists, self.read_ts, self.stacked.clone())
+    }
+
+    /// Takes the lists and entries of `other`, a fork of this request, into it. The two are meant to hold disjoint
+    /// keys; a key both hold keeps this request's list unless only `other` wrote to it.
+    pub fn absorb(&mut self, mut other: Request<'a, S, C>) {
+        for (key, held) in std::mem::take(&mut other.held) {
+            match self.held.entry(key) {
+                MapEntry::Vacant(vacant) => {
+                    vacant.insert(held);
+                }
+                MapEntry::Occupied(mut mine) => {
+                    if mine.get().list.delta().is_none() && held.list.delta().is_some() {
+                        mine.insert(held);
+                    }
+                }
+            }
+        }
+        self.entries.append(&mut other.entries);
+        self.versioned.append(&mut other.versioned);
+        self.advance_epoch |= other.advance_epoch;
+    }
+
     /// The keys and lists the request holds.
     pub fn lists(&self) -> impl Iterator<Item = (&[u8], &List)> {
         self.held.iter().map(|(k, h)| (k.as_slice(), &h.list))
@@ -137,6 +191,14 @@ where
 
     pub(crate) fn entries(&self) -> &[Entry] {
         &self.entries
+    }
+
+    pub(crate) fn versioned_entries(&self) -> &[Entry] {
+        &self.versioned
+    }
+
+    pub(crate) fn advances_epoch(&self) -> bool {
+        self.advance_epoch
     }
 }
 

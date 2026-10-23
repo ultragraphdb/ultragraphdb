@@ -85,3 +85,54 @@ fn test_a_seed_replays_its_events() {
     assert_eq!(first, run_events(11));
     assert_ne!(first, run_events(12), "another seed picks other actors");
 }
+
+fn emitted_once() {
+    tracing::warn!(
+        site = "shared",
+        "a callsite first reached without a subscriber"
+    );
+}
+
+/// Tracing caches each callsite's interest process-wide: a callsite first reached on a thread without a subscriber
+/// can be cached as uninteresting while another test captures. `capture` rebuilds the cache under its subscriber,
+/// so the replay tests of every crate record each event their run emits.
+#[test]
+fn test_capture_records_a_callsite_first_reached_without_a_subscriber() {
+    emitted_once();
+    let capture = LogCapture::new();
+    let answer = capture.capture(|| {
+        emitted_once();
+        42
+    });
+    assert_eq!(answer, 42);
+    let events = capture.events();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].field("site"), Some("shared"));
+}
+
+fn reached_first_elsewhere() {
+    tracing::info!(
+        site = "elsewhere",
+        "a callsite another thread reaches first"
+    );
+}
+
+/// A callsite another thread reaches first, while the capture's subscriber is the only one alive, is recorded on
+/// the capture's thread: tracing would compute its interest from the other thread's default alone and cache it.
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test reaches the callsite first on a second thread"
+)]
+fn test_capture_records_a_callsite_another_thread_reached_first() {
+    let capture = LogCapture::new();
+    capture.capture(|| {
+        std::thread::spawn(reached_first_elsewhere)
+            .join()
+            .expect("the other thread ended");
+        reached_first_elsewhere();
+    });
+    let events = capture.events();
+    assert_eq!(events.len(), 1, "{events:?}");
+    assert_eq!(events[0].field("site"), Some("elsewhere"));
+}

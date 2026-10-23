@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod candidate_heap;
 #[cfg(test)]
+mod hnsw_factory;
+#[cfg(test)]
 pub(crate) mod persistent_hnsw;
 #[cfg(test)]
 mod query_cache;

@@ -264,3 +264,41 @@ fn test_a_failed_commit_is_reported_as_an_error() {
     assert!(events[0].field("first_commit_ts").is_some());
     assert!(events[0].field("error").is_some());
 }
+
+/// An entry added with its version kept is written at that version, the request's other writes at its commit
+/// timestamp: what a rebuild's swap writes, its built lists at the rebuild's timestamp.
+#[test]
+fn test_an_entry_at_its_own_version_keeps_it() {
+    let lists = new_lists();
+    let (a, b) = (key("versioned", 1), key("versioned", 2));
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.add_entry_at_version(Entry::deletion(a.clone(), 1));
+    request.add_entry(Entry::deletion(b.clone(), 1));
+    batch.push(request);
+    let ts = lists.commit(batch).unwrap()[0];
+    let contents = lists.store().contents();
+    assert_eq!(contents.versions(&a)[0].version(), 1);
+    assert_eq!(contents.versions(&b)[0].version(), ts);
+}
+
+/// A request marked to advance the epoch does so under the writer lock with its batch, so no cached list read
+/// before the batch serves a read after it.
+#[test]
+fn test_a_commit_that_advances_the_epoch_leaves_no_older_entry_serving() {
+    let lists = new_lists();
+    let k = key("epoch", 1);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    lists.read(&k, ts).unwrap();
+    assert!(lists.cached(&k, ts).unwrap().is_some());
+    let epoch = lists.epoch();
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.add_entry_at_version(Entry::deletion(k.clone(), ts));
+    request.advance_epoch_on_commit();
+    batch.push(request);
+    let swapped = lists.commit(batch).unwrap()[0];
+    assert_eq!(lists.epoch(), epoch + 1);
+    assert!(lists.cached(&k, swapped).unwrap().is_none());
+    assert!(uids(&lists.read(&k, swapped).unwrap(), swapped, 0).is_empty());
+}

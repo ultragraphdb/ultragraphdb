@@ -7,7 +7,8 @@
 //! searches for the nearest neighbours of a vector or of a uid's vector, through the cache types of
 //! `ultragraphdb_traits_index`: an insert writes through a [`TxnCache`] over a transaction, a search reads through a
 //! [`QueryCache`] over a local cache. [`ViTxn`] is both over a request of the posting crate's local commit, so an
-//! insert's neighbour lists are committed in the request's batch.
+//! insert's neighbour lists are committed in the request's batch. It implements the vector index traits of
+//! `ultragraphdb_traits_index`, through which index maintenance calls it, and [`HnswFactory`] makes it.
 //!
 //! A vector predicate `<pred>` keeps its index in three predicates: every node's neighbour lists, all levels in one
 //! little-endian matrix, at the node's uid under `<pred>__vector_`; the entry point's uid, big-endian, at uid 1 of
@@ -33,6 +34,7 @@ mod utils;
 pub use crate::errors::hnsw_error::{HnswError, HnswErrorEnum};
 pub use crate::traits::hnsw_float::HnswFloat;
 pub use crate::types::candidate_heap::CandidateHeap;
+pub use crate::types::hnsw_factory::HnswFactory;
 pub use crate::types::persistent_heap_element::PersistentHeapElement;
 pub use crate::types::persistent_hnsw::PersistentHnsw;
 pub use crate::types::query_cache::QueryCache;

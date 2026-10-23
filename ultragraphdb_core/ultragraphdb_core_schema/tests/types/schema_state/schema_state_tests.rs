@@ -348,3 +348,19 @@ fn a_type_without_a_namespace_is_refused_or_kept() {
     state.delete_preds_for_ns(0);
     assert!(state.get_type("nonamespace").is_some());
 }
+
+/// What a drop does to memory, the store's keys removed by the drop itself: a predicate leaves with its background
+/// schema, a type alone.
+#[test]
+fn remove_forgets_a_predicate_or_a_type_in_memory_alone() {
+    let state = SchemaState::new();
+    state.set("0-name", pb::SchemaUpdate::default());
+    state.set_mut_schema("0-name", pb::SchemaUpdate::default());
+    state.set_type("0-Person", pb::TypeUpdate::default());
+    state.remove_predicate("0-name");
+    assert!(state.get(SchemaMode::Write, "0-name").is_none());
+    assert!(!state.indexing_in_progress());
+    assert!(state.get_type("0-Person").is_some());
+    state.remove_type("0-Person");
+    assert!(state.get_type("0-Person").is_none());
+}

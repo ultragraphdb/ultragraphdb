@@ -9,7 +9,9 @@
  * source, where Dgraph reads its global random source; the neighbours whose inbound edges an insert adds are
  * written in uid order, where Dgraph iterates a map in random order; a read that fails is an error, where Dgraph
  * ignores the error of the entry point's and a neighbour list's read and takes a failed vector read for an absent
- * vector.
+ * vector; an entry point that lost its vector hands over to the first node holding one, which keeps its neighbour
+ * lists, and the insert goes ahead from it, where Dgraph rewrites that node with empty lists and inserts nothing
+ * (ledger 45).
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -28,6 +30,14 @@ use crate::utils::helper::{
 };
 use crate::utils::matrix::encode_uint64_matrix;
 
+/// Where an insert starts.
+enum Start {
+    /// The insert is done, having written these values: the index was empty.
+    Done(Vec<KeyValue>),
+    /// From this entry point, having written these values to name it.
+    From(u64, Vec<KeyValue>),
+}
+
 impl<T: HnswFloat> PersistentHnsw<T> {
     /// Dgraph's `Insert`: adds the vector `in_vec` of `in_uuid`, whose value the transaction already holds, to the
     /// graph, and returns the values it wrote: the node's neighbour lists, the inbound lists of its neighbours, and on
@@ -35,8 +45,10 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     /// neighbours, which picks the level the node is inserted from.
     ///
     /// Into an empty index, the node becomes the entry point with empty lists at every level. When the entry point
-    /// has lost its vector, the insert makes the first node in key order holding one the entry point, with empty
-    /// lists, and does not add `in_uuid`, as Dgraph does; when no node holds one, `in_uuid` becomes the entry point.
+    /// has lost its vector, the first node in key order holding one becomes the entry point, keeping its neighbour
+    /// lists, and the insert goes ahead from it; Dgraph rewrites that node with empty lists and does not add
+    /// `in_uuid` (ledger 45). When no node holds a vector, or that node is `in_uuid` itself, `in_uuid` becomes the
+    /// entry point with empty lists, as in Dgraph.
     ///
     /// # Errors
     ///
@@ -48,13 +60,13 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         in_vec: &[T],
         draw: &mut impl FnMut() -> f64,
     ) -> Result<Vec<KeyValue>, HnswError> {
-        let (mut entry, mut edges) = self.create_entry_and_start_nodes(tc, in_uuid)?;
-        if !edges.is_empty() {
-            return Ok(edges);
-        }
+        let (mut entry, mut edges) = match self.create_entry_and_start_nodes(tc, in_uuid)? {
+            Start::Done(edges) => return Ok(edges),
+            Start::From(entry, edges) => (entry, edges),
+        };
         if entry == in_uuid {
             // Inserting the entry point again writes nothing.
-            return Ok(Vec::new());
+            return Ok(edges);
         }
         let in_level = insert_layer(self.max_levels, draw());
         for level in 0..in_level {
@@ -104,13 +116,13 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         Ok(edges)
     }
 
-    /// Dgraph's `createEntryAndStartNodes`: the entry point, and no values when it holds a vector; when the index is
-    /// empty or the entry point lost its vector, the values making a node the entry point.
+    /// Dgraph's `createEntryAndStartNodes`: the entry point to insert from, with the values written to name it;
+    /// or, when the index is empty, the values making `in_uuid` the entry point, which end the insert.
     fn create_entry_and_start_nodes<X: Txn<Error = HnswError>>(
         &self,
         tc: &TxnCache<'_, X>,
         in_uuid: u64,
-    ) -> Result<(u64, Vec<KeyValue>), HnswError> {
+    ) -> Result<Start, HnswError> {
         let txn = tc.txn();
         let entry_key = data_key(&self.vec_entry_key, 1)?;
         txn.lock_key(&entry_key);
@@ -124,11 +136,11 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         tc: &TxnCache<'_, X>,
         entry_key: &[u8],
         in_uuid: u64,
-    ) -> Result<(u64, Vec<KeyValue>), HnswError> {
+    ) -> Result<Start, HnswError> {
         let txn = tc.txn();
         let create_edges = |uuid: u64| {
             self.add_start_node_to_all_levels(entry_key, txn, uuid)
-                .map(|edges| (0, edges))
+                .map(Start::Done)
         };
         let data = match txn.get_with_lock_held(entry_key) {
             Ok(data) if !data.is_empty() => data,
@@ -138,12 +150,18 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         };
         let entry = self.entry_uid(&data)?;
         if !self.vec_or_empty(entry, tc)?.is_empty() {
-            return Ok((entry, Vec::new()));
+            return Ok(Start::From(entry, Vec::new()));
         }
-        // The entry point's vector was deleted: the first node holding a vector becomes the entry point.
+        // The entry point's vector was deleted: the first node holding a vector becomes the entry point, its lists
+        // kept.
         match self.calculate_new_entry_vec(tc) {
-            Ok((new_entry, _)) => create_edges(new_entry),
-            Err(HnswError(HnswErrorEnum::EmptyTree(_))) => create_edges(in_uuid),
+            Ok((new_entry, _)) if new_entry != in_uuid => {
+                let named =
+                    KeyValue::new(1, self.vec_entry_key.clone(), uint64_to_bytes(new_entry));
+                txn.add_mutation_with_lock_held(entry_key, &named)?;
+                Ok(Start::From(new_entry, vec![named]))
+            }
+            Ok(_) | Err(HnswError(HnswErrorEnum::EmptyTree(_))) => create_edges(in_uuid),
             Err(e) => Err(e),
         }
     }

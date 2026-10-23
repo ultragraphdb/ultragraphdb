@@ -4,11 +4,12 @@
 |---|---|
 | 1. Foundations | ✅ |
 | 1.5. Fault simulator | ✅ | 
-| 2. Storage | `next` | 
-| 2.5. Harden Storage | `open` | 
-| 3. Single node | `open` |
-| 4. Replication | `open` | 
-| 5. Sharding and operations | `open` |
+| 2. Storage | `in progress` | 
+| 3. Website | `in progress` |
+| 4. Public Release | `open` |
+| 5. Single node | `open` |
+| 6. Replication | `open` | 
+| 7. Sharding and operations | `open` |
 
 Improvements, single node:
 

@@ -11,3 +11,5 @@ mod persistent_hnsw_insert_tests;
 mod persistent_hnsw_search_tests;
 #[cfg(test)]
 mod persistent_hnsw_tests;
+#[cfg(test)]
+mod persistent_hnsw_traits_tests;

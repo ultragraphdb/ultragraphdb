@@ -39,7 +39,7 @@ fn test_seeds_with_faults() {
 fn test_a_seed_replays_its_run_and_its_events() {
     let run = || {
         let capture = ultragraphdb_store_sim::LogCapture::new();
-        let outcome = tracing::subscriber::with_default(capture.subscriber(), || {
+        let outcome = capture.capture(|| {
             PostingWorkload::run(Seed::new(7), PostingWorkload::faults(), 300, 2).expect("run")
         });
         (outcome, capture.events())

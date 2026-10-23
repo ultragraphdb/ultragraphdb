@@ -50,7 +50,8 @@ where
     /// Commits `batch` as [`Lists::commit`] does, first calling `check` with each request under the writer lock;
     /// a request `check` refuses is left out and writes nothing, and its result is the refusal. The requests left
     /// in are written as one store batch, each at a fresh commit timestamp, recording the last as applied; the
-    /// cache entries of their lists are then replaced or removed, and the commit is applied.
+    /// cache entries of their lists are then replaced or removed, and the commit is applied. An entry a request adds
+    /// at its own version keeps it; a request marked to advance the epoch advances it before the commit is applied.
     ///
     /// # Errors
     ///
@@ -84,6 +85,10 @@ where
         };
         let last = first + kept as u64 - 1;
 
+        let advance_epoch = requests
+            .iter()
+            .zip(&checked)
+            .any(|(request, c)| c.is_ok() && request.advances_epoch());
         let mut store_batch = WriteBatch::new();
         let written: Vec<Written> = requests
             .iter()
@@ -102,6 +107,9 @@ where
                 }
                 for entry in request.entries() {
                     store_batch.push(at_version(entry, commit_ts));
+                }
+                for entry in request.versioned_entries() {
+                    store_batch.push(entry.clone());
                 }
                 (commit_ts, deltas)
             })
@@ -130,6 +138,9 @@ where
             }
             state.applied = state.applied.max(last);
             state.in_flight = None;
+            if advance_epoch {
+                state.epoch += 1;
+            }
         }
         self.changed.notify_all();
 

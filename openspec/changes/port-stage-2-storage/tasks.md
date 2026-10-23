@@ -59,25 +59,26 @@ Each later group adds its operations to the simulator's workload and its rules t
 
 ## 7. Applying edges → `ultragraphdb_store_apply`
 
-- [ ] 7.1 Port `worker/mutation_unit_test.go`; scenarios: index-maintenance, and schema-storage's write scenarios
-- [ ] 7.2 Port `runMutation` and its read strategy, `ValidateAndConvert`, `applyMutations` without Raft (sorting, automatic schema in the request's overlay under Dgraph's creation rules, the first commit's schema checked at commit, parallel batches by attribute and entity on the `Executor`)
-- [ ] 7.3 Port `AddMutationWithIndex`: tokens, reverse edges, counts, reverse counts, delete-all; a deleted list value keeping the tokens the subject's other values produce; a star delete tokenizing each value with its language and clearing the count key the subject is listed under
-- [ ] 7.4 Each Dgraph panic or fatal in the files of this group returns `ApplyError`, and its test names the deviation
+- [x] 7.1 Port `worker/mutation_unit_test.go`; scenarios: index-maintenance, and schema-storage's write scenarios
+- [x] 7.2 Port `runMutation` and its read strategy, `ValidateAndConvert`, `applyMutations` without Raft (sorting, automatic schema in the request's overlay under Dgraph's creation rules, the first commit's schema checked at commit, parallel batches by attribute and entity on the `Executor`)
+- [x] 7.3 Port `AddMutationWithIndex`: tokens, reverse edges, counts, reverse counts, delete-all; a deleted list value keeping the tokens the subject's other values produce; a star delete tokenizing each value with its language and clearing the count key the subject is listed under
+- [x] 7.4 Each Dgraph panic or fatal in the files of this group returns `ApplyError`, and its test names the deviation
 
 ## 8. Schema changes and drops → `ultragraphdb_store_apply`
 
-- [ ] 8.1 Port `index_test.go` (18, the `TestNeeds*Rebuild` tables first); scenarios: schema-changes
-- [ ] 8.2 Port the decision tables, the dual and interim schemas, the two-phase rebuilder over a temporary store with writes maintaining both schemas' indexes, the swap batch with `BuildData` and a `@count` rebuild's data lists, the cleanup of a failed build, vector rebuilds in place over merged lists, the background task gate, type-change refusals checked before anything changes with exact "holds data"; advance the cache's epoch
-- [ ] 8.3 Port drops: predicate (a vector predicate's three HNSW predicates included), type, namespace data, everything in a namespace (schema and type keys included), namespace (banned), everything; physical, with split parts removed, and the cache's epoch advanced
-- [ ] 8.4 Ledger 7 and 8: a namespace's data drop removes its `0x04` parts with its `0x00` data in one drop; the complete namespace drop removes `[0x00,ns]`, `[0x04,ns]`, `[0x01,ns]`, `[0x02,ns]` physically, then writes the namespace's initial schema at ts 1; rollups of a predicate or namespace that read before its drop write nothing after it (ledger 38)
-- [ ] 8.5 A request whose read timestamp is below a drop or schema change it writes under fails at commit with `Transaction has been aborted. Please retry`
-- [ ] 8.6 Each Dgraph panic or fatal in the files of this group returns `ApplyError`, and its test names the deviation
+- [x] 8.1 Port `index_test.go` (18, the `TestNeeds*Rebuild` tables first); scenarios: schema-changes
+- [x] 8.2 Port the decision tables, the dual and interim schemas, the two-phase rebuilder over a temporary store with writes maintaining both schemas' indexes, the swap batch with `BuildData` and a `@count` rebuild's data lists, the cleanup of a failed build, vector rebuilds in place over merged lists, the background task gate, type-change refusals checked before anything changes with exact "holds data"; advance the cache's epoch
+- [x] 8.3 Port drops: predicate (a vector predicate's three HNSW predicates included), type, namespace data, everything in a namespace (schema and type keys included), namespace (banned), everything; physical, with split parts removed, and the cache's epoch advanced
+- [x] 8.4 Ledger 7 and 8: a namespace's data drop removes its `0x04` parts with its `0x00` data in one drop; the complete namespace drop removes `[0x00,ns]`, `[0x04,ns]`, `[0x01,ns]`, `[0x02,ns]` physically, then writes the namespace's initial schema at ts 1; rollups of a predicate or namespace that read before its drop write nothing after it (ledger 38)
+- [x] 8.5 A request whose read timestamp is below a drop or schema change it writes under fails at commit with `Transaction has been aborted. Please retry`
+- [x] 8.6 Each Dgraph panic or fatal in the files of this group returns `ApplyError`, and its test names the deviation
 
 ## 9. Vector index → `ultragraphdb_store_hnsw`
 
 - [x] 9.1 Port `persistent_hnsw_test.go` (15), `kernels_test.go` (7), `ef_recall_test.go` (3); scenarios: vector-index
-- [ ] 9.2 Port the storage layout with its little-endian matrix, insert, delete, search with options (the empty-index result), the parameters from `exponent`, the transaction adapter over the local commit; the dead list in `ultragraphdb_store_apply`'s index maintenance
+- [x] 9.2 Port the storage layout with its little-endian matrix, insert, delete, search with options (the empty-index result), the parameters from `exponent`, the transaction adapter over the local commit; the dead list in `ultragraphdb_store_apply`'s index maintenance
 - [x] 9.3 Each Dgraph panic or fatal in the files of this group returns `HnswError`, and its test names the deviation
+- [ ] 9.4 A vector deleted and then set again leaves the dead list (ledger 53): the set removes its uid from the dead list in index maintenance; a scenario and a test naming the deviation from Go
 
 ## 11. Logging and telemetry → `ultragraphdb_common_telemetry`, every stage-1 and stage-2 crate
 

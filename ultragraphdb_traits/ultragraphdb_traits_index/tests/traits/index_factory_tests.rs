@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use ultragraphdb_traits_index::{
     AllowedOptions, CacheType, IndexFactory, KeyValue, OptionalIndexSupport, Options, SearchFilter,
-    SearchPathResult, VectorIndex,
+    SearchPathResult, Txn, VectorIndex,
 };
 
 /// An index that holds nothing and finds nothing, named by its factory.
@@ -21,7 +21,7 @@ struct Empty {
 impl OptionalIndexSupport<f64> for Empty {
     type Error = String;
 
-    fn search_with_path<C: CacheType>(
+    fn search_with_path<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         _: &[f64],
@@ -33,7 +33,7 @@ impl OptionalIndexSupport<f64> for Empty {
 }
 
 impl VectorIndex<f64> for Empty {
-    fn search<C: CacheType>(
+    fn search<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         _: &[f64],
@@ -43,7 +43,7 @@ impl VectorIndex<f64> for Empty {
         Ok(Vec::new())
     }
 
-    fn search_with_uid<C: CacheType>(
+    fn search_with_uid<C: CacheType<Error = Self::Error>>(
         &self,
         _: &C,
         _: u64,
@@ -53,7 +53,13 @@ impl VectorIndex<f64> for Empty {
         Ok(Vec::new())
     }
 
-    fn insert<C: CacheType>(&self, _: &C, _: u64, _: &[f64]) -> Result<Vec<KeyValue>, Self::Error> {
+    fn insert<X: Txn<Error = Self::Error>>(
+        &self,
+        _: &X,
+        _: u64,
+        _: &[f64],
+        _: &mut impl FnMut() -> f64,
+    ) -> Result<Vec<KeyValue>, Self::Error> {
         Ok(Vec::new())
     }
 }
@@ -147,10 +153,45 @@ fn test_a_factory_creates_finds_and_removes_indexes() {
         ix.search_with_uid(&NoCache, 1, 1, |_, _, _| true),
         Ok(vec![])
     );
-    assert_eq!(ix.insert(&NoCache, 1, &[1.0]), Ok(vec![]));
+    assert_eq!(ix.insert(&NoTxn, 1, &[1.0], &mut || 0.0), Ok(vec![]));
 }
 
 struct NoCache;
+
+/// A transaction that holds nothing.
+struct NoTxn;
+
+impl Txn for NoTxn {
+    type Error = String;
+
+    fn start_ts(&self) -> u64 {
+        0
+    }
+
+    fn get(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn get_with_lock_held(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn add_mutation(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn add_mutation_with_lock_held(&self, _: &[u8], _: &KeyValue) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn lock_key(&self, _: &[u8]) {}
+
+    fn unlock_key(&self, _: &[u8]) {}
+}
 
 impl CacheType for NoCache {
     type Error = String;

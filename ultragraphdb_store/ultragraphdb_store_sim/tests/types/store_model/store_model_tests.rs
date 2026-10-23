@@ -315,3 +315,49 @@ fn test_the_model_keeps_what_a_prefix_drop_wrote_through_a_compaction() {
         "the fenced version stays"
     );
 }
+
+/// A deletion a power loss took with its batch never happened: a write below its version afterwards breaks no
+/// invariant. The posting lists' counter restarts at the applied timestamp the store kept, so a lost batch's
+/// versions are written again.
+#[test]
+fn test_a_deletion_a_power_loss_lost_holds_no_write_back() {
+    let mut lost = 0;
+    for seed in 1..=20 {
+        let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
+        let mut model = StoreModel::new();
+        store
+            .apply(batch(vec![put(b"k", 5)], Some(5)), PersistMode::Sync)
+            .unwrap();
+        store
+            .apply(
+                batch(vec![Entry::deletion(b"k".to_vec(), 9)], Some(9)),
+                PersistMode::Buffer,
+            )
+            .unwrap();
+        store.power_loss();
+        model.observe(&store.take_log()).unwrap();
+        model.check(&store.contents()).unwrap();
+        store.recover();
+        model.observe(&store.take_log()).unwrap();
+        model.check(&store.contents()).unwrap();
+        let kept = store
+            .contents()
+            .versions(b"k")
+            .iter()
+            .any(|v| v.version() == 9);
+        store
+            .apply(batch(vec![put(b"k", 7)], Some(7)), PersistMode::Buffer)
+            .unwrap_or(());
+        let outcome = model.observe(&store.take_log());
+        if kept {
+            assert_eq!(
+                outcome.unwrap_err().invariant(),
+                Invariant::NoWriteBelowDeletion
+            );
+        } else {
+            outcome.unwrap();
+            lost += 1;
+        }
+    }
+    assert!(lost > 0, "a power loss took the deletion's batch");
+}

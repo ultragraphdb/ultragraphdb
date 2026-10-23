@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod candidate_heap;
+pub(crate) mod hnsw_factory;
 pub(crate) mod persistent_heap_element;
 pub(crate) mod persistent_hnsw;
 pub(crate) mod query_cache;
