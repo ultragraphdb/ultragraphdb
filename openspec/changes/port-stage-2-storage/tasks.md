@@ -75,9 +75,9 @@ Each later group adds its operations to the simulator's workload and its rules t
 
 ## 9. Vector index → `ultragraphdb_store_hnsw`
 
-- [ ] 9.1 Port `persistent_hnsw_test.go` (15), `kernels_test.go` (7), `ef_recall_test.go` (3); scenarios: vector-index
+- [x] 9.1 Port `persistent_hnsw_test.go` (15), `kernels_test.go` (7), `ef_recall_test.go` (3); scenarios: vector-index
 - [ ] 9.2 Port the storage layout with its little-endian matrix, insert, delete, search with options (the empty-index result), the parameters from `exponent`, the transaction adapter over the local commit; the dead list in `ultragraphdb_store_apply`'s index maintenance
-- [ ] 9.3 Each Dgraph panic or fatal in the files of this group returns `HnswError`, and its test names the deviation
+- [x] 9.3 Each Dgraph panic or fatal in the files of this group returns `HnswError`, and its test names the deviation
 
 ## 11. Logging and telemetry → `ultragraphdb_common_telemetry`, every stage-1 and stage-2 crate
 

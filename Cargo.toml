@@ -55,6 +55,7 @@ ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store
 ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
 ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
 ## Store: storage over the Store trait
+ultragraphdb_store_hnsw = { path = "ultragraphdb_store/ultragraphdb_store_hnsw" }
 ultragraphdb_store_kv = { path = "ultragraphdb_store/ultragraphdb_store_kv" }
 ultragraphdb_store_posting = { path = "ultragraphdb_store/ultragraphdb_store_posting" }
 ultragraphdb_store_sim = { path = "ultragraphdb_store/ultragraphdb_store_sim" }

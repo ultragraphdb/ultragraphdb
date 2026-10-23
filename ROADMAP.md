@@ -3,8 +3,8 @@
 | Stage | Status | 
 |---|---|
 | 1. Foundations | ✅ |
-| 1.5. Fault simulator | `Next` | 
-| 2. Storage | `open` | 
+| 1.5. Fault simulator | ✅ | 
+| 2. Storage | `next` | 
 | 2.5. Harden Storage | `open` | 
 | 3. Single node | `open` |
 | 4. Replication | `open` | 

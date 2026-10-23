@@ -23,6 +23,7 @@ Seed sets run as hermetic Bazel tests in `make test`:
 | `ultragraphdb_store_sim` | 48 with every fault class, 16 without faults |
 | `ultragraphdb_store_posting` | 40 with faults, 20 without |
 | `ultragraphdb_core_schema` | 48 of 300 steps with faults |
+| `ultragraphdb_store_hnsw` | 30 of 300 steps with faults, 12 without; the same rules once on fjall |
 | `ultragraphdb_store_kv` | the store workload replayed on fjall: 12 seeds without faults, 6 with crashes (61 reopens) |
 
 Longer runs over fresh seeds: `store_sim_fuzz [first seed] [seeds] [steps]`, a binary run outside `make test`.
@@ -58,17 +59,20 @@ few hundred steps see most of them. `Fault` forces one at a chosen point in a te
 | Reads, garbage collection and timestamps | the shadow model | `ReadsAtOrBelowTimestamp`, `DiscardBelowOpenReads`, `NoWriteBelowDeletion`, `AppliedTsIsHighest` |
 | Posting lists | `ultragraphdb_store_posting`'s workload | "a list holds what was written to it" (cached and uncached reads both), "a rollup writes nothing after a drop" |
 | Schema loading | `ultragraphdb_core_schema`'s workload | Between failures a load equals the newest written state; after a recovery the loaded state is the state after some batch at or after the last sync |
+| Vector index | `ultragraphdb_store_hnsw`'s workload | "a search returns only vectors live at its timestamp, each once, at most k, best first", "a search reports the empty index exactly when no vector is live", "every uid a stored neighbour list or the entry point names has stored neighbour lists, one per level", "the neighbour lists an insert writes name no node dead at its read timestamp"; the decoders refuse a neighbour matrix that does not fill its bytes, an entry point of other than 8 bytes, a vector whose length is not a multiple of its float width and an unparsable dead list, each as the store's `Corrupted` naming the key |
 | fjall diverging from the simulator | `ultragraphdb_store_kv`'s workload test | Every answer, the contents version for version, the applied and discard timestamps and the tombstone horizon, compared after every step |
 
 Each detector was checked against planted bugs: seven in the simulated store (lost synced batches, a partial batch,
 over-eager collection, a read above its timestamp, drop entries not written, a crash losing buffered batches, bans
-ignored), each reported under the right invariant, and a disabled cache update in the posting commit, caught at once.
+ignored), each reported under the right invariant; a disabled cache update in the posting commit, caught at once; and
+three in the vector index (dead nodes kept, a deleted value read, an extra level), each caught by its rule.
 
 ## Injected but not detected
 
 - **A flipped byte that leaves a valid encoding.** `FlipValueByte` can turn a list of uids 1..=10, or a delta of one to
   five postings, into a different list that decodes cleanly, and a protobuf name byte into another valid byte; no
-  decoder can tell. Stored values carry no checksum of their own. The posting and schema workloads therefore run with
+  decoder can tell; in the vector index, a changed uid in a neighbour matrix or a changed float in a vector decodes
+  cleanly too. Stored values carry no checksum of their own. The posting, schema and vector-index workloads run with
   `corruption = 0`, and the corruption scenarios use values whose flip is structural. On fjall, a corrupted block fails
   lsm-tree's block checksum and surfaces as a failed read; a corruption that happens before the value reaches fjall
   (memory, a bug above the store) is not caught anywhere.

@@ -2932,6 +2932,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_store_hnsw"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "serde",
+ "tracing",
+ "ultragraphdb_common_utils",
+ "ultragraphdb_core_keys",
+ "ultragraphdb_core_tok",
+ "ultragraphdb_core_types",
+ "ultragraphdb_error_options",
+ "ultragraphdb_error_store",
+ "ultragraphdb_proto_pb",
+ "ultragraphdb_store_kv",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_sim",
+ "ultragraphdb_test_bdd",
+ "ultragraphdb_traits_index",
+ "ultragraphdb_traits_store",
+]
+
+[[package]]
 name = "ultragraphdb_store_kv"
 version = "0.1.0"
 dependencies = [

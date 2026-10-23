@@ -202,6 +202,7 @@ impl List {
     }
 
     /// The posting list holding the list's single value at `read_ts`, unmerged: the request's own scratch layer,
+    /// else the newest layer stacked by the requests before it in its batch, both at the request's read timestamp,
     /// else the newest delta at or below `read_ts`, else the complete version when it holds postings. Dgraph's
     /// `StaticValue`, which serves scalar reads and the vector index.
     pub fn static_value(&self, read_ts: u64) -> Option<&PostingList> {
@@ -209,6 +210,11 @@ impl List {
             && self.mutation.read_ts() == read_ts
         {
             return Some(current);
+        }
+        if let Some(stacked) = self.mutation.stacked().last()
+            && self.mutation.read_ts() == read_ts
+        {
+            return Some(stacked.as_ref());
         }
         if self.max_ts <= read_ts
             && let Some((_, last)) = self.mutation.committed().iter().next_back()

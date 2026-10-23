@@ -69,6 +69,12 @@ where
         self.read_ts
     }
 
+    /// The posting lists the request reads: their store, for a scan at the request's read timestamp, and their
+    /// read gate.
+    pub fn posting_lists(&self) -> &'a Lists<S, C> {
+        self.lists
+    }
+
     /// The list of `key` as this request sees it, read whole: Dgraph's `Get`. A list written blind is completed
     /// from the store first, its writes kept on top.
     pub fn get(&mut self, key: &[u8]) -> Result<&mut List, PostingError> {
