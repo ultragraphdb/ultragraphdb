@@ -1,9 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: HNSW vectors live in posting lists
-A `float32vector` predicate with an hnsw index SHALL store each vector as a value posting, the entry point under
-`<attr>__vector_entry`, each node's neighbours per level under `<attr>__vector_`, and deleted nodes under
-`<attr>__vector_dead`, as Dgraph does.
+A `float32vector` predicate with an hnsw index SHALL store each vector as a value posting; the entry point as the
+8 big-endian bytes of its uid, in the value at uid 1 of `<attr>__vector_entry`; each node's neighbours as one value at
+the node's uid under `<attr>__vector_`, holding every level's list as one matrix encoded little-endian; and the deleted
+nodes as a JSON array of uids, in the value at uid 1 of `<attr>__vector_dead`, as Dgraph does. Dgraph copies the matrix
+in native byte order, which is little-endian on amd64 and arm64.
 
 #### Scenario: The first insert creates the entry point
 - **WHEN** the first vector is inserted into an empty index

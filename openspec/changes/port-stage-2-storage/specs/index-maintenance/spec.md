@@ -2,8 +2,9 @@
 
 ### Requirement: Index tokens follow the value
 Setting an indexed value SHALL add the subject to the index key of each of its tokens, and changing or deleting the
-value SHALL remove the subject from the old value's tokens. A language-tagged value SHALL be tokenized by the
-language's tokenizer.
+value SHALL remove the subject from each token the old value produces and no remaining value of the subject produces;
+Dgraph removes it from every token of the old value. A language-tagged value SHALL be tokenized by the language's
+tokenizer.
 
 #### Scenario: Setting an indexed value adds its tokens
 - **WHEN** `name: string @index(term) .` holds no value for `0x1` and `name` is set to `big apple`
@@ -20,6 +21,10 @@ language's tokenizer.
 #### Scenario: A language value uses its language's tokenizer
 - **WHEN** a fulltext-indexed predicate is set with language `de` to `Häuser`
 - **THEN** the index holds the German stem's token
+
+#### Scenario: Deleting one value of a list keeps shared tokens
+- **WHEN** `tags: [string] @index(term) .` holds `big apple` and `red apple` for `0x1`, and `big apple` is deleted
+- **THEN** the index key for `big` no longer contains `0x1`, and the keys for `red` and `apple` still do
 
 ### Requirement: Reverse edges
 For a predicate with `@reverse`, setting `a → b` SHALL add `a` to the reverse key of `b`, deleting it SHALL remove
@@ -47,8 +52,10 @@ no posting SHALL leave the count unchanged; with `@reverse` as well, the reverse
 - **THEN** the reverse count keys of `0x2` reflect one more incoming edge
 
 ### Requirement: Deleting all of a predicate for a subject
-A delete of `<s> <p> *` SHALL remove every posting of `p` for `s`, its index tokens or reverse edges, and the subject
-from its count key.
+A delete of `<s> <p> *` SHALL remove every posting of `p` for `s`; for an indexed `p`, the tokens of each posting, a
+language-tagged value's computed by its language's tokenizer; for a `p` with `@reverse`, its reverse edges; and the
+subject from the count key it is listed under. Dgraph tokenizes every posting without its language, and removes the
+subject from the count of all its postings, where a scalar with language values stays listed under count 1.
 
 #### Scenario: A star delete clears reverse and count entries
 - **WHEN** `<0x1> <friend> * .` is deleted on `friend: [uid] @reverse @count .`
@@ -56,5 +63,23 @@ from its count key.
   key, and each former target's reverse count drops by one
 
 #### Scenario: A star delete clears index entries
-- **WHEN** `<0x1> <name> * .` is deleted on an indexed `name`
+- **WHEN** `name: string @index(fulltext) @lang .` holds an untagged value and a value tagged `de` for `0x1`, and
+  `<0x1> <name> * .` is deleted
 - **THEN** no index key of `name` contains `0x1`
+
+#### Scenario: A star delete on a scalar with language values clears its count
+- **WHEN** `name: string @count @lang .` holds an untagged value and a value tagged `en` for `0x1`, and
+  `<0x1> <name> * .` is deleted
+- **THEN** `0x1` is listed under no count key of `name`
+
+### Requirement: Values are converted to the schema type
+Applying an edge SHALL convert its value to the predicate's schema type, and SHALL refuse the edge, writing nothing of
+its request, with Dgraph's text when the value cannot be converted.
+
+#### Scenario: A value is converted to the schema type
+- **WHEN** `age: int .` is set for `0x1` with the untyped value `"12"`
+- **THEN** `age` of `0x1` holds the int 12
+
+#### Scenario: A value that cannot be converted is refused
+- **WHEN** `age: int .` is set for `0x1` with the untyped value `"twelve"`
+- **THEN** the write fails with `strconv.ParseInt: parsing "twelve": invalid syntax`, and `age` of `0x1` holds nothing

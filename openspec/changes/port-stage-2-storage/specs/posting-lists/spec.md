@@ -3,7 +3,8 @@
 ### Requirement: A read merges deltas over the complete list
 Reading a posting list at timestamp `t` SHALL merge, newest first, the deltas committed at or below `t` over the
 newest complete version at or below `t`, SHALL ignore deltas committed above `t`, and SHALL read the older versions
-when `t` is below the newest complete version.
+when `t` is below the newest complete or empty version; Dgraph serves an empty rollup to reads below it
+(`mvcc.go:708-709`).
 
 #### Scenario: A read does not see a later delta
 - **WHEN** a list holds a delta committed at 6 and is read at 5
@@ -16,6 +17,10 @@ when `t` is below the newest complete version.
 #### Scenario: A read below a rollup reads the older versions
 - **WHEN** a list with deltas at 3 and 5 was rolled up into a complete version at 6 and is read at 4
 - **THEN** the result is the list as of the delta at 3
+
+#### Scenario: A read below an empty rollup reads the older versions
+- **WHEN** a list holds a delta at 4, a delete-all at 5 and an empty rollup at 6, and is read at 4
+- **THEN** the result holds the delta's postings
 
 ### Requirement: Posting operations and identities
 Set, delete and overwrite SHALL apply as in Dgraph. A reference posting SHALL be identified by its target uid; an
@@ -54,7 +59,10 @@ above `T`, and SHALL hide nothing for reads below `T`.
 A rollup at timestamp `R` SHALL write the list visible at `R` as one complete version with the discard flag, at the
 largest of the list's complete-version timestamp, its delete-all timestamp and its visible delta commit timestamps,
 plus one when `R` is finite; it SHALL keep only value postings and postings with facets beside the packed uids, and
-reads at or above that version SHALL return what they returned before.
+reads at or above that version SHALL return what they returned before. It SHALL write its main key, its parts and the
+deletions of the parts it removes in one batch at the main key's version; Dgraph writes the parts one version below and
+each key in a transaction of its own. A rollup whose key gained a deletion above the rollup's version SHALL be
+discarded and redone.
 
 #### Scenario: A rollup preserves every read above it
 - **WHEN** a list with a complete version and several deltas is rolled up
@@ -73,10 +81,15 @@ reads at or above that version SHALL return what they returned before.
 - **WHEN** a reference posting carrying a facet is rolled up
 - **THEN** the posting and its facet are read back after the rollup
 
+#### Scenario: A crash during a split rollup leaves one list whole
+- **WHEN** the process crashes while the rollup of a split list is written, and the store is reopened
+- **THEN** the list reads as it did before the rollup, with its old parts, or as after it, with its new parts
+
 ### Requirement: Split lists
 A list whose encoded size reaches 512 KiB and that spans more than one block SHALL be split at the middle block's
 base uid, recursively, into parts under split keys, the first part starting at uid 1; a rollup SHALL remove empty
-parts and delete their keys, and a list left with one empty part SHALL become unsplit.
+parts and delete their keys, and a list left with one empty part SHALL become unsplit. Reading a split key as a list
+SHALL fail with `cannot read posting list using multi-part list key`.
 
 #### Scenario: A large list is split into parts
 - **WHEN** a list grows past 512 KiB over several blocks and is rolled up
@@ -92,4 +105,4 @@ parts and delete their keys, and a list left with one empty part SHALL become un
 
 #### Scenario: A split part cannot be read as a list
 - **WHEN** a split key is read directly as a posting list
-- **THEN** the read fails with an invalid-key error
+- **THEN** the read fails with `cannot read posting list using multi-part list key`

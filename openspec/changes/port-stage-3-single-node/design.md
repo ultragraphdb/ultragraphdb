@@ -37,12 +37,15 @@ separate process.
 
 | Crate | Path | Ports |
 |---|---|---|
-| `ultragraphdb_query_task` | `ultragraphdb_query_task` | `worker/task.go`, `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`, `match.go`, `aggregator.go` |
-| `ultragraphdb_query_engine` | `ultragraphdb_query_engine` | `query/` without `outputnode_graphql.go`: subgraphs, functions, variables, aggregation, math, groupby, recurse, shortest, cascade, normalize, expand, mutations' uid assignment and edge expansion, JSON and RDF output |
-| `ultragraphdb_server_zero` | `ultragraphdb_server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers |
-| `ultragraphdb_server_acl` | `ultragraphdb_server_acl` | `acl/`, `edgraph/access.go`, `access_control.go`, `predicate_acl.go`, `anonymous.go`, `authn.go`, `x/tenancy.go`, JWTs |
-| `ultragraphdb_server_alpha` | `ultragraphdb_server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers |
+| `ultragraphdb_query_task` | `ultragraphdb_query/ultragraphdb_query_task` | `worker/task.go`, `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`, `match.go`, `aggregator.go` |
+| `ultragraphdb_query_engine` | `ultragraphdb_query/ultragraphdb_query_engine` | `query/` without `outputnode_graphql.go`: subgraphs, functions, variables, aggregation, math, groupby, recurse, shortest, cascade, normalize, expand, mutations' uid assignment and edge expansion, JSON and RDF output |
+| `ultragraphdb_server_zero` | `ultragraphdb_server/ultragraphdb_server_zero` | Zero's `assign.go`, `oracle.go`, the `Zero` gRPC service subset an Alpha uses, its HTTP handlers |
+| `ultragraphdb_server_acl` | `ultragraphdb_server/ultragraphdb_server_acl` | `acl/`, `edgraph/access.go`, `access_control.go`, `predicate_acl.go`, `anonymous.go`, `authn.go`, `x/tenancy.go`, JWTs |
+| `ultragraphdb_server_alpha` | `ultragraphdb_server/ultragraphdb_server_alpha` | `edgraph/` (server, namespaces, multi-tenancy), the request path, the apply thread, HTTP handlers |
 | `ultragraphdb_bin` | `ultragraphdb_bin` | `dgraph/cmd/root.go`, `alpha/run.go`, `zero/run.go`, `acl/acl.go`'s command: the `ultragraph` binary and its `alpha`, `zero` and `acl` subcommands |
+
+The crates sit in the `ultragraphdb_query/` and `ultragraphdb_server/` group folders; `ultragraphdb_bin` sits at the
+root, as `ultragraphdb_client` does.
 
 ### All writes go through the group's apply thread
 

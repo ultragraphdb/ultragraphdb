@@ -37,13 +37,13 @@ Backup, restore and export are started through GraphQL `/admin` mutations in Dgr
 
 | Crate | Path | Ports |
 |---|---|---|
-| `ultragraphdb_cluster_tablets` | `ultragraphdb_cluster_tablets` | Zero's tablet map, assignment, size accounting, the rebalancer and backoff |
-| `ultragraphdb_cluster_move` | `ultragraphdb_cluster_move` | `predicate_move.go` and Zero's `movePredicate` |
-| `ultragraphdb_ops_export` | `ultragraphdb_ops_export` | `export.go` |
-| `ultragraphdb_ops_backup` | `ultragraphdb_ops_backup` | The port's backup format, written fresh: full and incremental backups, the chain, verification, staged online and offline restore; Dgraph's `backup*.go` and `online_restore.go` for the admin flow and the lease bumps |
-| `ultragraphdb_tool_xidmap` | `ultragraphdb_tool_xidmap` | `xidmap`, persisted in fjall |
-| `ultragraphdb_tool_live` | `ultragraphdb_tool_live` | `dgraph/cmd/live` over `ultragraphdb_client`, as the `ultragraph live` subcommand |
-| `ultragraphdb_tool_bulk` | `ultragraphdb_tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
+| `ultragraphdb_cluster_tablets` | `ultragraphdb_cluster/ultragraphdb_cluster_tablets` | Zero's tablet map, assignment, size accounting, the rebalancer and backoff |
+| `ultragraphdb_cluster_move` | `ultragraphdb_cluster/ultragraphdb_cluster_move` | `predicate_move.go` and Zero's `movePredicate` |
+| `ultragraphdb_ops_export` | `ultragraphdb_ops/ultragraphdb_ops_export` | `export.go` |
+| `ultragraphdb_ops_backup` | `ultragraphdb_ops/ultragraphdb_ops_backup` | The port's backup format, written fresh: full and incremental backups, the chain, verification, staged online and offline restore; Dgraph's `backup*.go` and `online_restore.go` for the admin flow and the lease bumps |
+| `ultragraphdb_tool_xidmap` | `ultragraphdb_tool/ultragraphdb_tool_xidmap` | `xidmap`, persisted in fjall through `ultragraphdb_store_kv` |
+| `ultragraphdb_tool_live` | `ultragraphdb_tool/ultragraphdb_tool_live` | `dgraph/cmd/live` over `ultragraphdb_client`, as the `ultragraph live` subcommand |
+| `ultragraphdb_tool_bulk` | `ultragraphdb_tool/ultragraphdb_tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
 
 The chunker's file and stream readers (gzip) join `ultragraphdb_core_chunker`.
 
@@ -156,7 +156,7 @@ Alternatives considered:
 ## Risks / Trade-offs
 
 - [Compaction drops a tombstone before the next incremental backup reads it, and the deleted key returns on restore]
-  → The store keeps every tombstone newer than the latest published backup's `read_ts` (stage 2's compaction filter
+  → The store keeps every tombstone newer than the latest published backup's `read_ts` (stage 2's deletion sweep
   takes that horizon), and a restore of the chain is checked against the source in the stage's tests.
 - [A restore needs room for the staged store beside the live one] → Restore checks free space against the manifest's
   sizes before it starts and refuses with the shortfall.

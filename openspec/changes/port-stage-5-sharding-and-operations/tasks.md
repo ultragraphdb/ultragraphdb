@@ -8,6 +8,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 - [ ] 1.2 Port Zero's tablet map: `ShouldServe`, `Inform` answering with the owner's tablet, reserved predicates in group 1, the race rule, read-only lookups, the delete instruction for unserved tablets
 - [ ] 1.3 Port the Alpha's tablet cache, `BelongsTo`, `BelongsToReadOnly`, the ownership check at apply, the checksum gate
 - [ ] 1.4 Tablet size reports summed per predicate prefix by the store; decide the method, since fjall reports disk space per keyspace only
+- [ ] 1.5 Add `ultragraphdb_cluster/*`, `ultragraphdb_ops/*` and `ultragraphdb_tool/*` to the root `Cargo.toml`'s members
 
 ## 2. Fan-out → `ultragraphdb_server_alpha`, `ultragraphdb_query_task`
 
@@ -57,7 +58,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 - [ ] 10.1 Scenarios: backup-restore; features from the chain, incremental, drop and online-restore cases of `systest/backup` and `systest/online-restore`, rewritten for the port's format
 - [ ] 10.2 The part format: header, LZ4 frames (`lz4_flex`) with CRC32C, records, trailer; a reader that fails on the first damaged frame, record or out-of-order key, with tests over truncation, bit flips and reordering
 - [ ] 10.3 Backups: one read timestamp across groups, full and incremental content with `delete` records, the UTF-8 check of every string value, parts of at most 256 MiB, the manifest written last and atomically, removal of an unpublished backup's leftovers, file and S3 destinations
-- [ ] 10.4 The tombstone horizon: stage 2's compaction filter keeps tombstones newer than the latest published backup's read timestamp
+- [ ] 10.4 The tombstone horizon: set stage 2's horizon to the latest published backup's read timestamp, so its deletion sweep keeps every deletion newer than it
 - [ ] 10.5 Restore: chain checks, the per-group merge with drops and deletes, sorted ingestion into staged stores, the switch on success (directory rename offline, all groups at once online), the free-space check, lease bumps for both; refusal of foreign manifests and unknown formats
 - [ ] 10.6 `ultragraph backup verify`
 

@@ -1,7 +1,8 @@
 # Porting Dgraph from Go to Rust: overview
 
 * Date: 2026-10-20
-* Source: Dgraph `v25.5.0` (commit `93ff232`, 2026-10-14), Apache-2.0, `github.com/dgraph-io/dgraph`
+* Source: the Dgraph fork at `9fbf35614`: v25.5.0 (commit `93ff232`, 2026-10-14) plus six commits, Apache-2.0,
+  `github.com/dgraph-io/dgraph`
 * Prior work: the investigation of Dgraph v25.5.0 in the scrith repository,
   `scrith/openspec/notes/schema/bench/dgraph-investigation.md` and `dgraph-bench.md` §5–§6 there.
 
@@ -65,7 +66,7 @@ pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
 | `google.golang.org/grpc`, `protobuf` | `tonic`, `prost` | Decided |
 | `blevesearch/bleve` (tokenizers, stemmers) | A port of bleve's analysis in `ultragraphdb_core_tok`; `rust-stemmers` for the Snowball languages | Decided |
 | `golang/geo`, `twpayne/go-geom`, `paulmach/go.geojson` | Ports of golang/geo's S2 and of go-geom in `ultragraphdb_core_types` | Decided |
-| `dgryski/go-farm`, `go-groupvarint` | `farmhash`, an in-house group-varint | Proposed |
+| `dgryski/go-farm`, `go-groupvarint` | In-house ports: go-farm's `Fingerprint64` as `go_farm` in `ultragraphdb_common_utils` (MIT), group-varint in `ultragraphdb_core_codec` | Decided |
 | `golang/snappy`, `klauspost/compress` | `lz4_flex` for backups; `flate2` over `miniz_oxide` for gzip exports | Decided |
 | `dgraph-io/simdjson-go`, `encoding/json` | A port of Go's `encoding/json` in `ultragraphdb_common_utils` | Decided |
 | `minio/minio-go` (backups) | `object_store` | Proposed |
@@ -177,7 +178,7 @@ one without transactions:
 
 | Badger use in Dgraph | fjall |
 |---|---|
-| Versioned keys, read at a timestamp | The version in the key, `(key, ts)` with `ts` descending, so "newest at or below" is one seek |
+| Versioned keys, read at a timestamp | The version in the key: the user key with `0x00` escaped as `0x00 0xFF`, the terminator `0x00 0x01`, then the complemented big-endian version, so fjall's byte order is Badger's key-then-newest order and "newest at or below" is one seek |
 | Rollups writing a complete posting list and discarding older versions | A write of the complete list; a compaction filter drops the versions below the discard timestamp, as Badger's compaction does |
 | Writes from the apply loop and from background rollups | Atomic write batches from the group's apply thread |
 | The Stream framework: snapshots to followers, backups, export, predicate moves | Streamed range scans over a snapshot |
@@ -193,8 +194,10 @@ and three rules replace the rest:
 2. **A read at timestamp `t` waits until every commit at or below `t` is applied, then reads one store
    snapshot.** The wait makes the read complete; the snapshot keeps it whole while later batches and
    compactions run.
-3. **Cache entries keyed by version**, `(key, version)`, so the cache holds only what that version's
-   snapshot holds.
+3. **Cache entries keyed by key, each holding the list, the commit timestamp it reflects and the cache's epoch,**
+   replaced in the commit's critical section. A reader at `t` uses an entry only when its timestamp is at or below
+   `t` and no commit to that key is applied in between; a fill is refused after a newer commit or an epoch change,
+   which drops, schema changes and rebuilds make (stage 2's design).
 
 A reader then sees a commit whole or not at all, and an index read and a scan of the same snapshot agree.
 

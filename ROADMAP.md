@@ -2,7 +2,7 @@
 
 | Stage | Status | 
 |---|---|
-| 1. Foundations | `ported` |
+| 1. Foundations | ✅ |
 | 1.5. Fault simulator | `Next` | 
 | 2. Storage | `open` | 
 | 2.5. Harden Storage | `open` | 

@@ -22,15 +22,20 @@ batch, and a rollup SHALL replace or remove the entry of the list it rolled up.
 
 ### Requirement: A reader fills the cache only with a current list
 A reader that missed the cache SHALL insert the list it read from the store only if no commit to that key was applied
-after the reader's snapshot, checked under the writer lock.
+after the reader's snapshot and the cache's epoch is the one the reader started under, checked under the writer lock.
 
 #### Scenario: A stale fill is refused
 - **WHEN** a reader misses, a commit then writes the key, and the reader then inserts its list
 - **THEN** the insert is refused and a read at the commit's timestamp reflects the commit
 
 ### Requirement: Schema changes and drops clear the cache
-A schema change, an index rebuild and any drop SHALL clear the cache.
+A schema change, an index rebuild and any drop SHALL advance the cache's epoch under the writer lock, after which an
+entry of an older epoch SHALL be a miss and a fill begun under an older epoch SHALL be refused.
 
 #### Scenario: A drop clears the cache
 - **WHEN** a cached predicate is dropped
 - **THEN** a read of that predicate finds nothing
+
+#### Scenario: A fill begun before a drop is refused
+- **WHEN** a reader misses a list, the list's predicate is then dropped, and the reader inserts its list
+- **THEN** the insert is refused, and a read of the predicate finds nothing

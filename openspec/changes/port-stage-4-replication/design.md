@@ -39,9 +39,9 @@ round trip to the Raft goroutine, in Zero and in the Alpha (`zero/raft.go:56-62`
 
 | Crate | Path | Ports |
 |---|---|---|
-| `ultragraphdb_raft_storage` | `ultragraphdb_raft_storage` | `raftwal` as raft-rs `Storage`: an append-only log of its own over an async storage trait, with a compio implementation and a simulated one; the log dump tool |
-| `ultragraphdb_raft_transport` | `ultragraphdb_raft_transport` | `conn/raft_server.go`, `pool.go`, the batching of `node.go` |
-| `ultragraphdb_raft_node` | `ultragraphdb_raft_node` | `conn/node.go`'s node core, the Ready loop, proposals and their waiters, configuration changes |
+| `ultragraphdb_raft_storage` | `ultragraphdb_raft/ultragraphdb_raft_storage` | `raftwal` as raft-rs `Storage`: an append-only log of its own over an async storage trait, with a compio implementation and a simulated one; the log dump tool |
+| `ultragraphdb_raft_transport` | `ultragraphdb_raft/ultragraphdb_raft_transport` | `conn/raft_server.go`, `pool.go`, the batching of `node.go` |
+| `ultragraphdb_raft_node` | `ultragraphdb_raft/ultragraphdb_raft_node` | `conn/node.go`'s node core, the Ready loop, proposals and their waiters, configuration changes |
 
 `ultragraphdb_server_alpha` gains `draft.go`'s apply dispatch, snapshots and membership; `ultragraphdb_server_zero` gains Zero's Raft state
 machine.
@@ -126,7 +126,7 @@ A retry carries the same bytes as its first attempt, timestamp included, so dedu
 ### The applied index and deduplication in the store
 
 The apply thread writes the applied index, and the keys of the proposals it applied, in the same store batch as the
-entry's writes. A restarted replica skips entries at or below the applied index, and every replica skips a duplicate
+entry's writes, as metadata entries it names in the store's metadata keyspace (stage 2). A restarted replica skips entries at or below the applied index, and every replica skips a duplicate
 key from the store, so a restarted or lagging replica decides as the others did. Dgraph keeps its deduplication map
 in memory with a wall-clock expiry (`draft.go:874-963`) and skips entries below a checkpoint it records once a minute
 (`draft.go:1173-1192`, `1513`).
@@ -151,7 +151,8 @@ exempt (`proposal.go:125-312`, `draft.go:1108-1153`); schema proposals take one 
 ### The deterministic simulator
 
 A group of three replicas and its Zero run in one process on a seeded cooperative executor: the real Raft node, apply
-thread and log code, over the simulated log storage, a simulated network (delays, drops, duplicates, partitions) and a
+thread and log code, over the simulated log storage, stage 2's simulated store (`ultragraphdb_store_sim`) under the
+apply thread, a simulated network (delays, drops, duplicates, partitions) and a
 simulated clock. raft-rs draws election timeouts from `rand::rng()`, so the simulator sets `max_election_tick` to
 `min_election_tick + 1`. Task order, network faults, storage faults, crashes and restarts each draw from their own
 stream of the run's seed; a failing run prints its seed, and the seed replays it. After each step the simulator checks

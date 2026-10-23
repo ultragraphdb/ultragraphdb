@@ -9,6 +9,7 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 - [ ] 1.4 raft-rs `Storage` over the log: entries, terms, first and last index, hard state, configuration, snapshot metadata
 - [ ] 1.5 The node identifiers; the two durability modes; the kill-during-append test; the storage-fault tests on the simulated implementation
 - [ ] 1.6 The entry payload codec (`key ‖ pb.Proposal`, `pb.ZeroProposal`), proposal key generation, the log dump tool
+- [ ] 1.7 Add `ultragraphdb_raft/*` to the root `Cargo.toml`'s members
 
 ## 2. Transport → `ultragraphdb_raft_transport`
 

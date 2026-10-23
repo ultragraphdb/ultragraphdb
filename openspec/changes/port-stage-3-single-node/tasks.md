@@ -9,6 +9,7 @@ ultragraphdb alone.
 - [ ] 1.1 BDD step library driving `ultragraphdb_client` against a target server; normalisation of uids and latencies
 - [ ] 1.2 Go Dgraph v25.5.0 as a second target through the `DgraphInstance` fixture, re-pinned from v25.4.0 to `dgraph/standalone:v25.5.0`, with the harness's address whitelisted; Dgraph's test data (`populateCluster`) loaded into both
 - [ ] 1.3 The `@differential` tag: such a scenario passes only when both targets agree; untagged scenarios run against ultragraphdb alone
+- [ ] 1.4 Add `ultragraphdb_query/*`, `ultragraphdb_server/*` and `ultragraphdb_bin` to the root `Cargo.toml`'s members
 
 ## 2. Zero: timestamps and leases → `ultragraphdb_server_zero`
 
@@ -19,7 +20,7 @@ ultragraphdb alone.
 
 ## 3. Task processing → `ultragraphdb_query_task`
 
-- [ ] 3.1 Port `worker/sort_test.go`, `match_test.go`, `similar_to_options_test.go`; scenarios: root functions and filters
+- [ ] 3.1 Port `worker/sort_test.go`, `match_test.go`, `similar_to_options_test.go`, `precalculate_uids_test.go`; scenarios: root functions and filters
 - [ ] 3.2 Port `processTask` and the function families: comparisons, terms and text, regexp, match, ngram, geo, has, uid_in, checkpwd, similar_to
 - [ ] 3.3 Port `tokens.go`, `trigram.go`, `stringfilter.go`, `sort.go`, `aggregator.go`
 
