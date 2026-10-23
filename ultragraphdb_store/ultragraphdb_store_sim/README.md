@@ -1,0 +1,105 @@
+# ultragraphdb_store_sim
+
+A deterministic, in-memory implementation of the `Store` trait (`ultragraphdb_traits_store`) that injects storage
+faults and checks every result against a shadow model. Every storage crate runs its own workload on it from its own
+tests; the fjall store (`ultragraphdb_store_kv`) is checked against it operation by operation.
+
+This file lists what the simulator injects, what is detected when it does, and what is neither injected nor detected.
+The last list is where detection has to grow, above all once replication (stage 4) and sharding (stage 5) arrive.
+
+## A run
+
+A run is a function of its seed. `Seed` derives one stream per consumer (workload, faults, process, scheduler, cache,
+executor), each a `SimRng` (SplitMix64), so a change to one consumer does not move another's draws. Time is
+`SimClock` and advances only when the simulation moves it; background work runs on `SteppedExecutor`, which the
+simulation steps; the posting cache in simulation is `SimListCache`, with seeded eviction. A failing run reports its
+seed, the step and the broken invariant, and the same seed replays it, log events included (`LogCapture` records
+events without wall-clock time).
+
+Seed sets run as hermetic Bazel tests in `make test`:
+
+| Crate | Fixed seeds |
+|---|---|
+| `ultragraphdb_store_sim` | 48 with every fault class, 16 without faults |
+| `ultragraphdb_store_posting` | 40 with faults, 20 without |
+| `ultragraphdb_core_schema` | 48 of 300 steps with faults |
+| `ultragraphdb_store_kv` | the store workload replayed on fjall: 12 seeds without faults, 6 with crashes (61 reopens) |
+
+Longer runs over fresh seeds: `store_sim_fuzz [first seed] [seeds] [steps]`, a binary run outside `make test`.
+
+## Faults injected
+
+`FaultConfig` sets each fault's chance per thousand; `FaultConfig::mixed()` turns every class on, rare enough that a
+few hundred steps see most of them. `Fault` forces one at a chosen point in a test.
+
+| Fault | Chance counted | What the simulated store does |
+|---|---|---|
+| Failed batch | per batch | The batch fails during its persist and poisons the store: every later write, sync and drop is refused until recovery, and after recovery the batch is present whole or absent whole, as fjall replays or drops it |
+| Crash while a batch is written | per batch | The process stops mid-batch; the batch is absent after recovery |
+| Crash between steps | per step | The process stops; what was handed to the operating system survives, what was buffered is lost |
+| Power loss between steps | per step | A suffix of the batches written since the last sync is lost; the survivors are a prefix of batch order |
+| Crash during a drop | per drop | The drop stops at one of its stages (`DropStage`: start, record written, record synced, data removed, entries synced); recovery finishes a drop whose record was synced |
+| Power loss during a drop | per drop | As a crash, losing the unsynced stages |
+| Failed read | per read | A point read fails |
+| Failed scan | per read | A scan fails after yielding some items |
+| Corrupted value | per read | `Truncate` cuts the value below its version prefix; `FlipValueByte` inverts one byte past the prefix |
+| Slow operation | per operation | The operation takes up to the configured simulated time |
+
+## What detects a fault
+
+| Fault | Detected by | How |
+|---|---|---|
+| Failed batch, crash, power loss | the shadow model (`StoreModel`) | After recovery the store's contents equal the model's (`ContentsMatchModel`); every synced batch survives (`SyncedBatchSurvives`); a batch is whole or absent (`BatchWhole`); the survivors are a prefix (`SurvivorsArePrefix`); nothing but recovery follows a failed batch (`RecoveryAfterFailure`) |
+| A drop stopped part-way | the shadow model | A dropped prefix stays dropped once the drop's record was synced (`DroppedPrefixAbsent`); the entries a prefix drop writes are fenced and survive garbage collection |
+| Failed read or scan | the caller | The store returns `StoreError::ReadFailed` naming the key; every crate propagates it |
+| `Truncate` | the store | The read is refused with `StoreError::Corrupted` naming the key |
+| `FlipValueByte`, structural | the decoder above the store | The posting decoder refuses a value whose protobuf, operation or type enum, per-block uid count, uid order, posting order or split order no longer holds, with `PostingError::Corrupted` naming the key; the schema decoder refuses an undecodable entry with `SchemaError::Decode` |
+| Slow operation | nothing needs to | Results are unchanged; the run checks that nothing depends on timing |
+| Reads, garbage collection and timestamps | the shadow model | `ReadsAtOrBelowTimestamp`, `DiscardBelowOpenReads`, `NoWriteBelowDeletion`, `AppliedTsIsHighest` |
+| Posting lists | `ultragraphdb_store_posting`'s workload | "a list holds what was written to it" (cached and uncached reads both), "a rollup writes nothing after a drop" |
+| Schema loading | `ultragraphdb_core_schema`'s workload | Between failures a load equals the newest written state; after a recovery the loaded state is the state after some batch at or after the last sync |
+| fjall diverging from the simulator | `ultragraphdb_store_kv`'s workload test | Every answer, the contents version for version, the applied and discard timestamps and the tombstone horizon, compared after every step |
+
+Each detector was checked against planted bugs: seven in the simulated store (lost synced batches, a partial batch,
+over-eager collection, a read above its timestamp, drop entries not written, a crash losing buffered batches, bans
+ignored), each reported under the right invariant; a disabled cache update in the posting commit, caught at once; the
+journaled removals of collected keys disabled in the fjall store, caught by the crash runs.
+
+## Injected but not detected
+
+- **A flipped byte that leaves a valid encoding.** `FlipValueByte` can turn a list of uids 1..=10, or a delta of one to
+  five postings, into a different list that decodes cleanly, and a protobuf name byte into another valid byte; no
+  decoder can tell. Stored values carry no checksum of their own. The posting and schema workloads therefore run with
+  `corruption = 0`, and the corruption scenarios use values whose flip is structural. On fjall, a corrupted block fails
+  lsm-tree's block checksum and surfaces as a failed read; a corruption that happens before the value reaches fjall
+  (memory, a bug above the store) is not caught anywhere.
+
+## Neither injected nor detected
+
+- **Faults below fjall.** fjall does its I/O through `std::fs` with no file-system seam, so the simulator injects at the
+  `Store` boundary and fjall's own recovery is exercised only by the kill tests (`ultragraphdb_store_kv`'s crash
+  harness: kills during a batch and during a drop). Not modelled: an fsync that reports success and loses the data, a
+  write that lands at the wrong offset, lost directory entries, disk full, read-only remounts, a torn write inside a
+  journal page.
+- **Power loss on fjall.** The fjall replay runs crashes as close-and-reopen; a power loss, a failed batch, failed reads
+  and slow operations cannot be injected into fjall and are checked on the simulated store only.
+- **Real thread interleavings.** The simulation steps tasks one at a time. fjall's compaction and flush workers, moka's
+  internal threads and the thread-backed `Executor` run concurrently in production and are not explored by the seeds.
+- **Wall-clock effects.** Simulated time does not model clock jumps or skew; moka's time-based eviction does not run in
+  simulation.
+- **Corruption of the store's own metadata** (the discard timestamp, the tombstone horizon, the banned set, drop
+  records): these are synced when set and are not corrupted by the fault stream.
+- **Compaction failures.** A failed compaction poisons fjall as a failed batch does; the simulator does not inject one.
+- **Anything across processes.** One store, one process: no replicas, no network, no Raft log.
+
+## Where detection grows next
+
+- **Checksummed values.** A checksum in the stored value's framing would make every flipped byte detectable, at the
+  cost of bytes per version; the corruption workloads could then run with `corruption > 0`.
+- **Stage 4, replication.** The Raft log has its own file-level simulated storage (torn writes reported and silent,
+  process crash, power loss) and CRC32C-framed records, and a deterministic simulator runs a group of three and its Zero
+  over a simulated network. Replicas apply the same entries, so comparing their stores' contents after each step turns a
+  silent divergence on one replica into a detected one.
+- **Stage 5, sharding and backups.** Backups carry a CRC32C per frame and a SHA-256 per part, and `ultragraph backup
+  verify` reads a chain without restoring it; predicate moves and rebalancing add cross-group states the shadow model
+  will need to follow.
