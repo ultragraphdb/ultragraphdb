@@ -9,13 +9,12 @@ use tonic::Code;
 
 /// Failure of an authentication or token-refresh operation.
 ///
-/// The wrapped classification is private; branch on [`AuthError::kind`].
+/// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct AuthError(AuthErrorEnum);
+pub struct AuthError(pub AuthErrorEnum);
 
 /// Detailed classification of authentication errors.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum AuthErrorEnum {
     /// The login RPC failed.
     LoginFailed { code: Code, message: String },
@@ -44,11 +43,6 @@ pub enum AuthErrorEnum {
 impl AuthError {
     pub(crate) fn new(variant: AuthErrorEnum) -> Self {
         Self(variant)
-    }
-
-    /// Classification, for callers that need to branch on the failure.
-    pub fn kind(&self) -> &AuthErrorEnum {
-        &self.0
     }
 
     #[allow(non_snake_case)]

@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 use ultragraphdb_client::utils_test::{Exclusivity, Strategy};
 
 /// `Strategy::parse` rather than `Strategy::from_env` throughout this file.

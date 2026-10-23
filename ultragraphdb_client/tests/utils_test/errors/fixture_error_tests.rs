@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 use ultragraphdb_client::utils_test::{FixtureError, FixtureErrorEnum};
 
 #[test]
@@ -50,5 +55,5 @@ fn not_ready_carries_enough_to_diagnose() {
 #[test]
 fn kind_is_the_branching_surface() {
     let err = FixtureError::new(FixtureErrorEnum::Docker("no daemon".to_string()));
-    assert!(matches!(err.kind(), FixtureErrorEnum::Docker(_)));
+    assert!(matches!(err.0, FixtureErrorEnum::Docker(_)));
 }

@@ -7,7 +7,8 @@
 //     (segment_words.go, the table-driven ragel output built from Unicode 8.0.0's WordBreakProperty.txt, which
 //     bleve's unicode tokenizer runs), read as Go source;
 //   - unicode_tables.rs: unicode.ToLower's mapping and the unicode.Letter ranges of the Go toolchain building this
-//     command, which must be the one building Dgraph (go 1.27);
+//     command, which must be the one building Dgraph (go 1.27), for ultragraphdb_common_utils, whose go_unicode
+//     reads them;
 //   - stop_word_tables.rs: the stop-word token maps of bleve v2.5.7 for the 28 languages of Dgraph's
 //     tok/stopwords.go, read through bleve's registry as Dgraph reads them.
 //
@@ -53,11 +54,13 @@ func main() {
 	}
 	root, err := filepath.Abs("../..")
 	check(err)
-	dst := filepath.Join(root, "ultragraphdb_core_tok", "src", "tables")
+	dst := filepath.Join(root, "ultragraphdb_core", "ultragraphdb_core_tok", "src", "tables")
 	check(os.MkdirAll(dst, 0o755))
 
 	write(dst, "segment_tables.rs", segmentTables(filepath.Join(segDir, "segment_words.go")))
-	write(dst, "unicode_tables.rs", unicodeTables())
+	utilsDst := filepath.Join(root, "ultragraphdb_common", "ultragraphdb_common_utils", "src", "tables")
+	check(os.MkdirAll(utilsDst, 0o755))
+	write(utilsDst, "unicode_tables.rs", unicodeTables())
 	write(dst, "stop_word_tables.rs", stopWordTables())
 }
 

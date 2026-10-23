@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 //! Why a Dgraph could not be obtained.
 
 use crate::utils_test::types::strategy::Strategy;
@@ -6,13 +11,11 @@ use std::fmt;
 
 /// The error of every fallible operation in this module.
 ///
-/// The classification is wrapped rather than public so variants can be added without breaking
-/// callers; branch on [`FixtureError::kind`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FixtureError(FixtureErrorEnum);
+/// The classification is the public field `.0`; branch on it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FixtureError(pub FixtureErrorEnum);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FixtureErrorEnum {
     /// An environment variable does not describe a usable endpoint.
     Configuration(String),
@@ -39,10 +42,6 @@ impl FixtureError {
         Self(kind)
     }
 
-    pub fn kind(&self) -> &FixtureErrorEnum {
-        &self.0
-    }
-
     pub fn is_not_ready(&self) -> bool {
         matches!(self.0, FixtureErrorEnum::NotReady { .. })
     }
@@ -53,6 +52,41 @@ impl FixtureError {
 
     pub fn is_missing_credential(&self) -> bool {
         matches!(self.0, FixtureErrorEnum::MissingCredential { .. })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Configuration(msg: String) -> Self {
+        Self(FixtureErrorEnum::Configuration(msg))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn UnsupportedStrategy(value: String) -> Self {
+        Self(FixtureErrorEnum::UnsupportedStrategy { value })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn MissingCredential(variable: String) -> Self {
+        Self(FixtureErrorEnum::MissingCredential { variable })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Docker(msg: String) -> Self {
+        Self(FixtureErrorEnum::Docker(msg))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NotReady(host: String, port: u16, attempts: u32, last: String) -> Self {
+        Self(FixtureErrorEnum::NotReady {
+            host,
+            port,
+            attempts,
+            last,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Health(url: String, detail: String) -> Self {
+        Self(FixtureErrorEnum::Health { url, detail })
     }
 }
 

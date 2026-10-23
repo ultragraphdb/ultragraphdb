@@ -11,12 +11,12 @@ use ultragraphdb_client::{AuthError, AuthErrorEnum};
 fn missing_refresh_token_retains_the_triggering_failure() {
     let err = AuthError::MissingRefreshToken(Code::Unauthenticated, "Token is expired".to_string());
 
-    match err.kind() {
+    match err.0 {
         AuthErrorEnum::MissingRefreshToken {
             original_code,
             original_message,
         } => {
-            assert_eq!(*original_code, Code::Unauthenticated);
+            assert_eq!(original_code, Code::Unauthenticated);
             assert_eq!(original_message, "Token is expired");
         }
         other => panic!("unexpected classification: {other:?}"),
@@ -40,7 +40,7 @@ fn refresh_failed_retains_both_failures() {
 #[test]
 fn constructors_produce_matching_classification() {
     assert!(matches!(
-        AuthError::MalformedJwtPayload("bad".to_string()).kind(),
+        AuthError::MalformedJwtPayload("bad".to_string()).0,
         AuthErrorEnum::MalformedJwtPayload(_)
     ));
 }

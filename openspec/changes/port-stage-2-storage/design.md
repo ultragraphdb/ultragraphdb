@@ -55,7 +55,9 @@ from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
   newest first and drops those older than the newest discard-flagged or tombstone version at or below the discard
   timestamp, Badger's rule (`badger/levels.go:815-835`); the tombstone itself is dropped only when compacting into
   the last level, and no item above the last level is destroyed without a tombstone, so an older copy below cannot
-  return. Versions outside a run are kept until a run covers them.
+  return. Versions outside a run are kept until a run covers them. A tombstone newer than the latest published backup's
+  read timestamp is kept whatever the discard timestamp, so the next incremental backup records the deletion (stage 5).
+  Before any backup exists, no tombstone is held back.
 - **Prefix drops** write a point tombstone for every key under the prefix, in batches through the writer, then clear
   the cache; compaction reclaims the space, and lsm-tree's `drop_range` can drop tables wholly inside the prefix.
   fjall 3.1 offers no range deletion; dropping everything uses `Keyspace::clear`.

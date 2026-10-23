@@ -10,7 +10,7 @@ use super::{AuthError, AuthErrorEnum};
 // variant of this type carries credential material.
 impl Display for AuthError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match &self.0 {
             AuthErrorEnum::LoginFailed { code, message } => {
                 write!(f, "Login Failed: {code:?}: {message}")
             }

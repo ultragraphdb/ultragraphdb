@@ -15,13 +15,14 @@ use crate::errors::transaction_error::TransactionError;
 
 /// The error type returned by every fallible operation on this crate's public API.
 ///
-/// The wrapped classification is private; branch on [`UltraGraphError::kind`].
+/// The classification is the public field `.0`; branch on it.
+///
+/// `PartialEq` alone, without `Eq` and `Hash`: [`TransactionError`] takes neither, as it keeps a response.
 #[derive(Debug, Clone, PartialEq)]
-pub struct UltraGraphError(UltraGraphErrorEnum);
+pub struct UltraGraphError(pub UltraGraphErrorEnum);
 
 /// Detailed classification of Dgraph client errors.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum UltraGraphErrorEnum {
     /// A `dgraph://` connection string could not be parsed or validated.
     ConnectionString(ConnectionStringError),
@@ -38,11 +39,6 @@ pub enum UltraGraphErrorEnum {
 impl UltraGraphError {
     pub(crate) fn new(variant: UltraGraphErrorEnum) -> Self {
         Self(variant)
-    }
-
-    /// Classification, for callers that need to branch on the failure.
-    pub fn kind(&self) -> &UltraGraphErrorEnum {
-        &self.0
     }
 
     /// Whether the failure was an aborted transaction, which the caller may wish to retry

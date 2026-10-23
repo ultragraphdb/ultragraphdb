@@ -10,16 +10,13 @@ use ultragraphdb_client::{
 #[test]
 fn wraps_each_component_error() {
     let err = UltraGraphError::from(ConnectionStringError::MissingPort());
-    assert!(matches!(
-        err.kind(),
-        UltraGraphErrorEnum::ConnectionString(_)
-    ));
+    assert!(matches!(err.0, UltraGraphErrorEnum::ConnectionString(_)));
 
     let err = UltraGraphError::from(ConnectError::NoEndpoints());
-    assert!(matches!(err.kind(), UltraGraphErrorEnum::Connect(_)));
+    assert!(matches!(err.0, UltraGraphErrorEnum::Connect(_)));
 
     let err = UltraGraphError::from(TransactionError::Finished());
-    assert!(matches!(err.kind(), UltraGraphErrorEnum::Transaction(_)));
+    assert!(matches!(err.0, UltraGraphErrorEnum::Transaction(_)));
 }
 
 // Status is flattened at the boundary so this crate's errors stay Clone + PartialEq and
@@ -28,9 +25,9 @@ fn wraps_each_component_error() {
 fn flattens_status_into_code_and_message() {
     let err = UltraGraphError::from(Status::new(Code::NotFound, "missing"));
 
-    match err.kind() {
+    match err.0 {
         UltraGraphErrorEnum::Rpc { code, message } => {
-            assert_eq!(*code, Code::NotFound);
+            assert_eq!(code, Code::NotFound);
             assert_eq!(message, "missing");
         }
         other => panic!("unexpected classification: {other:?}"),

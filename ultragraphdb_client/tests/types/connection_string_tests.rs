@@ -64,7 +64,7 @@ fn rejects_unterminated_ipv6_literal() {
     let err = ConnectionString::parse("dgraph://[::1:9080").expect_err("should reject");
 
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::MalformedAuthority(_)
     ));
 }
@@ -74,7 +74,7 @@ fn rejects_invalid_scheme() {
     let err = ConnectionString::parse("http://localhost:9080").expect_err("should reject");
 
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::InvalidScheme(scheme) if scheme == "http"
     ));
 }
@@ -83,46 +83,37 @@ fn rejects_invalid_scheme() {
 fn rejects_missing_scheme_separator() {
     let err = ConnectionString::parse("localhost:9080").expect_err("should reject");
 
-    assert!(matches!(
-        err.kind(),
-        ConnectionStringErrorEnum::InvalidScheme(_)
-    ));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::InvalidScheme(_)));
 }
 
 #[test]
 fn rejects_missing_port() {
     let err = ConnectionString::parse("dgraph://localhost").expect_err("should reject");
-    assert!(matches!(err.kind(), ConnectionStringErrorEnum::MissingPort));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::MissingPort));
 
     let err = ConnectionString::parse("dgraph://localhost:").expect_err("should reject");
-    assert!(matches!(err.kind(), ConnectionStringErrorEnum::MissingPort));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::MissingPort));
 }
 
 #[test]
 fn rejects_missing_host() {
     let err = ConnectionString::parse("dgraph://:9080").expect_err("should reject");
 
-    assert!(matches!(err.kind(), ConnectionStringErrorEnum::MissingHost));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::MissingHost));
 }
 
 #[test]
 fn rejects_non_numeric_port() {
     let err = ConnectionString::parse("dgraph://localhost:abc").expect_err("should reject");
 
-    assert!(matches!(
-        err.kind(),
-        ConnectionStringErrorEnum::InvalidPort(_)
-    ));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::InvalidPort(_)));
 }
 
 #[test]
 fn rejects_out_of_range_port() {
     let err = ConnectionString::parse("dgraph://localhost:70000").expect_err("should reject");
 
-    assert!(matches!(
-        err.kind(),
-        ConnectionStringErrorEnum::InvalidPort(_)
-    ));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::InvalidPort(_)));
 }
 
 #[test]
@@ -130,10 +121,7 @@ fn rejects_conflicting_auth_parameters() {
     let err = ConnectionString::parse("dgraph://localhost:9080?apikey=a&bearertoken=b")
         .expect_err("should reject");
 
-    assert!(matches!(
-        err.kind(),
-        ConnectionStringErrorEnum::ConflictingAuth
-    ));
+    assert!(matches!(err.0, ConnectionStringErrorEnum::ConflictingAuth));
 }
 
 #[test]
@@ -142,7 +130,7 @@ fn rejects_unknown_ssl_mode() {
         .expect_err("should reject");
 
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::UnknownSslMode(mode) if mode == "verify-full"
     ));
 }
@@ -151,13 +139,13 @@ fn rejects_unknown_ssl_mode() {
 fn rejects_incomplete_credentials() {
     let err = ConnectionString::parse("dgraph://groot@localhost:9080").expect_err("should reject");
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::IncompleteCredentials
     ));
 
     let err = ConnectionString::parse("dgraph://:pw@localhost:9080").expect_err("should reject");
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::IncompleteCredentials
     ));
 }
@@ -168,7 +156,7 @@ fn rejects_invalid_namespace() {
         .expect_err("should reject");
 
     assert!(matches!(
-        err.kind(),
+        err.0,
         ConnectionStringErrorEnum::InvalidNamespace(_)
     ));
 }

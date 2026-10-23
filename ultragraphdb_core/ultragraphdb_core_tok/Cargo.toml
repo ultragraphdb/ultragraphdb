@@ -1,0 +1,48 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_core_tok"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+# Contains a port of Go's bytes.ToLower (BSD-3-Clause, see LICENSE-GO) and of go-porterstemmer (MIT, see
+# LICENSE-PORTERSTEMMER) beside this repository's Apache-2.0 code.
+license = "Apache-2.0 AND BSD-3-Clause AND MIT"
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_error_options = { workspace = true }
+ultragraphdb_traits_index = { workspace = true }
+ultragraphdb_core_types = { workspace = true }
+ultragraphdb_core_text = { workspace = true }
+ultragraphdb_proto_pb = { workspace = true }
+blake2 = { workspace = true }
+rust-stemmers = { workspace = true }
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_test_bdd = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

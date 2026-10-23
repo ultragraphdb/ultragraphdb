@@ -128,22 +128,20 @@ impl UltraGraphClient {
                     ..Default::default()
                 };
 
-                self.issue_login(request)
-                    .await
-                    .map_err(|err| match err.kind() {
-                        // Re-tag a login failure that happened during a refresh so the
-                        // triggering failure is not lost, which is the Go client's worst
-                        // error-reporting behaviour.
-                        crate::errors::auth_error::AuthErrorEnum::LoginFailed { code, message } => {
-                            AuthError::RefreshFailed(
-                                *code,
-                                message.clone(),
-                                original_code,
-                                original_message.clone(),
-                            )
-                        }
-                        _ => err,
-                    })
+                self.issue_login(request).await.map_err(|err| match &err.0 {
+                    // Re-tag a login failure that happened during a refresh so the
+                    // triggering failure is not lost, which is the Go client's worst
+                    // error-reporting behaviour.
+                    crate::errors::auth_error::AuthErrorEnum::LoginFailed { code, message } => {
+                        AuthError::RefreshFailed(
+                            *code,
+                            message.clone(),
+                            original_code,
+                            original_message.clone(),
+                        )
+                    }
+                    _ => err,
+                })
             })
             .await?;
 

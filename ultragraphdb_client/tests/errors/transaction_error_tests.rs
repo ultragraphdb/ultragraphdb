@@ -8,11 +8,11 @@ use ultragraphdb_client::{TransactionError, TransactionErrorEnum};
 #[test]
 fn constructors_produce_matching_classification() {
     assert!(matches!(
-        TransactionError::Finished().kind(),
+        TransactionError::Finished().0,
         TransactionErrorEnum::Finished
     ));
     assert!(matches!(
-        TransactionError::ReadOnly().kind(),
+        TransactionError::ReadOnly().0,
         TransactionErrorEnum::ReadOnly
     ));
 }
@@ -23,9 +23,9 @@ fn constructors_produce_matching_classification() {
 fn aborted_retains_status_code_and_message() {
     let err = TransactionError::Aborted(Code::Aborted, "conflicting txn".to_string());
 
-    match err.kind() {
+    match err.0 {
         TransactionErrorEnum::Aborted { code, message } => {
-            assert_eq!(*code, Code::Aborted);
+            assert_eq!(code, Code::Aborted);
             assert_eq!(message, "conflicting txn");
         }
         other => panic!("unexpected classification: {other:?}"),

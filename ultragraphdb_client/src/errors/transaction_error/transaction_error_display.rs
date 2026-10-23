@@ -8,7 +8,7 @@ use super::{TransactionError, TransactionErrorEnum};
 
 impl Display for TransactionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match &self.0 {
             TransactionErrorEnum::Finished => write!(
                 f,
                 "Transaction Finished: the transaction has already been committed, discarded, or \

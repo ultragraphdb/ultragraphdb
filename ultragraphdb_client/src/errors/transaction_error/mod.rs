@@ -11,17 +11,16 @@ use crate::types::response::Response;
 
 /// Failure of a transaction operation.
 ///
-/// The wrapped classification is private; branch on [`TransactionError::kind`].
+/// The classification is the public field `.0`; branch on it.
 ///
 /// Note this type derives `PartialEq` but not `Eq`/`Hash`, because
 /// [`TransactionErrorEnum::StartTsMismatch`] retains the response that accompanied the
 /// conflict and a response payload is not hashable.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TransactionError(TransactionErrorEnum);
+pub struct TransactionError(pub TransactionErrorEnum);
 
 /// Detailed classification of transaction errors.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum TransactionErrorEnum {
     /// The transaction has already been committed or discarded, or was poisoned by a
     /// failed mutation. No further operations are possible.
@@ -52,11 +51,6 @@ pub enum TransactionErrorEnum {
 impl TransactionError {
     pub(crate) fn new(variant: TransactionErrorEnum) -> Self {
         Self(variant)
-    }
-
-    /// Classification, for callers that need to branch on the failure.
-    pub fn kind(&self) -> &TransactionErrorEnum {
-        &self.0
     }
 
     /// Whether this transaction was aborted and may be worth retrying in a new

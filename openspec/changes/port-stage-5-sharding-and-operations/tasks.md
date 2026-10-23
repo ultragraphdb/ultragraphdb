@@ -54,9 +54,12 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 
 ## 10. Backup and restore → `ultragraphdb_ops_backup`
 
-- [ ] 10.1 Port `backup_manifest_test.go`, `backup_handler_test.go`, `backup_test.go`, `backup/run_test.go`; features from `systest/backup` and `systest/online-restore`; scenarios: backup-restore
-- [ ] 10.2 Port backups: the per-group stream since the previous backup's read timestamp, S2 compression, the file format, manifests and summaries, file and S3 handlers
-- [ ] 10.3 Port the restore chain rules, the map and reduce phases over fjall, offline and online restore, lease bumps for both; the refusal of encrypted manifests
+- [ ] 10.1 Scenarios: backup-restore; features from the chain, incremental, drop and online-restore cases of `systest/backup` and `systest/online-restore`, rewritten for the port's format
+- [ ] 10.2 The part format: header, LZ4 frames (`lz4_flex`) with CRC32C, records, trailer; a reader that fails on the first damaged frame, record or out-of-order key, with tests over truncation, bit flips and reordering
+- [ ] 10.3 Backups: one read timestamp across groups, full and incremental content with `delete` records, the UTF-8 check of every string value, parts of at most 256 MiB, the manifest written last and atomically, removal of an unpublished backup's leftovers, file and S3 destinations
+- [ ] 10.4 The tombstone horizon: stage 2's compaction filter keeps tombstones newer than the latest published backup's read timestamp
+- [ ] 10.5 Restore: chain checks, the per-group merge with drops and deletes, sorted ingestion into staged stores, the switch on success (directory rename offline, all groups at once online), the free-space check, lease bumps for both; refusal of foreign manifests and unknown formats
+- [ ] 10.6 `ultragraph backup verify`
 
 ## 11. Bulk loader and import → `ultragraphdb_tool_bulk`
 

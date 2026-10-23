@@ -7,13 +7,12 @@ mod connection_string_error_error;
 
 /// Failure to parse or validate a `dgraph://` connection string.
 ///
-/// The wrapped classification is private; branch on [`ConnectionStringError::kind`].
+/// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConnectionStringError(ConnectionStringErrorEnum);
+pub struct ConnectionStringError(pub ConnectionStringErrorEnum);
 
 /// Detailed classification of connection-string errors.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum ConnectionStringErrorEnum {
     /// The string did not start with the `dgraph://` scheme.
     InvalidScheme(String),
@@ -42,11 +41,6 @@ pub enum ConnectionStringErrorEnum {
 impl ConnectionStringError {
     pub(crate) fn new(variant: ConnectionStringErrorEnum) -> Self {
         Self(variant)
-    }
-
-    /// Classification, for callers that need to branch on the failure.
-    pub fn kind(&self) -> &ConnectionStringErrorEnum {
-        &self.0
     }
 
     #[allow(non_snake_case)]

@@ -83,10 +83,8 @@
 //!
 //! # Errors
 //!
-//! Every failure is a typed variant. Errors follow the repo's wrapper pattern (see
-//! `rust/README_RUST.md` section 6): a public tuple struct with a private field wrapping a
-//! `#[non_exhaustive]` classification enum, reached through `kind()`. Adding a failure
-//! mode is therefore not a breaking change.
+//! Every failure is a typed variant. Errors take the repo's shape: a tuple struct whose public
+//! field `.0` is an exhaustive classification enum, with one constructor per variant.
 //!
 //! No public signature returns `Box<dyn Error>` or any trait object, and gRPC failures are
 //! stored as a [`tonic::Code`] plus message rather than a `tonic::Status`, which keeps

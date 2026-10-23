@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 //! Shared helpers and canned responses for tests.
 //!
 //! In `src/`, not `tests/`: Bazel cannot reach helper files inside `tests/` but can reach all of

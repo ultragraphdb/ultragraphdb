@@ -13,12 +13,13 @@ strip() { sed 's/\x1b\[[0-9;]*m//g'; }
 summary() { grep -Eo '[0-9]+ scenarios? \([^)]*\)' | tail -1; }
 
 status=0
-for dir in ultragraphdb_*/; do
-  crate="${dir%/}"
-  [ -d "$crate/features" ] || continue
+for dir in ultragraphdb_*/ ultragraphdb_*/ultragraphdb_*/; do
+  package="${dir%/}"
+  crate="${package##*/}"
+  [ -f "$package/Cargo.toml" ] && [ -d "$package/features" ] || continue
   cargo_out=$(cargo test -p "$crate" --test bdd 2>&1 | strip | summary || true)
-  bazel test "//$crate:bdd" >/dev/null 2>&1 || true
-  bazel_out=$(strip < "target-bzl/testlogs/$crate/bdd/test.log" | summary || true)
+  bazel test "//$package:bdd" >/dev/null 2>&1 || true
+  bazel_out=$(strip < "target-bzl/testlogs/$package/bdd/test.log" | summary || true)
   if [ -n "$cargo_out" ] && [ "$cargo_out" = "$bazel_out" ]; then
     echo "ok        $crate: $cargo_out"
   else

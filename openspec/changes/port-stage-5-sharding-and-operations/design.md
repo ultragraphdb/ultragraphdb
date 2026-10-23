@@ -21,7 +21,8 @@ Backup, restore and export are started through GraphQL `/admin` mutations in Dgr
 - Dgraph's tablet lifecycle, moves and rebalancing.
 - Queries over several groups with the results of one.
 - Transactions spanning groups, all or nothing, under both transaction forms and the write-key check.
-- Export, backup, restore and the loaders in Dgraph's formats, so data moves in from Go Dgraph.
+- Export and the loaders in Dgraph's formats, so data moves in from Go Dgraph; backup and restore for the port's own
+  backups.
 - An admin interface in place of GraphQL `/admin`.
 
 **Non-Goals:**
@@ -39,7 +40,7 @@ Backup, restore and export are started through GraphQL `/admin` mutations in Dgr
 | `ultragraphdb_cluster_tablets` | `ultragraphdb_cluster_tablets` | Zero's tablet map, assignment, size accounting, the rebalancer and backoff |
 | `ultragraphdb_cluster_move` | `ultragraphdb_cluster_move` | `predicate_move.go` and Zero's `movePredicate` |
 | `ultragraphdb_ops_export` | `ultragraphdb_ops_export` | `export.go` |
-| `ultragraphdb_ops_backup` | `ultragraphdb_ops_backup` | `backup*.go`, `backup/`, the restore map and reduce, online and offline restore |
+| `ultragraphdb_ops_backup` | `ultragraphdb_ops_backup` | The port's backup format, written fresh: full and incremental backups, the chain, verification, staged online and offline restore; Dgraph's `backup*.go` and `online_restore.go` for the admin flow and the lease bumps |
 | `ultragraphdb_tool_xidmap` | `ultragraphdb_tool_xidmap` | `xidmap`, persisted in fjall |
 | `ultragraphdb_tool_live` | `ultragraphdb_tool_live` | `dgraph/cmd/live` over `ultragraphdb_client`, as the `ultragraph live` subcommand |
 | `ultragraphdb_tool_bulk` | `ultragraphdb_tool_bulk` | `dgraph/cmd/bulk`, `dgraphimport`, `worker/import.go`, as the `ultragraph bulk` and `ultragraph import` subcommands; `ultragraph restore` for offline restores |
@@ -76,13 +77,89 @@ run as tasks with a status (queued, running, success, failed) on Dgraph's task q
 Dgraph runs only backup and export; restore and moves answer synchronously there. Its transport is open (see Open
 Questions).
 
-### Formats as Dgraph writes them
+### Export in Dgraph's formats
 
-Export files, backup files, manifests and the restore chain rules follow Dgraph, so Go Dgraph's exports and
-unencrypted backups load into ultragraphdb. The bulk loader writes fjall stores by sorted batch ingestion per
-keyspace in place of Badger's stream writer.
+Export files follow Dgraph, so Go Dgraph's exports load into ultragraphdb through the live and bulk loaders, which
+build every index from values. The bulk loader writes fjall stores by sorted batch ingestion per keyspace in place of
+Badger's stream writer.
+
+### Backups in the port's own format
+
+Restore loads only backups the port wrote, so the format is the port's own, chosen to be simple to read, to fail
+loudly, and to leave a backup that is either complete or invisible. Dgraph's layout is dropped: its single rewritten
+`manifest.json`, its unsorted per-group files that need a map and a reduce phase to restore, its manifest upgrades
+between Go releases and its encryption.
+
+**Layout.** One directory (or key prefix in S3) per backup, under the chain's identifier:
+
+```
+<root>/<backup_id>/<backup_num, 6 digits>/g<group, 4 digits>-<part, 5 digits>.ugb
+<root>/<backup_id>/<backup_num, 6 digits>/manifest.json
+```
+
+`backup_id` is a UUIDv7 drawn by the full backup and kept by its incrementals; `backup_num` counts from 1. Every object
+is written once and never rewritten, so no write can corrupt an earlier backup, and S3 needs no read-modify-write.
+
+**Publication.** The data files are written first; `manifest.json` last, through a temporary name and a rename on a
+filesystem, as one PUT on S3. A backup without its manifest does not exist: listing, restore and the next incremental
+ignore it, so a crash or a failed upload leaves the chain as it was. A later backup removes the leftovers of an
+unpublished one under its own number before writing.
+
+**Data files.** A group's records are written in strictly ascending key order and split into parts of at most 256 MiB,
+so each part uploads and retries on its own and a restore reads them as one sorted stream.
+- A part starts with a header: the magic `UGBK`, the format version (1), the group, `backup_id` and `backup_num`.
+- Frames follow: each holds the uncompressed and compressed lengths, the CRC32C of the compressed bytes, and an LZ4
+  block (`lz4_flex`, pure Rust) of about 4 MiB of records.
+- A record is a tag (`put` or `delete`), the key, and for a put the key's posting list rolled up at the backup's read
+  timestamp, each length-prefixed.
+- A trailer closes the part: the magic `UGBE`, the record count and the last key.
+
+A truncated part, a flipped bit or keys out of order fail on the frame or record where they occur.
+
+**Manifest.** A JSON object holding:
+- `writer: "ultragraphdb"`, the writer's version, and `format: 1`;
+- `backup_id`, `backup_num`, `type` (`full` or `incremental`), `since_ts` (0 for a full backup) and `read_ts`;
+- the drop operations applied after the previous backup, in order;
+- the uid and namespace leases' maxima at `read_ts`;
+- per group, its predicates and its parts, each with its byte size, record count, first and last key and SHA-256.
+
+Restore refuses a manifest without `writer: "ultragraphdb"` or with a format it does not know.
+
+**Content.** A backup reads every group at one read timestamp leased from Zero.
+- A full backup holds every key, with its posting list rolled up at that timestamp; schema and type keys included.
+- An incremental backup holds every key whose newest version at or below `read_ts` is above `since_ts`: a `put` with the
+  rolled-up list, or a `delete` when that version is a tombstone.
+- Before a string value is written, it is checked for valid UTF-8; a backup meeting one that is not fails, naming the
+  key, and publishes nothing.
+
+**Restore.** The chain up to backup `N` must be complete: one `backup_id`, numbers 1 to `N` without a gap, every part
+present with its listed size and hash. Per group, restore merges the chain's sorted streams; for each key the newest
+backup's record wins, a `delete` removes it, and a record of backup `j` is skipped when a drop recorded in a backup `m`
+with `j < m ≤ N` covers its predicate or namespace. Because the merged stream is sorted, it goes straight into a fresh
+fjall keyspace by sorted batch ingestion, verifying CRCs and hashes as it reads; Dgraph's map and reduce phases
+have no counterpart.
+- An offline restore writes a new store directory and renames it into place on success.
+- An online restore writes each group's staged keyspace and switches the group to it once every group has succeeded.
+
+A failed restore leaves the target as it was; Dgraph's online restore drops the data first. The uid and namespace
+leases are raised to the manifest's maxima, online and offline alike.
+
+**Verification.** `ultragraph backup verify` reads a chain as restore does and checks every frame, hash, count, key
+order and string value without writing anything, so a backup can be proven restorable before it is needed.
+
+Alternatives considered:
+- Dgraph's layout: kept nothing the port needs once Go backups are not restored, and its restore needs map and reduce.
+- Copying fjall's files: ties a backup to one storage version and file layout, has no incrementals, and cannot restore
+  into another group layout.
+- A general container (Parquet, SQLite): adds a large dependency for a sorted stream of byte pairs.
 
 ## Risks / Trade-offs
+
+- [Compaction drops a tombstone before the next incremental backup reads it, and the deleted key returns on restore]
+  → The store keeps every tombstone newer than the latest published backup's `read_ts` (stage 2's compaction filter
+  takes that horizon), and a restore of the chain is checked against the source in the stage's tests.
+- [A restore needs room for the staged store beside the live one] → Restore checks free space against the manifest's
+  sizes before it starts and refuses with the shortfall.
 
 - [The cross-group mechanism is undecided] → `cross-group-transactions` and the upsert scenarios cannot pass until it
   is; task group 4 starts with the decision.
@@ -96,7 +173,7 @@ keyspace in place of Badger's stream writer.
 
 ## Migration Plan
 
-Data moves from Go Dgraph by export or unencrypted backup into ultragraphdb, or by bulk-loading its export.
+Data moves from Go Dgraph by export into ultragraphdb, through the live loader or by bulk-loading the export.
 
 ## Open Questions
 

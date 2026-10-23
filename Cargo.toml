@@ -1,7 +1,18 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
 [workspace]
 resolver = "2"
 members = [
-    "ultragraphdb_*",
+    "ultragraphdb_client",
+    "ultragraphdb_common/*",
+    "ultragraphdb_core/*",
+    "ultragraphdb_error/*",
+    "ultragraphdb_proto/*",
+    "ultragraphdb_test/*",
+    "ultragraphdb_traits/*",
 ]
 
 [workspace.package]
@@ -18,26 +29,33 @@ publish = false
 # Internal crates
 # ==============
 ## Common
-ultragraphdb_common_version = { path = "ultragraphdb_common_version" }
+ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
+ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
+## Error
+ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
+ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
 ## Client
 ultragraphdb_client = { path = "ultragraphdb_client" }
 ## Proto
-ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto_dgraph" }
-ultragraphdb_proto_pb = { path = "ultragraphdb_proto_pb" }
+ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
+ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
 ## Core: the pure packages ported from Dgraph
-ultragraphdb_core_algo = { path = "ultragraphdb_core_algo" }
-ultragraphdb_core_chunker = { path = "ultragraphdb_core_chunker" }
-ultragraphdb_core_codec = { path = "ultragraphdb_core_codec" }
-ultragraphdb_core_dql = { path = "ultragraphdb_core_dql" }
-ultragraphdb_core_facets = { path = "ultragraphdb_core_facets" }
-ultragraphdb_core_keys = { path = "ultragraphdb_core_keys" }
-ultragraphdb_core_lex = { path = "ultragraphdb_core_lex" }
-ultragraphdb_core_schema = { path = "ultragraphdb_core_schema" }
-ultragraphdb_core_text = { path = "ultragraphdb_core_text" }
-ultragraphdb_core_tok = { path = "ultragraphdb_core_tok" }
-ultragraphdb_core_types = { path = "ultragraphdb_core_types" }
+ultragraphdb_core_algo = { path = "ultragraphdb_core/ultragraphdb_core_algo" }
+ultragraphdb_core_chunker = { path = "ultragraphdb_core/ultragraphdb_core_chunker" }
+ultragraphdb_core_codec = { path = "ultragraphdb_core/ultragraphdb_core_codec" }
+ultragraphdb_core_dql = { path = "ultragraphdb_core/ultragraphdb_core_dql" }
+ultragraphdb_core_facets = { path = "ultragraphdb_core/ultragraphdb_core_facets" }
+ultragraphdb_core_keys = { path = "ultragraphdb_core/ultragraphdb_core_keys" }
+ultragraphdb_core_lex = { path = "ultragraphdb_core/ultragraphdb_core_lex" }
+ultragraphdb_core_schema = { path = "ultragraphdb_core/ultragraphdb_core_schema" }
+ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }
+ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
+ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
+## Traits
+ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
+ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }
 ## Test
-ultragraphdb_test_bdd = { path = "ultragraphdb_test_bdd" }
+ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
 
 # ==============
 # External crates

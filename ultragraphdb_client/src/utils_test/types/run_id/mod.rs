@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 //! Which run this is.
 
 use crate::utils_test::{RUN_ID_ENV, env_var};

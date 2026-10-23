@@ -1,18 +1,23 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
 
 # all_crate_deps needs one correction here. Cargo's `ultragraphdb_proto_dgraph` path dep maps to the Bazel label
-# //ultragraphdb_proto_dgraph, but in that package the name `ultragraphdb_proto_dgraph` belongs to the
+# //ultragraphdb_proto/ultragraphdb_proto_dgraph, but in that package the name `ultragraphdb_proto_dgraph` belongs to the
 # proto_library -- rust_prost_library runs as an aspect over its `proto` attribute, so the
 # generated crate is the separate :ultragraphdb_proto_dgraph_bindings target. Depending on the proto_library
 # directly fails analysis before rustc ever runs.
 BASE_DEPS = [
     dep
     for dep in all_crate_deps(normal = True)
-    if dep != "//ultragraphdb_proto_dgraph"
-] + ["//ultragraphdb_proto_dgraph:ultragraphdb_proto_dgraph_bindings"]
+    if dep != "//ultragraphdb_proto/ultragraphdb_proto_dgraph"
+] + ["//ultragraphdb_proto/ultragraphdb_proto_dgraph:ultragraphdb_proto_dgraph_bindings"]
 
 DEV_DEPS = BASE_DEPS + [
     dep

@@ -1,3 +1,8 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
 load("@rules_proto//proto:proto_toolchain.bzl", "proto_toolchain")
 
 package(default_visibility = ["//visibility:public"])

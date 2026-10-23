@@ -12,10 +12,7 @@ fn cluster_not_ready_is_detectable_without_string_matching() {
     let err = ConnectError::ClusterNotReady(Code::Unavailable, "Please retry".to_string());
 
     assert!(err.is_cluster_not_ready());
-    assert!(matches!(
-        err.kind(),
-        ConnectErrorEnum::ClusterNotReady { .. }
-    ));
+    assert!(matches!(err.0, ConnectErrorEnum::ClusterNotReady { .. }));
 }
 
 #[test]

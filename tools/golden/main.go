@@ -27,7 +27,8 @@ type generator struct {
 
 var generators = map[string]generator{}
 
-// register adds a generator writing <crate>/testdata/golden/<name>.json.
+// register adds a generator writing testdata/golden/<name>.json in the crate's directory, wherever it sits below the
+// repository root.
 func register(name, crate string, fn func() (any, error)) {
 	if _, dup := generators[name]; dup {
 		panic("duplicate golden generator " + name)
@@ -66,7 +67,7 @@ func main() {
 		}
 		cases, err := g.fn()
 		check(err)
-		dir := filepath.Join(root, g.crate, "testdata", "golden")
+		dir := filepath.Join(crateDir(root, g.crate), "testdata", "golden")
 		check(os.MkdirAll(dir, 0o755))
 		// Compact, not indented: the vectors run to tens of megabytes, and indentation more than doubles them.
 		data, err := json.Marshal(file{DgraphCommit: commit, Generator: "tools/golden " + name, Cases: cases})
@@ -75,6 +76,19 @@ func main() {
 		check(os.WriteFile(path, append(data, '\n'), 0o644))
 		fmt.Printf("wrote %s\n", path)
 	}
+}
+
+// crateDir finds the one directory named crate at the root or one folder below it.
+func crateDir(root, crate string) string {
+	dirs, err := filepath.Glob(filepath.Join(root, crate))
+	check(err)
+	nested, err := filepath.Glob(filepath.Join(root, "*", crate))
+	check(err)
+	dirs = append(dirs, nested...)
+	if len(dirs) != 1 {
+		check(fmt.Errorf("crate %s: want one directory below %s, found %v", crate, root, dirs))
+	}
+	return dirs[0]
 }
 
 func check(err error) {

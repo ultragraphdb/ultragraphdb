@@ -10,7 +10,7 @@ use super::{ConnectError, ConnectErrorEnum};
 // host:port authority only, with credentials already split off by the parser.
 impl Display for ConnectError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match &self.0 {
             ConnectErrorEnum::NoEndpoints => write!(
                 f,
                 "No Endpoints: a client must target at least one endpoint"

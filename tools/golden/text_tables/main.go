@@ -9,7 +9,8 @@
 //   - compact_tables.rs from internal/language/compact/tables.go, read as Go source;
 //   - norm_tables.rs from unicode/norm's public API: each rune's NFD lead and trail combining class and leading
 //     non-starters, and the NFKD decomposition of each rune the collation tables decompose;
-//   - unicode_tables.rs from the unicode package: the Ideographic and Nd ranges.
+//   - unicode_range_tables.rs from the unicode package: the Ideographic and Nd ranges, for ultragraphdb_common_utils,
+//     whose go_unicode reads them.
 //
 // The x/text tables are unexported, so they are read from the module's source with go/parser and evaluated here;
 // nothing is copied by hand. The norm and unicode data come from the Go toolchain building this command, which must
@@ -48,7 +49,7 @@ func main() {
 	}
 	root, err := filepath.Abs("../..")
 	check(err)
-	dst := filepath.Join(root, "ultragraphdb_core_text", "src", "tables")
+	dst := filepath.Join(root, "ultragraphdb_core", "ultragraphdb_core_text", "src", "tables")
 	check(os.MkdirAll(dst, 0o755))
 
 	coll := parseFile(filepath.Join(textDir, "collate", "tables.go"))
@@ -58,7 +59,9 @@ func main() {
 	compact := parseFile(filepath.Join(textDir, "internal", "language", "compact", "tables.go"))
 	write(dst, "compact_tables.rs", compactTables(compact))
 	write(dst, "norm_tables.rs", normTables(coll))
-	write(dst, "unicode_tables.rs", unicodeTables())
+	utilsDst := filepath.Join(root, "ultragraphdb_common", "ultragraphdb_common_utils", "src", "tables")
+	check(os.MkdirAll(utilsDst, 0o755))
+	write(utilsDst, "unicode_range_tables.rs", unicodeTables())
 }
 
 func check(err error) {

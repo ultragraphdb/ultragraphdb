@@ -10,7 +10,7 @@ use super::{ConnectionStringError, ConnectionStringErrorEnum};
 // ever constructs these variants with structural detail, never with credential material.
 impl Display for ConnectionStringError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match &self.0 {
             ConnectionStringErrorEnum::InvalidScheme(found) => {
                 write!(f, "Invalid Scheme: expected dgraph://, found '{found}'")
             }

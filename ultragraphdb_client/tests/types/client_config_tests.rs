@@ -9,7 +9,7 @@ use ultragraphdb_client::{ClientConfig, ConnectErrorEnum, Secret, TlsMode};
 fn rejects_an_empty_endpoint_list() {
     let err = ClientConfig::builder().build().expect_err("should reject");
 
-    assert!(matches!(err.kind(), ConnectErrorEnum::NoEndpoints));
+    assert!(matches!(err.0, ConnectErrorEnum::NoEndpoints));
 }
 
 #[test]

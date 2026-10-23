@@ -2178,6 +2178,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_common_utils"
+version = "0.1.0"
+dependencies = [
+ "dashu-int",
+ "ultragraphdb_error_num",
+]
+
+[[package]]
 name = "ultragraphdb_common_version"
 version = "0.1.0"
 
@@ -2202,6 +2210,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_facets",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_lex",
@@ -2231,9 +2240,11 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_lex",
  "ultragraphdb_core_types",
+ "ultragraphdb_error_num",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
@@ -2247,8 +2258,10 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_tok",
  "ultragraphdb_core_types",
+ "ultragraphdb_error_num",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
@@ -2262,6 +2275,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_test_bdd",
 ]
 
@@ -2271,6 +2285,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_test_bdd",
 ]
 
@@ -2282,6 +2297,7 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_lex",
  "ultragraphdb_core_tok",
@@ -2296,6 +2312,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_test_bdd",
 ]
 
@@ -2309,10 +2326,13 @@ dependencies = [
  "rust-stemmers",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_text",
  "ultragraphdb_core_types",
+ "ultragraphdb_error_options",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
+ "ultragraphdb_traits_index",
  "unicode-normalization",
 ]
 
@@ -2327,11 +2347,22 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+ "ultragraphdb_common_utils",
  "ultragraphdb_core_text",
+ "ultragraphdb_error_num",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_test_bdd",
+ "ultragraphdb_traits_collator",
 ]
+
+[[package]]
+name = "ultragraphdb_error_num"
+version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_error_options"
+version = "0.1.0"
 
 [[package]]
 name = "ultragraphdb_proto_dgraph"
@@ -2362,6 +2393,18 @@ dependencies = [
  "futures",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ultragraphdb_traits_collator"
+version = "0.1.0"
+
+[[package]]
+name = "ultragraphdb_traits_index"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_common_utils",
+ "ultragraphdb_error_options",
 ]
 
 [[package]]

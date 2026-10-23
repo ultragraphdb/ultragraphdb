@@ -1,0 +1,79 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+load("//bazel/rust:deps.bzl", "with_proto_bindings")
+
+rust_library(
+    name = "ultragraphdb_core_chunker",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_core_chunker"],
+    visibility = ["//visibility:public"],
+    deps = with_proto_bindings(all_crate_deps(normal = True)),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_core_chunker",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_core_chunker",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs.
+rust_test(
+    name = "ultragraphdb_core_chunker_tests",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
+    crate_root = "tests/mod.rs",
+    data = glob(
+        ["testdata/**"],
+        allow_empty = True,
+    ),
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_core_chunker"] + with_proto_bindings(all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    )),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    # bdd.rs includes the unit tests' golden N-Quad helpers by path.
+    srcs = [
+        "tests/bdd.rs",
+        "tests/golden_nquad.rs",
+    ],
+    crate_root = "tests/bdd.rs",
+    data = glob(
+        [
+            "features/**/*.feature",
+            "testdata/**",
+        ],
+        allow_empty = True,
+    ),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_core_chunker"] + with_proto_bindings(all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    )),
+)

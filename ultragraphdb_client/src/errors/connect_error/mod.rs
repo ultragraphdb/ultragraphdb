@@ -9,13 +9,12 @@ use tonic::Code;
 
 /// Failure to establish or validate a connection to a Dgraph cluster.
 ///
-/// The wrapped classification is private; branch on [`ConnectError::kind`].
+/// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConnectError(ConnectErrorEnum);
+pub struct ConnectError(pub ConnectErrorEnum);
 
 /// Detailed classification of connection errors.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum ConnectErrorEnum {
     /// No endpoints were supplied. A client must target at least one.
     NoEndpoints,
@@ -37,11 +36,6 @@ pub enum ConnectErrorEnum {
 impl ConnectError {
     pub(crate) fn new(variant: ConnectErrorEnum) -> Self {
         Self(variant)
-    }
-
-    /// Classification, for callers that need to branch on the failure.
-    pub fn kind(&self) -> &ConnectErrorEnum {
-        &self.0
     }
 
     /// Whether the cluster is up but still starting, so the caller may retry.

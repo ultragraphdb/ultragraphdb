@@ -7,15 +7,15 @@ use ultragraphdb_client::{ConnectionStringError, ConnectionStringErrorEnum};
 #[test]
 fn constructors_produce_matching_classification() {
     assert!(matches!(
-        ConnectionStringError::MissingPort().kind(),
+        ConnectionStringError::MissingPort().0,
         ConnectionStringErrorEnum::MissingPort
     ));
     assert!(matches!(
-        ConnectionStringError::ConflictingAuth().kind(),
+        ConnectionStringError::ConflictingAuth().0,
         ConnectionStringErrorEnum::ConflictingAuth
     ));
     assert!(matches!(
-        ConnectionStringError::InvalidScheme("http".to_string()).kind(),
+        ConnectionStringError::InvalidScheme("http".to_string()).0,
         ConnectionStringErrorEnum::InvalidScheme(s) if s == "http"
     ));
 }

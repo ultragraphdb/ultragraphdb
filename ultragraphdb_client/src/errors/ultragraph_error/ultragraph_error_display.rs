@@ -8,7 +8,7 @@ use super::{UltraGraphError, UltraGraphErrorEnum};
 
 impl Display for UltraGraphError {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self.kind() {
+        match &self.0 {
             UltraGraphErrorEnum::ConnectionString(err) => write!(f, "{err}"),
             UltraGraphErrorEnum::Connect(err) => write!(f, "{err}"),
             UltraGraphErrorEnum::Auth(err) => write!(f, "{err}"),

@@ -135,28 +135,39 @@ Code written here from scratch carries this repository's header alone:
 
 ### Crates
 
-Every crate sits in a top-level folder named `ultragraphdb_<name>`, the folder named as the crate, with no grouping
-folders; the root `Cargo.toml` takes them all as members through the glob `ultragraphdb_*`, and a crate's Bazel package
-is `//ultragraphdb_<name>`. A binary keeps its own name: the `ultragraph` binary is built by `ultragraphdb_bin`.
+Every crate sits in a group folder named for its layer, in a folder named as the crate: `ultragraphdb_common/`,
+`ultragraphdb_error/`, `ultragraphdb_proto/`, `ultragraphdb_traits/`, `ultragraphdb_core/` and `ultragraphdb_test/`, with
+`ultragraphdb_client/` at the root. The root `Cargo.toml` takes them as members through one glob per group folder, and a
+crate's Bazel package is its path, e.g. `//ultragraphdb_core/ultragraphdb_core_types`. An error raised by more than one
+crate takes a crate of its own under `ultragraphdb_error/`, and a trait implemented outside its crate one under
+`ultragraphdb_traits/`, so a crate naming either depends on that alone. Tests find their crate's `features/` and
+`testdata/` with `ultragraphdb_test_bdd::features_dir()` and `testdata_dir()`, from Bazel's `TEST_TARGET` or Cargo's
+`CARGO_MANIFEST_DIR`, so moving a crate needs no change in its tests. A binary keeps its own name: the `ultragraph`
+binary is built by `ultragraphdb_bin`.
 
 | Crate | Path | Depends on | Provides |
 |---|---|---|---|
-| `ultragraphdb_common_version` | `ultragraphdb_common_version` | — | `PRODUCT_NAME`; the workspace's first crate |
-| `ultragraphdb_proto_dgraph` | `ultragraphdb_proto_dgraph` | — | Dgraph's gRPC API, `api.proto`, generated unchanged: the server serves it and the client calls it. Built twice, see *Structure exemptions* |
-| `ultragraphdb_proto_pb` | `ultragraphdb_proto_pb` | `ultragraphdb_proto_dgraph` | Dgraph's internal messages and services, `pb.proto`, with the Badger messages it imports (`badgerpb4.proto`), as modules `pb` and `badgerpb4`. Generated without tonic's transport, whose `connect` clashes with Zero's `Connect` RPC. Built twice, see *Structure exemptions* |
+| `ultragraphdb_common_version` | `ultragraphdb_common/ultragraphdb_common_version` | — | `PRODUCT_NAME`; the workspace's first crate |
+| `ultragraphdb_error_num` | `ultragraphdb_error/ultragraphdb_error_num` | — | `NumError(pub NumErrorEnum)`: Go's `strconv.NumError`, `Syntax` and `Range`, with Go's texts; depends on nothing |
+| `ultragraphdb_error_options` | `ultragraphdb_error/ultragraphdb_error_options` | — | `OptionsError(pub OptionsErrorEnum)`: why an index option was refused, raised by `ultragraphdb_traits_index` and tok's hnsw factory |
+| `ultragraphdb_common_utils` | `ultragraphdb_common/ultragraphdb_common_utils` | `ultragraphdb_error_num` | The Go standard-library behaviour the port reproduces, once: modules `go_strconv` (parse, format, quote, unquote, `isprint`), `go_fmt`, `go_strings`, `go_unicode` (Unicode 17 tables generated from Go) and `go_utf8` |
+| `ultragraphdb_proto_dgraph` | `ultragraphdb_proto/ultragraphdb_proto_dgraph` | — | Dgraph's gRPC API, `api.proto`, generated unchanged: the server serves it and the client calls it. Built twice, see *Structure exemptions* |
+| `ultragraphdb_proto_pb` | `ultragraphdb_proto/ultragraphdb_proto_pb` | `ultragraphdb_proto_dgraph` | Dgraph's internal messages and services, `pb.proto`, with the Badger messages it imports (`badgerpb4.proto`), as modules `pb` and `badgerpb4`. Generated without tonic's transport, whose `connect` clashes with Zero's `Connect` RPC. Built twice, see *Structure exemptions* |
+| `ultragraphdb_traits_collator` | `ultragraphdb_traits/ultragraphdb_traits_collator` | — | `Collator`: the language collation Dgraph's sort uses, implemented by `ultragraphdb_core_types::TextCollator` |
+| `ultragraphdb_traits_index` | `ultragraphdb_traits/ultragraphdb_traits_index` | `ultragraphdb_common_utils`, `ultragraphdb_error_options` | Dgraph's `tok/index` and `tok/options`: the traits `IndexFactory`, `VectorIndex`, `OptionalIndexSupport`, `OptionalSearchOptions`, `Float`, `Txn`, `LocalCache`, `CacheType`, `OptionType`, and the types their signatures name (`Options`, `AllowedOptions`, `OptionValue`, `OptionParser`, `KeyValue`, `SearchPathResult`, `VectorIndexOptions`, `SearchFilter`, `Metric`), so a vector index is implemented without depending on tok |
 | `ultragraphdb_client` | `ultragraphdb_client` | `ultragraphdb_proto_dgraph` | `UltraGraphClient`, `UltraGraphError` and the transaction types, over `ultragraphdb_proto_dgraph`; it speaks to ultragraphdb and Go Dgraph alike. Behind `test-utils`: the `DgraphInstance` fixture, which serves the acceptance test and differential runs against Go Dgraph |
-| `ultragraphdb_test_bdd` | `ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir`, `testdata_dir`, `workspace_root`; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors; `trace` and `TraceReport`, tracing spec scenarios to feature scenarios; `check_declarations`, which holds every crate with features to a feature suite declared for Cargo and Bazel, and the test script to running the BDD tag after the unit tag |
-| `ultragraphdb_core_lex` | `ultragraphdb_core_lex` | — | Dgraph's `lex`: `Lexer`, `Item`, `ItemType`, `ItemIterator`, `StateFn`, the IRI helpers, `LexError` |
-| `ultragraphdb_core_keys` | `ultragraphdb_core_keys` | — | Dgraph's `x/keys.go`: the key builders and `parse` into `ParsedKey`, namespaces and reserved predicates, `KeyError` |
-| `ultragraphdb_core_codec` | `ultragraphdb_core_codec` | `ultragraphdb_proto_pb` | Dgraph's `codec`: `Encoder`, `Decoder`, `SeekPos` over `pb::UidPack`, and the go-groupvarint port beneath them |
-| `ultragraphdb_core_algo` | `ultragraphdb_core_algo` | `ultragraphdb_proto_pb`, `ultragraphdb_core_codec` | Dgraph's `algo`: sorted UID-list intersection, merge and difference, packed and unpacked, `Uint64Heap` |
-| `ultragraphdb_core_text` | `ultragraphdb_core_text` | — | Go's `x/text/collate` with its CLDR 23 tables and `x/text/language`'s base inference: `Collator`, `Tag`, `Base`, `Confidence`, `language_base`, `LanguageError` |
-| `ultragraphdb_core_types` | `ultragraphdb_core_types` | `ultragraphdb_proto_pb`, `ultragraphdb_proto_dgraph`, `ultragraphdb_core_text` | Dgraph's `types`: `TypeId`, `Val`, conversion and marshalling, sorting and comparison, `BigFloat`, `DateTime`, passwords, geometries with their WKB and GeoJSON encodings, geo tokens and filters over a port of golang/geo's S2; `TextCollator`, `TypesError` |
-| `ultragraphdb_core_tok` | `ultragraphdb_core_tok` | `ultragraphdb_core_types`, `ultragraphdb_core_text`, `ultragraphdb_proto_pb` | Dgraph's `tok`: `Tokenizer` and the registry, the bleve analysis it runs (segmentation, stop words, stemmers), the index options and the vector-index factory interface, `TokError`, `OptionsError` |
-| `ultragraphdb_core_facets` | `ultragraphdb_core_facets` | `ultragraphdb_core_types`, `ultragraphdb_core_tok`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `types/facets`: facet inference, encoding, term tokens and `sort_and_validate`, `FacetTypeId`, `FacetsError` |
-| `ultragraphdb_core_dql` | `ultragraphdb_core_dql` | `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_core_keys`, `ultragraphdb_proto_pb`, `ultragraphdb_proto_dgraph` | Dgraph's `dql`: `parse` into `GraphQuery` and its trees, `parse_mutation`, upsert blocks, `DqlError` |
-| `ultragraphdb_core_schema` | `ultragraphdb_core_schema` | `ultragraphdb_core_lex`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_core_keys`, `ultragraphdb_proto_pb` | Dgraph's schema parser: `parse` into `ParsedSchema`, the initial and pre-defined schema, `SchemaError` |
-| `ultragraphdb_core_chunker` | `ultragraphdb_core_chunker` | `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_core_facets`, `ultragraphdb_core_keys`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `chunker`: `parse_rdf`, `parse_rdfs`, `parse_json` and `NQuadBuffer` into `api::NQuad`, `data_format`, `ChunkerError` |
+| `ultragraphdb_test_bdd` | `ultragraphdb_test/ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir`, `testdata_dir`, `workspace_root`; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors; `trace` and `TraceReport`, tracing spec scenarios to feature scenarios; `check_declarations`, which holds every crate with features to a feature suite declared for Cargo and Bazel, and the test script to running the BDD tag after the unit tag |
+| `ultragraphdb_core_lex` | `ultragraphdb_core/ultragraphdb_core_lex` | `ultragraphdb_common_utils` | Dgraph's `lex`: `Lexer`, `Item`, `ItemType`, `ItemIterator`, `StateFn`, the IRI helpers, `LexError` |
+| `ultragraphdb_core_keys` | `ultragraphdb_core/ultragraphdb_core_keys` | `ultragraphdb_common_utils` | Dgraph's `x/keys.go`: the key builders and `parse` into `ParsedKey`, namespaces and reserved predicates, `KeyError` |
+| `ultragraphdb_core_codec` | `ultragraphdb_core/ultragraphdb_core_codec` | `ultragraphdb_proto_pb` | Dgraph's `codec`: `Encoder`, `Decoder`, `SeekPos` over `pb::UidPack`, and the go-groupvarint port beneath them |
+| `ultragraphdb_core_algo` | `ultragraphdb_core/ultragraphdb_core_algo` | `ultragraphdb_core_codec`, `ultragraphdb_proto_pb` | Dgraph's `algo`: sorted UID-list intersection, merge and difference, packed and unpacked, `Uint64Heap` |
+| `ultragraphdb_core_text` | `ultragraphdb_core/ultragraphdb_core_text` | `ultragraphdb_common_utils` | Go's `x/text/collate` with its CLDR 23 tables and `x/text/language`'s base inference: `Collator`, `Tag`, `Base`, `Confidence`, `language_base`, `LanguageError` |
+| `ultragraphdb_core_types` | `ultragraphdb_core/ultragraphdb_core_types` | `ultragraphdb_common_utils`, `ultragraphdb_core_text`, `ultragraphdb_error_num`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb`, `ultragraphdb_traits_collator` | Dgraph's `types`: `TypeId`, `Val`, conversion and marshalling, sorting and comparison, `BigFloat`, `DateTime`, passwords, geometries with their WKB and GeoJSON encodings, geo tokens and filters over a port of golang/geo's S2; `TextCollator`, `TypesError` |
+| `ultragraphdb_core_tok` | `ultragraphdb_core/ultragraphdb_core_tok` | `ultragraphdb_common_utils`, `ultragraphdb_core_text`, `ultragraphdb_core_types`, `ultragraphdb_error_options`, `ultragraphdb_proto_pb`, `ultragraphdb_traits_index` | Dgraph's `tok`: `Tokenizer` and the registry, the bleve analysis it runs (segmentation, stop words, stemmers), the hnsw vector-index factory, `TokError` |
+| `ultragraphdb_core_facets` | `ultragraphdb_core/ultragraphdb_core_facets` | `ultragraphdb_common_utils`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_error_num`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `types/facets`: facet inference, encoding, term tokens and `sort_and_validate`, `FacetTypeId`, `FacetsError` |
+| `ultragraphdb_core_dql` | `ultragraphdb_core/ultragraphdb_core_dql` | `ultragraphdb_common_utils`, `ultragraphdb_core_keys`, `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_error_num`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `dql`: `parse` into `GraphQuery` and its trees, `parse_mutation`, upsert blocks, `DqlError` |
+| `ultragraphdb_core_schema` | `ultragraphdb_core/ultragraphdb_core_schema` | `ultragraphdb_common_utils`, `ultragraphdb_core_keys`, `ultragraphdb_core_lex`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_proto_pb` | Dgraph's schema parser: `parse` into `ParsedSchema`, the initial and pre-defined schema, `SchemaError` |
+| `ultragraphdb_core_chunker` | `ultragraphdb_core/ultragraphdb_core_chunker` | `ultragraphdb_common_utils`, `ultragraphdb_core_facets`, `ultragraphdb_core_keys`, `ultragraphdb_core_lex`, `ultragraphdb_core_types`, `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` | Dgraph's `chunker`: `parse_rdf`, `parse_rdfs`, `parse_json` and `NQuadBuffer` into `api::NQuad`, `data_format`, `ChunkerError` |
 
 ### Structure exemptions
 
@@ -171,7 +182,10 @@ the proto packages: `ultragraphdb_proto_pb::pb::Posting`.
 ### External dependencies
 
 Every external crate is pinned once in `[workspace.dependencies]` and referenced by member crates as
-`{ workspace = true }`. Add a new one there or nowhere.
+`{ workspace = true }`. Add a new one there or nowhere. Choose a pure-Rust crate wherever one exists (`lz4_flex` over
+`zstd`, `miniz_oxide` over zlib): it keeps cross-compilation to static musl free of a C toolchain per target. The one
+exception is `ring`, rustls' crypto provider, which bundles C and assembly: its pure-Rust alternative,
+`rustls-rustcrypto`, is younger and less audited, and a subtle fault in TLS cryptography fails silently.
 
 | Crate                                 | Version               | Used by                             | Why                                                                                                     |
 |---------------------------------------|-----------------------|-------------------------------------|---------------------------------------------------------------------------------------------------------|
@@ -182,7 +196,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `docker_utils`, `ureq`, `serde_json`  | 0.3 / 3.3 / 1.0       | `ultragraphdb_client` (`test-utils`)  | Start a Dgraph container and read its health report, for the acceptance test                            |
 | `bcrypt` | 0.19 | `ultragraphdb_core_types` | Hashes and verifies passwords as Go's bcrypt does, `$2a$` hashes included |
 | `blake2` | 0.11 | `ultragraphdb_core_tok` | BLAKE2b-256 of the hash tokenizer |
-| `dashu-base`, `dashu-int` | 0.6 | `ultragraphdb_core_types` | Exact integer arithmetic beneath the port of Go's `math/big` for 200-bit big floats |
+| `dashu-base`, `dashu-int` | 0.6 | `ultragraphdb_core_types`; `dashu-int` also `ultragraphdb_common_utils` | Exact integer arithmetic beneath the port of Go's `math/big` for 200-bit big floats |
 | `rust-stemmers` | 1.2 | `ultragraphdb_core_tok` | The Snowball stemmers of nine languages, checked against Go on golden vectors |
 | `unicode-normalization` | 0.1 | `ultragraphdb_core_tok` | NFKC at Unicode 17.0.0, as Go's `x/text` v0.41 |
 | `serde`, `serde_json` | 1.0 | `ultragraphdb_test_bdd`, `ultragraphdb_core_chunker`; every core crate's tests | Golden files; the chunker's JSON mutations, with `raw_value` so a number keeps its text |
@@ -311,6 +325,17 @@ Field visibility:
 * Public types: All fields will be private, and access will be provided through constructors, getters,
   and setters as appropriate.
 * Private types: Public fields may be used, provided they do not leak outside their defined scope.
+
+Errors:
+* Every error is `pub struct FooError(pub FooErrorEnum)` over an exhaustive enum, with one constructor per variant
+  (`FooError::Variant(..)`), `Display` and `std::error::Error`, as `deep_causality_physics`' `PhysicsError` has it. The
+  inner field is the one public field a public type carries, so callers match on `e.0`.
+* `Display` gives Dgraph's exact text wherever Dgraph has one: clients and tests match on it.
+
+Panics:
+* Code under `src/` does not panic on any input. Where Dgraph panics, the port returns its crate's error with a clear
+  message; the golden file keeps Go's panic as evidence, and the test names the case as a deviation. An `expect`
+  remains only where a local invariant proves it cannot fire, and its message states the invariant.
 
 Static Dispatch:
 * Use static dispatch

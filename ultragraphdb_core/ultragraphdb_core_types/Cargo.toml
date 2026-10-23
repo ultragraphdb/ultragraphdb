@@ -1,0 +1,49 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_core_types"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+# Contains ports of Go's standard library (math, math/big, encoding/json, time, sort, container/heap;
+# BSD-3-Clause, see LICENSE-GO) and of go-geom (BSD-2-Clause, see LICENSE-GO-GEOM) beside this repository's Apache-2.0
+# code.
+license = "Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause"
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_error_num = { workspace = true }
+ultragraphdb_traits_collator = { workspace = true }
+ultragraphdb_proto_pb = { workspace = true }
+ultragraphdb_proto_dgraph = { workspace = true }
+ultragraphdb_core_text = { workspace = true }
+bcrypt = { workspace = true }
+dashu-base = { workspace = true }
+dashu-int = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_test_bdd = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

@@ -52,17 +52,21 @@ ported code (about 90.6k test lines across the repository).
 
 ## Dependencies
 
+A dependency is pure Rust wherever one exists, so cross-compiling to static musl stays a Cargo and Bazel matter with no
+C toolchain per target. The documented exception is `ring`, rustls' crypto provider, which bundles C and assembly; its
+pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
+
 | Go dependency | Rust | Status |
 |---|---|---|
 | `dgraph-io/badger/v4` (storage) | `fjall` | Decided |
 | `dgraph-io/ristretto/v2` (cache) | `moka` | Decided |
 | `go.etcd.io/etcd/raft/v3` (consensus) | `raft-rs` (TiKV's port of etcd raft) | Decided |
 | `google.golang.org/grpc`, `protobuf` | `tonic`, `prost` | Decided |
-| `blevesearch/bleve` (tokenizers, stemmers) | tantivy's tokenizers or `rust-stemmers` | Proposed |
-| `golang/geo`, `twpayne/go-geom`, `paulmach/go.geojson` | `geo` and an S2 implementation | Proposed |
+| `blevesearch/bleve` (tokenizers, stemmers) | A port of bleve's analysis in `ultragraphdb_core_tok`; `rust-stemmers` for the Snowball languages | Decided |
+| `golang/geo`, `twpayne/go-geom`, `paulmach/go.geojson` | Ports of golang/geo's S2 and of go-geom in `ultragraphdb_core_types` | Decided |
 | `dgryski/go-farm`, `go-groupvarint` | `farmhash`, an in-house group-varint | Proposed |
-| `golang/snappy`, `klauspost/compress` | `snap`, `zstd` | Proposed |
-| `dgraph-io/simdjson-go` | `simd-json` or `serde_json` | Proposed |
+| `golang/snappy`, `klauspost/compress` | `lz4_flex` for backups; `flate2` over `miniz_oxide` for gzip exports | Decided |
+| `dgraph-io/simdjson-go`, `encoding/json` | A port of Go's `encoding/json` in `ultragraphdb_common_utils` | Decided |
 | `minio/minio-go` (backups) | `object_store` | Proposed |
 | OpenTelemetry, OpenCensus, Prometheus | `tracing`, `opentelemetry`, a Prometheus exporter | Proposed |
 | `gqlgen`, `gqlparser`, `graphql-go`, `graphql-transport-ws` | — | Cut with GraphQL |
@@ -237,6 +241,11 @@ Known bugs (step 3 of the plan) and re-architecture (step 5) follow the port.
 **Scope.** Beyond GraphQL, the port cuts change data capture, MCP, audit logging and encryption at rest; it keeps
 access control and namespaces, backup, restore and export, the bulk and live loaders, and the HNSW vector index.
 Zero stays a separate process.
+
+**Data from Go Dgraph and backups.** Data enters from Go Dgraph through its RDF or JSON export and the live or bulk
+loader, which build every index from values with the port's tokens. Backups are the port's own, in its own format (stage 5):
+per-group parts in key order with checksummed frames, one immutable manifest per backup written last, every string value
+checked for valid UTF-8 before writing; restore loads only such backups, into staged stores it switches to on success. Go Dgraph's backups, stores and WALs are not read.
 
 **Testing.** Every spec scenario is a Gherkin scenario run by `cucumber`, written and seen failing before its code;
 every ported Go file's tests are ported first; byte-exact formats are checked against golden vectors generated

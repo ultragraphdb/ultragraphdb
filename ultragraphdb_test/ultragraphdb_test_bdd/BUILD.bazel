@@ -1,0 +1,58 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "ultragraphdb_test_bdd",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_test_bdd"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_test(
+    name = "ultragraphdb_test_bdd_tests",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
+    crate_root = "tests/mod.rs",
+    data = glob(["features/**/*.feature"]) + ["//:MODULE.bazel"],
+    # The workspace gates read the source tree through MODULE.bazel's runfiles link: unsandboxed, and never
+    # cached, because specs and features change without changing this target's inputs.
+    tags = [
+        "external",
+        "local",
+        "unit-test",
+    ],
+    deps = [":ultragraphdb_test_bdd"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]) + ["//:MODULE.bazel"],
+    tags = [
+        "bdd-test",
+        "external",
+        "local",
+    ],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_test_bdd"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

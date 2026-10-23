@@ -1,0 +1,59 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+rust_library(
+    name = "ultragraphdb_common_version",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = [
+        "common",
+        "ultragraphdb_common_version",
+    ],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_common_version",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_common_version",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are MODULES reached
+# through tests/mod.rs. A suite would compile each as a standalone crate and every one
+# would fail on its missing parent.
+rust_test(
+    name = "ultragraphdb_common_version_tests",
+    srcs = glob([
+        "tests/**/*.rs",
+    ]),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [
+        # Crate to test
+        ":ultragraphdb_common_version",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

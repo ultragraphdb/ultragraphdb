@@ -68,7 +68,7 @@ and loses the import graph as a check.
 
 Keys, UID packs, value encodings and tokens equal Dgraph's byte for byte. Query results depend on tokens, since
 an index lookup is a token lookup, and on token order, since sorting and ranges walk index keys. Identical bytes
-are the simplest way to guarantee identical results, and they keep Go-written backups and exports readable later.
+are the simplest way to guarantee identical results, which the differential runs against Go Dgraph compare.
 
 The golden generator is a Go program under `tools/golden/`, with a `go.mod` that points at the fork via a
 `replace`. It writes JSON files under each crate's `testdata/golden/`, recording the Dgraph commit, and

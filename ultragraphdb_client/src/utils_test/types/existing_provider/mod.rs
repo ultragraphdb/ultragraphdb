@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
 //! Verify a Dgraph this process did not create.
 
 use crate::utils_test::errors::fixture_error::FixtureError;
