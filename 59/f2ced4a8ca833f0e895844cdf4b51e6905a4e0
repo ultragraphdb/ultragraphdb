@@ -1,0 +1,21 @@
+website/index.html
+  s_3ad4d0c9670fc7::t_b6d0eeb3d454d4 41-48
+  s_3ad4d0c9670fc7::t_a825ca73e4e09a 64
+  s_3ad4d0c9670fc7::t_4be6513c7d07fe 1-40,49-63,65-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "59f2ced4a8ca833f0e895844cdf4b51e6905a4e0",
+  "prompts": {},
+  "sessions": {
+    "s_3ad4d0c9670fc7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2eb6ad27-5d15-4f72-810a-1ad6f540120e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
