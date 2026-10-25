@@ -9,33 +9,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UltraGraphDB — Coming soon</title>
   <meta name="description" content="UltraGraphDB is a distributed graph database written in Rust. Early development; coming soon.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#02050f">
+  <link rel="icon" type="image/webp" href="favicon.webp">
+  <link rel="apple-touch-icon" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700&display=swap">
   <style>
+    /* Palette and type from artwork/designsystem: the brand is dark only.
+       --space matches the backdrop of logo.webp. */
     :root {
-      --bg: #fafafa;
-      --fg: #1a1a1a;
-      --muted: #666;
-      --accent: #b7410e;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #121212;
-        --fg: #e8e8e8;
-        --muted: #9a9a9a;
-        --accent: #e8743b;
-      }
+      --space: #02050f;
+      --line: #1c3d6b;
+      --blue: #256bda;
+      --cyan: #5be1ff;
+      --ice: #a1e7ff;
+      --fg: #e6eeff;
+      --muted: #8fa3c7;
+      --display: "Orbitron", "Exo 2", system-ui, sans-serif;
+      --body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
     * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
+    html, body { min-height: 100%; margin: 0; }
     body {
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      min-height: 100vh;
       padding: 1rem;
-      background: var(--bg);
+      background: var(--space);
       color: var(--fg);
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.5;
+      font-family: var(--body);
+      line-height: 1.6;
       text-align: center;
     }
     main {
@@ -46,31 +52,78 @@
       justify-content: center;
       max-width: 36rem;
     }
-    h1 { margin: 0 0 0.5rem; font-size: clamp(2rem, 8vw, 3rem); letter-spacing: -0.02em; }
-    .tagline { margin: 0 0 2rem; color: var(--muted); font-size: 1.125rem; }
+    .logo {
+      display: block;
+      width: min(100%, 28rem);
+      height: auto;
+      margin: 0 0 1.5rem;
+      /* Fade the edges of the logo's backdrop into the page. */
+      --fade-x: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+      --fade-y: linear-gradient(to bottom, transparent, #000 8%, #000 80%, transparent);
+      -webkit-mask-image: var(--fade-x), var(--fade-y);
+      -webkit-mask-composite: source-in;
+      mask-image: var(--fade-x), var(--fade-y);
+      mask-composite: intersect;
+    }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+    }
+    .tagline { margin: 0 0 1.75rem; color: var(--ice); font-size: 1.125rem; }
     .status {
       display: inline-block;
       margin: 0 0 1.5rem;
-      padding: 0.25rem 0.75rem;
-      border: 1px solid var(--accent);
+      padding: 0.3rem 0.9rem;
+      border: 1px solid var(--blue);
       border-radius: 999px;
-      color: var(--accent);
-      font-size: 0.875rem;
+      background: rgba(37, 107, 218, 0.12);
+      color: var(--cyan);
+      font-size: 0.75rem;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.18em;
     }
-    p { margin: 0 0 1rem; }
-    footer { color: var(--muted); font-size: 0.875rem; }
+    p { margin: 0 0 1rem; color: var(--muted); }
+    .soon {
+      margin-top: 0.5rem;
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: 1.25rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      text-shadow: 0 0 18px rgba(91, 225, 255, 0.45);
+    }
+    footer {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      width: min(100%, 40rem);
+      color: var(--muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.12em;
+    }
+    footer::before, footer::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
   </style>
 </head>
 <body>
   <main>
-    <h1>UltraGraphDB</h1>
+    <img class="logo" src="logo.webp" width="640" height="640"
+         alt="UltraGraphDB logo: a glowing hexagonal graph of nodes above the Earth's horizon">
+    <h1 class="visually-hidden">UltraGraphDB</h1>
     <p class="tagline">A distributed graph database written in Rust.</p>
     <p class="status">Early development</p>
     <p>UltraGraphDB is in an early stage of development and not yet ready for use.</p>
-    <p><strong>Coming soon.</strong></p>
+    <p class="soon">Coming soon</p>
   </main>
   <footer>&copy; 2026 Marvin Hansen &middot; Apache-2.0</footer>
 </body>
