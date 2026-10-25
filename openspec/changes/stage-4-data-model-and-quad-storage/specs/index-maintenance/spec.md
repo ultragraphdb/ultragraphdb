@@ -80,7 +80,7 @@ by its language, and the subject and objects from the count keys they are listed
 ### Requirement: Writes read only what they need
 Inserting into a multi-valued predicate SHALL write its forward, reverse, predicate-list, value-index and statistics
 entries as deltas without reading any list. A write SHALL read a list only to delete from it, to overwrite a
-single-valued predicate, or to maintain an exact count index.
+single-valued predicate, to check a unique predicate, or to maintain an exact count index.
 
 #### Scenario: An insert reads nothing
 - **WHEN** `<a> <tag> "x"` is written, `tag` is multi-valued with a `term` index and no count index

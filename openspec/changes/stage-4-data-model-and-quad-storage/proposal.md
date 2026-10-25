@@ -5,14 +5,14 @@ The store holds Dgraph's data model: predicates named by string, one schema type
 it, and keys laid out byte for byte as Dgraph's. RDF needs terms kept exactly as written, objects of any kind under
 one predicate, named graphs and statement identity, and the property-graph view needs the same data seen as nodes,
 edges and properties. Stage 4 builds that data model under the storage of stage 2, before stage 5's transactions and
-stages 6 and 7's engines depend on it.
+stage 6's query core depend on it.
 
 ## What Changes
 
 - **The mapping contract v1:** the canonical statement model, quads with an optional statement ID, and its RDF and
   property-graph views, written as a versioned specification with round-trip tests.
-- **The catalog v1:** predicates, entity types with single inheritance and abstract types, relations with named
-  roles, cardinality, datatype constraints and indexes, persisted per namespace. An undeclared predicate gets a
+- **The catalog v1:** predicates, entity types with single inheritance and abstract types, relations with named roles,
+  cardinality, datatype constraints, unique values and indexes, persisted per namespace. An undeclared predicate gets a
   default entry: multi-valued, any object.
 - **The term dictionary:** every IRI and blank node gets an allocated 64-bit UID whose top 16 bits are reserved for an
   entity-type prefix; every literal is encoded by content, by value only when its lexical form is canonical, so RDF
@@ -23,19 +23,19 @@ stages 6 and 7's engines depend on it.
 - **Changesets** in place of Dgraph's `DirectedEdge`: quad inserts and deletes, deletes by pattern, single-valued
   overwrites and statement records, applied through index maintenance and driven by the catalog.
 - **Writes without reads where RDF allows them:** inserting into a multi-valued predicate, its reverse, predicate-list
-  and index entries is a blind delta; reads remain for deletes, single-valued overwrites and exact counts. A term new
-  to a write gets a fresh ID, whose lists are known empty without a read.
-- **A data dictionary:** one read API over the catalog, the statistics and per-label shapes, which every later
-  interface answers from: the native describe request, SPARQL service descriptions and VoID statistics, GQL catalog
-  queries and Bolt's schema procedures (`db.labels()`, `db.schema.nodeTypeProperties()`, `apoc.meta.data()` and the
-  rest), which LangChain and LlamaIndex call before their first query. Shapes of undeclared data come from a background
-  pass, so writes stay read-free.
+  and index entries is a blind delta; reads remain for deletes, single-valued overwrites, unique values and exact
+  counts. A term new to a write gets a fresh ID, whose lists are known empty without a read.
+- **A data dictionary:** one read API over the catalog, the statistics and per-label shapes, which every later interface
+  answers from: the native describe request (stage 5), SPARQL service descriptions, VoID statistics and GQL catalog
+  queries (stage 8), and Bolt's schema procedures (stage 9) (`db.labels()`, `db.schema.nodeTypeProperties()`,
+  `apoc.meta.data()` and the rest), which LangChain and LlamaIndex call before their first query. Shapes of undeclared
+  data come from a background pass, so writes stay read-free.
 - `store_bench` loads quads and reports list reads per relation.
 - **BREAKING:** DQL, Dgraph's mutation formats and the Dgraph gRPC client are removed: `ultragraphdb_core_dql`,
   `ultragraphdb_core_lex`, `ultragraphdb_core_chunker`, `ultragraphdb_core_facets` and `ultragraphdb_client`. The DQL
   schema parser in `ultragraphdb_core_schema` goes, and that crate becomes the catalog.
 - **BREAKING:** keys are no longer byte-compatible with Dgraph's; the key golden vectors retire. Data from Dgraph
-  enters through its RDF export and stage 8's loaders, as before.
+  enters through its RDF export and stage 7's loaders, as before.
 
 ## Capabilities
 

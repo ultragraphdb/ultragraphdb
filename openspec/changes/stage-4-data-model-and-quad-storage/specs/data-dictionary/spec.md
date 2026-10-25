@@ -10,8 +10,8 @@ The store SHALL offer one read API, independent of any query language, that retu
 - the indexes and constraints the catalog declares;
 - the statistics of each graph and predicate.
 
-Stage 5's describe request, stage 6's SPARQL service description and VoID statistics, and stage 7's GQL catalog
-queries and Bolt schema procedures SHALL each be answered from it.
+Stage 5's describe request, stage 8's SPARQL service description, VoID statistics and GQL catalog queries, and stage
+9's Bolt schema procedures SHALL each be answered from it.
 
 #### Scenario: Labels and their properties are listed
 - **WHEN** `<a> rdf:type <Person>`, `<a> <name> "Ann"` and `<a> <knows> <b>` are held, `<b> rdf:type <Person>`, and the

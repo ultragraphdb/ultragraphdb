@@ -43,8 +43,8 @@ class.
 
 - [ ] 5.1 Move `ultragraphdb_core_schema` to `ultragraphdb_core/ultragraphdb_core_catalog` with `git mv` and rename the crate; every dependent builds
 - [ ] 5.2 Scenarios: catalog, schema-storage
-- [ ] 5.3 Predicate declarations (kind, cardinality, datatype constraint, tokenizers, exact count index, vector index and its parameters), entity types with one parent and the abstract flag, relations with named roles; the default for an undeclared predicate; the initial catalog declaring `rdf:type` an edge
-- [ ] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite
+- [ ] 5.3 Predicate declarations (kind, cardinality, datatype constraint, unique values, tokenizers, exact count index, vector index and its parameters), entity types with one parent and the abstract flag, relations with named roles; the default for an undeclared predicate; the initial catalog declaring `rdf:type` an edge
+- [ ] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object
 - [ ] 5.5 Preorder numbering of the type hierarchy; refusal of a second parent and of a cycle
 - [ ] 5.6 Persistence per namespace in catalog keys with the discard flag; load at open; removed declarations stay removed; overlays local to a write; a default entry written in the write's commit batch
 - [ ] 5.7 With the user's approval, remove the DQL schema parser and its tests once the catalog's suites pass; list each file removed
@@ -67,7 +67,7 @@ class.
 - [ ] 7.1 Scenarios: changesets, index-maintenance, posting-lists (the modified requirements, rewritten from DQL into catalog declarations)
 - [ ] 7.2 Applying a changeset as one `Request`: term resolution, the catalog checks, whole or nothing
 - [ ] 7.3 Index maintenance on the quad keys: value-index tokens by language, shared tokens kept on delete, mandatory reverse entries, predicate lists, the exact count index in both directions, deletes by pattern
-- [ ] 7.4 Reads only where needed: `get_from_delta` for multi-valued inserts, `get` for deletes, single-valued overwrites and counted predicates; a test that an insert reads no list and that a write naming a new UID reads none of its lists
+- [ ] 7.4 Reads only where needed: `get_from_delta` for multi-valued inserts, `get` for deletes, single-valued overwrites, unique predicates and counted predicates; a test that an insert reads no list and that a write naming a new UID reads none of its lists
 - [ ] 7.5 Terms kept as written; literals converted only to compute index tokens
 - [ ] 7.6 The read and written regions of a changeset reported; determinism: one changeset applied to two copies writes the same bytes
 - [ ] 7.7 The simulator workload of stage 2 rewritten to changesets, every invariant kept

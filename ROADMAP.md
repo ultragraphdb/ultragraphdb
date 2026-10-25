@@ -1,18 +1,24 @@
 | Stage | Status | 
 |---|---|
-| 1. Foundations | ✅ |
+| 1. Foundations + shared types | ✅ |
 | 1.5. Fault simulator | ✅ | 
-| 2. Storage |  ✅ | 
+| 2. Storage core |  ✅ | 
 | 3. Website + Public Repo |  ✅ |
 | 4. Data model and quad storage | `next` |
 | 5. Transactions and the binary protocol | `open` |
-| 6. SPARQL engine | `open` |
-| 7. GQL engine and Bolt | `open` |
-| 8. Single-node product | `open` |
-| 9. Distributed tiles: sharding, replication, storage/compute separation | `open` |
+| 5.5. Hardening Transactions with chaos testing | `open` |
+| 6. Query core: SPARQL and GQL where they overlap | `open` |
+| 7. Single-node product, the base of the DeepBrain MVP | `open` |
+| 8. Full SPARQL and GQL conformance | `open` |
+| 9. Bolt | `open` |
+| 10. Distributed tiles: sharding, replication, storage/compute separation | `open` |
 
-Stages 4 to 9 replace DQL with SPARQL and GQL; the plan is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
-UltraQL follows stage 9.
+Stages 4 to 10 replace DQL with SPARQL and GQL; the plan is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
+UltraQL follows stage 10.
+
+The DeepBrain MVP runs on the single node of stage 7. Stage 6 builds only what SPARQL and GQL share: CRUD, pattern
+matching, filters, ordering, aggregates, bounded walks over one relation, and vector and text search. Where the two
+languages diverge, and full conformance testing, follow in stage 8; Bolt follows in stage 9.
 
 Improvements, single node:
 
@@ -24,9 +30,9 @@ Improvements, single node:
 --
 
 Improvements, clustering:
-1) Replace Raft with the more efficient VSR protocol (stage 9; Raft is not built, stage 5 defines the log interface)
-2) Add Jepsen test suite to harden clustering (stage 9)
-3) Replace the Zero/Alpha seperation with a proper storage/compute seperation (target decided now, built in stage 9; Zero/Alpha is not built)
+1) Replace Raft with the more efficient VSR protocol (stage 10; Raft is not built, stage 5 defines the log interface)
+2) Add Jepsen test suite to harden clustering (stage 10)
+3) Replace the Zero/Alpha seperation with a proper storage/compute seperation (target decided now, built in stage 10; Zero/Alpha is not built)
 
 storage/compute seperation
 https://github.com/starrocks/starrocks

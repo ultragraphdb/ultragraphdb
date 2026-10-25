@@ -46,7 +46,7 @@ proper prefix of a valid key, other than one that is itself a valid key of a key
 ### Requirement: Keys follow Dgraph's byte layout
 **Reason**: The quad layout replaces Dgraph's key layout; byte compatibility with Dgraph ends with DQL.
 **Migration**: The layout is specified in `quad-storage`, "The quad keyspaces". Data from Dgraph enters through its RDF
-export and stage 8's loaders.
+export and stage 7's loaders.
 
 ### Requirement: Namespaced attribute names
 **Reason**: Predicates are IRIs with UIDs; no attribute string carries the namespace.
@@ -54,11 +54,11 @@ export and stage 8's loaders.
 
 ### Requirement: Reserved and pre-defined predicates
 **Reason**: Dgraph's `dgraph.` predicates belong to DQL and its ACL.
-**Migration**: The system's own IRIs are reserved with access control in stage 8.
+**Migration**: The system's own IRIs are reserved with access control in stage 7.
 
 ### Requirement: Registered reserved namespaces
 **Reason**: The plugin registry claims Dgraph's `dgraph.` names, which no longer exist.
-**Migration**: None in this stage; stage 8 reserves the system's own IRIs.
+**Migration**: None in this stage; stage 7 reserves the system's own IRIs.
 
 ### Requirement: A key ending after its attribute is refused
 **Reason**: Keys no longer carry an attribute string.

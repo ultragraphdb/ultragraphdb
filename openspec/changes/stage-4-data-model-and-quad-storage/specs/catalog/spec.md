@@ -2,9 +2,10 @@
 
 ### Requirement: Predicate declarations
 The catalog SHALL hold, per namespace, a declaration for each predicate IRI it knows: its kind (edge, property, or
-either), its cardinality (single- or multi-valued), an optional datatype constraint, and its indexes: tokenizers, an
-exact count index, and a vector index with its parameters. A predicate the catalog does not declare SHALL behave as
-declared with kind either, multi-valued, no datatype constraint and no index.
+either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, and
+its indexes: tokenizers, an exact count index, and a vector index with its parameters. A predicate the catalog does not
+declare SHALL behave as declared with kind either, multi-valued, no datatype constraint, values not unique and no
+index.
 
 #### Scenario: An undeclared predicate accepts any object
 - **WHEN** `<a> <p> <b>` and `<a> <p> "text"` are written and `p` is not declared
@@ -30,6 +31,23 @@ predicate's datatype constraint. A write to a single-valued predicate SHALL repl
 #### Scenario: A single-valued property is overwritten
 - **WHEN** `age` is declared single-valued, `<a> <age> 30` is held, and `<a> <age> 31` is written
 - **THEN** `a` holds `age` 31 only
+
+### Requirement: Unique values
+A write SHALL be refused, writing nothing of its changeset, when it gives a predicate declared unique an object that
+another subject holds for that predicate in the same graph. Writing an object the same subject already holds SHALL be
+accepted.
+
+#### Scenario: A second subject with a unique value is refused
+- **WHEN** `id` is declared unique, `<a> <id> "x"` is held, and `<b> <id> "x"` is written
+- **THEN** the write fails with an error naming `id`, `"x"` and `a`, and nothing of its changeset is held
+
+#### Scenario: The same subject may write its unique value again
+- **WHEN** `id` is declared unique, `<a> <id> "x"` is held, and `<a> <id> "x"` is written
+- **THEN** the write succeeds and `a` holds `id` `"x"`
+
+#### Scenario: A unique value is unique per graph
+- **WHEN** `id` is declared unique and `<a> <id> "x"` is held in graph `g1`, and `<b> <id> "x"` is written in graph `g2`
+- **THEN** both statements are held
 
 ### Requirement: Entity types
 The catalog SHALL hold entity types, each with at most one parent type and an abstract flag, and relations, each with

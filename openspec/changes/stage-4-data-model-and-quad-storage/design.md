@@ -4,9 +4,9 @@ Stages 1 and 2 ported Dgraph's foundations and storage: posting lists over fjall
 maintenance, rebuilds, drops, the HNSW index and the deterministic simulator, all keyed by Dgraph's byte layout and
 typed by Dgraph's schema. `openspec/notes/UltraGraphDB Dual Query Engine Plan.md` replaces DQL with SPARQL and GQL over
 one store and sets out stage 4: the data model both engines share, and the storage beneath it. Stage 5 then builds the
-commit step on n−1 cores, and stages 6 and 7 the engines; each reads this stage's keys, terms, catalog and changesets
-unchanged, so their shapes are decided here, including what stage 9's tiles and log carry ("Decided ahead, planned per
-stage" in the plan).
+commit step on n−1 cores, stage 6 the query core and stage 8 the full engines; each reads this stage's keys, terms,
+catalog and changesets unchanged, so their shapes are decided here, including what stage 10's tiles and log carry
+("Decided ahead, planned per stage" in the plan).
 
 The writes still go through stage 2's commit path in this stage: one writer, `Lists::commit_with`, its hook under the
 writer lock.
@@ -24,10 +24,10 @@ writer lock.
 
 **Non-Goals:**
 - Transactions on n−1 cores, read summaries, epochs (stage 5).
-- The binary protocol (stage 5); SPARQL (stage 6); GQL and Bolt (stage 7).
-- RDF file loading, SHACL and GQL graph-type syntax (stages 6 to 8).
-- Entity-type prefixes inside UIDs: the bits are reserved, not used (stage 9).
-- Removing dictionary entries (stage 9).
+- The binary protocol (stage 5); the query core (stage 6); full SPARQL and GQL (stage 8); Bolt (stage 9).
+- RDF file loading (stage 7); SHACL and GQL graph-type syntax (stage 8).
+- Entity-type prefixes inside UIDs: the bits are reserved, not used (stage 10).
+- Removing dictionary entries (stage 10).
 
 ## Decisions
 
@@ -42,7 +42,7 @@ writer lock.
 | `ultragraphdb_store_quads` | `ultragraphdb_store/ultragraphdb_store_quads` | `ultragraphdb_store_posting`, `ultragraphdb_core_keys`, `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_traits_store` | The dictionary over the keyspace without versions, UID and statement-ID allocation, quad reads and writes on posting lists, statistics |
 | `ultragraphdb_store_apply` | changed | adds `ultragraphdb_store_quads`, `ultragraphdb_core_catalog`, `ultragraphdb_core_mapping` | Changesets applied through index maintenance, rebuilds and drops on the catalog |
 
-`ultragraphdb_core_mapping` holds `Changeset` because it is the contract between the engines and storage: stages 6 and 7
+`ultragraphdb_core_mapping` holds `Changeset` because it is the contract between the engines and storage: stages 6 and 8
 produce changesets without depending on a storage crate.
 
 **Removed, with the user's approval at the task that removes them:**
@@ -150,8 +150,8 @@ A changeset is applied as one `Request` of the posting crate:
 1. Its terms are resolved through the dictionary; terms new to the write get provisional UIDs, assigned in the hook.
 2. Its operations are checked against the catalog; one refusal refuses the changeset.
 3. Each operation maintains its lists. Inserts into multi-valued predicates use `get_from_delta`, so they read nothing.
-   Deletes, single-valued overwrites and count-indexed predicates read with `get`, which keeps ledger 35's rule that a
-   deleted value's tokens survive when other values still produce them.
+   Deletes, single-valued overwrites, unique predicates and count-indexed predicates read with `get`, which keeps ledger
+   35's rule that a deleted value's tokens survive when other values still produce them.
 4. A UID the write created is known empty, so none of its lists is read.
 5. The read and written keys are mapped to regions and reported.
 
@@ -166,18 +166,21 @@ write, the interim declaration during a rebuild.
 - **An undeclared predicate** gets the default entry in the write's commit batch. Concurrent first writes produce
   identical entries, so stage 2's rule that the first commit's schema wins and later commits convert is no longer
   needed.
+- **A unique predicate** holds an object for one subject at most within a graph. The write check reads the predicate's
+  reverse list for the object, one list read, which stage 5's validation then covers; scrith's `epi.id` needs it
+  (`openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "What scrith's ontology needs from the single node").
 - **The initial catalog** of a namespace declares `rdf:type` as an edge, with nothing else.
 
 ### The data dictionary
 
-One read API in `ultragraphdb_store_quads` answers what the data holds; stages 5 to 7 expose it through their own
+One read API in `ultragraphdb_store_quads` answers what the data holds; stages 5, 8 and 9 expose it through their own
 interfaces and add nothing to it:
 
 | Stage | Interface |
 |---|---|
 | 5 | The binary protocol's describe request |
-| 6 | SPARQL 1.1 Service Description and VoID statistics |
-| 7 | GQL catalog queries; Bolt's `db.labels()`, `db.relationshipTypes()`, `db.propertyKeys()`, `db.schema.nodeTypeProperties()`, `db.schema.relTypeProperties()`, `db.schema.visualization()`, `dbms.components()`, the `SHOW` commands, and an `apoc.meta.data()`-shaped result, with Neo4j's exact names, columns and value types |
+| 8 | SPARQL 1.1 Service Description and VoID statistics; GQL catalog queries |
+| 9 | Bolt's `db.labels()`, `db.relationshipTypes()`, `db.propertyKeys()`, `db.schema.nodeTypeProperties()`, `db.schema.relTypeProperties()`, `db.schema.visualization()`, `dbms.components()`, the `SHOW` commands, and an `apoc.meta.data()`-shaped result, with Neo4j's exact names, columns and value types |
 
 - **Declared entries answer exactly,** from the catalog. Neo4j derives `nodeTypeProperties` by sampling, so its answer
   can be incomplete.
@@ -207,7 +210,7 @@ interfaces and add nothing to it:
 - [Large tested code is removed, about 9,000 lines of DQL tests among it] → It is removed only after the replacement
   suites pass, at a task that asks for the user's approval.
 - [A gap in the mapping contract found after this stage changes the layout] → The round-trip tests cover both views,
-  parallel edges and edge properties; stage 7 is the first to stress the property-graph view.
+  parallel edges and edge properties; stage 6's GQL core is the first to stress the property-graph view.
 - [`store_bench`'s numbers are not comparable with stage 2's] → The quad workload is recorded as a new baseline beside
   the old one.
 
@@ -215,7 +218,7 @@ interfaces and add nothing to it:
 
 There are no outside users. Stores written by stage 2 are not readable: the mapping contract's version is recorded at
 creation, and a store without one, or with another major version, is refused at open. Data from Dgraph enters through
-its RDF export and stage 8's loaders.
+its RDF export and stage 7's loaders.
 
 ## Open Questions
 
