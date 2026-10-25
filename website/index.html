@@ -13,10 +13,25 @@
   <meta name="theme-color" content="#02050f">
   <link rel="icon" type="image/webp" href="favicon.webp">
   <link rel="apple-touch-icon" href="favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Orbitron:wght@500;700&display=swap">
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/orbitron-latin.woff2" as="font" type="font/woff2" crossorigin>
   <style>
+    /* Vendored from Google Fonts, latin subset, SIL OFL 1.1 (fonts/OFL-*.txt).
+       Inter is variable and covers 400 and 600; Orbitron is used at 700 only. */
+    @font-face {
+      font-family: "Inter";
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: swap;
+      src: url("fonts/inter-latin.woff2") format("woff2");
+    }
+    @font-face {
+      font-family: "Orbitron";
+      font-style: normal;
+      font-weight: 700;
+      font-display: swap;
+      src: url("fonts/orbitron-latin.woff2") format("woff2");
+    }
     /* Palette and type from artwork/designsystem: the brand is dark only.
        --space matches the backdrop of logo.webp. */
     :root {
