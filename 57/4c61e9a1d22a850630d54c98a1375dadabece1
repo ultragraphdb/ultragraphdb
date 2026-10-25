@@ -1,0 +1,185 @@
+ultragraphdb_store/ultragraphdb_store_kv/src/lib.rs
+  s_e7d9aa044e41ea::t_cf997e5b8ef53e 27-42
+  s_e7d9aa044e41ea::t_8a5f8db810d0b8 47
+ultragraphdb_tool/ultragraphdb_tool_bench/src/bin/store_bench.rs
+  s_61e1a93841662a::t_2fe70862a50d57 1-41
+Cargo.toml
+  s_e7d9aa044e41ea::t_e725edbd78118c 108-110
+  s_e7d9aa044e41ea::t_4f9059f5735102 16,36,60
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_store/mod.rs
+  s_e7d9aa044e41ea::t_9c6911ff68826a 223-224
+  s_e7d9aa044e41ea::t_d21c48765de494 215,222,225-238
+  s_e7d9aa044e41ea::t_ca5f8ac874aee7 212-214
+  s_e7d9aa044e41ea::t_d644728f2bb6c3 216
+  s_e7d9aa044e41ea::t_99f447fbbffc6f 239
+  s_e7d9aa044e41ea::t_0218d9901735cb 25-26,153,197-211
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_f4ba103bc86004 216-254
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/rollup_run.rs
+  s_61e1a93841662a::t_2fe70862a50d57 1-209
+  s_e7d9aa044e41ea::t_f2d5d2cb517a2a 210
+.gitignore
+  s_e7d9aa044e41ea::t_c4fc7341cbfaea 30
+AGENTS.md
+  s_e7d9aa044e41ea::t_5c7e9c94f6f9ba 180,214
+MODULE.bazel.lock
+  s_e7d9aa044e41ea::t_a70bb79b01060c 857,870,898,905-907,928-929,938,1006,1110,1265
+openspec/changes/port-stage-2-storage/tasks.md
+  s_e7d9aa044e41ea::t_02486442ca34ac 93-95
+ultragraphdb_store/ultragraphdb_store_kv/BUILD.bazel
+  s_e7d9aa044e41ea::t_330fdbacc10eae 122-150
+ultragraphdb_store/ultragraphdb_store_kv/Cargo.toml
+  s_e7d9aa044e41ea::t_c0c5171880b6ed 18,33,60-84
+ultragraphdb_store/ultragraphdb_store_kv/benches/bench_dir.rs
+  s_e7d9aa044e41ea::t_10fc9d2be45467 1-69
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_batch_write_bench.rs
+  s_e7d9aa044e41ea::t_b3a13328bad64e 1-79
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_compact_bench.rs
+  s_e7d9aa044e41ea::t_a1c76be6a09a56 1-70
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_drop_prefix_bench.rs
+  s_e7d9aa044e41ea::t_e6b8013e68143f 1-52
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_list_cache_bench.rs
+  s_e7d9aa044e41ea::t_224ed9446614bb 1-64
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_point_read_bench.rs
+  s_e7d9aa044e41ea::t_83ce42fec749cb 1-63
+ultragraphdb_store/ultragraphdb_store_kv/benches/kv_prefix_scan_bench.rs
+  s_e7d9aa044e41ea::t_72a903a4adabf5 1-52
+ultragraphdb_store/ultragraphdb_store_kv/src/bin/kv_crash_writer.rs
+  s_e7d9aa044e41ea::t_808aea073bf473 7,10-16,23,29,38-45,66,82,85,89-94,96,106,111,113,118,122-123,125,132,142-143,146-148
+ultragraphdb_store/ultragraphdb_store_kv/src/types/drop_stage.rs
+  s_e7d9aa044e41ea::t_47dcd98f04cdf5 1-17
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_store/fjall_store_store.rs
+  s_e7d9aa044e41ea::t_d2e76171fe036d 113,118-125
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_store/store_drops.rs
+  s_e7d9aa044e41ea::t_1a3b44f799919a 14,27-33,41-42,53-59,62,72,88,94-100,117
+ultragraphdb_store/ultragraphdb_store_kv/src/types/mod.rs
+  s_e7d9aa044e41ea::t_c8a248e2390644 7
+ultragraphdb_store/ultragraphdb_store_kv/tests/bdd.rs
+  s_e7d9aa044e41ea::t_326a6366c21a3b 8-9,25,467-468,470,488-489
+ultragraphdb_store/ultragraphdb_store_kv/tests/crash.rs
+  s_e7d9aa044e41ea::t_3697e8d765dc40 6-9,18-19,59-80,84-86,88-104,109-110,113-114,117-120,126,130-132,136-137,140-162,165,168-182
+ultragraphdb_store/ultragraphdb_store_kv/tests/crash_harness.rs
+  s_e7d9aa044e41ea::t_52b40e040c4aa8 6-7,9,11,40-65,68,89-95,104-112
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/drop_stage_tests.rs
+  s_e7d9aa044e41ea::t_5ec4270c5110cb 1-14
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/fjall_store_tests.rs
+  s_e7d9aa044e41ea::t_64677431f99045 101-113
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/store_drops_tests.rs
+  s_e7d9aa044e41ea::t_07bf9206feb17b 9,158-186
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_0ab2d913827ea4 6-7
+ultragraphdb_store/ultragraphdb_store_posting/src/types/batch/mod.rs
+  s_e7d9aa044e41ea::t_67c6316dfca183 11,20,32,38,43
+ultragraphdb_store/ultragraphdb_store_posting/src/types/mod.rs
+  s_e7d9aa044e41ea::t_cf6adb35d7935b 18
+ultragraphdb_store/ultragraphdb_store_posting/src/types/request/mod.rs
+  s_e7d9aa044e41ea::t_5395cd15ac3a2d 26,44,56,105,216,225
+ultragraphdb_store/ultragraphdb_store_posting/src/types/stacked_layers/mod.rs
+  s_e7d9aa044e41ea::t_f9496c6290a3b9 1-68
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/batch/batch_tests.rs
+  s_e7d9aa044e41ea::t_f4f6b82d970211 64-131
+ultragraphdb_tool/ultragraphdb_tool_bench/BUILD.bazel
+  s_e7d9aa044e41ea::t_7173a9a50357fa 1-63
+ultragraphdb_tool/ultragraphdb_tool_bench/Cargo.toml
+  s_e7d9aa044e41ea::t_044446bfb4f4dd 1-40
+ultragraphdb_tool/ultragraphdb_tool_bench/src/errors/bench_error/bench_error_display.rs
+  s_e7d9aa044e41ea::t_801d11a225a4c8 1-19
+ultragraphdb_tool/ultragraphdb_tool_bench/src/errors/bench_error/bench_error_error.rs
+  s_e7d9aa044e41ea::t_bfbefb9ad2a01b 1-8
+ultragraphdb_tool/ultragraphdb_tool_bench/src/errors/bench_error/bench_error_from.rs
+  s_e7d9aa044e41ea::t_c2169692bd0caf 1-34
+ultragraphdb_tool/ultragraphdb_tool_bench/src/errors/bench_error/mod.rs
+  s_e7d9aa044e41ea::t_32fd7fbee22d75 1-46
+ultragraphdb_tool/ultragraphdb_tool_bench/src/errors/mod.rs
+  s_e7d9aa044e41ea::t_b9ff798c5010e7 1-6
+ultragraphdb_tool/ultragraphdb_tool_bench/src/lib.rs
+  s_e7d9aa044e41ea::t_2373c9882366f0 1-41
+ultragraphdb_tool/ultragraphdb_tool_bench/src/traits/clock.rs
+  s_e7d9aa044e41ea::t_ea8583a6eaea1c 1-11
+ultragraphdb_tool/ultragraphdb_tool_bench/src/traits/mod.rs
+  s_e7d9aa044e41ea::t_d6cf96abf9ec93 1-6
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/apply_args/mod.rs
+  s_e7d9aa044e41ea::t_4300c8e4fcf948 1-80
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/command/mod.rs
+  s_e7d9aa044e41ea::t_211d1efdd2159d 1-142
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/commit_shape/mod.rs
+  s_e7d9aa044e41ea::t_d2aea481b1f66e 1-118
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/dir_sizes/mod.rs
+  s_e7d9aa044e41ea::t_020f2575bc3144 1-69
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/mod.rs
+  s_e7d9aa044e41ea::t_55e80373bccd9b 1-16
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/pacer/mod.rs
+  s_e7d9aa044e41ea::t_70cc952746fdc8 1-45
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/rollup_args/mod.rs
+  s_e7d9aa044e41ea::t_370e271bd6115e 1-43
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/size.rs
+  s_e7d9aa044e41ea::t_8b23b1124de8b4 1-35
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/summary/mod.rs
+  s_e7d9aa044e41ea::t_19f3bf9f47c58c 1-53
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/timed_store/mod.rs
+  s_e7d9aa044e41ea::t_f8fab11f657c10 1-70
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/timed_store/timed_store_store.rs
+  s_e7d9aa044e41ea::t_7b9d67743e1b60 1-113
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/wall_clock.rs
+  s_e7d9aa044e41ea::t_f678f67c23dfb1 1-42
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/write_call.rs
+  s_e7d9aa044e41ea::t_18760a292844ef 1-59
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/apply_run.rs
+  s_e7d9aa044e41ea::t_8329307a696c0c 1-344
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/mod.rs
+  s_e7d9aa044e41ea::t_3f2f473baac806 1-9
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/proc_stats.rs
+  s_e7d9aa044e41ea::t_8c0fb539a554f2 1-58
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/setup.rs
+  s_e7d9aa044e41ea::t_021a3ea2bb5d27 1-83
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/errors/bench_error_tests.rs
+  s_e7d9aa044e41ea::t_7ea20e5dd3f471 1-22
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/errors/mod.rs
+  s_e7d9aa044e41ea::t_ff5439ffaaafe5 1-7
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/mod.rs
+  s_e7d9aa044e41ea::t_a18e757405c86a 1-11
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/command_tests.rs
+  s_e7d9aa044e41ea::t_bd8da3d751b340 1-101
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/commit_shape_tests.rs
+  s_e7d9aa044e41ea::t_ffa6273586fe91 1-72
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/dir_sizes_tests.rs
+  s_e7d9aa044e41ea::t_cfa45806ad16f0 1-51
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_6038942545fea9 1-17
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/pacer_tests.rs
+  s_e7d9aa044e41ea::t_e4e50a45f2ecc6 1-51
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/summary_tests.rs
+  s_e7d9aa044e41ea::t_764288e5c1d2bc 1-25
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/timed_store_tests.rs
+  s_e7d9aa044e41ea::t_0520b73a502861 1-39
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/mod.rs
+  s_e7d9aa044e41ea::t_d783fdf08e5af1 1-7
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/proc_stats_tests.rs
+  s_e7d9aa044e41ea::t_7e8a53903b7722 1-28
+Cargo.lock
+  s_e7d9aa044e41ea::t_14e7354cfc2fda 20-25,99-104,276-281,298-324,440-470,515-520,557,574,1011-1021,1330-1338,1556-1564,1577-1582,1814,1835,2472-2481,3113,3169-3183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "574c61e9a1d22a850630d54c98a1375dadabece1",
+  "prompts": {},
+  "sessions": {
+    "s_61e1a93841662a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34dd08c2-da8c-4c31-9066-a7110bc3f00a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
