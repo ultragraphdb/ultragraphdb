@@ -3,13 +3,17 @@
 ### Requirement: Predicate declarations
 The catalog SHALL hold, per namespace, a declaration for each predicate IRI it knows: its kind (edge, property, or
 either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, and
-its indexes: tokenizers, an exact count index, and a vector index with its parameters. A predicate the catalog does not
-declare SHALL behave as declared with kind either, multi-valued, no datatype constraint, values not unique and no
-index.
+its indexes: tokenizers, an exact count index, and a vector index with its parameters. A declaration whose datatype
+constraint is not among the datatypes one of its tokenizers takes SHALL be refused. A predicate the catalog does not
+declare SHALL behave as declared with kind either, multi-valued, no datatype constraint, values not unique and no index.
 
 #### Scenario: An undeclared predicate accepts any object
 - **WHEN** `<a> <p> <b>` and `<a> <p> "text"` are written and `p` is not declared
 - **THEN** both statements are held
+
+#### Scenario: A tokenizer that cannot take the datatype constraint is refused
+- **WHEN** `age` is declared with datatype `xsd:string` and an `int` index
+- **THEN** the declaration fails with an error naming `age`, `int` and `xsd:string`
 
 #### Scenario: A declared index is read by index maintenance
 - **WHEN** `name` is declared a property with a `term` index and `<a> <name> "big apple"` is written

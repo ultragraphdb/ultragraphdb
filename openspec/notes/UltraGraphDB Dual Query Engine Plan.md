@@ -400,7 +400,7 @@ tests hold it to that.
 | **5. Transactions and the binary protocol** | The commit step in its distributed shape: order, deterministic validation, apply; read summaries; epochs as group commits, each closing when the previous sync completes; acknowledgement at the watermark; the ordered-log interface with a local implementation; compute, ordering and storage as separate components in one process; n−1 compio workers with dynamic dispatch; the per-key path and the Aria fallback. The binary protocol in a crate of its own: envelope, columnar results, handshake, multiplexing, cancellation, flow control, prepared statements, its conformance suite of valid and malformed frames, the describe request over the data dictionary, and a Rust client; the single-node server process | Elle checks strict serializability; throughput at 1, 2, 4, 8 and n−1 workers, with abort rates; read summaries' false-abort rates measured against write logs on the simulator; match-then-insert over a Zipf-distributed set of entities at 8 writers, with and without the per-key path; D46's batch of 1,000 member moves; the protocol conformance suite passes |
 | **5.5. Hardening transactions with chaos testing** | Stage 5's commit step, group commit and protocol server under the simulator's faults and process kills; Elle under faults on one node; scrith's Dgraph probes Q1 and A8 re-run as tests: a read rooted on an index every write sets, and a hub's reverse edge, each checked against every commit below its read timestamp | Elle finds no anomaly under any fault class; no acknowledged commit is lost across a kill; Q1 and A8 find no missed commit |
 | **6. Query core** | What SPARQL and GQL share, as "The query core" sets out: the kernel (access patterns, operators, statistics) with binary joins planned from statistics; spargebra and the forked selene-gql as parsers; the core's register, which refuses a query outside the core naming the feature; spareval on the quad keyspaces through `QueryableDataset` as the SPARQL oracle; reads, CRUD writes through the changeset path, bounded walks, vector and text search, and catalog declarations through the binary protocol | The selected W3C SPARQL 1.1 tests and MGQL's golden results inside the core pass; no unexplained difference from spareval or MGQL there; one question asked in SPARQL and in GQL over the same data answers equally; the DeepBrain MVP's queries and scrith's catalogue reads run as scenarios |
-| **7. Single-node product** | Access control and namespaces on the catalog; backup, restore and export; the live and bulk loaders, on quads, resolving every IRI in a dictionary pass first; the commit log; administration and metrics; client libraries and their documentation, the transaction limits included | The DeepBrain MVP runs against a single-node server through the Rust client; backup and restore round-trip under the simulator's faults; the mapping contract at a stable version |
+| **7. Single-node product** | Access control and namespaces on the catalog; backup, restore and export; the live and bulk loaders, on quads, resolving every IRI in a dictionary pass first; the commit log; administration and metrics; client libraries and their documentation, the transaction limits included | The DeepBrain MVP runs against a single-node server through the Rust client; backup and restore round-trip under the simulator's faults; the dictionary's growth under the MVP's workload measured; the mapping contract at a stable version |
 | **8. Full SPARQL and GQL conformance** | Everything outside the core: SPARQL's `OPTIONAL`, `UNION`, `MINUS`, full property paths, `CONSTRUCT`, `DESCRIBE`, `ASK`, graph management and the SPARQL Protocol gateway; GQL's `OPTIONAL MATCH`, path variables and path modes, shortest paths, set operations, `OTHERWISE` and the full Flagger and feature register; MGQL's exporter over its whole fragment, its theorem-based property tests and seed scenarios; the W3C suites in CI; worst-case-optimal joins and morsel parallelism; SPARQL 1.1 Service Description, VoID statistics and GQL catalog queries from the data dictionary; SHACL and GQL graph types as the catalog's surface syntaxes | The dual roadmap's phase-1 exit gate: the W3C SPARQL 1.1 query and update suites pass natively, the GQL scenarios and the openCypher TCK at an agreed rate, no unexplained difference from spareval or MGQL, published conformance numbers for SPARQL 1.1, the TCK and the GQL feature register; LDBC and SPARQL baselines |
 | **9. Bolt** | The Bolt adapter, the limit's abort classified as transient; Bolt's schema procedures (`db.labels()`, `db.relationshipTypes()`, `db.propertyKeys()`, `db.schema.nodeTypeProperties()`, `db.schema.relTypeProperties()`, `db.schema.visualization()`, `dbms.components()`, the `SHOW` commands, an `apoc.meta.data()`-shaped result) with Neo4j's exact names, columns and value types, from the data dictionary | Neo4j drivers in two languages run the TCK through Bolt; LangChain's and LlamaIndex's Neo4j graph stores initialise against the server |
 | **10. Distributed tiles** | First on one node, unreleased: read-only tiles built from the KV store, then tiles as a read path, with storage-differential testing. Then the ordering service over a VSR-replicated log; compute and storage nodes; tile placement, moves and rebalancing; membership; tile paging for graphs larger than memory; the multi-node deterministic simulator; Jepsen and Elle under faults | Every conformance suite gives identical results on the KV and the tile paths; Elle checks strict serializability under faults; a group failure loses no data; a graph larger than one node's memory runs the benchmark suites |
@@ -506,11 +506,16 @@ choice is made per question, in code.
 
 ### Datatypes stored by value
 
-XSD's types alone are stored by value. Storing a value pays where values are totally ordered and have one canonical
-form; geometries have neither, and one polygon has several WKT forms. `geo:wktLiteral` is stored by its lexical form, as
-every other typed literal is, and a spatial index on it is a catalog declaration of Dgraph's geo tokenizer, which covers
-a shape with S2 cells (`ultragraphdb_core_tok`, `ultragraphdb_core_types/src/s2`). GeoSPARQL's functions come with
-stage 8. Until then, scrith answers an area from the S2 cells its writer derives into `space.cells`.
+XSD's types and the system's vector datatype are stored by value. Storing a value pays where values are totally ordered
+and have one canonical form; geometries have neither, and one polygon has several WKT forms. Geometries are stored by
+their lexical form, as every other typed literal is, and indexed by Dgraph's `geo` tokenizer, which covers a shape with
+S2 cells (`ultragraphdb_core_tok`, `ultragraphdb_core_types/src/s2`). That tokenizer reads GeoJSON, so
+`geo:geoJSONLiteral` (GeoSPARQL 1.1, Requirements 25–27) is indexed from stage 4, and `geo:wktLiteral` from stage 8,
+with a WKT parser and GeoSPARQL's functions. Until then, scrith answers an area from the S2 cells its writer derives
+into `space.cells`.
+
+Each tokenizer names the datatypes it takes and computes its tokens from the value, so `"042"^^xsd:integer` and `42`
+index alike; a literal of another datatype is held unindexed (stage 4's index-maintenance spec).
 
 ### Which transactions read and write
 
@@ -611,12 +616,17 @@ port keeps the inline and hashed forms and not the canonicalisation.
   - The hash is BLAKE2b truncated to 128 bits; `blake2` is already a workspace dependency, for the hash tokenizer.
     SipHash with a public, fixed key is not designed to resist chosen collisions, and the input is untrusted (an
     inference, not a measured weakness).
+- **Vectors** of the system datatype `ugdb:float32vector` are encoded by value at any length, as their dimension and
+  little-endian 32-bit floats, and accept only their canonical lexical form, so term identity stays exact. They take no
+  dictionary entry and no reverse or object-predicate entry. Hashed, a 768-element embedding would leave several KB in
+  the dictionary for every write of it, and every HNSW distance would parse text.
 - **Literal dictionary entries are written blind:** equal strings produce equal keys and equal values, so concurrent
   inserts commute and are left out of conflict checks.
 - **Dictionary entries are not removed before stage 10.** A removal outside the commit step races a commit that writes
   the same entry again: if the removal lands after it, the new quad names a hash with no entry. A removal is therefore
   a commit of its own, ordered by the commit step and refused if any commit after its scan wrote the entry or a quad
-  naming it.
+  naming it. Stage 7 measures the dictionary's growth under the DeepBrain MVP's workload; that measurement decides
+  whether removal moves to the single node, which stage 5's commit step already makes possible.
 - **In a posting list** a literal object is a value posting whose value is its encoded term. The posting's 64-bit
   fingerprint orders the list, and ties compare the encoded terms, so a fingerprint collision never merges two values.
 

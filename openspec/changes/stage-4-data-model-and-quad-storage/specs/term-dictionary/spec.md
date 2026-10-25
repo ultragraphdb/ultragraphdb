@@ -34,6 +34,10 @@ A literal SHALL be encoded as one tag byte and at most 32 bytes, with no allocat
 
 Equal terms SHALL encode equally, unequal terms unequally, and decoding SHALL return the exact term.
 
+The vector literal, of the system datatype `ugdb:float32vector`, is the one exception to the 32-byte bound: it SHALL be
+encoded by value, as its tag byte, its dimension as a u16 and its elements as little-endian 32-bit floats, and SHALL
+have no dictionary entry.
+
 #### Scenario: A canonical integer is encoded by value
 - **WHEN** `"42"^^xsd:integer` is encoded
 - **THEN** its encoding holds the value 42 and decodes to `"42"^^xsd:integer`
@@ -49,6 +53,25 @@ Equal terms SHALL encode equally, unequal terms unequally, and decoding SHALL re
 #### Scenario: A short language-tagged string is inline
 - **WHEN** `"chat"@fr` is encoded
 - **THEN** its encoding holds `chat` and `fr` inline, and decodes to `"chat"@fr`
+
+#### Scenario: A vector is encoded by value
+- **WHEN** a 768-element `ugdb:float32vector` literal is written
+- **THEN** its encoding is the tag byte, the dimension 768 and 3,072 bytes of elements, and the dictionary gains no
+  entry
+
+### Requirement: Vector literals take their canonical form
+A `ugdb:float32vector` literal SHALL have one lexical form per value: its elements in brackets, separated by a comma and
+a space, each the shortest decimal that reads back as the same 32-bit float. A write naming a vector in any other form,
+an empty vector, more than 65,535 elements, or an element that is not finite SHALL be refused, writing nothing, with an
+error naming the literal's predicate.
+
+#### Scenario: A canonical vector round-trips
+- **WHEN** `"[0.5, -1, 2.25]"^^ugdb:float32vector` is written and read back
+- **THEN** the read returns `"[0.5, -1, 2.25]"^^ugdb:float32vector`
+
+#### Scenario: A non-canonical vector is refused
+- **WHEN** `"[0.50,-1.0]"^^ugdb:float32vector` is written
+- **THEN** the write fails with an error naming the predicate, and nothing of its changeset is held
 
 ### Requirement: The dictionary is a keyspace without versions
 The dictionary SHALL map term to UID, UID to term and literal hash to string in a keyspace without versions, read by

@@ -101,12 +101,20 @@ retry`, as the term-dictionary spec requires; the retry finds the UID. Stage 5 k
 | small string; small language string; small directional string, LTR and RTL | Lexical form and language tag, each at most 15 bytes, inline |
 | big string; big language string; big directional string | 128-bit hashes of the lexical form, and of the language tag when it is over 15 bytes |
 | small typed literal; big typed literal | Datatype UID and lexical form, inline or hashed |
+| vector | `ugdb:float32vector`: the dimension as a u16 and the elements as little-endian f32, at whatever length |
 
 - **The canonical test:** parse the lexical form with `oxsdatatypes`, format the value back, and compare. Only an
   identical round trip is encoded by value. Oxigraph encodes by value whatever parses (`parse_integer_str`), which
   merges `"01"` and `"1"`; the term-dictionary spec forbids that.
 - **The hash:** BLAKE2b truncated to 128 bits, not Oxigraph's fixed-key SipHash, because the input is untrusted.
 - **The posting fingerprint:** farm `Fingerprint64` (`ultragraphdb_common_utils::go_farm`) of the encoding.
+- **Vectors** are the one encoding past 33 bytes. A DeepBrain embedding of 768 elements has a lexical form of several
+  KB; hashed, every embedding written would leave a dictionary entry until stage 10 removes entries, and every HNSW
+  distance would fetch and parse text. By value, the posting holds the floats the search reads, as Dgraph's
+  `float32vector` posting does. The datatype accepts only canonical lexical forms, so term identity stays exact.
+  Vectors take no reverse or object-predicate entry: no query looks a subject up by its embedding, and a bound vector
+  object is answered by a scan of the predicate's forward lists. `ugdb:` abbreviates the system vocabulary, whose base
+  IRI is open ("Open Questions").
 
 ### The quad keys
 
@@ -128,7 +136,7 @@ byte, with the part's start appended.
 
 - **UIDs** appear as u64 big-endian.
 - **An object** appears as the UID tag and its UID, or as a literal's encoding. Both are self-delimiting, so a key with
-  a literal object parses without a length field.
+  a literal object parses without a length field. No key carries a vector.
 - **Regions** are key prefixes: the keyspace byte, namespace, graph and, where the keyspace has one, predicate. A
   `Region` type computed from a key is all stage 5 needs.
 
@@ -169,6 +177,13 @@ write, the interim declaration during a rebuild.
 - **A unique predicate** holds an object for one subject at most within a graph. The write check reads the predicate's
   reverse list for the object, one list read, which stage 5's validation then covers; scrith's `epi.id` needs it
   (`openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "What scrith's ontology needs from the single node").
+- **Tokenizers take datatypes** as the index-maintenance spec's table states. Dgraph converted every value to the
+  predicate's one type before tokenizing; here a predicate's objects are terms of any datatype, so each tokenizer names
+  the ones it takes, tokens come from the value, and a literal of another datatype is held unindexed, which SPARQL's
+  comparisons already treat as an error that filters it out. DeepBrain's ranges over `time.periods`, `space.cells` and
+  `time.valid_from` read the `int` and `day` indexes. The `geo` tokenizer reads GeoJSON, which the ported parser
+  (`ultragraphdb_core_types/src/types/geometry/geometry_geojson.rs`) already reads, so `geo:geoJSONLiteral` is indexed
+  from this stage and `geo:wktLiteral` waits for a WKT parser in stage 8.
 - **The initial catalog** of a namespace declares `rdf:type` as an edge, with nothing else.
 
 ### The data dictionary
@@ -222,5 +237,6 @@ its RDF export and stage 7's loaders.
 
 ## Open Questions
 
-- Which datatypes beyond XSD get an encoding by value, for example GeoSPARQL's `geo:wktLiteral`?
+- What is the base IRI of the system vocabulary that `ugdb:` abbreviates, which names `ugdb:float32vector` and the
+  system's other IRIs?
 - What is a namespace's default base IRI, before an administrator sets one?

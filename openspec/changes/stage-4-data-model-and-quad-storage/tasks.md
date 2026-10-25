@@ -19,7 +19,7 @@ class.
 
 - [ ] 2.1 Scenarios: term-dictionary ("Literals are encoded by content")
 - [ ] 2.2 The term model on `oxrdf`; `EncodedTerm` with the tag table of the design; encoding by value only for canonical lexical forms, checked by an `oxsdatatypes` round trip
-- [ ] 2.3 Inline small strings, language tags and typed literals; BLAKE2b-128 hashes for the rest; decoding, with the dictionary supplying hashed strings; equal terms encode equally, unequal terms unequally, over every XSD type and directional strings
+- [ ] 2.3 Inline small strings, language tags and typed literals; BLAKE2b-128 hashes for the rest; `ugdb:float32vector` by value with its dimension, refused unless canonical, empty-free, finite and at most 65,535 elements; decoding, with the dictionary supplying hashed strings; equal terms encode equally, unequal terms unequally, over every XSD type and directional strings
 - [ ] 2.4 The posting fingerprint: farm `Fingerprint64` of the encoding, injectable for tests
 
 ## 3. Quad keys → `ultragraphdb_core_keys`, rewritten
@@ -44,7 +44,7 @@ class.
 - [ ] 5.1 Move `ultragraphdb_core_schema` to `ultragraphdb_core/ultragraphdb_core_catalog` with `git mv` and rename the crate; every dependent builds
 - [ ] 5.2 Scenarios: catalog, schema-storage
 - [ ] 5.3 Predicate declarations (kind, cardinality, datatype constraint, unique values, tokenizers, exact count index, vector index and its parameters), entity types with one parent and the abstract flag, relations with named roles; the default for an undeclared predicate; the initial catalog declaring `rdf:type` an edge
-- [ ] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object
+- [ ] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object; a declaration whose datatype constraint none of its tokenizers takes refused
 - [ ] 5.5 Preorder numbering of the type hierarchy; refusal of a second parent and of a cycle
 - [ ] 5.6 Persistence per namespace in catalog keys with the discard flag; load at open; removed declarations stay removed; overlays local to a write; a default entry written in the write's commit batch
 - [ ] 5.7 With the user's approval, remove the DQL schema parser and its tests once the catalog's suites pass; list each file removed
@@ -55,7 +55,7 @@ class.
 - [ ] 6.2 The dictionary over the `terms` keyspace: IRI to UID by BLAKE2b-128, UID to IRI with the skolem flag, hash to string; entries written only in commit batches; literal entries written blind; a missing entry reported as corruption naming its key
 - [ ] 6.3 UID and statement-ID leasing: the high-water mark synced in `meta` before a block is handed out, the type bits zero, UID 0 never assigned; a crash test that no UID is reissued
 - [ ] 6.4 New IRIs: provisional UIDs in the write, assignment in the commit hook, refusal with `Transaction has been aborted. Please retry` when a commit since the write's read assigned the same IRI
-- [ ] 6.5 Quad lists on the posting crate: forward, reverse, subject and object predicates, statement records keyed by graph and statement ID, the statement-ID field on `Posting`, splits on every list keyspace
+- [ ] 6.5 Quad lists on the posting crate: forward, reverse (no vector objects), subject and object predicates (no vector objects), statement records keyed by graph and statement ID, the statement-ID field on `Posting`, splits on every list keyspace
 - [ ] 6.6 Literal postings: the fingerprint in `uid`, postings ordered by encoding after equal fingerprints, reads comparing encodings; collisions forced through the injected fingerprint
 - [ ] 6.7 Statistics by deltas, never read by a write
 - [ ] 6.8 Scenarios: data-dictionary; quad-storage ("Statistics are kept by deltas": counts per object kind and datatype)
@@ -68,7 +68,7 @@ class.
 - [ ] 7.2 Applying a changeset as one `Request`: term resolution, the catalog checks, whole or nothing
 - [ ] 7.3 Index maintenance on the quad keys: value-index tokens by language, shared tokens kept on delete, mandatory reverse entries, predicate lists, the exact count index in both directions, deletes by pattern
 - [ ] 7.4 Reads only where needed: `get_from_delta` for multi-valued inserts, `get` for deletes, single-valued overwrites, unique predicates and counted predicates; a test that an insert reads no list and that a write naming a new UID reads none of its lists
-- [ ] 7.5 Terms kept as written; literals converted only to compute index tokens
+- [ ] 7.5 Terms kept as written; literals converted only to compute index tokens; the tokenizer-datatype table of the index-maintenance spec, tokens from values, other datatypes held unindexed; `geo` over `geo:geoJSONLiteral` through the ported GeoJSON parser
 - [ ] 7.6 The read and written regions of a changeset reported; determinism: one changeset applied to two copies writes the same bytes
 - [ ] 7.7 The simulator workload of stage 2 rewritten to changesets, every invariant kept
 
@@ -78,7 +78,7 @@ class.
 - [ ] 8.2 The rebuild decision tables over tokenizers, the count index and the vector index; `needsReverseEdgesRebuild` removed; the two-phase rebuild, its temporary keyspace and rebuild record on the quad prefixes
 - [ ] 8.3 Catalog changes refused against the data: single-valued with a subject holding two objects, an edge holding literals, a property holding IRIs, a datatype constraint the data contradicts; applied otherwise
 - [ ] 8.4 Drops: a predicate across every keyspace and graph, its statement records and its entries in the predicate lists; a graph; a namespace's data; everything in a namespace and everything, with the initial catalog at timestamp 1; dictionary entries kept
-- [ ] 8.5 The HNSW lists in the vector-index keyspace; the golden replays compare values under a translation from Dgraph's keys
+- [ ] 8.5 The HNSW lists in the vector-index keyspace, the search reading elements from the vector's encoding and refusing another dimension; the golden replays compare values under a translation from Dgraph's keys
 
 ## 9. DQL removed
 

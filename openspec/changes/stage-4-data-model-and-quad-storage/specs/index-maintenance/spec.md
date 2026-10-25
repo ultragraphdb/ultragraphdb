@@ -77,6 +77,40 @@ by its language, and the subject and objects from the count keys they are listed
 
 ## ADDED Requirements
 
+### Requirement: Each tokenizer indexes the datatypes it takes
+A tokenizer SHALL index the literals of the datatypes it takes, computing its tokens from the literal's value, so that
+literals with equal values and different lexical forms produce equal tokens. It SHALL leave a literal of any other
+datatype unindexed, which is still held:
+
+| Tokenizers | Datatypes |
+|---|---|
+| `int` | `xsd:integer` and the types derived from it, within 64 bits |
+| `float` | `xsd:double`, `xsd:float` |
+| `bigfloat` | `xsd:decimal` |
+| `bool` | `xsd:boolean` |
+| `year`, `month`, `day`, `hour` | `xsd:dateTime`, `xsd:dateTimeStamp`; `xsd:date` for `year`, `month` and `day`. A value without a time zone is indexed as UTC |
+| `exact`, `hash`, `term`, `fulltext`, `trigram`, `ngram`, `sha256` | `xsd:string`, `rdf:langString`, `rdf:dirLangString` |
+| `geo` | `geo:geoJSONLiteral` (GeoSPARQL 1.1, Requirements 25–27): a GeoJSON Geometry object in CRS84 |
+| the vector index | `ugdb:float32vector` |
+
+#### Scenario: Non-canonical integers index alike
+- **WHEN** `periods` is declared with an `int` index, `<a> <periods> "042"^^xsd:integer` and `<b> <periods> 42` are
+  written
+- **THEN** the value-index key of `periods` for 42 holds `a` and `b`
+
+#### Scenario: Every value of a multi-valued predicate is indexed
+- **WHEN** `periods` is multi-valued with an `int` index and `a` holds 41, 42 and 43
+- **THEN** a range read of the `int` index over 42 to 43 returns `a`
+
+#### Scenario: A literal of another datatype is held unindexed
+- **WHEN** `periods` is declared with an `int` index and no datatype constraint, and `<a> <periods> "soon"` is written
+- **THEN** `a` holds `"soon"`, and no value-index key of `periods` holds `a`
+
+#### Scenario: A GeoJSON geometry is indexed by its cells
+- **WHEN** `where` is declared with a `geo` index and
+  `<a> <where> "{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral` is written
+- **THEN** the value-index keys of `where` for the point's S2 cell tokens hold `a`
+
 ### Requirement: Writes read only what they need
 Inserting into a multi-valued predicate SHALL write its forward, reverse, predicate-list, value-index and statistics
 entries as deltas without reading any list. A write SHALL read a list only to delete from it, to overwrite a

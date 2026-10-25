@@ -16,7 +16,9 @@ stage 6's query core depend on it.
   default entry: multi-valued, any object.
 - **The term dictionary:** every IRI and blank node gets an allocated 64-bit UID whose top 16 bits are reserved for an
   entity-type prefix; every literal is encoded by content, by value only when its lexical form is canonical, so RDF
-  term identity stays exact. The dictionary lives in a keyspace without versions, which fjall's bloom filters serve.
+  term identity stays exact. Vectors, of the system datatype `ugdb:float32vector`, are encoded by value at any length
+  and take no dictionary entry and no reverse entry. The dictionary lives in a keyspace without versions, which fjall's
+  bloom filters serve.
 - **The quad layout:** forward, reverse, subject-predicate, object-predicate, value-index, statement and statistics
   keyspaces, each keyed by namespace and graph and by term IDs instead of attribute strings, with a region identity
   for every key.
@@ -59,11 +61,11 @@ stage 6's query core depend on it.
 - `storage-simulation`: the simulated store models the keyspace without versions under the same faults and shadow
   model.
 - `index-maintenance`: driven by the catalog and changesets; set semantics; reads only where a write needs them; terms
-  kept as written instead of converted to a schema type.
+  kept as written instead of converted to a schema type; each tokenizer indexes the datatypes it takes, from the value.
 - `posting-lists`: a literal posting is identified by its encoded term; cardinality comes from the catalog.
 - `schema-storage`: the catalog persists in place of the DQL schema, and an undeclared predicate gets a default entry.
 - `schema-changes`: catalog changes in place of DQL type changes; drops of graphs; drops cover every quad keyspace.
-- `vector-index`: the HNSW lists live in the quad layout.
+- `vector-index`: the HNSW lists live in the quad layout; vectors are `ugdb:float32vector` literals encoded by value.
 - `port-testing`: golden vectors from Go remain only where an output must still equal Dgraph's.
 
 ### Removed Capabilities

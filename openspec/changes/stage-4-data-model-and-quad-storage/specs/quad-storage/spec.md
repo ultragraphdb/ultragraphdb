@@ -4,9 +4,10 @@
 A statement SHALL be stored in these keyspaces, each key starting with a keyspace byte and the namespace as a u64
 big-endian:
 - **forward**, keyed by graph, predicate and subject, holding the subject's objects;
-- **reverse**, keyed by graph, predicate and object, holding the subjects, for every object kind, literals included;
+- **reverse**, keyed by graph, predicate and object, holding the subjects, for every object kind, literals included,
+  vectors apart;
 - **subject predicates**, keyed by graph and subject, holding the predicates the subject has;
-- **object predicates**, keyed by graph and object, holding the predicates that point at the object;
+- **object predicates**, keyed by graph and object, holding the predicates that point at the object, vectors apart;
 - **value index**, keyed by graph, predicate, tokenizer and token, holding the subjects, for the tokenizers the catalog
   declares;
 - **count index**, keyed by graph, predicate, direction and count, holding the subjects, for the predicates the catalog
@@ -27,6 +28,10 @@ predicate's forward keys sort by subject; a literal object SHALL appear as its e
 #### Scenario: A bound literal object is a list read
 - **WHEN** `<a> <name> "Ann"` and `<c> <name> "Ann"` are written
 - **THEN** the reverse list of `name` for `"Ann"` holds `a` and `c`
+
+#### Scenario: A vector has no reverse entry
+- **WHEN** `<a> <embedding> "[0.5, -1]"^^ugdb:float32vector` is written
+- **THEN** the forward list of `embedding` for `a` holds the vector, and no reverse or object-predicate key names it
 
 #### Scenario: Forward keys of a predicate sort by subject
 - **WHEN** forward keys of one predicate are built for subjects with UIDs 1, 2, 256 and 2^40
