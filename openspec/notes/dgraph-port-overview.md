@@ -70,7 +70,7 @@ pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
 | `golang/snappy`, `klauspost/compress` | `lz4_flex` for backups; `flate2` over `miniz_oxide` for gzip exports | Decided |
 | `dgraph-io/simdjson-go`, `encoding/json` | A port of Go's `encoding/json` in `ultragraphdb_common_utils` | Decided |
 | `minio/minio-go` (backups) | `object_store` | Proposed |
-| `glog`, OpenTelemetry, OpenCensus, Prometheus | `tracing` and `tracing-subscriber` for logs; `opentelemetry` with `tracing-opentelemetry` and OTLP for spans; a Prometheus exporter for metrics (stage 5) | Decided |
+| `glog`, OpenTelemetry, OpenCensus, Prometheus | `tracing` and `tracing-subscriber` for logs; `opentelemetry` with `tracing-opentelemetry` and OTLP for spans; a Prometheus exporter for metrics (stage 8) | Decided |
 | `gqlgen`, `gqlparser`, `graphql-go`, `graphql-transport-ws` | — | Cut with GraphQL |
 | `IBM/sarama` (Kafka change data capture), `go-sql-driver/mysql`, `mark3labs/mcp-go` | — | Cut |
 
@@ -109,8 +109,9 @@ That removes Dgraph's uncommitted layer. Dgraph proposes a mutation through Raft
 it, holds it in the Alpha's memory under its start timestamp, and decides it in a second round at commit:
 two Raft rounds per transaction, state for clients that walk away, and the gap between Zero's decision
 and the group's apply where the stale reads arise. A one-request transaction within one group is proposed once
-and decided and applied in the same step. A transaction spanning groups needs an order across them; how it gets
-one is open in stage 7.
+and decided and applied in the same step. A transaction spanning groups needs an order across them; stage 9 orders
+transactions in epochs and validates them deterministically (`UltraGraphDB Dual Query Engine Plan.md`, "The
+distributed design").
 
 The same reasoning stands behind H-Store, VoltDB, Calvin and TigerBeetle (Stonebraker et al., "The End
 of an Architectural Era", VLDB 2007), and FoundationDB's servers hold no transaction state either: its
@@ -258,7 +259,7 @@ is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n>
   relations on 10,000 reverse lists, loaded at 585 commits/s; the rollup of all 10,000 lists took 0.52 s (19,096 lists/s,
   1.9M deltas/s); a major compaction took 1.40 s and collected 997,609 of the 1,007,609 reverse versions at or below the
   discard timestamp. Data files went from 140 MB to 48 MB, the journal from 318 MB to 399 MB; peak RSS 1.0 GB.
-- A bulk load and a snapshot install are stages 7 and 6; they are measured there.
+- A bulk load and a snapshot install are stages 8 and 9; they are measured there.
 
 ## Correctness oracles
 
@@ -278,26 +279,35 @@ Dgraph has no conformance suite. The port checks itself against five sources:
 
 ## Stages
 
-Step 1 of the plan, the port, runs in the roadmap's stages 1, 2 and 4 to 7 (`ROADMAP.md`; stage 3 is the website and
-public repository), ordered by Dgraph's package import graph, each an OpenSpec change under `openspec/changes/`:
+Stages 1 and 2 ported Dgraph's foundations and storage. From stage 4, SPARQL and GQL replace DQL, and the stages
+follow `UltraGraphDB Dual Query Engine Plan.md` ("Stages") rather than Dgraph's package graph. The roadmap has nine
+stages (`ROADMAP.md`; stage 3 is the website and public repository), each engineering stage an OpenSpec change under
+`openspec/changes/`:
 
 | Stage | Change | Contents | Checked by |
 |---|---|---|---|
 | 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `openspec/specs/` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
 | 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `openspec/specs/` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
-| 4. Query engine | Reserved; its change is written next | The query engine | — |
-| 5. Single node | `port-stage-5-single-node` | One Alpha and one Zero process: `worker/task.go`, `query`, `edgraph`, `acl`, Zero's leases; one-request transactions in both forms | Differential DQL against Go Dgraph; the tracker's query, index and mutation reproductions; the visibility probes; Elle |
-| 6. Replication | `port-stage-6-replication` | Raft groups of three for the Alpha group and Zero: `raftwal`, `conn`, `draft.go`, snapshots, membership | The crash and data-loss reproductions; fault injection; Elle under faults |
-| 7. Sharding and operations | `port-stage-7-sharding-and-operations` | Tablets, fan-out, cross-group transactions, predicate moves, rebalancing; export, backup, restore, the live and bulk loaders | Differential DQL across group layouts; Elle across groups; round trips from Go Dgraph's exports |
+| 4. Data model and quad storage | Written next | Mapping contract and catalog; the term dictionary; the quad keyspaces; statement IDs; type bits in UIDs; changesets; DQL and Dgraph's gRPC API removed | Quads round-tripped under the simulator's faults; reads per relation in `store_bench` |
+| 5. Transactions and the binary protocol | Not yet written | The commit step on n−1 cores in its distributed shape (order, deterministic validation, apply; read summaries; epochs); the binary protocol crate, its conformance suite and client; the single-node server | Elle (strict serializability); scaling at 1 to n−1 workers; read summaries' false-abort rates; the protocol conformance suite |
+| 6. SPARQL engine | Not yet written | The kernel; spareval on the quad keyspaces; the native engine; the vector index as an extension | The W3C SPARQL 1.1 suites; differential testing against spareval |
+| 7. GQL engine and Bolt | Not yet written | selene-gql forked; the GQL planner; GQL writes; the Bolt adapter | The openCypher TCK and GQL scenarios; MGQL's golden results and theorems; Neo4j drivers through Bolt |
+| 8. Single-node product | Not yet written | Access control and namespaces; backup, restore, export; the loaders; administration; client libraries | The roadmap's stage-1 exit gate: published conformance numbers and baselines |
+| 9. Distributed tiles | Not yet written | Tiles, first on one node; the ordering service over a VSR-replicated log; compute and storage nodes; placement and rebalancing | Storage-differential testing; Elle and Jepsen under faults; a graph larger than one node's memory |
+
+The single-node, replication and sharding port changes were closed unapplied on 2026-10-25 and are archived as
+`2026-10-25-port-stage-5-single-node`, `2026-10-25-port-stage-6-replication` and
+`2026-10-25-port-stage-7-sharding-and-operations`.
 
 Known bugs (step 3 of the plan) and re-architecture (step 5) follow the port.
 
 **Scope.** Beyond GraphQL, the port cuts change data capture, MCP, audit logging and encryption at rest; it keeps
 access control and namespaces, backup, restore and export, the bulk and live loaders, and the HNSW vector index.
-Zero stays a separate process.
+DQL is replaced by SPARQL and GQL from stage 4. Dgraph's Zero and Alpha are not built as separate processes;
+storage and compute separate instead, into compute nodes, an ordering service and storage nodes (stage 9).
 
 **Data from Go Dgraph and backups.** Data enters from Go Dgraph through its RDF or JSON export and the live or bulk
-loader, which build every index from values with the port's tokens. Backups are the port's own, in its own format (stage 7):
+loader, which build every index from values with the port's tokens. Backups are the port's own, in its own format (stage 8):
 per-group parts in key order with checksummed frames, one immutable manifest per backup written last, every string value
 checked for valid UTF-8 before writing; restore loads only such backups, into staged stores it switches to on success. Go Dgraph's backups, stores and WALs are not read.
 
@@ -327,13 +337,8 @@ path, and states that it was changed (Apache-2.0 §4(b), §4(c)). `AGENTS.md` ho
 
 Each stage's `design.md` holds the questions it must settle. The ones that shape the whole port:
 
-1. How does a read-set transaction carry its read set to the server? `Request` has a `start_ts` for the
-   read timestamp and no field for keys or ranges. (Stage 5.)
-2. How is a read set bounded: past what size does a query's read set coarsen to whole-predicate ranges?
-   (Stage 5.)
-3. Which mechanism commits a transaction spanning groups: Zero ordering the whole request, or Dgraph's prepare
-   and decide? (Stage 7.)
-4. How is an upsert block spanning several groups ordered: by a Calvin-style sequence that Zero assigns
-   across groups, or is a serially executed upsert confined to one group? (Stage 7.)
-5. Is the admin interface for export, backup, restore and moves a set of HTTP endpoints, or a gRPC admin
-   service? (Stage 7.)
+1. Is the admin interface for export, backup and restore a set of HTTP endpoints, or requests on the binary
+   protocol? (Stage 8.)
+
+How a read-write transaction's reads are carried and bounded, and how transactions spanning groups and upsert blocks
+are ordered, are decided in `UltraGraphDB Dual Query Engine Plan.md` ("Decisions", "The distributed design").

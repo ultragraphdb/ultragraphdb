@@ -1,3 +1,7 @@
+> **Superseded, 2026-10-25, not implemented.** DQL was replaced by SPARQL and GQL, and the roadmap was renumbered to
+> nine stages. This change is closed unapplied: its requirements were not synced into `openspec/specs/`. Its work
+> moves to stages 8 (single-node product: export, backup, restore, loaders on quads) and 9 (distributed tiles: tile placement, moves and rebalancing in place of tablets), specified anew from `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
+
 ## Why
 
 A replicated group carries only what one machine holds. Stage 7 spreads predicates across several groups, as

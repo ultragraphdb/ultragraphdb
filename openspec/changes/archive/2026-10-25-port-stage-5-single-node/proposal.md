@@ -1,3 +1,7 @@
+> **Superseded, 2026-10-25, not implemented.** DQL was replaced by SPARQL and GQL, and the roadmap was renumbered to
+> nine stages. This change is closed unapplied: its requirements were not synced into `openspec/specs/`. Its work
+> moves to stages 5 (transactions and the binary protocol) and 8 (single-node product), specified anew from `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
+
 ## Why
 
 With storage proven, the port can answer DQL. Stage 5 runs one Alpha and one Zero, as separate processes, over
