@@ -1,0 +1,21 @@
+openspec/changes/port-stage-2-storage/design.md
+  s_e7d9aa044e41ea::t_0256c22a7d6a2b 365-368
+openspec/changes/port-stage-3-single-node/tasks.md
+  s_e7d9aa044e41ea::t_5bc03f9d398224 56,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5c9a04d9be24b4b544e284a34e90c2ba6c7b418",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
