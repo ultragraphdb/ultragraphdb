@@ -1,10 +1,10 @@
-# ultragraphdb
+# UltraGraphDB
 
 A next generation distributed graph database in Rust.  
 
 ## Build
 
-Bazel builds and tests the workspace; Cargo serves the IDE.
+Bazel builds and tests the workspace.
 
 ```sh
 make build   # bazel build //...

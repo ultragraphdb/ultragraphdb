@@ -5,8 +5,8 @@
 | 1. Foundations | ✅ |
 | 1.5. Fault simulator | ✅ | 
 | 2. Storage | `in progress` | 
-| 3. Website | `in progress` |
-| 4. Public Release | `open` |
+| 3. Website + Public rep |  ✅ |
+| 4. Query Engine  | `open` |
 | 5. Single node | `open` |
 | 6. Replication | `open` | 
 | 7. Sharding and operations | `open` |
