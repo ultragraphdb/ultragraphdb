@@ -30,7 +30,7 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 - [ ] 4.1 Port `draft_test.go`, `proposal_test.go`; scenarios: group-replication (quorum, determinism, proposals, restarts, leased timestamps)
 - [ ] 4.2 Proposals: keys, retries carrying the same bytes, the limiter, schema proposals' single attempt
 - [ ] 4.3 Entries carrying commit timestamps in append order, blank-node uids and watermark entries; the apply thread's order check; abandonment reported after the new leader's first own-term entry; Zero refusing leases to non-leaders
-- [ ] 4.4 The apply dispatch over committed entries (mutations, schema, drops, watermarks), feeding stage 3's apply thread; the applied index and applied proposal keys in the store batch
+- [ ] 4.4 The apply dispatch over committed entries (mutations, schema, drops, watermarks), feeding stage 5's apply thread; the applied index and applied proposal keys in the store batch
 - [ ] 4.5 Reads on every replica gated by the applied watermark; restart from snapshot and log, skipping entries at or below the stored applied index
 
 ## 5. Snapshots → `ultragraphdb_server_alpha`
@@ -59,5 +59,5 @@ code (they pass), refactor with both green. Multi-process scenarios are integrat
 ## 9. Close the stage
 
 - [ ] 9.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; the fault schedules pass
-- [ ] 9.2 Measure commits per second for a three-replica group against stage 3's single replica, against Go Dgraph v25.5.0 stock (11.8k) and patched (14.5k) with one Zero and one Alpha, and against Go Dgraph with three Alpha replicas measured the same way; results in the overview
+- [ ] 9.2 Measure commits per second for a three-replica group against stage 5's single replica, against Go Dgraph v25.5.0 stock (11.8k) and patched (14.5k) with one Zero and one Alpha, and against Go Dgraph with three Alpha replicas measured the same way; results in the overview
 - [ ] 9.3 Attribution headers; `AGENTS.md` crate table updated

@@ -1,6 +1,6 @@
 ## Context
 
-Stage 5 spreads stage 4's replicated groups across predicates and completes the port. The Go code is Zero's
+Stage 7 spreads stage 6's replicated groups across predicates and completes the port. The Go code is Zero's
 `tablet.go` and the tablet half of `zero.go`; `worker/groups.go`'s ownership; `predicate_move.go`; `task.go`'s
 fan-out (`ProcessTaskOverNetwork`, `processWithBackupRequest`, `ServeTask`); the cross-group parts of
 `worker/mutation.go`; `backup*.go`, `backup/`, `restore_map.go`, `restore_reduce.go`, `online_restore.go`;
@@ -8,7 +8,7 @@ fan-out (`ProcessTaskOverNetwork`, `processWithBackupRequest`, `ServeTask`); the
 
 In Dgraph a commit-now transaction spanning groups is proposed to each group, held pending there, decided by Zero
 (conflict keys, owner checks, the blocked-tablet check during moves, `oracle.go:341-404`), and applied by each
-group when Zero's delta reaches it (`groups.go:926`). Stage 3 moved the conflict check into the group, because one
+group when Zero's delta reaches it (`groups.go:926`). Stage 5 moved the conflict check into the group, because one
 group holds every key of its predicates. A transaction spanning groups has no such single holder.
 
 Backup, restore and export are started through GraphQL `/admin` mutations in Dgraph (`graphql/admin/backup.go`,

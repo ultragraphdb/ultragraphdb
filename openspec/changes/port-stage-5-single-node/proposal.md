@@ -1,6 +1,6 @@
 ## Why
 
-With storage proven, the port can answer DQL. Stage 3 runs one Alpha and one Zero, as separate processes, over
+With storage proven, the port can answer DQL. Stage 5 runs one Alpha and one Zero, as separate processes, over
 one group and no replication, serving Dgraph's gRPC API. It is the first stage that Go Dgraph can be compared
 with on the same requests, and the first that carries the port's own transaction model: a transaction is one
 request, checked by its read set or run serially as an upsert block.

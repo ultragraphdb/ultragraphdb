@@ -5,7 +5,7 @@ faults and checks every result against a shadow model. Every storage crate runs 
 tests; the fjall store (`ultragraphdb_store_kv`) is checked against it operation by operation.
 
 This file lists what the simulator injects, what is detected when it does, and what is neither injected nor detected.
-The last list is where detection has to grow, above all once replication (stage 4) and sharding (stage 5) arrive.
+The last list is where detection has to grow, above all once replication (stage 6) and sharding (stage 7) arrive.
 
 ## A run
 
@@ -112,10 +112,10 @@ a rebuild maintains a reversed and a counted schema together, which neither sche
 
 - **Checksummed values.** A checksum in the stored value's framing would make every flipped byte detectable, at the
   cost of bytes per version; the corruption workloads could then run with `corruption > 0`.
-- **Stage 4, replication.** The Raft log has its own file-level simulated storage (torn writes reported and silent,
+- **Stage 6, replication.** The Raft log has its own file-level simulated storage (torn writes reported and silent,
   process crash, power loss) and CRC32C-framed records, and a deterministic simulator runs a group of three and its Zero
   over a simulated network. Replicas apply the same entries, so comparing their stores' contents after each step turns a
   silent divergence on one replica into a detected one.
-- **Stage 5, sharding and backups.** Backups carry a CRC32C per frame and a SHA-256 per part, and `ultragraph backup
+- **Stage 7, sharding and backups.** Backups carry a CRC32C per frame and a SHA-256 per part, and `ultragraph backup
   verify` reads a chain without restoring it; predicate moves and rebalancing add cross-group states the shadow model
   will need to follow.

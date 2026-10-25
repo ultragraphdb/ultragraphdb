@@ -1,7 +1,7 @@
 ## Why
 
 Distribution is a requirement, and replication comes before sharding: a group must survive the loss of a replica
-before predicates are spread across groups. Stage 4 replicates the single group of stage 3, and Zero, as Raft
+before predicates are spread across groups. Stage 6 replicates the single group of stage 5, and Zero, as Raft
 groups of three, with raft-rs in place of etcd raft and the loop model the overview fixes: a fixed pool of
 threads driving Raft groups, one apply thread per group, tonic at the network edge.
 

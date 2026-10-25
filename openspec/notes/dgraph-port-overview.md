@@ -70,7 +70,7 @@ pure-Rust alternative, `rustls-rustcrypto`, is younger and less audited.
 | `golang/snappy`, `klauspost/compress` | `lz4_flex` for backups; `flate2` over `miniz_oxide` for gzip exports | Decided |
 | `dgraph-io/simdjson-go`, `encoding/json` | A port of Go's `encoding/json` in `ultragraphdb_common_utils` | Decided |
 | `minio/minio-go` (backups) | `object_store` | Proposed |
-| `glog`, OpenTelemetry, OpenCensus, Prometheus | `tracing` and `tracing-subscriber` for logs; `opentelemetry` with `tracing-opentelemetry` and OTLP for spans; a Prometheus exporter for metrics (stage 3) | Decided |
+| `glog`, OpenTelemetry, OpenCensus, Prometheus | `tracing` and `tracing-subscriber` for logs; `opentelemetry` with `tracing-opentelemetry` and OTLP for spans; a Prometheus exporter for metrics (stage 5) | Decided |
 | `gqlgen`, `gqlparser`, `graphql-go`, `graphql-transport-ws` | — | Cut with GraphQL |
 | `IBM/sarama` (Kafka change data capture), `go-sql-driver/mysql`, `mark3labs/mcp-go` | — | Cut |
 
@@ -110,7 +110,7 @@ it, holds it in the Alpha's memory under its start timestamp, and decides it in 
 two Raft rounds per transaction, state for clients that walk away, and the gap between Zero's decision
 and the group's apply where the stale reads arise. A one-request transaction within one group is proposed once
 and decided and applied in the same step. A transaction spanning groups needs an order across them; how it gets
-one is open in stage 5.
+one is open in stage 7.
 
 The same reasoning stands behind H-Store, VoltDB, Calvin and TigerBeetle (Stonebraker et al., "The End
 of an Architectural Era", VLDB 2007), and FoundationDB's servers hold no transaction state either: its
@@ -278,16 +278,17 @@ Dgraph has no conformance suite. The port checks itself against five sources:
 
 ## Stages
 
-Step 1 of the plan, the port, runs in five stages ordered by Dgraph's package import graph, each an OpenSpec change
-under `openspec/changes/`:
+Step 1 of the plan, the port, runs in the roadmap's stages 1, 2 and 4 to 7 (`ROADMAP.md`; stage 3 is the website and
+public repository), ordered by Dgraph's package import graph, each an OpenSpec change under `openspec/changes/`:
 
 | Stage | Change | Contents | Checked by |
 |---|---|---|---|
 | 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `openspec/specs/` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
 | 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `openspec/specs/` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
-| 3. Single node | `port-stage-3-single-node` | One Alpha and one Zero process: `worker/task.go`, `query`, `edgraph`, `acl`, Zero's leases; one-request transactions in both forms | Differential DQL against Go Dgraph; the tracker's query, index and mutation reproductions; the visibility probes; Elle |
-| 4. Replication | `port-stage-4-replication` | Raft groups of three for the Alpha group and Zero: `raftwal`, `conn`, `draft.go`, snapshots, membership | The crash and data-loss reproductions; fault injection; Elle under faults |
-| 5. Sharding and operations | `port-stage-5-sharding-and-operations` | Tablets, fan-out, cross-group transactions, predicate moves, rebalancing; export, backup, restore, the live and bulk loaders | Differential DQL across group layouts; Elle across groups; round trips from Go Dgraph's exports |
+| 4. Query engine | Reserved; its change is written next | The query engine | — |
+| 5. Single node | `port-stage-5-single-node` | One Alpha and one Zero process: `worker/task.go`, `query`, `edgraph`, `acl`, Zero's leases; one-request transactions in both forms | Differential DQL against Go Dgraph; the tracker's query, index and mutation reproductions; the visibility probes; Elle |
+| 6. Replication | `port-stage-6-replication` | Raft groups of three for the Alpha group and Zero: `raftwal`, `conn`, `draft.go`, snapshots, membership | The crash and data-loss reproductions; fault injection; Elle under faults |
+| 7. Sharding and operations | `port-stage-7-sharding-and-operations` | Tablets, fan-out, cross-group transactions, predicate moves, rebalancing; export, backup, restore, the live and bulk loaders | Differential DQL across group layouts; Elle across groups; round trips from Go Dgraph's exports |
 
 Known bugs (step 3 of the plan) and re-architecture (step 5) follow the port.
 
@@ -296,7 +297,7 @@ access control and namespaces, backup, restore and export, the bulk and live loa
 Zero stays a separate process.
 
 **Data from Go Dgraph and backups.** Data enters from Go Dgraph through its RDF or JSON export and the live or bulk
-loader, which build every index from values with the port's tokens. Backups are the port's own, in its own format (stage 5):
+loader, which build every index from values with the port's tokens. Backups are the port's own, in its own format (stage 7):
 per-group parts in key order with checksummed frames, one immutable manifest per backup written last, every string value
 checked for valid UTF-8 before writing; restore loads only such backups, into staged stores it switches to on success. Go Dgraph's backups, stores and WALs are not read.
 
@@ -327,12 +328,12 @@ path, and states that it was changed (Apache-2.0 §4(b), §4(c)). `AGENTS.md` ho
 Each stage's `design.md` holds the questions it must settle. The ones that shape the whole port:
 
 1. How does a read-set transaction carry its read set to the server? `Request` has a `start_ts` for the
-   read timestamp and no field for keys or ranges. (Stage 3.)
+   read timestamp and no field for keys or ranges. (Stage 5.)
 2. How is a read set bounded: past what size does a query's read set coarsen to whole-predicate ranges?
-   (Stage 3.)
+   (Stage 5.)
 3. Which mechanism commits a transaction spanning groups: Zero ordering the whole request, or Dgraph's prepare
-   and decide? (Stage 5.)
+   and decide? (Stage 7.)
 4. How is an upsert block spanning several groups ordered: by a Calvin-style sequence that Zero assigns
-   across groups, or is a serially executed upsert confined to one group? (Stage 5.)
+   across groups, or is a serially executed upsert confined to one group? (Stage 7.)
 5. Is the admin interface for export, backup, restore and moves a set of HTTP endpoints, or a gRPC admin
-   service? (Stage 5.)
+   service? (Stage 7.)

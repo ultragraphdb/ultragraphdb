@@ -124,5 +124,5 @@ relation, the cache hits and the reads that found nothing, beside the commit rat
 - Does a release of lsm-tree after 3.1.10 offer prefix filters, and at what cost to fjall's pin?
 - Does the existence marker pay for itself on a workload that mostly reads existing keys, where it adds a point get to
   every miss?
-- Which of P1 and P2 belongs in the single-node change's apply thread (task 7.2 of `port-stage-3-single-node`), and
+- Which of P1 and P2 belongs in the single-node change's apply thread (task 7.2 of `port-stage-5-single-node`), and
   which in this change set?

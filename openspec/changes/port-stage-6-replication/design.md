@@ -1,6 +1,6 @@
 ## Context
 
-Stage 4 replicates stage 3's group and its Zero as Raft groups of three. The Go code is `raftwal` (the WAL),
+Stage 6 replicates stage 5's group and its Zero as Raft groups of three. The Go code is `raftwal` (the WAL),
 `conn` (the Raft node wrapper `node.go`, the transport `raft_server.go`, connection pools `pool.go`),
 `worker/draft.go` (the Alpha's Ready loop, apply, snapshots, checkpoints), `proposal.go`, `snapshot.go`, `queue.go`,
 the membership half of `groups.go`, and Zero's `raft.go`, `zero.go` and `run.go`.
@@ -28,7 +28,7 @@ round trip to the Raft goroutine, in Zero and in the Alpha (`zero/raft.go:56-62`
 
 **Non-Goals:**
 
-- Several groups and tablets: stage 5.
+- Several groups and tablets: stage 7.
 - Reading Go-written WALs: data moves through export and the loaders.
 - Re-architecting the replication path; the measured bottlenecks stay in step 5 of the plan, except the leadership
   check, which raft-rs's API makes free to fix.
@@ -97,7 +97,7 @@ sends its messages before persisting in both modes, as Dgraph's does.
   the group's apply thread, and calls `advance_apply_to` as the apply thread reports.
 - Proposals, ticks and incoming messages reach a Raft thread through batched channels; a thread takes everything
   waiting in one receive.
-- Each group's apply thread is stage 3's, fed from committed entries in place of requests. A snapshot stream runs off
+- Each group's apply thread is stage 5's, fed from committed entries in place of requests. A snapshot stream runs off
   the Raft threads, so one group catching up does not stall the others a thread holds; Dgraph blocks its loop there
   (`draft.go:1449-1457`).
 - Each loop is a step function over its inputs. raft-rs draws election timeouts from `rand::rng()`, so a simulation
@@ -166,7 +166,7 @@ Processes on one host or in containers, controlled by a Rust harness: kill and r
 latency and loss by proxy. Workloads record Jepsen histories (EDN or JSON) for `elle-cli`, which checks `list-append`
 and `rw-register` histories: `strict-serializable` for the read-set and upsert-block forms, `snapshot-isolation` for
 requests checked on their write keys. Dgraph's Jepsen nemeses (`contrib/jepsen/main.go`: kill-alpha, kill-zero,
-partition-ring, plus move-tablet in stage 5) are its first schedules.
+partition-ring, plus move-tablet in stage 7) are its first schedules.
 
 ## Risks / Trade-offs
 
@@ -180,7 +180,7 @@ partition-ring, plus move-tablet in stage 5) are its first schedules.
 
 ## Migration Plan
 
-New crates; the Alpha and Zero processes gain Raft. A single-replica group is still valid, so stage 3's deployments
+New crates; the Alpha and Zero processes gain Raft. A single-replica group is still valid, so stage 5's deployments
 keep working.
 
 ## Open Questions

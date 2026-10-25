@@ -1,6 +1,6 @@
 ## Context
 
-Stage 3 puts stages 1 and 2 behind Dgraph's API: one Zero process and one Alpha process, one group, no
+Stage 5 puts stages 1 and 2 behind Dgraph's API: one Zero process and one Alpha process, one group, no
 replication. The Go code is `worker/task.go` with `sort.go`, `tokens.go`, `trigram.go`, `stringfilter.go`,
 `match.go`; `query/`; `edgraph/` without GraphQL; `acl/`; Zero's `assign.go`, `oracle.go` and the membership calls an
 Alpha makes; the HTTP handlers of `dgraph/cmd/alpha` and `dgraph/cmd/zero`.
@@ -12,7 +12,7 @@ rests on `@upsert` conflict keys. The port replaces both: a transaction is one r
 (`dgraph-port-overview.md`, §Transactions).
 
 The fork's embedded mode (`worker/embedded.go`, `hooks/config.go`, `InitForLite`) replaces Zero's network calls with
-hooks the host supplies, over one group. Stage 3 keeps the same seam and implements it over gRPC, because Zero stays a
+hooks the host supplies, over one group. Stage 5 keeps the same seam and implements it over gRPC, because Zero stays a
 separate process.
 
 ## Goals / Non-Goals
@@ -26,9 +26,9 @@ separate process.
 
 **Non-Goals:**
 
-- Replication, Raft, snapshots: stage 4.
-- Several groups, tablets, predicate moves, cross-group commits: stage 5.
-- Export, backup, restore, the loaders: stage 5.
+- Replication, Raft, snapshots: stage 6.
+- Several groups, tablets, predicate moves, cross-group commits: stage 7.
+- Export, backup, restore, the loaders: stage 7.
 - GraphQL in any form.
 
 ## Decisions
@@ -65,14 +65,14 @@ of the leased timestamps were applied and which abandoned. Zero advances its don
 it to the Alpha, and reads at `t` wait for the watermark to reach `t`, as `WaitForTs` does.
 
 The conflict check lives in the group because one group holds every key of its predicates and applies their
-commits in order; the per-key record is derived from the applied log, so in stage 4 every replica computes the same
+commits in order; the per-key record is derived from the applied log, so in stage 6 every replica computes the same
 outcome. Zero keeps timestamps, leases and the done watermark.
 
 Alternatives:
 - Dgraph's path: propose, hold pending, let Zero decide, apply its delta. It keeps the uncommitted layer the port
   removes, and two round trips per transaction.
 - Zero checks every commit, as Dgraph's oracle does. That serializes all groups' commits through Zero, the
-  bottleneck the investigation measured. Stage 5 revisits Zero's role for transactions spanning groups.
+  bottleneck the investigation measured. Stage 7 revisits Zero's role for transactions spanning groups.
 
 ### Upsert blocks run the query engine inside the apply thread
 

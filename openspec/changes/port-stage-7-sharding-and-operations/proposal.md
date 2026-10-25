@@ -1,6 +1,6 @@
 ## Why
 
-A replicated group carries only what one machine holds. Stage 5 spreads predicates across several groups, as
+A replicated group carries only what one machine holds. Stage 7 spreads predicates across several groups, as
 Dgraph's tablets do, and completes the port with the operations a production deployment needs: moving and
 rebalancing predicates, backups and restores, exports, and the bulk and live loaders that move data in, from Go
 Dgraph included.

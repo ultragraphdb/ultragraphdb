@@ -1,5 +1,5 @@
 Every task group runs in the same order: write the feature scenarios and port the Go tests (they fail), port the
-code (they pass), refactor with both green. Multi-group scenarios are integration tests on stage 4's harness, with
+code (they pass), refactor with both green. Multi-group scenarios are integration tests on stage 6's harness, with
 two groups of three Alphas and three Zeros, as Dgraph's default test cluster has.
 
 ## 1. Tablets → `ultragraphdb_cluster_tablets`, `ultragraphdb_server_zero`, `ultragraphdb_server_alpha`
@@ -25,7 +25,7 @@ two groups of three Alphas and three Zeros, as Dgraph's default test cluster has
 - [ ] 4.1 Decide the mechanism and the scope of cross-group upserts (design, open questions 1 and 2); record them in the design and the overview
 - [ ] 4.2 Scenarios: cross-group-transactions
 - [ ] 4.3 Implement the chosen mechanism with per-group watermarks for reads, stale-owner aborts and the blocked-tablet aborts
-- [ ] 4.4 Elle runs across groups under stage 4's fault schedules
+- [ ] 4.4 Elle runs across groups under stage 6's fault schedules
 
 ## 5. Moves → `ultragraphdb_cluster_move`
 
