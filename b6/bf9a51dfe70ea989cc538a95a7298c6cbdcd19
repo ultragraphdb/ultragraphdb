@@ -1,0 +1,27 @@
+website/index.html
+  s_a0256b606ac3c2::t_7931d1543b75d8 120
+  s_a0256b606ac3c2::t_fe0aebcc7cec35 60-61,63-66
+  s_a0256b606ac3c2::t_4467c1cee587dd 20,23
+  s_a0256b606ac3c2::t_a6544039353f6e 12,15-18,24-31,34,39,43-44,55-59,67-76,80-81,83-85,88-114,121-122,126
+  s_a0256b606ac3c2::t_b69e269f453eb7 62
+  s_a0256b606ac3c2::t_f7bf979a4ca85a 14
+  s_a0256b606ac3c2::t_91b849cadd8bbc 13
+  s_a0256b606ac3c2::t_6b5f36d1722dbd 21
+  s_a0256b606ac3c2::t_e20ce4cee9cec6 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b6bf9a51dfe70ea989cc538a95a7298c6cbdcd19",
+  "prompts": {},
+  "sessions": {
+    "s_a0256b606ac3c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47cf2069-d6c5-4b6a-9e32-564599ebcbf4",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
