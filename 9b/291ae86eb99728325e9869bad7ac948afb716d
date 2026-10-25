@@ -1,0 +1,23 @@
+website/index.html
+  s_61e1a93841662a::t_9cb25a95dff82c 16-17,19-34
+website/fonts/OFL-Inter.txt
+  s_61e1a93841662a::t_3ce1c08cb56dab 1-93
+website/fonts/OFL-Orbitron.txt
+  s_61e1a93841662a::t_3ce1c08cb56dab 1-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9b291ae86eb99728325e9869bad7ac948afb716d",
+  "prompts": {},
+  "sessions": {
+    "s_61e1a93841662a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34dd08c2-da8c-4c31-9066-a7110bc3f00a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
