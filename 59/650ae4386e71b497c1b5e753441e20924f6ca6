@@ -1,0 +1,35 @@
+ultragraphdb_store/ultragraphdb_store_apply/src/types/applier/applier_commit.rs
+  s_e7d9aa044e41ea::t_4b336f0a4ecc47 53
+  s_e7d9aa044e41ea::t_62eaa406be5e24 137,139
+ultragraphdb_store/ultragraphdb_store_posting/src/types/request/mod.rs
+  s_e7d9aa044e41ea::t_ff8e95eb4e6a79 187-188,192-203
+  s_e7d9aa044e41ea::t_02f251d04e8698 204
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_5b9497b2d33b21 234-241,243
+ROADMAP.md
+  s_e7d9aa044e41ea::t_ee43407578f2e5 7-8
+ultragraphdb_store/ultragraphdb_store_posting/src/types/cache_miss/mod.rs
+  s_e7d9aa044e41ea::t_6c324ec06b7805 33-37
+ultragraphdb_store/ultragraphdb_store_posting/src/types/lists/lists_commit.rs
+  s_e7d9aa044e41ea::t_58c05d3873480a 94,100,102,117,128-129,136-138,151-154,188-189
+ultragraphdb_store/ultragraphdb_store_posting/src/types/lists/lists_read.rs
+  s_e7d9aa044e41ea::t_44a6d755a92de6 38-39,76-77,81-82,84-85,96,111,113-114
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/request/request_tests.rs
+  s_e7d9aa044e41ea::t_dcb950c464dfc7 149-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "59650ae4386e71b497c1b5e753441e20924f6ca6",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
