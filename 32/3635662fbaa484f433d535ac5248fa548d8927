@@ -1,0 +1,36 @@
+"openspec/notes/UltraGraphDB Dual Query Engine Plan.md"
+  s_e7d9aa044e41ea::t_6a0dccd44dac8f 1-40,42,81-142,145-170,172-229,231-238,242-256
+  s_e7d9aa044e41ea::t_60af29199519a8 41
+  s_e7d9aa044e41ea::t_61c077219c64c3 239-241
+  s_e7d9aa044e41ea::t_130b6895b81a9f 43-80
+  s_e7d9aa044e41ea::t_1285d59053f767 230
+  s_e7d9aa044e41ea::t_3c98562f9ca324 171
+  s_e7d9aa044e41ea::t_87ac468803ab5c 143-144
+  s_e7d9aa044e41ea::t_153a95fa968695 257-480
+ROADMAP.md
+  s_e7d9aa044e41ea::t_3eb81a5ebe2d24 7-15,19-22,27-29
+openspec/changes/archive/2026-10-25-port-stage-5-single-node/proposal.md
+  s_e7d9aa044e41ea::t_38cd53149a2547 1-4
+openspec/changes/archive/2026-10-25-port-stage-6-replication/proposal.md
+  s_e7d9aa044e41ea::t_f9b8172cf8247c 1-4
+openspec/changes/archive/2026-10-25-port-stage-7-sharding-and-operations/proposal.md
+  s_e7d9aa044e41ea::t_abbc5151b2c2e8 1-4
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_100c8cdfa5d698 73,112-114,262,282-285,291-300,306-307,310,340-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "323635662fbaa484f433d535ac5248fa548d8927",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
