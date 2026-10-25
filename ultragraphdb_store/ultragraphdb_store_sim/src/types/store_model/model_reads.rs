@@ -9,6 +9,7 @@ use ultragraphdb_traits_store::Item;
 use crate::types::breach::Breach;
 use crate::types::invariant::Invariant;
 use crate::types::op_record::OpRecord;
+use crate::types::store_model::model_state::ModelState;
 use crate::types::store_model::{Status, StoreModel};
 use crate::utils::hex::hex;
 
@@ -46,6 +47,7 @@ impl StoreModel {
                 }
             }
             OpRecord::SnapshotClosed { id } => {
+                self.temporary_snapshots.remove(id);
                 if let Some((read_ts, _)) = self.snapshots.remove(id)
                     && let Some(count) = self.readers.get_mut(&read_ts)
                 {
@@ -65,7 +67,7 @@ impl StoreModel {
                 Err(error) => self.check_failure(keys, error),
             },
             OpRecord::Scanned { id, scan, items } => {
-                let Some((read_ts, state)) = self.snapshots.get(id) else {
+                let Some((read_ts, state)) = self.reading(*id) else {
                     return Ok(());
                 };
                 let keep = |item: &&Item| !self.tainted.contains(item.key());
@@ -102,6 +104,19 @@ impl StoreModel {
         }
     }
 
+    /// The read timestamp and the state snapshot `id` reads, a temporary keyspace's at `u64::MAX`.
+    fn reading(&self, id: u64) -> Option<(&u64, &ModelState)> {
+        const EVERY_VERSION: u64 = u64::MAX;
+        self.snapshots
+            .get(&id)
+            .map(|(ts, state)| (ts, state.as_ref()))
+            .or_else(|| {
+                self.temporary_snapshots
+                    .get(&id)
+                    .map(|state| (&EVERY_VERSION, state.as_ref()))
+            })
+    }
+
     /// Checks a point read of `key` through snapshot `id`.
     fn check_get(
         &self,
@@ -109,7 +124,7 @@ impl StoreModel {
         key: &[u8],
         result: &Result<Option<Item>, StoreError>,
     ) -> Result<(), Breach> {
-        let Some((read_ts, state)) = self.snapshots.get(&id) else {
+        let Some((read_ts, state)) = self.reading(id) else {
             return Ok(());
         };
         if self.tainted.contains(key) {

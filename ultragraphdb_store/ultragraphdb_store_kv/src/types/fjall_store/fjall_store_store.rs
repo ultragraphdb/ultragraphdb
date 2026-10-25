@@ -7,12 +7,16 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch, key_namespace};
+use ultragraphdb_traits_store::{
+    Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch, key_namespace,
+};
 
 use crate::types::drop_record::DropRecord;
 use crate::types::fjall_snapshot::FjallSnapshot;
 use crate::types::fjall_store::FjallStore;
-use crate::types::fjall_store::store_meta::{APPLIED_KEY, DISCARD_KEY, HORIZON_KEY, banned_key};
+use crate::types::fjall_store::store_meta::{
+    APPLIED_KEY, DISCARD_KEY, HORIZON_KEY, banned_key, rebuild_key,
+};
 use crate::utils::lock::lock;
 use crate::utils::stored_key::stored_key;
 use crate::utils::stored_value::encode_value;
@@ -24,7 +28,8 @@ const COLLECTED_IN_A_BATCH: usize = 100_000;
 impl Store for FjallStore {
     type Snapshot = FjallSnapshot;
 
-    /// One fjall batch, whatever its size, with the applied timestamp in the metadata keyspace beside its entries.
+    /// One fjall batch, whatever its size, with the applied timestamp in the metadata keyspace beside its entries and
+    /// the removal of the rebuild records it names.
     fn apply(&self, batch: WriteBatch, mode: PersistMode) -> Result<(), StoreError> {
         let s = &self.shared;
         let _writer = lock(&s.writer);
@@ -37,6 +42,9 @@ impl Store for FjallStore {
         let mut fb = s.batch(mode);
         if s.gc.collected_len() >= COLLECTED_IN_A_BATCH {
             s.remove_collected(&mut fb);
+        }
+        for id in batch.removed_rebuild_records() {
+            fb.remove(&s.meta, rebuild_key(*id));
         }
         for e in batch.into_entries() {
             if key_namespace(e.key()).is_some_and(|ns| banned.contains(&ns)) {
@@ -70,6 +78,30 @@ impl Store for FjallStore {
         let snapshot = s.db.snapshot();
         drop(view);
         Ok(FjallSnapshot::new(s.clone(), snapshot, read_ts, banned))
+    }
+
+    fn create_temporary(&self) -> Result<Temporary, StoreError> {
+        self.shared.create_temporary()
+    }
+
+    fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
+        self.shared.apply_temporary(temporary, batch)
+    }
+
+    fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
+        self.shared.temporary_snapshot(temporary)
+    }
+
+    fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
+        self.shared.drop_temporary(temporary)
+    }
+
+    fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
+        self.shared.write_rebuild_record(record)
+    }
+
+    fn rebuild_records(&self) -> Result<Vec<RebuildRecord>, StoreError> {
+        self.shared.rebuild_records()
     }
 
     fn drop_prefixes(

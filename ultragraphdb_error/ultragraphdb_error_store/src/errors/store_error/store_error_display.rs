@@ -29,6 +29,13 @@ impl fmt::Display for StoreError {
                 f.write_str("The store is poisoned by an earlier failed write and must be reopened")
             }
             StoreErrorEnum::OpenFailed(reason) => write!(f, "Opening the store failed: {reason}"),
+            StoreErrorEnum::Unsupported(operation) => {
+                write!(f, "The store does not support {operation}")
+            }
+            StoreErrorEnum::UnknownTemporary(id) => write!(
+                f,
+                "Temporary keyspace {id} does not exist: it was dropped, or the store was reopened since it was created"
+            ),
         }
     }
 }

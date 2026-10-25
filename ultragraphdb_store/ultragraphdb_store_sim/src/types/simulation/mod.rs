@@ -96,15 +96,17 @@ impl Simulation {
     where
         F: FnMut(&mut SimContext, Event) -> Result<(), Violation>,
     {
-        if !self.context.store().needs_recovery() {
-            return Ok(());
+        // A workload's recovery can itself fail, as finishing a rebuild at open drops prefixes the faults may stop: the
+        // store is recovered again until it serves.
+        while self.context.store().needs_recovery() {
+            self.check()?;
+            self.context.executor().clear();
+            self.context.store().recover();
+            self.check()?;
+            workload(&mut self.context, Event::Recovered)?;
+            self.check()?;
         }
-        self.check()?;
-        self.context.executor().clear();
-        self.context.store().recover();
-        self.check()?;
-        workload(&mut self.context, Event::Recovered)?;
-        self.check()
+        Ok(())
     }
 
     /// Feeds the store's log to the model and compares the contents.

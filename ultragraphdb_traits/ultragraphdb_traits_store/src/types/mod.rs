@@ -7,5 +7,7 @@ pub mod direction;
 pub mod entry;
 pub mod item;
 pub mod persist_mode;
+pub mod rebuild_record;
 pub mod scan;
+pub mod temporary;
 pub mod write_batch;

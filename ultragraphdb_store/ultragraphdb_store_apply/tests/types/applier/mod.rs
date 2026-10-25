@@ -10,4 +10,6 @@ mod applier_commit_tests;
 #[cfg(test)]
 mod applier_drop_tests;
 #[cfg(test)]
+mod applier_rebuild_record_tests;
+#[cfg(test)]
 mod applier_rebuild_tests;

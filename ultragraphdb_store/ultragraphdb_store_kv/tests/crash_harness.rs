@@ -12,7 +12,9 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use fjall::{Database, KeyspaceCreateOptions, Readable};
-use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore, META_KEYSPACE};
+use ultragraphdb_store_kv::{
+    DATA_KEYSPACE, Durability, FjallStore, META_KEYSPACE, TEMPORARY_KEYSPACE_PREFIX,
+};
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
 
 pub const KEYS_PER_BATCH: usize = 20_000;
@@ -99,6 +101,15 @@ pub fn raw_drop_state(dir: &Path) -> (bool, usize) {
     // The stored prefix: the user key's zero bytes escaped.
     let left = snapshot.prefix(&data, b"\x00\xffdropme").count();
     (record, left)
+}
+
+/// How many temporary keyspaces the killed writer's store holds, read raw before the store drops them.
+pub fn raw_temporary_keyspaces(dir: &Path) -> usize {
+    let db = Database::builder(dir).open().expect("fjall opens");
+    db.list_keyspace_names()
+        .iter()
+        .filter(|n| n.starts_with(TEMPORARY_KEYSPACE_PREFIX))
+        .count()
 }
 
 pub fn open(dir: &Path) -> FjallStore {

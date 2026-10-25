@@ -17,8 +17,8 @@ use ultragraphdb_store_posting::BIT_EMPTY_POSTING;
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
 
 use crate::utils::helpers::{
-    TestApplier, attr, ckey, del_uid, dkey, index_prefix, new_applier, rkey, set_str, set_uid,
-    uids_at, write_raw,
+    TestApplier, alter, alter_now, attr, ckey, del_uid, dkey, ikey, index_prefix, live_keys,
+    new_applier, rkey, set_str, set_uid, uids, uids_at, write_raw,
 };
 
 const SCHEMA_VAL: &str = "
@@ -216,4 +216,107 @@ fn test_rebuild_reverse_edges() {
     assert_eq!(uids_at(&a, &keys[0], 17), vec![1, 2]);
     assert_eq!(uids_at(&a, &keys[1], 17), vec![1]);
     assert!(keys.iter().all(|k| parse(k).unwrap().is_reverse()));
+}
+
+/// Writes `name` for subjects `1..=subjects` straight through the posting lists, without index maintenance, in one
+/// commit: subject `uid` holds `w<uid> common`, two term tokens, one its own and one every subject shares.
+fn write_subjects(a: &TestApplier, name: &str, subjects: u64) {
+    let mut batch = a.lists().batch();
+    let mut request = batch.request(a.lists().latest_ts());
+    for uid in 1..=subjects {
+        let value = format!("w{uid} common");
+        request
+            .get(&dkey(name, uid))
+            .unwrap()
+            .add_mutation(&set_str(name, uid, &value), None)
+            .unwrap();
+    }
+    batch.push(request);
+    a.lists().commit(batch).unwrap();
+}
+
+/// What a term index's build over `subjects` subjects held in memory at most and wrote in all, by the event it
+/// logs once its temporary keyspace holds the build, and the temporary keyspaces the store saw created and dropped.
+fn term_build(subjects: u64) -> (u64, u64, usize, usize) {
+    let a = new_applier();
+    alter_now(&a, "big: string .");
+    write_subjects(&a, "big", subjects);
+    let _ = a.lists().store().take_log();
+    let capture = ultragraphdb_store_sim::LogCapture::new();
+    capture.capture(|| alter_now(&a, "big: string @index(term) ."));
+    let event = capture
+        .events()
+        .into_iter()
+        .find(|e| e.message() == Some("index built into the temporary keyspace"))
+        .expect("the build logs its temporary keyspace");
+    let field = |name: &str| {
+        event
+            .field(name)
+            .and_then(|v| v.parse::<u64>().ok())
+            .expect(name)
+    };
+    let log = a.lists().store().take_log();
+    let created = log
+        .iter()
+        .filter(|r| matches!(r, ultragraphdb_store_sim::OpRecord::TemporaryCreated { .. }))
+        .count();
+    let dropped = log
+        .iter()
+        .filter(|r| matches!(r, ultragraphdb_store_sim::OpRecord::TemporaryDropped { .. }))
+        .count();
+    let common = ikey("big", "term", "common");
+    assert_eq!(
+        uids(&a, &common).len() as u64,
+        subjects,
+        "the shared token lists every subject"
+    );
+    assert_eq!(
+        uids(&a, &ikey("big", "term", &format!("w{subjects}"))),
+        vec![subjects]
+    );
+    (field("postings_held"), field("postings"), created, dropped)
+}
+
+/// A rebuild's temporary entries live in a temporary keyspace from the start: the postings it holds in memory stop
+/// growing with the predicate once they reach the bound it writes them out at, the keyspace is created and dropped
+/// with the build, and a predicate of more lists than the cache holds is indexed whole.
+#[test]
+fn test_a_rebuilds_memory_does_not_grow_with_its_predicate() {
+    let (small_held, small_postings, created, dropped) = term_build(300);
+    assert_eq!((created, dropped), (1, 1));
+    assert_eq!(small_postings, 600);
+    assert_eq!(small_held, 600, "a small build holds everything it builds");
+    let (held, postings, ..) = term_build(6_000);
+    let (larger_held, larger_postings, ..) = term_build(12_000);
+    assert_eq!((postings, larger_postings), (12_000, 24_000));
+    assert!(held < postings, "{held} of {postings} held");
+    assert_eq!(
+        held, larger_held,
+        "the memory held does not grow with the predicate"
+    );
+}
+
+/// A build that fails partway drops its temporary keyspace with the failure batch, and keeps the previous schema.
+#[test]
+fn test_a_failed_build_drops_its_temporary_keyspace() {
+    let a = new_applier();
+    alter_now(&a, "big: string .");
+    write_subjects(&a, "big", 50);
+    alter(&a, "big: string @index(term) .").unwrap();
+    let _ = a.lists().store().take_log();
+    a.lists()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(10));
+    a.executor().run_until_idle();
+    let log = a.lists().store().take_log();
+    assert!(
+        log.iter()
+            .any(|r| matches!(r, ultragraphdb_store_sim::OpRecord::TemporaryDropped { .. }))
+    );
+    let schema = a
+        .schema()
+        .get(ultragraphdb_core_schema::SchemaMode::Query, &attr("big"))
+        .unwrap();
+    assert!(schema.tokenizer.is_empty(), "the previous schema stays");
+    assert!(live_keys(&a, &index_prefix("big")).is_empty());
 }

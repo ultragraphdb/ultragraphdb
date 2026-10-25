@@ -16,10 +16,11 @@ in native byte order, which is little-endian on amd64 and arm64.
 - **THEN** its uid is added to the dead list, and later inserts leave it out of the neighbour lists they write
 
 ### Requirement: The dead list and the entry point stay true to the data
-Index maintenance SHALL mark a vector's uid dead whether the vector is deleted by its value or by a star delete, and
-SHALL leave an overwritten vector's uid live. When the entry point has lost its vector, an insert SHALL make the first
+Index maintenance SHALL mark a vector's uid dead whether the vector is deleted by its value or by a star delete,
+SHALL leave an overwritten vector's uid live, and SHALL remove a uid from the dead list when its vector is set again. When the entry point has lost its vector, an insert SHALL make the first
 node holding a vector the entry point with its neighbour lists kept, and SHALL insert the new vector. Dgraph marks
-only a star delete dead, marks an overwritten uid dead for good, and on a dead entry point wipes the new entry's lists
+only a star delete dead, marks an overwritten uid dead for good, never removes a uid from the dead list, and on a
+dead entry point wipes the new entry's lists
 and drops the insert.
 
 #### Scenario: A delete by value marks the vector dead
@@ -29,6 +30,10 @@ and drops the insert.
 #### Scenario: Overwriting a vector does not leave its uid dead
 - **WHEN** a vector of `emb: float32vector @index(hnsw) .` is set over the vector it holds
 - **THEN** its uid is not in the dead list, and the index still finds it
+
+#### Scenario: A vector deleted and set again is live
+- **WHEN** a vector of `emb: float32vector @index(hnsw) .` is deleted and then set again
+- **THEN** its uid is not in the dead list, and later inserts keep it in their neighbour lists
 
 #### Scenario: A dead entry point hands over without wiping a node
 - **WHEN** the entry point's vector is deleted and another vector is inserted

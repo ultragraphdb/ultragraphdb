@@ -29,7 +29,9 @@ impl SimSnapshot {
 
     /// One key's read with its faults.
     fn faulty_read(&self, inner: &mut Inner, key: &[u8]) -> Result<Option<Item>, StoreError> {
-        if let Some(corruption) = inner.faults.corruption() {
+        if !self.temporary
+            && let Some(corruption) = inner.faults.corruption()
+        {
             self.corrupt_read_version(inner, key, corruption);
         }
         if inner.faults.read_fails() {
@@ -86,7 +88,8 @@ impl StoreSnapshot for SimSnapshot {
             .map(|((key, _), _)| key.clone())
             .filter(|key| scan.selects(key))
             .collect();
-        if let Some(corruption) = inner.faults.corruption()
+        if !self.temporary
+            && let Some(corruption) = inner.faults.corruption()
             && let Some(key) = selected
                 .get(inner.faults.rng.index(selected.len()))
                 .cloned()

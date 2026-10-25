@@ -1,5 +1,6 @@
 /*
- * Copyright (c) "2025" . Marvin Hansen All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2025. Marvin Hansen. All Rights Reserved.
  */
 
 #![allow(clippy::all)]

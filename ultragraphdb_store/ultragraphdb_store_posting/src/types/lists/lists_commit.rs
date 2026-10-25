@@ -51,7 +51,8 @@ where
     /// a request `check` refuses is left out and writes nothing, and its result is the refusal. The requests left
     /// in are written as one store batch, each at a fresh commit timestamp, recording the last as applied; the
     /// cache entries of their lists are then replaced or removed, and the commit is applied. An entry a request adds
-    /// at its own version keeps it; a request marked to advance the epoch advances it before the commit is applied.
+    /// at its own version keeps it; a request marked to advance the epoch advances it before the commit is applied;
+    /// the rebuild records a request names are removed in the same store batch.
     ///
     /// # Errors
     ///
@@ -110,6 +111,9 @@ where
                 }
                 for entry in request.versioned_entries() {
                     store_batch.push(entry.clone());
+                }
+                for id in request.removed_records() {
+                    store_batch.remove_rebuild_record(*id);
                 }
                 (commit_ts, deltas)
             })

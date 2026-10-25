@@ -9,6 +9,8 @@ use crate::traits::store_snapshot::StoreSnapshot;
 use crate::types::entry::Entry;
 use crate::types::item::Item;
 use crate::types::persist_mode::PersistMode;
+use crate::types::rebuild_record::RebuildRecord;
+use crate::types::temporary::Temporary;
 use crate::types::write_batch::WriteBatch;
 
 /// The versioned store beneath the port: the managed-mode Badger surface Dgraph uses, synchronous and shaped in
@@ -30,6 +32,14 @@ use crate::types::write_batch::WriteBatch;
 /// its newest discard-flagged version or deletion at or below `D`, and never a deletion; a read below `D` is refused
 /// with [`StoreError::TsTooOld`]. The sweep removes a deletion at or below the tombstone horizon that has no version
 /// of its key below it.
+///
+/// **Temporary keyspaces and rebuild records.** A rebuild builds into a temporary keyspace
+/// ([`Store::create_temporary`]), beside the data and outside its versions, bans, garbage collection and applied
+/// timestamp, so its memory stays bounded whatever the predicate's size; opening the store drops every temporary
+/// keyspace a crash left. Before it builds, it writes a rebuild record ([`Store::write_rebuild_record`]), which its
+/// swap batch or failure batch removes ([`WriteBatch::remove_rebuild_record`]); the records a store holds when it is
+/// opened ([`Store::rebuild_records`]) name the rebuilds a crash or a power loss stopped. A store that keeps neither
+/// refuses them with [`StoreError::Unsupported`], the default.
 pub trait Store {
     /// A consistent view of the store at one read timestamp.
     type Snapshot: StoreSnapshot;
@@ -95,4 +105,43 @@ pub trait Store {
 
     /// Makes every batch written so far survive a power loss.
     fn sync(&self) -> Result<(), StoreError>;
+
+    /// Creates an empty temporary keyspace. It survives no reopening of the store, and a write to it needs no sync.
+    fn create_temporary(&self) -> Result<Temporary, StoreError> {
+        Err(StoreError::Unsupported("temporary keyspaces"))
+    }
+
+    /// Writes `batch` to `temporary` atomically, as [`Store::apply`] writes to the data: refused whole with
+    /// [`StoreError::KeyTooLarge`] for an oversized key, no entry dropped for a banned namespace, the applied
+    /// timestamp and removed rebuild records ignored. A failed write poisons the store as a failed batch does.
+    fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
+        let _ = (temporary, batch);
+        Err(StoreError::Unsupported("temporary keyspaces"))
+    }
+
+    /// A snapshot of `temporary` reading every version it holds, as a snapshot of the data at `u64::MAX` reads; it
+    /// holds no discard timestamp back.
+    fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
+        let _ = temporary;
+        Err(StoreError::Unsupported("temporary keyspaces"))
+    }
+
+    /// Drops `temporary` and everything it holds.
+    fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
+        let _ = temporary;
+        Err(StoreError::Unsupported("temporary keyspaces"))
+    }
+
+    /// Writes `record` and syncs it, so it survives a power loss once this returns; a record of the same number is
+    /// replaced. A batch removes it ([`WriteBatch::remove_rebuild_record`]), and dropping everything removes every
+    /// record.
+    fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
+        let _ = record;
+        Err(StoreError::Unsupported("rebuild records"))
+    }
+
+    /// The rebuild records the store holds, by number: none for a store that keeps none.
+    fn rebuild_records(&self) -> Result<Vec<RebuildRecord>, StoreError> {
+        Ok(Vec::new())
+    }
 }

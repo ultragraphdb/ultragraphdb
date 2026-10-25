@@ -21,7 +21,8 @@ const TOMBSTONE: u8 = 0x02;
 const FENCED: u8 = 0x04;
 
 /// What a simulated store holds: the data keyspace, each version's bytes framed as `[meta][flags][value]`, and the
-/// metadata keyspace's entries.
+/// metadata keyspace's entries, the rebuild records among them by number. A temporary keyspace is a `State` of its
+/// own whose data alone is used.
 #[derive(Debug, Clone, Default)]
 pub struct State {
     pub data: BTreeMap<StoredKey, Vec<u8>>,
@@ -30,6 +31,7 @@ pub struct State {
     pub discard_ts: u64,
     pub horizon: Option<u64>,
     pub drop_record: Option<DropRecord>,
+    pub rebuild_records: BTreeMap<u64, Vec<Vec<u8>>>,
 }
 
 /// A drop in progress, as its record in the metadata keyspace names it: of everything when `prefixes` is `None`.

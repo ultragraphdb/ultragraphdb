@@ -330,6 +330,17 @@ refusals. These parts differ:
   `@count` in the old or the new schema, a list-type rewrite, and every vector build. Writes beside them would compute
   counts from reverse lists the build has not yet written; Dgraph has the same race (`index.go:1200-1217`,
   `1759-1793`), and the simulator found it in the port (ledger 54). Every other build runs in the background as above.
+- A rebuild's temporary entries live in a temporary fjall keyspace from the start: the build holds at most 10,000
+  postings and swap entries in memory whatever the predicate's size, as Dgraph flushes at 10,000 lists
+  (`posting/index.go:1005`), and the keyspace is dropped after the swap or the failure batch, or at the next open.
+  Dgraph builds into a temporary Badger on disk. The swap is one atomic batch, and fjall holds a batch's items in memory
+  (`batch/mod.rs:16`), so the swap holds every built list once.
+- A rebuild writes a synced rebuild record before its build starts, naming every prefix writes maintain during the
+  build: the new schema's, the old schema's, and the reverse counts a write produces when one schema has `@reverse` and
+  the other `@count`, which neither declares. The record's number is the rebuild's timestamp. The swap batch, the
+  failure batch, or a batch of its own when a drop cancels the rebuild removes it. At open, each unfinished record's
+  prefixes the loaded schema does not declare are dropped and the record removed, as an unfinished drop record is
+  finished, so a crash mid-rebuild leaves no key that writes maintained during the build.
 - A vector rebuild is one request at the change's timestamp: it deletes the HNSW predicates' lists and inserts every
   vector, so a failed build writes nothing and the previous index stays.
 
@@ -371,4 +382,3 @@ not read; data moves through export and the loaders (stage 5).
 
 - Does the compaction filter alone keep version garbage bounded under Dgraph's rollup rate, or is a background
   sweep over hot keys needed as well?
-- Which store holds a rebuild's temporary entries: memory with spill to disk, or a fjall keyspace from the start?

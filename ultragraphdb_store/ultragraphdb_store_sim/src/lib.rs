@@ -34,6 +34,7 @@ pub use crate::types::fault_config::FaultConfig;
 pub use crate::types::invariant::Invariant;
 pub use crate::types::log_capture::LogCapture;
 pub use crate::types::op_record::OpRecord;
+pub use crate::types::rebuild_stage::RebuildStage;
 pub use crate::types::run_outcome::RunOutcome;
 pub use crate::types::seed::Seed;
 pub use crate::types::sim_clock::SimClock;

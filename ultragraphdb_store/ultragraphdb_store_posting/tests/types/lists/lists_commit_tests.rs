@@ -302,3 +302,42 @@ fn test_a_commit_that_advances_the_epoch_leaves_no_older_entry_serving() {
     assert!(lists.cached(&k, swapped).unwrap().is_none());
     assert!(uids(&lists.read(&k, swapped).unwrap(), swapped, 0).is_empty());
 }
+
+/// A request marked to remove a rebuild record removes it in its commit batch, atomically with its writes; the
+/// record of a request left out stays.
+#[test]
+fn test_a_commit_removes_the_rebuild_records_its_requests_name() {
+    use ultragraphdb_traits_store::RebuildRecord;
+    let lists = new_lists();
+    let store = lists.store();
+    store
+        .write_rebuild_record(&RebuildRecord::new(4, vec![vec![0x00]]))
+        .unwrap();
+    store
+        .write_rebuild_record(&RebuildRecord::new(5, vec![vec![0x00]]))
+        .unwrap();
+    let k = key("swap", 1);
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.add_entry_at_version(Entry::deletion(k.clone(), 1));
+    request.remove_rebuild_record_on_commit(4);
+    batch.push(request);
+    let mut refused = batch.request(lists.latest_ts());
+    refused.remove_rebuild_record_on_commit(5);
+    batch.push(refused);
+    let mut seen = 0;
+    let results = lists
+        .commit_with(batch, |_| {
+            seen += 1;
+            if seen == 2 { Err("refused") } else { Ok(()) }
+        })
+        .unwrap();
+    assert!(results[0].is_ok() && results[1].is_err());
+    let records: Vec<u64> = store
+        .rebuild_records()
+        .unwrap()
+        .iter()
+        .map(|r| r.id())
+        .collect();
+    assert_eq!(records, [5]);
+}

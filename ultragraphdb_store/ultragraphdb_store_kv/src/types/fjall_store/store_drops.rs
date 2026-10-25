@@ -13,7 +13,7 @@ use ultragraphdb_traits_store::{PersistMode, WriteBatch, key_namespace};
 use crate::types::drop_record::DropRecord;
 use crate::types::fjall_store::Shared;
 use crate::types::fjall_store::store_meta::{
-    APPLIED_KEY, BANNED_PREFIX, DISCARD_KEY, DROP_KEY, HORIZON_KEY,
+    APPLIED_KEY, BANNED_PREFIX, DISCARD_KEY, DROP_KEY, HORIZON_KEY, REBUILD_PREFIX,
 };
 use crate::utils::lock::lock;
 use crate::utils::stored_key::{escape, stored_key};
@@ -107,15 +107,18 @@ impl Shared {
         Ok(())
     }
 
-    /// A drop of everything clears the applied timestamp, the banned namespaces, the discard timestamp and the
-    /// tombstone horizon.
+    /// A drop of everything clears the applied timestamp, the banned namespaces, the discard timestamp, the
+    /// tombstone horizon and the rebuild records.
     fn reset_meta(&self) -> Result<(), StoreError> {
         let mut batch = self.batch(PersistMode::Buffer);
         [APPLIED_KEY, DISCARD_KEY, HORIZON_KEY]
             .into_iter()
             .for_each(|k| batch.remove(&self.meta, k));
-        for guard in self.db.snapshot().prefix(&self.meta, BANNED_PREFIX) {
-            batch.remove(&self.meta, guard.key().map_err(|e| self.failed(e))?);
+        let snapshot = self.db.snapshot();
+        for prefix in [BANNED_PREFIX, REBUILD_PREFIX] {
+            for guard in snapshot.prefix(&self.meta, prefix) {
+                batch.remove(&self.meta, guard.key().map_err(|e| self.failed(e))?);
+            }
         }
         self.commit(batch)?;
         self.applied_ts.store(0, Ordering::Release);

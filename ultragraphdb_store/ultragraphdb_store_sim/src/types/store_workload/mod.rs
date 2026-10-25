@@ -5,9 +5,11 @@
 
 mod store_workload_keys;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use ultragraphdb_traits_store::{
+    Entry, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
+};
 
 use crate::types::event::Event;
 use crate::types::fault_config::FaultConfig;
@@ -27,9 +29,10 @@ const COMPLETE: u8 = 0x08;
 
 /// The store's own workload, over Dgraph-shaped keys: one apply loop writing commit batches of several commits,
 /// rollup batches below the newest version, deletions, syncs, prefix drops, drops of everything, bans, the discard
-/// timestamp with compaction and the sweep, and oversized keys; and readers holding snapshots open across steps
-/// while they read points, many points, prefix scans in both directions and versions. Every write keeps the
-/// store's contract: none lands below a deletion of its key.
+/// timestamp with compaction and the sweep, oversized keys, rebuild records written and removed by commit batches,
+/// and a temporary keyspace created, written and dropped; and readers holding snapshots open across steps, of the
+/// data or of the temporary keyspace, while they read points, many points, prefix scans in both directions and
+/// versions. Every write keeps the store's contract: none lands below a deletion of its key.
 #[derive(Debug)]
 pub struct StoreWorkload {
     readers: usize,
@@ -40,6 +43,11 @@ pub struct StoreWorkload {
     written: BTreeMap<Vec<u8>, (u64, u64)>,
     /// Each reader's open snapshot and the reads it has left.
     open: Vec<Option<(SimSnapshot, u64)>>,
+    /// The rebuild records written that no batch has removed yet; a power loss may have taken some.
+    records: BTreeSet<u64>,
+    next_record: u64,
+    /// The temporary keyspace, while one exists.
+    temporary: Option<Temporary>,
 }
 
 impl StoreWorkload {
@@ -51,6 +59,9 @@ impl StoreWorkload {
             keys: KeySpace::new(),
             written: BTreeMap::new(),
             open: (0..readers).map(|_| None).collect(),
+            records: BTreeSet::new(),
+            next_record: 1,
+            temporary: None,
         }
     }
 
@@ -76,6 +87,7 @@ impl StoreWorkload {
             Event::Recovered => {
                 self.open.iter_mut().for_each(|o| *o = None);
                 self.next_ts = self.next_ts.max(ctx.store().applied_ts() + 1);
+                self.temporary = None;
             }
             Event::Step(0) => self.write(ctx),
             Event::Step(reader) => self.read(ctx, reader - 1),
@@ -86,7 +98,7 @@ impl StoreWorkload {
     /// One operation of the apply loop. A refused or failed write ends the step; the simulator recovers the store.
     fn write(&mut self, ctx: &mut SimContext) {
         let store = ctx.store().clone();
-        let choice = ctx.rng().below(100);
+        let choice = ctx.rng().below(110);
         let _ = match choice {
             0..55 => {
                 let (batch, mode) = self.commit_batch(ctx);
@@ -122,7 +134,7 @@ impl StoreWorkload {
             }
             86..92 => store.compact(),
             92..97 => store.sweep_deletions(),
-            _ => {
+            97..100 => {
                 let mut batch = WriteBatch::new();
                 batch.push(Entry::put(
                     vec![PREFIX_DATA; 65_001],
@@ -132,7 +144,54 @@ impl StoreWorkload {
                 ));
                 store.apply(batch, PersistMode::Buffer)
             }
+            100..103 => {
+                let id = self.next_record;
+                self.next_record += 1;
+                let prefixes = (0..ctx.rng().between(1, 2))
+                    .map(|_| self.keys.prefix(ctx.rng()))
+                    .collect();
+                self.records.insert(id);
+                store.write_rebuild_record(&RebuildRecord::new(id, prefixes))
+            }
+            _ => self.temporary_step(ctx),
         };
+    }
+
+    /// One operation on the temporary keyspace: creates one when there is none, else writes a batch of one to four
+    /// versions to it, or drops it.
+    fn temporary_step(
+        &mut self,
+        ctx: &mut SimContext,
+    ) -> Result<(), ultragraphdb_error_store::StoreError> {
+        let store = ctx.store().clone();
+        let Some(temporary) = self.temporary.take() else {
+            self.temporary = Some(store.create_temporary()?);
+            return Ok(());
+        };
+        if ctx.rng().chance(200) {
+            return store.drop_temporary(temporary);
+        }
+        let mut batch = WriteBatch::new();
+        for _ in 0..ctx.rng().between(1, 4) {
+            let key = self.keys.key(ctx.rng());
+            let version = ctx.rng().between(1, 5);
+            batch.push(if ctx.rng().chance(150) {
+                Entry::deletion(key, version)
+            } else {
+                Entry::put(
+                    key,
+                    version,
+                    DELTA,
+                    ctx.rng().next_u64().to_be_bytes().to_vec(),
+                )
+            });
+        }
+        if ctx.rng().chance(50) {
+            batch.push(Entry::put(vec![PREFIX_DATA; 65_001], 1, DELTA, Vec::new()));
+        }
+        let result = store.apply_temporary(&temporary, batch);
+        self.temporary = Some(temporary);
+        result
     }
 
     /// One to three commits at their own timestamps, each of one to four entries, recording the last as applied.
@@ -153,6 +212,13 @@ impl StoreWorkload {
                 batch.push(entry);
             }
             batch.set_applied_ts(ts);
+        }
+        if !self.records.is_empty() && ctx.rng().chance(300) {
+            let at = ctx.rng().index(self.records.len());
+            if let Some(id) = self.records.iter().nth(at).copied() {
+                self.records.remove(&id);
+                batch.remove_rebuild_record(id);
+            }
         }
         let mode = if ctx.rng().chance(250) {
             PersistMode::Sync
@@ -204,7 +270,11 @@ impl StoreWorkload {
                 .rng()
                 .between(store.discard_ts().saturating_sub(2), store.applied_ts() + 2);
             let reads = ctx.rng().between(1, 6);
-            *slot = store.snapshot(ts).ok().map(|s| (s, reads));
+            let opened = match &self.temporary {
+                Some(temporary) if ctx.rng().chance(300) => store.temporary_snapshot(temporary),
+                _ => store.snapshot(ts),
+            };
+            *slot = opened.ok().map(|s| (s, reads));
             return;
         };
         match ctx.rng().below(5) {

@@ -9,6 +9,9 @@
 //! fail batches, crash the process, cut its power, during drops too, and fail reads; after every step and every
 //! recovery, every index the schema declares must agree with the data: Dgraph's indexes kept with their values.
 //!
+//! After a recovery, no key may lie under an index prefix the loaded schema does not declare: a rebuild a crash or a
+//! power loss stopped leaves nothing of the indexes writes maintained for its new schema.
+//!
 //! The rules read the store through its trait alone, so the same workload runs on fjall.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -23,8 +26,12 @@ use ultragraphdb_core_schema::{SchemaMode, parse as parse_schema};
 use ultragraphdb_core_tok::{build_tokens, get_tokenizer};
 use ultragraphdb_core_types::Value;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_proto_pb::pb::{DirectedEdge, Mutations, mutations::DropOp, posting};
-use ultragraphdb_store_apply::{Applier, ApplyError, ApplyErrorEnum};
+use ultragraphdb_proto_pb::pb::{
+    DirectedEdge, Mutations, SchemaUpdate, mutations::DropOp, posting,
+};
+use ultragraphdb_store_apply::{
+    Applier, ApplyError, ApplyErrorEnum, prefixes_to_delete_tokens_for,
+};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimRng, Simulation,
@@ -37,6 +44,9 @@ pub const INDEX_MATCHES_DATA: &str =
     "every index the schema declares holds exactly the entries the data produces";
 /// The rule a drop breaks when a key it dropped remains.
 pub const DROP_REMOVES_ALL: &str = "a drop leaves no key under what it dropped";
+/// The rule a recovery breaks when it leaves a key that writes maintained for a schema it did not load.
+pub const NO_UNDECLARED_INDEX: &str =
+    "after recovery no key exists under an index prefix the loaded schema does not declare";
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
     "an apply operation fails only for a fault the simulator injected";
@@ -398,6 +408,71 @@ where
     Ok(None)
 }
 
+/// The index prefixes the workload's schemas use for `name`, each with its split twin, that `schema` does not
+/// declare.
+fn undeclared_prefixes(
+    name: &str,
+    schema: Option<&SchemaUpdate>,
+) -> Result<Vec<Vec<u8>>, ApplyError> {
+    let a = attr(name);
+    let mut prefixes = Vec::new();
+    if name == "friend" {
+        let kind = |byte: u8| -> Result<Vec<Vec<u8>>, ApplyError> {
+            let mut p = predicate_prefix(&a)?;
+            p.push(byte);
+            let mut twin = p.clone();
+            twin[0] = 0x04;
+            Ok(vec![p, twin])
+        };
+        let reverse = schema.is_some_and(|s| s.directive == 2);
+        let count = schema.is_some_and(|s| s.count);
+        for (byte, declared) in [
+            (ultragraphdb_core_keys::BYTE_REVERSE, reverse),
+            (BYTE_COUNT, count),
+            (BYTE_COUNT_REV, count && reverse),
+        ] {
+            if !declared {
+                prefixes.extend(kind(byte)?);
+            }
+        }
+        return Ok(prefixes);
+    }
+    for t in ["term", "exact"] {
+        if schema.is_some_and(|s| s.tokenizer.iter().any(|d| d == t)) {
+            continue;
+        }
+        prefixes.extend(prefixes_to_delete_tokens_for(&a, t, false)?);
+        if t == "exact" {
+            prefixes.extend(prefixes_to_delete_tokens_for(&a, t, true)?);
+        }
+    }
+    Ok(prefixes)
+}
+
+/// The first key under an index prefix the loaded schema does not declare, live at the newest timestamp: what a
+/// rebuild stopped by a crash or a power loss must not leave.
+pub fn undeclared_index_key<S>(a: &WorkApplier<S>) -> Result<Option<String>, ApplyError>
+where
+    S: Store + Send + Sync + 'static,
+{
+    let read_ts = a.lists().latest_ts();
+    a.lists().gate(read_ts)?;
+    let snapshot = a.lists().store().snapshot(read_ts)?;
+    for name in ["name", "tags", "friend"] {
+        let schema = a.schema().get(SchemaMode::Query, &attr(name));
+        for prefix in undeclared_prefixes(name, schema.as_ref())? {
+            if let Some(item) = snapshot.scan(&Scan::prefix(prefix)).next() {
+                let key = item?.key().to_vec();
+                return Ok(Some(format!(
+                    "{name} under {:?}: key {key:?}",
+                    schema.map(|s| (s.tokenizer, s.directive, s.count))
+                )));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Whether a key remains under `prefixes`, any version.
 fn remains<S>(a: &WorkApplier<S>, prefixes: &[Vec<u8>]) -> Result<bool, ApplyError>
 where
@@ -425,6 +500,8 @@ pub struct ApplyWorkload {
     pub writes: usize,
     pub changes: usize,
     pub drops: usize,
+    /// The recoveries after which the undeclared-index rule was checked.
+    pub recoveries: usize,
 }
 
 impl ApplyWorkload {
@@ -468,6 +545,15 @@ impl ApplyWorkload {
             Err(e) if expected(&e) => return Ok(()),
             Err(e) => return Err(ctx.violation(NO_UNEXPECTED_ERROR, e.to_string())),
         };
+        if event == Event::Recovered {
+            match undeclared_index_key(&a) {
+                Ok(None) => {}
+                Ok(Some(detail)) => return Err(ctx.violation(NO_UNDECLARED_INDEX, detail)),
+                Err(e) if expected(&e) => {}
+                Err(e) => return Err(ctx.violation(NO_UNEXPECTED_ERROR, e.to_string())),
+            }
+            self.recoveries += 1;
+        }
         let result = match event {
             Event::Recovered => Ok(Vec::new()),
             Event::Step(0) => {

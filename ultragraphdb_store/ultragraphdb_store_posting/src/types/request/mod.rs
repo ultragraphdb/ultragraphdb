@@ -45,6 +45,7 @@ pub struct Request<'a, S, C> {
     entries: Vec<Entry>,
     versioned: Vec<Entry>,
     advance_epoch: bool,
+    removed_records: Vec<u64>,
 }
 
 impl<'a, S, C> Request<'a, S, C>
@@ -66,6 +67,7 @@ where
             entries: Vec::new(),
             versioned: Vec::new(),
             advance_epoch: false,
+            removed_records: Vec::new(),
         }
     }
 
@@ -137,6 +139,12 @@ where
         self.advance_epoch = true;
     }
 
+    /// Makes the request's commit batch remove the rebuild record `id`, atomically with the request's writes: what a
+    /// rebuild's swap batch and failure batch do.
+    pub fn remove_rebuild_record_on_commit(&mut self, id: u64) {
+        self.removed_records.push(id);
+    }
+
     /// The keys of the lists the request read from the store: those it holds, less those it wrote blind and has not
     /// read since.
     pub fn read_keys(&self) -> impl Iterator<Item = &[u8]> {
@@ -171,6 +179,7 @@ where
         self.entries.append(&mut other.entries);
         self.versioned.append(&mut other.versioned);
         self.advance_epoch |= other.advance_epoch;
+        self.removed_records.append(&mut other.removed_records);
     }
 
     /// The keys and lists the request holds.
@@ -199,6 +208,10 @@ where
 
     pub(crate) fn advances_epoch(&self) -> bool {
         self.advance_epoch
+    }
+
+    pub(crate) fn removed_records(&self) -> &[u64] {
+        &self.removed_records
     }
 }
 

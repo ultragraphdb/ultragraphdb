@@ -10,7 +10,7 @@ mod fjall_snapshot_store_snapshot;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use fjall::Snapshot;
+use fjall::{Keyspace, Snapshot};
 use ultragraphdb_traits_store::key_namespace;
 
 use crate::types::fjall_store::Shared;
@@ -21,11 +21,16 @@ use crate::types::fjall_store::Shared;
 ///
 /// A compaction collects versions an all-versions scan of an open snapshot would report: versions older than a
 /// discard-flagged version at or below the discard timestamp, which no read at or above that timestamp needs.
+///
+/// A snapshot of a temporary keyspace reads that keyspace at `u64::MAX`, with no banned namespace, and holds no
+/// discard timestamp back.
 pub struct FjallSnapshot {
     shared: Arc<Shared>,
     snapshot: Snapshot,
+    keyspace: Keyspace,
     read_ts: u64,
     banned: Arc<BTreeSet<u64>>,
+    holds_discard: bool,
 }
 
 impl FjallSnapshot {
@@ -35,11 +40,26 @@ impl FjallSnapshot {
         read_ts: u64,
         banned: Arc<BTreeSet<u64>>,
     ) -> Self {
+        let keyspace = shared.data.clone();
         Self {
             shared,
             snapshot,
+            keyspace,
             read_ts,
             banned,
+            holds_discard: true,
+        }
+    }
+
+    /// The snapshot of temporary keyspace `keyspace`.
+    pub(crate) fn temporary(shared: Arc<Shared>, snapshot: Snapshot, keyspace: Keyspace) -> Self {
+        Self {
+            shared,
+            snapshot,
+            keyspace,
+            read_ts: u64::MAX,
+            banned: Arc::default(),
+            holds_discard: false,
         }
     }
 

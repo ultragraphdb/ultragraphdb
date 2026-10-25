@@ -41,6 +41,14 @@ fn test_constructors_build_their_variant() {
         StoreError::OpenFailed("o".into()).0,
         StoreErrorEnum::OpenFailed("o".into())
     );
+    assert_eq!(
+        StoreError::Unsupported("temporary keyspaces").0,
+        StoreErrorEnum::Unsupported("temporary keyspaces")
+    );
+    assert_eq!(
+        StoreError::UnknownTemporary(4).0,
+        StoreErrorEnum::UnknownTemporary(4)
+    );
 }
 
 #[test]

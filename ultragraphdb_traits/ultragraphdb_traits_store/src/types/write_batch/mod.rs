@@ -9,12 +9,13 @@ use crate::types::entry::Entry;
 use crate::utils::key_size::check_key_size;
 
 /// The writes [`crate::Store::apply`] makes atomically: entries in order, each naming its key and version, so one
-/// batch may hold several commits at their own timestamps, and the applied timestamp the batch records. Of two
-/// entries for the same key and version, the later is the one written.
+/// batch may hold several commits at their own timestamps, the applied timestamp the batch records, and the rebuild
+/// records it removes. Of two entries for the same key and version, the later is the one written.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct WriteBatch {
     entries: Vec<Entry>,
     applied_ts: Option<u64>,
+    removed_rebuild_records: Vec<u64>,
 }
 
 impl WriteBatch {
@@ -30,6 +31,17 @@ impl WriteBatch {
     /// commit batch records its highest commit timestamp; rollup batches record none.
     pub fn set_applied_ts(&mut self, ts: u64) {
         self.applied_ts = Some(ts);
+    }
+
+    /// Removes the rebuild record `id` ([`crate::RebuildRecord`]) in this batch, atomically with its entries: what a
+    /// rebuild's swap batch and its failure batch do. A record the store does not hold is left alone.
+    pub fn remove_rebuild_record(&mut self, id: u64) {
+        self.removed_rebuild_records.push(id);
+    }
+
+    /// The rebuild records the batch removes, in the order named.
+    pub fn removed_rebuild_records(&self) -> &[u64] {
+        &self.removed_rebuild_records
     }
 
     pub fn entries(&self) -> &[Entry] {

@@ -4,40 +4,46 @@
  *
  * Ported from Dgraph v25.5.0, posting/index.go (rebuilder.Run, rebuilder.RunWithoutTemp, BuildIndexes,
  * rebuildTokIndex, rebuildCountIndex, rebuildReverseEdges, BuildData, rebuildListType) and worker/mutation.go
- * (buildIndexes, undoSchemaUpdate). Changed for ultragraphdb: translated to Rust; the indexes are built in memory,
- * Dgraph's temporary Badger, and one batch swaps them in: for every key under a rebuilt prefix the built complete
- * list, or a deletion where the build produced none, at the change's timestamp; for every key under a removed prefix
- * a deletion at the batch's commit timestamp; the list-type rewrite and a `@count` predicate's data lists; and the
- * schema record. A failed build deletes, in one batch, every key under a rebuilt prefix the previous schema does
- * not declare, and restores the previous schema, whose indexes writes kept complete (ledger 39). A vector index is
- * built in place, in one request reading each key's merged list, its predicates emptied by the same request, while
- * the change holds every commit back. A list-type rewrite keeps a list's language values; Dgraph's, without
- * `@count`, writes the untagged value alone. A count rebuild lists no subject whose list is empty, where Dgraph's
- * lists it under count 0.
+ * (buildIndexes, undoSchemaUpdate). Changed for ultragraphdb: translated to Rust; the indexes are built into a
+ * temporary keyspace of the store from the start, Dgraph's temporary Badger, holding no more than a bound of postings
+ * in memory, and one batch swaps them in: for every key under a rebuilt prefix the built complete list, or a deletion
+ * where the build produced none, at the change's timestamp; for every key under a removed prefix, and under the reverse
+ * counts writes kept while both schemas' indexes were maintained, a deletion at the batch's commit timestamp; the
+ * list-type rewrite and a `@count` predicate's data lists; the schema record; and the removal of the rebuild record,
+ * written and synced before the build began. A failed build deletes, in one batch with the record's removal, every key
+ * under a prefix writes maintained that the previous schema does not declare, and restores the previous schema, whose
+ * indexes writes kept complete (ledger 39). The temporary keyspace is dropped after the swap or the failure batch. A
+ * vector index is built in place, in one request reading each key's merged list, its predicates emptied by the same
+ * request, while the change holds every commit back. A list-type rewrite keeps a list's language values; Dgraph's,
+ * without `@count`, writes the untagged value alone. A count rebuild lists no subject whose list is empty, where
+ * Dgraph's lists it under count 0.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_keys::{STAR, count_key, index_key, parse, reverse_key};
 use ultragraphdb_core_schema::schema_entry;
 use ultragraphdb_core_types::{TypeId, Value, convert, marshal};
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_proto_pb::pb::schema_update::Directive;
 use ultragraphdb_proto_pb::pb::{DirectedEdge, Posting, SchemaUpdate, directed_edge::Op};
-use ultragraphdb_store_posting::{CachedList, List, PostingError, Request};
-use ultragraphdb_traits_store::{Entry, Executor, ListCache, Scan, Store, StoreSnapshot};
+use ultragraphdb_store_posting::{CachedList, List, PostingError, PostingErrorEnum, Request};
+use ultragraphdb_traits_store::{
+    Entry, Executor, Item, ListCache, Scan, Store, StoreSnapshot, Temporary,
+};
 
-use crate::errors::apply_error::ApplyError;
+use crate::errors::apply_error::{ApplyError, ApplyErrorEnum};
 use crate::types::applier::Applier;
+use crate::types::build_buffer::{BuildBuffer, DELTAS, SWAP, delta_item, in_region, swap_entry};
 use crate::types::index_op::IndexOp;
 use crate::types::index_rebuild::IndexRebuild;
 use crate::types::index_schema::IndexSchema;
 use crate::utils::index::{Maintain, index_vector};
 use crate::utils::lock::lock;
 use crate::utils::prefixes::{
-    attr_data_prefix, attr_reverse_prefix, count_prefixes, reverse_count_prefixes,
-    reverse_prefixes, tokenizer_prefixes, vector_edge_prefixes,
+    attr_data_prefix, attr_reverse_prefix, count_prefixes, declared_prefixes, maintained_prefixes,
+    reverse_count_prefixes, reverse_prefixes, tokenizer_prefixes, vector_edge_prefixes,
 };
 
 /// What a change rebuilds and removes, by key prefix.
@@ -56,11 +62,9 @@ struct Plan {
     list_type: bool,
 }
 
-/// What a build produced: the lists it built, by key, each holding its postings in its scratch layer at the change's
-/// timestamp; the data and reverse lists it rewrites whole; and a vector index's request.
+/// What a build produced: the swap's entries in the swap region of its temporary keyspace, when it built any, and a
+/// vector index's request.
 struct Built<'a, S, C> {
-    index: BTreeMap<Vec<u8>, List>,
-    rewrite: BTreeMap<Vec<u8>, List>,
     vector: Option<Request<'a, S, C>>,
     plan: Plan,
 }
@@ -85,52 +89,85 @@ where
             rebuild.current_schema().clone(),
         );
         self.lists.pause_rollups();
+        if let Err(error) = self.record_rebuild(rebuild) {
+            self.abandon(id, rebuild);
+            return Err(error);
+        }
         self.build_and_swap(id, rebuild)
     }
 
-    /// A build run on the executor: built outside the apply lock, swapped under it.
+    /// A build run on the executor: built outside the apply lock, swapped under it, its temporary keyspace dropped
+    /// after the swap or the failure batch.
     pub(crate) fn run_job(&self, id: u64, rebuild: IndexRebuild) {
-        let built = self.build(&rebuild);
+        let mut temporary = None;
+        let built = self.build(&rebuild, &mut temporary);
         let _apply = lock(&self.apply);
         let outcome = match built {
-            Ok(built) => self.swap(id, &rebuild, built),
+            Ok(built) => self.swap(id, &rebuild, built, temporary.as_ref()),
+            Err(error) if store_failed(&error) => Err(error),
             Err(error) => self.cleanup(id, &rebuild, &error).and(Err(error)),
         };
-        if let Err(error) = outcome {
+        let dropped = self.drop_temporary(temporary, &outcome);
+        if let Err(error) = outcome.and(dropped) {
             tracing::error!(attr = rebuild.attr(), %error, "error in building indexes, aborting");
         }
     }
 
-    /// Builds and swaps under the apply lock the caller holds.
+    /// Builds and swaps under the apply lock the caller holds, then drops the temporary keyspace.
     pub(crate) fn build_and_swap(
         &self,
         id: u64,
         rebuild: &IndexRebuild,
     ) -> Result<u64, ApplyError> {
-        match self.build(rebuild) {
-            Ok(built) => self.swap(id, rebuild, built),
+        let mut temporary = None;
+        let outcome = match self.build(rebuild, &mut temporary) {
+            Ok(built) => self.swap(id, rebuild, built, temporary.as_ref()),
             Err(error) => {
                 tracing::error!(attr = rebuild.attr(), %error, "error in building indexes, aborting");
-                self.cleanup(id, rebuild, &error)?;
-                Err(error)
+                // A failed write leaves the store to be reopened, which finishes the rebuild by its record.
+                if store_failed(&error) {
+                    Err(error)
+                } else {
+                    self.cleanup(id, rebuild, &error).and(Err(error))
+                }
             }
+        };
+        let dropped = self.drop_temporary(temporary, &outcome);
+        let ts = outcome?;
+        dropped?;
+        Ok(ts)
+    }
+
+    /// Drops the build's temporary keyspace, if it made one, after the swap or the failure batch: unless a failed
+    /// write left the store to be reopened, which drops every temporary keyspace.
+    fn drop_temporary(
+        &self,
+        temporary: Option<Temporary>,
+        outcome: &Result<u64, ApplyError>,
+    ) -> Result<(), ApplyError> {
+        match temporary {
+            Some(_) if outcome.as_ref().is_err_and(store_failed) => Ok(()),
+            Some(t) => Ok(self.lists.store().drop_temporary(t)?),
+            None => Ok(()),
         }
     }
 
-    /// The build: every list of the change's indexes from the data at its timestamp.
-    fn build(&self, rebuild: &IndexRebuild) -> Result<Built<'_, S, C>, ApplyError> {
+    /// The build: every list of the change's indexes from the data at its timestamp, written to a temporary keyspace
+    /// it creates in `temporary` as it goes, so that what it holds in memory stays bounded.
+    fn build(
+        &self,
+        rebuild: &IndexRebuild,
+        temporary: &mut Option<Temporary>,
+    ) -> Result<Built<'_, S, C>, ApplyError> {
         let attr = rebuild.attr();
         let new = rebuild.current_schema();
         let start_ts = rebuild.start_ts();
         let plan = plan(rebuild)?;
         self.lists.gate(start_ts)?;
         let snapshot = self.lists.store().snapshot(start_ts)?;
-        let mut built = Built {
-            index: BTreeMap::new(),
-            rewrite: BTreeMap::new(),
-            vector: None,
-            plan,
-        };
+        let mut built = Built { vector: None, plan };
+        let reverse_counts = (built.plan.count || built.plan.reverse_count)
+            && new.directive == Directive::Reverse as i32;
         let tokens_schema = IndexSchema::from_update(
             attr,
             &SchemaUpdate {
@@ -144,34 +181,46 @@ where
             || built.plan.reverse
             || built.plan.count
             || built.plan.list_type;
+        if !scans_data && !reverse_counts {
+            if built.plan.vector {
+                built.vector = Some(self.build_vector(rebuild, &snapshot)?);
+            }
+            return Ok(built);
+        }
+        let store = self.lists.store();
+        let max_list_size = self.lists.config().max_list_size();
+        let temporary = &*temporary.insert(store.create_temporary()?);
+        let mut buffer = BuildBuffer::new(temporary, start_ts);
         if scans_data {
-            for (key, list) in lists_under(&snapshot, &attr_data_prefix(attr)?)? {
+            for item in snapshot.scan(&Scan::prefix(attr_data_prefix(attr)?)) {
+                let key = item?.key().to_vec();
+                if parse(&key)?.has_start_uid() {
+                    continue;
+                }
+                let (list, _) = List::read(&key, &snapshot)?;
                 let uid = parse(&key)?.uid();
                 let postings = postings(&list, start_ts)?;
                 if !built.plan.tokenizers.is_empty() {
                     for p in &postings {
                         let lang = String::from_utf8_lossy(&p.lang_tag);
                         for token in tokens_schema.tokens(&lang, &posting_val(p))? {
-                            add(&mut built.index, index_key(attr, &token)?, start_ts, uid, p)?;
+                            buffer.add(index_key(attr, &token)?, uid, p)?;
                         }
                     }
                 }
                 if built.plan.reverse {
                     for p in &postings {
-                        add(
-                            &mut built.index,
-                            reverse_key(attr, p.uid)?,
-                            start_ts,
-                            uid,
-                            p,
-                        )?;
+                        buffer.add(reverse_key(attr, p.uid)?, uid, p)?;
                     }
                 }
                 if built.plan.count {
                     let size = list.length(start_ts, 0);
                     if size > 0 {
-                        let key = count_key(attr, size as u32, false)?;
-                        add(&mut built.index, key, start_ts, uid, &Posting::default())?;
+                        buffer.add(
+                            count_key(attr, size as u32, false)?,
+                            uid,
+                            &Posting::default(),
+                        )?;
                     }
                 }
                 if built.plan.list_type || new.count {
@@ -180,41 +229,50 @@ where
                     } else {
                         list
                     };
-                    built.rewrite.insert(key, rewritten);
+                    buffer.put_swap(complete_entries(rewritten, &key, start_ts, max_list_size)?);
                 }
+                buffer.maybe_flush(store)?;
             }
         }
-        if (built.plan.count || built.plan.reverse_count)
-            && new.directive == Directive::Reverse as i32
-        {
-            let reverse: Vec<(Vec<u8>, List)> = if built.plan.reverse {
-                built
-                    .index
-                    .iter()
-                    .filter(|(k, _)| parse(k).is_ok_and(|pk| pk.is_reverse()))
-                    .map(|(k, l)| (k.clone(), l.clone()))
-                    .collect()
+        if reverse_counts {
+            if built.plan.reverse {
+                // The reverse lists the build wrote, merged from the temporary keyspace one at a time.
+                buffer.flush(store)?;
+                let temp = store.temporary_snapshot(temporary)?;
+                let prefix = in_region(DELTAS, &attr_reverse_prefix(attr)?);
+                for_each_delta_list(&temp, &prefix, start_ts, |key, list| {
+                    add_reverse_count(&mut buffer, attr, &key, &list, start_ts)?;
+                    buffer.maybe_flush(store)
+                })?;
             } else {
-                lists_under(&snapshot, &attr_reverse_prefix(attr)?)?
-            };
-            for (key, list) in reverse {
-                let target = parse(&key)?.uid();
-                let size = list.length(start_ts, 0);
-                if size > 0 {
-                    let count = count_key(attr, size as u32, true)?;
-                    add(
-                        &mut built.index,
-                        count,
-                        start_ts,
-                        target,
-                        &Posting::default(),
-                    )?;
-                }
-                if !built.plan.reverse && new.count {
-                    built.rewrite.insert(key, list);
+                for item in snapshot.scan(&Scan::prefix(attr_reverse_prefix(attr)?)) {
+                    let key = item?.key().to_vec();
+                    if parse(&key)?.has_start_uid() {
+                        continue;
+                    }
+                    let (list, _) = List::read(&key, &snapshot)?;
+                    add_reverse_count(&mut buffer, attr, &key, &list, start_ts)?;
+                    if new.count {
+                        buffer.put_swap(complete_entries(list, &key, start_ts, max_list_size)?);
+                    }
+                    buffer.maybe_flush(store)?;
                 }
             }
         }
+        buffer.flush(store)?;
+        // Every delta list merged and rolled up into the swap's entries, one list at a time.
+        let temp = store.temporary_snapshot(temporary)?;
+        for_each_delta_list(&temp, &[DELTAS], start_ts, |key, list| {
+            buffer.put_swap(complete_entries(list, &key, start_ts, max_list_size)?);
+            buffer.maybe_flush(store)
+        })?;
+        buffer.flush(store)?;
+        tracing::debug!(
+            attr,
+            postings = buffer.added(),
+            postings_held = buffer.peak(),
+            "index built into the temporary keyspace"
+        );
         if built.plan.vector {
             built.vector = Some(self.build_vector(rebuild, &snapshot)?);
         }
@@ -299,11 +357,13 @@ where
         id: u64,
         rebuild: &IndexRebuild,
         built: Built<'_, S, C>,
+        temporary: Option<&Temporary>,
     ) -> Result<u64, ApplyError> {
         let attr = rebuild.attr();
         if !self.still_rebuilding(attr, id) {
             tracing::info!(attr, "rebuild discarded: its predicate was dropped");
             self.lists.resume_rollups();
+            self.remove_record(rebuild)?;
             return Ok(0);
         }
         let start_ts = rebuild.start_ts();
@@ -311,34 +371,49 @@ where
         let latest = self.lists.latest_ts();
         self.lists.gate(latest)?;
         let snapshot = self.lists.store().snapshot(latest)?;
-        let max_list_size = self.lists.config().max_list_size();
-        let Built {
-            index,
-            rewrite,
-            vector,
-            plan,
-        } = built;
+        let Built { vector, plan } = built;
         let mut request = vector.unwrap_or_else(|| self.lists.request(latest));
-        let mut written: BTreeSet<Vec<u8>> = BTreeSet::new();
-        for (key, list) in index.into_iter().chain(rewrite) {
-            for entry in complete_entries(list, &key, start_ts, max_list_size)? {
-                written.insert(entry.key().to_vec());
-                request.add_entry_at_version(entry);
+        let temp = match temporary {
+            Some(t) => Some(self.lists.store().temporary_snapshot(t)?),
+            None => None,
+        };
+        if let Some(temp) = &temp {
+            for item in temp.scan(&Scan::prefix(vec![SWAP])) {
+                request.add_entry_at_version(swap_entry(item?));
             }
         }
-        for prefix in &plan.rebuilt {
-            for key in keys_under(&snapshot, prefix)? {
-                if !written.contains(&key) {
+        // Every prefix writes maintained that the new schema does not declare is emptied at the batch's commit
+        // timestamp, above every write that maintained it: the removed indexes, and the reverse counts the two
+        // schemas' indexes kept together.
+        let declared = declared_prefixes(attr, &new)?;
+        let mut emptied = plan.removed.clone();
+        for p in maintained_prefixes(attr, rebuild.old_schema(), &new)?
+            .into_iter()
+            .chain(plan.rebuilt.iter().cloned())
+        {
+            if !declared.contains(&p) && !emptied.contains(&p) {
+                emptied.push(p);
+            }
+        }
+        for prefix in plan.rebuilt.iter().filter(|p| declared.contains(p)) {
+            for item in snapshot.scan(&Scan::prefix(prefix.clone())) {
+                let key = item?.key().to_vec();
+                let written = match &temp {
+                    Some(temp) => temp.get(&in_region(SWAP, &key))?.is_some(),
+                    None => false,
+                };
+                if !written {
                     request.add_entry_at_version(Entry::deletion(key, start_ts));
                 }
             }
         }
-        for prefix in &plan.removed {
-            for key in keys_under(&snapshot, prefix)? {
-                request.add_entry(Entry::deletion(key, 0));
+        for prefix in &emptied {
+            for item in snapshot.scan(&Scan::prefix(prefix.clone())) {
+                request.add_entry(Entry::deletion(item?.key().to_vec(), 0));
             }
         }
         request.add_entry(schema_entry(&new, 0)?);
+        request.remove_rebuild_record_on_commit(start_ts);
         request.advance_epoch_on_commit();
         let mut batch = self.lists.batch();
         batch.push(request);
@@ -350,7 +425,7 @@ where
         });
         self.lists.resume_rollups();
         let ts = crate::types::applier::applier_mutations::first_result(results?)?;
-        self.fence(plan.removed, ts);
+        self.fence(emptied, ts);
         tracing::info!(attr, "Done schema update");
         Ok(ts)
     }
@@ -366,7 +441,7 @@ where
         let attr = rebuild.attr();
         if !self.end_rebuild(attr, id) {
             self.lists.resume_rollups();
-            return Ok(());
+            return self.remove_record(rebuild);
         }
         tracing::error!(attr, %error, "error in building indexes, aborting");
         // Dgraph's undoSchemaUpdate reloads the previous schema record, which the swap never replaced.
@@ -374,13 +449,22 @@ where
             self.schema.set(attr, old.clone());
         }
         self.schema.delete_mut_schema(attr);
-        let declared = declared_prefixes(attr, rebuild.old_schema())?;
-        let undeclared: Vec<Vec<u8>> = plan(rebuild)?
-            .rebuilt
-            .into_iter()
-            .filter(|p| !declared.contains(p))
-            .collect();
-        let outcome = self.delete_under(&undeclared);
+        let declared = match rebuild.old_schema() {
+            Some(old) => declared_prefixes(attr, old)?,
+            None => Vec::new(),
+        };
+        let undeclared: Vec<Vec<u8>> =
+            maintained_prefixes(attr, rebuild.old_schema(), rebuild.current_schema())?
+                .into_iter()
+                .chain(plan(rebuild)?.rebuilt)
+                .filter(|p| !declared.contains(p))
+                .fold(Vec::new(), |mut acc, p| {
+                    if !acc.contains(&p) {
+                        acc.push(p);
+                    }
+                    acc
+                });
+        let outcome = self.delete_under(&undeclared, Some(rebuild.start_ts()));
         self.lists.resume_rollups();
         let ts = outcome?;
         if ts > 0 {
@@ -389,20 +473,27 @@ where
         Ok(())
     }
 
-    /// Deletes every key under `prefixes`, in one batch at its commit timestamp: the timestamp, 0 for no key.
-    fn delete_under(&self, prefixes: &[Vec<u8>]) -> Result<u64, ApplyError> {
+    /// Deletes every key under `prefixes` and removes the rebuild record `record`, in one batch at its commit
+    /// timestamp: the timestamp, 0 when there is nothing to write.
+    pub(crate) fn delete_under(
+        &self,
+        prefixes: &[Vec<u8>],
+        record: Option<u64>,
+    ) -> Result<u64, ApplyError> {
         let latest = self.lists.latest_ts();
         self.lists.gate(latest)?;
         let snapshot = self.lists.store().snapshot(latest)?;
         let mut request = self.lists.request(latest);
         let mut any = false;
         for prefix in prefixes {
-            for key in keys_under(&snapshot, prefix)? {
-                request.add_entry(Entry::deletion(key, 0));
+            for item in snapshot.scan(&Scan::prefix(prefix.clone())) {
+                request.add_entry(Entry::deletion(item?.key().to_vec(), 0));
                 any = true;
             }
         }
-        if !any {
+        if let Some(id) = record {
+            request.remove_rebuild_record_on_commit(id);
+        } else if !any {
             return Ok(0);
         }
         request.advance_epoch_on_commit();
@@ -410,6 +501,16 @@ where
         batch.push(request);
         Ok(self.lists.commit(batch)?.into_iter().next().unwrap_or(0))
     }
+}
+
+/// Whether `error` is a failed write of the store, which recovers only by reopening.
+fn store_failed(error: &ApplyError) -> bool {
+    matches!(
+        &error.0,
+        ApplyErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(
+            StoreErrorEnum::WriteFailed(_) | StoreErrorEnum::Poisoned
+        ))))
+    )
 }
 
 /// What `rebuild` rebuilds and removes.
@@ -469,26 +570,6 @@ fn plan(rebuild: &IndexRebuild) -> Result<Plan, ApplyError> {
     Ok(plan)
 }
 
-/// The prefixes of the indexes `old` declares.
-fn declared_prefixes(attr: &str, old: Option<&SchemaUpdate>) -> Result<Vec<Vec<u8>>, ApplyError> {
-    let Some(old) = old else {
-        return Ok(Vec::new());
-    };
-    let mut prefixes = Vec::new();
-    if old.directive == Directive::Index as i32 {
-        for t in &old.tokenizer {
-            prefixes.extend(tokenizer_prefixes(attr, t)?);
-        }
-    }
-    if old.directive == Directive::Reverse as i32 {
-        prefixes.extend(reverse_prefixes(attr)?);
-    }
-    if old.count {
-        prefixes.extend(count_prefixes(attr)?);
-    }
-    Ok(prefixes)
-}
-
 /// A posting's value as stored, untyped.
 fn posting_val(p: &Posting) -> ultragraphdb_core_types::Val {
     ultragraphdb_core_types::Val::new(TypeId::new(p.val_type), Value::Bytes(p.value.clone()))
@@ -511,21 +592,14 @@ fn postings(list: &List, read_ts: u64) -> Result<Vec<Posting>, ApplyError> {
     Ok(out)
 }
 
-/// The keys under `prefix` at `snapshot`, split parts included.
-fn keys_under<T: StoreSnapshot>(snapshot: &T, prefix: &[u8]) -> Result<Vec<Vec<u8>>, ApplyError> {
-    snapshot
-        .scan(&Scan::prefix(prefix.to_vec()))
-        .map(|item| Ok(item?.key().to_vec()))
-        .collect()
-}
-
 /// The lists under `prefix` at `snapshot`, each read with its parts, split parts left out as keys.
 fn lists_under<T: StoreSnapshot>(
     snapshot: &T,
     prefix: &[u8],
 ) -> Result<Vec<(Vec<u8>, List)>, ApplyError> {
     let mut out = Vec::new();
-    for key in keys_under(snapshot, prefix)? {
+    for item in snapshot.scan(&Scan::prefix(prefix.to_vec())) {
+        let key = item?.key().to_vec();
         if parse(&key)?.has_start_uid() {
             continue;
         }
@@ -535,26 +609,67 @@ fn lists_under<T: StoreSnapshot>(
     Ok(out)
 }
 
-/// Adds `uid` to the list of `key` the build holds, with the facets of `source`.
-fn add(
-    built: &mut BTreeMap<Vec<u8>, List>,
-    key: Vec<u8>,
+/// Calls `f` with every list whose deltas lie under `prefix` of the temporary keyspace `temp`, one list at a time,
+/// in key order: each list merged from its deltas and built again as one written at `start_ts`, its postings in its
+/// scratch layer, as the lists the build added to were.
+fn for_each_delta_list<T, F>(
+    temp: &T,
+    prefix: &[u8],
     start_ts: u64,
-    uid: u64,
-    source: &Posting,
-) -> Result<(), ApplyError> {
-    let list = built.entry(key.clone()).or_insert_with(|| {
-        let mut l = List::empty(key);
-        l.set_ts(start_ts);
-        l
-    });
-    let edge = DirectedEdge {
-        value_id: uid,
-        op: Op::Set as i32,
-        facets: source.facets.clone(),
-        ..DirectedEdge::default()
+    mut f: F,
+) -> Result<(), ApplyError>
+where
+    T: StoreSnapshot,
+    F: FnMut(Vec<u8>, List) -> Result<(), ApplyError>,
+{
+    let mut versions: Vec<Item> = Vec::new();
+    let mut finish = |versions: &mut Vec<Item>| -> Result<(), ApplyError> {
+        let Some(first) = versions.first() else {
+            return Ok(());
+        };
+        let key = first.key().to_vec();
+        let read = std::mem::take(versions).into_iter().map(Ok);
+        let (merged, _) = List::read_versions(&key, read)?;
+        let mut list = List::empty(key.clone());
+        list.set_ts(start_ts);
+        for p in postings(&merged, u64::MAX)? {
+            let edge = DirectedEdge {
+                value_id: p.uid,
+                op: Op::Set as i32,
+                facets: p.facets,
+                ..DirectedEdge::default()
+            };
+            list.add_mutation(&edge, None)?;
+        }
+        f(key, list)
     };
-    list.add_mutation(&edge, None)?;
+    for item in temp.scan(&Scan::prefix(prefix.to_vec()).all_versions()) {
+        let item = delta_item(item?);
+        if versions.first().is_some_and(|v| v.key() != item.key()) {
+            finish(&mut versions)?;
+        }
+        versions.push(item);
+    }
+    finish(&mut versions)
+}
+
+/// Adds `key`'s reverse list, `list`, to the reverse count index under its length.
+fn add_reverse_count(
+    buffer: &mut BuildBuffer<'_>,
+    attr: &str,
+    key: &[u8],
+    list: &List,
+    start_ts: u64,
+) -> Result<(), ApplyError> {
+    let target = parse(key)?.uid();
+    let size = list.length(start_ts, 0);
+    if size > 0 {
+        buffer.add(
+            count_key(attr, size as u32, true)?,
+            target,
+            &Posting::default(),
+        )?;
+    }
     Ok(())
 }
 

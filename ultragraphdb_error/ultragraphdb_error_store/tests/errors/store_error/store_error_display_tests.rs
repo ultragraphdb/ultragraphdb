@@ -58,3 +58,19 @@ fn test_open_failures_give_their_reason() {
         "Opening the store failed: locked"
     );
 }
+
+#[test]
+fn test_an_unsupported_operation_names_itself() {
+    assert_eq!(
+        StoreError::Unsupported("rebuild records").to_string(),
+        "The store does not support rebuild records"
+    );
+}
+
+#[test]
+fn test_an_unknown_temporary_keyspace_names_its_number() {
+    assert_eq!(
+        StoreError::UnknownTemporary(7).to_string(),
+        "Temporary keyspace 7 does not exist: it was dropped, or the store was reopened since it was created"
+    );
+}

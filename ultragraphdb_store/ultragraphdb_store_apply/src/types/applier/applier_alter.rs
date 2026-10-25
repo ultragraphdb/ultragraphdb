@@ -122,6 +122,10 @@ where
         self.fence(fenced, change_ts);
         self.lists.pause_rollups();
         let rebuild = rebuild.at(change_ts);
+        if let Err(error) = self.record_rebuild(&rebuild) {
+            self.abandon(id, &rebuild);
+            return Err(error);
+        }
         if in_background {
             let me = Arc::clone(self);
             self.executor.spawn(move || me.run_job(id, rebuild));

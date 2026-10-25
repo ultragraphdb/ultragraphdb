@@ -6,10 +6,11 @@
 use std::sync::Arc;
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch};
 
 use crate::types::drop_stage::DropStage;
 use crate::types::op_record::OpRecord;
+use crate::types::rebuild_stage::RebuildStage;
 use crate::types::sim_snapshot::SimSnapshot;
 use crate::types::sim_store::fault_injector::BatchOutcome;
 use crate::types::sim_store::record::Record;
@@ -31,8 +32,10 @@ impl Store for SimStore {
             });
             return Err(error);
         }
-        let record = inner.batch_record(batch.entries().to_vec(), batch.applied_ts());
-        match inner.faults.batch() {
+        let record = inner.batch_record(&batch);
+        let outcome = inner.faults.batch();
+        let stop = inner.removal_stops(&batch);
+        match outcome {
             BatchOutcome::Failed => {
                 inner.status = Status::Poisoned { failed: record };
                 inner.log.push(OpRecord::BatchFailed { batch });
@@ -56,7 +59,12 @@ impl Store for SimStore {
                     inner.sync();
                 }
                 inner.log.push(OpRecord::Applied { batch, mode });
-                Ok(())
+                match stop {
+                    Some((record, power_loss)) => {
+                        Err(inner.stop_rebuild(record, RebuildStage::RecordRemoved, power_loss))
+                    }
+                    None => Ok(()),
+                }
             }
         }
     }
@@ -94,6 +102,44 @@ impl Store for SimStore {
             id,
             generation,
         ))
+    }
+
+    fn create_temporary(&self) -> Result<Temporary, StoreError> {
+        lock(self.shared()).create_temporary()
+    }
+
+    fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
+        lock(self.shared()).apply_temporary(temporary, batch)
+    }
+
+    fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
+        let mut inner = lock(self.shared());
+        let state = inner.temporary(temporary)?;
+        inner.maybe_slow();
+        let id = inner.next_snapshot;
+        inner.next_snapshot += 1;
+        inner.log.push(OpRecord::TemporarySnapshotOpened {
+            id,
+            temporary: temporary.id(),
+        });
+        drop(inner);
+        Ok(SimSnapshot::temporary(self.shared().clone(), state, id))
+    }
+
+    fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
+        lock(self.shared()).drop_temporary(temporary)
+    }
+
+    fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
+        lock(self.shared()).write_rebuild_record(record)
+    }
+
+    fn rebuild_records(&self) -> Result<Vec<RebuildRecord>, StoreError> {
+        let inner = lock(self.shared());
+        if matches!(inner.status, Status::Down { .. }) {
+            return Err(StoreError::Poisoned());
+        }
+        Ok(inner.rebuild_records())
     }
 
     fn drop_prefixes(

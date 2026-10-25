@@ -17,6 +17,7 @@ use crate::types::contents::Contents;
 use crate::types::drop_stage::DropStage;
 use crate::types::invariant::Invariant;
 use crate::types::op_record::OpRecord;
+use crate::types::rebuild_stage::RebuildStage;
 use crate::utils::hex::hex;
 
 use crate::types::store_model::model_recovery::partial_batch;
@@ -36,6 +37,10 @@ pub struct StoreModel {
     status: Status,
     /// The open snapshots by id: their read timestamp and the state they read.
     snapshots: BTreeMap<u64, (u64, Arc<ModelState>)>,
+    /// The temporary keyspaces by number, each holding its versions as a state's keys, and the open snapshots of
+    /// them by id; none survives a recovery.
+    temporaries: BTreeMap<u64, ModelState>,
+    temporary_snapshots: BTreeMap<u64, Arc<ModelState>>,
     /// The read timestamps of the open snapshots, with how many are open at each.
     readers: BTreeMap<u64, usize>,
     /// Keys with a corrupted version, which the model no longer compares.
@@ -163,6 +168,62 @@ impl StoreModel {
                     in_flight: None,
                 };
             }
+            OpRecord::RebuildRecorded { record } => {
+                Arc::make_mut(&mut self.current).apply(&ModelOp::Record(record.clone()));
+                self.sync_point();
+            }
+            OpRecord::RebuildInterrupted {
+                record,
+                stage,
+                power_loss,
+            } => {
+                if *stage == RebuildStage::RecordWritten {
+                    let op = ModelOp::Record(record.clone());
+                    Arc::make_mut(&mut self.current).apply(&op);
+                    self.pending.push(op);
+                }
+                self.status = Status::Down {
+                    power_loss: *power_loss,
+                    in_flight: None,
+                };
+            }
+            OpRecord::TemporaryCreated { temporary } => {
+                self.temporaries.insert(*temporary, ModelState::default());
+            }
+            OpRecord::TemporaryApplied { temporary, batch } => {
+                let Some(state) = self.temporaries.get_mut(temporary) else {
+                    return Err(Breach::new(
+                        Invariant::ContentsMatchModel,
+                        format!(
+                            "a batch was written to temporary keyspace {temporary}, which does not exist"
+                        ),
+                    ));
+                };
+                state.write_temporary(batch.entries());
+            }
+            OpRecord::TemporaryRefused { .. } => {}
+            OpRecord::TemporaryDropped { temporary } => {
+                self.temporaries.remove(temporary);
+            }
+            OpRecord::TemporaryFailed { crashed, .. } => {
+                let in_flight = ModelOp::Batch {
+                    entries: Vec::new(),
+                    applied_ts: None,
+                    removed_records: Vec::new(),
+                };
+                self.status = if *crashed {
+                    Status::Down {
+                        power_loss: false,
+                        in_flight: None,
+                    }
+                } else {
+                    Status::Poisoned { in_flight }
+                };
+            }
+            OpRecord::TemporarySnapshotOpened { id, temporary } => {
+                let state = self.temporaries.get(temporary).cloned().unwrap_or_default();
+                self.temporary_snapshots.insert(*id, Arc::new(state));
+            }
             OpRecord::Banned { namespace } => {
                 Arc::make_mut(&mut self.current).banned.insert(*namespace);
                 self.sync_point();
@@ -245,6 +306,7 @@ impl StoreModel {
         Ok(ModelOp::Batch {
             entries,
             applied_ts: batch.applied_ts(),
+            removed_records: batch.removed_rebuild_records().to_vec(),
         })
     }
 

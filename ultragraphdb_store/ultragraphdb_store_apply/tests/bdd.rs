@@ -691,9 +691,19 @@ fn overwrite_vector(w: &mut Steps) {
     ok(&a, vec![set_str("emb", 5, "[50, 50]")]);
 }
 
+#[when("a vector of `emb: float32vector @index(hnsw) .` is deleted and then set again")]
+fn delete_then_set_vector(w: &mut Steps) {
+    let a = fresh(w, EMB);
+    vectors(&a);
+    ok(&a, vec![del_str("emb", 5, "[5, 1]")]);
+    assert_eq!(dead(&a), vec![5]);
+    ok(&a, vec![set_str("emb", 5, "[50, 50]")]);
+}
+
 #[then("its uid is not in the dead list, and the index still finds it")]
 fn not_dead(w: &mut Steps) {
-    // Dgraph marks the uid dead while setting it (ledger 47).
+    // Dgraph marks the uid dead while setting it (ledger 47), and keeps a deleted uid dead when it is set again
+    // (ledger 53).
     let a = applier(w);
     assert!(dead(a).is_empty());
     let mut o = Options::new();

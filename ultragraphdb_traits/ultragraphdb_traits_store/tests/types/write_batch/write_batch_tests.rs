@@ -42,3 +42,13 @@ fn test_check_key_sizes_refuses_the_first_oversized_key() {
         }
     ));
 }
+
+#[test]
+fn test_a_batch_removes_the_rebuild_records_it_names() {
+    let mut batch = WriteBatch::new();
+    assert!(batch.removed_rebuild_records().is_empty());
+    batch.remove_rebuild_record(12);
+    batch.remove_rebuild_record(14);
+    assert_eq!(batch.removed_rebuild_records(), [12, 14]);
+    assert!(batch.is_empty(), "a record's removal is not an entry");
+}

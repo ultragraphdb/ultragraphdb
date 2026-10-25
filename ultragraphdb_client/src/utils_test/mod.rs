@@ -1,5 +1,6 @@
 /*
- * Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
 //! Obtain a running Dgraph for a test, wherever the test happens to run.

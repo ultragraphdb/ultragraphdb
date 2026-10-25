@@ -72,13 +72,15 @@ Each later group adds its operations to the simulator's workload and its rules t
 - [x] 8.4 Ledger 7 and 8: a namespace's data drop removes its `0x04` parts with its `0x00` data in one drop; the complete namespace drop removes `[0x00,ns]`, `[0x04,ns]`, `[0x01,ns]`, `[0x02,ns]` physically, then writes the namespace's initial schema at ts 1; rollups of a predicate or namespace that read before its drop write nothing after it (ledger 38)
 - [x] 8.5 A request whose read timestamp is below a drop or schema change it writes under fails at commit with `Transaction has been aborted. Please retry`
 - [x] 8.6 Each Dgraph panic or fatal in the files of this group returns `ApplyError`, and its test names the deviation
+- [x] 8.7 A rebuild's temporary entries in a temporary fjall keyspace, dropped after the swap or the failure batch; the simulator and fjall runs cover a rebuild larger than the cache
+- [x] 8.8 The rebuild record: synced before the build, removed by the swap or the failure batch, finished at open by dropping its prefixes the loaded schema does not declare; the simulator crashes and loses power at each rebuild stage
 
 ## 9. Vector index → `ultragraphdb_store_hnsw`
 
 - [x] 9.1 Port `persistent_hnsw_test.go` (15), `kernels_test.go` (7), `ef_recall_test.go` (3); scenarios: vector-index
 - [x] 9.2 Port the storage layout with its little-endian matrix, insert, delete, search with options (the empty-index result), the parameters from `exponent`, the transaction adapter over the local commit; the dead list in `ultragraphdb_store_apply`'s index maintenance
 - [x] 9.3 Each Dgraph panic or fatal in the files of this group returns `HnswError`, and its test names the deviation
-- [ ] 9.4 A vector deleted and then set again leaves the dead list (ledger 53): the set removes its uid from the dead list in index maintenance; a scenario and a test naming the deviation from Go
+- [x] 9.4 A vector deleted and then set again leaves the dead list (ledger 53): the set removes its uid from the dead list in index maintenance; a scenario and a test naming the deviation from Go
 
 ## 11. Logging and telemetry → `ultragraphdb_common_telemetry`, every stage-1 and stage-2 crate
 

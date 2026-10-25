@@ -18,7 +18,7 @@ use ultragraphdb_store_sim::{
     Contents, Event, FaultConfig, OpRecord, Seed, SimContext, Simulation, StoreModel,
     StoreWorkload, Stream,
 };
-use ultragraphdb_traits_store::{Store, StoreSnapshot};
+use ultragraphdb_traits_store::{Store, StoreSnapshot, Temporary};
 
 use crate::test_store::TestDir;
 
@@ -30,6 +30,8 @@ struct Mirror {
     dir: TestDir,
     store: Option<FjallStore>,
     snapshots: BTreeMap<u64, FjallSnapshot>,
+    /// The fjall store's temporary keyspaces by the simulated store's numbers for them.
+    temporaries: BTreeMap<u64, Temporary>,
     /// The versions prefix drops wrote, which fjall's compaction never collects and the simulated store's may.
     /// How many entries prefix drops wrote, fenced on both stores.
     fenced: usize,
@@ -45,6 +47,7 @@ impl Mirror {
             dir,
             store,
             snapshots: BTreeMap::new(),
+            temporaries: BTreeMap::new(),
             fenced: 0,
             replayed: 0,
         }
@@ -58,6 +61,12 @@ impl Mirror {
         self.snapshots
             .get(&id)
             .expect("the reader's fjall snapshot is open")
+    }
+
+    fn temporary(&self, id: u64) -> &Temporary {
+        self.temporaries
+            .get(&id)
+            .expect("the fjall store's temporary keyspace exists")
     }
 
     /// Performs `record` on fjall, checks that fjall answers as the simulated store did, and returns the record of
@@ -197,7 +206,59 @@ impl Mirror {
                     items: got,
                 }
             }
+            OpRecord::RebuildRecorded { record: written } => {
+                self.store()
+                    .write_rebuild_record(written)
+                    .map_err(|e| e.to_string())?;
+                record.clone()
+            }
+            OpRecord::TemporaryCreated { temporary } => {
+                let created = self.store().create_temporary().map_err(|e| e.to_string())?;
+                self.temporaries.insert(*temporary, created);
+                record.clone()
+            }
+            OpRecord::TemporaryApplied { temporary, batch } => {
+                let result = self
+                    .store()
+                    .apply_temporary(self.temporary(*temporary), batch.clone());
+                same("a temporary batch", format!("{result:?}"), "Ok(())".into())?;
+                record.clone()
+            }
+            OpRecord::TemporaryRefused {
+                temporary,
+                batch,
+                error,
+            } => {
+                let result = self
+                    .store()
+                    .apply_temporary(self.temporary(*temporary), batch.clone());
+                same(
+                    "a refused temporary batch",
+                    format!("{result:?}"),
+                    format!("{:?}", Err::<(), _>(error.clone())),
+                )?;
+                record.clone()
+            }
+            OpRecord::TemporarySnapshotOpened { id, temporary } => {
+                let snapshot = self
+                    .store()
+                    .temporary_snapshot(self.temporary(*temporary))
+                    .map_err(|e| format!("a temporary snapshot: {e}"))?;
+                self.snapshots.insert(*id, snapshot);
+                record.clone()
+            }
+            OpRecord::TemporaryDropped { temporary } => {
+                let dropped = self
+                    .temporaries
+                    .remove(temporary)
+                    .expect("the temporary keyspace exists");
+                self.store()
+                    .drop_temporary(dropped)
+                    .map_err(|e| e.to_string())?;
+                record.clone()
+            }
             OpRecord::Crashed => {
+                self.temporaries.clear();
                 self.snapshots.clear();
                 self.store = None;
                 record.clone()
@@ -275,6 +336,19 @@ impl Mirror {
         if fjall != simulated {
             return Err(format!(
                 "fjall's applied, discard and horizon {fjall:?} where the simulated store's are {simulated:?}"
+            ));
+        }
+        let records: BTreeMap<u64, Vec<Vec<u8>>> = store
+            .rebuild_records()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|r| (r.id(), r.into_prefixes()))
+            .collect();
+        if &records != sim.rebuild_records() {
+            return Err(format!(
+                "fjall holds the rebuild records {:?} where the simulated store holds {:?}",
+                records.keys().collect::<Vec<_>>(),
+                sim.rebuild_records().keys().collect::<Vec<_>>()
             ));
         }
         Ok(())

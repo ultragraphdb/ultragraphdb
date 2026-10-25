@@ -9,6 +9,9 @@ use crate::utils::lock::lock;
 impl Drop for FjallSnapshot {
     /// Closes the snapshot, releasing its hold on the discard timestamp.
     fn drop(&mut self) {
+        if !self.holds_discard {
+            return;
+        }
         let mut view = lock(&self.shared.view);
         if let Some(count) = view.readers.get_mut(&self.read_ts) {
             *count -= 1;

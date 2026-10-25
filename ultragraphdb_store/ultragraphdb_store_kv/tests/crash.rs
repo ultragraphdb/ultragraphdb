@@ -15,7 +15,7 @@ use ultragraphdb_traits_store::Store;
 
 use crate::crash_harness::{
     DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, open,
-    raw_drop_state,
+    raw_drop_state, raw_temporary_keyspaces,
 };
 
 #[test]
@@ -95,4 +95,38 @@ fn test_a_kill_during_a_drop_is_finished_at_open() {
         "{interrupted} of 4 kills landed after the drop record was synced and before its removals ended"
     );
     assert!(interrupted > 0, "no kill landed inside the drop's removals");
+}
+
+#[test]
+fn test_a_temporary_keyspace_left_by_a_kill_is_dropped_at_open() {
+    let dir = fresh_dir("temporary");
+    let lines = kill_after(
+        &dir,
+        "temporary",
+        "temporary written",
+        Duration::from_millis(0),
+    );
+    assert!(lines.iter().any(|l| l == "temporary written"));
+    assert_eq!(
+        raw_temporary_keyspaces(&dir),
+        1,
+        "the killed writer left its keyspace"
+    );
+    let store = open(&dir);
+    assert_eq!(store.applied_ts(), 1, "the data written beside it survives");
+    drop(store);
+    assert_eq!(raw_temporary_keyspaces(&dir), 0, "the open dropped it");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_a_rebuild_record_survives_a_kill() {
+    let dir = fresh_dir("record");
+    kill_after(&dir, "record", "recorded", Duration::from_millis(0));
+    let store = open(&dir);
+    let records = store.rebuild_records().expect("readable");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].id(), 7);
+    drop(store);
+    let _ = std::fs::remove_dir_all(&dir);
 }

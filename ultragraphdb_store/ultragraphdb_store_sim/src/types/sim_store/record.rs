@@ -5,7 +5,7 @@
 
 use std::cmp::Reverse;
 
-use ultragraphdb_traits_store::Entry;
+use ultragraphdb_traits_store::{Entry, RebuildRecord};
 
 use crate::types::sim_store::state::{DropRecord, State, encode};
 
@@ -13,19 +13,23 @@ use crate::types::sim_store::state::{DropRecord, State, encode};
 /// prefix of the records written since the last sync.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Record {
-    /// A write batch, its entries to banned namespaces already dropped; fenced when a prefix drop writes it.
+    /// A write batch, its entries to banned namespaces already dropped, with the rebuild records it removes; fenced
+    /// when a prefix drop writes it.
     Batch {
         entries: Vec<Entry>,
         applied_ts: Option<u64>,
+        removed_records: Vec<u64>,
         fenced: bool,
     },
+    /// A rebuild record written to the metadata keyspace.
+    StartRebuild(RebuildRecord),
     /// The drop record written to the metadata keyspace.
     StartDrop(DropRecord),
     /// Removals of stored versions, one batch of a drop.
     Remove(Vec<(Vec<u8>, u64)>),
     /// `Keyspace::clear` of the data keyspace.
     Clear,
-    /// A drop of everything clearing the metadata it resets.
+    /// A drop of everything clearing the metadata it resets, the rebuild records included.
     ResetMeta,
     /// The drop record deleted.
     EndDrop,
@@ -40,6 +44,7 @@ impl Record {
             Record::Batch {
                 entries,
                 applied_ts,
+                removed_records,
                 fenced,
             } => {
                 for entry in entries {
@@ -51,6 +56,14 @@ impl Record {
                 if let Some(ts) = applied_ts {
                     state.applied_ts = state.applied_ts.max(*ts);
                 }
+                removed_records.iter().for_each(|id| {
+                    state.rebuild_records.remove(id);
+                });
+            }
+            Record::StartRebuild(record) => {
+                state
+                    .rebuild_records
+                    .insert(record.id(), record.prefixes().to_vec());
             }
             Record::StartDrop(record) => state.drop_record = Some(record.clone()),
             Record::Remove(keys) => keys.iter().for_each(|(key, version)| {
@@ -62,6 +75,7 @@ impl Record {
                 state.banned.clear();
                 state.discard_ts = 0;
                 state.horizon = None;
+                state.rebuild_records.clear();
             }
             Record::EndDrop => state.drop_record = None,
             Record::Ban(namespace) => {

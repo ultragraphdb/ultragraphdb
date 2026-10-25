@@ -19,6 +19,8 @@ impl StoreModel {
         let status = std::mem::take(&mut self.status);
         self.snapshots.clear();
         self.readers.clear();
+        self.temporaries.clear();
+        self.temporary_snapshots.clear();
         let replay = |ops: &[ModelOp]| {
             let mut state = (*self.base).clone();
             ops.iter().for_each(|op| state.apply(op));

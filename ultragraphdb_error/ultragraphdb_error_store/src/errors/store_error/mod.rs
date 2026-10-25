@@ -40,6 +40,12 @@ pub enum StoreErrorEnum {
     /// The store could not be opened: its directory is held by another process or unreadable, or its recovery
     /// failed.
     OpenFailed(String),
+    /// The store does not offer the operation named: what `ultragraphdb_traits_store`'s `Store` answers for its
+    /// temporary keyspaces and rebuild records when an implementation keeps none.
+    Unsupported(&'static str),
+    /// A temporary keyspace by this number does not exist: it was dropped, or the store was reopened since it was
+    /// created, which drops every temporary keyspace.
+    UnknownTemporary(u64),
 }
 
 impl StoreError {
@@ -76,5 +82,15 @@ impl StoreError {
     #[allow(non_snake_case)]
     pub fn OpenFailed(reason: String) -> Self {
         Self(StoreErrorEnum::OpenFailed(reason))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Unsupported(operation: &'static str) -> Self {
+        Self(StoreErrorEnum::Unsupported(operation))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn UnknownTemporary(id: u64) -> Self {
+        Self(StoreErrorEnum::UnknownTemporary(id))
     }
 }

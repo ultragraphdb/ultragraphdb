@@ -6,22 +6,25 @@
 mod corrupted;
 mod fault_injector;
 mod gc;
+mod rebuild_records;
 mod record;
 mod sim_store_store;
 pub(crate) mod state;
+mod temporaries;
 
 use std::collections::BTreeMap;
 use std::mem;
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, key_namespace};
+use ultragraphdb_traits_store::{Entry, RebuildRecord, WriteBatch, key_namespace};
 
 use crate::types::contents::Contents;
 use crate::types::corruption::Corruption;
 use crate::types::fault::Fault;
 use crate::types::fault_config::FaultConfig;
 use crate::types::op_record::OpRecord;
+use crate::types::rebuild_stage::RebuildStage;
 use crate::types::seed::Seed;
 use crate::types::sim_clock::SimClock;
 use crate::types::stored_version::StoredVersion;
@@ -80,6 +83,12 @@ pub(crate) struct Inner {
     pub generation: u64,
     pub next_snapshot: u64,
     pub faults: FaultInjector,
+    /// Where the rebuild of the record last written stops, as the fault stream drew it, until it stops or its record
+    /// is removed.
+    pub rebuild_stop: Option<(RebuildRecord, RebuildStage, bool)>,
+    /// The temporary keyspaces by number, each holding its data alone; none survives a recovery.
+    pub temporaries: BTreeMap<u64, Arc<State>>,
+    pub next_temporary: u64,
     pub corrupted: Corrupted,
     pub log: Vec<OpRecord>,
     pub clock: SimClock,
@@ -98,6 +107,9 @@ impl SimStore {
             generation: 0,
             next_snapshot: 0,
             faults: FaultInjector::new(seed.stream(Stream::Faults), faults),
+            rebuild_stop: None,
+            temporaries: BTreeMap::new(),
+            next_temporary: 1,
             corrupted: Corrupted::default(),
             log: Vec::new(),
             clock: clock.clone(),
@@ -173,7 +185,7 @@ impl SimStore {
     /// Reopens the store, as a restarted process does. After a power loss, a prefix of the journal records since the
     /// last sync survives, its length drawn from the fault stream; otherwise every record survives, and a batch that
     /// failed or was being written is present or absent, as the stream decides. A drop whose record survived is then
-    /// finished. Snapshots opened before no longer hold the discard timestamp.
+    /// finished, and every temporary keyspace is dropped. Snapshots opened before no longer hold the discard timestamp.
     pub fn recover(&self) {
         let mut inner = lock(&self.shared);
         let (power_loss, extra) = match mem::replace(&mut inner.status, Status::Open) {
@@ -204,6 +216,8 @@ impl SimStore {
         }
         inner.readers.clear();
         inner.generation += 1;
+        inner.temporaries.clear();
+        inner.rebuild_stop = None;
         if let Some(record) = inner.current.drop_record.clone() {
             inner.finish_drop(&record);
         }
@@ -230,6 +244,7 @@ impl SimStore {
             state.discard_ts,
             state.horizon,
         )
+        .with_rebuild_records(state.rebuild_records.clone())
     }
 
     /// The log of operations and faults since the last call, oldest first.
@@ -279,35 +294,74 @@ impl Inner {
         }
     }
 
-    /// The batch record of `entries`, those addressed to a banned namespace dropped.
-    pub fn batch_record(&self, entries: Vec<Entry>, applied_ts: Option<u64>) -> Record {
-        let banned = &self.current.banned;
-        let entries = entries
-            .into_iter()
-            .filter(|e| key_namespace(e.key()).is_none_or(|ns| !banned.contains(&ns)))
-            .collect();
+    /// The batch record of `batch`, its entries addressed to a banned namespace dropped.
+    pub fn batch_record(&self, batch: &WriteBatch) -> Record {
         Record::Batch {
-            entries,
-            applied_ts,
+            entries: self.admitted(batch.entries()),
+            applied_ts: batch.applied_ts(),
+            removed_records: batch.removed_rebuild_records().to_vec(),
             fenced: false,
         }
+    }
+
+    /// `entries` without those addressed to a banned namespace.
+    fn admitted(&self, entries: &[Entry]) -> Vec<Entry> {
+        let banned = &self.current.banned;
+        entries
+            .iter()
+            .filter(|e| key_namespace(e.key()).is_none_or(|ns| !banned.contains(&ns)))
+            .cloned()
+            .collect()
     }
 
     /// The batch of the entries `record` writes once its data is gone, fenced for a prefix drop: a version the drop
     /// removed can reach a fjall compaction beneath a removal its filter is not shown, so compaction never collects
     /// what a prefix drop wrote (`ultragraphdb_store_kv`). A drop of everything clears, which leaves nothing behind.
     pub fn drop_entries_record(&self, record: &DropRecord) -> Record {
-        match self.batch_record(record.entries.clone(), None) {
-            Record::Batch {
-                entries,
-                applied_ts,
-                ..
-            } => Record::Batch {
-                entries,
-                applied_ts,
-                fenced: record.prefixes.is_some(),
-            },
-            other => other,
+        Record::Batch {
+            entries: self.admitted(&record.entries),
+            applied_ts: None,
+            removed_records: Vec::new(),
+            fenced: record.prefixes.is_some(),
+        }
+    }
+
+    /// Stops the process at `stage` of the rebuild of `record`, a power loss when `power_loss`: the error the stopped
+    /// operation returns.
+    pub fn stop_rebuild(
+        &mut self,
+        record: RebuildRecord,
+        stage: RebuildStage,
+        power_loss: bool,
+    ) -> StoreError {
+        self.status = Status::Down {
+            power_loss,
+            in_flight: None,
+        };
+        self.rebuild_stop = None;
+        self.log.push(OpRecord::RebuildInterrupted {
+            record,
+            stage,
+            power_loss,
+        });
+        StoreError::WriteFailed(format!(
+            "simulated {} during a rebuild",
+            if power_loss {
+                "power loss"
+            } else {
+                "process crash"
+            }
+        ))
+    }
+
+    /// Whether the rebuild of the record last written stops at `stage`, its stop then taken.
+    pub fn rebuild_stops_at(&mut self, stage: RebuildStage) -> Option<(RebuildRecord, bool)> {
+        match self.rebuild_stop.take() {
+            Some((record, at, power_loss)) if at == stage => Some((record, power_loss)),
+            other => {
+                self.rebuild_stop = other;
+                None
+            }
         }
     }
 

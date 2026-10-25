@@ -16,6 +16,10 @@ Feature: Vector index maintenance
     When a vector of `emb: float32vector @index(hnsw) .` is set over the vector it holds
     Then its uid is not in the dead list, and the index still finds it
 
+  Scenario: A vector deleted and set again is live
+    When a vector of `emb: float32vector @index(hnsw) .` is deleted and then set again
+    Then its uid is not in the dead list, and the index still finds it
+
   Scenario: An HNSW option below 1 is refused at the schema change
     When `emb: float32vector @index(hnsw(maxLevels:"0")) .` is applied
     Then the change fails with `IndexFactory: hnsw issues this error: 'the vector index option maxLevels must be at least 1, got 0'`, and the schema does not hold `emb`

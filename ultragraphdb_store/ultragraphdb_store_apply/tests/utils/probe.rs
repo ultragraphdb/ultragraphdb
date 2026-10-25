@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_sim::SimStore;
-use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch};
 
 /// A step a [`Probe`] runs inside an operation of its store.
 pub type ProbeHook = Box<dyn FnMut() + Send>;
@@ -108,5 +108,29 @@ impl Store for Probe {
 
     fn sync(&self) -> Result<(), StoreError> {
         self.inner.sync()
+    }
+
+    fn create_temporary(&self) -> Result<Temporary, StoreError> {
+        self.inner.create_temporary()
+    }
+
+    fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
+        self.inner.apply_temporary(temporary, batch)
+    }
+
+    fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
+        self.inner.temporary_snapshot(temporary)
+    }
+
+    fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
+        self.inner.drop_temporary(temporary)
+    }
+
+    fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
+        self.inner.write_rebuild_record(record)
+    }
+
+    fn rebuild_records(&self) -> Result<Vec<RebuildRecord>, StoreError> {
+        self.inner.rebuild_records()
     }
 }

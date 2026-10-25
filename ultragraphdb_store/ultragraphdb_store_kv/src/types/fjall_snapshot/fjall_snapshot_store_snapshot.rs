@@ -31,7 +31,7 @@ impl StoreSnapshot for FjallSnapshot {
             Bound::Included(stored_key(key, self.read_ts)),
             Bound::Excluded(key_end(key)),
         );
-        let Some(guard) = self.snapshot.range(&self.shared.data, range).next() else {
+        let Some(guard) = self.snapshot.range(&self.keyspace, range).next() else {
             return Ok(None);
         };
         let (stored, bytes) = guard
@@ -68,7 +68,7 @@ impl StoreSnapshot for FjallSnapshot {
             Bound::Included(lower),
             upper.map_or(Bound::Unbounded, Bound::Excluded),
         );
-        let iter = self.snapshot.range(&self.shared.data, range);
+        let iter = self.snapshot.range(&self.keyspace, range);
         FjallScan::new(iter, scan.clone(), self.read_ts, self.banned.clone())
     }
 }

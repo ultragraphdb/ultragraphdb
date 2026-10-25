@@ -5,7 +5,8 @@
 
 /// How often a run's fault stream injects each fault, in chances per thousand: per batch for a failed batch and a
 /// crash while one is written, per step for a crash or a power loss between steps, per drop for a crash or a power
-/// loss during one, per read for a failed read, a failed scan and a corrupted value, per operation for a slow one.
+/// loss during one, per rebuild (each rebuild record written) for a crash or a power loss at one of its stages, per
+/// read for a failed read, a failed scan and a corrupted value, per operation for a slow one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct FaultConfig {
     batch_failure: u32,
@@ -14,6 +15,8 @@ pub struct FaultConfig {
     power_loss_between_steps: u32,
     crash_during_drop: u32,
     power_loss_during_drop: u32,
+    crash_during_rebuild: u32,
+    power_loss_during_rebuild: u32,
     read_failure: u32,
     scan_failure: u32,
     corruption: u32,
@@ -36,6 +39,8 @@ impl FaultConfig {
             power_loss_between_steps: 5,
             crash_during_drop: 150,
             power_loss_during_drop: 150,
+            crash_during_rebuild: 150,
+            power_loss_during_rebuild: 150,
             read_failure: 10,
             scan_failure: 20,
             corruption: 3,
@@ -71,6 +76,16 @@ impl FaultConfig {
 
     pub fn with_power_loss_during_drop(mut self, per_mille: u32) -> Self {
         self.power_loss_during_drop = per_mille;
+        self
+    }
+
+    pub fn with_crash_during_rebuild(mut self, per_mille: u32) -> Self {
+        self.crash_during_rebuild = per_mille;
+        self
+    }
+
+    pub fn with_power_loss_during_rebuild(mut self, per_mille: u32) -> Self {
+        self.power_loss_during_rebuild = per_mille;
         self
     }
 
@@ -118,6 +133,14 @@ impl FaultConfig {
 
     pub fn power_loss_during_drop(&self) -> u32 {
         self.power_loss_during_drop
+    }
+
+    pub fn crash_during_rebuild(&self) -> u32 {
+        self.crash_during_rebuild
+    }
+
+    pub fn power_loss_during_rebuild(&self) -> u32 {
+        self.power_loss_during_rebuild
     }
 
     pub fn read_failure(&self) -> u32 {

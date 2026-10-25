@@ -15,3 +15,7 @@ mod store_drops_tests;
 mod store_gc_tests;
 #[cfg(test)]
 mod store_meta_tests;
+#[cfg(test)]
+mod store_rebuild_records_tests;
+#[cfg(test)]
+mod store_temporaries_tests;

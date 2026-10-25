@@ -14,6 +14,7 @@ pub mod fault_config;
 pub mod invariant;
 pub mod log_capture;
 pub mod op_record;
+pub mod rebuild_stage;
 pub mod run_outcome;
 pub mod seed;
 pub mod sim_clock;

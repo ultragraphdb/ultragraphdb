@@ -12,6 +12,10 @@ mod item;
 #[cfg(test)]
 mod persist_mode_tests;
 #[cfg(test)]
+mod rebuild_record;
+#[cfg(test)]
 mod scan;
+#[cfg(test)]
+mod temporary_tests;
 #[cfg(test)]
 mod write_batch;

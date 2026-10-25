@@ -15,7 +15,8 @@ use crate::types::sim_store::Inner;
 use crate::types::sim_store::state::{State, decode};
 
 /// A snapshot of a [`crate::SimStore`]: the state when it was opened, read at one timestamp. While it is open, the
-/// store's discard timestamp stays at or below its read timestamp.
+/// store's discard timestamp stays at or below its read timestamp. A snapshot of a temporary keyspace reads every
+/// version it holds, holds no discard timestamp back, and draws read failures but no corruption.
 #[derive(Debug)]
 pub struct SimSnapshot {
     shared: Arc<Mutex<Inner>>,
@@ -23,6 +24,7 @@ pub struct SimSnapshot {
     read_ts: u64,
     id: u64,
     generation: u64,
+    temporary: bool,
 }
 
 impl SimSnapshot {
@@ -39,12 +41,35 @@ impl SimSnapshot {
             read_ts,
             id,
             generation,
+            temporary: false,
+        }
+    }
+
+    /// The snapshot of a temporary keyspace holding `state`.
+    pub(crate) fn temporary(shared: Arc<Mutex<Inner>>, state: Arc<State>, id: u64) -> Self {
+        Self {
+            shared,
+            state,
+            read_ts: u64::MAX,
+            id,
+            generation: 0,
+            temporary: true,
         }
     }
 
     /// The number the store's log names this snapshot by.
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// The bytes of `key` at `version` as a read finds them: corrupted as the store's data is, unless the snapshot
+    /// reads a temporary keyspace.
+    fn bytes(&self, inner: &Inner, key: &[u8], version: u64, stored: &[u8]) -> Vec<u8> {
+        if self.temporary {
+            stored.to_vec()
+        } else {
+            inner.corrupted.bytes(key, version, stored)
+        }
     }
 
     fn banned(&self, key: &[u8]) -> bool {
@@ -60,7 +85,7 @@ impl SimSnapshot {
         else {
             return Ok(None);
         };
-        let decoded = decode(&inner.corrupted.bytes(key, version, stored))
+        let decoded = decode(&self.bytes(inner, key, version, stored))
             .map_err(|reason| StoreError::Corrupted(key.to_vec(), reason))?;
         Ok((!decoded.deletion).then(|| {
             Item::new(
@@ -92,7 +117,7 @@ impl SimSnapshot {
             let Some(items) = keys.last_mut() else {
                 continue;
             };
-            match decode(&inner.corrupted.bytes(key, *version, stored)) {
+            match decode(&self.bytes(inner, key, *version, stored)) {
                 Err(reason) => {
                     items.push(Err(StoreError::Corrupted(key.clone(), reason)));
                     done = true;

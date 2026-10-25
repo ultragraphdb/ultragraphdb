@@ -1,5 +1,6 @@
 /*
- * Copyright (c) "2025" . Marvin Hansen All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2025. Marvin Hansen. All Rights Reserved.
  */
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

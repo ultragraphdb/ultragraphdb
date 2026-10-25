@@ -18,6 +18,9 @@ use ultragraphdb_core_tok::{
     VEC_DEAD, VEC_ENTRY, VEC_KEYWORD, get_tokenizer, get_tokenizer_for_lang,
 };
 
+use ultragraphdb_proto_pb::pb::SchemaUpdate;
+use ultragraphdb_proto_pb::pb::schema_update::Directive;
+
 use crate::errors::apply_error::ApplyError;
 
 /// The levels of the per-level predicates an older HNSW kept, which a vector index's drop removes too: Dgraph's
@@ -99,6 +102,66 @@ pub(crate) fn count_prefixes(attr: &str) -> Result<Vec<Vec<u8>>, ApplyError> {
         kind_prefix(attr, BYTE_COUNT)?,
         kind_prefix(attr, BYTE_COUNT_REV)?,
     ]))
+}
+
+/// The forward count prefix with its twin.
+pub(crate) fn forward_count_prefixes(attr: &str) -> Result<Vec<Vec<u8>>, ApplyError> {
+    Ok(with_twins(vec![kind_prefix(attr, BYTE_COUNT)?]))
+}
+
+/// The prefixes of the indexes `schema` declares for `attr`: each tokenizer's and vector index's, the reverse edges,
+/// the counts, and the reverse counts for a predicate with both `@reverse` and `@count`, each with its twin.
+pub(crate) fn declared_prefixes(
+    attr: &str,
+    schema: &SchemaUpdate,
+) -> Result<Vec<Vec<u8>>, ApplyError> {
+    let mut prefixes = Vec::new();
+    let reverse = schema.directive == Directive::Reverse as i32;
+    if schema.directive == Directive::Index as i32 {
+        for t in &schema.tokenizer {
+            prefixes.extend(tokenizer_prefixes(attr, t)?);
+        }
+        for spec in &schema.index_specs {
+            prefixes.extend(tokenizer_prefixes(attr, &spec.name)?);
+        }
+    }
+    if reverse {
+        prefixes.extend(reverse_prefixes(attr)?);
+    }
+    if schema.count {
+        prefixes.extend(forward_count_prefixes(attr)?);
+        if reverse {
+            prefixes.extend(reverse_count_prefixes(attr)?);
+        }
+    }
+    Ok(prefixes)
+}
+
+/// The prefixes writes maintain while `attr` is rebuilt from `old` to `new`: those either schema declares, and the
+/// reverse counts when one of them has `@reverse` and either has `@count`, which the two schemas' indexes maintained
+/// together keep though neither declares them.
+pub(crate) fn maintained_prefixes(
+    attr: &str,
+    old: Option<&SchemaUpdate>,
+    new: &SchemaUpdate,
+) -> Result<Vec<Vec<u8>>, ApplyError> {
+    let mut prefixes = declared_prefixes(attr, new)?;
+    let mut extend = |more: Vec<Vec<u8>>| {
+        for p in more {
+            if !prefixes.contains(&p) {
+                prefixes.push(p);
+            }
+        }
+    };
+    if let Some(old) = old {
+        extend(declared_prefixes(attr, old)?);
+    }
+    let schemas = || old.into_iter().chain(std::iter::once(new));
+    let reverse = schemas().any(|s| s.directive == Directive::Reverse as i32);
+    if reverse && schemas().any(|s| s.count) {
+        extend(reverse_count_prefixes(attr)?);
+    }
+    Ok(prefixes)
 }
 
 /// The reverse count prefix with its twin.

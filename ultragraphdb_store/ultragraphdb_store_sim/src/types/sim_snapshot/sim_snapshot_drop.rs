@@ -11,6 +11,10 @@ impl Drop for SimSnapshot {
     /// Closes the snapshot, releasing its hold on the discard timestamp unless the store has been reopened since.
     fn drop(&mut self) {
         let mut inner = lock(&self.shared);
+        if self.temporary {
+            inner.log.push(OpRecord::SnapshotClosed { id: self.id });
+            return;
+        }
         if inner.generation != self.generation {
             return;
         }

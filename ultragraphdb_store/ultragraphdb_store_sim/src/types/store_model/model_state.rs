@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_traits_store::{Direction, Entry, Item, Scan, key_namespace};
+use ultragraphdb_traits_store::{Direction, Entry, Item, RebuildRecord, Scan, key_namespace};
 
 use crate::types::contents::Contents;
 use crate::types::stored_version::StoredVersion;
@@ -28,6 +28,7 @@ pub struct ModelState {
     pub banned: BTreeSet<u64>,
     pub discard_ts: u64,
     pub horizon: Option<u64>,
+    pub rebuild_records: BTreeMap<u64, Vec<Vec<u8>>>,
 }
 
 /// A write the model replays when it rebuilds what survived a crash or a power loss.
@@ -36,7 +37,10 @@ pub enum ModelOp {
     Batch {
         entries: Vec<Entry>,
         applied_ts: Option<u64>,
+        removed_records: Vec<u64>,
     },
+    /// A rebuild record written.
+    Record(RebuildRecord),
     Drop {
         prefixes: Option<Vec<Vec<u8>>>,
         entries: Vec<Entry>,
@@ -69,11 +73,19 @@ impl ModelState {
             ModelOp::Batch {
                 entries,
                 applied_ts,
+                removed_records,
             } => {
                 self.write(entries, false);
                 if let Some(ts) = applied_ts {
                     self.applied_ts = self.applied_ts.max(*ts);
                 }
+                removed_records.iter().for_each(|id| {
+                    self.rebuild_records.remove(id);
+                });
+            }
+            ModelOp::Record(record) => {
+                self.rebuild_records
+                    .insert(record.id(), record.prefixes().to_vec());
             }
             ModelOp::Drop { prefixes, entries } => {
                 self.keys.retain(|key, _| !covers(prefixes, key));
@@ -82,6 +94,7 @@ impl ModelState {
                     self.banned.clear();
                     self.discard_ts = 0;
                     self.horizon = None;
+                    self.rebuild_records.clear();
                 }
                 let admitted = self.admitted(entries);
                 self.write(&admitted, prefixes.is_some());
@@ -200,5 +213,11 @@ impl ModelState {
             self.discard_ts,
             self.horizon,
         )
+        .with_rebuild_records(self.rebuild_records.clone())
+    }
+
+    /// `entries` written to a temporary keyspace this state models: every entry, whatever its namespace.
+    pub fn write_temporary(&mut self, entries: &[Entry]) {
+        self.write(entries, false);
     }
 }

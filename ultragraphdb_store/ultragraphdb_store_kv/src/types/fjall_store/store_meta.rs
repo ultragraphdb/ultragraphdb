@@ -15,12 +15,22 @@ use crate::types::fjall_store::Shared;
 use crate::utils::lock::lock;
 
 /// The metadata keys: the highest applied timestamp, the discard timestamp asked for, the tombstone horizon set, a
-/// drop in progress, and one key per banned namespace, the namespace in big-endian after the prefix.
+/// drop in progress, one key per banned namespace, the namespace in big-endian after the prefix, and one per rebuild
+/// record.
 pub const APPLIED_KEY: &[u8] = b"applied_ts";
 pub const DISCARD_KEY: &[u8] = b"discard_ts";
 pub const HORIZON_KEY: &[u8] = b"tombstone_horizon";
 pub const DROP_KEY: &[u8] = b"drop";
 pub const BANNED_PREFIX: &[u8] = b"banned/";
+/// The prefix of the rebuild records, each keyed by its number in big-endian after it.
+pub const REBUILD_PREFIX: &[u8] = b"rebuild/";
+
+/// The metadata key of rebuild record `id`.
+pub fn rebuild_key(id: u64) -> Vec<u8> {
+    let mut key = REBUILD_PREFIX.to_vec();
+    key.extend_from_slice(&id.to_be_bytes());
+    key
+}
 
 /// The metadata key of banned namespace `namespace`.
 pub fn banned_key(namespace: u64) -> Vec<u8> {

@@ -8,6 +8,8 @@ mod fjall_store_store;
 mod store_drops;
 mod store_gc;
 mod store_meta;
+mod store_rebuild_records;
+mod store_temporaries;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -31,11 +33,13 @@ use crate::utils::stored_value::decode_value;
 /// The fjall keyspace holding every version of every key.
 pub const DATA_KEYSPACE: &str = "data";
 /// The fjall keyspace holding the store's metadata: the applied timestamp, the banned namespaces, the discard
-/// timestamp, the tombstone horizon and a drop in progress.
+/// timestamp, the tombstone horizon, a drop in progress and the rebuild records.
 pub const META_KEYSPACE: &str = "meta";
+/// The name of every temporary keyspace begins with this, its number after it; opening the store drops each.
+pub const TEMPORARY_KEYSPACE_PREFIX: &str = "tmp-";
 
 /// The [`ultragraphdb_traits_store::Store`] over fjall: the managed-mode Badger surface Dgraph uses, in one fjall
-/// `Database` of two keyspaces, data and metadata.
+/// `Database` of two keyspaces, data and metadata, beside which a rebuild creates temporary keyspaces.
 ///
 /// A version is a stored key of its own (the user key escaped and terminated, then the complement of the version),
 /// so fjall's byte order is Badger's, and its value carries the meta byte, the discard flag and the tombstone flag in
@@ -63,6 +67,9 @@ pub(crate) struct Shared {
     pub poisoned: AtomicBool,
     pub applied_ts: AtomicU64,
     pub gc: Arc<GcSettings>,
+    /// The temporary keyspaces by number, and the next number.
+    pub temporaries: Mutex<BTreeMap<u64, Keyspace>>,
+    pub next_temporary: AtomicU64,
 }
 
 /// What a snapshot is opened against, changed under its lock.
@@ -93,8 +100,8 @@ impl View {
 }
 
 impl FjallStore {
-    /// Opens the store in `path`, creating it when the directory holds none, and finishes a drop a crash or a power
-    /// loss interrupted before it serves.
+    /// Opens the store in `path`, creating it when the directory holds none, finishes a drop a crash or a power loss
+    /// interrupted and drops the temporary keyspaces a process left before it serves.
     pub fn open(path: impl AsRef<Path>, durability: Durability) -> Result<Self, StoreError> {
         Self::open_with_sync_period(path, durability, Syncer::PERIOD)
     }
@@ -130,6 +137,8 @@ impl FjallStore {
             poisoned: AtomicBool::new(false),
             applied_ts: AtomicU64::new(0),
             gc,
+            temporaries: Mutex::new(BTreeMap::new()),
+            next_temporary: AtomicU64::new(1),
         });
         shared.load_meta()?;
         if let Some(record) = shared.drop_record()? {
@@ -141,6 +150,7 @@ impl FjallStore {
             );
             shared.finish_drop(&record)?;
         }
+        shared.drop_left_temporaries()?;
         let syncer = match durability {
             Durability::Process => Some(Syncer::start(Arc::downgrade(&shared), period)?),
             Durability::Filesystem => None,

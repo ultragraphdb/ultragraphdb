@@ -10,7 +10,8 @@
  * a ledger entry: deleting a value keeps the subject under the tokens the subject's other values still produce (35);
  * a star delete tokenizes each value with its language (34) and removes the subject from the count key it is listed
  * under, one for a scalar (36); a delete by value marks the vector dead, the value read before the delete applies
- * (46); setting a vector over one leaves its uid live (47).
+ * (46); setting a vector over one leaves its uid live (47); setting a vector removes its uid from the dead list,
+ * so a vector deleted and set again is live (53).
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -21,7 +22,9 @@ use ultragraphdb_core_keys::{STAR, count_key, data_key, index_key, parse, revers
 use ultragraphdb_core_tok::VEC_DEAD;
 use ultragraphdb_core_types::{TypeId, Val, Value};
 use ultragraphdb_proto_pb::pb::{DirectedEdge, Posting, directed_edge::Op};
-use ultragraphdb_store_hnsw::{HnswError, HnswFactory, ViTxn, add_dead_node, bytes_as_float_array};
+use ultragraphdb_store_hnsw::{
+    HnswError, HnswFactory, ViTxn, add_dead_node, bytes_as_float_array, parse_edges,
+};
 use ultragraphdb_store_posting::{
     CachedList, DEL, PostingError, Request, fingerprint_edge, new_posting,
 };
@@ -485,6 +488,9 @@ where
                     Some(Value::Bytes(b)) => b.clone(),
                     _ => Vec::new(),
                 };
+                // A vector set again after its delete is live: its uid leaves the dead list, where Dgraph keeps it
+                // there for good (ledger 53).
+                unmark_dead(request, attr, uid)?;
                 return insert_vector(request, m, attr, uid, &bytes);
             }
         }
@@ -507,8 +513,11 @@ where
     Ok(())
 }
 
-/// Adds `uid` to the dead list of the vector predicate `attr`.
-fn mark_dead<S, C>(request: &mut Request<'_, S, C>, attr: &str, uid: u64) -> Result<(), ApplyError>
+/// The dead list's predicate, its key and its value, `None` when it has none.
+type DeadList = (String, Vec<u8>, Option<Vec<u8>>);
+
+/// The dead list of the vector predicate `attr` as `request` reads it.
+fn dead_list<S, C>(request: &mut Request<'_, S, C>, attr: &str) -> Result<DeadList, ApplyError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
@@ -516,8 +525,7 @@ where
     let dead_attr = format!("{attr}{VEC_DEAD}");
     let key = data_key(&dead_attr, 1)?;
     let read_ts = request.read_ts();
-    let list = request.get(&key)?;
-    let existing = match list.value(read_ts) {
+    let existing = match request.get(&key)?.value(read_ts) {
         Ok(v) => match v.into_value() {
             Some(Value::Bytes(b)) => Some(b),
             _ => None,
@@ -525,6 +533,51 @@ where
         Err(PostingError(ultragraphdb_store_posting::PostingErrorEnum::NoValue)) => None,
         Err(e) => return Err(e.into()),
     };
+    Ok((dead_attr, key, existing))
+}
+
+/// Removes `uid` from the dead list of the vector predicate `attr`, every time it is listed; a list without it is
+/// not written.
+fn unmark_dead<S, C>(
+    request: &mut Request<'_, S, C>,
+    attr: &str,
+    uid: u64,
+) -> Result<(), ApplyError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    let (dead_attr, key, existing) = dead_list(request, attr)?;
+    let Some(existing) = existing else {
+        return Ok(());
+    };
+    let listed = parse_edges(&String::from_utf8_lossy(&existing))?;
+    if !listed.contains(&uid) {
+        return Ok(());
+    }
+    let kept: Vec<String> = listed
+        .iter()
+        .filter(|&&u| u != uid)
+        .map(u64::to_string)
+        .collect();
+    let edge = DirectedEdge {
+        entity: 1,
+        attr: dead_attr,
+        value: format!("[{}]", kept.join(",")).into_bytes(),
+        ..DirectedEdge::default()
+    };
+    request.get(&key)?.add_mutation(&edge, None)?;
+    Ok(())
+}
+
+/// Adds `uid` to the dead list of the vector predicate `attr`.
+fn mark_dead<S, C>(request: &mut Request<'_, S, C>, attr: &str, uid: u64) -> Result<(), ApplyError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    let (dead_attr, key, existing) = dead_list(request, attr)?;
+    let list = request.get(&key)?;
     let dead = add_dead_node(existing.as_deref(), uid)?;
     let edge = DirectedEdge {
         entity: 1,

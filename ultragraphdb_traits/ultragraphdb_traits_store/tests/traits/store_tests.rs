@@ -5,8 +5,10 @@
 
 use std::cell::Cell;
 
-use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_traits_store::{
+    Entry, Item, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
+};
 
 /// A store holding one item, at version 3, and refusing reads below 2.
 #[derive(Default)]
@@ -111,4 +113,26 @@ fn test_get_at_passes_on_the_snapshots_refusal() {
     let store = OneItem::default();
     assert_eq!(store.get_at(b"k", 1), Err(StoreError::TsTooOld()));
     assert_eq!(store.opened_at.get(), Some(1));
+}
+
+/// A store that keeps no temporary keyspaces and no rebuild records refuses them by name, and holds no record.
+#[test]
+fn test_a_store_without_temporary_keyspaces_or_records_refuses_them() {
+    let store = OneItem::default();
+    let unsupported = |e: StoreError| matches!(e.0, StoreErrorEnum::Unsupported(_));
+    assert!(store.create_temporary().is_err_and(unsupported));
+    let t = Temporary::new(1);
+    assert!(
+        store
+            .apply_temporary(&t, WriteBatch::new())
+            .is_err_and(unsupported)
+    );
+    assert!(store.temporary_snapshot(&t).is_err_and(unsupported));
+    assert!(store.drop_temporary(t).is_err_and(unsupported));
+    assert!(
+        store
+            .write_rebuild_record(&RebuildRecord::new(1, Vec::new()))
+            .is_err_and(unsupported)
+    );
+    assert_eq!(store.rebuild_records(), Ok(Vec::new()));
 }

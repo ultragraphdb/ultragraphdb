@@ -6,6 +6,7 @@
 pub(crate) mod applier;
 pub(crate) mod apply_batch;
 pub(crate) mod apply_request;
+pub(crate) mod build_buffer;
 pub(crate) mod index_op;
 pub(crate) mod index_rebuild;
 pub(crate) mod index_rebuild_info;

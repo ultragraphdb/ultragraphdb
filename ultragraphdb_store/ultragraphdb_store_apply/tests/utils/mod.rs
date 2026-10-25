@@ -15,4 +15,8 @@ mod divide_tests;
 #[allow(dead_code)]
 pub mod helpers;
 #[cfg(test)]
+mod index_tests;
+#[cfg(test)]
+pub mod kill_point;
+#[cfg(test)]
 mod validate_tests;

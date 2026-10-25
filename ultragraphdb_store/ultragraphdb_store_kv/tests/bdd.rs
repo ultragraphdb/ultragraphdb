@@ -5,6 +5,8 @@
 
 //! The kv-store scenarios, on the fjall store.
 
+// The scenarios use the harness's batch and drop kills; the crash test alone reads temporary keyspaces raw.
+#[allow(dead_code)]
 mod crash_harness;
 
 use std::path::PathBuf;

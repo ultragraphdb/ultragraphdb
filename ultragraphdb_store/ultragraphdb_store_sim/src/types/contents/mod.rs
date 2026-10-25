@@ -9,7 +9,7 @@ use crate::types::stored_version::StoredVersion;
 use crate::utils::hex::hex;
 
 /// Everything a simulated store holds, read without faults: every version of every key, deletions included, and
-/// the metadata the store keeps beside them. The shadow model builds the same from what it was told, and the two
+/// the metadata the store keeps beside them, its rebuild records included. The shadow model builds the same from what it was told, and the two
 /// must be equal.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Contents {
@@ -18,6 +18,7 @@ pub struct Contents {
     banned: BTreeSet<u64>,
     discard_ts: u64,
     tombstone_horizon: Option<u64>,
+    rebuild_records: BTreeMap<u64, Vec<Vec<u8>>>,
 }
 
 impl Contents {
@@ -34,7 +35,14 @@ impl Contents {
             banned,
             discard_ts,
             tombstone_horizon,
+            rebuild_records: BTreeMap::new(),
         }
+    }
+
+    /// The contents holding `records`, the rebuild records by number with their prefixes.
+    pub(crate) fn with_rebuild_records(mut self, records: BTreeMap<u64, Vec<Vec<u8>>>) -> Self {
+        self.rebuild_records = records;
+        self
     }
 
     /// Every key with its versions, newest first.
@@ -65,6 +73,11 @@ impl Contents {
         self.tombstone_horizon
     }
 
+    /// The rebuild records, by number, with their prefixes.
+    pub fn rebuild_records(&self) -> &BTreeMap<u64, Vec<Vec<u8>>> {
+        &self.rebuild_records
+    }
+
     /// The first difference from `other`, ignoring the keys `skip` holds; `None` when there is none.
     pub(crate) fn difference(&self, other: &Contents, skip: &BTreeSet<Vec<u8>>) -> Option<String> {
         if self.applied_ts != other.applied_ts {
@@ -84,6 +97,13 @@ impl Contents {
                 other.banned,
                 other.discard_ts,
                 other.tombstone_horizon
+            ));
+        }
+        if self.rebuild_records != other.rebuild_records {
+            return Some(format!(
+                "rebuild records {:?} where {:?} were expected",
+                self.rebuild_records.keys().collect::<Vec<_>>(),
+                other.rebuild_records.keys().collect::<Vec<_>>()
             ));
         }
         let keys: BTreeSet<&Vec<u8>> = self.keys.keys().chain(other.keys.keys()).collect();

@@ -9,6 +9,7 @@ use crate::types::corruption::Corruption;
 use crate::types::drop_stage::DropStage;
 use crate::types::fault::Fault;
 use crate::types::fault_config::FaultConfig;
+use crate::types::rebuild_stage::RebuildStage;
 use crate::types::sim_rng::SimRng;
 
 /// What happens to a batch the store is asked to write.
@@ -71,6 +72,29 @@ impl FaultInjector {
                 Some((self.stage(), true))
             }
             _ if self.rng.chance(self.config.crash_during_drop()) => Some((self.stage(), false)),
+            _ => None,
+        }
+    }
+
+    /// Where the rebuild whose record is being written stops, if it does: the stage, and true for a power loss or
+    /// false for a crash.
+    pub fn rebuild_interruption(&mut self) -> Option<(RebuildStage, bool)> {
+        let forced = self.take_forced(|f| {
+            matches!(
+                f,
+                Fault::CrashDuringNextRebuild(_) | Fault::PowerLossDuringNextRebuild(_)
+            )
+        });
+        let stage = |rng: &mut SimRng| RebuildStage::ALL[rng.index(RebuildStage::ALL.len())];
+        match forced {
+            Some(Fault::PowerLossDuringNextRebuild(stage)) => Some((stage, true)),
+            Some(Fault::CrashDuringNextRebuild(stage)) => Some((stage, false)),
+            _ if self.rng.chance(self.config.power_loss_during_rebuild()) => {
+                Some((stage(&mut self.rng), true))
+            }
+            _ if self.rng.chance(self.config.crash_during_rebuild()) => {
+                Some((stage(&mut self.rng), false))
+            }
             _ => None,
         }
     }

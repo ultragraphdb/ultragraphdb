@@ -14,6 +14,7 @@ mod applier_commit;
 mod applier_drop;
 mod applier_mutations;
 mod applier_rebuild;
+mod applier_rebuild_record;
 pub(crate) mod state;
 
 use std::collections::BTreeMap;
@@ -56,22 +57,25 @@ where
     E: Executor + Send + Sync + 'static,
 {
     /// The applier of `lists`, its schema loaded from their store, its background work on `executor`, its vector
-    /// index's level draws seeded by `seed`.
+    /// index's level draws seeded by `seed`. A rebuild a crash or a power loss stopped is finished first: its record's
+    /// prefixes the loaded schema does not declare are dropped.
     ///
     /// # Errors
     ///
-    /// The schema's load error.
+    /// The schema's load error, and the store's error finishing a rebuild.
     pub fn new(lists: Lists<S, C>, executor: E, seed: u64) -> Result<Self, ApplyError> {
         let schema = SchemaState::new();
         schema.load_from_db(lists.store())?;
-        Ok(Self {
+        let applier = Self {
             lists,
             schema,
             executor,
             draw: Mutex::new(LevelDraw::new(seed)),
             apply: Mutex::new(()),
             state: Mutex::new(ApplyState::default()),
-        })
+        };
+        applier.finish_rebuilds()?;
+        Ok(applier)
     }
 
     pub fn lists(&self) -> &Lists<S, C> {

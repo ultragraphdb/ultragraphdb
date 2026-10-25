@@ -65,3 +65,21 @@ fn test_each_builder_sets_its_class() {
     assert_eq!(got, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     assert_eq!(c.slow_max_nanos(), 11);
 }
+
+#[test]
+fn test_rebuild_stops_are_configured_per_rebuild() {
+    let c = FaultConfig::none();
+    assert_eq!(
+        (c.crash_during_rebuild(), c.power_loss_during_rebuild()),
+        (0, 0)
+    );
+    let m = FaultConfig::mixed();
+    assert!(m.crash_during_rebuild() > 0 && m.power_loss_during_rebuild() > 0);
+    let c = FaultConfig::none()
+        .with_crash_during_rebuild(12)
+        .with_power_loss_during_rebuild(13);
+    assert_eq!(
+        (c.crash_during_rebuild(), c.power_loss_during_rebuild()),
+        (12, 13)
+    );
+}

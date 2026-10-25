@@ -9,6 +9,8 @@
 //! `kv_crash_writer <dir> batches` writes batch after batch, batch `i` holding [`KEYS_PER_BATCH`] keys at version
 //! `i` and recording `i` as applied. `kv_crash_writer <dir> drop` writes [`DROPPED_KEYS`] keys under
 //! [`DROP_PREFIX`], syncs, then drops the prefix with one entry to write once it is empty, and waits.
+//! `kv_crash_writer <dir> temporary` writes and syncs one batch at version 1, writes [`TEMPORARY_KEYS`] keys to a
+//! temporary keyspace, and waits. `kv_crash_writer <dir> record` writes rebuild record 7 and waits.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -16,11 +18,14 @@ use std::process::ExitCode;
 
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::{Durability, FjallStore};
-use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, WriteBatch};
 
 const KEYS_PER_BATCH: u32 = 20_000;
 const DROPPED_KEYS: u32 = 60_000;
 const DROP_PREFIX: &[u8] = b"\x00dropme";
+/// The keys the temporary mode writes to its temporary keyspace: enough to hold it, few enough to leave the drop
+/// test's timing alone when the tests run side by side.
+const TEMPORARY_KEYS: u32 = 1_000;
 
 fn say(line: &str) {
     let mut out = std::io::stdout().lock();
@@ -73,15 +78,39 @@ fn drop_prefix(store: &FjallStore) -> Result<(), StoreError> {
         vec![Entry::put(initial, 1, 0x01, b"initial".to_vec())],
     )?;
     say("dropped");
+    wait()
+}
+
+fn wait() -> ! {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
+fn temporary(store: &FjallStore) -> Result<(), StoreError> {
+    let mut data = WriteBatch::new();
+    data.push(Entry::put(b"\x00keep".to_vec(), 1, 0x04, vec![1]));
+    data.set_applied_ts(1);
+    store.apply(data, PersistMode::Sync)?;
+    let t = store.create_temporary()?;
+    let mut batch = WriteBatch::new();
+    (0..TEMPORARY_KEYS)
+        .for_each(|j| batch.push(Entry::put(key(b"\x00t", 0, j), 1, 0x04, vec![2; 100])));
+    store.apply_temporary(&t, batch)?;
+    say("temporary written");
+    wait()
+}
+
+fn record(store: &FjallStore) -> Result<(), StoreError> {
+    store.write_rebuild_record(&RebuildRecord::new(7, vec![b"\x00idx".to_vec()]))?;
+    say("recorded");
+    wait()
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let (Some(dir), Some(mode)) = (args.get(1), args.get(2)) else {
-        eprintln!("usage: kv_crash_writer <dir> batches|drop");
+        eprintln!("usage: kv_crash_writer <dir> batches|drop|temporary|record");
         return ExitCode::from(2);
     };
     let store = match FjallStore::open(PathBuf::from(dir), Durability::Process) {
@@ -94,6 +123,8 @@ fn main() -> ExitCode {
     let result = match mode.as_str() {
         "batches" => batches(&store),
         "drop" => drop_prefix(&store),
+        "temporary" => temporary(&store),
+        "record" => record(&store),
         _ => {
             eprintln!("unknown mode {mode}");
             return ExitCode::from(2);

@@ -31,7 +31,9 @@ mod utils;
 pub use crate::types::durability::Durability;
 pub use crate::types::fjall_scan::FjallScan;
 pub use crate::types::fjall_snapshot::FjallSnapshot;
-pub use crate::types::fjall_store::{DATA_KEYSPACE, FjallStore, META_KEYSPACE};
+pub use crate::types::fjall_store::{
+    DATA_KEYSPACE, FjallStore, META_KEYSPACE, TEMPORARY_KEYSPACE_PREFIX,
+};
 pub use crate::types::gc_filter::GcFilter;
 pub use crate::types::moka_list_cache::MokaListCache;
 pub use crate::types::thread_executor::ThreadExecutor;

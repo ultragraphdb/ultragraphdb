@@ -4,10 +4,11 @@
  */
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, WriteBatch};
+use ultragraphdb_traits_store::{Entry, Item, PersistMode, RebuildRecord, Scan, WriteBatch};
 
 use crate::types::corruption::Corruption;
 use crate::types::drop_stage::DropStage;
+use crate::types::rebuild_stage::RebuildStage;
 
 /// One operation at the simulated store's boundary, as the store logs it: what the caller asked for and what the
 /// store answered, and every fault the store injected. The shadow model checks the store against this log, and a
@@ -51,6 +52,46 @@ pub enum OpRecord {
         entries: Vec<Entry>,
         stage: DropStage,
         power_loss: bool,
+    },
+    /// A rebuild record written and synced.
+    RebuildRecorded {
+        record: RebuildRecord,
+    },
+    /// A crash, or a power loss when `power_loss`, stopped the rebuild of `record` at `stage`. At `RecordWritten` the
+    /// record was handed to the operating system and not synced; what a later stage wrote is logged before this.
+    RebuildInterrupted {
+        record: RebuildRecord,
+        stage: RebuildStage,
+        power_loss: bool,
+    },
+    TemporaryCreated {
+        temporary: u64,
+    },
+    /// A batch written to a temporary keyspace.
+    TemporaryApplied {
+        temporary: u64,
+        batch: WriteBatch,
+    },
+    /// A batch to a temporary keyspace refused before anything was written.
+    TemporaryRefused {
+        temporary: u64,
+        batch: WriteBatch,
+        error: StoreError,
+    },
+    /// A batch to a temporary keyspace failed and poisoned the store, or the process crashed while it was written
+    /// when `crashed`.
+    TemporaryFailed {
+        temporary: u64,
+        batch: WriteBatch,
+        crashed: bool,
+    },
+    /// A snapshot of a temporary keyspace, reading every version it holds; its reads are logged under `id`.
+    TemporarySnapshotOpened {
+        id: u64,
+        temporary: u64,
+    },
+    TemporaryDropped {
+        temporary: u64,
     },
     Banned {
         namespace: u64,

@@ -18,6 +18,8 @@ mod invariant;
 #[cfg(test)]
 mod log_capture;
 #[cfg(test)]
+mod rebuild_stage_tests;
+#[cfg(test)]
 mod seed_tests;
 #[cfg(test)]
 mod sim_clock_tests;
