@@ -184,13 +184,22 @@ where
 
     /// The deltas the request writes, by key: every list whose scratch layer holds postings.
     pub fn deltas(&self) -> Vec<(Vec<u8>, PostingList)> {
-        self.held
-            .iter()
-            .filter_map(|(key, h)| {
-                let delta = h.list.delta()?;
-                (!delta.postings.is_empty()).then(|| (key.clone(), delta.clone()))
-            })
+        self.written()
+            .map(|(key, delta)| (key.to_vec(), delta.clone()))
             .collect()
+    }
+
+    /// The keys of [`Request::deltas`], in the same order, without copying the deltas.
+    pub fn written_keys(&self) -> impl Iterator<Item = &[u8]> {
+        self.written().map(|(key, _)| key)
+    }
+
+    /// The deltas the request writes, by key, borrowed from the lists it holds.
+    pub(crate) fn written(&self) -> impl Iterator<Item = (&[u8], &PostingList)> {
+        self.held.iter().filter_map(|(key, h)| {
+            let delta = h.list.delta()?;
+            (!delta.postings.is_empty()).then_some((key.as_slice(), delta))
+        })
     }
 
     pub(crate) fn entries(&self) -> &[Entry] {

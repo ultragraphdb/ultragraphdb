@@ -30,6 +30,11 @@ impl CacheMiss<'_> {
         &self.list
     }
 
+    /// The list at the read's timestamp, taken out of the miss, which keeps its fill.
+    pub(crate) fn take_list(&mut self) -> List {
+        std::mem::replace(&mut self.list, List::empty(Vec::new()))
+    }
+
     /// The list at the read's timestamp, taken out of the miss, which gives the fill up.
     pub fn into_list(mut self) -> List {
         std::mem::replace(&mut self.list, List::empty(Vec::new()))

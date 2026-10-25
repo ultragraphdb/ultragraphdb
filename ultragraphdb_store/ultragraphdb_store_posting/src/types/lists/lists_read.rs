@@ -35,8 +35,8 @@ where
         if let Some(list) = self.cached(key, read_ts)? {
             return Ok(list);
         }
-        let miss = self.miss(key, read_ts)?;
-        let list = miss.list().clone();
+        let mut miss = self.miss(key, read_ts)?;
+        let list = miss.take_list();
         self.fill(miss);
         Ok(list)
     }
@@ -73,20 +73,19 @@ where
         let mut miss = CacheMiss {
             state: &self.state,
             key: key.to_vec(),
-            list: List::empty(key.to_vec()),
-            fill: List::empty(key.to_vec()),
+            list: List::empty(Vec::new()),
+            fill: List::empty(Vec::new()),
             base,
             epoch,
         };
-        let newest = self.read_store(key, base.max(read_ts))?;
+        let mut newest = self.read_store(key, base.max(read_ts))?;
+        miss.fill = newest.without_scratch();
         miss.list = if newest.min_ts() <= read_ts {
-            let mut list = newest.clone();
-            list.set_ts(read_ts);
-            list
+            newest.set_ts(read_ts);
+            newest
         } else {
             self.read_store(key, read_ts)?
         };
-        miss.fill = newest.without_scratch();
         Ok(miss)
     }
 
@@ -94,7 +93,7 @@ where
     /// moved; checked under the writer lock. A fill that finds the writer lock held gives up rather than wait for
     /// it, so a read never waits for a commit, and a read from inside a commit cannot deadlock. Returns whether the
     /// fill was made.
-    pub fn fill(&self, miss: CacheMiss<'_>) -> bool {
+    pub fn fill(&self, mut miss: CacheMiss<'_>) -> bool {
         let _writer = match self.writer.try_lock() {
             Ok(guard) => guard,
             Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
@@ -109,9 +108,10 @@ where
                     .is_none_or(|&ts| ts <= miss.base)
         };
         if current {
+            let fill = std::mem::replace(&mut miss.fill, List::empty(Vec::new()));
             self.cache.insert(
-                miss.key.clone(),
-                CachedList::new(Arc::new(miss.fill.clone()), miss.base, miss.epoch),
+                std::mem::take(&mut miss.key),
+                CachedList::new(Arc::new(fill), miss.base, miss.epoch),
             );
         }
         current

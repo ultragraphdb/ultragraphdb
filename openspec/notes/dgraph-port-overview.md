@@ -231,9 +231,16 @@ is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n>
 - The apply thread's CPU is the limit: 82–90 % busy at saturation, about 40 µs of CPU per relation, while fjall's write
   call takes 7–13 % of a batch and never stalls (at most 4 level-0 tables and one sealed memtable). The port sustains
   14.5k commits/s and saturates near 21–23k commits/s or 22–23k relations/s, whatever the relations per commit. One
-  Dgraph group reached about 79k relations/s at 50 per commit (`dgraph-bench.md`), so the per-relation apply cost is the
-  port's first bottleneck.
+  Dgraph group reached about 79k relations/s at 50 per commit with its Alpha near 4 cores (`dgraph-bench.md`), about
+  50 µs of CPU per relation against the port's 40–45 µs on one core: the port's limit is its single apply thread, not
+  its cost per relation.
+- A stack sample of the apply thread at saturation (macOS, 50 relations per commit): allocation 28 % of its time,
+  `memcmp` and `memmove` 19 %, lsm-tree's block decoding and seeks 18.5 % and the memtable skiplist 3 %, the port's own
+  posting, apply and kv code about 8 %. Every list read is a range seek through fjall's merging iterator
+  (`fjall_snapshot_store_snapshot.rs`), which bloom filters do not serve, so a read of a key not yet written seeks every
+  table.
 - A musl build at 14,500 offered applies 13,096–13,495 commits/s and does not sustain the rate; the glibc build does.
+  The store ships against glibc.
 - The journal is 60–70 % of the bytes on disk and is not reclaimed by compaction within a run.
 - Batch size, 50,000 offered, one relation, 10 s, three runs per cap: before the posting fix, a request copied the
   batch's stacked layers whole, so a batch cost O(n²); after it, requests share one stack.

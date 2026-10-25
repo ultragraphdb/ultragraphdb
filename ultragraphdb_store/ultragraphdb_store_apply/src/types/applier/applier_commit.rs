@@ -50,7 +50,7 @@ where
             let at = index;
             index += 1;
             let mine = created.get(at).cloned().unwrap_or_default();
-            let written: Vec<Vec<u8>> = request.deltas().into_iter().map(|(k, _)| k).collect();
+            let written: Vec<Vec<u8>> = request.written_keys().map(<[u8]>::to_vec).collect();
             let outcome =
                 self.check_at_commit(request, &mine, &written, &fences, &refused, &defined);
             match &outcome {
@@ -134,10 +134,9 @@ where
     C: ListCache<Value = CachedList>,
 {
     let keys: Vec<Vec<u8>> = request
-        .deltas()
-        .into_iter()
-        .map(|(k, _)| k)
+        .written_keys()
         .filter(|k| parse(k).is_ok_and(|pk| pk.attr() == attr && pk.is_data()))
+        .map(<[u8]>::to_vec)
         .collect();
     let read_ts = request.read_ts();
     for key in keys {

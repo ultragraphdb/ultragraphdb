@@ -4,8 +4,8 @@
 |---|---|
 | 1. Foundations | ✅ |
 | 1.5. Fault simulator | ✅ | 
-| 2. Storage | `in progress` | 
-| 3. Website + Public rep |  ✅ |
+| 2. Storage |  ✅ | 
+| 3. Website + Public Repo |  ✅ |
 | 4. Query Engine  | `open` |
 | 5. Single node | `open` |
 | 6. Replication | `open` | 

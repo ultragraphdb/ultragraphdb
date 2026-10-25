@@ -146,3 +146,26 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
         ts[1]
     );
 }
+
+#[test]
+fn test_the_written_keys_are_the_keys_of_the_deltas() {
+    let lists = new_lists();
+    let (written, read_only, emptied) = (key("friend", 1), key("friend", 2), key("friend", 3));
+    commit_edges(&lists, &read_only, &[set_uid(5)], None);
+    let mut request = lists.request(lists.latest_ts());
+    request
+        .get(&written)
+        .unwrap()
+        .add_mutation(&set_uid(2), None)
+        .unwrap();
+    request.get(&read_only).unwrap();
+    request.get_from_delta(&emptied);
+    let keys: Vec<Vec<u8>> = request.written_keys().map(<[u8]>::to_vec).collect();
+    let from_deltas: Vec<Vec<u8>> = request.deltas().into_iter().map(|(k, _)| k).collect();
+    assert_eq!(keys, from_deltas);
+    assert_eq!(
+        keys,
+        vec![written],
+        "a list read or held without a write is not written"
+    );
+}

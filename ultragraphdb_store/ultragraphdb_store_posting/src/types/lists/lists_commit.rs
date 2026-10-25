@@ -91,16 +91,15 @@ where
             .zip(&checked)
             .any(|(request, c)| c.is_ok() && request.advances_epoch());
         let mut store_batch = WriteBatch::new();
-        let written: Vec<Written> = requests
+        let written: Vec<Written<'_, '_, S, C>> = requests
             .iter()
             .zip(&checked)
             .filter(|(_, c)| c.is_ok())
             .zip(first..)
             .map(|((request, _), commit_ts)| {
-                let deltas = request.deltas();
-                for (key, delta) in &deltas {
+                for (key, delta) in request.written() {
                     store_batch.push(Entry::put(
-                        key.clone(),
+                        key.to_vec(),
                         commit_ts,
                         BIT_DELTA_POSTING,
                         marshal(delta),
@@ -115,7 +114,7 @@ where
                 for id in request.removed_records() {
                     store_batch.remove_rebuild_record(*id);
                 }
-                (commit_ts, deltas)
+                (commit_ts, request)
             })
             .collect();
         store_batch.set_applied_ts(last);
@@ -126,17 +125,17 @@ where
             return Err(error.into());
         }
 
-        for (ts, deltas) in &written {
-            for (key, delta) in deltas {
+        for (ts, request) in &written {
+            for (key, delta) in request.written() {
                 self.update_cached(key, *ts, delta, epoch);
             }
         }
         {
             let mut state = lock(&self.state);
             if !state.fills.is_empty() {
-                for (ts, deltas) in &written {
-                    for (key, _) in deltas {
-                        state.touched.insert(key.clone(), *ts);
+                for (ts, request) in &written {
+                    for key in request.written_keys() {
+                        state.touched.insert(key.to_vec(), *ts);
                     }
                 }
             }
@@ -149,10 +148,10 @@ where
         self.changed.notify_all();
 
         // CommitToDisk queues the keys at low priority, and ProcessDelta at high priority once Zero has decided.
-        for (_, deltas) in &written {
-            for (key, _) in deltas {
-                self.add_rollup_key(key.clone(), 1);
-                self.add_rollup_key(key.clone(), 0);
+        for (_, request) in &written {
+            for key in request.written_keys() {
+                self.add_rollup_key(key.to_vec(), 1);
+                self.add_rollup_key(key.to_vec(), 0);
             }
         }
 
@@ -186,8 +185,8 @@ where
     }
 }
 
-/// A request's commit timestamp and the deltas it wrote, by key.
-type Written = (u64, Vec<(Vec<u8>, PostingList)>);
+/// A request's commit timestamp and the request, whose deltas it wrote.
+type Written<'r, 'a, S, C> = (u64, &'r Request<'a, S, C>);
 
 /// `entry` written at `version`.
 fn at_version(entry: &Entry, version: u64) -> Entry {
