@@ -1,0 +1,41 @@
+openspec/changes/port-stage-5-single-node/design.md
+  s_e7d9aa044e41ea::t_7f061a5cfeb147 3,15,29-31,68,75
+openspec/changes/port-stage-5-single-node/proposal.md
+  s_e7d9aa044e41ea::t_5ea21a71006d01 3
+openspec/changes/port-stage-6-replication/design.md
+  s_e7d9aa044e41ea::t_6e33215346abf4 3,31,100,169,183
+openspec/changes/port-stage-6-replication/proposal.md
+  s_e7d9aa044e41ea::t_38fee85d9e8a81 4
+openspec/changes/port-stage-6-replication/tasks.md
+  s_e7d9aa044e41ea::t_6b70ada9939b05 33,62
+openspec/changes/port-stage-7-sharding-and-operations/design.md
+  s_e7d9aa044e41ea::t_f45dd5ab46f604 3,11
+openspec/changes/port-stage-7-sharding-and-operations/proposal.md
+  s_e7d9aa044e41ea::t_6e5189b246adc5 3
+openspec/changes/port-stage-7-sharding-and-operations/tasks.md
+  s_e7d9aa044e41ea::t_dea9a3a0daafce 2,28
+openspec/notes/dgraph-bugs-found-in-port.md
+  s_e7d9aa044e41ea::t_7e34529b00469b 20,39
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_581376592b3d11 73,113,281-282,288-291,300,331,333,335,337,339
+openspec/notes/perf-optimization.md
+  s_e7d9aa044e41ea::t_cc3d24f570f2c9 127
+ultragraphdb_store/ultragraphdb_store_sim/README.md
+  s_e7d9aa044e41ea::t_491ecaa60ac6b8 8,115,119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f1cd87ca120bde60aa791191e89426412813129a",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
