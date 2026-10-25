@@ -1,0 +1,42 @@
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_0201bd288aa894 234-237
+  s_e7d9aa044e41ea::t_156b8b3c08d7e9 287
+openspec/notes/perf-optimization.md
+  s_e7d9aa044e41ea::t_4d80ed11f9e705 1-128
+openspec/specs/index-maintenance/spec.md
+  s_e7d9aa044e41ea::t_35105621b0d7b3 1-90
+openspec/specs/kv-store/spec.md
+  s_e7d9aa044e41ea::t_2e2486fea92106 1-177
+openspec/specs/local-commit/spec.md
+  s_e7d9aa044e41ea::t_2683877cc65f0f 1-66
+openspec/specs/posting-cache/spec.md
+  s_e7d9aa044e41ea::t_30f81364bdec45 1-46
+openspec/specs/posting-lists/spec.md
+  s_e7d9aa044e41ea::t_6c5f14cdc7a104 1-113
+openspec/specs/schema-changes/spec.md
+  s_e7d9aa044e41ea::t_2979bf4fa122a7 1-153
+openspec/specs/schema-storage/spec.md
+  s_e7d9aa044e41ea::t_170d6153d002b7 1-43
+openspec/specs/storage-simulation/spec.md
+  s_e7d9aa044e41ea::t_be3e5a4f9a8d63 1-61
+openspec/specs/telemetry/spec.md
+  s_e7d9aa044e41ea::t_8e73aaf6df9ffb 1-28
+openspec/specs/vector-index/spec.md
+  s_e7d9aa044e41ea::t_9b32aa7d35b4aa 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "45f057cf87516a42216e6aac70a7ae44610d7174",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
