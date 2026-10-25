@@ -1,0 +1,30 @@
+website/index.html
+  s_f6aee407145686::t_2e6daa87c5c77b 144
+  s_f6aee407145686::t_3eea892c5aed4e 106-107
+website/.assetsignore
+  s_f6aee407145686::t_7d30c00f78f6c6 1-4
+website/wrangler.jsonc
+  s_f6aee407145686::t_6ae2ba6fb99bc8 6-8
+  s_f6aee407145686::t_49db3b979d20e4 4
+  s_f6aee407145686::t_7244051418e90c 1-3,5,9-13
+README.md
+  s_f6aee407145686::t_a4c75406051049 1,7
+ROADMAP.md
+  s_f6aee407145686::t_38b9b3c0e7492c 8-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d1f90858063507fa6fbdd9dc38beeefdf776e70",
+  "prompts": {},
+  "sessions": {
+    "s_f6aee407145686": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53e720be-0c03-4a9a-afb9-0dda7dcaed23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
