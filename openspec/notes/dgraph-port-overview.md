@@ -231,9 +231,10 @@ is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n>
 - The apply thread's CPU is the limit: 82–90 % busy at saturation, about 40 µs of CPU per relation, while fjall's write
   call takes 7–13 % of a batch and never stalls (at most 4 level-0 tables and one sealed memtable). The port sustains
   14.5k commits/s and saturates near 21–23k commits/s or 22–23k relations/s, whatever the relations per commit. One
-  Dgraph group reached about 79k relations/s at 50 per commit with its Alpha near 4 cores (`dgraph-bench.md`), about
-  50 µs of CPU per relation against the port's 40–45 µs on one core: the port's limit is its single apply thread, not
-  its cost per relation.
+  Dgraph group reached about 79k relations/s at 50 per commit (`dgraph-bench.md`), and Dgraph applies a group's
+  proposals one at a time on one goroutine (`worker/draft.go:863`, `processApplyCh`), splitting a mutation's edges only
+  from 512 edges (`draft.go:561`): its apply loop takes at most about 12.7 µs per relation, the port's 40–45 µs, about
+  three times as much. The port's cost per relation is its first bottleneck; `perf-optimization.md` holds the options.
 - A stack sample of the apply thread at saturation (macOS, 50 relations per commit): allocation 28 % of its time,
   `memcmp` and `memmove` 19 %, lsm-tree's block decoding and seeks 18.5 % and the memtable skiplist 3 %, the port's own
   posting, apply and kv code about 8 %. Every list read is a range seek through fjall's merging iterator
@@ -283,7 +284,7 @@ under `openspec/changes/`:
 | Stage | Change | Contents | Checked by |
 |---|---|---|---|
 | 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `openspec/specs/` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
-| 2. Storage | `port-stage-2-storage` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
+| 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `openspec/specs/` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
 | 3. Single node | `port-stage-3-single-node` | One Alpha and one Zero process: `worker/task.go`, `query`, `edgraph`, `acl`, Zero's leases; one-request transactions in both forms | Differential DQL against Go Dgraph; the tracker's query, index and mutation reproductions; the visibility probes; Elle |
 | 4. Replication | `port-stage-4-replication` | Raft groups of three for the Alpha group and Zero: `raftwal`, `conn`, `draft.go`, snapshots, membership | The crash and data-loss reproductions; fault injection; Elle under faults |
 | 5. Sharding and operations | `port-stage-5-sharding-and-operations` | Tablets, fan-out, cross-group transactions, predicate moves, rebalancing; export, backup, restore, the live and bulk loaders | Differential DQL across group layouts; Elle across groups; round trips from Go Dgraph's exports |
