@@ -362,6 +362,10 @@ The index's build keeps the same check.
 
 ## Risks / Trade-offs
 
+- [A rebuild's swap is one atomic batch, and fjall holds a batch's items in memory (`batch/mod.rs:16`)] → The build is
+  bounded at 10,000 entries, but the swap holds every built list of the index at once, so rebuilding an index larger
+  than memory fails. Stage 3, task 8.3, swaps in bounded batches under the rebuild record.
+
 - [fjall runs the compaction filter only when a compaction merges tables] → Versions spread across tables and levels
   are collected late, and data no later merge touches waits for `compact`. Measured on the workloads in the overview's
   "What to measure early".

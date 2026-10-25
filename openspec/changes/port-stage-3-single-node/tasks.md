@@ -53,11 +53,13 @@ ultragraphdb alone.
 - [ ] 7.5 Decide the read-set carrier (design, open question 1) and record it in the design and the overview
 - [ ] 7.6 The read-set form: read tokens in query responses, ranges for index scans, the check at commit
 - [ ] 7.7 Elle workload generator and `elle-cli` runs over both forms, tagged `integration_test`
+- [ ] 7.8 A request's read timestamp is never below a fence the store has pruned: stage 2 prunes drop and schema-change fences by the oldest open read, so a request created later with an older read timestamp would pass a pruned fence (stage-2 wave-4 report); refuse it or keep the fence, with a test that creates such a request
 
 ## 8. Alter → `ultragraphdb_server_alpha`
 
 - [ ] 8.1 Features from `edgraph/alter_test.go` and the schema cases of `alpha/run_test.go`; scenarios: alter-operations
 - [ ] 8.2 Port `Alter`: schema changes, background runs, drops, guardian checks, groot recreation
+- [ ] 8.3 Swap a rebuilt index in bounded batches under the rebuild record, with the old schema in force until the last batch, so rebuilding an index larger than memory succeeds (stage-2 design, Risks: the swap is one atomic batch that fjall holds in memory); the simulator crashes and loses power between swap batches
 
 ## 9. Access control → `ultragraphdb_server_acl`
 
