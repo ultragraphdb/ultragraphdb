@@ -1,0 +1,51 @@
+ROADMAP.md
+  s_e7d9aa044e41ea::t_66359cda019355 3,5,9-14,16-21,33-35
+openspec/changes/stage-4-data-model-and-quad-storage/design.md
+  s_e7d9aa044e41ea::t_68acb3fa55182e 7-9,27-30,45,153-154,169-171,176,182-183,213,221
+openspec/changes/stage-4-data-model-and-quad-storage/proposal.md
+  s_e7d9aa044e41ea::t_0d22be30004108 8,14-15,26-32,38
+openspec/changes/stage-4-data-model-and-quad-storage/specs/catalog/spec.md
+  s_e7d9aa044e41ea::t_f82967bb1aef39 5-8,35-51
+openspec/changes/stage-4-data-model-and-quad-storage/specs/data-dictionary/spec.md
+  s_bb262a92b0770b::t_8689bb17444886 13-14
+openspec/changes/stage-4-data-model-and-quad-storage/specs/dql-parsing/spec.md
+  s_bb262a92b0770b::t_93daf2bd6cf0df 5,9,13,17,21,25,29,33,37,41
+openspec/changes/stage-4-data-model-and-quad-storage/specs/index-maintenance/spec.md
+  s_e7d9aa044e41ea::t_66f13e76f6ba38 83
+openspec/changes/stage-4-data-model-and-quad-storage/specs/key-encoding/spec.md
+  s_bb262a92b0770b::t_e48c3189368f46 49,57,61
+openspec/changes/stage-4-data-model-and-quad-storage/specs/mutation-input/spec.md
+  s_bb262a92b0770b::t_ff32fe96e0ee87 5,9,13,17,21,25
+openspec/changes/stage-4-data-model-and-quad-storage/specs/schema-parsing/spec.md
+  s_bb262a92b0770b::t_6ef9d872240574 5,9,13,17,21
+openspec/changes/stage-4-data-model-and-quad-storage/tasks.md
+  s_e7d9aa044e41ea::t_95ae3a4ed28252 46-47,70
+"openspec/notes/UltraGraphDB Dual Query Engine Plan.md"
+  s_e7d9aa044e41ea::t_fa224586c55b77 5,15-18,33-35,37,87-89,131,134,144,160,176,233,310,321-391,400-406,408,417-418,420-421,436-441,445,484-554,559,598,616,627-628,638-639
+openspec/notes/dgraph-port-overview.md
+  s_e7d9aa044e41ea::t_c7e3cc52d79f80 73,112,262,282-285,291,293-298,306-307,310,313,344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ff385aed6f4f4494a3e2d29ca14e5a6cebf014d",
+  "prompts": {},
+  "sessions": {
+    "s_bb262a92b0770b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db7c4aa0-6d9f-4df2-b2e9-595d527d680c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
