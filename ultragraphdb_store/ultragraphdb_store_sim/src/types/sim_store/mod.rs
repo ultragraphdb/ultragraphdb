@@ -388,7 +388,7 @@ impl Inner {
         if record.prefixes.is_none() {
             self.write(Record::Clear);
             self.write(Record::ResetMeta);
-            self.corrupted = Corrupted::default();
+            self.corrupted.remove_all();
             return;
         }
         let removed: Vec<(Vec<u8>, u64)> = self

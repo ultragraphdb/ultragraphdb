@@ -19,6 +19,7 @@ impl StoreModel {
         let status = std::mem::take(&mut self.status);
         self.snapshots.clear();
         self.readers.clear();
+        self.answers.clear();
         self.temporaries.clear();
         self.temporary_snapshots.clear();
         let replay = |ops: &[ModelOp]| {
@@ -81,26 +82,40 @@ impl StoreModel {
         }
     }
 
-    /// Adopts the outcome the store's `contents` match, or names the invariant no outcome satisfies.
+    /// Adopts the first outcome the store's `contents` match, and keeps a model of its own for each further one, or
+    /// names the invariant no outcome satisfies. Outcomes the contents cannot tell apart, as a prefix drop kept and
+    /// lost when it rewrote what its prefix held, differ in what a later step does, and the model follows each.
     pub(super) fn resolve_recovery(
         &mut self,
         outcomes: Vec<Outcome>,
         contents: &Contents,
     ) -> Result<(), Breach> {
-        let found = outcomes.iter().position(|o| {
+        let matches = |o: &Outcome| {
             contents
                 .difference(&o.state.contents(), &self.tainted)
                 .is_none()
-        });
-        let Some(at) = found else {
-            return Err(self.diagnose(&outcomes, contents));
         };
-        let Some(outcome) = outcomes.into_iter().nth(at) else {
+        if !outcomes.iter().any(matches) {
+            return Err(self.diagnose(&outcomes, contents));
+        }
+        let mut adopted = outcomes.into_iter().filter(matches).map(|outcome| {
+            let mut model = self.clone();
+            model.adopt(outcome);
+            model
+        });
+        let Some(first) = adopted.next() else {
             return Err(Breach::new(
                 Invariant::ContentsMatchModel,
                 "the matched recovery outcome vanished",
             ));
         };
+        let others: Vec<StoreModel> = adopted.collect();
+        *self = first;
+        self.others = others;
+        Ok(())
+    }
+
+    fn adopt(&mut self, outcome: Outcome) {
         // A deletion the recovery lost never happened: only those the surviving state holds, or written at or below
         // its applied timestamp and since swept, still bound later writes.
         let state = &outcome.state;
@@ -117,7 +132,6 @@ impl StoreModel {
         self.pending = outcome.pending;
         self.drops.clear();
         self.recent.clear();
-        Ok(())
     }
 
     /// Why no outcome matches: a batch present in part, the applied timestamp, a synced write lost, or a set of

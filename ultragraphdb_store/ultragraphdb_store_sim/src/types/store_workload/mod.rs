@@ -4,11 +4,12 @@
  */
 
 mod store_workload_keys;
+mod store_workload_reads;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_traits_store::{
-    Entry, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
+    Entry, PersistMode, RebuildRecord, Scan, Store, Temporary, WriteBatch,
 };
 
 use crate::types::event::Event;
@@ -16,23 +17,32 @@ use crate::types::fault_config::FaultConfig;
 use crate::types::run_outcome::RunOutcome;
 use crate::types::seed::Seed;
 use crate::types::sim_context::SimContext;
+use crate::types::sim_rng::SimRng;
 use crate::types::sim_snapshot::SimSnapshot;
 use crate::types::simulation::Simulation;
+use crate::types::stream::Stream;
 use crate::types::violation::Violation;
 
 use crate::types::store_workload::store_workload_keys::{KeySpace, PREFIX_DATA, PREFIX_SCHEMA};
+use crate::types::store_workload::store_workload_reads::ReadShape;
 
 /// The meta byte of a delta posting list.
 const DELTA: u8 = 0x04;
 /// The meta byte of a complete posting list.
 const COMPLETE: u8 = 0x08;
+/// The chance per thousand that a reader with an open snapshot first makes one of its earlier reads again.
+const REREAD: u32 = 500;
+
+/// A reader's open snapshot, the reads it has left, and each read it made through it with whether it failed.
+type OpenRead = (SimSnapshot, u64, Vec<(ReadShape, bool)>);
 
 /// The store's own workload, over Dgraph-shaped keys: one apply loop writing commit batches of several commits,
 /// rollup batches below the newest version, deletions, syncs, prefix drops, drops of everything, bans, the discard
 /// timestamp with compaction and the sweep, oversized keys, rebuild records written and removed by commit batches,
 /// and a temporary keyspace created, written and dropped; and readers holding snapshots open across steps, of the
 /// data or of the temporary keyspace, while they read points, many points, prefix scans in both directions and
-/// versions. Every write keeps the store's contract: none lands below a deletion of its key.
+/// versions, and make earlier reads again through the same snapshot after the apply loop has moved on. Every write
+/// keeps the store's contract: none lands below a deletion of its key.
 #[derive(Debug)]
 pub struct StoreWorkload {
     readers: usize,
@@ -41,8 +51,11 @@ pub struct StoreWorkload {
     /// The newest version written to each key, and its newest deletion. A drop forgets nothing: a drop stopped by a
     /// power loss may not have happened.
     written: BTreeMap<Vec<u8>, (u64, u64)>,
-    /// Each reader's open snapshot and the reads it has left.
-    open: Vec<Option<(SimSnapshot, u64)>>,
+    /// Each reader's open snapshot.
+    open: Vec<Option<OpenRead>>,
+    /// Which earlier reads the readers make again, drawn from the seed's own stream for it so that the workload's
+    /// stream draws what it drew without them; taken from the run's seed at the first step.
+    rereads: Option<SimRng>,
     /// The rebuild records written that no batch has removed yet; a power loss may have taken some.
     records: BTreeSet<u64>,
     next_record: u64,
@@ -62,6 +75,7 @@ impl StoreWorkload {
             records: BTreeSet::new(),
             next_record: 1,
             temporary: None,
+            rereads: None,
         }
     }
 
@@ -259,13 +273,17 @@ impl StoreWorkload {
     }
 
     /// One step of a reader: opens a snapshot, near or below the discard timestamp, or reads through its open one,
-    /// which it closes after its last read.
+    /// which it closes after its last read. Before a read it may first make one of its earlier reads again, which
+    /// the read count leaves out.
     fn read(&mut self, ctx: &mut SimContext, reader: usize) {
         let store = ctx.store().clone();
+        let rereads = self
+            .rereads
+            .get_or_insert_with(|| ctx.seed().stream(Stream::Rereads));
         let Some(slot) = self.open.get_mut(reader) else {
             return;
         };
-        let Some((snapshot, left)) = slot else {
+        let Some((snapshot, left, made)) = slot else {
             let ts = ctx
                 .rng()
                 .between(store.discard_ts().saturating_sub(2), store.applied_ts() + 2);
@@ -274,20 +292,21 @@ impl StoreWorkload {
                 Some(temporary) if ctx.rng().chance(300) => store.temporary_snapshot(temporary),
                 _ => store.snapshot(ts),
             };
-            *slot = opened.ok().map(|s| (s, reads));
+            *slot = opened.ok().map(|s| (s, reads, Vec::new()));
             return;
         };
-        match ctx.rng().below(5) {
-            0 => {
-                let _ = snapshot.get(&self.keys.key(ctx.rng()));
-            }
-            1 => {
-                let keys: Vec<Vec<u8>> = (0..3).map(|_| self.keys.key(ctx.rng())).collect();
-                let _ = snapshot.get_many(&keys);
-            }
-            2 => {
-                let _ = snapshot.versions(&self.keys.key(ctx.rng())).count();
-            }
+        made.iter_mut()
+            .filter(|(_, failed)| *failed)
+            .for_each(|(read, failed)| *failed = read.issue(snapshot));
+        if !made.is_empty() && rereads.chance(REREAD) {
+            let at = rereads.index(made.len());
+            let (read, failed) = &mut made[at];
+            *failed = read.issue(snapshot);
+        }
+        let read = match ctx.rng().below(5) {
+            0 => ReadShape::Get(self.keys.key(ctx.rng())),
+            1 => ReadShape::GetMany((0..3).map(|_| self.keys.key(ctx.rng())).collect()),
+            2 => ReadShape::Scan(Scan::key(self.keys.key(ctx.rng())).all_versions()),
             _ => {
                 let mut scan = Scan::prefix(self.keys.prefix(ctx.rng()));
                 if ctx.rng().chance(400) {
@@ -299,9 +318,11 @@ impl StoreWorkload {
                 if ctx.rng().chance(300) {
                     scan = scan.seek(self.keys.key(ctx.rng()));
                 }
-                let _ = snapshot.scan(&scan).count();
+                ReadShape::Scan(scan)
             }
-        }
+        };
+        let failed = read.issue(snapshot);
+        made.push((read, failed));
         *left -= 1;
         if *left == 0 {
             *slot = None;

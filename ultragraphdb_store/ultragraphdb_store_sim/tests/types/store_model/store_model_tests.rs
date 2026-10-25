@@ -696,6 +696,11 @@ fn test_reads_fail_only_as_the_faults_allow() {
                 corruption: ultragraphdb_store_sim::Corruption::Truncate,
             },
             read(b"a", Err(StoreError::Corrupted(b"a".to_vec(), "x".into()))),
+            OpRecord::Corrupted {
+                key: b"a".to_vec(),
+                version: 1,
+                corruption: ultragraphdb_store_sim::Corruption::FlipValueByte,
+            },
             read(b"a", Ok(None)),
             OpRecord::Read {
                 id: 9,
@@ -901,5 +906,466 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() {
                 "{stage:?}, power loss {power_loss}"
             );
         }
+    }
+}
+
+/// A power loss while a prefix drop's record is unsynced may keep the drop or lose it. When the drop rewrites the one
+/// version under its prefix, both outcomes hold the same contents, and only the fence tells them apart: a later
+/// compaction collects the version the drop never wrote and keeps the one it fenced. The model follows both outcomes
+/// until the compaction shows which one the store took.
+#[test]
+fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction() {
+    use ultragraphdb_store_sim::{DropStage, Fault};
+    let key = b"\x01s".to_vec();
+    let schema = || Entry::put(key.clone(), 1, 0x01, b"name: string .".to_vec());
+    let mut kept = std::collections::BTreeSet::new();
+    for seed in 0..8 {
+        let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
+        let mut model = StoreModel::new();
+        store
+            .apply(batch(vec![schema()], Some(1)), PersistMode::Sync)
+            .unwrap();
+        store.inject(Fault::PowerLossDuringNextDrop(DropStage::RecordWritten));
+        let _ = store.drop_prefixes(2, &[b"\x01".to_vec()], vec![schema()]);
+        checked(&store, &mut model);
+        store.recover();
+        checked(&store, &mut model);
+        assert_eq!(versions(&store.contents(), &key), vec![(1, false)]);
+        // Contents neither outcome holds still break the invariant.
+        let other = holding(vec![batch(
+            vec![Entry::put(key.clone(), 1, 0x01, b"x".to_vec())],
+            Some(1),
+        )]);
+        let breach = model.clone().check(&other).unwrap_err();
+        assert_eq!(
+            (breach.invariant(), breach.detail()),
+            (
+                Invariant::ContentsMatchModel,
+                "key 0173 holds [StoredVersion { version: 1, meta: 1, discard: false, deletion: false, \
+                 decodable: true, value: [120] }] where [StoredVersion { version: 1, meta: 1, discard: false, \
+                 deletion: false, decodable: true, value: [110, 97, 109, 101, 58, 32, 115, 116, 114, 105, 110, 103, \
+                 32, 46] }] was expected"
+            )
+        );
+        store
+            .apply(
+                batch(
+                    vec![Entry::put(key.clone(), 4, 0x08, b"rolled".to_vec()).with_discard()],
+                    Some(4),
+                ),
+                PersistMode::Buffer,
+            )
+            .unwrap();
+        store.set_discard_ts(5).unwrap();
+        store.compact().unwrap();
+        model
+            .observe(&store.take_log())
+            .unwrap_or_else(|b| panic!("seed {seed}: {b}"));
+        model
+            .check(&store.contents())
+            .unwrap_or_else(|b| panic!("seed {seed}: {b}"));
+        kept.insert(versions(&store.contents(), &key));
+    }
+    assert_eq!(
+        kept.into_iter().collect::<Vec<_>>(),
+        vec![vec![(4, false)], vec![(4, false), (1, false)]],
+        "the drop is lost on some seeds and kept on others"
+    );
+}
+
+/// A compaction keeps an undecodable version the model collects, and a snapshot opened then reads it after a drop
+/// removed it: the model accepts the corrupted read, through the snapshot that opened while the key was tainted.
+#[test]
+fn test_a_snapshot_opened_before_a_drop_reads_the_corrupted_version_the_drop_removed() {
+    let store = SimStore::new(Seed::new(0), FaultConfig::none(), SimClock::new());
+    let mut model = StoreModel::new();
+    let key = b"pk".to_vec();
+    store
+        .apply(
+            batch(
+                vec![
+                    Entry::put(key.clone(), 1, 0x04, b"old".to_vec()),
+                    Entry::put(key.clone(), 2, 0x08, b"rolled".to_vec()).with_discard(),
+                ],
+                Some(2),
+            ),
+            PersistMode::Buffer,
+        )
+        .unwrap();
+    store.corrupt(&key, 1, ultragraphdb_store_sim::Corruption::Truncate);
+    store.set_discard_ts(2).unwrap();
+    store.compact().unwrap();
+    let reader = store.snapshot(2).unwrap();
+    store
+        .drop_prefixes(3, &[b"p".to_vec()], Vec::new())
+        .unwrap();
+    checked(&store, &mut model);
+    let read: Vec<_> = reader.versions(&key).collect();
+    assert_eq!(
+        read,
+        vec![
+            Ok(Item::new(key.clone(), 2, 0x08, true, b"rolled".to_vec())),
+            Err(StoreError::Corrupted(
+                key.clone(),
+                "value too short to hold the version prefix".to_string()
+            )),
+        ]
+    );
+    assert_eq!(model.observe(&store.take_log()), Ok(()));
+}
+
+/// A snapshot keeps the taint of every key corrupted while it was open or before it opened, through a drop that
+/// lifts the taint for later snapshots; a snapshot opened after the drop compares the key again.
+#[test]
+fn test_a_snapshot_keeps_its_taint_through_a_drop() {
+    let corrupted = |id| OpRecord::Read {
+        id,
+        key: b"a".to_vec(),
+        result: Err(StoreError::Corrupted(b"a".to_vec(), "x".into())),
+    };
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"a", 1)], Some(1)),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            OpRecord::Corrupted {
+                key: b"a".to_vec(),
+                version: 1,
+                corruption: ultragraphdb_store_sim::Corruption::Truncate,
+            },
+            OpRecord::SnapshotOpened { id: 1, read_ts: 1 },
+            OpRecord::Dropped {
+                ts: 2,
+                prefixes: Some(vec![b"a".to_vec()]),
+                entries: Vec::new(),
+            },
+            OpRecord::SnapshotOpened { id: 2, read_ts: 1 },
+            corrupted(0),
+            corrupted(1),
+        ])
+        .expect("the snapshots open before the drop read the key as tainted");
+    let breach = model.observe(&[corrupted(2)]).unwrap_err();
+    assert_eq!(
+        (breach.invariant(), breach.detail()),
+        (
+            Invariant::ReadsAtOrBelowTimestamp,
+            "a read of 61 failed with Corrupted value of key 61: x"
+        )
+    );
+}
+
+/// A Truncate corruption of `key` at `version`, as the store logs it.
+fn truncated(key: &[u8], version: u64) -> OpRecord {
+    OpRecord::Corrupted {
+        key: key.to_vec(),
+        version,
+        corruption: ultragraphdb_store_sim::Corruption::Truncate,
+    }
+}
+
+/// The error a read of a truncated version of `key` fails with.
+fn undecodable(key: &[u8]) -> StoreError {
+    StoreError::Corrupted(
+        key.to_vec(),
+        "value too short to hold the version prefix".to_string(),
+    )
+}
+
+/// The log of a store whose snapshot heals: snapshot 0 reads the corrupted version of `a`, a drop then removes the
+/// version from the store, and the same snapshot reads it again decoded cleanly, as a snapshot reading the store's
+/// live corruptions would. The key is tainted, so its reads are not compared with the model's state; the second
+/// read differs from the first, and that breaks the repeat invariant, for a point read and for a scan alike.
+#[test]
+fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() {
+    let a1 = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
+    let versions = Scan::key(b"a".to_vec()).all_versions();
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"a", 1)], Some(1)),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            truncated(b"a", 1),
+            OpRecord::Read {
+                id: 0,
+                key: b"a".to_vec(),
+                result: Err(undecodable(b"a")),
+            },
+            OpRecord::Scanned {
+                id: 0,
+                scan: versions.clone(),
+                items: vec![Err(undecodable(b"a"))],
+            },
+            OpRecord::Dropped {
+                ts: 2,
+                prefixes: Some(vec![b"a".to_vec()]),
+                entries: Vec::new(),
+            },
+        ])
+        .expect("the snapshot read the corrupted version once");
+    let healed_read = OpRecord::Read {
+        id: 0,
+        key: b"a".to_vec(),
+        result: Ok(Some(a1.clone())),
+    };
+    let breach = model.clone().observe(&[healed_read]).unwrap_err();
+    assert_eq!(
+        (breach.invariant(), breach.detail()),
+        (
+            Invariant::SnapshotReadsRepeat,
+            "snapshot 0 read key 61 as Ok(Some(Item { key: [97], version: 1, meta: 4, discard: false, value: [1] })) \
+             where it read Err(StoreError(Corrupted { key: [97], reason: \"value too short to hold the version \
+             prefix\" })) the first time"
+        )
+    );
+    let healed_scan = OpRecord::Scanned {
+        id: 0,
+        scan: versions,
+        items: vec![Ok(a1)],
+    };
+    let breach = model.observe(&[healed_scan]).unwrap_err();
+    assert_eq!(
+        (breach.invariant(), breach.detail()),
+        (
+            Invariant::SnapshotReadsRepeat,
+            "snapshot 0 scanned Scan { start: [97], end: Some([97, 0]), seek: None, direction: Forward, \
+             all_versions: true } as [Ok(Item { key: [97], version: 1, meta: 4, discard: false, value: [1] })] \
+             where it scanned [Err(StoreError(Corrupted { key: [97], reason: \"value too short to hold the version \
+             prefix\" }))] the first time"
+        )
+    );
+}
+
+/// A repeated read may differ from the first only where the store may legitimately answer anew: a read the fault
+/// stream failed, compared only up to its failure, and the reads covering a key corrupted since. The answers are a
+/// snapshot's own, shared by its point reads and the keys of its many-key reads, and die with it.
+#[test]
+fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
+    let a1 = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
+    let flipped = Item::new(b"b".to_vec(), 1, 0x04, false, vec![!1]);
+    let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
+    let read = |key: &[u8], result| OpRecord::Read {
+        id: 0,
+        key: key.to_vec(),
+        result,
+    };
+    let scan = |items| OpRecord::Scanned {
+        id: 0,
+        scan: Scan::prefix(Vec::new()),
+        items,
+    };
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"a", 1), put(b"b", 1)], Some(1)),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            read(b"a", Ok(Some(a1.clone()))),
+            read(b"a", Err(failed(b"a"))),
+            truncated(b"b", 1),
+            OpRecord::ReadMany {
+                id: 0,
+                keys: vec![b"a".to_vec(), b"b".to_vec()],
+                result: Ok(vec![Some(a1.clone()), Some(flipped.clone())]),
+            },
+            OpRecord::ReadMany {
+                id: 0,
+                keys: vec![b"b".to_vec()],
+                result: Err(failed(b"b")),
+            },
+            read(b"b", Ok(Some(flipped.clone()))),
+            scan(vec![Ok(a1.clone()), Err(undecodable(b"b"))]),
+            scan(vec![Ok(a1.clone()), Err(failed(b"b"))]),
+            scan(vec![Err(failed(b""))]),
+        ])
+        .expect("the same answers, and failures the faults drew");
+    let wrong = [
+        (
+            read(b"b", Err(undecodable(b"b"))),
+            "snapshot 0 read key 62 as Err(StoreError(Corrupted { key: [98], reason: \"value too short to hold the \
+             version prefix\" })) where it read Ok(Some(Item { key: [98], version: 1, meta: 4, discard: false, \
+             value: [254] })) the first time",
+        ),
+        (
+            OpRecord::ReadMany {
+                id: 0,
+                keys: vec![b"b".to_vec()],
+                result: Ok(vec![None]),
+            },
+            "snapshot 0 read key 62 as Ok(None) where it read Ok(Some(Item { key: [98], version: 1, meta: 4, \
+             discard: false, value: [254] })) the first time",
+        ),
+        (
+            scan(vec![Ok(a1.clone()), Ok(flipped.clone()), Err(failed(b"b"))]),
+            "snapshot 0 scanned Scan { start: [], end: None, seek: None, direction: Forward, all_versions: false } \
+             as [Ok(Item { key: [97], version: 1, meta: 4, discard: false, value: [1] }), Ok(Item { key: [98], \
+             version: 1, meta: 4, discard: false, value: [254] })] before a read failure, where it scanned \
+             [Ok(Item { key: [97], version: 1, meta: 4, discard: false, value: [1] }), Err(StoreError(Corrupted { \
+             key: [98], reason: \"value too short to hold the version prefix\" }))] the first time",
+        ),
+    ];
+    for (record, detail) in wrong {
+        let breach = model.clone().observe(&[record]).unwrap_err();
+        assert_eq!(
+            (breach.invariant(), breach.detail()),
+            (Invariant::SnapshotReadsRepeat, detail)
+        );
+    }
+    // A corruption of `b` lets every read covering it answer anew; a snapshot opened later has answers of its own,
+    // and a closed snapshot's reads are compared with nothing.
+    model
+        .observe(&[
+            truncated(b"b", 1),
+            read(b"b", Err(undecodable(b"b"))),
+            scan(vec![Ok(a1.clone()), Ok(flipped.clone())]),
+            OpRecord::SnapshotOpened { id: 1, read_ts: 1 },
+            OpRecord::Read {
+                id: 1,
+                key: b"b".to_vec(),
+                result: Ok(Some(flipped.clone())),
+            },
+            OpRecord::SnapshotClosed { id: 0 },
+            read(b"b", Ok(Some(flipped))),
+        ])
+        .expect("answers a corruption, another snapshot or a close set free");
+}
+
+/// A key a many-key read names twice is read twice in one call, and a corruption drawn at the second read is logged
+/// before the call, so the first occurrence read the bytes before it. The call is compared with the snapshot's
+/// earlier answers, not with itself, and the last occurrence of a key is the answer later reads repeat.
+#[test]
+fn test_a_many_key_read_holds_the_last_answer_to_a_key_it_names_twice() {
+    let b1 = Item::new(b"b".to_vec(), 1, 0x04, false, vec![1]);
+    let flipped = Item::new(b"b".to_vec(), 1, 0x04, false, vec![!1]);
+    let flip = OpRecord::Corrupted {
+        key: b"b".to_vec(),
+        version: 1,
+        corruption: ultragraphdb_store_sim::Corruption::FlipValueByte,
+    };
+    let read = |result| OpRecord::Read {
+        id: 0,
+        key: b"b".to_vec(),
+        result,
+    };
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"b", 1)], Some(1)),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            truncated(b"b", 1),
+            read(Ok(Some(b1.clone()))),
+            flip,
+            OpRecord::ReadMany {
+                id: 0,
+                keys: vec![b"b".to_vec(), b"b".to_vec()],
+                result: Ok(vec![Some(b1.clone()), Some(flipped.clone())]),
+            },
+            read(Ok(Some(flipped))),
+        ])
+        .expect("one call read the key before and after the corruption drawn during it");
+    let breach = model.observe(&[read(Ok(Some(b1)))]).unwrap_err();
+    assert_eq!(
+        (breach.invariant(), breach.detail()),
+        (
+            Invariant::SnapshotReadsRepeat,
+            "snapshot 0 read key 62 as Ok(Some(Item { key: [98], version: 1, meta: 4, discard: false, value: \
+             [1] })) where it read Ok(Some(Item { key: [98], version: 1, meta: 4, discard: false, value: [254] })) \
+             the first time"
+        )
+    );
+}
+
+/// A snapshot holds the answers of its first 64 reads: a read past them is compared with nothing.
+#[test]
+fn test_a_snapshot_holds_the_answers_of_64_reads() {
+    let key = |n: u8| vec![b'k', n];
+    let read = |key: Vec<u8>, result| OpRecord::Read { id: 0, key, result };
+    let mut log = vec![
+        OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+        truncated(&key(0), 1),
+        truncated(&key(64), 1),
+        read(key(0), Err(undecodable(&key(0)))),
+    ];
+    log.extend((1..64).map(|n| read(key(n), Ok(None))));
+    log.push(read(key(64), Err(undecodable(&key(64)))));
+    log.push(read(key(64), Ok(None)));
+    let mut model = StoreModel::new();
+    model
+        .observe(&log)
+        .expect("the 65th read is not held, so its answer may change");
+    let breach = model.observe(&[read(key(0), Ok(None))]).unwrap_err();
+    assert_eq!(
+        (breach.invariant(), breach.detail()),
+        (
+            Invariant::SnapshotReadsRepeat,
+            "snapshot 0 read key 6b00 as Ok(None) where it read Err(StoreError(Corrupted { key: [107, 0], reason: \
+             \"value too short to hold the version prefix\" })) the first time"
+        )
+    );
+}
+
+/// A corruption lets a snapshot answer anew only where its reads reach the corrupted version: a snapshot of the data
+/// at or above the version. A snapshot below it, and a snapshot of a temporary keyspace, whose bytes are never
+/// corrupted, must still repeat their answers to the key.
+#[test]
+fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() {
+    let item = |version: u64| Item::new(b"a".to_vec(), version, 0x04, false, vec![version as u8]);
+    let read = |id, result| OpRecord::Read {
+        id,
+        key: b"a".to_vec(),
+        result,
+    };
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"a", 1), put(b"a", 2)], Some(2)),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::TemporaryCreated { temporary: 1 },
+            OpRecord::TemporaryApplied {
+                temporary: 1,
+                batch: batch(vec![put(b"a", 1)], None),
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            OpRecord::SnapshotOpened { id: 1, read_ts: 2 },
+            OpRecord::TemporarySnapshotOpened {
+                id: 2,
+                temporary: 1,
+            },
+            read(0, Ok(Some(item(1)))),
+            read(1, Ok(Some(item(2)))),
+            read(2, Ok(Some(item(1)))),
+            truncated(b"a", 2),
+            read(1, Err(undecodable(b"a"))),
+        ])
+        .expect("the snapshot at the corrupted version reads it anew");
+    for (id, detail) in [
+        (
+            0,
+            "snapshot 0 read key 61 as Ok(None) where it read Ok(Some(Item { key: [97], version: 1, meta: 4, \
+             discard: false, value: [1] })) the first time",
+        ),
+        (
+            2,
+            "snapshot 2 read key 61 as Ok(None) where it read Ok(Some(Item { key: [97], version: 1, meta: 4, \
+             discard: false, value: [1] })) the first time",
+        ),
+    ] {
+        let breach = model.clone().observe(&[read(id, Ok(None))]).unwrap_err();
+        assert_eq!(
+            (breach.invariant(), breach.detail()),
+            (Invariant::SnapshotReadsRepeat, detail)
+        );
     }
 }

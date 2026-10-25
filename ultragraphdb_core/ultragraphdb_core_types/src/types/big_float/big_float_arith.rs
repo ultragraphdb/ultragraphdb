@@ -2,7 +2,7 @@
  * Copyright 2014 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/math/big/float.go (Mul, Quo, Cmp, Float64, Int64). Changed for ultragraphdb: translated
+ * Ported from Go 1.27, src/math/big/float.go (Mul, Quo, Cmp, Float64, Int64). Changed for ultragraphdb: translated
  * to Rust onto dashu-int; each operation is the exact result rounded once, as Go's are.
  * Copyright (c) 2026. Marvin Hansen.
  */

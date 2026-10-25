@@ -1684,6 +1684,688 @@ fn test_marshal_json() {
     );
 }
 
+/// Go v25.5.0's `Val.MarshalJSON` of a nil value, as Go 1.27 answers `Val{Tid: id}.MarshalJSON()`. Deviation: Go
+/// panics on the type assertion of every type whose arm asserts `v.Value`; the port returns the panic's text. A
+/// string or default value reads its zero value through `Safe`, and every other type is Go's refusal.
+#[test]
+fn test_marshal_json_nil() {
+    use ultragraphdb_core_types::marshal_json;
+    let cases: [(TypeId, Result<&str, &str>); 16] = [
+        (TypeId::DEFAULT, Ok(r#""""#)),
+        (TypeId::BINARY, Err("invalid type for MarshalJSON: 1")),
+        (
+            TypeId::INT,
+            Err("interface conversion: interface {} is nil, not int64"),
+        ),
+        (
+            TypeId::FLOAT,
+            Err("interface conversion: interface {} is nil, not float64"),
+        ),
+        (
+            TypeId::BOOL,
+            Err("interface conversion: interface {} is nil, not bool"),
+        ),
+        (
+            TypeId::DATETIME,
+            Err("interface conversion: interface {} is nil, not time.Time"),
+        ),
+        // geom.T is an interface type, so Go's assertion names no static interface type.
+        (
+            TypeId::GEO,
+            Err("interface conversion: interface is nil, not geom.T"),
+        ),
+        (TypeId::UID, Err("invalid type for MarshalJSON: 7")),
+        (
+            TypeId::PASSWORD,
+            Err("interface conversion: interface {} is nil, not string"),
+        ),
+        (TypeId::STRING, Ok(r#""""#)),
+        (TypeId::OBJECT, Err("invalid type for MarshalJSON: 10")),
+        (
+            TypeId::BIGFLOAT,
+            Err("interface conversion: interface {} is nil, not big.Float"),
+        ),
+        (TypeId::VFLOAT, Err("invalid type for MarshalJSON: 12")),
+        (TypeId::new(13), Err("invalid type for MarshalJSON: 13")),
+        (TypeId::UNDEFINED, Err("invalid type for MarshalJSON: 100")),
+        (TypeId::new(255), Err("invalid type for MarshalJSON: 255")),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(id, want)| {
+            let got = marshal_json(&Val::nil(id))
+                .map(|b| String::from_utf8(b).unwrap())
+                .map_err(|e| e.to_string());
+            let want = want.map(String::from).map_err(String::from);
+            (got != want).then(|| format!("{id:?}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// One value of each Go type the port's `Value` stands for, as Go's `Val.Value` holds it: `[]uint8`, `string`,
+/// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `big.Float` and
+/// `[]float32`.
+fn marshal_json_values() -> Vec<(&'static str, Value)> {
+    use ultragraphdb_core_types::{BigFloat, Geometry, Layout};
+    let ring = || {
+        vec![
+            vec![0.0, 0.0],
+            vec![1.0, 0.0],
+            vec![0.0, 1.0],
+            vec![0.0, 0.0],
+        ]
+    };
+    let line = || vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    let point = || Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
+    vec![
+        ("Bytes", Value::Bytes(b"ab".to_vec())),
+        ("Str", Value::str("a")),
+        ("Int", Value::Int(1)),
+        ("Float", Value::Float(1.5)),
+        ("Bool", Value::Bool(true)),
+        (
+            "DateTime",
+            Value::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0)),
+        ),
+        ("Point", Value::Geo(point())),
+        (
+            "LineString",
+            Value::Geo(Geometry::line_string(Layout::XY, &line()).unwrap()),
+        ),
+        (
+            "Polygon",
+            Value::Geo(Geometry::polygon(Layout::XY, &[ring()]).unwrap()),
+        ),
+        (
+            "MultiPoint",
+            Value::Geo(Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0])]).unwrap()),
+        ),
+        (
+            "MultiLineString",
+            Value::Geo(Geometry::multi_line_string(Layout::XY, &[line()]).unwrap()),
+        ),
+        (
+            "MultiPolygon",
+            Value::Geo(Geometry::multi_polygon(Layout::XY, &[vec![ring()]]).unwrap()),
+        ),
+        (
+            "GeometryCollection",
+            Value::Geo(Geometry::collection(vec![point()])),
+        ),
+        ("Uid", Value::Uid(7)),
+        (
+            "BigFloat",
+            Value::BigFloat(BigFloat::unmarshal_text("1.5", 200).unwrap()),
+        ),
+        ("VFloat", Value::VFloat(vec![1.0, 2.0])),
+    ]
+}
+
+/// Go v25.5.0's `Val.MarshalJSON` of every type identifier over a value of each Go type the port's `Value` stands
+/// for, as Go 1.27 answers `Val{Tid: id, Value: v}.MarshalJSON()`, the values in [`marshal_json_values`]' order.
+/// Deviation: where Go panics on its type assertion (`interface conversion: ...`), the port returns the panic's
+/// text. Binary, uid, object, vfloat and unknown types are Go's refusal whatever the value; a string or default
+/// asserts the value `Safe` returns, which is the value itself when it is not nil.
+#[test]
+fn test_marshal_json_mismatched_value() {
+    use ultragraphdb_core_types::marshal_json;
+    let values = marshal_json_values();
+    let cases: [(TypeId, [Result<&str, &str>; 16]); 14] = [
+        (
+            TypeId::DEFAULT,
+            [
+                Err("interface conversion: interface {} is []uint8, not string"),
+                Ok(r#""a""#),
+                Err("interface conversion: interface {} is int64, not string"),
+                Err("interface conversion: interface {} is float64, not string"),
+                Err("interface conversion: interface {} is bool, not string"),
+                Err("interface conversion: interface {} is time.Time, not string"),
+                Err("interface conversion: interface {} is *geom.Point, not string"),
+                Err("interface conversion: interface {} is *geom.LineString, not string"),
+                Err("interface conversion: interface {} is *geom.Polygon, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is uint64, not string"),
+                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is []float32, not string"),
+            ],
+        ),
+        (
+            TypeId::BINARY,
+            [
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+                Err("invalid type for MarshalJSON: 1"),
+            ],
+        ),
+        (
+            TypeId::INT,
+            [
+                Err("interface conversion: interface {} is []uint8, not int64"),
+                Err("interface conversion: interface {} is string, not int64"),
+                Ok("1"),
+                Err("interface conversion: interface {} is float64, not int64"),
+                Err("interface conversion: interface {} is bool, not int64"),
+                Err("interface conversion: interface {} is time.Time, not int64"),
+                Err("interface conversion: interface {} is *geom.Point, not int64"),
+                Err("interface conversion: interface {} is *geom.LineString, not int64"),
+                Err("interface conversion: interface {} is *geom.Polygon, not int64"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not int64"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not int64"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not int64"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not int64"),
+                Err("interface conversion: interface {} is uint64, not int64"),
+                Err("interface conversion: interface {} is big.Float, not int64"),
+                Err("interface conversion: interface {} is []float32, not int64"),
+            ],
+        ),
+        (
+            TypeId::FLOAT,
+            [
+                Err("interface conversion: interface {} is []uint8, not float64"),
+                Err("interface conversion: interface {} is string, not float64"),
+                Err("interface conversion: interface {} is int64, not float64"),
+                Ok("1.5"),
+                Err("interface conversion: interface {} is bool, not float64"),
+                Err("interface conversion: interface {} is time.Time, not float64"),
+                Err("interface conversion: interface {} is *geom.Point, not float64"),
+                Err("interface conversion: interface {} is *geom.LineString, not float64"),
+                Err("interface conversion: interface {} is *geom.Polygon, not float64"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not float64"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not float64"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not float64"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not float64"),
+                Err("interface conversion: interface {} is uint64, not float64"),
+                Err("interface conversion: interface {} is big.Float, not float64"),
+                Err("interface conversion: interface {} is []float32, not float64"),
+            ],
+        ),
+        (
+            TypeId::BOOL,
+            [
+                Err("interface conversion: interface {} is []uint8, not bool"),
+                Err("interface conversion: interface {} is string, not bool"),
+                Err("interface conversion: interface {} is int64, not bool"),
+                Err("interface conversion: interface {} is float64, not bool"),
+                Ok("true"),
+                Err("interface conversion: interface {} is time.Time, not bool"),
+                Err("interface conversion: interface {} is *geom.Point, not bool"),
+                Err("interface conversion: interface {} is *geom.LineString, not bool"),
+                Err("interface conversion: interface {} is *geom.Polygon, not bool"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not bool"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not bool"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not bool"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not bool"),
+                Err("interface conversion: interface {} is uint64, not bool"),
+                Err("interface conversion: interface {} is big.Float, not bool"),
+                Err("interface conversion: interface {} is []float32, not bool"),
+            ],
+        ),
+        (
+            TypeId::DATETIME,
+            [
+                Err("interface conversion: interface {} is []uint8, not time.Time"),
+                Err("interface conversion: interface {} is string, not time.Time"),
+                Err("interface conversion: interface {} is int64, not time.Time"),
+                Err("interface conversion: interface {} is float64, not time.Time"),
+                Err("interface conversion: interface {} is bool, not time.Time"),
+                Ok(r#""2006-01-02T15:04:05Z""#),
+                Err("interface conversion: interface {} is *geom.Point, not time.Time"),
+                Err("interface conversion: interface {} is *geom.LineString, not time.Time"),
+                Err("interface conversion: interface {} is *geom.Polygon, not time.Time"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not time.Time"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not time.Time"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not time.Time"),
+                Err(
+                    "interface conversion: interface {} is *geom.GeometryCollection, not time.Time",
+                ),
+                Err("interface conversion: interface {} is uint64, not time.Time"),
+                Err("interface conversion: interface {} is big.Float, not time.Time"),
+                Err("interface conversion: interface {} is []float32, not time.Time"),
+            ],
+        ),
+        (
+            TypeId::GEO,
+            [
+                Err("interface conversion: []uint8 is not geom.T: missing method Bounds"),
+                Err("interface conversion: string is not geom.T: missing method Bounds"),
+                Err("interface conversion: int64 is not geom.T: missing method Bounds"),
+                Err("interface conversion: float64 is not geom.T: missing method Bounds"),
+                Err("interface conversion: bool is not geom.T: missing method Bounds"),
+                Err("interface conversion: time.Time is not geom.T: missing method Bounds"),
+                Ok(r#"{"type":"Point","coordinates":[1,2]}"#),
+                Ok(r#"{"type":"LineString","coordinates":[[1,2],[3,4]]}"#),
+                Ok(r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[0,1],[0,0]]]}"#),
+                Ok(r#"{"type":"MultiPoint","coordinates":[[1,2]]}"#),
+                Ok(r#"{"type":"MultiLineString","coordinates":[[[1,2],[3,4]]]}"#),
+                Ok(r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[0,1],[0,0]]]]}"#),
+                Ok(
+                    r#"{"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[1,2]}]}"#,
+                ),
+                Err("interface conversion: uint64 is not geom.T: missing method Bounds"),
+                Err("interface conversion: big.Float is not geom.T: missing method Bounds"),
+                Err("interface conversion: []float32 is not geom.T: missing method Bounds"),
+            ],
+        ),
+        (
+            TypeId::UID,
+            [
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+                Err("invalid type for MarshalJSON: 7"),
+            ],
+        ),
+        (
+            TypeId::PASSWORD,
+            [
+                Err("interface conversion: interface {} is []uint8, not string"),
+                Ok(r#""a""#),
+                Err("interface conversion: interface {} is int64, not string"),
+                Err("interface conversion: interface {} is float64, not string"),
+                Err("interface conversion: interface {} is bool, not string"),
+                Err("interface conversion: interface {} is time.Time, not string"),
+                Err("interface conversion: interface {} is *geom.Point, not string"),
+                Err("interface conversion: interface {} is *geom.LineString, not string"),
+                Err("interface conversion: interface {} is *geom.Polygon, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is uint64, not string"),
+                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is []float32, not string"),
+            ],
+        ),
+        (
+            TypeId::STRING,
+            [
+                Err("interface conversion: interface {} is []uint8, not string"),
+                Ok(r#""a""#),
+                Err("interface conversion: interface {} is int64, not string"),
+                Err("interface conversion: interface {} is float64, not string"),
+                Err("interface conversion: interface {} is bool, not string"),
+                Err("interface conversion: interface {} is time.Time, not string"),
+                Err("interface conversion: interface {} is *geom.Point, not string"),
+                Err("interface conversion: interface {} is *geom.LineString, not string"),
+                Err("interface conversion: interface {} is *geom.Polygon, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not string"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not string"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not string"),
+                Err("interface conversion: interface {} is *geom.GeometryCollection, not string"),
+                Err("interface conversion: interface {} is uint64, not string"),
+                Err("interface conversion: interface {} is big.Float, not string"),
+                Err("interface conversion: interface {} is []float32, not string"),
+            ],
+        ),
+        (
+            TypeId::OBJECT,
+            [
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+                Err("invalid type for MarshalJSON: 10"),
+            ],
+        ),
+        (
+            TypeId::BIGFLOAT,
+            [
+                Err("interface conversion: interface {} is []uint8, not big.Float"),
+                Err("interface conversion: interface {} is string, not big.Float"),
+                Err("interface conversion: interface {} is int64, not big.Float"),
+                Err("interface conversion: interface {} is float64, not big.Float"),
+                Err("interface conversion: interface {} is bool, not big.Float"),
+                Err("interface conversion: interface {} is time.Time, not big.Float"),
+                Err("interface conversion: interface {} is *geom.Point, not big.Float"),
+                Err("interface conversion: interface {} is *geom.LineString, not big.Float"),
+                Err("interface conversion: interface {} is *geom.Polygon, not big.Float"),
+                Err("interface conversion: interface {} is *geom.MultiPoint, not big.Float"),
+                Err("interface conversion: interface {} is *geom.MultiLineString, not big.Float"),
+                Err("interface conversion: interface {} is *geom.MultiPolygon, not big.Float"),
+                Err(
+                    "interface conversion: interface {} is *geom.GeometryCollection, not big.Float",
+                ),
+                Err("interface conversion: interface {} is uint64, not big.Float"),
+                Ok("1.5"),
+                Err("interface conversion: interface {} is []float32, not big.Float"),
+            ],
+        ),
+        (
+            TypeId::VFLOAT,
+            [
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+                Err("invalid type for MarshalJSON: 12"),
+            ],
+        ),
+        (
+            TypeId::new(13),
+            [
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+                Err("invalid type for MarshalJSON: 13"),
+            ],
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .flat_map(|(id, wants)| {
+            values
+                .iter()
+                .zip(wants)
+                .filter_map(move |((kind, v), want)| {
+                    let got = marshal_json(&Val::new(id, v.clone()))
+                        .map(|b| String::from_utf8(b).unwrap())
+                        .map_err(|e| e.to_string());
+                    let want = want.map(String::from).map_err(String::from);
+                    (got != want).then(|| format!("{id:?} of {kind}: got {got:?}, Go {want:?}"))
+                })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Go v25.5.0's `Val.MarshalJSON` of a geometry with a non-finite coordinate, as Go 1.27 answers it through
+/// go-geom's `geojson.Marshal`: the error names the first non-finite coordinate in output order, members of
+/// collections in order and nested collections depth first.
+#[test]
+fn test_marshal_json_geo_non_finite() {
+    use ultragraphdb_core_types::{Geometry, Layout, marshal_json};
+    const INF: f64 = f64::INFINITY;
+    const NINF: f64 = f64::NEG_INFINITY;
+    const NAN: f64 = f64::NAN;
+    let pt = |x: f64, y: f64| Geometry::point(Layout::XY, &[x, y]).unwrap();
+    let line = |c: &[[f64; 2]]| c.iter().map(|c| c.to_vec()).collect::<Vec<_>>();
+    let cases: Vec<(&str, Geometry, &str)> = vec![
+        ("point +Inf first", pt(INF, 1.0), "+Inf"),
+        ("point -Inf second", pt(1.0, NINF), "-Inf"),
+        ("point NaN second", pt(1.0, NAN), "NaN"),
+        ("point NaN then +Inf", pt(NAN, INF), "NaN"),
+        ("point -Inf then NaN", pt(NINF, NAN), "-Inf"),
+        (
+            "point xyz +Inf third",
+            Geometry::point(Layout::XYZ, &[1.0, 2.0, INF]).unwrap(),
+            "+Inf",
+        ),
+        (
+            "linestring +Inf in second coord",
+            Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [3.0, INF]])).unwrap(),
+            "+Inf",
+        ),
+        (
+            "linestring -Inf first then NaN",
+            Geometry::line_string(Layout::XY, &line(&[[NINF, 2.0], [NAN, 3.0]])).unwrap(),
+            "-Inf",
+        ),
+        (
+            "linestring NaN first",
+            Geometry::line_string(Layout::XY, &line(&[[NAN, 2.0], [INF, 3.0]])).unwrap(),
+            "NaN",
+        ),
+        (
+            "polygon NaN then +Inf",
+            Geometry::polygon(
+                Layout::XY,
+                &[line(&[[0.0, 0.0], [1.0, NAN], [INF, 0.0], [0.0, 0.0]])],
+            )
+            .unwrap(),
+            "NaN",
+        ),
+        (
+            "polygon second ring -Inf",
+            Geometry::polygon(
+                Layout::XY,
+                &[
+                    line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]),
+                    line(&[[0.0, 0.0], [NINF, 0.0], [0.0, NAN], [0.0, 0.0]]),
+                ],
+            )
+            .unwrap(),
+            "-Inf",
+        ),
+        (
+            "polygon +Inf first",
+            Geometry::polygon(Layout::XY, &[line(&[[INF, 0.0], [NINF, 0.0], [0.0, 0.0]])]).unwrap(),
+            "+Inf",
+        ),
+        (
+            "multipoint NaN after empty",
+            Geometry::multi_point(
+                Layout::XY,
+                &[
+                    Some(vec![1.0, 2.0]),
+                    None,
+                    Some(vec![NAN, 1.0]),
+                    Some(vec![INF, 1.0]),
+                ],
+            )
+            .unwrap(),
+            "NaN",
+        ),
+        (
+            "multipoint -Inf first",
+            Geometry::multi_point(Layout::XY, &[Some(vec![NINF, 2.0]), Some(vec![NAN, 1.0])])
+                .unwrap(),
+            "-Inf",
+        ),
+        (
+            "multilinestring -Inf in second line",
+            Geometry::multi_line_string(
+                Layout::XY,
+                &[line(&[[1.0, 2.0]]), line(&[[3.0, NINF], [NAN, 0.0]])],
+            )
+            .unwrap(),
+            "-Inf",
+        ),
+        (
+            "multilinestring +Inf first",
+            Geometry::multi_line_string(Layout::XY, &[line(&[[INF, 2.0]]), line(&[[3.0, NINF]])])
+                .unwrap(),
+            "+Inf",
+        ),
+        (
+            "multipolygon +Inf in second polygon",
+            Geometry::multi_polygon(
+                Layout::XY,
+                &[
+                    vec![line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]])],
+                    vec![line(&[[0.0, 0.0], [INF, NAN], [0.0, 0.0]])],
+                ],
+            )
+            .unwrap(),
+            "+Inf",
+        ),
+        (
+            "multipolygon NaN first",
+            Geometry::multi_polygon(
+                Layout::XY,
+                &[
+                    vec![line(&[[NAN, 0.0], [1.0, 0.0], [0.0, 0.0]])],
+                    vec![line(&[[0.0, 0.0], [INF, 0.0], [0.0, 0.0]])],
+                ],
+            )
+            .unwrap(),
+            "NaN",
+        ),
+        (
+            "multipolygon -Inf after empty polygon",
+            Geometry::multi_polygon(
+                Layout::XY,
+                &[vec![], vec![line(&[[0.0, 0.0], [0.0, NINF], [0.0, 0.0]])]],
+            )
+            .unwrap(),
+            "-Inf",
+        ),
+        (
+            "collection -Inf in second member",
+            Geometry::collection(vec![
+                pt(1.0, 2.0),
+                Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [NINF, 0.0]])).unwrap(),
+                pt(NAN, 0.0),
+            ]),
+            "-Inf",
+        ),
+        (
+            "collection nested NaN before +Inf",
+            Geometry::collection(vec![
+                Geometry::collection(vec![pt(1.0, 1.0)]),
+                Geometry::collection(vec![pt(NAN, 0.0)]),
+                pt(INF, 0.0),
+            ]),
+            "NaN",
+        ),
+        (
+            "collection +Inf first member",
+            Geometry::collection(vec![pt(INF, 0.0), pt(NAN, 0.0)]),
+            "+Inf",
+        ),
+        (
+            "point xym NaN m",
+            Geometry::point(Layout::XYM, &[1.0, 2.0, NAN]).unwrap(),
+            "NaN",
+        ),
+        (
+            "point xyzm -Inf m",
+            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, NINF]).unwrap(),
+            "-Inf",
+        ),
+        (
+            "linestring xyzm NaN z before +Inf m",
+            Geometry::line_string(
+                Layout::XYZM,
+                &[vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, NAN, INF]],
+            )
+            .unwrap(),
+            "NaN",
+        ),
+        (
+            "multipoint xyz NaN z in second point",
+            Geometry::multi_point(
+                Layout::XYZ,
+                &[Some(vec![1.0, 2.0, 3.0]), Some(vec![4.0, 5.0, NAN])],
+            )
+            .unwrap(),
+            "NaN",
+        ),
+        (
+            "multilinestring +Inf in third line",
+            Geometry::multi_line_string(
+                Layout::XY,
+                &[
+                    line(&[[1.0, 2.0], [3.0, 4.0]]),
+                    line(&[[5.0, 6.0]]),
+                    line(&[[7.0, 8.0], [9.0, INF]]),
+                ],
+            )
+            .unwrap(),
+            "+Inf",
+        ),
+        (
+            "collection thrice nested -Inf in second ring before +Inf",
+            Geometry::collection(vec![
+                Geometry::collection(vec![Geometry::collection(vec![
+                    Geometry::multi_polygon(
+                        Layout::XY,
+                        &[vec![
+                            line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]]),
+                            line(&[[0.0, 0.0], [0.0, NINF], [NAN, 0.0]]),
+                        ]],
+                    )
+                    .unwrap(),
+                ])]),
+                pt(INF, 0.0),
+            ]),
+            "-Inf",
+        ),
+        (
+            "collection +Inf after empty members",
+            Geometry::collection(vec![
+                Geometry::collection(vec![]),
+                Geometry::point_empty(Layout::XY),
+                Geometry::multi_point(Layout::XY, &[]).unwrap(),
+                pt(1.0, INF),
+            ]),
+            "+Inf",
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(name, g, what)| {
+            let got =
+                marshal_json(&Val::new(TypeId::GEO, Value::Geo(g))).map_err(|e| e.to_string());
+            let want = Err(format!("json: unsupported value: {what}"));
+            (got != want).then(|| format!("{name}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// Go v25.5.0's `ParseVFloat` on inputs at its edges: any run of closing brackets, blank lists, separators that
 /// mix or repeat, and what Go's `ParseFloat(_, 32)` accepts (hex, underscores, the infinities, NaN, underflow).
 #[test]

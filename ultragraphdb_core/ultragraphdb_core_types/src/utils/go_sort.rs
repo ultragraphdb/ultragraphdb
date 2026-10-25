@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/sort/sort.go and zsortinterface.go (Sort: pattern-defeating quicksort). Changed for
+ * Ported from Go 1.27, src/sort/sort.go and zsortinterface.go (Sort: pattern-defeating quicksort). Changed for
  * ultragraphdb: translated to Rust. Go's sort is not stable; equal elements end where Go's algorithm leaves them,
  * which Dgraph's result order depends on.
  * Copyright (c) 2026. Marvin Hansen.

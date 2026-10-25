@@ -88,7 +88,7 @@ fn runs_equal(w: &mut Steps) {
             first.trace().iter().any(|line| {
                 line == f
                     || line.starts_with(&format!("{f} {{"))
-                    || (*f == "ReadFailed" && line.contains("ReadFailed("))
+                    || (*f == "ReadFailed" && line.contains("ReadFailed {"))
             })
         })
         .collect();

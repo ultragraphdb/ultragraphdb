@@ -2,7 +2,7 @@
  * Copyright 2011 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26.4, src/math/sin.go. Changed for ultragraphdb: translated to Rust.
+ * Ported from Go 1.27.0, src/math/sin.go. Changed for ultragraphdb: translated to Rust.
  * Copyright (c) 2026. Marvin Hansen.
  */
 

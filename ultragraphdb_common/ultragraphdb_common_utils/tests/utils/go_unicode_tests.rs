@@ -50,8 +50,8 @@ fn test_beyond_unicode_is_nothing() {
 
 #[test]
 fn test_letter_digit_ideographic_and_lower_are_unicode_17() {
-    // Go 1.27 (Unicode 17.0.0), which builds Dgraph: runes Unicode 16 and 17 assigned, each of which Go 1.26
-    // (Unicode 15.0.0) reports as no letter, no digit, no ideograph and its own lower case.
+    // Go 1.27 (Unicode 17.0.0), which builds Dgraph, on runes Unicode 16 and 17 assigned: letters, digits and
+    // ideographs, with the lower case Unicode 17 maps each to.
     // rune, IsLetter, IsDigit, Is(Ideographic), ToLower
     let cases: [(u32, bool, bool, bool, u32); 14] = [
         (0xa7cb, true, false, false, 0x264),

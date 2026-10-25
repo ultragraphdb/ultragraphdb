@@ -270,6 +270,39 @@ fn test_an_open_snapshot_keeps_what_a_later_compaction_collects() {
 }
 
 #[test]
+fn test_an_open_snapshot_reads_the_undecodable_version_a_later_drop_removes() {
+    // The compaction keeps the undecodable version, and the snapshot open across the drop still reads its bytes, as
+    // a simulated snapshot does; a snapshot opened after the drop reads nothing of the key.
+    let dir = TestDir::new("drop-undecodable");
+    let s = dir.open();
+    write(
+        &s,
+        vec![
+            Entry::put(b"pk".to_vec(), 1, 0x04, b"old".to_vec()),
+            Entry::put(b"pk".to_vec(), 2, 0x08, b"rolled".to_vec()).with_discard(),
+        ],
+    );
+    drop(s);
+    write_raw(&dir, b"pk", 1, &[0x04]);
+    let s = dir.open();
+    s.set_discard_ts(2).unwrap();
+    s.compact().unwrap();
+    let reader = s.snapshot(2).unwrap();
+    s.drop_prefixes(3, &[b"p".to_vec()], Vec::new()).unwrap();
+    assert_eq!(
+        reader.versions(b"pk").collect::<Vec<_>>(),
+        vec![
+            Ok(Item::new(b"pk".to_vec(), 2, 0x08, true, b"rolled".to_vec())),
+            Err(StoreError::Corrupted(
+                b"pk".to_vec(),
+                "value too short to hold the version prefix".to_string()
+            )),
+        ]
+    );
+    assert_eq!(s.snapshot(2).unwrap().versions(b"pk").count(), 0);
+}
+
+#[test]
 #[allow(
     clippy::disallowed_methods,
     reason = "the readers run on threads beside the writer, as the production store's readers do"

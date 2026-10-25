@@ -95,6 +95,13 @@ func bigFloatInputs() (kinds, ins []string) {
 	add("near", "0.99999999995", "0.999999999949", "9999999999.5", "99999.999995", "0.000099999999995",
 		"123456789.05", "123456789.15", "1234567890.5", "12345678905", "12345678915", "1.0000000005",
 		"1.0000000015", "0.00012345678905")
+	// Integers of 206 and 208 bits, whose upper bound in Go's roundShortest can end in zeros that the digits of
+	// the value run past (go.dev/issue/80206, fixed in Go 1.27).
+	for i := 0; i < 1000; i++ {
+		m := new(big.Int).Rand(r, new(big.Int).Lsh(big.NewInt(1), 199))
+		m.SetBit(m, 199, 1)
+		add("shortest", fmt.Sprintf("0x%sp%d", m.Text(16), 6+2*r.Intn(2)))
+	}
 	return
 }
 

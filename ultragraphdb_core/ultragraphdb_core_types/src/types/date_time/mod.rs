@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/time/time.go. Changed for ultragraphdb: translated to Rust; the part of time.Time that
+ * Ported from Go 1.27, src/time/time.go. Changed for ultragraphdb: translated to Rust; the part of time.Time that
  * Dgraph's datetime values use (instant, fixed zone offset, binary and RFC 3339 forms, the layouts ParseTime tries).
  * Copyright (c) 2026. Marvin Hansen.
  */

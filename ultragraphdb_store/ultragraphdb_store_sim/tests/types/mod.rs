@@ -14,6 +14,8 @@ mod drop_stage_tests;
 #[cfg(test)]
 mod fault_config;
 #[cfg(test)]
+mod fuzz_args;
+#[cfg(test)]
 mod invariant;
 #[cfg(test)]
 mod log_capture;

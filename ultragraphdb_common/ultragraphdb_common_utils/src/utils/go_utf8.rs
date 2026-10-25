@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from the Go standard library, unicode/utf8 (DecodeRune, EncodeRune) and bytes (Runes), as bleve and
+ * Ported from Go 1.27, src/unicode/utf8 (DecodeRune, EncodeRune) and src/bytes (Runes), as bleve and
  * blevesearch/segment call them, and the conversion of Go's bytes to runes. Changed for ultragraphdb: translated to
  * Rust.
  * Copyright (c) 2026. Marvin Hansen.

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Ported from Go 1.27, src/encoding/json/v2_scanner.go (Valid, checkValid), v2/arshal.go (Unmarshal with v1's
- * legacy semantics) and internal/jsonwire/encode.go (AppendQuote with v1's escaping). Changed for ultragraphdb:
- * translated to Rust; Unmarshal decodes into a JsonValue, numbers kept as text as json.Number and
- * json.RawMessage keep them; a string's invalid UTF-8 is written as v1 wrote it.
+ * legacy semantics) and internal/jsonwire/encode.go (AppendQuote with v1's options, EscapeForHTML, EscapeForJS and
+ * AllowInvalidUTF8). Changed for ultragraphdb: translated to Rust; Unmarshal decodes into a JsonValue, numbers kept
+ * as text as json.Number and json.RawMessage keep them.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -53,9 +53,9 @@ pub fn unmarshal(data: &[u8]) -> Result<JsonValue, JsonError> {
     Ok(JsonValue::from_valid(&data[start..end]))
 }
 
-/// Go's `json.Marshal` of a string: the quote, the backslash and control characters escaped (`\b`, `\f`, `\n`,
-/// `\r`, `\t` by name), the HTML characters `<`, `>`, `&` and U+2028 and U+2029 as `\u` escapes, and each byte
-/// that is not UTF-8 as the escape `�`, as Go's v1 wrote it.
+/// Go 1.27's `json.Marshal` of a string, jsonwire's `AppendQuote` with v1's options: the quote, the backslash and
+/// control characters escaped (`\b`, `\f`, `\n`, `\r`, `\t` by name, the others as `\u00xx`), the HTML characters
+/// `<`, `>`, `&` and U+2028 and U+2029 as `\u` escapes, and each byte that is not UTF-8 as the character U+FFFD.
 pub fn encode_string(s: &[u8]) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -76,7 +76,11 @@ pub fn encode_string(s: &[u8]) -> String {
                 c => out.push(c),
             }
         }
-        chunk.invalid().iter().for_each(|_| out.push_str("\\ufffd"));
+        // Go's utf8.DecodeRune refuses an invalid sequence one byte at a time.
+        chunk
+            .invalid()
+            .iter()
+            .for_each(|_| out.push(char::REPLACEMENT_CHARACTER));
     }
     out.push('"');
     out

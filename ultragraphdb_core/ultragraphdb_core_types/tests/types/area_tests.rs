@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_types::Area;
 
-/// Dgraph's `Area.String` (types/earth.go), as Go 1.26 prints each value.
+/// Dgraph's `Area.String` (types/earth.go), as Go 1.27 prints each value.
 #[test]
 fn test_area_display() {
     let cases: [(f64, &str); 18] = [

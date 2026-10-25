@@ -20,9 +20,11 @@
 //! assert_eq!(first, again);
 //! ```
 
+mod errors;
 mod types;
 mod utils;
 
+pub use crate::errors::fuzz_args_error::{FuzzArgsError, FuzzArgsErrorEnum};
 pub use crate::types::breach::Breach;
 pub use crate::types::captured_event::CapturedEvent;
 pub use crate::types::contents::Contents;
@@ -31,6 +33,7 @@ pub use crate::types::drop_stage::DropStage;
 pub use crate::types::event::Event;
 pub use crate::types::fault::Fault;
 pub use crate::types::fault_config::FaultConfig;
+pub use crate::types::fuzz_args::FuzzArgs;
 pub use crate::types::invariant::Invariant;
 pub use crate::types::log_capture::LogCapture;
 pub use crate::types::op_record::OpRecord;

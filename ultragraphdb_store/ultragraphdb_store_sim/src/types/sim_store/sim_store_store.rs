@@ -94,6 +94,7 @@ impl Store for SimStore {
         inner.log.push(OpRecord::SnapshotOpened { id, read_ts });
         let state = inner.current.clone();
         let generation = inner.generation;
+        let heals = inner.corrupted.heals();
         drop(inner);
         Ok(SimSnapshot::new(
             self.shared().clone(),
@@ -101,6 +102,7 @@ impl Store for SimStore {
             read_ts,
             id,
             generation,
+            heals,
         ))
     }
 

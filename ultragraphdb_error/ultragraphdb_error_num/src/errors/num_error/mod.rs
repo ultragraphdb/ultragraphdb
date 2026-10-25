@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/strconv/number.go (NumError). Changed for ultragraphdb: translated to Rust; the input is
+ * Ported from Go 1.27, src/strconv/number.go (NumError). Changed for ultragraphdb: translated to Rust; the input is
  * kept as Go's strconv.Quote writes it.
  * Copyright (c) 2026. Marvin Hansen.
  */

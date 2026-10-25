@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/fmt/print.go (%v of a slice) and src/fmt/format.go (fmtUnicode). Changed for
+ * Ported from Go 1.27, src/fmt/print.go (%v of a slice) and src/fmt/format.go (fmtUnicode). Changed for
  * ultragraphdb: translated to Rust; the verbs Dgraph's messages print.
  * Copyright (c) 2026. Marvin Hansen.
  */

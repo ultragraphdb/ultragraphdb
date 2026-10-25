@@ -156,6 +156,15 @@ fn collation<'c, C: Collator>(lang: &str, collator: &'c C) -> Option<Collation<'
 }
 
 /// Dgraph's `SortTopN`: moves the `n` smallest rows (nil values last) to the front, in order, with their uids.
+///
+/// The rows after the first `n` hold the rest in quickselect's order, as Go's do, and `n` of zero sorts no row.
+/// `n` is a limit, read as SQL's `LIMIT` (PostgreSQL, SQLite) and Dgraph's own `first:` read one: a count at or
+/// past the row count sorts every row, the order `n` equal to the row count gives, and no rows stay no rows for
+/// any `n`. That is a deliberate choice. Go's `SortTopN` slices `values[:n]`, which panics past the slice's
+/// capacity and, below it, sorts the empty rows past the end in with the real ones, so Go leaves the case
+/// undefined; Dgraph's one caller, `processSort` in worker/sort.go, clamps `n` to the row count with
+/// `x.PageRange` before the call. `n` is a `usize`, so a negative count, which Go's slice also panics on, is
+/// not expressible.
 pub fn sort_top_n<C: Collator>(
     values: &mut [Vec<Val>],
     uids: &mut [u64],

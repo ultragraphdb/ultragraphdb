@@ -2,7 +2,7 @@
  * Copyright 2015 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/math/big/ftoa.go (Text, Append, roundShortest, fmtE, fmtF, fmtP) and decimal.go.
+ * Ported from Go 1.27, src/math/big/ftoa.go (Text, Append, roundShortest, fmtE, fmtF, fmtP) and decimal.go.
  * Changed for ultragraphdb: translated to Rust onto dashu-int; the 'g' and 'p' formats.
  * Copyright (c) 2026. Marvin Hansen.
  */
@@ -172,7 +172,13 @@ impl BigFloat {
             let l = lower.at(i);
             let u = upper.at(i);
             let okdown = l != m || inclusive && i + 1 == lower.mant.len();
-            let okup = m != u && (inclusive || m + 1 < u || i + 1 < upper.mant.len());
+            // Past upper's trimmed mantissa `at` reads '0', but earlier digits fixed the bound, so rounding up is
+            // valid unless m is '9' (go.dev/issue/80206).
+            let okup = m != u
+                && (inclusive
+                    || m + 1 < u
+                    || i + 1 < upper.mant.len()
+                    || i >= upper.mant.len() && m < b'9');
             if okdown && okup {
                 d.round(i as i64 + 1);
                 return;

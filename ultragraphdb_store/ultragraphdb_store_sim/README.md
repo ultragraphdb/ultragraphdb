@@ -10,7 +10,7 @@ The last list is where detection has to grow, above all once replication (stage 
 ## A run
 
 A run is a function of its seed. `Seed` derives one stream per consumer (workload, faults, process, scheduler, cache,
-executor), each a `SimRng` (SplitMix64), so a change to one consumer does not move another's draws. Time is
+executor, rereads), each a `SimRng` (SplitMix64), so a change to one consumer does not move another's draws. Time is
 `SimClock` and advances only when the simulation moves it; background work runs on `SteppedExecutor`, which the
 simulation steps; the posting cache in simulation is `SimListCache`, with seeded eviction. A failing run reports its
 seed, the step and the broken invariant, and the same seed replays it, log events included (`LogCapture` records
@@ -21,14 +21,20 @@ Seed sets run as hermetic Bazel tests in `make test`:
 
 | Crate | Fixed seeds |
 |---|---|
-| `ultragraphdb_store_sim` | 48 with every fault class, 16 without faults |
+| `ultragraphdb_store_sim` | 48 with every fault class, 16 without faults, and seeds replayed as `store_sim_fuzz` runs them, each reaching a defect of the model or the store that its test names |
 | `ultragraphdb_store_posting` | 40 with faults, 20 without |
 | `ultragraphdb_core_schema` | 48 of 300 steps with faults |
 | `ultragraphdb_store_hnsw` | 30 of 300 steps with faults, 12 without; the same rules once on fjall |
 | `ultragraphdb_store_apply` | 12 of 300 steps without faults, 24 with every fault class, 12 with power losses during drops, between steps and at every rebuild stage, and crashes at every rebuild stage; the same operations on fjall over three opens, and a rebuild on fjall killed at each of its stages |
 | `ultragraphdb_store_kv` | the store workload replayed on fjall, temporary keyspaces and rebuild records included: 12 seeds without faults, 6 with crashes (61 reopens) |
 
-Longer runs over fresh seeds: `store_sim_fuzz [first seed] [seeds] [steps]`, a binary run outside `make test`.
+Longer runs over fresh seeds: `store_sim_fuzz [first seed] [seeds] [steps]`, a binary run outside `make test`. It
+runs the seeds from the first seed onwards, 1000 seeds of 2000 steps by default, the first seed drawn from the wall
+clock when none is given, and prints every seed and each failing seed's violation; `store_sim_fuzz <seed> 1` replays
+one seed, `u64::MAX` included. Each argument is a whole number from 0 to `u64::MAX` at its position. A non-numeric,
+negative or empty argument, a fourth argument, zero seeds, or seeds that would run past `u64::MAX` stop the run before
+any seed runs: it prints the refusal, naming the argument and its position, with the usage line, and exits with 2.
+`FuzzArgs::parse` holds those rules, and `FuzzArgsError` names each refusal.
 
 ## Faults injected
 
@@ -47,20 +53,21 @@ few hundred steps see most of them. `Fault` forces one at a chosen point in a te
 | Power loss during a rebuild | per rebuild record written | As a crash, losing what was written since the last sync: an unsynced record, or the batch that removed it |
 | Failed read | per read | A point read fails |
 | Failed scan | per read | A scan fails after yielding some items |
-| Corrupted value | per read | `Truncate` cuts the value below its version prefix; `FlipValueByte` inverts one byte past the prefix |
+| Corrupted value | per read | `Truncate` cuts the value below its version prefix; `FlipValueByte` inverts one byte past the prefix. The corruption lasts until the version is written again or removed; a snapshot opened before that still reads it corrupted, as a fjall snapshot reads the bytes it opened on |
 | Slow operation | per operation | The operation takes up to the configured simulated time |
 
 ## What detects a fault
 
 | Fault | Detected by | How |
 |---|---|---|
-| Failed batch, crash, power loss | the shadow model (`StoreModel`) | After recovery the store's contents equal the model's (`ContentsMatchModel`); every synced batch survives (`SyncedBatchSurvives`); a batch is whole or absent (`BatchWhole`); the survivors are a prefix (`SurvivorsArePrefix`); nothing but recovery follows a failed batch (`RecoveryAfterFailure`) |
+| Failed batch, crash, power loss | the shadow model (`StoreModel`) | After recovery the store's contents equal the model's (`ContentsMatchModel`); when they equal more than one outcome's, as a prefix drop kept and lost does when it rewrote all its prefix held, the model follows each until a later step rules it out; every synced batch survives (`SyncedBatchSurvives`); a batch is whole or absent (`BatchWhole`); the survivors are a prefix (`SurvivorsArePrefix`); nothing but recovery follows a failed batch (`RecoveryAfterFailure`) |
 | A drop stopped part-way | the shadow model | A dropped prefix stays dropped once the drop's record was synced (`DroppedPrefixAbsent`); the entries a prefix drop writes are fenced and survive garbage collection |
 | Failed read or scan | the caller | The store returns `StoreError::ReadFailed` naming the key; every crate propagates it |
 | `Truncate` | the store | The read is refused with `StoreError::Corrupted` naming the key |
 | `FlipValueByte`, structural | the decoder above the store | The posting decoder refuses a value whose protobuf, operation or type enum, per-block uid count, uid order, posting order or split order no longer holds, with `PostingError::Corrupted` naming the key; the schema decoder refuses an undecodable entry with `SchemaError::Decode` |
 | Slow operation | nothing needs to | Results are unchanged; the run checks that nothing depends on timing |
 | Reads, garbage collection and timestamps | the shadow model | `ReadsAtOrBelowTimestamp`, `DiscardBelowOpenReads`, `NoWriteBelowDeletion`, `AppliedTsIsHighest`; a temporary keyspace's reads are checked against the versions written to it, and it holds no discard timestamp back |
+| A snapshot's view changing while it is open | the shadow model | `SnapshotReadsRepeat`: a read made again through an open snapshot, of the data or of a temporary keyspace, returns what it returned the first time, items and errors alike, a point read and each key of a many-key read by key, a scan by its whole spec. It needs no model of garbage collection or corruption, so it compares the corrupted keys the other read checks leave out, and it catches a drop, a drop of everything or a rewrite that heals what an open snapshot reads. Exempt: an injected `ReadFailed`, which is not an answer, so a scan it cuts short is compared up to the failure; and the reads covering a key corrupted since, which an open snapshot of the data at or above the corrupted version sees as fjall's does. A snapshot holds the answers of 64 reads at once. Before each read through an open snapshot, the workload's reader makes every earlier read that failed again, and one earlier read with an even chance, drawn from the rereads stream |
 | A rebuild stopped part-way, at the store | the shadow model | The rebuild records are part of the contents (`ContentsMatchModel`): a synced record survives any crash, a record's removal survives with its batch or not at all, a drop of everything removes every record; every temporary keyspace is gone after a recovery |
 | Posting lists | `ultragraphdb_store_posting`'s workload | "a list holds what was written to it" (cached and uncached reads both), "a rollup writes nothing after a drop" |
 | Schema loading | `ultragraphdb_core_schema`'s workload | Between failures a load equals the newest written state; after a recovery the loaded state is the state after some batch at or after the last sync |
@@ -70,13 +77,16 @@ few hundred steps see most of them. `Fault` forces one at a chosen point in a te
 
 Each detector was checked against planted bugs: seven in the simulated store (lost synced batches, a partial batch,
 over-eager collection, a read above its timestamp, drop entries not written, a crash losing buffered batches, bans
-ignored), each reported under the right invariant; two in its temporary keyspaces and rebuild records (a record not
-synced, a temporary version written one above its own), caught under `AppliedTsIsHighest` and
-`ReadsAtOrBelowTimestamp`; a disabled cache update in the posting commit, caught at once; and three in the vector index
-(dead nodes kept, a deleted value read, an extra level), each caught by its rule. The index-maintenance rules found four
-real defects while `ultragraphdb_store_apply` was written, among them writes during a background rebuild reading
-reverse lists the build had not yet written; the undeclared-index rule found the reverse counts that writes keep while
-a rebuild maintains a reversed and a counted schema together, which neither schema declares.
+ignored), each reported under the right invariant; three in its snapshots, over 2000 seeds of 2000 steps caught under
+`SnapshotReadsRepeat` on 99, 36 and 4 seeds and by the other invariants on 0, 2 and 0: snapshots reading the store's
+live corruptions, a point read seeing a later drop of a corrupted key, and a version written again since; two in its
+temporary keyspaces and rebuild records (a record not synced, a temporary version written one above its own), caught
+under `AppliedTsIsHighest` and `ReadsAtOrBelowTimestamp`; a disabled cache update in the posting commit, caught at
+once; and three in the vector index (dead nodes kept, a deleted value read, an extra level), each caught by its rule.
+The index-maintenance rules found four real defects while `ultragraphdb_store_apply` was written, among them writes
+during a background rebuild reading reverse lists the build had not yet written; the undeclared-index rule found the
+reverse counts that writes keep while a rebuild maintains a reversed and a counted schema together, which neither
+schema declares.
 
 ## Injected but not detected
 

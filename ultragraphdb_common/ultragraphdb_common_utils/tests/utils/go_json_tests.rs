@@ -404,16 +404,63 @@ fn encode_string_is_gos_marshal_of_a_string() {
     );
 }
 
-/// Go 1.27's `json.Marshal` of a string holding bytes that are not UTF-8: jsonwire's `AppendQuote` writes each as
-/// the character U+FFFD, where Go's v1 encoder (built only with GOEXPERIMENT=nojsonv2) wrote the escape `\ufffd`.
+/// Go 1.27's `json.Marshal` of every control character, 0x00 to 0x1f: five by name, the others as `\u00xx` in
+/// lower-case hex; DEL, the space, the solidus and runes of two to four bytes, U+10FFFF included, as they are.
 #[test]
-#[ignore = "encode_string writes v1's \\ufffd escape for invalid UTF-8; Go 1.27 writes the character U+FFFD"]
+fn encode_string_escapes_every_control_character() {
+    let controls: Vec<u8> = (0x00..0x20).collect();
+    assert_eq!(
+        go_json::encode_string(&controls),
+        concat!(
+            r#""\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\b\t\n\u000b\f\r\u000e\u000f"#,
+            r#"\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001a\u001b\u001c\u001d\u001e\u001f""#
+        )
+    );
+    assert_eq!(
+        go_json::encode_string("\u{7f} /\u{1f600}\u{10ffff}\u{80}".as_bytes()),
+        "\"\u{7f} /\u{1f600}\u{10ffff}\u{80}\""
+    );
+}
+
+/// Go 1.27's `json.Marshal` of a string holding bytes that are not UTF-8: jsonwire's `AppendQuote` writes each byte
+/// `utf8.DecodeRune` refuses as the character U+FFFD, the bytes EF BF BD (encode.go:92-96), where Go's v1 encoder
+/// (built only with GOEXPERIMENT=nojsonv2) wrote the escape `\ufffd`. Lead bytes no sequence starts with, truncated
+/// sequences, overlong encodings, surrogates and runes past U+10FFFF are refused byte by byte.
+#[test]
 fn encode_string_replaces_invalid_utf8_as_go_1_27_marshals_it() {
     for (input, want) in [
-        (&b"a\xffb"[..], "\"a\u{fffd}b\""),
+        // Bytes no UTF-8 sequence starts with.
+        (&b"\xff"[..], "\"\u{fffd}\""),
+        (b"\x80", "\"\u{fffd}\""),
+        (b"\xc0", "\"\u{fffd}\""),
+        (b"\xc1", "\"\u{fffd}\""),
+        (b"\xf5", "\"\u{fffd}\""),
+        (b"\xfe", "\"\u{fffd}\""),
+        (b"a\xffb", "\"a\u{fffd}b\""),
+        // Truncated sequences: each byte of the prefix.
+        (b"\xc3", "\"\u{fffd}\""),
         (b"\xe2\x82", "\"\u{fffd}\u{fffd}\""),
         (b"\xe2\x82b", "\"\u{fffd}\u{fffd}b\""),
+        (b"\xf0\x9f", "\"\u{fffd}\u{fffd}\""),
+        (b"\xf0\x9f\x98", "\"\u{fffd}\u{fffd}\u{fffd}\""),
+        // Overlong encodings of '\0', U+007F and '/'.
+        (b"\xc0\x80", "\"\u{fffd}\u{fffd}\""),
+        (b"\xc1\xbf", "\"\u{fffd}\u{fffd}\""),
+        (b"\xe0\x80\xaf", "\"\u{fffd}\u{fffd}\u{fffd}\""),
+        (b"\xf0\x80\x80\xaf", "\"\u{fffd}\u{fffd}\u{fffd}\u{fffd}\""),
+        // Surrogates encoded in UTF-8, alone and as a pair, and the rune past U+10FFFF.
         (b"\xed\xa0\x80", "\"\u{fffd}\u{fffd}\u{fffd}\""),
+        (b"\xed\xbf\xbf", "\"\u{fffd}\u{fffd}\u{fffd}\""),
+        (
+            b"\xed\xa0\xbd\xed\xb8\x80",
+            "\"\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}\"",
+        ),
+        (b"\xf4\x90\x80\x80", "\"\u{fffd}\u{fffd}\u{fffd}\u{fffd}\""),
+        // Mixed: escapes, valid runes, a truncated sequence and a valid U+FFFD side by side.
+        (
+            b"a\xffb<\xe2\x80\xa8\x00\xc3\xa9\xe2\x82\xef\xbf\xbd",
+            "\"a\u{fffd}b\\u003c\\u2028\\u0000\u{e9}\u{fffd}\u{fffd}\u{fffd}\"",
+        ),
     ] {
         assert_eq!(go_json::encode_string(input), want, "{input:?}");
     }

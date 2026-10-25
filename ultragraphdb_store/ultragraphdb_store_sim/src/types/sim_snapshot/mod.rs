@@ -14,9 +14,11 @@ use ultragraphdb_traits_store::{Item, Scan, key_namespace};
 use crate::types::sim_store::Inner;
 use crate::types::sim_store::state::{State, decode};
 
-/// A snapshot of a [`crate::SimStore`]: the state when it was opened, read at one timestamp. While it is open, the
-/// store's discard timestamp stays at or below its read timestamp. A snapshot of a temporary keyspace reads every
-/// version it holds, holds no discard timestamp back, and draws read failures but no corruption.
+/// A snapshot of a [`crate::SimStore`]: the state when it was opened, read at one timestamp, its bytes corrupted as
+/// they were when it opened or as corrupted since; a later write or removal of a version heals it for snapshots
+/// opened after. While it is open, the store's discard timestamp stays at or below its read timestamp. A snapshot of a
+/// temporary keyspace reads every version it holds, holds no discard timestamp back, and draws read failures but no
+/// corruption.
 #[derive(Debug)]
 pub struct SimSnapshot {
     shared: Arc<Mutex<Inner>>,
@@ -24,6 +26,8 @@ pub struct SimSnapshot {
     read_ts: u64,
     id: u64,
     generation: u64,
+    /// How many heals of corrupted versions the store had made when the snapshot opened.
+    heals: u64,
     temporary: bool,
 }
 
@@ -34,6 +38,7 @@ impl SimSnapshot {
         read_ts: u64,
         id: u64,
         generation: u64,
+        heals: u64,
     ) -> Self {
         Self {
             shared,
@@ -41,6 +46,7 @@ impl SimSnapshot {
             read_ts,
             id,
             generation,
+            heals,
             temporary: false,
         }
     }
@@ -53,6 +59,7 @@ impl SimSnapshot {
             read_ts: u64::MAX,
             id,
             generation: 0,
+            heals: 0,
             temporary: true,
         }
     }
@@ -62,13 +69,15 @@ impl SimSnapshot {
         self.id
     }
 
-    /// The bytes of `key` at `version` as a read finds them: corrupted as the store's data is, unless the snapshot
-    /// reads a temporary keyspace.
+    /// The bytes of `key` at `version` as a read finds them: corrupted as they were when the snapshot opened or as
+    /// corrupted since, unless the snapshot reads a temporary keyspace.
     fn bytes(&self, inner: &Inner, key: &[u8], version: u64, stored: &[u8]) -> Vec<u8> {
         if self.temporary {
             stored.to_vec()
         } else {
-            inner.corrupted.bytes(key, version, stored)
+            inner
+                .corrupted
+                .bytes_since(self.heals, key, version, stored)
         }
     }
 

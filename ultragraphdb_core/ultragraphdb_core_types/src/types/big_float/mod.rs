@@ -2,7 +2,7 @@
  * Copyright 2014 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/math/big/float.go. Changed for ultragraphdb: translated to Rust onto dashu-int's
+ * Ported from Go 1.27, src/math/big/float.go. Changed for ultragraphdb: translated to Rust onto dashu-int's
  * integers; the part of big.Float Dgraph's bigfloat values use, with Go's default rounding (to nearest even).
  * Copyright (c) 2026. Marvin Hansen.
  */

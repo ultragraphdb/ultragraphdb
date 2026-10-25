@@ -5,6 +5,7 @@
 
 mod model_reads;
 mod model_recovery;
+mod model_repeats;
 mod model_state;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -21,12 +22,15 @@ use crate::types::rebuild_stage::RebuildStage;
 use crate::utils::hex::hex;
 
 use crate::types::store_model::model_recovery::partial_batch;
+use crate::types::store_model::model_repeats::Answers;
 use crate::types::store_model::model_state::{ModelOp, ModelState, covers};
 
 /// The shadow model of a [`crate::SimStore`]: rebuilt from the store's log by the rules of the store's
 /// specification, it says what the store must hold and what each read must return. [`StoreModel::observe`] checks
 /// every logged operation; [`StoreModel::check`] compares the store's contents with the model's after a step, and
-/// after a recovery decides which of the outcomes a crash or a power loss allows the store took.
+/// after a recovery finds the outcomes a crash or a power loss allows that the store's contents match. When more than
+/// one matches, the model follows each, and drops one when a later record or contents rule it out; it reports a breach
+/// only when none is left.
 #[derive(Debug, Clone, Default)]
 pub struct StoreModel {
     current: Arc<ModelState>,
@@ -35,15 +39,20 @@ pub struct StoreModel {
     /// The writes since the last sync point, in order.
     pending: Vec<ModelOp>,
     status: Status,
-    /// The open snapshots by id: their read timestamp and the state they read.
-    snapshots: BTreeMap<u64, (u64, Arc<ModelState>)>,
+    /// The open snapshots by id.
+    snapshots: BTreeMap<u64, OpenSnapshot>,
     /// The temporary keyspaces by number, each holding its versions as a state's keys, and the open snapshots of
     /// them by id; none survives a recovery.
     temporaries: BTreeMap<u64, ModelState>,
     temporary_snapshots: BTreeMap<u64, Arc<ModelState>>,
     /// The read timestamps of the open snapshots, with how many are open at each.
     readers: BTreeMap<u64, usize>,
-    /// Keys with a corrupted version, which the model no longer compares.
+    /// What each open snapshot, of the data or of a temporary keyspace, answered the first time it was asked each
+    /// read, by snapshot id: every later identical read through it must answer the same. They are what the store
+    /// logged, never the model's own state, so every model the store may still match holds the same answers.
+    answers: BTreeMap<u64, Answers>,
+    /// Keys with a corrupted version, which the model leaves out of its comparison of the store's contents and of a
+    /// temporary keyspace's reads; a drop covering a key lifts its taint.
     tainted: BTreeSet<Vec<u8>>,
     /// The newest deletion written to each key since it was last dropped.
     deletions: BTreeMap<Vec<u8>, u64>,
@@ -53,13 +62,24 @@ pub struct StoreModel {
     drops: Vec<SeenDrop>,
     /// The outcomes the last recovery allows, waiting for the store's contents.
     recovery: Option<Vec<Outcome>>,
+    /// The other models the store may still match, one per further outcome of a recovery its contents matched: each
+    /// is checked against every later record and contents as this one is, and none holds others of its own.
+    others: Vec<StoreModel>,
 }
+
+/// The most models the store may match at once; a recovery leaving more breaks [`Invariant::ContentsMatchModel`].
+const MAX_CANDIDATES: usize = 16;
+
+/// An open snapshot: its read timestamp, the state it reads, and the keys it leaves uncompared, those tainted when it
+/// opened and those corrupted since. A snapshot keeps its taint through a drop, since it still reads the bytes it
+/// opened on.
+type OpenSnapshot = (u64, Arc<ModelState>, BTreeSet<Vec<u8>>);
 
 /// A drop as the model checks it: its prefixes, of everything when `None`, and the keys of its entries.
 type SeenDrop = (Option<Vec<Vec<u8>>>, BTreeSet<Vec<u8>>);
 
 /// Whether the store serves, and what may still survive when it does not.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 enum Status {
     #[default]
     Open,
@@ -73,7 +93,7 @@ enum Status {
 }
 
 /// One state a recovery may end in, and the model's journal if it does.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Outcome {
     state: ModelState,
     base: Arc<ModelState>,
@@ -93,6 +113,89 @@ impl StoreModel {
     /// Checks and applies `log`. A recovery must be the last record of a log, so that [`StoreModel::check`] can
     /// decide its outcome before anything else happens.
     pub fn observe(&mut self, log: &[OpRecord]) -> Result<(), Breach> {
+        self.each(|model| model.observe_log(log))
+    }
+
+    /// Applies `step` to this model and to each of the others, keeping those it accepts, once each: the first breach
+    /// when it accepts none, leaving every model as `step` left it.
+    fn each(
+        &mut self,
+        mut step: impl FnMut(&mut StoreModel) -> Result<(), Breach>,
+    ) -> Result<(), Breach> {
+        let others = std::mem::take(&mut self.others);
+        let mut kept: Vec<StoreModel> = Vec::new();
+        let mut refused: Vec<StoreModel> = Vec::new();
+        let mut breach = None;
+        for mut model in std::iter::once(std::mem::take(self)).chain(others) {
+            match step(&mut model) {
+                Ok(()) => {
+                    let forked = std::mem::take(&mut model.others);
+                    for model in std::iter::once(model).chain(forked) {
+                        if !kept.iter().any(|k| k.same_as(&model)) {
+                            kept.push(model);
+                        }
+                    }
+                }
+                Err(b) => {
+                    breach.get_or_insert(b);
+                    refused.push(model);
+                }
+            }
+        }
+        let undecided = kept.len();
+        let mut models = if kept.is_empty() { refused } else { kept }.into_iter();
+        *self = models.next().unwrap_or_default();
+        self.others = models.collect();
+        match breach {
+            Some(breach) if undecided == 0 => Err(breach),
+            _ if undecided > MAX_CANDIDATES => Err(Breach::new(
+                Invariant::ContentsMatchModel,
+                format!(
+                    "the store's contents match {undecided} models, more than the {MAX_CANDIDATES} the model follows"
+                ),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    /// Whether `other` holds the same state as this model, so that every later record and contents check alike.
+    fn same_as(&self, other: &StoreModel) -> bool {
+        let Self {
+            current,
+            base,
+            pending,
+            status,
+            snapshots,
+            temporaries,
+            temporary_snapshots,
+            readers,
+            answers,
+            tainted,
+            deletions,
+            recent,
+            drops,
+            recovery,
+            others,
+        } = self;
+        *current == other.current
+            && *base == other.base
+            && *pending == other.pending
+            && *status == other.status
+            && *snapshots == other.snapshots
+            && *temporaries == other.temporaries
+            && *temporary_snapshots == other.temporary_snapshots
+            && *readers == other.readers
+            && *answers == other.answers
+            && *tainted == other.tainted
+            && *deletions == other.deletions
+            && *recent == other.recent
+            && *drops == other.drops
+            && *recovery == other.recovery
+            && others.is_empty()
+            && other.others.is_empty()
+    }
+
+    fn observe_log(&mut self, log: &[OpRecord]) -> Result<(), Breach> {
         for (at, record) in log.iter().enumerate() {
             if self.recovery.is_some() {
                 return Err(Breach::new(
@@ -252,6 +355,9 @@ impl StoreModel {
             }
             OpRecord::Corrupted { key, .. } => {
                 self.tainted.insert(key.clone());
+                self.snapshots.values_mut().for_each(|(_, _, tainted)| {
+                    tainted.insert(key.clone());
+                });
             }
             OpRecord::Crashed | OpRecord::PowerLost => {
                 let lost = *record == OpRecord::PowerLost;
@@ -281,7 +387,7 @@ impl StoreModel {
             | OpRecord::ReadMany { .. }
             | OpRecord::Scanned { .. } => self.observe_read(record)?,
         }
-        Ok(())
+        self.observe_repeat(record)
     }
 
     /// The write `batch` makes, its entries to banned namespaces dropped, after checking that none of them lands
@@ -313,7 +419,8 @@ impl StoreModel {
         })
     }
 
-    /// The bookkeeping of a drop that will be finished: its keys are forgotten and checked absent.
+    /// The bookkeeping of a drop that will be finished: its keys are forgotten and checked absent, and compared again
+    /// in the store's contents and in the reads of snapshots opened after it.
     fn drop_done(
         &mut self,
         prefixes: &Option<Vec<Vec<u8>>>,
@@ -341,8 +448,12 @@ impl StoreModel {
         self.current.horizon.unwrap_or(discard).min(discard)
     }
 
-    /// Compares the store's `contents` with the model's, or, after a recovery, finds the outcome they match.
+    /// Compares the store's `contents` with the model's, or, after a recovery, finds the outcomes they match.
     pub fn check(&mut self, contents: &Contents) -> Result<(), Breach> {
+        self.each(|model| model.check_contents(contents))
+    }
+
+    fn check_contents(&mut self, contents: &Contents) -> Result<(), Breach> {
         if let Some(outcomes) = self.recovery.take() {
             return self.resolve_recovery(outcomes, contents);
         }

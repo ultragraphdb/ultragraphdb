@@ -52,8 +52,9 @@ present, whole, or absent, whole, after it.
 ### Requirement: Invariants hold after every step
 After every step and every recovery the simulator SHALL check the store against a shadow model: a batch visible whole
 or not at all, every synced batch present, the surviving batches a prefix of batch order, a read returning only a value
-written at or below its timestamp, a dropped prefix absent, no write landing below a deletion of the same key, and the
-applied timestamp the highest commit timestamp held, which rollup and drop batches leave unchanged.
+written at or below its timestamp, a read repeated through an open snapshot returning what it returned the first time,
+a dropped prefix absent, no write landing below a deletion of the same key, and the applied timestamp the highest
+commit timestamp held, which rollup and drop batches leave unchanged.
 
 #### Scenario: A violated invariant names its seed
 - **WHEN** a run breaks an invariant

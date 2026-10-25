@@ -25,6 +25,10 @@ fn test_each_invariant_states_its_rule() {
             "a read returns the newest version written at or below its timestamp",
         ),
         (
+            Invariant::SnapshotReadsRepeat,
+            "a read repeated through an open snapshot returns what it returned the first time",
+        ),
+        (
             Invariant::DiscardBelowOpenReads,
             "a snapshot opens exactly at or above the discard timestamp, which stays at or below every open snapshot",
         ),

@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_types::Length;
 
-/// Dgraph's `Length.String` (types/earth.go), as Go 1.26 prints each value.
+/// Dgraph's `Length.String` (types/earth.go), as Go 1.27 prints each value.
 #[test]
 fn test_length_display() {
     let cases: [(f64, &str); 17] = [

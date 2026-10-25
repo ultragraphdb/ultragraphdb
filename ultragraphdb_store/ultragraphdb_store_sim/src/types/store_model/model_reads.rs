@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::BTreeSet;
+
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_traits_store::Item;
 
@@ -28,7 +30,8 @@ impl StoreModel {
                     ));
                 }
                 *self.readers.entry(*read_ts).or_default() += 1;
-                self.snapshots.insert(*id, (*read_ts, self.current.clone()));
+                self.snapshots
+                    .insert(*id, (*read_ts, self.current.clone(), self.tainted.clone()));
                 Ok(())
             }
             OpRecord::SnapshotRefused { read_ts, error } => {
@@ -48,7 +51,7 @@ impl StoreModel {
             }
             OpRecord::SnapshotClosed { id } => {
                 self.temporary_snapshots.remove(id);
-                if let Some((read_ts, _)) = self.snapshots.remove(id)
+                if let Some((read_ts, ..)) = self.snapshots.remove(id)
                     && let Some(count) = self.readers.get_mut(&read_ts)
                 {
                     *count -= 1;
@@ -64,13 +67,14 @@ impl StoreModel {
                     .iter()
                     .zip(items)
                     .try_for_each(|(key, item)| self.check_get(*id, key, &Ok(item.clone()))),
-                Err(error) => self.check_failure(keys, error),
+                Err(error) => self.check_failure(self.tainted_for(*id), keys, error),
             },
             OpRecord::Scanned { id, scan, items } => {
                 let Some((read_ts, state)) = self.reading(*id) else {
                     return Ok(());
                 };
-                let keep = |item: &&Item| !self.tainted.contains(item.key());
+                let tainted = self.tainted_for(*id);
+                let keep = |item: &&Item| !tainted.contains(item.key());
                 let wanted = state.scan(scan, *read_ts);
                 let wanted: Vec<&Item> = wanted.iter().filter(keep).collect();
                 let (got, failure): (Vec<&Item>, Option<&StoreError>) = match items.split_last() {
@@ -83,7 +87,7 @@ impl StoreModel {
                 let got: Vec<&Item> = got.into_iter().filter(|i| keep(i)).collect();
                 if let Some(error) = failure {
                     let key = error_key(error).map(<[u8]>::to_vec).unwrap_or_default();
-                    self.check_failure(&[key], error)?;
+                    self.check_failure(tainted, &[key], error)?;
                 }
                 let matches = match failure {
                     None => got == wanted,
@@ -109,12 +113,19 @@ impl StoreModel {
         const EVERY_VERSION: u64 = u64::MAX;
         self.snapshots
             .get(&id)
-            .map(|(ts, state)| (ts, state.as_ref()))
+            .map(|(ts, state, _)| (ts, state.as_ref()))
             .or_else(|| {
                 self.temporary_snapshots
                     .get(&id)
                     .map(|state| (&EVERY_VERSION, state.as_ref()))
             })
+    }
+
+    /// The keys snapshot `id` leaves uncompared: its own, or the store's for a temporary keyspace or an unknown snapshot.
+    fn tainted_for(&self, id: u64) -> &BTreeSet<Vec<u8>> {
+        self.snapshots
+            .get(&id)
+            .map_or(&self.tainted, |(_, _, tainted)| tainted)
     }
 
     /// Checks a point read of `key` through snapshot `id`.
@@ -127,11 +138,12 @@ impl StoreModel {
         let Some((read_ts, state)) = self.reading(id) else {
             return Ok(());
         };
-        if self.tainted.contains(key) {
+        let tainted = self.tainted_for(id);
+        if tainted.contains(key) {
             return Ok(());
         }
         match result {
-            Err(error) => self.check_failure(&[key.to_vec()], error),
+            Err(error) => self.check_failure(tainted, &[key.to_vec()], error),
             Ok(item) => {
                 let wanted = state.get(key, *read_ts);
                 if *item == wanted {
@@ -149,11 +161,16 @@ impl StoreModel {
         }
     }
 
-    /// A read may fail as the fault stream makes it, or with `Corrupted` on a key whose bytes were corrupted.
-    fn check_failure(&self, keys: &[Vec<u8>], error: &StoreError) -> Result<(), Breach> {
+    /// A read may fail as the fault stream makes it, or with `Corrupted` on a key `tainted` holds.
+    fn check_failure(
+        &self,
+        tainted: &BTreeSet<Vec<u8>>,
+        keys: &[Vec<u8>],
+        error: &StoreError,
+    ) -> Result<(), Breach> {
         let allowed = match &error.0 {
             StoreErrorEnum::ReadFailed { .. } => true,
-            StoreErrorEnum::Corrupted { key, .. } => self.tainted.contains(key),
+            StoreErrorEnum::Corrupted { key, .. } => tainted.contains(key),
             _ => false,
         };
         if allowed {

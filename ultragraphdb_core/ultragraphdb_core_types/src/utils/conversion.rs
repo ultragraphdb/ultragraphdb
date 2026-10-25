@@ -582,8 +582,35 @@ pub fn object_value(id: TypeId, value: &Value) -> Result<api::Value, TypesError>
     Ok(api::Value { val: Some(v) })
 }
 
+/// The first coordinate go-geom's `geojson.Marshal` writes that is NaN or infinite: each geometry writes its flat
+/// coordinates in order, and a collection its members in order, nested collections depth first. NaN when there is
+/// none, which [`Geometry::to_geojson`] refuses only for such a coordinate.
+fn first_non_finite(g: &Geometry) -> f64 {
+    let mut stack = vec![g];
+    while let Some(g) = stack.pop() {
+        if let Some(f) = g.flat_coords().iter().find(|f| !f.is_finite()) {
+            return *f;
+        }
+        stack.extend(g.geoms().iter().rev());
+    }
+    f64::NAN
+}
+
 /// Dgraph's `Val.MarshalJSON`: a converted value in Dgraph's JSON output. A bigfloat is its unquoted
 /// `MarshalText`; a geometry is GeoJSON.
+///
+/// A value stands for the Go value Dgraph's `Val` holds, of the Go type [`Value::go_type`] names: bytes a `[]uint8`,
+/// a string a `string`, an int an `int64`, a float a `float64`, a bool a `bool`, a datetime a `time.Time`, a
+/// geometry its `*geom.Point`, `*geom.LineString`, ... or `*geom.GeometryCollection`, a uid a `uint64`, a bigfloat
+/// a `big.Float` and a vector a `[]float32`.
+///
+/// # Errors
+///
+/// Go's errors: `invalid type for MarshalJSON` for a binary, uid, object, vfloat or unknown type, whatever the
+/// value; `json: unsupported value` naming a NaN or infinite float, or a geometry's first such coordinate; a
+/// datetime's range error. Where Go's type assertion on the value panics, for a nil value or one of another Go
+/// type, the panic's text, e.g. `interface conversion: interface {} is bool, not int64`. A string or default type
+/// asserts `Safe`, which gives its zero value for nil and the value itself otherwise.
 pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
     let unsupported =
         |what: &str| TypesError::conversion(format!("json: unsupported value: {what}"));
@@ -605,22 +632,52 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
             })?;
             format!("\"{s}\"")
         }
-        (TypeId::GEO, Some(Value::Geo(g))) => g.to_geojson().ok_or_else(|| unsupported("NaN"))?,
+        (TypeId::GEO, Some(Value::Geo(g))) => g
+            .to_geojson()
+            .ok_or_else(|| unsupported(&go_strconv::format_float(first_non_finite(g), b'g', 64)))?,
         (TypeId::BIGFLOAT, Some(Value::BigFloat(b))) => b.marshal_text(),
         (TypeId::STRING | TypeId::DEFAULT, None) => crate::utils::json::encode_string(b""),
         (TypeId::STRING | TypeId::DEFAULT | TypeId::PASSWORD, Some(Value::Str(s))) => {
             crate::utils::json::encode_string(s.as_bytes())
         }
+        // Go's assertion on `v.Value` panics when it holds nil or a value of another Go type; this port returns the
+        // panic's text. `geom.T` is an interface type: Go's text for an assertion to one names no static interface
+        // type, and a value of another Go type lacks `Bounds`, the first of geom.T's methods by name.
         (
-            TypeId::INT
+            t @ (TypeId::INT
             | TypeId::BOOL
             | TypeId::FLOAT
             | TypeId::DATETIME
             | TypeId::GEO
             | TypeId::BIGFLOAT
-            | TypeId::PASSWORD,
-            Some(val),
-        ) => return Err(assertion(val, "the type's Go value")),
+            | TypeId::PASSWORD
+            | TypeId::STRING
+            | TypeId::DEFAULT),
+            val,
+        ) => {
+            let want = match t {
+                TypeId::INT => "int64",
+                TypeId::BOOL => "bool",
+                TypeId::FLOAT => "float64",
+                TypeId::DATETIME => "time.Time",
+                TypeId::GEO => "geom.T",
+                TypeId::BIGFLOAT => "big.Float",
+                _ => "string",
+            };
+            return Err(match (t, val) {
+                (TypeId::GEO, None) => {
+                    TypesError::conversion("interface conversion: interface is nil, not geom.T")
+                }
+                (TypeId::GEO, Some(val)) => TypesError::conversion(format!(
+                    "interface conversion: {} is not geom.T: missing method Bounds",
+                    val.go_type()
+                )),
+                (_, Some(val)) => assertion(val, want),
+                (_, None) => TypesError::conversion(format!(
+                    "interface conversion: interface {{}} is nil, not {want}"
+                )),
+            });
+        }
         (t, _) => {
             return Err(TypesError::conversion(format!(
                 "invalid type for MarshalJSON: {}",

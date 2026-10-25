@@ -2,9 +2,10 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/internal/strconv/atof.go, atoi.go, atob.go, ftoa.go and src/strconv/quote.go.
+ * Ported from Go 1.27, src/internal/strconv/atof.go, atoi.go, atob.go, ftoa.go and src/strconv/quote.go.
  * Changed for ultragraphdb: translated to Rust; the subset Dgraph calls. Shortest digits come from Rust's float
- * formatting, which finds the same shortest round-trip digits as Go's Ryū.
+ * formatting, which finds the same shortest round-trip digits as Go's shortFloat (src/internal/strconv/uscale.go);
+ * the port breaks a tie between two of them to the even one, as shortFloat does.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -369,7 +370,7 @@ fn underscore_ok(s: &[u8]) -> bool {
     saw != b'_'
 }
 
-/// A decimal float: Rust's parse is correctly rounded, as Go's Eisel-Lemire with its exact fallback is.
+/// A decimal float: Rust's parse is correctly rounded, as Go's unrounded scaling with its exact fallback is.
 fn atof_decimal(s: &[u8], bits: u32) -> (f64, bool) {
     let clean: String = s
         .iter()

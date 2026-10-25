@@ -2,7 +2,7 @@
  * Copyright 2010 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/time/format.go (parse, skip, getnum, parseNanoseconds, parseTimeZone, ParseError).
+ * Ported from Go 1.27, src/time/format.go (parse, skip, getnum, parseNanoseconds, parseTimeZone, ParseError).
  * Changed for ultragraphdb: translated to Rust; the layout elements of the layouts Dgraph's ParseTime tries.
  * Copyright (c) 2026. Marvin Hansen.
  */

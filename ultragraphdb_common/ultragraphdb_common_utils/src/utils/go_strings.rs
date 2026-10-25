@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/strings/strings.go (ToLower). Changed for ultragraphdb: translated to Rust.
+ * Ported from Go 1.27, src/strings/strings.go (ToLower). Changed for ultragraphdb: translated to Rust.
  * Copyright (c) 2026. Marvin Hansen.
  */
 

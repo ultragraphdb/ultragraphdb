@@ -4,8 +4,7 @@
  */
 
 //! Expected values are Go 1.27's `strconv.IsPrint` and `strconv.QuoteRune`, at Unicode 17.0.0: Go 1.27 builds
-//! Dgraph (its go.mod says `go 1.27.0`), and Go 1.26's tables, at Unicode 15.0.0, accept 148998 runes where Go
-//! 1.27's accept 159613.
+//! Dgraph (its go.mod says `go 1.27.0`), and its tables accept 159613 runes.
 
 use ultragraphdb_common_utils::go_strconv::{self, is_print};
 
@@ -35,8 +34,8 @@ fn test_is_print_follows_gos_tables() {
 
 #[test]
 fn test_is_print_is_unicode_17() {
-    // rune, IsPrint, QuoteRune: runes Unicode 16 and 17 assigned, which Go 1.26 escaped, and the unassigned ends
-    // of the planes beside them.
+    // rune, IsPrint, QuoteRune: runes Unicode 16 and 17 assigned, which Go 1.27 prints, and the ends of the planes
+    // beside them.
     let cases: [(char, bool, &str); 21] = [
         ('\u{1ae1}', true, "'\u{1ae1}'"),
         ('\u{1c89}', true, "'\u{1c89}'"),

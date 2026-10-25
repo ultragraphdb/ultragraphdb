@@ -5,13 +5,14 @@
 
 use ultragraphdb_store_sim::{Seed, Stream};
 
-const STREAMS: [Stream; 6] = [
+const STREAMS: [Stream; 7] = [
     Stream::Workload,
     Stream::Faults,
     Stream::Process,
     Stream::Scheduler,
     Stream::Cache,
     Stream::Executor,
+    Stream::Rereads,
 ];
 
 #[test]
@@ -32,6 +33,7 @@ fn test_the_streams_of_seed_7_are_pinned() {
         0xCD4E_BD3D_6E9A_094B,
         0xB6A1_54D4_8CCF_325B,
         0xF173_6137_5410_DF47,
+        0xC9C2_DB93_8275_8919,
     ];
     let firsts: Vec<u64> = STREAMS
         .iter()

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Expected values are Go 1.26's, printed by the strconv functions themselves.
+//! Expected values are Go 1.27's, printed by the strconv functions themselves.
 
 use ultragraphdb_common_utils::go_strconv;
 
@@ -575,6 +575,46 @@ fn test_parse_float_rounding_and_range_boundaries() {
     }
 }
 
+/// Go 1.27's `ParseFloat(s, 64)` and `ParseFloat(s, 32)` as bits around the decimal exponents its `atof64` and
+/// `atof32` pick off before scaling (src/internal/strconv/atof.go): above 10^310 and 10^40 to infinity, below 10^-345
+/// and 10^-70 to zero. The first six and `1e-70` are the seven cases Go 1.27 added to atof_test.go; the 20-digit
+/// mantissa is truncated to 19 and rounds as its 19-digit neighbour does.
+#[test]
+fn test_parse_float_go_1_27_exponent_cutoffs() {
+    const RANGE: &str = "value out of range";
+    type Bits = (
+        &'static str,
+        Result<u64, &'static str>,
+        Result<u64, &'static str>,
+    );
+    let cases: [Bits; 17] = [
+        ("1e-343", Ok(0x0), Ok(0x0)),
+        ("9.999999999999999999e-343", Ok(0x0), Ok(0x0)),
+        ("1e-65", Ok(0x3270d9976a5d5297), Ok(0x0)),
+        ("1e-64", Ok(0x32a50ffd44f4a73d), Ok(0x0)),
+        ("9.999999999999999999e-64", Ok(0x32da53fc9631d10d), Ok(0x0)),
+        ("1e-345", Ok(0x0), Ok(0x0)),
+        ("1e-346", Ok(0x0), Ok(0x0)),
+        ("-1e-346", Ok(0x8000000000000000), Ok(0x8000000000000000)),
+        ("4999999999999999999e-342", Ok(0x1), Ok(0x0)),
+        ("49999999999999999999e-343", Ok(0x1), Ok(0x0)),
+        ("1e310", Err(RANGE), Err(RANGE)),
+        ("1e311", Err(RANGE), Err(RANGE)),
+        ("-0.1e312", Err(RANGE), Err(RANGE)),
+        ("1e40", Ok(0x483d6329f1c35ca5), Err(RANGE)),
+        ("1e41", Ok(0x48725dfa371a19e7), Err(RANGE)),
+        ("1e-70", Ok(0x316615e91d8f359d), Ok(0x0)),
+        ("1e-71", Ok(0x3131ab20e472914a), Ok(0x0)),
+    ];
+    for (s, f64_want, f32_want) in cases {
+        for (bits, want) in [(64, f64_want), (32, f32_want)] {
+            let want = want.map_err(|e| format!("strconv.ParseFloat: parsing {s:?}: {e}"));
+            let got = text(go_strconv::parse_float(s, bits)).map(f64::to_bits);
+            assert_eq!(got, want, "{s:?} {bits}");
+        }
+    }
+}
+
 #[test]
 fn test_format_float_shortest() {
     // f, then FormatFloat(f, 'e'|'E'|'f'|'g'|'G', -1, 64) and FormatFloat(f, 'g', -1, 32).
@@ -734,12 +774,15 @@ fn test_format_float_shortest() {
     assert_eq!(go_strconv::format_float(-0.0, b'g', 64), "-0");
 }
 
-/// Floats whose two shortest candidates lie equally far from the value: Go 1.27's Ryū takes the even last digit,
-/// where Rust's own shortest formatting takes the odd one (`{:e}` of the first is `1.5339791363072593e15`).
+/// Floats whose two shortest candidates lie equally far from the value: Go 1.27's shortest formatting (`shortFloat`
+/// in src/internal/strconv/uscale.go) takes the even last digit, where Rust's own shortest formatting takes the odd
+/// one (`{:e}` of the first is `1.5339791363072593e15`). The last two are powers of two, whose lower neighbour lies
+/// half as far as the upper, each exactly halfway between its two shortest texts: float32 2^-12, `0.000244140625`,
+/// and float64 2^-25, which Rust prints as `2.9802322387695313e-8`.
 #[test]
 fn test_format_float_breaks_a_tie_to_even() {
     // bits, bit size, then FormatFloat(f, 'e'|'f'|'g', -1, bit size).
-    let cases: [(u64, u32, &str, &str, &str); 4] = [
+    let cases: [(u64, u32, &str, &str, &str); 6] = [
         (
             0x4315cc95660cc0ed,
             64,
@@ -767,6 +810,20 @@ fn test_format_float_breaks_a_tie_to_even() {
             "2.1939312e+04",
             "21939.312",
             "21939.312",
+        ),
+        (
+            0x3f30000000000000,
+            32,
+            "2.4414062e-04",
+            "0.00024414062",
+            "0.00024414062",
+        ),
+        (
+            0x3e60000000000000,
+            64,
+            "2.9802322387695312e-08",
+            "0.000000029802322387695312",
+            "2.9802322387695312e-08",
         ),
     ];
     for (bits, size, e, fx, g) in cases {

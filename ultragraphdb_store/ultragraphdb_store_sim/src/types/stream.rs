@@ -19,4 +19,6 @@ pub enum Stream {
     Cache,
     /// The order the stepped executor runs its tasks in.
     Executor,
+    /// The earlier reads a workload's readers make again through their open snapshots.
+    Rereads,
 }

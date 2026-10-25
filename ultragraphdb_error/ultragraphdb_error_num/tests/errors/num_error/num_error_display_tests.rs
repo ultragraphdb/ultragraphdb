@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_num::NumError;
 
-// Each expected text is Go 1.26's `(*strconv.NumError).Error()` for the same function and input, and each `num` is
+// Each expected text is Go 1.27's `(*strconv.NumError).Error()` for the same function and input, and each `num` is
 // Go's `strconv.Quote` of that input, both printed by a Go program; the first three inputs are Go's own
 // `numErrorTests` (src/strconv/number_test.go).
 

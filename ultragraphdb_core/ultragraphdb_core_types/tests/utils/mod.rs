@@ -12,6 +12,10 @@ mod earth_tests;
 #[cfg(test)]
 mod geofilter_tests;
 #[cfg(test)]
+mod go_sort_tests;
+#[cfg(test)]
+mod json_float_tests;
+#[cfg(test)]
 mod password_tests;
 #[cfg(test)]
 mod s2_tests;

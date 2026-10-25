@@ -298,6 +298,9 @@ The port is written test first, at two levels:
   packed UIDs, value encodings), golden vectors generated from the Go source sit under
   `testdata/golden/` and the Rust test reads them.
 
+The port's reference is Go 1.27, the toolchain Dgraph's `go.mod` names, including its default `encoding/json`, which
+runs on json v2.
+
 The order inside every task group is the same: scenarios and tests, then code, then refactoring with
 both green.
 
@@ -352,6 +355,8 @@ Panics:
 * Code under `src/` does not panic on any input. Where Dgraph panics, the port returns its crate's error with a clear
   message; the golden file keeps Go's panic as evidence, and the test names the case as a deviation. An `expect`
   remains only where a local invariant proves it cannot fire, and its message states the invariant.
+* `ultragraphdb_test_bdd`, the test harness, panics with a message naming the file or variable at fault and the fault,
+  because its callers are tests and a panic is how a test fails. Each panicking function states when under `# Panics`.
 
 Static Dispatch:
 * Use static dispatch

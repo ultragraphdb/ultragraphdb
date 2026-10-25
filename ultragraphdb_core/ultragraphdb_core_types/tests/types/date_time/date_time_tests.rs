@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Go's `time.Time` as Dgraph's datetimes use it. The expected values are Go 1.26's: `time.Date`, `Unix`,
+//! Go's `time.Time` as Dgraph's datetimes use it. The expected values are Go 1.27's: `time.Date`, `Unix`,
 //! `UnixNano`, `MarshalBinary`, `UnmarshalBinary` and `MarshalText`, printed by a Go program over the same inputs.
 
 use ultragraphdb_core_types::{DateTime, Zone};
@@ -38,22 +38,29 @@ const YEAR_ERR: &str = "Time.MarshalText: year outside of range [0,9999]";
 const HOUR_ERR: &str = "Time.MarshalText: timezone hour outside of range [0,23]";
 
 #[rustfmt::skip]
-const DATES: [DateCase; 33] = [
+const DATES: [DateCase; 36] = [
     DateCase { date: [2018, 10, 3, 8, 5, 1, 0], offset: UTC, unix: 1538553901, unix_nano: 1538553901000000000, nsec: 0,
         binary: Ok("010000000ed3466f2d00000000ffff"), back: Some((1538553901, 0, 0, true)), text: Ok("2018-10-03T08:05:01Z") },
     DateCase { date: [2018, 10, 3, 8, 5, 1, 0], offset: Some(0), unix: 1538553901, unix_nano: 1538553901000000000, nsec: 0,
         binary: Ok("010000000ed3466f2d000000000000"), back: Some((1538553901, 0, 0, false)), text: Ok("2018-10-03T08:05:01Z") },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(19815), unix: 1527498702, unix_nano: 1527498702000000000, nsec: 0,
         binary: Ok("020000000ed29dbece00000000014a0f"), back: Some((1527498702, 0, 19815, false)), text: Ok("2018-05-28T14:41:57+05:30") },
-    // Go writes the negative leftover seconds as a byte and reads them back as 241, not -15.
+    // Go writes the negative leftover seconds as a signed byte and reads them back as -15.
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-19815), unix: 1527538332, unix_nano: 1527538332000000000, nsec: 0,
-        binary: Ok("020000000ed29e599c00000000feb6f1"), back: Some((1527538332, 0, -19559, false)), text: Ok("2018-05-28T14:41:57-05:30") },
+        binary: Ok("020000000ed29e599c00000000feb6f1"), back: Some((1527538332, 0, -19815, false)), text: Ok("2018-05-28T14:41:57-05:30") },
+    // Go's TestMarshalBinaryVersion2Bugfix zone, -05:30:45.
+    DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-19845), unix: 1527538362, unix_nano: 1527538362000000000, nsec: 0,
+        binary: Ok("020000000ed29e59ba00000000feb6d3"), back: Some((1527538362, 0, -19845, false)), text: Ok("2018-05-28T14:41:57-05:30") },
+    DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-3599), unix: 1527522116, unix_nano: 1527522116000000000, nsec: 0,
+        binary: Ok("020000000ed29e1a4400000000ffc5c5"), back: Some((1527522116, 0, -3599, false)), text: Ok("2018-05-28T14:41:57-00:59") },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-60), unix: 1527518577, unix_nano: 1527518577000000000, nsec: 0,
         binary: Err(ZONE_ERR), back: None, text: Ok("2018-05-28T14:41:57-00:01") },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-59), unix: 1527518576, unix_nano: 1527518576000000000, nsec: 0,
-        binary: Ok("020000000ed29e0c70000000000000c5"), back: Some((1527518576, 0, 197, false)), text: Ok("2018-05-28T14:41:57+00:00") },
+        binary: Ok("020000000ed29e0c70000000000000c5"), back: Some((1527518576, 0, -59, false)), text: Ok("2018-05-28T14:41:57+00:00") },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(30), unix: 1527518487, unix_nano: 1527518487000000000, nsec: 0,
         binary: Ok("020000000ed29e0c170000000000001e"), back: Some((1527518487, 0, 30, false)), text: Ok("2018-05-28T14:41:57+00:00") },
+    DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(3599), unix: 1527514918, unix_nano: 1527514918000000000, nsec: 0,
+        binary: Ok("020000000ed29dfe2600000000003b3b"), back: Some((1527514918, 0, 3599, false)), text: Ok("2018-05-28T14:41:57+00:59") },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(86400), unix: 1527432117, unix_nano: 1527432117000000000, nsec: 0,
         binary: Ok("010000000ed29cbab50000000005a0"), back: Some((1527432117, 0, 86400, false)), text: Err(HOUR_ERR) },
     DateCase { date: [2018, 5, 28, 14, 41, 57, 0], offset: Some(-86400), unix: 1527604917, unix_nano: 1527604917000000000, nsec: 0,
@@ -163,7 +170,7 @@ fn binary(version: u8, sec: i64, nsec: u32, offset_min: i16, extra: &[u8]) -> Ve
 fn test_unmarshal_binary_as_go_reads_it() {
     // The internal seconds of the Unix epoch.
     const EPOCH: i64 = 62135596800;
-    // (input, Unix seconds, nanoseconds, offset, UTC), each Go 1.26's.
+    // (input, Unix seconds, nanoseconds, offset, UTC), each Go 1.27's.
     let cases = [
         (binary(1, EPOCH, 0, -1, &[]), 0, 0, 0, true),
         (
@@ -198,10 +205,27 @@ fn test_unmarshal_binary_as_go_reads_it() {
             0,
             true,
         ),
-        (binary(2, EPOCH, 0, 0, &[0xff]), 0, 0, 255, false),
+        // Version 2's leftover seconds are a signed byte.
+        (binary(2, EPOCH, 0, 0, &[0xff]), 0, 0, -1, false),
+        (binary(2, EPOCH, 0, 0, &[0x80]), 0, 0, -128, false),
+        (binary(2, EPOCH, 0, 0, &[0x7f]), 0, 0, 127, false),
+        (binary(2, EPOCH, 0, 0, &[0xc5]), 0, 0, -59, false),
+        // 0 minutes and -60 seconds is offset -60, which Go reads as UTC.
+        (binary(2, EPOCH, 0, 0, &[0xc4]), 0, 0, 0, true),
+        (binary(2, EPOCH, 0, 1, &[0xc4]), 0, 0, 0, false),
         (binary(2, EPOCH, 0, -1, &[0x00]), 0, 0, 0, true),
         // -1 minute and 60 seconds is offset 0, a fixed zone and not UTC.
         (binary(2, EPOCH, 0, -1, &[0x3c]), 0, 0, 0, false),
+        (binary(2, EPOCH, 0, -1, &[0xc4]), 0, 0, -120, false),
+        (binary(2, EPOCH, 0, -1, &[0xff]), 0, 0, -61, false),
+        (
+            binary(2, EPOCH, 0, i16::MIN, &[0x80]),
+            0,
+            0,
+            -1966208,
+            false,
+        ),
+        (binary(2, EPOCH, 0, i16::MAX, &[0x7f]), 0, 0, 1966147, false),
         (binary(1, EPOCH, 0, 0, &[]), 0, 0, 0, false),
         (binary(1, 0, 0, -1, &[]), -EPOCH, 0, 0, true),
         (binary(1, -1, 0, -1, &[]), -EPOCH - 1, 0, 0, true),
@@ -313,7 +337,7 @@ fn test_zero_before_and_equal() {
 
 #[test]
 fn test_new_with_extreme_fields_wraps_as_go_does() {
-    // Go's time.Date wraps its int arithmetic; the port's overflowed. Go 1.26's Unix and Nanosecond of each.
+    // Go's time.Date wraps its int arithmetic; the port's overflowed. Go 1.27's Unix and Nanosecond of each.
     let want: [[(i64, u32); 4]; 2] = [
         [
             (1133525477, 0),

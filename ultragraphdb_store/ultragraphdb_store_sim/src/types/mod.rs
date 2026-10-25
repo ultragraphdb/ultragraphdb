@@ -11,6 +11,7 @@ pub mod drop_stage;
 pub mod event;
 pub mod fault;
 pub mod fault_config;
+pub mod fuzz_args;
 pub mod invariant;
 pub mod log_capture;
 pub mod op_record;

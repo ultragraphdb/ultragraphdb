@@ -16,6 +16,15 @@ pub enum Invariant {
     SurvivorsArePrefix,
     /// A read returns the newest version written at or below its timestamp, and nothing else.
     ReadsAtOrBelowTimestamp,
+    /// A read made again through an open snapshot returns what it returned the first time, items and errors alike:
+    /// a snapshot is a consistent view. The rule needs no model of garbage collection or corruption, so it also
+    /// compares the corrupted keys the other read checks leave out. Two changes are allowed. An injected read
+    /// failure (`ReadFailed`) is not the snapshot's answer, so a scan it cuts short is compared only up to the
+    /// failure. A corruption injected since the first read, which an open snapshot sees as fjall's does, lets every
+    /// read covering its key answer anew in each snapshot of the data at or above the corrupted version. A snapshot
+    /// holds the answers of at most 64 reads at once; a read past them is not compared until a corruption frees a
+    /// place.
+    SnapshotReadsRepeat,
     /// A snapshot opens exactly when its timestamp is at or above the discard timestamp in effect, and the discard
     /// timestamp stays at or below every open snapshot.
     DiscardBelowOpenReads,

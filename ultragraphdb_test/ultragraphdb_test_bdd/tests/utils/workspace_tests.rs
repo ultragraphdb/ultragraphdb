@@ -4,8 +4,10 @@
  */
 
 use std::env;
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Output};
 
 use ultragraphdb_test_bdd::{features_dir, testdata_dir};
 
@@ -50,9 +52,8 @@ fn child_reports_the_dirs() {
     }
 }
 
-/// Runs `child_reports_the_dirs` in a fresh process with the given environment, and returns the two directories it
-/// printed, or `None` if the child failed. libtest prints the first after its own `test <name> ...` on one line.
-fn dirs_in(set: &[(&str, &str)]) -> Option<(String, String)> {
+/// Runs `child_reports_the_dirs` in a fresh process with only the given build-system variables set.
+fn run_child(set: &[(&str, &OsStr)]) -> Output {
     let mut cmd = Command::new(env::current_exe().unwrap());
     cmd.args([
         "utils::workspace_tests::child_reports_the_dirs",
@@ -72,7 +73,14 @@ fn dirs_in(set: &[(&str, &str)]) -> Option<(String, String)> {
     for (key, value) in set {
         cmd.env(key, value);
     }
-    let out = cmd.output().unwrap();
+    cmd.output().unwrap()
+}
+
+/// Runs `child_reports_the_dirs` in a fresh process with the given environment, and returns the two directories it
+/// printed, or `None` if the child failed. libtest prints the first after its own `test <name> ...` on one line.
+fn dirs_in(set: &[(&str, &str)]) -> Option<(String, String)> {
+    let set: Vec<(&str, &OsStr)> = set.iter().map(|(k, v)| (*k, OsStr::new(*v))).collect();
+    let out = run_child(&set);
     if !out.status.success() {
         return None;
     }
@@ -149,5 +157,42 @@ fn without_every_bazel_variable_the_cargo_manifest_dir_is_used() {
             )),
             "{set:?}"
         );
+    }
+}
+
+#[test]
+fn without_bazel_or_cargo_variables_the_dirs_panic_naming_the_variable() {
+    let cases: [(&[(&str, &OsStr)], &str); 4] = [
+        (
+            &[],
+            "CARGO_MANIFEST_DIR is set by cargo for tests: NotPresent",
+        ),
+        (
+            &[("CARGO_MANIFEST_DIR", OsStr::from_bytes(b"/m\xff"))],
+            r#"CARGO_MANIFEST_DIR is set by cargo for tests: NotUnicode("/m\xFF")"#,
+        ),
+        // Two of Bazel's three variables leave the choice to Cargo's, which is absent.
+        (
+            &[
+                ("TEST_SRCDIR", OsStr::new("/runfiles")),
+                ("TEST_WORKSPACE", OsStr::new("_main")),
+            ],
+            "CARGO_MANIFEST_DIR is set by cargo for tests: NotPresent",
+        ),
+        // All three of Bazel's, one of them not Unicode, count as unset.
+        (
+            &[
+                ("TEST_SRCDIR", OsStr::new("/runfiles")),
+                ("TEST_WORKSPACE", OsStr::new("_main")),
+                ("TEST_TARGET", OsStr::from_bytes(b"//a/\xff:c")),
+            ],
+            "CARGO_MANIFEST_DIR is set by cargo for tests: NotPresent",
+        ),
+    ];
+    for (set, message) in cases {
+        let out = run_child(set);
+        assert!(!out.status.success(), "{set:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(stderr.lines().any(|l| l == message), "{set:?}: {stderr}");
     }
 }

@@ -84,6 +84,258 @@ fn test_quick_select() {
     }
 }
 
+/// One-column int rows, `None` a nil value, with uids 100, 200, ...
+fn int_rows(input: &[Option<i64>]) -> (Vec<Vec<Val>>, Vec<u64>) {
+    let rows = input
+        .iter()
+        .map(|v| {
+            vec![v.map_or(Val::nil(TypeId::INT), |i| {
+                Val::new(TypeId::INT, Value::Int(i))
+            })]
+        })
+        .collect();
+    (rows, get_uid_list(input.len()))
+}
+
+/// The rows' values after a sort, `None` a nil value.
+fn int_values(rows: &[Vec<Val>]) -> Vec<Option<i64>> {
+    rows.iter()
+        .map(|r| match r[0].value() {
+            Some(Value::Int(i)) => Some(*i),
+            None => None,
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// Runs `sort_top_n` over `input` for each `n` and checks the uids and values against one expected order.
+fn assert_top_n(
+    input: &[Option<i64>],
+    desc: bool,
+    ns: &[usize],
+    uids: &[u64],
+    values: &[Option<i64>],
+) {
+    for &n in ns {
+        let (mut rows, mut ul) = int_rows(input);
+        sort_top_n(&mut rows, &mut ul, &[desc], "", n, &TextCollator).unwrap();
+        assert_eq!(ul, uids, "uids, desc {desc}, n {n}");
+        assert_eq!(int_values(&rows), values, "values, desc {desc}, n {n}");
+    }
+}
+
+// The expected orders for n up to the row count are Go 1.27's types.SortTopN over the same rows (Dgraph
+// v25 types/sort.go:95); past the row count Go panics with `slice bounds out of range [:n] with capacity
+// len`, and the port returns the order of n equal to the row count, as SQL's LIMIT and Dgraph's first: do.
+
+#[test]
+fn test_sort_top_n_with_nil_values_and_ties() {
+    let input = [
+        Some(5),
+        Some(3),
+        None,
+        Some(3),
+        Some(1),
+        Some(5),
+        None,
+        Some(2),
+    ];
+    let asc = [
+        Some(1),
+        Some(2),
+        Some(3),
+        Some(3),
+        Some(5),
+        Some(5),
+        None,
+        None,
+    ];
+    assert_top_n(
+        &input,
+        false,
+        &[0, 1, 2, 3, 5, 6, 7, 8, 9, 100, usize::MAX],
+        &[500, 800, 200, 400, 100, 600, 700, 300],
+        &asc,
+    );
+    let desc = [
+        Some(5),
+        Some(5),
+        Some(3),
+        Some(3),
+        Some(2),
+        Some(1),
+        None,
+        None,
+    ];
+    assert_top_n(
+        &input,
+        true,
+        &[0, 2, 3, 6],
+        &[100, 600, 200, 400, 800, 500, 700, 300],
+        &desc,
+    );
+    // Sorting all eight rows swaps the two nil rows: Dgraph's Less of two nil values is the direction.
+    assert_top_n(
+        &input,
+        true,
+        &[8, 9, usize::MAX],
+        &[100, 600, 200, 400, 800, 500, 300, 700],
+        &desc,
+    );
+}
+
+#[test]
+fn test_sort_top_n_counts_past_the_rows_sort_every_row() {
+    // Twelve values and a nil: n of 13 sorts the nil row too, and Go's pdqsort then orders the ties
+    // differently from the insertion sort quickselect ends in.
+    let input = [
+        Some(7),
+        Some(3),
+        Some(9),
+        Some(3),
+        Some(11),
+        Some(0),
+        Some(-4),
+        Some(8),
+        Some(3),
+        Some(12),
+        Some(-4),
+        Some(6),
+        None,
+    ];
+    let values = [
+        Some(-4),
+        Some(-4),
+        Some(0),
+        Some(3),
+        Some(3),
+        Some(3),
+        Some(6),
+        Some(7),
+        Some(8),
+        Some(9),
+        Some(11),
+        Some(12),
+        None,
+    ];
+    assert_top_n(
+        &input,
+        false,
+        &[0, 1, 4, 5, 12],
+        &[
+            700, 1100, 600, 200, 400, 900, 1200, 100, 800, 300, 500, 1000, 1300,
+        ],
+        &values,
+    );
+    assert_top_n(
+        &input,
+        false,
+        &[13, 14, usize::MAX],
+        &[
+            1100, 700, 600, 400, 900, 200, 1200, 100, 800, 300, 500, 1000, 1300,
+        ],
+        &values,
+    );
+}
+
+#[test]
+fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
+    let input: Vec<Option<i64>> = [
+        14, 2, 27, 2, 9, 30, 5, 18, 2, 21, 11, 0, 25, 7, 16, 9, 3, 29, 12, 1, 23, 9, 6, 19, 8, 28,
+        4, 15, 10, 22,
+    ]
+    .into_iter()
+    .map(Some)
+    .collect();
+    let some = |v: &[i64]| v.iter().copied().map(Some).collect::<Vec<_>>();
+    assert_top_n(
+        &input,
+        false,
+        &[0, 1, 3, 4],
+        &[
+            1200, 2000, 200, 400, 900, 1700, 2700, 700, 1400, 1600, 2900, 1900, 100, 2200, 2300,
+            2500, 1100, 2800, 500, 1500, 2100, 600, 3000, 2400, 1000, 2600, 300, 1800, 800, 1300,
+        ],
+        &some(&[
+            0, 1, 2, 2, 2, 3, 4, 5, 7, 9, 10, 12, 14, 9, 6, 8, 11, 15, 9, 16, 23, 30, 22, 19, 21,
+            28, 27, 29, 18, 25,
+        ]),
+    );
+    assert_top_n(
+        &input,
+        false,
+        &[10],
+        &[
+            1200, 2000, 200, 400, 900, 1700, 2700, 700, 2300, 1400, 2500, 1600, 500, 2200, 2900,
+            1900, 1100, 2800, 100, 1500, 2100, 600, 3000, 2400, 1000, 2600, 300, 1800, 800, 1300,
+        ],
+        &some(&[
+            0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 12, 11, 15, 14, 16, 23, 30, 22, 19, 21,
+            28, 27, 29, 18, 25,
+        ]),
+    );
+    let sorted = some(&[
+        0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 11, 12, 14, 15, 16, 18, 19, 21, 22, 23, 25,
+        27, 28, 29, 30,
+    ]);
+    assert_top_n(
+        &input,
+        false,
+        &[29],
+        &[
+            1200, 2000, 200, 400, 900, 1700, 2700, 700, 2300, 1400, 2500, 1600, 2200, 500, 2900,
+            1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
+        ],
+        &sorted,
+    );
+    assert_top_n(
+        &input,
+        false,
+        &[30, 31, usize::MAX],
+        &[
+            1200, 2000, 900, 200, 400, 1700, 2700, 700, 2300, 1400, 2500, 500, 1600, 2200, 2900,
+            1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
+        ],
+        &sorted,
+    );
+    assert_top_n(
+        &input,
+        true,
+        &[3],
+        &[
+            600, 1800, 2600, 300, 1300, 3000, 1000, 2100, 2400, 800, 1500, 1200, 500, 1400, 200,
+            1600, 1700, 700, 1900, 2000, 100, 2200, 2300, 900, 2500, 400, 2700, 2800, 2900, 1100,
+        ],
+        &some(&[
+            30, 29, 28, 27, 25, 22, 21, 23, 19, 18, 16, 0, 9, 7, 2, 9, 3, 5, 12, 1, 14, 9, 6, 2, 8,
+            2, 4, 15, 10, 11,
+        ]),
+    );
+    assert_top_n(
+        &input,
+        true,
+        &[30, 31, usize::MAX],
+        &[
+            600, 1800, 2600, 300, 1300, 2100, 3000, 1000, 2400, 800, 1500, 2800, 100, 1900, 1100,
+            2900, 500, 1600, 2200, 2500, 1400, 2300, 700, 2700, 1700, 400, 900, 200, 2000, 1200,
+        ],
+        &some(&[
+            30, 29, 28, 27, 25, 23, 22, 21, 19, 18, 16, 15, 14, 12, 11, 10, 9, 9, 9, 8, 7, 6, 5, 4,
+            3, 2, 2, 2, 1, 0,
+        ]),
+    );
+}
+
+#[test]
+fn test_sort_top_n_of_no_rows() {
+    for n in [0, 1, 5, usize::MAX] {
+        let (mut rows, mut ul) = int_rows(&[]);
+        sort_top_n(&mut rows, &mut ul, &[false], "", n, &TextCollator).unwrap();
+        assert!(rows.is_empty(), "n {n}");
+        assert!(ul.is_empty(), "n {n}");
+    }
+}
+
 #[test]
 fn test_sort_strings() {
     let mut list = get_input(TypeId::STRING, &["bb", "aaa", "aa", "bab"]);

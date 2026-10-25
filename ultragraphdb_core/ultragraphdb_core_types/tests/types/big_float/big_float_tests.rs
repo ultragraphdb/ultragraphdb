@@ -166,7 +166,7 @@ fn test_conversions() {
     );
 }
 
-/// Go 1.26's `Text('g', p)` for p in -1, 0, 1, 2, 5, 10 and 20, `Float64` and `Int64` of each value at 200 bits.
+/// Go 1.27's `Text('g', p)` for p in -1, 0, 1, 2, 5, 10 and 20, `Float64` and `Int64` of each value at 200 bits.
 #[test]
 fn test_text_g_float64_and_int64_as_go_writes_them() {
     #[rustfmt::skip]
@@ -200,7 +200,7 @@ fn test_text_g_float64_and_int64_as_go_writes_them() {
     }
 }
 
-/// Go 1.26's `new(Float).SetPrec(p).Quo(x, y)` of int64 operands, as `Text('g', -1)` writes it.
+/// Go 1.27's `new(Float).SetPrec(p).Quo(x, y)` of int64 operands, as `Text('g', -1)` writes it.
 #[test]
 fn test_quo_rounds_as_go_does() {
     let cases: [((i64, i64), [&str; 5]); 6] = [
@@ -454,7 +454,7 @@ fn test_go_float_float64() {
 
 #[test]
 fn test_unmarshal_errors() {
-    // Go 1.26's UnmarshalText at 200 bits: the reason each text is refused.
+    // Go 1.27's UnmarshalText at 200 bits: the reason each text is refused.
     let refused = [
         ("NaN", "number has no digits"),
         ("", "EOF"),
@@ -545,5 +545,37 @@ fn test_an_exponent_past_int64_is_an_overflow() {
             BigFloat::unmarshal_text(text, 200).unwrap_err(),
             format!("math/big: cannot unmarshal {text:?} into a *big.Float (exponent overflow)")
         );
+    }
+}
+
+/// Go 1.27's TestRoundShortestNormal (math/big/floatconv_test.go, go.dev/issue/80206) and its neighbours: Go 1.27's
+/// `Text('g', -1)` of a float64 at 53 bits.
+#[test]
+fn test_round_shortest_of_float64_as_go_1_27_writes_it() {
+    // (value, Go 1.27's Text('g', -1) at 53 bits, strconv.FormatFloat's text); a trailing comment is the 17-digit
+    // text one unit lower in the last digit, which TestRoundShortestNormal rules out.
+    let cases: [(f64, &str); 15] = [
+        (4.3749999999999917e+17, "4.3749999999999917e+17"), // 4.3749999999999916e+17
+        (-4.9999999999999917e+17, "-4.9999999999999917e+17"), // -4.9999999999999916e+17
+        (4.7619047619047597e+17, "4.7619047619047597e+17"), // 4.7619047619047596e+17
+        (3.7499999999999917e+17, "3.7499999999999917e+17"), // 3.7499999999999916e+17
+        (1.9047619047619039e+18, "1.9047619047619039e+18"), // 1.9047619047619038e+18
+        // m is '9' at upper's trimmed position, where rounding up would carry onto the exclusive upper bound.
+        (1.1138394197049199e+18, "1.1138394197049199e+18"),
+        // Each value is exactly halfway between two 17-digit texts (…340.25 and …650.25), and Go writes the even
+        // digit, as strconv.FormatFloat does.
+        (1.3278304342933403e15, "1.3278304342933402e+15"),
+        (2.1912324881206503e15, "2.1912324881206502e+15"),
+        (f64::MAX, "1.7976931348623157e+308"),
+        (f64::MIN_POSITIVE, "2.2250738585072014e-308"),
+        (1.0, "1"),
+        (0.1, "0.1"),
+        // A denormal holds fewer than 53 bits, so 53 bits distinguish more digits than float64 does.
+        (5e-324, "4.940656458412465e-324"),
+        (-1.5e-323, "-1.4821969375237396e-323"),
+        (2.225073858507201e-308, "2.225073858507201e-308"),
+    ];
+    for (x, want) in cases {
+        assert_eq!(BigFloat::from_f64(x, 53).unwrap().text_g(-1), want, "{x:e}");
     }
 }

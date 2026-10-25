@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from the Go standard library, unicode (IsLetter, IsDigit, Is over a range table, ToLower). Changed for
+ * Ported from Go 1.27, src/unicode (IsLetter, IsDigit, Is over a range table, ToLower). Changed for
  * ultragraphdb: translated to Rust over the tables tools/golden/tok_tables and tools/golden/text_tables generate
  * from the Go toolchain building Dgraph.
  * Copyright (c) 2026. Marvin Hansen.

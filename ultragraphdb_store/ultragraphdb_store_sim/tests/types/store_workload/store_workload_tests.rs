@@ -94,3 +94,52 @@ fn test_mixed_faults_stop_rebuilds_and_fail_temporary_writes() {
         );
     }
 }
+
+/// The read a trace line records without its answer, the snapshot's id first, and whether the answer failed.
+fn read_of(line: &str) -> Option<(&str, bool)> {
+    if !["Read {", "ReadMany {", "Scanned {"]
+        .iter()
+        .any(|kind| line.starts_with(kind))
+    {
+        return None;
+    }
+    let (read, answer) = line
+        .split_once(", result: ")
+        .or_else(|| line.split_once(", items: "))?;
+    Some((read, answer.contains("Err(StoreError")))
+}
+
+/// A reader makes earlier reads again through its open snapshot, after other actors' steps, and makes a failed read
+/// again at each of its later steps: what the repeat invariant compares.
+#[test]
+fn test_readers_make_earlier_reads_again_through_their_snapshots() {
+    let trace = StoreWorkload::run(Seed::new(3), FaultConfig::none(), 300, 2)
+        .unwrap()
+        .trace()
+        .to_vec();
+    let reads: Vec<&str> = trace
+        .iter()
+        .filter_map(|l| read_of(l))
+        .map(|(r, _)| r)
+        .collect();
+    let mut seen = std::collections::BTreeSet::new();
+    let again = reads.iter().filter(|r| !seen.insert(**r)).count();
+    assert_eq!((reads.len(), again), (214, 61));
+
+    let trace: Vec<String> = (0..8)
+        .flat_map(|s| {
+            StoreWorkload::run(Seed::new(s), FaultConfig::mixed(), 300, 2)
+                .unwrap()
+                .trace()
+                .to_vec()
+        })
+        .collect();
+    let reads: Vec<(&str, bool)> = trace.iter().filter_map(|l| read_of(l)).collect();
+    let failed = reads.iter().filter(|(_, failed)| *failed).count();
+    let retried = reads
+        .iter()
+        .enumerate()
+        .filter(|(at, (read, failed))| *failed && reads[at + 1..].iter().any(|(r, _)| r == read))
+        .count();
+    assert_eq!((failed, retried), (33, 22));
+}

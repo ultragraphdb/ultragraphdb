@@ -2,7 +2,7 @@
  * Copyright 2015 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/math/big/floatconv.go (Parse, scan, pow5), natconv.go (nat.scan), ratconv.go
+ * Ported from Go 1.27, src/math/big/floatconv.go (Parse, scan, pow5), natconv.go (nat.scan), ratconv.go
  * (scanExponent) and intconv.go (scanSign). Changed for ultragraphdb: translated to Rust onto dashu-int.
  * Copyright (c) 2026. Marvin Hansen.
  */

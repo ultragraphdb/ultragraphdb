@@ -2,7 +2,7 @@
  * Copyright 2009 The Go Authors. All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Ported from Go 1.26, src/time/time.go (AppendBinary, UnmarshalBinary). Changed for ultragraphdb: translated to Rust.
+ * Ported from Go 1.27, src/time/time.go (AppendBinary, UnmarshalBinary). Changed for ultragraphdb: translated to Rust.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -16,7 +16,7 @@ const WALL_TO_INTERNAL: i64 = (1884 * 365 + 1884 / 4 - 1884 / 100 + 1884 / 400) 
 
 impl DateTime {
     /// Go's `MarshalBinary`: version, seconds since year 1 and nanoseconds big-endian, the zone offset in minutes
-    /// (`-1` for UTC), and in version 2 the offset's leftover seconds.
+    /// (`-1` for UTC), and in version 2 the offset's leftover seconds as a signed byte.
     pub fn marshal_binary(&self) -> Result<Vec<u8>, TypesError> {
         let mut version = VERSION_V1;
         let mut offset_sec: i8 = 0;
@@ -47,7 +47,8 @@ impl DateTime {
         Ok(b)
     }
 
-    /// Go's `UnmarshalBinary`. An offset of -1 minute is UTC; any other offset is a fixed zone.
+    /// Go's `UnmarshalBinary`. Version 2 adds its signed byte of leftover seconds to the offset. An offset of -60
+    /// seconds is UTC; any other offset is a fixed zone.
     pub fn unmarshal_binary(data: &[u8]) -> Result<DateTime, TypesError> {
         if data.is_empty() {
             return Err(TypesError::time("Time.UnmarshalBinary: no data"));
@@ -71,7 +72,7 @@ impl DateTime {
                 .expect("bytes 13 to 15 of 15 or more"),
         )) * 60;
         if version == VERSION_V2 {
-            offset += i32::from(data[15]);
+            offset += i32::from(data[15] as i8);
         }
         let zone = if offset == -60 {
             Zone::Utc
