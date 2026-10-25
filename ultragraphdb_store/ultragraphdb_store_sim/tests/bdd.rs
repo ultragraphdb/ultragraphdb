@@ -81,9 +81,16 @@ fn runs_equal(w: &mut Steps) {
         "Slowed",
         "ReadFailed",
     ];
+    // A fault is a record of its own, or, for a failed read, the error a read record carries.
     let injected: BTreeSet<&str> = faults
         .into_iter()
-        .filter(|f| first.trace().iter().any(|line| line.contains(f)))
+        .filter(|f| {
+            first.trace().iter().any(|line| {
+                line == f
+                    || line.starts_with(&format!("{f} {{"))
+                    || (*f == "ReadFailed" && line.contains("ReadFailed("))
+            })
+        })
         .collect();
     assert!(injected.len() >= 3, "the run injected only {injected:?}");
 }
@@ -208,7 +215,14 @@ fn interrupted_drop(w: &mut Steps) {
                 0x01,
                 b"s".to_vec(),
             )]);
-            assert!(result.is_err(), "the drop is interrupted at {stage:?}");
+            assert_eq!(
+                result,
+                Err(StoreError::WriteFailed(
+                    "simulated power loss during a drop".into()
+                )),
+                "the drop is interrupted at {stage:?}"
+            );
+            assert!(store.needs_recovery());
             store.recover();
             (store.contents(), 0)
         })
@@ -256,12 +270,11 @@ fn reported(w: &mut Steps) {
         .expect_err("the run breaks an invariant");
     assert_eq!(violation.invariant(), Invariant::NoWriteBelowDeletion);
     assert_eq!((violation.seed(), violation.step()), (Seed::new(99), 1));
-    let text = violation.to_string();
-    assert!(
-        text.starts_with("seed 99 step 1 broke the invariant that no write lands below a deletion"),
-        "{text}"
+    assert_eq!(
+        violation.to_string(),
+        "seed 99 step 1 broke the invariant that no write lands below a deletion of the same key: \
+         key 006b6579 written at 5 below its deletion at 10; replay it with seed 99"
     );
-    assert!(text.ends_with("replay it with seed 99"), "{text}");
 }
 
 fn main() {

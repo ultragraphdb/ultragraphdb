@@ -21,6 +21,16 @@ fn test_bytes_to_float() {
         bytes_to_float::<f64>(&0.5f32.to_le_bytes(), FloatBits::F32),
         Ok(0.5)
     );
+    assert_eq!(
+        bytes_to_float::<f64>(&f64::NEG_INFINITY.to_le_bytes(), FloatBits::F64),
+        Ok(f64::NEG_INFINITY)
+    );
+    assert!(bytes_to_float::<f32>(&f32::NAN.to_le_bytes(), FloatBits::F32).is_ok_and(f32::is_nan));
+    assert_eq!(
+        bytes_to_float::<f32>(&[0, 0, 0, 0x80], FloatBits::F32).map(f32::to_bits),
+        Ok(0x8000_0000),
+        "negative zero keeps its sign"
+    );
     // Bytes past the width are not read, as in Go.
     assert_eq!(
         bytes_to_float::<f32>(&[0, 0, 0xc0, 0x3f, 9], FloatBits::F32),
@@ -35,7 +45,21 @@ fn test_bytes_to_float_of_too_few_bytes_is_refused() {
     let err = bytes_to_float::<f64>(&[1, 2, 3], FloatBits::F64).expect_err("three bytes");
     assert_eq!(err.0, TokErrorEnum::ShortFloat { len: 3, bits: 64 });
     assert_eq!(err.to_string(), "cannot read a 64-bit float from 3 bytes");
-    assert!(bytes_to_float::<f32>(&[], FloatBits::F32).is_err());
+    for (len, bits) in [
+        (0, FloatBits::F32),
+        (3, FloatBits::F32),
+        (0, FloatBits::F64),
+        (7, FloatBits::F64),
+    ] {
+        let err = bytes_to_float::<f64>(&vec![0; len], bits).expect_err("too few bytes");
+        assert_eq!(
+            err.0,
+            TokErrorEnum::ShortFloat {
+                len,
+                bits: bits.bits()
+            }
+        );
+    }
     assert_eq!((FloatBits::F32.bits(), FloatBits::F64.bits()), (32, 64));
 }
 
@@ -54,9 +78,17 @@ fn test_bytes_as_float_array() {
         vec![1.0, -2.0, 3.5],
         "a partial float leaves the result as it was"
     );
-    let mut wide: Vec<f64> = Vec::new();
+    // The eight bytes of 1.0f32 and -2.0f32, 00 00 80 3F 00 00 00 C0, read as one little-endian f64.
+    let mut wide: Vec<f64> = vec![7.0, 7.0];
     bytes_as_float_array(&bytes[..8], &mut wide, FloatBits::F64);
-    assert_eq!(wide.len(), 1);
+    assert_eq!(wide, vec![f64::from_bits(0xC000_0000_3F80_0000)]);
+    // A length that is a multiple of four but not of eight leaves an f64 result as it was.
+    bytes_as_float_array(&bytes, &mut wide, FloatBits::F64);
+    assert_eq!(wide, vec![f64::from_bits(0xC000_0000_3F80_0000)]);
+    // f32 widths read into f64 are exact.
+    let mut widened: Vec<f64> = Vec::new();
+    bytes_as_float_array(&bytes, &mut widened, FloatBits::F32);
+    assert_eq!(widened, vec![1.0, -2.0, 3.5]);
     bytes_as_float_array(&[], &mut out, FloatBits::F32);
     assert!(out.is_empty());
 }

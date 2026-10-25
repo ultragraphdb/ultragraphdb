@@ -10,7 +10,7 @@
 use serde::Deserialize;
 use ultragraphdb_core_types::{
     GeoQueryData, Geometry, Layout, MAX_CELL_LEVEL, MIN_CELL_LEVEL, QueryType, TypeId, Val, Value,
-    convert, get_geo_tokens, match_geo, query_tokens_geo,
+    convert, get_geo_tokens, is_geo_func, match_geo, query_tokens_geo,
 };
 use ultragraphdb_proto_pb::pb;
 
@@ -87,7 +87,10 @@ fn test_query_tokens_polygon() {
 #[test]
 fn test_query_tokens_polygon_error() {
     let data = form_data(&load_polygon("zip.json"));
-    assert!(query_tokens(QueryType::Near, &data, 0.0).is_err());
+    assert_eq!(
+        query_tokens(QueryType::Near, &data, 0.0).unwrap_err(),
+        "Require a point for a within query."
+    );
 }
 
 #[test]
@@ -113,7 +116,172 @@ fn test_query_tokens_near() {
 #[test]
 fn test_query_tokens_near_error() {
     let data = form_data(&pt(-122.082506, 37.4249518));
-    assert!(query_tokens(QueryType::Near, &data, 0.0).is_err());
+    for d in [0.0, -1.0] {
+        assert_eq!(
+            query_tokens(QueryType::Near, &data, d).unwrap_err(),
+            "Invalid max distance specified for a near query",
+            "{d}"
+        );
+    }
+}
+
+#[test]
+fn test_is_geo_func() {
+    // Dgraph's IsGeoFunc matches the four names exactly; GetGeoTokens lowercases, IsGeoFunc does not.
+    for (name, want) in [
+        ("near", true),
+        ("contains", true),
+        ("within", true),
+        ("intersects", true),
+        ("Near", false),
+        ("NEAR", false),
+        ("", false),
+        ("between", false),
+        ("near ", false),
+    ] {
+        assert_eq!(is_geo_func(name), want, "{name:?}");
+    }
+}
+
+/// Go v25.5.0's `GetGeoTokens` refusals the golden queries leave out, with Go's texts: argument counts, distances
+/// `ParseFloat` refuses, polygons `convertToGeom` refuses, and geometries no geo query takes.
+#[test]
+fn test_get_geo_tokens_refusals() {
+    const SQ: &str = "[[[-122, 37], [-123, 37], [-123, 38], [-122, 38], [-122, 37]]]";
+    let cases: [(&str, &[&str], &str); 21] = [
+        (
+            "contains",
+            &[SQ, SQ],
+            "contains function requires 1 arguments, but got 2",
+        ),
+        (
+            "contains",
+            &[],
+            "contains function requires 1 arguments, but got 0",
+        ),
+        (
+            "intersects",
+            &[],
+            "intersects function requires 1 arguments, but got 0",
+        ),
+        (
+            "intersects",
+            &[SQ, "1"],
+            "intersects function requires 1 arguments, but got 2",
+        ),
+        (
+            "near",
+            &["[1,2]", "1", "2"],
+            "near function requires 2 arguments, but got 3",
+        ),
+        (
+            "near",
+            &["[1,2]", "1e400"],
+            "Error while converting distance to float: strconv.ParseFloat: parsing \"1e400\": value out of range",
+        ),
+        (
+            "near",
+            &["[1,2]", ""],
+            "Error while converting distance to float: strconv.ParseFloat: parsing \"\": invalid syntax",
+        ),
+        (
+            "within",
+            &[r#"{"type":"Polygon","coordinates":[]}"#],
+            "Got empty polygon.",
+        ),
+        (
+            "within",
+            &[r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,1]]]]}"#],
+            "Last coord not same as first",
+        ),
+        (
+            "within",
+            &["[[[0,0],[1,0],[1,1]]]"],
+            "Last coord not same as first",
+        ),
+        (
+            "within",
+            &["[[[[0,0],[1,0],[1,1],[0,1]]]]"],
+            "Last coord not same as first",
+        ),
+        (
+            "within",
+            &["[1, 2, 3]"],
+            "Covering only available for 2D co-ordinates.",
+        ),
+        (
+            "within",
+            &["[[[1,2]"],
+            "Invalid coordinates: unexpected end of JSON input",
+        ),
+        (
+            "within",
+            &["[[[[1,2]"],
+            "Invalid coordinates: unexpected end of JSON input",
+        ),
+        ("within", &["[1,2"], "Invalid coordinates"),
+        (
+            "within",
+            &["[1,2,]"],
+            "invalid character ']' looking for beginning of value",
+        ),
+        ("within", &["null"], "geojson: unsupported type: "),
+        (
+            "within",
+            &[r#"{"type":"LineString","coordinates":[[0,0],[1,1]]}"#],
+            "Cannot query using a geometry of type *geom.LineString",
+        ),
+        (
+            "within",
+            &[r#"{"type":"GeometryCollection","geometries":[]}"#],
+            "Cannot query using a geometry of type *geom.GeometryCollection",
+        ),
+        (
+            "contains",
+            &[r#"{"type":"MultiPoint","coordinates":[[0,0]]}"#],
+            "Cannot query using a geometry of type *geom.MultiPoint",
+        ),
+        ("", &[SQ], "Invalid function"),
+    ];
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, args, want)| {
+            let src = pb::SrcFunction {
+                name: (*name).into(),
+                args: args.iter().map(|a| (*a).into()).collect(),
+                is_count: false,
+            };
+            let got = get_geo_tokens(&src)
+                .map(|(t, _)| format!("{} tokens", t.len()))
+                .unwrap_or_else(|e| e.to_string());
+            (got != *want).then(|| format!("{name}{args:?}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    // The function name is lowercased.
+    let src = pb::SrcFunction {
+        name: "INTERSECTS".into(),
+        args: vec![SQ.into()],
+        is_count: false,
+    };
+    assert_eq!(get_geo_tokens(&src).unwrap().0.len(), 47);
+}
+
+#[test]
+fn test_match_geo_refuses_what_is_not_stored_geo() {
+    // Dgraph's MatchGeo: no bytes, another value type, or bytes that are not WKB never match.
+    let (_, q) = query_tokens(QueryType::Intersects, &form_data(&poly(&SQUARE)), 0.0).unwrap();
+    let inside = pt(-122.5, 37.5).marshal_wkb().unwrap();
+    let task = |val: Vec<u8>, tid: TypeId| pb::TaskValue {
+        val,
+        val_type: tid.enum_value(),
+    };
+    assert!(match_geo(&task(inside.clone(), TypeId::GEO), &q));
+    assert!(!match_geo(&task(inside, TypeId::BINARY), &q));
+    assert!(!match_geo(&task(Vec::new(), TypeId::GEO), &q));
+    assert!(!match_geo(&task(vec![1, 2, 3], TypeId::GEO), &q));
+    let outside = pt(-120.0, 37.5).marshal_wkb().unwrap();
+    assert!(!match_geo(&task(outside, TypeId::GEO), &q));
 }
 
 #[test]
@@ -364,7 +532,12 @@ fn test_geo_inputs_dgraph_panics_on_are_refused() {
             "{d}"
         );
     }
-    assert!(query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0), f64::NAN).is_err());
+    assert_eq!(
+        query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0), f64::NAN)
+            .unwrap_err()
+            .to_string(),
+        "Invalid max distance specified for a near query"
+    );
     // A polygon of no rings: go-geom's LinearRing(0) indexes past its ends.
     let no_rings = Geometry::polygon(Layout::XY, &[]).unwrap();
     assert_eq!(
@@ -380,7 +553,12 @@ fn test_geo_inputs_dgraph_panics_on_are_refused() {
         err.to_string(),
         "Invalid coordinates []: a point needs two finite numbers"
     );
-    assert!(ultragraphdb_core_types::index_geo_tokens(&empty).is_err());
+    assert_eq!(
+        ultragraphdb_core_types::index_geo_tokens(&empty)
+            .unwrap_err()
+            .to_string(),
+        "Invalid coordinates []: a point needs two finite numbers"
+    );
     // A non-finite coordinate reaches Go's exact predicates, whose big.Float panics on NaN.
     let nan = Geometry::point(Layout::XY, &[f64::NAN, 0.0]).unwrap();
     let err = query_tokens_geo(QueryType::Intersects, &nan, 0.0).unwrap_err();
@@ -389,7 +567,12 @@ fn test_geo_inputs_dgraph_panics_on_are_refused() {
         "Invalid coordinates [NaN 0]: a point needs two finite numbers"
     );
     let ring = [[0.0, 0.0], [f64::NAN, 0.0], [1.0, 1.0], [0.0, 0.0]];
-    assert!(query_tokens_geo(QueryType::Intersects, &poly(&ring), 0.0).is_err());
+    assert_eq!(
+        query_tokens_geo(QueryType::Intersects, &poly(&ring), 0.0)
+            .unwrap_err()
+            .to_string(),
+        "Invalid coordinates [NaN 0]: a point needs two finite numbers"
+    );
     // A stored geometry Dgraph would panic on matches nothing.
     let (_, q) = query_tokens_geo(QueryType::Intersects, &load_polygon("zip.json"), 0.0).unwrap();
     for g in [no_rings, empty, nan, poly(&ring)] {

@@ -49,13 +49,37 @@ fn test_word_segments_golden() {
 
 #[test]
 fn test_word_segments_types() {
+    // blevesearch/segment v0.9.1's segments and types of this input (NewWordSegmenterDirect): Unicode 8.0.0 keeps
+    // every space a segment of its own, breaks between Han ideographs, and types Katakana as Ideo, Hangul as Letter.
     let (segs, err) = word_segments("Now  is the.\n End. 3.5 漢字 カタカナ 한국");
     assert!(err.is_none());
-    let types: Vec<SegmentType> = segs.iter().map(|s| s.1).collect();
-    assert_eq!(types[0], SegmentType::Letter);
-    assert_eq!(types[1], SegmentType::None);
-    assert!(types.contains(&SegmentType::Number));
-    assert!(types.contains(&SegmentType::Ideo));
+    use SegmentType::{Ideo, Letter, None as Gap, Number};
+    assert_eq!(
+        segs,
+        vec![
+            ("Now", Letter),
+            (" ", Gap),
+            (" ", Gap),
+            ("is", Letter),
+            (" ", Gap),
+            ("the", Letter),
+            (".", Gap),
+            ("\n", Gap),
+            (" ", Gap),
+            ("End", Letter),
+            (".", Gap),
+            (" ", Gap),
+            ("3.5", Number),
+            (" ", Gap),
+            ("漢", Ideo),
+            ("字", Ideo),
+            (" ", Gap),
+            ("カタカナ", Ideo),
+            (" ", Gap),
+            ("한국", Letter),
+        ]
+    );
+    assert_eq!(word_segments(""), (Vec::new(), None));
 }
 
 #[test]

@@ -10,10 +10,28 @@ use ultragraphdb_traits_collator::Collator;
 
 #[test]
 fn test_text_collator_refuses_what_go_refuses() {
-    assert!(TextCollator.language("xx-invalid-tag-!").is_none());
-    assert!(TextCollator.language("xx").is_none());
-    assert!(TextCollator.language("en_US").is_some());
-    assert!(TextCollator.language("und").is_some());
+    // language.Parse refuses a malformed tag and a well-formed unknown one.
+    for lang in ["xx-invalid-tag-!", "xx", ""] {
+        assert!(TextCollator.language(lang).is_none(), "{lang:?}");
+    }
+    // Go's collate.New(tag).CompareString of ("a", "B"), ("B", "a"), ("e", "é") and ("ä", "b") under each tag
+    // language.Parse accepts.
+    let cases = [
+        ("en_US", [-1, 1, -1, -1]),
+        ("und", [-1, 1, -1, -1]),
+        ("EN", [-1, 1, -1, -1]),
+        ("de", [-1, 1, -1, -1]),
+        ("zh-Hant-TW", [-1, 1, 1, -1]),
+        ("en-u-ka-shifted", [0, 0, 0, 0]),
+    ];
+    for (lang, want) in cases {
+        let c = TextCollator
+            .language(lang)
+            .unwrap_or_else(|| panic!("{lang} is a tag Go accepts"));
+        let got = [("a", "B"), ("B", "a"), ("e", "é"), ("ä", "b")]
+            .map(|(a, b)| TextCollator.compare(&c, a, b) as i8);
+        assert_eq!(got, want, "{lang}");
+    }
 }
 
 #[test]

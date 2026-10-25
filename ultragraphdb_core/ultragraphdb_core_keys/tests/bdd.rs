@@ -6,10 +6,10 @@
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_keys::{
-    KeyError, ParsedKey, ReservedNamespace, TrustMarker, count_key, data_key, index_key,
-    is_pre_defined_predicate, is_reserved_predicate, namespace_attr, parse, parse_namespace_attr,
-    predicate_prefix, register_reserved_namespace, reserved_predicate_value_lock, reverse_key,
-    schema_key, split_key, type_key,
+    KeyError, KeyErrorEnum, ParsedKey, ReservedNamespace, TrustMarker, count_key, data_key,
+    index_key, is_pre_defined_predicate, is_reserved_predicate, namespace_attr, parse,
+    parse_namespace_attr, predicate_prefix, register_reserved_namespace,
+    reserved_predicate_value_lock, reverse_key, schema_key, split_key, type_key,
 };
 
 #[derive(Debug, Default, World)]
@@ -213,7 +213,21 @@ fn parse_split_trailing(w: &mut Steps, attr: String, uid: u64, start: u64) {
 
 #[then("parsing it fails")]
 fn parsing_fails(w: &mut Steps) {
-    assert!(w.parsed.take().expect("parsed").is_err());
+    // A split data key's start uid must be exactly 8 bytes; Dgraph's text names it.
+    let err = w
+        .parsed
+        .take()
+        .expect("parsed")
+        .expect_err("the trailing byte is refused");
+    assert!(
+        matches!(err.0, KeyErrorEnum::StartUidLength { .. }),
+        "{err:?}"
+    );
+    assert!(
+        err.to_string()
+            .starts_with("StartUid length != 8 for key: "),
+        "{err}"
+    );
 }
 
 #[when(expr = "namespace {int} and predicate {string} are combined")]

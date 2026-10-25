@@ -139,6 +139,10 @@ pub fn parse_float<S: AsRef<[u8]> + ?Sized>(s: &S, bit_size: u32) -> Result<f64,
     let s = s.as_ref();
     let bits = bit_size;
     let (val, n, range) = match special(s) {
+        // Go's atof32 returns float32(math.NaN()), which widens to the quiet NaN without payload.
+        Some((v, n)) if bits == 32 && v.is_nan() => {
+            (f64::from_bits(0x7ff8_0000_0000_0000), n, false)
+        }
         Some((v, n)) => (v, n, false),
         None => match read_float(s) {
             None => return Err(syntax_error("ParseFloat", s)),
@@ -168,6 +172,9 @@ fn common_prefix_len_ignore_case(s: &[u8], prefix: &[u8]) -> usize {
         .count()
 }
 
+/// Go's `math.NaN()`, the NaN `special` returns: `Float64frombits(0x7FF8000000000001)`.
+const GO_NAN: f64 = f64::from_bits(0x7ff8_0000_0000_0001);
+
 /// Go's `special`: NaN, Inf and Infinity, signed, any case; the value and the bytes consumed.
 fn special(s: &[u8]) -> Option<(f64, usize)> {
     let first = *s.first()?;
@@ -175,7 +182,7 @@ fn special(s: &[u8]) -> Option<(f64, usize)> {
         b'+' => (1.0, 1, &s[1..]),
         b'-' => (-1.0, 1, &s[1..]),
         b'n' | b'N' => {
-            return (common_prefix_len_ignore_case(s, b"nan") == 3).then_some((f64::NAN, 3));
+            return (common_prefix_len_ignore_case(s, b"nan") == 3).then_some((GO_NAN, 3));
         }
         b'i' | b'I' => (1.0, 0, s),
         _ => return None,

@@ -32,9 +32,20 @@ fn compare(w: &mut HarnessWorld, bytes: String) {
 
 #[then(expr = "the comparison fails and reports {string}, {string} and {string}")]
 fn compare_fails(w: &mut HarnessWorld, input: String, expected: String, actual: String) {
-    let err = w.compared.clone().unwrap().unwrap_err();
-    assert!(
-        err.contains(&input) && err.contains(&expected) && err.contains(&actual),
+    let err = w
+        .compared
+        .clone()
+        .expect("a comparison ran")
+        .expect_err("the comparison failed");
+    // Each value must be reported on its own line, so swapping expected and actual cannot pass.
+    let lines: Vec<&str> = err.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            format!("golden mismatch for input {input:?}"),
+            format!("  expected: {expected}"),
+            format!("  actual:   {actual}"),
+        ],
         "{err}"
     );
 }

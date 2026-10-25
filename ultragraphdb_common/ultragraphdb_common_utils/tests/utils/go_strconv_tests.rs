@@ -161,11 +161,97 @@ fn test_parse_uint_base_0_and_10() {
     }
 }
 
+/// Go 1.27's `ParseUint(s, base, 64)` for the explicit bases and base 0's prefixes and underscores: each base's
+/// largest value and the one past it, a digit of the base and the first one beyond it.
+#[test]
+fn test_parse_uint_in_every_base() {
+    const SYNTAX: &str = "invalid syntax";
+    const RANGE: &str = "value out of range";
+    let ones = "1".repeat(64);
+    let two64 = format!("1{}", "0".repeat(64));
+    let cases: [(&str, u32, Result<u64, &str>); 26] = [
+        ("101", 2, Ok(5)),
+        ("102", 2, Err(SYNTAX)),
+        (&ones, 2, Ok(u64::MAX)),
+        (&two64, 2, Err(RANGE)),
+        ("777", 8, Ok(511)),
+        ("8", 8, Err(SYNTAX)),
+        ("1777777777777777777777", 8, Ok(u64::MAX)),
+        ("2000000000000000000000", 8, Err(RANGE)),
+        ("ff", 16, Ok(255)),
+        ("FF", 16, Ok(255)),
+        ("0x1f", 16, Err(SYNTAX)),
+        ("0b1", 16, Ok(177)),
+        ("ffffffffffffffff", 16, Ok(u64::MAX)),
+        ("10000000000000000", 16, Err(RANGE)),
+        ("g", 16, Err(SYNTAX)),
+        ("zZ", 36, Ok(1295)),
+        ("3w5e11264sgsf", 36, Ok(u64::MAX)),
+        ("3w5e11264sgsg", 36, Err(RANGE)),
+        ("1_0", 16, Err(SYNTAX)),
+        ("0B1", 0, Ok(1)),
+        ("0O7", 0, Ok(7)),
+        ("0_1", 0, Ok(1)),
+        ("0x_", 0, Err(SYNTAX)),
+        ("0x1_", 0, Err(SYNTAX)),
+        ("_", 0, Err(SYNTAX)),
+        ("07_7", 0, Ok(63)),
+    ];
+    for (s, base, want) in cases {
+        let want = want.map_err(|e| format!("strconv.ParseUint: parsing {s:?}: {e}"));
+        assert_eq!(text(go_strconv::parse_uint(s, base)), want, "{s:?} {base}");
+    }
+}
+
+/// Go 1.27's `ParseInt(s, base, 64)`: the sign before the digits and a base prefix, and `i64`'s limits in base 2
+/// and 16.
+#[test]
+fn test_parse_int_in_every_base() {
+    const SYNTAX: &str = "invalid syntax";
+    const RANGE: &str = "value out of range";
+    let min2 = format!("-1{}", "0".repeat(63));
+    let below_min2 = format!("-1{}1", "0".repeat(62));
+    let max2 = "1".repeat(63);
+    let cases: [(&str, u32, Result<i64, &str>); 16] = [
+        ("-101", 2, Ok(-5)),
+        (&min2, 2, Ok(i64::MIN)),
+        (&below_min2, 2, Err(RANGE)),
+        (&max2, 2, Ok(i64::MAX)),
+        ("-ff", 16, Ok(-255)),
+        ("+7fffffffffffffff", 16, Ok(i64::MAX)),
+        ("-8000000000000000", 16, Ok(i64::MIN)),
+        ("-8000000000000001", 16, Err(RANGE)),
+        ("-0b11", 0, Ok(-3)),
+        ("-0o_7", 0, Ok(-7)),
+        ("-_1", 0, Err(SYNTAX)),
+        ("--1", 10, Err(SYNTAX)),
+        ("+-1", 10, Err(SYNTAX)),
+        ("1z", 36, Ok(71)),
+        ("-", 16, Err(SYNTAX)),
+        ("- 1", 10, Err(SYNTAX)),
+    ];
+    for (s, base, want) in cases {
+        let want = want.map_err(|e| format!("strconv.ParseInt: parsing {s:?}: {e}"));
+        assert_eq!(text(go_strconv::parse_int(s, base)), want, "{s:?} {base}");
+    }
+}
+
 #[test]
 fn test_atoi() {
-    let cases: [(&[u8], Result<i64, &str>); 6] = [
+    let cases: [(&[u8], Result<i64, &str>); 13] = [
         (b"42", Ok(42)),
         (b"-42", Ok(-42)),
+        (b"-", Err("strconv.Atoi: parsing \"-\": invalid syntax")),
+        (b" 1", Err("strconv.Atoi: parsing \" 1\": invalid syntax")),
+        (b"1 ", Err("strconv.Atoi: parsing \"1 \": invalid syntax")),
+        (b"0x1", Err("strconv.Atoi: parsing \"0x1\": invalid syntax")),
+        (b"-9223372036854775808", Ok(i64::MIN)),
+        (
+            b"-9223372036854775809",
+            Err("strconv.Atoi: parsing \"-9223372036854775809\": value out of range"),
+        ),
+        // 18 digits take Go's fast path, 19 its ParseInt.
+        (b"123456789012345678", Ok(123456789012345678)),
         (b"+", Err("strconv.Atoi: parsing \"+\": invalid syntax")),
         (
             b"9223372036854775808",
@@ -386,12 +472,105 @@ fn test_parse_float_64_and_32() {
     ];
     for (s, f64_want, f32_want) in cases {
         for (bits, want) in [(64, f64_want), (32, f32_want)] {
-            let got = text(go_strconv::parse_float(s, bits));
-            match (got, want) {
-                (Ok(g), Ok(w)) if w.is_nan() => assert!(g.is_nan(), "{s:?} {bits}"),
-                (Ok(g), Ok(w)) => assert_eq!(g.to_bits(), w.to_bits(), "{s:?} {bits}"),
-                (got, want) => assert_eq!(got, want.map_err(str::to_string), "{s:?} {bits}"),
-            }
+            // Bits, not values: Go's NaN is math.NaN(), 0x7ff8000000000001, and float32's widens without payload.
+            let got = text(go_strconv::parse_float(s, bits)).map(f64::to_bits);
+            let want = want.map(f64::to_bits).map_err(str::to_string);
+            assert_eq!(got, want, "{s:?} {bits}");
+        }
+    }
+}
+
+/// Go 1.27's `ParseFloat(s, 64)` and `ParseFloat(s, 32)` as bits: signed zeros, the special values' spellings,
+/// hexadecimal rounding half to even into subnormals and at the top of the range, decimal halfway points.
+#[test]
+fn test_parse_float_rounding_and_range_boundaries() {
+    const SYNTAX: &str = "invalid syntax";
+    const RANGE: &str = "value out of range";
+    type Bits = (
+        &'static str,
+        Result<u64, &'static str>,
+        Result<u64, &'static str>,
+    );
+    let cases: [Bits; 37] = [
+        ("-0", Ok(0x8000000000000000), Ok(0x8000000000000000)),
+        ("+0", Ok(0x0), Ok(0x0)),
+        ("+.5", Ok(0x3fe0000000000000), Ok(0x3fe0000000000000)),
+        ("Infinity", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
+        ("INFINITY", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
+        ("infinit", Err(SYNTAX), Err(SYNTAX)),
+        ("-infinityx", Err(SYNTAX), Err(SYNTAX)),
+        ("0x1p-1074", Ok(0x1), Ok(0x0)),
+        ("0x1p-1075", Ok(0x0), Ok(0x0)),
+        ("0x1.8p-1074", Ok(0x2), Ok(0x0)),
+        ("0x3p-1076", Ok(0x1), Ok(0x0)),
+        (
+            "0x1.fffffffffffff7p1023",
+            Ok(0x7fefffffffffffff),
+            Err(RANGE),
+        ),
+        (
+            "0x1.00000000000008p0",
+            Ok(0x3ff0000000000000),
+            Ok(0x3ff0000000000000),
+        ),
+        (
+            "0x1.000000000000081p0",
+            Ok(0x3ff0000000000001),
+            Ok(0x3ff0000000000000),
+        ),
+        (
+            "0x1.00000000000018p0",
+            Ok(0x3ff0000000000002),
+            Ok(0x3ff0000000000000),
+        ),
+        (
+            "0x123456789abcdef01p0",
+            Ok(0x43f23456789abcdf),
+            Ok(0x43f2345680000000),
+        ),
+        ("0x_1p0", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
+        ("0x1_p0", Err(SYNTAX), Err(SYNTAX)),
+        ("0x.8p1", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
+        ("0x1.p1", Ok(0x4000000000000000), Ok(0x4000000000000000)),
+        ("0xp1", Err(SYNTAX), Err(SYNTAX)),
+        ("0x", Err(SYNTAX), Err(SYNTAX)),
+        ("1e10000000", Err(RANGE), Err(RANGE)),
+        ("1e-10000000", Ok(0x0), Ok(0x0)),
+        ("2.4703282292062327e-324", Ok(0x0), Ok(0x0)),
+        ("2.4703282292062328e-324", Ok(0x1), Ok(0x0)),
+        ("1.7976931348623158e308", Ok(0x7fefffffffffffff), Err(RANGE)),
+        ("1.7976931348623159e308", Err(RANGE), Err(RANGE)),
+        (
+            "3.4028235677973366e38",
+            Ok(0x47effffff0000000),
+            Ok(0x47efffffe0000000),
+        ),
+        ("3.4028235677973367e38", Ok(0x47effffff0000000), Err(RANGE)),
+        ("7.006492321624085e-46", Ok(0x3690000000000000), Ok(0x0)),
+        (
+            "7.006492321624086e-46",
+            Ok(0x3690000000000000),
+            Ok(0x36a0000000000000),
+        ),
+        ("0x1.ffffffp127", Ok(0x47effffff0000000), Err(RANGE)),
+        ("0x1p-150", Ok(0x3690000000000000), Ok(0x0)),
+        (
+            "0x1.000002p-150",
+            Ok(0x3690000020000000),
+            Ok(0x36a0000000000000),
+        ),
+        (
+            "1_0.5_5e1_0",
+            Ok(0x4238904a3f000000),
+            Ok(0x4238904a40000000),
+        ),
+        ("1e+-1", Err(SYNTAX), Err(SYNTAX)),
+    ];
+    for (s, f64_want, f32_want) in cases {
+        for (bits, want) in [(64, f64_want), (32, f32_want)] {
+            let want = want.map_err(|e| format!("strconv.ParseFloat: parsing {s:?}: {e}"));
+            let got = text(go_strconv::parse_float(s, bits)).map(f64::to_bits);
+            assert_eq!(got, want, "{s:?} {bits}");
         }
     }
 }
@@ -555,6 +734,49 @@ fn test_format_float_shortest() {
     assert_eq!(go_strconv::format_float(-0.0, b'g', 64), "-0");
 }
 
+/// Floats whose two shortest candidates lie equally far from the value: Go 1.27's Ryū takes the even last digit,
+/// where Rust's own shortest formatting takes the odd one (`{:e}` of the first is `1.5339791363072593e15`).
+#[test]
+fn test_format_float_breaks_a_tie_to_even() {
+    // bits, bit size, then FormatFloat(f, 'e'|'f'|'g', -1, bit size).
+    let cases: [(u64, u32, &str, &str, &str); 4] = [
+        (
+            0x4315cc95660cc0ed,
+            64,
+            "1.5339791363072592e+15",
+            "1533979136307259.2",
+            "1.5339791363072592e+15",
+        ),
+        (
+            0x42d02924d9880808,
+            64,
+            "7.107559175785612e+13",
+            "71075591757856.12",
+            "7.107559175785612e+13",
+        ),
+        (
+            0xc2aab4c23b529ca0,
+            64,
+            "-1.4681827551566312e+13",
+            "-14681827551566.312",
+            "-1.4681827551566312e+13",
+        ),
+        (
+            0x40d56cd400000000,
+            32,
+            "2.1939312e+04",
+            "21939.312",
+            "21939.312",
+        ),
+    ];
+    for (bits, size, e, fx, g) in cases {
+        let f = f64::from_bits(bits);
+        assert_eq!(go_strconv::format_float(f, b'e', size), e, "{bits:#x}");
+        assert_eq!(go_strconv::format_float(f, b'f', size), fx, "{bits:#x}");
+        assert_eq!(go_strconv::format_float(f, b'g', size), g, "{bits:#x}");
+    }
+}
+
 #[test]
 fn test_quote() {
     let cases: [(&[u8], &str); 18] = [
@@ -606,8 +828,27 @@ fn test_quote_rune() {
 
 #[test]
 fn test_unquote() {
-    let cases: [(&str, Option<Vec<u8>>); 16] = [
+    let cases: [(&str, Option<Vec<u8>>); 31] = [
         ("\"abc\"", Some(b"abc".to_vec())),
+        (
+            r#""\a\b\f\v\\\n\r\t""#,
+            Some(b"\x07\x08\x0c\x0b\\\n\r\t".to_vec()),
+        ),
+        (r#""\u0041""#, Some(b"A".to_vec())),
+        (r#""\U0010FFFF""#, Some(b"\xf4\x8f\xbf\xbf".to_vec())),
+        (r#""\U00110000""#, None),
+        (r#""\377""#, Some(b"\xff".to_vec())),
+        (r#""\400""#, None),
+        (r#""\08""#, None),
+        (r#""\x4g""#, None),
+        (r#""\é""#, None),
+        (r#""é\u00e9""#, Some("éé".as_bytes().to_vec())),
+        (r#""\u00""#, None),
+        (r#""""""#, None),
+        ("", None),
+        // Only a double-quoted string is unquoted; Go's Unquote of 'a' is "a".
+        ("'a'", None),
+        ("\"\\\n\"", None),
         ("\"a\\\"b\"", Some(b"a\x22b".to_vec())),
         (
             "\"\\x41é\\U0001F600\"",

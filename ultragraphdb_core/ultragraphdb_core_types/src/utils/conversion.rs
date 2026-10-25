@@ -594,10 +594,12 @@ pub fn marshal_json(v: &Val) -> Result<Vec<u8>, TypesError> {
             json_float(*f).ok_or_else(|| unsupported(&go_strconv::format_float(*f, b'g', 64)))?
         }
         (TypeId::DATETIME, Some(Value::DateTime(t))) => {
+            // Go 1.27's json.Marshal reports the time's range error as a MarshalerError, without the
+            // `Time.MarshalJSON: ` prefix its MarshalJSON adds.
             let s = t.marshal_text().map_err(|e| {
                 TypesError::time(e.message().replacen(
                     "Time.MarshalText: ",
-                    "Time.MarshalJSON: ",
+                    "json: error calling MarshalJSON for type *time.Time: ",
                     1,
                 ))
             })?;

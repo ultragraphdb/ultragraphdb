@@ -26,12 +26,18 @@ impl fmt::Display for Length {
     /// Dgraph's `String`: km above 1000 m, cm below 1 m, three decimals.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let l = self.0;
-        if l > 1000.0 {
-            write!(f, "{:.3} km", l / 1000.0)
+        let (v, unit) = if l > 1000.0 {
+            (l / 1000.0, "km")
         } else if l < 1.0 {
-            write!(f, "{:.3} cm", l * 100.0)
+            (l * 100.0, "cm")
         } else {
-            write!(f, "{l:.3} m")
+            (l, "m")
+        };
+        // Go's %.3f writes an infinity as +Inf or -Inf, where Rust writes inf or -inf.
+        if v.is_infinite() {
+            let sign = if v > 0.0 { '+' } else { '-' };
+            return write!(f, "{sign}Inf {unit}");
         }
+        write!(f, "{v:.3} {unit}")
     }
 }

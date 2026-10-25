@@ -10,7 +10,7 @@ use fjall::Database;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_kv::TEMPORARY_KEYSPACE_PREFIX;
 use ultragraphdb_traits_store::{
-    Entry, MAX_USER_KEY_SIZE, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
+    Entry, MAX_USER_KEY_SIZE, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
 };
 
 use crate::test_store::{TestDir, ns_key, put, write};
@@ -108,7 +108,14 @@ fn test_an_oversized_key_refuses_the_temporary_batch_whole() {
             ]),
         )
         .unwrap_err();
-    assert!(matches!(refused.0, StoreErrorEnum::KeyTooLarge { .. }));
+    assert!(matches!(
+        refused.0,
+        StoreErrorEnum::KeyTooLarge {
+            size: 65_001,
+            limit: MAX_USER_KEY_SIZE,
+            ..
+        }
+    ));
     assert!(s.temporary_snapshot(&t).unwrap().get(&k).unwrap().is_none());
     assert!(!s.is_poisoned());
 }
@@ -130,6 +137,11 @@ fn test_a_dropped_temporary_keyspace_is_gone() {
     assert_eq!(
         s.temporary_snapshot(&again).err(),
         Some(StoreError::UnknownTemporary(id))
+    );
+    assert_eq!(
+        s.drop_temporary(Temporary::new(id)),
+        Err(StoreError::UnknownTemporary(id)),
+        "a keyspace is dropped once"
     );
     assert_ne!(
         s.create_temporary().unwrap().id(),
@@ -165,4 +177,26 @@ fn test_a_temporary_keyspace_left_by_a_process_is_dropped_at_open() {
     s.drop_temporary(t).unwrap();
     drop(s);
     assert!(temporary_keyspaces(&dir).is_empty());
+}
+
+#[test]
+fn test_a_temporary_batch_ignores_its_applied_timestamp_and_rebuild_records() {
+    let dir = TestDir::new("temp-ignores");
+    let s = dir.open();
+    let record = RebuildRecord::new(4, vec![ns_key(0, b"idx")]);
+    s.write_rebuild_record(&record).unwrap();
+    let t = s.create_temporary().unwrap();
+    let mut b = batch(vec![put(&ns_key(0, b"k"), 1, b"")]);
+    b.set_applied_ts(50);
+    b.remove_rebuild_record(4);
+    s.apply_temporary(&t, b).unwrap();
+    assert_eq!(s.applied_ts(), 0);
+    assert_eq!(s.rebuild_records().unwrap(), [record]);
+    assert!(
+        s.temporary_snapshot(&t)
+            .unwrap()
+            .get(&ns_key(0, b"k"))
+            .unwrap()
+            .is_some()
+    );
 }

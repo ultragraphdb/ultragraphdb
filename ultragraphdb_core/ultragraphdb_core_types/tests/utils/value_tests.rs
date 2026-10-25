@@ -9,8 +9,8 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    TypeId, Val, Value, bytes_as_float_array, float_array_as_bytes, float_array_as_string, marshal,
-    type_for_value,
+    DateTime, TypeId, Val, Value, bytes_as_float_array, float_array_as_bytes,
+    float_array_as_string, marshal, type_for_value,
 };
 
 #[test]
@@ -53,6 +53,52 @@ fn test_type_for_value() {
     }
 }
 
+/// Go v25.5.0's `TypeForValue` values for inputs at its edges: a sign or dot alone, int64's bounds, a float out of
+/// range, and a datetime-shaped text that does not parse, which Go does not retry as an int.
+#[test]
+fn test_type_for_value_values() {
+    let cases = [
+        ("", TypeId::DEFAULT, None),
+        ("-", TypeId::DEFAULT, None),
+        ("+", TypeId::DEFAULT, None),
+        (".", TypeId::DEFAULT, None),
+        ("9223372036854775808", TypeId::DEFAULT, None),
+        (
+            "-9223372036854775808",
+            TypeId::INT,
+            Some(Value::Int(i64::MIN)),
+        ),
+        ("1e400", TypeId::DEFAULT, None),
+        ("2018-13", TypeId::DEFAULT, None),
+        (
+            "2018-10",
+            TypeId::DATETIME,
+            Some(Value::DateTime(DateTime::utc(2018, 10, 1, 0, 0, 0, 0))),
+        ),
+        ("1.", TypeId::FLOAT, Some(Value::Float(1.0))),
+        ("-0", TypeId::INT, Some(Value::Int(0))),
+        ("+.5", TypeId::FLOAT, Some(Value::Float(0.5))),
+        ("1e5", TypeId::FLOAT, Some(Value::Float(100000.0))),
+        ("True", TypeId::BOOL, Some(Value::Bool(true))),
+        ("FALSE", TypeId::BOOL, Some(Value::Bool(false))),
+    ];
+    for (input, tid, value) in cases {
+        assert_eq!(type_for_value(input.as_bytes()), (tid, value), "{input:?}");
+    }
+}
+
+#[test]
+fn test_bytes_as_float_array_ignores_trailing_bytes() {
+    // Go's BytesAsFloatArray converts four bytes at a time and drops the rest.
+    assert_eq!(bytes_as_float_array(&[0, 0, 0x80, 0x3f, 9]), [1.0]);
+    assert_eq!(bytes_as_float_array(&[1, 2, 3]), [] as [f32; 0]);
+    assert_eq!(bytes_as_float_array(&[]), [] as [f32; 0]);
+    assert_eq!(
+        float_array_as_bytes(&[1.0, -2.0]),
+        [0, 0, 0x80, 0x3f, 0, 0, 0, 0xc0]
+    );
+}
+
 #[test]
 #[allow(clippy::excessive_precision)] // Go's test case, which float32 rounds
 fn test_float_array_translation() {
@@ -69,6 +115,20 @@ fn test_float_array_as_string() {
         "[0.1,1,-0.00000025,340000000000000000000000000000000000000]"
     );
     assert_eq!(float_array_as_string(&[]), "[]");
+    // Go 1.27's FormatFloat(float64(f), 'f', -1, 32) of the special and extreme float32 values.
+    assert_eq!(
+        float_array_as_string(&[
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -0.0,
+            f32::from_bits(1),
+            f32::MAX,
+            16777217.0,
+        ]),
+        "[NaN,+Inf,-Inf,-0,0.000000000000000000000000000000000000000000001,\
+         340282350000000000000000000000000000000,16777216]"
+    );
 }
 
 #[derive(Deserialize)]

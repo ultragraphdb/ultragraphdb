@@ -9,8 +9,11 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    TextCollator, TypeId, Val, Value, convert, equal, less, marshal, sort, sort_top_n,
+    TextCollator, TypeId, Val, Value, convert, equal, is_sortable, less, marshal, sort, sort_top_n,
+    sort_with_facet,
 };
+use ultragraphdb_proto_dgraph::api;
+use ultragraphdb_proto_pb::pb;
 
 fn to_string(values: &[Vec<Val>]) -> Vec<String> {
     values
@@ -58,6 +61,26 @@ fn test_quick_select() {
         for j in k..n {
             assert!(int(&list[i][0]) <= int(&list[j][0]));
         }
+    }
+    // SortTopN also sorts the first k, and the uids move with their values.
+    for w in list[..k].windows(2) {
+        assert!(int(&w[0][0]) <= int(&w[1][0]));
+    }
+    let mut seed: u64 = 7;
+    let original: Vec<i64> = (0..n)
+        .map(|_| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((seed >> 33) % 100000) as i64
+        })
+        .collect();
+    for (row, uid) in list.iter().zip(&ul) {
+        assert_eq!(
+            int(&row[0]),
+            original[(*uid / 100 - 1) as usize],
+            "uid {uid}"
+        );
     }
 }
 
@@ -152,7 +175,12 @@ fn test_equal() {
     let int = |i| Val::new(TypeId::INT, Value::Int(i));
     assert!(equal(&int(3), &int(3)).unwrap());
     assert!(!equal(&int(3), &int(4)).unwrap());
-    assert!(equal(&int(3), &Val::new(TypeId::FLOAT, Value::Float(3.0))).is_err());
+    assert_eq!(
+        equal(&int(3), &Val::new(TypeId::FLOAT, Value::Float(3.0)))
+            .unwrap_err()
+            .to_string(),
+        "Arguments of different type can not be compared."
+    );
     assert!(!equal(&int(3), &Val::nil(TypeId::INT)).unwrap());
     assert!(!equal(&Val::nil(TypeId::INT), &int(3)).unwrap());
     assert!(!equal(&Val::nil(TypeId::INT), &Val::nil(TypeId::INT)).unwrap());
@@ -384,7 +412,99 @@ fn test_sort_of_mismatched_shapes_is_refused() {
     );
     let err = sort_top_n(&mut values, &mut [1, 2, 3], &[false], "", 1, &TextCollator).unwrap_err();
     assert_eq!(err.to_string(), "Sort has 2 rows of values but 3 uids");
-    // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them.
+    let mut facets = vec![pb::Facets::default()];
+    let err = sort_with_facet(
+        &mut values,
+        &mut [1, 2],
+        Some(&mut facets),
+        &[false],
+        "",
+        &TextCollator,
+    )
+    .unwrap_err();
+    assert_eq!(err.to_string(), "Sort has 2 rows of values but 1 facets");
+    // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them: an empty row is never
+    // less nor greater, so Go's insertion sort of three rows leaves them where they are.
     let mut values = vec![vec![int(2)], vec![], vec![int(1)]];
-    sort(&mut values, &mut [1, 2, 3], &[false], "", &TextCollator).unwrap();
+    let mut uids = [1, 2, 3];
+    sort(&mut values, &mut uids, &[false], "", &TextCollator).unwrap();
+    assert_eq!(uids, [1, 2, 3]);
+}
+
+#[test]
+fn test_is_sortable() {
+    // Dgraph's IsSortable: datetime, int, float, string, default and bigfloat.
+    for (tid, want) in [
+        (TypeId::DEFAULT, true),
+        (TypeId::BINARY, false),
+        (TypeId::INT, true),
+        (TypeId::FLOAT, true),
+        (TypeId::BOOL, false),
+        (TypeId::DATETIME, true),
+        (TypeId::GEO, false),
+        (TypeId::UID, false),
+        (TypeId::PASSWORD, false),
+        (TypeId::STRING, true),
+        (TypeId::OBJECT, false),
+        (TypeId::BIGFLOAT, true),
+        (TypeId::VFLOAT, false),
+    ] {
+        assert_eq!(is_sortable(tid), want, "{}", tid.name());
+    }
+}
+
+fn facet(key: &str) -> pb::Facets {
+    pb::Facets {
+        facets: vec![api::Facet {
+            key: key.into(),
+            ..Default::default()
+        }],
+    }
+}
+
+#[test]
+fn test_sort_with_facet_moves_facets_with_their_rows() {
+    let int = |i: i64| vec![Val::new(TypeId::INT, Value::Int(i))];
+    let mut values = vec![int(3), int(1), int(2)];
+    let mut uids = [10, 20, 30];
+    let mut facets = vec![facet("a"), facet("b"), facet("c")];
+    sort_with_facet(
+        &mut values,
+        &mut uids,
+        Some(&mut facets),
+        &[false],
+        "",
+        &TextCollator,
+    )
+    .unwrap();
+    assert_eq!(uids, [20, 30, 10]);
+    assert_eq!(facets, [facet("b"), facet("c"), facet("a")]);
+}
+
+#[test]
+fn test_sort_nil_values_last_and_ties_by_next_value() {
+    let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
+    let nil = Val::nil(TypeId::INT);
+    // Dgraph sorts a nil value last whichever the direction.
+    for (desc, want) in [(false, [300, 200, 100]), (true, [200, 300, 100])] {
+        let mut values = vec![vec![nil.clone()], vec![int(2)], vec![int(1)]];
+        let mut uids = [100, 200, 300];
+        sort(&mut values, &mut uids, &[desc], "", &TextCollator).unwrap();
+        assert_eq!(uids, want, "desc {desc}");
+    }
+    // Equal first values are ordered by the second, in its own direction.
+    let st = |v: &str| Val::new(TypeId::STRING, Value::str(v));
+    for (desc, want) in [
+        ([false, false], [300, 200, 100]),
+        ([false, true], [300, 100, 200]),
+    ] {
+        let mut values = vec![
+            vec![int(1), st("b")],
+            vec![int(1), st("a")],
+            vec![int(0), st("z")],
+        ];
+        let mut uids = [100, 200, 300];
+        sort(&mut values, &mut uids, &desc, "", &TextCollator).unwrap();
+        assert_eq!(uids, want, "desc {desc:?}");
+    }
 }

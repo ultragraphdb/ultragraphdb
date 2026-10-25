@@ -328,48 +328,48 @@ fn test_unmarshal() {
     }
 }
 
+/// `TestUnmarshalSyntax`'s inputs, which Go checks to be a `SyntaxError`; Go 1.27 reports each as the input's end,
+/// a number at its start.
 #[test]
 fn test_unmarshal_syntax() {
-    for input in [
-        "tru",
-        "fals",
-        "nul",
-        "123e",
-        r#""hello"#,
-        "[1,2,3",
-        r#"{"key":1"#,
-        r#"{"key":1,"#,
+    for (input, offset) in [
+        ("tru", 3),
+        ("fals", 4),
+        ("nul", 3),
+        ("123e", 0),
+        (r#""hello"#, 6),
+        ("[1,2,3", 6),
+        (r#"{"key":1"#, 8),
+        (r#"{"key":1,"#, 9),
     ] {
-        let err = go_json::unmarshal(input.as_bytes()).unwrap_err();
-        assert!(
-            matches!(err.0, JsonErrorEnum::Syntax { .. }),
-            "{input}: {err:?}"
+        assert_eq!(
+            go_json::unmarshal(input.as_bytes()).unwrap_err(),
+            JsonError::Syntax("unexpected end of JSON input".to_string(), offset),
+            "{input}"
         );
     }
 }
 
+/// `TestUnmarshalMaxDepth` into an interface; Go 1.27 names the offset past the bracket opening the 10001st level,
+/// which the leading `{"a":` moves by 5 and each `{"a":` of the objects by 5 more.
 #[test]
 fn test_unmarshal_max_depth() {
     let arrays = |n: usize| format!(r#"{{"a":{}{}}}"#, "[".repeat(n), "]".repeat(n));
     let objects = |n: usize| format!(r#"{{"a":{}0{}}}"#, r#"{"a":"#.repeat(n), "}".repeat(n));
-    for (name, data, max_depth) in [
-        ("ArrayUnderMaxNestingDepth", arrays(10000 - 1), false),
-        ("ArrayOverMaxNestingDepth", arrays(10000), true),
-        ("ArrayOverStackDepth", arrays(3000000), true),
-        ("ObjectUnderMaxNestingDepth", objects(10000 - 1), false),
-        ("ObjectOverMaxNestingDepth", objects(10000), true),
-        ("ObjectOverStackDepth", objects(3000000), true),
+    let too_deep = |offset| Err(JsonError::Syntax("exceeded max depth".to_string(), offset));
+    for (name, data, want) in [
+        ("ArrayUnderMaxNestingDepth", arrays(10000 - 1), None),
+        ("ArrayOverMaxNestingDepth", arrays(10000), Some(10005)),
+        ("ArrayOverStackDepth", arrays(3000000), Some(10005)),
+        ("ObjectUnderMaxNestingDepth", objects(10000 - 1), None),
+        ("ObjectOverMaxNestingDepth", objects(10000), Some(50001)),
+        ("ObjectOverStackDepth", objects(3000000), Some(50001)),
     ] {
-        let got = go_json::unmarshal(data.as_bytes());
-        if max_depth {
-            assert!(
-                got.as_ref()
-                    .is_err_and(|e| e.to_string().contains("exceeded max depth")),
-                "{name}: {:?}",
-                got.map(|_| ())
-            );
-        } else {
-            assert!(got.is_ok(), "{name}: {:?}", got.map(|_| ()));
+        let got = go_json::unmarshal(data.as_bytes()).map(|v| v.marshal());
+        match want {
+            // The value 10000 deep is decoded whole: it marshals back to the input, which holds no whitespace.
+            None => assert_eq!(got, Result::Ok(data), "{name}"),
+            Some(offset) => assert_eq!(got, too_deep(offset), "{name}"),
         }
     }
 }
@@ -391,4 +391,30 @@ fn encode_string_is_gos_marshal_of_a_string() {
         "\"\\u003c\\u003e\\u0026\\u2028\\u2029\\b\\f\\n\\r\\t\\u0001\u{7f}\\\"\\\\/é\""
     );
     assert_eq!(go_json::encode_string(b""), r#""""#);
+    // Go 1.27's json.Marshal: the first and last control characters escaped; a valid U+FFFD and the neighbours of
+    // U+2028 and U+2029 written as they are.
+    assert_eq!(go_json::encode_string(b"\x00\x1f"), r#""\u0000\u001f""#);
+    assert_eq!(
+        go_json::encode_string("\u{fffd}".as_bytes()),
+        "\"\u{fffd}\""
+    );
+    assert_eq!(
+        go_json::encode_string("\u{2027}\u{202a}".as_bytes()),
+        "\"\u{2027}\u{202a}\""
+    );
+}
+
+/// Go 1.27's `json.Marshal` of a string holding bytes that are not UTF-8: jsonwire's `AppendQuote` writes each as
+/// the character U+FFFD, where Go's v1 encoder (built only with GOEXPERIMENT=nojsonv2) wrote the escape `\ufffd`.
+#[test]
+#[ignore = "encode_string writes v1's \\ufffd escape for invalid UTF-8; Go 1.27 writes the character U+FFFD"]
+fn encode_string_replaces_invalid_utf8_as_go_1_27_marshals_it() {
+    for (input, want) in [
+        (&b"a\xffb"[..], "\"a\u{fffd}b\""),
+        (b"\xe2\x82", "\"\u{fffd}\u{fffd}\""),
+        (b"\xe2\x82b", "\"\u{fffd}\u{fffd}b\""),
+        (b"\xed\xa0\x80", "\"\u{fffd}\u{fffd}\u{fffd}\""),
+    ] {
+        assert_eq!(go_json::encode_string(input), want, "{input:?}");
+    }
 }

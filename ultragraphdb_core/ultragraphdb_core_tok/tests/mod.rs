@@ -4,9 +4,13 @@
  */
 
 #[cfg(test)]
+mod bleve;
+#[cfg(test)]
 mod errors;
 #[cfg(test)]
 mod golden;
+#[cfg(test)]
+mod tables;
 #[cfg(test)]
 mod types;
 #[cfg(test)]

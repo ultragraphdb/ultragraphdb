@@ -9,7 +9,8 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    DateTime, TYPE_NAMES, TypeId, Zone, good_time_zone, parse_time, value_for_type,
+    BIG_FLOAT_PRECISION, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone, good_time_zone,
+    parse_time, value_for_type,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -113,16 +114,46 @@ fn test_type_for_name() {
     assert_eq!(TypeId::for_name("--invalid--"), None);
 }
 
+/// Go's `ValueForType` returns pointers to each type's zero value; this port returns the values, a geometry's
+/// nil `geom.T` as an empty collection. A type without a zero (object, and any unknown) is a nil default.
 #[test]
 fn test_value_for_type() {
-    for (name, tid) in TYPE_NAMES {
+    let cases = [
+        (TypeId::DEFAULT, Some(Value::str(""))),
+        (TypeId::BINARY, Some(Value::Bytes(Vec::new()))),
+        (TypeId::INT, Some(Value::Int(0))),
+        (TypeId::FLOAT, Some(Value::Float(0.0))),
+        (TypeId::BOOL, Some(Value::Bool(false))),
+        (TypeId::DATETIME, Some(Value::DateTime(DateTime::zero()))),
+        (
+            TypeId::GEO,
+            Some(Value::Geo(Geometry::collection(Vec::new()))),
+        ),
+        (TypeId::UID, Some(Value::Uid(0))),
+        (TypeId::PASSWORD, Some(Value::str(""))),
+        (TypeId::STRING, Some(Value::str(""))),
+        (TypeId::VFLOAT, Some(Value::VFloat(Vec::new()))),
+    ];
+    for (tid, want) in cases {
         let val = value_for_type(tid);
-        assert_eq!(val.tid(), tid, "{name}");
-        assert!(val.value().is_some(), "{name}");
+        assert_eq!(val.tid(), tid, "{}", tid.name());
+        assert_eq!(val.value(), want.as_ref(), "{}", tid.name());
     }
-    let val = value_for_type(TypeId::UNDEFINED);
-    assert_eq!(val.tid(), TypeId::DEFAULT);
-    assert!(val.value().is_none());
+    let big = value_for_type(TypeId::BIGFLOAT);
+    assert_eq!(big.tid(), TypeId::BIGFLOAT);
+    match big.value() {
+        Some(Value::BigFloat(b)) => {
+            assert!(b.is_zero() && !b.is_neg());
+            assert_eq!(b.prec(), 200);
+            assert_eq!(BIG_FLOAT_PRECISION, 200);
+        }
+        other => panic!("{other:?}"),
+    }
+    for tid in [TypeId::OBJECT, TypeId::UNDEFINED, TypeId::new(99)] {
+        let val = value_for_type(tid);
+        assert_eq!(val.tid(), TypeId::DEFAULT, "{tid:?}");
+        assert!(val.value().is_none(), "{tid:?}");
+    }
 }
 
 #[test]
@@ -141,8 +172,13 @@ fn test_parse_time_with_tz() {
 
 #[test]
 fn test_parse_time_rejection() {
+    // Go's time.ParseError always opens with the quoted input; the full texts are in the golden vectors.
     for input in INVALID_DATES {
-        assert!(parse_time(input).is_err(), "{input}");
+        let err = parse_time(input).unwrap_err().to_string();
+        assert!(
+            err.starts_with(&format!("parsing time \"{input}\"")),
+            "{input}: {err}"
+        );
     }
 }
 
@@ -159,9 +195,19 @@ fn test_parse_time_non_rfc3339() {
 
 #[test]
 fn test_good_time_zone() {
-    assert!(good_time_zone(23 * 3600 + 59 * 60));
-    assert!(good_time_zone(-(23 * 3600 + 59 * 60)));
-    assert!(!good_time_zone(24 * 3600));
+    // Go's GoodTimeZone: RFC 3339's offsets, ±23:59, both ends inclusive.
+    for (offset, want) in [
+        (0, true),
+        (86340, true),
+        (86341, false),
+        (-86340, true),
+        (-86341, false),
+        (86400, false),
+        (i64::MIN, false),
+        (i64::MAX, false),
+    ] {
+        assert_eq!(good_time_zone(offset), want, "{offset}");
+    }
 }
 
 #[derive(Deserialize)]

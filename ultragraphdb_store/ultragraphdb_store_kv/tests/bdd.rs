@@ -551,7 +551,10 @@ fn banned_batch(w: &mut Steps) {
 fn ban_holds(w: &mut Steps) {
     assert!(w.error.is_none());
     assert_eq!(w.open().get_at(&ns_key(5), 3).unwrap(), None);
-    assert!(w.open().get_at(&ns_key(6), 3).unwrap().is_some());
+    assert_eq!(
+        w.open().get_at(&ns_key(6), 3).unwrap().map(|i| i.version()),
+        Some(2)
+    );
     assert!(
         w.held(&ns_key(5)).is_empty(),
         "the write was dropped, not hidden"
@@ -569,7 +572,10 @@ fn ban_then_drop_all(w: &mut Steps) {
 
 #[then("the key is found")]
 fn key_found(w: &mut Steps) {
-    assert!(w.open().get_at(&ns_key(5), 1).unwrap().is_some());
+    assert_eq!(
+        w.open().get_at(&ns_key(5), 1).unwrap().map(|i| i.version()),
+        Some(1)
+    );
 }
 
 /// The schema key of `name` in namespace 3, Dgraph's `SchemaKey` layout.
@@ -763,13 +769,15 @@ fn item_remains(w: &mut Steps) {
     assert_eq!(s.undecodable_kept(), 1);
     s.apply(WriteBatch::new(), PersistMode::Buffer).unwrap();
     let versions: Vec<_> = s.snapshot(6).unwrap().versions(b"k").collect();
-    assert_eq!(versions.len(), 2);
-    assert!(
-        versions[1]
-            .as_ref()
-            .unwrap_err()
-            .to_string()
-            .contains("too short")
+    assert_eq!(
+        versions,
+        vec![
+            Ok(Item::new(b"k".to_vec(), 5, 0x08, true, b"c".to_vec())),
+            Err(StoreError::Corrupted(
+                b"k".to_vec(),
+                "value too short to hold the version prefix".to_string()
+            )),
+        ]
     );
 }
 

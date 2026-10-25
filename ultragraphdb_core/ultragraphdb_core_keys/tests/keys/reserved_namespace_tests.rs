@@ -326,14 +326,20 @@ fn test_value_locked_longest_prefix_wins() {
 // unwritable by everyone, including its owner, so it must be refused at registration.
 #[test]
 fn test_value_locked_prefixes_require_trust_marker() {
-    assert!(
+    assert_eq!(
         refusal(
             ReservedNamespace::new()
                 .with_predicate_prefix("dgraph.prefixnomarker.rel.")
                 .with_value_locked_prefixes(["dgraph.prefixnomarker.rel."]), // TrustMarker intentionally left unset.
         )
-        .is_some()
+        .as_deref(),
+        Some(
+            "x.RegisterReservedNamespace: ValueLocked is set but TrustMarker is nil; a value-locked predicate with no \
+             TrustMarker is unwritable by everyone, including its owner"
+        )
     );
+    // Refused before the registry is touched: the predicate prefix was not recorded.
+    assert!(!registered_predicate(&ns("dgraph.prefixnomarker.rel.x")));
 }
 
 // Confirms a namespace-qualified prefix is rejected, for the same reason a
@@ -341,17 +347,130 @@ fn test_value_locked_prefixes_require_trust_marker() {
 // fire and the predicates would stay writable.
 #[test]
 fn test_value_locked_prefixes_reject_qualified() {
-    assert!(
+    assert_eq!(
         refusal(
             ReservedNamespace::new()
+                .with_predicates(["dgraph.qualprefix.p"])
                 .with_value_locked_prefixes([namespace_attr(
                     ROOT_NAMESPACE,
                     "dgraph.qualprefix.rel.",
                 )])
                 .with_trust_marker(TEST_TRUST),
         )
-        .is_some()
+        .as_deref(),
+        Some(
+            "x.RegisterReservedNamespace: name \"0-dgraph.qualprefix.rel.\" must be bare, without the \"-\" namespace \
+             separator"
+        )
     );
+    // Refused before the registry is touched: the predicate listed beside it was not recorded.
+    assert!(!registered_predicate(&ns("dgraph.qualprefix.p")));
+}
+
+// Every group of names is checked for the separator, the predicate prefix included, and the first qualified name
+// in Dgraph's order (prefix, predicates, types, value locks, value-locked prefixes) is the one named.
+#[test]
+fn test_every_qualified_name_is_refused() {
+    let qualified = |name: &str| {
+        format!(
+            "x.RegisterReservedNamespace: name \"{name}\" must be bare, without the \"-\" namespace separator"
+        )
+    };
+    let cases = [
+        (
+            ReservedNamespace::new().with_predicate_prefix("0-dgraph.qa."),
+            "0-dgraph.qa.",
+        ),
+        (
+            ReservedNamespace::new().with_predicates(["dgraph.qb", "1-dgraph.qb"]),
+            "1-dgraph.qb",
+        ),
+        (
+            ReservedNamespace::new().with_types(["0-dgraph.qc"]),
+            "0-dgraph.qc",
+        ),
+        (
+            ReservedNamespace::new()
+                .with_types(["dgraph-qd.t"])
+                .with_predicates(["dgraph-qd.p"]),
+            "dgraph-qd.p",
+        ),
+        (
+            ReservedNamespace::new()
+                .with_value_locked(["a-b"])
+                .with_trust_marker(TEST_TRUST),
+            "a-b",
+        ),
+    ];
+    for (namespace, name) in cases {
+        assert_eq!(
+            refusal(namespace).as_deref(),
+            Some(qualified(name).as_str()),
+            "{name}"
+        );
+    }
+    // The missing trust marker is reported before a qualified name, as Dgraph checks it first.
+    assert_eq!(
+        refusal(ReservedNamespace::new().with_value_locked(["0-dgraph.qe"])).map(|m| m
+            .starts_with("x.RegisterReservedNamespace: ValueLocked is set but TrustMarker is nil")),
+        Some(true)
+    );
+}
+
+// Names are recorded lowercased, so a duplicate differing only in case is refused with the lowercased name, and a
+// mixed-case prefix still admits its members.
+#[test]
+fn test_registration_lowercases_names() {
+    register(ReservedNamespace::new().with_predicate_prefix("dgraph.LowerPfx.Rel."));
+    assert!(registered_predicate(&ns("dgraph.lowerpfx.rel.owner")));
+    assert!(registered_predicate(&ns("DGRAPH.LOWERPFX.REL.")));
+    assert!(!registered_predicate(&ns("dgraph.lowerpfx.re")));
+
+    let lock = |prefix: &str| {
+        ReservedNamespace::new()
+            .with_value_locked_prefixes([prefix])
+            .with_trust_marker(TEST_TRUST)
+    };
+    register(lock("dgraph.CaseDup."));
+    assert_eq!(
+        refusal(lock("DGRAPH.casedup.")).as_deref(),
+        Some(
+            "x.RegisterReservedNamespace: value-locked prefix \"dgraph.casedup.\" already registered"
+        )
+    );
+    assert_eq!(
+        refusal(ReservedNamespace::new().with_predicates(["dgraph.CaseDupP", "DGRAPH.casedupp"]))
+            .as_deref(),
+        Some("x.RegisterReservedNamespace: predicate \"dgraph.casedupp\" already registered")
+    );
+}
+
+// The value lock takes the bare predicate: a namespaced one is a different name and is not locked, and an empty
+// predicate matches nothing.
+#[test]
+fn test_value_lock_takes_the_bare_predicate() {
+    register(
+        ReservedNamespace::new()
+            .with_value_locked(["dgraph.barelock.p"])
+            .with_value_locked_prefixes(["dgraph.barelock.rel."])
+            .with_trust_marker(TEST_TRUST),
+    );
+    assert_eq!(
+        reserved_predicate_value_lock("dgraph.barelock.p"),
+        Some(TEST_TRUST)
+    );
+    assert_eq!(
+        reserved_predicate_value_lock(&ns("dgraph.barelock.p")),
+        None
+    );
+    assert_eq!(
+        reserved_predicate_value_lock(&ns("dgraph.barelock.rel.x")),
+        None
+    );
+    assert_eq!(reserved_predicate_value_lock("dgraph.barelock.p.x"), None);
+    assert_eq!(reserved_predicate_value_lock(""), None);
+    // Value locks and ownership are separate claims: the locked names are not owned predicates.
+    assert!(!registered_predicate(&ns("dgraph.barelock.p")));
 }
 
 // Confirms two namespaces cannot claim the same locked prefix, since import order
@@ -370,6 +489,19 @@ fn test_value_locked_prefixes_reject_duplicate() {
         Some(
             "x.RegisterReservedNamespace: value-locked prefix \"dgraph.dupprefix.rel.\" already registered"
         )
+    );
+}
+
+// The namespaced lookups refuse a bare name, as Dgraph panics on one.
+#[test]
+fn test_lookups_refuse_a_bare_name() {
+    assert_eq!(
+        is_registered_reserved_predicate("dgraph.x").map_err(|e| e.to_string()),
+        Err(r#"Attribute "dgraph.x" has no namespace separator "-""#.to_string())
+    );
+    assert_eq!(
+        is_registered_reserved_type("dgraph.x").map_err(|e| e.to_string()),
+        Err(r#"Attribute "dgraph.x" has no namespace separator "-""#.to_string())
     );
 }
 

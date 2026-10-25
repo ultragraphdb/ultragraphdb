@@ -24,6 +24,8 @@ mod seed_tests;
 #[cfg(test)]
 mod sim_clock_tests;
 #[cfg(test)]
+mod sim_context;
+#[cfg(test)]
 mod sim_list_cache;
 #[cfg(test)]
 mod sim_rng_tests;

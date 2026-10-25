@@ -99,8 +99,8 @@ fn test_a_key_that_prefixes_another_sorts_first() {
             .all(|pair| pair[0].1 == 5 && pair[1].1 == 3)
     );
     assert_eq!(
-        scanned(&s, &Scan::prefix(b"\x02ab".to_vec()), 9).len(),
-        2,
+        scanned(&s, &Scan::prefix(b"\x02ab".to_vec()), 9),
+        vec![(b"\x02ab".to_vec(), 5), (b"\x02abc".to_vec(), 5)],
         "ab and abc, not a\\0b"
     );
 }
@@ -188,7 +188,14 @@ fn test_a_read_below_the_discard_timestamp_is_refused() {
         s.get_at(b"k", 5).unwrap_err().to_string(),
         "Transaction is too old"
     );
-    assert!(s.get_at(b"k", 10).is_ok());
+    assert_eq!(s.get_at(b"k", 9), Err(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(9).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(0).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(
+        s.get_at(b"k", 10).unwrap().map(|i| i.version()),
+        Some(3),
+        "a read at the discard timestamp is served"
+    );
 }
 
 #[test]
@@ -281,13 +288,18 @@ fn test_a_batch_holds_entries_at_several_versions() {
     let dir = TestDir::new("several");
     let s = dir.open();
     write(&s, vec![put(b"a", 12, b""), put(b"b", 13, b"")]);
-    let at12 = s.snapshot(12).unwrap().get_many(&[b"a", b"b"]).unwrap();
-    assert_eq!(
-        at12.iter().map(Option::is_some).collect::<Vec<_>>(),
-        vec![true, false]
-    );
-    let at13 = s.snapshot(13).unwrap().get_many(&[b"a", b"b"]).unwrap();
-    assert!(at13.iter().all(Option::is_some));
+    let versions_at = |ts| -> Vec<Option<u64>> {
+        s.snapshot(ts)
+            .unwrap()
+            .get_many(&[b"a", b"b"])
+            .unwrap()
+            .iter()
+            .map(|i| i.as_ref().map(Item::version))
+            .collect()
+    };
+    assert_eq!(versions_at(11), vec![None, None]);
+    assert_eq!(versions_at(12), vec![Some(12), None]);
+    assert_eq!(versions_at(13), vec![Some(12), Some(13)]);
 }
 
 #[test]
@@ -417,5 +429,40 @@ fn test_a_second_open_of_a_held_directory_is_refused() {
             StoreError(ultragraphdb_error_store::StoreErrorEnum::OpenFailed(_))
         ),
         "{err}"
+    );
+}
+
+#[test]
+fn test_a_ban_covers_only_keys_longer_than_their_namespace() {
+    // Badger's `isBanned` reads a namespace only from a key longer than the prefix byte and the eight namespace bytes
+    // (`db.go:1921-1932`): a key of exactly nine bytes belongs to no namespace and is written under any ban.
+    let dir = TestDir::new("banned-length");
+    let s = dir.open();
+    s.ban_namespace(5).unwrap();
+    let nine = ns_key(5, b"");
+    let ten = ns_key(5, b"x");
+    let short = nine[..8].to_vec();
+    write(
+        &s,
+        vec![
+            put(&nine, 1, b"9"),
+            put(&ten, 1, b"10"),
+            put(&short, 1, b"8"),
+        ],
+    );
+    assert_eq!(
+        s.get_at(&nine, 1).unwrap().map(Item::into_value),
+        Some(b"9".to_vec())
+    );
+    assert_eq!(
+        s.get_at(&short, 1).unwrap().map(Item::into_value),
+        Some(b"8".to_vec())
+    );
+    assert_eq!(s.get_at(&ten, 1).unwrap(), None);
+    let keys: Vec<Vec<u8>> = s.dump().unwrap().iter().map(|e| e.key().to_vec()).collect();
+    assert_eq!(
+        keys,
+        vec![short, nine],
+        "the write to the banned namespace was dropped"
     );
 }

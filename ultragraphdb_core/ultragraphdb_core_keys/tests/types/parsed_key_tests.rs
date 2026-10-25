@@ -4,9 +4,9 @@
  */
 
 use ultragraphdb_core_keys::{
-    BYTE_COUNT, BYTE_COUNT_REV, BYTE_DATA, BYTE_INDEX, BYTE_REVERSE, BYTE_SCHEMA, ParsedKey,
-    attr_in_root_namespace, count_key, data_key, index_key, parse, reverse_key, schema_key,
-    split_key,
+    BYTE_COUNT, BYTE_COUNT_REV, BYTE_DATA, BYTE_INDEX, BYTE_REVERSE, BYTE_SCHEMA, KeyError,
+    ParsedKey, attr_in_root_namespace, count_key, data_key, index_key, parse, reverse_key,
+    schema_key, split_key,
 };
 
 fn parsed(key: &[u8]) -> ParsedKey {
@@ -98,4 +98,36 @@ fn test_default_is_the_zero_key() {
     assert!(pk.term().is_empty() && !pk.has_start_uid());
     // Go's zero ParsedKey has the default prefix, so it reads as a data key.
     assert!(pk.is_data());
+}
+
+#[test]
+fn test_prefixes_of_a_split_key() {
+    // Hand-built from x/keys.go: generateKey(prefix, attr, 1) and the last byte. The split prefix carries over to the
+    // skip and data prefixes alone; the others take the default prefix.
+    let attr = attr_in_root_namespace("ab");
+    let pk = parsed(&split_key(&data_key(&attr, 3).unwrap(), 9).unwrap());
+    let head = |prefix: u8, last: u8| vec![prefix, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, b'a', b'b', last];
+    assert_eq!(pk.skip_predicate().unwrap(), head(4, 0xff));
+    assert_eq!(pk.data_prefix().unwrap(), head(4, 0x00));
+    assert_eq!(pk.index_prefix().unwrap(), head(0, 0x02));
+    assert_eq!(pk.reverse_prefix().unwrap(), head(0, 0x04));
+    assert_eq!(pk.count_prefix(false).unwrap(), head(0, 0x08));
+    assert_eq!(pk.count_prefix(true).unwrap(), head(0, 0x0c));
+}
+
+#[test]
+fn test_prefixes_of_an_unused_key_are_refused() {
+    // An unused key parses to an empty attribute, on which Dgraph's generateKey panics past its split.
+    let pk = parsed(&[0xff; 9]);
+    let refused = KeyError::MissingNamespaceSeparator(String::new());
+    assert_eq!(pk.skip_predicate(), Err(refused.clone()));
+    assert_eq!(pk.data_prefix(), Err(refused.clone()));
+    assert_eq!(pk.index_prefix(), Err(refused.clone()));
+    assert_eq!(pk.reverse_prefix(), Err(refused.clone()));
+    assert_eq!(pk.count_prefix(false), Err(refused.clone()));
+    assert_eq!(pk.count_prefix(true), Err(refused));
+    assert_eq!(
+        pk.to_string(),
+        "UID: 0, Attr: , Data key, prefix; 255, byte: 0"
+    );
 }

@@ -136,13 +136,34 @@ fn latlng_point_conversion() {
     }
 }
 
-// Ported from golang/geo s2/latlng_test.go (IsValid cases of TestLatLngNormalized).
+// Ported from golang/geo s2/latlng_test.go (IsValid cases of TestLatLngNormalized), with the
+// boundaries of IsValid's |lat| <= π/2 and |lng| <= π.
 #[test]
 fn latlng_is_valid() {
-    assert!(LatLng::from_degrees(37.4249518, -122.082506).is_valid());
-    assert!(LatLng::from_degrees(90.0, 180.0).is_valid());
-    assert!(!LatLng::from_degrees(120.0, 200.0).is_valid());
-    assert!(!LatLng::from_degrees(-100.0, -360.0).is_valid());
+    use core::f64::consts::{FRAC_PI_2, PI};
+    use ultragraphdb_core_types::Angle;
+    let rad = |lat: f64, lng: f64| LatLng::new(Angle::from_radians(lat), Angle::from_radians(lng));
+    let up = |x: f64| f64::from_bits(x.to_bits() + 1);
+    let tests = [
+        (LatLng::from_degrees(37.4249518, -122.082506), true),
+        (LatLng::from_degrees(90.0, 180.0), true),
+        (LatLng::from_degrees(-90.0, -180.0), true),
+        (LatLng::from_degrees(120.0, 200.0), false),
+        (LatLng::from_degrees(-100.0, -360.0), false),
+        (rad(FRAC_PI_2, PI), true),
+        (rad(-FRAC_PI_2, -PI), true),
+        (rad(up(FRAC_PI_2), 0.0), false),
+        (rad(-up(FRAC_PI_2), 0.0), false),
+        (rad(0.0, up(PI)), false),
+        (rad(0.0, -up(PI)), false),
+        (rad(f64::NAN, 0.0), false),
+        (rad(0.0, f64::NAN), false),
+        (rad(0.0, f64::INFINITY), false),
+        (LatLng::default(), true),
+    ];
+    for (ll, want) in tests {
+        assert_eq!(ll.is_valid(), want, "{ll:?}");
+    }
 }
 
 #[derive(Deserialize)]

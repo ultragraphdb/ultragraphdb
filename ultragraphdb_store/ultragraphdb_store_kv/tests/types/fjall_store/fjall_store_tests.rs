@@ -76,7 +76,11 @@ fn test_the_dump_lists_every_version_with_its_flags() {
             put(b"b", 1, b"x"),
         ]
     );
-    assert!(format!("{s:?}").starts_with("FjallStore"));
+    assert_eq!(
+        format!("{s:?}"),
+        "FjallStore { durability: Process, applied_ts: 0, poisoned: false, view: View { banned: {}, readers: {}, \
+         discard_ts: 0, horizon: None }, .. }"
+    );
 }
 
 #[test]
@@ -91,12 +95,12 @@ fn test_the_filesystem_mode_syncs_every_batch_and_the_process_mode_on_its_period
         std::thread::sleep(Duration::from_millis(50));
         assert!(!s.is_poisoned());
         drop(s);
-        assert!(
-            dir.open().get_at(b"k", 1).unwrap().is_some(),
+        assert_eq!(
+            dir.open().get_at(b"k", 1).unwrap().map(|i| i.version()),
+            Some(1),
             "{durability:?}"
         );
     }
-    assert_eq!(Durability::default(), Durability::Process);
 }
 
 #[test]

@@ -58,6 +58,10 @@ fn unhex(s: &str) -> Vec<u8> {
 /// The golden cases whose port tokens differ from Dgraph's (ledger 14, 16, 30).
 const DEVIATING: usize = 366;
 
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn untext(s: &str) -> String {
     String::from_utf8(unhex(s)).unwrap()
 }
@@ -269,12 +273,19 @@ fn eleven_trigrams(w: &mut Steps) {
 
 #[then(expr = "the tokens are its three-byte windows, {string} among them")]
 fn byte_windows(w: &mut Steps, _shown: String) {
-    let bytes = w.texts[0].as_bytes();
-    let mut want: Vec<Vec<u8>> = bytes.windows(3).map(|b| enc(0x0A, b)).collect();
-    want.sort();
-    want.dedup();
+    assert_eq!(w.texts, vec!["Grüße".to_string()]);
+    // "Grüße" is G r C3 BC C3 9F e: five windows, two of which split a rune, sorted bytewise.
+    let want: Vec<Vec<u8>> = [
+        &b"Gr\xc3"[..],
+        b"r\xc3\xbc",
+        b"\xbc\xc3\x9f",
+        b"\xc3\x9fe",
+        b"\xc3\xbc\xc3",
+    ]
+    .iter()
+    .map(|b| enc(0x0A, b))
+    .collect();
     assert_eq!(w.tokens, want);
-    assert!(w.tokens.contains(&enc(0x0A, b"Gr\xc3")));
 }
 
 #[when(expr = "the golden Chinese sentence is tokenized by the fulltext tokenizer for {string}")]
@@ -328,24 +339,27 @@ fn each_language(w: &mut Steps) {
 #[when(expr = "a sentence yielding a shingle of 30 or more bytes is tokenized by ngram")]
 fn long_shingle(w: &mut Steps) {
     w.tokens = get_ngram_tokens("supercalifragilisticexpialidocious fox", "en");
-    // The stem of the long word, as fulltext gives it.
-    w.texts = tokens_of("fulltext", "en", "supercalifragilisticexpialidocious")
-        .iter()
-        .map(|t| String::from_utf8(t[1..].to_vec()).unwrap())
-        .collect();
+    // Porter's stem of the long word, which step 4 strips of "ous": 31 bytes.
+    w.texts = vec!["supercalifragilisticexpialidoci".to_string()];
 }
 
 #[then(expr = "that shingle appears as its BLAKE2b-256 digest and shorter shingles appear as text")]
 fn shingle_hashed(w: &mut Steps) {
     let stem = &w.texts[0];
     let shingle = format!("{stem} fox");
-    assert!(shingle.len() >= 30);
-    assert!(
-        w.tokens
-            .contains(&enc(IDENT_NGRAM, &Blake2b256::digest(shingle.as_bytes())))
+    assert!(stem.len() >= 30 && shingle.len() >= 30);
+    // Dgraph's three tokens: the stem and the bigram as digests, "fox" as text.
+    let mut want = vec![
+        enc(IDENT_NGRAM, &Blake2b256::digest(stem.as_bytes())),
+        enc(IDENT_NGRAM, &Blake2b256::digest(shingle.as_bytes())),
+        enc(IDENT_NGRAM, b"fox"),
+    ];
+    want.sort();
+    assert_eq!(w.tokens, want);
+    assert_eq!(
+        hex(&w.tokens[0]),
+        "0f00d2dbb71439248c09fa1509c9bb01f3b5f627dbba86300532e80b61b8535226"
     );
-    assert!(!w.tokens.contains(&enc(IDENT_NGRAM, shingle.as_bytes())));
-    assert!(w.tokens.contains(&enc(IDENT_NGRAM, b"fox")));
 }
 
 #[when(expr = "the two-word query {string} is tokenized for ngram queries")]
@@ -454,15 +468,21 @@ fn ngram_index_and_query(w: &mut Steps, s: String, lang: String) {
 #[then(expr = "both yield the same stemmed shingles, starting with {string}")]
 fn same_shingles(w: &mut Steps, stem: String) {
     let (index, query) = (&w.groups[0], &w.groups[1]);
-    assert!(!query.is_empty());
+    // Go's GetNGramTokens and GetNGramQueryTokens for "de": "und" is a stop word, the rest stemmed.
+    let shingle = format!("{stem} auffassung");
+    assert_eq!(
+        index,
+        &vec![
+            enc(IDENT_NGRAM, b"auffassung"),
+            enc(IDENT_NGRAM, stem.as_bytes()),
+            enc(IDENT_NGRAM, shingle.as_bytes())
+        ]
+    );
+    assert_eq!(query, &vec![enc(IDENT_NGRAM, shingle.as_bytes())]);
     assert!(
         query.iter().all(|q| index.contains(q)),
         "query tokens {query:?} are not all index tokens {index:?}"
     );
-    let stem = enc(IDENT_NGRAM, stem.as_bytes());
-    for tokens in [index, query] {
-        assert!(tokens.iter().any(|t| t.starts_with(&stem)), "{tokens:?}");
-    }
 }
 
 #[then(expr = "the token is the term {string}")]

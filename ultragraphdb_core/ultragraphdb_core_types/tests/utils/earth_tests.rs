@@ -15,3 +15,21 @@ fn test_earth_conversions() {
     );
     assert_eq!(earth_distance(earth_angle(1500.0)).to_string(), "1.500 km");
 }
+
+#[test]
+fn test_earth_conversions_at_zero_and_below() {
+    // Dgraph's EarthRadiusMeters is 1000 * 6371; the conversions are plain products, sign included.
+    assert_eq!(EARTH_RADIUS_METERS, 6_371_000.0);
+    assert_eq!(earth_angle(0.0).radians(), 0.0);
+    assert_eq!(earth_angle(-6_371_000.0).radians(), -1.0);
+    assert_eq!(
+        earth_distance(earth_angle(-6_371_000.0)).metres(),
+        -6_371_000.0
+    );
+    assert_eq!(earth_area(0.0).square_metres(), 0.0);
+    assert_eq!(
+        earth_area(0.5).square_metres(),
+        0.5 * 6_371_000.0 * 6_371_000.0
+    );
+    assert!(earth_angle(f64::NAN).radians().is_nan());
+}

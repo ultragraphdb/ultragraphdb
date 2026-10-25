@@ -68,10 +68,14 @@ fn a_value_ten_thousand_deep_builds_and_drops() {
     let data = format!("{}{}", "[".repeat(10000), "]".repeat(10000));
     let v = go_json::unmarshal(data.as_bytes()).unwrap();
     assert_eq!(v.kind(), "array");
+    assert_eq!(v.marshal(), data);
+    assert_eq!(v.go_v(), data);
     let data = format!(r#"{}1{}"#, r#"{"a":"#.repeat(10000), "}".repeat(10000));
     let v = go_json::unmarshal(data.as_bytes()).unwrap();
-    assert_eq!(v.marshal().len(), data.len());
-    assert_eq!(v.go_v().len(), "map[a:".len() * 10000 + 1 + 10000);
+    assert_eq!(v.marshal(), data);
+    // Go's %v of the value: map[a:map[a:...1]...].
+    let go_v = format!("{}1{}", "map[a:".repeat(10000), "]".repeat(10000));
+    assert_eq!(v.go_v(), go_v);
 }
 
 #[test]
@@ -90,5 +94,6 @@ fn a_clone_is_equal_and_copies_ten_thousand_deep() {
         .unwrap()
         .join()
         .unwrap();
-    assert_eq!(copy.len(), data.len() - 5000);
+    // json.Marshal writes the value without the space after each bracket.
+    assert_eq!(copy, data.replace("[ ", "["));
 }

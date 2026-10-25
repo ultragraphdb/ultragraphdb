@@ -6,8 +6,9 @@
 //! Garbage collection below the discard timestamp on fjall: the simulated store's garbage-collection tests, and the
 //! cases only fjall has, where a compaction's input holds what a removal or an open snapshot leaves behind.
 
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::FjallStore;
-use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 use crate::test_store::{TestDir, held, write, write_raw};
 
@@ -28,8 +29,8 @@ fn test_versions_below_a_discard_point_are_collected() {
     one(&s, Entry::put(b"k".to_vec(), 8, 0x04, b"d8".to_vec()));
     s.set_discard_ts(6).unwrap();
     assert_eq!(
-        held(&s, b"k").len(),
-        4,
+        held(&s, b"k"),
+        vec![(8, false), (5, false), (4, false), (2, false)],
         "nothing is collected before a compaction"
     );
     s.compact().unwrap();
@@ -104,6 +105,34 @@ fn test_a_deletion_above_the_tombstone_horizon_is_kept() {
 }
 
 #[test]
+fn test_the_sweep_removes_a_deletion_at_the_horizon_and_keeps_one_above_it() {
+    let dir = TestDir::new("sweep-at-horizon");
+    let s = dir.open();
+    one(&s, Entry::deletion(b"at".to_vec(), 4));
+    one(&s, Entry::deletion(b"above".to_vec(), 5));
+    s.set_discard_ts(6).unwrap();
+    s.set_tombstone_horizon(4).unwrap();
+    s.sweep_deletions().unwrap();
+    assert!(held(&s, b"at").is_empty());
+    assert_eq!(held(&s, b"above"), vec![(5, true)]);
+}
+
+#[test]
+fn test_the_sweep_judges_each_deletion_at_one_snapshot() {
+    // At the sweep's snapshot the deletion at 4 has the deletion at 2 below it; only the oldest goes, and the next
+    // sweep finds the deletion at 4 alone.
+    let dir = TestDir::new("sweep-two");
+    let s = dir.open();
+    one(&s, Entry::deletion(b"k".to_vec(), 2));
+    one(&s, Entry::deletion(b"k".to_vec(), 4));
+    s.set_discard_ts(6).unwrap();
+    s.sweep_deletions().unwrap();
+    assert_eq!(held(&s, b"k"), vec![(4, true)]);
+    s.sweep_deletions().unwrap();
+    assert!(held(&s, b"k").is_empty());
+}
+
+#[test]
 fn test_the_sweep_keeps_a_deletion_with_a_version_below_it() {
     let dir = TestDir::new("sweep-below");
     let s = dir.open();
@@ -133,16 +162,15 @@ fn test_an_undecodable_item_survives_compaction() {
     let snapshot = s.snapshot(6).unwrap();
     let versions: Vec<_> = snapshot.versions(b"k").collect();
     assert_eq!(
-        versions.len(),
-        2,
+        versions,
+        vec![
+            Ok(Item::new(b"k".to_vec(), 5, 0x08, true, b"c".to_vec())),
+            Err(StoreError::Corrupted(
+                b"k".to_vec(),
+                "value too short to hold the version prefix".to_string()
+            )),
+        ],
         "the version and then the undecodable item's error"
-    );
-    assert!(
-        versions[1]
-            .as_ref()
-            .unwrap_err()
-            .to_string()
-            .contains("too short")
     );
 }
 
@@ -161,18 +189,19 @@ fn test_an_open_reader_holds_the_discard_timestamp_back() {
     assert_eq!(s.tombstone_horizon(), 3);
     s.compact().unwrap();
     assert_eq!(
-        held(&s, b"k").len(),
-        2,
+        held(&s, b"k"),
+        vec![(5, false), (2, false)],
         "the version the reader sees survives"
     );
     assert_eq!(reader.get(b"k").unwrap().unwrap().version(), 2);
-    assert!(
-        s.snapshot(3).is_ok(),
+    assert_eq!(
+        s.snapshot(3).map(|twin| twin.read_ts()),
+        Ok(3),
         "another reader at the held timestamp opens"
     );
     drop(reader);
     assert_eq!(s.discard_ts(), 6);
-    assert!(s.snapshot(3).is_err());
+    assert_eq!(s.snapshot(3).err(), Some(StoreError::TsTooOld()));
     s.compact().unwrap();
     assert_eq!(held(&s, b"k"), vec![(5, false)]);
 }

@@ -70,12 +70,10 @@ fn test_a_temporary_keyspace_keeps_entries_of_a_banned_namespace() {
     key.push(b'a');
     let t = s.create_temporary().unwrap();
     s.apply_temporary(&t, batch(&[(&key, 1)])).unwrap();
-    assert!(
-        s.temporary_snapshot(&t)
-            .unwrap()
-            .get(&key)
-            .unwrap()
-            .is_some()
+    let item = s.temporary_snapshot(&t).unwrap().get(&key).unwrap();
+    assert_eq!(
+        item.map(|i| (i.version(), i.meta(), i.value().to_vec())),
+        Some((1, 0x04, vec![1]))
     );
 }
 
@@ -86,7 +84,18 @@ fn test_an_oversized_key_refuses_the_temporary_batch_whole() {
     let mut b = batch(&[(b"\x00k", 1)]);
     b.push(Entry::put(vec![1; MAX_USER_KEY_SIZE + 1], 1, 0x04, vec![]));
     let refused = s.apply_temporary(&t, b).unwrap_err();
-    assert!(matches!(refused.0, StoreErrorEnum::KeyTooLarge { .. }));
+    assert!(matches!(
+        refused.0,
+        StoreErrorEnum::KeyTooLarge {
+            size: 65_001,
+            limit: MAX_USER_KEY_SIZE,
+            ..
+        }
+    ));
+    assert!(matches!(
+        s.take_log().last(),
+        Some(OpRecord::TemporaryRefused { temporary, error, .. }) if *temporary == t.id() && *error == refused
+    ));
     assert!(
         s.temporary_snapshot(&t)
             .unwrap()
@@ -112,11 +121,27 @@ fn test_a_dropped_temporary_keyspace_is_gone() {
         s.temporary_snapshot(&again).err(),
         Some(StoreError::UnknownTemporary(id))
     );
-    assert_ne!(
+    assert_eq!(
+        s.drop_temporary(ultragraphdb_traits_store::Temporary::new(id)),
+        Err(StoreError::UnknownTemporary(id))
+    );
+    assert_eq!(
+        s.drop_temporary(ultragraphdb_traits_store::Temporary::new(99)),
+        Err(StoreError::UnknownTemporary(99)),
+        "a number never handed out is unknown"
+    );
+    assert_eq!(
         s.create_temporary().unwrap().id(),
-        id,
+        id + 1,
         "a number is not reused"
     );
+}
+
+#[test]
+fn test_temporary_numbers_count_up_from_one() {
+    let s = store();
+    let ids: Vec<u64> = (0..3).map(|_| s.create_temporary().unwrap().id()).collect();
+    assert_eq!(ids, [1, 2, 3]);
 }
 
 #[test]
@@ -124,13 +149,18 @@ fn test_a_failed_temporary_write_is_a_failed_batch() {
     let s = store();
     let t = s.create_temporary().unwrap();
     s.inject(Fault::FailNextBatch);
-    assert!(matches!(
-        s.apply_temporary(&t, batch(&[(b"\x00k", 1)]))
-            .unwrap_err()
-            .0,
-        StoreErrorEnum::WriteFailed(_)
-    ));
+    assert_eq!(
+        s.apply_temporary(&t, batch(&[(b"\x00k", 1)])),
+        Err(StoreError::WriteFailed(
+            "simulated failure during a temporary batch's persist".into()
+        ))
+    );
     assert!(s.needs_recovery());
+    assert_eq!(
+        s.temporary_snapshot(&t).unwrap().get(b"\x00k").unwrap(),
+        None,
+        "a poisoned process still reads its temporary keyspaces, without the failed batch"
+    );
     assert_eq!(
         s.apply(batch(&[(b"\x00a", 1)]), PersistMode::Buffer),
         Err(StoreError::Poisoned())
@@ -141,6 +171,33 @@ fn test_a_failed_temporary_write_is_a_failed_batch() {
         s.temporary_snapshot(&t).err(),
         Some(StoreError::UnknownTemporary(t.id())),
         "recovery drops every temporary keyspace"
+    );
+}
+
+#[test]
+fn test_a_crash_during_a_temporary_write_takes_the_process_down() {
+    let s = store();
+    s.apply(batch(&[(b"\x00a", 1)]), PersistMode::Buffer)
+        .unwrap();
+    let t = s.create_temporary().unwrap();
+    s.inject(Fault::CrashDuringNextBatch);
+    assert_eq!(
+        s.apply_temporary(&t, batch(&[(b"\x00k", 1)])),
+        Err(StoreError::WriteFailed(
+            "simulated process crash while a temporary batch was written".into()
+        ))
+    );
+    assert_eq!(s.temporary_snapshot(&t).err(), Some(StoreError::Poisoned()));
+    assert!(s.take_log().contains(&OpRecord::TemporaryFailed {
+        temporary: t.id(),
+        batch: batch(&[(b"\x00k", 1)]),
+        crashed: true
+    }));
+    s.recover();
+    assert_eq!(
+        s.contents().versions(b"\x00a").len(),
+        1,
+        "the data keeps what was handed to the system"
     );
 }
 
@@ -172,13 +229,22 @@ fn test_reads_of_a_temporary_keyspace_fail_as_forced() {
     s.apply_temporary(&t, batch(&[(b"\x00k", 1)])).unwrap();
     let snapshot = s.temporary_snapshot(&t).unwrap();
     s.inject(Fault::FailNextRead);
-    assert!(matches!(
-        snapshot.get(b"\x00k").unwrap_err().0,
-        StoreErrorEnum::ReadFailed { .. }
-    ));
+    assert_eq!(
+        snapshot.get(b"\x00k"),
+        Err(StoreError::ReadFailed(
+            b"\x00k".to_vec(),
+            "simulated read failure".into()
+        ))
+    );
     s.inject(Fault::FailNextScanAfter(0));
     let items: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new())).collect();
-    assert!(items.len() == 1 && items[0].is_err());
+    assert_eq!(
+        items,
+        [Err(StoreError::ReadFailed(
+            b"\x00k".to_vec(),
+            "simulated read failure partway through a scan".into()
+        ))]
+    );
 }
 
 #[test]
@@ -189,14 +255,20 @@ fn test_temporary_operations_are_logged() {
     drop(s.temporary_snapshot(&t).unwrap());
     let id = t.id();
     s.drop_temporary(t).unwrap();
-    let log = s.take_log();
-    assert!(log.contains(&OpRecord::TemporaryCreated { temporary: id }));
-    assert!(
-        log.iter()
-            .any(|r| matches!(r, OpRecord::TemporaryApplied { temporary, .. } if *temporary == id))
+    assert_eq!(
+        s.take_log(),
+        [
+            OpRecord::TemporaryCreated { temporary: id },
+            OpRecord::TemporaryApplied {
+                temporary: id,
+                batch: batch(&[(b"\x00k", 1)])
+            },
+            OpRecord::TemporarySnapshotOpened {
+                id: 0,
+                temporary: id
+            },
+            OpRecord::SnapshotClosed { id: 0 },
+            OpRecord::TemporaryDropped { temporary: id },
+        ]
     );
-    assert!(log.iter().any(
-        |r| matches!(r, OpRecord::TemporarySnapshotOpened { temporary, .. } if *temporary == id)
-    ));
-    assert!(log.contains(&OpRecord::TemporaryDropped { temporary: id }));
 }

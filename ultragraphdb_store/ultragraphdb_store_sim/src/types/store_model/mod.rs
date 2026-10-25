@@ -78,6 +78,9 @@ struct Outcome {
     state: ModelState,
     base: Arc<ModelState>,
     pending: Vec<ModelOp>,
+    /// The writes since the last sync point this outcome keeps, in order: its pending writes, or after a power loss
+    /// the surviving prefix, which the outcome's sync point already holds.
+    kept: Vec<ModelOp>,
     /// How many of the pending writes survived, for a power loss.
     survivors: Option<usize>,
 }

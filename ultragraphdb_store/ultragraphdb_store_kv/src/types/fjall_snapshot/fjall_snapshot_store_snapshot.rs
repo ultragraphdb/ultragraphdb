@@ -27,18 +27,28 @@ impl StoreSnapshot for FjallSnapshot {
         if self.banned(key) {
             return Ok(None);
         }
-        let range = (
-            Bound::Included(stored_key(key, self.read_ts)),
-            Bound::Excluded(key_end(key)),
-        );
+        let lower = stored_key(key, self.read_ts);
+        // Every stored key in the range begins with the escaped key and its terminator; one of the lower bound's
+        // length ends in the eight bytes of a version, and any other is corrupted.
+        let stored_len = lower.len();
+        let range = (Bound::Included(lower), Bound::Excluded(key_end(key)));
         let Some(guard) = self.snapshot.range(&self.keyspace, range).next() else {
             return Ok(None);
         };
         let (stored, bytes) = guard
             .into_inner()
             .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))?;
+        if stored.len() != stored_len {
+            return Err(StoreError::Corrupted(
+                stored.to_vec(),
+                format!(
+                    "stored key of {} bytes does not end in a terminated version",
+                    stored.len()
+                ),
+            ));
+        }
         let mut raw = [0u8; 8];
-        raw.copy_from_slice(&stored[stored.len().saturating_sub(8)..]);
+        raw.copy_from_slice(&stored[stored_len - 8..]);
         let version = !u64::from_be_bytes(raw);
         let v =
             decode_value(&bytes).map_err(|reason| StoreError::Corrupted(key.to_vec(), reason))?;

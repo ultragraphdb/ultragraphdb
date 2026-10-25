@@ -93,11 +93,16 @@ pub fn held(store: &FjallStore, key: &[u8]) -> Vec<(u64, bool)> {
 
 /// Writes `value` raw at the stored key of `key` at `version` into the closed store in `dir`.
 pub fn write_raw(dir: &TestDir, key: &[u8], version: u64, value: &[u8]) {
+    write_raw_in(dir, DATA_KEYSPACE, &stored(key, version), value);
+}
+
+/// Writes `value` raw at `key` of `keyspace` into the closed store in `dir`, whatever the store would make of it.
+pub fn write_raw_in(dir: &TestDir, keyspace: &str, key: &[u8], value: &[u8]) {
     let db = Database::builder(dir.path()).open().unwrap();
-    let data = db
-        .keyspace(DATA_KEYSPACE, KeyspaceCreateOptions::default)
+    let ks = db
+        .keyspace(keyspace, KeyspaceCreateOptions::default)
         .unwrap();
-    data.insert(stored(key, version), value.to_vec()).unwrap();
+    ks.insert(key.to_vec(), value.to_vec()).unwrap();
     db.persist(fjall::PersistMode::SyncAll).unwrap();
 }
 

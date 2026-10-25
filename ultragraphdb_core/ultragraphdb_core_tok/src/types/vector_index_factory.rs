@@ -8,6 +8,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use tracing::error;
 use ultragraphdb_error_options::OptionsError;
 use ultragraphdb_traits_index::{AllowedOptions, Metric, OptionValue, Options};
 
@@ -53,7 +54,7 @@ impl VectorIndexFactory {
     /// The factory's `GetOptions` (`GetPersistantOptions`): the set options as `("name":"value",...)`, in the
     /// order exponent, maxLevels, efConstruction, efSearch, metric; empty when none is set. An int option holding
     /// another type prints Go's default 3, and a metric option holding another type prints an empty name, as Go's
-    /// do.
+    /// do, logging the metric's failed cast as an error as Go logs it.
     pub fn get_options(&self, o: &Options) -> String {
         let mut sb = String::new();
         for name in [
@@ -70,7 +71,13 @@ impl VectorIndexFactory {
         if let Some(v) = o.get_interface_opt(METRIC_OPT) {
             let name = match v {
                 OptionValue::Metric(m) => m.name(),
-                _ => "",
+                other => {
+                    error!(
+                        value_type = other.go_type(),
+                        "cannot cast to SimilarityType"
+                    );
+                    ""
+                }
             };
             sb.push_str(&format!("\"{METRIC_OPT}\":\"{name}\","));
         }

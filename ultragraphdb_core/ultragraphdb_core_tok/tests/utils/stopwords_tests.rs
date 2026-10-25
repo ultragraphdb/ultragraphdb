@@ -64,14 +64,48 @@ fn test_filter_stopwords() {
 
 #[test]
 fn test_stop_word_languages() {
-    let langs = [
-        "ar", "bg", "ca", "ckb", "cs", "da", "de", "el", "en", "es", "eu", "fa", "fi", "fr", "ga",
-        "gl", "hi", "hu", "hy", "id", "it", "nl", "no", "pt", "ro", "ru", "sv", "tr",
+    // bleve v2.5.7's stop_<lang> token maps, as a Go program over its registry reads them: the size and the first
+    // and last word in byte order.
+    let langs: [(&str, usize, &str, &str); 28] = [
+        ("ar", 119, "أ", "يكون"),
+        ("bg", 190, "а", "я"),
+        ("ca", 218, "a", "és"),
+        ("ckb", 62, "ئێمە", "ی"),
+        ("cs", 171, "a", "články"),
+        ("da", 94, "ad", "været"),
+        ("de", 231, "aber", "über"),
+        ("el", 75, "αλλα", "ωσ"),
+        ("en", 174, "a", "yourselves"),
+        ("es", 308, "a", "éramos"),
+        ("eu", 98, "al", "zuten"),
+        ("fa", 308, "اباد", "گيري"),
+        ("fi", 229, "ei", "yli"),
+        ("fr", 164, "ai", "êtes"),
+        ("ga", 109, "a", "ónár"),
+        ("gl", 160, "a", "ós"),
+        ("hi", 225, "अंदर", "होने"),
+        ("hu", 198, "a", "őket"),
+        ("hy", 45, "այդ", "և"),
+        ("id", 355, "ada", "yang"),
+        ("it", 279, "a", "è"),
+        ("nl", 101, "aan", "zou"),
+        ("no", 172, "alle", "å"),
+        ("pt", 203, "a", "éramos"),
+        ("ro", 230, "acea", "ţie"),
+        ("ru", 159, "а", "я"),
+        ("sv", 114, "alla", "över"),
+        ("tr", 209, "acaba", "şöyle"),
     ];
-    for lang in langs {
+    for (lang, len, first, last) in langs {
         let words = stop_words(lang).unwrap_or_else(|| panic!("no stop words for {lang}"));
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{lang} not sorted");
+        assert_eq!(
+            (words.len(), words.first(), words.last()),
+            (len, Some(&first), Some(&last)),
+            "{lang}"
+        );
     }
-    assert!(stop_words("zh").is_none());
-    assert_eq!(stop_words("en").unwrap().len(), 174);
+    for lang in ["zh", "ja", "ko", "", "EN", "en-US"] {
+        assert!(stop_words(lang).is_none(), "{lang:?}");
+    }
 }

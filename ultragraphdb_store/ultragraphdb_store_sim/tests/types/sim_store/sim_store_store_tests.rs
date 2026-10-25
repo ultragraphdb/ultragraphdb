@@ -6,7 +6,7 @@
 //! The store's contract (the kv-store specification) as the simulated store keeps it.
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_store_sim::{FaultConfig, OpRecord, Seed, SimClock, SimStore};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 fn store() -> SimStore {
@@ -154,11 +154,16 @@ fn test_a_read_below_the_discard_timestamp_is_refused() {
     let s = store();
     write(&s, vec![put(b"k", 3, b"v")]);
     s.set_discard_ts(10).unwrap();
-    assert_eq!(
-        s.get_at(b"k", 5).unwrap_err().to_string(),
-        "Transaction is too old"
-    );
-    assert!(s.get_at(b"k", 10).is_ok());
+    for below in [0, 5, 9] {
+        let refused = s.get_at(b"k", below).unwrap_err();
+        assert_eq!(refused, StoreError::TsTooOld());
+        assert_eq!(refused.to_string(), "Transaction is too old");
+    }
+    let at = s
+        .get_at(b"k", 10)
+        .unwrap()
+        .expect("a read at the discard timestamp");
+    assert_eq!((at.version(), at.value()), (3, &b"v"[..]));
 }
 
 #[test]
@@ -237,13 +242,18 @@ fn test_a_reverse_scan_descends_with_versions_newest_first() {
 fn test_a_batch_holds_entries_at_several_versions() {
     let s = store();
     write(&s, vec![put(b"a", 12, b""), put(b"b", 13, b"")]);
-    let at12 = s.snapshot(12).unwrap().get_many(&[b"a", b"b"]).unwrap();
-    assert_eq!(
-        at12.iter().map(Option::is_some).collect::<Vec<_>>(),
-        vec![true, false]
-    );
-    let at13 = s.snapshot(13).unwrap().get_many(&[b"a", b"b"]).unwrap();
-    assert!(at13.iter().all(Option::is_some));
+    let held = |ts| -> Vec<Option<u64>> {
+        s.snapshot(ts)
+            .unwrap()
+            .get_many(&[b"a", b"b"])
+            .unwrap()
+            .iter()
+            .map(|i| i.as_ref().map(Item::version))
+            .collect()
+    };
+    assert_eq!(held(11), [None, None]);
+    assert_eq!(held(12), [Some(12), None]);
+    assert_eq!(held(13), [Some(12), Some(13)]);
 }
 
 #[test]
@@ -317,7 +327,7 @@ fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() {
     s.ban_namespace(5).unwrap();
     write(&s, vec![put(&five, 2, b""), put(&six, 2, b"")]);
     assert_eq!(s.get_at(&five, 3).unwrap(), None);
-    assert!(s.get_at(&six, 3).unwrap().is_some());
+    assert_eq!(s.get_at(&six, 3).unwrap().map(|i| i.version()), Some(2));
     assert!(
         scanned(&s, &Scan::prefix(vec![0x00]), 3)
             .iter()
@@ -336,20 +346,26 @@ fn test_dropping_everything_clears_the_banned_set() {
     let five = ns_key(5, b"\x00\x01a");
     s.ban_namespace(5).unwrap();
     s.drop_all(Vec::new()).unwrap();
-    write(&s, vec![put(&five, 1, b"")]);
-    assert!(s.get_at(&five, 1).unwrap().is_some());
+    write(&s, vec![put(&five, 1, b"after")]);
+    assert_eq!(s.contents().banned().len(), 0);
+    assert_eq!(
+        s.get_at(&five, 1).unwrap().map(|i| i.value().to_vec()),
+        Some(b"after".to_vec())
+    );
 }
 
 #[test]
 fn test_a_poisoned_store_refuses_every_write_until_recovered() {
     let s = store();
     s.inject(ultragraphdb_store_sim::Fault::FailNextBatch);
-    let failed = s.apply(WriteBatch::new(), PersistMode::Buffer);
-    assert!(matches!(
-        failed,
-        Err(StoreError(StoreErrorEnum::WriteFailed(_)))
-    ));
+    let failed = s.apply(WriteBatch::new(), PersistMode::Buffer).unwrap_err();
+    assert_eq!(
+        failed.to_string(),
+        "Write to the store failed: simulated failure during the batch's persist"
+    );
+    assert!(matches!(failed.0, StoreErrorEnum::WriteFailed(_)));
     let poisoned = Err(StoreError::Poisoned());
+    let temporary = ultragraphdb_traits_store::Temporary::new(1);
     assert_eq!(s.apply(WriteBatch::new(), PersistMode::Buffer), poisoned);
     assert_eq!(s.sync(), poisoned);
     assert_eq!(s.compact(), poisoned);
@@ -359,7 +375,108 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() {
     assert_eq!(s.set_tombstone_horizon(1), poisoned);
     assert_eq!(s.drop_all(Vec::new()), poisoned);
     assert_eq!(s.drop_prefixes(1, &[], Vec::new()), poisoned);
-    assert!(s.snapshot(0).is_ok(), "a poisoned process still reads");
+    assert_eq!(s.create_temporary().err(), Some(StoreError::Poisoned()));
+    assert_eq!(s.apply_temporary(&temporary, WriteBatch::new()), poisoned);
+    assert_eq!(s.drop_temporary(temporary), poisoned);
+    assert_eq!(
+        s.write_rebuild_record(&ultragraphdb_traits_store::RebuildRecord::new(
+            1,
+            Vec::new()
+        )),
+        poisoned
+    );
+    assert_eq!(
+        s.snapshot(0).unwrap().read_ts(),
+        0,
+        "a poisoned process still reads"
+    );
+    assert_eq!(s.rebuild_records(), Ok(Vec::new()));
+    let refused: Vec<&'static str> = s
+        .take_log()
+        .iter()
+        .filter_map(|r| match r {
+            OpRecord::WriteWhileFailed { operation } => Some(*operation),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        refused,
+        [
+            "apply",
+            "sync",
+            "compact",
+            "sweep_deletions",
+            "ban_namespace",
+            "set_discard_ts",
+            "set_tombstone_horizon",
+            "drop",
+            "drop",
+            "create_temporary",
+            "apply_temporary",
+            "drop_temporary",
+            "write_rebuild_record",
+        ]
+    );
     s.recover();
-    assert!(s.apply(WriteBatch::new(), PersistMode::Buffer).is_ok());
+    assert_eq!(s.apply(WriteBatch::new(), PersistMode::Buffer), Ok(()));
+    assert!(!s.needs_recovery());
+}
+
+#[test]
+fn test_an_oversized_key_refuses_a_drop_before_it_removes_anything() {
+    let s = store();
+    write(&s, vec![put(b"\x00a", 1, b"")]);
+    let refused = s
+        .drop_prefixes(2, &[b"\x00".to_vec()], vec![put(&vec![1; 65_001], 1, b"")])
+        .unwrap_err();
+    assert!(matches!(
+        refused.0,
+        StoreErrorEnum::KeyTooLarge {
+            size: 65_001,
+            limit: 65_000,
+            ..
+        }
+    ));
+    assert_eq!(
+        s.drop_all(vec![put(&vec![1; 65_001], 1, b"")]).unwrap_err(),
+        refused
+    );
+    assert_eq!(s.contents().versions(b"\x00a").len(), 1);
+    assert!(!s.needs_recovery());
+    assert!(matches!(
+        s.take_log().last(),
+        Some(OpRecord::Refused { error, .. }) if *error == refused
+    ));
+}
+
+#[test]
+fn test_a_drop_removes_every_key_under_any_of_its_prefixes_and_no_other() {
+    let s = store();
+    // 130 keys under one prefix take three removal batches.
+    let under: Vec<Vec<u8>> = (0..130u8).map(|i| vec![0x02, b'a', i]).collect();
+    under
+        .iter()
+        .for_each(|k| write(&s, vec![put(k, 1, b""), put(k, 2, b"")]));
+    for key in [&b"\x02b1"[..], b"\x02c", b"\x03a", b"\x02"] {
+        write(&s, vec![put(key, 1, b"")]);
+    }
+    s.drop_prefixes(9, &[b"\x02a".to_vec(), b"\x02b".to_vec()], Vec::new())
+        .unwrap();
+    let left: Vec<Vec<u8>> = s.contents().keys().keys().cloned().collect();
+    assert_eq!(
+        left,
+        [b"\x02".to_vec(), b"\x02c".to_vec(), b"\x03a".to_vec()]
+    );
+}
+
+#[test]
+fn test_a_drop_without_prefixes_removes_nothing_and_writes_its_entries() {
+    let s = store();
+    write(&s, vec![put(b"\x00a", 1, b"")]);
+    s.drop_prefixes(2, &[], vec![put(b"\x00b", 1, b"e")])
+        .unwrap();
+    assert_eq!(
+        s.contents().keys().keys().cloned().collect::<Vec<_>>(),
+        [b"\x00a".to_vec(), b"\x00b".to_vec()]
+    );
 }

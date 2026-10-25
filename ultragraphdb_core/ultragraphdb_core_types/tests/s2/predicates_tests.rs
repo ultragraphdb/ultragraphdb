@@ -212,3 +212,94 @@ fn robust_sign_of_points_that_are_not_finite_is_indeterminate() {
     assert_eq!(robust_sign(a, b, nan), Direction::Indeterminate);
     assert_eq!(robust_sign(a, inf, b), Direction::Indeterminate);
 }
+
+// Ported from golang/geo s2/predicates_test.go, TestPredicatesSymbolicallyPerturbedSign. Each case is
+// exactly coplanar with the origin, A < B < C lexicographically, and the i-th case is the first to
+// reach the i-th perturbation term; robust_sign falls through to that term because both the
+// triage and the stable determinant are exactly zero.
+#[test]
+fn predicates_symbolically_perturbed_sign() {
+    use Direction::{Clockwise as CW, CounterClockwise as CCW};
+    type Case = ([f64; 3], [f64; 3], [f64; 3], Direction);
+    let tests: [Case; 13] = [
+        ([-3.0, -1.0, 0.0], [-2.0, 1.0, 0.0], [1.0, -2.0, 0.0], CCW), // det(M_1) = b0*c1 - b1*c0
+        ([-6.0, 3.0, 3.0], [-4.0, 2.0, -1.0], [-2.0, 1.0, 4.0], CCW), // det(M_2) = b2*c0 - b0*c2
+        ([0.0, -1.0, -1.0], [0.0, 1.0, -2.0], [0.0, 2.0, 1.0], CCW),  // det(M_3) = b1*c2 - b2*c1
+        ([-1.0, 2.0, 7.0], [2.0, 1.0, -4.0], [4.0, 2.0, -8.0], CCW),  // det(M_4) = c0*a1 - c1*a0
+        ([-4.0, -2.0, 7.0], [2.0, 1.0, -4.0], [4.0, 2.0, -8.0], CCW), // det(M_5) = c0
+        ([0.0, -5.0, 7.0], [0.0, -4.0, 8.0], [0.0, -2.0, 4.0], CCW),  // det(M_6) = -c1
+        ([-5.0, -2.0, 7.0], [0.0, 0.0, -2.0], [0.0, 0.0, -1.0], CCW), // det(M_7) = c2*a0 - c0*a2
+        ([0.0, -2.0, 7.0], [0.0, 0.0, 1.0], [0.0, 0.0, 2.0], CCW),    // det(M_8) = c2
+        ([-3.0, 1.0, 7.0], [-1.0, -4.0, 1.0], [0.0, 0.0, 0.0], CCW),  // det(M_9) = a0*b1 - a1*b0
+        ([-6.0, -4.0, 7.0], [-3.0, -2.0, 1.0], [0.0, 0.0, 0.0], CCW), // det(M_10) = -b0
+        ([0.0, -4.0, 7.0], [0.0, -2.0, 1.0], [0.0, 0.0, 0.0], CW),    // det(M_11) = b1
+        ([-1.0, -4.0, 5.0], [0.0, 0.0, -3.0], [0.0, 0.0, 0.0], CW),   // det(M_12) = a0
+        ([0.0, -4.0, 5.0], [0.0, 0.0, -5.0], [0.0, 0.0, 0.0], CCW),   // det(M_13) = 1
+    ];
+    for (a, b, c, want) in tests {
+        let (a, b, c) = (
+            p(a[0], a[1], a[2]),
+            p(b[0], b[1], b[2]),
+            p(c[0], c[1], c[2]),
+        );
+        assert_eq!(a.vector().compare(b.vector()), -1, "{a:?} < {b:?}");
+        assert_eq!(b.vector().compare(c.vector()), -1, "{b:?} < {c:?}");
+        assert_eq!(a.vector().dot(b.vector().cross(c.vector())), 0.0);
+        assert_eq!(robust_sign(a, b, c), want, "({a:?}, {b:?}, {c:?})");
+        assert_eq!(robust_sign(b, c, a), want, "({b:?}, {c:?}, {a:?})");
+        assert_eq!(robust_sign(c, a, b), want, "({c:?}, {a:?}, {b:?})");
+        assert_eq!(robust_sign(c, b, a), -want, "({c:?}, {b:?}, {a:?})");
+        assert_eq!(robust_sign(b, a, c), -want, "({b:?}, {a:?}, {c:?})");
+        assert_eq!(robust_sign(a, c, b), -want, "({a:?}, {c:?}, {b:?})");
+    }
+}
+
+// Ported from golang/geo s2/predicates_test.go, TestPredicatesStableSignUnderflow: the stable
+// determinant's error bound underflows, and RobustSign resolves the sign exactly.
+#[test]
+#[allow(clippy::excessive_precision)]
+fn predicates_robust_sign_resolves_an_underflowing_stable_sign() {
+    let a = p(1.0, 1.9535722048627587e-90, 7.4882501322554515e-80);
+    let b = p(1.0, 9.6702373087191359e-127, 3.706704857169321e-116);
+    let c = p(1.0, 3.8163353663361477e-142, 1.4628419538608985e-131);
+    assert_eq!(robust_sign(a, b, c), Direction::CounterClockwise);
+    assert_eq!(robust_sign(c, b, a), Direction::Clockwise);
+}
+
+#[test]
+fn predicates_robust_sign_of_repeated_points_is_indeterminate() {
+    // Property (1) of RobustSign: Indeterminate iff two of the points are equal.
+    let x = p(1.0, 0.0, 0.0);
+    let y = p(0.0, 1.0, 0.0);
+    for (a, b, c) in [(x, x, y), (x, y, y), (y, x, y), (x, x, x)] {
+        assert_eq!(
+            robust_sign(a, b, c),
+            Direction::Indeterminate,
+            "({a:?}, {b:?}, {c:?})"
+        );
+    }
+    // -0 and 0 are the same point.
+    assert_eq!(
+        robust_sign(p(1.0, 0.0, 0.0), p(1.0, -0.0, 0.0), y),
+        Direction::Indeterminate
+    );
+}
+
+#[test]
+fn direction_value_neg_and_mul() {
+    use Direction::{Clockwise as CW, CounterClockwise as CCW, Indeterminate as I};
+    assert_eq!((CW.value(), I.value(), CCW.value()), (-1, 0, 1));
+    assert_eq!((-CW, -I, -CCW), (CCW, I, CW));
+    let tests = [
+        (CW, CW, CCW),
+        (CW, I, I),
+        (CW, CCW, CW),
+        (I, CCW, I),
+        (CCW, CCW, CCW),
+        (CCW, CW, CW),
+    ];
+    for (a, b, want) in tests {
+        assert_eq!(a * b, want, "{a:?} * {b:?}");
+        assert_eq!(b * a, want, "{b:?} * {a:?}");
+    }
+}

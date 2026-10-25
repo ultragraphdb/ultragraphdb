@@ -165,6 +165,9 @@ impl CellId {
     /// Returns a slice of the neighboring cellIDs with vertex closest to this cell at the given
     /// level. (Normally there are four neighbors, but the closest vertex may only have three
     /// neighbors if it is one of the 8 cube vertices.)
+    ///
+    /// A level outside 0 to 29 gives Go's result: the offsets wrap as Go's int arithmetic does, where the cell
+    /// size at level -33 is 2^63.
     pub fn vertex_neighbors(&self, level: i64) -> Vec<CellId> {
         let half_size = size_ij(level.wrapping_add(1));
         let size = half_size << 1;
@@ -176,29 +179,34 @@ impl CellId {
         let joffset: i64;
         if i & half_size != 0 {
             ioffset = size;
-            isame = (i + size) < MAX_SIZE;
+            isame = i.wrapping_add(size) < MAX_SIZE;
         } else {
-            ioffset = -size;
-            isame = (i - size) >= 0;
+            ioffset = size.wrapping_neg();
+            isame = i.wrapping_sub(size) >= 0;
         }
         if j & half_size != 0 {
             joffset = size;
-            jsame = (j + size) < MAX_SIZE;
+            jsame = j.wrapping_add(size) < MAX_SIZE;
         } else {
-            joffset = -size;
-            jsame = (j - size) >= 0;
+            joffset = size.wrapping_neg();
+            jsame = j.wrapping_sub(size) >= 0;
         }
 
         let mut results = vec![
             self.parent(level),
-            cell_id_from_face_ij_same(f, i + ioffset, j, isame).parent(level),
-            cell_id_from_face_ij_same(f, i, j + joffset, jsame).parent(level),
+            cell_id_from_face_ij_same(f, i.wrapping_add(ioffset), j, isame).parent(level),
+            cell_id_from_face_ij_same(f, i, j.wrapping_add(joffset), jsame).parent(level),
         ];
 
         if isame || jsame {
             results.push(
-                cell_id_from_face_ij_same(f, i + ioffset, j + joffset, isame && jsame)
-                    .parent(level),
+                cell_id_from_face_ij_same(
+                    f,
+                    i.wrapping_add(ioffset),
+                    j.wrapping_add(joffset),
+                    isame && jsame,
+                )
+                .parent(level),
             );
         }
 
@@ -403,7 +411,9 @@ impl CellId {
 }
 
 /// Returns the lowest-numbered bit that is on for cells at the given level. A level outside 0 to 30 gives Go's
-/// result, 0: Go shifts by the count as a uint64, and a shift of 64 bits or more is 0.
+/// result: Go computes the count `2*(MaxLevel-level)` with wrapping int arithmetic and shifts by it as a uint64,
+/// and a shift of 64 bits or more is 0 — so level -1 gives 1<<62, and `i64::MIN` and `i64::MAX` wrap to 1<<60
+/// and 1<<62.
 pub(crate) fn lsb_for_level(level: i64) -> u64 {
     go_shl(MAX_LEVEL.wrapping_sub(level).wrapping_mul(2))
 }

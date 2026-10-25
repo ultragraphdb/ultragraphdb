@@ -11,6 +11,8 @@ use crate::types::date_time::{DateTime, Zone};
 
 const VERSION_V1: u8 = 1;
 const VERSION_V2: u8 = 2;
+/// Go's `wallToInternal`: the seconds from year 1 to 1885, the epoch of a wall clock with a monotonic reading.
+const WALL_TO_INTERNAL: i64 = (1884 * 365 + 1884 / 4 - 1884 / 100 + 1884 / 400) * 86400;
 
 impl DateTime {
     /// Go's `MarshalBinary`: version, seconds since year 1 and nanoseconds big-endian, the zone offset in minutes
@@ -76,10 +78,18 @@ impl DateTime {
         } else {
             Zone::Fixed(offset)
         };
-        // Go keeps the low 30 bits of the stored nanoseconds as the nanosecond field.
+        // Go sets its wall clock to the stored nanoseconds and keeps their low 30 bits as the nanosecond field. A
+        // negative value sign-extends into the wall clock's monotonic bit, and Go then reads the seconds from the wall
+        // clock's bits 30 to 62, after its wall epoch of 1885, instead of the stored seconds.
+        let wall = i64::from(nsec) as u64;
+        let sec = if nsec < 0 {
+            WALL_TO_INTERNAL + ((wall << 1) >> 31) as i64
+        } else {
+            sec
+        };
         Ok(DateTime::from_internal(
             sec,
-            (nsec as u32) & ((1 << 30) - 1),
+            (wall & ((1 << 30) - 1)) as u32,
             zone,
         ))
     }

@@ -88,7 +88,13 @@ fn test_factory_lookups_from_specs() {
         spec("nosuch", &none),
         spec("hnsw", &none),
     ];
-    assert_eq!(get_index_factories_from_specs(&specs).len(), 2);
+    // Go's GetIndexFactoriesFromSpecs: the found factories in spec order, an unknown name skipped.
+    let names: Vec<String> = get_index_factories_from_specs(&specs)
+        .iter()
+        .map(|f| f.name().to_string())
+        .collect();
+    assert_eq!(names, vec!["hnsw", "hnsw"]);
+    assert!(get_index_factories_from_specs(&[]).is_empty());
     assert_eq!(
         get_index_factory_opts_from_spec(&specs[1])
             .unwrap_err()

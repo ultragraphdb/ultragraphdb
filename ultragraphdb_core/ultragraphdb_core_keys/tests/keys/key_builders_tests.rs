@@ -76,7 +76,7 @@ fn test_golden_split_key() {
 fn test_data_key() {
     // key with uid = 0 is invalid
     let key = data_key(&attr_in_root_namespace("bad uid"), 0).unwrap();
-    assert!(parse(&key).is_err());
+    assert_eq!(parse(&key), Err(KeyError::ZeroUid(key[9..].to_vec())));
 
     for uid in 1..1001u64 {
         // Use the uid to derive the attribute so it has variable length and the test
@@ -201,6 +201,26 @@ fn test_count_key() {
 }
 
 #[test]
+fn test_count_key_forward_and_reverse() {
+    // Counts at the u32 boundaries, forward and reverse, round-trip and keep their direction.
+    for count in [0, 1, 255, 256, u32::MAX - 1, u32::MAX] {
+        for reverse in [false, true] {
+            let key = count_key(&attr_in_root_namespace("c"), count, reverse).unwrap();
+            let mut expected = vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, b'c'];
+            expected.push(if reverse { 0x0c } else { 0x08 });
+            expected.extend(count.to_be_bytes());
+            assert_eq!(key, expected, "{count} {reverse}");
+            let pk = parse(&key).expect("parses");
+            assert_eq!(
+                (pk.count(), pk.is_count(), pk.is_count_rev(), pk.uid()),
+                (count, !reverse, reverse, 0),
+                "{count} {reverse}"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_count_key_with_start_uid() {
     let start_uid = u64::MAX;
     for count in 0..1001u32 {
@@ -249,9 +269,25 @@ fn test_bad_start_uid() {
     let test_key = |key: Vec<u8>| {
         let mut key = split_key(&key, 10).expect("splits");
         assert_eq!(key[0], BYTE_SPLIT);
-        assert!(parse(&key).is_ok());
+        let pk = parse(&key).expect("a split key parses");
+        assert_eq!((pk.start_uid(), pk.has_start_uid()), (10, true));
         key.push(0);
-        assert!(parse(&key).is_err());
+        let err = parse(&key).expect_err("a trailing byte is refused");
+        // The parsed key is the key as far as it was parsed: its start uid not yet read, as in Dgraph.
+        let KeyErrorEnum::StartUidLength { key: k, parsed } = &err.0 else {
+            panic!("{err:?}");
+        };
+        assert_eq!(k, &key[9..]);
+        assert_eq!(
+            (
+                parsed.attr(),
+                parsed.uid(),
+                parsed.count(),
+                parsed.byte_type()
+            ),
+            (pk.attr(), pk.uid(), pk.count(), pk.byte_type())
+        );
+        assert_eq!((parsed.start_uid(), parsed.has_start_uid()), (0, true));
     };
 
     test_key(data_key(&attr_in_root_namespace("aa"), 1).unwrap());
@@ -262,19 +298,28 @@ fn test_bad_start_uid() {
 
 #[test]
 fn test_bad_keys() {
-    // 0-len key
-    assert!(parse(&[]).is_err());
+    // Every key shorter than its prefix and namespace, Go's TestBadKeys among them: since the namespace was
+    // added to keys, Dgraph refuses all of them for their length.
+    for key in [&[][..], &[1], &[1, 2], &[1, 0x00, 0x04, 1, 2], &[0; 8]] {
+        assert_eq!(parse(key), Err(KeyError::KeyTooShort()), "{key:?}");
+    }
 
-    // key of len < 3
-    assert!(parse(&[1]).is_err());
-    assert!(parse(&[1, 2]).is_err());
-
-    // key of len < sz (key[1], key[2])
-    assert!(parse(&[1, 0x00, 0x04, 1, 2]).is_err());
+    // The same truncations past the namespace.
+    let ns = [0u8; 9];
+    let past = |rest: &[u8]| [&ns[..], rest].concat();
+    assert_eq!(parse(&past(&[])), Err(KeyError::InvalidFormat(vec![])));
+    assert_eq!(
+        parse(&past(&[0, 4])),
+        Err(KeyError::InvalidFormat(vec![0, 4]))
+    );
+    assert_eq!(
+        parse(&past(&[0x00, 0x04, 1, 2])),
+        Err(KeyError::InvalidSize(4, vec![0x00, 0x04, 1, 2]))
+    );
 
     // key with uid = 0 is invalid
     let key = data_key(&attr_in_root_namespace("bad uid"), 0).unwrap();
-    assert!(parse(&key).is_err());
+    assert_eq!(parse(&key), Err(KeyError::ZeroUid(key[9..].to_vec())));
 }
 
 #[test]
@@ -302,6 +347,49 @@ fn test_key_rejects_attribute_without_namespace() {
 }
 
 #[test]
+fn test_every_builder_refuses_a_malformed_attribute() {
+    type Builder = fn(&str) -> Result<Vec<u8>, KeyError>;
+    let builders: [(&str, Builder); 9] = [
+        ("schema", schema_key),
+        ("type", type_key),
+        ("data", |a| data_key(a, 1)),
+        ("reverse", |a| reverse_key(a, 1)),
+        ("index", |a| index_key(a, b"t")),
+        ("count", |a| count_key(a, 1, false)),
+        ("count_rev", |a| count_key(a, 1, true)),
+        ("index_after_all_terms", index_key_after_all_terms),
+        ("predicate_prefix", predicate_prefix),
+    ];
+    for (name, build) in builders {
+        assert_eq!(
+            build("name"),
+            Err(KeyError::MissingNamespaceSeparator("name".to_string())),
+            "{name}"
+        );
+        assert_eq!(
+            build("xyz-name").map_err(|e| e.to_string()),
+            Err(
+                r#"Invalid namespace in attribute "xyz-name": strconv.ParseUint: parsing "xyz": invalid syntax"#
+                    .to_string()
+            ),
+            "{name}"
+        );
+        let long = attr_in_root_namespace(&"a".repeat(usize::from(u16::MAX)));
+        assert_eq!(
+            build(&long),
+            Err(KeyError::AttributeTooLong(65535)),
+            "{name}"
+        );
+        let longer = attr_in_root_namespace(&"a".repeat(70_000));
+        assert_eq!(
+            build(&longer),
+            Err(KeyError::AttributeTooLong(70_000)),
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn test_key_rejects_attribute_of_u16_max_bytes() {
     // Dgraph's AssertTrue exits the process.
     let err = schema_key(&attr_in_root_namespace(&"a".repeat(usize::from(u16::MAX))))
@@ -316,6 +404,33 @@ fn test_key_rejects_attribute_of_u16_max_bytes() {
 #[test]
 fn test_key_takes_attribute_below_u16_max_bytes() {
     let attr = "a".repeat(usize::from(u16::MAX) - 1);
-    let pk = parse(&schema_key(&attr_in_root_namespace(&attr)).unwrap()).expect("parses");
+    let key = schema_key(&attr_in_root_namespace(&attr)).unwrap();
+    // The length field holds 0xFFFE, the largest a key takes.
+    assert_eq!(key[9..11], [0xFF, 0xFE]);
+    assert_eq!(key.len(), 1 + 8 + 2 + attr.len());
+    let pk = parse(&key).expect("parses");
     assert_eq!(parse_attr(pk.attr()).unwrap(), attr);
+}
+
+#[test]
+fn test_split_key_layout() {
+    // The first byte becomes BYTE_SPLIT and the start uid is appended big-endian; the base key is unchanged.
+    let base = data_key(&namespace_attr(0x85, "a"), 2).unwrap();
+    let split = split_key(&base, 0x0102_0304_0506_0708).unwrap();
+    let mut expected = base.clone();
+    expected[0] = BYTE_SPLIT;
+    expected.extend([1, 2, 3, 4, 5, 6, 7, 8]);
+    assert_eq!(split, expected);
+    assert_eq!(base[0], 0);
+
+    // Every non-default prefix is refused, the split prefix itself included.
+    for prefix in [1u8, 2, 4, 0xff] {
+        let mut key = base.clone();
+        key[0] = prefix;
+        assert_eq!(
+            split_key(&key, 1),
+            Err(KeyError::SplitNonDefaultPrefix()),
+            "{prefix}"
+        );
+    }
 }

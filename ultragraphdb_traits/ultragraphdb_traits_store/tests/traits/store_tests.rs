@@ -5,12 +5,12 @@
 
 use std::cell::Cell;
 
-use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{
     Entry, Item, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
 };
 
-/// A store holding one item, at version 3, and refusing reads below 2.
+/// A store holding one item, at version 3, refusing reads below 2 and failing every read of `bad`.
 #[derive(Default)]
 struct OneItem {
     opened_at: Cell<Option<u64>>,
@@ -26,6 +26,9 @@ impl StoreSnapshot for OneItemSnapshot {
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Item>, StoreError> {
+        if key == b"bad" {
+            return Err(StoreError::ReadFailed(key.to_vec(), "checksum".to_string()));
+        }
         Ok((key == b"k" && self.0 >= 3)
             .then(|| Item::new(key.to_vec(), 3, 0x08, false, b"v".to_vec())))
     }
@@ -102,37 +105,68 @@ impl Store for OneItem {
 #[test]
 fn test_get_at_reads_through_a_snapshot_at_its_timestamp() {
     let store = OneItem::default();
-    let item = store.get_at(b"k", 5).unwrap().expect("found at 5");
-    assert_eq!((item.version(), item.value()), (3, &b"v"[..]));
-    assert_eq!(store.opened_at.get(), Some(5));
-    assert_eq!(store.get_at(b"k", 2).unwrap(), None);
+    let expected = Item::new(b"k".to_vec(), 3, 0x08, false, b"v".to_vec());
+    // (read timestamp, what get_at returns): the version at or below it, none below the version.
+    for (read_ts, found) in [(u64::MAX, true), (5, true), (3, true), (2, false)] {
+        assert_eq!(
+            store.get_at(b"k", read_ts),
+            Ok(found.then(|| expected.clone())),
+            "read at {read_ts}"
+        );
+        assert_eq!(store.opened_at.get(), Some(read_ts));
+    }
+    assert_eq!(store.get_at(b"other", 5), Ok(None));
 }
 
 #[test]
 fn test_get_at_passes_on_the_snapshots_refusal() {
     let store = OneItem::default();
-    assert_eq!(store.get_at(b"k", 1), Err(StoreError::TsTooOld()));
-    assert_eq!(store.opened_at.get(), Some(1));
+    for read_ts in [1, 0] {
+        let err = store.get_at(b"k", read_ts).unwrap_err();
+        assert_eq!(err, StoreError::TsTooOld());
+        assert_eq!(err.to_string(), "Transaction is too old");
+        assert_eq!(store.opened_at.get(), Some(read_ts));
+    }
+}
+
+#[test]
+fn test_get_at_passes_on_the_reads_failure() {
+    let store = OneItem::default();
+    assert_eq!(
+        store.get_at(b"bad", 5),
+        Err(StoreError::ReadFailed(
+            b"bad".to_vec(),
+            "checksum".to_string()
+        ))
+    );
+    assert_eq!(store.opened_at.get(), Some(5));
 }
 
 /// A store that keeps no temporary keyspaces and no rebuild records refuses them by name, and holds no record.
 #[test]
 fn test_a_store_without_temporary_keyspaces_or_records_refuses_them() {
     let store = OneItem::default();
-    let unsupported = |e: StoreError| matches!(e.0, StoreErrorEnum::Unsupported(_));
-    assert!(store.create_temporary().is_err_and(unsupported));
-    let t = Temporary::new(1);
-    assert!(
-        store
-            .apply_temporary(&t, WriteBatch::new())
-            .is_err_and(unsupported)
+    let temporaries = StoreError::Unsupported("temporary keyspaces");
+    let records = StoreError::Unsupported("rebuild records");
+    assert_eq!(
+        temporaries.to_string(),
+        "The store does not support temporary keyspaces"
     );
-    assert!(store.temporary_snapshot(&t).is_err_and(unsupported));
-    assert!(store.drop_temporary(t).is_err_and(unsupported));
-    assert!(
-        store
-            .write_rebuild_record(&RebuildRecord::new(1, Vec::new()))
-            .is_err_and(unsupported)
+    assert_eq!(
+        records.to_string(),
+        "The store does not support rebuild records"
+    );
+
+    assert_eq!(store.create_temporary(), Err(temporaries.clone()));
+    let t = Temporary::new(1);
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(b"k".to_vec(), 1, 0, vec![]));
+    assert_eq!(store.apply_temporary(&t, batch), Err(temporaries.clone()));
+    assert!(matches!(store.temporary_snapshot(&t), Err(e) if e == temporaries));
+    assert_eq!(store.drop_temporary(t), Err(temporaries));
+    assert_eq!(
+        store.write_rebuild_record(&RebuildRecord::new(1, vec![b"p".to_vec()])),
+        Err(records)
     );
     assert_eq!(store.rebuild_records(), Ok(Vec::new()));
 }

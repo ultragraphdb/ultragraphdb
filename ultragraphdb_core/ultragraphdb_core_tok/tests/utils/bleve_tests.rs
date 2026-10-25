@@ -4,7 +4,7 @@
  */
 
 use serde::Deserialize;
-use ultragraphdb_core_tok::{AnalysisToken, analyze};
+use ultragraphdb_core_tok::{AnalysisToken, TokenType, analyze};
 
 use crate::golden::{LOWERCASE_DEVIATIONS, cases, unhex, untext};
 
@@ -120,4 +120,22 @@ fn test_analyze_final_sigma() {
         .map(|t| t.term().to_string())
         .collect();
     assert_eq!(terms, vec!["ὀδυσς", "ⱥς", "aς"]);
+}
+
+#[test]
+fn test_analyze_keeps_words_and_their_offsets() {
+    // No word segment, no token.
+    for input in ["", " ", "\t\n", "...!?", "  -- "] {
+        assert!(analyze(input).is_empty(), "{input:?}");
+    }
+    // Offsets are bytes of the input; the type follows the segment: letters alphanumeric, 3.5 numeric, Han
+    // ideographic.
+    assert_eq!(
+        analyze("Ünï 3.5 漢"),
+        vec![
+            AnalysisToken::new("ünï", 0, 5, TokenType::AlphaNumeric),
+            AnalysisToken::new("3.5", 6, 9, TokenType::Numeric),
+            AnalysisToken::new("漢", 10, 13, TokenType::Ideographic),
+        ]
+    );
 }

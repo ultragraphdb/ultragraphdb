@@ -7,9 +7,9 @@
  */
 
 use ultragraphdb_core_keys::{
-    KeyErrorEnum, NS_SEPARATOR, ROOT_NAMESPACE, attr_in_root_namespace, data_key, is_reverse_attr,
-    namespace_attr, namespace_attr_list, namespace_to_bytes, parse, parse_attr, parse_attr_list,
-    parse_namespace, parse_namespace_attr, parse_namespace_bytes,
+    KeyError, KeyErrorEnum, NS_SEPARATOR, ROOT_NAMESPACE, attr_in_root_namespace, data_key,
+    is_reverse_attr, namespace_attr, namespace_attr_list, namespace_to_bytes, parse, parse_attr,
+    parse_attr_list, parse_namespace, parse_namespace_attr, parse_namespace_bytes,
 };
 
 use crate::golden::{NamespaceAttrCase, compare, golden};
@@ -116,6 +116,79 @@ fn test_parse_namespace_attr_with_non_hex_namespace_is_refused() {
         err.to_string(),
         r#"Invalid namespace in attribute "xyz-name": strconv.ParseUint: parsing "xyz": invalid syntax"#
     );
-    assert!(parse_attr_list(&["0-a".to_string(), "b".to_string()]).is_err());
-    assert!(is_reverse_attr("~a").is_err());
+    // The list stops at the first attribute it refuses.
+    assert_eq!(
+        parse_attr_list(&["0-a".to_string(), "b".to_string(), "c".to_string()]),
+        Err(KeyError::MissingNamespaceSeparator("b".to_string()))
+    );
+    assert_eq!(
+        is_reverse_attr("~a"),
+        Err(KeyError::MissingNamespaceSeparator("~a".to_string()))
+    );
+    assert_eq!(
+        parse_namespace_bytes("xyz-name").map_err(|e| e.to_string()),
+        Err(err.to_string())
+    );
+}
+
+#[test]
+fn test_parse_namespace_edge_cases() {
+    // (attribute, Go's strconv.ParseUint(namespace, 16, 64) result), probed with Go 1.27.
+    let cases: [(&str, Result<u64, &str>); 9] = [
+        ("FF-a", Ok(255)),
+        ("ffffffffffffffff-a", Ok(u64::MAX)),
+        ("00000000000000000001-a", Ok(1)),
+        (
+            "0x1-a",
+            Err(r#"strconv.ParseUint: parsing "0x1": invalid syntax"#),
+        ),
+        (
+            "-a",
+            Err(r#"strconv.ParseUint: parsing "": invalid syntax"#),
+        ),
+        (
+            "+1-a",
+            Err(r#"strconv.ParseUint: parsing "+1": invalid syntax"#),
+        ),
+        (
+            " 1-a",
+            Err(r#"strconv.ParseUint: parsing " 1": invalid syntax"#),
+        ),
+        (
+            "1_0-a",
+            Err(r#"strconv.ParseUint: parsing "1_0": invalid syntax"#),
+        ),
+        (
+            "10000000000000000-a",
+            Err(r#"strconv.ParseUint: parsing "10000000000000000": value out of range"#),
+        ),
+    ];
+    for (attr, expected) in cases {
+        let expected =
+            expected.map_err(|e| format!("Invalid namespace in attribute {attr:?}: {e}"));
+        assert_eq!(
+            parse_namespace(attr).map_err(|e| e.to_string()),
+            expected,
+            "{attr}"
+        );
+        assert_eq!(
+            parse_namespace_attr(attr).map_err(|e| e.to_string()),
+            expected.clone().map(|ns| (ns, "a")),
+            "{attr}"
+        );
+        // The predicate alone never reads the namespace.
+        assert_eq!(parse_attr(attr), Ok("a"), "{attr}");
+        if let Err(e) = parse_namespace(attr) {
+            assert!(
+                matches!(&e.0, KeyErrorEnum::InvalidNamespace { attr: a, .. } if a == attr),
+                "{attr}: {e:?}"
+            );
+        }
+    }
+    assert_eq!(namespace_attr(u64::MAX, "a"), "ffffffffffffffff-a");
+    assert_eq!(namespace_to_bytes(u64::MAX), [0xff; 8]);
+    assert_eq!(
+        namespace_to_bytes(0x0102_0304_0506_0708),
+        [1, 2, 3, 4, 5, 6, 7, 8]
+    );
 }

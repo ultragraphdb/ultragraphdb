@@ -7,6 +7,7 @@
 
 use std::collections::BTreeSet;
 
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_sim::{
     Fault, FaultConfig, OpRecord, RebuildStage, Seed, SimClock, SimStore,
 };
@@ -94,23 +95,41 @@ fn after_stop(stage: RebuildStage, power_loss: bool) -> BTreeSet<bool> {
             } else {
                 Fault::CrashDuringNextRebuild(stage)
             });
+            let kind = if power_loss {
+                "power loss"
+            } else {
+                "process crash"
+            };
+            let stopped = Err(StoreError::WriteFailed(format!(
+                "simulated {kind} during a rebuild"
+            )));
             let written = s.write_rebuild_record(&record(4));
-            assert_eq!(written.is_err(), stage <= RebuildStage::RecordSynced);
-            if written.is_ok() {
+            if stage <= RebuildStage::RecordSynced {
+                assert_eq!(written, stopped);
+            } else {
+                assert_eq!(written, Ok(()));
                 let t = s.create_temporary().unwrap();
                 let mut temp = WriteBatch::new();
                 temp.push(Entry::put(b"\x00idx1".to_vec(), 1, 0x04, vec![]));
                 let built = s.apply_temporary(&t, temp);
-                assert_eq!(built.is_err(), stage == RebuildStage::TemporaryWritten);
-                if built.is_ok() {
-                    assert!(s.apply(swap(4, 5), PersistMode::Buffer).is_err());
+                if stage == RebuildStage::TemporaryWritten {
+                    assert_eq!(built, stopped);
+                } else {
+                    assert_eq!(built, Ok(()));
+                    assert_eq!(s.apply(swap(4, 5), PersistMode::Buffer), stopped);
                 }
             }
+            assert_eq!(
+                s.rebuild_records(),
+                Err(StoreError::Poisoned()),
+                "a process that is down reads no record"
+            );
             assert!(s.needs_recovery(), "{stage:?} stops the rebuild");
-            assert!(s.take_log().iter().any(|r| matches!(
-                r,
-                OpRecord::RebuildInterrupted { stage: at, power_loss: p, .. } if *at == stage && *p == power_loss
-            )));
+            assert!(s.take_log().contains(&OpRecord::RebuildInterrupted {
+                record: record(4),
+                stage,
+                power_loss,
+            }));
             s.recover();
             !s.rebuild_records().unwrap().is_empty()
         })
@@ -164,6 +183,49 @@ fn test_a_removal_handed_to_the_system_survives_a_crash_and_perhaps_a_power_loss
         after_stop(RebuildStage::RecordRemoved, true),
         BTreeSet::from([false, true])
     );
+}
+
+#[test]
+fn test_a_stop_at_the_removal_waits_for_the_batch_removing_its_record() {
+    // The stop belongs to the record last written: record 9 is written first, then record 4 drawn to stop.
+    let s = store(1);
+    s.write_rebuild_record(&record(9)).unwrap();
+    s.inject(Fault::CrashDuringNextRebuild(RebuildStage::RecordRemoved));
+    s.write_rebuild_record(&record(4)).unwrap();
+    let t = s.create_temporary().unwrap();
+    s.apply_temporary(&t, WriteBatch::new()).unwrap();
+    s.apply(swap(9, 5), PersistMode::Buffer).unwrap();
+    assert!(
+        !s.needs_recovery(),
+        "another record's removal does not stop it"
+    );
+    assert_eq!(
+        s.apply(swap(4, 6), PersistMode::Buffer),
+        Err(StoreError::WriteFailed(
+            "simulated process crash during a rebuild".into()
+        ))
+    );
+    s.recover();
+    assert_eq!(
+        (s.rebuild_records().unwrap(), s.applied_ts()),
+        (Vec::new(), 6),
+        "the removal was handed to the system"
+    );
+}
+
+#[test]
+fn test_a_stop_after_the_temporary_write_is_taken_by_the_records_removal() {
+    // A rebuild whose record is removed before it writes to its temporary keyspace has no temporary write left to
+    // stop at.
+    let s = store(1);
+    s.inject(Fault::CrashDuringNextRebuild(
+        RebuildStage::TemporaryWritten,
+    ));
+    s.write_rebuild_record(&record(4)).unwrap();
+    s.apply(swap(4, 5), PersistMode::Buffer).unwrap();
+    let t = s.create_temporary().unwrap();
+    assert_eq!(s.apply_temporary(&t, WriteBatch::new()), Ok(()));
+    assert!(!s.needs_recovery());
 }
 
 #[test]

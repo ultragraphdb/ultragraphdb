@@ -43,7 +43,11 @@ impl Tokenizer {
                     .into_iter()
                     .map(String::into_bytes)
                     .collect()),
-                _ => Err(wrong(v, "geom.T")),
+                // geom.T is an interface: Go's assertion names the first method the value lacks.
+                _ => Err(TokError::wrong_value(format!(
+                    "interface conversion: {} is not geom.T: missing method Bounds",
+                    v.go_type()
+                ))),
             },
             Kind::Int => match v {
                 Value::Int(i) => Ok(vec![encode_int(*i)]),

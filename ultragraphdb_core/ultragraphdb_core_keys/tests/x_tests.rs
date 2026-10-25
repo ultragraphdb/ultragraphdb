@@ -31,6 +31,20 @@ fn test_remove_duplicates_sorts() {
 }
 
 #[test]
+fn test_remove_duplicates_edges() {
+    assert!(remove_duplicates(vec![]).is_empty());
+    assert_eq!(
+        remove_duplicates(strings(&["", "", "a"])),
+        strings(&["", "a"])
+    );
+    // Go's sort.Strings orders bytewise: "Z" (0x5a) < "a" < "é" (0xc3 0xa9) < "名".
+    assert_eq!(
+        remove_duplicates(strings(&["名", "é", "a", "Z", "é", "名"])),
+        strings(&["Z", "a", "é", "名"])
+    );
+}
+
+#[test]
 fn test_to_hex() {
     assert_eq!(b"\"0x0\"".to_vec(), to_hex(0, false));
     assert_eq!(b"<0x0>".to_vec(), to_hex(0, true));

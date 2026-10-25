@@ -7,7 +7,7 @@
 //! into `geojson.Geometry`, written back with `geojson.Marshal`.
 
 use serde::Deserialize;
-use ultragraphdb_core_types::Geometry;
+use ultragraphdb_core_types::{Geometry, GeometryKind, Layout};
 
 #[derive(Debug, Deserialize)]
 struct GeoJsonCase {
@@ -81,9 +81,21 @@ fn nested_collections_decode_without_recursion() {
     );
     let got = std::thread::Builder::new()
         .stack_size(256 * 1024)
-        .spawn(move || Geometry::from_geojson(input))
+        .spawn(move || {
+            let g = Geometry::from_geojson(&input);
+            let text = g.as_ref().ok().and_then(|g| g.as_ref()?.to_geojson());
+            (g, text == Some(input))
+        })
         .unwrap()
         .join()
         .unwrap();
-    assert!(matches!(got, Ok(Some(_))));
+    let (g, round_trips) = got;
+    let g = g.unwrap().unwrap();
+    assert_eq!(g.kind(), GeometryKind::GeometryCollection);
+    assert_eq!(g.layout(), Layout::XY);
+    assert_eq!(g.geoms().len(), 1);
+    assert!(
+        round_trips,
+        "the geometry writes back the text it was read from"
+    );
 }

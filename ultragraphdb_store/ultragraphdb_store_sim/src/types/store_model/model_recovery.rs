@@ -37,6 +37,7 @@ impl StoreModel {
                     state,
                     base: self.base.clone(),
                     pending: self.pending.clone(),
+                    kept: self.pending.clone(),
                     survivors: None,
                 }]
             }
@@ -52,6 +53,7 @@ impl StoreModel {
                     .map(|pending| Outcome {
                         state: replay(&pending),
                         base: self.base.clone(),
+                        kept: pending.clone(),
                         pending,
                         survivors: None,
                     })
@@ -70,6 +72,7 @@ impl StoreModel {
                             base: Arc::new(state.clone()),
                             state,
                             pending: Vec::new(),
+                            kept: ops[..k].to_vec(),
                             survivors: Some(k),
                         }
                     })
@@ -120,10 +123,7 @@ impl StoreModel {
     /// Why no outcome matches: a batch present in part, the applied timestamp, a synced write lost, or a set of
     /// survivors that is not a prefix.
     fn diagnose(&self, outcomes: &[Outcome], contents: &Contents) -> Breach {
-        let ops = outcomes
-            .last()
-            .map(|o| o.pending.clone())
-            .unwrap_or_default();
+        let ops = outcomes.last().map(|o| o.kept.clone()).unwrap_or_default();
         if let Some(detail) = ops.iter().find_map(|op| partial_batch(op, contents)) {
             return Breach::new(Invariant::BatchWhole, detail);
         }

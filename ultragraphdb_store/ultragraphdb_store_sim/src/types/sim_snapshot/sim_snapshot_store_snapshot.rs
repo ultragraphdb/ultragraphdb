@@ -97,7 +97,12 @@ impl StoreSnapshot for SimSnapshot {
             self.corrupt_read_version(&mut inner, &key, corruption);
         }
         let mut items = self.scan_items(&inner, scan);
-        if let Some(after) = inner.faults.scan_fails_after(items.len()) {
+        // A scan that already ended at an undecodable version yields nothing after that error, the failure drawn
+        // past it included.
+        let ended = items.last().is_some_and(Result::is_err);
+        if let Some(after) = inner.faults.scan_fails_after(items.len())
+            && !(ended && after == items.len())
+        {
             let key = items
                 .get(after)
                 .and_then(|i| i.as_ref().ok())

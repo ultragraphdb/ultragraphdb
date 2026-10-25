@@ -37,8 +37,20 @@ fn test_records_every_level_in_order() {
 fn test_a_clone_records_into_the_same_list() {
     let capture = LogCapture::new();
     let clone = capture.clone();
-    tracing::subscriber::with_default(clone.subscriber(), || tracing::info!("seen"));
-    assert_eq!(capture.events().len(), 1);
+    tracing::subscriber::with_default(clone.subscriber(), || tracing::info!("first"));
+    tracing::subscriber::with_default(capture.subscriber(), || tracing::info!("second"));
+    let messages = |c: &LogCapture| -> Vec<String> {
+        c.events()
+            .iter()
+            .map(|e| e.message().unwrap_or_default().to_string())
+            .collect()
+    };
+    assert_eq!(messages(&capture), vec!["first", "second"]);
+    assert_eq!(messages(&clone), messages(&capture));
+    assert!(
+        LogCapture::new().events().is_empty(),
+        "a new capture starts empty"
+    );
 }
 
 #[test]
@@ -81,7 +93,20 @@ fn run_events(seed: u64) -> Vec<String> {
 #[test]
 fn test_a_seed_replays_its_events() {
     let first = run_events(11);
-    assert!(first.len() >= 60, "{first:?}");
+    // No task is spawned, so every one of the 60 steps steps an actor, in step order.
+    let stepped: Vec<&String> = first.iter().filter(|e| e.contains(": stepped ")).collect();
+    assert_eq!(stepped.len(), 60, "{first:?}");
+    assert!(
+        stepped
+            .iter()
+            .enumerate()
+            .all(|(i, e)| e
+                .starts_with(&format!("INFO {}: stepped step={i} actor=", module_path!()))),
+        "{stepped:?}"
+    );
+    let recovered = first.iter().filter(|e| e.contains(": recovered ")).count();
+    assert_eq!(stepped.len() + recovered, first.len(), "{first:?}");
+    assert!(recovered > 0, "mixed faults recover the store: {first:?}");
     assert_eq!(first, run_events(11));
     assert_ne!(first, run_events(12), "another seed picks other actors");
 }

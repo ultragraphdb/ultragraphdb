@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Expected values are Go's `unicode` package, on runes whose properties Unicode 15 and 17 agree on.
+//! Expected values are Go 1.27's `unicode` package, at Unicode 17.0.0.
 
 use ultragraphdb_common_utils::go_unicode;
 
@@ -46,4 +46,33 @@ fn test_beyond_unicode_is_nothing() {
     assert!(!go_unicode::is_digit(u32::MAX));
     assert!(!go_unicode::is_ideographic(0x110000u32));
     assert_eq!(go_unicode::to_lower(0x110000u32), 0x110000);
+}
+
+#[test]
+fn test_letter_digit_ideographic_and_lower_are_unicode_17() {
+    // Go 1.27 (Unicode 17.0.0), which builds Dgraph: runes Unicode 16 and 17 assigned, each of which Go 1.26
+    // (Unicode 15.0.0) reports as no letter, no digit, no ideograph and its own lower case.
+    // rune, IsLetter, IsDigit, Is(Ideographic), ToLower
+    let cases: [(u32, bool, bool, bool, u32); 14] = [
+        (0xa7cb, true, false, false, 0x264),
+        (0xa7dc, true, false, false, 0x19b),
+        (0x1c89, true, false, false, 0x1c8a),
+        (0x10d50, true, false, false, 0x10d70),
+        (0x16ea0, true, false, false, 0x16ebb),
+        (0x16d40, true, false, false, 0x16d40),
+        (0x10ec5, true, false, false, 0x10ec5),
+        (0x10d40, false, true, false, 0x10d40),
+        (0x16d70, false, true, false, 0x16d70),
+        (0x1ccf0, false, true, false, 0x1ccf0),
+        (0x116d0, false, true, false, 0x116d0),
+        (0x2eda3, true, false, true, 0x2eda3),
+        (0x323b0, true, false, true, 0x323b0),
+        (0x18d1e, true, false, true, 0x18d1e),
+    ];
+    for (r, letter, digit, ideographic, lower) in cases {
+        assert_eq!(go_unicode::is_letter(r), letter, "{r:#x}");
+        assert_eq!(go_unicode::is_digit(r), digit, "{r:#x}");
+        assert_eq!(go_unicode::is_ideographic(r), ideographic, "{r:#x}");
+        assert_eq!(go_unicode::to_lower(r), lower, "{r:#x}");
+    }
 }

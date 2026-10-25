@@ -68,8 +68,12 @@ fn test_index_cells_polygon_error() {
         ]],
     )
     .unwrap();
-    let err = index_cells(&poly).unwrap_err().to_string();
-    assert!(err.contains("Last coordinate not same as first"), "{err}");
+    // Go's %+v of the go-geom polygon, as the golden index vectors hold it.
+    assert_eq!(
+        index_cells(&poly).unwrap_err().to_string(),
+        "Last coordinate not same as first for polygon: &{geom2:{geom1:{geom0:{layout:1 stride:2 \
+         flatCoords:[-122 37 -123 37 -123 38 -122 38 -122 38] srid:0}} ends:[10]}}\n"
+    );
 }
 
 fn round_trip(g: &Geometry) -> Geometry {

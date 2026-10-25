@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod analysis_token;
+#[cfg(test)]
 mod stemmer;
 #[cfg(test)]
 mod vector_index_factory_tests;

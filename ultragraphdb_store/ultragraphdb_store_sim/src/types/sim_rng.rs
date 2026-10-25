@@ -33,12 +33,15 @@ impl SimRng {
         self.below(len as u64) as usize
     }
 
-    /// A number in `lo..=hi`, or `lo` when `hi` is below it.
+    /// A number in `lo..=hi`, or `lo` when `hi` is below it. A range of every `u64` is the next output itself.
     pub fn between(&mut self, lo: u64, hi: u64) -> u64 {
         if hi <= lo {
             lo
         } else {
-            lo + self.below(hi - lo + 1)
+            match (hi - lo).checked_add(1) {
+                Some(width) => lo + self.below(width),
+                None => self.next_u64(),
+            }
         }
     }
 

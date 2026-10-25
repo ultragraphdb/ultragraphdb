@@ -376,8 +376,9 @@ fn cell_id_lat_lng() {
 }
 
 // Ported from golang/geo s2/cellid_test.go, TestCellIDVertexNeighbors. Go builds the expected
-// cells with the unexported cellIDFromFaceIJ; here each is checked to be a distinct level-5
-// cell of face 2 whose closed cell contains the face center they surround.
+// cells with the unexported cellIDFromFaceIJ; the ids below are Go's VertexNeighbors(5) of the
+// face-2 center, sorted, and each is also checked to be a level-5 cell of face 2 whose closed cell
+// contains the center they surround.
 #[test]
 fn cell_id_vertex_neighbors() {
     // Check the vertex neighbors of the center of face 2 at level 5.
@@ -385,8 +386,16 @@ fn cell_id_vertex_neighbors() {
     let id = CellId::from_lat_lng(LatLng::from_point(center));
     let mut neighbors = id.vertex_neighbors(5);
     neighbors.sort();
-    neighbors.dedup();
-    assert_eq!(neighbors.len(), 4);
+    let got: Vec<u64> = neighbors.iter().map(|c| c.id()).collect();
+    assert_eq!(
+        got,
+        [
+            0x4554000000000000,
+            0x4ffc000000000000,
+            0x5004000000000000,
+            0x5aac000000000000
+        ]
+    );
     for nbr in &neighbors {
         assert_eq!(nbr.level(), 5);
         assert_eq!(nbr.face(), 2);
@@ -505,23 +514,119 @@ fn cell_id_common_ancestor_level() {
     }
 }
 
+/// Deviation: Go indexes past a cell's four vertices and, for an invalid id of face 7, past the face-axis
+/// table, and panics; the port answers `None` for the vertex and reads face 7 as face 5. The face-5 bound
+/// below is Go's `CellFromCellID(0xbfffffffffffffff).RectBound()`, the sentinel's position on face 5.
 #[test]
 fn cell_inputs_go_panics_on_answer() {
-    // Go indexes past a cell's four vertices and past the face table for an invalid id, and shifts by a level
-    // outside 0 to 30 as Go's shifts do, to 0.
     let cell = Cell::from_cell_id(CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0)));
-    assert!(cell.vertex(3).is_some());
+    // Vertices 0 to 3 are checked against Go in cell_ids_match_go.
     assert_eq!(cell.vertex(4), None);
+    assert_eq!(cell.vertex_raw(4), None);
     assert_eq!(cell.vertex_raw(9), None);
-    let _ = Cell::from_cell_id(CellId::SENTINEL).rect_bound();
+    assert_eq!(cell.vertex(usize::MAX), None);
+    let r = Cell::from_cell_id(CellId::SENTINEL).rect_bound();
+    let want = [
+        "bfe3b2028123d0cc",
+        "bfe3b2028082e8cf",
+        "bfe921fb54eed7c7",
+        "bfe921fb53998269",
+    ]
+    .map(String::from);
+    assert!(same_rect(r, &want), "{r:?}");
+    // The zero id is level -2 on face 0, and Go bounds it as the face-0 cell.
+    let zero = Cell::from_cell_id(CellId::new(0));
+    assert_eq!((zero.level(), zero.face()), (-2, 0));
+    let want = [
+        "bfe921fb54442d1a",
+        "3fe921fb54442d1a",
+        "bfe921fb54442d18",
+        "3fe921fb54442d18",
+    ]
+    .map(String::from);
+    let r = zero.rect_bound();
+    assert!(same_rect(r, &want), "{r:?}");
+}
+
+/// Go shifts by a level outside 0 to 30 as a uint64 shift does, to 0 for a count of 64 or more, and its int
+/// arithmetic wraps; the values are Go's for the leaf cell of (10°, 20°).
+#[test]
+fn cell_id_levels_outside_the_range_match_go() {
     let id = CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0));
-    for level in [-1, 31, 64, i64::MIN, i64::MAX] {
-        let _ = id.parent(level);
-        let _ = id.child_begin_at_level(level);
-        let _ = id.child_end_at_level(level);
-        let _ = CellId::from_face_pos_level(1, 0, level);
-    }
-    let _ = id.vertex_neighbors(30);
-    let _ = id.vertex_neighbors(i64::MAX);
+    assert_eq!(id.id(), 0x11282087039e7fc7);
     assert_eq!(id.parent(MAX_LEVEL), id);
+    // (level, Parent, ChildBeginAtLevel, ChildEndAtLevel, CellIDFromFacePosLevel(1, 0, level))
+    let tests: [(i64, u64, u64, u64, u64); 7] = [
+        (
+            -1,
+            0x4000000000000000,
+            0x51282087039e7fc6,
+            0x51282087039e7fc8,
+            0x4000000000000000,
+        ),
+        (-2, 0, 0x11282087039e7fc6, 0x11282087039e7fc8, 0),
+        (31, 0, 0x11282087039e7fc6, 0x11282087039e7fc8, 0),
+        (32, 0, 0x11282087039e7fc6, 0x11282087039e7fc8, 0),
+        (64, 0, 0x11282087039e7fc6, 0x11282087039e7fc8, 0),
+        (
+            i64::MIN,
+            0x1000000000000000,
+            0x21282087039e7fc6,
+            0x21282087039e7fc8,
+            0x3000000000000000,
+        ),
+        (
+            i64::MAX,
+            0x4000000000000000,
+            0x51282087039e7fc6,
+            0x51282087039e7fc8,
+            0x4000000000000000,
+        ),
+    ];
+    for (level, parent, begin, end, fpl) in tests {
+        assert_eq!(id.parent(level).id(), parent, "parent({level})");
+        assert_eq!(
+            id.child_begin_at_level(level).id(),
+            begin,
+            "child_begin_at_level({level})"
+        );
+        assert_eq!(
+            id.child_end_at_level(level).id(),
+            end,
+            "child_end_at_level({level})"
+        );
+        assert_eq!(
+            CellId::from_face_pos_level(1, 0, level).id(),
+            fpl,
+            "from_face_pos_level({level})"
+        );
+    }
+}
+
+/// VertexNeighbors at a level outside 0 to 29, against Go: Go's int arithmetic wraps where the size of a
+/// cell at the level reaches 2^63 (level -33), and the port must answer as Go does rather than overflow.
+#[test]
+fn cell_id_vertex_neighbors_outside_the_range_match_go() {
+    let id = CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0));
+    let leaf = id.id();
+    let tests: [(i64, &[u64]); 11] = [
+        (30, &[leaf, leaf, leaf, leaf]),
+        (31, &[0, 0, 0, 0]),
+        (
+            -1,
+            &[0x4000000000000000, 0xc000000000000000, 0xc000000000000000],
+        ),
+        (-2, &[0, 0, 0]),
+        (-31, &[0, 0, 0]),
+        (-32, &[0, 0, 0]),
+        (-33, &[0, 0, 0]),
+        (-34, &[0, 0, 0, 0]),
+        (-35, &[0, 0, 0, 0]),
+        (i64::MAX, &[0x4000000000000000; 4]),
+        (i64::MIN, &[0x1000000000000000; 4]),
+    ];
+    for (level, want) in tests {
+        let got: Vec<u64> = id.vertex_neighbors(level).iter().map(|c| c.id()).collect();
+        assert_eq!(got, want, "vertex_neighbors({level})");
+    }
 }

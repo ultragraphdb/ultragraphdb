@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Expected values are Go 1.26's `utf8.DecodeRune` and `bytes.Runes`.
+//! Expected values are Go 1.27's `utf8.DecodeRune` and `bytes.Runes`.
 
 use std::borrow::Cow;
 
@@ -12,7 +12,7 @@ use ultragraphdb_common_utils::go_utf8;
 #[test]
 fn test_decode_rune_and_runes() {
     // bytes, DecodeRune's rune and width, string(bytes.Runes(bytes))
-    let cases: [(&[u8], u32, usize, &str); 10] = [
+    let cases: [(&[u8], u32, usize, &str); 28] = [
         (b"", 0xfffd, 0, ""),
         (b"a", 0x61, 1, "a"),
         (b"\xc3\xa9", 0xe9, 2, "é"),
@@ -28,6 +28,40 @@ fn test_decode_rune_and_runes() {
         ),
         (b"\xf0\x9f\x98\x80", 0x1f600, 4, "\u{1f600}"),
         (b"\xff", 0xfffd, 1, "\u{fffd}"),
+        // The bounds of each length, and the overlong, surrogate and out-of-range sequences beyond them.
+        (b"\xc2\x80", 0x80, 2, "\u{80}"),
+        (b"\xdf\xbf", 0x7ff, 2, "\u{7ff}"),
+        (b"\xc1\xbf", 0xfffd, 1, "\u{fffd}\u{fffd}"),
+        (b"\x80", 0xfffd, 1, "\u{fffd}"),
+        (b"\xbf", 0xfffd, 1, "\u{fffd}"),
+        (b"\xe0\xa0\x80", 0x800, 3, "\u{800}"),
+        (b"\xe0\x9f\xbf", 0xfffd, 1, "\u{fffd}\u{fffd}\u{fffd}"),
+        (b"\xed\x9f\xbf", 0xd7ff, 3, "\u{d7ff}"),
+        (b"\xee\x80\x80", 0xe000, 3, "\u{e000}"),
+        (b"\xef\xbf\xbf", 0xffff, 3, "\u{ffff}"),
+        (b"\xf0\x90\x80\x80", 0x10000, 4, "\u{10000}"),
+        (
+            b"\xf0\x8f\xbf\xbf",
+            0xfffd,
+            1,
+            "\u{fffd}\u{fffd}\u{fffd}\u{fffd}",
+        ),
+        (b"\xf4\x8f\xbf\xbf", 0x10ffff, 4, "\u{10ffff}"),
+        (
+            b"\xf5\x80\x80\x80",
+            0xfffd,
+            1,
+            "\u{fffd}\u{fffd}\u{fffd}\u{fffd}",
+        ),
+        (b"\xf0\x9f\x98", 0xfffd, 1, "\u{fffd}\u{fffd}\u{fffd}"),
+        (
+            b"\xf8\x88\x80\x80\x80",
+            0xfffd,
+            1,
+            "\u{fffd}\u{fffd}\u{fffd}\u{fffd}\u{fffd}",
+        ),
+        (b"a\xffb", 0x61, 1, "a\u{fffd}b"),
+        (b"\xe2\x82\xaca", 0x20ac, 3, "\u{20ac}a"),
     ];
     for (b, rune, width, text) in cases {
         assert_eq!(go_utf8::decode_rune(b), (rune, width), "{b:?}");

@@ -1683,3 +1683,296 @@ fn test_marshal_json() {
         "invalid type for MarshalJSON: 7"
     );
 }
+
+/// Go v25.5.0's `ParseVFloat` on inputs at its edges: any run of closing brackets, blank lists, separators that
+/// mix or repeat, and what Go's `ParseFloat(_, 32)` accepts (hex, underscores, the infinities, NaN, underflow).
+#[test]
+fn test_parse_vfloat() {
+    use ultragraphdb_core_types::parse_vfloat;
+    let cases: [(&str, Option<&[f32]>); 20] = [
+        ("[1,2]]]", Some(&[1.0, 2.0])),
+        ("[", None),
+        ("]", None),
+        ("[ ]", Some(&[])),
+        ("[1,,2]", None),
+        (" [1 , 2] ", Some(&[1.0, 2.0])),
+        ("[1\t2\n3]", Some(&[1.0, 2.0, 3.0])),
+        ("[[1]", None),
+        ("[1 2,3]", None),
+        ("[-0, 3.4e38]", Some(&[-0.0, 3.4e38])),
+        ("[1e39]", None),
+        ("[0x1p-2]", Some(&[0.25])),
+        ("[1_0]", Some(&[10.0])),
+        (
+            "[inf, -Inf, NaN]",
+            Some(&[f32::INFINITY, f32::NEG_INFINITY, f32::NAN]),
+        ),
+        ("[1]x", None),
+        ("x[1]", None),
+        ("[1e-46]", Some(&[0.0])),
+        ("[,]", None),
+        ("[1,]", None),
+        ("[  1   2  ]", Some(&[1.0, 2.0])),
+    ];
+    let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+    for (input, want) in cases {
+        match (parse_vfloat(input), want) {
+            (Ok(got), Some(want)) => assert_eq!(bits(&got), bits(want), "{input:?}"),
+            (Err(e), None) => assert_eq!(
+                e.to_string(),
+                format!("cannot convert {} to vfloat", input.trim()),
+                "{input:?}"
+            ),
+            (got, want) => panic!("{input:?}: got {got:?}, Go {want:?}"),
+        }
+    }
+}
+
+/// Go v25.5.0's `Val.MarshalJSON`, as Go 1.27 writes it: `encoding/json`'s float layout and escapes, a time's
+/// RFC 3339 form and its range error, a bigfloat's `MarshalText`, and the type identifier of every type it refuses.
+#[test]
+fn test_marshal_json_go_texts() {
+    use ultragraphdb_core_types::{BigFloat, marshal_json};
+    let json = |v: Val| {
+        marshal_json(&v)
+            .map(|b| String::from_utf8(b).unwrap())
+            .map_err(|e| e.to_string())
+    };
+    let float = |f: f64| Val::new(TypeId::FLOAT, Value::Float(f));
+    let big = |s: &str| {
+        Val::new(
+            TypeId::BIGFLOAT,
+            Value::BigFloat(BigFloat::unmarshal_text(s, 200).unwrap()),
+        )
+    };
+    let year_range =
+        "json: error calling MarshalJSON for type *time.Time: year outside of range [0,9999]";
+    let cases: Vec<(Val, Result<&str, &str>)> = vec![
+        (
+            Val::new(TypeId::INT, Value::Int(i64::MIN)),
+            Ok("-9223372036854775808"),
+        ),
+        (float(-0.0), Ok("-0")),
+        (float(1e-7), Ok("1e-7")),
+        (float(1e-6), Ok("0.000001")),
+        (float(1e20), Ok("100000000000000000000")),
+        (float(1e21), Ok("1e+21")),
+        (float(123456789.0), Ok("123456789")),
+        (float(f64::MAX), Ok("1.7976931348623157e+308")),
+        (float(5e-324), Ok("5e-324")),
+        (float(f64::INFINITY), Err("json: unsupported value: +Inf")),
+        (
+            float(f64::NEG_INFINITY),
+            Err("json: unsupported value: -Inf"),
+        ),
+        (
+            Val::new(
+                TypeId::DATETIME,
+                Value::DateTime(DateTime::utc(10000, 1, 1, 0, 0, 0, 0)),
+            ),
+            Err(year_range),
+        ),
+        (
+            Val::new(
+                TypeId::DATETIME,
+                Value::DateTime(DateTime::utc(-1, 1, 1, 0, 0, 0, 0)),
+            ),
+            Err(year_range),
+        ),
+        (
+            Val::new(
+                TypeId::DATETIME,
+                Value::DateTime(DateTime::new(
+                    2018,
+                    5,
+                    30,
+                    9,
+                    30,
+                    10,
+                    500_000_000,
+                    Zone::Fixed(-6 * 3600),
+                )),
+            ),
+            Ok(r#""2018-05-30T09:30:10.5-06:00""#),
+        ),
+        (
+            Val::new(TypeId::PASSWORD, s("p\"w<")),
+            // Go escapes <, > and & as \u003c, \u003e and \u0026.
+            Ok(concat!("\"p\\\"w\\", "u003c\"")),
+        ),
+        (Val::new(TypeId::STRING, s("")), Ok(r#""""#)),
+        (
+            Val::new(TypeId::DEFAULT, s("日本\u{2028}")),
+            Ok(concat!("\"日本\\", "u2028\"")),
+        ),
+        (
+            Val::new(
+                TypeId::DATETIME,
+                Value::DateTime(DateTime::new(
+                    2018,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0,
+                    0,
+                    Zone::Fixed(25 * 3600),
+                )),
+            ),
+            Err(
+                "json: error calling MarshalJSON for type *time.Time: timezone hour outside of range [0,23]",
+            ),
+        ),
+        (
+            Val::new(
+                TypeId::DATETIME,
+                Value::DateTime(DateTime::new(2018, 1, 1, 0, 0, 0, 0, Zone::Fixed(30))),
+            ),
+            Ok(r#""2018-01-01T00:00:00+00:00""#),
+        ),
+        (Val::new(TypeId::BOOL, Value::Bool(false)), Ok("false")),
+        (big("1e100"), Ok("1e+100")),
+        (big("-0.125"), Ok("-0.125")),
+        (
+            Val::nil(TypeId::UID),
+            Err("invalid type for MarshalJSON: 7"),
+        ),
+        (
+            Val::nil(TypeId::VFLOAT),
+            Err("invalid type for MarshalJSON: 12"),
+        ),
+        (
+            Val::nil(TypeId::BINARY),
+            Err("invalid type for MarshalJSON: 1"),
+        ),
+        (
+            Val::nil(TypeId::OBJECT),
+            Err("invalid type for MarshalJSON: 10"),
+        ),
+        (
+            Val::new(TypeId::BINARY, Value::Bytes(b"ab".to_vec())),
+            Err("invalid type for MarshalJSON: 1"),
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(v, want)| {
+            let got = json(v.clone());
+            let want = want.map(String::from).map_err(String::from);
+            (got != want).then(|| format!("{v:?}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Go v25.5.0's `ObjectValue`, as Go answers it: each type's `api.Value` field, binary forms for datetime, geo,
+/// bigfloat and vfloat, and the texts of its refusals. Go panics on a datetime that is not a `time.Time`; the port
+/// returns the panic's text.
+#[test]
+fn test_object_value() {
+    use ultragraphdb_core_types::{BigFloat, Geometry, Layout};
+    use ultragraphdb_proto_dgraph::api::value::Val as V;
+    let point = Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
+    let datetime = Value::DateTime(date(2006, 1, 2, 15, 4, 5, 0));
+    let cases: Vec<(TypeId, Value, Result<V, &str>)> = vec![
+        (TypeId::STRING, s("a"), Ok(V::StrVal("a".into()))),
+        (
+            TypeId::STRING,
+            Value::Int(5),
+            Err("Expected value of type string. Got : 5"),
+        ),
+        (TypeId::DEFAULT, s("d"), Ok(V::DefaultVal("d".into()))),
+        (
+            TypeId::DEFAULT,
+            Value::Float(2.5),
+            Err("Expected value of type string. Got : 2.5"),
+        ),
+        (TypeId::INT, Value::Int(-7), Ok(V::IntVal(-7))),
+        (
+            TypeId::INT,
+            s("a"),
+            Err("Expected value of type int64. Got : a"),
+        ),
+        (TypeId::FLOAT, Value::Float(1.5), Ok(V::DoubleVal(1.5))),
+        (
+            TypeId::FLOAT,
+            Value::Bool(true),
+            Err("Expected value of type float64. Got : true"),
+        ),
+        (TypeId::BOOL, Value::Bool(true), Ok(V::BoolVal(true))),
+        (
+            TypeId::BOOL,
+            Value::Int(1),
+            Err("Expected value of type bool. Got : 1"),
+        ),
+        (
+            TypeId::BINARY,
+            Value::Bytes(b"ab".to_vec()),
+            Ok(V::BytesVal(b"ab".to_vec())),
+        ),
+        (
+            TypeId::BINARY,
+            s("s"),
+            Err("Expected value of type []byte. Got : s"),
+        ),
+        (TypeId::PASSWORD, s("pw"), Ok(V::PasswordVal("pw".into()))),
+        (
+            TypeId::PASSWORD,
+            Value::Float(1.5),
+            Err("Expected value of type password. Got type: float64"),
+        ),
+        (
+            TypeId::DATETIME,
+            datetime,
+            Ok(V::DatetimeVal(vec![
+                0x01, 0x00, 0x00, 0x00, 0x0e, 0xbb, 0x4b, 0x37, 0xe5, 0x00, 0x00, 0x00, 0x00, 0xff,
+                0xff,
+            ])),
+        ),
+        (
+            TypeId::DATETIME,
+            Value::Int(1),
+            Err("interface conversion: interface {} is int64, not time.Time"),
+        ),
+        (
+            TypeId::VFLOAT,
+            Value::VFloat(vec![1.0, 2.0]),
+            Ok(V::Vfloat32Val(vec![0, 0, 0x80, 0x3f, 0, 0, 0, 0x40])),
+        ),
+        (
+            TypeId::BIGFLOAT,
+            Value::BigFloat(BigFloat::unmarshal_text("-0.125", 200).unwrap()),
+            Ok(V::BigfloatVal(b"-0.125".to_vec())),
+        ),
+        (
+            TypeId::GEO,
+            Value::Geo(point),
+            Ok(V::GeoVal(vec![
+                0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
+            ])),
+        ),
+        (TypeId::GEO, s("x"), Err("Expected a Geo type")),
+        (
+            TypeId::UID,
+            Value::Uid(1),
+            Err("ObjectValue not available for: 7"),
+        ),
+        (
+            TypeId::OBJECT,
+            Value::Int(0),
+            Err("ObjectValue not available for: 10"),
+        ),
+    ];
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(id, v, want)| {
+            let got = object_value(id, &v)
+                .map(|a| a.val)
+                .map_err(|e| e.to_string());
+            let want = want.map(Some).map_err(String::from);
+            (got != want).then(|| format!("{id:?} {v:?}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

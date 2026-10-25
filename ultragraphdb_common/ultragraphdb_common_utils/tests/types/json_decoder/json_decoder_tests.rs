@@ -142,10 +142,15 @@ fn test_decoder_buffered() {
 
 #[test]
 fn test_blocking() {
-    for input in [r#"{"x": 1}"#, "[1, 2, 3]"] {
+    for (input, want) in [(r#"{"x": 1}"#, r#"{"x":1}"#), ("[1, 2, 3]", "[1,2,3]")] {
         // A read past what was written would block Go's pipe; here it fails.
         let mut dec = JsonDecoder::new(Once(Some(input.as_bytes().to_vec())));
-        assert!(dec.decode().is_ok(), "{input}");
+        assert_eq!(
+            dec.decode().map(|v| v.marshal()),
+            Ok(want.to_string()),
+            "{input}"
+        );
+        assert_eq!(dec.input_offset(), input.len() as i64, "{input}");
     }
 }
 

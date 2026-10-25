@@ -29,12 +29,18 @@ impl fmt::Display for Area {
     /// Dgraph's `String`: km^2 above 1 km^2, cm^2 below 1 m^2, three decimals.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let a = self.0;
-        if a > KM2 {
-            write!(f, "{:.3} km^2", a / KM2)
+        let (v, unit) = if a > KM2 {
+            (a / KM2, "km^2")
         } else if a < 1.0 {
-            write!(f, "{:.3} cm^2", a * CM2)
+            (a * CM2, "cm^2")
         } else {
-            write!(f, "{a:.3} m^2")
+            (a, "m^2")
+        };
+        // Go's %.3f writes an infinity as +Inf or -Inf, where Rust writes inf or -inf.
+        if v.is_infinite() {
+            let sign = if v > 0.0 { '+' } else { '-' };
+            return write!(f, "{sign}Inf {unit}");
         }
+        write!(f, "{v:.3} {unit}")
     }
 }

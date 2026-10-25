@@ -22,7 +22,7 @@ struct Steps {
     times: Vec<DateTime>,
     types: Vec<TypeId>,
     hash_ok: bool,
-    other_fails: bool,
+    other_fails: String,
     sorted: Vec<String>,
     golden_lang: Vec<LangSortCase>,
 }
@@ -155,10 +155,13 @@ fn version_1_layout(w: &mut Steps) {
     assert_eq!(w.bytes.len(), 15, "{}", hex(&w.bytes));
     assert_eq!(w.bytes[0], 0x01);
     assert_eq!(&w.bytes[13..], &[0xff, 0xff]);
+    // Dgraph's bytes for the time: seconds since year 1 and zero nanoseconds between version and offset.
+    assert_eq!(hex(&w.bytes), "010000000ed3466f2d00000000ffff");
 }
 
 #[when(expr = "each golden binary value is converted back to its type")]
 fn decode_golden(w: &mut Steps) {
+    let mut decoded_values = 0;
     for c in encodings() {
         let tid = TypeId::new(c.from);
         let bin = unhex(&c.out.unwrap().bin);
@@ -170,6 +173,7 @@ fn decode_golden(w: &mut Steps) {
         if binary_of(&original) != Ok(bin.clone()) {
             continue;
         }
+        decoded_values += 1;
         let decoded = convert(&Val::bytes(TypeId::BINARY, bin.clone()), tid);
         let ok = match &decoded {
             // NaN floats are equal by their bits only.
@@ -186,6 +190,11 @@ fn decode_golden(w: &mut Steps) {
             ));
         }
     }
+    // The skips above are the malformed inputs only: most golden encodings are values of their type.
+    assert!(
+        decoded_values > 100,
+        "{decoded_values} golden values decoded"
+    );
 }
 
 #[then(expr = "the result equals the original value")]
@@ -389,11 +398,13 @@ fn midnight(w: &mut Steps) {
 #[when(expr = "{string} is parsed")]
 fn parse_one(w: &mut Steps, s: String) {
     w.error = parse_time(&s).unwrap_err().to_string();
+    w.text = s;
 }
 
 #[then(expr = "parsing fails with {string}")]
 fn parsing_fails(w: &mut Steps, msg: String) {
-    assert!(w.error.contains(&msg), "{}", w.error);
+    // Dgraph's ParseTime returns Go's time.ParseError for the RFC 3339 layout.
+    assert_eq!(w.error, format!("parsing time {:?}: {msg}", w.text));
 }
 
 // ---------- Inference ----------
@@ -468,13 +479,26 @@ fn check_hash(w: &mut Steps) {
         .find(|c| !c.hash.is_empty())
         .expect("a Go-written hash");
     w.hash_ok = verify_password(&c.plain, &c.hash).is_ok();
-    w.other_fails = verify_password(format!("{}x", c.plain), &c.hash).is_err();
-    assert!(encrypt(&c.plain).is_ok_and(|h| h.starts_with("$2a$10$")));
+    w.other_fails = verify_password(format!("{}x", c.plain), &c.hash)
+        .map_err(|e| e.to_string())
+        .err()
+        .unwrap_or_default();
+    // A hash the port writes is bcrypt's 2a form at Dgraph's cost of 10, and verifies.
+    let own = encrypt(&c.plain).unwrap();
+    assert!(own.starts_with("$2a$10$") && own.len() == 60, "{own}");
+    assert_eq!(
+        verify_password(&c.plain, &own).map_err(|e| e.to_string()),
+        Ok(())
+    );
 }
 
 #[then(expr = "the check succeeds, and a different password fails it")]
 fn hash_checked(w: &mut Steps) {
-    assert!(w.hash_ok && w.other_fails);
+    assert!(w.hash_ok);
+    assert_eq!(
+        w.other_fails,
+        "crypto/bcrypt: hashedPassword is not the hash of the given password"
+    );
 }
 
 // ---------- Sorting ----------
