@@ -4,6 +4,7 @@
  */
 
 pub mod drop_record;
+pub mod drop_stage;
 pub mod durability;
 pub mod fjall_scan;
 pub mod fjall_snapshot;

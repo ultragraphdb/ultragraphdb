@@ -3,15 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
-
-use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::types::cached_list::CachedList;
 use crate::types::lists::Lists;
 use crate::types::request::Request;
+use crate::types::stacked_layers::StackedLayers;
 
 /// Requests committed together, in order, each at its own commit timestamp, in one store batch. A request begun
 /// from the batch reads the writes of the requests already pushed to it: their deltas stack on the lists it reads,
@@ -20,7 +17,7 @@ use crate::types::request::Request;
 pub struct Batch<'a, S, C> {
     lists: &'a Lists<S, C>,
     requests: Vec<Request<'a, S, C>>,
-    stacked: BTreeMap<Vec<u8>, Vec<Arc<PostingList>>>,
+    stacked: StackedLayers,
 }
 
 impl<'a, S, C> Batch<'a, S, C>
@@ -32,20 +29,18 @@ where
         Self {
             lists,
             requests: Vec::new(),
-            stacked: BTreeMap::new(),
+            stacked: StackedLayers::default(),
         }
     }
 
     /// A request reading at `read_ts` that sees the writes of the requests pushed so far.
     pub fn request(&self, read_ts: u64) -> Request<'a, S, C> {
-        Request::new(self.lists, read_ts, self.stacked.clone())
+        Request::new(self.lists, read_ts, self.stacked.view())
     }
 
     /// Adds `request` to the batch: its deltas stack under the requests begun after it.
     pub fn push(&mut self, request: Request<'a, S, C>) {
-        for (key, delta) in request.deltas() {
-            self.stacked.entry(key).or_default().push(Arc::new(delta));
-        }
+        self.stacked.push(request.deltas());
         self.requests.push(request);
     }
 

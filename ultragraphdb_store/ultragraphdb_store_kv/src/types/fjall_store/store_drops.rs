@@ -11,6 +11,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{PersistMode, WriteBatch, key_namespace};
 
 use crate::types::drop_record::DropRecord;
+use crate::types::drop_stage::DropStage;
 use crate::types::fjall_store::Shared;
 use crate::types::fjall_store::store_meta::{
     APPLIED_KEY, BANNED_PREFIX, DISCARD_KEY, DROP_KEY, HORIZON_KEY, REBUILD_PREFIX,
@@ -23,8 +24,13 @@ use crate::utils::stored_value::encode_value;
 const REMOVALS_PER_BATCH: usize = 10_000;
 
 impl Shared {
-    /// A drop through its record, the writer lock held: the record written and synced, then the drop finished.
-    pub fn run_drop(&self, record: DropRecord) -> Result<(), StoreError> {
+    /// A drop through its record, the writer lock held: the record written and synced, then the drop finished, each
+    /// stage reported to `observe` as it is reached.
+    pub fn run_drop(
+        &self,
+        record: DropRecord,
+        observe: &mut impl FnMut(DropStage),
+    ) -> Result<(), StoreError> {
         self.refuse_if_poisoned()?;
         let mut check = WriteBatch::new();
         record.entries.iter().cloned().for_each(|e| check.push(e));
@@ -32,7 +38,8 @@ impl Shared {
         let mut batch = self.synced_batch();
         batch.insert(&self.meta, DROP_KEY, record.encode());
         self.commit(batch)?;
-        self.finish_drop(&record)?;
+        observe(DropStage::RecordSynced);
+        self.finish_drop(&record, observe)?;
         tracing::info!(
             ts = record.ts,
             prefixes = record.prefixes.as_ref().map(Vec::len),
@@ -43,11 +50,16 @@ impl Shared {
     }
 
     /// Removes what `record` covers, writes its entries and syncs, then deletes the record: the drop's work after
-    /// its record is synced, done again in whole when a store opens to find the record.
-    pub fn finish_drop(&self, record: &DropRecord) -> Result<(), StoreError> {
+    /// its record is synced, done again in whole when a store opens to find the record. Each stage reached is
+    /// reported to `observe`.
+    pub fn finish_drop(
+        &self,
+        record: &DropRecord,
+        observe: &mut impl FnMut(DropStage),
+    ) -> Result<(), StoreError> {
         let fenced = match &record.prefixes {
             Some(prefixes) => {
-                self.remove_under(prefixes)?;
+                self.remove_under(prefixes, observe)?;
                 true
             }
             None => {
@@ -57,6 +69,7 @@ impl Shared {
                 false
             }
         };
+        observe(DropStage::DataRemoved);
         let banned = lock(&self.view).banned.clone();
         let mut batch = self.batch(PersistMode::Buffer);
         record
@@ -72,13 +85,19 @@ impl Shared {
             });
         self.commit(batch)?;
         self.sync()?;
+        observe(DropStage::EntriesSynced);
         let mut batch = self.batch(PersistMode::Buffer);
         batch.remove(&self.meta, DROP_KEY);
         self.commit(batch)
     }
 
-    /// Removes every stored version under `prefixes`, read at one snapshot, with lsm-tree removals.
-    fn remove_under(&self, prefixes: &[Vec<u8>]) -> Result<(), StoreError> {
+    /// Removes every stored version under `prefixes`, read at one snapshot, with lsm-tree removals, reporting the
+    /// count removed after each full batch.
+    fn remove_under(
+        &self,
+        prefixes: &[Vec<u8>],
+        observe: &mut impl FnMut(DropStage),
+    ) -> Result<(), StoreError> {
         let mut removed = 0usize;
         let snapshot = self.db.snapshot();
         let mut batch = self.batch(PersistMode::Buffer);
@@ -95,6 +114,7 @@ impl Shared {
                         self.batch(PersistMode::Buffer),
                     ))?;
                     held = 0;
+                    observe(DropStage::Removing(removed));
                 }
             }
         }

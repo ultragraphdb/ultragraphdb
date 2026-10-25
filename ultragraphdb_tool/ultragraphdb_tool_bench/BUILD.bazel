@@ -1,0 +1,63 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+load("//bazel/rust:deps.bzl", "with_proto_bindings")
+
+rust_library(
+    name = "ultragraphdb_tool_bench",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_tool_bench"],
+    visibility = ["//visibility:public"],
+    deps = with_proto_bindings(all_crate_deps(normal = True)),
+)
+
+# The measurements of stage 2, task 10.2, run by hand with `bazel run -c opt :store_bench -- <run>`; no test runs it.
+rust_binary(
+    name = "store_bench",
+    srcs = ["src/bin/store_bench.rs"],
+    crate_root = "src/bin/store_bench.rs",
+    lint_config = lint_config(),
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + with_proto_bindings(all_crate_deps(normal = True)),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_tool_bench",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_tool_bench",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test: tests/ mirrors src/ through tests/mod.rs. The argument parsing, the commit shape, the pacer against a
+# clock moved by hand, the summaries, the /proc readers, the timed store and the directory sizes; nothing timed.
+rust_test(
+    name = "ultragraphdb_tool_bench_tests",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + with_proto_bindings(all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    )),
+)

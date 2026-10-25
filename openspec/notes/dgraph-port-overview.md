@@ -213,6 +213,45 @@ where the Dgraph benchmarks ran:
 * a bulk load and a snapshot install;
 * the size of the files after each.
 
+**Measured, stage 2 (2026-10-25).** `store_bench` (`ultragraphdb_tool/ultragraphdb_tool_bench`) drives the apply thread of
+`ultragraphdb_store_apply`, an `Applier` over `FjallStore` with `MokaListCache`, at a fixed offered rate, with commits
+shaped as the Dgraph runs wrote them; it measures the store alone, with no client, network, Zero or Raft. Environment as in
+`dgraph-bench.md`: MacBook Pro (Mac15,8), Apple M3 Max; OrbStack 2.2.5, Linux VM kernel 7.2.12-orbstack, arm64, 12 CPUs,
+11.73 GiB; a `debian:bookworm-slim` container limited to 10 GB, the store on a Docker volume; a release build for
+`aarch64-unknown-linux-gnu`; durability `process`, rollups on, a 128 MB cache, batches of at most 256 commits. Each row
+is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n> --seconds 30`).
+
+| Offered | Relations per commit | Commits/s | Relations/s | Batch apply p50 / p99 | fjall write share | Write stalls | Peak RSS | On disk | Bytes per relation |
+|---|---|---|---|---|---|---|---|---|---|
+| 14,500 | 1 | 14,498–14,499 | 14,498–14,499 | 0.2–1.0 ms / 7.0–7.3 ms | 13 % | 0 | 321–339 MiB | 362–365 MB | 832–838 |
+| 50,000 | 1 | 20,850–22,990 | 20,850–22,990 | 7.2–8.2 ms / 21.8–24.5 ms | 12 % | 0 | 868–880 MiB | 389–417 MB | 604–622 |
+| 14,500 | 50 | 446–464 | 22,284–23,220 | 492–507 ms / 833–889 ms | 7 % | 0 | 932–936 MiB | 321–326 MB | 465–470 |
+| 50,000 | 50 | 438–469 | 21,882–23,474 | 490–556 ms / 809–857 ms | 7 % | 0 | 935–949 MiB | 315–328 MB | 465–473 |
+
+- The apply thread's CPU is the limit: 82–90 % busy at saturation, about 40 µs of CPU per relation, while fjall's write
+  call takes 7–13 % of a batch and never stalls (at most 4 level-0 tables and one sealed memtable). The port sustains
+  14.5k commits/s and saturates near 21–23k commits/s or 22–23k relations/s, whatever the relations per commit. One
+  Dgraph group reached about 79k relations/s at 50 per commit (`dgraph-bench.md`), so the per-relation apply cost is the
+  port's first bottleneck.
+- A musl build at 14,500 offered applies 13,096–13,495 commits/s and does not sustain the rate; the glibc build does.
+- The journal is 60–70 % of the bytes on disk and is not reclaimed by compaction within a run.
+- Batch size, 50,000 offered, one relation, 10 s, three runs per cap: before the posting fix, a request copied the
+  batch's stacked layers whole, so a batch cost O(n²); after it, requests share one stack.
+
+  | Batch cap | Commits/s before | Commits/s after | Peak RSS after | Batch apply p99 after |
+  |---|---|---|---|---|
+  | 16 | 22,608–26,045 | 25,988–27,836 | 589–610 MiB | 1.5–1.6 ms |
+  | 64 | 13,695–14,845 | 28,831–29,348 | 610–618 MiB | 4.2–5.0 ms |
+  | 256 | 5,575–5,746 | 31,513–32,324 | 902–909 MiB | 16.8–18.1 ms |
+  | 1,024 | did not finish in 90 s | 27,356–28,307 | 907–927 MiB | 72.8–82.8 ms |
+  | 4,096 | did not finish in 90 s | 24,887–26,102 | 912–953 MiB | 255.8–315.7 ms |
+
+- Rollups and the compaction filter, one run (`store_bench rollup --hubs 10000 --versions 100 --relations 50`): 1,000,000
+  relations on 10,000 reverse lists, loaded at 585 commits/s; the rollup of all 10,000 lists took 0.52 s (19,096 lists/s,
+  1.9M deltas/s); a major compaction took 1.40 s and collected 997,609 of the 1,007,609 reverse versions at or below the
+  discard timestamp. Data files went from 140 MB to 48 MB, the journal from 318 MB to 399 MB; peak RSS 1.0 GB.
+- A bulk load and a snapshot install are stages 7 and 6; they are measured there.
+
 ## Correctness oracles
 
 Dgraph has no conformance suite. The port checks itself against five sources:

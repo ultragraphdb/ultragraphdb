@@ -61,3 +61,71 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
         b"A"
     );
 }
+
+/// Begins `later` requests in one batch after a first one that writes key `hub`, each later one writing a key of its
+/// own and pushed, then reads `hub` in one more request: the holders of the first request's stacked layer.
+fn holders_of_the_first_layer(later: u64) -> usize {
+    let lists = new_lists();
+    let read_ts = lists.fresh_ts();
+    let hub = key("hub", 1);
+    let mut batch = lists.batch();
+    let mut first = batch.request(read_ts);
+    first
+        .get(&hub)
+        .unwrap()
+        .add_mutation(&set_uid(1), None)
+        .unwrap();
+    batch.push(first);
+    for uid in 2..2 + later {
+        let mut request = batch.request(read_ts);
+        request
+            .get(&key("node", uid))
+            .unwrap()
+            .add_mutation(&set_uid(uid), None)
+            .unwrap();
+        batch.push(request);
+    }
+    let mut reader = batch.request(read_ts);
+    let list = reader.get(&hub).unwrap();
+    assert_eq!(
+        list.mutation().stacked().len(),
+        1,
+        "the first request's write"
+    );
+    std::sync::Arc::strong_count(&list.mutation().stacked()[0])
+}
+
+/// A request begun from a batch shares the layers its batch has stacked rather than copying the batch's map of them:
+/// how many hold one layer does not grow with the requests begun after it, so a batch of n requests costs O(n) map
+/// entries, not O(n²).
+#[test]
+fn test_a_request_shares_the_batchs_stacked_layers_whatever_the_batch_size() {
+    let few = holders_of_the_first_layer(10);
+    let many = holders_of_the_first_layer(1_000);
+    assert_eq!(
+        few, many,
+        "holders grew with the batch: {few} against {many}"
+    );
+    // The batch's stack and the list read.
+    assert!(many <= 2, "{many} holders");
+}
+
+/// A request sees the writes of the requests pushed before it began, not of those pushed after.
+#[test]
+fn test_a_request_sees_the_layers_pushed_before_it_began_and_none_after() {
+    let lists = new_lists();
+    let read_ts = lists.fresh_ts();
+    let hub = key("hub", 1);
+    let mut batch = lists.batch();
+    let mut first = batch.request(read_ts);
+    first
+        .get(&hub)
+        .unwrap()
+        .add_mutation(&set_uid(1), None)
+        .unwrap();
+    let mut early = batch.request(read_ts);
+    batch.push(first);
+    let mut late = batch.request(read_ts);
+    assert!(early.get(&hub).unwrap().mutation().stacked().is_empty());
+    assert_eq!(late.get(&hub).unwrap().mutation().stacked().len(), 1);
+}

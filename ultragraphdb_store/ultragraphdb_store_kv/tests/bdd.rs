@@ -5,7 +5,8 @@
 
 //! The kv-store scenarios, on the fjall store.
 
-// The scenarios use the harness's batch and drop kills; the crash test alone reads temporary keyspaces raw.
+// The scenarios use the harness's batch and drop kills; the crash test alone reads temporary keyspaces raw and
+// names every stage.
 #[allow(dead_code)]
 mod crash_harness;
 
@@ -21,7 +22,7 @@ use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore, GcFilter};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 use crate::crash_harness::{
-    DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, open,
+    DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open,
     raw_drop_state,
 };
 
@@ -463,9 +464,10 @@ fn prefix_gone(w: &mut Steps) {
     "a prefix drop has synced its record and written part of its removals, and the process is killed"
 )]
 fn killed_during_drop(w: &mut Steps) {
-    for delay in [30u64, 90, 200] {
+    // The writer stops after a batch of removals, its record synced, and is killed there.
+    for stage in ["removing-10000", "removing-30000", "removing-50000"] {
         let dir = fresh_dir(&format!("bdd-drop-{}", next()));
-        kill_after(&dir, "drop", "dropping", Duration::from_millis(delay));
+        kill_at(&dir, "drop", stage);
         let (record, left) = raw_drop_state(&dir);
         let store = open(&dir);
         let (under, entry, kept) = drop_outcome(&store);
@@ -483,8 +485,8 @@ fn killed_during_drop(w: &mut Steps) {
 )]
 fn drop_finished(w: &mut Steps) {
     assert!(
-        w.outcomes.iter().any(|o| o.starts_with("true true")),
-        "no kill landed inside the removals: {:?}",
+        w.outcomes.iter().all(|o| o.starts_with("true true")),
+        "a kill landed outside the removals: {:?}",
         w.outcomes
     );
     for outcome in &w.outcomes {

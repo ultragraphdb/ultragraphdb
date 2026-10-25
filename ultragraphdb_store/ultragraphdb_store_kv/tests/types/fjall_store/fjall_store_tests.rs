@@ -98,3 +98,16 @@ fn test_the_filesystem_mode_syncs_every_batch_and_the_process_mode_on_its_period
     }
     assert_eq!(Durability::default(), Durability::Process);
 }
+
+#[test]
+fn test_the_write_pressure_fjall_stalls_on_is_read_from_the_data_keyspace() {
+    let dir = TestDir::new("pressure");
+    let s = dir.open();
+    assert_eq!((s.l0_table_count(), s.sealed_memtable_count()), (0, 0));
+    write(&s, vec![put(b"a", 3, b"v")]);
+    s.compact().unwrap();
+    // A compaction flushes the memtable and moves every table out of level 0.
+    assert_eq!((s.l0_table_count(), s.sealed_memtable_count()), (0, 0));
+    assert!(s.data_path().starts_with(dir.path()));
+    assert!(s.data_path().join("tables").is_dir());
+}

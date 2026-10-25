@@ -22,6 +22,8 @@ use fjall::{Database, Keyspace, KeyspaceCreateOptions, OwnedWriteBatch, Readable
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_traits_store::{Entry, PersistMode};
 
+use crate::types::drop_record::DropRecord;
+use crate::types::drop_stage::DropStage;
 use crate::types::durability::Durability;
 use crate::types::gc_filter_factory::GcFilterFactory;
 use crate::types::gc_settings::GcSettings;
@@ -148,7 +150,7 @@ impl FjallStore {
                 entries = record.entries.len(),
                 "finishing a drop a crash or power loss interrupted"
             );
-            shared.finish_drop(&record)?;
+            shared.finish_drop(&record, &mut |_| {})?;
         }
         shared.drop_left_temporaries()?;
         let syncer = match durability {
@@ -192,9 +194,47 @@ impl FjallStore {
             .collect()
     }
 
+    /// [`ultragraphdb_traits_store::Store::drop_prefixes`], reporting each stage the drop reaches to `observe`, in
+    /// order, on the calling thread and with the writer lock held. The crash test's writer stops its process at one.
+    pub fn drop_prefixes_observed(
+        &self,
+        ts: u64,
+        prefixes: &[Vec<u8>],
+        entries: Vec<Entry>,
+        mut observe: impl FnMut(DropStage),
+    ) -> Result<(), StoreError> {
+        let _writer = lock(&self.shared.writer);
+        self.shared.run_drop(
+            DropRecord {
+                ts,
+                prefixes: Some(prefixes.to_vec()),
+                entries,
+            },
+            &mut observe,
+        )
+    }
+
     /// The items compactions kept because they could not decode them, since the store was opened.
     pub fn undecodable_kept(&self) -> u64 {
         self.shared.gc.undecodable()
+    }
+
+    /// The tables in level 0 of the data keyspace. fjall stalls a write once level 0 holds 20 runs and halts it at
+    /// 30; a run holds one table or more, so fewer than 20 tables rule both out. fjall's `l0_table_count` is
+    /// `#[doc(hidden)]`, one more reason fjall is pinned exactly.
+    pub fn l0_table_count(&self) -> usize {
+        self.shared.data.l0_table_count()
+    }
+
+    /// The sealed memtables of the data keyspace waiting for their flush. fjall halts a write in 100 ms sleeps while
+    /// 4 or more wait.
+    pub fn sealed_memtable_count(&self) -> usize {
+        self.shared.data.sealed_memtable_count()
+    }
+
+    /// The directory of the data keyspace, inside the store's directory.
+    pub fn data_path(&self) -> &Path {
+        self.shared.data.path()
     }
 
     /// Whether a failed write has poisoned the store, which then recovers only by reopening.

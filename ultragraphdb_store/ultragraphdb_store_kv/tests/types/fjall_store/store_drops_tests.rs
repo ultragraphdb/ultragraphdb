@@ -6,7 +6,7 @@
 //! Drops through their record: a record left by a crash is finished before the store serves.
 
 use fjall::{Database, KeyspaceCreateOptions};
-use ultragraphdb_store_kv::META_KEYSPACE;
+use ultragraphdb_store_kv::{DropStage, META_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, Store};
 
 use crate::test_store::{TestDir, held, ns_key, put, write};
@@ -154,4 +154,33 @@ fn test_a_drop_removes_every_version_in_as_many_batches_as_it_needs() {
     s.drop_prefixes(9, &[b"\x00z".to_vec(), b"\x00z\x00".to_vec()], Vec::new())
         .unwrap();
     assert!(s.dump().unwrap().is_empty());
+}
+
+#[test]
+fn test_an_observed_drop_reports_each_stage_it_reaches_in_order() {
+    let dir = TestDir::new("drop-stages");
+    let s = dir.open();
+    let entries: Vec<Entry> = (0..25_000u32)
+        .map(|i| put(&[b"\x00z".as_slice(), &i.to_be_bytes()].concat(), 2, b""))
+        .collect();
+    write(&s, entries);
+    let mut stages = Vec::new();
+    s.drop_prefixes_observed(
+        9,
+        &[b"\x00z".to_vec()],
+        vec![put(b"\x00z-initial", 1, b"")],
+        |stage| stages.push(stage),
+    )
+    .unwrap();
+    assert_eq!(
+        stages,
+        vec![
+            DropStage::RecordSynced,
+            DropStage::Removing(10_000),
+            DropStage::Removing(20_000),
+            DropStage::DataRemoved,
+            DropStage::EntriesSynced,
+        ]
+    );
+    assert_eq!(held(&s, b"\x00z-initial"), vec![(1, false)]);
 }

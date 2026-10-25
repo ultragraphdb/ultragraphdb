@@ -3,12 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Kills the crash writer (`src/bin/kv_crash_writer.rs`) at a point it announces and checks what its store holds
-//! after reopening. Shared by the crash test and the kv-store scenarios.
+//! Kills the crash writer (`src/bin/kv_crash_writer.rs`) at a point it announces, a stage it stops at or a batch it
+//! begins, and checks what its store holds after reopening. Shared by the crash test and the kv-store scenarios.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Lines};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
 use fjall::{Database, KeyspaceCreateOptions, Readable};
@@ -37,12 +37,35 @@ pub fn fresh_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Runs the writer in `mode` on `dir`, waits for it to print `line`, waits `delay`, and kills it. Returns every line
-/// it printed.
-pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> Vec<String> {
+/// The stages the writer's drop mode announces, in order: before the drop, with its record synced, after each batch
+/// of removals, with its data removed, with its entries synced, and after the drop returned.
+pub const DROP_STAGES: [&str; 11] = [
+    "start",
+    "record-synced",
+    "removing-10000",
+    "removing-20000",
+    "removing-30000",
+    "removing-40000",
+    "removing-50000",
+    "removing-60000",
+    "data-removed",
+    "entries-synced",
+    "dropped",
+];
+/// The stages the writer's temporary mode announces, in order.
+pub const TEMPORARY_STAGES: [&str; 3] = ["data-synced", "temporary-created", "temporary-written"];
+/// The stages the writer's record mode announces, in order.
+pub const RECORD_STAGES: [&str; 2] = ["start", "record-synced"];
+
+/// The writer's stdout, line by line.
+type Output = Lines<BufReader<ChildStdout>>;
+
+/// Runs the writer with `args` on `dir` and reads its stdout until it prints `line`. Returns the child, the rest of
+/// its stdout and the lines read, the last of which is `line`.
+fn run_until(dir: &Path, args: &[&str], line: &str) -> (Child, Output, Vec<String>) {
     let mut child: Child = Command::new(writer())
         .arg(dir)
-        .arg(mode)
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
@@ -63,11 +86,27 @@ pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> Vec<St
         Some(line),
         "the writer stopped early: {seen:?}"
     );
+    (child, lines, seen)
+}
+
+/// Runs the writer in `mode` on `dir`, waits for it to print `line`, waits `delay`, and kills it. Returns every line
+/// it printed.
+pub fn kill_after(dir: &Path, mode: &str, line: &str, delay: Duration) -> Vec<String> {
+    let (mut child, lines, mut seen) = run_until(dir, &[mode], line);
     std::thread::sleep(delay);
     child.kill().expect("the writer is killed");
     child.wait().expect("the writer is reaped");
     // Lines it printed before the kill landed.
     seen.extend(lines.map_while(Result::ok));
+    seen
+}
+
+/// Runs the writer in `mode` on `dir`, stopping at `stage`: it announces `stage <stage>` and waits there, and is
+/// killed once the line is read, so the kill lands at that stage and nowhere else. Returns every line it printed.
+pub fn kill_at(dir: &Path, mode: &str, stage: &str) -> Vec<String> {
+    let (mut child, _, seen) = run_until(dir, &[mode, stage], &format!("stage {stage}"));
+    child.kill().expect("the writer is killed");
+    child.wait().expect("the writer is reaped");
     seen
 }
 

@@ -90,6 +90,6 @@ Each later group adds its operations to the simulator's workload and its rules t
 
 ## 10. Close the stage
 
-- [ ] 10.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; `make fix` and `make format` clean
-- [ ] 10.2 Measure: batches of Dgraph-shaped commits at 14.5k and 50k commits/s with fjall's stall time per batch, rollups with the compaction filter over a large predicate, file sizes; record the results in the overview
-- [ ] 10.3 Attribution headers on every ported file, go-farm's MIT notice on `go_farm`; `AGENTS.md` crate and external-dependency tables updated
+- [x] 10.1 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; `make fix` and `make format` clean
+- [x] 10.2 Measure: batches of Dgraph-shaped commits at 14.5k and 50k commits/s with fjall's stall time per batch, rollups with the compaction filter over a large predicate, file sizes; record the results in the overview
+- [x] 10.3 Attribution headers on every ported file, go-farm's MIT notice on `go_farm`; `AGENTS.md` crate and external-dependency tables updated

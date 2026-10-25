@@ -15,6 +15,7 @@ authors.workspace = true
 publish.workspace = true
 autotests = false
 autobins = false
+autobenches = false
 
 [lints]
 workspace = true
@@ -29,6 +30,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
+criterion = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 
@@ -54,4 +56,29 @@ path = "tests/crash.rs"
 [[test]]
 name = "bdd"
 path = "tests/bdd.rs"
+harness = false
+
+# Criterion benches of the store alone, run by `cargo bench` and `bazel run`, never by `make test`.
+[[bench]]
+name = "kv_batch_write_bench"
+harness = false
+
+[[bench]]
+name = "kv_point_read_bench"
+harness = false
+
+[[bench]]
+name = "kv_prefix_scan_bench"
+harness = false
+
+[[bench]]
+name = "kv_compact_bench"
+harness = false
+
+[[bench]]
+name = "kv_drop_prefix_bench"
+harness = false
+
+[[bench]]
+name = "kv_list_cache_bench"
 harness = false

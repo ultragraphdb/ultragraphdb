@@ -110,21 +110,19 @@ impl Store for FjallStore {
         prefixes: &[Vec<u8>],
         entries: Vec<Entry>,
     ) -> Result<(), StoreError> {
-        let _writer = lock(&self.shared.writer);
-        self.shared.run_drop(DropRecord {
-            ts,
-            prefixes: Some(prefixes.to_vec()),
-            entries,
-        })
+        self.drop_prefixes_observed(ts, prefixes, entries, |_| {})
     }
 
     fn drop_all(&self, entries: Vec<Entry>) -> Result<(), StoreError> {
         let _writer = lock(&self.shared.writer);
-        self.shared.run_drop(DropRecord {
-            ts: 0,
-            prefixes: None,
-            entries,
-        })
+        self.shared.run_drop(
+            DropRecord {
+                ts: 0,
+                prefixes: None,
+                entries,
+            },
+            &mut |_| {},
+        )
     }
 
     fn ban_namespace(&self, namespace: u64) -> Result<(), StoreError> {

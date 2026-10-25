@@ -24,10 +24,27 @@
 //! drop(store);
 //! let _ = std::fs::remove_dir_all(&dir);
 //! ```
+//!
+//! # Benchmarks
+//!
+//! Criterion benches under `benches/` measure the store alone, through the `Store` trait on [`FjallStore`] and
+//! through [`MokaListCache`]: batch writes by batch and value size under each [`Durability`], point reads, prefix
+//! scans, `compact` with the GC filter, a prefix drop, and the list cache. Each file states what it measures and what
+//! it does not, and writes its store under the system's temporary directory. They are never part of `make test`.
+//!
+//! ```text
+//! cargo bench -p ultragraphdb_store_kv                          # every bench
+//! cargo bench -p ultragraphdb_store_kv --bench kv_compact_bench # one bench
+//! bazel run -c opt //ultragraphdb_store/ultragraphdb_store_kv:kv_compact_bench -- --bench
+//! ```
+//!
+//! Under Bazel, `--bench` selects measurement; without it criterion runs each bench once as a check. Criterion writes
+//! its reports to `$CRITERION_HOME`, or to `target/criterion` under the working directory.
 
 mod types;
 mod utils;
 
+pub use crate::types::drop_stage::DropStage;
 pub use crate::types::durability::Durability;
 pub use crate::types::fjall_scan::FjallScan;
 pub use crate::types::fjall_snapshot::FjallSnapshot;

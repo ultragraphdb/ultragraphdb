@@ -119,3 +119,32 @@ rust_test(
         normal_dev = True,
     ),
 )
+
+# Criterion benches of the store alone, one binary each, run with `bazel run :<name> -- --bench` and never as a test:
+# no test rule wraps them, and `make test` builds them without running them. Each writes its store under the system's
+# temporary directory.
+[
+    rust_binary(
+        name = bench,
+        srcs = [
+            "benches/bench_dir.rs",
+            "benches/%s.rs" % bench,
+        ],
+        crate_root = "benches/%s.rs" % bench,
+        lint_config = lint_config(),
+        tags = ["bench"],
+        visibility = ["//visibility:public"],
+        deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for bench in [
+        "kv_batch_write_bench",
+        "kv_compact_bench",
+        "kv_drop_prefix_bench",
+        "kv_list_cache_bench",
+        "kv_point_read_bench",
+        "kv_prefix_scan_bench",
+    ]
+]

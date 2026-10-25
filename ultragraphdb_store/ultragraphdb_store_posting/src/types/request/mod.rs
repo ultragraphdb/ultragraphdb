@@ -15,7 +15,6 @@ mod request_drop;
 
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
-use std::sync::Arc;
 
 use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
@@ -24,6 +23,7 @@ use crate::errors::posting_error::PostingError;
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
+use crate::types::stacked_layers::StackedLayers;
 
 /// A list a request holds, and whether it was built without a store read.
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ pub struct Request<'a, S, C> {
     lists: &'a Lists<S, C>,
     read_ts: u64,
     held: BTreeMap<Vec<u8>, Held>,
-    stacked: BTreeMap<Vec<u8>, Vec<Arc<PostingList>>>,
+    stacked: StackedLayers,
     entries: Vec<Entry>,
     versioned: Vec<Entry>,
     advance_epoch: bool,
@@ -53,11 +53,7 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    pub(crate) fn new(
-        lists: &'a Lists<S, C>,
-        read_ts: u64,
-        stacked: BTreeMap<Vec<u8>, Vec<Arc<PostingList>>>,
-    ) -> Self {
+    pub(crate) fn new(lists: &'a Lists<S, C>, read_ts: u64, stacked: StackedLayers) -> Self {
         lists.open_read(read_ts);
         Self {
             lists,
@@ -106,8 +102,7 @@ where
         let (read_ts, stacked) = (self.read_ts, &self.stacked);
         let held = self.held.entry(key.to_vec()).or_insert_with(|| {
             let mut list = List::empty(key.to_vec());
-            list.mutation_mut()
-                .set_stacked(stacked.get(key).cloned().unwrap_or_default());
+            list.mutation_mut().set_stacked(stacked.get(key));
             list.set_ts(read_ts);
             Held { list, blind: true }
         });
@@ -218,7 +213,7 @@ where
 /// The list of `key` at `read_ts`, with the batch's earlier writes to it stacked on top.
 fn read_list<S, C>(
     lists: &Lists<S, C>,
-    stacked: &BTreeMap<Vec<u8>, Vec<Arc<PostingList>>>,
+    stacked: &StackedLayers,
     key: &[u8],
     read_ts: u64,
 ) -> Result<List, PostingError>
@@ -227,8 +222,7 @@ where
     C: ListCache<Value = CachedList>,
 {
     let mut list = lists.read(key, read_ts)?;
-    list.mutation_mut()
-        .set_stacked(stacked.get(key).cloned().unwrap_or_default());
+    list.mutation_mut().set_stacked(stacked.get(key));
     list.set_ts(read_ts);
     Ok(list)
 }

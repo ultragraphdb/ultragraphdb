@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod drop_stage_tests;
+#[cfg(test)]
 mod durability_tests;
 #[cfg(test)]
 mod fjall_scan;
