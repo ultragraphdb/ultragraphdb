@@ -13,9 +13,8 @@ use crate::errors::apply_error::ApplyError;
 use crate::types::applier::Applier;
 use crate::types::apply_request::ApplyRequest;
 
-/// Requests that apply edges, committed together in one store batch, each at its own commit timestamp: stage 3
-/// writes an apply step's proposals as one batch. A request begun from the batch reads the writes of those pushed
-/// before it.
+/// Requests that apply edges, committed together in one store batch, each at its own commit timestamp. A request
+/// begun from the batch reads the writes of those pushed before it.
 #[derive(Debug)]
 pub struct ApplyBatch<'a, S, C, E> {
     applier: &'a Applier<S, C, E>,

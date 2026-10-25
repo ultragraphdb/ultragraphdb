@@ -5,7 +5,7 @@
  * Ported from Dgraph v25.5.0, posting/list.go (addMutation, addMutationInternal, updateMutationLayer). Changed for
  * ultragraphdb: translated to Rust; the predicate's schema is the caller's, where Dgraph asks its global schema;
  * the edge is not changed, where Dgraph writes the value's fingerprint into its ValueId; conflict keys, the abort
- * check and the vector index's value cache are not ported here (conflict keys are stage 3's).
+ * check and the vector index's value cache are not ported here.
  * Copyright (c) 2026. Marvin Hansen.
  */
 

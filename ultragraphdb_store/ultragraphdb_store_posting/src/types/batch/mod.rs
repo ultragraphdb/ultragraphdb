@@ -12,7 +12,7 @@ use crate::types::stacked_layers::StackedLayers;
 
 /// Requests committed together, in order, each at its own commit timestamp, in one store batch. A request begun
 /// from the batch reads the writes of the requests already pushed to it: their deltas stack on the lists it reads,
-/// newest last, above the state at its read timestamp. Stage 3 writes an apply step's requests as one batch.
+/// newest last, above the state at its read timestamp.
 #[derive(Debug)]
 pub struct Batch<'a, S, C> {
     lists: &'a Lists<S, C>,
