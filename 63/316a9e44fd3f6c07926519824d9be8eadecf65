@@ -1,0 +1,44 @@
+openspec/changes/stage-4-data-model-and-quad-storage/specs/term-dictionary/spec.md
+  s_e7d9aa044e41ea::t_46c5519d53ebce 59-60
+  s_bb262a92b0770b::t_c382e95dc0c042 37-40,57-58,61-75
+openspec/changes/stage-4-data-model-and-quad-storage/design.md
+  s_e7d9aa044e41ea::t_c0178e496932b1 104,111-117,139,180-186,240-241
+openspec/changes/stage-4-data-model-and-quad-storage/proposal.md
+  s_e7d9aa044e41ea::t_45e2ee13656822 19-21,64,68
+openspec/changes/stage-4-data-model-and-quad-storage/specs/catalog/spec.md
+  s_e7d9aa044e41ea::t_a51f62c4b7de0b 6-8,14-17
+openspec/changes/stage-4-data-model-and-quad-storage/specs/index-maintenance/spec.md
+  s_e7d9aa044e41ea::t_92e32c509b19d1 80-113
+openspec/changes/stage-4-data-model-and-quad-storage/specs/quad-storage/spec.md
+  s_e7d9aa044e41ea::t_0cccd4908838c2 7-8,10,32-35
+openspec/changes/stage-4-data-model-and-quad-storage/specs/vector-index/spec.md
+  s_e7d9aa044e41ea::t_bc269b8d190812 4-5,9-14
+openspec/changes/stage-4-data-model-and-quad-storage/tasks.md
+  s_e7d9aa044e41ea::t_51ab6f7e9d476c 22,47,58,71,81
+"openspec/notes/UltraGraphDB Dual Query Engine Plan.md"
+  s_e7d9aa044e41ea::t_14d972e83c34cd 403,509-518,619-622,628-629
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63316a9e44fd3f6c07926519824d9be8eadecf65",
+  "prompts": {},
+  "sessions": {
+    "s_bb262a92b0770b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db7c4aa0-6d9f-4df2-b2e9-595d527d680c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
