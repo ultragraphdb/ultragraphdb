@@ -6,7 +6,7 @@
 //! The store's contract (the kv-store specification) as the simulated store keeps it.
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_store_sim::{FaultConfig, OpRecord, Seed, SimClock, SimStore};
+use ultragraphdb_store_sim::{Contents, FaultConfig, OpRecord, Seed, SimClock, SimStore};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 fn store() -> SimStore {
@@ -616,4 +616,27 @@ fn test_a_versionless_read_is_logged_with_its_snapshot() {
             },
         ]
     );
+}
+
+/// A versionless key over the size limit refuses its batch whole, its entries with it, and the refusal names the
+/// key's size and the limit: 65 001 bytes against `MAX_USER_KEY_SIZE`, 65 000.
+#[test]
+fn test_an_oversized_versionless_key_refuses_its_batch() {
+    let s = store();
+    let mut batch = versionless_batch(&[(b"fine", Some(b"1"))], 1);
+    batch.put_versionless(vec![1; 65_001], b"2".to_vec());
+    let refused = s.apply(batch, PersistMode::Buffer).unwrap_err();
+    assert!(
+        matches!(
+            refused.0,
+            StoreErrorEnum::KeyTooLarge {
+                size: 65_001,
+                limit: 65_000,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(s.contents(), Contents::default(), "nothing was written");
+    assert!(!s.needs_recovery(), "a refusal poisons nothing");
 }

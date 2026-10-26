@@ -9,7 +9,9 @@
  */
 
 use ultragraphdb_proto_pb::pb::{Posting, PostingList};
-use ultragraphdb_store_posting::{DEL, MutableLayer, OVR, SET};
+use ultragraphdb_store_posting::{DEL, List, MutableLayer, OVR, SET};
+
+use crate::utils::helpers::{del_uid, delete_all, key, set_uid, with_facet};
 
 fn pl(start_ts: u64, commit_ts: u64, uid: u64, op: u32) -> PostingList {
     PostingList {
@@ -162,4 +164,121 @@ fn test_layers_and_read_ts() {
     assert_eq!(ml.len(), 1);
     // A committed posting takes its delta's commit timestamp.
     assert_eq!(ml.committed()[&2].postings[0].commit_ts, 2);
+}
+
+fn ops(list: &List) -> Vec<(u64, u32)> {
+    list.delta()
+        .map(|d| d.postings.iter().map(|p| (p.uid, p.op)).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn test_a_posting_replaces_the_one_of_its_identity_in_the_scratch_layer() {
+    let mut l = List::empty(key("insert", 1));
+    l.set_ts(5);
+    l.add_posting(set_uid(7), false);
+    l.add_posting(set_uid(8), false);
+    l.add_posting(del_uid(7), false);
+    assert_eq!(
+        ops(&l),
+        vec![(7, DEL), (8, SET)],
+        "without a count index a delete replaces the set"
+    );
+    l.add_posting(del_uid(7), true);
+    assert_eq!(
+        ops(&l),
+        vec![(7, DEL), (8, SET)],
+        "a delete of a delete stays one"
+    );
+    assert!(l.delta().unwrap().postings.iter().all(|p| p.start_ts == 5));
+}
+
+#[test]
+fn test_with_a_count_index_the_identities_are_reindexed_after_a_removal() {
+    let mut l = List::empty(key("insert-reindex", 1));
+    l.set_ts(5);
+    l.add_posting(set_uid(7), true);
+    l.add_posting(set_uid(8), true);
+    l.add_posting(del_uid(7), true);
+    assert_eq!(ops(&l), vec![(8, SET)]);
+    // 8 moved to the front: its overwrite must find it there rather than add a second posting.
+    l.add_posting(with_facet(set_uid(8), "again"), true);
+    assert_eq!(ops(&l), vec![(8, SET)]);
+    assert_eq!(l.delta().unwrap().postings[0].facets[0].key, "again");
+    l.add_posting(del_uid(8), true);
+    assert!(ops(&l).is_empty());
+}
+
+#[test]
+fn test_an_overwrite_replaces_a_delete_and_stays_an_overwrite() {
+    let mut l = List::empty(key("insert-ovr", 1));
+    l.set_ts(5);
+    l.add_posting(del_uid(3), false);
+    l.add_posting(
+        Posting {
+            op: OVR,
+            ..set_uid(3)
+        },
+        false,
+    );
+    assert_eq!(ops(&l), vec![(3, OVR)]);
+    l.add_posting(
+        Posting {
+            op: OVR,
+            ..set_uid(4)
+        },
+        false,
+    );
+    l.add_posting(
+        Posting {
+            op: OVR,
+            ..set_uid(4)
+        },
+        false,
+    );
+    assert_eq!(ops(&l), vec![(3, OVR), (4, OVR)]);
+}
+
+#[test]
+fn test_postings_of_uid_zero_are_kept_apart() {
+    // A posting of uid 0 is never indexed, so each one is added.
+    let mut l = List::empty(key("insert-zero", 1));
+    l.set_ts(5);
+    l.add_posting(set_uid(0), false);
+    l.add_posting(set_uid(0), false);
+    assert_eq!(ops(&l), vec![(0, SET), (0, SET)]);
+}
+
+#[test]
+fn test_a_delete_all_replaces_the_scratch_layer() {
+    let mut l = List::empty(key("insert-delete-all", 1));
+    l.set_ts(5);
+    l.add_posting(set_uid(1), false);
+    l.add_posting(set_uid(2), false);
+    l.add_posting(delete_all(), false);
+    assert_eq!(ops(&l), vec![(u64::MAX, DEL)]);
+    l.add_posting(set_uid(3), false);
+    assert_eq!(ops(&l), vec![(u64::MAX, DEL), (3, SET)]);
+    assert_eq!(l.mutation().populate_delete_all(5), 5);
+    assert_eq!(l.mutation().list_len(5), 1);
+}
+
+#[test]
+fn test_the_stacked_layers_and_the_scratch_layer_are_seen_at_the_read_timestamp_alone() {
+    let mut l = List::empty(key("layers", 1));
+    l.set_ts(3);
+    l.add_posting(set_uid(1), false);
+    l.commit_mutation(4);
+    l.set_ts(6);
+    l.add_posting(set_uid(2), false);
+    let ml = l.mutation();
+    assert_eq!(ml.len(), 2, "one committed delta and the scratch layer");
+    assert_eq!(ml.committed_uids_time(), 4);
+    assert_eq!((ml.list_len(4), ml.list_len(5), ml.list_len(6)), (1, 1, 2));
+    assert_eq!(ml.committed_len(), 1, "the scratch layer is not committed");
+    assert_eq!(
+        ml.find_posting(5, 2),
+        (true, None),
+        "not visible: search the immutable layer"
+    );
 }

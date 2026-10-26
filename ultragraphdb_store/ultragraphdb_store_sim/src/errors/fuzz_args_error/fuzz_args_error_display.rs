@@ -6,8 +6,9 @@
 use std::fmt;
 
 use crate::errors::fuzz_args_error::{FuzzArgsError, FuzzArgsErrorEnum};
+use crate::types::fuzz_args::VERSIONLESS_READS;
 
-const USAGE: &str = "usage: store_sim_fuzz [first seed] [seeds] [steps]";
+const USAGE: &str = "usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]";
 
 /// The name of the argument at `position`, counted from 1.
 fn name(position: usize) -> &'static str {
@@ -47,6 +48,10 @@ impl fmt::Display for FuzzArgsError {
                 "{seeds} seeds from first seed {first} pass the last seed {}, and at most {} start there; {USAGE}",
                 u64::MAX,
                 (u64::MAX - first).saturating_add(1)
+            ),
+            FuzzArgsErrorEnum::UnknownFlag(value) => write!(
+                f,
+                "argument {value:?} is no flag; the one flag is {VERSIONLESS_READS}; {USAGE}"
             ),
         }
     }

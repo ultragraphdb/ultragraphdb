@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_posting::BIT_SCHEMA_POSTING;
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_store_posting::{BIT_SCHEMA_POSTING, PostingError, PostingErrorEnum};
+use ultragraphdb_store_sim::{DropStage, Fault};
 use ultragraphdb_traits_store::{Entry, Store};
 
 use crate::utils::helpers::{commit_edges, key, new_lists, set_uid, uids};
@@ -102,4 +104,68 @@ fn test_a_drop_of_everything_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
     assert_eq!(*seen.lock().unwrap(), Some(false));
     assert_eq!(lists.epoch(), epoch + 1);
     assert!(lists.try_gate(ts).unwrap());
+}
+
+fn write_failed(error: PostingError) -> bool {
+    matches!(
+        error.0,
+        PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
+    )
+}
+
+/// A drop that fails still advances the epoch, stops every later write, and holds no read: it took no commit
+/// timestamp a read could wait for.
+#[test]
+fn test_a_failed_drop_advances_the_epoch_and_stops_writes() {
+    type Drop = fn(&crate::utils::helpers::TestLists, &[u8]) -> Result<(), PostingError>;
+    let drops: [(&str, Drop); 4] = [
+        ("drop_prefixes", |l, k| {
+            l.drop_prefixes(l.fresh_ts(), &[k.to_vec()], Vec::new())
+        }),
+        ("drop_prefixes_now", |l, k| {
+            l.drop_prefixes_now(&[k.to_vec()], Vec::new()).map(|_| ())
+        }),
+        ("drop_all", |l, _| l.drop_all(Vec::new())),
+        ("drop_all_now", |l, _| {
+            l.drop_all_now(Vec::new()).map(|_| ())
+        }),
+    ];
+    for (name, drop) in drops {
+        let lists = new_lists();
+        let k = key("failed-drop", 1);
+        let ts = commit_edges(&lists, &k, &[set_uid(1)]);
+        let epoch = lists.epoch();
+        lists
+            .store()
+            .inject(Fault::CrashDuringNextDrop(DropStage::Start));
+        assert!(write_failed(drop(&lists, &k).unwrap_err()), "{name}");
+        assert_eq!(lists.epoch(), epoch + 1, "{name}");
+        let poisoned = Err(PostingError::Store(StoreError::Poisoned()));
+        assert_eq!(drop(&lists, &k), poisoned, "{name}: a later drop");
+        assert_eq!(
+            lists.drop_all(Vec::new()),
+            poisoned,
+            "{name}: a later drop of everything"
+        );
+        let peek = lists.peek_ts();
+        assert!(lists.try_gate(peek).unwrap(), "{name}: no read waits on it");
+        assert!(lists.try_gate(ts).unwrap(), "{name}");
+    }
+}
+
+#[test]
+fn test_a_drop_at_a_given_timestamp_takes_none_from_the_counter() {
+    let lists = new_lists();
+    let k = key("drop-given", 1);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    let next = lists.peek_ts();
+    lists
+        .drop_prefixes(next + 10, std::slice::from_ref(&k), Vec::new())
+        .unwrap();
+    assert_eq!(lists.peek_ts(), next);
+    lists.drop_all(Vec::new()).unwrap();
+    assert_eq!(lists.peek_ts(), next);
+    assert_eq!(lists.drop_all_now(Vec::new()).unwrap(), next);
+    assert_eq!(lists.drop_prefixes_now(&[k], Vec::new()).unwrap(), next + 1);
+    assert_eq!(lists.peek_ts(), next + 2);
 }

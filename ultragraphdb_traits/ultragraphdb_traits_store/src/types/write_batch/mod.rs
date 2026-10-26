@@ -30,12 +30,14 @@ impl WriteBatch {
         self.entries.push(entry);
     }
 
-    /// Writes `value` as the value of `key` in the keyspace without versions, atomically with the batch's entries.
+    /// Writes `value` as the value of `key` in the keyspace without versions, atomically with the batch's entries. An
+    /// empty `key` refuses the batch ([`WriteBatch::check_key_sizes`]).
     pub fn put_versionless(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.versionless.push(VersionlessEntry::put(key, value));
     }
 
-    /// Removes `key` from the keyspace without versions, atomically with the batch's entries.
+    /// Removes `key` from the keyspace without versions, atomically with the batch's entries. An empty `key` refuses
+    /// the batch ([`WriteBatch::check_key_sizes`]).
     pub fn remove_versionless(&mut self, key: Vec<u8>) {
         self.versionless.push(VersionlessEntry::removal(key));
     }
@@ -90,13 +92,17 @@ impl WriteBatch {
         self.entries.is_empty() && self.versionless.is_empty()
     }
 
-    /// The refusal of the first key, versioned or versionless, that is over a size limit, as [`crate::check_key_size`]
-    /// gives it.
+    /// The refusal of the first key, the entries' before the versionless writes', that is over a size limit, as
+    /// [`crate::check_key_size`] gives it, or, of a versionless write, empty: [`StoreError::EmptyKey`], Badger's
+    /// `ErrEmptyKey`. An entry's key may be empty.
     pub fn check_key_sizes(&self) -> Result<(), StoreError> {
         self.entries
             .iter()
             .map(Entry::key)
-            .chain(self.versionless.iter().map(VersionlessEntry::key))
-            .try_for_each(check_key_size)
+            .try_for_each(check_key_size)?;
+        self.versionless.iter().try_for_each(|e| match e.key() {
+            [] => Err(StoreError::EmptyKey()),
+            key => check_key_size(key),
+        })
     }
 }

@@ -9,11 +9,12 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_core_tok::VEC_KEYWORD;
-use ultragraphdb_store_hnsw::SimilarityType;
 use ultragraphdb_store_kv::{Durability, FjallStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimRng};
 
-use crate::utils::helpers::{delete, draw, insert, lists_over, opts, pred, search};
+use ultragraphdb_traits_index::Metric;
+
+use crate::utils::helpers::{delete, draw, insert, lists_over, opts, oracle_score, pred, search};
 use crate::utils::hnsw_workload::{HnswWorkload, graph_defect, names_dead};
 
 #[test]
@@ -76,7 +77,6 @@ fn test_the_workload_rules_hold_on_fjall() {
         ("efConstruction", "8"),
         ("efSearch", "6"),
     ]);
-    let sim = SimilarityType::from_name("euclidean");
     let mut rng = SimRng::new(11);
     let mut live: Vec<(u64, Vec<f32>)> = Vec::new();
     let mut dead = BTreeSet::new();
@@ -103,12 +103,13 @@ fn test_the_workload_rules_hold_on_fjall() {
             .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)
             .collect();
         let found = search(&lists, &p, &o, &q, 4, None).unwrap();
-        assert!(!found.is_empty() && found.len() <= 4);
-        let scores: Vec<f32> = found
+        assert_eq!(found.len(), 4, "{} live", live.len());
+        let widen = |v: &[f32]| v.iter().map(|&f| f64::from(f)).collect::<Vec<f64>>();
+        let scores: Vec<f64> = found
             .iter()
             .map(|u| {
                 let (_, v) = live.iter().find(|(l, _)| l == u).expect("a live vector");
-                sim.distance_score(v, &q).unwrap()
+                oracle_score(Metric::Euclidean, &widen(v), &widen(&q))
             })
             .collect();
         assert!(scores.windows(2).all(|w| w[0] <= w[1]), "{scores:?}");

@@ -29,8 +29,6 @@ pub enum PostingErrorEnum {
     NotAList { key: Vec<u8> },
     /// A split part's key read as a posting list: Dgraph's `ErrInvalidKey`.
     InvalidKey,
-    /// No value matches: Dgraph's `ErrNoValue`.
-    NoValue,
     /// A read below the timestamp a list can answer: Dgraph's `ErrTsTooOld`.
     TsTooOld,
     /// A read below the list's complete version.
@@ -47,8 +45,6 @@ pub enum PostingErrorEnum {
     UnexpectedMeta { meta: u8, key: Vec<u8> },
     /// A part a split list records is not in the store.
     MissingPart { key: Vec<u8> },
-    /// A rolled-up pack whose block size is not the posting lists' 256.
-    BlockSize { actual: u32, expected: u32 },
     /// A rollup cancelled because rollups are paused: Dgraph's `ErrHighPriorityOp`.
     HighPriorityOp,
 }
@@ -67,11 +63,6 @@ impl PostingError {
     #[allow(non_snake_case)]
     pub fn InvalidKey() -> Self {
         Self(PostingErrorEnum::InvalidKey)
-    }
-
-    #[allow(non_snake_case)]
-    pub fn NoValue() -> Self {
-        Self(PostingErrorEnum::NoValue)
     }
 
     #[allow(non_snake_case)]
@@ -109,11 +100,6 @@ impl PostingError {
     #[allow(non_snake_case)]
     pub fn MissingPart(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::MissingPart { key })
-    }
-
-    #[allow(non_snake_case)]
-    pub fn BlockSize(actual: u32, expected: u32) -> Self {
-        Self(PostingErrorEnum::BlockSize { actual, expected })
     }
 
     #[allow(non_snake_case)]

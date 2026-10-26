@@ -70,7 +70,7 @@ fn test_lang_base_golden() {
 #[test]
 fn test_lang_base_logs_a_tag_reverted_to_english() {
     let capture = LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    capture.capture(|| {
         assert_eq!(lang_base("x-ugdbtel"), "en");
         assert_eq!(lang_base("not a tag!"), "en");
         assert_eq!(lang_base("not a tag!"), "en");
@@ -101,9 +101,62 @@ fn test_lang_base_logs_a_tag_reverted_to_english() {
             ),
         ]
     );
-    assert!(
-        captured[1].field("error").is_some_and(|e| !e.is_empty()),
+    // x/text v0.41.0's language.Parse("not a tag!") under Go 1.27 errs with this text.
+    assert_eq!(
+        captured[1].field("error"),
+        Some("language: tag is not well-formed"),
         "{:?}",
         captured[1]
+    );
+}
+
+/// A tag reverts to English whenever Go's `language.Parse` errs, even where the tag it returns beside the error has a
+/// base ("de-x" parses to de, "it-zxqv" to it), and the error text is Go's; a tag that parses with low confidence is
+/// kept and logs nothing. The tags are used by no other test, so the shared cache is empty for them.
+#[test]
+fn test_lang_base_logs_go_parse_errors_and_keeps_a_low_confidence_base() {
+    // Each tag's base and language.Parse error under Go 1.27 with x/text v0.41.0, as Dgraph's LangBase uses them:
+    // "de-x" errs "tag is not well-formed" (tag de), "zxq" errs `subtag "zxq" ... unknown` (tag und), "it-zxqv"
+    // errs `subtag "Zxqv" ... unknown` (tag it), "und-ZZ" parses to base en at Low confidence and "fr-x-ugdb" to fr.
+    let capture = LogCapture::new();
+    capture.capture(|| {
+        assert_eq!(lang_base("de-x"), "en");
+        assert_eq!(lang_base("zxq"), "en");
+        assert_eq!(lang_base("it-zxqv"), "en");
+        assert_eq!(lang_base("und-ZZ"), "en");
+        assert_eq!(lang_base("fr-x-ugdb"), "fr");
+    });
+    let captured = capture.events();
+    let seen: Vec<_> = captured
+        .iter()
+        .map(|e| (e.level(), e.field("lang"), e.message(), e.field("error")))
+        .collect();
+    const PARSE: Option<&str> = Some("While trying to parse lang");
+    const REVERT: Option<&str> = Some("Unable to find lang. Reverting to English.");
+    assert_eq!(
+        seen,
+        vec![
+            (
+                Level::ERROR,
+                Some("de-x"),
+                PARSE,
+                Some("language: tag is not well-formed")
+            ),
+            (Level::WARN, Some("de-x"), REVERT, None),
+            (
+                Level::ERROR,
+                Some("zxq"),
+                PARSE,
+                Some("language: subtag \"zxq\" is well-formed but unknown")
+            ),
+            (Level::WARN, Some("zxq"), REVERT, None),
+            (
+                Level::ERROR,
+                Some("it-zxqv"),
+                PARSE,
+                Some("language: subtag \"Zxqv\" is well-formed but unknown")
+            ),
+            (Level::WARN, Some("it-zxqv"), REVERT, None),
+        ]
     );
 }

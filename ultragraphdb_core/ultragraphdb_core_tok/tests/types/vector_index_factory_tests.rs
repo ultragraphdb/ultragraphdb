@@ -61,7 +61,7 @@ fn test_hnsw_get_options_of_wrong_types() {
     // Go prints the default 3 for an int option of another type, and an empty metric name, logging the metric's
     // failed cast (persistent_hnsw.go's GetPersistantOptions).
     let capture = LogCapture::new();
-    let shown = tracing::subscriber::with_default(capture.subscriber(), || f.get_options(&o));
+    let shown = capture.capture(|| f.get_options(&o));
     assert_eq!(shown, "(\"exponent\":\"3\",\"metric\":\"\")");
     let events = capture.events();
     assert_eq!(events.len(), 1, "{events:?}");

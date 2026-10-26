@@ -43,15 +43,76 @@ fn test_a_batch_keeps_its_versionless_writes_in_order_beside_its_entries() {
 
 #[test]
 fn test_check_key_sizes_covers_versionless_keys() {
-    let mut batch = WriteBatch::new();
-    batch.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
-    batch.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
+    // 65,001 = MAX_USER_KEY_SIZE + 1 bytes against Badger's 65,000; the head is the first 1,024 bytes.
+    let mut put = WriteBatch::new();
+    put.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
+    put.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
     assert_eq!(
-        batch
-            .check_key_sizes()
-            .map_err(|e| matches!(e.0, StoreErrorEnum::KeyTooLarge { .. })),
-        Err(true)
+        put.check_key_sizes(),
+        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![7; 1024]))
     );
+    // A removal names its key as a put does: 40,000 zero bytes are 80,010 stored (40,000 escapes, 2 + 8).
+    let mut removal = WriteBatch::new();
+    removal.remove_versionless(vec![0; 40_000]);
+    assert_eq!(
+        removal.check_key_sizes(),
+        Err(StoreError::KeyTooLarge(
+            80_010,
+            65_535,
+            [0x00, 0xFF].repeat(512)
+        ))
+    );
+    // Versionless keys at both limits are accepted.
+    let mut within = WriteBatch::new();
+    within.put_versionless(vec![7; MAX_USER_KEY_SIZE], vec![]);
+    within.remove_versionless([vec![0; 32_762], vec![1]].concat());
+    assert_eq!(within.check_key_sizes(), Ok(()));
+}
+
+#[test]
+fn test_check_key_sizes_reports_an_entry_before_a_versionless_key() {
+    // The versionless write is named first and the entry second; the entry's refusal is reported, so a store
+    // reports the same key whatever order the caller built its batch in.
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(vec![9; MAX_USER_KEY_SIZE + 1], vec![]);
+    batch.push(Entry::deletion(vec![0; 40_000], 1));
+    assert_eq!(
+        batch.check_key_sizes(),
+        Err(StoreError::KeyTooLarge(
+            80_010,
+            65_535,
+            [0x00, 0xFF].repeat(512)
+        ))
+    );
+}
+
+#[test]
+fn test_check_key_sizes_refuses_an_empty_versionless_key_put_or_removed() {
+    // Badger's ErrEmptyKey, "Key cannot be empty" (`txn.go:360`), for a put and for a removal alike.
+    let mut put = WriteBatch::new();
+    put.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
+    put.put_versionless(Vec::new(), b"v".to_vec());
+    assert_eq!(put.check_key_sizes(), Err(StoreError::EmptyKey()));
+    let mut removal = WriteBatch::new();
+    removal.remove_versionless(Vec::new());
+    assert_eq!(removal.check_key_sizes(), Err(StoreError::EmptyKey()));
+    // The first refused key is reported: the empty one before an oversized one named after it, and an oversized
+    // entry before both, entries being checked first.
+    let mut first = WriteBatch::new();
+    first.remove_versionless(Vec::new());
+    first.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
+    assert_eq!(first.check_key_sizes(), Err(StoreError::EmptyKey()));
+    first.push(Entry::put(vec![8; MAX_USER_KEY_SIZE + 1], 1, 0, vec![]));
+    assert_eq!(
+        first.check_key_sizes(),
+        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![8; 1024]))
+    );
+    // A one-byte versionless key, and an empty versioned key, are accepted.
+    let mut accepted = WriteBatch::new();
+    accepted.put_versionless(vec![0], vec![]);
+    accepted.push(Entry::put(Vec::new(), 1, 0, vec![]));
+    accepted.push(Entry::deletion(Vec::new(), 2));
+    assert_eq!(accepted.check_key_sizes(), Ok(()));
 }
 
 #[test]

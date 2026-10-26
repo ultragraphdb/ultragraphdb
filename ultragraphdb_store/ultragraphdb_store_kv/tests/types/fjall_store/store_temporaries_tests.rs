@@ -82,14 +82,15 @@ fn test_a_temporary_keyspace_keeps_entries_of_a_banned_namespace() {
     s.ban_namespace(3).unwrap();
     let t = s.create_temporary().unwrap();
     let key = ns_key(3, b"a");
-    s.apply_temporary(&t, batch(vec![put(&key, 1, b"")]))
+    s.apply_temporary(&t, batch(vec![put(&key, 1, b"kept")]))
         .unwrap();
-    assert!(
+    assert_eq!(
         s.temporary_snapshot(&t)
             .unwrap()
             .get(&key)
             .unwrap()
-            .is_some()
+            .map(|i| i.into_value()),
+        Some(b"kept".to_vec())
     );
 }
 
@@ -108,14 +109,28 @@ fn test_an_oversized_key_refuses_the_temporary_batch_whole() {
             ]),
         )
         .unwrap_err();
-    assert!(matches!(
+    // Badger's exceedsSize dumps the first 1 << 10 bytes of the user key.
+    assert_eq!(
         refused.0,
         StoreErrorEnum::KeyTooLarge {
             size: 65_001,
             limit: MAX_USER_KEY_SIZE,
-            ..
+            head: vec![1; 1024],
         }
-    ));
+    );
+    assert!(s.temporary_snapshot(&t).unwrap().get(&k).unwrap().is_none());
+    // The versionless writes a temporary batch ignores are still held to the size limits: `WriteBatch::check_key_sizes`
+    // covers them, and the simulated store refuses the same batch.
+    let mut b = batch(vec![put(&k, 1, b"")]);
+    b.put_versionless(vec![2; MAX_USER_KEY_SIZE + 1], Vec::new());
+    assert_eq!(
+        s.apply_temporary(&t, b),
+        Err(StoreError::KeyTooLarge(
+            65_001,
+            MAX_USER_KEY_SIZE,
+            vec![2; 1024]
+        ))
+    );
     assert!(s.temporary_snapshot(&t).unwrap().get(&k).unwrap().is_none());
     assert!(!s.is_poisoned());
 }
@@ -192,11 +207,12 @@ fn test_a_temporary_batch_ignores_its_applied_timestamp_and_rebuild_records() {
     s.apply_temporary(&t, b).unwrap();
     assert_eq!(s.applied_ts(), 0);
     assert_eq!(s.rebuild_records().unwrap(), [record]);
-    assert!(
+    assert_eq!(
         s.temporary_snapshot(&t)
             .unwrap()
             .get(&ns_key(0, b"k"))
             .unwrap()
-            .is_some()
+            .map(|i| i.version()),
+        Some(1)
     );
 }

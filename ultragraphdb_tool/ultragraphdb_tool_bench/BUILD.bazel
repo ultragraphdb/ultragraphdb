@@ -49,7 +49,8 @@ rust_doc_test(
 )
 
 # One rust_test: tests/ mirrors src/ through tests/mod.rs. The argument parsing, the commit shape, the pacer against a
-# clock moved by hand, the summaries, the /proc readers, the timed store and the directory sizes; nothing timed.
+# clock moved by hand, the summaries, the /proc readers, the timed store and the directory sizes; and short runs of
+# each measurement, apply runs of one second at 10 commits a second, their timed figures checked by their invariants.
 rust_test(
     name = "ultragraphdb_tool_bench_tests",
     srcs = glob(["tests/**/*.rs"]),
@@ -60,4 +61,13 @@ rust_test(
         normal = True,
         normal_dev = True,
     )),
+)
+
+# The in-src #[cfg(test)] module of src/utils/apply_run.rs: the report's arithmetic over private figures, which a test
+# under tests/ cannot reach. Built from the library crate's own sources and deps.
+rust_test(
+    name = "ultragraphdb_tool_bench_src_tests",
+    crate = ":ultragraphdb_tool_bench",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
 )

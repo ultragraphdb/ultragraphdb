@@ -553,3 +553,161 @@ fn test_drawn_corruptions_and_scan_failures_are_logged() {
         result: read
     }));
 }
+
+/// Batch `version` of key `key` with the versionless `writes` beside it.
+fn with_versionless(key: &[u8], version: u64, writes: &[(&[u8], &[u8])]) -> WriteBatch {
+    let mut batch = batch(key, version);
+    writes
+        .iter()
+        .for_each(|(k, v)| batch.put_versionless(k.to_vec(), v.to_vec()));
+    batch
+}
+
+/// A failed batch or a crash during one keeps its versionless writes with its entries after recovery, or neither:
+/// before recovery a poisoned store reads without the failed batch, and a store whose process is down reads nothing.
+#[test]
+fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() {
+    for fault in [Fault::FailNextBatch, Fault::CrashDuringNextBatch] {
+        let outcomes: BTreeSet<bool> = (0..16)
+            .map(|seed| {
+                let s = store(seed, FaultConfig::none());
+                s.apply(
+                    with_versionless(b"a", 1, &[(b"k", b"1")]),
+                    PersistMode::Buffer,
+                )
+                .unwrap();
+                s.inject(fault);
+                let (refusal, before) = if fault == Fault::FailNextBatch {
+                    (
+                        "simulated failure during the batch's persist",
+                        Ok(Some(b"1".to_vec())),
+                    )
+                } else {
+                    (
+                        "simulated process crash while the batch was written",
+                        Err(StoreError::Poisoned()),
+                    )
+                };
+                assert_eq!(
+                    s.apply(
+                        with_versionless(b"b", 2, &[(b"k", b"2"), (b"j", b"3")]),
+                        PersistMode::Buffer
+                    ),
+                    Err(StoreError::WriteFailed(refusal.into()))
+                );
+                assert_eq!(s.get_versionless(b"k"), before, "{fault:?}");
+                s.recover();
+                let contents = s.contents();
+                let kept = !contents.versions(b"b").is_empty();
+                // Hand-derived: batch 2 whole writes k = "2" and j = "3"; lost, k keeps batch 1's "1".
+                let expected: Vec<(&[u8], &[u8])> = if kept {
+                    vec![(b"j", b"3"), (b"k", b"2")]
+                } else {
+                    vec![(b"k", b"1")]
+                };
+                assert_eq!(
+                    contents
+                        .versionless()
+                        .iter()
+                        .map(|(k, v)| (k.as_slice(), v.as_slice()))
+                        .collect::<Vec<_>>(),
+                    expected,
+                    "{fault:?} seed {seed}"
+                );
+                kept
+            })
+            .collect();
+        assert_eq!(outcomes.len(), 2, "{fault:?}: both outcomes occur");
+    }
+}
+
+/// A forced read failure reaches a versionless read through the store and through a snapshot, names the key, and
+/// fails that read alone.
+#[test]
+fn test_a_versionless_read_fails_when_forced() {
+    let s = store(1, FaultConfig::none());
+    s.apply(
+        with_versionless(b"a", 1, &[(b"k", b"1")]),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    let snapshot = s.snapshot(1).unwrap();
+    let refused = Err(StoreError::ReadFailed(
+        b"k".to_vec(),
+        "simulated read failure".into(),
+    ));
+    s.inject(Fault::FailNextRead);
+    assert_eq!(s.get_versionless(b"k"), refused);
+    assert_eq!(s.get_versionless(b"k"), Ok(Some(b"1".to_vec())));
+    s.inject(Fault::FailNextRead);
+    assert_eq!(snapshot.get_versionless(b"k"), refused);
+    assert_eq!(snapshot.get_versionless(b"k"), Ok(Some(b"1".to_vec())));
+    let failures = s
+        .take_log()
+        .into_iter()
+        .filter(|r| matches!(r, OpRecord::ReadVersionless { result: Err(_), .. }))
+        .count();
+    assert_eq!(failures, 2, "each failure is logged");
+}
+
+/// A drop of everything stopped by a power loss clears the keyspace without versions exactly when its record
+/// survives: never when stopped at its start, always once its record was synced, and after a crash once its record
+/// was written.
+#[test]
+fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_record() {
+    let power_loss = "simulated power loss during a drop";
+    let crash = "simulated process crash during a drop";
+    let cases = [
+        (
+            Fault::PowerLossDuringNextDrop(DropStage::Start),
+            power_loss,
+            false,
+        ),
+        (
+            Fault::CrashDuringNextDrop(DropStage::RecordWritten),
+            crash,
+            true,
+        ),
+        (
+            Fault::PowerLossDuringNextDrop(DropStage::RecordSynced),
+            power_loss,
+            true,
+        ),
+        (
+            Fault::PowerLossDuringNextDrop(DropStage::DataRemoved),
+            power_loss,
+            true,
+        ),
+        (
+            Fault::PowerLossDuringNextDrop(DropStage::EntriesSynced),
+            power_loss,
+            true,
+        ),
+    ];
+    for (fault, refusal, cleared) in cases {
+        for seed in 0..8 {
+            let s = store(seed, FaultConfig::none());
+            s.apply(
+                with_versionless(b"a", 1, &[(b"k", b"1")]),
+                PersistMode::Sync,
+            )
+            .unwrap();
+            s.inject(fault);
+            assert_eq!(
+                s.drop_all(Vec::new()),
+                Err(StoreError::WriteFailed(refusal.into())),
+                "{fault:?}"
+            );
+            s.recover();
+            assert_eq!(
+                s.contents().versionless().is_empty(),
+                cleared,
+                "{fault:?} seed {seed}"
+            );
+            assert_eq!(
+                s.get_versionless(b"k"),
+                Ok((!cleared).then(|| b"1".to_vec()))
+            );
+        }
+    }
+}

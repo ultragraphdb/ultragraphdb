@@ -8,10 +8,11 @@
 
 use ultragraphdb_store_hnsw::{PersistentHnsw, QueryCache, TxnCache};
 use ultragraphdb_traits_index::{
-    OptionalIndexSupport, OptionalSearchOptions, VectorIndex, VectorIndexOptions, accept_all,
+    Metric, OptionalIndexSupport, OptionalSearchOptions, VectorIndex, VectorIndexOptions,
+    accept_all,
 };
 
-use crate::utils::helpers::{MapTxn, float64_array_as_bytes, key, opts, vkeys};
+use crate::utils::helpers::{MapTxn, brute_force, float64_array_as_bytes, key, opts, vkeys};
 
 const PRED: &str = "0-t";
 
@@ -86,9 +87,33 @@ fn test_searches_through_the_traits_answer_as_the_index_does() {
         OptionalSearchOptions::search_with_uid_and_options(&ix, &qc, 7, 3, &opts),
         ix.search_with_uid_and_options(&qc, 7, 3, &opts)
     );
-    assert!(
-        !VectorIndex::search(&ix, &qc, &q, 3, accept_all::<f64>)
-            .unwrap()
-            .is_empty()
+    // The answers themselves, against the exact oracle: the 3 nearest to (7.2, 1) are 7, 6 and 8 (1.02, 1.2 and 2.15
+    // away); from uid 7's (7, 2), 6 and 8 tie at sqrt 2, and the next, 5 and 9, lie sqrt 8 away.
+    let exact = brute_force(Metric::Euclidean, &points(), &q, 3);
+    assert_eq!(exact, vec![7, 6, 8]);
+    assert_eq!(
+        VectorIndex::search(&ix, &qc, &q, 3, accept_all::<f64>),
+        Ok(exact.clone())
     );
+    assert_eq!(
+        OptionalIndexSupport::search_with_path(&ix, &qc, &q, 3, accept_all::<f64>)
+            .map(|r| r.neighbors().to_vec()),
+        Ok(exact.clone())
+    );
+    assert_eq!(
+        OptionalSearchOptions::search_with_options(&ix, &qc, &q, 3, &opts),
+        Ok(exact)
+    );
+    let from_seven = brute_force(Metric::Euclidean, &points(), &[7.0, 2.0], 3);
+    assert_eq!(from_seven, vec![7, 6, 8]);
+    for got in [
+        VectorIndex::search_with_uid(&ix, &qc, 7, 3, accept_all::<f64>).unwrap(),
+        OptionalSearchOptions::search_with_uid_and_options(&ix, &qc, 7, 3, &opts).unwrap(),
+    ] {
+        // 6 and 8 tie: their order is the search's.
+        assert_eq!(got.first(), Some(&7), "{got:?}");
+        let mut got = got;
+        got.sort_unstable();
+        assert_eq!(got, vec![6, 7, 8]);
+    }
 }

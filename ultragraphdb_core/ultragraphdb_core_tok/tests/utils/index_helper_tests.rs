@@ -98,7 +98,7 @@ fn test_bytes_as_float_array() {
 fn test_bytes_as_float_array_logs_a_length_not_a_multiple_of_the_width() {
     let capture = LogCapture::new();
     let mut floats = vec![9.0f32];
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    capture.capture(|| {
         bytes_as_float_array(&[1, 2, 3, 4, 5], &mut floats, FloatBits::F32);
         bytes_as_float_array(&1.5f32.to_le_bytes(), &mut floats, FloatBits::F32);
     });
@@ -109,4 +109,26 @@ fn test_bytes_as_float_array_logs_a_length_not_a_multiple_of_the_width() {
     assert_eq!(events[0].message(), Some("Invalid byte slice length"));
     assert_eq!(events[0].field("len"), Some("5"));
     assert_eq!(events[0].field("encoded"), Some("[1, 2, 3, 4, 5]"));
+}
+
+/// The 64-bit width logs as the 32-bit one does: twelve bytes are three f32s but one and a half f64s.
+#[test]
+fn test_bytes_as_float_array_logs_a_length_not_a_multiple_of_eight() {
+    let capture = LogCapture::new();
+    let mut floats = vec![9.0f64];
+    let twelve: Vec<u8> = (1..=12).collect();
+    capture.capture(|| {
+        bytes_as_float_array(&twelve, &mut floats, FloatBits::F64);
+        bytes_as_float_array(&2.25f64.to_le_bytes(), &mut floats, FloatBits::F64);
+    });
+    assert_eq!(floats, vec![2.25]);
+    let events = capture.events();
+    assert_eq!(events.len(), 1, "only the refused input logs: {events:?}");
+    assert_eq!(events[0].level(), Level::ERROR);
+    assert_eq!(events[0].message(), Some("Invalid byte slice length"));
+    assert_eq!(events[0].field("len"), Some("12"));
+    assert_eq!(
+        events[0].field("encoded"),
+        Some("[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]")
+    );
 }

@@ -32,7 +32,7 @@ use ultragraphdb_store_hnsw::{
 use ultragraphdb_store_posting::{CachedList, DEL, Lists, ListsConfig, PostingError, Request, SET};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, Stream};
 use ultragraphdb_traits_index::{
-    CacheType, KeyValue, LocalCache, Options, Txn, VectorIndexOptions, accept_all,
+    CacheType, KeyValue, LocalCache, Metric, Options, Txn, VectorIndexOptions, accept_all,
 };
 use ultragraphdb_traits_store::{ListCache, Store};
 
@@ -578,6 +578,49 @@ impl LocalCache for MapTxn {
     fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
         self.scan(prefix, filter)
     }
+}
+
+// The exact nearest-neighbour oracle.
+
+/// The score of `a` against `b` under `metric`, computed naively in float64, one product and one sum at a time in
+/// index order: the oracle the index's unrolled kernels are checked against. Euclidean distance, cosine similarity or
+/// dot product.
+pub fn oracle_score(metric: Metric, a: &[f64], b: &[f64]) -> f64 {
+    let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).map(|(p, q)| p * q).sum::<f64>();
+    match metric {
+        Metric::Euclidean => a
+            .iter()
+            .zip(b)
+            .map(|(p, q)| (p - q) * (p - q))
+            .sum::<f64>()
+            .sqrt(),
+        Metric::Cosine => dot(a, b) / (dot(a, a) * dot(b, b)).sqrt(),
+        Metric::DotProduct => dot(a, b),
+    }
+}
+
+/// The `k` nearest of `vectors` to `query` by exhaustive scan under `metric`, best first, ties by uid: the exact
+/// answer an approximate search is compared with.
+pub fn brute_force(
+    metric: Metric,
+    vectors: &[(u64, Vec<f64>)],
+    query: &[f64],
+    k: usize,
+) -> Vec<u64> {
+    let mut scored: Vec<(f64, u64)> = vectors
+        .iter()
+        .map(|(uid, v)| (oracle_score(metric, v, query), *uid))
+        .collect();
+    let higher_first = metric != Metric::Euclidean;
+    scored.sort_by(|a, b| {
+        let order = if higher_first {
+            b.0.total_cmp(&a.0)
+        } else {
+            a.0.total_cmp(&b.0)
+        };
+        order.then(a.1.cmp(&b.1))
+    });
+    scored.into_iter().take(k).map(|(_, uid)| uid).collect()
 }
 
 /// The edges' names as Dgraph's tests print them, `attr_entity`.

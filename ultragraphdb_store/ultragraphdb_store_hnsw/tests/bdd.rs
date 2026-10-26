@@ -10,7 +10,7 @@
 use cucumber::{World, then, when};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_store_hnsw::{
-    HnswError, PersistentHnsw, SimilarityType, bytes_to_uint64, decode_uint64_matrix, parse_edges,
+    HnswError, PersistentHnsw, bytes_to_uint64, decode_uint64_matrix, parse_edges,
 };
 use ultragraphdb_store_sim::SimRng;
 use ultragraphdb_traits_index::{KeyValue, Metric, VectorIndexOptions, accept_all};
@@ -23,7 +23,8 @@ mod utils {
 }
 
 use crate::utils::helpers::{
-    TestLists, delete, draw, index_value, insert, key, new_lists, opts, pred, search, vkeys,
+    TestLists, brute_force, delete, draw, index_value, insert, key, new_lists, opts, oracle_score,
+    pred, search, vkeys,
 };
 
 /// What a search of an empty index reported, and the neighbours its caller took from it.
@@ -44,6 +45,14 @@ struct Steps {
 
 fn lists(w: &Steps) -> &TestLists {
     w.lists.as_ref().expect("lists")
+}
+
+fn widen(v: &[f32]) -> Vec<f64> {
+    v.iter().map(|&f| f64::from(f)).collect()
+}
+
+fn widened(vectors: &[(u64, Vec<f32>)]) -> Vec<(u64, Vec<f64>)> {
+    vectors.iter().map(|(uid, v)| (*uid, widen(v))).collect()
 }
 
 fn random_vector(rng: &mut SimRng, dims: usize) -> Vec<f32> {
@@ -161,20 +170,8 @@ fn fifty_per_metric(w: &mut Steps) {
             Some(&VectorIndexOptions::default()),
         )
         .unwrap();
-        let sim = SimilarityType::new(metric);
-        let mut scored: Vec<(f32, u64)> = vectors
-            .iter()
-            .map(|(uid, v)| (sim.distance_score(v, &query).unwrap(), *uid))
-            .collect();
-        scored.sort_by(|a, b| {
-            let order = a.0.total_cmp(&b.0);
-            if sim.is_similarity_metric() {
-                order.reverse()
-            } else {
-                order
-            }
-        });
-        let brute: Vec<u64> = scored.iter().take(5).map(|(_, uid)| *uid).collect();
+        // The exhaustive oracle, its distances computed naively in float64, not by the index's kernels.
+        let brute = brute_force(metric, &widened(&vectors), &widen(&query), 5);
         w.compared.push((metric, found, brute));
     }
 }
@@ -253,12 +250,11 @@ fn threshold_search(w: &mut Steps) {
         let query = random_vector(&mut rng, 3);
         let options = VectorIndexOptions::new(0, Some(threshold), accept_all::<f32>);
         let found = search(&lists, &p, &o, &query, 40, Some(&options)).unwrap();
-        let sim = SimilarityType::new(metric);
         let distances = found
             .iter()
             .map(|uid| {
                 let (_, v) = vectors.iter().find(|(u, _)| u == uid).unwrap();
-                let score = f64::from(sim.distance_score(v, &query).unwrap());
+                let score = oracle_score(metric, &widen(v), &widen(&query));
                 if metric == Metric::Cosine {
                     1.0 - score
                 } else {

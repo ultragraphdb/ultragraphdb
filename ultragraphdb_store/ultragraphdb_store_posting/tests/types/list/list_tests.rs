@@ -365,10 +365,6 @@ fn test_million() {
 }
 
 #[test]
-#[ignore = "Dgraph skips it (t.Skip): it holds several uncommitted transactions on one list, which a list of the port, owned by one request, never does"]
-fn test_add_mutation_mrjn2() {}
-
-#[test]
 fn test_add_mutation_gru() {
     let store = new_store();
     let mut ol = read_back(&store, &key("question.tag", 0x01));

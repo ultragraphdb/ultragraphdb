@@ -286,7 +286,10 @@ fn crash_split_rollup(w: &mut Steps) {
         let old = lists.store().contents().versions(&k)[0].version();
         assert!(read_back(lists.store(), &k).part_splits().len() > 1);
         lists.store().inject(Fault::CrashDuringNextBatch);
-        assert!(lists.rollup_key(&k).is_err());
+        assert!(matches!(
+            lists.rollup_key(&k).unwrap_err().0,
+            PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
+        ));
         lists.store().recover();
         let store = lists.store().clone();
         let reopened = lists_over(store, lists.config());
@@ -361,6 +364,11 @@ fn delete_split(w: &mut Steps) {
     let (lists, k) = split_with_deltas(2);
     assert!(lists.rollup_key(&k).unwrap());
     let splits = read_back(lists.store(), &k).part_splits();
+    assert_eq!(
+        split_keys_held(lists.store(), &k),
+        splits.len(),
+        "each part is held under a split key"
+    );
     commit_edges(&lists, &k, &(1..=1600).map(del_uid).collect::<Vec<_>>());
     assert!(lists.rollup_key(&k).unwrap());
     w.uids = splits;
@@ -375,14 +383,27 @@ fn stored_empty(w: &mut Steps) {
         store.contents().versions(&w.key)[0].meta(),
         BIT_EMPTY_POSTING
     );
-    let snapshot = store.snapshot(u64::MAX).unwrap();
-    let parts = snapshot
-        .scan(&ultragraphdb_traits_store::Scan::prefix(
-            [&[0x04][..], &w.key[1..]].concat(),
-        ))
-        .count();
-    assert_eq!(parts, 0, "a split key of the list is still read");
+    assert_eq!(
+        split_keys_held(store, &w.key),
+        0,
+        "a split key of the list is still read"
+    );
     assert!(w.uids.len() > 1);
+}
+
+/// How many split keys of `key`'s list a read at the maximum timestamp finds: the keys under the list's key with the
+/// split flag set on its keyspace byte.
+fn split_keys_held(store: &SimStore, key: &[u8]) -> usize {
+    let prefix = [
+        &[key[0] | ultragraphdb_core_keys::SPLIT_FLAG][..],
+        &key[1..],
+    ]
+    .concat();
+    store
+        .snapshot(u64::MAX)
+        .unwrap()
+        .scan(&ultragraphdb_traits_store::Scan::prefix(prefix))
+        .count()
 }
 
 #[when("a split key is read directly as a posting list")]
@@ -920,11 +941,11 @@ fn corrupted(w: &mut Steps) {
         .corrupt(&k, version, Corruption::FlipValueByte);
     lists.cache().remove(&k);
     let ts = lists.latest_ts();
-    let uncached = lists.read_uncached(&k, ts);
-    let cached = lists.read(&k, ts);
+    let uncached = lists.read_uncached(&k, ts).err();
+    let cached = lists.read(&k, ts).err();
     w.key = k;
-    w.error = uncached.err();
-    w.flags = vec![cached.is_err()];
+    w.flags = vec![cached.is_some() && cached == uncached];
+    w.error = uncached;
 }
 
 #[then("the read fails with an error naming the key, and no value is returned")]

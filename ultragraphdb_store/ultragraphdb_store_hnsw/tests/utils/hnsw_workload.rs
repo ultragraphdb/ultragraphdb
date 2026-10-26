@@ -32,12 +32,14 @@ use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimRng, Simulation, Stream,
     Violation,
 };
-use ultragraphdb_traits_index::{KeyValue, Options};
+use ultragraphdb_traits_index::{KeyValue, Metric, Options};
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
 use ultragraphdb_core_keys::QuadKey;
 
-use crate::utils::helpers::{TestLists, delete_vector, draw, key, opts, pred, set_vector, vkeys};
+use crate::utils::helpers::{
+    TestLists, delete_vector, draw, key, opts, oracle_score, pred, set_vector, vkeys,
+};
 
 /// The rule a search breaks when it returns a vector that is not live, twice, too many, or out of order.
 pub const SEARCH_FINDS_LIVE: &str =
@@ -137,7 +139,7 @@ impl Model {
 pub struct HnswWorkload {
     pred: String,
     options: Options,
-    sim: SimilarityType,
+    metric: Metric,
     lists: Option<Arc<TestLists>>,
     model: Model,
     pending: Option<(u64, Vec<Op>)>,
@@ -159,7 +161,7 @@ impl HnswWorkload {
         Self {
             pred: pred("emb"),
             options,
-            sim: SimilarityType::from_name(metric),
+            metric: SimilarityType::from_name(metric).metric(),
             lists: None,
             model: Model::default(),
             pending: None,
@@ -391,16 +393,26 @@ impl HnswWorkload {
         if uids.iter().collect::<BTreeSet<_>>().len() != uids.len() {
             return Some(format!("{uids:?} repeats a uid"));
         }
+        // The order by the oracle's scores, computed naively in float64, not by the index's kernels.
         let mut scores = Vec::new();
         for uid in uids {
             let Some(v) = self.model.live(*uid, ts) else {
                 return Some(format!("{uids:?} holds {uid}, not live"));
             };
-            scores.push(self.sim.distance_score(v, query).unwrap_or(f32::NAN));
+            scores.push(oracle_score(self.metric, &widen(v), &widen(query)));
         }
+        let higher_first = self.metric != Metric::Euclidean;
         scores
             .windows(2)
-            .any(|w| self.sim.is_better_score(w[1], w[0]))
+            .any(|w| {
+                // A float32 tie may differ in float64's last bits.
+                let slack = 1e-6 * w[0].abs().max(w[1].abs()).max(1.0);
+                if higher_first {
+                    w[1] > w[0] + slack
+                } else {
+                    w[1] < w[0] - slack
+                }
+            })
             .then(|| format!("{uids:?} out of order: {scores:?}"))
     }
 
@@ -424,6 +436,10 @@ impl HnswWorkload {
             Err(e) => Err(ctx.violation(NO_UNEXPECTED_ERROR, e.to_string())),
         }
     }
+}
+
+fn widen(v: &[f32]) -> Vec<f64> {
+    v.iter().map(|&f| f64::from(f)).collect()
 }
 
 fn random_vector(rng: &mut SimRng) -> Vec<f32> {

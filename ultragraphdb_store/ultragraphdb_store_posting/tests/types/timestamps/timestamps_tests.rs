@@ -48,3 +48,10 @@ fn test_a_read_of_everything_leaves_the_counter_where_it_is() {
         "any other read moves the counter past it"
     );
 }
+
+#[test]
+fn test_a_counter_at_the_top_of_the_range_saturates() {
+    assert_eq!(Timestamps::new(u64::MAX - 1).peek(), u64::MAX);
+    assert_eq!(Timestamps::new(u64::MAX).peek(), u64::MAX);
+    assert_eq!(Timestamps::default().peek(), 0);
+}

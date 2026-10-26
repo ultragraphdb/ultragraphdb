@@ -30,16 +30,31 @@ fn test_the_sizes_split_data_journal_and_metadata() {
         vec![1u8; 5],
     )
     .unwrap();
+    // A journal's name below the top is no journal of the store's: metadata.
+    std::fs::write(
+        dir.join("keyspaces").join("2").join("9.jnl"),
+        vec![1u8; 100],
+    )
+    .unwrap();
+    // A file beside the data keyspace whose name only begins as it does is not in it.
+    std::fs::write(dir.join("keyspaces").join("10"), vec![1u8; 1_000]).unwrap();
     let sizes = DirSizes::of(&dir, &data).unwrap();
+    // data: 10,000 + 10; journal: 3,000 + 2,000; metadata: 7 + 5 + 100 + 1,000.
     assert_eq!(sizes.data().apparent(), 10_010);
     assert_eq!(sizes.journal().apparent(), 5_000);
-    assert_eq!(sizes.metadata().apparent(), 12);
-    // What du reports is the blocks allocated, at least the bytes written.
+    assert_eq!(sizes.metadata().apparent(), 1_112);
+    assert_eq!(sizes.total().apparent(), 16_122);
+    // What du reports is the blocks allocated, at least the bytes written, and each file a whole number of
+    // 512-byte blocks.
     assert!(sizes.data().allocated() >= 10_010);
     assert!(sizes.journal().allocated() >= 5_000);
+    assert!(sizes.metadata().allocated() >= 1_112);
+    for size in [sizes.data(), sizes.journal(), sizes.metadata()] {
+        assert_eq!(size.allocated() % 512, 0, "{size:?}");
+    }
     assert_eq!(
-        sizes.total().apparent(),
-        sizes.data().apparent() + sizes.journal().apparent() + sizes.metadata().apparent()
+        sizes.total().allocated(),
+        sizes.data().allocated() + sizes.journal().allocated() + sizes.metadata().allocated()
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -47,5 +62,17 @@ fn test_the_sizes_split_data_journal_and_metadata() {
 #[test]
 fn test_a_missing_directory_is_refused() {
     let dir = fresh("missing");
-    assert!(DirSizes::of(&dir, &dir.join("data")).is_err());
+    let error = DirSizes::of(&dir, &dir.join("data")).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+}
+
+#[test]
+fn test_an_empty_directory_has_no_size() {
+    let dir = fresh("empty");
+    std::fs::create_dir_all(&dir).unwrap();
+    assert_eq!(
+        DirSizes::of(&dir, &dir.join("data")).unwrap(),
+        DirSizes::default()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

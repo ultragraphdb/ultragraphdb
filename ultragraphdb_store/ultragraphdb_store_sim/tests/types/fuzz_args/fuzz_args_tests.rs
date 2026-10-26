@@ -223,36 +223,93 @@ fn test_the_refusal_texts_name_the_argument_and_its_position() {
     assert_eq!(
         refused(&["x", "2", "100"]).to_string(),
         "argument 1 (first seed) takes a whole number from 0 to 18446744073709551615, not \"x\"; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["5", "-1"]).to_string(),
         "argument 2 (seeds) takes a whole number from 1 to 18446744073709551615, not \"-1\"; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["5", "+5"]).to_string(),
         "argument 2 (seeds) takes a whole number from 1 to 18446744073709551615, not \"+5\"; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["5", "1", ""]).to_string(),
         "argument 3 (steps) takes a whole number from 0 to 18446744073709551615, not \"\"; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["5", "3", "10", "9"]).to_string(),
         "argument 4 (\"9\") is one past the three positions; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["5", "0"]).to_string(),
         "argument 2 (seeds) is 0, and a run takes at least 1 seed; \
-         usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
     );
     assert_eq!(
         refused(&["18446744073709551606", "11"]).to_string(),
         "11 seeds from first seed 18446744073709551606 pass the last seed 18446744073709551615, \
-         and at most 10 start there; usage: store_sim_fuzz [first seed] [seeds] [steps]"
+         and at most 10 start there; usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]"
+    );
+}
+
+const FLAG: &str = "--versionless-reads";
+
+/// The flag comes first and leaves the numbers their positions; without it, the readers read no key without a
+/// version, as every earlier run's did.
+#[test]
+fn test_the_versionless_reads_flag_comes_first_and_keeps_the_positions() {
+    let reads = |list: &[&str]| {
+        FuzzArgs::parse(&args(list), 77)
+            .unwrap()
+            .versionless_reads()
+    };
+    assert!(!reads(&[]));
+    assert!(!reads(&["5", "3", "10"]));
+    assert!(reads(&[FLAG]));
+    assert!(reads(&[FLAG, "5", "3", "10"]));
+    assert_eq!(parsed(&[FLAG]), (77, 1000, 2000, 1076));
+    assert_eq!(parsed(&[FLAG, "5", "3", "10"]), (5, 3, 10, 7));
+    assert_eq!(
+        refused(&[FLAG, "5", "3", "10", "9"]),
+        FuzzArgsError::TooMany(4, "9".to_string())
+    );
+    assert_eq!(
+        refused(&[FLAG, "x"]),
+        FuzzArgsError::NotANumber(1, "x".to_string())
+    );
+    // Past the first argument the flag is no number at its position, and given twice its second is one.
+    assert_eq!(
+        refused(&["5", FLAG]),
+        FuzzArgsError::NotANumber(2, FLAG.to_string())
+    );
+    assert_eq!(
+        refused(&[FLAG, FLAG]),
+        FuzzArgsError::NotANumber(1, FLAG.to_string())
+    );
+}
+
+/// A first argument starting with `--` other than the flag is refused before any number is read; a single `-` makes
+/// a number, refused as one.
+#[test]
+fn test_an_unknown_flag_is_refused() {
+    for flag in [
+        "--",
+        "--versionless",
+        "--versionless-reads=1",
+        "--VERSIONLESS-READS",
+    ] {
+        assert_eq!(
+            refused(&[flag, "x"]),
+            FuzzArgsError::UnknownFlag(flag.to_string())
+        );
+    }
+    assert_eq!(
+        refused(&["-5"]),
+        FuzzArgsError::NotANumber(1, "-5".to_string())
     );
 }

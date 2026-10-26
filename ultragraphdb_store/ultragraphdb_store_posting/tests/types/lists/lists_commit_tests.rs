@@ -180,9 +180,10 @@ fn test_a_read_waits_for_a_commit_below_its_timestamp() {
     let seen = Arc::clone(&observed);
     let inner = probe.inner().clone();
     probe.on_next_apply(Box::new(move || {
-        // While the batch at commit_ts is written: a read at commit_ts + 1 must wait, one below may go ahead,
+        // While the batch at commit_ts is written: reads at commit_ts and above must wait, one below may go ahead,
         // and the store does not hold the batch yet.
-        let waits = !inside.try_gate(commit_ts + 1).unwrap();
+        let waits =
+            !inside.try_gate(commit_ts + 1).unwrap() && !inside.try_gate(commit_ts).unwrap();
         let below = inside.try_gate(commit_ts - 1).unwrap();
         let held = inner
             .snapshot(commit_ts + 1)
@@ -221,6 +222,7 @@ fn test_a_read_inside_a_commits_check_neither_deadlocks_nor_fills() {
         .unwrap()
         .add_posting(set_uid(2).clone(), false);
     batch.push(request);
+    let next = lists.peek_ts();
     let results = lists
         .commit_with(batch, |_| {
             let read = lists.read(&k, ts)?;
@@ -228,7 +230,7 @@ fn test_a_read_inside_a_commits_check_neither_deadlocks_nor_fills() {
             Ok::<_, PostingError>(())
         })
         .unwrap();
-    assert!(results[0].is_ok());
+    assert_eq!(results, vec![Ok(next)]);
     assert!(
         lists.cache().get(&k).is_none(),
         "the fill found the writer lock held"
@@ -238,7 +240,7 @@ fn test_a_read_inside_a_commits_check_neither_deadlocks_nor_fills() {
 #[test]
 fn test_a_failed_commit_is_reported_as_an_error() {
     let capture = ultragraphdb_store_sim::LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    capture.capture(|| {
         let lists = new_lists();
         lists.store().inject(Fault::FailNextBatch);
         let mut batch = lists.batch();
@@ -248,7 +250,10 @@ fn test_a_failed_commit_is_reported_as_an_error() {
             .unwrap()
             .add_posting(set_uid(1).clone(), false);
         batch.push(request);
-        assert!(lists.commit(batch).is_err());
+        assert!(matches!(
+            lists.commit(batch).unwrap_err().0,
+            PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
+        ));
     });
     let events = capture.events();
     assert_eq!(events.len(), 1, "{events:?}");
@@ -317,6 +322,7 @@ fn test_a_commit_removes_the_rebuild_records_its_requests_name() {
     let mut refused = batch.request(lists.latest_ts());
     refused.remove_rebuild_record_on_commit(5);
     batch.push(refused);
+    let next = lists.peek_ts();
     let mut seen = 0;
     let results = lists
         .commit_with(batch, |_| {
@@ -324,7 +330,7 @@ fn test_a_commit_removes_the_rebuild_records_its_requests_name() {
             if seen == 2 { Err("refused") } else { Ok(()) }
         })
         .unwrap();
-    assert!(results[0].is_ok() && results[1].is_err());
+    assert_eq!(results, vec![Ok(next), Err("refused")]);
     let records: Vec<u64> = store
         .rebuild_records()
         .unwrap()
@@ -332,4 +338,154 @@ fn test_a_commit_removes_the_rebuild_records_its_requests_name() {
         .map(|r| r.id())
         .collect();
     assert_eq!(records, [5]);
+}
+
+/// Pushes a request writing uid 1 to `k` into `batch`, marked to advance the epoch when `advance` is set.
+fn push_write(
+    batch: &mut ultragraphdb_store_posting::Batch<
+        '_,
+        ultragraphdb_store_sim::SimStore,
+        ultragraphdb_store_sim::SimListCache<ultragraphdb_store_posting::CachedList>,
+    >,
+    lists: &TestLists,
+    k: &[u8],
+    advance: bool,
+) {
+    let mut request = batch.request(lists.latest_ts());
+    request.get(k).unwrap().add_posting(set_uid(1), false);
+    if advance {
+        request.advance_epoch_on_commit();
+    }
+    batch.push(request);
+}
+
+#[test]
+fn test_the_requests_kept_take_consecutive_timestamps_around_one_refused() {
+    let lists = new_lists();
+    let keys: Vec<_> = (1..=3).map(|i| key("around", i)).collect();
+    let mut batch = lists.batch();
+    keys.iter()
+        .for_each(|k| push_write(&mut batch, &lists, k, false));
+    let next = lists.peek_ts();
+    let mut seen = 0;
+    let results = lists
+        .commit_with(batch, |_| {
+            seen += 1;
+            if seen == 2 { Err("refused") } else { Ok(()) }
+        })
+        .unwrap();
+    assert_eq!(results, vec![Ok(next), Err("refused"), Ok(next + 1)]);
+    assert_eq!((lists.applied_ts(), lists.peek_ts()), (next + 1, next + 2));
+    let contents = lists.store().contents();
+    assert_eq!(contents.versions(&keys[2])[0].version(), next + 1);
+    assert!(contents.versions(&keys[1]).is_empty());
+}
+
+#[test]
+fn test_a_refused_request_does_not_advance_the_epoch() {
+    let lists = new_lists();
+    let epoch = lists.epoch();
+    let mut batch = lists.batch();
+    push_write(&mut batch, &lists, &key("refused-epoch", 1), true);
+    push_write(&mut batch, &lists, &key("refused-epoch", 2), false);
+    let mut seen = 0;
+    lists
+        .commit_with(batch, |_| {
+            seen += 1;
+            if seen == 1 { Err(()) } else { Ok(()) }
+        })
+        .unwrap();
+    assert_eq!(lists.epoch(), epoch);
+}
+
+#[test]
+fn test_a_commit_removes_a_cached_list_of_an_older_epoch() {
+    let lists = new_lists();
+    let k = key("older-epoch", 1);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.read(&k, ts).unwrap();
+    lists.advance_epoch();
+    assert!(
+        lists.cache().get(&k).is_some(),
+        "an older entry lingers until something removes it"
+    );
+    // Written blind, so that no read refills the entry first.
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.get_from_delta(&k).add_posting(set_uid(2), false);
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    assert!(lists.cache().get(&k).is_none());
+}
+
+#[test]
+fn test_a_commit_leaves_an_uncached_list_uncached() {
+    let lists = new_lists();
+    let k = key("uncached", 1);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.cache().remove(&k);
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.get_from_delta(&k).add_posting(set_uid(2), false);
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    assert!(lists.cache().get(&k).is_none());
+}
+
+#[test]
+fn test_an_empty_batch_commits_nothing() {
+    let lists = new_lists();
+    let next = lists.peek_ts();
+    assert_eq!(lists.commit(lists.batch()).unwrap(), Vec::<u64>::new());
+    assert_eq!((lists.peek_ts(), lists.applied_ts()), (next, 0));
+}
+
+#[test]
+fn test_a_commit_queues_each_written_key_at_both_priorities_and_no_read_key() {
+    let lists = new_lists();
+    let (written, read) = (key("queued", 1), key("queued", 2));
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.get(&read).unwrap();
+    request
+        .get(&written)
+        .unwrap()
+        .add_posting(set_uid(1), false);
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    assert_eq!(lists.rollups_waiting(), 2);
+}
+
+/// The lists refuse every write after a failed one on their own, even where the store would take it: a recovered
+/// store is reopened with new lists, never written through the old ones.
+#[test]
+fn test_lists_refuse_writes_after_a_failure_whatever_the_store_says() {
+    let lists = new_lists();
+    let k = key("refuse", 1);
+    let ok = commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.store().inject(Fault::FailNextBatch);
+    let mut batch = lists.batch();
+    let mut request = batch.request(ok);
+    request.get_from_delta(&k).add_posting(set_uid(2), false);
+    batch.push(request);
+    assert!(lists.commit(batch).is_err());
+    lists.store().recover();
+    let before = lists.store().contents();
+    let poisoned = PostingError::Store(StoreError::Poisoned());
+    let mut batch = lists.batch();
+    let mut request = batch.request(ok);
+    request.get_from_delta(&k).add_posting(set_uid(3), false);
+    batch.push(request);
+    assert_eq!(lists.commit(batch), Err(poisoned.clone()));
+    assert_eq!(lists.drop_all(Vec::new()), Err(poisoned.clone()));
+    assert_eq!(
+        lists.drop_prefixes(ok + 50, std::slice::from_ref(&k), Vec::new()),
+        Err(poisoned.clone())
+    );
+    assert_eq!(
+        lists.drop_prefixes_now(std::slice::from_ref(&k), Vec::new()),
+        Err(poisoned.clone())
+    );
+    assert_eq!(lists.drop_all_now(Vec::new()), Err(poisoned));
+    assert_eq!(lists.store().contents(), before, "nothing written");
 }

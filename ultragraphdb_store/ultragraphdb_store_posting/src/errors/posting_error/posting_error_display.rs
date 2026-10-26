@@ -20,7 +20,6 @@ impl Display for PostingError {
             PostingErrorEnum::InvalidKey => {
                 f.write_str("cannot read posting list using multi-part list key")
             }
-            PostingErrorEnum::NoValue => f.write_str("No value found"),
             PostingErrorEnum::TsTooOld => f.write_str("Transaction is too old"),
             // list.go: "readTs: %d less than minTs: %d for key: %q".
             PostingErrorEnum::ReadBelowMinTs {
@@ -55,10 +54,6 @@ impl Display for PostingError {
                     hex(key)
                 )
             }
-            PostingErrorEnum::BlockSize { actual, expected } => write!(
-                f,
-                "actual block size {actual} is different from expected value {expected}"
-            ),
             PostingErrorEnum::HighPriorityOp => {
                 f.write_str("Cancelled rollup to make way for high priority operation")
             }

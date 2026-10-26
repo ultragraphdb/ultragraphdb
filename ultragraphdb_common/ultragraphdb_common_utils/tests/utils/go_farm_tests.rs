@@ -205,7 +205,8 @@ fn fingerprint64_matches_golden_vectors() {
     let path = testdata_dir().join("golden/farm_fingerprint64.json");
     let golden = load_golden::<FarmCase>(&path);
     let cases = golden.cases();
-    assert!(cases.len() > 500, "the golden file holds the cases");
+    // tools/golden/farm.go writes 301 random lengths, 24 random long inputs, 6 patterns at 35 lengths and 6 texts.
+    assert_eq!(cases.len(), 541, "the golden file holds every case");
     let mut lengths: Vec<usize> = cases.iter().map(|c| c.input.len() / 2).collect();
     lengths.sort_unstable();
     lengths.dedup();

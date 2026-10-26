@@ -7,7 +7,8 @@ mod store_error_display;
 mod store_error_error;
 
 /// Why a store operation failed. `Display` gives Dgraph's or Badger's text where they have one: `Transaction is
-/// too old` (Dgraph's `posting.ErrTsTooOld`) and `Key with size … exceeded … limit` (Badger's `exceedsSize`).
+/// too old` (Dgraph's `posting.ErrTsTooOld`), `Key with size … exceeded … limit` (Badger's `exceedsSize`) and `Key
+/// cannot be empty` (Badger's `ErrEmptyKey`).
 ///
 /// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -46,6 +47,9 @@ pub enum StoreErrorEnum {
     /// A temporary keyspace by this number does not exist: it was dropped, or the store was reopened since it was
     /// created, which drops every temporary keyspace.
     UnknownTemporary(u64),
+    /// A versionless write whose key is empty, and its batch wrote nothing: Badger's `ErrEmptyKey`, `Key cannot be
+    /// empty`.
+    EmptyKey,
 }
 
 impl StoreError {
@@ -92,5 +96,10 @@ impl StoreError {
     #[allow(non_snake_case)]
     pub fn UnknownTemporary(id: u64) -> Self {
         Self(StoreErrorEnum::UnknownTemporary(id))
+    }
+
+    #[allow(non_snake_case)]
+    pub fn EmptyKey() -> Self {
+        Self(StoreErrorEnum::EmptyKey)
     }
 }

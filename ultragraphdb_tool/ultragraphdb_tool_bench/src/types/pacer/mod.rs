@@ -23,7 +23,12 @@ impl Pacer {
 
     /// The commits that came due since the last call, by `clock`.
     pub fn take_due<C: Clock>(&mut self, clock: &C) -> u64 {
-        let due = (clock.elapsed().as_nanos() * u128::from(self.rate) / 1_000_000_000) as u64;
+        // Saturating: past u64::MAX commits, which no run reaches, the count stays there rather than wrapping.
+        let scaled = clock
+            .elapsed()
+            .as_nanos()
+            .saturating_mul(u128::from(self.rate));
+        let due = u64::try_from(scaled / 1_000_000_000).unwrap_or(u64::MAX);
         let fresh = due.saturating_sub(self.released);
         self.released = self.released.max(due);
         fresh
@@ -34,7 +39,9 @@ impl Pacer {
         if self.rate == 0 {
             return Duration::MAX;
         }
-        let nanos = u128::from(self.released + 1) * 1_000_000_000 / u128::from(self.rate);
+        // Rounded up: the first nanosecond at which `take_due` counts the commit.
+        let nanos =
+            ((u128::from(self.released) + 1) * 1_000_000_000).div_ceil(u128::from(self.rate));
         Duration::from_nanos(u64::try_from(nanos).unwrap_or(u64::MAX))
     }
 

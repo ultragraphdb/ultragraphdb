@@ -108,3 +108,64 @@ fn test_a_seed_replays_its_commits_and_the_types_vary() {
     let mut one = CommitShape::new(1, 10, 1, 7);
     assert!((0..50).all(|_| predicate(&mut one) == CommitShape::iri("rel_t0_org").as_str()));
 }
+
+#[test]
+fn test_the_draws_are_marsaglias_xorshift64() {
+    // Marsaglia, "Xorshift RNGs" (J. Stat. Soft. 8(14), 2003), xor64 with shifts 13, 7, 17 from
+    // 88172645463325252 yields 8748534153485358512, then 3040900993826735515, then 3453997556048239312. The shape
+    // mixes its seed with 0x9E3779B97F4A7C15, so the seed 88172645463325252 ^ 0x9E3779B97F4A7C15 =
+    // 11461161000241530449 starts that stream; u64::MAX types and hubs leave each draw below them as it is.
+    let mut shape = CommitShape::new(2, u64::MAX, u64::MAX, 11_461_161_000_241_530_449);
+    let commit = inserts(shape.next_commit().changes());
+    assert_eq!(
+        commit[0].0,
+        CommitShape::iri("rel_t8748534153485358512_org").as_str()
+    );
+    assert_eq!(
+        commit[0].2,
+        Term::from(CommitShape::hub(3_040_900_993_826_735_515))
+    );
+    assert_eq!(
+        commit[2].2,
+        Term::from(CommitShape::hub(3_453_997_556_048_239_312))
+    );
+}
+
+#[test]
+fn test_a_seed_of_zero_draws_as_a_seed_of_one() {
+    let draws = |seed| {
+        let mut shape = CommitShape::new(3, 1_000, 10, seed);
+        (0..5)
+            .map(|_| inserts(shape.next_commit().changes()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(draws(0), draws(1));
+    assert_ne!(draws(1), draws(2));
+}
+
+#[test]
+fn test_one_hub_takes_every_link_and_no_relations_write_nothing() {
+    let mut one = CommitShape::new(4, 1, 10, 7);
+    let commit = inserts(one.next_commit().changes());
+    assert_eq!(commit.len(), 8);
+    assert!(
+        commit
+            .chunks(2)
+            .all(|pair| pair[0].2 == Term::from(CommitShape::hub(0)))
+    );
+    let mut none = CommitShape::new(0, 1_000, 10, 7);
+    assert_eq!(none.relations(), 0);
+    assert!(none.next_commit().changes().is_empty());
+    assert_eq!(one.relations(), 4);
+}
+
+#[test]
+fn test_no_types_declare_the_hub_name_alone() {
+    let changeset = CommitShape::declarations(0);
+    let [Change::Declare(Declaration::Predicate(name))] = changeset.changes() else {
+        panic!("{:?} is not the name alone", changeset.changes());
+    };
+    assert_eq!(name.predicate(), &CommitShape::iri("name"));
+    assert_eq!(name.tokenizers(), ["exact"]);
+    assert!(CommitShape::new(1, 0, 1, 7).hubs().changes().is_empty());
+}

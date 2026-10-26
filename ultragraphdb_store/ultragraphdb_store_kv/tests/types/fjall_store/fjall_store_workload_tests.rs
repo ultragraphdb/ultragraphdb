@@ -37,6 +37,8 @@ struct Mirror {
     fenced: usize,
     /// How many records were replayed.
     replayed: usize,
+    /// How many versionless reads were replayed, and how many of them found a value.
+    versionless_reads: (usize, usize),
 }
 
 impl Mirror {
@@ -50,6 +52,7 @@ impl Mirror {
             temporaries: BTreeMap::new(),
             fenced: 0,
             replayed: 0,
+            versionless_reads: (0, 0),
         }
     }
 
@@ -190,6 +193,8 @@ impl Mirror {
                     format!("{got:?}"),
                     format!("{result:?}"),
                 )?;
+                self.versionless_reads.0 += 1;
+                self.versionless_reads.1 += usize::from(matches!(got, Ok(Some(_))));
                 OpRecord::ReadVersionless {
                     id: *id,
                     key: key.clone(),
@@ -385,6 +390,7 @@ struct Run {
     replayed: usize,
     fenced: usize,
     recoveries: usize,
+    versionless_reads: (usize, usize),
 }
 
 /// Runs the store workload for `steps` steps of `seed` on the simulated store and fjall at once, as
@@ -456,6 +462,7 @@ fn run_both(seed: u64, faults: FaultConfig, steps: u64, readers: usize) -> Resul
     }
     run.replayed = mirror.replayed;
     run.fenced = mirror.fenced;
+    run.versionless_reads = mirror.versionless_reads;
     Ok(run)
 }
 
@@ -466,11 +473,19 @@ fn test_the_store_workload_passes_the_same_checks_on_fjall() {
         .collect();
     let replayed: usize = runs.iter().map(|r| r.replayed).sum();
     let fenced: usize = runs.iter().map(|r| r.fenced).sum();
+    let (reads, found) = runs.iter().fold((0, 0), |(r, f), run| {
+        (r + run.versionless_reads.0, f + run.versionless_reads.1)
+    });
     // Evidence that the run did something: a skip and a pass look alike.
     println!(
-        "replayed {replayed} operations on fjall over 12 seeds; {fenced} fenced entries written by prefix drops"
+        "replayed {replayed} operations on fjall over 12 seeds; {fenced} fenced entries written by prefix drops; \
+         {reads} versionless reads, {found} of them finding a value"
     );
     assert!(replayed > 12 * 300);
+    assert!(
+        found > 0 && found < reads,
+        "versionless reads found {found} values in {reads} reads"
+    );
 }
 
 #[test]

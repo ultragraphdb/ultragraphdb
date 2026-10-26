@@ -7,11 +7,12 @@ use oxrdf::GraphName;
 use ultragraphdb_core_catalog::CatalogErrorEnum;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, Region};
 use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementId, StatementRef};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::ChangesetErrorEnum;
 
 use crate::utils::changesets::{
     NS, apply, changesets, changesets_over, declare, delete, ex, indexed, insert, insert_edge,
-    objects, postings, sim_store, statement, term, tokens_of, uid,
+    int_token, objects, postings, sim_store, statement, term, uid,
 };
 
 fn keyspaces(regions: &std::collections::BTreeSet<Region>) -> Vec<Keyspace> {
@@ -136,6 +137,10 @@ fn test_a_refused_change_refuses_the_whole_changeset() {
         matches!(&refused.0, ChangesetErrorEnum::Catalog(e) if matches!(e.0, CatalogErrorEnum::LiteralOnEdge { .. })),
         "{refused:?}"
     );
+    assert_eq!(
+        refused.to_string(),
+        "Predicate <http://ex.org/knows> is declared an edge and cannot hold the literal \"Bob\""
+    );
     assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
 }
 
@@ -152,6 +157,11 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() {
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Literal { predicate, .. } if predicate == ex("embedding").as_str()),
         "{refused:?}"
+    );
+    // "0.50,-1.0" is one element, split at ", " only, and no 32-bit float.
+    assert_eq!(
+        refused.to_string(),
+        "Predicate <http://ex.org/embedding> cannot hold the literal: Invalid vector literal \"[0.50,-1.0]\": an element is no 32-bit float"
     );
     assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
 }
@@ -184,8 +194,13 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() {
         .unwrap()
         .expect("a record");
     assert_eq!(record.subject(), uid(&a, "a"));
-    assert_eq!(record.properties().len(), 1);
-    assert_eq!(record.properties()[0].0, uid(&a, "since"));
+    assert_eq!(record.predicate(), uid(&a, "knows"));
+    assert_eq!(record.object(), &EncodedTerm::uid(uid(&a, "b")));
+    let [(property, value)] = record.properties() else {
+        panic!("one property: {:?}", record.properties())
+    };
+    assert_eq!(*property, uid(&a, "since"));
+    assert_eq!(a.quads().term_of(NS, value).unwrap(), term("2020"));
 }
 
 #[test]
@@ -195,10 +210,28 @@ fn test_a_repeated_edge_gives_both_statements_ids() {
     apply(&a, vec![insert_edge("<a> <knows> <b>", &[])]).unwrap();
     let held = postings(&a, "a", "knows");
     assert_eq!(held.len(), 1);
-    assert_eq!(held[0].1.len(), 2);
+    let ids = held[0].1.clone();
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+    for id in &ids {
+        let record = a
+            .quads()
+            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().latest_ts())
+            .unwrap()
+            .expect("a record");
+        assert_eq!(
+            (record.subject(), record.predicate(), record.object()),
+            (
+                uid(&a, "a"),
+                uid(&a, "knows"),
+                &EncodedTerm::uid(uid(&a, "b"))
+            )
+        );
+        assert!(record.properties().is_empty());
+    }
     // A plain insert of the held triple keeps both.
     apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
-    assert_eq!(postings(&a, "a", "knows")[0].1.len(), 2);
+    assert_eq!(postings(&a, "a", "knows")[0].1, ids);
 }
 
 #[test]
@@ -251,6 +284,10 @@ fn test_a_property_change_naming_no_statement_is_refused() {
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Mapping(e) if matches!(e.0, MappingErrorEnum::NoSuchStatement { .. }))
     );
+    assert_eq!(
+        refused.to_string(),
+        "No statement <http://ex.org/x> <http://ex.org/p> <http://ex.org/z> is held"
+    );
 }
 
 #[test]
@@ -259,8 +296,10 @@ fn test_a_term_is_kept_as_written() {
     declare(&a, "n", "with an `int` index");
     apply(&a, vec![insert(r#"<a> <n> "007"^^xsd:integer"#)]).unwrap();
     assert_eq!(objects(&a, "a", "n"), vec![term(r#""007"^^xsd:integer"#)]);
-    let seven = &tokens_of("int", &term("7"))[0];
-    assert_eq!(indexed(&a, "n", seven), vec![uid(&a, "a")]);
+    assert_eq!(indexed(&a, "n", &int_token(7)), vec![uid(&a, "a")]);
+    // The lexical form is not indexed as a string: no int key of 007 read as 0 or 700.
+    assert!(indexed(&a, "n", &int_token(0)).is_empty());
+    assert!(indexed(&a, "n", &int_token(700)).is_empty());
 }
 
 #[test]

@@ -2801,6 +2801,7 @@ name = "ultragraphdb_tool_bench"
 version = "0.1.0"
 dependencies = [
  "oxrdf",
+ "serde_json",
  "ultragraphdb_common_telemetry",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",

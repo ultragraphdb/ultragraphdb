@@ -19,6 +19,7 @@ fn test_a_batch_holds_its_requests_in_order() {
         batch.push(request);
     }
     assert_eq!(batch.len(), 3);
+    assert!(!batch.is_empty());
     let keys: Vec<Vec<u8>> = batch
         .requests()
         .iter()
@@ -52,6 +53,11 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
     batch.push(earlier);
     let mut later = batch.request(read_ts);
     let list = later.get(&name).unwrap();
+    assert_eq!(
+        list.mutation().len(),
+        2,
+        "one committed delta and one stacked layer"
+    );
     assert_eq!(list.static_value(read_ts).unwrap().postings[0].value, b"B");
     assert_eq!(
         list.static_value(read_ts + 1).unwrap().postings[0].value,

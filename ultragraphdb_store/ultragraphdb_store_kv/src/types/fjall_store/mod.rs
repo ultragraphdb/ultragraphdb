@@ -56,6 +56,13 @@ pub const TEMPORARY_KEYSPACE_PREFIX: &str = "tmp-";
 /// level.
 ///
 /// A [`crate::FjallSnapshot`] keeps the database open: drop every snapshot before reopening the directory.
+///
+/// Dropping the store can hang forever in fjall 3.1.12. `DatabaseInner::drop` (`fjall-3.1.12/src/db.rs:71-78`) sends
+/// `Close` to its workers with a blocking `send`, every 10 µs while any worker is alive, on a channel bounded at 1,000
+/// (`src/worker_pool.rs:52`) whose receiver the database itself holds. While one worker finishes a long flush or
+/// compaction, the idle ones exit and the channel fills; once that worker exits too, nothing receives, and the
+/// dropping thread waits in `send` for good. It shows in tests under heavy load, where a background job outlasts
+/// 1,000 sends.
 pub struct FjallStore {
     // Dropped first: the sync thread is joined before the database closes.
     _syncer: Option<Syncer>,

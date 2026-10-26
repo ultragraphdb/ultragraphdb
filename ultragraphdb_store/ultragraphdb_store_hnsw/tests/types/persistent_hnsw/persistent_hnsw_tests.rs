@@ -43,8 +43,17 @@ fn test_race_create_or_replace() {
         for _ in 0..5 {
             s.spawn(|| {
                 for i in 0..10 {
-                    let index = PersistentHnsw::<f64>::new(vkeys("a"), &o, 64);
-                    assert!(index.is_ok(), "case {i}: {index:?}");
+                    let index = PersistentHnsw::<f64>::new(vkeys("a"), &o, 64)
+                        .unwrap_or_else(|e| panic!("case {i}: {e}"));
+                    assert_eq!(
+                        (
+                            index.max_levels(),
+                            index.ef_search(),
+                            index.ef_construction()
+                        ),
+                        (1, 1, 1),
+                        "case {i}"
+                    );
                 }
             });
         }
@@ -97,25 +106,54 @@ fn test_a_float_width_other_than_the_vectors_is_refused() {
         let e = PersistentHnsw::<f64>::new(vkeys("a"), &o, bits).unwrap_err();
         assert_eq!(e.0, HnswErrorEnum::FloatBits { bits, expected: 64 });
     }
-    assert!(PersistentHnsw::<f32>::new(vkeys("a"), &o, 32).is_ok());
+    let f32_index = PersistentHnsw::<f32>::new(vkeys("a"), &o, 32).unwrap();
+    assert_eq!(f32_index.sim_type().index_type(), "euclidean");
+    let e = PersistentHnsw::<f32>::new(vkeys("a"), &o, 64).unwrap_err();
+    assert_eq!(
+        e.0,
+        HnswErrorEnum::FloatBits {
+            bits: 64,
+            expected: 32
+        }
+    );
 }
 
 /// Deviation: Go accepts a level count or breadth below 1 and panics at the first search or insert that indexes the
 /// level -1 or truncates a layer result to nothing; the port refuses it when the index is built.
 #[test]
 fn test_an_option_below_one_is_refused() {
-    for (name, o) in [
-        ("maxLevels", opts(&[("maxLevels", "0")])),
-        ("efSearch", opts(&[("efSearch", "-3")])),
-        ("efConstruction", opts(&[("efConstruction", "0")])),
-        ("maxLevels", opts(&[("exponent", "0")])),
+    for (name, value, o) in [
+        ("maxLevels", 0, opts(&[("maxLevels", "0")])),
+        ("efSearch", -3, opts(&[("efSearch", "-3")])),
+        ("efConstruction", 0, opts(&[("efConstruction", "0")])),
+        ("maxLevels", 0, opts(&[("exponent", "0")])),
+        ("maxLevels", -1, opts(&[("exponent", "-1")])),
+        (
+            "efConstruction",
+            0,
+            opts(&[("exponent", "2"), ("efConstruction", "0")]),
+        ),
+        ("efSearch", 0, opts(&[("exponent", "1"), ("efSearch", "0")])),
     ] {
         let e = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32).unwrap_err();
-        assert!(
-            matches!(e.0, HnswErrorEnum::InvalidParameter { name: n, .. } if n == name),
-            "{e}"
-        );
+        assert_eq!(e.0, HnswErrorEnum::InvalidParameter { name, value }, "{e}");
     }
+    // 1 is the least accepted, directly and through an exponent of 1 (1, 50 and 30).
+    let one = opts(&[
+        ("maxLevels", "1"),
+        ("efConstruction", "1"),
+        ("efSearch", "1"),
+    ]);
+    let ix = PersistentHnsw::<f32>::new(vkeys("0-a"), &one, 32).unwrap();
+    assert_eq!(
+        (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
+        (1, 1, 1)
+    );
+    let ix = PersistentHnsw::<f32>::new(vkeys("0-a"), &opts(&[("exponent", "1")]), 32).unwrap();
+    assert_eq!(
+        (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
+        (1, 50, 30)
+    );
 }
 
 #[derive(Debug, Deserialize)]

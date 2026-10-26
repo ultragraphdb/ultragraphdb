@@ -10,8 +10,8 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use cucumber::{then, when};
+use oxrdf::GraphName;
 use oxrdf::vocab::rdf;
-use oxrdf::{GraphName, Literal, Term};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, Change, Changeset};
@@ -24,8 +24,8 @@ use ultragraphdb_traits_store::{PersistMode, Store};
 use crate::Steps;
 use crate::changeset_steps::{cs, is_held, last};
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets_over, declare, declared, ex, finish_builds, indexed,
-    insert, stored_keys, tokens_of, uid, write,
+    NS, TestChangesets, apply, changesets_over, declare, declared, ex, exact_token, finish_builds,
+    indexed, insert, stored_keys, term_token, uid, write,
 };
 use crate::utils::probe::Probe;
 
@@ -41,13 +41,15 @@ fn has_index_keys(a: &TestChangesets, predicate: &str, tokenizer: &str) -> bool 
     })
 }
 
-/// The subjects the `tokenizer` index of `predicate` lists under the tokens of `literal`, in the default graph.
-fn listed(a: &TestChangesets, predicate: &str, tokenizer: &str, literal: &str) -> Vec<u64> {
-    let literal: Term = Literal::new_simple_literal(literal).into();
-    tokens_of(tokenizer, &literal)
-        .iter()
-        .flat_map(|t| indexed(a, predicate, t))
-        .collect()
+/// The subjects the `tokenizer` index of `predicate` lists under `text`, in the default graph: the `exact` token of a
+/// string, or the `term` token of a lowercase word, written out independently of the tokenizer.
+fn listed(a: &TestChangesets, predicate: &str, tokenizer: &str, text: &str) -> Vec<u64> {
+    let token = match tokenizer {
+        "exact" => exact_token(text),
+        "term" => term_token(text),
+        other => panic!("no written-out token of the {other} tokenizer"),
+    };
+    indexed(a, predicate, &token)
 }
 
 /// The catalog of `namespace` as the store holds it at the newest timestamp.
@@ -222,6 +224,7 @@ fn name_edge(w: &mut Steps) {
 fn age_integer(w: &mut Steps) {
     let a = cs(w);
     write(&a, &["<a> <age> 30", "<b> <age> 31"]);
+    w.names = vec!["age".into(), "with datatype `xsd:integer`".into()];
     w.results
         .push(declared(&a, "age", "with datatype `xsd:integer`"));
 }
@@ -235,6 +238,7 @@ fn friend_gained_and_lost(w: &mut Steps) {
         vec![crate::utils::changesets::delete("<a> <friend> <b>")],
     )
     .expect("the delete applies");
+    w.names = vec!["friend".into(), "a property".into()];
     w.results.push(declared(&a, "friend", "a property"));
 }
 
@@ -258,6 +262,14 @@ fn change_fails(w: &mut Steps, predicate: String, subject: String, multi: String
 #[then("the change is applied")]
 fn change_applied(w: &mut Steps) {
     assert!(last(w).is_ok(), "{:?}", last(w));
+    let a = cs(w);
+    let expected = crate::utils::changesets::declaration(&w.names[0], &w.names[1]);
+    let p = uid(&a, &w.names[0]);
+    assert_eq!(
+        a.catalog(NS).expect("the catalog").predicate(p),
+        Some(&expected)
+    );
+    assert_eq!(stored_catalog(&a, NS).predicate(p), Some(&expected));
 }
 
 // Drops.

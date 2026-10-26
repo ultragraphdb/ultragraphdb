@@ -137,7 +137,7 @@ fn test_a_factory_creates_finds_and_removes_indexes() {
     assert_eq!(f.allowed_options().get_option_list(), vec!["k"]);
     let ix = f.create("a", &o, 64).unwrap();
     assert_eq!((ix.name.as_str(), ix.float_bits), ("a", 64));
-    assert!(f.create("a", &o, 64).is_err());
+    assert_eq!(f.create("a", &o, 64), Err("a exists".to_string()));
     assert_eq!(f.find("a"), Ok(Some(ix.clone())));
     assert_eq!(
         f.create_or_replace("a", &o, 32).map(|i| i.float_bits),
@@ -145,9 +145,10 @@ fn test_a_factory_creates_finds_and_removes_indexes() {
     );
     f.remove("a").unwrap();
     assert_eq!(f.find("a"), Ok(None));
-    assert!(
+    assert_eq!(
         ix.search_with_path(&NoCache, &[], 1, |_, _, _| true)
-            .is_err()
+            .map(|r| r.neighbors().to_vec()),
+        Err("unsupported".to_string())
     );
     assert_eq!(ix.search(&NoCache, &[1.0], 1, |_, _, _| true), Ok(vec![]));
     assert_eq!(

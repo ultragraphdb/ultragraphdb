@@ -25,6 +25,7 @@ fn test_empty_contents_hold_nothing() {
         );
         assert!(contents.banned().is_empty());
         assert!(contents.rebuild_records().is_empty());
+        assert!(contents.versionless().is_empty());
         assert!(contents.versions(b"k").is_empty());
     }
 }
@@ -76,4 +77,21 @@ fn test_contents_compare_equal_exactly_when_the_stores_hold_the_same() {
         stores[1].contents(),
         "the same version with another value differs"
     );
+    stores[0].apply(batch_of_w(), PersistMode::Buffer).unwrap();
+    assert_eq!(stores[0].contents(), stores[1].contents());
+    let mut versionless = WriteBatch::new();
+    versionless.put_versionless(b"t".to_vec(), b"1".to_vec());
+    stores[1].apply(versionless, PersistMode::Buffer).unwrap();
+    assert_ne!(
+        stores[0].contents(),
+        stores[1].contents(),
+        "a key without a version differs"
+    );
+}
+
+/// The batch rewriting key `k` at version 1 to `w`.
+fn batch_of_w() -> WriteBatch {
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(b"k".to_vec(), 1, 0, b"w".to_vec()));
+    batch
 }

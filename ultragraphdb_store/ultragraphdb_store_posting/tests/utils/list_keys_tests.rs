@@ -11,7 +11,7 @@ use std::ops::ControlFlow;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey, key_prefix};
 use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{
-    DEL, List, PostingError, SET, is_quad_list, is_split_key, split_key_of,
+    DEL, List, PostingError, PostingErrorEnum, SET, is_quad_list, is_split_key, split_key_of,
 };
 use ultragraphdb_traits_store::{Store, StoreSnapshot};
 
@@ -169,13 +169,123 @@ fn test_a_requests_versionless_writes_commit_with_its_lists() {
         .get_from_delta(&quad_key(1))
         .add_posting(reference(2, SET), false);
     request.add_versionless(b"term".to_vec(), b"uid".to_vec());
+    request.add_versionless(b"term2".to_vec(), b"uid2".to_vec());
+    assert_eq!(request.versionless().len(), 2);
     let mut batch = lists.batch();
     batch.push(request);
-    lists.commit(batch).unwrap();
+    let ts = lists.commit(batch).unwrap()[0];
     assert_eq!(
         lists.store().get_versionless(b"term").unwrap(),
         Some(b"uid".to_vec())
     );
+    assert_eq!(
+        lists.store().get_versionless(b"term2").unwrap(),
+        Some(b"uid2".to_vec())
+    );
     let snapshot = lists.store().snapshot(u64::MAX).unwrap();
-    assert!(snapshot.get(&quad_key(1)).unwrap().is_some());
+    let item = snapshot
+        .get(&quad_key(1))
+        .unwrap()
+        .expect("the list's delta");
+    assert_eq!(
+        (item.version(), item.meta()),
+        (ts, ultragraphdb_store_posting::BIT_DELTA_POSTING)
+    );
+}
+
+#[test]
+fn test_a_split_key_is_the_flagged_keyspace_byte_and_the_start_appended() {
+    // Hand-derived: Forward is 0x10 and the split flag 0x80; namespace, graph, predicate 7 and subject 42 as u64
+    // big-endian; the start, 1000 = 0x03e8, appended big-endian.
+    let mut expected = vec![0x90];
+    expected.extend_from_slice(&[0; 8]);
+    expected.extend_from_slice(&[0; 8]);
+    expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 7]);
+    expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 42]);
+    expected.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0x03, 0xe8]);
+    assert_eq!(split_key_of(&quad_key(42), 1000).unwrap(), expected);
+    let max = split_key_of(&quad_key(42), u64::MAX).unwrap();
+    assert_eq!(&max[33..], &[0xff; 8], "the largest start");
+    // The flag is set, not toggled: a key that carries it keeps it.
+    assert_eq!(split_key_of(&max, 2).unwrap()[0], 0x90);
+}
+
+#[test]
+fn test_every_list_keyspace_and_no_other_is_a_list() {
+    // Hand-derived from the keyspace table: 0x10 to 0x16 hold lists; catalog 0x01, statements 0x17 and statistics
+    // 0x18 do not, nor does a byte of no keyspace.
+    for byte in 0x10..=0x16u8 {
+        assert!(is_quad_list(&[byte]), "{byte:#x}");
+        assert!(is_quad_list(&[byte | 0x80]), "{byte:#x} split");
+        assert!(!is_split_key(&[byte]).unwrap());
+        assert!(is_split_key(&[byte | 0x80]).unwrap());
+    }
+    for byte in [
+        0x00, 0x01, 0x02, 0x0f, 0x17, 0x18, 0x19, 0x7f, 0x81, 0x97, 0xff,
+    ] {
+        assert!(!is_quad_list(&[byte]), "{byte:#x}");
+    }
+    assert!(!is_quad_list(&[]), "an empty key");
+}
+
+#[test]
+fn test_a_key_of_no_list_has_no_split_key() {
+    let statement = QuadKey::Statement {
+        namespace: 0,
+        graph: 0,
+        statement: 1,
+    }
+    .to_bytes();
+    for key in [statement.clone(), Vec::new(), b"key".to_vec()] {
+        let not_a_list = PostingErrorEnum::NotAList { key: key.clone() };
+        assert_eq!(split_key_of(&key, 1).unwrap_err().0, not_a_list);
+        assert_eq!(is_split_key(&key).unwrap_err().0, not_a_list);
+    }
+    // A list read from a key of no list is refused as one, before any version is read.
+    let error = List::read_versions(&statement, Vec::new()).unwrap_err();
+    assert_eq!(error.0, PostingErrorEnum::NotAList { key: statement });
+}
+
+#[test]
+fn test_a_vector_index_list_tells_postings_apart_by_uid_alone() {
+    // A vector-index list holds one value per uid, which the next write replaces; a forward list keeps both literals.
+    let vector = QuadKey::VectorIndex {
+        namespace: 0,
+        graph: 0,
+        predicate: 7,
+        list: 1,
+        node: 3,
+    }
+    .to_bytes();
+    let mut list = List::empty(vector);
+    list.set_ts(5);
+    list.add_posting(literal(9, b"a", SET), false);
+    list.add_posting(literal(9, b"b", SET), false);
+    assert_eq!(held(&list, 5), vec![(9, b"b".to_vec())]);
+    let mut forward = List::empty(quad_key(1));
+    forward.set_ts(5);
+    forward.add_posting(literal(9, b"a", SET), false);
+    forward.add_posting(literal(9, b"b", SET), false);
+    assert_eq!(
+        held(&forward, 5),
+        vec![(9, b"a".to_vec()), (9, b"b".to_vec())]
+    );
+    // A reference posting is told apart by uid alone even in a forward list: its value carries nothing.
+    let mut refs = List::empty(quad_key(2));
+    refs.set_ts(5);
+    refs.add_posting(
+        Posting {
+            value: b"x".to_vec(),
+            ..reference(4, SET)
+        },
+        false,
+    );
+    refs.add_posting(
+        Posting {
+            value: b"y".to_vec(),
+            ..reference(4, SET)
+        },
+        false,
+    );
+    assert_eq!(held(&refs, 5), vec![(4, b"y".to_vec())]);
 }

@@ -142,7 +142,8 @@ fn test_a_read_above_the_lists_newest_version_hits() {
     let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).expect("fill");
     // Dgraph misses here: its hit needs the read at or below the list's newest version (issue #9597).
-    assert!(lists.cached(&k, ts + 100).expect("read").is_some());
+    let hit = lists.cached(&k, ts + 100).expect("read").expect("a hit");
+    assert_eq!(uids(&hit, ts + 100, 0), vec![1]);
 }
 
 #[test]
@@ -177,8 +178,16 @@ fn test_a_fill_begun_before_an_epoch_change_is_refused() {
     let k = key("epochfill", 1);
     let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     let miss = lists.miss(&k, ts).expect("miss");
+    assert_eq!(miss.epoch(), 0);
     lists.advance_epoch();
     assert!(!lists.fill(miss));
+    let after = lists.miss(&k, ts).expect("miss");
+    assert_eq!(
+        after.epoch(),
+        1,
+        "a miss begun after the change is in the new epoch"
+    );
+    assert!(lists.fill(after));
 }
 
 #[test]
@@ -225,4 +234,77 @@ fn test_reads_with_deltas_queue_their_key_for_a_rollup() {
     let before = lists.rollups_waiting();
     lists.read_uncached(&k, ts).expect("read");
     assert_eq!(lists.rollups_waiting(), before + 1);
+    lists.read_uncached(&key("queued", 2), ts).expect("read");
+    assert_eq!(
+        lists.rollups_waiting(),
+        before + 1,
+        "a list without deltas is not queued"
+    );
+}
+
+#[test]
+fn test_a_fill_is_made_when_the_last_commit_to_its_key_is_its_base() {
+    let lists = new_lists();
+    let (a, b) = (key("base", 1), key("base", 2));
+    commit_edges(&lists, &a, &[set_uid(1)]);
+    // A fill under way on another key makes the commits remember their keys.
+    let other = lists.miss(&b, lists.latest_ts()).expect("miss");
+    let ts = commit_edges(&lists, &a, &[set_uid(2)]);
+    lists.cache().remove(&a);
+    let miss = lists.miss(&a, ts).expect("miss");
+    assert_eq!(miss.base(), ts, "the commit to a is the miss's base");
+    assert!(lists.fill(miss), "a commit at the base is in the fill");
+    assert_eq!(
+        uids(lists.cache().get(&a).unwrap().list(), ts, 0),
+        vec![1, 2]
+    );
+    assert!(lists.fill(other), "no commit wrote b after its fill began");
+}
+
+#[test]
+fn test_a_miss_taken_as_its_list_gives_its_fill_up() {
+    let lists = new_lists();
+    let k = key("into-list", 1);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.cache().remove(&k);
+    let list = lists.miss(&k, ts).unwrap().into_list();
+    assert_eq!(uids(&list, ts, 0), vec![1]);
+    assert!(lists.cache().get(&k).is_none());
+    // No fill is left under way: a commit now does not refuse a later fill of another key.
+    let miss = lists.miss(&key("into-list", 2), ts).unwrap();
+    commit_edges(&lists, &k, &[set_uid(2)]);
+    assert!(lists.fill(miss));
+}
+
+#[test]
+fn test_an_entry_serves_no_read_below_its_lists_complete_version() {
+    let list = Arc::new(List::new(key("serves-min", 1), PostingList::default(), 3));
+    let entry = CachedList::new(list, 1, 0);
+    assert!(entry.serves(3, 0));
+    assert!(!entry.serves(2, 0), "below the complete version");
+}
+
+#[test]
+fn test_a_read_of_the_store_is_set_at_the_reads_timestamp() {
+    let lists = new_lists();
+    let k = key("read-ts", 1);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
+    assert_eq!(
+        lists
+            .read_uncached(&k, ts + 3)
+            .unwrap()
+            .mutation()
+            .read_ts(),
+        ts + 3
+    );
+    assert_eq!(lists.read(&k, ts + 5).unwrap().mutation().read_ts(), ts + 5);
+    assert_eq!(
+        lists
+            .cached(&k, ts + 7)
+            .unwrap()
+            .unwrap()
+            .mutation()
+            .read_ts(),
+        ts + 7
+    );
 }

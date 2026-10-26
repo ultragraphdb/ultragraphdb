@@ -33,11 +33,11 @@ use crate::types::write_batch::WriteBatch;
 /// with [`StoreError::TsTooOld`]. The sweep removes a deletion at or below the tombstone horizon that has no version
 /// of its key below it.
 ///
-/// **The keyspace without versions.** Beside the versioned keys, a store holds keys with one value each, written by
-/// a batch's versionless writes ([`WriteBatch::put_versionless`]) atomically with its entries, so a batch is visible
-/// whole or not at all across both. A read of it ([`Store::get_versionless`], [`StoreSnapshot::get_versionless`]) is
-/// one point lookup, bounded by no discard timestamp. [`Store::drop_all`] clears it; prefix drops, bans, garbage
-/// collection and temporary keyspaces leave it as it is.
+/// **The keyspace without versions.** Beside the versioned keys, a store holds non-empty keys with one value each,
+/// written by a batch's versionless writes ([`WriteBatch::put_versionless`]) atomically with its entries, so a batch
+/// is visible whole or not at all across both. A read of it ([`Store::get_versionless`],
+/// [`StoreSnapshot::get_versionless`]) is one point lookup, bounded by no discard timestamp. [`Store::drop_all`]
+/// clears it; prefix drops, bans, garbage collection and temporary keyspaces leave it as it is.
 ///
 /// **Temporary keyspaces and rebuild records.** A rebuild builds into a temporary keyspace
 /// ([`Store::create_temporary`]), beside the data and outside its versions, bans, garbage collection and applied
@@ -52,8 +52,9 @@ pub trait Store {
 
     /// Writes `batch` atomically: it becomes visible whole or not at all, to point reads and scans alike, and has no
     /// size limit that splits it. A batch whose user key exceeds [`crate::MAX_USER_KEY_SIZE`] or whose stored key
-    /// exceeds [`crate::MAX_STORED_KEY_SIZE`] is refused with [`StoreError::KeyTooLarge`] and writes nothing. An
-    /// entry addressed to a banned namespace is dropped and the rest is written. The batch's applied timestamp, if
+    /// exceeds [`crate::MAX_STORED_KEY_SIZE`] is refused with [`StoreError::KeyTooLarge`] and writes nothing, as is a
+    /// batch with an empty versionless key, refused with [`StoreError::EmptyKey`] ([`WriteBatch::check_key_sizes`]).
+    /// An entry addressed to a banned namespace is dropped and the rest is written. The batch's applied timestamp, if
     /// it has one, is written in the same batch, as are its versionless writes, which no ban drops.
     fn apply(&self, batch: WriteBatch, mode: PersistMode) -> Result<(), StoreError>;
 
@@ -120,9 +121,10 @@ pub trait Store {
         Err(StoreError::Unsupported("temporary keyspaces"))
     }
 
-    /// Writes `batch` to `temporary` atomically, as [`Store::apply`] writes to the data: refused whole with
-    /// [`StoreError::KeyTooLarge`] for an oversized key, no entry dropped for a banned namespace, the applied
-    /// timestamp, the removed rebuild records and the versionless writes ignored. A failed write poisons the store as a failed batch does.
+    /// Writes `batch` to `temporary` atomically, as [`Store::apply`] writes to the data: refused whole when any key
+    /// it holds, its versionless writes' included, breaks the limits [`WriteBatch::check_key_sizes`] checks, though
+    /// the versionless writes themselves are ignored, as are the applied timestamp and the removed rebuild records; no
+    /// entry is dropped for a banned namespace. A failed write poisons the store as a failed batch does.
     fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
         let _ = (temporary, batch);
         Err(StoreError::Unsupported("temporary keyspaces"))

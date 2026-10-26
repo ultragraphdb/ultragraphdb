@@ -36,6 +36,8 @@ impl fmt::Display for StoreError {
                 f,
                 "Temporary keyspace {id} does not exist: it was dropped, or the store was reopened since it was created"
             ),
+            // Badger's ErrEmptyKey (`errors.go:40`).
+            StoreErrorEnum::EmptyKey => f.write_str("Key cannot be empty"),
         }
     }
 }

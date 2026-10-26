@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use ultragraphdb_traits_store::{Entry, VersionlessEntry};
+
 use crate::types::breach::Breach;
 use crate::types::contents::Contents;
 use crate::types::invariant::Invariant;
@@ -138,7 +140,7 @@ impl StoreModel {
     /// survivors that is not a prefix.
     fn diagnose(&self, outcomes: &[Outcome], contents: &Contents) -> Breach {
         let ops = outcomes.last().map(|o| o.kept.clone()).unwrap_or_default();
-        if let Some(detail) = ops.iter().find_map(|op| partial_batch(op, contents)) {
+        if let Some(detail) = partial_batch(&ops, contents) {
             return Breach::new(Invariant::BatchWhole, detail);
         }
         let differences: Vec<String> = outcomes
@@ -175,9 +177,25 @@ impl StoreModel {
     }
 }
 
-/// A description of how `op` survives in part in `contents`, if it does: some of its entries hold their version
-/// with their value and others hold no such version.
-pub(super) fn partial_batch(op: &ModelOp, contents: &Contents) -> Option<String> {
+/// A description of how one of `ops`, in the order written, survives in part in `contents`, if one does: some of its
+/// entries hold their version with their value and others hold no such version, or its versioned entries survive
+/// without its versionless writes or the other way round.
+pub(super) fn partial_batch(ops: &[ModelOp], contents: &Contents) -> Option<String> {
+    ops.iter()
+        .enumerate()
+        .find_map(|(at, op)| partial(op, &ops[at + 1..], contents))
+}
+
+/// Whether `contents` hold `entry`: its version, a deletion exactly when it is one.
+fn holds(contents: &Contents, entry: &Entry) -> bool {
+    contents
+        .versions(entry.key())
+        .iter()
+        .any(|v| v.version() == entry.version() && v.is_deletion() == entry.is_deletion())
+}
+
+/// How `op` survives in part, when `later` are the writes after it.
+fn partial(op: &ModelOp, later: &[ModelOp], contents: &Contents) -> Option<String> {
     let ModelOp::Batch {
         entries,
         versionless,
@@ -186,27 +204,46 @@ pub(super) fn partial_batch(op: &ModelOp, contents: &Contents) -> Option<String>
     else {
         return None;
     };
-    let present = |e: &&ultragraphdb_traits_store::Entry| {
-        contents
-            .versions(e.key())
+    // A versionless write is judged by the value its key holds, unless a later batch some of whose entries survive,
+    // or a drop of everything, wrote over it.
+    let overwritten = |key: &[u8]| {
+        later.iter().any(|op| match op {
+            ModelOp::Batch {
+                entries,
+                versionless,
+                ..
+            } => {
+                entries.iter().any(|e| holds(contents, e))
+                    && versionless.iter().any(|w| w.key() == key)
+            }
+            ModelOp::Drop { prefixes, .. } => prefixes.is_none(),
+            ModelOp::Record(_) => false,
+        })
+    };
+    // Of two writes of one key and version, or of one versionless key, the batch writes the later.
+    let entries = last_writes(entries, |e| (e.key(), e.version()));
+    let versionless: Vec<&VersionlessEntry> = last_writes(versionless, |e| e.key())
+        .into_iter()
+        .filter(|e| !overwritten(e.key()))
+        .collect();
+    let (held, missing): (Vec<&Entry>, Vec<&Entry>) =
+        entries.iter().copied().partition(|e| holds(contents, e));
+    let (held_versionless, missing_versionless): (Vec<&VersionlessEntry>, Vec<&VersionlessEntry>) =
+        versionless
             .iter()
-            .any(|v| v.version() == e.version() && v.is_deletion() == e.is_deletion())
-    };
-    // A versionless put is held while its key is, whatever a later batch wrote over it; a removal while it is not.
-    let present_versionless = |e: &&ultragraphdb_traits_store::VersionlessEntry| {
-        contents.versionless().contains_key(e.key()) != e.is_removal()
-    };
-    let (held, missing): (Vec<_>, Vec<_>) = entries.iter().partition(present);
-    let (held_versionless, missing_versionless): (Vec<_>, Vec<_>) =
-        versionless.iter().partition(present_versionless);
+            .copied()
+            .partition(|e| contents.versionless().get(e.key()).map(Vec::as_slice) == e.value());
     let some_held = !held.is_empty() || !held_versionless.is_empty();
     let first_missing = missing
         .first()
         .map(|e| format!("key {} at {}", hex(e.key()), e.version()))
         .or_else(|| {
-            missing_versionless
-                .first()
-                .map(|e| format!("versionless key {}", hex(e.key())))
+            missing_versionless.first().map(|e| match e.value() {
+                Some(value) => {
+                    format!("the versionless write of {value:?} to key {}", hex(e.key()))
+                }
+                None => format!("the versionless removal of key {}", hex(e.key())),
+            })
         });
     first_missing.filter(|_| some_held).map(|first| {
         format!(
@@ -215,4 +252,14 @@ pub(super) fn partial_batch(op: &ModelOp, contents: &Contents) -> Option<String>
             entries.len() + versionless.len(),
         )
     })
+}
+
+/// The writes of `writes` that no later one of the same `id` replaces, in order.
+fn last_writes<'a, T, K: PartialEq>(writes: &'a [T], id: impl Fn(&'a T) -> K) -> Vec<&'a T> {
+    writes
+        .iter()
+        .enumerate()
+        .filter(|(at, write)| writes[at + 1..].iter().all(|later| id(later) != id(write)))
+        .map(|(_, write)| write)
+        .collect()
 }

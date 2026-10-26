@@ -480,7 +480,7 @@ impl StoreModel {
                     .iter()
                     .any(|(prefixes, written)| covers(prefixes, key) && !written.contains(*key))
         });
-        if let Some(detail) = recent.iter().find_map(|op| partial_batch(op, contents)) {
+        if let Some(detail) = partial_batch(&recent, contents) {
             return Err(Breach::new(Invariant::BatchWhole, detail));
         }
         if let Some(key) = dropped {

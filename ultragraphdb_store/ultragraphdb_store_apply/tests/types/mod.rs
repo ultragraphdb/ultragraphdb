@@ -7,3 +7,7 @@
 mod changeset_applier;
 #[cfg(test)]
 mod changeset_core;
+#[cfg(test)]
+mod changeset_write;
+#[cfg(test)]
+mod level_draw_tests;

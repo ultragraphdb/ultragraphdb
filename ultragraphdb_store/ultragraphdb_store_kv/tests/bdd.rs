@@ -451,6 +451,8 @@ fn both_or_neither(w: &mut Steps) {
             lists[0].iter().all(|&c| c == 0 || c == KEYS_PER_BATCH),
             "{outcome}"
         );
+        // Batch 1 was applied before batch 2 was announced, so both its halves are found.
+        assert_eq!(lists[0].first(), Some(&KEYS_PER_BATCH), "{outcome}");
     }
 }
 

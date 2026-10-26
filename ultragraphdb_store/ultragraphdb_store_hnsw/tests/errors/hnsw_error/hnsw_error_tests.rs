@@ -58,10 +58,9 @@ fn test_texts_of_the_cases_dgraph_panics_on() {
         HnswError::LevelMissing(7, 2, 1).to_string(),
         "the neighbour lists of uid 7 hold 1 levels, level 2 is read"
     );
-    assert!(
-        HnswError::NoNeighbour()
-            .to_string()
-            .contains("kept no neighbour")
+    assert_eq!(
+        HnswError::NoNeighbour().to_string(),
+        "a vector index layer search kept no neighbour: its breadth or result count is 0"
     );
 }
 
@@ -75,6 +74,14 @@ fn test_absence_and_its_wrappers_are_recognised() {
     assert!(HnswError::NilVector(Some(fetching)).is_fetching_posting_list());
     assert!(!HnswError::NilVector(None).is_fetching_posting_list());
     assert!(HnswError::NilVector(None).is_nil_vector());
+    let fetching = HnswError::FetchingPostingList(HnswError::KeyNotFound(), "0-a", 1);
+    assert!(HnswError::EmptyTree(Some(fetching.clone())).is_fetching_posting_list());
+    assert!(!HnswError::EmptyTree(Some(HnswError::KeyNotFound())).is_fetching_posting_list());
+    assert!(!HnswError::NilVector(Some(HnswError::NoValue())).is_fetching_posting_list());
+    assert!(!HnswError::NoValue().is_fetching_posting_list());
+    assert!(!fetching.is_absence(), "a wrapped absence is no absence");
+    assert!(!fetching.is_nil_vector());
+    assert!(!HnswError::EmptyTree(None).is_nil_vector());
 }
 
 #[test]
@@ -95,8 +102,8 @@ fn test_corruption_is_the_stores() {
         )))
     );
     assert_eq!(e.to_string(), "Corrupted value of key 6b: short");
-    let from: HnswError = PostingError::NoValue().into();
-    assert_eq!(from.to_string(), "No value found");
+    let from: HnswError = PostingError::TsTooOld().into();
+    assert_eq!(from.to_string(), "Transaction is too old");
     let e: &dyn std::error::Error = &from;
     assert!(e.source().is_none());
 }

@@ -3,11 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Runs the store workload over fresh seeds, outside `make test`: `store_sim_fuzz [first seed] [seeds] [steps]`.
+//! Runs the store workload over fresh seeds, outside `make test`:
+//! `store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]`, the flag having the readers read the keyspace
+//! without versions too.
 //! Without a first seed it starts at one drawn from the wall clock. It prints every seed it runs and, for a failing
-//! one, the violation; replaying a seed is running it again as the first seed with one seed. Each argument is a
-//! whole number at its position. A non-numeric argument, a fourth argument, zero seeds or seeds running past
-//! `u64::MAX` print the refusal with the usage line and exit with 2, before any seed runs.
+//! one, the violation; replaying a seed is running it again as the first seed with one seed, and with the flag when
+//! it ran with it. The flag comes first, and each number is a whole number at its position among the numbers. A
+//! first argument starting with `--` other than the flag, a non-numeric argument, a fourth number, zero seeds or
+//! seeds running past `u64::MAX` print the refusal with the usage line and exit with 2, before any seed runs.
 
 use std::process::ExitCode;
 
@@ -29,7 +32,13 @@ fn main() -> ExitCode {
         .seeds_run()
         .filter(|&seed| {
             println!("seed {seed}");
-            match StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), run.steps(), 3) {
+            let workload = StoreWorkload::new(3);
+            let workload = if run.versionless_reads() {
+                workload.with_versionless_reads()
+            } else {
+                workload
+            };
+            match workload.run_on(Seed::new(seed), FaultConfig::mixed(), run.steps()) {
                 Ok(_) => false,
                 Err(violation) => {
                     println!("FAILED {violation}");

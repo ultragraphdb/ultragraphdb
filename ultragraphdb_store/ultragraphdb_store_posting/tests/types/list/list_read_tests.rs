@@ -150,3 +150,53 @@ fn test_a_length_over_a_missing_part_is_an_error_where_dgraph_panics() {
         missing
     );
 }
+
+#[test]
+fn test_a_part_that_is_not_a_complete_or_empty_list_is_refused() {
+    let store = new_store();
+    let k = key("part-meta", 1);
+    let split = PostingList {
+        splits: vec![1, 500],
+        ..PostingList::default()
+    };
+    let part = |start: u64| split_key_of(&k, start).unwrap();
+    write_entries(
+        &store,
+        vec![
+            Entry::put(k.clone(), 3, BIT_COMPLETE_POSTING, marshal(&split)),
+            Entry::put(
+                part(1),
+                3,
+                ultragraphdb_store_posting::BIT_EMPTY_POSTING,
+                Vec::new(),
+            ),
+            Entry::put(part(500), 3, BIT_DELTA_POSTING, Vec::new()),
+        ],
+    );
+    let error = List::read(&k, &store.snapshot(5).unwrap()).unwrap_err();
+    assert_eq!(
+        error.0,
+        PostingErrorEnum::UnexpectedMeta {
+            meta: BIT_DELTA_POSTING,
+            key: part(500)
+        }
+    );
+    // An empty first part reads as no uids.
+    write_entries(
+        &store,
+        vec![Entry::put(
+            part(500),
+            4,
+            BIT_COMPLETE_POSTING,
+            marshal(&PostingList {
+                pack: ultragraphdb_core_codec::encode(
+                    &[600],
+                    ultragraphdb_store_posting::BLOCK_SIZE,
+                ),
+                ..PostingList::default()
+            }),
+        )],
+    );
+    let (list, _) = List::read(&k, &store.snapshot(5).unwrap()).unwrap();
+    assert_eq!(uids(&list, 5, 0), vec![600]);
+}

@@ -13,11 +13,12 @@
 
 use std::sync::Arc;
 
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::{
-    BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, HIGH_PRIORITY_DELTAS, ListOptions, PostingErrorEnum,
-    ROLLUP_BATCH, ROLLUP_QUEUE,
+    BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, HIGH_PRIORITY_DELTAS, ListOptions, PostingError,
+    PostingErrorEnum, ROLLUP_BATCH, ROLLUP_QUEUE,
 };
-use ultragraphdb_store_sim::{Seed, SteppedExecutor, Stream};
+use ultragraphdb_store_sim::{Fault, Seed, SteppedExecutor, Stream};
 use ultragraphdb_traits_store::{Entry, ListCache, PersistMode, Store, WriteBatch};
 
 use crate::utils::helpers::{
@@ -198,9 +199,13 @@ fn test_rollup_triggers() {
     }
     let before = lists.rollups_waiting();
     lists.read(&big, lists.applied_ts()).unwrap();
+    assert_eq!(lists.rollups_waiting(), before + 1, "the read was a hit");
     let hit = lists.cached(&big, lists.applied_ts()).unwrap();
-    assert!(hit.is_some());
-    assert!(lists.rollups_waiting() > before);
+    assert_eq!(
+        hit.map(|l| l.mutation().len()),
+        Some(HIGH_PRIORITY_DELTAS + 1)
+    );
+    assert_eq!(lists.rollups_waiting(), before + 2);
 }
 
 #[test]
@@ -254,7 +259,7 @@ fn test_the_worker_runs_on_the_executor() {
 #[test]
 fn test_a_discarded_rollup_is_reported() {
     let capture = ultragraphdb_store_sim::LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    capture.capture(|| {
         let (lists, probe) = probe_lists();
         let k = key("rollup-reported", 1);
         commit_edges_probe(&lists, &k);
@@ -272,4 +277,207 @@ fn test_a_discarded_rollup_is_reported() {
         .expect("the discard is reported");
     assert_eq!(discarded.level(), tracing::Level::INFO);
     assert!(discarded.field("key").is_some() && discarded.field("rollup_ts").is_some());
+}
+
+/// Writes `n` deltas of `k` straight to the store, so that no commit queues the key.
+fn deltas(lists: &TestLists, k: &[u8], n: u64) {
+    (1..=n).for_each(|i| write_delta(lists.store(), k, 2 * i, &[set_uid(i)]));
+}
+
+#[test]
+fn test_a_read_of_more_than_500_deltas_queues_its_key_at_high_priority() {
+    // HIGH_PRIORITY_DELTAS is Dgraph's 500: a read of 500 deltas queues its key at low priority, which waits for a
+    // full batch, and one of 501 at high priority, which the worker takes at once.
+    let lists = new_lists();
+    let (low, high) = (key("priority", 1), key("priority", 2));
+    deltas(&lists, &low, HIGH_PRIORITY_DELTAS as u64);
+    deltas(&lists, &high, HIGH_PRIORITY_DELTAS as u64 + 1);
+    let read_ts = lists.store().applied_ts();
+    lists.read_uncached(&low, read_ts).unwrap();
+    assert_eq!(lists.rollups_waiting(), 1);
+    assert_eq!(
+        lists.run_rollups(100).unwrap(),
+        0,
+        "a low-priority key waits"
+    );
+    lists.read_uncached(&high, read_ts).unwrap();
+    assert_eq!(lists.rollups_waiting(), 2);
+    assert_eq!(
+        lists.run_rollups(100).unwrap(),
+        1,
+        "the high-priority key is rolled up"
+    );
+    assert_eq!(lists.rollups_waiting(), 1);
+    assert_eq!(
+        lists.store().contents().versions(&high)[0].meta(),
+        BIT_COMPLETE_POSTING
+    );
+}
+
+#[test]
+fn test_a_cache_hit_on_more_than_500_deltas_queues_its_key() {
+    let lists = new_lists();
+    let (at, above) = (key("hit-priority", 1), key("hit-priority", 2));
+    deltas(&lists, &at, HIGH_PRIORITY_DELTAS as u64);
+    deltas(&lists, &above, HIGH_PRIORITY_DELTAS as u64 + 1);
+    let read_ts = lists.store().applied_ts();
+    lists.read(&at, read_ts).unwrap();
+    lists.read(&above, read_ts).unwrap();
+    let waiting = lists.rollups_waiting();
+    assert!(lists.cached(&at, read_ts).unwrap().is_some());
+    assert_eq!(
+        lists.rollups_waiting(),
+        waiting,
+        "500 deltas do not queue on a hit"
+    );
+    assert!(lists.cached(&above, read_ts).unwrap().is_some());
+    assert_eq!(lists.rollups_waiting(), waiting + 1);
+}
+
+#[test]
+fn test_the_worker_stops_at_a_failed_write_and_skips_a_key_it_cannot_roll_up() {
+    let capture = ultragraphdb_store_sim::LogCapture::new();
+    capture.capture(|| {
+        let lists = new_lists();
+        let k = key("worker-skip", 1);
+        commit_edges(&lists, &k, &[set_uid(1)]);
+        let statement = b"\x17not a list".to_vec();
+        lists.add_rollup_key(statement.clone(), 0);
+        // The commit queued k at both priorities; the statement key is refused and skipped.
+        assert_eq!(lists.run_rollups(100).unwrap(), 1);
+
+        commit_edges(&lists, &k, &[set_uid(2)]);
+        lists.store().inject(Fault::FailNextBatch);
+        let error = lists.run_rollups(200).unwrap_err();
+        assert!(matches!(
+            error.0,
+            PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
+        ));
+        assert_eq!(
+            commit_edges_result(&lists, &k),
+            Err(PostingError::Store(StoreError::Poisoned())),
+            "a failed rollup stops every later write"
+        );
+    });
+    let warned: Vec<_> = capture
+        .events()
+        .into_iter()
+        .filter(|e| e.message() == Some("error rolling up key"))
+        .collect();
+    assert_eq!(warned.len(), 1);
+    assert_eq!(warned[0].level(), tracing::Level::WARN);
+    // The key as Go's %x prints it.
+    assert_eq!(warned[0].field("key"), Some("176e6f742061206c697374"));
+}
+
+#[test]
+fn test_the_worker_stops_once_a_commit_failed() {
+    let lists = new_lists();
+    let k = key("worker-poisoned", 1);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.store().inject(Fault::FailNextBatch);
+    assert!(commit_edges_result(&lists, &k).is_err());
+    assert_eq!(
+        lists.run_rollups(100),
+        Err(PostingError::Store(StoreError::Poisoned()))
+    );
+}
+
+#[test]
+fn test_rollups_resume_only_when_every_pause_has_ended() {
+    let lists = new_lists();
+    let k = key("pauses", 1);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    lists.pause_rollups();
+    lists.pause_rollups();
+    lists.resume_rollups();
+    assert_eq!(
+        lists.rollup_key(&k).unwrap_err().0,
+        PostingErrorEnum::HighPriorityOp
+    );
+    lists.resume_rollups();
+    lists.resume_rollups();
+    assert!(
+        lists.rollup_key(&k).unwrap(),
+        "an extra resume does not pause"
+    );
+}
+
+/// A pause that comes while a rollup waits for its timestamp's commits cancels the rollup.
+#[test]
+fn test_a_pause_after_a_rollups_read_cancels_it() {
+    let (lists, probe) = probe_lists();
+    let k = key("pause-late", 1);
+    commit_edges_probe(&lists, &k);
+    let inside = Arc::clone(&lists);
+    probe.on_next_snapshot(Box::new(move || inside.pause_rollups()));
+    assert_eq!(
+        lists.rollup_key(&k).unwrap_err().0,
+        PostingErrorEnum::HighPriorityOp
+    );
+    assert!(
+        probe
+            .inner()
+            .contents()
+            .versions(&k)
+            .iter()
+            .all(|v| v.meta() != BIT_COMPLETE_POSTING)
+    );
+}
+
+/// Commits `uid 9` to `k` as one request: the commit's result.
+fn commit_edges_result(lists: &TestLists, k: &[u8]) -> Result<Vec<u64>, PostingError> {
+    let mut batch = lists.batch();
+    let mut request = batch.request(lists.latest_ts());
+    request.get(k)?.add_posting(set_uid(9), false);
+    batch.push(request);
+    lists.commit(batch)
+}
+
+/// `n` keys with one delta each, written straight to the store so that nothing queues them.
+fn keys_with_deltas(lists: &TestLists, name: &str, n: u64) -> Vec<Vec<u8>> {
+    (1..=n)
+        .map(|i| {
+            let k = key(name, i);
+            write_delta(lists.store(), &k, 2, &[set_uid(1)]);
+            k
+        })
+        .collect()
+}
+
+#[test]
+fn test_a_low_priority_batch_is_taken_once_it_holds_sixteen_keys() {
+    // ROLLUP_BATCH is 16: fifteen low-priority keys wait, the sixteenth hands the batch to the worker.
+    let lists = new_lists();
+    let keys = keys_with_deltas(&lists, "low-batch", ROLLUP_BATCH as u64);
+    keys[..ROLLUP_BATCH - 1]
+        .iter()
+        .for_each(|k| lists.add_rollup_key(k.clone(), 1));
+    assert_eq!(lists.run_rollups(100).unwrap(), 0);
+    // Any priority above 0 is low.
+    lists.add_rollup_key(keys[ROLLUP_BATCH - 1].clone(), 7);
+    assert_eq!(lists.rollups_waiting(), 16);
+    assert_eq!(lists.run_rollups(100).unwrap(), 16);
+    assert_eq!(lists.rollups_waiting(), 0);
+}
+
+#[test]
+fn test_a_purge_of_the_rolled_keys_keeps_those_of_the_last_ten_seconds() {
+    // The purge runs every 300 seconds; a key rolled up 5 seconds before it is still not due.
+    let lists = new_lists();
+    let k = key("purge", 1);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    assert_eq!(lists.run_rollups(295).unwrap(), 1);
+    commit_edges(&lists, &k, &[set_uid(2)]);
+    assert_eq!(
+        lists.run_rollups(300).unwrap(),
+        0,
+        "rolled up five seconds before the purge"
+    );
+    lists.add_rollup_key(k.clone(), 0);
+    assert_eq!(
+        lists.run_rollups(305).unwrap(),
+        1,
+        "ten seconds after its rollup"
+    );
 }

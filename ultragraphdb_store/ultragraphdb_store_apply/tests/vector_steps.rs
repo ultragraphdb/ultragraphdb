@@ -147,6 +147,7 @@ fn entry_created(w: &mut Steps) {
     let keys = keys(&a, "emb", "");
     let entry = index_value(&a, &keys.entry()).expect("an entry point");
     assert_eq!(bytes_to_uint64(&entry), Some(uid(&a, "a")));
+    // 3 levels: Dgraph's default `maxLevels`, the default exponent 3 (`tok/hnsw/persistent_factory.go`).
     assert_eq!(
         neighbours(&a, &keys, uid(&a, "a")),
         vec![Vec::<u64>::new(); 3]
@@ -233,16 +234,15 @@ fn lists_kept_apart(w: &mut Steps) {
         );
     }
     let (ab, cd) = ([uid(&a, "a"), uid(&a, "b")], [uid(&a, "c"), uid(&a, "d")]);
+    // Each index holds two nodes, so a search for four finds exactly those two.
+    let sorted = |mut v: Vec<u64>| {
+        v.sort();
+        v
+    };
     let found = search(&a, &first, &vector(3, 1), 4);
-    assert!(
-        !found.is_empty() && found.iter().all(|n| ab.contains(n)),
-        "{found:?}"
-    );
+    assert_eq!(sorted(found), sorted(ab.to_vec()));
     let found = search(&a, &second, &vector(3, 1), 4);
-    assert!(
-        !found.is_empty() && found.iter().all(|n| cd.contains(n)),
-        "{found:?}"
-    );
+    assert_eq!(sorted(found), sorted(cd.to_vec()));
 }
 
 // The dead list.

@@ -79,11 +79,17 @@ fn test_a_prefix_drop_left_by_a_crash_is_finished_at_open() {
     assert!(held(&s, b"\x00a1").is_empty() && held(&s, b"\x00a2").is_empty());
     assert_eq!(held(&s, b"\x00b1"), vec![(3, false)]);
     assert_eq!(s.get_at(b"\x00a9", 2).unwrap().unwrap().value(), b"initial");
+    // Written again, the key under the prefix would be removed by a drop repeated at the next open.
+    write(&s, vec![put(b"\x00a3", 9, b"after")]);
     drop(s);
     let s = dir.open();
     assert_eq!(
-        s.dump().unwrap().len(),
-        2,
+        s.dump().unwrap(),
+        vec![
+            put(b"\x00a3", 9, b"after"),
+            Entry::put(b"\x00a9".to_vec(), 1, 0x01, b"initial".to_vec()),
+            put(b"\x00b1", 3, b""),
+        ],
         "the finished drop deleted its record and is not repeated"
     );
 }
@@ -193,6 +199,8 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() {
     let err = s
         .drop_prefixes(8, &[b"\x00a".to_vec()], vec![put(&vec![1; 65_001], 1, b"")])
         .unwrap_err();
+    // Badger's exceedsSize dumps the first 1 << 10 bytes of the user key.
+    assert_eq!(err, StoreError::KeyTooLarge(65_001, 65_000, vec![1; 1024]));
     assert!(
         err.to_string()
             .starts_with("Key with size 65001 exceeded 65000 limit. Key:\n"),
@@ -202,14 +210,15 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() {
     let err = s
         .drop_all(vec![Entry::deletion(vec![0; 40_000], 1)])
         .unwrap_err();
-    assert!(matches!(
+    // 40,000 zero bytes escaped to 80,000, the terminator's 2 and the version's 8; the head dumps the escaped bytes.
+    assert_eq!(
         err.0,
         StoreErrorEnum::KeyTooLarge {
             size: 80_010,
             limit: 65_535,
-            ..
+            head: [0x00, 0xFF].repeat(512),
         }
-    ));
+    );
     assert_eq!(held(&s, b"\x00a1"), vec![(3, false)]);
     drop(s);
     let s = dir.open();
@@ -260,4 +269,122 @@ fn test_an_observed_drop_reports_each_stage_it_reaches_in_order() {
         ]
     );
     assert_eq!(held(&s, b"\x00z-initial"), vec![(1, false)]);
+}
+
+/// The user keys the store holds, in order.
+fn keys(s: &ultragraphdb_store_kv::FjallStore) -> Vec<Vec<u8>> {
+    let mut keys: Vec<Vec<u8>> = s.dump().unwrap().iter().map(|e| e.key().to_vec()).collect();
+    keys.dedup();
+    keys
+}
+
+#[test]
+fn test_a_prefix_drop_removes_the_prefix_itself_and_nothing_beside_it() {
+    let dir = TestDir::new("drop-bounds");
+    let s = dir.open();
+    let all: [&[u8]; 9] = [
+        b"",
+        b"\x00",
+        b"\x00`",
+        b"\x00a",
+        b"\x00a\x00",
+        b"\x00a\xff",
+        b"\x00ab",
+        b"\x00b",
+        b"a",
+    ];
+    write(&s, all.iter().map(|k| put(k, 3, b"")).collect());
+    s.drop_prefixes(8, &[b"\x00a".to_vec()], Vec::new())
+        .unwrap();
+    // The prefix is a key of its own and begins every key it covers; 0x60 and 0x62 sort on either side of 0x61.
+    assert_eq!(
+        keys(&s),
+        vec![
+            b"".to_vec(),
+            b"\x00".to_vec(),
+            b"\x00`".to_vec(),
+            b"\x00b".to_vec(),
+            b"a".to_vec()
+        ]
+    );
+    // The zero byte alone covers every key beginning with it, and not the empty key.
+    s.drop_prefixes(9, &[vec![0x00]], Vec::new()).unwrap();
+    assert_eq!(keys(&s), vec![b"".to_vec(), b"a".to_vec()]);
+    s.drop_prefixes(10, &[vec![0xFF]], Vec::new()).unwrap();
+    assert_eq!(
+        keys(&s),
+        vec![b"".to_vec(), b"a".to_vec()],
+        "a prefix no key has"
+    );
+    drop(s);
+    assert_eq!(keys(&dir.open()), vec![b"".to_vec(), b"a".to_vec()]);
+}
+
+#[test]
+fn test_the_empty_prefix_drops_every_version_and_keeps_the_metadata() {
+    // A prefix drop leaves the applied timestamp, the discard timestamp, bans and the keys without versions alone;
+    // only a drop of everything clears them.
+    let dir = TestDir::new("drop-empty-prefix");
+    let s = dir.open();
+    let mut batch = ultragraphdb_traits_store::WriteBatch::new();
+    batch.push(put(b"", 3, b""));
+    batch.push(put(b"\xff\xff", 3, b""));
+    batch.put_versionless(b"t".to_vec(), b"1".to_vec());
+    batch.set_applied_ts(3);
+    s.apply(batch, ultragraphdb_traits_store::PersistMode::Buffer)
+        .unwrap();
+    s.set_discard_ts(2).unwrap();
+    s.ban_namespace(5).unwrap();
+    s.drop_prefixes(4, &[Vec::new()], vec![put(b"\x01catalog", 1, b"c")])
+        .unwrap();
+    drop(s);
+    let s = dir.open();
+    assert_eq!(s.dump().unwrap(), vec![put(b"\x01catalog", 1, b"c")]);
+    assert_eq!((s.applied_ts(), s.discard_ts()), (3, 2));
+    assert_eq!(s.get_versionless(b"t").unwrap(), Some(b"1".to_vec()));
+    write(&s, vec![put(&ns_key(5, b"x"), 4, b"")]);
+    assert_eq!(
+        s.get_at(&ns_key(5, b"x"), 4).unwrap(),
+        None,
+        "the ban holds"
+    );
+}
+
+#[test]
+fn test_a_drop_writes_no_entry_addressed_to_a_banned_namespace() {
+    let dir = TestDir::new("drop-banned-entry");
+    let s = dir.open();
+    s.ban_namespace(5).unwrap();
+    s.drop_prefixes(
+        2,
+        &[vec![0x00]],
+        vec![
+            put(&ns_key(5, b"x"), 1, b"banned"),
+            put(&ns_key(6, b"x"), 1, b"kept"),
+        ],
+    )
+    .unwrap();
+    assert_eq!(s.dump().unwrap(), vec![put(&ns_key(6, b"x"), 1, b"kept")]);
+}
+
+#[test]
+fn test_only_a_prefix_drop_fences_its_entries() {
+    // A drop of everything clears the data, so its entries need no fence and garbage collection takes them as any
+    // other version; a prefix drop's entries are never collected.
+    let dir = TestDir::new("drop-fence-kinds");
+    let s = dir.open();
+    s.drop_all(vec![put(b"\x01all", 1, b"")]).unwrap();
+    s.drop_prefixes(2, &[b"\x02".to_vec()], vec![put(b"\x02prefix", 1, b"")])
+        .unwrap();
+    write(
+        &s,
+        vec![
+            put(b"\x01all", 5, b"").with_discard(),
+            put(b"\x02prefix", 5, b"").with_discard(),
+        ],
+    );
+    s.set_discard_ts(6).unwrap();
+    s.compact().unwrap();
+    assert_eq!(held(&s, b"\x01all"), vec![(5, false)]);
+    assert_eq!(held(&s, b"\x02prefix"), vec![(5, false), (1, false)]);
 }

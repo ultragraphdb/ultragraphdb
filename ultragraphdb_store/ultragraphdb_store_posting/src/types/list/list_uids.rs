@@ -16,9 +16,12 @@ use ultragraphdb_proto_pb::pb::{self, Posting, posting};
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
 use crate::types::list_options::ListOptions;
+use crate::types::p_iterator::{PIterator, PPosting};
 
 impl List {
-    /// The uids of the list's reference postings at the options' read timestamp: Dgraph's `Uids`.
+    /// The uids of the list's reference postings at the options' read timestamp: Dgraph's `Uids`. A quad list's pack
+    /// holds its literals' fingerprints as uids, so the paths that read the pack or look a uid up leave out a uid
+    /// held by value postings alone, as iterating does.
     ///
     /// # Errors
     ///
@@ -42,6 +45,8 @@ impl List {
                 return Err(PostingError::TsTooOld());
             }
             intersect_compressed_with(self.plist.pack.as_ref(), opt.after_uid(), with, &mut out);
+            let postings = &self.plist.postings;
+            out.uids.retain(|&uid| reference_in(postings, uid));
             return Ok(out);
         }
 
@@ -51,7 +56,7 @@ impl List {
         {
             // Few uids to look for: look each one up.
             for &uid in &with.uids {
-                if self.find_posting(opt.read_ts(), uid)?.is_some() {
+                if self.has_reference(opt.read_ts(), uid)? {
                     out.uids.push(uid);
                 }
             }
@@ -90,6 +95,28 @@ impl List {
         Ok(out)
     }
 
+    /// Whether a reference posting of `uid` is held at `read_ts`, from the deltas or the immutable layer, where a uid
+    /// the pack holds without a posting beside it is a reference's.
+    fn has_reference(&self, read_ts: u64, uid: u64) -> Result<bool, PostingError> {
+        let (search_further, found) =
+            self.mutation()
+                .find_posting_where(read_ts, uid, is_reference);
+        if found.is_some() || !search_further {
+            return Ok(found.is_some());
+        }
+        // Iteration starts after its argument, so it seeks the uid before.
+        let mut pitr = PIterator::seek(self, uid.wrapping_sub(1), 0)?;
+        while pitr.valid() {
+            match pitr.posting() {
+                PPosting::Uid(u) if u == uid => return Ok(true),
+                PPosting::Found(p) if p.uid == uid && is_reference(p) => return Ok(true),
+                PPosting::Found(p) if p.uid == uid => pitr.next(),
+                _ => return Ok(false),
+            }
+        }
+        Ok(false)
+    }
+
     /// Calls `f` with each reference posting at the options' read timestamp above its after-uid: Dgraph's
     /// `Postings`.
     pub fn postings<E, F>(&self, opt: &ListOptions, mut f: F) -> Result<(), E>
@@ -104,4 +131,19 @@ impl List {
             f(p)
         })
     }
+}
+
+fn is_reference(p: &Posting) -> bool {
+    p.posting_type == posting::PostingType::Ref as i32
+}
+
+/// Whether `uid` of a complete list's pack is a reference's: no posting of it is kept beside the pack, or one of those
+/// kept is a reference.
+fn reference_in(postings: &[Posting], uid: u64) -> bool {
+    let from = postings.partition_point(|p| p.uid < uid);
+    let mut held = postings[from..]
+        .iter()
+        .take_while(|p| p.uid == uid)
+        .peekable();
+    held.peek().is_none() || held.any(is_reference)
 }

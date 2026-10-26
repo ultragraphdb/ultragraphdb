@@ -137,6 +137,10 @@ fn mixed_kept(w: &mut Steps) {
             let versionless = (0..KEYS_PER_BATCH)
                 .filter(|&j| contents.versionless().contains_key(&versionless_key(i, j)))
                 .count() as u64;
+            assert!(
+                versionless == 0 || versionless == KEYS_PER_BATCH,
+                "batch {i} kept {versionless} of its versionless entries: {contents:?}"
+            );
             assert_eq!(
                 held(contents, i),
                 versionless,

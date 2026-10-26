@@ -49,6 +49,7 @@ fn test_constructors_build_their_variant() {
         StoreError::UnknownTemporary(4).0,
         StoreErrorEnum::UnknownTemporary(4)
     );
+    assert_eq!(StoreError::EmptyKey().0, StoreErrorEnum::EmptyKey);
 }
 
 #[test]
@@ -77,6 +78,7 @@ fn test_every_classification_and_every_field_tells_errors_apart() {
         StoreError::Unsupported("temporary keyspaces"),
         StoreError::UnknownTemporary(0),
         StoreError::UnknownTemporary(u64::MAX),
+        StoreError::EmptyKey(),
     ];
     for (i, a) in errors.iter().enumerate() {
         for (j, b) in errors.iter().enumerate() {
@@ -104,5 +106,9 @@ fn test_debug_names_the_variant_and_its_fields() {
     assert_eq!(
         format!("{:?}", StoreError::UnknownTemporary(4)),
         "StoreError(UnknownTemporary(4))"
+    );
+    assert_eq!(
+        format!("{:?}", StoreError::EmptyKey()),
+        "StoreError(EmptyKey)"
     );
 }

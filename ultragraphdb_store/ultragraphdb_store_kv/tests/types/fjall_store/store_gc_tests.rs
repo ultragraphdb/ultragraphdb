@@ -154,6 +154,7 @@ fn test_an_undecodable_item_survives_compaction() {
     drop(s);
     write_raw(&dir, b"k", 2, &[0x04]);
     let s = dir.open();
+    assert_eq!(s.undecodable_kept(), 0, "no compaction has read it yet");
     s.set_discard_ts(6).unwrap();
     s.compact().unwrap();
     assert!(!s.is_poisoned(), "the store is not poisoned");
@@ -346,4 +347,39 @@ fn test_a_batch_of_many_keys_is_seen_whole_by_concurrent_readers() {
             }
         }
     });
+}
+
+#[test]
+fn test_a_discard_point_at_the_discard_timestamp_cuts_and_one_above_it_does_not() {
+    // Compaction collects what lies below the newest discard-flagged version or deletion at or below the discard
+    // timestamp (the kv-store specification): 5 is at the discard timestamp 5, and 6 above it.
+    let dir = TestDir::new("gc-at-discard");
+    let s = dir.open();
+    for (key, top) in [
+        (
+            b"at".as_slice(),
+            Entry::put(b"at".to_vec(), 5, 0x08, b"c".to_vec()).with_discard(),
+        ),
+        (
+            b"above",
+            Entry::put(b"above".to_vec(), 6, 0x08, b"c".to_vec()).with_discard(),
+        ),
+        (b"deleted", Entry::deletion(b"deleted".to_vec(), 5)),
+    ] {
+        one(&s, Entry::put(key.to_vec(), 1, 0x04, b"v1".to_vec()));
+        one(&s, Entry::put(key.to_vec(), 2, 0x04, b"v2".to_vec()));
+        one(&s, top);
+    }
+    s.set_discard_ts(5).unwrap();
+    s.compact().unwrap();
+    assert_eq!(held(&s, b"at"), vec![(5, false)]);
+    assert_eq!(held(&s, b"above"), vec![(6, false), (2, false), (1, false)]);
+    assert_eq!(held(&s, b"deleted"), vec![(5, true)]);
+    drop(s);
+    let s = dir.open();
+    assert_eq!(held(&s, b"at"), vec![(5, false)], "collected for good");
+    assert_eq!(
+        s.get_at(b"above", 5).unwrap().map(Item::into_value),
+        Some(b"v2".to_vec())
+    );
 }

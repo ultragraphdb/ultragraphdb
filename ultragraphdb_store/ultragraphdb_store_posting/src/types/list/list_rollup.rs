@@ -4,7 +4,11 @@
  *
  * Ported from Dgraph v25.5.0, posting/list.go (Rollup, rollup, encode). Changed for ultragraphdb: translated to
  * Rust; the rollup's writes are store entries, its parts at the main key's version and the parts it removes
- * deleted (see `RollupOutput`); the split threshold is a parameter.
+ * deleted (see `RollupOutput`); the split threshold is a parameter; a uid past the end of the next part as well
+ * moves the encoding on to the part holding it, where Dgraph's moves one part per uid and puts that uid in a part
+ * whose range does not hold it, which a read starting in its own part then misses; a bare reference whose uid a
+ * posting kept beside the pack shares, a literal of a quad list whose fingerprint equals it, is kept whole too, where
+ * Dgraph's lists hold one kind of posting and need not tell the two apart.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -83,7 +87,8 @@ impl List {
     }
 
     /// Packs the list's postings at `read_ts` into the output: into its parts when the list is split and `split`
-    /// is set, into one list otherwise. Value postings and postings with facets are kept beside the uids.
+    /// is set, into one list otherwise. Value postings, postings with facets or statement IDs, and a bare reference
+    /// sharing its uid with one of those are kept beside the uids.
     fn encode(
         &self,
         out: &mut RollupOutput,
@@ -103,9 +108,13 @@ impl List {
         let mut plist = PostingList::default();
         // Postings that share a uid, literals of a quad list whose fingerprints collide, share its pack entry.
         let mut last_uid = None;
+        // The bare reference at `last_uid`, kept whole only if a posting kept beside the pack shares its uid: a
+        // reference's identity sorts before a literal's of the same uid.
+        let mut bare_ref = None;
 
         self.iterate(read_ts, 0, |p| {
-            if into_parts && p.uid > end_uid {
+            // A part no posting falls in is left empty, and removed with the other empty parts.
+            while into_parts && p.uid > end_uid {
                 let done = std::mem::replace(&mut enc, Encoder::new(BLOCK_SIZE));
                 let mut part = std::mem::take(&mut plist);
                 part.pack = done.done();
@@ -116,23 +125,22 @@ impl List {
             if last_uid != Some(p.uid) {
                 enc.add(p.uid);
                 last_uid = Some(p.uid);
+                bare_ref = None;
             }
             // A posting the pack cannot carry stays whole: one with facets, statement IDs or a value.
             if !p.facets.is_empty()
                 || !p.statement_ids.is_empty()
                 || p.posting_type != posting::PostingType::Ref as i32
             {
+                plist.postings.extend(bare_ref.take());
                 plist.postings.push(p.clone());
+            } else {
+                bare_ref = Some(p.clone());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
         })?;
 
         plist.pack = enc.done();
-        if let Some(pack) = &plist.pack
-            && pack.block_size != BLOCK_SIZE as u32
-        {
-            return Err(PostingError::BlockSize(pack.block_size, BLOCK_SIZE as u32));
-        }
         if into_parts {
             out.insert_part(start_uid, plist);
         } else {

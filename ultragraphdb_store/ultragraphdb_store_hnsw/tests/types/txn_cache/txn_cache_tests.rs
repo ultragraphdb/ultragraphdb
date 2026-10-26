@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_hnsw::TxnCache;
+use ultragraphdb_store_hnsw::{HnswError, TxnCache};
 use ultragraphdb_traits_index::{CacheType, KeyValue, Txn};
 
 use crate::utils::helpers::{InMemTxn, TsDbs};
@@ -16,7 +16,12 @@ fn test_a_txn_cache_reads_through_its_transaction_at_its_timestamp() {
         .unwrap();
     let at_start = TxnCache::new(&txn, 3);
     assert_eq!(at_start.ts(), 3);
-    assert!(at_start.get(b"k").is_err(), "written at 5, read at 3");
+    assert_eq!(
+        at_start.get(b"k"),
+        Err(HnswError::NoValue()),
+        "written at 5, read at 3"
+    );
+    assert_eq!(at_start.find(b"", |v| v == b"v"), Ok(0));
     let later = InMemTxn::new(&dbs, 7, 9);
     let tc = TxnCache::new(&later, 7);
     assert_eq!(tc.get(b"k"), Ok(b"v".to_vec()));

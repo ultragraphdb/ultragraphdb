@@ -6,7 +6,8 @@
 mod fuzz_args_error_display;
 mod fuzz_args_error_error;
 
-/// Why `store_sim_fuzz` refused its arguments. A position counts from 1, the program's name left out.
+/// Why `store_sim_fuzz` refused its arguments. A position counts the numbers from 1, the program's name and the flag
+/// left out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuzzArgsError(pub FuzzArgsErrorEnum);
 
@@ -20,6 +21,8 @@ pub enum FuzzArgsErrorEnum {
     NoSeeds,
     /// The seed count from the first seed runs past `u64::MAX`: the first seed, then the count.
     PastLastSeed(u64, u64),
+    /// The first argument starts with `--` and is not the one flag, `--versionless-reads`.
+    UnknownFlag(String),
 }
 
 #[allow(non_snake_case)]
@@ -38,5 +41,9 @@ impl FuzzArgsError {
 
     pub fn PastLastSeed(first: u64, seeds: u64) -> Self {
         Self(FuzzArgsErrorEnum::PastLastSeed(first, seeds))
+    }
+
+    pub fn UnknownFlag(value: String) -> Self {
+        Self(FuzzArgsErrorEnum::UnknownFlag(value))
     }
 }

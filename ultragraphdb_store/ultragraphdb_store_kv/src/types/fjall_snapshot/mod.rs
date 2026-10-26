@@ -15,7 +15,7 @@ use ultragraphdb_traits_store::key_namespace;
 
 use crate::types::fjall_store::Shared;
 
-/// A snapshot of a [`crate::FjallStore`]: one `Database::snapshot()` covering both keyspaces, read at one
+/// A snapshot of a [`crate::FjallStore`]: one `Database::snapshot()` covering its three keyspaces, read at one
 /// timestamp, with the banned namespaces of its opening. While it is open, the store's discard timestamp stays at or
 /// below its read timestamp.
 ///

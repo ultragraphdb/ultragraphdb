@@ -7,7 +7,7 @@ use std::error::Error;
 
 use ultragraphdb_store_sim::{FuzzArgsError, FuzzArgsErrorEnum};
 
-const USAGE: &str = "usage: store_sim_fuzz [first seed] [seeds] [steps]";
+const USAGE: &str = "usage: store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]";
 
 #[test]
 fn test_each_constructor_builds_its_variant() {
@@ -23,6 +23,20 @@ fn test_each_constructor_builds_its_variant() {
     assert_eq!(
         FuzzArgsError::PastLastSeed(7, 8).0,
         FuzzArgsErrorEnum::PastLastSeed(7, 8)
+    );
+    assert_eq!(
+        FuzzArgsError::UnknownFlag("--x".to_string()).0,
+        FuzzArgsErrorEnum::UnknownFlag("--x".to_string())
+    );
+}
+
+#[test]
+fn test_an_unknown_flag_names_itself_and_the_one_flag() {
+    assert_eq!(
+        FuzzArgsError::UnknownFlag("--versionless".to_string()).to_string(),
+        format!(
+            "argument \"--versionless\" is no flag; the one flag is --versionless-reads; {USAGE}"
+        )
     );
 }
 

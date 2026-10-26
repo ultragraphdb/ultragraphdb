@@ -65,6 +65,8 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let data_path = lists.store().inner().data_path().to_path_buf();
     let _ = lists.store().take_calls();
     let reads_start = lists.store().reads().get();
+    // The applier's own write calls at open and at the declarations are not the run's rollups.
+    let rollup_calls_start = lists.store().other_calls();
 
     let clock = WallClock::new();
     let stop = Arc::new(AtomicBool::new(false));
@@ -143,7 +145,10 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     };
     let cpu = process_cpu_secs().zip(cpu_start).map(|(b, a)| b - a);
     let (rss, rss_peak) = rss_kib();
-    let rollup_calls = lists.store().other_calls();
+    let rollup_calls = {
+        let (calls, nanos) = lists.store().other_calls();
+        (calls - rollup_calls_start.0, nanos - rollup_calls_start.1)
+    };
     let reads = {
         let (l, h, s, e) = lists.store().reads().get();
         let (l0, h0, s0, e0) = reads_start;
@@ -370,4 +375,195 @@ fn report(
         size_json(sizes.total()),
         total as f64 / relations.max(1) as f64,
     )
+}
+
+/// The report's arithmetic and the size estimate, over figures made by hand: both are private, and a run's figures
+/// depend on the machine.
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use oxrdf::{GraphName, Literal, NamedNode, Term};
+    use ultragraphdb_core_mapping::{Change, Changeset};
+    use ultragraphdb_store_kv::Durability;
+
+    use super::{BatchStat, encoded_size, report};
+    use crate::types::apply_args::ApplyArgs;
+    use crate::types::dir_sizes::DirSizes;
+    use crate::types::write_call::WriteCall;
+
+    fn batch(commits: u64, lists_read: u64, nanos: u64, write_calls: Vec<WriteCall>) -> BatchStat {
+        BatchStat {
+            commits,
+            lists_read,
+            nanos,
+            write_nanos: write_calls.iter().map(WriteCall::nanos).sum(),
+            write_calls,
+        }
+    }
+
+    #[test]
+    fn test_the_report_states_each_figure_of_the_run() {
+        let args = ApplyArgs::new(
+            PathBuf::from("d"),
+            100,
+            2,
+            10,
+            Durability::Process,
+            true,
+            128,
+            Some(4),
+        );
+        let stats = [
+            // Two unpressured calls: 1,000,000 ns over 10 entries and 600,000 over 3, 100,000 and 200,000 ns each.
+            batch(
+                2,
+                4,
+                3_000_000,
+                vec![
+                    WriteCall::new(1_000_000, 10, true, 0, 0),
+                    WriteCall::new(600_000, 3, true, 19, 3),
+                ],
+            ),
+            // Pressured by 20 level-0 tables: 3,000,000 ns over 10 entries.
+            batch(
+                4,
+                8,
+                5_000_000,
+                vec![WriteCall::new(3_000_000, 10, true, 20, 0)],
+            ),
+            // Pressured by 4 sealed memtables, faster than the baseline; and a call of no entries.
+            batch(
+                2,
+                0,
+                2_000_000,
+                vec![
+                    WriteCall::new(300_000, 5, true, 0, 4),
+                    WriteCall::new(0, 0, true, 0, 0),
+                ],
+            ),
+        ];
+        let line = report(
+            &args,
+            &stats,
+            1,
+            9,
+            3,
+            Duration::from_secs(2),
+            Some(3.0),
+            Some(0.5),
+            None,
+            Some(0.25),
+            5,
+            (6, 1_500_000_000),
+            (40, 10, 7, 2),
+            Some(1_024),
+            None,
+            DirSizes::default(),
+        );
+        // By hand. 8 commits applied, 16 relations, 12 lists read, over 2 s. Batch commits 2, 4, 2: nearest ranks
+        // 2 and 4, mean 8 / 3. Batch times 3,000, 5,000, 2,000 us: ranks 3,000 and 5,000, mean 10,000 / 3. Write
+        // calls 1,600, 3,000, 300 us: ranks 1,600 and 3,000, mean 4,900 / 3. Write share 4.9 / 10 ms; busy share
+        // 10 ms / 2 s. Baseline: the median of 100,000 and 200,000 ns an entry, the lower by nearest rank. Excess:
+        // 3,000,000 - 10 * 100,000 = 2,000,000 ns, and 300,000 - 5 * 100,000 below zero, so none; 2.0 ms. Hit share
+        // 10 / 40. CPU 3 s over 2 s is 1.5 cores.
+        let expected = concat!(
+            "{\"run\":\"apply\",\"offered_commits_per_s\":100,\"relations_per_commit\":2,\"durability\":\"Process\",",
+            "\"rollups\":true,\"max_batch\":4,\"seconds\":2.00,\"commits_offered\":9,\"commits_applied\":8,\"commit_errors\":1,",
+            "\"achieved_commits_per_s\":4,\"achieved_relations_per_s\":8,\"lists_read_per_relation\":0.75,",
+            "\"cache_lookups\":40,\"cache_hits\":10,\"cache_hit_share\":0.250,\"store_list_reads\":7,\"store_reads_found_nothing\":2,",
+            "\"source_waits_on_pending_limit\":3,",
+            "\"batches\":3,\"batch_commits\":{\"p50\":2,\"p99\":4,\"max\":4,\"mean\":2.7},",
+            "\"batch_apply_us\":{\"p50\":3000,\"p99\":5000,\"max\":5000,\"mean\":3333.3},",
+            "\"batch_write_call_us\":{\"p50\":1600,\"p99\":3000,\"max\":3000,\"mean\":1633.3},",
+            "\"write_call_share\":0.490,\"apply_busy_share\":0.005,",
+            "\"write_baseline_ns_per_entry\":100000,\"pressured_write_calls\":2,\"stall_excess_ms\":2.0,",
+            "\"max_l0_tables\":20,\"max_sealed_memtables\":4,\"rollup_keys\":5,\"rollup_write_calls\":6,\"rollup_write_call_s\":1.50,",
+            "\"cpu_s\":3.00,\"cpu_cores\":1.50,\"apply_thread_cpu_s\":0.50,\"source_thread_cpu_s\":null,",
+            "\"rollup_thread_cpu_s\":0.25,\"rss_kib\":1024,\"rss_peak_kib\":null,",
+            "\"files\":{\"data\":{\"du_bytes\":0,\"apparent_bytes\":0},\"journal\":{\"du_bytes\":0,\"apparent_bytes\":0},",
+            "\"metadata\":{\"du_bytes\":0,\"apparent_bytes\":0},\"total\":{\"du_bytes\":0,\"apparent_bytes\":0}},",
+            "\"du_bytes_per_relation\":0.0}"
+        );
+        assert_eq!(line, expected);
+    }
+
+    #[test]
+    fn test_a_run_of_no_batches_divides_by_nothing() {
+        let args = ApplyArgs::new(
+            PathBuf::from("d"),
+            0,
+            1,
+            1,
+            Durability::Filesystem,
+            false,
+            0,
+            None,
+        );
+        let line = report(
+            &args,
+            &[],
+            0,
+            0,
+            0,
+            Duration::from_secs(1),
+            None,
+            None,
+            None,
+            None,
+            0,
+            (0, 0),
+            (0, 0, 0, 0),
+            None,
+            None,
+            DirSizes::default(),
+        );
+        // No relations, lookups or batch time: each ratio over them is 0, not NaN.
+        for field in [
+            "\"durability\":\"Filesystem\"",
+            "\"rollups\":false",
+            "\"max_batch\":null",
+            "\"lists_read_per_relation\":0.00",
+            "\"cache_hit_share\":0.000",
+            "\"batches\":0,\"batch_commits\":{\"p50\":0,\"p99\":0,\"max\":0,\"mean\":0.0}",
+            "\"write_call_share\":0.000,\"apply_busy_share\":0.000",
+            "\"write_baseline_ns_per_entry\":0,\"pressured_write_calls\":0,\"stall_excess_ms\":0.0",
+            "\"max_l0_tables\":0,\"max_sealed_memtables\":0",
+            "\"cpu_s\":null,\"cpu_cores\":null",
+            "\"du_bytes_per_relation\":0.0}",
+        ] {
+            assert!(line.contains(field), "{field} in {line}");
+        }
+        assert!(!line.contains("NaN") && !line.contains("inf"), "{line}");
+    }
+
+    #[test]
+    fn test_a_commits_size_is_its_inserts_terms_as_text() {
+        let iri = |name: &str| {
+            NamedNode::new_unchecked(format!("http://bench.ultragraphdb.example/{name}"))
+        };
+        let changeset = Changeset::new(0)
+            .with(Change::Insert {
+                graph: GraphName::DefaultGraph,
+                subject: iri("r1").into(),
+                predicate: iri("rel_t0_org"),
+                object: iri("h3").into(),
+            })
+            .with(Change::Insert {
+                graph: GraphName::DefaultGraph,
+                subject: iri("r1").into(),
+                predicate: iri("rel_t0_w"),
+                object: Term::from(Literal::new_simple_literal("x")),
+            })
+            .with(Change::DeletePattern {
+                graph: GraphName::DefaultGraph,
+                subject: iri("r1").into(),
+                predicate: iri("rel_t0_w"),
+            });
+        // Counted by hand: `<…/r1>` is 38 characters, `…/rel_t0_org` 44, `<…/h3>` 38; `…/rel_t0_w` 42, `"x"` 3;
+        // any other change 24. 120 + 83 + 24.
+        assert_eq!(encoded_size(&changeset), 227);
+        assert_eq!(encoded_size(&Changeset::new(0)), 0);
+    }
 }

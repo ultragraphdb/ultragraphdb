@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_traits_store::ListCache;
+use ultragraphdb_traits_store::{Entry, ListCache};
 
 use crate::utils::helpers::{
     commit_edges, del_uid, key, new_lists, set_uid, set_value, uids, values,
@@ -156,4 +156,107 @@ fn test_the_written_keys_are_the_keys_of_the_deltas() {
         vec![written],
         "a list read or held without a write is not written"
     );
+}
+
+#[test]
+fn test_a_list_held_blind_without_a_write_is_read_whole() {
+    let lists = new_lists();
+    let k = key("blind-unwritten", 1);
+    let ts = commit_edges(&lists, &k, &[set_uid(2)]);
+    let mut request = lists.request(ts);
+    assert!(request.get_from_delta(&k).delta().is_none());
+    let list = request.get(&k).unwrap();
+    assert_eq!(uids(list, ts, 0), vec![2]);
+    assert_eq!(list.mutation().read_ts(), ts);
+    assert!(list.delta().is_none());
+}
+
+#[test]
+fn test_absorbing_a_fork_keeps_the_list_its_writer_holds() {
+    let lists = new_lists();
+    let (both, mine) = (key("absorb", 1), key("absorb", 2));
+    let mut request = lists.request(lists.latest_ts());
+    request.get(&both).unwrap();
+    request.get(&mine).unwrap().add_posting(set_uid(1), false);
+    let mut fork = request.fork();
+    fork.get(&both).unwrap().add_posting(set_uid(2), false);
+    fork.get(&mine).unwrap().add_posting(set_uid(3), false);
+    fork.advance_epoch_on_commit();
+    fork.remove_rebuild_record_on_commit(4);
+    fork.add_entry_at_version(Entry::deletion(key("absorb", 3), 1));
+    fork.add_versionless(b"term".to_vec(), b"uid".to_vec());
+    request.absorb(fork);
+    let read_ts = request.read_ts();
+    // Only the fork wrote `both`, so its list is taken; both wrote `mine`, so the request's own stays.
+    assert_eq!(uids(request.get(&both).unwrap(), read_ts, 0), vec![2]);
+    assert_eq!(uids(request.get(&mine).unwrap(), read_ts, 0), vec![1]);
+    assert_eq!(
+        request.entry_keys().collect::<Vec<_>>(),
+        vec![key("absorb", 3).as_slice()]
+    );
+    assert_eq!(request.versionless().len(), 1);
+    let epoch = lists.epoch();
+    let mut batch = lists.batch();
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    assert_eq!(lists.epoch(), epoch + 1, "the fork's epoch mark is taken");
+}
+
+#[test]
+fn test_a_requests_entry_keys_are_its_entries_in_order() {
+    let lists = new_lists();
+    let mut request = lists.request(lists.latest_ts());
+    request.add_entry(Entry::deletion(b"\x01a".to_vec(), 0));
+    request.add_entry_at_version(Entry::deletion(b"\x01b".to_vec(), 3));
+    request.add_entry(Entry::deletion(b"\x01c".to_vec(), 0));
+    assert_eq!(
+        request.entry_keys().collect::<Vec<_>>(),
+        vec![b"\x01a".as_slice(), b"\x01c", b"\x01b"]
+    );
+    assert!(std::ptr::eq(request.posting_lists(), &lists));
+}
+
+#[test]
+fn test_a_request_holds_its_read_open_until_it_is_dropped() {
+    let lists = new_lists();
+    let ts = lists.latest_ts();
+    let first = lists.request(ts);
+    let second = lists.request(ts);
+    assert_eq!(lists.oldest_open_read(), Some(ts));
+    drop(first);
+    assert_eq!(
+        lists.oldest_open_read(),
+        Some(ts),
+        "the second is still open"
+    );
+    drop(second);
+    assert_eq!(lists.oldest_open_read(), None);
+}
+
+#[test]
+fn test_a_list_whose_writes_cancelled_out_is_not_written() {
+    let lists = new_lists();
+    let k = key("cancelled", 1);
+    let mut request = lists.request(lists.latest_ts());
+    let list = request.get_from_delta(&k);
+    list.add_posting(set_uid(7), true);
+    list.add_posting(del_uid(7), true);
+    assert_eq!(list.delta().map(|d| d.postings.len()), Some(0));
+    assert!(request.deltas().is_empty());
+    assert_eq!(request.written_keys().count(), 0);
+}
+
+#[test]
+fn test_absorbing_keeps_an_epoch_mark_that_both_carry() {
+    let lists = new_lists();
+    let epoch = lists.epoch();
+    let mut request = lists.request(lists.latest_ts());
+    request.advance_epoch_on_commit();
+    let mut fork = request.fork();
+    fork.advance_epoch_on_commit();
+    request.absorb(fork);
+    let mut batch = lists.batch();
+    batch.push(request);
+    lists.commit(batch).unwrap();
+    assert_eq!(lists.epoch(), epoch + 1);
 }

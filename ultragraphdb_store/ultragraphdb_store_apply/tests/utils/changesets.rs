@@ -366,6 +366,24 @@ pub fn tokens_of(tokenizer: &str, literal: &Term) -> Vec<(u8, Vec<u8>)> {
         .collect()
 }
 
+/// The `int` token of `value`, written out independently of the tokenizer: Dgraph's identifier 0x06 (`tok/tok.go`)
+/// and `encodeInt`, a sign byte, 1 for a value not below zero, then the value as a big-endian u64.
+pub fn int_token(value: i64) -> (u8, Vec<u8>) {
+    let mut token = vec![u8::from(value >= 0)];
+    token.extend_from_slice(&value.to_be_bytes());
+    (0x06, token)
+}
+
+/// The `term` token of `word`, already lowercase: Dgraph's identifier 0x01 (`tok/tok.go`) and the word's bytes.
+pub fn term_token(word: &str) -> (u8, Vec<u8>) {
+    (0x01, word.as_bytes().to_vec())
+}
+
+/// The `exact` token of `text`: Dgraph's identifier 0x02 (`tok/tok.go`) and the string's bytes.
+pub fn exact_token(text: &str) -> (u8, Vec<u8>) {
+    (0x02, text.as_bytes().to_vec())
+}
+
 /// The subjects the value-index key of `predicate` for `token` holds, in the default graph.
 pub fn indexed(
     a: &TestChangesets,
@@ -443,4 +461,59 @@ pub fn counts_of(
     (1..=8)
         .filter(|c| counted(a, predicate, direction, *c).contains(&uid))
         .collect()
+}
+
+/// The statistics of `predicate` in the default graph, as the last commit left them.
+pub fn statistics(a: &TestChangesets, predicate: &str) -> ultragraphdb_store_quads::Statistics {
+    a.quads()
+        .statistics(NS, DEFAULT_GRAPH, uid(a, predicate), latest(a))
+        .expect("the statistics read")
+}
+
+/// The predicates the subject-predicate list of `node` holds in the default graph, or with `objects` its
+/// object-predicate list.
+pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> Vec<u64> {
+    let node = uid(a, node);
+    let key = if objects {
+        QuadKey::ObjectPredicates {
+            namespace: NS,
+            graph: DEFAULT_GRAPH,
+            object: EncodedTerm::uid(node),
+        }
+    } else {
+        QuadKey::SubjectPredicates {
+            namespace: NS,
+            graph: DEFAULT_GRAPH,
+            subject: node,
+        }
+    }
+    .to_bytes();
+    uids(a, &key)
+}
+
+/// Every stored key of `keyspace` that names predicate `predicate`, in any graph.
+pub fn keys_of(
+    a: &TestChangesets,
+    keyspace: ultragraphdb_core_keys::Keyspace,
+    predicate: &str,
+) -> Vec<Vec<u8>> {
+    let p = uid(a, predicate);
+    stored_keys(a)
+        .into_iter()
+        .filter(|k| {
+            matches!(ultragraphdb_core_keys::Keyspace::from_byte(k[0]), Some((ks, _)) if ks == keyspace)
+                && QuadKey::parse(k).is_ok_and(|(q, _)| q.predicate() == Some(p))
+        })
+        .collect()
+}
+
+/// Whether `subject` holds an object of `predicate` in the default graph; `false` when either has no UID.
+pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) -> bool {
+    let known = |name: &str| {
+        a.quads()
+            .uid_of(NS, ex(name).as_str())
+            .expect("the dictionary reads")
+            .is_some()
+    };
+    known(subject) && known(predicate) && !objects(a, subject, predicate).is_empty()
 }

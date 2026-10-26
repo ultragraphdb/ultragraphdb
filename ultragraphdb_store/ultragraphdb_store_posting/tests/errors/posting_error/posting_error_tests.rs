@@ -15,7 +15,6 @@ fn test_texts_are_dgraphs() {
             PostingError::InvalidKey(),
             "cannot read posting list using multi-part list key",
         ),
-        (PostingError::NoValue(), "No value found"),
         (PostingError::TsTooOld(), "Transaction is too old"),
         (
             PostingError::ReadBelowMinTs(3, 5, b"k\x00".to_vec()),
@@ -24,10 +23,6 @@ fn test_texts_are_dgraphs() {
         (
             PostingError::DeleteBelowMinTs(3, 5),
             "deleteBelowTs (3) must be greater than the minTs in the list (5)",
-        ),
-        (
-            PostingError::BlockSize(16, 256),
-            "actual block size 16 is different from expected value 256",
         ),
         (
             PostingError::HighPriorityOp(),
@@ -61,16 +56,18 @@ fn test_store_errors_carry_through_and_a_key_of_no_list_is_named() {
     let error: PostingError = StoreError::TsTooOld().into();
     assert_eq!(error.0, PostingErrorEnum::Store(StoreError::TsTooOld()));
     assert_eq!(error.to_string(), "Transaction is too old");
-    let error = PostingError::NotAList(&[0x01, 0x02]);
+    let error = PostingError::NotAList(b"key");
     assert_eq!(
         error.0,
         PostingErrorEnum::NotAList {
-            key: vec![0x01, 0x02]
+            key: b"key".to_vec()
         }
     );
-    assert!(
-        error.to_string().contains("is not a posting list's"),
-        "{error}"
+    // The key as Go's hex.Dump prints it, as in the meta texts above.
+    let dump = "00000000  6b 65 79                                          |key|\n";
+    assert_eq!(
+        error.to_string(),
+        format!("Key {dump} is not a posting list's")
     );
 }
 
@@ -81,6 +78,6 @@ fn test_a_refused_value_is_the_stores_corruption_naming_its_key() {
         &error.0,
         PostingErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted { key, .. })) if key == b"\x01\x02"
     ));
-    assert!(error.to_string().contains("0102"));
+    assert_eq!(error.to_string(), "Corrupted value of key 0102: bad");
     assert!(error.source().is_none());
 }

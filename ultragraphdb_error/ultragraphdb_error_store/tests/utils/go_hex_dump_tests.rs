@@ -136,3 +136,25 @@ fn test_dump_of_every_byte_value_matches_go() {
     let input: Vec<u8> = (0..=255u8).collect();
     assert_eq!(go_hex_dump(&input), want);
 }
+
+#[test]
+fn test_dump_offsets_past_four_hex_digits_match_go() {
+    // Go 1.27: hex.Dump of 65,537 bytes, byte i being i*13 mod 256, the longest stored key plus two. Its length is
+    // 323,648 bytes in 4,097 lines; the lines at offsets 0x1000, 0xfff0 and 0x10000, from fmt.Printf("%q").
+    let input: Vec<u8> = (0..65_537usize).map(|i| (i * 13) as u8).collect();
+    let text = go_hex_dump(&input);
+    let lines: Vec<&str> = text.split('\n').collect();
+    assert_eq!((text.len(), lines.len()), (323_648, 4_098));
+    assert_eq!(
+        lines[0x100],
+        "00001000  00 0d 1a 27 34 41 4e 5b  68 75 82 8f 9c a9 b6 c3  |...'4AN[hu......|"
+    );
+    assert_eq!(
+        lines[4_095..],
+        [
+            "0000fff0  30 3d 4a 57 64 71 7e 8b  98 a5 b2 bf cc d9 e6 f3  |0=JWdq~.........|",
+            "00010000  00                                                |.|",
+            "",
+        ]
+    );
+}

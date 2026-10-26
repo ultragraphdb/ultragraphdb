@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_store_posting::{ListsConfig, MAX_LIST_SIZE};
-use ultragraphdb_traits_store::PersistMode;
+use ultragraphdb_traits_store::{PersistMode, Store};
 
 use crate::utils::helpers::{commit_edges, key, new_lists, set_uid};
 
@@ -39,4 +39,43 @@ fn test_the_default_config_is_process_durability_at_dgraphs_split_size() {
     assert_eq!(lists.config(), config);
     assert_eq!(lists.epoch(), 0);
     lists.sync().unwrap();
+}
+
+#[test]
+fn test_lists_keep_their_config_and_roll_up_at_its_split_size() {
+    let config = ListsConfig::new(PersistMode::Sync, 1000);
+    let lists = crate::utils::helpers::lists_over(crate::utils::helpers::new_store(), config);
+    assert_eq!(lists.config(), config);
+    let k = key("config-split", 1);
+    commit_edges(&lists, &k, &(1..=1000).map(set_uid).collect::<Vec<_>>());
+    assert!(lists.rollup_key(&k).unwrap());
+    let snapshot = lists.store().snapshot(u64::MAX).unwrap();
+    let (list, _) = ultragraphdb_store_posting::List::read(&k, &snapshot).unwrap();
+    assert!(
+        list.part_splits().len() > 1,
+        "1,000 uids over 1,000 bytes split"
+    );
+}
+
+#[test]
+fn test_commits_are_written_in_the_configured_persist_mode_and_rollups_buffered() {
+    use ultragraphdb_store_sim::OpRecord;
+    let modes = |log: Vec<OpRecord>| -> Vec<PersistMode> {
+        log.into_iter()
+            .filter_map(|r| match r {
+                OpRecord::Applied { mode, .. } => Some(mode),
+                _ => None,
+            })
+            .collect()
+    };
+    let config = ListsConfig::new(PersistMode::Sync, MAX_LIST_SIZE);
+    let lists = crate::utils::helpers::lists_over(crate::utils::helpers::new_store(), config);
+    let k = key("persist", 1);
+    lists.store().take_log();
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    assert_eq!(modes(lists.store().take_log()), vec![PersistMode::Sync]);
+    assert!(lists.rollup_key(&k).unwrap());
+    assert_eq!(modes(lists.store().take_log()), vec![PersistMode::Buffer]);
+    lists.sync().unwrap();
+    assert!(lists.store().take_log().contains(&OpRecord::Synced));
 }

@@ -31,6 +31,9 @@ ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 # Drives the apply thread and the store at a fixed rate and prints what it measured; never run by a test.
 [[bin]]
 name = "store_bench"

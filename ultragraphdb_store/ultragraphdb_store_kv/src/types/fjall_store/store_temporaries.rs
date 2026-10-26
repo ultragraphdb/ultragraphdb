@@ -65,7 +65,9 @@ impl Shared {
     }
 
     /// One fjall batch to the temporary keyspace, persisted no further than the journal's buffer: a temporary
-    /// keyspace survives no reopening, so nothing it holds needs a sync.
+    /// keyspace survives no reopening, so nothing it holds needs a sync. The batch is refused whole when any key it
+    /// holds, its versionless writes' included, breaks the limits `WriteBatch::check_key_sizes` checks, though the
+    /// versionless writes themselves are ignored.
     pub fn apply_temporary(
         &self,
         temporary: &Temporary,

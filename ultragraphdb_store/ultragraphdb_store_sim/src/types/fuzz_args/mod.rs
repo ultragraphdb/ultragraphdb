@@ -9,27 +9,40 @@ use crate::errors::fuzz_args_error::FuzzArgsError;
 
 const DEFAULT_SEEDS: u64 = 1000;
 const DEFAULT_STEPS: u64 = 2000;
+/// The flag that has the workload's readers read the keyspace without versions too.
+pub(crate) const VERSIONLESS_READS: &str = "--versionless-reads";
 
-/// The run `store_sim_fuzz [first seed] [seeds] [steps]` names: the seeds from the first to the last, each run for
-/// the steps. Every seed of the range is a `u64`, so the run covers exactly the seeds it counts and every seed,
+/// The run `store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]` names: the seeds from the first to the
+/// last, each run for the steps, with the readers reading the keyspace without versions when the flag is given. Every seed of the range is a `u64`, so the run covers exactly the seeds it counts and every seed,
 /// `u64::MAX` included, replays as the first seed of a one-seed run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FuzzArgs {
     first: u64,
     seeds: u64,
     steps: u64,
+    versionless_reads: bool,
 }
 
 impl FuzzArgs {
-    /// The run of `args`, the program's name left out: each argument a whole number in decimal digits alone at its
-    /// position, the first seed `fresh_seed` when none is given, 1000 seeds and 2000 steps by default.
+    /// The run of `args`, the program's name left out: the flag `--versionless-reads` first if given, then each
+    /// argument a whole number in decimal digits alone at its position among the numbers, the first seed
+    /// `fresh_seed` when none is given, 1000 seeds and 2000 steps by default. Off by default, the flag leaves every
+    /// seed's run as it was.
     ///
     /// # Errors
     ///
-    /// The leftmost argument refused, as [`FuzzArgsError::NotANumber`] or [`FuzzArgsError::TooMany`] past the
-    /// third; then [`FuzzArgsError::NoSeeds`] for a count of 0, and [`FuzzArgsError::PastLastSeed`] for a range
-    /// running past `u64::MAX`.
+    /// [`FuzzArgsError::UnknownFlag`] for a first argument starting with `--` other than the flag; then the leftmost
+    /// number refused, as [`FuzzArgsError::NotANumber`] or [`FuzzArgsError::TooMany`] past the third; then
+    /// [`FuzzArgsError::NoSeeds`] for a count of 0, and [`FuzzArgsError::PastLastSeed`] for a range running past
+    /// `u64::MAX`.
     pub fn parse(args: &[String], fresh_seed: u64) -> Result<Self, FuzzArgsError> {
+        let (versionless_reads, args) = match args.split_first() {
+            Some((flag, rest)) if flag == VERSIONLESS_READS => (true, rest),
+            Some((flag, _)) if flag.starts_with("--") => {
+                return Err(FuzzArgsError::UnknownFlag(flag.clone()));
+            }
+            _ => (false, args),
+        };
         let mut numbers = [None; 3];
         for (index, arg) in args.iter().enumerate() {
             let slot = numbers
@@ -56,7 +69,13 @@ impl FuzzArgs {
             first,
             seeds,
             steps: steps.unwrap_or(DEFAULT_STEPS),
+            versionless_reads,
         })
+    }
+
+    /// Whether the readers read the keyspace without versions too.
+    pub fn versionless_reads(&self) -> bool {
+        self.versionless_reads
     }
 
     pub fn first(&self) -> u64 {

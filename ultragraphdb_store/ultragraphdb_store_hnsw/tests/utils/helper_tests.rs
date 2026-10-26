@@ -38,8 +38,15 @@ fn test_edge_pruning_keeps_best_neighbors() {
         })
         .unwrap();
         let mut kept_scores: Vec<f64> = kept.iter().map(|u| by_uid[u]).collect();
+        let best_first = kept_scores.clone();
         kept_scores.sort_by(f64::total_cmp);
         assert_eq!(kept_scores, expected, "{metric}");
+        // Best first, by hand: a distance's lowest scores, a similarity's highest.
+        let mut by_rank = expected.clone();
+        if metric != "euclidean" {
+            by_rank.reverse();
+        }
+        assert_eq!(best_first, by_rank, "{metric}");
     }
 }
 
@@ -70,6 +77,18 @@ fn test_insert_uids_top_k_drops_not_a_uid_and_repeats() {
         insert_uids_top_k_by_score(vec![1], &[2], 3, sim, |_| Err::<f64, _>("score failed")),
         Err("score failed")
     );
+    // A similarity keeps the highest first; a new uid that ties goes after the uids it does not beat, and the list is
+    // cut to `keep` after each insertion.
+    let dot = SimilarityType::from_name("dotproduct");
+    let kept = insert_uids_top_k_by_score(vec![9, 5, 2], &[7, 6, 1], 4, dot, |u| {
+        Ok::<_, Infallible>(match u {
+            7 => 5.0,
+            6 => 9.5,
+            other => other as f64,
+        })
+    })
+    .unwrap();
+    assert_eq!(kept, vec![6, 9, 5, 7]);
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,7 +130,15 @@ fn test_the_dead_list_is_gos_json() {
         b"[5,9,5]",
         "a uid listed again, as Dgraph lists it"
     );
-    assert!(add_dead_node(Some(b"nope"), 1).is_err());
+    assert_eq!(
+        add_dead_node(Some(b"nope"), 1).unwrap_err().to_string(),
+        "Cannot convert nope to uint slice"
+    );
+    assert_eq!(
+        add_dead_node(Some(b""), 4).unwrap(),
+        b"[4]",
+        "blank is no uids"
+    );
     assert_eq!(
         parse_edges(&String::from_utf8_lossy(&two)).unwrap(),
         vec![5, 9]
@@ -132,6 +159,11 @@ fn test_the_small_helpers() {
         worst_score::<f64>(SimilarityType::from_name("cosine")),
         f64::NEG_INFINITY
     );
+    assert_eq!(
+        worst_score::<f32>(SimilarityType::from_name("dotproduct")),
+        f32::NEG_INFINITY
+    );
+    assert_eq!(bytes_to_uint64(&[0, 0, 0, 0, 0, 0, 1, 2]), Some(0x0102));
     assert_eq!(bytes_as_float_array::<f32>(&[]), Some(vec![]));
     assert_eq!(
         bytes_as_float_array::<f32>(&1.5f32.to_le_bytes()),
@@ -146,9 +178,7 @@ fn test_the_small_helpers() {
 #[test]
 fn test_a_misaligned_vector_is_logged_as_dgraph_logs_it() {
     let capture = ultragraphdb_store_sim::LogCapture::new();
-    let decoded = tracing::subscriber::with_default(capture.subscriber(), || {
-        bytes_as_float_array::<f32>(&[1, 2, 3])
-    });
+    let decoded = capture.capture(|| bytes_as_float_array::<f32>(&[1, 2, 3]));
     assert_eq!(decoded, None);
     let events = capture.events();
     assert_eq!(events.len(), 1);

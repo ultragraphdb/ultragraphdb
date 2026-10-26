@@ -12,7 +12,8 @@ const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 
 /// The value tokenizer `tokenizer` tokenizes `literal` as, computed from the literal's value so that lexical forms
 /// of one value give one token: `None` when the tokenizer takes no literal of its datatype, or the lexical form is
-/// not one of the datatype, and the literal is then held unindexed. A date-time without a time zone is taken as UTC.
+/// not one of the datatype, and the literal is then held unindexed. A date-time without a time zone is taken as UTC;
+/// a date with one is taken at midnight in its zone, then as UTC.
 pub fn token_value(literal: LiteralRef<'_>, tokenizer: &str) -> Option<Value> {
     let datatype = literal.datatype().as_str();
     if !tokenizer_takes(tokenizer, datatype) {
@@ -48,7 +49,12 @@ pub fn token_value(literal: LiteralRef<'_>, tokenizer: &str) -> Option<Value> {
             .and_then(|d| text(d.to_string(), TypeId::BIGFLOAT)),
         "year" | "month" | "day" | "hour" => {
             let canonical = if local == "date" {
-                lexical.parse::<Date>().ok()?.to_string()
+                let date = lexical.parse::<Date>().ok()?;
+                // A date with a zone is midnight in its zone, as XSD casts it to a date-time; one without stays a date.
+                match date.timezone_offset() {
+                    Some(_) => DateTime::try_from(date).ok()?.to_string(),
+                    None => date.to_string(),
+                }
             } else {
                 lexical.parse::<DateTime>().ok()?.to_string()
             };

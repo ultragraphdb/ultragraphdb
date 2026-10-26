@@ -10,7 +10,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
@@ -99,7 +99,13 @@ fn test_nonflat_entry_insert_to_persistent_flat_storage() {
             "{:?}",
             edge_names(&edges)
         );
+        assert!(
+            !edge_names(&edges).contains(&"0-a__vector_entry_1".to_string()),
+            "a live entry point is not rewritten"
+        );
     }
+    let entry = dbs.get(99, &key(&format!("{PRED}{VEC_ENTRY}"), 1)).unwrap();
+    assert_eq!(bytes_to_uint64(&entry), Some(5));
 }
 
 #[test]
@@ -109,16 +115,42 @@ fn test_insert_helper_no_duplicate_neighbor_edges() {
     insert_at(&dbs, 0, 1, 5, &[0.1, 0.1, 0.1], &mut rng).unwrap();
     let edges2 = insert_at(&dbs, 12, 40, 123, &[0.824, 0.319, 0.111], &mut rng).unwrap();
     let edges3 = insert_at(&dbs, 50, 60, 456, &[0.5, 0.3, 0.2], &mut rng).unwrap();
-    for edges in [&edges2, &edges3] {
+    for (uid, edges) in [(123, &edges2), (456, &edges3)] {
         let mut counts: BTreeMap<u64, usize> = BTreeMap::new();
         edges
             .iter()
             .for_each(|e| *counts.entry(e.entity()).or_default() += 1);
         assert!(counts.values().all(|&c| c == 1), "{counts:?}");
+        // The invariant of addNeighbors: the insert writes the node's lists and the lists of exactly the neighbours
+        // they name, each gaining the node as an inbound edge.
+        let own = edges
+            .iter()
+            .find(|e| e.entity() == uid)
+            .expect("the node's lists");
+        let named: BTreeSet<u64> = decode_uint64_matrix(own.value())
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        let written: BTreeSet<u64> = counts.keys().copied().filter(|&u| u != uid).collect();
+        assert_eq!(written, named, "insert of {uid}");
+        assert!(!named.is_empty(), "insert of {uid} links to the graph");
+        for e in edges.iter().filter(|e| e.entity() != uid) {
+            assert!(
+                decode_uint64_matrix(e.value())
+                    .unwrap()
+                    .iter()
+                    .flatten()
+                    .any(|&u| u == uid),
+                "{} gains {uid}",
+                e.entity()
+            );
+        }
     }
-    assert!(
-        edges3.len() >= 2,
-        "the node and at least one neighbour: {edges3:?}"
+    assert_eq!(
+        edges2.iter().map(|e| e.entity()).collect::<BTreeSet<_>>(),
+        BTreeSet::from([5, 123]),
+        "the second insert links to the only other node"
     );
 }
 
@@ -259,15 +291,44 @@ fn test_a_failed_vector_read_is_an_error() {
 #[test]
 fn test_corrupted_index_values_are_refused() {
     let lists = encode_uint64_matrix(&[vec![1, 2], vec![3]]);
-    assert!(decode_uint64_matrix(&lists[..lists.len() - 1]).is_err());
-    assert!(decode_uint64_matrix(&lists[..8]).is_err());
-    assert!(decode_uint64_matrix(&[lists.clone(), vec![0; 8]].concat()).is_err());
+    assert_eq!(
+        decode_uint64_matrix(&lists[..lists.len() - 1]),
+        Err("a neighbour matrix whose length is not a multiple of 8 bytes")
+    );
+    assert_eq!(
+        decode_uint64_matrix(&lists[..8]),
+        Err("a neighbour matrix with more rows than its bytes hold")
+    );
+    // Two rows, the first of 2 uids, and one uid held.
+    assert_eq!(
+        decode_uint64_matrix(&lists[..24]),
+        Err("a neighbour row longer than the matrix holds")
+    );
+    assert_eq!(
+        decode_uint64_matrix(&[lists.clone(), vec![0; 8]].concat()),
+        Err("bytes after a neighbour matrix's last row")
+    );
     let mut many_rows = lists.clone();
     many_rows[0] = 200;
-    assert!(decode_uint64_matrix(&many_rows).is_err());
+    assert_eq!(
+        decode_uint64_matrix(&many_rows),
+        Err("a neighbour matrix with more rows than its bytes hold")
+    );
     let mut long_row = lists.clone();
     long_row[8] = 9;
-    assert!(decode_uint64_matrix(&long_row).is_err());
+    assert_eq!(
+        decode_uint64_matrix(&long_row),
+        Err("a neighbour row longer than the matrix holds")
+    );
+    // Two rows named, the first [7] filling the bytes: the second row's length is missing.
+    let mut rows_unheld = encode_uint64_matrix(&[vec![7]]);
+    rows_unheld[0] = 2;
+    assert_eq!(
+        decode_uint64_matrix(&rows_unheld),
+        Err("a neighbour matrix shorter than its rows")
+    );
+    assert_eq!(decode_uint64_matrix(&[]), Ok(vec![]));
+    assert_eq!(decode_uint64_matrix(&[0; 8]), Ok(vec![]), "no rows");
     let mut flipped = lists;
     flipped[16] ^= 0x40;
     assert_eq!(
@@ -395,4 +456,78 @@ fn test_a_dead_entry_point_hands_over_and_the_insert_goes_ahead() {
                 .all(|u| after.contains(u))),
         "6 keeps its edges: {six_before:?} -> {six_after:?}"
     );
+}
+
+/// One level, an `efConstruction` of 16 and an `efSearch` of 12: every node on the one level whatever the draw.
+fn one_level() -> PersistentHnsw<f64> {
+    let o = opts(&[
+        ("maxLevels", "1"),
+        ("efConstruction", "16"),
+        ("efSearch", "12"),
+    ]);
+    PersistentHnsw::new(vkeys(PRED), &o, 64).unwrap()
+}
+
+fn insert_one(txn: &MapTxn, uid: u64, v: &[f64]) -> Vec<KeyValue> {
+    txn.db
+        .borrow_mut()
+        .insert(key(PRED, uid), float64_array_as_bytes(v));
+    one_level()
+        .insert(&TxnCache::new(txn, 1), uid, v, &mut || 0.5)
+        .unwrap()
+}
+
+fn lists(edges: &[KeyValue]) -> BTreeMap<u64, Vec<Vec<u64>>> {
+    edges
+        .iter()
+        .filter(|e| e.attr().ends_with(VEC_KEYWORD))
+        .map(|e| (e.entity(), decode_uint64_matrix(e.value()).unwrap()))
+        .collect()
+}
+
+/// By hand, on a line: 3 at 0, 6 at 1, 9 at 2. After 6 is deleted, 12 at 1.5 is searched from 3, past 6, which has
+/// no vector, to 9 (0.5 away) and 3 (1.5 away); every list it writes leaves the dead 6 out and is sorted nearest first.
+#[test]
+fn test_an_insert_leaves_dead_nodes_out_of_the_lists_it_writes() {
+    let txn = MapTxn::default();
+    insert_one(&txn, 3, &[0.0, 0.0]);
+    insert_one(&txn, 6, &[1.0, 0.0]);
+    let written = lists(&insert_one(&txn, 9, &[2.0, 0.0]));
+    assert_eq!(
+        written,
+        BTreeMap::from([
+            (3, vec![vec![6, 9]]),
+            (6, vec![vec![3, 9]]),
+            (9, vec![vec![6, 3]])
+        ])
+    );
+    txn.db.borrow_mut().remove(&key(PRED, 6));
+    txn.db
+        .borrow_mut()
+        .insert(key(&format!("{PRED}{VEC_DEAD}"), 1), b"[6]".to_vec());
+    let written = lists(&insert_one(&txn, 12, &[1.5, 0.0]));
+    assert_eq!(
+        written,
+        BTreeMap::from([
+            (3, vec![vec![12, 9]]),
+            (9, vec![vec![12, 3]]),
+            (12, vec![vec![9, 3]]),
+        ])
+    );
+}
+
+/// A node never scores against itself: a list naming its own node, as a corrupted one may, takes the metric's worst
+/// score, as Dgraph's `uidScoreForNode` gives it, so a new neighbour goes before it. By hand: 6's list is [6, 3], and
+/// 9 at 1.1, 0.1 from 6, beats both, where a score of 0 for 6 itself would put 9 second.
+#[test]
+fn test_a_node_scores_worst_against_itself() {
+    let txn = MapTxn::default();
+    insert_one(&txn, 3, &[0.0, 0.0]);
+    insert_one(&txn, 6, &[1.0, 0.0]);
+    txn.db.borrow_mut().insert(
+        key(&format!("{PRED}{VEC_KEYWORD}"), 6),
+        encode_uint64_matrix(&[vec![6, 3]]),
+    );
+    let written = lists(&insert_one(&txn, 9, &[1.1, 0.0]));
+    assert_eq!(written[&6], vec![vec![9, 6, 3]]);
 }

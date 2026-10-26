@@ -30,21 +30,20 @@ pub fn encode_uint64_matrix(matrix: &[Vec<u64>]) -> Vec<u8> {
 ///
 /// # Errors
 ///
-/// Why the bytes are no matrix: fewer bytes than a row count or a row length names, or bytes left after the last
-/// row. A corruption that leaves a valid matrix decodes.
+/// Why the bytes are no matrix: a length that is not whole words, fewer words than the row count or a row length
+/// names, or words left after the last row. A corruption that leaves a valid matrix decodes.
 pub fn decode_uint64_matrix(data: &[u8]) -> Result<Vec<Vec<u64>>, &'static str> {
-    if data.is_empty() {
-        return Ok(Vec::new());
-    }
     let (chunks, rest) = data.as_chunks::<8>();
     if !rest.is_empty() {
         return Err("a neighbour matrix whose length is not a multiple of 8 bytes");
     }
-    let mut words = chunks.iter().map(|w| u64::from_le_bytes(*w));
+    // Any bytes that are whole words hold the row count; no bytes are no rows.
+    let [count, body @ ..] = chunks else {
+        return Ok(Vec::new());
+    };
+    let rows = u64::from_le_bytes(*count);
+    let mut words = body.iter().map(|w| u64::from_le_bytes(*w));
     let available = (data.len() / 8) as u64;
-    let rows = words
-        .next()
-        .ok_or("a neighbour matrix shorter than its row count")?;
     if rows > available - 1 {
         return Err("a neighbour matrix with more rows than its bytes hold");
     }

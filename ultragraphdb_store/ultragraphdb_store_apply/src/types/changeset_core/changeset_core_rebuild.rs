@@ -26,9 +26,7 @@ use ultragraphdb_core_keys::{CountDirection, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_proto_pb::pb::Posting;
-use ultragraphdb_store_hnsw::{
-    VectorKeys, add_dead_node, bytes_as_float_array, index_posting, parse_edges,
-};
+use ultragraphdb_store_hnsw::{VectorKeys, add_dead_node, bytes_as_float_array, index_posting};
 use ultragraphdb_store_posting::{CachedList, List, PostingError, PostingErrorEnum, SET};
 use ultragraphdb_store_quads::object_posting;
 use ultragraphdb_traits_index::{Txn, VectorIndex};
@@ -91,6 +89,12 @@ where
     /// its temporary keyspace dropped after.
     pub fn run_rebuild(&self, record: u64) {
         let Some(rebuild) = self.current(record) else {
+            // A drop cancelled the build before it ran: its job removes its record.
+            let _apply = lock(&self.apply);
+            tracing::info!(record, "build discarded: a drop cancelled it");
+            if let Err(error) = self.remove_record(record) {
+                tracing::error!(record, %error, "error in building indexes, aborting");
+            }
             return;
         };
         let mut temporary = None;
@@ -244,8 +248,11 @@ where
         Ok(built)
     }
 
-    /// Inserts `node`'s vector into the index `txn` builds, its node out of the dead list; when it holds no vector,
-    /// marks it dead if `dead_when_absent` holds, as a node whose vector a write deleted during the build is.
+    /// Inserts `node`'s vector into the index `txn` builds; when it holds no vector, marks it dead if
+    /// `dead_when_absent` holds, as a node whose vector a write deleted during the build is. The built index's dead
+    /// list is written here alone, by the swap, once per node it touched: the index starts empty, its inserts only read
+    /// the dead list, and the build marks no node dead. So no node inserted is listed dead, and no node marked dead
+    /// is listed already.
     fn insert_built(
         &self,
         index: &ultragraphdb_store_hnsw::PersistentHnsw<f32>,
@@ -254,22 +261,8 @@ where
         dead_when_absent: bool,
     ) -> Result<(), ChangesetError> {
         let keys = txn.keys().clone();
-        let dead_key = keys.dead();
-        let listed = match txn.get(&dead_key) {
-            Ok(v) => parse_edges(&String::from_utf8_lossy(&v))?,
-            Err(e) if e.is_absence() => Vec::new(),
-            Err(e) => return Err(e.into()),
-        };
         match txn.get(&keys.vector(node)) {
             Ok(bytes) => {
-                if listed.contains(&node) {
-                    let kept: Vec<String> = listed
-                        .iter()
-                        .filter(|&&u| u != node)
-                        .map(u64::to_string)
-                        .collect();
-                    txn.write(&dead_key, format!("[{}]", kept.join(",")).as_bytes());
-                }
                 let Some(vector) = bytes_as_float_array::<f32>(&bytes) else {
                     return Ok(());
                 };
@@ -277,7 +270,8 @@ where
                 VectorIndex::insert(index, txn, node, &vector, &mut draw)?;
             }
             Err(e) if e.is_absence() => {
-                if dead_when_absent && !listed.contains(&node) {
+                if dead_when_absent {
+                    let dead_key = keys.dead();
                     let existing = txn.get(&dead_key).ok();
                     txn.write(&dead_key, &add_dead_node(existing.as_deref(), node)?);
                 }

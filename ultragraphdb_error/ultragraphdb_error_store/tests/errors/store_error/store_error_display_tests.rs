@@ -157,3 +157,9 @@ fn test_an_unknown_temporary_keyspace_names_its_number() {
          it was created"
     );
 }
+
+#[test]
+fn test_an_empty_key_is_badgers_text() {
+    // Badger's ErrEmptyKey (`errors.go:40`, returned by `txn.go:360`): "Key cannot be empty".
+    assert_eq!(StoreError::EmptyKey().to_string(), "Key cannot be empty");
+}

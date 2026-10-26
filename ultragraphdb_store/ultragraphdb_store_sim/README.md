@@ -28,12 +28,15 @@ Seed sets run as hermetic Bazel tests in `make test`:
 | `ultragraphdb_store_apply` | 12 of 300 steps without faults, 24 with every fault class, 12 with power losses during drops, between steps and at every rebuild stage, and crashes at every rebuild stage; the same operations on fjall over three opens, and a rebuild on fjall killed at each of its stages |
 | `ultragraphdb_store_kv` | the store workload replayed on fjall, temporary keyspaces and rebuild records included: 12 seeds without faults, 6 with crashes (61 reopens) |
 
-Longer runs over fresh seeds: `store_sim_fuzz [first seed] [seeds] [steps]`, a binary run outside `make test`. It
-runs the seeds from the first seed onwards, 1000 seeds of 2000 steps by default, the first seed drawn from the wall
-clock when none is given, and prints every seed and each failing seed's violation; `store_sim_fuzz <seed> 1` replays
-one seed, `u64::MAX` included. Each argument is a whole number from 0 to `u64::MAX` at its position. A non-numeric,
-negative or empty argument, a fourth argument, zero seeds, or seeds that would run past `u64::MAX` stop the run before
-any seed runs: it prints the refusal, naming the argument and its position, with the usage line, and exits with 2.
+Longer runs over fresh seeds: `store_sim_fuzz [--versionless-reads] [first seed] [seeds] [steps]`, a binary run
+outside `make test`. It runs the seeds from the first seed onwards, 1000 seeds of 2000 steps by default, the first seed
+drawn from the wall clock when none is given, and prints every seed and each failing seed's violation;
+`store_sim_fuzz <seed> 1` replays one seed, `u64::MAX` included. The flag, first when given, has the readers read the
+keyspace without versions too; off by default, it leaves every seed's run as it was, and a seed found with it replays
+with it. Each number is a whole number from 0 to `u64::MAX` at its position among the numbers. A first argument
+starting with `--` other than the flag, a non-numeric, negative or empty argument, a fourth number, zero seeds, or
+seeds that would run past `u64::MAX` stop the run before any seed runs: it prints the refusal, naming the argument and
+its position, with the usage line, and exits with 2.
 `FuzzArgs::parse` holds those rules, and `FuzzArgsError` names each refusal.
 
 ## Faults injected

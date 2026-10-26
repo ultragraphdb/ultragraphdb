@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use cucumber::{given, then, when};
-use oxrdf::{GraphName, Literal, Term};
+use oxrdf::{GraphName, Term};
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace};
 use ultragraphdb_core_mapping::{Change, PredicateDeclaration, StatementId, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
@@ -23,8 +23,8 @@ use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
 use crate::Steps;
 use crate::utils::changesets::{
     NS, TestChangesets, apply, changeset, changesets, changesets_over, counts_of, delete,
-    delete_pattern, ex, index_keys_holding, indexed, insert, insert_edge, objects, objects_in,
-    postings, reverse, sim_store, statement, term, tokens_of, uid,
+    delete_pattern, ex, exact_token, index_keys_holding, indexed, insert, insert_edge, int_token,
+    objects, objects_in, postings, reverse, sim_store, statement, term, term_token, tokens_of, uid,
 };
 
 /// The changeset applier of the scenario, created on first use.
@@ -79,12 +79,14 @@ pub(crate) fn is_held(a: &TestChangesets, text: &str) -> bool {
     objects_in(a, &graph, subject, predicate).contains(&t.object)
 }
 
-/// The term a token item names: an integer, or a simple literal.
-fn token_term(item: &str) -> Term {
-    if item.parse::<i64>().is_ok() {
-        term(item)
-    } else {
-        Literal::new_simple_literal(item).into()
+/// The token a step's item names under `tokenizer`, written out independently of the tokenizer: an `int` token of an
+/// integer, a `term` token of a word, an `exact` token of a string.
+fn named_token(tokenizer: &str, item: &str) -> (u8, Vec<u8>) {
+    match tokenizer {
+        "int" => int_token(item.parse().expect("an integer")),
+        "term" => term_token(item),
+        "exact" => exact_token(item),
+        other => panic!("no written-out token of the {other} tokenizer"),
     }
 }
 
@@ -338,7 +340,12 @@ fn succeeds(w: &mut Steps) {
 #[then("both commit")]
 fn both_commit(w: &mut Steps) {
     assert_eq!(w.results.len(), 2);
-    assert!(w.results.iter().all(Result::is_ok), "{:?}", w.results);
+    let ts: Vec<u64> = w
+        .results
+        .iter()
+        .map(|r| r.as_ref().expect("the changeset commits").commit_ts())
+        .collect();
+    assert!(ts[0] < ts[1], "each commits at its own timestamp: {ts:?}");
 }
 
 #[then(regex = r"^the reverse list of `(\w+)` for `(\w+)` (holds|does not hold) `(\w+)`$")]
@@ -362,7 +369,7 @@ fn index_lists(
         Some(literal) => tokens_of(&tokenizer, &term(&quoted(literal)[0])),
         None => quoted(&under)
             .iter()
-            .flat_map(|item| tokens_of(&tokenizer, &token_term(item)))
+            .map(|item| named_token(&tokenizer, item))
             .collect(),
     };
     assert!(!tokens.is_empty());
@@ -378,8 +385,7 @@ fn index_lists(
 fn range_read(w: &mut Steps, predicate: String, low: i64, high: i64, subject: String) {
     let a = cs(w);
     let found: BTreeSet<u64> = (low..=high)
-        .flat_map(|v| tokens_of("int", &term(&v.to_string())))
-        .flat_map(|token| indexed(&a, &predicate, &token))
+        .flat_map(|v| indexed(&a, &predicate, &int_token(v)))
         .collect();
     assert_eq!(found, BTreeSet::from([uid(&a, &subject)]));
 }

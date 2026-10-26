@@ -11,4 +11,7 @@ fn test_a_temporary_keyspace_is_named_by_its_number() {
     assert_eq!(t.id(), 5);
     assert_eq!(t, Temporary::new(5));
     assert_ne!(t, Temporary::new(6));
+    for id in [0, u64::MAX] {
+        assert_eq!(Temporary::new(id).id(), id);
+    }
 }

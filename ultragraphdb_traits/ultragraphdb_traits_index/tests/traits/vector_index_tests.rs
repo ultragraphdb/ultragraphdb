@@ -210,11 +210,19 @@ fn index() -> BruteForce {
 fn test_a_vector_index_inserts_and_searches() {
     let ix = index();
     let kv = ix.insert(&NoTxn, 5, &[1.0, 1.0], &mut no_draw).unwrap();
+    // 1.0f32 is 0x3F80_0000 in IEEE 754, little-endian 00 00 80 3F.
     assert_eq!(
-        (kv[0].entity(), kv[0].attr(), kv[0].value().len()),
-        (5, "vec", 8)
+        kv,
+        vec![KeyValue::new(
+            5,
+            "vec",
+            vec![0, 0, 0x80, 0x3f, 0, 0, 0x80, 0x3f]
+        )]
     );
-    assert!(ix.insert(&NoTxn, 5, &[0.0, 0.0], &mut no_draw).is_err());
+    assert_eq!(
+        ix.insert(&NoTxn, 5, &[0.0, 0.0], &mut no_draw),
+        Err("5 exists".to_string())
+    );
     assert_eq!(
         ix.search(&NoCache, &[0.9, 0.0], 2, accept_all::<f32>),
         Ok(vec![2, 1])
@@ -227,9 +235,202 @@ fn test_a_vector_index_inserts_and_searches() {
         ix.search_with_uid(&NoCache, 4, 1, accept_all::<f32>),
         Ok(vec![4])
     );
-    assert!(
-        ix.search_with_uid(&NoCache, 9, 1, accept_all::<f32>)
-            .is_err()
+    assert_eq!(
+        ix.search_with_uid(&NoCache, 9, 1, accept_all::<f32>),
+        Err("no vector for 9".to_string())
+    );
+}
+
+/// The edge inputs of each search: no results asked for, a filter passing nothing, an empty index, and a threshold
+/// that only the query's own vector meets.
+#[test]
+fn test_searches_at_their_edge_inputs() {
+    let ix = index();
+    let none = |_: &[f32], _: &[f32], _: u64| false;
+    assert_eq!(
+        ix.search(&NoCache, &[0.0, 0.0], 0, accept_all::<f32>),
+        Ok(vec![])
+    );
+    assert_eq!(ix.search(&NoCache, &[0.0, 0.0], 9, none), Ok(vec![]));
+    assert_eq!(
+        BruteForce::default().search(&NoCache, &[0.0, 0.0], 9, accept_all::<f32>),
+        Ok(vec![])
+    );
+    assert_eq!(
+        ix.search_with_uid(&NoCache, 1, 0, accept_all::<f32>),
+        Ok(vec![])
+    );
+    let exact = VectorIndexOptions::new(0, Some(0.0), accept_all::<f32>);
+    assert_eq!(
+        ix.search_with_uid_and_options(&NoCache, 3, 9, &exact),
+        Ok(vec![3])
+    );
+    assert_eq!(
+        ix.search_with_uid_and_options(&NoCache, 9, 9, &exact),
+        Err("no vector for 9".to_string())
+    );
+    let r = ix
+        .search_with_path(&NoCache, &[0.0, 0.0], 0, accept_all::<f32>)
+        .unwrap();
+    assert_eq!((r.neighbors(), r.path()), (&[][..], &[][..]));
+}
+
+/// A transaction that records what is written through it, or refuses every write.
+#[derive(Default)]
+struct Recording {
+    refuse: bool,
+    written: RefCell<Vec<(Vec<u8>, KeyValue)>>,
+}
+
+impl Txn for Recording {
+    type Error = String;
+
+    fn start_ts(&self) -> u64 {
+        7
+    }
+
+    fn get(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn get_with_lock_held(&self, _: &[u8]) -> Result<Vec<u8>, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn find(&self, _: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, Self::Error> {
+        Err("empty".to_string())
+    }
+
+    fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
+        if self.refuse {
+            return Err("refused".to_string());
+        }
+        self.written.borrow_mut().push((key.to_vec(), t.clone()));
+        Ok(())
+    }
+
+    fn add_mutation_with_lock_held(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
+        self.add_mutation(key, t)
+    }
+
+    fn lock_key(&self, _: &[u8]) {}
+
+    fn unlock_key(&self, _: &[u8]) {}
+}
+
+/// An index that writes each insert through its transaction at a level drawn from the caller's source, and reads
+/// each search through its cache: the shape the reshaped bounds serve, where the cache's and the transaction's
+/// errors are the index's own, passed on with `?`.
+struct Layered;
+
+impl OptionalIndexSupport<f32> for Layered {
+    type Error = String;
+
+    fn search_with_path<C: CacheType<Error = Self::Error>>(
+        &self,
+        c: &C,
+        _: &[f32],
+        _: usize,
+        _: SearchFilter<f32>,
+    ) -> Result<SearchPathResult, Self::Error> {
+        c.get(b"entry")?;
+        Ok(SearchPathResult::new())
+    }
+}
+
+impl VectorIndex<f32> for Layered {
+    fn search<C: CacheType<Error = Self::Error>>(
+        &self,
+        c: &C,
+        _: &[f32],
+        _: usize,
+        _: SearchFilter<f32>,
+    ) -> Result<Vec<u64>, Self::Error> {
+        Ok(vec![c.ts()])
+    }
+
+    fn search_with_uid<C: CacheType<Error = Self::Error>>(
+        &self,
+        c: &C,
+        query_uid: u64,
+        _: usize,
+        _: SearchFilter<f32>,
+    ) -> Result<Vec<u64>, Self::Error> {
+        c.get(&query_uid.to_be_bytes())?;
+        Ok(vec![query_uid])
+    }
+
+    fn insert<X: Txn<Error = Self::Error>>(
+        &self,
+        txn: &X,
+        uuid: u64,
+        _: &[f32],
+        draw: &mut impl FnMut() -> f64,
+    ) -> Result<Vec<KeyValue>, Self::Error> {
+        // The level of an HNSW node, floor(-ln(u) * ml), with ml = 1 / ln(2).
+        let level = (-draw().ln() / std::f64::consts::LN_2).floor() as u8;
+        let kv = KeyValue::new(uuid, "level", vec![level]);
+        txn.add_mutation(&uuid.to_be_bytes(), &kv)?;
+        Ok(vec![kv])
+    }
+}
+
+#[test]
+fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() {
+    let txn = Recording::default();
+    // The caller's seeded source: 0.5, 0.25, 0.125 in turn, levels 1, 2 and 3 by -ln(u) / ln(2).
+    let mut next = 0.5;
+    let mut draw = || {
+        let u = next;
+        next /= 2.0;
+        u
+    };
+    let levels: Vec<Vec<KeyValue>> = (1..=3)
+        .map(|uid| Layered.insert(&txn, uid, &[0.0], &mut draw).unwrap())
+        .collect();
+    assert_eq!(
+        levels,
+        vec![
+            vec![KeyValue::new(1, "level", vec![1])],
+            vec![KeyValue::new(2, "level", vec![2])],
+            vec![KeyValue::new(3, "level", vec![3])],
+        ]
+    );
+    assert_eq!(draw(), 0.0625, "three draws were taken, no more");
+    assert_eq!(
+        txn.written
+            .borrow()
+            .iter()
+            .map(|(k, kv)| (k[7], kv.entity()))
+            .collect::<Vec<_>>(),
+        vec![(1, 1), (2, 2), (3, 3)]
+    );
+    let refusing = Recording {
+        refuse: true,
+        ..Recording::default()
+    };
+    assert_eq!(
+        Layered.insert(&refusing, 4, &[0.0], &mut || 0.5),
+        Err("refused".to_string())
+    );
+    assert!(refusing.written.borrow().is_empty());
+}
+
+#[test]
+fn test_a_search_passes_on_its_caches_error() {
+    assert_eq!(
+        Layered.search_with_uid(&NoCache, 4, 1, accept_all::<f32>),
+        Err("empty".to_string())
+    );
+    assert_eq!(
+        Layered
+            .search_with_path(&NoCache, &[0.0], 1, accept_all::<f32>)
+            .map(|r| r.neighbors().to_vec()),
+        Err("empty".to_string())
+    );
+    assert_eq!(
+        Layered.search(&NoCache, &[0.0], 1, accept_all::<f32>),
+        Ok(vec![0])
     );
 }
 

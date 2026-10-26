@@ -205,11 +205,22 @@ impl MutableLayer {
     /// Whether the immutable layer still has to be searched for `uid` at `read_ts`, and the posting the visible
     /// layers hold for it: Dgraph's `findPosting`. A delete found, or a delete-all, ends the search with nothing.
     pub fn find_posting(&self, read_ts: u64, uid: u64) -> (bool, Option<&Posting>) {
+        self.find_posting_where(read_ts, uid, |_| true)
+    }
+
+    /// [`MutableLayer::find_posting`] among the postings of `uid` that `pick` accepts: the reference posting of a uid
+    /// a literal's fingerprint shares, in a quad list.
+    pub(crate) fn find_posting_where(
+        &self,
+        read_ts: u64,
+        uid: u64,
+        pick: impl Fn(&Posting) -> bool,
+    ) -> (bool, Option<&Posting>) {
         let (marker, layers) = self.live(read_ts);
         let found = layers
             .iter()
             .rev()
-            .find_map(|(_, pl)| pl.postings.iter().rev().find(|p| p.uid == uid));
+            .find_map(|(_, pl)| pl.postings.iter().rev().find(|p| p.uid == uid && pick(p)));
         match found {
             Some(p) if p.op != DEL => (false, Some(p)),
             Some(_) => (false, None),

@@ -52,7 +52,11 @@ fn test_a_reopen_restores_the_banned_set_of_several_namespaces() {
         assert_eq!(s.get_at(&ns_key(ns, b"x"), 2).unwrap(), None, "{ns}");
     }
     write(&s, vec![put(&ns_key(2, b"x"), 2, b"")]);
-    assert!(s.get_at(&ns_key(2, b"x"), 2).unwrap().is_some());
+    assert_eq!(
+        s.get_at(&ns_key(2, b"x"), 2).unwrap().map(|i| i.version()),
+        Some(2),
+        "a namespace no ban names"
+    );
 }
 
 #[test]

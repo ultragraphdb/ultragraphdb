@@ -18,6 +18,12 @@ mod pacer_tests;
 #[cfg(test)]
 mod read_counts_tests;
 #[cfg(test)]
+mod size_tests;
+#[cfg(test)]
 mod summary_tests;
 #[cfg(test)]
 mod timed_store_tests;
+#[cfg(test)]
+mod wall_clock_tests;
+#[cfg(test)]
+mod write_call_tests;

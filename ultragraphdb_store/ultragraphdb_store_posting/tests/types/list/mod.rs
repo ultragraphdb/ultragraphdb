@@ -4,6 +4,10 @@
  */
 
 #[cfg(test)]
+mod list_backup_tests;
+#[cfg(test)]
+mod list_iterate_tests;
+#[cfg(test)]
 mod list_mutation_tests;
 #[cfg(test)]
 mod list_read_tests;
@@ -11,5 +15,7 @@ mod list_read_tests;
 mod list_rollup_tests;
 #[cfg(test)]
 mod list_tests;
+#[cfg(test)]
+mod list_uids_tests;
 #[cfg(test)]
 mod list_values_tests;
