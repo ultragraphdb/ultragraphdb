@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use ultragraphdb_core_schema::SchemaMode;
+use ultragraphdb_core_catalog::SchemaMode;
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::{Executor, ListCache, RebuildRecord, Store};
 

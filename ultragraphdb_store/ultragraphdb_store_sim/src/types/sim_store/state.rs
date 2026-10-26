@@ -20,12 +20,14 @@ const TOMBSTONE: u8 = 0x02;
 /// `ultragraphdb_store_kv` fences it.
 const FENCED: u8 = 0x04;
 
-/// What a simulated store holds: the data keyspace, each version's bytes framed as `[meta][flags][value]`, and the
-/// metadata keyspace's entries, the rebuild records among them by number. A temporary keyspace is a `State` of its
+/// What a simulated store holds: the data keyspace, each version's bytes framed as `[meta][flags][value]`, the
+/// keyspace without versions, each key's value raw, and the metadata keyspace's entries, the rebuild records among
+/// them by number. A temporary keyspace is a `State` of its
 /// own whose data alone is used.
 #[derive(Debug, Clone, Default)]
 pub struct State {
     pub data: BTreeMap<StoredKey, Vec<u8>>,
+    pub versionless: BTreeMap<Vec<u8>, Vec<u8>>,
     pub applied_ts: u64,
     pub banned: BTreeSet<u64>,
     pub discard_ts: u64,

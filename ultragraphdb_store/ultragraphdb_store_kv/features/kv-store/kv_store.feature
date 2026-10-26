@@ -122,3 +122,15 @@ Feature: The versioned store over fjall
   Scenario: An open reader holds the discard timestamp back
     When a reader at timestamp 3 is open and a discard timestamp of 6 is requested
     Then the discard timestamp used is at most 3 until the reader closes
+
+  Scenario: A versionless write is atomic with versioned writes
+    When a batch writes a versioned key and a key without a version, and the process crashes during the batch
+    Then after reopening, either both are found or neither is
+
+  Scenario: An absent key is a point read
+    When a key that was never written is read from the keyspace without versions
+    Then the read returns nothing, through one point lookup
+
+  Scenario: Dropping everything clears it
+    When keys without versions are written and everything is dropped
+    Then none of them is found

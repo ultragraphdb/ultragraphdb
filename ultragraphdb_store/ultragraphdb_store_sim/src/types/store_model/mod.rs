@@ -314,6 +314,7 @@ impl StoreModel {
             OpRecord::TemporaryFailed { crashed, .. } => {
                 let in_flight = ModelOp::Batch {
                     entries: Vec::new(),
+                    versionless: Vec::new(),
                     applied_ts: None,
                     removed_records: Vec::new(),
                 };
@@ -384,6 +385,7 @@ impl StoreModel {
             | OpRecord::SnapshotRefused { .. }
             | OpRecord::SnapshotClosed { .. }
             | OpRecord::Read { .. }
+            | OpRecord::ReadVersionless { .. }
             | OpRecord::ReadMany { .. }
             | OpRecord::Scanned { .. } => self.observe_read(record)?,
         }
@@ -414,6 +416,7 @@ impl StoreModel {
         let entries = self.current.admitted(batch.entries());
         Ok(ModelOp::Batch {
             entries,
+            versionless: batch.versionless().to_vec(),
             applied_ts: batch.applied_ts(),
             removed_records: batch.removed_rebuild_records().to_vec(),
         })

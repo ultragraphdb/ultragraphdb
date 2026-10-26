@@ -8,7 +8,7 @@
 //! converted to it. Run on the simulated store.
 
 use ultragraphdb_core_keys::{predicate_prefix, schema_key};
-use ultragraphdb_core_schema::SchemaMode;
+use ultragraphdb_core_catalog::SchemaMode;
 use ultragraphdb_proto_pb::pb::posting;
 
 use crate::utils::helpers::{

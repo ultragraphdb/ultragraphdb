@@ -7,7 +7,7 @@
 //! schema's and the previous schema's); removed by the swap batch, the failure batch, or the batch of a cancelled
 //! rebuild; finished at open by dropping its prefixes the loaded schema does not declare.
 
-use ultragraphdb_core_schema::SchemaMode;
+use ultragraphdb_core_catalog::SchemaMode;
 use ultragraphdb_store_apply::prefixes_to_delete_tokens_for;
 use ultragraphdb_store_sim::Fault;
 use ultragraphdb_traits_store::{RebuildRecord, Store};

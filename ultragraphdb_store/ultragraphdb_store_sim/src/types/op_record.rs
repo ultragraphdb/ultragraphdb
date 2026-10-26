@@ -120,6 +120,12 @@ pub enum OpRecord {
         key: Vec<u8>,
         result: Result<Option<Item>, StoreError>,
     },
+    /// A read of the keyspace without versions, through snapshot `id`, or through the store when `None`.
+    ReadVersionless {
+        id: Option<u64>,
+        key: Vec<u8>,
+        result: Result<Option<Vec<u8>>, StoreError>,
+    },
     ReadMany {
         id: u64,
         keys: Vec<Vec<u8>>,

@@ -21,4 +21,6 @@ pub enum Stream {
     Executor,
     /// The earlier reads a workload's readers make again through their open snapshots.
     Rereads,
+    /// The writes and reads a workload makes in the keyspace without versions.
+    Versionless,
 }

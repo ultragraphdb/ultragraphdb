@@ -31,6 +31,10 @@ pub trait StoreSnapshot {
     /// absent.
     fn scan(&self, scan: &Scan) -> Self::Scan;
 
+    /// The value of `key` in the keyspace without versions, as the batches this snapshot sees left it; `None` when it
+    /// has none. A snapshot of a temporary keyspace holds none.
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError>;
+
     /// The versions of `key` at or below the read timestamp, newest first, down to its newest deletion.
     fn versions(&self, key: &[u8]) -> Self::Scan {
         self.scan(&Scan::key(key.to_vec()).all_versions())

@@ -20,7 +20,7 @@ pub(crate) mod state;
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use ultragraphdb_core_schema::SchemaState;
+use ultragraphdb_core_catalog::SchemaState;
 use ultragraphdb_proto_pb::pb::SchemaUpdate;
 use ultragraphdb_store_posting::{CachedList, Lists};
 use ultragraphdb_traits_store::{Executor, ListCache, Store};

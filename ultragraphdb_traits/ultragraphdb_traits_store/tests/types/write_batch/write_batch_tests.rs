@@ -4,7 +4,9 @@
  */
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_traits_store::{Entry, MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, WriteBatch};
+use ultragraphdb_traits_store::{
+    Entry, MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, VersionlessEntry, WriteBatch,
+};
 
 #[test]
 fn test_a_new_batch_is_empty() {
@@ -13,7 +15,43 @@ fn test_a_new_batch_is_empty() {
     assert!(batch.is_empty());
     assert_eq!((batch.len(), batch.applied_ts()), (0, None));
     assert!(batch.entries().is_empty() && batch.removed_rebuild_records().is_empty());
+    assert!(batch.versionless().is_empty());
     assert_eq!(batch.check_key_sizes(), Ok(()));
+}
+
+#[test]
+fn test_a_batch_keeps_its_versionless_writes_in_order_beside_its_entries() {
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(b"t".to_vec(), vec![1]);
+    assert!(!batch.is_empty(), "a versionless write alone is a write");
+    assert_eq!(batch.len(), 0, "len counts versioned entries");
+    batch.push(Entry::put(b"k".to_vec(), 3, 0x04, vec![2]));
+    batch.remove_versionless(b"u".to_vec());
+    batch.put_versionless(b"t".to_vec(), vec![3]);
+    let versionless = vec![
+        VersionlessEntry::put(b"t".to_vec(), vec![1]),
+        VersionlessEntry::removal(b"u".to_vec()),
+        VersionlessEntry::put(b"t".to_vec(), vec![3]),
+    ];
+    assert_eq!(batch.versionless(), versionless.as_slice());
+    assert_eq!(batch.len(), 1);
+    let (entries, parts) = batch.clone().into_parts();
+    assert_eq!(entries, vec![Entry::put(b"k".to_vec(), 3, 0x04, vec![2])]);
+    assert_eq!(parts, versionless);
+    assert_eq!(batch.into_entries(), entries);
+}
+
+#[test]
+fn test_check_key_sizes_covers_versionless_keys() {
+    let mut batch = WriteBatch::new();
+    batch.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
+    batch.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
+    assert_eq!(
+        batch
+            .check_key_sizes()
+            .map_err(|e| matches!(e.0, StoreErrorEnum::KeyTooLarge { .. })),
+        Err(true)
+    );
 }
 
 #[test]

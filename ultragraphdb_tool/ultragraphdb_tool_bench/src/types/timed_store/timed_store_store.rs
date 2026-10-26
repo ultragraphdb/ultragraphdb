@@ -34,6 +34,10 @@ impl Store for TimedStore {
         result
     }
 
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        self.inner.get_versionless(key)
+    }
+
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         self.inner.snapshot(read_ts)
     }

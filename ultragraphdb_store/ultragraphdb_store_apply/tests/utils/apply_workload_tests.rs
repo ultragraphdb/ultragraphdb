@@ -240,7 +240,7 @@ fn test_a_rebuild_killed_at_each_stage_on_fjall_leaves_no_undeclared_index() {
         let tokenizers = a
             .schema()
             .get(
-                ultragraphdb_core_schema::SchemaMode::Query,
+                ultragraphdb_core_catalog::SchemaMode::Query,
                 &ultragraphdb_core_keys::attr_in_root_namespace("name"),
             )
             .map(|s| s.tokenizer)
@@ -306,7 +306,7 @@ fn test_a_rebuild_larger_than_the_cache_on_fjall() {
     assert_eq!(read(&ikey("big", "term", "w7777")), vec![7777]);
     let schema = a
         .schema()
-        .get(ultragraphdb_core_schema::SchemaMode::Query, &attr("big"));
+        .get(ultragraphdb_core_catalog::SchemaMode::Query, &attr("big"));
     assert_eq!(schema.map(|s| s.tokenizer), Some(vec!["term".to_string()]));
     assert!(a.lists().store().rebuild_records().unwrap().is_empty());
     drop(a);

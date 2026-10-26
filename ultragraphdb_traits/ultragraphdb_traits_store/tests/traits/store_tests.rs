@@ -40,6 +40,10 @@ impl StoreSnapshot for OneItemSnapshot {
     fn scan(&self, _: &Scan) -> Self::Scan {
         Vec::new().into_iter()
     }
+
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok((key == b"term").then(|| b"uid".to_vec()))
+    }
 }
 
 impl Store for OneItem {
@@ -47,6 +51,10 @@ impl Store for OneItem {
 
     fn apply(&self, _: WriteBatch, _: PersistMode) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok((key == b"term").then(|| b"uid".to_vec()))
     }
 
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {

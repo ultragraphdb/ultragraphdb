@@ -15,7 +15,7 @@
 //!
 //! ```
 //! use ultragraphdb_core_keys::attr_in_root_namespace;
-//! use ultragraphdb_core_schema::parse;
+//! use ultragraphdb_core_catalog::parse;
 //! use ultragraphdb_core_types::TypeId;
 //! use ultragraphdb_proto_pb::pb::DirectedEdge;
 //! use ultragraphdb_store_apply::{IndexOp, IndexRebuild, validate_and_convert};

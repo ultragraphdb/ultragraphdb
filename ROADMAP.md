@@ -1,10 +1,13 @@
+# Roadmap
+
+
 | Stage | Status | 
 |---|---|
 | 1. Foundations + shared types | ✅ |
 | 1.5. Fault simulator | ✅ | 
 | 2. Storage core |  ✅ | 
 | 3. Website + Public Repo |  ✅ |
-| 4. Data model and quad storage | `next` |
+| 4. Data model and quad storage | `in progress` |
 | 5. Transactions and the binary protocol | `open` |
 | 5.5. Hardening Transactions with chaos testing | `open` |
 | 6. Query core: SPARQL and GQL where they overlap | `open` |

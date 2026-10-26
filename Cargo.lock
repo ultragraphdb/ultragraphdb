@@ -1647,6 +1647,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxilangtag"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d3b4eb570abd4a1dcb062c31fd37b832264d9dc7292c3e69acfe926c87b063f"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "oxiri"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54b4ed3a7192fa19f5f48f99871f2755047fabefd7f222f12a1df1773796a102"
+
+[[package]]
+name = "oxrdf"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08037a3c3cf580d065caec6a864cf97f51be219862d95c691a48c7543406d675"
+dependencies = [
+ "oxilangtag",
+ "oxiri",
+ "rand",
+ "thiserror",
+]
+
+[[package]]
+name = "oxsdatatypes"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "034779b2d182d5069cd28b1f921ba334cad708ab1340db9776312464b6874b78"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2860,6 +2896,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_core_catalog"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "prost",
+ "serde",
+ "tracing",
+ "ultragraphdb_common_utils",
+ "ultragraphdb_core_keys",
+ "ultragraphdb_core_lex",
+ "ultragraphdb_core_tok",
+ "ultragraphdb_core_types",
+ "ultragraphdb_error_store",
+ "ultragraphdb_proto_pb",
+ "ultragraphdb_store_kv",
+ "ultragraphdb_store_sim",
+ "ultragraphdb_test_bdd",
+ "ultragraphdb_traits_store",
+]
+
+[[package]]
 name = "ultragraphdb_core_chunker"
 version = "0.1.0"
 dependencies = [
@@ -2930,9 +2988,11 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "oxrdf",
  "serde",
  "serde_json",
  "ultragraphdb_common_utils",
+ "ultragraphdb_core_terms",
  "ultragraphdb_error_num",
  "ultragraphdb_test_bdd",
 ]
@@ -2948,25 +3008,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_core_schema"
+name = "ultragraphdb_core_mapping"
 version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
- "prost",
- "serde",
- "tracing",
- "ultragraphdb_common_utils",
- "ultragraphdb_core_keys",
- "ultragraphdb_core_lex",
- "ultragraphdb_core_tok",
- "ultragraphdb_core_types",
- "ultragraphdb_error_store",
- "ultragraphdb_proto_pb",
- "ultragraphdb_store_kv",
- "ultragraphdb_store_sim",
+ "oxrdf",
+ "ultragraphdb_core_terms",
  "ultragraphdb_test_bdd",
- "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_core_terms"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "cucumber",
+ "futures",
+ "oxrdf",
+ "oxsdatatypes",
+ "ultragraphdb_common_utils",
+ "ultragraphdb_test_bdd",
 ]
 
 [[package]]
@@ -3066,9 +3128,9 @@ dependencies = [
  "futures",
  "tracing",
  "ultragraphdb_common_utils",
+ "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
  "ultragraphdb_core_keys",
- "ultragraphdb_core_schema",
  "ultragraphdb_core_tok",
  "ultragraphdb_core_types",
  "ultragraphdb_error_num",
@@ -3144,6 +3206,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_store_quads"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_core_keys",
+ "ultragraphdb_core_mapping",
+ "ultragraphdb_core_terms",
+ "ultragraphdb_error_store",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_test_bdd",
+ "ultragraphdb_traits_store",
+]
+
+[[package]]
 name = "ultragraphdb_store_sim"
 version = "0.1.0"
 dependencies = [
@@ -3171,8 +3248,8 @@ name = "ultragraphdb_tool_bench"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_telemetry",
+ "ultragraphdb_core_catalog",
  "ultragraphdb_core_keys",
- "ultragraphdb_core_schema",
  "ultragraphdb_error_store",
  "ultragraphdb_proto_pb",
  "ultragraphdb_store_apply",

@@ -37,15 +37,20 @@ pub const DATA_KEYSPACE: &str = "data";
 /// The fjall keyspace holding the store's metadata: the applied timestamp, the banned namespaces, the discard
 /// timestamp, the tombstone horizon, a drop in progress and the rebuild records.
 pub const META_KEYSPACE: &str = "meta";
+/// The fjall keyspace without versions: one value per key, read by point lookups that fjall's bloom filters answer
+/// for an absent key, written in the same batches as the data.
+pub const TERMS_KEYSPACE: &str = "terms";
 /// The name of every temporary keyspace begins with this, its number after it; opening the store drops each.
 pub const TEMPORARY_KEYSPACE_PREFIX: &str = "tmp-";
 
 /// The [`ultragraphdb_traits_store::Store`] over fjall: the managed-mode Badger surface Dgraph uses, in one fjall
-/// `Database` of two keyspaces, data and metadata, beside which a rebuild creates temporary keyspaces.
+/// `Database` of three keyspaces, data, metadata and the keyspace without versions, beside which a rebuild creates
+/// temporary keyspaces.
 ///
 /// A version is a stored key of its own (the user key escaped and terminated, then the complement of the version),
 /// so fjall's byte order is Badger's, and its value carries the meta byte, the discard flag and the tombstone flag in
-/// a prefix. Every read goes through one `Database::snapshot()` covering both keyspaces. Writes are serialised by one
+/// a prefix. A key without a version is stored as it is, its value raw. Every read goes through one
+/// `Database::snapshot()` covering every keyspace. Writes are serialised by one
 /// writer lock and each is one fjall batch. Garbage collection is a compaction filter under the discard timestamp,
 /// and [`ultragraphdb_traits_store::Store::compact`] flushes the memtables and compacts everything into the last
 /// level.
@@ -62,6 +67,7 @@ pub(crate) struct Shared {
     pub db: Database,
     pub data: Keyspace,
     pub meta: Keyspace,
+    pub terms: Keyspace,
     pub durability: Durability,
     /// Held by every write for its whole length, so that writes apply in order and a drop blocks commits.
     pub writer: Mutex<()>,
@@ -129,10 +135,14 @@ impl FjallStore {
         let meta = db
             .keyspace(META_KEYSPACE, KeyspaceCreateOptions::default)
             .map_err(opened)?;
+        let terms = db
+            .keyspace(TERMS_KEYSPACE, KeyspaceCreateOptions::default)
+            .map_err(opened)?;
         let shared = Arc::new(Shared {
             db,
             data,
             meta,
+            terms,
             durability,
             writer: Mutex::new(()),
             view: Mutex::new(View::default()),
@@ -190,6 +200,20 @@ impl FjallStore {
                         Entry::put(key, version, v.meta, v.value.to_vec()).with_discard()
                     }
                 })
+            })
+            .collect()
+    }
+
+    /// Every key of the keyspace without versions with its value, in key order, read at one snapshot.
+    pub fn dump_versionless(&self) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, StoreError> {
+        let snapshot = self.shared.db.snapshot();
+        snapshot
+            .iter(&self.shared.terms)
+            .map(|guard| {
+                let (key, value) = guard
+                    .into_inner()
+                    .map_err(|e| StoreError::ReadFailed(Vec::new(), e.to_string()))?;
+                Ok((key.to_vec(), value.to_vec()))
             })
             .collect()
     }

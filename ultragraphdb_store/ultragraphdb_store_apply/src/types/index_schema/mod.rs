@@ -11,7 +11,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_schema::{SchemaMode, SchemaState};
+use ultragraphdb_core_catalog::{SchemaMode, SchemaState};
 use ultragraphdb_core_tok::{
     FactoryCreateSpec, Tokenizer, build_tokens, get_factory_create_spec_from_spec, get_tokenizer,
     get_tokenizer_for_lang,

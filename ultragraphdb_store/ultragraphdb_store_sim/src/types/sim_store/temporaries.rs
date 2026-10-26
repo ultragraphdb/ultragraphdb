@@ -64,6 +64,7 @@ impl Inner {
                 self.status = Status::Poisoned {
                     failed: Record::Batch {
                         entries: Vec::new(),
+                        versionless: Vec::new(),
                         applied_ts: None,
                         removed_records: Vec::new(),
                         fenced: false,

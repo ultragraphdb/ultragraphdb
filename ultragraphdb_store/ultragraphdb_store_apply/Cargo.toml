@@ -21,7 +21,7 @@ workspace = true
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
-ultragraphdb_core_schema = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
 ultragraphdb_error_num = { workspace = true }

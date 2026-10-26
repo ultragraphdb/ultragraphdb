@@ -13,7 +13,7 @@ use ultragraphdb_common_utils::go_farm::fingerprint64;
 use ultragraphdb_core_keys::{
     BYTE_SPLIT, data_prefix, namespace_attr, predicate_prefix, schema_key, type_key,
 };
-use ultragraphdb_core_schema::{SchemaMode, SchemaState, initial_schema, initial_types};
+use ultragraphdb_core_catalog::{SchemaMode, SchemaState, initial_schema, initial_types};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_core_types::{TypeId, Value};
 use ultragraphdb_proto_pb::pb::{

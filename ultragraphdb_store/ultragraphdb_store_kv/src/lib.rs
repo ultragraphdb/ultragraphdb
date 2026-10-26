@@ -49,7 +49,7 @@ pub use crate::types::durability::Durability;
 pub use crate::types::fjall_scan::FjallScan;
 pub use crate::types::fjall_snapshot::FjallSnapshot;
 pub use crate::types::fjall_store::{
-    DATA_KEYSPACE, FjallStore, META_KEYSPACE, TEMPORARY_KEYSPACE_PREFIX,
+    DATA_KEYSPACE, FjallStore, META_KEYSPACE, TEMPORARY_KEYSPACE_PREFIX, TERMS_KEYSPACE,
 };
 pub use crate::types::gc_filter::GcFilter;
 pub use crate::types::moka_list_cache::MokaListCache;

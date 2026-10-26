@@ -62,6 +62,9 @@ impl StoreModel {
                 Ok(())
             }
             OpRecord::Read { id, key, result } => self.check_get(*id, key, result),
+            OpRecord::ReadVersionless { id, key, result } => {
+                self.check_versionless(*id, key, result)
+            }
             OpRecord::ReadMany { id, keys, result } => match result {
                 Ok(items) => keys
                     .iter()
@@ -158,6 +161,50 @@ impl StoreModel {
                     ))
                 }
             }
+        }
+    }
+
+    /// Checks a read of `key` in the keyspace without versions, through snapshot `id` against the state it opened on,
+    /// or through the store against what the process sees; a temporary keyspace's snapshot holds none. The keyspace
+    /// is never corrupted, so no key is left uncompared.
+    fn check_versionless(
+        &self,
+        id: Option<u64>,
+        key: &[u8],
+        result: &Result<Option<Vec<u8>>, StoreError>,
+    ) -> Result<(), Breach> {
+        let wanted = match id {
+            Some(id) if self.temporary_snapshots.contains_key(&id) => None,
+            Some(id) => match self.snapshots.get(&id) {
+                Some((_, state, _)) => state.versionless.get(key).cloned(),
+                None => return Ok(()),
+            },
+            None => {
+                if matches!(self.status, Status::Down { .. }) {
+                    return match result {
+                        Err(e) if matches!(e.0, StoreErrorEnum::Poisoned) => Ok(()),
+                        _ => Err(Breach::new(
+                            Invariant::ReadsAtOrBelowTimestamp,
+                            format!(
+                                "a versionless read of key {} on a store that was down returned {result:?}",
+                                hex(key)
+                            ),
+                        )),
+                    };
+                }
+                self.current.versionless.get(key).cloned()
+            }
+        };
+        match result {
+            Err(e) if matches!(e.0, StoreErrorEnum::ReadFailed { .. }) => Ok(()),
+            Ok(value) if *value == wanted => Ok(()),
+            other => Err(Breach::new(
+                Invariant::ReadsAtOrBelowTimestamp,
+                format!(
+                    "a versionless read of key {} returned {other:?} where {wanted:?} was expected",
+                    hex(key)
+                ),
+            )),
         }
     }
 

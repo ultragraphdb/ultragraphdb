@@ -9,7 +9,7 @@ mod store_workload_reads;
 use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_traits_store::{
-    Entry, PersistMode, RebuildRecord, Scan, Store, Temporary, WriteBatch,
+    Entry, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
 };
 
 use crate::types::event::Event;
@@ -32,6 +32,12 @@ const DELTA: u8 = 0x04;
 const COMPLETE: u8 = 0x08;
 /// The chance per thousand that a reader with an open snapshot first makes one of its earlier reads again.
 const REREAD: u32 = 500;
+/// The chance per thousand that a commit batch writes keys without a version beside its entries.
+const VERSIONLESS_WRITE: u32 = 400;
+/// The chance per thousand that a reader, when versionless reads are on, reads a key without a version first.
+const VERSIONLESS_READ: u32 = 400;
+/// The keys without a version the workload writes and reads: dictionary-shaped, a namespace then a tag and an id.
+const VERSIONLESS_KEYS: u64 = 8;
 
 /// A reader's open snapshot, the reads it has left, and each read it made through it with whether it failed.
 type OpenRead = (SimSnapshot, u64, Vec<(ReadShape, bool)>);
@@ -39,10 +45,16 @@ type OpenRead = (SimSnapshot, u64, Vec<(ReadShape, bool)>);
 /// The store's own workload, over Dgraph-shaped keys: one apply loop writing commit batches of several commits,
 /// rollup batches below the newest version, deletions, syncs, prefix drops, drops of everything, bans, the discard
 /// timestamp with compaction and the sweep, oversized keys, rebuild records written and removed by commit batches,
-/// and a temporary keyspace created, written and dropped; and readers holding snapshots open across steps, of the
+/// a temporary keyspace created, written and dropped, and keys without a version written and removed in commit
+/// batches; and readers holding snapshots open across steps, of the
 /// data or of the temporary keyspace, while they read points, many points, prefix scans in both directions and
-/// versions, and make earlier reads again through the same snapshot after the apply loop has moved on. Every write
-/// keeps the store's contract: none lands below a deletion of its key.
+/// versions, and make earlier reads again through the same snapshot after the apply loop has moved on, and, when
+/// versionless reads are on, read keys without a version through their snapshots and through the store. Every
+/// write keeps the store's contract: none lands below a deletion of its key.
+///
+/// The keyspace without versions draws from a stream of its own, so the workload's other draws, and the faults its
+/// writes meet, are those of a run without it. Its reads draw read failures from the fault stream, which moves the
+/// faults that follow, so they are on only for the seed sets that ask for them.
 #[derive(Debug)]
 pub struct StoreWorkload {
     readers: usize,
@@ -61,6 +73,10 @@ pub struct StoreWorkload {
     next_record: u64,
     /// The temporary keyspace, while one exists.
     temporary: Option<Temporary>,
+    /// The writes and reads of the keyspace without versions, drawn from the seed's stream for them; taken from the
+    /// run's seed at the first step.
+    versionless: Option<SimRng>,
+    versionless_reads: bool,
 }
 
 impl StoreWorkload {
@@ -76,7 +92,15 @@ impl StoreWorkload {
             next_record: 1,
             temporary: None,
             rereads: None,
+            versionless: None,
+            versionless_reads: false,
         }
+    }
+
+    /// The workload with its readers also reading keys without a version.
+    pub fn with_versionless_reads(mut self) -> Self {
+        self.versionless_reads = true;
+        self
     }
 
     /// The apply loop and the readers.
@@ -91,9 +115,18 @@ impl StoreWorkload {
         steps: u64,
         readers: usize,
     ) -> Result<RunOutcome, Violation> {
-        let mut workload = Self::new(readers);
-        let actors = workload.actors();
-        Simulation::new(seed, faults).run(steps, actors, |ctx, event| workload.step(ctx, event))
+        Self::new(readers).run_on(seed, faults, steps)
+    }
+
+    /// Runs this workload for `steps` steps of `seed`.
+    pub fn run_on(
+        mut self,
+        seed: Seed,
+        faults: FaultConfig,
+        steps: u64,
+    ) -> Result<RunOutcome, Violation> {
+        let actors = self.actors();
+        Simulation::new(seed, faults).run(steps, actors, |ctx, event| self.step(ctx, event))
     }
 
     pub fn step(&mut self, ctx: &mut SimContext, event: Event) -> Result<(), Violation> {
@@ -227,6 +260,19 @@ impl StoreWorkload {
             }
             batch.set_applied_ts(ts);
         }
+        let versionless = self
+            .versionless
+            .get_or_insert_with(|| ctx.seed().stream(Stream::Versionless));
+        if versionless.chance(VERSIONLESS_WRITE) {
+            for _ in 0..versionless.between(1, 3) {
+                let key = versionless_key(versionless);
+                if versionless.chance(100) {
+                    batch.remove_versionless(key);
+                } else {
+                    batch.put_versionless(key, versionless.next_u64().to_be_bytes().to_vec());
+                }
+            }
+        }
         if !self.records.is_empty() && ctx.rng().chance(300) {
             let at = ctx.rng().index(self.records.len());
             if let Some(id) = self.records.iter().nth(at).copied() {
@@ -295,6 +341,19 @@ impl StoreWorkload {
             *slot = opened.ok().map(|s| (s, reads, Vec::new()));
             return;
         };
+        if self.versionless_reads {
+            let versionless = self
+                .versionless
+                .get_or_insert_with(|| ctx.seed().stream(Stream::Versionless));
+            if versionless.chance(VERSIONLESS_READ) {
+                let key = versionless_key(versionless);
+                let _ = if versionless.chance(300) {
+                    store.get_versionless(&key)
+                } else {
+                    snapshot.get_versionless(&key)
+                };
+            }
+        }
         made.iter_mut()
             .filter(|(_, failed)| *failed)
             .for_each(|(read, failed)| *failed = read.issue(snapshot));
@@ -328,4 +387,12 @@ impl StoreWorkload {
             *slot = None;
         }
     }
+}
+
+/// One of the keys without a version the workload draws: namespace 0, the dictionary's IRI tag, then a small id.
+fn versionless_key(rng: &mut SimRng) -> Vec<u8> {
+    let mut key = 0u64.to_be_bytes().to_vec();
+    key.push(0x01);
+    key.extend_from_slice(&rng.below(VERSIONLESS_KEYS).to_be_bytes());
+    key
 }

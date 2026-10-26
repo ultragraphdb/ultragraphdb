@@ -180,6 +180,22 @@ impl Mirror {
                     result: got,
                 }
             }
+            OpRecord::ReadVersionless { id, key, result } => {
+                let got = match id {
+                    Some(id) => self.snapshot(*id).get_versionless(key),
+                    None => self.store().get_versionless(key),
+                };
+                same(
+                    "a versionless read",
+                    format!("{got:?}"),
+                    format!("{result:?}"),
+                )?;
+                OpRecord::ReadVersionless {
+                    id: *id,
+                    key: key.clone(),
+                    result: got,
+                }
+            }
             OpRecord::ReadMany { id, keys, result } => {
                 let got = self.snapshot(*id).get_many(keys);
                 same(
@@ -318,6 +334,14 @@ impl Mirror {
                 "fjall lacks {missing:?} and holds besides {extra:?}"
             ));
         }
+        let versionless = sim.versionless();
+        let held_versionless = store.dump_versionless().map_err(|e| e.to_string())?;
+        if &held_versionless != versionless {
+            return Err(format!(
+                "fjall's keyspace without versions holds {held_versionless:?} where the simulated store's holds \
+                 {versionless:?}"
+            ));
+        }
         let meta = |s: &dyn Fn() -> (u64, u64, u64)| s();
         let fjall = meta(&|| {
             (
@@ -368,7 +392,7 @@ struct Run {
 fn run_both(seed: u64, faults: FaultConfig, steps: u64, readers: usize) -> Result<Run, String> {
     let seed = Seed::new(seed);
     let mut sim = Simulation::new(seed, faults);
-    let mut workload = StoreWorkload::new(readers);
+    let mut workload = StoreWorkload::new(readers).with_versionless_reads();
     let actors = workload.actors();
     let mut scheduler = seed.stream(Stream::Scheduler);
     let mut process = seed.stream(Stream::Process);

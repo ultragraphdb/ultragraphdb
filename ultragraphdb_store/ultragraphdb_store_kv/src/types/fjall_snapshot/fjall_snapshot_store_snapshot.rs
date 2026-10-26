@@ -56,6 +56,18 @@ impl StoreSnapshot for FjallSnapshot {
             .then(|| Item::new(key.to_vec(), version, v.meta, v.discard, v.value.to_vec())))
     }
 
+    /// One point get of the keyspace without versions at the snapshot's `Database::snapshot()`; a snapshot of a
+    /// temporary keyspace holds none.
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        if !self.holds_discard {
+            return Ok(None);
+        }
+        self.snapshot
+            .get(&self.shared.terms, key)
+            .map(|v| v.map(|v| v.to_vec()))
+            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))
+    }
+
     fn get_many<K: AsRef<[u8]>>(&self, keys: &[K]) -> Result<Vec<Option<Item>>, StoreError> {
         keys.iter().map(|k| self.get(k.as_ref())).collect()
     }

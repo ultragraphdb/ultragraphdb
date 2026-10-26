@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::types::stored_version::StoredVersion;
 use crate::utils::hex::hex;
 
-/// Everything a simulated store holds, read without faults: every version of every key, deletions included, and
-/// the metadata the store keeps beside them, its rebuild records included. The shadow model builds the same from what it was told, and the two
+/// Everything a simulated store holds, read without faults: every version of every key, deletions included, the
+/// keyspace without versions, and the metadata the store keeps beside them, its rebuild records included. The shadow model builds the same from what it was told, and the two
 /// must be equal.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Contents {
@@ -19,6 +19,7 @@ pub struct Contents {
     discard_ts: u64,
     tombstone_horizon: Option<u64>,
     rebuild_records: BTreeMap<u64, Vec<Vec<u8>>>,
+    versionless: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Contents {
@@ -36,7 +37,19 @@ impl Contents {
             discard_ts,
             tombstone_horizon,
             rebuild_records: BTreeMap::new(),
+            versionless: BTreeMap::new(),
         }
+    }
+
+    /// The contents holding `versionless`, the keyspace without versions.
+    pub(crate) fn with_versionless(mut self, versionless: BTreeMap<Vec<u8>, Vec<u8>>) -> Self {
+        self.versionless = versionless;
+        self
+    }
+
+    /// The keyspace without versions, each key with its value.
+    pub fn versionless(&self) -> &BTreeMap<Vec<u8>, Vec<u8>> {
+        &self.versionless
     }
 
     /// The contents holding `records`, the rebuild records by number with their prefixes.
@@ -104,6 +117,22 @@ impl Contents {
                 "rebuild records {:?} where {:?} were expected",
                 self.rebuild_records.keys().collect::<Vec<_>>(),
                 other.rebuild_records.keys().collect::<Vec<_>>()
+            ));
+        }
+        let versionless: BTreeSet<&Vec<u8>> = self
+            .versionless
+            .keys()
+            .chain(other.versionless.keys())
+            .collect();
+        if let Some(key) = versionless
+            .into_iter()
+            .find(|k| self.versionless.get(*k) != other.versionless.get(*k))
+        {
+            return Some(format!(
+                "versionless key {} holds {:?} where {:?} was expected",
+                hex(key),
+                self.versionless.get(key),
+                other.versionless.get(key)
             ));
         }
         let keys: BTreeSet<&Vec<u8>> = self.keys.keys().chain(other.keys.keys()).collect();

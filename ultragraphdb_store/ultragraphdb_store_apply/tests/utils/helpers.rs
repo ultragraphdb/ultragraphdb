@@ -13,7 +13,7 @@ use ultragraphdb_core_keys::{
     BYTE_INDEX, attr_in_root_namespace, count_key, data_key, index_key, parse, predicate_prefix,
     reverse_key,
 };
-use ultragraphdb_core_schema::parse as parse_schema;
+use ultragraphdb_core_catalog::parse as parse_schema;
 use ultragraphdb_core_tok::{build_tokens, get_tokenizer, get_tokenizer_for_lang};
 use ultragraphdb_core_types::Value;
 use ultragraphdb_proto_pb::pb::{DirectedEdge, Mutations, SchemaUpdate, directed_edge, posting};

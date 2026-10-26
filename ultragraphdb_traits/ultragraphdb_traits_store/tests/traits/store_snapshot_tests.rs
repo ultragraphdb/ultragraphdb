@@ -32,6 +32,10 @@ impl StoreSnapshot for Recorder {
         Ok(keys.iter().map(|_| None).collect())
     }
 
+    fn get_versionless(&self, _: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(None)
+    }
+
     fn scan(&self, scan: &Scan) -> Self::Scan {
         self.scans.borrow_mut().push(scan.clone());
         KEYS.iter()

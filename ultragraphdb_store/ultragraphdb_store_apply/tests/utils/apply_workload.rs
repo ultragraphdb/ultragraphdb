@@ -22,7 +22,7 @@ use ultragraphdb_core_keys::{
     BYTE_COUNT, BYTE_COUNT_REV, BYTE_INDEX, attr_in_root_namespace, count_key, data_key, index_key,
     parse, predicate_prefix, reverse_key,
 };
-use ultragraphdb_core_schema::{SchemaMode, parse as parse_schema};
+use ultragraphdb_core_catalog::{SchemaMode, parse as parse_schema};
 use ultragraphdb_core_tok::{build_tokens, get_tokenizer};
 use ultragraphdb_core_types::Value;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
@@ -104,8 +104,8 @@ pub fn expected(error: &ApplyError) -> bool {
         | ApplyErrorEnum::ScalarUid { .. }
         | ApplyErrorEnum::ScalarIsUid { .. } => true,
         ApplyErrorEnum::Mutations { causes } => causes.iter().all(expected),
-        ApplyErrorEnum::Schema(ultragraphdb_core_schema::SchemaError(
-            ultragraphdb_core_schema::SchemaErrorEnum::Store(StoreError(
+        ApplyErrorEnum::Schema(ultragraphdb_core_catalog::SchemaError(
+            ultragraphdb_core_catalog::SchemaErrorEnum::Store(StoreError(
                 StoreErrorEnum::ReadFailed { .. } | StoreErrorEnum::TsTooOld,
             )),
         )) => true,

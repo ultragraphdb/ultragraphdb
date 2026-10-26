@@ -47,7 +47,7 @@ fn uid_list() -> SchemaUpdate {
 fn rebuild_of(a: &TestApplier, name: &str, start_ts: u64) -> IndexRebuild {
     let current = a
         .schema()
-        .get(ultragraphdb_core_schema::SchemaMode::Query, &attr(name))
+        .get(ultragraphdb_core_catalog::SchemaMode::Query, &attr(name))
         .expect("a schema");
     IndexRebuild::new(&attr(name), start_ts, None, current)
 }
@@ -315,7 +315,7 @@ fn test_a_failed_build_drops_its_temporary_keyspace() {
     );
     let schema = a
         .schema()
-        .get(ultragraphdb_core_schema::SchemaMode::Query, &attr("big"))
+        .get(ultragraphdb_core_catalog::SchemaMode::Query, &attr("big"))
         .unwrap();
     assert!(schema.tokenizer.is_empty(), "the previous schema stays");
     assert!(live_keys(&a, &index_prefix("big")).is_empty());

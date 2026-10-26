@@ -69,6 +69,30 @@ impl Store for SimStore {
         }
     }
 
+    /// The value the process sees, with read failures and slow operations; refused while the process is down.
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        let mut inner = lock(self.shared());
+        let result = if matches!(inner.status, Status::Down { .. }) {
+            Err(StoreError::Poisoned())
+        } else {
+            inner.maybe_slow();
+            if inner.faults.read_fails() {
+                Err(StoreError::ReadFailed(
+                    key.to_vec(),
+                    "simulated read failure".into(),
+                ))
+            } else {
+                Ok(inner.current.versionless.get(key).cloned())
+            }
+        };
+        inner.log.push(OpRecord::ReadVersionless {
+            id: None,
+            key: key.to_vec(),
+            result: result.clone(),
+        });
+        result
+    }
+
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         let mut inner = lock(self.shared());
         if matches!(inner.status, Status::Down { .. }) {

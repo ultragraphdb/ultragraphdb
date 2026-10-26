@@ -8,7 +8,7 @@
  */
 
 use ultragraphdb_core_keys::predicate_prefix;
-use ultragraphdb_core_schema::SchemaMode;
+use ultragraphdb_core_catalog::SchemaMode;
 use ultragraphdb_core_tok::{VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_proto_pb::pb::{SchemaUpdate, posting};
 

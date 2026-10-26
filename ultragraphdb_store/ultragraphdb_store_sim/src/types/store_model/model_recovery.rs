@@ -178,7 +178,12 @@ impl StoreModel {
 /// A description of how `op` survives in part in `contents`, if it does: some of its entries hold their version
 /// with their value and others hold no such version.
 pub(super) fn partial_batch(op: &ModelOp, contents: &Contents) -> Option<String> {
-    let ModelOp::Batch { entries, .. } = op else {
+    let ModelOp::Batch {
+        entries,
+        versionless,
+        ..
+    } = op
+    else {
         return None;
     };
     let present = |e: &&ultragraphdb_traits_store::Entry| {
@@ -187,14 +192,27 @@ pub(super) fn partial_batch(op: &ModelOp, contents: &Contents) -> Option<String>
             .iter()
             .any(|v| v.version() == e.version() && v.is_deletion() == e.is_deletion())
     };
+    // A versionless put is held while its key is, whatever a later batch wrote over it; a removal while it is not.
+    let present_versionless = |e: &&ultragraphdb_traits_store::VersionlessEntry| {
+        contents.versionless().contains_key(e.key()) != e.is_removal()
+    };
     let (held, missing): (Vec<_>, Vec<_>) = entries.iter().partition(present);
-    (!held.is_empty() && !missing.is_empty()).then(|| {
+    let (held_versionless, missing_versionless): (Vec<_>, Vec<_>) =
+        versionless.iter().partition(present_versionless);
+    let some_held = !held.is_empty() || !held_versionless.is_empty();
+    let first_missing = missing
+        .first()
+        .map(|e| format!("key {} at {}", hex(e.key()), e.version()))
+        .or_else(|| {
+            missing_versionless
+                .first()
+                .map(|e| format!("versionless key {}", hex(e.key())))
+        });
+    first_missing.filter(|_| some_held).map(|first| {
         format!(
-            "a batch survives with {} of its {} entries; key {} at {} is missing",
-            held.len(),
-            entries.len(),
-            hex(missing[0].key()),
-            missing[0].version()
+            "a batch survives with {} of its {} entries; {first} is missing",
+            held.len() + held_versionless.len(),
+            entries.len() + versionless.len(),
         )
     })
 }

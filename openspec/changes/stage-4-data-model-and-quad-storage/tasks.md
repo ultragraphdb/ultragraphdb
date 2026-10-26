@@ -5,39 +5,39 @@ class.
 
 ## 0. Workspace
 
-- [ ] 0.1 Add `oxrdf` and `oxsdatatypes` (MIT OR Apache-2.0, pure Rust) to `[workspace.dependencies]`, pinned, each with the features its use needs and no others; record their versions and why in the design's crate table
-- [ ] 0.2 Create the crates `ultragraphdb_core_terms`, `ultragraphdb_core_mapping` and `ultragraphdb_store_quads` with the repository's crate layout, headers and Bazel targets, hermetic and sandboxed
+- [x] 0.1 Add `oxrdf` and `oxsdatatypes` (MIT OR Apache-2.0, pure Rust) to `[workspace.dependencies]`, pinned, each with the features its use needs and no others; record their versions and why in the design's crate table
+- [x] 0.2 Create the crates `ultragraphdb_core_terms`, `ultragraphdb_core_mapping` and `ultragraphdb_store_quads` with the repository's crate layout, headers and Bazel targets, hermetic and sandboxed
 
 ## 1. The keyspace without versions → `ultragraphdb_traits_store`, `ultragraphdb_store_kv`, `ultragraphdb_store_sim`
 
-- [ ] 1.1 Scenarios: kv-store ("A keyspace without versions"), storage-simulation ("The simulated store models the keyspace without versions")
-- [ ] 1.2 The `Store` trait's versionless point read and write-batch entries, as required methods
-- [ ] 1.3 fjall: the `terms` keyspace beside `data` and `meta`, in the same `OwnedWriteBatch` and `Database::snapshot()`, cleared by `drop_all`, reads not bounded by the discard timestamp; the kill harness covers a batch with versionless entries
-- [ ] 1.4 The simulator: the versionless map under every fault class; the shadow-model rule that a batch's versionless entries are visible exactly when its versioned ones are
+- [x] 1.1 Scenarios: kv-store ("A keyspace without versions"), storage-simulation ("The simulated store models the keyspace without versions")
+- [x] 1.2 The `Store` trait's versionless point read and write-batch entries, as required methods
+- [x] 1.3 fjall: the `terms` keyspace beside `data` and `meta`, in the same `OwnedWriteBatch` and `Database::snapshot()`, cleared by `drop_all`, reads not bounded by the discard timestamp; the kill harness covers a batch with versionless entries
+- [x] 1.4 The simulator: the versionless map under every fault class; the shadow-model rule that a batch's versionless entries are visible exactly when its versioned ones are
 
 ## 2. Terms → `ultragraphdb_core_terms`
 
-- [ ] 2.1 Scenarios: term-dictionary ("Literals are encoded by content")
-- [ ] 2.2 The term model on `oxrdf`; `EncodedTerm` with the tag table of the design; encoding by value only for canonical lexical forms, checked by an `oxsdatatypes` round trip
-- [ ] 2.3 Inline small strings, language tags and typed literals; BLAKE2b-128 hashes for the rest; `ugdb:float32vector` by value with its dimension, refused unless canonical, empty-free, finite and at most 65,535 elements; decoding, with the dictionary supplying hashed strings; equal terms encode equally, unequal terms unequally, over every XSD type and directional strings
-- [ ] 2.4 The posting fingerprint: farm `Fingerprint64` of the encoding, injectable for tests
+- [x] 2.1 Scenarios: term-dictionary ("Literals are encoded by content")
+- [x] 2.2 The term model on `oxrdf`; `EncodedTerm` with the tag table of the design; encoding by value only for canonical lexical forms, checked by an `oxsdatatypes` round trip
+- [x] 2.3 Inline small strings, language tags and typed literals; BLAKE2b-128 hashes for the rest; `ugdb:float32vector` by value with its dimension, refused unless canonical, empty-free, finite and at most 65,535 elements; decoding, with the dictionary supplying hashed strings; equal terms encode equally, unequal terms unequally, over every XSD type and directional strings
+- [x] 2.4 The posting fingerprint: farm `Fingerprint64` of the encoding, injectable for tests
 
 ## 3. Quad keys → `ultragraphdb_core_keys`, rewritten
 
-- [ ] 3.1 Scenarios: key-encoding (the modified and added requirements), quad-storage ("The quad keyspaces": key order, literal objects)
-- [ ] 3.2 Builders for every keyspace of the design's table; objects as self-delimiting UIDs or encodings; split keys with the `0x80` flag and the part's start
-- [ ] 3.3 Parsing every keyspace back into its fields; refusal of zero UIDs and of every truncation without a panic, tested by parsing every proper prefix of each key kind
-- [ ] 3.4 `Region` from a key, for every keyspace
+- [x] 3.1 Scenarios: key-encoding (the modified and added requirements), quad-storage ("The quad keyspaces": key order, literal objects)
+- [x] 3.2 Builders for every keyspace of the design's table; objects as self-delimiting UIDs or encodings; split keys with the `0x80` flag and the part's start
+- [x] 3.3 Parsing every keyspace back into its fields; refusal of zero UIDs and of every truncation without a panic, tested by parsing every proper prefix of each key kind
+- [x] 3.4 `Region` from a key, for every keyspace
 - [ ] 3.5 With the user's approval, retire the Dgraph key golden vectors and the generator files that produce only them; list each file removed
 
 ## 4. The mapping contract → `ultragraphdb_core_mapping`
 
-- [ ] 4.1 Scenarios: mapping-contract, every requirement
-- [ ] 4.2 The canonical statement, statement IDs and the rule for allocating one; the contract version
-- [ ] 4.3 The RDF view: quads from statements, one quad for parallel edges, reifiers and annotations for statement IDs and their properties; skolem IRIs under `/.well-known/genid/`, flagged, presented as blank nodes
-- [ ] 4.4 The property-graph view: nodes, labels from `rdf:type`, properties scalar or list by the catalog's cardinality, edges, parallel edges, edge properties; names mapped to IRIs under the base IRI
-- [ ] 4.5 `Changeset`: inserts, deletes, deletes by pattern, statement-property sets and deletes, catalog declarations, in order, with RDF terms
-- [ ] 4.6 Round-trip tests through both views over named graphs, blank nodes, language-tagged, directional, typed and ill-typed literals, parallel edges and edge properties
+- [x] 4.1 Scenarios: mapping-contract, every requirement
+- [x] 4.2 The canonical statement, statement IDs and the rule for allocating one; the contract version
+- [x] 4.3 The RDF view: quads from statements, one quad for parallel edges, reifiers and annotations for statement IDs and their properties; skolem IRIs under `/.well-known/genid/`, flagged, presented as blank nodes
+- [x] 4.4 The property-graph view: nodes, labels from `rdf:type`, properties scalar or list by the catalog's cardinality, edges, parallel edges, edge properties; names mapped to IRIs under the base IRI
+- [x] 4.5 `Changeset`: inserts, deletes, deletes by pattern, statement-property sets and deletes, catalog declarations, in order, with RDF terms
+- [x] 4.6 Round-trip tests through both views over named graphs, blank nodes, language-tagged, directional, typed and ill-typed literals, parallel edges and edge properties
 
 ## 5. The catalog → `ultragraphdb_core_catalog`
 

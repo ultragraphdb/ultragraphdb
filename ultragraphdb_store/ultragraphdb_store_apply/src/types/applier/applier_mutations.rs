@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use ultragraphdb_common_utils::go_strconv;
-use ultragraphdb_core_schema::type_entry;
+use ultragraphdb_core_catalog::type_entry;
 use ultragraphdb_proto_pb::pb::{Mutations, TypeUpdate, mutations::DropOp};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};

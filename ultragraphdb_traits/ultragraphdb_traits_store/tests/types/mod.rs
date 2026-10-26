@@ -18,4 +18,6 @@ mod scan;
 #[cfg(test)]
 mod temporary_tests;
 #[cfg(test)]
+mod versionless_entry_tests;
+#[cfg(test)]
 mod write_batch;

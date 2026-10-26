@@ -26,6 +26,25 @@ fn test_the_fixed_seeds_break_no_invariant_without_faults() {
     }
 }
 
+/// The keyspace without versions read through snapshots and through the store, with every fault class and without.
+#[test]
+fn test_the_fixed_seeds_with_versionless_reads_break_no_invariant() {
+    for seed in 200..232 {
+        let faults = if seed % 4 == 0 {
+            FaultConfig::none()
+        } else {
+            FaultConfig::mixed()
+        };
+        if let Err(violation) =
+            StoreWorkload::new(2)
+                .with_versionless_reads()
+                .run_on(Seed::new(seed), faults, 300)
+        {
+            panic!("{violation}");
+        }
+    }
+}
+
 /// Seeds on which a model with the defect each names breaks an invariant, replayed as `store_sim_fuzz` runs them, with
 /// every fault class and three readers, to a few steps past the step it fails at.
 #[test]

@@ -13,7 +13,7 @@
  */
 
 use ultragraphdb_core_keys::{ROOT_NAMESPACE, parse_namespace, type_key};
-use ultragraphdb_core_schema::{initial_schema, initial_types, schema_entry, type_entry};
+use ultragraphdb_core_catalog::{initial_schema, initial_types, schema_entry, type_entry};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::{Entry, Executor, ListCache, Store};
 

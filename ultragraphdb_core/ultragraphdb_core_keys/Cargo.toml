@@ -20,9 +20,11 @@ workspace = true
 
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_num = { workspace = true }
 
 [dev-dependencies]
+oxrdf = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

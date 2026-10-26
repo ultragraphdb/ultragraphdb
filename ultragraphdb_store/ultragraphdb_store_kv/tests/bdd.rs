@@ -23,7 +23,7 @@ use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnap
 
 use crate::crash_harness::{
     DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open,
-    raw_drop_state,
+    raw_drop_state, versionless_counts,
 };
 
 #[derive(Debug, Default, World)]
@@ -36,6 +36,7 @@ struct Steps {
     reader_results: Vec<(usize, usize)>,
     outcomes: Vec<String>,
     verdict: Option<&'static str>,
+    versionless: Vec<Option<Vec<u8>>>,
 }
 
 impl Drop for Steps {
@@ -407,6 +408,89 @@ fn whole_batch(w: &mut Steps) {
             "{outcome}"
         );
     }
+}
+
+#[when(
+    "a batch writes a versioned key and a key without a version, and the process crashes during the batch"
+)]
+fn killed_during_mixed_batch(w: &mut Steps) {
+    for delay in [0u64, 2, 5] {
+        let dir = fresh_dir(&format!("bdd-mixed-{}", next()));
+        let lines = kill_after(&dir, "mixed", "batch 2", Duration::from_millis(delay));
+        let started = lines.iter().filter(|l| l.starts_with("batch ")).count() as u64;
+        let store = open(&dir);
+        let versioned = batch_counts(&store, started + 1);
+        let versionless = versionless_counts(&store, started + 1);
+        w.outcomes.push(format!("{versioned:?} {versionless:?}"));
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[then("after reopening, either both are found or neither is")]
+fn both_or_neither(w: &mut Steps) {
+    assert_eq!(w.outcomes.len(), 3);
+    for outcome in &w.outcomes {
+        let lists: Vec<Vec<usize>> = outcome
+            .split("] [")
+            .map(|l| {
+                l.trim_matches(['[', ']'])
+                    .split(", ")
+                    .map(|c| c.parse().unwrap())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(lists[0], lists[1], "{outcome}");
+        assert!(
+            lists[0].iter().all(|&c| c == 0 || c == KEYS_PER_BATCH),
+            "{outcome}"
+        );
+    }
+}
+
+#[when("a key that was never written is read from the keyspace without versions")]
+fn read_absent_versionless(w: &mut Steps) {
+    let mut batch = WriteBatch::new();
+    (0u32..1000).for_each(|i| batch.put_versionless(format!("t{i}").into_bytes(), vec![1]));
+    let store = w.open();
+    store.apply(batch, PersistMode::Buffer).expect("written");
+    // Flushed into a table, so the read below is answered by the table's bloom filter, not the memtable.
+    store.compact().expect("compacts");
+    w.versionless = vec![
+        store.get_versionless(b"never").expect("read"),
+        store
+            .snapshot(1)
+            .expect("opens")
+            .get_versionless(b"never")
+            .expect("read"),
+        store.get_versionless(b"t7").expect("read"),
+    ];
+}
+
+#[then("the read returns nothing, through one point lookup")]
+fn absent_read_nothing(w: &mut Steps) {
+    // `get_versionless` is one `Keyspace::get`, and a snapshot's one `Snapshot::get`; neither seeks a range.
+    assert_eq!(w.versionless, vec![None, None, Some(vec![1])]);
+}
+
+#[when("keys without versions are written and everything is dropped")]
+fn versionless_dropped(w: &mut Steps) {
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(b"t1".to_vec(), vec![1]);
+    batch.put_versionless(b"t2".to_vec(), vec![2]);
+    batch.push(put(b"k", 3, b"v"));
+    let store = w.open();
+    store.apply(batch, PersistMode::Buffer).expect("written");
+    store.drop_all(Vec::new()).expect("dropped");
+    w.reopen();
+}
+
+#[then("none of them is found")]
+fn none_found(w: &mut Steps) {
+    let store = w.store.as_ref().expect("open");
+    assert_eq!(store.get_versionless(b"t1").expect("read"), None);
+    assert_eq!(store.get_versionless(b"t2").expect("read"), None);
+    assert!(store.dump_versionless().expect("dumps").is_empty());
 }
 
 #[when("one batch writes key a at version 12 and key b at version 13")]

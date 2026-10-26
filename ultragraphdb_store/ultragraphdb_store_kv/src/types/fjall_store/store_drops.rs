@@ -64,6 +64,7 @@ impl Shared {
             }
             None => {
                 self.data.clear().map_err(|e| self.failed(e))?;
+                self.terms.clear().map_err(|e| self.failed(e))?;
                 self.reset_meta()?;
                 // A clear leaves no removed version a compaction could still read.
                 false

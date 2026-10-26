@@ -480,3 +480,140 @@ fn test_a_drop_without_prefixes_removes_nothing_and_writes_its_entries() {
         [b"\x00a".to_vec(), b"\x00b".to_vec()]
     );
 }
+
+/// A batch of versionless writes, with one versioned entry beside them.
+fn versionless_batch(writes: &[(&[u8], Option<&[u8]>)], version: u64) -> WriteBatch {
+    let mut batch = WriteBatch::new();
+    batch.push(put(&ns_key(0, b"data"), version, b"v"));
+    for (key, value) in writes {
+        match value {
+            Some(value) => batch.put_versionless(key.to_vec(), value.to_vec()),
+            None => batch.remove_versionless(key.to_vec()),
+        }
+    }
+    batch
+}
+
+#[test]
+fn test_versionless_writes_replace_remove_and_survive_a_crash() {
+    let s = store();
+    s.apply(
+        versionless_batch(
+            &[(b"a", Some(b"1")), (b"b", Some(b"2")), (b"a", Some(b"3"))],
+            1,
+        ),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.apply(versionless_batch(&[(b"b", None)], 2), PersistMode::Sync)
+        .unwrap();
+    assert_eq!(
+        s.get_versionless(b"a").unwrap(),
+        Some(b"3".to_vec()),
+        "the later write wins"
+    );
+    assert_eq!(s.get_versionless(b"b").unwrap(), None);
+    s.crash();
+    assert_eq!(
+        s.get_versionless(b"a"),
+        Err(StoreError::Poisoned()),
+        "a process that is down reads nothing"
+    );
+    s.recover();
+    let held: Vec<_> = s.contents().versionless().clone().into_iter().collect();
+    assert_eq!(held, vec![(b"a".to_vec(), b"3".to_vec())]);
+}
+
+#[test]
+fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() {
+    let s = store();
+    s.apply(
+        versionless_batch(&[(b"a", Some(b"1"))], 1),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    let snapshot = s.snapshot(1).unwrap();
+    s.apply(
+        versionless_batch(&[(b"a", Some(b"2")), (b"b", Some(b"3"))], 2),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    assert_eq!(snapshot.get_versionless(b"a").unwrap(), Some(b"1".to_vec()));
+    assert_eq!(snapshot.get_versionless(b"b").unwrap(), None);
+    assert_eq!(s.get_versionless(b"a").unwrap(), Some(b"2".to_vec()));
+    drop(snapshot);
+    s.set_discard_ts(2).unwrap();
+    assert!(matches!(s.snapshot(1), Err(e) if matches!(e.0, StoreErrorEnum::TsTooOld)));
+    assert_eq!(s.get_versionless(b"b").unwrap(), Some(b"3".to_vec()));
+}
+
+#[test]
+fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone() {
+    let s = store();
+    s.apply(
+        versionless_batch(&[(&ns_key(5, b"t"), Some(b"1"))], 1),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.ban_namespace(5).unwrap();
+    s.apply(
+        versionless_batch(&[(&ns_key(5, b"u"), Some(b"2"))], 2),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.drop_prefixes(3, &[vec![0x00]], Vec::new()).unwrap();
+    assert_eq!(
+        s.get_versionless(&ns_key(5, b"t")).unwrap(),
+        Some(b"1".to_vec())
+    );
+    assert_eq!(
+        s.get_versionless(&ns_key(5, b"u")).unwrap(),
+        Some(b"2".to_vec())
+    );
+    let temporary = s.create_temporary().unwrap();
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(b"tmp".to_vec(), b"x".to_vec());
+    s.apply_temporary(&temporary, batch).unwrap();
+    let snapshot = s.temporary_snapshot(&temporary).unwrap();
+    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t")).unwrap(), None);
+    assert_eq!(
+        s.get_versionless(b"tmp").unwrap(),
+        None,
+        "a temporary batch's versionless writes are ignored"
+    );
+    s.drop_all(Vec::new()).unwrap();
+    assert!(
+        s.contents().versionless().is_empty(),
+        "a drop of everything clears them"
+    );
+}
+
+#[test]
+fn test_a_versionless_read_is_logged_with_its_snapshot() {
+    let s = store();
+    s.apply(
+        versionless_batch(&[(b"a", Some(b"1"))], 1),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    let snapshot = s.snapshot(1).unwrap();
+    s.take_log();
+    snapshot.get_versionless(b"a").unwrap();
+    s.get_versionless(b"z").unwrap();
+    let id = snapshot.id();
+    assert_eq!(
+        s.take_log(),
+        vec![
+            OpRecord::ReadVersionless {
+                id: Some(id),
+                key: b"a".to_vec(),
+                result: Ok(Some(b"1".to_vec()))
+            },
+            OpRecord::ReadVersionless {
+                id: None,
+                key: b"z".to_vec(),
+                result: Ok(None)
+            },
+        ]
+    );
+}

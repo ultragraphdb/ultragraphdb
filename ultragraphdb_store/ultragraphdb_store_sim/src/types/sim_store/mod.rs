@@ -245,6 +245,7 @@ impl SimStore {
             state.horizon,
         )
         .with_rebuild_records(state.rebuild_records.clone())
+        .with_versionless(state.versionless.clone())
     }
 
     /// The log of operations and faults since the last call, oldest first.
@@ -294,10 +295,12 @@ impl Inner {
         }
     }
 
-    /// The batch record of `batch`, its entries addressed to a banned namespace dropped.
+    /// The batch record of `batch`, its entries addressed to a banned namespace dropped; no ban drops its versionless
+    /// writes.
     pub fn batch_record(&self, batch: &WriteBatch) -> Record {
         Record::Batch {
             entries: self.admitted(batch.entries()),
+            versionless: batch.versionless().to_vec(),
             applied_ts: batch.applied_ts(),
             removed_records: batch.removed_rebuild_records().to_vec(),
             fenced: false,
@@ -320,6 +323,7 @@ impl Inner {
     pub fn drop_entries_record(&self, record: &DropRecord) -> Record {
         Record::Batch {
             entries: self.admitted(&record.entries),
+            versionless: Vec::new(),
             applied_ts: None,
             removed_records: Vec::new(),
             fenced: record.prefixes.is_some(),

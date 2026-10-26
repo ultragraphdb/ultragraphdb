@@ -4,3 +4,4 @@
  */
 
 pub(crate) mod key_error;
+pub(crate) mod quad_key_error;

@@ -28,8 +28,8 @@ const COLLECTED_IN_A_BATCH: usize = 100_000;
 impl Store for FjallStore {
     type Snapshot = FjallSnapshot;
 
-    /// One fjall batch, whatever its size, with the applied timestamp in the metadata keyspace beside its entries and
-    /// the removal of the rebuild records it names.
+    /// One fjall batch, whatever its size, with the applied timestamp in the metadata keyspace beside its entries, its
+    /// versionless writes in the keyspace without versions and the removal of the rebuild records it names.
     fn apply(&self, batch: WriteBatch, mode: PersistMode) -> Result<(), StoreError> {
         let s = &self.shared;
         let _writer = lock(&s.writer);
@@ -46,7 +46,14 @@ impl Store for FjallStore {
         for id in batch.removed_rebuild_records() {
             fb.remove(&s.meta, rebuild_key(*id));
         }
-        for e in batch.into_entries() {
+        let (entries, versionless) = batch.into_parts();
+        for e in versionless {
+            match e.value() {
+                Some(value) => fb.insert(&s.terms, e.key(), value),
+                None => fb.remove(&s.terms, e.key()),
+            }
+        }
+        for e in entries {
             if key_namespace(e.key()).is_some_and(|ns| banned.contains(&ns)) {
                 continue;
             }
@@ -64,6 +71,15 @@ impl Store for FjallStore {
             s.applied_ts.store(ts, Ordering::Release);
         }
         Ok(())
+    }
+
+    /// One point get, through the keyspace's bloom filters.
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        self.shared
+            .terms
+            .get(key)
+            .map(|v| v.map(|v| v.to_vec()))
+            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))
     }
 
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {

@@ -5,7 +5,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_traits_store::{Direction, Entry, Item, RebuildRecord, Scan, key_namespace};
+use ultragraphdb_traits_store::{
+    Direction, Entry, Item, RebuildRecord, Scan, VersionlessEntry, key_namespace,
+};
 
 use crate::types::contents::Contents;
 use crate::types::stored_version::StoredVersion;
@@ -24,6 +26,7 @@ pub struct ModelVersion {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelState {
     pub keys: BTreeMap<Vec<u8>, BTreeMap<u64, ModelVersion>>,
+    pub versionless: BTreeMap<Vec<u8>, Vec<u8>>,
     pub applied_ts: u64,
     pub banned: BTreeSet<u64>,
     pub discard_ts: u64,
@@ -36,6 +39,7 @@ pub struct ModelState {
 pub enum ModelOp {
     Batch {
         entries: Vec<Entry>,
+        versionless: Vec<VersionlessEntry>,
         applied_ts: Option<u64>,
         removed_records: Vec<u64>,
     },
@@ -72,10 +76,21 @@ impl ModelState {
         match op {
             ModelOp::Batch {
                 entries,
+                versionless,
                 applied_ts,
                 removed_records,
             } => {
                 self.write(entries, false);
+                for e in versionless {
+                    match e.value() {
+                        Some(value) => {
+                            self.versionless.insert(e.key().to_vec(), value.to_vec());
+                        }
+                        None => {
+                            self.versionless.remove(e.key());
+                        }
+                    }
+                }
                 if let Some(ts) = applied_ts {
                     self.applied_ts = self.applied_ts.max(*ts);
                 }
@@ -90,6 +105,7 @@ impl ModelState {
             ModelOp::Drop { prefixes, entries } => {
                 self.keys.retain(|key, _| !covers(prefixes, key));
                 if prefixes.is_none() {
+                    self.versionless.clear();
                     self.applied_ts = 0;
                     self.banned.clear();
                     self.discard_ts = 0;
@@ -214,6 +230,7 @@ impl ModelState {
             self.horizon,
         )
         .with_rebuild_records(self.rebuild_records.clone())
+        .with_versionless(self.versionless.clone())
     }
 
     /// `entries` written to a temporary keyspace this state models: every entry, whatever its namespace.

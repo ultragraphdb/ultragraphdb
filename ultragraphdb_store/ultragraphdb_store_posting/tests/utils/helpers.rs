@@ -246,6 +246,10 @@ impl Store for Probe {
         self.inner.apply(batch, mode)
     }
 
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        self.inner.get_versionless(key)
+    }
+
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         Self::run(&self.on_snapshot);
         self.inner.snapshot(read_ts)

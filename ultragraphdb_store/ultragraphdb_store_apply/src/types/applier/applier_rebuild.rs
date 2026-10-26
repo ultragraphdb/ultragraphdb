@@ -23,7 +23,7 @@
 use std::ops::ControlFlow;
 
 use ultragraphdb_core_keys::{STAR, count_key, index_key, parse, reverse_key};
-use ultragraphdb_core_schema::schema_entry;
+use ultragraphdb_core_catalog::schema_entry;
 use ultragraphdb_core_types::{TypeId, Value, convert, marshal};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_proto_pb::pb::schema_update::Directive;

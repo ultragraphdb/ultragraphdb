@@ -39,6 +39,7 @@ pub use crate::types::persist_mode::PersistMode;
 pub use crate::types::rebuild_record::RebuildRecord;
 pub use crate::types::scan::Scan;
 pub use crate::types::temporary::Temporary;
+pub use crate::types::versionless_entry::VersionlessEntry;
 pub use crate::types::write_batch::WriteBatch;
 pub use crate::utils::key_size::{
     MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, check_key_size, stored_key_size,

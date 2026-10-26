@@ -466,3 +466,109 @@ fn test_a_ban_covers_only_keys_longer_than_their_namespace() {
         "the write to the banned namespace was dropped"
     );
 }
+
+/// A batch of versionless writes, with one versioned entry beside them.
+fn versionless_batch(writes: &[(&[u8], Option<&[u8]>)], version: u64) -> WriteBatch {
+    let mut batch = WriteBatch::new();
+    batch.push(put(&ns_key(0, b"data"), version, b"v"));
+    for (key, value) in writes {
+        match value {
+            Some(value) => batch.put_versionless(key.to_vec(), value.to_vec()),
+            None => batch.remove_versionless(key.to_vec()),
+        }
+    }
+    batch
+}
+
+#[test]
+fn test_versionless_writes_replace_remove_and_survive_a_reopen() {
+    let dir = TestDir::new("versionless");
+    let s = dir.open();
+    s.apply(
+        versionless_batch(
+            &[(b"a", Some(b"1")), (b"b", Some(b"2")), (b"a", Some(b"3"))],
+            1,
+        ),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.apply(versionless_batch(&[(b"b", None)], 2), PersistMode::Sync)
+        .unwrap();
+    assert_eq!(
+        s.get_versionless(b"a").unwrap(),
+        Some(b"3".to_vec()),
+        "the later write wins"
+    );
+    assert_eq!(s.get_versionless(b"b").unwrap(), None);
+    drop(s);
+    let s = dir.open();
+    assert_eq!(
+        s.dump_versionless()
+            .unwrap()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        vec![(b"a".to_vec(), b"3".to_vec())]
+    );
+}
+
+#[test]
+fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() {
+    let dir = TestDir::new("versionless-snapshot");
+    let s = dir.open();
+    s.apply(
+        versionless_batch(&[(b"a", Some(b"1"))], 1),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    let snapshot = s.snapshot(1).unwrap();
+    s.apply(
+        versionless_batch(&[(b"a", Some(b"2")), (b"b", Some(b"3"))], 2),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    assert_eq!(snapshot.get_versionless(b"a").unwrap(), Some(b"1".to_vec()));
+    assert_eq!(snapshot.get_versionless(b"b").unwrap(), None);
+    assert_eq!(s.get_versionless(b"a").unwrap(), Some(b"2".to_vec()));
+    // Below the discard timestamp a snapshot is refused; the store's own read is bounded by none.
+    s.set_discard_ts(2).unwrap();
+    drop(snapshot);
+    assert!(matches!(s.snapshot(1), Err(StoreError(_))));
+    assert_eq!(s.get_versionless(b"b").unwrap(), Some(b"3".to_vec()));
+}
+
+#[test]
+fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone() {
+    let dir = TestDir::new("versionless-kept");
+    let s = dir.open();
+    s.apply(
+        versionless_batch(&[(&ns_key(5, b"t"), Some(b"1"))], 1),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.ban_namespace(5).unwrap();
+    s.apply(
+        versionless_batch(&[(&ns_key(5, b"u"), Some(b"2"))], 2),
+        PersistMode::Buffer,
+    )
+    .unwrap();
+    s.drop_prefixes(3, &[vec![0x00]], Vec::new()).unwrap();
+    assert_eq!(
+        s.get_versionless(&ns_key(5, b"t")).unwrap(),
+        Some(b"1".to_vec())
+    );
+    assert_eq!(
+        s.get_versionless(&ns_key(5, b"u")).unwrap(),
+        Some(b"2".to_vec())
+    );
+    let temporary = s.create_temporary().unwrap();
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(b"tmp".to_vec(), b"x".to_vec());
+    s.apply_temporary(&temporary, batch).unwrap();
+    let snapshot = s.temporary_snapshot(&temporary).unwrap();
+    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t")).unwrap(), None);
+    assert_eq!(
+        s.get_versionless(b"tmp").unwrap(),
+        None,
+        "a temporary batch's versionless writes are ignored"
+    );
+}

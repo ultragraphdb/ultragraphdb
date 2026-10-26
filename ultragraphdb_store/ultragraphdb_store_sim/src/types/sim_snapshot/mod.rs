@@ -81,6 +81,13 @@ impl SimSnapshot {
         }
     }
 
+    /// The value of `key` in the keyspace without versions the snapshot reads; none in a temporary keyspace.
+    fn versionless(&self, key: &[u8]) -> Option<Vec<u8>> {
+        (!self.temporary)
+            .then(|| self.state.versionless.get(key).cloned())
+            .flatten()
+    }
+
     fn banned(&self, key: &[u8]) -> bool {
         key_namespace(key).is_some_and(|ns| self.state.banned.contains(&ns))
     }

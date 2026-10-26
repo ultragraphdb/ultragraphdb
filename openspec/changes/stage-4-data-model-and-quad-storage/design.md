@@ -37,13 +37,18 @@ writer lock.
 |---|---|---|---|
 | `ultragraphdb_core_terms` | `ultragraphdb_core/ultragraphdb_core_terms` | `oxrdf`, `oxsdatatypes`, `blake2`, `ultragraphdb_common_utils` | The term model on `oxrdf`; `EncodedTerm` and its encoding, decoding and canonical-form check; the 128-bit hash; the posting fingerprint |
 | `ultragraphdb_core_keys` | rewritten in place | `ultragraphdb_core_terms` | The quad keys, their parsing, split keys and regions |
-| `ultragraphdb_core_mapping` | `ultragraphdb_core/ultragraphdb_core_mapping` | `ultragraphdb_core_terms`, `oxrdf` | The canonical statement, statement IDs, the RDF and property-graph views, `Changeset`, the contract version |
+| `ultragraphdb_core_mapping` | `ultragraphdb_core/ultragraphdb_core_mapping` | `ultragraphdb_core_terms`, `oxrdf` | The canonical statement, statement IDs, the RDF and property-graph views, `Changeset` and the declaration values it carries, the contract version, and `CanonicalDataset`, the canonical statements in memory that a store is checked against |
 | `ultragraphdb_core_catalog` | `ultragraphdb_core_schema`, moved with `git mv` and renamed | `ultragraphdb_core_keys`, `ultragraphdb_core_terms`, `ultragraphdb_core_tok`, `ultragraphdb_traits_store` | Declarations, defaults, the write checks, persistence, preorder numbering; the DQL schema parser removed |
 | `ultragraphdb_store_quads` | `ultragraphdb_store/ultragraphdb_store_quads` | `ultragraphdb_store_posting`, `ultragraphdb_core_keys`, `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_traits_store` | The dictionary over the keyspace without versions, UID and statement-ID allocation, quad reads and writes on posting lists, statistics |
 | `ultragraphdb_store_apply` | changed | adds `ultragraphdb_store_quads`, `ultragraphdb_core_catalog`, `ultragraphdb_core_mapping` | Changesets applied through index maintenance, rebuilds and drops on the catalog |
 
+`oxrdf` 0.3.5 with `rdf-12`, for RDF 1.2's directional language-tagged strings, and `oxsdatatypes` 0.2.4 with no
+features: both MIT OR Apache-2.0 and pure Rust, Oxigraph's own term model and XSD values, so the canonical test below is
+the round trip SPARQL engines built on them use.
+
 `ultragraphdb_core_mapping` holds `Changeset` because it is the contract between the engines and storage: stages 6 and 8
-produce changesets without depending on a storage crate.
+produce changesets without depending on a storage crate. A changeset carries catalog declarations, so their values are the mapping crate's
+too; the catalog crate holds their state, persistence and checks.
 
 **Removed, with the user's approval at the task that removes them:**
 - `ultragraphdb_core_dql`;

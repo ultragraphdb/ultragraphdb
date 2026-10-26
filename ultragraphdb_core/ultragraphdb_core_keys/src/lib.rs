@@ -16,6 +16,7 @@ mod values;
 mod x;
 
 pub use crate::errors::key_error::{KeyError, KeyErrorEnum};
+pub use crate::errors::quad_key_error::{QuadKeyError, QuadKeyErrorEnum};
 pub use crate::keys::key_builders::{
     count_key, data_key, data_prefix, index_key, index_key_after_all_terms, predicate_prefix,
     reverse_key, schema_key, schema_prefix, split_key, type_key, type_prefix,
@@ -40,7 +41,11 @@ pub use crate::keys::{
     BYTE_TYPE, BYTE_UNUSED, DEFAULT_PREFIX, IGNORE_BYTES, NAMESPACE_OFFSET, NS_SEPARATOR,
     ROOT_NAMESPACE,
 };
+pub use crate::types::count_direction::CountDirection;
+pub use crate::types::keyspace::{Keyspace, SPLIT_FLAG};
 pub use crate::types::parsed_key::ParsedKey;
+pub use crate::types::quad_key::{DEFAULT_GRAPH, QuadKey, key_prefix};
+pub use crate::types::region::Region;
 pub use crate::types::reserved_namespace::ReservedNamespace;
 pub use crate::types::trust_marker::TrustMarker;
 pub use crate::types::value_type_info::ValueTypeInfo;

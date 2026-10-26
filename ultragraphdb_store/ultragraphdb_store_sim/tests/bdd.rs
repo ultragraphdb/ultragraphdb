@@ -21,6 +21,8 @@ struct Steps {
     /// Per seed: the refusal of the write after the failure, and the store after reopening.
     poisoned: Vec<(Result<(), StoreError>, Contents)>,
     violation: Option<Result<RunOutcome, Violation>>,
+    /// Per seed: the store after recovery, for batches written with versionless keys.
+    mixed: Vec<Contents>,
 }
 
 const BATCHES: u64 = 12;
@@ -93,6 +95,63 @@ fn runs_equal(w: &mut Steps) {
         })
         .collect();
     assert!(injected.len() >= 3, "the run injected only {injected:?}");
+}
+
+/// Versionless key `j` of batch `i`.
+fn versionless_key(i: u64, j: u64) -> Vec<u8> {
+    let mut key = b"t".to_vec();
+    key.extend_from_slice(&(i * 100 + j).to_be_bytes());
+    key
+}
+
+#[when("batches write versioned and versionless keys together and a power loss is injected")]
+fn mixed_power_loss(w: &mut Steps) {
+    w.mixed = (0..40)
+        .map(|seed| {
+            let store = new_store(seed);
+            for i in 1..=BATCHES {
+                let mut b = batch(i);
+                (0..KEYS_PER_BATCH).for_each(|j| b.put_versionless(versionless_key(i, j), vec![1]));
+                let mode = if i == 3 {
+                    PersistMode::Sync
+                } else {
+                    PersistMode::Buffer
+                };
+                store.apply(b, mode).expect("no fault is configured");
+            }
+            store.power_loss();
+            store.recover();
+            store.contents()
+        })
+        .collect();
+}
+
+#[then(
+    "after recovery every surviving batch's versionless entries are present, and every lost batch's are absent"
+)]
+fn mixed_kept(w: &mut Steps) {
+    let mut survivors = BTreeSet::new();
+    for contents in &w.mixed {
+        let mut kept = 0;
+        for i in 1..=BATCHES {
+            let versionless = (0..KEYS_PER_BATCH)
+                .filter(|&j| contents.versionless().contains_key(&versionless_key(i, j)))
+                .count() as u64;
+            assert_eq!(
+                held(contents, i),
+                versionless,
+                "batch {i} split: {contents:?}"
+            );
+            if versionless == KEYS_PER_BATCH {
+                kept = i;
+            }
+        }
+        survivors.insert(kept);
+    }
+    assert!(
+        survivors.len() > 3,
+        "the power losses kept too few outcomes: {survivors:?}"
+    );
 }
 
 #[when("batches are written, some synced, and a power loss is injected")]

@@ -10,4 +10,5 @@ pub mod persist_mode;
 pub mod rebuild_record;
 pub mod scan;
 pub mod temporary;
+pub mod versionless_entry;
 pub mod write_batch;

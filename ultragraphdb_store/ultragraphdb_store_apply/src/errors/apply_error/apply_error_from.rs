@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_keys::KeyError;
-use ultragraphdb_core_schema::SchemaError;
+use ultragraphdb_core_catalog::SchemaError;
 use ultragraphdb_core_tok::TokError;
 use ultragraphdb_core_types::TypesError;
 use ultragraphdb_error_num::NumError;

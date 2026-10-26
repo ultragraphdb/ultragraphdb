@@ -63,6 +63,27 @@ impl StoreSnapshot for SimSnapshot {
         result
     }
 
+    /// The value the snapshot's state holds, with the store's read failures and slow operations; a temporary keyspace
+    /// holds none, and a corruption never reaches the keyspace without versions.
+    fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
+        let mut inner = lock(&self.shared);
+        inner.maybe_slow();
+        let result = if inner.faults.read_fails() {
+            Err(StoreError::ReadFailed(
+                key.to_vec(),
+                "simulated read failure".into(),
+            ))
+        } else {
+            Ok(self.versionless(key))
+        };
+        inner.log.push(OpRecord::ReadVersionless {
+            id: Some(self.id),
+            key: key.to_vec(),
+            result: result.clone(),
+        });
+        result
+    }
+
     fn get_many<K: AsRef<[u8]>>(&self, keys: &[K]) -> Result<Vec<Option<Item>>, StoreError> {
         let mut inner = lock(&self.shared);
         inner.maybe_slow();

@@ -28,3 +28,7 @@ Feature: Storage simulation
   Scenario: A violated invariant names its seed
     When a run breaks an invariant
     Then the simulator stops and reports the invariant, the step and the seed
+
+  Scenario: A power loss keeps a batch's two halves together
+    When batches write versioned and versionless keys together and a power loss is injected
+    Then after recovery every surviving batch's versionless entries are present, and every lost batch's are absent

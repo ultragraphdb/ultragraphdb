@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ultragraphdb_core_schema::parse;
+use ultragraphdb_core_catalog::parse;
 use ultragraphdb_store_apply::{Applier, ApplyError};
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};

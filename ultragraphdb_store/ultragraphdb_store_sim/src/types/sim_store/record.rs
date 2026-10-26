@@ -5,7 +5,7 @@
 
 use std::cmp::Reverse;
 
-use ultragraphdb_traits_store::{Entry, RebuildRecord};
+use ultragraphdb_traits_store::{Entry, RebuildRecord, VersionlessEntry};
 
 use crate::types::sim_store::state::{DropRecord, State, encode};
 
@@ -13,10 +13,11 @@ use crate::types::sim_store::state::{DropRecord, State, encode};
 /// prefix of the records written since the last sync.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Record {
-    /// A write batch, its entries to banned namespaces already dropped, with the rebuild records it removes; fenced
-    /// when a prefix drop writes it.
+    /// A write batch, its entries to banned namespaces already dropped, with its versionless writes and the rebuild
+    /// records it removes; fenced when a prefix drop writes it.
     Batch {
         entries: Vec<Entry>,
+        versionless: Vec<VersionlessEntry>,
         applied_ts: Option<u64>,
         removed_records: Vec<u64>,
         fenced: bool,
@@ -27,7 +28,7 @@ pub enum Record {
     StartDrop(DropRecord),
     /// Removals of stored versions, one batch of a drop.
     Remove(Vec<(Vec<u8>, u64)>),
-    /// `Keyspace::clear` of the data keyspace.
+    /// `Keyspace::clear` of the data keyspace and of the keyspace without versions.
     Clear,
     /// A drop of everything clearing the metadata it resets, the rebuild records included.
     ResetMeta,
@@ -43,6 +44,7 @@ impl Record {
         match self {
             Record::Batch {
                 entries,
+                versionless,
                 applied_ts,
                 removed_records,
                 fenced,
@@ -52,6 +54,18 @@ impl Record {
                         (entry.key().to_vec(), Reverse(entry.version())),
                         encode(entry, *fenced),
                     );
+                }
+                for entry in versionless {
+                    match entry.value() {
+                        Some(value) => {
+                            state
+                                .versionless
+                                .insert(entry.key().to_vec(), value.to_vec());
+                        }
+                        None => {
+                            state.versionless.remove(entry.key());
+                        }
+                    }
                 }
                 if let Some(ts) = applied_ts {
                     state.applied_ts = state.applied_ts.max(*ts);
@@ -69,7 +83,10 @@ impl Record {
             Record::Remove(keys) => keys.iter().for_each(|(key, version)| {
                 state.data.remove(&(key.clone(), Reverse(*version)));
             }),
-            Record::Clear => state.data.clear(),
+            Record::Clear => {
+                state.data.clear();
+                state.versionless.clear();
+            }
             Record::ResetMeta => {
                 state.applied_ts = 0;
                 state.banned.clear();

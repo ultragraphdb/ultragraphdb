@@ -7,7 +7,8 @@
 //! about to do, so that the test kills it during a batch or at a stage it stops at.
 //!
 //! `kv_crash_writer <dir> batches` writes batch after batch, batch `i` holding [`KEYS_PER_BATCH`] keys at version
-//! `i` and recording `i` as applied. The other modes take the stage to stop at, `kv_crash_writer <dir> <mode>
+//! `i` and recording `i` as applied; `mixed` writes the same batches, each with as many keys again without a version,
+//! `t`, `i` and the key's number, beside its versioned ones. The other modes take the stage to stop at, `kv_crash_writer <dir> <mode>
 //! <stage>`: each announces `stage <name>` on stdout at every stage it reaches, and at `<stage>` waits to be killed,
 //! as it waits after its last. `drop` writes [`DROPPED_KEYS`] keys under [`DROP_PREFIX`], syncs, then drops the
 //! prefix with one entry to write once it is empty, through the stages `start`, `record-synced`, `removing-<n>` after
@@ -55,6 +56,21 @@ fn batches(store: &FjallStore) -> Result<(), StoreError> {
         let mut batch = WriteBatch::new();
         (0..KEYS_PER_BATCH)
             .for_each(|j| batch.push(Entry::put(key(b"\x00b", i, j), i, 0x04, vec![7; 100])));
+        batch.set_applied_ts(i);
+        say(&format!("batch {i}"));
+        store.apply(batch, PersistMode::Buffer)?;
+        say(&format!("applied {i}"));
+    }
+    Ok(())
+}
+
+fn mixed(store: &FjallStore) -> Result<(), StoreError> {
+    for i in 1u64.. {
+        let mut batch = WriteBatch::new();
+        (0..KEYS_PER_BATCH).for_each(|j| {
+            batch.push(Entry::put(key(b"\x00b", i, j), i, 0x04, vec![7; 100]));
+            batch.put_versionless(key(b"t", i, j), vec![9; 16]);
+        });
         batch.set_applied_ts(i);
         say(&format!("batch {i}"));
         store.apply(batch, PersistMode::Buffer)?;
@@ -143,6 +159,7 @@ fn main() -> ExitCode {
     let stop = args.get(3).map_or("", String::as_str);
     let result = match mode.as_str() {
         "batches" => batches(&store),
+        "mixed" => mixed(&store),
         "drop" => drop_prefix(&store, stop),
         "temporary" => temporary(&store, stop),
         "record" => record(&store, stop),
