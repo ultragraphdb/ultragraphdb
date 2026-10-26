@@ -1,0 +1,331 @@
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/store_gc_tests.rs
+  s_bb262a92b0770b::t_89046fb8bec4c4 157
+  s_bb262a92b0770b::t_ccbdf3e10b1dc1 351-385
+ultragraphdb_core/ultragraphdb_core_tok/tests/types/vector_index_factory_tests.rs
+  s_bb262a92b0770b::t_77d7dff1c250f8 64
+ultragraphdb_common/ultragraphdb_common_utils/tests/utils/go_farm_tests.rs
+  s_bb262a92b0770b::t_5357e620099ec6 208-209
+ultragraphdb_store/ultragraphdb_store_sim/tests/bdd.rs
+  s_bb262a92b0770b::t_4eb2f5683c663a 140-143
+ultragraphdb_traits/ultragraphdb_traits_store/tests/types/versionless_entry_tests.rs
+  s_bb262a92b0770b::t_5c23d81eec28e1 17-24
+  s_bb262a92b0770b::t_953944ebbd41b7 16
+ultragraphdb_traits/ultragraphdb_traits_store/tests/types/temporary_tests.rs
+  s_bb262a92b0770b::t_366b2d780b8d61 14-16
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_iterate_tests.rs
+  s_bb262a92b0770b::t_5780e29f738d19 1-240
+  s_bb262a92b0770b::t_9a9d2b3d44b200 241-307
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_uids_tests.rs
+  s_bb262a92b0770b::t_552dc9c6ff8bae 44-45,49-56
+  s_bb262a92b0770b::t_6cf3788e791c60 1-43,46-48,57-198,202
+  s_bb262a92b0770b::t_43feba8ef30299 199-201,203-316
+ultragraphdb_core/ultragraphdb_core_tok/tests/utils/langbase_tests.rs
+  s_bb262a92b0770b::t_7a405e25d114a8 73,104-107,112-160
+  s_bb262a92b0770b::t_e6e1c8dccde052 161-162
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/store_model/store_model_versionless_tests.rs
+  s_bb262a92b0770b::t_86c442ff4ddb13 1-486
+  s_bb262a92b0770b::t_1eac022be79b78 487-577
+ultragraphdb_traits/ultragraphdb_traits_store/tests/types/write_batch/write_batch_tests.rs
+  s_bb262a92b0770b::t_a73598fb062438 46-75,77-87,89,102,104,114
+  s_bb262a92b0770b::t_31b7d756628ad0 88,90-101,103,105,107-108,110-113,115
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/helper_tests.rs
+  s_bb262a92b0770b::t_bd2dd1b065183b 181
+  s_bb262a92b0770b::t_0dca0f2b7739d1 41,44-49,80-91,133-141,162-166
+ultragraphdb_store/ultragraphdb_store_apply/src/utils/token_values.rs
+  s_bb262a92b0770b::t_4514d33e95b4c5 52-57
+  s_bb262a92b0770b::t_6a7a60f756e254 15-16
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_rebuild.rs
+  s_bb262a92b0770b::t_02f43d1db7568a 92-97
+  s_bb262a92b0770b::t_a2914f06b41549 29,251-255,273-274
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/store_model/store_model_tests.rs
+  s_bb262a92b0770b::t_320948e4eda1b5 269-283,1396,1428
+  s_bb262a92b0770b::t_f5d6e4d60e809d 1375-1395,1397-1427,1429-1669
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_backup_tests.rs
+  s_bb262a92b0770b::t_830ddfd5ad5213 1-85
+  s_bb262a92b0770b::t_5f3fa99d41ec2e 86-90
+ultragraphdb_store/ultragraphdb_store_apply/tests/vector_steps.rs
+  s_bb262a92b0770b::t_fa3cc0a06321f5 150
+  s_bb262a92b0770b::t_cd80cec396c259 237-241,243,245
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/telemetry/init_tests.rs
+  s_bb262a92b0770b::t_4dfc4326adb4d2 6
+  s_bb262a92b0770b::t_4a5593859912a7 12-13,15-18,23,29,37-43,48-53
+ultragraphdb_store/ultragraphdb_store_posting/src/types/mutable_layer/mod.rs
+  s_e7d9aa044e41ea::t_65b06e43840e84 208
+  s_bb262a92b0770b::t_b853bbf0444016 209-218,223
+AGENTS.md
+  s_bb262a92b0770b::t_6a48f3a3d9a4ae 169
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/commit_shape_tests.rs
+  s_e7d9aa044e41ea::t_f7011492235959 123,127,131,151,155
+  s_bb262a92b0770b::t_5cd7d73231121f 111-122,124-126,128-130,132-150,152-154,156-171
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/hnsw_workload.rs
+  s_e7d9aa044e41ea::t_98904c8ccf97b0 414
+  s_bb262a92b0770b::t_2b8bdd8fb992b7 35,40-42,142,164,396,402,404,407-413,415,441-444
+Cargo.lock
+  s_bb262a92b0770b::t_2b3aff600b3acd 2804
+ROADMAP.md
+  s_bb262a92b0770b::t_7c5488bd0cfe24 10-11
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/telemetry/subscriber_tests.rs
+  s_bb262a92b0770b::t_7d199b8aed9c22 11-14,116-186,250-257,263-287
+ultragraphdb_core/ultragraphdb_core_tok/tests/utils/index_helper_tests.rs
+  s_bb262a92b0770b::t_e7f5547f1ea7d9 101,113-134
+ultragraphdb_error/ultragraphdb_error_store/src/errors/store_error/mod.rs
+  s_bb262a92b0770b::t_6d84e2478c1590 10-11,50-52,100-104
+ultragraphdb_error/ultragraphdb_error_store/src/errors/store_error/store_error_display.rs
+  s_bb262a92b0770b::t_42f30ed77dfbb5 39-40
+ultragraphdb_error/ultragraphdb_error_store/tests/errors/store_error/store_error_display_tests.rs
+  s_bb262a92b0770b::t_1e9a0032e2af72 160-165
+ultragraphdb_error/ultragraphdb_error_store/tests/errors/store_error/store_error_tests.rs
+  s_bb262a92b0770b::t_6c0e92c785d3a4 52,81,110-113
+ultragraphdb_error/ultragraphdb_error_store/tests/utils/go_hex_dump_tests.rs
+  s_bb262a92b0770b::t_f4c50a624afe9e 139-160
+ultragraphdb_store/ultragraphdb_store_apply/tests/catalog_change_steps.rs
+  s_bb262a92b0770b::t_7d002a4a8c0361 13,27-28,44-52,227,241,265-272
+ultragraphdb_store/ultragraphdb_store_apply/tests/changeset_steps.rs
+  s_bb262a92b0770b::t_deda84af2fbd59 14,26-27,82-89,343-348,372,388
+ultragraphdb_store/ultragraphdb_store_apply/tests/errors/changeset_error/changeset_error_tests.rs
+  s_bb262a92b0770b::t_5b3792bc8de565 1-154
+ultragraphdb_store/ultragraphdb_store_apply/tests/errors/changeset_error/mod.rs
+  s_bb262a92b0770b::t_36fb5f94a578ba 1-7
+ultragraphdb_store/ultragraphdb_store_apply/tests/errors/mod.rs
+  s_bb262a92b0770b::t_f9df4fe0be64e5 1-7
+ultragraphdb_store/ultragraphdb_store_apply/tests/mod.rs
+  s_bb262a92b0770b::t_edbcaeedec52df 6-7
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_applier/changeset_applier_tests.rs
+  s_bb262a92b0770b::t_7c606c8c36a04a 10,15,140-143,161-165,197-203,213-231,234,287-290,299-302
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_drop_tests.rs
+  s_bb262a92b0770b::t_593fc7f8613a55 1-297
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_rebuild_tests.rs
+  s_bb262a92b0770b::t_4a50b5ca44c6ac 9-15,46-55,58,68,105-447
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_record_tests.rs
+  s_bb262a92b0770b::t_d8f65448ff8476 1-196
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_tests.rs
+  s_bb262a92b0770b::t_54321185a505db 1-114
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/mod.rs
+  s_bb262a92b0770b::t_8b99f51a332262 6-7,10-13
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_data_tests.rs
+  s_bb262a92b0770b::t_8e90d8157c3aa3 1-174
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_declare_tests.rs
+  s_bb262a92b0770b::t_6fc9d429fa06cd 1-248
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_index_tests.rs
+  s_bb262a92b0770b::t_efdbfaac618142 1-214
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_statements_tests.rs
+  s_bb262a92b0770b::t_b7b888cc055cdc 1-235
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_triples_tests.rs
+  s_bb262a92b0770b::t_38b60c1fe3e94f 1-390
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_vector_tests.rs
+  s_bb262a92b0770b::t_61ce98d9259c54 1-66
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/mod.rs
+  s_bb262a92b0770b::t_d5c31dd51e7deb 1-17
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/level_draw_tests.rs
+  s_bb262a92b0770b::t_5a81ad2a60732b 1-37
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/mod.rs
+  s_bb262a92b0770b::t_cb71b25ab6e527 10-13
+ultragraphdb_store/ultragraphdb_store_apply/tests/utils/changesets.rs
+  s_bb262a92b0770b::t_797d9d7cb4a809 369-386,465-519
+ultragraphdb_store/ultragraphdb_store_apply/tests/utils/mod.rs
+  s_bb262a92b0770b::t_19147a427d79f4 13-14
+ultragraphdb_store/ultragraphdb_store_apply/tests/utils/token_values_tests.rs
+  s_bb262a92b0770b::t_81400677f74b26 1-306
+ultragraphdb_store/ultragraphdb_store_hnsw/src/utils/matrix.rs
+  s_bb262a92b0770b::t_8393eae0fa7440 33-34,40-45
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/bdd.rs
+  s_bb262a92b0770b::t_eca68390c136a4 13,26-27,50-57,173-174,257
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/errors/hnsw_error/hnsw_error_tests.rs
+  s_bb262a92b0770b::t_5c5836020dfee9 61-63,77-84,105-106
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/mod.rs
+  s_bb262a92b0770b::t_b02f5502fb9cb8 11-12,21-22
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/persistent_heap_element_tests.rs
+  s_bb262a92b0770b::t_397ee48b6d8039 1-18
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/persistent_hnsw/persistent_hnsw_insert_tests.rs
+  s_bb262a92b0770b::t_b3660768a3d7b8 13,102-105,107-108,118,124-148,150-153,294-310,313-316,319-331,460-533
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/persistent_hnsw/persistent_hnsw_search_tests.rs
+  s_bb262a92b0770b::t_00cd1f2e0295a4 15,17-18,20,22-24,27-28,105-107,293-296,298,300-305,307-347,349-510,513-639,641-704,706-844
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/persistent_hnsw/persistent_hnsw_tests.rs
+  s_bb262a92b0770b::t_5209e13cc6fa68 46-56,109-118,125-136,139,141-156
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/persistent_hnsw/persistent_hnsw_traits_tests.rs
+  s_bb262a92b0770b::t_7e25f2a216ba02 11-12,15,90-101,103-118
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/query_cache/query_cache_tests.rs
+  s_bb262a92b0770b::t_edd5526fbb4fb4 6,16-20,24,26
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/txn_cache/txn_cache_tests.rs
+  s_bb262a92b0770b::t_66a181f0720ea8 6,19-24
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/vector_keys/mod.rs
+  s_bb262a92b0770b::t_34f1981555fad7 1-7
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/types/vector_keys/vector_keys_tests.rs
+  s_bb262a92b0770b::t_1a55e6d2ad7af2 1-110
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/distance_tests.rs
+  s_bb262a92b0770b::t_f8988092c35b26 10-12,25-37,40-62
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/go_math_tests.rs
+  s_bb262a92b0770b::t_fd82c7f61f0dcc 28-102
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/helpers.rs
+  s_bb262a92b0770b::t_d03b6930120a2b 35,583-625
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/helpers_tests.rs
+  s_bb262a92b0770b::t_8e7ddcaf0dbb79 11,13,69-112
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/utils/hnsw_workload_tests.rs
+  s_bb262a92b0770b::t_63ba07060ac539 15-17,106-108,112
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_snapshot/mod.rs
+  s_bb262a92b0770b::t_bf28f221dfaa4e 18
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_store/mod.rs
+  s_bb262a92b0770b::t_5bc44d940113c9 59-65
+ultragraphdb_store/ultragraphdb_store_kv/src/types/fjall_store/store_temporaries.rs
+  s_bb262a92b0770b::t_42cd5abdbf6086 68-70
+ultragraphdb_store/ultragraphdb_store_kv/tests/bdd.rs
+  s_bb262a92b0770b::t_2431ab118d5d95 454-455
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/fjall_store_store_tests.rs
+  s_bb262a92b0770b::t_d04f4ca6667980 10,84,86,88-93,111-112,115-116,124-126,129-130,138-139,141-142,155,226-229,388,394-396,421-425,444-447,550,590-1023
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/fjall_store_workload_tests.rs
+  s_bb262a92b0770b::t_943ee1b8b20caa 40-41,55,196-197,393,465,476-478,481-482,485-488
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/store_drops_tests.rs
+  s_bb262a92b0770b::t_63c86660c301ab 82-83,87-92,202-203,213-214,219,221,273-390
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/store_meta_tests.rs
+  s_bb262a92b0770b::t_5fa9744f1c129c 55-59
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/store_temporaries_tests.rs
+  s_bb262a92b0770b::t_aa1d298719c6e1 85,87,92-93,112-113,118,120-133,210,215-216
+ultragraphdb_store/ultragraphdb_store_posting/src/types/list/list_rollup.rs
+  s_bb262a92b0770b::t_04dc30876adac3 7-11,90-91,111-113,116-117,128,135,137-138
+ultragraphdb_store/ultragraphdb_store_posting/src/types/list/list_uids.rs
+  s_bb262a92b0770b::t_32edaf05c4333b 19,22-24,48-49,59,98-119,135-149
+ultragraphdb_store/ultragraphdb_store_posting/tests/bdd.rs
+  s_bb262a92b0770b::t_8b73c450ff5d7d 289-292,367-371,386-390,394-408,944-945,947-948
+ultragraphdb_store/ultragraphdb_store_posting/tests/errors/posting_error/posting_error_tests.rs
+  s_bb262a92b0770b::t_3e1f52149ecbac 59,63,66-70,81
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/batch/batch_tests.rs
+  s_bb262a92b0770b::t_40adfcb3cfff15 22,56-60
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/cached_list/cached_list_tests.rs
+  s_bb262a92b0770b::t_75893cd5b57cf7 8-9,21-23,31-36,42-54
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_read_tests.rs
+  s_bb262a92b0770b::t_48c667e7ad70ad 153-202
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_rollup_tests.rs
+  s_bb262a92b0770b::t_6a3708dc8ff816 78-79,118-254
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/list_values_tests.rs
+  s_bb262a92b0770b::t_012bcb3c38a4d1 6,9-11,29-173
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/list/mod.rs
+  s_bb262a92b0770b::t_a26e82c17d192b 6-9,19-20
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/lists/lists_commit_tests.rs
+  s_bb262a92b0770b::t_913ef364133338 183,185-186,225,233,243,253-256,325,333,342-491
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/lists/lists_drop_tests.rs
+  s_bb262a92b0770b::t_739d688bb4248c 6-8,108-171
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/lists/lists_read_tests.rs
+  s_bb262a92b0770b::t_1a661db66bbaaf 145-146,181,184-190,237-309
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/lists/lists_rollup_tests.rs
+  s_bb262a92b0770b::t_4f451cb763e65e 16,18-19,21,202,204-208,262,281-483
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/lists/lists_tests.rs
+  s_bb262a92b0770b::t_72cc100f593724 7,43-81
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/mutable_layer/mutable_layer_tests.rs
+  s_bb262a92b0770b::t_4d5bd8be29937b 12-14,168-284
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/request/request_tests.rs
+  s_bb262a92b0770b::t_84559876d0a119 6,160-262
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/rollup_output/rollup_output_tests.rs
+  s_bb262a92b0770b::t_2ae668f17f4502 6-11,50-138
+ultragraphdb_store/ultragraphdb_store_posting/tests/types/timestamps/timestamps_tests.rs
+  s_bb262a92b0770b::t_07b9e73f663d73 51-57
+ultragraphdb_store/ultragraphdb_store_posting/tests/utils/constants_tests.rs
+  s_bb262a92b0770b::t_660214a5d36926 1-41
+ultragraphdb_store/ultragraphdb_store_posting/tests/utils/list_keys_tests.rs
+  s_bb262a92b0770b::t_5ff2f7f7d837ae 14,172-173,176,181-184,186-290
+ultragraphdb_store/ultragraphdb_store_posting/tests/utils/mod.rs
+  s_bb262a92b0770b::t_c4aebfaaed7a67 10-11
+ultragraphdb_store/ultragraphdb_store_posting/tests/utils/posting_codec_tests.rs
+  s_bb262a92b0770b::t_4fe6d2820b8360 10,176-406
+ultragraphdb_store/ultragraphdb_store_posting/tests/utils/postings_tests.rs
+  s_bb262a92b0770b::t_48b58d5f9e30a9 11,42-90
+ultragraphdb_store/ultragraphdb_store_sim/README.md
+  s_bb262a92b0770b::t_a7237adc0cc5c4 31-39
+ultragraphdb_store/ultragraphdb_store_sim/src/bin/store_sim_fuzz.rs
+  s_bb262a92b0770b::t_c6900530193007 6-8,10-13,35-41
+ultragraphdb_store/ultragraphdb_store_sim/src/errors/fuzz_args_error/fuzz_args_error_display.rs
+  s_bb262a92b0770b::t_88c2216be0d368 9,11,52-55
+ultragraphdb_store/ultragraphdb_store_sim/src/errors/fuzz_args_error/mod.rs
+  s_bb262a92b0770b::t_43e05b3cf7a588 9-10,24-25,45-48
+ultragraphdb_store/ultragraphdb_store_sim/src/types/fuzz_args/mod.rs
+  s_bb262a92b0770b::t_f9f36dc75e26cd 12-13,15-16,23,27-30,34-37,39-45,72,76-80
+ultragraphdb_store/ultragraphdb_store_sim/src/types/store_model/mod.rs
+  s_bb262a92b0770b::t_2e093c23eaab00 483
+ultragraphdb_store/ultragraphdb_store_sim/src/types/store_model/model_recovery.rs
+  s_bb262a92b0770b::t_0072922e16e29d 8-9,143,180-198,207-221,223-235,241-246,256-265
+ultragraphdb_store/ultragraphdb_store_sim/tests/errors/fuzz_args_error/fuzz_args_error_tests.rs
+  s_bb262a92b0770b::t_6383455c1578a8 10,27-40
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/contents/contents_tests.rs
+  s_bb262a92b0770b::t_b86602c04e9ede 28,80-96
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/fuzz_args/fuzz_args_tests.rs
+  s_bb262a92b0770b::t_cce15efa188ff1 226,231,236,241,246,251,256-313
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/sim_store/sim_store_faults_tests.rs
+  s_bb262a92b0770b::t_898af5af6a4bee 556-713
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/sim_store/sim_store_store_tests.rs
+  s_bb262a92b0770b::t_6e647ecfa29c98 9,620-642
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/store_model/mod.rs
+  s_bb262a92b0770b::t_0dd36ac897a886 8-9
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/store_workload/store_workload_tests.rs
+  s_bb262a92b0770b::t_8c7b2f7539138c 146-370
+ultragraphdb_tool/ultragraphdb_tool_bench/BUILD.bazel
+  s_bb262a92b0770b::t_1f276f6732defd 52-53,65-73
+ultragraphdb_tool/ultragraphdb_tool_bench/Cargo.toml
+  s_bb262a92b0770b::t_4b7226e9f96b26 34-36
+ultragraphdb_tool/ultragraphdb_tool_bench/src/types/pacer/mod.rs
+  s_bb262a92b0770b::t_e1a9b89344c2cb 26-31,42-44
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/apply_run.rs
+  s_bb262a92b0770b::t_f561ffe688ea26 68-69,148-151,379-569
+ultragraphdb_tool/ultragraphdb_tool_bench/src/utils/proc_stats.rs
+  s_bb262a92b0770b::t_c26ce3c455b317 13,20
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/errors/bench_error_tests.rs
+  s_bb262a92b0770b::t_223240c9f9bc53 6-7,9-10,24,26-66
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/command_tests.rs
+  s_bb262a92b0770b::t_aad9cf9690d398 7,55,59,63-135,174-224
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/counted_snapshot_tests.rs
+  s_bb262a92b0770b::t_e1762bf0462b33 26,32-45,47,49-59,61-62
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/dir_sizes_tests.rs
+  s_bb262a92b0770b::t_1335e05dc81bb8 33-40,42,45-48,51-54,56-57,65-77
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/mod.rs
+  s_bb262a92b0770b::t_7fa763dc098b84 21-22,26-29
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/pacer_tests.rs
+  s_bb262a92b0770b::t_6cf2992f1093bd 14-19,26-27,30,33,36,48,50,52,58,61,64-138
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/size_tests.rs
+  s_bb262a92b0770b::t_adc5978ad14fbf 1-14
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/summary_tests.rs
+  s_bb262a92b0770b::t_176502ad256c27 8-16,22,36-93
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/timed_store_tests.rs
+  s_bb262a92b0770b::t_a45939bce8397a 11-13,46-162
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/wall_clock_tests.rs
+  s_bb262a92b0770b::t_ef90fa0e884e28 1-25
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/types/write_call_tests.rs
+  s_bb262a92b0770b::t_76435b8bff2129 1-34
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/apply_run_tests.rs
+  s_bb262a92b0770b::t_6b15bf6ed0388c 1-207
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/mod.rs
+  s_bb262a92b0770b::t_d6961c2ff5c8eb 6-7,10-11
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/proc_stats_tests.rs
+  s_bb262a92b0770b::t_5754c1783e550d 10,16-43,48,58-69
+ultragraphdb_tool/ultragraphdb_tool_bench/tests/utils/rollup_run_tests.rs
+  s_bb262a92b0770b::t_e194fd4c588690 1-128
+ultragraphdb_traits/ultragraphdb_traits_index/tests/traits/index_factory_tests.rs
+  s_bb262a92b0770b::t_7f846989835df7 140,148,150-151
+ultragraphdb_traits/ultragraphdb_traits_index/tests/traits/vector_index_tests.rs
+  s_bb262a92b0770b::t_4a4cc36930d809 213,215-224,238-433
+ultragraphdb_traits/ultragraphdb_traits_store/src/traits/store.rs
+  s_bb262a92b0770b::t_113f2b7447dd74 36-40,55-57,124-127
+ultragraphdb_traits/ultragraphdb_traits_store/src/types/write_batch/mod.rs
+  s_bb262a92b0770b::t_41d737fefbefe6 33-34,39-40,95-97,102-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7af5b0c9844d20bd5bf262f77df808e2836f7859",
+  "prompts": {},
+  "sessions": {
+    "s_bb262a92b0770b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db7c4aa0-6d9f-4df2-b2e9-595d527d680c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
