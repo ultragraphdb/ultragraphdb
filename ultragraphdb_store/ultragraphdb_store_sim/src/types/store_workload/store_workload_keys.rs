@@ -5,20 +5,27 @@
 
 use crate::types::sim_rng::SimRng;
 
-/// The prefix byte of Dgraph's data keys.
-pub const PREFIX_DATA: u8 = 0x00;
-/// The prefix byte of Dgraph's index keys.
-pub const PREFIX_INDEX: u8 = 0x02;
-/// The prefix byte of Dgraph's schema keys.
-pub const PREFIX_SCHEMA: u8 = 0x01;
+/// The keyspace byte of the quad layout's forward lists.
+pub const FORWARD: u8 = 0x10;
+/// The keyspace byte of the quad layout's value index.
+pub const VALUE_INDEX: u8 = 0x14;
+/// The keyspace byte of the quad layout's catalog.
+pub const CATALOG: u8 = 0x01;
+/// The catalog's entry kind of a predicate declaration.
+const PREDICATE: u8 = 1;
+/// The tokenizer byte of the value index's keys.
+const TOKENIZER: u8 = 2;
 
 const NAMESPACES: [u64; 3] = [0, 1, 5];
-const ATTRS: [&str; 2] = ["name", "friend"];
-/// Index terms, one a byte prefix of another and one holding a zero byte, which the stored key escapes.
-const TERMS: [&[u8]; 4] = [b"ab", b"abc", b"a\x00b", b"b"];
+const GRAPHS: [u64; 2] = [0, 3];
+/// The predicates `name` and `friend`, by UID.
+pub const PREDICATES: [u64; 2] = [7, 9];
+/// Index tokens, one a byte prefix of another and one holding a zero byte, which the stored key escapes.
+const TOKENS: [&[u8]; 4] = [b"ab", b"abc", b"a\x00b", b"b"];
 
-/// The keys the store workload draws: data, index and schema keys of a few namespaces and predicates, laid out as
-/// Dgraph lays them out (`[prefix][namespace][attribute length][attribute][uid or term]`).
+/// The keys the store workload draws: forward lists, value index keys and catalog entries of a few namespaces,
+/// graphs and predicates, laid out as the quad layout lays them out (`[keyspace][namespace][fields]`, every number
+/// a u64 big-endian).
 #[derive(Debug, Clone, Default)]
 pub struct KeySpace;
 
@@ -27,47 +34,58 @@ impl KeySpace {
         Self
     }
 
-    fn attr_prefix(prefix: u8, namespace: u64, attr: &str) -> Vec<u8> {
-        let mut key = vec![prefix];
+    fn predicate_prefix(keyspace: u8, namespace: u64, graph: u64, predicate: u64) -> Vec<u8> {
+        let mut key = vec![keyspace];
         key.extend_from_slice(&namespace.to_be_bytes());
-        key.extend_from_slice(&(attr.len() as u16).to_be_bytes());
-        key.extend_from_slice(attr.as_bytes());
+        key.extend_from_slice(&graph.to_be_bytes());
+        key.extend_from_slice(&predicate.to_be_bytes());
         key
     }
 
     pub fn key(&self, rng: &mut SimRng) -> Vec<u8> {
         let namespace = NAMESPACES[rng.index(NAMESPACES.len())];
-        let attr = ATTRS[rng.index(ATTRS.len())];
+        let graph = GRAPHS[rng.index(GRAPHS.len())];
+        let predicate = PREDICATES[rng.index(PREDICATES.len())];
         match rng.below(10) {
             0..6 => {
-                let mut key = Self::attr_prefix(PREFIX_DATA, namespace, attr);
+                let mut key = Self::predicate_prefix(FORWARD, namespace, graph, predicate);
                 key.extend_from_slice(&rng.between(1, 6).to_be_bytes());
                 key
             }
             6..9 => {
-                let mut key = Self::attr_prefix(PREFIX_INDEX, namespace, attr);
-                key.extend_from_slice(TERMS[rng.index(TERMS.len())]);
+                let mut key = Self::predicate_prefix(VALUE_INDEX, namespace, graph, predicate);
+                key.push(TOKENIZER);
+                key.extend_from_slice(TOKENS[rng.index(TOKENS.len())]);
                 key
             }
-            _ => self.schema_key(namespace, attr),
+            _ => self.catalog_key(namespace, predicate),
         }
     }
 
-    pub fn schema_key(&self, namespace: u64, attr: &str) -> Vec<u8> {
-        Self::attr_prefix(PREFIX_SCHEMA, namespace, attr)
+    /// The catalog key of predicate `predicate`'s declaration in `namespace`.
+    pub fn catalog_key(&self, namespace: u64, predicate: u64) -> Vec<u8> {
+        let mut key = vec![CATALOG];
+        key.extend_from_slice(&namespace.to_be_bytes());
+        key.push(PREDICATE);
+        key.extend_from_slice(&predicate.to_be_bytes());
+        key
     }
 
-    /// A prefix to drop or scan: a namespace's keys of one kind, or one predicate's.
+    /// A prefix to drop or scan: a namespace's keys of one keyspace, or one predicate's.
     pub fn prefix(&self, rng: &mut SimRng) -> Vec<u8> {
-        let kinds = [PREFIX_DATA, PREFIX_INDEX, PREFIX_SCHEMA];
-        let kind = kinds[rng.index(kinds.len())];
+        let keyspaces = [FORWARD, VALUE_INDEX, CATALOG];
+        let keyspace = keyspaces[rng.index(keyspaces.len())];
         let namespace = NAMESPACES[rng.index(NAMESPACES.len())];
+        let predicate = PREDICATES[rng.index(PREDICATES.len())];
         if rng.chance(500) {
-            let mut prefix = vec![kind];
+            let mut prefix = vec![keyspace];
             prefix.extend_from_slice(&namespace.to_be_bytes());
             prefix
+        } else if keyspace == CATALOG {
+            self.catalog_key(namespace, predicate)
         } else {
-            Self::attr_prefix(kind, namespace, ATTRS[rng.index(ATTRS.len())])
+            let graph = GRAPHS[rng.index(GRAPHS.len())];
+            Self::predicate_prefix(keyspace, namespace, graph, predicate)
         }
     }
 

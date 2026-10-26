@@ -14,7 +14,6 @@ mod hnsw_error_display;
 mod hnsw_error_error;
 mod hnsw_error_from;
 
-use ultragraphdb_core_keys::KeyError;
 use ultragraphdb_error_options::OptionsError;
 use ultragraphdb_store_posting::PostingError;
 
@@ -34,8 +33,6 @@ pub struct HnswError(pub HnswErrorEnum);
 pub enum HnswErrorEnum {
     /// A read of the posting lists failed, or a stored value is corrupted.
     Posting(PostingError),
-    /// A key could not be built.
-    Key(KeyError),
     /// An option holds a value of another type.
     Options(OptionsError),
     /// A key holds no value: Dgraph's `ErrNoValue`, how a cache reports absence.
@@ -77,11 +74,6 @@ impl HnswError {
     #[allow(non_snake_case)]
     pub fn Posting(error: PostingError) -> Self {
         Self(HnswErrorEnum::Posting(error))
-    }
-
-    #[allow(non_snake_case)]
-    pub fn Key(error: KeyError) -> Self {
-        Self(HnswErrorEnum::Key(error))
     }
 
     #[allow(non_snake_case)]

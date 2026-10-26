@@ -23,15 +23,13 @@ fn test_requests_of_a_batch_take_consecutive_timestamps_in_one_store_batch() {
     first
         .get(&a)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(first);
     let mut second = batch.request(lists.latest_ts());
     second
         .get(&b)
         .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     batch.push(second);
     let next = lists.peek_ts();
     let ts = lists.commit(batch).unwrap();
@@ -53,8 +51,7 @@ fn test_a_request_refused_at_commit_writes_nothing_and_takes_no_timestamp() {
         request
             .get(k)
             .unwrap()
-            .add_mutation(&set_uid(1), None)
-            .unwrap();
+            .add_posting(set_uid(1).clone(), false);
         batch.push(request);
     }
     let next = lists.peek_ts();
@@ -80,8 +77,7 @@ fn test_a_batch_refused_whole_writes_nothing() {
     request
         .get(&key("none", 1))
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(request);
     let applied = lists.applied_ts();
     let results = lists.commit_with(batch, |_| Err(())).unwrap();
@@ -123,9 +119,9 @@ fn test_a_list_without_postings_is_not_written() {
 fn test_a_commit_replaces_the_entry_of_a_cached_list() {
     let lists = new_lists();
     let k = key("replace", 1);
-    let first = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let first = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, first).unwrap();
-    let second = commit_edges(&lists, &k, &[set_uid(2)], None);
+    let second = commit_edges(&lists, &k, &[set_uid(2)]);
     let entry = lists.cache().get(&k).expect("replaced");
     assert_eq!(entry.ts(), second);
     assert_eq!(uids(entry.list(), second, 0), vec![1, 2]);
@@ -135,15 +131,14 @@ fn test_a_commit_replaces_the_entry_of_a_cached_list() {
 fn test_a_failed_commit_stops_writes_and_the_reads_above_it() {
     let lists = new_lists();
     let k = key("failed", 1);
-    let ok = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ok = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.store().inject(Fault::FailNextBatch);
     let mut batch = lists.batch();
     let mut request = batch.request(lists.latest_ts());
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     batch.push(request);
     let failed_at = lists.peek_ts();
     assert!(matches!(
@@ -165,7 +160,7 @@ fn test_a_failed_commit_stops_writes_and_the_reads_above_it() {
     lists.store().recover();
     let reopened: TestLists = lists_over(lists.store().clone(), lists.config());
     let applied = reopened.store().applied_ts();
-    let ts = commit_edges(&reopened, &k, &[set_uid(3)], None);
+    let ts = commit_edges(&reopened, &k, &[set_uid(3)]);
     assert!(ts > applied + 1);
     let read = reopened.read(&k, ts).unwrap();
     let mut expected = vec![1, 3];
@@ -202,8 +197,7 @@ fn test_a_read_waits_for_a_commit_below_its_timestamp() {
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(request);
     assert_eq!(lists.commit(batch).unwrap(), vec![commit_ts]);
     assert_eq!(*observed.lock().unwrap(), Some((true, true, false)));
@@ -218,15 +212,14 @@ fn test_a_read_waits_for_a_commit_below_its_timestamp() {
 fn test_a_read_inside_a_commits_check_neither_deadlocks_nor_fills() {
     let lists = new_lists();
     let k = key("inside", 1);
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.cache().remove(&k);
     let mut batch = lists.batch();
     let mut request = batch.request(lists.latest_ts());
     request
         .get(&key("inside", 2))
         .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     batch.push(request);
     let results = lists
         .commit_with(batch, |_| {
@@ -253,8 +246,7 @@ fn test_a_failed_commit_is_reported_as_an_error() {
         request
             .get(&key("reported", 1))
             .unwrap()
-            .add_mutation(&set_uid(1), None)
-            .unwrap();
+            .add_posting(set_uid(1).clone(), false);
         batch.push(request);
         assert!(lists.commit(batch).is_err());
     });
@@ -288,7 +280,7 @@ fn test_an_entry_at_its_own_version_keeps_it() {
 fn test_a_commit_that_advances_the_epoch_leaves_no_older_entry_serving() {
     let lists = new_lists();
     let k = key("epoch", 1);
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).unwrap();
     assert!(lists.cached(&k, ts).unwrap().is_some());
     let epoch = lists.epoch();

@@ -3,32 +3,17 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, data_key};
-use ultragraphdb_proto_pb::pb::{DirectedEdge, SchemaUpdate, directed_edge, posting};
-use ultragraphdb_store_posting::{List, SET};
+use ultragraphdb_proto_pb::pb::Posting;
+use ultragraphdb_store_posting::{List, OVR, SET};
 
-use crate::utils::helpers::{add, del_uid, key, set_uid, uid_schema, uids};
-
-#[test]
-fn test_a_single_uid_predicate_replaces_its_target() {
-    let schema = uid_schema(false);
-    let mut l = List::empty(key("partner", 1));
-    l.set_ts(1);
-    l.add_mutation(&set_uid(2), Some(&schema)).unwrap();
-    l.commit_mutation(2);
-    l.set_ts(3);
-    l.add_mutation(&set_uid(3), Some(&schema)).unwrap();
-    l.commit_mutation(4);
-    assert_eq!(uids(&l, 5, 0), vec![3]);
-}
+use crate::utils::helpers::{add, del_uid, key, set_uid, uids};
 
 #[test]
-fn test_a_uid_list_accumulates() {
-    let schema = uid_schema(true);
+fn test_uid_postings_accumulate() {
     let mut l = List::empty(key("friend", 1));
     for (ts, uid) in [(1, 2), (3, 3)] {
         l.set_ts(ts);
-        l.add_mutation(&set_uid(uid), Some(&schema)).unwrap();
+        l.add_posting(set_uid(uid), false);
         l.commit_mutation(ts + 1);
     }
     assert_eq!(uids(&l, 5, 0), vec![2, 3]);
@@ -36,18 +21,16 @@ fn test_a_uid_list_accumulates() {
 
 #[test]
 fn test_with_a_count_index_a_delete_removes_the_requests_set() {
-    let mut schema = uid_schema(true);
-    schema.count = true;
     let mut l = List::empty(key("counted", 1));
     l.set_ts(1);
-    l.add_mutation(&set_uid(7), Some(&schema)).unwrap();
-    l.add_mutation(&del_uid(7), Some(&schema)).unwrap();
+    l.add_posting(set_uid(7), true);
+    l.add_posting(del_uid(7), true);
     assert!(
         l.delta().unwrap().postings.is_empty(),
         "the delete removed the set"
     );
-    l.add_mutation(&del_uid(8), Some(&schema)).unwrap();
-    l.add_mutation(&del_uid(8), Some(&schema)).unwrap();
+    l.add_posting(del_uid(8), true);
+    l.add_posting(del_uid(8), true);
     assert_eq!(
         l.delta().unwrap().postings.len(),
         1,
@@ -63,26 +46,16 @@ fn test_with_a_count_index_a_delete_removes_the_requests_set() {
 /// from it go wrong. The port keeps the set, the overwrite's value and facets taken.
 #[test]
 fn test_an_overwrite_of_a_set_in_the_scratch_layer_stays_a_set() {
-    let key = data_key(&attr_in_root_namespace("friend"), 1).unwrap();
-    let mut list = List::empty(key);
+    let mut list = List::empty(key("friend", 1));
     list.set_ts(5);
-    let schema = SchemaUpdate {
-        value_type: posting::ValType::Uid as i32,
-        list: true,
-        count: true,
-        ..SchemaUpdate::default()
-    };
-    let set = DirectedEdge {
-        value_id: 3,
-        op: directed_edge::Op::Set as i32,
-        ..DirectedEdge::default()
-    };
-    list.add_mutation(&set, Some(&schema)).unwrap();
-    let ovr = DirectedEdge {
-        op: directed_edge::Op::Ovr as i32,
-        ..set
-    };
-    list.add_mutation(&ovr, Some(&schema)).unwrap();
+    list.add_posting(set_uid(3), true);
+    list.add_posting(
+        Posting {
+            op: OVR,
+            ..set_uid(3)
+        },
+        true,
+    );
     assert_eq!(list.get_length(5).unwrap(), 1);
     assert_eq!(list.delta().unwrap().postings[0].op, SET);
     list.commit_mutation(6);

@@ -53,7 +53,7 @@ fn test_rollup_timestamp() {
 fn test_incr_rollup_gets_cancelled_quickly() {
     let lists = new_lists();
     let k = key("rollup", 1);
-    commit_edges(&lists, &k, &[set_uid(1)], None);
+    commit_edges(&lists, &k, &[set_uid(1)]);
     lists.pause_rollups();
     assert_eq!(
         lists.rollup_key(&k).unwrap_err().0,
@@ -67,7 +67,7 @@ fn test_incr_rollup_gets_cancelled_quickly() {
 fn test_a_rollup_writes_one_batch_at_the_main_keys_version_and_clears_the_entry() {
     let lists = new_lists();
     let k = key("rollup-batch", 1);
-    let last = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let last = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, last).unwrap();
     assert!(lists.cache().get(&k).is_some());
     let applied = lists.applied_ts();
@@ -94,7 +94,7 @@ fn test_a_list_without_deltas_is_not_rolled_up() {
     let lists = new_lists();
     let k = key("rollup-nothing", 1);
     assert!(!lists.rollup_key(&k).unwrap());
-    commit_edges(&lists, &k, &[set_uid(1)], None);
+    commit_edges(&lists, &k, &[set_uid(1)]);
     assert!(lists.rollup_key(&k).unwrap());
     assert!(
         !lists.rollup_key(&k).unwrap(),
@@ -141,8 +141,7 @@ fn commit_edges_probe(lists: &crate::utils::helpers::ProbeLists, k: &[u8]) {
     request
         .get(k)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(request);
     lists.commit(batch).unwrap();
 }
@@ -152,10 +151,10 @@ fn test_a_rollup_leaves_an_open_read_intact() {
     let lists = new_lists();
     let k = key("open-read", 1);
     next_commit_at(&lists, 5);
-    commit_edges(&lists, &k, &[set_uid(5)], None);
+    commit_edges(&lists, &k, &[set_uid(5)]);
     let mut request = lists.request(5);
     next_commit_at(&lists, 6);
-    commit_edges(&lists, &k, &[set_uid(6)], None);
+    commit_edges(&lists, &k, &[set_uid(6)]);
     assert!(lists.rollup_key(&k).unwrap());
     let rolled = lists.store().contents().versions(&k)[0].version();
     assert!(rolled > 6);
@@ -168,8 +167,8 @@ fn test_a_rollup_leaves_an_open_read_intact() {
 fn test_an_emptied_list_rolls_up_empty() {
     let lists = new_lists();
     let k = key("rollup-empty", 1);
-    commit_edges(&lists, &k, &[set_uid(1)], None);
-    commit_edges(&lists, &k, &[delete_all()], None);
+    commit_edges(&lists, &k, &[set_uid(1)]);
+    commit_edges(&lists, &k, &[delete_all()]);
     assert!(lists.rollup_key(&k).unwrap());
     assert_eq!(
         lists.store().contents().versions(&k)[0].meta(),
@@ -187,7 +186,7 @@ fn test_rollup_triggers() {
     let lists = new_lists();
     // A commit queues each key it wrote at both priorities, as CommitToDisk and ProcessDelta do.
     let k = key("trigger", 1);
-    commit_edges(&lists, &k, &[set_uid(1)], None);
+    commit_edges(&lists, &k, &[set_uid(1)]);
     assert_eq!(lists.rollups_waiting(), 2);
     // A read with deltas queues the key at low priority.
     lists.read_uncached(&k, lists.applied_ts()).unwrap();
@@ -195,7 +194,7 @@ fn test_rollup_triggers() {
     // A cache hit on a list of more than 500 deltas queues it at high priority, as checkForRollup does.
     let big = key("trigger", 2);
     for uid in 0..=HIGH_PRIORITY_DELTAS as u64 {
-        commit_edges(&lists, &big, &[set_uid(uid + 1)], None);
+        commit_edges(&lists, &big, &[set_uid(uid + 1)]);
     }
     let before = lists.rollups_waiting();
     lists.read(&big, lists.applied_ts()).unwrap();
@@ -220,12 +219,12 @@ fn test_the_worker_rolls_up_what_waits_once_per_ten_seconds() {
     let lists = new_lists();
     let keys: Vec<_> = (1..=3).map(|i| key("worker", i)).collect();
     keys.iter().for_each(|k| {
-        commit_edges(&lists, k, &[set_uid(1)], None);
+        commit_edges(&lists, k, &[set_uid(1)]);
     });
     // The high-priority keys gathered are taken without a full batch, as Dgraph's forced tick takes them.
     assert_eq!(lists.run_rollups(100).unwrap(), 3);
     keys.iter().for_each(|k| {
-        commit_edges(&lists, k, &[set_uid(2)], None);
+        commit_edges(&lists, k, &[set_uid(2)]);
     });
     assert_eq!(
         lists.run_rollups(105).unwrap(),
@@ -240,7 +239,7 @@ fn test_the_worker_rolls_up_what_waits_once_per_ten_seconds() {
 fn test_the_worker_runs_on_the_executor() {
     let lists = Arc::new(new_lists());
     let k = key("executor", 1);
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     let executor = SteppedExecutor::new(Seed::new(3).stream(Stream::Executor));
     lists.spawn_rollups(&executor, 50);
     assert_eq!(executor.pending(), 1);

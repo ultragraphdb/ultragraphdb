@@ -124,7 +124,7 @@ fn test_readers_make_earlier_reads_again_through_their_snapshots() {
         .collect();
     let mut seen = std::collections::BTreeSet::new();
     let again = reads.iter().filter(|r| !seen.insert(**r)).count();
-    assert_eq!((reads.len(), again), (214, 61));
+    assert_eq!((reads.len(), again), (201, 56));
 
     let trace: Vec<String> = (0..8)
         .flat_map(|s| {
@@ -141,5 +141,5 @@ fn test_readers_make_earlier_reads_again_through_their_snapshots() {
         .enumerate()
         .filter(|(at, (read, failed))| *failed && reads[at + 1..].iter().any(|(r, _)| r == read))
         .count();
-    assert_eq!((failed, retried), (33, 22));
+    assert_eq!((failed, retried), (28, 20));
 }

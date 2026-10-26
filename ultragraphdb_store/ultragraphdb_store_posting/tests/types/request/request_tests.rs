@@ -5,27 +5,27 @@
 
 use ultragraphdb_traits_store::ListCache;
 
-use crate::utils::helpers::{commit_edges, del_uid, key, new_lists, set_uid, set_value, uids};
+use crate::utils::helpers::{
+    commit_edges, del_uid, key, new_lists, set_uid, set_value, uids, values,
+};
 
 #[test]
 fn test_a_list_first_written_blind_is_read_whole() {
     let lists = new_lists();
     let k = key("friend", 1);
-    commit_edges(&lists, &k, &[set_uid(2)], None);
+    commit_edges(&lists, &k, &[set_uid(2)]);
     lists.cache().remove(&k);
     let read_ts = lists.latest_ts();
     let mut request = lists.request(read_ts);
     request
         .get_from_delta(&k)
-        .add_mutation(&set_uid(3), None)
-        .unwrap();
+        .add_posting(set_uid(3).clone(), false);
     assert_eq!(uids(request.get(&k).unwrap(), read_ts, 0), vec![2, 3]);
     // The completed list keeps the write made blind, and later writes go on top.
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&del_uid(2), None)
-        .unwrap();
+        .add_posting(del_uid(2).clone(), false);
     assert_eq!(uids(request.get(&k).unwrap(), read_ts, 0), vec![3]);
 }
 
@@ -38,28 +38,24 @@ fn test_a_later_request_in_a_batch_reads_an_earlier_one() {
     first
         .get(&k)
         .unwrap()
-        .add_mutation(&set_value("A"), None)
-        .unwrap();
+        .add_posting(set_value("A").clone(), false);
     batch.push(first);
     let read_ts = lists.latest_ts();
     let mut second = batch.request(read_ts);
-    let value = second.get(&k).unwrap().value(read_ts).unwrap();
     assert_eq!(
-        value.value(),
-        Some(&ultragraphdb_core_types::Value::Bytes(b"A".to_vec()))
+        values(second.get(&k).unwrap(), read_ts),
+        vec![b"A".to_vec()]
     );
     // A blind write in the later request stacks on the earlier one too.
     let other = key("friend", 9);
     let mut third_batch = lists.batch();
     let mut a = third_batch.request(read_ts);
     a.get_from_delta(&other)
-        .add_mutation(&set_uid(4), None)
-        .unwrap();
+        .add_posting(set_uid(4).clone(), false);
     third_batch.push(a);
     let mut b = third_batch.request(read_ts);
     b.get_from_delta(&other)
-        .add_mutation(&set_uid(5), None)
-        .unwrap();
+        .add_posting(set_uid(5).clone(), false);
     assert_eq!(uids(b.get(&other).unwrap(), read_ts, 0), vec![4, 5]);
     assert_eq!(b.deltas().len(), 1, "only its own write is its delta");
 }
@@ -68,18 +64,16 @@ fn test_a_later_request_in_a_batch_reads_an_earlier_one() {
 fn test_another_request_does_not_see_uncommitted_writes() {
     let lists = new_lists();
     let k = key("name", 2);
-    let ts = commit_edges(&lists, &k, &[set_value("before")], None);
+    let ts = commit_edges(&lists, &k, &[set_value("before")]);
     let mut writer = lists.request(ts);
     writer
         .get(&k)
         .unwrap()
-        .add_mutation(&set_value("after"), None)
-        .unwrap();
+        .add_posting(set_value("after").clone(), false);
     let mut reader = lists.request(ts);
-    let seen = reader.get_scalar_list(&k).unwrap().value(ts).unwrap();
     assert_eq!(
-        seen.value(),
-        Some(&ultragraphdb_core_types::Value::Bytes(b"before".to_vec()))
+        values(reader.get_scalar_list(&k).unwrap(), ts),
+        vec![b"before".to_vec()]
     );
     assert_eq!(writer.read_ts(), ts);
     assert_eq!(writer.lists().count(), 1);
@@ -95,8 +89,7 @@ fn test_the_keys_read_leave_out_lists_written_blind() {
     request.get(&read).unwrap();
     request
         .get_from_delta(&blind)
-        .add_mutation(&set_uid(3), None)
-        .unwrap();
+        .add_posting(set_uid(3).clone(), false);
     assert_eq!(
         request.read_keys().collect::<Vec<_>>(),
         vec![read.as_slice()]
@@ -117,8 +110,7 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
     first
         .get(&a)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(first);
     let mut request = batch.request(lists.latest_ts());
     request.get(&b).unwrap();
@@ -127,10 +119,7 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
     assert_eq!(fork.lists().count(), 0);
     let read_ts = fork.read_ts();
     assert_eq!(uids(fork.get(&a).unwrap(), read_ts, 0), vec![1]);
-    fork.get(&a)
-        .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+    fork.get(&a).unwrap().add_posting(set_uid(2).clone(), false);
     fork.add_entry(ultragraphdb_traits_store::Entry::deletion(
         key("fork", 3),
         1,
@@ -151,13 +140,12 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
 fn test_the_written_keys_are_the_keys_of_the_deltas() {
     let lists = new_lists();
     let (written, read_only, emptied) = (key("friend", 1), key("friend", 2), key("friend", 3));
-    commit_edges(&lists, &read_only, &[set_uid(5)], None);
+    commit_edges(&lists, &read_only, &[set_uid(5)]);
     let mut request = lists.request(lists.latest_ts());
     request
         .get(&written)
         .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     request.get(&read_only).unwrap();
     request.get_from_delta(&emptied);
     let keys: Vec<Vec<u8>> = request.written_keys().map(<[u8]>::to_vec).collect();

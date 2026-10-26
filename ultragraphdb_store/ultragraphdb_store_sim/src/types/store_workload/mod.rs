@@ -23,7 +23,7 @@ use crate::types::simulation::Simulation;
 use crate::types::stream::Stream;
 use crate::types::violation::Violation;
 
-use crate::types::store_workload::store_workload_keys::{KeySpace, PREFIX_DATA, PREFIX_SCHEMA};
+use crate::types::store_workload::store_workload_keys::{CATALOG, FORWARD, KeySpace, PREDICATES};
 use crate::types::store_workload::store_workload_reads::ReadShape;
 
 /// The meta byte of a delta posting list.
@@ -42,7 +42,7 @@ const VERSIONLESS_KEYS: u64 = 8;
 /// A reader's open snapshot, the reads it has left, and each read it made through it with whether it failed.
 type OpenRead = (SimSnapshot, u64, Vec<(ReadShape, bool)>);
 
-/// The store's own workload, over Dgraph-shaped keys: one apply loop writing commit batches of several commits,
+/// The store's own workload, over keys of the quad layout: one apply loop writing commit batches of several commits,
 /// rollup batches below the newest version, deletions, syncs, prefix drops, drops of everything, bans, the discard
 /// timestamp with compaction and the sweep, oversized keys, rebuild records written and removed by commit batches,
 /// a temporary keyspace created, written and dropped, and keys without a version written and removed in commit
@@ -162,13 +162,8 @@ impl StoreWorkload {
                 store.drop_prefixes(self.next_ts, &[prefix], entries)
             }
             74..75 => {
-                let schema = self.keys.schema_key(0, "name");
-                store.drop_all(vec![Entry::put(
-                    schema,
-                    1,
-                    0x01,
-                    b"name: string .".to_vec(),
-                )])
+                let declaration = self.keys.catalog_key(0, PREDICATES[0]);
+                store.drop_all(vec![Entry::put(declaration, 1, 0x01, b"name".to_vec())])
             }
             75..77 => store.ban_namespace(self.keys.bannable(ctx.rng())),
             77..86 => {
@@ -184,7 +179,7 @@ impl StoreWorkload {
             97..100 => {
                 let mut batch = WriteBatch::new();
                 batch.push(Entry::put(
-                    vec![PREFIX_DATA; 65_001],
+                    vec![FORWARD; 65_001],
                     self.next_ts,
                     DELTA,
                     Vec::new(),
@@ -234,7 +229,7 @@ impl StoreWorkload {
             });
         }
         if ctx.rng().chance(50) {
-            batch.push(Entry::put(vec![PREFIX_DATA; 65_001], 1, DELTA, Vec::new()));
+            batch.push(Entry::put(vec![FORWARD; 65_001], 1, DELTA, Vec::new()));
         }
         let result = store.apply_temporary(&temporary, batch);
         self.temporary = Some(temporary);
@@ -302,12 +297,18 @@ impl StoreWorkload {
 
     /// The entries a drop of `prefix` writes once it is empty: none, or one key under it at timestamp 1.
     fn drop_entries(&mut self, ctx: &mut SimContext, prefix: &[u8]) -> Vec<Entry> {
-        if prefix.first() != Some(&PREFIX_SCHEMA) || ctx.rng().chance(500) {
+        if prefix.first() != Some(&CATALOG) || ctx.rng().chance(500) {
             return Vec::new();
         }
-        let mut key = prefix.to_vec();
-        key.extend_from_slice(b"\x00\x04name");
-        vec![Entry::put(key, 1, 0x01, b"name: string .".to_vec())]
+        // A namespace's catalog prefix gets the declaration of `name`; a predicate's prefix is its key.
+        let key = match prefix.get(1..9) {
+            Some(ns) if prefix.len() == 9 => {
+                let namespace = ns.iter().fold(0u64, |n, &b| n << 8 | u64::from(b));
+                self.keys.catalog_key(namespace, PREDICATES[0])
+            }
+            _ => prefix.to_vec(),
+        };
+        vec![Entry::put(key, 1, 0x01, b"name".to_vec())]
     }
 
     fn record(&mut self, entry: &Entry) {

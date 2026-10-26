@@ -69,8 +69,8 @@ where
     }
 
     /// Inserts a triple, held once: checked against the catalog, replacing the subject's other objects of a
-    /// single-valued predicate. The subject's list is read only when the predicate is single-valued, counted, or
-    /// carries statement IDs, whose postings a blind insert would overwrite.
+    /// single-valued predicate. The subject's list is read, so that a triple already held is neither counted twice in
+    /// the statistics nor written over its statement IDs; a subject the write created has none to read.
     pub(crate) fn insert(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -80,10 +80,7 @@ where
     ) -> Result<(), ChangesetError> {
         let r = self.resolve(graph, subject, predicate, object)?;
         let declaration = self.checked(&r, predicate, object)?;
-        let reads = declaration.cardinality() == Cardinality::Single
-            || declaration.count_index()
-            || self.catalog.has_statements(r.predicate);
-        if reads && self.held(&r, &declaration)?.is_some() {
+        if self.held(&r, &declaration)?.is_some() {
             return Ok(());
         }
         self.add(&r, &declaration, object, &[])

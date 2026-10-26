@@ -215,7 +215,7 @@ where the Dgraph benchmarks ran:
 * the size of the files after each.
 
 **Measured, stage 2 (2026-10-25).** `store_bench` (`ultragraphdb_tool/ultragraphdb_tool_bench`) drives the apply thread of
-`ultragraphdb_store_apply`, an `Applier` over `FjallStore` with `MokaListCache`, at a fixed offered rate, with commits
+`ultragraphdb_store_apply`, then an `Applier` over `FjallStore` with `MokaListCache`, at a fixed offered rate, with commits
 shaped as the Dgraph runs wrote them; it measures the store alone, with no client, network, Zero or Raft. Environment as in
 `dgraph-bench.md`: MacBook Pro (Mac15,8), Apple M3 Max; OrbStack 2.2.5, Linux VM kernel 7.2.12-orbstack, arm64, 12 CPUs,
 11.73 GiB; a `debian:bookworm-slim` container limited to 10 GB, the store on a Docker volume; a release build for
@@ -261,6 +261,33 @@ is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n>
   discard timestamp. Data files went from 140 MB to 48 MB, the journal from 318 MB to 399 MB; peak RSS 1.0 GB.
 - A bulk load and a snapshot install are stages 7 and 10; they are measured there.
 
+**Measured, stage 4 (2026-10-26).** The same runs over the quad layout: `store_bench` drives `ChangesetApplier` with the
+Dgraph runs' commits as changesets of quads in the default graph, each relation an edge to a hub and a string, the hubs
+named by an `exact`-indexed string; every IRI goes through the term dictionary, every quad writes its forward, reverse
+and predicate lists, a statement record and statistics. Environment, build and settings as for stage 2; one 30 s run
+per row.
+
+| Offered | Relations per commit | Commits/s | Relations/s | Batch apply p50 / p99 | fjall write share | Write stalls | Peak RSS | On disk | Bytes per relation |
+|---|---|---|---|---|---|---|---|---|---|
+| 14,500 | 1 | 12,215 | 12,215 | 1.7 ms / 28.2 ms | 24 % | 0 | 466 MiB | 829 MB | 2,263 |
+| 50,000 | 1 | 12,925 | 12,925 | 15.1 ms / 33.7 ms | 23 % | 0 | 470 MiB | 885 MB | 2,267 |
+| 14,500 | 50 | 635 | 31,728 | 382 ms / 521 ms | 19 % | 0 | 587 MiB | 423 MB | 441 |
+| 50,000 | 50 | 620 | 30,978 | 391 ms / 559 ms | 19 % | 0 | 601 MiB | 400 MB | 427 |
+
+- The commits read no list: each relation's subject is a new IRI, whose lists are known empty, and the reverse list, the
+  value index and the predicate lists are written blind, so the lists read per relation are 0 and no read fills the
+  cache. The cache's lookups, 2.6–4.8 million per run, are the commits' updates of the entries they wrote, and none
+  found one; the store's reads of a list, 41,000–529,000, are the rollups', and none found nothing.
+- At 50 relations per commit the apply thread saturates at 31–32k relations/s, 97 % busy, about 31 µs per relation
+  against stage 2's 40–45 µs. At one relation per commit it no longer sustains 14,500 commits/s and saturates near
+  12–13k: a commit's fixed cost, its dictionary lookups, statement records and statistics, falls on one relation.
+- The journal is 66 % of the bytes on disk at one relation per commit, 545–570 MB of 829–885 MB, and is not reclaimed
+  within a run; data files are 257–287 MB.
+- Rollups and the compaction filter, one run (`store_bench rollup --hubs 10000 --versions 100 --relations 50`): 1,000,000
+  relations loaded at 479 commits/s; the rollup of the 10,000 hubs' reverse lists took 0.68 s (14,729 lists/s, 1.5M
+  deltas/s); a major compaction took 1.88 s and collected 997,609 of the 1,007,609 reverse versions at or below the
+  discard timestamp. Data files went from 236 MB to 85 MB, the journal from 176 MB to 273 MB; peak RSS 468 MiB.
+
 ## Correctness oracles
 
 Dgraph has no conformance suite. The port checks itself against five sources:
@@ -288,7 +315,7 @@ OpenSpec change under `openspec/changes/`:
 |---|---|---|---|
 | 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `openspec/specs/` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
 | 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `openspec/specs/` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
-| 4. Data model and quad storage | `stage-4-data-model-and-quad-storage`, proposed | Mapping contract and catalog; the term dictionary; the quad keyspaces; statement IDs; type bits in UIDs; changesets; DQL and Dgraph's gRPC API removed | Quads round-tripped under the simulator's faults; reads per relation in `store_bench` |
+| 4. Data model and quad storage | `stage-4-data-model-and-quad-storage`, archived 2026-10-26; its specs are in `openspec/specs/` | Mapping contract and catalog; the term dictionary; the quad keyspaces; statement IDs; type bits in UIDs; changesets; DQL and Dgraph's gRPC API removed | Quads round-tripped under the simulator's faults; reads per relation in `store_bench` |
 | 5. Transactions and the binary protocol | Not yet written | The commit step on n−1 cores in its distributed shape (order, deterministic validation, apply; read summaries; epochs); the binary protocol crate, its conformance suite and client; the single-node server | Elle (strict serializability); scaling at 1 to n−1 workers; read summaries' false-abort rates; the protocol conformance suite |
 | 5.5. Hardening transactions with chaos testing | Not yet written | Stage 5's commit step and server under the simulator's faults and process kills; scrith's Dgraph probes Q1 and A8 as tests | Elle under faults; no acknowledged commit lost across a kill |
 | 6. Query core | Not yet written | What SPARQL and GQL share: the kernel, both parsers, CRUD, pattern matching, filters, ordering, aggregates, bounded walks, vector and text search; spareval as the SPARQL oracle | Selected W3C tests and MGQL's golden results inside the core; SPARQL against GQL on the same questions; the DeepBrain MVP's queries |

@@ -7,7 +7,6 @@ mod posting_error_display;
 mod posting_error_error;
 mod posting_error_from;
 
-use ultragraphdb_core_keys::KeyError;
 use ultragraphdb_error_store::StoreError;
 
 /// Why a posting-list operation failed. `Display` gives Dgraph's text wherever Dgraph has one: `No value found`,
@@ -26,8 +25,8 @@ pub struct PostingError(pub PostingErrorEnum);
 pub enum PostingErrorEnum {
     /// The store refused or failed an operation, or a stored value is corrupted.
     Store(StoreError),
-    /// A key could not be parsed or built.
-    Key(KeyError),
+    /// A key of no list keyspace handed to the posting lists.
+    NotAList { key: Vec<u8> },
     /// A split part's key read as a posting list: Dgraph's `ErrInvalidKey`.
     InvalidKey,
     /// No value matches: Dgraph's `ErrNoValue`.
@@ -48,8 +47,6 @@ pub enum PostingErrorEnum {
     UnexpectedMeta { meta: u8, key: Vec<u8> },
     /// A part a split list records is not in the store.
     MissingPart { key: Vec<u8> },
-    /// An edge whose operation is none of set, delete and overwrite; Dgraph exits the process (`x.Fatalf`).
-    UnhandledOperation { op: i32 },
     /// A rolled-up pack whose block size is not the posting lists' 256.
     BlockSize { actual: u32, expected: u32 },
     /// A rollup cancelled because rollups are paused: Dgraph's `ErrHighPriorityOp`.
@@ -63,8 +60,8 @@ impl PostingError {
     }
 
     #[allow(non_snake_case)]
-    pub fn Key(error: KeyError) -> Self {
-        Self(PostingErrorEnum::Key(error))
+    pub fn NotAList(key: &[u8]) -> Self {
+        Self(PostingErrorEnum::NotAList { key: key.to_vec() })
     }
 
     #[allow(non_snake_case)]
@@ -112,11 +109,6 @@ impl PostingError {
     #[allow(non_snake_case)]
     pub fn MissingPart(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::MissingPart { key })
-    }
-
-    #[allow(non_snake_case)]
-    pub fn UnhandledOperation(op: i32) -> Self {
-        Self(PostingErrorEnum::UnhandledOperation { op })
     }
 
     #[allow(non_snake_case)]

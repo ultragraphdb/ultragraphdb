@@ -43,13 +43,11 @@ where
                 ids.push(self.new_statement(&r, properties)?);
                 self.write
                     .set_statement_ids(r.graph, r.subject, r.predicate, &r.object, &ids);
-                self.mark_statements(r.predicate);
                 Ok(())
             }
             None if properties.is_empty() => self.add(&r, &declaration, object, &[]),
             None => {
                 let id = self.new_statement(&r, properties)?;
-                self.mark_statements(r.predicate);
                 self.add(&r, &declaration, object, &[id])
             }
         }
@@ -125,7 +123,6 @@ where
                     record.object(),
                     &[id],
                 );
-                self.mark_statements(record.predicate());
                 (graph, id, record)
             }
         };

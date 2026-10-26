@@ -4,7 +4,7 @@
  */
 
 //! `store_bench`: the storage measurements of stage 2, task 10.2. It drives the apply thread of
-//! `ultragraphdb_store_apply` (an `Applier` over `FjallStore` with `MokaListCache`) with commits shaped as the
+//! `ultragraphdb_store_apply` (a `ChangesetApplier` over `FjallStore` with `MokaListCache`) with commits shaped as the
 //! Dgraph benchmark runs wrote them, at a fixed offered rate, in apply-step batches; and it measures rollups and the
 //! compaction filter over one large predicate, and the store's files after each run.
 //!
@@ -16,7 +16,7 @@
 //!
 //! Each run prints one JSON line. The library holds what the runs are built of, so it is tested apart from the
 //! clock: the arguments, the commit shape, the rate pacer behind the [`Clock`] trait, the summaries, the readers of
-//! `/proc`, the store wrapper timing each write call and the directory sizes.
+//! `/proc`, the store wrapper timing each write call, the wrappers counting list reads and the directory sizes.
 
 mod errors;
 mod traits;
@@ -28,8 +28,11 @@ pub use crate::traits::clock::Clock;
 pub use crate::types::apply_args::ApplyArgs;
 pub use crate::types::command::Command;
 pub use crate::types::commit_shape::CommitShape;
+pub use crate::types::counted_snapshot::{CountedScan, CountedSnapshot};
+pub use crate::types::counting_cache::CountingCache;
 pub use crate::types::dir_sizes::DirSizes;
 pub use crate::types::pacer::Pacer;
+pub use crate::types::read_counts::ReadCounts;
 pub use crate::types::rollup_args::RollupArgs;
 pub use crate::types::size::Size;
 pub use crate::types::summary::Summary;

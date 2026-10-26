@@ -91,9 +91,9 @@ Feature: The versioned store over fjall
     When namespace 5 is banned, everything is dropped, and a batch then writes a key in namespace 5
     Then the key is found
 
-  Scenario: The initial schema a drop writes survives garbage collection
-    When everything in a namespace is dropped, its initial schema is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts
-    Then the namespace's initial schema is still read at the discard timestamp
+  Scenario: The initial catalog a drop writes survives garbage collection
+    When everything in a namespace is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts
+    Then the namespace's initial catalog is still read at the discard timestamp
 
   Scenario: A collected version stays collected after a restart
     When a version below the discard timestamp is collected, its deletion is swept and the store is closed and reopened

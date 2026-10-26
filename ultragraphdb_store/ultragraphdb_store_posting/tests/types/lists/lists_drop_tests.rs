@@ -12,7 +12,7 @@ use crate::utils::helpers::{commit_edges, key, new_lists, set_uid, uids};
 fn test_a_drop_advances_the_epoch_and_clears_the_cache() {
     let lists = new_lists();
     let k = key("dropped", 1);
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).unwrap();
     let epoch = lists.epoch();
     lists
@@ -27,7 +27,7 @@ fn test_a_drop_advances_the_epoch_and_clears_the_cache() {
 #[test]
 fn test_a_drop_of_everything_keeps_its_entries() {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &key("all", 1), &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &key("all", 1), &[set_uid(1)]);
     lists
         .drop_all(vec![Entry::put(
             b"\x01s".to_vec(),
@@ -44,7 +44,7 @@ fn test_a_drop_of_everything_keeps_its_entries() {
 #[test]
 fn test_the_discard_timestamp_stays_at_or_below_the_oldest_open_request() {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &key("discard", 1), &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &key("discard", 1), &[set_uid(1)]);
     let request = lists.request(ts);
     assert_eq!(lists.oldest_open_read(), Some(ts));
     lists.set_discard_ts(ts + 100).unwrap();
@@ -67,8 +67,7 @@ fn test_a_drop_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(request);
     lists.commit(batch).unwrap();
     let expected = lists.peek_ts();

@@ -27,29 +27,30 @@ when `t` is below the newest complete or empty version; Dgraph serves an empty r
 - **THEN** the result holds the delta's postings
 
 ### Requirement: Posting operations and identities
-Set, delete and overwrite SHALL apply as in Dgraph. A reference posting SHALL be identified by its target uid; an
-untagged scalar value by uid `MaxUint64`; a language-tagged value by the 64-bit farm fingerprint of its language; a
-value of a list type by the fingerprint of the value.
+Insert, delete and single-valued overwrite SHALL apply to a list as a set of objects. An IRI or blank-node object SHALL
+be identified by its UID. A literal object SHALL be identified by its encoded term: the posting's 64-bit fingerprint of
+the encoding orders the list, and postings whose fingerprints are equal SHALL be told apart by their encodings, so a
+fingerprint collision never merges two literals. Literals that differ in language tag SHALL be distinct objects.
 
-#### Scenario: A scalar value overwrites the previous one
-- **WHEN** `<0x1> <name> "A"` is set and then `<0x1> <name> "B"` is set
-- **THEN** the list holds one value posting, `B`
+#### Scenario: A single-valued predicate replaces its object
+- **WHEN** `name` is declared single-valued and `<a> <name> "A"` is written and then `<a> <name> "B"`
+- **THEN** the list holds one posting, `"B"`
 
-#### Scenario: Language values coexist
-- **WHEN** `name` is set untagged to `A` and with language `fr` to `Á`
-- **THEN** both are held, and a read for language `fr` returns `Á`
+#### Scenario: Language-tagged literals coexist
+- **WHEN** `<a> <label> "A"`, `<a> <label> "Á"@fr` and `<a> <label> "B"@fr` are written to a multi-valued `label`
+- **THEN** the list holds all three
 
-#### Scenario: A single uid predicate replaces its target
-- **WHEN** a non-list uid predicate is set to `0x2` and then to `0x3`
-- **THEN** the list holds only `0x3`
+#### Scenario: A multi-valued predicate accumulates
+- **WHEN** `<a> <knows> <b>` and then `<a> <knows> <c>` are written
+- **THEN** the list holds `b` and `c`
 
-#### Scenario: A uid list accumulates
-- **WHEN** a `[uid]` predicate is set to `0x2` and then to `0x3`
-- **THEN** the list holds `0x2` and `0x3`
+#### Scenario: Colliding fingerprints keep both literals
+- **WHEN** two different literals whose encodings have the same 64-bit fingerprint are written to one list
+- **THEN** the list holds both, and deleting one leaves the other
 
-#### Scenario: Deleting a non-matching scalar value changes nothing
-- **WHEN** `name` holds `A` and a delete of `name` with value `B` is applied
-- **THEN** `name` still holds `A`
+#### Scenario: Deleting an object the list does not hold changes nothing
+- **WHEN** `a` holds `"A"` for `name` and `<a> <name> "B"` is deleted
+- **THEN** `a` still holds `"A"`
 
 ### Requirement: Delete-all markers
 A delete-all (`_STAR_ALL`) committed at `T` SHALL hide the complete list and every earlier delta for reads at or

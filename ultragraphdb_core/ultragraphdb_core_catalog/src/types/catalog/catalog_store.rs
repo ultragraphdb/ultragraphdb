@@ -9,9 +9,7 @@ use ultragraphdb_traits_store::{Entry, Scan, StoreSnapshot};
 
 use crate::errors::catalog_error::CatalogError;
 use crate::types::catalog::Catalog;
-use crate::utils::catalog_codec::{
-    ENTITY_TYPE, PREDICATE, RELATION, STATEMENTS, decode, encode, kind_of, statements_marker,
-};
+use crate::utils::catalog_codec::{ENTITY_TYPE, PREDICATE, RELATION, decode, encode, kind_of};
 
 /// The meta byte of a catalog entry, Dgraph's schema posting bit.
 const CATALOG_META: u8 = 0x01;
@@ -39,23 +37,9 @@ impl Catalog {
         .with_discard()
     }
 
-    /// The entry marking predicate `uid` as carrying statement IDs, at `version`.
-    pub fn statements_entry(namespace: u64, uid: u64, version: u64) -> Entry {
-        Entry::put(
-            Self::key(namespace, STATEMENTS, uid),
-            version,
-            CATALOG_META,
-            statements_marker(),
-        )
-        .with_discard()
-    }
-
-    /// The keys of predicate `uid`'s catalog entries: its declaration and its statement-ID mark.
-    pub fn predicate_keys(namespace: u64, uid: u64) -> Vec<Vec<u8>> {
-        vec![
-            Self::key(namespace, PREDICATE, uid),
-            Self::key(namespace, STATEMENTS, uid),
-        ]
+    /// The key of predicate `uid`'s declaration.
+    pub fn predicate_key(namespace: u64, uid: u64) -> Vec<u8> {
+        Self::key(namespace, PREDICATE, uid)
     }
 
     /// The entry removing the declaration of `kind` for `uid` at `version`.
@@ -78,15 +62,7 @@ impl Catalog {
             .relations
             .iter()
             .map(|(uid, d)| Self::entry(ns, *uid, &Declaration::Relation(d.clone()), version));
-        let statements = self
-            .with_statements
-            .iter()
-            .map(|uid| Self::statements_entry(ns, *uid, version));
-        predicates
-            .chain(types)
-            .chain(relations)
-            .chain(statements)
-            .collect()
+        predicates.chain(types).chain(relations).collect()
     }
 
     /// The catalog of `namespace` as `snapshot` reads it, every entry decoded, a type's parent resolved among the
@@ -102,16 +78,6 @@ impl Catalog {
             let Ok((QuadKey::Catalog { kind, uid, .. }, None)) = QuadKey::parse(item.key()) else {
                 return Err(CatalogError::Corrupted(item.key(), "not a catalog key"));
             };
-            if kind == STATEMENTS {
-                if item.value() != statements_marker().as_slice() {
-                    return Err(CatalogError::Corrupted(
-                        item.key(),
-                        "an unreadable statements marker",
-                    ));
-                }
-                catalog.with_statements.insert(uid);
-                continue;
-            }
             match (kind, decode(item.key(), item.value())?) {
                 (PREDICATE, Declaration::Predicate(p)) => {
                     catalog.predicates.insert(uid, p);

@@ -14,7 +14,9 @@ impl Display for PostingError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.0 {
             PostingErrorEnum::Store(error) => write!(f, "{error}"),
-            PostingErrorEnum::Key(error) => write!(f, "{error}"),
+            PostingErrorEnum::NotAList { key } => {
+                write!(f, "Key {} is not a posting list's", go_hex_dump(key))
+            }
             PostingErrorEnum::InvalidKey => {
                 f.write_str("cannot read posting list using multi-part list key")
             }
@@ -53,7 +55,6 @@ impl Display for PostingError {
                     hex(key)
                 )
             }
-            PostingErrorEnum::UnhandledOperation { op } => write!(f, "Unhandled operation: {op}"),
             PostingErrorEnum::BlockSize { actual, expected } => write!(
                 f,
                 "actual block size {actual} is different from expected value {expected}"

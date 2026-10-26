@@ -7,7 +7,9 @@
 //! commits, as changesets of quads, at the rate into a channel; the apply thread takes everything waiting in one
 //! receive, as Dgraph's apply loop takes one Raft `Ready`'s committed entries (bounded at 64 MiB,
 //! `MaxCommittedSizePerReady`), and applies them as one batch of the changeset applier: each a request, all
-//! committed in one store batch. The run reports the lists the commits read per relation. At most 256
+//! committed in one store batch. The run reports the lists the commits read per relation, the posting cache's lookups
+//! and hits, a commit's updates of the entries it wrote among them, and the store's reads of a list and those that
+//! found nothing, a rollup's among them. At most 256
 //! commits are in flight, Dgraph's pending-proposal limit; past it the source waits, and the run measures the rate the
 //! apply thread reaches. Rollups run beside it on a thread of their own, as Dgraph's rollup goroutine does, unless the
 //! run turns them off.
@@ -62,6 +64,7 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let lists = a.quads().lists();
     let data_path = lists.store().inner().data_path().to_path_buf();
     let _ = lists.store().take_calls();
+    let reads_start = lists.store().reads().get();
 
     let clock = WallClock::new();
     let stop = Arc::new(AtomicBool::new(false));
@@ -141,6 +144,11 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let cpu = process_cpu_secs().zip(cpu_start).map(|(b, a)| b - a);
     let (rss, rss_peak) = rss_kib();
     let rollup_calls = lists.store().other_calls();
+    let reads = {
+        let (l, h, s, e) = lists.store().reads().get();
+        let (l0, h0, s0, e0) = reads_start;
+        (l - l0, h - h0, s - s0, e - e0)
+    };
     lists.sync()?;
     drop(a);
     let sizes = DirSizes::of(args.dir(), &data_path)?;
@@ -157,6 +165,7 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
         rollup_cpu,
         rolled,
         rollup_calls,
+        reads,
         rss,
         rss_peak,
         sizes,
@@ -253,6 +262,7 @@ fn report(
     rollup_cpu: Option<f64>,
     rolled: usize,
     rollup_calls: (u64, u64),
+    reads: (u64, u64, u64, u64),
     rss: Option<u64>,
     rss_peak: Option<u64>,
     sizes: DirSizes,
@@ -294,6 +304,7 @@ fn report(
             "{{\"run\":\"apply\",\"offered_commits_per_s\":{},\"relations_per_commit\":{},\"durability\":\"{:?}\",",
             "\"rollups\":{},\"max_batch\":{},\"seconds\":{:.2},\"commits_offered\":{},\"commits_applied\":{},\"commit_errors\":{},",
             "\"achieved_commits_per_s\":{:.0},\"achieved_relations_per_s\":{:.0},\"lists_read_per_relation\":{:.2},",
+            "\"cache_lookups\":{},\"cache_hits\":{},\"cache_hit_share\":{:.3},\"store_list_reads\":{},\"store_reads_found_nothing\":{},",
             "\"source_waits_on_pending_limit\":{},",
             "\"batches\":{},\"batch_commits\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
             "\"batch_apply_us\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
@@ -317,6 +328,11 @@ fn report(
         applied as f64 / secs,
         relations as f64 / secs,
         lists_read as f64 / relations.max(1) as f64,
+        reads.0,
+        reads.1,
+        reads.1 as f64 / reads.0.max(1) as f64,
+        reads.2,
+        reads.3,
         waits,
         stats.len(),
         batch_size.p50(),

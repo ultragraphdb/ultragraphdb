@@ -3,18 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What the unit tests and the scenarios share: lists over a fault-free simulated store, edges, and the reads and
-//! writes the ported Go tests make by hand.
+//! What the unit tests and the scenarios share: lists over a fault-free simulated store, quad keys and postings, and
+//! the reads and writes the ported Go tests make by hand.
 
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, data_key};
+use ultragraphdb_common_utils::go_farm::fingerprint64;
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_proto_dgraph::api;
-use ultragraphdb_proto_pb::pb::{DirectedEdge, SchemaUpdate, directed_edge, posting};
+use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{
-    BIT_DELTA_POSTING, CachedList, List, Lists, ListsConfig, PostingError,
+    BIT_DELTA_POSTING, CachedList, DEL, List, Lists, ListsConfig, PostingError, SET,
+    delete_all_posting,
 };
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
@@ -37,95 +39,81 @@ pub fn lists_over(store: SimStore, config: ListsConfig) -> TestLists {
     Lists::new(store, cache, config)
 }
 
-/// The data key of `attr` in the root namespace for `uid`.
+/// The UID the tests give the predicate `attr`: drawn from its name, never 0.
+pub fn predicate(attr: &str) -> u64 {
+    fingerprint64(attr.as_bytes()).max(1)
+}
+
+/// The forward key of `attr` for the subject `uid` in the default graph of the root namespace.
 pub fn key(attr: &str, uid: u64) -> Vec<u8> {
-    data_key(&attr_in_root_namespace(attr), uid).expect("a data key")
+    QuadKey::Forward {
+        namespace: 0,
+        graph: DEFAULT_GRAPH,
+        predicate: predicate(attr),
+        subject: uid,
+    }
+    .to_bytes()
 }
 
 /// A set of the reference `uid`.
-pub fn set_uid(uid: u64) -> DirectedEdge {
-    DirectedEdge {
-        value_id: uid,
-        op: directed_edge::Op::Set as i32,
-        ..DirectedEdge::default()
+pub fn set_uid(uid: u64) -> Posting {
+    Posting {
+        uid,
+        op: SET,
+        ..Posting::default()
     }
 }
 
 /// A delete of the reference `uid`.
-pub fn del_uid(uid: u64) -> DirectedEdge {
-    DirectedEdge {
-        op: directed_edge::Op::Del as i32,
+pub fn del_uid(uid: u64) -> Posting {
+    Posting {
+        op: DEL,
         ..set_uid(uid)
     }
 }
 
-/// `edge` with a facet keyed `key`.
-pub fn with_facet(mut edge: DirectedEdge, key: &str) -> DirectedEdge {
-    edge.facets = vec![api::Facet {
+/// `posting` with a facet keyed `key`.
+pub fn with_facet(mut posting: Posting, key: &str) -> Posting {
+    posting.facets = vec![api::Facet {
         key: key.to_string(),
         ..api::Facet::default()
     }];
-    edge
+    posting
 }
 
-/// A set of the untagged string `value`.
-pub fn set_value(value: &str) -> DirectedEdge {
-    DirectedEdge {
+/// A set of the value `value`, as a quad list holds a literal: its bytes, under their fingerprint.
+pub fn set_value(value: &str) -> Posting {
+    Posting {
+        uid: fingerprint64(value.as_bytes()),
         value: value.as_bytes().to_vec(),
-        value_type: posting::ValType::String as i32,
-        op: directed_edge::Op::Set as i32,
-        ..DirectedEdge::default()
+        posting_type: posting::PostingType::Value as i32,
+        op: SET,
+        ..Posting::default()
     }
 }
 
-/// A delete of the untagged string `value`.
-pub fn del_value(value: &str) -> DirectedEdge {
-    DirectedEdge {
-        op: directed_edge::Op::Del as i32,
+/// A delete of the value `value`.
+pub fn del_value(value: &str) -> Posting {
+    Posting {
+        op: DEL,
         ..set_value(value)
     }
 }
 
-/// A set of `value` tagged `lang`.
-pub fn set_lang(value: &str, lang: &str) -> DirectedEdge {
-    DirectedEdge {
-        lang: lang.to_string(),
-        ..set_value(value)
-    }
+/// A delete of every posting.
+pub fn delete_all() -> Posting {
+    delete_all_posting()
 }
 
-/// A delete of every posting: `* *`.
-pub fn delete_all() -> DirectedEdge {
-    DirectedEdge {
-        value: b"_STAR_ALL".to_vec(),
-        op: directed_edge::Op::Del as i32,
-        ..DirectedEdge::default()
-    }
-}
-
-/// The schema of a predicate of one uid, or of a uid list.
-pub fn uid_schema(list: bool) -> SchemaUpdate {
-    SchemaUpdate {
-        value_type: posting::ValType::Uid as i32,
-        list,
-        ..SchemaUpdate::default()
-    }
-}
-
-/// Commits `edges` to `key` as one request reading at the newest timestamp: the commit timestamp, the one the
+/// Commits `postings` to `key` as one request reading at the newest timestamp: the commit timestamp, the one the
 /// counter gives next.
-pub fn commit_edges(
-    lists: &TestLists,
-    key: &[u8],
-    edges: &[DirectedEdge],
-    schema: Option<&SchemaUpdate>,
-) -> u64 {
+pub fn commit_edges(lists: &TestLists, key: &[u8], postings: &[Posting]) -> u64 {
     let mut batch = lists.batch();
     let mut request = batch.request(lists.latest_ts());
     let list = request.get(key).expect("read");
-    edges
+    postings
         .iter()
-        .for_each(|e| list.add_mutation(e, schema).expect("mutation"));
+        .for_each(|p| list.add_posting(p.clone(), false));
     batch.push(request);
     lists.commit(batch).expect("commit")[0]
 }
@@ -135,6 +123,17 @@ pub fn uids(list: &List, read_ts: u64, after_uid: u64) -> Vec<u64> {
     let mut out = Vec::new();
     list.iterate(read_ts, after_uid, |p| {
         out.push(p.uid);
+        Ok::<_, PostingError>(ControlFlow::Continue(()))
+    })
+    .expect("iterate");
+    out
+}
+
+/// The values `list` holds at `read_ts`, in posting order.
+pub fn values(list: &List, read_ts: u64) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    list.iterate(read_ts, 0, |p| {
+        out.push(p.value.clone());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .expect("iterate");
@@ -151,10 +150,10 @@ pub fn check_uids(list: &List, expected: &[u64], read_ts: u64) {
     }
 }
 
-/// Applies `edge` to `list` in a request reading at `start_ts`.
-pub fn add(list: &mut List, start_ts: u64, edge: &DirectedEdge) {
+/// Applies `posting` to `list` in a request reading at `start_ts`.
+pub fn add(list: &mut List, start_ts: u64, posting: &Posting) {
     list.set_ts(start_ts);
-    list.add_mutation(edge, None).expect("mutation");
+    list.add_posting(posting.clone(), false);
 }
 
 /// Writes `entries` to `store` in one batch.
@@ -317,14 +316,14 @@ pub fn probe_lists() -> (Arc<ProbeLists>, Probe) {
     (lists, probe)
 }
 
-/// Writes a delta of `edges` at `commit_ts` for `key` straight to `store`, recording `commit_ts` as applied, as
+/// Writes a delta of `postings` at `commit_ts` for `key` straight to `store`, recording `commit_ts` as applied, as
 /// Go's tests commit by hand.
-pub fn write_delta(store: &SimStore, key: &[u8], commit_ts: u64, edges: &[DirectedEdge]) {
+pub fn write_delta(store: &SimStore, key: &[u8], commit_ts: u64, postings: &[Posting]) {
     let mut list = List::empty(key.to_vec());
     list.set_ts(commit_ts.saturating_sub(1));
-    edges
+    postings
         .iter()
-        .for_each(|e| list.add_mutation(e, None).expect("mutation"));
+        .for_each(|p| list.add_posting(p.clone(), false));
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(
         key.to_vec(),

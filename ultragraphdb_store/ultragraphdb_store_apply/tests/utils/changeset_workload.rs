@@ -46,6 +46,7 @@ pub const INDEXES_MATCH_DATA: &str = "every value-index, reverse, predicate-list
 pub const RECORDS_MATCH_POSTINGS: &str =
     "every statement ID a posting carries has its record, and every record its posting";
 /// The rule the store breaks when it holds other statements than the model.
+pub const STATISTICS_MATCH_DATA: &str = "the statistics of every graph and predicate count exactly the statements its forward lists hold";
 pub const MODEL_AGREES: &str = "the store holds the statements the canonical model holds";
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
@@ -405,6 +406,9 @@ impl ChangesetWorkload {
         if let Some(detail) = indexes_disagree(&a, &forward)? {
             return Ok(Some((INDEXES_MATCH_DATA, detail)));
         }
+        if let Some(detail) = statistics_disagree(&a, &forward, ts)? {
+            return Ok(Some((STATISTICS_MATCH_DATA, detail)));
+        }
         let stored = statements_of(&a, &forward);
         let stored = match stored {
             Ok(s) => s,
@@ -444,6 +448,44 @@ impl ChangesetWorkload {
         }
         Ok(None)
     }
+}
+
+/// The first graph and predicate whose statistics count other than the statements its forward lists hold, every
+/// predicate whose statistics key the store holds included.
+fn statistics_disagree(
+    a: &SimChangesets,
+    forward: &Lists,
+    ts: u64,
+) -> Result<Option<String>, ChangesetError> {
+    let mut held: BTreeMap<(u64, u64), i64> = BTreeMap::new();
+    for (key, objects) in forward {
+        if let QuadKey::Forward {
+            graph, predicate, ..
+        } = key
+        {
+            *held.entry((*graph, *predicate)).or_default() += objects.len() as i64;
+        }
+    }
+    for key in live_keys(a, Keyspace::Statistics)? {
+        if let Ok((
+            QuadKey::Statistics {
+                graph, predicate, ..
+            },
+            _,
+        )) = QuadKey::parse(&key)
+        {
+            held.entry((graph, predicate)).or_default();
+        }
+    }
+    for ((graph, predicate), statements) in held {
+        let counted = a.quads().statistics(NS, graph, predicate, ts)?.statements();
+        if counted != statements {
+            return Ok(Some(format!(
+                "graph {graph} predicate {predicate}: {statements} statements held, {counted} counted"
+            )));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether `error` is one an injected fault explains.

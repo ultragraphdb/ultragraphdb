@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What both runs open: a changeset applier over the timed fjall store with moka's cache, its catalog the Dgraph
-//! runs' schema as declarations.
+//! What both runs open: a changeset applier over the timed fjall store with moka's cache, its list reads counted, its
+//! catalog the Dgraph runs' schema as declarations.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -16,11 +16,14 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 
 use crate::errors::bench_error::BenchError;
 use crate::types::commit_shape::CommitShape;
+use crate::types::counting_cache::CountingCache;
+use crate::types::read_counts::ReadCounts;
 use crate::types::size::Size;
 use crate::types::timed_store::TimedStore;
 
 /// The applier both runs drive.
-pub type BenchApplier = ChangesetApplier<TimedStore, MokaListCache<CachedList>, ThreadExecutor>;
+pub type BenchApplier =
+    ChangesetApplier<TimedStore, CountingCache<MokaListCache<CachedList>>, ThreadExecutor>;
 
 /// Dgraph's share of `--cache size-mb` given to the posting-list cache (`percentage=40,40,20`).
 const POSTING_CACHE_PERCENT: u64 = 40;
@@ -41,10 +44,14 @@ pub fn open_applier(
             dir.display()
         )));
     }
-    let store = TimedStore::new(FjallStore::open(dir, durability)?);
-    let cache = MokaListCache::new(
-        cache_mb * (1 << 20) * POSTING_CACHE_PERCENT / 100,
-        |_: &[u8], v: &CachedList| v.weight(),
+    let reads = Arc::new(ReadCounts::new());
+    let store = TimedStore::new(FjallStore::open(dir, durability)?, Arc::clone(&reads));
+    let cache = CountingCache::new(
+        MokaListCache::new(
+            cache_mb * (1 << 20) * POSTING_CACHE_PERCENT / 100,
+            |_: &[u8], v: &CachedList| v.weight(),
+        ),
+        reads,
     );
     let lists = Lists::new(store, cache, ListsConfig::default());
     Ok(Arc::new(ChangesetApplier::new(

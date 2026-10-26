@@ -25,22 +25,6 @@ Feature: Posting lists
     When a list holds a delta at 4, a delete-all at 5 and an empty rollup at 6, and is read at 4
     Then the result holds the delta's postings
 
-  Scenario: A scalar value overwrites the previous one
-    When `<0x1> <name> "A"` is set and then `<0x1> <name> "B"` is set
-    Then the list holds one value posting, `B`
-
-  Scenario: Language values coexist
-    When `name` is set untagged to `A` and with language `fr` to `Á`
-    Then both are held, and a read for language `fr` returns `Á`
-
-  Scenario: A single uid predicate replaces its target
-    When a non-list uid predicate is set to `0x2` and then to `0x3`
-    Then the list holds only `0x3`
-
-  Scenario: A uid list accumulates
-    When a `[uid]` predicate is set to `0x2` and then to `0x3`
-    Then the list holds `0x2` and `0x3`
-
   Scenario: Delete-all hides earlier postings from later reads
     When a list holds postings, a delete-all is committed at 8, and the list is read at 8 and at 7
     Then the read at 8 is empty and the read at 7 returns the postings

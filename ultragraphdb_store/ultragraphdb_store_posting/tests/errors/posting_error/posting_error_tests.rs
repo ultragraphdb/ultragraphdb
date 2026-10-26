@@ -5,7 +5,6 @@
 
 use std::error::Error;
 
-use ultragraphdb_core_keys::KeyError;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 
@@ -25,10 +24,6 @@ fn test_texts_are_dgraphs() {
         (
             PostingError::DeleteBelowMinTs(3, 5),
             "deleteBelowTs (3) must be greater than the minTs in the list (5)",
-        ),
-        (
-            PostingError::UnhandledOperation(7),
-            "Unhandled operation: 7",
         ),
         (
             PostingError::BlockSize(16, 256),
@@ -62,15 +57,20 @@ fn test_meta_texts_dump_the_key() {
 }
 
 #[test]
-fn test_store_and_key_errors_carry_through() {
+fn test_store_errors_carry_through_and_a_key_of_no_list_is_named() {
     let error: PostingError = StoreError::TsTooOld().into();
     assert_eq!(error.0, PostingErrorEnum::Store(StoreError::TsTooOld()));
     assert_eq!(error.to_string(), "Transaction is too old");
-    let key: PostingError = KeyError::SplitNonDefaultPrefix().into();
-    assert!(matches!(key.0, PostingErrorEnum::Key(_)));
+    let error = PostingError::NotAList(&[0x01, 0x02]);
     assert_eq!(
-        key.to_string(),
-        KeyError::SplitNonDefaultPrefix().to_string()
+        error.0,
+        PostingErrorEnum::NotAList {
+            key: vec![0x01, 0x02]
+        }
+    );
+    assert!(
+        error.to_string().contains("is not a posting list's"),
+        "{error}"
     );
 }
 

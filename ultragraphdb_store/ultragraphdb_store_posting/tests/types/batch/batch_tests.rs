@@ -15,8 +15,7 @@ fn test_a_batch_holds_its_requests_in_order() {
         request
             .get(&key("batch", uid))
             .unwrap()
-            .add_mutation(&set_uid(uid), None)
-            .unwrap();
+            .add_posting(set_uid(uid).clone(), false);
         batch.push(request);
     }
     assert_eq!(batch.len(), 3);
@@ -38,8 +37,7 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
     first
         .get(&name)
         .unwrap()
-        .add_mutation(&set_value("A"), None)
-        .unwrap();
+        .add_posting(set_value("A").clone(), false);
     let mut committed = lists.batch();
     committed.push(first);
     lists.commit(committed).unwrap();
@@ -50,8 +48,7 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
     earlier
         .get(&name)
         .unwrap()
-        .add_mutation(&set_value("B"), None)
-        .unwrap();
+        .add_posting(set_value("B").clone(), false);
     batch.push(earlier);
     let mut later = batch.request(read_ts);
     let list = later.get(&name).unwrap();
@@ -73,16 +70,14 @@ fn holders_of_the_first_layer(later: u64) -> usize {
     first
         .get(&hub)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(first);
     for uid in 2..2 + later {
         let mut request = batch.request(read_ts);
         request
             .get(&key("node", uid))
             .unwrap()
-            .add_mutation(&set_uid(uid), None)
-            .unwrap();
+            .add_posting(set_uid(uid).clone(), false);
         batch.push(request);
     }
     let mut reader = batch.request(read_ts);
@@ -121,8 +116,7 @@ fn test_a_request_sees_the_layers_pushed_before_it_began_and_none_after() {
     first
         .get(&hub)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     let mut early = batch.request(read_ts);
     batch.push(first);
     let mut late = batch.request(read_ts);

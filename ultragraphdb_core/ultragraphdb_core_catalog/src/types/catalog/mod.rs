@@ -8,7 +8,7 @@ mod catalog_store;
 mod catalog_types;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use oxrdf::NamedNode;
 use oxrdf::vocab::rdf;
@@ -30,8 +30,6 @@ pub struct Catalog {
     predicates: BTreeMap<u64, PredicateDeclaration>,
     types: BTreeMap<u64, TypeDeclaration>,
     relations: BTreeMap<u64, RelationDeclaration>,
-    /// The predicates some statement of which has carried a statement ID.
-    with_statements: BTreeSet<u64>,
 }
 
 impl Catalog {
@@ -132,17 +130,6 @@ impl Catalog {
     /// Removes predicate `uid`'s declaration: it behaves as the default again. Whether it had one.
     pub fn remove_predicate(&mut self, uid: u64) -> bool {
         self.predicates.remove(&uid).is_some()
-    }
-
-    /// Whether a statement of predicate `uid` has carried a statement ID, so that an insert of it reads the
-    /// subject's list to keep the IDs a held object carries.
-    pub fn has_statements(&self, uid: u64) -> bool {
-        self.with_statements.contains(&uid)
-    }
-
-    /// Marks predicate `uid` as carrying statement IDs: whether the mark is new.
-    pub fn mark_statements(&mut self, uid: u64) -> bool {
-        self.with_statements.insert(uid)
     }
 
     pub fn declare_relation(&mut self, uid: u64, declaration: RelationDeclaration) {

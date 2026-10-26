@@ -3,17 +3,18 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_kv::FjallSnapshot;
 use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, Temporary, WriteBatch};
 
+use crate::types::counted_snapshot::CountedSnapshot;
 use crate::types::timed_store::TimedStore;
 use crate::types::write_call::WriteCall;
 
 impl Store for TimedStore {
-    type Snapshot = FjallSnapshot;
+    type Snapshot = CountedSnapshot;
 
     #[allow(
         clippy::disallowed_methods,
@@ -39,7 +40,8 @@ impl Store for TimedStore {
     }
 
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
-        self.inner.snapshot(read_ts)
+        let snapshot = self.inner.snapshot(read_ts)?;
+        Ok(CountedSnapshot::new(snapshot, Arc::clone(self.reads())))
     }
 
     fn drop_prefixes(
@@ -100,7 +102,8 @@ impl Store for TimedStore {
     }
 
     fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
-        self.inner.temporary_snapshot(temporary)
+        let snapshot = self.inner.temporary_snapshot(temporary)?;
+        Ok(CountedSnapshot::new(snapshot, Arc::clone(self.reads())))
     }
 
     fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {

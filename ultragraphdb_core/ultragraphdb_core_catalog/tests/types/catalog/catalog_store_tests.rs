@@ -21,8 +21,7 @@ fn write(store: &SimStore, entries: Vec<Entry>) {
 #[test]
 fn test_entries_carry_the_discard_flag_and_load_reads_one_namespace() {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    let mut a = Catalog::initial(1, 10);
-    assert!(a.mark_statements(11) && !a.mark_statements(11) && a.has_statements(11));
+    let a = Catalog::initial(1, 10);
     let b = Catalog::initial(2, 20);
     let entries = a.entries(5);
     assert!(entries.iter().all(|e| e.discard() && e.version() == 5));

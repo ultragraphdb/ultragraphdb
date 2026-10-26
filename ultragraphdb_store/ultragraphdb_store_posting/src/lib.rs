@@ -9,19 +9,18 @@
 //! gate; the posting cache behind [`ListCache`](ultragraphdb_traits_store::ListCache); the rollup worker on an
 //! [`Executor`](ultragraphdb_traits_store::Executor).
 //!
-//! A request owns its copy of a list: its edges write the list's scratch layer at the request's read timestamp,
+//! A request owns its copy of a list: its postings write the list's scratch layer at the request's read timestamp,
 //! and a commit adds that layer as a delta at its commit timestamp.
 //!
 //! ```
-//! use ultragraphdb_core_keys::{attr_in_root_namespace, data_key};
-//! use ultragraphdb_proto_pb::pb::{DirectedEdge, directed_edge};
-//! use ultragraphdb_store_posting::{List, ListOptions};
+//! use ultragraphdb_core_keys::QuadKey;
+//! use ultragraphdb_proto_pb::pb::Posting;
+//! use ultragraphdb_store_posting::{List, ListOptions, SET};
 //!
-//! let key = data_key(&attr_in_root_namespace("friend"), 1).unwrap();
+//! let key = QuadKey::Forward { namespace: 0, graph: 0, predicate: 7, subject: 1 }.to_bytes();
 //! let mut list = List::empty(key);
 //! list.set_ts(5);
-//! let edge = DirectedEdge { value_id: 2, op: directed_edge::Op::Set as i32, ..DirectedEdge::default() };
-//! list.add_mutation(&edge, None).unwrap();
+//! list.add_posting(Posting { uid: 2, op: SET, ..Posting::default() }, false);
 //! list.commit_mutation(6);
 //!
 //! assert_eq!(list.uids(&ListOptions::at(6)).unwrap().uids, vec![2]);
@@ -53,5 +52,5 @@ pub use crate::utils::constants::{
 pub use crate::utils::list_keys::{is_quad_list, is_split_key, split_key_of};
 pub use crate::utils::posting_codec::{marshal, unmarshal_complete, unmarshal_delta};
 pub use crate::utils::postings::{
-    delete_all_posting, fingerprint_edge, has_delete_all, is_plist_empty, length_delta, new_posting,
+    delete_all_posting, has_delete_all, is_plist_empty, length_delta,
 };

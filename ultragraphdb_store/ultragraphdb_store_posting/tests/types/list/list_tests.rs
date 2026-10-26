@@ -11,12 +11,13 @@
 
 use std::ops::ControlFlow;
 
+use ultragraphdb_common_utils::go_farm::fingerprint64;
 use ultragraphdb_core_codec::decode;
-use ultragraphdb_core_keys::split_key;
 use ultragraphdb_proto_pb::pb::{Posting, PostingList, posting};
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListOptions, MAX_LIST_SIZE, PostingError,
-    bin_split, from_backup_posting_list, marshal, unmarshal_complete, unmarshal_delta,
+    bin_split, from_backup_posting_list, marshal, split_key_of, unmarshal_complete,
+    unmarshal_delta,
 };
 use ultragraphdb_store_sim::SimStore;
 
@@ -24,6 +25,35 @@ use crate::utils::helpers::{
     add, check_uids, del_uid, del_value, delete_all, key, new_store, read_back, roll_up, set_uid,
     set_value, uids, with_facet, write_entries,
 };
+
+/// A vector-index list of `attr` for `node`: a list holding one value, which the next write replaces, as the vector
+/// index's lists hold theirs.
+fn single_key(attr: &str, node: u64) -> Vec<u8> {
+    ultragraphdb_core_keys::QuadKey::VectorIndex {
+        namespace: 0,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: crate::utils::helpers::predicate(attr),
+        list: 1,
+        node,
+    }
+    .to_bytes()
+}
+
+/// A set of the one value of a single-value list.
+fn set_single(value: &str) -> Posting {
+    Posting {
+        uid: u64::MAX,
+        ..set_value(value)
+    }
+}
+
+/// A delete of the one value of a single-value list.
+fn del_single(value: &str) -> Posting {
+    Posting {
+        uid: u64::MAX,
+        ..del_value(value)
+    }
+}
 
 fn first(list: &List, read_ts: u64) -> Posting {
     let mut out = Posting::default();
@@ -104,8 +134,8 @@ fn test_add_mutation() {
 #[test]
 fn test_add_mutation_value() {
     let store = new_store();
-    let mut ol = read_back(&store, &key("value", 10));
-    add(&mut ol, 1, &set_value("oh hey there"));
+    let mut ol = read_back(&store, &single_key("value", 10));
+    add(&mut ol, 1, &set_single("oh hey there"));
     check_value(&ol, "oh hey there", 1);
 
     // The same check after committing.
@@ -113,43 +143,43 @@ fn test_add_mutation_value() {
     check_value(&ol, "oh hey there", 3);
 
     // The value made it to the posting list. Changing it now.
-    add(&mut ol, 3, &set_value("119"));
+    add(&mut ol, 3, &set_single("119"));
     check_value(&ol, "119", 3);
 }
 
 #[test]
 fn test_add_mutation_jchiu1() {
-    let mut ol = List::empty(key("value", 12));
-    add(&mut ol, 1, &set_value("cars"));
+    let mut ol = List::empty(single_key("value", 12));
+    add(&mut ol, 1, &set_single("cars"));
     ol.commit_mutation(2);
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "cars", 3);
 
     // Set the value to newcars, but do not commit yet.
-    add(&mut ol, 3, &set_value("newcars"));
+    add(&mut ol, 3, &set_single("newcars"));
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "newcars", 3);
 
-    add(&mut ol, 3, &set_value("someothercars"));
+    add(&mut ol, 3, &set_single("someothercars"));
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "someothercars", 3);
 
     // Back to the committed value.
-    add(&mut ol, 3, &set_value("cars"));
+    add(&mut ol, 3, &set_single("cars"));
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "cars", 3);
 }
 
 #[test]
 fn test_add_mutation_del_set() {
-    let k = key("value", 1534);
+    let k = single_key("value", 1534);
     // A delete-all, not committed, on one copy of the list.
     let mut ol = List::empty(k.clone());
     add(&mut ol, 1, &delete_all());
 
     // Another copy sets newcars and commits it.
     let mut ol1 = List::empty(k);
-    add(&mut ol1, 2, &set_value("newcars"));
+    add(&mut ol1, 2, &set_single("newcars"));
     ol1.commit_mutation(3);
     assert_eq!(ol1.length(3, 0), 1);
     check_value(&ol1, "newcars", 3);
@@ -157,8 +187,8 @@ fn test_add_mutation_del_set() {
 
 #[test]
 fn test_add_mutation_del_read() {
-    let mut ol = List::empty(key("value", 1543));
-    add(&mut ol, 1, &set_value("newcars"));
+    let mut ol = List::empty(single_key("value", 1543));
+    add(&mut ol, 1, &set_single("newcars"));
     ol.commit_mutation(2);
     assert_eq!(ol.length(2, 0), 1);
     check_value(&ol, "newcars", 2);
@@ -177,23 +207,23 @@ fn test_add_mutation_del_read() {
 
 #[test]
 fn test_add_mutation_jchiu2() {
-    let mut ol = List::empty(key("value", 15));
-    add(&mut ol, 1, &del_value("cars"));
+    let mut ol = List::empty(single_key("value", 15));
+    add(&mut ol, 1, &del_single("cars"));
     assert_eq!(ol.length(1, 0), 0);
 
-    add(&mut ol, 1, &set_value("newcars"));
+    add(&mut ol, 1, &set_single("newcars"));
     assert_eq!(ol.length(1, 0), 1);
     check_value(&ol, "newcars", 1);
 }
 
 #[test]
 fn test_add_mutation_jchiu2_commit() {
-    let mut ol = List::empty(key("value", 16));
-    add(&mut ol, 1, &del_value("cars"));
+    let mut ol = List::empty(single_key("value", 16));
+    add(&mut ol, 1, &del_single("cars"));
     ol.commit_mutation(2);
     assert_eq!(ol.length(3, 0), 0);
 
-    add(&mut ol, 3, &set_value("newcars"));
+    add(&mut ol, 3, &set_single("newcars"));
     ol.commit_mutation(4);
     assert_eq!(ol.length(5, 0), 1);
     check_value(&ol, "newcars", 5);
@@ -201,41 +231,41 @@ fn test_add_mutation_jchiu2_commit() {
 
 #[test]
 fn test_add_mutation_jchiu3() {
-    let mut ol = List::empty(key("value", 29));
-    add(&mut ol, 1, &set_value("cars"));
+    let mut ol = List::empty(single_key("value", 29));
+    add(&mut ol, 1, &set_single("cars"));
     ol.commit_mutation(2);
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "cars", 3);
 
-    add(&mut ol, 3, &del_value("cars"));
+    add(&mut ol, 3, &del_single("cars"));
     assert_eq!(ol.length(3, 0), 0);
 
-    add(&mut ol, 3, &set_value("newcars"));
+    add(&mut ol, 3, &set_single("newcars"));
     assert_eq!(ol.length(3, 0), 1);
     check_value(&ol, "newcars", 3);
 
-    add(&mut ol, 3, &del_value("newcars"));
+    add(&mut ol, 3, &del_single("newcars"));
     assert_eq!(ol.length(3, 0), 0);
 }
 
 #[test]
 fn test_add_mutation_mrjn1() {
-    let mut ol = List::empty(key("value", 21));
-    add(&mut ol, 1, &set_value("cars"));
+    let mut ol = List::empty(single_key("value", 21));
+    add(&mut ol, 1, &set_single("cars"));
     ol.commit_mutation(2);
 
     // Delete the committed value, twice, without committing.
-    add(&mut ol, 3, &del_value("cars"));
+    add(&mut ol, 3, &del_single("cars"));
     assert_eq!(ol.length(3, 0), 0);
-    add(&mut ol, 3, &del_value("cars"));
+    add(&mut ol, 3, &del_single("cars"));
     assert_eq!(ol.length(3, 0), 0);
 
     // Set it again.
-    add(&mut ol, 3, &set_value("cars"));
+    add(&mut ol, 3, &set_single("cars"));
     check_value(&ol, "cars", 3);
 
     // And delete it again.
-    add(&mut ol, 3, &del_value("cars"));
+    add(&mut ol, 3, &del_single("cars"));
     assert_eq!(ol.length(3, 0), 0);
 }
 
@@ -261,11 +291,11 @@ fn stored_value(store: &SimStore, key: &[u8], read_ts: u64) -> Vec<u8> {
 #[test]
 fn test_read_single_value() {
     let store = new_store();
-    let k = key("value", 1240);
+    let k = single_key("value", 1240);
     let mut ol = read_back(&store, &k);
     let n = 10_000u64;
     for i in (2..=n).step_by(2) {
-        add(&mut ol, i, &set_value(&format!("ho hey there{i}")));
+        add(&mut ol, i, &set_single(&format!("ho hey there{i}")));
         let delta = ol.delta().cloned().expect("a delta");
         ol.commit_mutation(i + 1);
         write_entries(
@@ -394,7 +424,7 @@ fn assert_lengths(ol: &List, read_ts: u64, all: i64, after_199: i64, top: u64) {
 #[test]
 fn test_after_uid_count() {
     let store = new_store();
-    let mut ol = read_back(&store, &key("value", 22));
+    let mut ol = read_back(&store, &single_key("value", 22));
     (100..300).for_each(|i| add(&mut ol, 1, &set_uid(i)));
     assert_lengths(&ol, 1, 200, 100, 300);
 
@@ -436,7 +466,7 @@ fn test_after_uid_count() {
 #[test]
 fn test_after_uid_count2() {
     let store = new_store();
-    let mut ol = read_back(&store, &key("value", 23));
+    let mut ol = read_back(&store, &single_key("value", 23));
     (100..300).for_each(|i| add(&mut ol, 1, &set_uid(i)));
     assert_lengths(&ol, 1, 200, 100, 300);
 
@@ -450,7 +480,7 @@ fn test_after_uid_count2() {
 #[test]
 fn test_delete() {
     let store = new_store();
-    let mut ol = read_back(&store, &key("value", 25));
+    let mut ol = read_back(&store, &single_key("value", 25));
     (1..=30).for_each(|i| add(&mut ol, 1, &set_uid(i)));
     assert_eq!(ol.length(1, 0), 30);
     add(&mut ol, 1, &delete_all());
@@ -462,7 +492,7 @@ fn test_delete() {
 #[test]
 fn test_after_uid_count_with_commit() {
     let store = new_store();
-    let mut ol = read_back(&store, &key("value", 26));
+    let mut ol = read_back(&store, &single_key("value", 26));
     (100..400).for_each(|i| add(&mut ol, 1, &set_uid(i)));
     assert_lengths(&ol, 1, 300, 200, 400);
 
@@ -591,9 +621,9 @@ fn test_large_plist_split() {
 
     let mut ol = read_back(&store, &k);
     let value = vec![9u8; 100 << 10];
+    // Uids far apart, so that the pack's blocks break at each.
     for i in 0..63u64 {
-        let mut edge = with_facet(set_uid(i), &i.to_string());
-        edge.entity = 1 << i;
+        let mut edge = with_facet(set_uid(1 << i), &i.to_string());
         edge.value = value.clone();
         add(&mut ol, i, &edge);
         ol.commit_mutation(i + 1);
@@ -723,7 +753,7 @@ fn test_multi_part_list_marshal() {
     assert_eq!(entries.len(), ol.plist().splits.len() + 1);
     entries.sort_by(|a, b| a.key().cmp(b.key()));
     for (i, start) in ol.plist().splits.iter().enumerate() {
-        let part_key = split_key(entries[0].key(), *start).expect("split key");
+        let part_key = split_key_of(entries[0].key(), *start).expect("split key");
         assert_eq!(entries[i + 1].key(), part_key);
         assert_eq!(
             entries[i + 1].value(),
@@ -968,6 +998,6 @@ fn test_value_postings_are_kept_beside_the_uids() {
     );
     assert_eq!(
         decode(out.plist().pack.as_ref().unwrap(), 0),
-        vec![5, u64::MAX]
+        vec![5, fingerprint64(b"v")]
     );
 }

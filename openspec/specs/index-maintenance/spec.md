@@ -5,86 +5,140 @@ How a write keeps the indexes in step with the data: index tokens that follow th
 indexes, deleting all of a predicate for a subject, and the conversion of values to the schema type.
 ## Requirements
 ### Requirement: Index tokens follow the value
-Setting an indexed value SHALL add the subject to the index key of each of its tokens, and changing or deleting the
-value SHALL remove the subject from each token the old value produces and no remaining value of the subject produces;
-Dgraph removes it from every token of the old value. A language-tagged value SHALL be tokenized by the language's
+Writing a literal to a predicate the catalog indexes SHALL add the subject to the value-index key of each token of the
+literal, and deleting or overwriting the literal SHALL remove the subject from each token the old literal produces and
+no remaining literal of the subject's predicate produces. A language-tagged literal SHALL be tokenized by its language's
 tokenizer.
 
-#### Scenario: Setting an indexed value adds its tokens
-- **WHEN** `name: string @index(term) .` holds no value for `0x1` and `name` is set to `big apple`
-- **THEN** the index keys for `big` and `apple` each contain `0x1`
+#### Scenario: Writing an indexed literal adds its tokens
+- **WHEN** `name` is declared with a `term` index and `<a> <name> "big apple"` is written
+- **THEN** the value-index keys of `name` for `big` and `apple` each hold `a`
 
-#### Scenario: Changing a value moves its tokens
-- **WHEN** `name` of `0x1` changes from `big apple` to `red apple`
-- **THEN** the index key for `big` no longer contains `0x1`, and `red` and `apple` do
+#### Scenario: Overwriting a single-valued literal moves its tokens
+- **WHEN** `name` is declared single-valued with a `term` index, holds `"big apple"` for `a`, and `"red apple"` is
+  written
+- **THEN** the key for `big` no longer holds `a`, and the keys for `red` and `apple` do
 
-#### Scenario: Deleting a value removes its index entries
-- **WHEN** the indexed value of `0x1` is deleted
-- **THEN** no index key of that predicate contains `0x1`
+#### Scenario: Deleting a literal removes its index entries
+- **WHEN** `<a> <name> "big apple"` is deleted and `a` holds no other `name`
+- **THEN** no value-index key of `name` holds `a`
 
-#### Scenario: A language value uses its language's tokenizer
-- **WHEN** a fulltext-indexed predicate is set with language `de` to `Häuser`
-- **THEN** the index holds the German stem's token
+#### Scenario: A language-tagged literal uses its language's tokenizer
+- **WHEN** `body` is declared with a `fulltext` index and `<a> <body> "Häuser"@de` is written
+- **THEN** the index holds the German stem's token for `a`
 
-#### Scenario: Deleting one value of a list keeps shared tokens
-- **WHEN** `tags: [string] @index(term) .` holds `big apple` and `red apple` for `0x1`, and `big apple` is deleted
-- **THEN** the index key for `big` no longer contains `0x1`, and the keys for `red` and `apple` still do
+#### Scenario: Deleting one literal keeps shared tokens
+- **WHEN** `tags` is declared with a `term` index, `a` holds `"big apple"` and `"red apple"`, and `"big apple"` is
+  deleted
+- **THEN** the key for `big` no longer holds `a`, and the keys for `red` and `apple` still do
 
 ### Requirement: Reverse edges
-For a predicate with `@reverse`, setting `a → b` SHALL add `a` to the reverse key of `b`, deleting it SHALL remove
-`a`, and overwriting a single uid predicate SHALL move `a` to the new target's reverse key.
+Every statement SHALL keep its reverse entry, for every predicate and every object kind: writing `a p o` SHALL add `a`
+to the reverse list of `p` for `o`, deleting it SHALL remove `a`, and overwriting a single-valued predicate SHALL move
+`a` from the old object's reverse list to the new one's.
 
-#### Scenario: A reverse edge follows its forward edge
-- **WHEN** `friend: uid @reverse .` is set from `0x1` to `0x2` and then to `0x3`
-- **THEN** the reverse key of `0x3` contains `0x1` and the reverse key of `0x2` does not
+#### Scenario: A reverse entry follows its statement
+- **WHEN** `friend` is declared single-valued and `<a> <friend>` is written `<b>` and then `<c>`
+- **THEN** the reverse list of `friend` for `c` holds `a`, and the one for `b` does not
+
+#### Scenario: Undeclared predicates keep reverse entries
+- **WHEN** `<a> <likes> <b>` is written and `likes` is not declared
+- **THEN** the reverse list of `likes` for `b` holds `a`
 
 ### Requirement: Count indexes
-For a predicate with `@count`, the subject SHALL be listed under the count key of its current number of postings when
-that number is above zero and under no count key otherwise, a non-list predicate counting as one, and a set that adds
-no posting SHALL leave the count unchanged; with `@reverse` as well, the reverse count keys SHALL be kept likewise.
+For a predicate the catalog declares an exact count index on, a subject SHALL be listed under the forward count key of
+its current number of objects when that number is above zero and under no count key otherwise, a single-valued
+predicate counting as one, and an object SHALL be listed likewise under the reverse count key of its number of
+subjects. A write that adds no object SHALL leave the counts unchanged.
 
-#### Scenario: Adding a third uid moves the count
-- **WHEN** `friend: [uid] @count .` holds two uids for `0x1` and a third is added
-- **THEN** `0x1` is listed under count 3 and not under count 2
+#### Scenario: Adding a third object moves the count
+- **WHEN** `friend` has an exact count index, `a` holds two objects of it, and a third is written
+- **THEN** `a` is listed under forward count 3 and not under 2
 
-#### Scenario: Re-setting an existing uid leaves the count
-- **WHEN** a uid already in the list is set again
-- **THEN** the count key of the subject does not change
+#### Scenario: Re-writing an existing object leaves the count
+- **WHEN** an object `a` already holds is written again
+- **THEN** the count keys of `a` do not change
 
 #### Scenario: Reverse counts are kept
-- **WHEN** `friend: [uid] @count @reverse .` gains the edge `0x1 → 0x2`
-- **THEN** the reverse count keys of `0x2` reflect one more incoming edge
+- **WHEN** `friend` has an exact count index and gains `<a> <friend> <b>`
+- **THEN** the reverse count keys of `b` reflect one more subject
 
 ### Requirement: Deleting all of a predicate for a subject
-A delete of `<s> <p> *` SHALL remove every posting of `p` for `s`; for an indexed `p`, the tokens of each posting, a
-language-tagged value's computed by its language's tokenizer; for a `p` with `@reverse`, its reverse edges; and the
-subject from the count key it is listed under. Dgraph tokenizes every posting without its language, and removes the
-subject from the count of all its postings, where a scalar with language values stays listed under count 1.
+A delete by the pattern of a subject and predicate SHALL remove every object of the predicate for the subject in its
+graph, with each object's reverse entry, the predicate from the subject's predicates and from each object's object
+predicates where nothing else keeps it there, the subject from every token its literals produce, each literal tokenized
+by its language, and the subject and objects from the count keys they are listed under.
 
-#### Scenario: A star delete clears reverse and count entries
-- **WHEN** `<0x1> <friend> * .` is deleted on `friend: [uid] @reverse @count .`
-- **THEN** `0x1` has no `friend` postings, appears in no reverse key of its former targets, is listed under no count
-  key, and each former target's reverse count drops by one
+#### Scenario: A delete by pattern clears reverse and count entries
+- **WHEN** `friend` has an exact count index, `a` holds `b` and `c`, and the pattern `a`, `friend` is deleted
+- **THEN** `a` holds no `friend`, the reverse lists for `b` and `c` no longer hold `a`, `a` is listed under no count
+  key, and the reverse counts of `b` and `c` drop by one
 
-#### Scenario: A star delete clears index entries
-- **WHEN** `name: string @index(fulltext) @lang .` holds an untagged value and a value tagged `de` for `0x1`, and
-  `<0x1> <name> * .` is deleted
-- **THEN** no index key of `name` contains `0x1`
+#### Scenario: A delete by pattern clears index entries
+- **WHEN** `name` has a `fulltext` index, `a` holds an untagged literal and one tagged `de`, and the pattern `a`, `name`
+  is deleted
+- **THEN** no value-index key of `name` holds `a`
 
-#### Scenario: A star delete on a scalar with language values clears its count
-- **WHEN** `name: string @count @lang .` holds an untagged value and a value tagged `en` for `0x1`, and
-  `<0x1> <name> * .` is deleted
-- **THEN** `0x1` is listed under no count key of `name`
+### Requirement: Each tokenizer indexes the datatypes it takes
+A tokenizer SHALL index the literals of the datatypes it takes, computing its tokens from the literal's value, so that
+literals with equal values and different lexical forms produce equal tokens. It SHALL leave a literal of any other
+datatype unindexed, which is still held:
 
-### Requirement: Values are converted to the schema type
-Applying an edge SHALL convert its value to the predicate's schema type, and SHALL refuse the edge, writing nothing of
-its request, with Dgraph's text when the value cannot be converted.
+| Tokenizers | Datatypes |
+|---|---|
+| `int` | `xsd:integer` and the types derived from it, within 64 bits |
+| `float` | `xsd:double`, `xsd:float` |
+| `bigfloat` | `xsd:decimal` |
+| `bool` | `xsd:boolean` |
+| `year`, `month`, `day`, `hour` | `xsd:dateTime`, `xsd:dateTimeStamp`; `xsd:date` for `year`, `month` and `day`. A value without a time zone is indexed as UTC |
+| `exact`, `hash`, `term`, `fulltext`, `trigram`, `ngram`, `sha256` | `xsd:string`, `rdf:langString`, `rdf:dirLangString` |
+| `geo` | `geo:geoJSONLiteral` (GeoSPARQL 1.1, Requirements 25–27): a GeoJSON Geometry object in CRS84 |
+| the vector index | `ugdb:float32vector` |
 
-#### Scenario: A value is converted to the schema type
-- **WHEN** `age: int .` is set for `0x1` with the untyped value `"12"`
-- **THEN** `age` of `0x1` holds the int 12
+#### Scenario: Non-canonical integers index alike
+- **WHEN** `periods` is declared with an `int` index, `<a> <periods> "042"^^xsd:integer` and `<b> <periods> 42` are
+  written
+- **THEN** the value-index key of `periods` for 42 holds `a` and `b`
 
-#### Scenario: A value that cannot be converted is refused
-- **WHEN** `age: int .` is set for `0x1` with the untyped value `"twelve"`
-- **THEN** the write fails with `strconv.ParseInt: parsing "twelve": invalid syntax`, and `age` of `0x1` holds nothing
+#### Scenario: Every value of a multi-valued predicate is indexed
+- **WHEN** `periods` is multi-valued with an `int` index and `a` holds 41, 42 and 43
+- **THEN** a range read of the `int` index over 42 to 43 returns `a`
+
+#### Scenario: A literal of another datatype is held unindexed
+- **WHEN** `periods` is declared with an `int` index and no datatype constraint, and `<a> <periods> "soon"` is written
+- **THEN** `a` holds `"soon"`, and no value-index key of `periods` holds `a`
+
+#### Scenario: A GeoJSON geometry is indexed by its cells
+- **WHEN** `where` is declared with a `geo` index and
+  `<a> <where> "{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral` is written
+- **THEN** the value-index keys of `where` for the point's S2 cell tokens hold `a`
+
+### Requirement: Writes read only what they need
+Inserting a statement SHALL read the subject's forward list of its predicate, so that a statement already held is
+neither counted again in the statistics nor written over its statement IDs, and SHALL write its reverse,
+predicate-list, value-index and statistics entries as deltas without reading them. A subject the write created holds
+no list, so its inserts read none. A write SHALL read another list only to check a unique predicate or to maintain an
+exact count index.
+
+#### Scenario: An insert reads only the subject's list
+- **WHEN** `<a> <name> "Ann"` is held, `tag` is multi-valued with a `term` index and no count index, and
+  `<a> <tag> "x"` is written
+- **THEN** the write reads the forward list of `tag` for `a` and no other list, and writes the forward, reverse,
+  predicate-list, index and statistics deltas
+
+#### Scenario: An insert of a new subject reads nothing
+- **WHEN** `<a> <tag> "x"` is written and `a` is new to the store
+- **THEN** the write reads no list
+
+#### Scenario: A delete reads the subject's list
+- **WHEN** `<a> <tag> "x"` is deleted
+- **THEN** the write reads the forward list of `tag` for `a`, to keep the tokens `a`'s other tags produce
+
+### Requirement: Terms are kept as written
+A write SHALL store each object as the term it names, its lexical form, datatype, language and direction unchanged, and
+SHALL convert a literal only to compute its index tokens.
+
+#### Scenario: An integer keeps its lexical form under an index
+- **WHEN** `n` has an `int` index and `<a> <n> "007"^^xsd:integer` is written
+- **THEN** `a` holds `"007"^^xsd:integer`, and the int index lists `a` under 7
 

@@ -24,12 +24,10 @@ oxsdatatypes = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_store_quads = { workspace = true }
-ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
-ultragraphdb_error_num = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_proto_pb = { workspace = true }
 ultragraphdb_store_hnsw = { workspace = true }
@@ -39,8 +37,6 @@ ultragraphdb_traits_store = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-ultragraphdb_core_codec = { workspace = true }
-ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
 cucumber = { workspace = true }

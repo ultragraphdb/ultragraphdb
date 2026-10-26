@@ -4,40 +4,43 @@
 How the schema persists in the store, and how a write to an unknown predicate creates its schema.
 ## Requirements
 ### Requirement: The schema persists in the store
-Predicate and type definitions SHALL be written to schema and type keys with the discard flag, and the schema
-state SHALL be loaded from them at startup, per namespace.
+The catalog SHALL be written to catalog keys with the discard flag and loaded from them at startup, per namespace, in
+place of Dgraph's schema and type keys.
 
-#### Scenario: The schema survives a restart
-- **WHEN** a schema is applied and the store is closed and reopened
-- **THEN** the loaded schema state equals the state before closing
+#### Scenario: The catalog survives a restart
+- **WHEN** declarations are made and the store is closed and reopened
+- **THEN** the loaded catalog equals the catalog before closing
 
-#### Scenario: A deleted predicate stays deleted after a restart
-- **WHEN** a predicate's schema is deleted and the store is reopened
-- **THEN** the loaded schema does not hold the predicate
+#### Scenario: A removed declaration stays removed after a restart
+- **WHEN** a predicate's declaration is removed and the store is reopened
+- **THEN** the loaded catalog does not declare the predicate
 
 ### Requirement: Writes to an unknown predicate create its schema
-A write to a predicate the schema does not hold SHALL add it to a schema overlay local to the request, with the type
-inferred from the value, a new uid predicate as `[uid]`, and a `SINGLE` or `LIST` hint overriding the list flag, and
-SHALL write it in the request's commit batch at its commit timestamp; a request that fails SHALL create no schema. At
-commit, under the writer lock, a request whose new predicate gained a schema since its read SHALL convert its values to
-that schema or fail with Dgraph's conversion error, so the first commit's schema wins. Dgraph writes the schema at the
-start timestamp and keeps it after an abort.
+A write to a predicate the catalog does not declare SHALL record a default entry for it, kind either, multi-valued, no
+datatype constraint and no index, in the write's commit batch; a write that fails SHALL record none. Concurrent first
+writes of one predicate SHALL record the same default entry, so neither depends on the other.
 
-#### Scenario: A first write defines the predicate
-- **WHEN** `<0x1> <nickname> "Al"` is written and `nickname` has no schema
-- **THEN** the schema holds `nickname` with type default
+#### Scenario: A first write records the predicate
+- **WHEN** `<a> <nickname> "Al"` is written and `nickname` is not declared
+- **THEN** the catalog holds `nickname` with the default entry
 
-#### Scenario: A failed write defines no predicate
-- **WHEN** a request writing `<0x1> <alias> "Al"` fails before it commits and `alias` had no schema
-- **THEN** the schema does not hold `alias`
+#### Scenario: A failed write records no predicate
+- **WHEN** a write naming `<alias>` fails before it commits and `alias` was not declared
+- **THEN** the catalog does not hold `alias`
 
-#### Scenario: A new uid predicate is a list
-- **WHEN** `<0x1> <knows> <0x2>` is written and `knows` has no schema
-- **THEN** the schema holds `knows: [uid]`
+#### Scenario: Concurrent first writes both commit
+- **WHEN** two writes read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`,
+  and `score` was not declared but already has a UID, as an object of an earlier statement (two writes creating one new
+  IRI are the term dictionary's "The second creator retries")
+- **THEN** both commit, and the catalog holds `score` with the default entry
 
-#### Scenario: Concurrent first writes keep the first commit's type
-- **WHEN** two requests read before either commits, the first writes `<0x1> <score> "12"^^<xs:int>` and commits, and
-  the second writes `<0x2> <score> "high"` and commits after it
-- **THEN** the schema holds `score: int`, and the second commit fails with `strconv.ParseInt: parsing "high": invalid
-  syntax` and writes nothing
+### Requirement: A catalog entry that does not read back is corruption
+A catalog key that does not parse, or a catalog entry that does not decode, SHALL refuse the load of its namespace's
+catalog with the store's corruption error naming the key, skipping nothing: every entry is written from a declaration
+through the catalog's encoding, so one that does not read back is a fault of the store or of the code, and a declaration
+skipped would let writes go on under the default declaration. Dgraph skips such a schema key and logs it.
+
+#### Scenario: A catalog key that does not parse refuses the load
+- **WHEN** a namespace's catalog is loaded from a store holding a catalog key that does not parse
+- **THEN** the load fails with a corruption error naming the key, and nothing panics
 

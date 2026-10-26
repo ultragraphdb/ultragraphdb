@@ -4,6 +4,4 @@
  */
 
 #[cfg(test)]
-mod key_error_tests;
-#[cfg(test)]
 mod quad_key_error_tests;

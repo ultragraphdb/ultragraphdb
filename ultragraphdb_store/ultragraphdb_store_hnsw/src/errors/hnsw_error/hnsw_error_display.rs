@@ -17,7 +17,6 @@ impl Display for HnswError {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match &self.0 {
             HnswErrorEnum::Posting(error) => write!(f, "{error}"),
-            HnswErrorEnum::Key(error) => write!(f, "{error}"),
             HnswErrorEnum::Options(error) => write!(f, "{error}"),
             HnswErrorEnum::NoValue => f.write_str("No value found"),
             HnswErrorEnum::KeyNotFound => f.write_str("Key not found"),

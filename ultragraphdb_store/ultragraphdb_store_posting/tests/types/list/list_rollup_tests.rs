@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::split_key;
+use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{BIT_COMPLETE_POSTING, List};
 use ultragraphdb_traits_store::Store;
 
@@ -23,7 +23,10 @@ fn test_a_rollup_deletes_the_parts_it_removes() {
     assert!(splits.len() > 1);
     // Every part is written at the main key's version.
     for start in &splits {
-        let part = store.contents().versions(&split_key(&k, *start).unwrap())[0].clone();
+        let part = store
+            .contents()
+            .versions(&split_key_of(&k, *start).unwrap())[0]
+            .clone();
         assert_eq!(
             (part.version(), part.meta(), part.discard()),
             (version, BIT_COMPLETE_POSTING, true)
@@ -44,7 +47,7 @@ fn test_a_rollup_deletes_the_parts_it_removes() {
     crate::utils::helpers::write_entries(&store, entries);
     let snapshot = store.snapshot(10).unwrap();
     for start in &splits {
-        let part = split_key(&k, *start).unwrap();
+        let part = split_key_of(&k, *start).unwrap();
         assert!(
             ultragraphdb_traits_store::StoreSnapshot::get(&snapshot, &part)
                 .unwrap()

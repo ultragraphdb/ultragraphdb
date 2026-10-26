@@ -11,7 +11,7 @@ use crate::utils::helpers::{commit_edges, key, new_lists, set_uid};
 #[test]
 fn test_new_lists_start_above_the_stores_applied_timestamp() {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &key("start", 1), &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &key("start", 1), &[set_uid(1)]);
     let reopened = crate::utils::helpers::lists_over(lists.store().clone(), lists.config());
     // A rollup may have written one above the newest commit, so the counter starts two above.
     assert_eq!(reopened.peek_ts(), ts + 2);

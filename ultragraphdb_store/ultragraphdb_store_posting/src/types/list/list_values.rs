@@ -3,8 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, posting/list.go (findPosting, findPostingWithItr, GetLength, immutableLayerLen,
- * getPostingAndLength, getPostingAndLengthNoSort, Value, ValueFor, PostingFor, ValueForTag, postingForLangs,
- * postingForTag, findValue, StaticValue, findStaticValue, AllValues, AllUntaggedValues, GetLangTags). Changed for
+ * getPostingAndLength, getPostingAndLengthNoSort, StaticValue, findStaticValue). Changed for
  * ultragraphdb: translated to Rust; where Dgraph panics on a part it cannot read (`GetLength`,
  * `getPostingAndLengthNoSort`), the port returns the error; whether an index is being rebuilt is the caller's,
  * where Dgraph asks its global schema.
@@ -13,8 +12,6 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
-use ultragraphdb_core_types::{TypeId, Val, Value};
 use ultragraphdb_proto_pb::pb::{Posting, PostingList, posting};
 
 use crate::errors::posting_error::PostingError;
@@ -106,101 +103,6 @@ impl List {
         Ok((length, self.find_posting(read_ts, uid)?))
     }
 
-    /// The untagged value at `read_ts`: Dgraph's `Value`.
-    ///
-    /// # Errors
-    ///
-    /// [`PostingError::NoValue`] when the list holds none.
-    pub fn value(&self, read_ts: u64) -> Result<Val, PostingError> {
-        self.find_posting(read_ts, u64::MAX)?
-            .map(|p| value_to_types_val(&p))
-            .ok_or_else(PostingError::NoValue)
-    }
-
-    /// The value in the first of `langs` the list holds a value for, `.` standing for any language; with no
-    /// languages, the untagged value: Dgraph's `ValueFor`.
-    pub fn value_for(&self, read_ts: u64, langs: &[String]) -> Result<Val, PostingError> {
-        self.posting_for(read_ts, langs)
-            .map(|p| value_to_types_val(&p))
-    }
-
-    /// The posting [`List::value_for`] reads: Dgraph's `PostingFor`.
-    pub fn posting_for(&self, read_ts: u64, langs: &[String]) -> Result<Posting, PostingError> {
-        let mut any = false;
-        for lang in langs {
-            if lang == "." {
-                any = true;
-                break;
-            }
-            if let Ok(p) = self.posting_for_tag(read_ts, lang) {
-                return Ok(p);
-            }
-        }
-        if (any || langs.is_empty())
-            && let Some(p) = self.find_posting(read_ts, u64::MAX)?
-        {
-            return Ok(p);
-        }
-        if any {
-            // As a last resort, the value with the smallest language uid.
-            let mut found = None;
-            self.iterate(read_ts, 0, |p| {
-                if p.posting_type == posting::PostingType::ValueLang as i32 {
-                    found = Some(p.clone());
-                    return Ok::<_, PostingError>(ControlFlow::Break(()));
-                }
-                Ok(ControlFlow::Continue(()))
-            })?;
-            if let Some(p) = found {
-                return Ok(p);
-            }
-        }
-        Err(PostingError::NoValue())
-    }
-
-    /// The value tagged `tag`: Dgraph's `ValueForTag`.
-    pub fn value_for_tag(&self, read_ts: u64, tag: &str) -> Result<Val, PostingError> {
-        self.posting_for_tag(read_ts, tag)
-            .map(|p| value_to_types_val(&p))
-    }
-
-    fn posting_for_tag(&self, read_ts: u64, tag: &str) -> Result<Posting, PostingError> {
-        self.find_posting(read_ts, fingerprint64(tag.as_bytes()))?
-            .ok_or_else(PostingError::NoValue)
-    }
-
-    /// Every value at `read_ts`, in uid order: Dgraph's `AllValues`.
-    pub fn all_values(&self, read_ts: u64) -> Result<Vec<Val>, PostingError> {
-        self.collect(read_ts, |p| Some(value_to_types_val(p)))
-    }
-
-    /// Every value without a language at `read_ts`: Dgraph's `AllUntaggedValues`.
-    pub fn all_untagged_values(&self, read_ts: u64) -> Result<Vec<Val>, PostingError> {
-        self.collect(read_ts, |p| {
-            p.lang_tag.is_empty().then(|| value_to_types_val(p))
-        })
-    }
-
-    /// The language tag of every posting at `read_ts`: Dgraph's `GetLangTags`.
-    pub fn get_lang_tags(&self, read_ts: u64) -> Result<Vec<String>, PostingError> {
-        self.collect(read_ts, |p| {
-            Some(String::from_utf8_lossy(&p.lang_tag).into_owned())
-        })
-    }
-
-    fn collect<T>(
-        &self,
-        read_ts: u64,
-        mut pick: impl FnMut(&Posting) -> Option<T>,
-    ) -> Result<Vec<T>, PostingError> {
-        let mut out = Vec::new();
-        self.iterate(read_ts, 0, |p| {
-            out.extend(pick(p));
-            Ok::<_, PostingError>(ControlFlow::Continue(()))
-        })?;
-        Ok(out)
-    }
-
     /// The posting list holding the list's single value at `read_ts`, unmerged: the request's own scratch layer,
     /// else the newest layer stacked by the requests before it in its batch, both at the request's read timestamp,
     /// else the newest delta at or below `read_ts`, else the complete version when it holds postings. Dgraph's
@@ -238,9 +140,4 @@ fn uid_posting(uid: u64) -> Posting {
         val_type: posting::ValType::Uid as i32,
         ..Posting::default()
     }
-}
-
-/// A posting's value as stored, untyped: Dgraph's `valueToTypesVal`.
-pub(crate) fn value_to_types_val(p: &Posting) -> Val {
-    Val::new(TypeId::new(p.val_type), Value::Bytes(p.value.clone()))
 }

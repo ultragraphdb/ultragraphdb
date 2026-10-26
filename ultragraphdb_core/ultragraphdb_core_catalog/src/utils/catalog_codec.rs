@@ -19,15 +19,6 @@ const FORMAT: u8 = 1;
 pub const PREDICATE: u8 = 1;
 pub const ENTITY_TYPE: u8 = 2;
 pub const RELATION: u8 = 3;
-/// The marker of a predicate some statement of which has carried a statement ID: an insert of it reads the subject's
-/// list, so that it keeps the IDs a held object carries.
-pub const STATEMENTS: u8 = 4;
-
-/// The stored value of a statements marker.
-pub fn statements_marker() -> Vec<u8> {
-    vec![FORMAT, STATEMENTS]
-}
-
 /// The entry kind of `declaration`.
 pub fn kind_of(declaration: &Declaration) -> u8 {
     match declaration {

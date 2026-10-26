@@ -113,24 +113,6 @@ identifier, and SHALL order strings of a language by that language's collation.
 - **WHEN** the golden German strings are sorted with language `de`
 - **THEN** the order equals Dgraph's
 
-### Requirement: Facet values
-A facet's value SHALL be inferred in Dgraph's order (empty or quoted string, int with base prefixes allowed, float,
-`true` or `false`, datetime) and encoded as that type's binary, and any other value SHALL be refused with
-`Could not parse the facet value : [<v>]`; string facets SHALL carry their term tokens. Sorting and validating a facet
-list SHALL order it by key and refuse a repeated key with `Repeated keys are not allowed in facets. But got <key>`.
-
-#### Scenario: Facet types are inferred
-- **WHEN** the facets `since=2006-01-02T15:04:05`, `weight=0.7`, `close=true`, `note="x"` and `n=0x10` are parsed
-- **THEN** their types are datetime, float, bool, string and int, and `n` holds 16
-
-#### Scenario: An unquoted text facet is refused
-- **WHEN** the facet `note=abc` is parsed
-- **THEN** parsing fails with `Could not parse the facet value : [abc]`
-
-#### Scenario: A repeated facet key is refused
-- **WHEN** a facet list naming `weight` twice is sorted and validated
-- **THEN** it fails with `Repeated keys are not allowed in facets. But got weight`
-
 ### Requirement: Floats outside int64 are refused as ints and as datetimes
 Converting a float or a bigfloat to an int or to a datetime SHALL refuse every value outside int64, NaN and the
 infinities with `Float out of int64 range`. A datetime takes the value as seconds. Dgraph's guard lets exactly 2^63
@@ -147,18 +129,12 @@ through to an int, and its datetime conversion has none; both give results that 
 
 ### Requirement: String values are valid UTF-8
 A value converted to the string or default type SHALL be valid UTF-8. Bytes that are not valid UTF-8 SHALL be refused
-with `Value is not valid UTF-8 for type string`. Every mutation path converts its values to the predicate's schema type,
-so a mutation carrying such a value is refused when it arrives. A facet string that is not valid UTF-8 SHALL be
-refused when the facet is parsed, with `Facet value of <key> is not valid UTF-8`. Go Dgraph stores such bytes and tokenizes them
-inconsistently (ledger 17, 18, 31).
+with `Value is not valid UTF-8 for type string`. Go Dgraph stores such bytes and tokenizes them inconsistently (ledger
+17, 18, 31).
 
 #### Scenario: Bytes that are not UTF-8 do not become a string
 - **WHEN** the binary value `e6 97 ff` is converted to string
 - **THEN** conversion fails with `Value is not valid UTF-8 for type string`
-
-#### Scenario: A facet string that is not UTF-8 is refused
-- **WHEN** the facet `(f="\xff")` is parsed
-- **THEN** parsing fails with `Facet value of f is not valid UTF-8`
 
 #### Scenario: Valid UTF-8 bytes become a string
 - **WHEN** the binary value of `日本` is converted to string

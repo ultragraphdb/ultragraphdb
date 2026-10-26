@@ -17,16 +17,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, data_key};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_proto_pb::pb::{DirectedEdge, posting};
+use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{List, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, Simulation, Stream, Violation,
 };
 use ultragraphdb_traits_store::{PersistMode, Store};
 
-use crate::utils::helpers::{TestLists, del_uid, del_value, delete_all, set_uid, set_value};
+use crate::utils::helpers::{TestLists, del_uid, del_value, delete_all, key, set_uid, set_value};
 
 /// The rule a read breaks when it differs from the model.
 pub const READ_MATCHES_MODEL: &str =
@@ -56,7 +55,7 @@ enum Op {
 }
 
 impl Op {
-    fn edge(&self) -> DirectedEdge {
+    fn posting(&self) -> Posting {
         match self {
             Op::Set(uid) => set_uid(*uid),
             Op::Del(uid) => del_uid(*uid),
@@ -67,11 +66,11 @@ impl Op {
     }
 }
 
-/// What a list holds: its reference uids and its untagged value.
+/// What a list holds: its reference uids and its values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Held {
     uids: BTreeSet<u64>,
-    value: Option<Vec<u8>>,
+    values: BTreeSet<Vec<u8>>,
 }
 
 impl Held {
@@ -83,9 +82,12 @@ impl Held {
             Op::Del(uid) => {
                 self.uids.remove(uid);
             }
-            Op::SetValue(v) => self.value = Some(v.clone()),
-            // A scalar's delete removes its value whatever value it names: list.go matches by uid.
-            Op::DelValue(_) => self.value = None,
+            Op::SetValue(v) => {
+                self.values.insert(v.clone());
+            }
+            Op::DelValue(v) => {
+                self.values.remove(v);
+            }
             Op::DeleteAll => *self = Held::default(),
         }
     }
@@ -97,7 +99,7 @@ impl Held {
             if p.posting_type == posting::PostingType::Ref as i32 {
                 held.uids.insert(p.uid);
             } else {
-                held.value = Some(p.value.clone());
+                held.values.insert(p.value.clone());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
         })?;
@@ -163,13 +165,10 @@ impl Default for PostingWorkload {
 impl PostingWorkload {
     /// The workload over its five keys: three uid lists and two scalar values.
     pub fn new() -> Self {
-        let uid_keys = (1..=3).map(|uid| data_key(&attr_in_root_namespace("friend"), uid));
-        let value_keys = (1..=2).map(|uid| data_key(&attr_in_root_namespace("name"), uid));
+        let uid_keys = (1..=3).map(|uid| key("friend", uid));
+        let value_keys = (1..=2).map(|uid| key("name", uid));
         Self {
-            keys: uid_keys
-                .chain(value_keys)
-                .map(|k| k.expect("a data key"))
-                .collect(),
+            keys: uid_keys.chain(value_keys).collect(),
             lists: None,
             model: Model::default(),
             pending: None,
@@ -324,7 +323,7 @@ impl PostingWorkload {
                 } else {
                     request.get(&key)?
                 };
-                list.add_mutation(&op.edge(), None)?;
+                list.add_posting(op.posting(), false);
                 ops.entry(key).or_default().push(op);
             }
             for (key, own) in &ops {

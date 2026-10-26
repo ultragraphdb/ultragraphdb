@@ -124,7 +124,7 @@ fn held_with_property(w: &mut Steps, text: String, property: String, value: Stri
 
 // Writes.
 
-#[when(regex = r"^(`.+`) (?:is|are) written$")]
+#[when(regex = r"^(`[^`]+`(?:(?:, | and |, and )`[^`]+`)*) (?:is|are) written$")]
 fn written(w: &mut Steps, statements: String) {
     let a = cs(w);
     for text in quoted(&statements) {
@@ -425,6 +425,58 @@ fn counts_unchanged(w: &mut Steps, _subject: String, _object: String, _predicate
     assert!(last(w).is_ok());
     assert_eq!(count_snapshot(&a, &w.names), w.counts);
     assert_eq!(w.counts[0], vec![1]);
+}
+
+#[when(
+    "`<a> <name> \"Ann\"` is held, `tag` is multi-valued with a `term` index and no count index, and `<a> <tag> \"x\"` is written"
+)]
+fn insert_on_held_subject(w: &mut Steps) {
+    let a = cs(w);
+    crate::utils::changesets::declare(&a, "tag", "with `term`");
+    crate::utils::changesets::write(&a, &["<a> <name> \"Ann\""]);
+    let result = apply(&a, vec![insert("<a> <tag> \"x\"")]);
+    w.results.push(result);
+}
+
+#[then(
+    "the write reads the forward list of `tag` for `a` and no other list, and writes the forward, reverse, predicate-list, index and statistics deltas"
+)]
+fn reads_subject_list_only(w: &mut Steps) {
+    let a = cs(w);
+    let tag = uid(&a, "tag");
+    let read: Vec<_> = applied(w).read().iter().cloned().collect();
+    assert_eq!(applied(w).lists_read(), 1, "{read:?}");
+    assert!(
+        read.iter()
+            .all(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(tag)),
+        "{read:?}"
+    );
+    writes_insert_regions(w, "tag".to_string());
+}
+
+#[when("`<a> <tag> \"x\"` is written and `a` is new to the store")]
+fn insert_on_new_subject(w: &mut Steps) {
+    let a = cs(w);
+    crate::utils::changesets::declare(&a, "tag", "with `term`");
+    let result = apply(&a, vec![insert("<a> <tag> \"x\"")]);
+    w.results.push(result);
+}
+
+#[when("`<a> <knows> <b>` is written in one commit and again in a later one")]
+fn written_twice(w: &mut Steps) {
+    let a = cs(w);
+    crate::utils::changesets::write(&a, &["<a> <knows> <b>", "<a> <knows> <b>"]);
+}
+
+#[then("the statistics of `knows` report 1 statement")]
+fn counted_once(w: &mut Steps) {
+    let a = cs(w);
+    let ts = a.quads().lists().latest_ts();
+    let statistics = a
+        .quads()
+        .statistics(NS, DEFAULT_GRAPH, uid(&a, "knows"), ts)
+        .expect("the statistics read");
+    assert_eq!(statistics.statements(), 1);
 }
 
 #[then("the write reads no list")]

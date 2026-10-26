@@ -6,8 +6,11 @@
 pub mod apply_args;
 pub mod command;
 pub mod commit_shape;
+pub mod counted_snapshot;
+pub mod counting_cache;
 pub mod dir_sizes;
 pub mod pacer;
+pub mod read_counts;
 pub mod rollup_args;
 pub mod size;
 pub mod summary;

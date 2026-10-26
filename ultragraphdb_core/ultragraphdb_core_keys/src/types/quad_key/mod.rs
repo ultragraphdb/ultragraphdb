@@ -12,6 +12,9 @@ use crate::types::count_direction::CountDirection;
 use crate::types::keyspace::Keyspace;
 use crate::types::region::Region;
 
+/// The namespace a deployment starts with.
+pub const ROOT_NAMESPACE: u64 = 0;
+
 /// The graph a statement belongs to when it names none.
 pub const DEFAULT_GRAPH: u64 = 0;
 

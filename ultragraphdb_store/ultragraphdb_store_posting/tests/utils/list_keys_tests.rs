@@ -15,7 +15,7 @@ use ultragraphdb_store_posting::{
 };
 use ultragraphdb_traits_store::{Store, StoreSnapshot};
 
-use crate::utils::helpers::{key, new_lists, new_store, read_back, roll_up};
+use crate::utils::helpers::{new_lists, new_store, read_back, roll_up};
 
 fn quad_key(subject: u64) -> Vec<u8> {
     QuadKey::Forward {
@@ -61,10 +61,6 @@ fn held(list: &List, read_ts: u64) -> Vec<(u64, Vec<u8>)> {
 fn test_quad_keys_are_lists_and_split_in_their_own_layout() {
     let base = quad_key(42);
     assert!(is_quad_list(&base));
-    assert!(
-        !is_quad_list(&key("name", 1)),
-        "a key of Dgraph's layout is not a quad list"
-    );
     let part = split_key_of(&base, 1000).unwrap();
     assert_eq!(
         part,

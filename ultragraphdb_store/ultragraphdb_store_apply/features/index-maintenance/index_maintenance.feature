@@ -104,11 +104,13 @@ Feature: Index maintenance
     When `<a> <where> "{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral` is written
     Then the `geo` index of `where` lists `a` under the tokens of `"{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral`
 
-  Scenario: An insert reads nothing
-    Given `tag` is declared with a `term` index
-    When `<a> <tag> "x"` is written
+  Scenario: An insert reads only the subject's list
+    When `<a> <name> "Ann"` is held, `tag` is multi-valued with a `term` index and no count index, and `<a> <tag> "x"` is written
+    Then the write reads the forward list of `tag` for `a` and no other list, and writes the forward, reverse, predicate-list, index and statistics deltas
+
+  Scenario: An insert of a new subject reads nothing
+    When `<a> <tag> "x"` is written and `a` is new to the store
     Then the write reads no list
-    And the write writes the forward, reverse, predicate-list, index and statistics regions of `tag`
 
   Scenario: A delete reads the subject's list
     Given `<a> <tag> "x"` is held

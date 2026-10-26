@@ -96,18 +96,24 @@ fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
     Entry::put(key.to_vec(), version, 0x04, value.to_vec())
 }
 
+/// The forward list of subject 1 and predicate 7 in namespace `ns`, in the quad layout: the keyspace byte, then the
+/// namespace, graph, predicate and subject, each a u64 big-endian.
 fn ns_key(ns: u64) -> Vec<u8> {
-    let mut key = vec![0x00];
-    key.extend_from_slice(&ns.to_be_bytes());
-    key.extend_from_slice(b"\x00\x04name");
+    let mut key = vec![0x10];
+    [ns, 0, 7, 1]
+        .iter()
+        .for_each(|n| key.extend_from_slice(&n.to_be_bytes()));
     key
 }
 
-/// An index key of Dgraph's layout for `term` (`IndexKey`, `x/keys.go:258-269`): the term appended raw.
+/// A value index key of the quad layout for `term`: predicate 7's prefix and the tokenizer byte, the term appended
+/// raw.
 fn index_key(term: &[u8]) -> Vec<u8> {
-    let mut key = vec![0x02];
-    key.extend_from_slice(&0u64.to_be_bytes());
-    key.extend_from_slice(b"\x00\x04name\x02");
+    let mut key = vec![0x14];
+    [0u64, 0, 7]
+        .iter()
+        .for_each(|n| key.extend_from_slice(&n.to_be_bytes()));
+    key.push(0x02);
     key.extend_from_slice(term);
     key
 }
@@ -662,27 +668,29 @@ fn key_found(w: &mut Steps) {
     );
 }
 
-/// The schema key of `name` in namespace 3, Dgraph's `SchemaKey` layout.
-fn schema_key_ns3() -> Vec<u8> {
+/// The catalog key of predicate 7's declaration in namespace 3, in the quad layout: the keyspace byte, the
+/// namespace, the entry kind and the predicate.
+fn catalog_key_ns3() -> Vec<u8> {
     let mut key = vec![0x01];
     key.extend_from_slice(&3u64.to_be_bytes());
-    key.extend_from_slice(b"\x00\x04name");
+    key.push(0x01);
+    key.extend_from_slice(&7u64.to_be_bytes());
     key
 }
 
 #[when(
-    "everything in a namespace is dropped, its initial schema is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts"
+    "everything in a namespace is dropped, its initial catalog is written at timestamp 1, the discard timestamp is raised above the drop and the store compacts"
 )]
 fn namespace_drop_and_compact(w: &mut Steps) {
-    let schema = schema_key_ns3();
+    let catalog = catalog_key_ns3();
     w.write(vec![
-        Entry::put(schema.clone(), 5, 0x01, b"old".to_vec()).with_discard(),
+        Entry::put(catalog.clone(), 5, 0x01, b"old".to_vec()).with_discard(),
     ]);
     // A reader opened before the drop, at the timestamp the discard timestamp is raised to: it keeps fjall's
     // garbage-collection watermark below the drop's removals, so the removed version at 5 reaches the compaction.
     let reader = w.open().snapshot(9).unwrap();
     w.open().compact().unwrap();
-    let prefixes: Vec<Vec<u8>> = [0x00u8, 0x01, 0x02, 0x04]
+    let prefixes: Vec<Vec<u8>> = [0x01u8, 0x10, 0x11, 0x14]
         .iter()
         .map(|p| [vec![*p], 3u64.to_be_bytes().to_vec()].concat())
         .collect();
@@ -690,7 +698,7 @@ fn namespace_drop_and_compact(w: &mut Steps) {
         .drop_prefixes(
             7,
             &prefixes,
-            vec![Entry::put(schema, 1, 0x01, b"initial".to_vec()).with_discard()],
+            vec![Entry::put(catalog, 1, 0x01, b"initial".to_vec()).with_discard()],
         )
         .unwrap();
     w.open().set_discard_ts(9).unwrap();
@@ -698,13 +706,13 @@ fn namespace_drop_and_compact(w: &mut Steps) {
     drop(reader);
 }
 
-#[then("the namespace's initial schema is still read at the discard timestamp")]
-fn initial_schema_read(w: &mut Steps) {
-    let read = w.open().get_at(&schema_key_ns3(), 9).unwrap();
+#[then("the namespace's initial catalog is still read at the discard timestamp")]
+fn initial_catalog_read(w: &mut Steps) {
+    let read = w.open().get_at(&catalog_key_ns3(), 9).unwrap();
     assert_eq!(read.map(Item::into_value), Some(b"initial".to_vec()));
     w.reopen();
     w.open().compact().unwrap();
-    let read = w.open().get_at(&schema_key_ns3(), 9).unwrap();
+    let read = w.open().get_at(&catalog_key_ns3(), 9).unwrap();
     assert_eq!(read.map(Item::into_value), Some(b"initial".to_vec()));
 }
 

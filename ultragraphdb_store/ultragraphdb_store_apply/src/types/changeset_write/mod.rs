@@ -333,14 +333,6 @@ where
             None => Ok(self.write.statement(graph, id)?),
         }
     }
-
-    /// Marks predicate `uid` as carrying statement IDs, with its catalog entry when the mark is new.
-    fn mark_statements(&mut self, uid: u64) {
-        if self.catalog.mark_statements(uid) {
-            let entry = Catalog::statements_entry(self.namespace(), uid, 0);
-            self.add_entry(entry);
-        }
-    }
 }
 
 /// The statistics kind of `object`: `iri`, `blank`, or a literal's datatype IRI.

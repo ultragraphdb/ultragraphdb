@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::split_key;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_SCHEMA_POSTING, List, PostingErrorEnum, marshal,
 };
@@ -25,7 +25,7 @@ fn item(
 
 #[test]
 fn test_a_split_part_cannot_be_read_as_a_list() {
-    let part = split_key(&key("parts", 1), 1).unwrap();
+    let part = split_key_of(&key("parts", 1), 1).unwrap();
     let error = List::read_versions(&part, Vec::new()).unwrap_err();
     assert_eq!(error.0, PostingErrorEnum::InvalidKey);
     assert_eq!(
@@ -54,7 +54,7 @@ fn test_deltas_are_read_down_to_the_discard_flag() {
     let k = key("discard-flag", 1);
     let delta = |uid: u64| {
         let mut l = List::empty(k.clone());
-        l.add_mutation(&set_uid(uid), None).unwrap();
+        l.add_posting(set_uid(uid).clone(), false);
         l.marshal_delta()
     };
     let versions = vec![
@@ -112,7 +112,7 @@ fn test_a_missing_part_is_an_error() {
     write_entries(
         &store,
         vec![Entry::put(
-            split_key(&k, 1).unwrap(),
+            split_key_of(&k, 1).unwrap(),
             3,
             BIT_COMPLETE_POSTING,
             marshal(&PostingList::default()),
@@ -122,7 +122,7 @@ fn test_a_missing_part_is_an_error() {
     assert_eq!(
         error.0,
         PostingErrorEnum::MissingPart {
-            key: split_key(&k, 500).unwrap()
+            key: split_key_of(&k, 500).unwrap()
         }
     );
     // A list built without its parts cannot be iterated either.
@@ -140,7 +140,7 @@ fn test_a_length_over_a_missing_part_is_an_error_where_dgraph_panics() {
     };
     let bare = List::new(k.clone(), split, 3);
     let missing = PostingErrorEnum::MissingPart {
-        key: split_key(&k, 1).unwrap(),
+        key: split_key_of(&k, 1).unwrap(),
     };
     assert_eq!(bare.get_length(4).unwrap_err().0, missing);
     assert_eq!(

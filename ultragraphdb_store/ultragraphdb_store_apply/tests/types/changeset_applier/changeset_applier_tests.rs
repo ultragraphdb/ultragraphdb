@@ -21,11 +21,20 @@ fn keyspaces(regions: &std::collections::BTreeSet<Region>) -> Vec<Keyspace> {
 }
 
 #[test]
-fn test_an_insert_into_a_multi_valued_predicate_reads_no_list() {
+fn test_an_insert_reads_the_subjects_list_alone_and_none_of_a_new_subject() {
     let a = changesets();
     declare(&a, "tag", "with a `term` index");
     let applied = apply(&a, vec![insert(r#"<a> <tag> "x""#)]).unwrap();
     assert!(applied.read().is_empty(), "{:?}", applied.read());
+    let again = apply(&a, vec![insert(r#"<a> <tag> "y""#)]).unwrap();
+    let tag = uid(&a, "tag");
+    assert_eq!(again.lists_read(), 1);
+    assert!(
+        again
+            .read()
+            .iter()
+            .all(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(tag))
+    );
     let written = keyspaces(applied.written());
     for keyspace in [
         Keyspace::Forward,

@@ -7,11 +7,11 @@ the subscriber a binary installs once, with its level filter, output format and 
 ### Requirement: The port logs what Dgraph logs
 Library crates SHALL emit a structured `tracing` event, at Dgraph's level, wherever the Go code they port logs, and
 wherever the port survives a failure an operator needs to see, with the facts Dgraph's message carries as fields; a
-library crate SHALL never install a subscriber.
+library crate SHALL never install a subscriber. A failure a caller receives as an error is not logged as well.
 
-#### Scenario: A schema key that does not parse is logged
-- **WHEN** the schema is loaded from a store holding a schema key that does not parse
-- **THEN** the load skips the key and emits an error event `Error while parsing key` with the key as a field
+#### Scenario: An index build that fails is logged
+- **WHEN** an index build running in the background fails
+- **THEN** the applier emits an error event `error in building indexes, aborting` with the build's record as a field
 
 ### Requirement: A binary installs logging and span export once
 `ultragraphdb_common_telemetry` SHALL install the global subscriber from a configuration the caller passes: a level

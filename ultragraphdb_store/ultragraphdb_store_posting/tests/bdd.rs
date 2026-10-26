@@ -7,10 +7,9 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use cucumber::{World, then, when};
-use ultragraphdb_core_keys::split_key;
-use ultragraphdb_core_types::Value;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListsConfig, MAX_LIST_SIZE, PostingError,
     PostingErrorEnum, marshal,
@@ -32,8 +31,8 @@ mod utils {
 
 use crate::utils::helpers::{
     ProbeLists, TestLists, add, commit_edges, del_uid, del_value, delete_all, key, lists_over,
-    new_lists, new_store, next_commit_at, probe_lists, read_back, roll_up, set_lang, set_uid,
-    set_value, uid_schema, uids, with_facet, write_delta, write_entries,
+    new_lists, new_store, next_commit_at, probe_lists, read_back, roll_up, set_uid, set_value,
+    uids, with_facet, write_delta, write_entries,
 };
 use crate::utils::posting_workload::PostingWorkload;
 
@@ -60,15 +59,15 @@ fn name() -> Vec<u8> {
     key("name", 1)
 }
 
+/// The value `list` holds at `read_ts`, `None` when it holds none.
 fn value_of(list: &List, read_ts: u64) -> Option<Vec<u8>> {
-    match list.value(read_ts) {
-        Ok(v) => match v.value() {
-            Some(Value::Bytes(b)) => Some(b.clone()),
-            other => panic!("{other:?}"),
-        },
-        Err(PostingError(PostingErrorEnum::NoValue)) => None,
-        Err(e) => panic!("{e}"),
-    }
+    let mut value = None;
+    list.iterate(read_ts, 0, |p| {
+        value = Some(p.value.clone());
+        Ok::<_, PostingError>(std::ops::ControlFlow::Break(()))
+    })
+    .expect("the list iterates");
+    value
 }
 
 // Posting lists: reads.
@@ -148,85 +147,15 @@ fn holds_delta(w: &mut Steps) {
     assert_eq!(w.uids, vec![4]);
 }
 
-// Posting lists: operations and identities.
-
-#[when(r#"`<0x1> <name> "A"` is set and then `<0x1> <name> "B"` is set"#)]
-fn overwrite(w: &mut Steps) {
-    let lists = new_lists();
-    commit_edges(&lists, &name(), &[set_value("A")], None);
-    let ts = commit_edges(&lists, &name(), &[set_value("B")], None);
-    w.list = Some(lists.read(&name(), ts).unwrap());
-    w.versions = vec![ts];
-}
-
-#[then("the list holds one value posting, `B`")]
-fn one_value(w: &mut Steps) {
-    let list = w.list.as_ref().unwrap();
-    let ts = w.versions[0];
-    assert_eq!(list.length(ts, 0), 1);
-    assert_eq!(value_of(list, ts), Some(b"B".to_vec()));
-}
-
-#[when("`name` is set untagged to `A` and with language `fr` to `Á`")]
-fn languages(w: &mut Steps) {
-    let lists = new_lists();
-    let ts = commit_edges(
-        &lists,
-        &name(),
-        &[set_value("A"), set_lang("Á", "fr")],
-        None,
-    );
-    w.list = Some(lists.read(&name(), ts).unwrap());
-    w.versions = vec![ts];
-}
-
-#[then("both are held, and a read for language `fr` returns `Á`")]
-fn both_held(w: &mut Steps) {
-    let list = w.list.as_ref().unwrap();
-    let ts = w.versions[0];
-    assert_eq!(list.all_values(ts).unwrap().len(), 2);
-    assert_eq!(value_of(list, ts), Some(b"A".to_vec()));
-    let fr = list.value_for(ts, &["fr".to_string()]).unwrap();
-    assert_eq!(fr.value(), Some(&Value::Bytes("Á".as_bytes().to_vec())));
-}
-
-fn set_twice(w: &mut Steps, list_type: bool) {
-    let lists = new_lists();
-    let schema = uid_schema(list_type);
-    commit_edges(&lists, &friend(), &[set_uid(2)], Some(&schema));
-    let ts = commit_edges(&lists, &friend(), &[set_uid(3)], Some(&schema));
-    w.uids = uids(&lists.read(&friend(), ts).unwrap(), ts, 0);
-}
-
-#[when("a non-list uid predicate is set to `0x2` and then to `0x3`")]
-fn single_uid(w: &mut Steps) {
-    set_twice(w, false);
-}
-
-#[then("the list holds only `0x3`")]
-fn only_three(w: &mut Steps) {
-    assert_eq!(w.uids, vec![3]);
-}
-
-#[when("a `[uid]` predicate is set to `0x2` and then to `0x3`")]
-fn uid_list(w: &mut Steps) {
-    set_twice(w, true);
-}
-
-#[then("the list holds `0x2` and `0x3`")]
-fn two_and_three(w: &mut Steps) {
-    assert_eq!(w.uids, vec![2, 3]);
-}
-
 // Posting lists: delete-all.
 
 #[when("a list holds postings, a delete-all is committed at 8, and the list is read at 8 and at 7")]
 fn delete_all_at_eight(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    commit_edges(&lists, &k, &[set_uid(1), set_uid(2)], None);
+    commit_edges(&lists, &k, &[set_uid(1), set_uid(2)]);
     next_commit_at(&lists, 8);
-    assert_eq!(commit_edges(&lists, &k, &[delete_all()], None), 8);
+    assert_eq!(commit_edges(&lists, &k, &[delete_all()]), 8);
     w.uids = uids(&lists.read(&k, 8).unwrap(), 8, 0);
     w.second = uids(&lists.read(&k, 7).unwrap(), 7, 0);
 }
@@ -243,11 +172,11 @@ fn empty_at_eight(w: &mut Steps) {
 fn rollup_preserves(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    commit_edges(&lists, &k, &(1..=5).map(set_uid).collect::<Vec<_>>(), None);
+    commit_edges(&lists, &k, &(1..=5).map(set_uid).collect::<Vec<_>>());
     assert!(lists.rollup_key(&k).unwrap());
-    commit_edges(&lists, &k, &[del_uid(2)], None);
-    commit_edges(&lists, &k, &[set_uid(7)], None);
-    let last = commit_edges(&lists, &k, &[set_uid(9), del_uid(1)], None);
+    commit_edges(&lists, &k, &[del_uid(2)]);
+    commit_edges(&lists, &k, &[set_uid(7)]);
+    let last = commit_edges(&lists, &k, &[set_uid(9), del_uid(1)]);
     let before: Vec<Vec<u64>> = (last..last + 6)
         .map(|t| uids(&lists.read_uncached(&k, t).unwrap(), t, 0))
         .collect();
@@ -316,7 +245,7 @@ fn at_eleven(w: &mut Steps) {
 fn facet_rollup(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    commit_edges(&lists, &k, &[with_facet(set_uid(5), "since")], None);
+    commit_edges(&lists, &k, &[with_facet(set_uid(5), "since")]);
     assert!(lists.rollup_key(&k).unwrap());
     let ts = lists.latest_ts();
     w.list = Some(lists.read_uncached(&k, ts).unwrap());
@@ -342,19 +271,9 @@ fn split_with_deltas(seed: u64) -> (TestLists, Vec<u8>) {
     let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
     let lists = lists_over(store, ListsConfig::new(PersistMode::Buffer, 1000));
     let k = friend();
-    commit_edges(
-        &lists,
-        &k,
-        &(1..=1500).map(set_uid).collect::<Vec<_>>(),
-        None,
-    );
+    commit_edges(&lists, &k, &(1..=1500).map(set_uid).collect::<Vec<_>>());
     assert!(lists.rollup_key(&k).unwrap());
-    commit_edges(
-        &lists,
-        &k,
-        &(1501..=1600).map(set_uid).collect::<Vec<_>>(),
-        None,
-    );
+    commit_edges(&lists, &k, &(1501..=1600).map(set_uid).collect::<Vec<_>>());
     (lists, k)
 }
 
@@ -416,7 +335,7 @@ fn parts_recorded(w: &mut Steps) {
     let main = &contents.versions(&friend())[0];
     assert_eq!(main.meta(), BIT_COMPLETE_POSTING);
     for start in splits {
-        let part = split_key(&friend(), start).unwrap();
+        let part = split_key_of(&friend(), start).unwrap();
         assert_eq!(store.contents().versions(&part)[0].version(), w.versions[0]);
     }
 }
@@ -442,12 +361,7 @@ fn delete_split(w: &mut Steps) {
     let (lists, k) = split_with_deltas(2);
     assert!(lists.rollup_key(&k).unwrap());
     let splits = read_back(lists.store(), &k).part_splits();
-    commit_edges(
-        &lists,
-        &k,
-        &(1..=1600).map(del_uid).collect::<Vec<_>>(),
-        None,
-    );
+    commit_edges(&lists, &k, &(1..=1600).map(del_uid).collect::<Vec<_>>());
     assert!(lists.rollup_key(&k).unwrap());
     w.uids = splits;
     w.store = Some(lists.store().clone());
@@ -474,7 +388,7 @@ fn stored_empty(w: &mut Steps) {
 #[when("a split key is read directly as a posting list")]
 fn read_split_key(w: &mut Steps) {
     let lists = new_lists();
-    let part = split_key(&friend(), 1).unwrap();
+    let part = split_key_of(&friend(), 1).unwrap();
     w.error = lists.read(&part, lists.latest_ts()).err();
 }
 
@@ -492,7 +406,7 @@ fn invalid_key(w: &mut Steps) {
 #[when("`name` of `0x1` holds no value and a request sets it to `A` and then deletes `A`")]
 fn set_then_delete(w: &mut Steps) {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &name(), &[set_value("A"), del_value("A")], None);
+    let ts = commit_edges(&lists, &name(), &[set_value("A"), del_value("A")]);
     w.texts = value_of(&lists.read(&name(), ts).unwrap(), ts)
         .into_iter()
         .collect();
@@ -511,8 +425,7 @@ fn two_in_batch(w: &mut Steps) {
     first
         .get(&name())
         .unwrap()
-        .add_mutation(&set_value("A"), None)
-        .unwrap();
+        .add_posting(set_value("A").clone(), false);
     batch.push(first);
     let read_ts = lists.latest_ts();
     let mut second = batch.request(read_ts);
@@ -529,13 +442,12 @@ fn second_reads_a(w: &mut Steps) {
 #[when("one request has set `name` on `0x1` and not committed, and a second request reads it")]
 fn uncommitted(w: &mut Steps) {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &name(), &[set_value("before")], None);
+    let ts = commit_edges(&lists, &name(), &[set_value("before")]);
     let mut first = lists.request(ts);
     first
         .get(&name())
         .unwrap()
-        .add_mutation(&set_value("after"), None)
-        .unwrap();
+        .add_posting(set_value("after").clone(), false);
     let mut second = lists.request(ts);
     w.texts = value_of(second.get(&name()).unwrap(), ts)
         .into_iter()
@@ -558,8 +470,7 @@ fn blind(w: &mut Steps) {
     let mut request = lists.request(read_ts);
     request
         .get_from_delta(&friend())
-        .add_mutation(&set_uid(3), None)
-        .unwrap();
+        .add_posting(set_uid(3).clone(), false);
     w.uids = uids(request.get(&friend()).unwrap(), read_ts, 0);
 }
 
@@ -603,8 +514,7 @@ fn commit_while_reading(
             request
                 .get(k)
                 .unwrap()
-                .add_mutation(&set_uid(1), None)
-                .unwrap();
+                .add_posting(set_uid(1).clone(), false);
             batch.push(request);
         }
     } else {
@@ -613,8 +523,7 @@ fn commit_while_reading(
             request
                 .get(k)
                 .unwrap()
-                .add_mutation(&set_uid(1), None)
-                .unwrap();
+                .add_posting(set_uid(1).clone(), false);
         }
         batch.push(request);
     }
@@ -684,12 +593,10 @@ fn failed_request(w: &mut Steps) {
     request
         .get(&friend())
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     request
         .get_from_delta(&key("friend", 2))
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     batch.push(request);
     // The request fails in its commit check, before any timestamp is assigned.
     let results = lists
@@ -713,8 +620,7 @@ fn failed_holds_nothing(w: &mut Steps) {
     request
         .get(&friend())
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     drop(request);
     let next = lists.peek_ts();
     w.flags = vec![lists.try_gate(next).unwrap()];
@@ -750,10 +656,10 @@ fn open_read_rollup(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
     next_commit_at(&lists, 5);
-    commit_edges(&lists, &k, &[set_uid(5)], None);
+    commit_edges(&lists, &k, &[set_uid(5)]);
     let mut request = lists.request(5);
     next_commit_at(&lists, 6);
-    commit_edges(&lists, &k, &[set_uid(6)], None);
+    commit_edges(&lists, &k, &[set_uid(6)]);
     assert!(lists.rollup_key(&k).unwrap());
     let rolled = lists.store().contents().versions(&k)[0].version();
     w.uids = uids(request.get(&k).unwrap(), 5, 0);
@@ -776,10 +682,10 @@ fn open_read_intact(w: &mut Steps) {
 fn cached_then_commit(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).unwrap();
     next_commit_at(&lists, 20);
-    commit_edges(&lists, &k, &[set_uid(2)], None);
+    commit_edges(&lists, &k, &[set_uid(2)]);
     w.uids = uids(&lists.cached(&k, 21).unwrap().expect("a cache hit"), 21, 0);
 }
 
@@ -812,7 +718,7 @@ fn interleaved(seed: u64, capacity: usize) -> Vec<Vec<u64>> {
                 } else {
                     set_uid(uid)
                 };
-                commit_edges(lists, &k, &[edge], None);
+                commit_edges(lists, &k, &[edge]);
                 if ctx.rng().chance(100) {
                     lists.rollup_key(&k).unwrap();
                 }
@@ -853,8 +759,7 @@ fn commit_cached(w: &mut Steps) {
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&set_uid(1), None)
-        .unwrap();
+        .add_posting(set_uid(1).clone(), false);
     batch.push(request);
     let first = lists.commit(batch).unwrap()[0];
     lists.read(&k, first).unwrap();
@@ -876,8 +781,7 @@ fn commit_cached(w: &mut Steps) {
     request
         .get(&k)
         .unwrap()
-        .add_mutation(&set_uid(2), None)
-        .unwrap();
+        .add_posting(set_uid(2).clone(), false);
     batch.push(request);
     lists.commit(batch).unwrap();
     w.flags = seen.lock().unwrap().clone();
@@ -898,10 +802,10 @@ fn no_stale_read(w: &mut Steps) {
 fn stale_fill(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    let first = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let first = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.cache().remove(&k);
     let miss = lists.miss(&k, first).unwrap();
-    let second = commit_edges(&lists, &k, &[set_uid(2)], None);
+    let second = commit_edges(&lists, &k, &[set_uid(2)]);
     lists.cache().remove(&k);
     w.flags = vec![lists.fill(miss), lists.cache().get(&k).is_some()];
     w.uids = uids(&lists.read(&k, second).unwrap(), second, 0);
@@ -915,11 +819,16 @@ fn fill_refused(w: &mut Steps) {
 
 /// Drops the friend predicate of the root namespace through `lists`: its data and split prefixes.
 fn drop_friend(lists: &TestLists) {
-    let data = ultragraphdb_core_keys::predicate_prefix(
-        &ultragraphdb_core_keys::attr_in_root_namespace("friend"),
-    )
-    .unwrap();
-    let split = [&[0x04][..], &data[1..]].concat();
+    let prefix = |split| {
+        ultragraphdb_core_keys::key_prefix(
+            ultragraphdb_core_keys::Keyspace::Forward,
+            split,
+            0,
+            Some(ultragraphdb_core_keys::DEFAULT_GRAPH),
+            Some(crate::utils::helpers::predicate("friend")),
+        )
+    };
+    let (data, split) = (prefix(false), prefix(true));
     lists
         .drop_prefixes(lists.fresh_ts(), &[data, split], Vec::new())
         .unwrap();
@@ -929,7 +838,7 @@ fn drop_friend(lists: &TestLists) {
 fn drop_cached(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).unwrap();
     assert!(lists.cache().get(&k).is_some());
     drop_friend(&lists);
@@ -953,7 +862,7 @@ fn finds_nothing(w: &mut Steps) {
 fn fill_across_drop(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    let ts = commit_edges(&lists, &k, &[set_uid(1)], None);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.cache().remove(&k);
     let miss = lists.miss(&k, ts).unwrap();
     drop_friend(&lists);
@@ -1001,7 +910,7 @@ fn same_checks(w: &mut Steps) {
 fn corrupted(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    commit_edges(&lists, &k, &[set_uid(1), set_uid(2), set_uid(3)], None);
+    commit_edges(&lists, &k, &[set_uid(1), set_uid(2), set_uid(3)]);
     assert!(lists.rollup_key(&k).unwrap());
     let version = lists.store().contents().versions(&k)[0].version();
     // The bytes past the store's version prefix are garbled; the store returns them, and the posting decoder

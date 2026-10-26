@@ -8,9 +8,15 @@ mod command_tests;
 #[cfg(test)]
 mod commit_shape_tests;
 #[cfg(test)]
+mod counted_snapshot_tests;
+#[cfg(test)]
+mod counting_cache_tests;
+#[cfg(test)]
 mod dir_sizes_tests;
 #[cfg(test)]
 mod pacer_tests;
+#[cfg(test)]
+mod read_counts_tests;
 #[cfg(test)]
 mod summary_tests;
 #[cfg(test)]

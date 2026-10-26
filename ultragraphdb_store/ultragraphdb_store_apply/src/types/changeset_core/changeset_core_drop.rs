@@ -108,7 +108,7 @@ where
                 self.rewrite_without(&list, uid, latest, &mut prefixes, &mut entries)?;
             }
         }
-        prefixes.extend(Catalog::predicate_keys(namespace, uid));
+        prefixes.insert(Catalog::predicate_key(namespace, uid));
         tracing::info!(predicate = predicate.as_str(), "dropping predicate");
         let prefixes: Vec<Vec<u8>> = prefixes.into_iter().collect();
         let ts = lists.drop_prefixes_now(&prefixes, entries)?;

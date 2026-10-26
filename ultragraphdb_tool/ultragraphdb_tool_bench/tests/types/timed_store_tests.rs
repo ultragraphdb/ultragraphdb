@@ -4,9 +4,10 @@
  */
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ultragraphdb_store_kv::{Durability, FjallStore};
-use ultragraphdb_tool_bench::TimedStore;
+use ultragraphdb_tool_bench::{ReadCounts, TimedStore};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 #[test]
@@ -14,7 +15,10 @@ fn test_commit_write_calls_are_recorded_and_the_others_counted() {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-timed-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let store = TimedStore::new(FjallStore::open(&dir, Durability::Process).unwrap());
+    let store = TimedStore::new(
+        FjallStore::open(&dir, Durability::Process).unwrap(),
+        Arc::new(ReadCounts::new()),
+    );
     let mut commit = WriteBatch::new();
     commit.push(Entry::put(b"a".to_vec(), 3, 0, b"v".to_vec()));
     commit.push(Entry::put(b"b".to_vec(), 3, 0, b"v".to_vec()));
