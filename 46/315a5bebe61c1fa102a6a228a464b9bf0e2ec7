@@ -1,0 +1,14 @@
+openspec/protocols/tdd-protocol.md
+  h_080fb89ca1f0c4 1-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46315a5bebe61c1fa102a6a228a464b9bf0e2ec7",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
