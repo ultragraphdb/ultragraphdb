@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use ultragraphdb_core_keys::{parse, split_key};
+use crate::utils::list_keys::{is_split_key, split_key_of};
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_traits_store::{Item, StoreSnapshot};
@@ -39,7 +39,7 @@ impl List {
     where
         I: IntoIterator<Item = Result<Item, StoreError>>,
     {
-        if parse(key)?.has_start_uid() {
+        if is_split_key(key)? {
             return Err(PostingError::InvalidKey());
         }
         let mut list = List::empty(key.to_vec());
@@ -85,7 +85,7 @@ impl List {
                 .plist
                 .splits
                 .iter()
-                .map(|&start| split_key(key, start))
+                .map(|&start| split_key_of(key, start))
                 .collect::<Result<Vec<_>, _>>()?;
             let items = snapshot.get_many(&keys)?;
             let parts = keys

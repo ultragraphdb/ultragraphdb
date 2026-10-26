@@ -21,12 +21,14 @@ workspace = true
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_core_lex = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_proto_pb = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+oxrdf = { workspace = true }
 prost = { workspace = true }
 tracing = { workspace = true }
 

@@ -4,3 +4,4 @@
  */
 
 pub mod apply_error;
+pub mod changeset_error;

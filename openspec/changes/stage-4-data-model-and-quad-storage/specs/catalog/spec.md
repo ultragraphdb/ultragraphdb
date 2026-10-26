@@ -2,10 +2,11 @@
 
 ### Requirement: Predicate declarations
 The catalog SHALL hold, per namespace, a declaration for each predicate IRI it knows: its kind (edge, property, or
-either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, and
-its indexes: tokenizers, an exact count index, and a vector index with its parameters. A declaration whose datatype
-constraint is not among the datatypes one of its tokenizers takes SHALL be refused. A predicate the catalog does not
-declare SHALL behave as declared with kind either, multi-valued, no datatype constraint, values not unique and no index.
+either), its cardinality (single- or multi-valued), an optional datatype constraint, whether its values are unique, its
+indexes (tokenizers, an exact count index, and a vector index with its parameters), and the entity types it is declared
+on, which the data dictionary reports it under. A declaration whose datatype constraint is not among the datatypes one
+of its tokenizers takes SHALL be refused. A predicate the catalog does not declare SHALL behave as declared with kind
+either, multi-valued, no datatype constraint, values not unique, no index and no entity type.
 
 #### Scenario: An undeclared predicate accepts any object
 - **WHEN** `<a> <p> <b>` and `<a> <p> "text"` are written and `p` is not declared

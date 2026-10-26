@@ -4,61 +4,119 @@
 #
 
 Feature: Index maintenance
-  Each edge applied keeps its predicate's index tokens, reverse edges and count keys with it, in the request that
-  applies it, and its value is converted to the schema's type or refused.
+  Each statement a changeset writes keeps its predicate's value-index tokens, reverse entries, predicate lists and
+  count keys with it, in the request that applies it. Terms are kept as written; a literal is converted only to compute
+  its tokens, by the tokenizers that take its datatype.
 
-  Scenario: Setting an indexed value adds its tokens
-    When `name: string @index(term) .` holds no value for `0x1` and `name` is set to `big apple`
-    Then the index keys for `big` and `apple` each contain `0x1`
+  Scenario: Writing an indexed literal adds its tokens
+    Given `name` is declared with a `term` index
+    When `<a> <name> "big apple"` is written
+    Then the `term` index of `name` lists `a` under `big` and `apple`
 
-  Scenario: Changing a value moves its tokens
-    When `name` of `0x1` changes from `big apple` to `red apple`
-    Then the index key for `big` no longer contains `0x1`, and `red` and `apple` do
+  Scenario: Overwriting a single-valued literal moves its tokens
+    Given `name` is declared single-valued with a `term` index
+    And `<a> <name> "big apple"` is held
+    When `<a> <name> "red apple"` is written
+    Then the `term` index of `name` does not list `a` under `big`
+    And the `term` index of `name` lists `a` under `red` and `apple`
 
-  Scenario: Deleting a value removes its index entries
-    When the indexed value of `0x1` is deleted
-    Then no index key of that predicate contains `0x1`
+  Scenario: Deleting a literal removes its index entries
+    Given `name` is declared with a `term` index
+    And `<a> <name> "big apple"` is held
+    When `<a> <name> "big apple"` is deleted
+    Then no value-index key of `name` holds `a`
 
-  Scenario: A language value uses its language's tokenizer
-    When a fulltext-indexed predicate is set with language `de` to `Häuser`
-    Then the index holds the German stem's token
+  Scenario: A language-tagged literal uses its language's tokenizer
+    Given `body` is declared with a `fulltext` index
+    When `<a> <body> "Häuser"@de` is written
+    Then the `fulltext` index of `body` lists `a` under the tokens of `"Häuser"@de`
 
-  Scenario: Deleting one value of a list keeps shared tokens
-    When `tags: [string] @index(term) .` holds `big apple` and `red apple` for `0x1`, and `big apple` is deleted
-    Then the index key for `big` no longer contains `0x1`, and the keys for `red` and `apple` still do
+  Scenario: Deleting one literal keeps shared tokens
+    Given `tags` is declared with a `term` index
+    And `<a> <tags> "big apple"` and `<a> <tags> "red apple"` are held
+    When `<a> <tags> "big apple"` is deleted
+    Then the `term` index of `tags` does not list `a` under `big`
+    And the `term` index of `tags` lists `a` under `red` and `apple`
 
-  Scenario: A reverse edge follows its forward edge
-    When `friend: uid @reverse .` is set from `0x1` to `0x2` and then to `0x3`
-    Then the reverse key of `0x3` contains `0x1` and the reverse key of `0x2` does not
+  Scenario: A reverse entry follows its statement
+    Given `friend` is declared single-valued
+    When `<a> <friend> <b>` and `<a> <friend> <c>` are written
+    Then the reverse list of `friend` for `c` holds `a`
+    And the reverse list of `friend` for `b` does not hold `a`
 
-  Scenario: Adding a third uid moves the count
-    When `friend: [uid] @count .` holds two uids for `0x1` and a third is added
-    Then `0x1` is listed under count 3 and not under count 2
+  Scenario: Undeclared predicates keep reverse entries
+    When `<a> <likes> <b>` is written
+    Then the reverse list of `likes` for `b` holds `a`
 
-  Scenario: Re-setting an existing uid leaves the count
-    When a uid already in the list is set again
-    Then the count key of the subject does not change
+  Scenario: Adding a third object moves the count
+    Given `friend` is declared with an exact count index
+    And `<a> <friend> <b>` and `<a> <friend> <c>` are held
+    When `<a> <friend> <d>` is written
+    Then `a` is listed under forward count 3 of `friend` and not under 2
+
+  Scenario: Re-writing an existing object leaves the count
+    Given `friend` is declared with an exact count index
+    And `<a> <friend> <b>` is held
+    When `<a> <friend> <b>` is written again
+    Then the count keys of `a` and `b` for `friend` do not change
 
   Scenario: Reverse counts are kept
-    When `friend: [uid] @count @reverse .` gains the edge `0x1 → 0x2`
-    Then the reverse count keys of `0x2` reflect one more incoming edge
+    Given `friend` is declared with an exact count index
+    And `<c> <friend> <b>` is held
+    When `<a> <friend> <b>` is written
+    Then `b` is listed under reverse count 2 of `friend` and not under 1
 
-  Scenario: A star delete clears reverse and count entries
-    When `<0x1> <friend> * .` is deleted on `friend: [uid] @reverse @count .`
-    Then `0x1` has no `friend` postings, appears in no reverse key of its former targets, is listed under no count key, and each former target's reverse count drops by one
+  Scenario: A delete by pattern clears reverse and count entries
+    Given `friend` is declared with an exact count index
+    And `<a> <friend> <b>`, `<a> <friend> <c>` and `<x> <friend> <b>` are held
+    When the pattern `a`, `friend` is deleted
+    Then `a` holds no `friend`
+    And the reverse list of `friend` for `b` does not hold `a`
+    And the reverse list of `friend` for `c` does not hold `a`
+    And `a` is listed under no forward count key of `friend`
+    And `b` is listed under reverse count 1 of `friend` and not under 2
+    And `c` is listed under no reverse count key of `friend`
 
-  Scenario: A star delete clears index entries
-    When `name: string @index(fulltext) @lang .` holds an untagged value and a value tagged `de` for `0x1`, and `<0x1> <name> * .` is deleted
-    Then no index key of `name` contains `0x1`
+  Scenario: A delete by pattern clears index entries
+    Given `name` is declared with a `fulltext` index
+    And `<a> <name> "big houses"` and `<a> <name> "große Häuser"@de` are held
+    When the pattern `a`, `name` is deleted
+    Then no value-index key of `name` holds `a`
 
-  Scenario: A star delete on a scalar with language values clears its count
-    When `name: string @count @lang .` holds an untagged value and a value tagged `en` for `0x1`, and `<0x1> <name> * .` is deleted
-    Then `0x1` is listed under no count key of `name`
+  Scenario: Non-canonical integers index alike
+    Given `periods` is declared with an `int` index
+    When `<a> <periods> "042"^^xsd:integer` and `<b> <periods> 42` are written
+    Then the `int` index of `periods` lists `a` and `b` under `42`
 
-  Scenario: A value is converted to the schema type
-    When `age: int .` is set for `0x1` with the untyped value `"12"`
-    Then `age` of `0x1` holds the int 12
+  Scenario: Every value of a multi-valued predicate is indexed
+    Given `periods` is declared with an `int` index
+    When `<a> <periods> 41`, `<a> <periods> 42` and `<a> <periods> 43` are written
+    Then a range read of the `int` index of `periods` over 42 to 43 returns `a`
 
-  Scenario: A value that cannot be converted is refused
-    When `age: int .` is set for `0x1` with the untyped value `"twelve"`
-    Then the write fails with `strconv.ParseInt: parsing "twelve": invalid syntax`, and `age` of `0x1` holds nothing
+  Scenario: A literal of another datatype is held unindexed
+    Given `periods` is declared with an `int` index
+    When `<a> <periods> "soon"` is written
+    Then `a`'s `periods` objects are `"soon"`
+    And no value-index key of `periods` holds `a`
+
+  Scenario: A GeoJSON geometry is indexed by its cells
+    Given `where` is declared with a `geo` index
+    When `<a> <where> "{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral` is written
+    Then the `geo` index of `where` lists `a` under the tokens of `"{\"type\": \"Point\", \"coordinates\": [8.63, 50.12]}"^^geo:geoJSONLiteral`
+
+  Scenario: An insert reads nothing
+    Given `tag` is declared with a `term` index
+    When `<a> <tag> "x"` is written
+    Then the write reads no list
+    And the write writes the forward, reverse, predicate-list, index and statistics regions of `tag`
+
+  Scenario: A delete reads the subject's list
+    Given `<a> <tag> "x"` is held
+    When `<a> <tag> "x"` is deleted
+    Then the write reads the forward list of `tag`
+
+  Scenario: An integer keeps its lexical form under an index
+    Given `n` is declared with an `int` index
+    When `<a> <n> "007"^^xsd:integer` is written
+    Then `a`'s `n` objects are `"007"^^xsd:integer`
+    And the `int` index of `n` lists `a` under `7`

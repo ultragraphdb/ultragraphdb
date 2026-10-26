@@ -8,6 +8,13 @@ pub mod apply_workload;
 #[cfg(test)]
 mod apply_workload_tests;
 #[cfg(test)]
+pub mod changeset_workload;
+#[cfg(test)]
+mod changeset_workload_tests;
+#[cfg(test)]
+#[allow(dead_code)]
+pub mod changesets;
+#[cfg(test)]
 mod counts_tests;
 #[cfg(test)]
 mod divide_tests;

@@ -13,3 +13,5 @@ mod parse;
 mod schema;
 #[cfg(test)]
 mod types;
+#[cfg(test)]
+mod utils;

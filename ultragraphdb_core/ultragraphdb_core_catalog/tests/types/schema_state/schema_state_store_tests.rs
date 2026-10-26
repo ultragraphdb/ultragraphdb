@@ -11,10 +11,10 @@
 //! adding a call with it.
 
 use serde::Deserialize;
-use ultragraphdb_core_keys::{schema_key, type_key};
 use ultragraphdb_core_catalog::{
     SchemaErrorEnum, SchemaMode, SchemaState, parse_with_namespace, schema_entry, type_entry,
 };
+use ultragraphdb_core_keys::{schema_key, type_key};
 use ultragraphdb_error_store::StoreErrorEnum;
 use ultragraphdb_proto_pb::pb;
 use ultragraphdb_store_kv::{Durability, FjallStore};

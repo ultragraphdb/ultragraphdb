@@ -377,6 +377,10 @@ message Posting {
   uint32 op = 12;
   uint64 start_ts = 13;   // Meant to use only inmemory
   uint64 commit_ts = 14;  // Meant to use only inmemory
+
+  // ultragraphdb: the IDs of the statements that hold this object, for parallel edges and statements with
+  // properties (the quad layout of stage 4). Empty for a triple held once without properties.
+  repeated fixed64 statement_ids = 15;
 }
 
 message UidBlock {

@@ -114,6 +114,11 @@ where
                 for id in request.removed_records() {
                     store_batch.remove_rebuild_record(*id);
                 }
+                for entry in request.versionless() {
+                    if let Some(value) = entry.value() {
+                        store_batch.put_versionless(entry.key().to_vec(), value.to_vec());
+                    }
+                }
                 (commit_ts, request)
             })
             .collect();

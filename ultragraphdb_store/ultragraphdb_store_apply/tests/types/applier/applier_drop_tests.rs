@@ -6,8 +6,8 @@
 //! The drops besides the scenarios': a type's, a namespace's deletion, the drop values refused, and the proof that
 //! every drop goes through the posting lists' drop, which advances the cache's epoch, never the store's directly.
 
-use ultragraphdb_core_keys::{data_prefix, namespace_attr, type_key};
 use ultragraphdb_core_catalog::SchemaMode;
+use ultragraphdb_core_keys::{data_prefix, namespace_attr, type_key};
 use ultragraphdb_proto_pb::pb::{Mutations, SchemaUpdate, TypeUpdate, mutations::DropOp};
 use ultragraphdb_store_sim::OpRecord;
 

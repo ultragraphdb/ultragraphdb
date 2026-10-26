@@ -42,12 +42,7 @@ impl CanonicalDataset {
                 object,
             } => {
                 refuse_triple_term(object)?;
-                if cardinality(predicate) == Cardinality::Single {
-                    self.triples.retain(|_, h| {
-                        !(h.graph == *graph && h.subject == *subject && h.predicate == *predicate)
-                            || h.object == *object
-                    });
-                }
+                self.replace_single(graph, subject, predicate, object, cardinality);
                 let held = self.held(graph, subject, predicate, object);
                 if held.records.is_empty() {
                     held.records.push(Record {
@@ -64,6 +59,7 @@ impl CanonicalDataset {
                 properties,
             } => {
                 refuse_triple_term(object)?;
+                self.replace_single(graph, subject, predicate, object, cardinality);
                 let mut next_id = self.next_id;
                 let mut allocate = || {
                     next_id += 1;
@@ -135,6 +131,23 @@ impl CanonicalDataset {
             Change::Declare(_) => {}
         }
         Ok(())
+    }
+
+    /// Removes the subject's other objects of a single-valued predicate, as a write of `object` replaces them.
+    fn replace_single(
+        &mut self,
+        graph: &GraphName,
+        subject: &NamedOrBlankNode,
+        predicate: &NamedNode,
+        object: &Term,
+        cardinality: &impl Fn(&NamedNode) -> Cardinality,
+    ) {
+        if cardinality(predicate) == Cardinality::Single {
+            self.triples.retain(|_, h| {
+                !(h.graph == *graph && h.subject == *subject && h.predicate == *predicate)
+                    || h.object == *object
+            });
+        }
     }
 
     fn held(

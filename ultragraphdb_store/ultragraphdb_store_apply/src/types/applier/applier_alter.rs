@@ -15,8 +15,8 @@
 
 use std::sync::Arc;
 
-use ultragraphdb_core_keys::is_internal_predicate;
 use ultragraphdb_core_catalog::{SchemaMode, has_tokenizer_or_vector_index_spec, schema_entry};
+use ultragraphdb_core_keys::is_internal_predicate;
 use ultragraphdb_core_tok::get_factory_create_spec_from_spec;
 use ultragraphdb_core_types::TypeId;
 use ultragraphdb_proto_pb::pb::schema_update::Directive;

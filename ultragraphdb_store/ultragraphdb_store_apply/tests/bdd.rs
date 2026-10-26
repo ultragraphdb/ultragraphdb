@@ -3,21 +3,22 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The scenarios of index maintenance, schema changes and drops, the write scenarios of schema storage, the local
-//! commit with index entries and the vector index's maintenance, run over an applier on the simulated store.
+//! The scenarios of schema changes and drops, the local commit with index entries and the vector index's maintenance,
+//! run over an applier on the simulated store; and, in `changeset_steps`, those of changesets, index maintenance,
+//! posting lists, the catalog's write checks, schema storage's writes and statement IDs, run over a changeset applier.
 
 use std::sync::{Arc, Mutex};
 
 use cucumber::{World, then, when};
 use ultragraphdb_common_utils::go_farm::fingerprint64;
+use ultragraphdb_core_catalog::{SchemaMode, SchemaState, initial_schema, initial_types};
 use ultragraphdb_core_keys::{
     BYTE_SPLIT, data_prefix, namespace_attr, predicate_prefix, schema_key, type_key,
 };
-use ultragraphdb_core_catalog::{SchemaMode, SchemaState, initial_schema, initial_types};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_core_types::{TypeId, Value};
 use ultragraphdb_proto_pb::pb::{
-    DirectedEdge, Mutations, TypeUpdate, mutations::DropOp, posting, schema_update::Directive,
+    DirectedEdge, Mutations, TypeUpdate, mutations::DropOp, schema_update::Directive,
 };
 use ultragraphdb_store_apply::{Applier, ApplyError};
 use ultragraphdb_store_hnsw::{PersistentHnsw, QueryCache, ViTxn, parse_edges};
@@ -29,6 +30,9 @@ use ultragraphdb_traits_store::{Store, StoreSnapshot};
 // The unit tests' helpers, shared by path.
 mod utils {
     #[allow(dead_code)]
+    #[path = "changesets.rs"]
+    pub mod changesets;
+    #[allow(dead_code)]
     #[path = "helpers.rs"]
     pub mod helpers;
     #[allow(dead_code)]
@@ -36,10 +40,12 @@ mod utils {
     pub mod probe;
 }
 
+mod changeset_steps;
+
 use crate::utils::helpers::{
-    TestApplier, alter, alter_now, applier_over, attr, ckey, del_str, del_uid, dkey, ikey, ikeys,
-    index_prefix, live_keys, mutate, new_applier, new_store, next_commit_at, rkey, set_lang,
-    set_str, set_uid, star, stored_keys, uids, uids_at, updates,
+    TestApplier, alter, alter_now, applier_over, attr, ckey, del_str, del_uid, dkey, ikey,
+    index_prefix, live_keys, mutate, new_applier, new_store, next_commit_at, rkey, set_str,
+    set_uid, stored_keys, uids, uids_at, updates,
 };
 use crate::utils::probe::Probe;
 
@@ -47,11 +53,17 @@ use crate::utils::probe::Probe;
 struct Steps {
     applier: Option<Arc<TestApplier>>,
     result: Option<Result<u64, ApplyError>>,
-    second: Option<Result<u64, ApplyError>>,
     ts: Vec<u64>,
     keys: Vec<Vec<u8>>,
     flags: Vec<bool>,
     schemas: Vec<String>,
+    changesets: Option<Arc<crate::utils::changesets::TestChangesets>>,
+    copies: Vec<Arc<crate::utils::changesets::TestChangesets>>,
+    results:
+        Vec<Result<ultragraphdb_store_apply::Applied, ultragraphdb_store_apply::ChangesetError>>,
+    names: Vec<String>,
+    counts: Vec<Vec<u32>>,
+    statement: Option<u64>,
 }
 
 fn applier(w: &Steps) -> &Arc<TestApplier> {
@@ -100,293 +112,11 @@ fn count_prefix(name: &str, reverse: bool) -> Vec<u8> {
     k
 }
 
-fn reverse_prefix(name: &str) -> Vec<u8> {
-    let mut k = rkey(name, 0);
-    k.truncate(k.len() - 8);
-    k
-}
-
 fn twin(prefix: &[u8]) -> Vec<u8> {
     let mut p = prefix.to_vec();
     p[0] = BYTE_SPLIT;
     p
 }
-
-// Index maintenance.
-
-#[when("`name: string @index(term) .` holds no value for `0x1` and `name` is set to `big apple`")]
-fn set_indexed(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(term) .");
-    ok(&a, vec![set_str("name", 1, "big apple")]);
-}
-
-#[then("the index keys for `big` and `apple` each contain `0x1`")]
-fn tokens_added(w: &mut Steps) {
-    let a = applier(w);
-    assert!(holds(a, &ikey("name", "term", "big"), 1));
-    assert!(holds(a, &ikey("name", "term", "apple"), 1));
-}
-
-#[when("`name` of `0x1` changes from `big apple` to `red apple`")]
-fn change_value(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(term) .");
-    ok(&a, vec![set_str("name", 1, "big apple")]);
-    ok(&a, vec![set_str("name", 1, "red apple")]);
-}
-
-#[then("the index key for `big` no longer contains `0x1`, and `red` and `apple` do")]
-fn tokens_moved(w: &mut Steps) {
-    let a = applier(w);
-    assert!(!holds(a, &ikey("name", "term", "big"), 1));
-    assert!(holds(a, &ikey("name", "term", "red"), 1));
-    assert!(holds(a, &ikey("name", "term", "apple"), 1));
-}
-
-#[when("the indexed value of `0x1` is deleted")]
-fn delete_indexed(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(term, exact) .");
-    ok(&a, vec![set_str("name", 1, "big apple")]);
-    ok(&a, vec![del_str("name", 1, "big apple")]);
-}
-
-#[then("no index key of that predicate contains `0x1`")]
-fn no_token_holds(w: &mut Steps) {
-    let a = applier(w);
-    assert!(keys_holding(a, &index_prefix("name"), 1).is_empty());
-    assert!(value_of(a, "name", 1).is_none());
-}
-
-#[when("a fulltext-indexed predicate is set with language `de` to `Häuser`")]
-fn german(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(fulltext) @lang .");
-    ok(&a, vec![set_lang("name", 1, "Häuser", "de")]);
-}
-
-#[then("the index holds the German stem's token")]
-fn german_stem(w: &mut Steps) {
-    let a = applier(w);
-    let german = ikeys("name", "fulltext", "Häuser", "de");
-    assert_eq!(german.len(), 1);
-    assert!(
-        german[0].ends_with(b"haus"),
-        "{:?}",
-        String::from_utf8_lossy(&german[0])
-    );
-    assert!(holds(a, &german[0], 1));
-    assert_ne!(german, ikeys("name", "fulltext", "Häuser", ""));
-    assert_eq!(keys_holding(a, &index_prefix("name"), 1), german);
-}
-
-#[when(
-    "`tags: [string] @index(term) .` holds `big apple` and `red apple` for `0x1`, and `big apple` is deleted"
-)]
-fn delete_one_of_list(w: &mut Steps) {
-    let a = fresh(w, "tags: [string] @index(term) .");
-    ok(
-        &a,
-        vec![
-            set_str("tags", 1, "big apple"),
-            set_str("tags", 1, "red apple"),
-        ],
-    );
-    ok(&a, vec![del_str("tags", 1, "big apple")]);
-}
-
-#[then(
-    "the index key for `big` no longer contains `0x1`, and the keys for `red` and `apple` still do"
-)]
-fn shared_tokens_kept(w: &mut Steps) {
-    // Dgraph removes 0x1 from `apple` too (ledger 35).
-    let a = applier(w);
-    assert!(!holds(a, &ikey("tags", "term", "big"), 1));
-    assert!(holds(a, &ikey("tags", "term", "red"), 1));
-    assert!(holds(a, &ikey("tags", "term", "apple"), 1));
-}
-
-#[when("`friend: uid @reverse .` is set from `0x1` to `0x2` and then to `0x3`")]
-fn reverse_moves(w: &mut Steps) {
-    let a = fresh(w, "friend: uid @reverse .");
-    ok(&a, vec![set_uid("friend", 1, 2)]);
-    ok(&a, vec![set_uid("friend", 1, 3)]);
-}
-
-#[then("the reverse key of `0x3` contains `0x1` and the reverse key of `0x2` does not")]
-fn reverse_followed(w: &mut Steps) {
-    let a = applier(w);
-    assert!(holds(a, &rkey("friend", 3), 1));
-    assert!(!holds(a, &rkey("friend", 2), 1));
-    assert_eq!(uids(a, &dkey("friend", 1)), vec![3]);
-}
-
-#[when("`friend: [uid] @count .` holds two uids for `0x1` and a third is added")]
-fn third_uid(w: &mut Steps) {
-    let a = fresh(w, "friend: [uid] @count .");
-    ok(&a, vec![set_uid("friend", 1, 2), set_uid("friend", 1, 3)]);
-    assert!(holds(&a, &ckey("friend", 2, false), 1));
-    ok(&a, vec![set_uid("friend", 1, 4)]);
-}
-
-#[then("`0x1` is listed under count 3 and not under count 2")]
-fn count_three(w: &mut Steps) {
-    let a = applier(w);
-    assert!(holds(a, &ckey("friend", 3, false), 1));
-    assert!(!holds(a, &ckey("friend", 2, false), 1));
-}
-
-#[when("a uid already in the list is set again")]
-fn reset_uid(w: &mut Steps) {
-    let a = fresh(w, "friend: [uid] @count .");
-    ok(&a, vec![set_uid("friend", 1, 2), set_uid("friend", 1, 3)]);
-    ok(&a, vec![set_uid("friend", 1, 3)]);
-}
-
-#[then("the count key of the subject does not change")]
-fn count_unchanged(w: &mut Steps) {
-    let a = applier(w);
-    assert_eq!(
-        keys_holding(a, &count_prefix("friend", false), 1),
-        vec![ckey("friend", 2, false)]
-    );
-}
-
-#[when("`friend: [uid] @count @reverse .` gains the edge `0x1 → 0x2`")]
-fn reverse_count(w: &mut Steps) {
-    let a = fresh(w, "friend: [uid] @count @reverse .");
-    ok(&a, vec![set_uid("friend", 3, 2)]);
-    assert!(holds(&a, &ckey("friend", 1, true), 2));
-    ok(&a, vec![set_uid("friend", 1, 2)]);
-}
-
-#[then("the reverse count keys of `0x2` reflect one more incoming edge")]
-fn reverse_count_moved(w: &mut Steps) {
-    let a = applier(w);
-    assert_eq!(
-        keys_holding(a, &count_prefix("friend", true), 2),
-        vec![ckey("friend", 2, true)]
-    );
-}
-
-#[when("`<0x1> <friend> * .` is deleted on `friend: [uid] @reverse @count .`")]
-fn star_reverse_count(w: &mut Steps) {
-    let a = fresh(w, "friend: [uid] @reverse @count .");
-    ok(
-        &a,
-        vec![
-            set_uid("friend", 1, 2),
-            set_uid("friend", 1, 3),
-            set_uid("friend", 4, 2),
-        ],
-    );
-    assert!(holds(&a, &ckey("friend", 2, true), 2));
-    ok(&a, vec![star("friend", 1)]);
-}
-
-#[then(
-    "`0x1` has no `friend` postings, appears in no reverse key of its former targets, is listed under no count key, and each former target's reverse count drops by one"
-)]
-fn star_cleared(w: &mut Steps) {
-    let a = applier(w);
-    assert!(uids(a, &dkey("friend", 1)).is_empty());
-    assert!(keys_holding(a, &reverse_prefix("friend"), 1).is_empty());
-    assert!(keys_holding(a, &count_prefix("friend", false), 1).is_empty());
-    assert_eq!(
-        keys_holding(a, &count_prefix("friend", true), 2),
-        vec![ckey("friend", 1, true)]
-    );
-    assert!(keys_holding(a, &count_prefix("friend", true), 3).is_empty());
-}
-
-#[when(
-    "`name: string @index(fulltext) @lang .` holds an untagged value and a value tagged `de` for `0x1`, and `<0x1> <name> * .` is deleted"
-)]
-fn star_lang_index(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(fulltext) @lang .");
-    ok(
-        &a,
-        vec![
-            set_str("name", 1, "running water"),
-            set_lang("name", 1, "Häuser", "de"),
-        ],
-    );
-    assert!(holds(&a, &ikeys("name", "fulltext", "Häuser", "de")[0], 1));
-    ok(&a, vec![star("name", 1)]);
-}
-
-#[then("no index key of `name` contains `0x1`")]
-fn star_lang_cleared(w: &mut Steps) {
-    // Dgraph tokenizes the tagged value without its language and keeps its token (ledger 34).
-    assert!(keys_holding(applier(w), &index_prefix("name"), 1).is_empty());
-}
-
-#[when(
-    "`name: string @count @lang .` holds an untagged value and a value tagged `en` for `0x1`, and `<0x1> <name> * .` is deleted"
-)]
-fn star_lang_count(w: &mut Steps) {
-    let a = fresh(w, "name: string @count @lang .");
-    ok(
-        &a,
-        vec![set_str("name", 1, "A"), set_lang("name", 1, "B", "en")],
-    );
-    assert!(holds(&a, &ckey("name", 1, false), 1));
-    ok(&a, vec![star("name", 1)]);
-}
-
-#[then("`0x1` is listed under no count key of `name`")]
-fn star_lang_count_cleared(w: &mut Steps) {
-    // Dgraph removes 0x1 from count 2 and leaves it under count 1 (ledger 36).
-    assert!(keys_holding(applier(w), &count_prefix("name", false), 1).is_empty());
-}
-
-#[when("`age: int .` is set for `0x1` with the untyped value `\"12\"`")]
-fn set_twelve(w: &mut Steps) {
-    let a = fresh(w, "age: int .");
-    w.result = Some(mutate(&a, vec![set_str("age", 1, "12")]));
-}
-
-#[then("`age` of `0x1` holds the int 12")]
-fn holds_twelve(w: &mut Steps) {
-    assert!(w.result.as_ref().unwrap().is_ok());
-    assert_eq!(
-        value_of(applier(w), "age", 1),
-        Some((TypeId::INT, 12i64.to_le_bytes().to_vec()))
-    );
-}
-
-#[when("`age: int .` is set for `0x1` with the untyped value `\"twelve\"`")]
-fn set_twelve_text(w: &mut Steps) {
-    let a = fresh(w, "age: int .");
-    w.result = Some(mutate(&a, vec![set_str("age", 1, "twelve")]));
-}
-
-#[then(
-    "the write fails with `strconv.ParseInt: parsing \"twelve\": invalid syntax`, and `age` of `0x1` holds nothing"
-)]
-fn twelve_refused(w: &mut Steps) {
-    let err = w.result.take().unwrap().unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        r#"strconv.ParseInt: parsing "twelve": invalid syntax"#
-    );
-    assert!(value_of(applier(w), "age", 1).is_none());
-}
-
-// Posting lists: index maintenance's rule.
-
-#[when("`name` holds `A` and a delete of `name` with value `B` is applied")]
-fn delete_other_value(w: &mut Steps) {
-    let a = fresh(w, "name: string @index(exact) .");
-    ok(&a, vec![set_str("name", 1, "A")]);
-    ok(&a, vec![del_str("name", 1, "B")]);
-}
-
-#[then("`name` still holds `A`")]
-fn still_a(w: &mut Steps) {
-    let a = applier(w);
-    assert_eq!(value_of(a, "name", 1).map(|v| v.1), Some(b"A".to_vec()));
-    assert!(holds(a, &ikey("name", "exact", "A"), 1));
-}
-
-// Schema storage: writes.
 
 /// The schema the store holds, loaded afresh.
 fn stored_schema(a: &TestApplier) -> SchemaState {
@@ -395,117 +125,6 @@ fn stored_schema(a: &TestApplier) -> SchemaState {
         .load_from_db(a.lists().store())
         .expect("the schema loads");
     state
-}
-
-#[when("`<0x1> <nickname> \"Al\"` is written and `nickname` has no schema")]
-fn first_write(w: &mut Steps) {
-    let a = fresh(w, "");
-    ok(&a, vec![set_str("nickname", 1, "Al")]);
-}
-
-#[then("the schema holds `nickname` with type default")]
-fn nickname_default(w: &mut Steps) {
-    for state in [applier(w).schema(), &stored_schema(applier(w))] {
-        let s = state
-            .get(SchemaMode::Query, &attr("nickname"))
-            .expect("nickname");
-        assert_eq!(s.value_type, posting::ValType::Default as i32);
-        assert!(!s.list);
-    }
-}
-
-#[when(
-    "a request writing `<0x1> <alias> \"Al\"` fails before it commits and `alias` had no schema"
-)]
-fn failed_first_write(w: &mut Steps) {
-    let a = fresh(w, "zz: int .");
-    w.result = Some(mutate(
-        &a,
-        vec![set_str("alias", 1, "Al"), set_str("zz", 1, "not a number")],
-    ));
-}
-
-#[then("the schema does not hold `alias`")]
-fn no_alias(w: &mut Steps) {
-    assert!(w.result.as_ref().unwrap().is_err());
-    let a = applier(w);
-    assert!(a.schema().get(SchemaMode::Query, &attr("alias")).is_none());
-    assert!(
-        stored_schema(a)
-            .get(SchemaMode::Query, &attr("alias"))
-            .is_none()
-    );
-    assert!(value_of(a, "alias", 1).is_none());
-}
-
-#[when("`<0x1> <knows> <0x2>` is written and `knows` has no schema")]
-fn first_uid(w: &mut Steps) {
-    let a = fresh(w, "");
-    ok(&a, vec![set_uid("knows", 1, 2)]);
-}
-
-#[then("the schema holds `knows: [uid]`")]
-fn knows_list(w: &mut Steps) {
-    for state in [applier(w).schema(), &stored_schema(applier(w))] {
-        let s = state.get(SchemaMode::Query, &attr("knows")).expect("knows");
-        assert_eq!(s.value_type, posting::ValType::Uid as i32);
-        assert!(s.list);
-    }
-}
-
-#[when(
-    "two requests read before either commits, the first writes `<0x1> <score> \"12\"^^<xs:int>` and commits, and the second writes `<0x2> <score> \"high\"` and commits after it"
-)]
-fn concurrent_first_writes(w: &mut Steps) {
-    let a = fresh(w, "");
-    let read_ts = a.lists().latest_ts();
-    let typed = DirectedEdge {
-        value: 12i64.to_le_bytes().to_vec(),
-        value_type: posting::ValType::Int as i32,
-        ..set_str("score", 1, "")
-    };
-    let first_m = Mutations {
-        start_ts: read_ts,
-        edges: vec![typed],
-        ..Mutations::default()
-    };
-    let second_m = Mutations {
-        start_ts: read_ts,
-        edges: vec![set_str("score", 2, "high")],
-        ..Mutations::default()
-    };
-    let mut first_batch = a.batch();
-    let mut first = first_batch.request(read_ts);
-    first.apply_edges(&first_m).unwrap();
-    let mut second_batch = a.batch();
-    let mut second = second_batch.request(read_ts);
-    second.apply_edges(&second_m).unwrap();
-    first_batch.push(first);
-    second_batch.push(second);
-    w.result = Some(first_batch.commit().unwrap().remove(0));
-    w.second = Some(second_batch.commit().unwrap().remove(0));
-}
-
-#[then(
-    "the schema holds `score: int`, and the second commit fails with `strconv.ParseInt: parsing \"high\": invalid syntax` and writes nothing"
-)]
-fn first_commit_wins(w: &mut Steps) {
-    assert!(w.result.as_ref().unwrap().is_ok());
-    let err = w.second.take().unwrap().unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        r#"strconv.ParseInt: parsing "high": invalid syntax"#
-    );
-    let a = applier(w);
-    for state in [a.schema(), &stored_schema(a)] {
-        let s = state.get(SchemaMode::Query, &attr("score")).expect("score");
-        assert_eq!(s.value_type, posting::ValType::Int as i32);
-    }
-    assert!(value_of(a, "score", 2).is_none());
-    assert_eq!(
-        value_of(a, "score", 1),
-        Some((TypeId::INT, 12i64.to_le_bytes().to_vec()))
-    );
 }
 
 // The local commit, with index maintenance.

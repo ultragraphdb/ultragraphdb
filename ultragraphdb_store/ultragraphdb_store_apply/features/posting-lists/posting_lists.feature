@@ -4,10 +4,29 @@
 #
 
 Feature: Posting lists
-  The posting-lists scenario that is index maintenance's rule (Dgraph's index.go): a delete of a scalar predicate's
-  value that is not the value it holds is ignored. The other posting-lists scenarios run in
-  ultragraphdb_store_posting's features.
+  The quad lists hold their objects as sets: an IRI or blank node by its UID, a literal by its encoding, a fingerprint
+  collision told apart by the encodings. A single-valued predicate's write replaces the subject's object.
 
-  Scenario: Deleting a non-matching scalar value changes nothing
-    When `name` holds `A` and a delete of `name` with value `B` is applied
-    Then `name` still holds `A`
+  Scenario: A single-valued predicate replaces its object
+    Given `name` is declared single-valued
+    When `<a> <name> "A"` and `<a> <name> "B"` are written
+    Then `a`'s `name` objects are `"B"`
+
+  Scenario: Language-tagged literals coexist
+    When `<a> <label> "A"`, `<a> <label> "Á"@fr` and `<a> <label> "B"@fr` are written
+    Then `a`'s `label` objects are `"A"`, `"Á"@fr` and `"B"@fr`
+
+  Scenario: A multi-valued predicate accumulates
+    When `<a> <knows> <b>` and `<a> <knows> <c>` are written
+    Then `a`'s `knows` objects are `<b>` and `<c>`
+
+  Scenario: Colliding fingerprints keep both literals
+    Given every literal's fingerprint is 7
+    When `<a> <tag> "x"` and `<a> <tag> "y"` are written
+    Then `a`'s `tag` objects are `"x"` and `"y"`
+    And after `<a> <tag> "x"` is deleted, `a`'s `tag` objects are `"y"`
+
+  Scenario: Deleting an object the list does not hold changes nothing
+    Given `<a> <name> "A"` is held
+    When `<a> <name> "B"` is deleted
+    Then `a`'s `name` objects are `"A"`

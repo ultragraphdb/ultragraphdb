@@ -41,36 +41,36 @@ class.
 
 ## 5. The catalog → `ultragraphdb_core_catalog`
 
-- [ ] 5.1 Move `ultragraphdb_core_schema` to `ultragraphdb_core/ultragraphdb_core_catalog` with `git mv` and rename the crate; every dependent builds
-- [ ] 5.2 Scenarios: catalog, schema-storage
-- [ ] 5.3 Predicate declarations (kind, cardinality, datatype constraint, unique values, tokenizers, exact count index, vector index and its parameters), entity types with one parent and the abstract flag, relations with named roles; the default for an undeclared predicate; the initial catalog declaring `rdf:type` an edge
-- [ ] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object; a declaration whose datatype constraint none of its tokenizers takes refused
-- [ ] 5.5 Preorder numbering of the type hierarchy; refusal of a second parent and of a cycle
-- [ ] 5.6 Persistence per namespace in catalog keys with the discard flag; load at open; removed declarations stay removed; overlays local to a write; a default entry written in the write's commit batch
+- [x] 5.1 Move `ultragraphdb_core_schema` to `ultragraphdb_core/ultragraphdb_core_catalog` with `git mv` and rename the crate; every dependent builds
+- [x] 5.2 Scenarios: catalog, schema-storage
+- [x] 5.3 Predicate declarations (kind, cardinality, datatype constraint, unique values, tokenizers, exact count index, vector index and its parameters), entity types with one parent and the abstract flag, relations with named roles; the default for an undeclared predicate; the initial catalog declaring `rdf:type` an edge
+- [x] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object; a declaration whose datatype constraint none of its tokenizers takes refused
+- [x] 5.5 Preorder numbering of the type hierarchy; refusal of a second parent and of a cycle
+- [x] 5.6 Persistence per namespace in catalog keys with the discard flag; load at open; removed declarations stay removed; overlays local to a write; a default entry written in the write's commit batch
 - [ ] 5.7 With the user's approval, remove the DQL schema parser and its tests once the catalog's suites pass; list each file removed
 
 ## 6. The dictionary and the quad store → `ultragraphdb_store_quads`
 
-- [ ] 6.1 Scenarios: term-dictionary (the remaining requirements), quad-storage (the remaining requirements)
-- [ ] 6.2 The dictionary over the `terms` keyspace: IRI to UID by BLAKE2b-128, UID to IRI with the skolem flag, hash to string; entries written only in commit batches; literal entries written blind; a missing entry reported as corruption naming its key
-- [ ] 6.3 UID and statement-ID leasing: the high-water mark synced in `meta` before a block is handed out, the type bits zero, UID 0 never assigned; a crash test that no UID is reissued
-- [ ] 6.4 New IRIs: provisional UIDs in the write, assignment in the commit hook, refusal with `Transaction has been aborted. Please retry` when a commit since the write's read assigned the same IRI
-- [ ] 6.5 Quad lists on the posting crate: forward, reverse (no vector objects), subject and object predicates (no vector objects), statement records keyed by graph and statement ID, the statement-ID field on `Posting`, splits on every list keyspace
-- [ ] 6.6 Literal postings: the fingerprint in `uid`, postings ordered by encoding after equal fingerprints, reads comparing encodings; collisions forced through the injected fingerprint
-- [ ] 6.7 Statistics by deltas, never read by a write
-- [ ] 6.8 Scenarios: data-dictionary; quad-storage ("Statistics are kept by deltas": counts per object kind and datatype)
-- [ ] 6.9 The data dictionary's read API: labels, relationship types, property keys, per-label shapes, declarations, indexes, statistics; declared entries from the catalog; per-label shapes from a background pass over a snapshot, replaced whole, with its snapshot timestamp; a test that no write reads or updates a shape
-- [ ] 6.10 The simulator workload: terms created, quads written and deleted, under every fault class; every stored UID and hash has its dictionary entry after every step and every recovery
+- [x] 6.1 Scenarios: term-dictionary (the remaining requirements), quad-storage (the remaining requirements)
+- [x] 6.2 The dictionary over the `terms` keyspace: IRI to UID by BLAKE2b-128, UID to IRI with the skolem flag, hash to string; entries written only in commit batches; literal entries written blind; a missing entry reported as corruption naming its key
+- [x] 6.3 UID and statement-ID leasing: the high-water mark synced in `meta` before a block is handed out, the type bits zero, UID 0 never assigned; a crash test that no UID is reissued
+- [x] 6.4 New IRIs: provisional UIDs in the write, assignment in the commit hook, refusal with `Transaction has been aborted. Please retry` when a commit since the write's read assigned the same IRI
+- [x] 6.5 Quad lists on the posting crate: forward, reverse (no vector objects), subject and object predicates (no vector objects), statement records keyed by graph and statement ID, the statement-ID field on `Posting`, splits on every list keyspace
+- [x] 6.6 Literal postings: the fingerprint in `uid`, postings ordered by encoding after equal fingerprints, reads comparing encodings; collisions forced through the injected fingerprint
+- [x] 6.7 Statistics by deltas, never read by a write
+- [x] 6.8 Scenarios: data-dictionary; quad-storage ("Statistics are kept by deltas": counts per object kind and datatype)
+- [x] 6.9 The data dictionary's read API: labels, relationship types, property keys, per-label shapes, declarations, indexes, statistics; declared entries from the catalog; per-label shapes from a background pass over a snapshot, replaced whole, with its snapshot timestamp; a test that no write reads or updates a shape
+- [x] 6.10 The simulator workload: terms created, quads written and deleted, under every fault class; every stored UID and hash has its dictionary entry after every step and every recovery
 
 ## 7. Changesets through index maintenance → `ultragraphdb_store_apply`
 
-- [ ] 7.1 Scenarios: changesets, index-maintenance, posting-lists (the modified requirements, rewritten from DQL into catalog declarations)
-- [ ] 7.2 Applying a changeset as one `Request`: term resolution, the catalog checks, whole or nothing
-- [ ] 7.3 Index maintenance on the quad keys: value-index tokens by language, shared tokens kept on delete, mandatory reverse entries, predicate lists, the exact count index in both directions, deletes by pattern
-- [ ] 7.4 Reads only where needed: `get_from_delta` for multi-valued inserts, `get` for deletes, single-valued overwrites, unique predicates and counted predicates; a test that an insert reads no list and that a write naming a new UID reads none of its lists
-- [ ] 7.5 Terms kept as written; literals converted only to compute index tokens; the tokenizer-datatype table of the index-maintenance spec, tokens from values, other datatypes held unindexed; `geo` over `geo:geoJSONLiteral` through the ported GeoJSON parser
-- [ ] 7.6 The read and written regions of a changeset reported; determinism: one changeset applied to two copies writes the same bytes
-- [ ] 7.7 The simulator workload of stage 2 rewritten to changesets, every invariant kept
+- [x] 7.1 Scenarios: changesets, index-maintenance, posting-lists (the modified requirements, rewritten from DQL into catalog declarations)
+- [x] 7.2 Applying a changeset as one `Request`: term resolution, the catalog checks, whole or nothing
+- [x] 7.3 Index maintenance on the quad keys: value-index tokens by language, shared tokens kept on delete, mandatory reverse entries, predicate lists, the exact count index in both directions, deletes by pattern
+- [x] 7.4 Reads only where needed: `get_from_delta` for multi-valued inserts, `get` for deletes, single-valued overwrites, unique predicates and counted predicates; a test that an insert reads no list and that a write naming a new UID reads none of its lists
+- [x] 7.5 Terms kept as written; literals converted only to compute index tokens; the tokenizer-datatype table of the index-maintenance spec, tokens from values, other datatypes held unindexed; `geo` over `geo:geoJSONLiteral` through the ported GeoJSON parser
+- [x] 7.6 The read and written regions of a changeset reported; determinism: one changeset applied to two copies writes the same bytes
+- [x] 7.7 The simulator workload of stage 2 rewritten to changesets, every invariant kept; the invariants of drops and rebuilds join it with group 8, which gives the changeset applier both
 
 ## 8. Catalog changes, rebuilds and drops → `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`
 

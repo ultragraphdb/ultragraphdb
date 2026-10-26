@@ -18,6 +18,7 @@ use std::sync::Arc;
 use ultragraphdb_proto_pb::pb::{Posting, PostingList};
 
 use crate::utils::constants::DEL;
+use crate::utils::list_keys::identity;
 use crate::utils::postings::has_delete_all;
 
 /// The deltas above a posting list's complete version: Dgraph's `MutableLayer`.
@@ -32,9 +33,12 @@ pub struct MutableLayer {
     committed: Arc<BTreeMap<u64, Arc<PostingList>>>,
     stacked: Vec<Arc<PostingList>>,
     current: Option<PostingList>,
-    /// The index of each uid's posting in the current entries, Dgraph's `currentUids`.
-    current_uids: BTreeMap<u64, usize>,
+    /// The index of each posting's identity in the current entries, Dgraph's `currentUids`: its uid, and in a quad
+    /// list a value posting's value as well.
+    current_uids: BTreeMap<(u64, Vec<u8>), usize>,
     read_ts: u64,
+    /// Whether a value posting is told apart by its value as well as its uid: a list of the quad layout.
+    by_value: bool,
 }
 
 /// Where a layer sits among the visible layers, oldest first: a committed delta by its commit timestamp, a stacked
@@ -69,8 +73,17 @@ impl MutableLayer {
     /// Replaces the scratch layer with `plist` at read timestamp `ts`: Dgraph's `setCurrentEntries`.
     pub fn set_current_entries(&mut self, ts: u64, plist: PostingList) {
         self.read_ts = ts;
-        self.current_uids = uid_index(&plist);
+        self.current_uids = uid_index(&plist, self.by_value);
         self.current = Some(plist);
+    }
+
+    /// Whether a value posting is told apart by its value as well as its uid.
+    pub fn by_value(&self) -> bool {
+        self.by_value
+    }
+
+    pub(crate) fn set_by_value(&mut self, by_value: bool) {
+        self.by_value = by_value;
     }
 
     /// The stacked layers, oldest first.
@@ -228,16 +241,20 @@ impl MutableLayer {
             current: None,
             current_uids: BTreeMap::new(),
             read_ts: 0,
+            by_value: self.by_value,
         }
     }
 }
 
-/// The index of each uid's last posting in `plist`.
-fn uid_index(plist: &PostingList) -> BTreeMap<u64, usize> {
+/// The index of each identity's last posting in `plist`.
+pub(crate) fn uid_index(plist: &PostingList, by_value: bool) -> BTreeMap<(u64, Vec<u8>), usize> {
     plist
         .postings
         .iter()
         .enumerate()
-        .map(|(i, p)| (p.uid, i))
+        .map(|(i, p)| {
+            let (uid, value) = identity(p, by_value);
+            ((uid, value.to_vec()), i)
+        })
         .collect()
 }

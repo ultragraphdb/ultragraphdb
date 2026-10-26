@@ -27,5 +27,6 @@ writes of one predicate SHALL record the same default entry, so neither depends 
 
 #### Scenario: Concurrent first writes both commit
 - **WHEN** two writes read before either commits, the first writes `<a> <score> 12` and the second `<b> <score> "high"`,
-  and `score` was not declared
+  and `score` was not declared but already has a UID, as an object of an earlier statement (two writes creating one new
+  IRI are the term dictionary's "The second creator retries")
 - **THEN** both commit, and the catalog holds `score` with the default entry

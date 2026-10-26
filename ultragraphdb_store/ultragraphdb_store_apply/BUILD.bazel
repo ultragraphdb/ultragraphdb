@@ -43,6 +43,7 @@ rust_test(
         ["tests/**/*.rs"],
         exclude = [
             "tests/bdd.rs",
+            "tests/changeset_steps.rs",
             "tests/utils/probe.rs",
         ],
     ),
@@ -56,11 +57,13 @@ rust_test(
 )
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the
-# unit tests' helpers and the probe store by path.
+# unit tests' helpers, the changeset helpers and the probe store by path.
 rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/changeset_steps.rs",
+        "tests/utils/changesets.rs",
         "tests/utils/helpers.rs",
         "tests/utils/probe.rs",
     ],

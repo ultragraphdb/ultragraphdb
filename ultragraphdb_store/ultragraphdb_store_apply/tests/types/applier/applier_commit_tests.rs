@@ -7,8 +7,8 @@
 //! it every later request of its batch that read a list it wrote; a request whose new predicate gained a schema is
 //! converted to it. Run on the simulated store.
 
-use ultragraphdb_core_keys::{predicate_prefix, schema_key};
 use ultragraphdb_core_catalog::SchemaMode;
+use ultragraphdb_core_keys::{predicate_prefix, schema_key};
 use ultragraphdb_proto_pb::pb::posting;
 
 use crate::utils::helpers::{

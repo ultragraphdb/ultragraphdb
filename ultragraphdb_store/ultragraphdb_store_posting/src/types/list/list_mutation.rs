@@ -47,6 +47,15 @@ impl List {
         Ok(())
     }
 
+    /// Adds `posting` to the list's scratch layer at the list's read timestamp, as built by its caller: what a quad
+    /// list's writes use, whose postings carry a uid, a literal's encoding and fingerprint, and statement IDs that
+    /// the posting crate does not derive. A posting replaces the one of its identity, its uid and for a value posting
+    /// its value; with `has_count_index`, a delete of a posting this scratch layer set removes the set.
+    pub fn add_posting(&mut self, mut posting: Posting, has_count_index: bool) {
+        posting.start_ts = self.mutation.read_ts();
+        self.update_mutation_layer(posting, false, has_count_index);
+    }
+
     /// Dgraph's `updateMutationLayer`: a delete-all replaces the scratch layer; a set of a single-uid predicate
     /// replaces it with a delete-all and the set; anything else goes in beside what is there.
     fn update_mutation_layer(

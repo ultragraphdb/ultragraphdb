@@ -13,8 +13,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::utils::list_keys::split_key_of;
 use prost::Message;
-use ultragraphdb_core_keys::split_key;
 use ultragraphdb_proto_pb::pb::{PostingList, UidPack};
 use ultragraphdb_traits_store::Entry;
 
@@ -134,10 +134,10 @@ impl RollupOutput {
     ) -> Result<Vec<Entry>, PostingError> {
         let mut entries = vec![posting_entry(key.to_vec(), &self.plist, version)];
         for (start, part) in &self.parts {
-            entries.push(posting_entry(split_key(key, *start)?, part, version));
+            entries.push(posting_entry(split_key_of(key, *start)?, part, version));
         }
         for start in old_splits.iter().filter(|s| !self.parts.contains_key(s)) {
-            entries.push(Entry::deletion(split_key(key, *start)?, version));
+            entries.push(Entry::deletion(split_key_of(key, *start)?, version));
         }
         Ok(entries)
     }

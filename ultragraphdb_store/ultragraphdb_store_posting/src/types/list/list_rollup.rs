@@ -101,6 +101,8 @@ impl List {
         let (mut start_uid, mut end_uid) = if into_parts { bounds(0) } else { (1, u64::MAX) };
         let mut enc = Encoder::new(BLOCK_SIZE);
         let mut plist = PostingList::default();
+        // Postings that share a uid, literals of a quad list whose fingerprints collide, share its pack entry.
+        let mut last_uid = None;
 
         self.iterate(read_ts, 0, |p| {
             if into_parts && p.uid > end_uid {
@@ -111,8 +113,15 @@ impl List {
                 split_idx += 1;
                 (start_uid, end_uid) = bounds(split_idx);
             }
-            enc.add(p.uid);
-            if !p.facets.is_empty() || p.posting_type != posting::PostingType::Ref as i32 {
+            if last_uid != Some(p.uid) {
+                enc.add(p.uid);
+                last_uid = Some(p.uid);
+            }
+            // A posting the pack cannot carry stays whole: one with facets, statement IDs or a value.
+            if !p.facets.is_empty()
+                || !p.statement_ids.is_empty()
+                || p.posting_type != posting::PostingType::Ref as i32
+            {
                 plist.postings.push(p.clone());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))

@@ -4,6 +4,7 @@
  */
 
 pub mod constants;
+pub mod list_keys;
 pub mod lock;
 pub mod posting_codec;
 pub mod postings;

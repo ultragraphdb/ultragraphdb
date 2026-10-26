@@ -10,7 +10,7 @@ use crate::types::predicate_kind::PredicateKind;
 use crate::types::vector_index_spec::VectorIndexSpec;
 
 /// A predicate as the catalog declares it: what its objects may be, how many a subject holds, the datatype its
-/// literals must have, whether its values are unique, and its indexes. [`PredicateDeclaration::new`] is the default
+/// literals must have, whether its values are unique, its indexes, and the entity types it is declared on. [`PredicateDeclaration::new`] is the default
 /// an undeclared predicate behaves as: either kind, multi-valued, no constraint, values not unique, no index.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PredicateDeclaration {
@@ -22,6 +22,8 @@ pub struct PredicateDeclaration {
     tokenizers: Vec<String>,
     count_index: bool,
     vector_index: Option<VectorIndexSpec>,
+    /// The entity types whose nodes the predicate is declared on, which the data dictionary reports it under.
+    domains: Vec<NamedNode>,
 }
 
 impl PredicateDeclaration {
@@ -35,6 +37,7 @@ impl PredicateDeclaration {
             tokenizers: Vec::new(),
             count_index: false,
             vector_index: None,
+            domains: Vec::new(),
         }
     }
 
@@ -74,6 +77,11 @@ impl PredicateDeclaration {
         self
     }
 
+    pub fn with_domains(mut self, domains: Vec<NamedNode>) -> Self {
+        self.domains = domains;
+        self
+    }
+
     pub fn predicate(&self) -> &NamedNode {
         &self.predicate
     }
@@ -104,5 +112,9 @@ impl PredicateDeclaration {
 
     pub fn vector_index(&self) -> Option<&VectorIndexSpec> {
         self.vector_index.as_ref()
+    }
+
+    pub fn domains(&self) -> &[NamedNode] {
+        &self.domains
     }
 }

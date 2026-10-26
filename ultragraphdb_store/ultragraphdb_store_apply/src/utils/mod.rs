@@ -9,4 +9,5 @@ pub(crate) mod edge_text;
 pub(crate) mod index;
 pub(crate) mod lock;
 pub(crate) mod prefixes;
+pub(crate) mod token_values;
 pub(crate) mod validate;

@@ -74,3 +74,40 @@ fn test_iteration_after_a_uid_crosses_part_boundaries() {
     assert_eq!(uids(&l, 3, 10), (11..=3000).collect::<Vec<_>>());
     assert!(l.approx_len() >= 3000);
 }
+
+#[test]
+fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() {
+    use std::ops::ControlFlow;
+    use ultragraphdb_core_keys::QuadKey;
+    use ultragraphdb_proto_pb::pb::Posting;
+    use ultragraphdb_store_posting::{PostingError, SET};
+
+    let store = new_store();
+    let k = QuadKey::Forward {
+        namespace: 0,
+        graph: 0,
+        predicate: 2,
+        subject: 1,
+    }
+    .to_bytes();
+    let mut l = read_back(&store, &k);
+    l.set_ts(1);
+    for (uid, statement_ids) in [(7, vec![3, 4]), (8, Vec::new())] {
+        let posting = Posting {
+            uid,
+            op: SET,
+            statement_ids,
+            ..Posting::default()
+        };
+        l.add_posting(posting, false);
+    }
+    l.commit_mutation(2);
+    let (l, _) = roll_up(&store, &l, u64::MAX, 2000);
+    let mut held = Vec::new();
+    l.iterate(10, 0, |p| {
+        held.push((p.uid, p.statement_ids.clone()));
+        Ok::<_, PostingError>(ControlFlow::Continue(()))
+    })
+    .unwrap();
+    assert_eq!(held, vec![(7, vec![3, 4]), (8, Vec::new())]);
+}

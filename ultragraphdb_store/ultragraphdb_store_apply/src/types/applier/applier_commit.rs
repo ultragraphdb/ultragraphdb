@@ -11,8 +11,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_core_keys::{parse, schema_key};
 use ultragraphdb_core_catalog::{SchemaMode, schema_entry};
+use ultragraphdb_core_keys::{parse, schema_key};
 use ultragraphdb_proto_pb::pb::{DirectedEdge, PostingList, SchemaUpdate, directed_edge, posting};
 use ultragraphdb_store_posting::{
     Batch, CachedList, DEL, List, OVR, Request, fingerprint_edge, has_delete_all,

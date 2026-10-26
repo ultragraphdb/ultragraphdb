@@ -24,6 +24,7 @@ use std::sync::Arc;
 use ultragraphdb_proto_pb::pb::PostingList;
 
 use crate::types::mutable_layer::MutableLayer;
+use crate::utils::list_keys::is_quad_list;
 
 /// A posting list as of the versions read: Dgraph's `List`. Its immutable layer is the newest complete version,
 /// written at [`List::min_ts`], with the parts of a split list; above it, the [`MutableLayer`] holds the committed
@@ -45,11 +46,13 @@ impl List {
     /// A list whose immutable layer is `plist`, complete at `min_ts`, with no deltas: Dgraph's `NewList`. A split
     /// `plist` needs its parts, from [`List::with_parts`].
     pub fn new(key: Vec<u8>, plist: PostingList, min_ts: u64) -> Self {
+        let mut mutation = MutableLayer::new();
+        mutation.set_by_value(is_quad_list(&key));
         Self {
             key,
             plist: Arc::new(plist),
             parts: Arc::default(),
-            mutation: MutableLayer::new(),
+            mutation,
             min_ts,
             max_ts: min_ts,
         }

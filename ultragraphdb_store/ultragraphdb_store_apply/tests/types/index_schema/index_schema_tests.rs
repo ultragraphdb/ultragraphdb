@@ -9,8 +9,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_keys::attr_in_root_namespace;
 use ultragraphdb_core_catalog::SchemaState;
+use ultragraphdb_core_keys::attr_in_root_namespace;
 use ultragraphdb_core_types::{TypeId, Val, Value};
 use ultragraphdb_store_apply::IndexSchema;
 

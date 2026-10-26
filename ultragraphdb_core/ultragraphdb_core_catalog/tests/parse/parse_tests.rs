@@ -9,10 +9,10 @@
 //! The cases of parse_test.go that call `Parse`; those loading the state through `ParseBytes` are in
 //! types/schema_state.
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, namespace_attr};
 use ultragraphdb_core_catalog::{
     ParsedSchema, SchemaError, has_tokenizer_or_vector_index_spec, parse, parse_with_namespace,
 };
+use ultragraphdb_core_keys::{attr_in_root_namespace, namespace_attr};
 use ultragraphdb_proto_pb::pb;
 use ultragraphdb_proto_pb::pb::schema_update::Directive;
 

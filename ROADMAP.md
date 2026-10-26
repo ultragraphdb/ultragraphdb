@@ -1,4 +1,4 @@
-# Roadmap
+# Roadmap: UltraGraphDB
 
 
 | Stage | Status | 
@@ -11,7 +11,7 @@
 | 5. Transactions and the binary protocol | `open` |
 | 5.5. Hardening Transactions with chaos testing | `open` |
 | 6. Query core: SPARQL and GQL where they overlap | `open` |
-| 7. Single-node product, the base of the DeepBrain MVP | `open` |
+| 7. Single-node server, the base of the DeepBrain MVP | `open` |
 | 8. Full SPARQL and GQL conformance | `open` |
 | 9. Bolt | `open` |
 | 10. Distributed tiles: sharding, replication, storage/compute separation | `open` |

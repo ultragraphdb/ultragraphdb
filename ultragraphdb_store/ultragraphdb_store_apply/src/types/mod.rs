@@ -3,10 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub(crate) mod applied;
 pub(crate) mod applier;
 pub(crate) mod apply_batch;
 pub(crate) mod apply_request;
 pub(crate) mod build_buffer;
+pub(crate) mod changeset_applier;
+pub(crate) mod changeset_write;
 pub(crate) mod index_op;
 pub(crate) mod index_rebuild;
 pub(crate) mod index_rebuild_info;

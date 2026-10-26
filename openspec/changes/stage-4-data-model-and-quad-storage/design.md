@@ -78,8 +78,10 @@ which is the cost stage 2 measured at 34 % of the apply thread.
 
 **UIDs:**
 - **Width:** 64 bits; the top 16 are the entity-type prefix, zero in this stage.
-- **Allocation:** from leased blocks. The high-water mark of a lease is written, synced, in the `meta` keyspace before
-  any UID of the block is handed out, so a crash never reissues a UID. That is the scheme Dgraph's Zero leases with.
+- **Allocation:** from leased blocks of 10,000. The high-water mark of a lease is written, synced, in the keyspace
+  without versions, under the namespace's lease key, before any UID of the block is handed out, so a crash never
+  reissues a UID. That is the scheme Dgraph's Zero leases with. The `Store` trait writes no `meta` keys, and the
+  keyspace without versions is the one the dictionary already writes outside commit timestamps.
 - **Statement IDs:** a sequence of their own, per namespace, leased the same way.
 
 **The dictionary**, in the `terms` keyspace, per namespace:
@@ -92,7 +94,9 @@ which is the cost stage 2 measured at 34 % of the apply thread.
 
 - **IRIs are hashed** for a fixed key width. A 128-bit collision between two IRIs is not handled.
 - **Blank nodes are skolemized** as IRIs under the base IRI's `/.well-known/genid/` path, which RDF 1.1 recommends for
-  skolem IRIs, and flagged so the RDF view presents them as blank nodes again.
+  skolem IRIs, and flagged so the RDF view presents them as blank nodes again. A namespace's base is
+  `https://w3id.org/ultragraphdb/ns/namespace/<ns>/`, under the system vocabulary, until the open question below settles
+  it; each write gives each of its blank-node labels one fresh UID.
 
 **A new IRI** is looked up by the write, and its UID is assigned in the commit hook under the writer lock. If a commit
 since the write's read assigned the same IRI, the hook refuses the write with `Transaction has been aborted. Please
@@ -118,8 +122,12 @@ retry`, as the term-dictionary spec requires; the retry finds the UID. Stage 5 k
   distance would fetch and parse text. By value, the posting holds the floats the search reads, as Dgraph's
   `float32vector` posting does. The datatype accepts only canonical lexical forms, so term identity stays exact.
   Vectors take no reverse or object-predicate entry: no query looks a subject up by its embedding, and a bound vector
-  object is answered by a scan of the predicate's forward lists. `ugdb:` abbreviates the system vocabulary, whose base
-  IRI is open ("Open Questions").
+  object is answered by a scan of the predicate's forward lists.
+- **The system vocabulary** `ugdb:` is `https://w3id.org/ultragraphdb/ns/`, so the vector datatype is
+  `https://w3id.org/ultragraphdb/ns/float32vector` and a statement's reifier `ugdb:statement/<id>`. No RDF standard
+  defines a vector datatype; each store mints its own (Fluree's `https://ns.flur.ee/db#embeddingVector`, RDF-Tensor's
+  `dt:NumericDataTensor`). A w3id.org permanent identifier stays stable wherever the project is hosted; its redirect is
+  registered by a pull request to the w3id.org repository.
 
 ### The quad keys
 
@@ -153,6 +161,9 @@ The forward list of (graph, predicate, subject) holds one posting per object:
 - **parallel edges:** one posting for the object, carrying every statement ID of the edge in a repeated field added to
   `pb.proto`'s `Posting`. The posting format is the port's own once Dgraph compatibility ends.
 
+A rollup keeps a reference posting that carries statement IDs whole beside the UID pack, as Dgraph keeps one with
+facets; the pack holds UIDs alone.
+
 That one posting per object keeps the UID pack strictly increasing, as stage 2's codec requires. Two literals with
 equal fingerprints share that pack entry, and their postings sort by encoding after it. Reads by fingerprint compare
 encodings, so a collision never merges values. A test injects the fingerprint function to force collisions.
@@ -166,7 +177,14 @@ A changeset is applied as one `Request` of the posting crate:
    Deletes, single-valued overwrites, unique predicates and count-indexed predicates read with `get`, which keeps ledger
    35's rule that a deleted value's tokens survive when other values still produce them.
 4. A UID the write created is known empty, so none of its lists is read.
-5. The read and written keys are mapped to regions and reported.
+5. A predicate some statement of which has carried an ID is read on insert too: a blind posting would replace the
+   posting of a held object and drop its statement IDs. The catalog marks such a predicate the first time it takes an
+   ID, with an entry in that write's commit batch.
+6. A delete, a delete by pattern and a property change resolve their terms without allocating: a statement naming an
+   IRI the store does not hold is not held, so the change reads nothing and writes no dictionary entry.
+7. Statement records and catalog entries are kept in the write and added to its request once each when it finishes,
+   so a key two changes of one changeset write lands once.
+8. The read and written keys are mapped to regions and reported.
 
 The posting crate's batch model is unchanged in this stage. Stage 5 replaces it.
 
@@ -190,6 +208,10 @@ write, the interim declaration during a rebuild.
   (`ultragraphdb_core_types/src/types/geometry/geometry_geojson.rs`) already reads, so `geo:geoJSONLiteral` is indexed
   from this stage and `geo:wktLiteral` waits for a WKT parser in stage 8.
 - **The initial catalog** of a namespace declares `rdf:type` as an edge, with nothing else.
+- **A predicate declaration names its domains,** the entity types whose nodes it is declared on, so the data
+  dictionary reports a declared predicate under its labels before any node holds it.
+- **Preorder numbers** walk each type's subtypes in UID order, the order the types were first named, so a number
+  depends on the hierarchy and the dictionary alone.
 
 ### The data dictionary
 
@@ -242,6 +264,8 @@ its RDF export and stage 7's loaders.
 
 ## Open Questions
 
-- What is the base IRI of the system vocabulary that `ugdb:` abbreviates, which names `ugdb:float32vector` and the
-  system's other IRIs?
 - What is a namespace's default base IRI, before an administrator sets one?
+- How are statistics exact when an insert reads nothing? A write adds +1 per distinct statement it inserts and −1 per
+  statement it deletes, but a blind insert cannot tell a triple an earlier commit holds from a new one, so a re-insert
+  counts twice. The quad-storage spec requires exact counts, no read of statistics, and the index-maintenance spec an
+  insert that reads no list; the three cannot all hold.

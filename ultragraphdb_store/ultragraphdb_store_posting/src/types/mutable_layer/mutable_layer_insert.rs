@@ -13,9 +13,10 @@ use ultragraphdb_proto_pb::pb::{Posting, PostingList};
 
 use crate::types::mutable_layer::{MutableLayer, uid_index};
 use crate::utils::constants::{DEL, OVR, SET};
+use crate::utils::list_keys::identity;
 
 impl MutableLayer {
-    /// Adds `mpost` to the scratch layer, replacing the posting of its uid there: Dgraph's `insertPosting`. With a
+    /// Adds `mpost` to the scratch layer, replacing the posting of its identity there: Dgraph's `insertPosting`. With a
     /// count index, a delete of a uid set in this scratch layer removes the set instead of recording the delete, so
     /// that the layer's length stays a count of its sets; an overwrite of a set it holds stays a set, where Dgraph's
     /// replaces the set and the length misses the uid.
@@ -26,11 +27,13 @@ impl MutableLayer {
             current.postings.push(mpost);
             return;
         }
-        let at = self.current_uids.get(&mpost.uid).copied();
+        let (uid, value) = identity(&mpost, self.by_value);
+        let id = (uid, value.to_vec());
+        let at = self.current_uids.get(&id).copied();
         match at.and_then(|at| current.postings.get_mut(at).map(|slot| (at, slot))) {
             Some((at, slot)) if has_count_index && mpost.op == DEL && slot.op != DEL => {
                 current.postings.remove(at);
-                self.current_uids = uid_index(current);
+                self.current_uids = uid_index(current, self.by_value);
             }
             Some((_, slot)) => {
                 // An overwrite of a set this layer holds is still the set: a length counts the layer's sets.
@@ -41,7 +44,7 @@ impl MutableLayer {
                 }
             }
             None => {
-                self.current_uids.insert(mpost.uid, current.postings.len());
+                self.current_uids.insert(id, current.postings.len());
                 current.postings.push(mpost);
             }
         }

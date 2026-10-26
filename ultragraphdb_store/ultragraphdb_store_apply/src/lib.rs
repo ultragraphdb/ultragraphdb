@@ -46,9 +46,12 @@ mod types;
 mod utils;
 
 pub use crate::errors::apply_error::{ApplyError, ApplyErrorEnum};
+pub use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
+pub use crate::types::applied::Applied;
 pub use crate::types::applier::Applier;
 pub use crate::types::apply_batch::ApplyBatch;
 pub use crate::types::apply_request::ApplyRequest;
+pub use crate::types::changeset_applier::ChangesetApplier;
 pub use crate::types::index_op::IndexOp;
 pub use crate::types::index_rebuild::IndexRebuild;
 pub use crate::types::index_rebuild_info::IndexRebuildInfo;
@@ -57,4 +60,5 @@ pub use crate::types::level_draw::LevelDraw;
 pub use crate::utils::counts::{count_after_mutation, should_add_count_edge};
 pub use crate::utils::divide::{divide_and_rule, edge_batches};
 pub use crate::utils::prefixes::prefixes_to_delete_tokens_for;
+pub use crate::utils::token_values::token_value;
 pub use crate::utils::validate::{type_sanity_check, validate_and_convert};

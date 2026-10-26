@@ -39,7 +39,10 @@ rust_test(
     name = "ultragraphdb_store_quads_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/dictionary_steps.rs",
+        ],
     ),
     crate_root = "tests/mod.rs",
     data = glob(
@@ -54,4 +57,27 @@ rust_test(
     )),
 )
 
-# The bdd target joins with the crate's first scenario (stage 4, group 6).
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = [
+        "tests/bdd.rs",
+        "tests/dictionary_steps.rs",
+        "tests/utils/dictionary_workload.rs",
+        "tests/utils/helpers.rs",
+    ],
+    crate_root = "tests/bdd.rs",
+    data = glob(
+        [
+            "features/**/*.feature",
+            "testdata/**",
+        ],
+        allow_empty = True,
+    ),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_store_quads"] + with_proto_bindings(all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    )),
+)

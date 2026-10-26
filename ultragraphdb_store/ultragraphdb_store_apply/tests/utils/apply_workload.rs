@@ -18,11 +18,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
+use ultragraphdb_core_catalog::{SchemaMode, parse as parse_schema};
 use ultragraphdb_core_keys::{
     BYTE_COUNT, BYTE_COUNT_REV, BYTE_INDEX, attr_in_root_namespace, count_key, data_key, index_key,
     parse, predicate_prefix, reverse_key,
 };
-use ultragraphdb_core_catalog::{SchemaMode, parse as parse_schema};
 use ultragraphdb_core_tok::{build_tokens, get_tokenizer};
 use ultragraphdb_core_types::Value;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};

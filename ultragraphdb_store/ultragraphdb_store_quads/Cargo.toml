@@ -19,6 +19,10 @@ autotests = false
 workspace = true
 
 [dependencies]
+oxrdf = { workspace = true }
+ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_proto_pb = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
@@ -27,6 +31,7 @@ ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
@@ -34,3 +39,8 @@ futures = { workspace = true }
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

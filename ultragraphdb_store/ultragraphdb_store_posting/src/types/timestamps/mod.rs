@@ -37,9 +37,12 @@ impl Timestamps {
         self.next
     }
 
-    /// Moves the counter past `ts`, which a read uses.
+    /// Moves the counter past `ts`, which a read uses. A read at `u64::MAX` reads everything, and no commit can land
+    /// above it, so it leaves the counter where it is: moving it there would overflow the next commit's timestamp.
     pub fn observe(&mut self, ts: u64) {
-        self.next = self.next.max(ts.saturating_add(1));
+        if ts < u64::MAX {
+            self.next = self.next.max(ts + 1);
+        }
     }
 
     /// Records a read open at `ts`.

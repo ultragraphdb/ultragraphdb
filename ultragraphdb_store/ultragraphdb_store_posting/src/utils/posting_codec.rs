@@ -16,6 +16,7 @@ use ultragraphdb_proto_pb::pb::{Posting, PostingList, UidPack, posting};
 
 use crate::errors::posting_error::PostingError;
 use crate::utils::constants::{DEL, OVR, SET};
+use crate::utils::list_keys::{identity, is_quad_list};
 
 /// The encoded bytes of `plist`.
 pub fn marshal(plist: &PostingList) -> Vec<u8> {
@@ -62,17 +63,24 @@ pub fn unmarshal_complete(key: &[u8], bytes: &[u8]) -> Result<PostingList, Posti
         Some(pack) => checked_uids(key, pack)?,
         None => Vec::new(),
     };
+    // A quad list's literals whose fingerprints collide share a uid, and sort by their encodings under it.
+    let by_value = is_quad_list(key);
     let mut in_pack = uids.iter().peekable();
-    let mut previous: Option<u64> = None;
+    let mut previous: Option<(u64, &[u8])> = None;
     for p in &plist.postings {
         check_posting(key, p, false)?;
-        if previous.is_some_and(|prev| prev >= p.uid) {
+        let id = identity(p, by_value);
+        if previous.is_some_and(|prev| prev >= id) {
             return Err(PostingError::corrupted(
                 key,
                 "the postings of a list are not sorted by uid",
             ));
         }
-        previous = Some(p.uid);
+        let shares_uid = previous.is_some_and(|(uid, _)| uid == p.uid);
+        previous = Some(id);
+        if shares_uid {
+            continue;
+        }
         while in_pack.next_if(|&&u| u < p.uid).is_some() {}
         if in_pack.next_if(|&&u| u == p.uid).is_none() {
             return Err(PostingError::corrupted(

@@ -8,8 +8,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use crate::utils::list_keys::split_key_of;
 use ultragraphdb_core_codec::{Decoder, SeekPos};
-use ultragraphdb_core_keys::split_key;
 use ultragraphdb_proto_pb::pb::{Posting, PostingList};
 
 use crate::errors::posting_error::PostingError;
@@ -63,7 +63,10 @@ impl<'a> PIterator<'a> {
         let splits = &list.plist().splits;
         if list.parts().len() < splits.len() {
             let missing = splits[list.parts().len()];
-            return Err(PostingError::MissingPart(split_key(list.key(), missing)?));
+            return Err(PostingError::MissingPart(split_key_of(
+                list.key(),
+                missing,
+            )?));
         }
         let mut it = Self {
             parts: list.immutable_parts(),
@@ -119,10 +122,21 @@ impl<'a> PIterator<'a> {
         !self.uids.is_empty()
     }
 
-    /// Moves to the next uid.
+    /// Moves to the next posting: the next one of the current uid, which a quad list holds when literals' fingerprints
+    /// collide, or the next uid.
     pub fn next(&mut self) {
         if self.deleted {
             self.uids.clear();
+            return;
+        }
+        if let (Some(&uid), Some(part)) = (self.uids.get(self.uidx), self.parts.get(self.part_idx))
+            && part.postings.get(self.pidx).is_some_and(|p| p.uid == uid)
+            && part
+                .postings
+                .get(self.pidx + 1)
+                .is_some_and(|p| p.uid == uid)
+        {
+            self.pidx += 1;
             return;
         }
         self.uidx += 1;

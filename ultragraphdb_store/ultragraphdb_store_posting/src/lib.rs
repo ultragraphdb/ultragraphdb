@@ -50,6 +50,7 @@ pub use crate::utils::constants::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_EMPTY_POSTING, BIT_SCHEMA_POSTING, BLOCK_SIZE,
     DEL, HIGH_PRIORITY_DELTAS, MAX_LIST_SIZE, OVR, SET,
 };
+pub use crate::utils::list_keys::{is_quad_list, is_split_key, split_key_of};
 pub use crate::utils::posting_codec::{marshal, unmarshal_complete, unmarshal_delta};
 pub use crate::utils::postings::{
     delete_all_posting, fingerprint_edge, has_delete_all, is_plist_empty, length_delta, new_posting,

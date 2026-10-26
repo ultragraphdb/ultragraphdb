@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
 
 use ultragraphdb_proto_pb::pb::PostingList;
-use ultragraphdb_traits_store::{Entry, ListCache, Store};
+use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::cached_list::CachedList;
@@ -44,6 +44,7 @@ pub struct Request<'a, S, C> {
     stacked: StackedLayers,
     entries: Vec<Entry>,
     versioned: Vec<Entry>,
+    versionless: Vec<VersionlessEntry>,
     advance_epoch: bool,
     removed_records: Vec<u64>,
 }
@@ -62,6 +63,7 @@ where
             stacked,
             entries: Vec::new(),
             versioned: Vec::new(),
+            versionless: Vec::new(),
             advance_epoch: false,
             removed_records: Vec::new(),
         }
@@ -127,6 +129,22 @@ where
         self.versioned.push(entry);
     }
 
+    /// Writes `value` as the value of `key` in the keyspace without versions, in the request's commit batch: a term
+    /// dictionary entry, written with the lists that name the term.
+    pub fn add_versionless(&mut self, key: Vec<u8>, value: Vec<u8>) {
+        self.versionless.push(VersionlessEntry::put(key, value));
+    }
+
+    /// The keys of the entries the request adds to its commit batch, at its commit timestamp or at their own versions.
+    pub fn entry_keys(&self) -> impl Iterator<Item = &[u8]> {
+        self.entries.iter().chain(&self.versioned).map(Entry::key)
+    }
+
+    /// The versionless writes the request adds to its commit batch, in order.
+    pub fn versionless(&self) -> &[VersionlessEntry] {
+        &self.versionless
+    }
+
     /// Makes the request's commit advance the cache's epoch under the writer lock, with its batch: what a write that
     /// changes lists outside their deltas needs, so that no cached list or fill read before it serves a read after it,
     /// and no rollup read before it is written.
@@ -173,6 +191,7 @@ where
         }
         self.entries.append(&mut other.entries);
         self.versioned.append(&mut other.versioned);
+        self.versionless.append(&mut other.versionless);
         self.advance_epoch |= other.advance_epoch;
         self.removed_records.append(&mut other.removed_records);
     }

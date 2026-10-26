@@ -34,3 +34,17 @@ fn test_open_reads_bound_the_discard_timestamp() {
     ts.close_read(3);
     assert_eq!(ts.discard_bound(4), 4);
 }
+
+#[test]
+fn test_a_read_of_everything_leaves_the_counter_where_it_is() {
+    let mut ts = Timestamps::new(4);
+    ts.open_read(u64::MAX);
+    assert_eq!(ts.fresh(), 6, "a read at u64::MAX moves no commit above it");
+    ts.close_read(u64::MAX);
+    ts.observe(u64::MAX - 2);
+    assert_eq!(
+        ts.fresh(),
+        u64::MAX - 1,
+        "any other read moves the counter past it"
+    );
+}

@@ -8,6 +8,8 @@ pub mod helpers;
 pub mod posting_workload;
 
 #[cfg(test)]
+mod list_keys_tests;
+#[cfg(test)]
 mod posting_codec_tests;
 #[cfg(test)]
 mod posting_workload_tests;

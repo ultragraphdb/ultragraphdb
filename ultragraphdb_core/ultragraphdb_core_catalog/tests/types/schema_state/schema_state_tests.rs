@@ -9,8 +9,8 @@
 
 use std::collections::HashSet;
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, namespace_attr};
 use ultragraphdb_core_catalog::{SchemaMode, SchemaState};
+use ultragraphdb_core_keys::{attr_in_root_namespace, namespace_attr};
 use ultragraphdb_core_tok::{IDENT_EXACT, IDENT_TERM, VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_core_types::TypeId;
 use ultragraphdb_proto_pb::pb;

@@ -38,7 +38,9 @@ mod parse;
 mod schema;
 mod state;
 mod types;
+mod utils;
 
+pub use crate::errors::catalog_error::{CatalogError, CatalogErrorEnum};
 pub use crate::errors::schema_error::{SchemaError, SchemaErrorEnum};
 pub use crate::parse::{has_tokenizer_or_vector_index_spec, parse, parse_with_namespace};
 pub use crate::schema::entries::{schema_entry, type_entry};
@@ -49,6 +51,12 @@ pub use crate::schema::pre_defined::{
     IS_UNIQUE_DGRAPH_XID, check_and_modify_pre_def_predicate, compare_schema_updates,
     is_pre_def_type_changed,
 };
+pub use crate::types::catalog::Catalog;
+pub use crate::types::catalog::catalog_checks::datatype_of;
 pub use crate::types::parsed_schema::ParsedSchema;
 pub use crate::types::schema_mode::SchemaMode;
 pub use crate::types::schema_state::SchemaState;
+pub use crate::utils::catalog_codec::{
+    ENTITY_TYPE, PREDICATE, RELATION, decode as decode_declaration, encode as encode_declaration,
+};
+pub use crate::utils::tokenizer_datatypes::tokenizer_takes;

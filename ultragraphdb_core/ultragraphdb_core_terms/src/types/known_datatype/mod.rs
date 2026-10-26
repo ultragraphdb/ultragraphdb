@@ -3,12 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// The base IRI of the system vocabulary, `ugdb:`: where the datatypes and IRIs the store defines itself live. Its
-/// final value is the stage 4 design's open question; every IRI under it is formed from this constant.
-pub const SYSTEM_VOCABULARY: &str = "urn:ultragraphdb:";
+/// The base IRI of the system vocabulary, `ugdb:`: where the datatypes and IRIs the store defines itself live. A
+/// w3id.org permanent identifier, so the IRIs stay stable wherever the project is hosted; no standard RDF
+/// vocabulary defines a vector datatype.
+pub const SYSTEM_VOCABULARY: &str = "https://w3id.org/ultragraphdb/ns/";
 
 /// `ugdb:float32vector`, the datatype of a vector literal: its elements as 32-bit floats.
-pub const FLOAT32_VECTOR: &str = "urn:ultragraphdb:float32vector";
+pub const FLOAT32_VECTOR: &str = "https://w3id.org/ultragraphdb/ns/float32vector";
 
 const XSD: &str = "http://www.w3.org/2001/XMLSchema#";
 const GEO: &str = "http://www.opengis.net/ont/geosparql#";

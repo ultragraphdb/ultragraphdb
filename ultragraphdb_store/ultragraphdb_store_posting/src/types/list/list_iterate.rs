@@ -20,6 +20,7 @@ use crate::types::list::List;
 use crate::types::mutable_layer::Rank;
 use crate::types::p_iterator::{PIterator, PPosting};
 use crate::utils::constants::DEL;
+use crate::utils::list_keys::identity;
 
 impl List {
     /// The timestamp of the newest delete-all visible at `read_ts`, 0 for none, and the postings of the deltas from
@@ -35,8 +36,12 @@ impl List {
             .iter()
             .flat_map(|(rank, pl)| pl.postings.iter().enumerate().map(|(i, p)| (*rank, i, p)))
             .collect();
+        let by_value = self.mutation.by_value();
         posts.sort_by(|(ra, ia, pa), (rb, ib, pb)| {
-            pa.uid.cmp(&pb.uid).then(rb.cmp(ra)).then(ib.cmp(ia))
+            identity(pa, by_value)
+                .cmp(&identity(pb, by_value))
+                .then(rb.cmp(ra))
+                .then(ib.cmp(ia))
         });
         (
             delete_below_ts,
@@ -67,8 +72,9 @@ impl List {
         } else {
             0
         };
+        let by_value = self.mutation.by_value();
         let mut pitr = PIterator::seek(self, after_uid, delete_below_ts)?;
-        let mut prev_uid = 0u64;
+        let mut prev: Option<(u64, Vec<u8>)> = None;
         let (mut read, mut deleted) = (0usize, 0usize);
         let mut count = |mp: Option<&Posting>| match mp {
             Some(p) if p.op == DEL => deleted += 1,
@@ -76,33 +82,37 @@ impl List {
         };
         let result = loop {
             let mp = mposts.get(midx).copied();
-            let mp_uid = mp.map_or(0, |p| p.uid);
+            let mp_id = mp.filter(|p| p.uid > 0).map(|p| identity(p, by_value));
             let pp = if pitr.valid() {
                 Some(pitr.posting())
             } else {
                 None
             };
-            let pp_uid = pp.map_or(0, |p| p.uid());
-            let flow = if mp_uid > 0 && mp_uid == prev_uid {
-                // Only the newest version of a uid's posting counts.
+            let pp_id = pp.filter(|p| p.uid() > 0).map(|p| match p {
+                PPosting::Found(p) => identity(p, by_value),
+                PPosting::Uid(uid) => (uid, &[][..]),
+            });
+            let flow = if mp_id.is_some() && prev.as_ref().map(|(u, v)| (*u, v.as_slice())) == mp_id
+            {
+                // Only the newest version of a posting counts.
                 midx += 1;
                 Ok(ControlFlow::Continue(()))
-            } else if pp_uid == 0 && mp_uid == 0 {
+            } else if pp_id.is_none() && mp_id.is_none() {
                 break Ok(());
-            } else if mp_uid == 0 || (pp_uid > 0 && pp_uid < mp_uid) {
+            } else if mp_id.is_none() || pp_id.is_some_and(|pp| mp_id.is_some_and(|mp| pp < mp)) {
                 count(None);
                 let flow = call(&mut f, pp);
                 pitr.next();
                 flow
-            } else if pp_uid == 0 || (mp_uid > 0 && mp_uid < pp_uid) {
+            } else if pp_id.is_none() || mp_id.is_some_and(|mp| pp_id.is_some_and(|pp| mp < pp)) {
                 count(mp);
-                prev_uid = mp_uid;
+                prev = mp_id.map(|(u, v)| (u, v.to_vec()));
                 midx += 1;
                 emit(&mut f, mp)
             } else {
-                // Both iterators are at the same uid: the delta's posting replaces the immutable one.
+                // Both iterators are at the same posting: the delta's posting replaces the immutable one.
                 count(mp);
-                prev_uid = mp_uid;
+                prev = mp_id.map(|(u, v)| (u, v.to_vec()));
                 pitr.next();
                 midx += 1;
                 emit(&mut f, mp)

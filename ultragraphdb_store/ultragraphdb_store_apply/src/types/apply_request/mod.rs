@@ -12,8 +12,8 @@
 
 use std::collections::BTreeMap;
 
-use ultragraphdb_core_keys::data_key;
 use ultragraphdb_core_catalog::SchemaMode;
+use ultragraphdb_core_keys::data_key;
 use ultragraphdb_core_types::TypeId;
 use ultragraphdb_proto_pb::pb::metadata::HintType;
 use ultragraphdb_proto_pb::pb::{DirectedEdge, Mutations, SchemaUpdate, directed_edge::Op};
