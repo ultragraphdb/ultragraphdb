@@ -3,11 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub(crate) mod counts;
-pub(crate) mod divide;
-pub(crate) mod edge_text;
-pub(crate) mod index;
+pub(crate) mod literal_tokens;
 pub(crate) mod lock;
-pub(crate) mod prefixes;
+pub(crate) mod quad_prefixes;
 pub(crate) mod token_values;
-pub(crate) mod validate;
+pub(crate) mod vector_index;

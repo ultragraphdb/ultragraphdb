@@ -35,9 +35,9 @@ use ultragraphdb_store_sim::{
 use ultragraphdb_traits_index::{KeyValue, Options};
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
-use crate::utils::helpers::{
-    TestLists, delete_vector, draw, key, opts, pred, set_vector, vec_bytes,
-};
+use ultragraphdb_core_keys::QuadKey;
+
+use crate::utils::helpers::{TestLists, delete_vector, draw, key, opts, pred, set_vector, vkeys};
 
 /// The rule a search breaks when it returns a vector that is not live, twice, too many, or out of order.
 pub const SEARCH_FINDS_LIVE: &str =
@@ -296,10 +296,10 @@ impl HnswWorkload {
                 let uid = self.next_uid;
                 self.next_uid += 1;
                 let v = random_vector(ctx.rng());
-                set_vector(&mut request, &self.pred, uid, vec_bytes(&v))?;
+                set_vector(&mut request, &self.pred, uid, &v)?;
                 let edges = {
                     let txn = ViTxn::new(&mut request);
-                    let index = PersistentHnsw::<f32>::new(&self.pred, &self.options, 32)?;
+                    let index = PersistentHnsw::<f32>::new(vkeys(&self.pred), &self.options, 32)?;
                     let rng = ctx.rng();
                     index.insert(&TxnCache::new(&txn, read_ts), uid, &v, &mut || draw(rng))?
                 };
@@ -344,7 +344,7 @@ impl HnswWorkload {
             let mut request = lists.request(read_ts);
             let txn = ViTxn::new(&mut request);
             let qc = ultragraphdb_store_hnsw::QueryCache::new(&txn, read_ts);
-            PersistentHnsw::<f32>::new(&self.pred, &self.options, 32).and_then(|index| {
+            PersistentHnsw::<f32>::new(vkeys(&self.pred), &self.options, 32).and_then(|index| {
                 index.search(&qc, &query, k, ultragraphdb_traits_index::accept_all::<f32>)
             })
         };
@@ -449,9 +449,8 @@ pub fn graph_defect<S: Store>(
     pred: &str,
     read_ts: u64,
 ) -> Result<Option<String>, HnswError> {
-    let vec_key = format!("{pred}{VEC_KEYWORD}");
-    let start = key(&vec_key, 0);
-    let prefix = start[..start.len() - 8].to_vec();
+    let mut prefix = vkeys(pred).neighbours(1);
+    prefix.truncate(prefix.len() - 8);
     lists.gate(read_ts)?;
     let snapshot = lists
         .store()
@@ -460,7 +459,9 @@ pub fn graph_defect<S: Store>(
     let mut nodes = BTreeMap::new();
     for item in snapshot.scan(&Scan::prefix(prefix)) {
         let item = item.map_err(PostingError::from)?;
-        let uid = ultragraphdb_core_keys::parse(item.key())?.uid();
+        let Ok((QuadKey::VectorIndex { node: uid, .. }, _)) = QuadKey::parse(item.key()) else {
+            continue;
+        };
         if let Some(v) = read_value(lists, item.key(), read_ts)? {
             let levels =
                 decode_uint64_matrix(&v).map_err(|r| HnswError::corrupted(item.key(), r))?;

@@ -4,12 +4,6 @@
  */
 
 #[cfg(test)]
-mod applier;
-#[cfg(test)]
-mod apply_request;
-#[cfg(test)]
 mod changeset_applier;
 #[cfg(test)]
-mod index_rebuild;
-#[cfg(test)]
-mod index_schema;
+mod changeset_core;

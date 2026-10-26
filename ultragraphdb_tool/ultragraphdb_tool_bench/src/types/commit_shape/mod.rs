@@ -3,23 +3,28 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::attr_in_root_namespace;
-use ultragraphdb_proto_pb::pb::{DirectedEdge, Mutations, directed_edge, posting};
+use oxrdf::vocab::xsd;
+use oxrdf::{GraphName, Literal, NamedNode, Term};
+use ultragraphdb_core_mapping::{
+    Change, Changeset, Declaration, PredicateDeclaration, PredicateKind,
+};
 
-/// The commits the Dgraph write runs made (scrith's `dgraph-bench.md` §5–§7, `dgload` over `singlefs.py`'s
-/// schema): each commit picks one of the relation types `rel_t<j>` and writes `relations` new nodes of it, each
-/// with an edge `rel_t<j>_org` to one of the hubs, kept as an `@reverse` edge, and the string `rel_t<j>_w` "x".
-/// The hubs carry `name`, indexed `exact`. No predicate has `@count`. New nodes take uids above the hubs', in
-/// order, as Zero's leases hand them out; types and hubs are drawn from a seeded xorshift, as `dgload` draws them.
+/// The IRIs of the bench's nodes and predicates begin with this.
+const BASE: &str = "http://bench.ultragraphdb.example/";
+
+/// The commits of the Dgraph write runs (scrith's `dgraph-bench.md` §5–§7, `dgload` over `singlefs.py`'s schema), as
+/// changesets of quads in the default graph of the root namespace: each commit picks one of the relation types
+/// `rel_t<j>` and writes `relations` new nodes of it, each with an edge `rel_t<j>_org` to one of the hubs and the
+/// string `rel_t<j>_w` "x". The hubs `h<i>` carry `name`, indexed `exact`. Every edge keeps its reverse list, as every
+/// quad does; no predicate has a count index. New nodes are named in order; types and hubs are drawn from a seeded
+/// xorshift, as `dgload` draws them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitShape {
     relations: usize,
     hubs: u64,
     types: u64,
-    next_uid: u64,
+    next_node: u64,
     rng: u64,
-    org: Vec<String>,
-    w: Vec<String>,
 }
 
 impl CommitShape {
@@ -29,78 +34,82 @@ impl CommitShape {
             relations,
             hubs,
             types,
-            next_uid: hubs + 1,
+            next_node: 1,
             rng: seed.max(1) ^ 0x9E37_79B9_7F4A_7C15,
-            org: (0..types)
-                .map(|j| attr_in_root_namespace(&format!("rel_t{j}_org")))
-                .collect(),
-            w: (0..types)
-                .map(|j| attr_in_root_namespace(&format!("rel_t{j}_w")))
-                .collect(),
         }
     }
 
-    /// The Dgraph runs' schema over `types` relation types.
-    pub fn schema(types: u64) -> String {
-        let mut lines: Vec<String> = (0..types)
+    /// The IRI of `name` under the bench's base.
+    pub fn iri(name: &str) -> NamedNode {
+        NamedNode::new_unchecked(format!("{BASE}{name}"))
+    }
+
+    /// The IRI of hub `i`, from 0.
+    pub fn hub(i: u64) -> NamedNode {
+        Self::iri(&format!("h{i}"))
+    }
+
+    /// The declarations of the Dgraph runs' schema over `types` relation types: each `rel_t<j>_org` an edge, each
+    /// `rel_t<j>_w` a property of strings, and `name` a property of strings indexed `exact`.
+    pub fn declarations(types: u64) -> Changeset {
+        let property = |name: &str| {
+            PredicateDeclaration::new(Self::iri(name))
+                .with_kind(PredicateKind::Property)
+                .with_datatype(xsd::STRING.into_owned())
+        };
+        let mut declarations: Vec<PredicateDeclaration> = (0..types)
             .flat_map(|j| {
                 [
-                    format!("rel_t{j}_org: uid @reverse ."),
-                    format!("rel_t{j}_w: string ."),
+                    PredicateDeclaration::new(Self::iri(&format!("rel_t{j}_org")))
+                        .with_kind(PredicateKind::Edge),
+                    property(&format!("rel_t{j}_w")),
                 ]
             })
             .collect();
-        lines.push("name: string @index(exact) .".to_string());
-        lines.join("\n")
+        declarations.push(property("name").with_tokenizers(vec!["exact".to_string()]));
+        declarations.into_iter().fold(Changeset::new(0), |c, d| {
+            c.with(Change::Declare(Declaration::Predicate(d)))
+        })
     }
 
-    /// The hubs, uids 1 to `hubs`, each named `h<i>`, in one mutation reading at `start_ts`.
-    pub fn hubs(&self, start_ts: u64) -> Mutations {
-        let name = attr_in_root_namespace("name");
-        Mutations {
-            start_ts,
-            edges: (0..self.hubs)
-                .map(|i| DirectedEdge {
-                    entity: i + 1,
-                    attr: name.clone(),
-                    value: format!("h{i}").into_bytes(),
-                    op: directed_edge::Op::Set as i32,
-                    ..DirectedEdge::default()
-                })
-                .collect(),
-            ..Mutations::default()
-        }
+    /// The hubs, each named `h<i>`, in one changeset.
+    pub fn hubs(&self) -> Changeset {
+        let name = Self::iri("name");
+        (0..self.hubs).fold(Changeset::new(0), |c, i| {
+            c.with(Change::Insert {
+                graph: GraphName::DefaultGraph,
+                subject: Self::hub(i).into(),
+                predicate: name.clone(),
+                object: Term::from(Literal::new_simple_literal(format!("h{i}"))),
+            })
+        })
     }
 
-    /// The next commit, reading at `start_ts`.
-    pub fn next(&mut self, start_ts: u64) -> Mutations {
-        let j = (self.draw() % self.types) as usize;
-        let mut edges = Vec::with_capacity(2 * self.relations);
+    /// The next commit.
+    pub fn next_commit(&mut self) -> Changeset {
+        let j = self.draw() % self.types;
+        let org = Self::iri(&format!("rel_t{j}_org"));
+        let w = Self::iri(&format!("rel_t{j}_w"));
+        let mut changeset = Changeset::new(0);
         for _ in 0..self.relations {
-            let uid = self.next_uid;
-            self.next_uid += 1;
-            let hub = self.draw() % self.hubs + 1;
-            edges.push(DirectedEdge {
-                entity: uid,
-                attr: self.org[j].clone(),
-                value_id: hub,
-                value_type: posting::ValType::Uid as i32,
-                op: directed_edge::Op::Set as i32,
-                ..DirectedEdge::default()
-            });
-            edges.push(DirectedEdge {
-                entity: uid,
-                attr: self.w[j].clone(),
-                value: b"x".to_vec(),
-                op: directed_edge::Op::Set as i32,
-                ..DirectedEdge::default()
-            });
+            let node = Self::iri(&format!("r{}", self.next_node));
+            self.next_node += 1;
+            let hub = self.draw() % self.hubs;
+            changeset = changeset
+                .with(Change::Insert {
+                    graph: GraphName::DefaultGraph,
+                    subject: node.clone().into(),
+                    predicate: org.clone(),
+                    object: Self::hub(hub).into(),
+                })
+                .with(Change::Insert {
+                    graph: GraphName::DefaultGraph,
+                    subject: node.into(),
+                    predicate: w.clone(),
+                    object: Term::from(Literal::new_simple_literal("x")),
+                });
         }
-        Mutations {
-            start_ts,
-            edges,
-            ..Mutations::default()
-        }
+        changeset
     }
 
     /// The relations each commit writes.

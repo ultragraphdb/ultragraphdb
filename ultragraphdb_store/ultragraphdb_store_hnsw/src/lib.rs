@@ -40,7 +40,8 @@ pub use crate::types::persistent_hnsw::PersistentHnsw;
 pub use crate::types::query_cache::QueryCache;
 pub use crate::types::similarity_type::SimilarityType;
 pub use crate::types::txn_cache::TxnCache;
-pub use crate::types::vi_txn::ViTxn;
+pub use crate::types::vector_keys::{DEAD_LIST, ENTRY_LIST, NEIGHBOUR_LIST, VectorKeys};
+pub use crate::types::vi_txn::{ViTxn, index_posting};
 pub use crate::utils::distance::{cosine_similarity, dot_product, euclidean_distance};
 pub use crate::utils::helper::{
     NOT_A_UID, add_dead_node, bytes_as_float_array, bytes_to_uint64, concat_strings, insert_layer,

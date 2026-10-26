@@ -68,10 +68,6 @@ impl fmt::Display for CatalogError {
                 f,
                 "Type <{entity_type}> cannot take the parent <{parent}>, which descends from it"
             ),
-            CatalogErrorEnum::Decode { key, reason } => {
-                let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
-                write!(f, "Catalog entry {hex} cannot be read: {reason}")
-            }
             CatalogErrorEnum::Store(error) => write!(f, "{error}"),
         }
     }

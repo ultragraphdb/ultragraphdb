@@ -7,70 +7,10 @@
  */
 
 use ultragraphdb_core_keys::{
-    BYTE_SPLIT, KeyError, KeyErrorEnum, attr_in_root_namespace, count_key, data_key, data_prefix,
-    index_key, index_key_after_all_terms, namespace_attr, parse, parse_attr, predicate_prefix,
-    reverse_key, schema_key, schema_prefix, split_key, type_key, type_prefix,
+    BYTE_SPLIT, KeyError, KeyErrorEnum, attr_in_root_namespace, count_key, data_key, index_key,
+    index_key_after_all_terms, namespace_attr, parse, parse_attr, predicate_prefix, reverse_key,
+    schema_key, split_key, type_key,
 };
-
-use crate::golden::{KeyCase, compare, golden, parse_errors, unhex};
-
-fn build(case: &KeyCase) -> Vec<u8> {
-    let attr = namespace_attr(case.namespace, &case.attr);
-    let (kind, split) = match case.kind.strip_prefix("split_") {
-        Some(kind) => (kind, true),
-        None => (case.kind.as_str(), false),
-    };
-    let key = match kind {
-        "data" => data_key(&attr, case.uid).unwrap(),
-        "reverse" => reverse_key(&attr, case.uid).unwrap(),
-        "index" => index_key(&attr, &unhex(&case.term)).unwrap(),
-        "count" => count_key(&attr, case.count, false).unwrap(),
-        "count_rev" => count_key(&attr, case.count, true).unwrap(),
-        "schema" => schema_key(&attr).unwrap(),
-        "type" => type_key(&attr).unwrap(),
-        "index_after_all_terms" => index_key_after_all_terms(&attr).unwrap(),
-        "predicate_prefix" => predicate_prefix(&attr).unwrap(),
-        "data_prefix" => data_prefix(case.namespace),
-        "schema_prefix" => schema_prefix(),
-        "type_prefix" => type_prefix(),
-        other => panic!("unknown golden key kind {other}"),
-    };
-    if split {
-        split_key(&key, case.start_uid).expect("a default-prefix key splits")
-    } else {
-        key
-    }
-}
-
-#[test]
-fn test_golden_keys() {
-    let golden = golden::<KeyCase>("keys");
-    assert!(golden.cases().len() > 1000);
-    for case in golden.cases() {
-        compare(
-            &format!("{} {} {:?}", case.kind, case.namespace, case.attr),
-            &case.key,
-            &build(case),
-        );
-    }
-}
-
-#[test]
-fn test_golden_split_key() {
-    for case in parse_errors().split {
-        let actual = split_key(&unhex(&case.key), case.start_uid);
-        if case.error.is_empty() {
-            compare(&case.name, &case.split, &actual.expect("splits"));
-        } else {
-            assert_eq!(
-                actual.expect_err(&case.name).to_string(),
-                case.error,
-                "{}",
-                case.name
-            );
-        }
-    }
-}
 
 #[test]
 fn test_data_key() {

@@ -21,6 +21,7 @@ workspace = true
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
 ultragraphdb_error_options = { workspace = true }
@@ -31,6 +32,7 @@ ultragraphdb_traits_store = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+oxrdf = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }

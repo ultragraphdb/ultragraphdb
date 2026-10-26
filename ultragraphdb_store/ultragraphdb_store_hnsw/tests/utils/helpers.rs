@@ -13,21 +13,23 @@
  */
 
 //! What the unit tests and the scenarios share: the in-memory doubles Dgraph's tests use, the double the golden runs
-//! use, and inserts, deletes and searches over the posting lists of a store, as index maintenance makes them.
+//! use, and inserts, deletes and searches over the posting lists of a store, as index maintenance makes them: a
+//! node's vector in its forward list as a `ugdb:float32vector` literal's encoding, the index's lists in the
+//! vector-index keyspace.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, data_key, parse};
-use ultragraphdb_core_tok::{VEC_DEAD, get_index_factory};
-use ultragraphdb_core_types::Value;
-use ultragraphdb_proto_pb::pb::{DirectedEdge, directed_edge, posting};
+use oxrdf::{Literal, NamedNode};
+use ultragraphdb_core_keys::DEFAULT_GRAPH;
+use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, format_vector};
+use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD, get_index_factory};
+use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_hnsw::{
-    HnswError, HnswFloat, PersistentHnsw, QueryCache, TxnCache, ViTxn, add_dead_node,
+    HnswError, HnswFloat, PersistentHnsw, QueryCache, TxnCache, VectorKeys, ViTxn, add_dead_node,
+    index_posting,
 };
-use ultragraphdb_store_posting::{
-    CachedList, Lists, ListsConfig, PostingError, PostingErrorEnum, Request,
-};
+use ultragraphdb_store_posting::{CachedList, DEL, Lists, ListsConfig, PostingError, Request, SET};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, Stream};
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, LocalCache, Options, Txn, VectorIndexOptions, accept_all,
@@ -53,14 +55,69 @@ pub fn new_lists() -> TestLists {
     lists_over(new_store())
 }
 
-/// The vector predicate `name` in the root namespace.
+/// The vector predicate `name` in the root namespace, as a namespaced attribute.
 pub fn pred(name: &str) -> String {
-    attr_in_root_namespace(name)
+    format!("0-{name}")
 }
 
-/// The data key of `attr` for `uid`.
+/// The keys of the index of the vector predicate `name`, a namespaced attribute as Dgraph's tests name one, in the
+/// default graph of the root namespace: its UID drawn from its name.
+pub fn vkeys(name: &str) -> VectorKeys {
+    let uid = name
+        .bytes()
+        .fold(1u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)))
+        .max(1);
+    VectorKeys::new(name, 0, DEFAULT_GRAPH, uid)
+}
+
+/// The quad key Dgraph's key of `attr` at `uid` translates to: `<pred>` a node's forward list, `<pred>__vector_`
+/// its neighbour lists, `<pred>__vector_entry` and `<pred>__vector_dead` the index's entry point and dead list, the
+/// predicate's [`vkeys`].
 pub fn key(attr: &str, uid: u64) -> Vec<u8> {
-    data_key(attr, uid).expect("a data key")
+    if let Some(name) = attr.strip_suffix(VEC_ENTRY) {
+        return vkeys(name).entry();
+    }
+    if let Some(name) = attr.strip_suffix(VEC_DEAD) {
+        return vkeys(name).dead();
+    }
+    if let Some(name) = attr.strip_suffix(VEC_KEYWORD) {
+        return vkeys(name).neighbours(uid);
+    }
+    vkeys(attr).vector(uid)
+}
+
+/// The quad key a data key of Dgraph's layout, as the golden files hold one, translates to: its namespace and
+/// attribute as a namespaced attribute, and its uid, through [`key`]. `None` for bytes of another layout.
+pub fn translated(dgraph_key: &[u8]) -> Option<Vec<u8>> {
+    let ns = u64::from_be_bytes(dgraph_key.get(1..9)?.try_into().ok()?);
+    let len = usize::from(u16::from_be_bytes(dgraph_key.get(9..11)?.try_into().ok()?));
+    let attr = std::str::from_utf8(dgraph_key.get(11..11 + len)?).ok()?;
+    let uid = u64::from_be_bytes(dgraph_key.get(12 + len..20 + len)?.try_into().ok()?);
+    Some(key(&format!("{ns:x}-{attr}"), uid))
+}
+
+/// The encoding of the `ugdb:float32vector` literal holding `v`, what a node's forward list holds.
+pub fn vector_encoding(v: &[f32]) -> Vec<u8> {
+    let literal = Literal::new_typed_literal(
+        format_vector(v.iter().copied()),
+        NamedNode::new_unchecked(FLOAT32_VECTOR),
+    );
+    EncodedTerm::literal::<TermError>(literal.as_ref(), |_| unreachable!("a known datatype"))
+        .expect("a canonical vector")
+        .into_term()
+        .as_bytes()
+        .to_vec()
+}
+
+/// The posting of the vector `encoding` in a forward list, with `op`.
+fn vector_posting(encoding: Vec<u8>, op: u32) -> Posting {
+    Posting {
+        uid: ultragraphdb_common_utils::go_farm::fingerprint64(&encoding),
+        value: encoding,
+        posting_type: posting::PostingType::Value as i32,
+        op,
+        ..Posting::default()
+    }
 }
 
 /// Options parsed as the hnsw factory parses a schema's: `exponent`, `maxLevels`, `efConstruction`, `efSearch` and
@@ -105,30 +162,43 @@ pub fn draws(values: Vec<f64>) -> impl FnMut() -> f64 {
     move || it.next().unwrap_or(0.0)
 }
 
-/// Sets `uid`'s vector to `bytes` in `request`, as a mutation of a `float32vector` predicate does.
+/// Sets `uid`'s vector to `v` in `request`, as a write of a `ugdb:float32vector` literal does: the vector it held
+/// replaced.
 pub fn set_vector<S, C>(
     request: &mut Request<'_, S, C>,
     pred: &str,
     uid: u64,
-    bytes: Vec<u8>,
+    v: &[f32],
 ) -> Result<(), PostingError>
 where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    let edge = DirectedEdge {
-        entity: uid,
-        attr: pred.to_string(),
-        value: bytes,
-        value_type: posting::ValType::Vfloat as i32,
-        op: directed_edge::Op::Set as i32,
-        ..DirectedEdge::default()
-    };
-    request.get(&key(pred, uid))?.add_mutation(&edge, None)
+    let keys = vkeys(pred);
+    let read_ts = request.read_ts();
+    let list = request.get(&keys.vector(uid))?;
+    for held in held_values(list, read_ts)? {
+        list.add_posting(vector_posting(held, DEL), false);
+    }
+    list.add_posting(vector_posting(vector_encoding(v), SET), false);
+    Ok(())
 }
 
-/// Deletes `uid`'s vector in `request` and appends `uid` to the dead list, as `posting/index.go`'s index maintenance
-/// does for a deleted vector.
+/// The values `list` holds at `read_ts`.
+fn held_values(
+    list: &ultragraphdb_store_posting::List,
+    read_ts: u64,
+) -> Result<Vec<Vec<u8>>, PostingError> {
+    let mut held = Vec::new();
+    list.iterate(read_ts, 0, |p| {
+        held.push(p.value.clone());
+        Ok::<_, PostingError>(std::ops::ControlFlow::Continue(()))
+    })?;
+    Ok(held)
+}
+
+/// Deletes `uid`'s vector in `request` and appends `uid` to the dead list, as index maintenance does for a deleted
+/// vector.
 pub fn delete_vector<S, C>(
     request: &mut Request<'_, S, C>,
     pred: &str,
@@ -138,69 +208,45 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
+    let keys = vkeys(pred);
     let read_ts = request.read_ts();
-    let data = request.get(&key(pred, uid))?;
-    let stored = value_bytes(data.value(read_ts))?;
-    let edge = DirectedEdge {
-        entity: uid,
-        attr: pred.to_string(),
-        value: stored.unwrap_or_default(),
-        value_type: posting::ValType::Vfloat as i32,
-        op: directed_edge::Op::Del as i32,
-        ..DirectedEdge::default()
-    };
-    data.add_mutation(&edge, None)?;
-    let dead_attr = format!("{pred}{VEC_DEAD}");
-    let dead_key = key(&dead_attr, 1);
-    let dead = request.get(&dead_key)?;
-    let existing = value_bytes(dead.value(read_ts))?;
-    let dead_edge = DirectedEdge {
-        entity: 1,
-        attr: dead_attr,
-        value: add_dead_node(existing.as_deref(), uid)?,
-        value_type: 0,
-        op: directed_edge::Op::Set as i32,
-        ..DirectedEdge::default()
-    };
-    dead.add_mutation(&dead_edge, None)?;
-    Ok(())
-}
-
-/// A value's bytes, `None` for no value.
-fn value_bytes(
-    value: Result<ultragraphdb_core_types::Val, PostingError>,
-) -> Result<Option<Vec<u8>>, PostingError> {
-    match value {
-        Ok(v) => Ok(match v.into_value() {
-            Some(Value::Bytes(b)) => Some(b),
-            _ => None,
-        }),
-        Err(PostingError(PostingErrorEnum::NoValue)) => Ok(None),
-        Err(e) => Err(e),
+    let list = request.get(&keys.vector(uid))?;
+    for held in held_values(list, read_ts)? {
+        list.add_posting(vector_posting(held, DEL), false);
     }
+    let dead = request.get(&keys.dead())?;
+    let existing = dead
+        .static_value(read_ts)
+        .and_then(|pl| pl.postings.first())
+        .filter(|p| p.op != DEL)
+        .map(|p| p.value.clone());
+    dead.add_posting(
+        index_posting(add_dead_node(existing.as_deref(), uid)?),
+        false,
+    );
+    Ok(())
 }
 
 /// Sets `uid`'s vector and inserts it into the index of `pred` built from `o`, in one request committed on its own:
 /// the values the insert wrote.
-pub fn insert<S, T>(
+pub fn insert<S>(
     lists: &Lists<S, SimListCache<CachedList>>,
     pred: &str,
     o: &Options,
     uid: u64,
-    vec: &[T],
+    vec: &[f32],
     draw: &mut impl FnMut() -> f64,
 ) -> Result<Vec<KeyValue>, HnswError>
 where
     S: Store,
-    T: HnswFloat,
 {
     let read_ts = lists.fresh_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
-    set_vector(&mut request, pred, uid, vec_bytes(vec))?;
+    set_vector(&mut request, pred, uid, vec)?;
     let edges = {
         let txn = ViTxn::new(&mut request);
-        let index = PersistentHnsw::<T>::new(pred, o, T::BITS)?;
+        let index = PersistentHnsw::<f32>::new(vkeys(pred), o, 32)?;
         index.insert(&TxnCache::new(&txn, read_ts), uid, vec, draw)?
     };
     batch.push(request);
@@ -227,26 +273,25 @@ where
 }
 
 /// Searches the index of `pred` for the `k` nearest to `query` at the newest timestamp, with `options`.
-pub fn search<S, T>(
+pub fn search<S>(
     lists: &Lists<S, SimListCache<CachedList>>,
     pred: &str,
     o: &Options,
-    query: &[T],
+    query: &[f32],
     k: usize,
-    options: Option<&VectorIndexOptions<T>>,
+    options: Option<&VectorIndexOptions<f32>>,
 ) -> Result<Vec<u64>, HnswError>
 where
     S: Store,
-    T: HnswFloat,
 {
     let read_ts = lists.latest_ts();
     let mut request = lists.request(read_ts);
     let txn = ViTxn::new(&mut request);
     let qc = QueryCache::new(&txn, read_ts);
-    let index = PersistentHnsw::<T>::new(pred, o, T::BITS)?;
+    let index = PersistentHnsw::<f32>::new(vkeys(pred), o, 32)?;
     match options {
         Some(options) => index.search_with_options(&qc, query, k, options),
-        None => index.search(&qc, query, k, accept_all::<T>),
+        None => index.search(&qc, query, k, accept_all::<f32>),
     }
 }
 
@@ -447,8 +492,8 @@ impl CacheType for MemoryCache {
 }
 
 /// The golden runs' transaction, `tools/golden/hnsw.go`'s `goldenTxn`: one map; an absent or empty value is
-/// `NoValue`; `find` scans the predicate's data keys in key order and names the first passing key's uid, or reports
-/// `KeyNotFound`.
+/// `NoValue`; `find` scans the forward keys under the prefix in key order and names the first passing key's node, or
+/// reports `KeyNotFound`. A node's vector is held raw, as Go's golden transaction holds it.
 #[derive(Debug, Default)]
 pub struct MapTxn {
     pub db: RefCell<BTreeMap<Vec<u8>, Vec<u8>>>,
@@ -463,19 +508,21 @@ impl MapTxn {
     }
 
     fn scan(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
-        let attr = String::from_utf8_lossy(prefix);
-        let start = key(&attr, 0);
-        let pfx = &start[..start.len() - 8];
         let db = self.db.borrow();
-        for (k, v) in db.range(pfx.to_vec()..) {
-            if !k.starts_with(pfx) {
+        for (k, v) in db.range(prefix.to_vec()..) {
+            if !k.starts_with(prefix) {
                 break;
             }
             if v.is_empty() {
                 continue;
             }
             if filter(v) {
-                return Ok(parse(k)?.uid());
+                return match ultragraphdb_core_keys::QuadKey::parse(k) {
+                    Ok((ultragraphdb_core_keys::QuadKey::Forward { subject, .. }, _)) => {
+                        Ok(subject)
+                    }
+                    _ => Err(HnswError::KeyNotFound()),
+                };
             }
         }
         Err(HnswError::KeyNotFound())

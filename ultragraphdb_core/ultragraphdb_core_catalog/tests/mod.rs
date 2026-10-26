@@ -4,14 +4,6 @@
  */
 
 #[cfg(test)]
-mod errors;
-#[cfg(test)]
-mod golden_json;
-#[cfg(test)]
-mod parse;
-#[cfg(test)]
-mod schema;
-#[cfg(test)]
 mod types;
 #[cfg(test)]
 mod utils;

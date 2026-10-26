@@ -16,7 +16,7 @@ use ultragraphdb_proto_pb::pb::{Posting, PostingList, UidPack, posting};
 
 use crate::errors::posting_error::PostingError;
 use crate::utils::constants::{DEL, OVR, SET};
-use crate::utils::list_keys::{identity, is_quad_list};
+use crate::utils::list_keys::{compares_values, identity};
 
 /// The encoded bytes of `plist`.
 pub fn marshal(plist: &PostingList) -> Vec<u8> {
@@ -64,7 +64,7 @@ pub fn unmarshal_complete(key: &[u8], bytes: &[u8]) -> Result<PostingList, Posti
         None => Vec::new(),
     };
     // A quad list's literals whose fingerprints collide share a uid, and sort by their encodings under it.
-    let by_value = is_quad_list(key);
+    let by_value = compares_values(key);
     let mut in_pack = uids.iter().peekable();
     let mut previous: Option<(u64, &[u8])> = None;
     for p in &plist.postings {

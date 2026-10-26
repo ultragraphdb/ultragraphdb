@@ -17,7 +17,7 @@ use ultragraphdb_store_hnsw::{HnswErrorEnum, PersistentHnsw, SimilarityType};
 use ultragraphdb_test_bdd::{load_golden, testdata_dir};
 use ultragraphdb_traits_index::{OptionValue, Options};
 
-use crate::utils::helpers::opts;
+use crate::utils::helpers::{opts, vkeys};
 
 /// Dgraph's `optionsFromCreateTestCase`.
 fn options(max_levels: i64, ef_search: i64, ef_construction: i64, index_type: &str) -> Options {
@@ -43,7 +43,7 @@ fn test_race_create_or_replace() {
         for _ in 0..5 {
             s.spawn(|| {
                 for i in 0..10 {
-                    let index = PersistentHnsw::<f64>::new("a", &o, 64);
+                    let index = PersistentHnsw::<f64>::new(vkeys("a"), &o, 64);
                     assert!(index.is_ok(), "case {i}: {index:?}");
                 }
             });
@@ -59,7 +59,8 @@ fn test_create_persistent_hnsw() {
         ("cosine", "cosine"),
         ("dotproduct", "dotproduct"),
     ] {
-        let index = PersistentHnsw::<f64>::new("a", &options(1, 1, 1, index_type), 64).unwrap();
+        let index =
+            PersistentHnsw::<f64>::new(vkeys("a"), &options(1, 1, 1, index_type), 64).unwrap();
         assert_eq!(index.sim_type().index_type(), expected);
         assert_eq!(
             (
@@ -69,14 +70,20 @@ fn test_create_persistent_hnsw() {
             ),
             (1, 1, 1)
         );
+        let keys = index.keys();
         assert_eq!(
             (
-                index.pred(),
-                index.vec_key(),
-                index.vec_entry_key(),
-                index.vec_dead()
+                keys.name().to_string(),
+                keys.neighbours_label(),
+                keys.entry_label(),
+                keys.dead_label()
             ),
-            ("a", "a__vector_", "a__vector_entry", "a__vector_dead")
+            (
+                "a".to_string(),
+                "a__vector_".to_string(),
+                "a__vector_entry".to_string(),
+                "a__vector_dead".to_string()
+            )
         );
     }
 }
@@ -87,10 +94,10 @@ fn test_create_persistent_hnsw() {
 fn test_a_float_width_other_than_the_vectors_is_refused() {
     let o = options(1, 1, 1, "b");
     for bits in [32, 16, 0] {
-        let e = PersistentHnsw::<f64>::new("a", &o, bits).unwrap_err();
+        let e = PersistentHnsw::<f64>::new(vkeys("a"), &o, bits).unwrap_err();
         assert_eq!(e.0, HnswErrorEnum::FloatBits { bits, expected: 64 });
     }
-    assert!(PersistentHnsw::<f32>::new("a", &o, 32).is_ok());
+    assert!(PersistentHnsw::<f32>::new(vkeys("a"), &o, 32).is_ok());
 }
 
 /// Deviation: Go accepts a level count or breadth below 1 and panics at the first search or insert that indexes the
@@ -103,7 +110,7 @@ fn test_an_option_below_one_is_refused() {
         ("efConstruction", opts(&[("efConstruction", "0")])),
         ("maxLevels", opts(&[("exponent", "0")])),
     ] {
-        let e = PersistentHnsw::<f32>::new("0-a", &o, 32).unwrap_err();
+        let e = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32).unwrap_err();
         assert!(
             matches!(e.0, HnswErrorEnum::InvalidParameter { name: n, .. } if n == name),
             "{e}"
@@ -150,7 +157,7 @@ fn test_options_set_gos_parameters() {
                 opts(&pairs)
             }
         };
-        match PersistentHnsw::<f32>::new("0-opts", &o, 32) {
+        match PersistentHnsw::<f32>::new(vkeys("0-opts"), &o, 32) {
             Ok(index) => {
                 assert!(
                     c.error.is_empty(),
@@ -186,14 +193,14 @@ fn test_options_set_gos_parameters() {
 fn test_a_wrong_option_type_is_gos_error() {
     let mut o = Options::new();
     o.set_opt("maxLevels", OptionValue::Bool(true));
-    let e = PersistentHnsw::<f32>::new("0-a", &o, 32).unwrap_err();
+    let e = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32).unwrap_err();
     assert!(
         matches!(e.0, HnswErrorEnum::Options(ref oe) if matches!(oe.0, OptionsErrorEnum::Type(_)))
     );
     // An exponent of another type is ignored and leaves the defaults, as Dgraph ignores its error.
     let mut o = Options::new();
     o.set_opt("exponent", OptionValue::Str("4".into()));
-    let index = PersistentHnsw::<f32>::new("0-a", &o, 32).unwrap();
+    let index = PersistentHnsw::<f32>::new(vkeys("0-a"), &o, 32).unwrap();
     assert_eq!(
         (
             index.max_levels(),

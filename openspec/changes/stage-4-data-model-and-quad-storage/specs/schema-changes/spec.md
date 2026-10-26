@@ -66,8 +66,8 @@ vector-index and statistics keys, split parts included, the statement records of
 from the subject- and object-predicate lists that held it, and SHALL remove its catalog declaration. Dropping a graph
 SHALL remove every key of the graph. Dropping a namespace's data SHALL keep its catalog. Dropping everything in a
 namespace SHALL remove its data and catalog and write its initial catalog at timestamp 1. Dropping everything SHALL leave
-only the root namespace's initial catalog, written at timestamp 1. Every drop SHALL remove what it drops physically. A
-drop SHALL not remove dictionary entries.
+no quad key but the root namespace's initial catalog, written at timestamp 1. Every drop SHALL remove what it drops
+physically. A drop SHALL not remove dictionary entries.
 
 #### Scenario: Dropping a predicate removes it from the predicate lists
 - **WHEN** `knows` is held for `a` and `b` and is dropped
@@ -91,7 +91,7 @@ drop SHALL not remove dictionary entries.
 
 #### Scenario: Dropping everything leaves the initial catalog
 - **WHEN** everything is dropped
-- **THEN** the store holds the root namespace's initial catalog, written at timestamp 1, and nothing else
+- **THEN** the store holds no quad key but the root namespace's initial catalog, written at timestamp 1
 
 ### Requirement: A namespace's data drop removes its split parts
 Dropping a namespace's data SHALL remove every key of every quad keyspace of the namespace, split parts included, in one
@@ -100,3 +100,10 @@ drop, and leave its catalog keys.
 #### Scenario: Dropping a namespace's data leaves no split part
 - **WHEN** a namespace whose lists are split has its data dropped
 - **THEN** no key of any quad keyspace of the namespace remains, split or not, and its catalog keys are unchanged
+
+## REMOVED Requirements
+
+### Requirement: A request older than a drop or schema change it writes under fails
+**Reason**: The changeset applier reads and commits each batch under the lock its drops and index swaps take, so no
+request reads before a drop or catalog change and commits after it.
+**Migration**: None: a changeset applied while a drop runs waits for it and reads what it left.

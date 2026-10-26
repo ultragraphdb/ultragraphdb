@@ -70,6 +70,7 @@ struct Factory(RefCell<BTreeMap<String, Empty>>);
 
 impl IndexFactory<f64> for Factory {
     type Index = Empty;
+    type Name = str;
     type Error = String;
 
     fn name(&self) -> &str {

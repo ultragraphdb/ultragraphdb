@@ -28,7 +28,6 @@ oxrdf = { workspace = true }
 ultragraphdb_test_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 
 [[test]]

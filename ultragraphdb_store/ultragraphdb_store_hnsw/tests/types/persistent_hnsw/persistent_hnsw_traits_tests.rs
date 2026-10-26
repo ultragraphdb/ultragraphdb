@@ -11,7 +11,7 @@ use ultragraphdb_traits_index::{
     OptionalIndexSupport, OptionalSearchOptions, VectorIndex, VectorIndexOptions, accept_all,
 };
 
-use crate::utils::helpers::{MapTxn, float64_array_as_bytes, key, opts};
+use crate::utils::helpers::{MapTxn, float64_array_as_bytes, key, opts, vkeys};
 
 const PRED: &str = "0-t";
 
@@ -21,7 +21,7 @@ fn index() -> PersistentHnsw<f64> {
         ("efConstruction", "8"),
         ("efSearch", "6"),
     ]);
-    PersistentHnsw::new(PRED, &o, 64).unwrap()
+    PersistentHnsw::new(vkeys(PRED), &o, 64).unwrap()
 }
 
 fn points() -> Vec<(u64, Vec<f64>)> {

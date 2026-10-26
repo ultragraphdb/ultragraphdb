@@ -91,13 +91,21 @@ impl Catalog {
         self.relations.iter().map(|(uid, d)| (*uid, d))
     }
 
-    /// Declares predicate `uid`, replacing its declaration. Refused, changing nothing, when a tokenizer or vector
-    /// index is unknown, or the datatype constraint is not among the datatypes one of its tokenizers takes.
+    /// Declares predicate `uid`, replacing its declaration. Refused, changing nothing, as
+    /// [`Catalog::check_predicate`] refuses.
     pub fn declare_predicate(
         &mut self,
         uid: u64,
         declaration: PredicateDeclaration,
     ) -> Result<(), CatalogError> {
+        Self::check_predicate(&declaration)?;
+        self.predicates.insert(uid, declaration);
+        Ok(())
+    }
+
+    /// Whether `declaration` can be declared: refused when a tokenizer or vector index is unknown, or the datatype
+    /// constraint is not among the datatypes one of its tokenizers takes.
+    pub fn check_predicate(declaration: &PredicateDeclaration) -> Result<(), CatalogError> {
         let iri = declaration.predicate().as_str();
         for tokenizer in declaration.tokenizers() {
             if get_tokenizer(tokenizer).is_none() {
@@ -118,7 +126,6 @@ impl Catalog {
         {
             return Err(CatalogError::UnknownVectorIndex(iri, spec.factory()));
         }
-        self.predicates.insert(uid, declaration);
         Ok(())
     }
 

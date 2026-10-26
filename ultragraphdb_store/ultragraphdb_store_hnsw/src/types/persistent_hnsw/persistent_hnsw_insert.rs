@@ -17,7 +17,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use ultragraphdb_core_keys::data_key;
 use ultragraphdb_traits_index::{KeyValue, Txn, accept_all};
 
 use crate::errors::hnsw_error::{HnswError, HnswErrorEnum};
@@ -124,7 +123,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         in_uuid: u64,
     ) -> Result<Start, HnswError> {
         let txn = tc.txn();
-        let entry_key = data_key(&self.vec_entry_key, 1)?;
+        let entry_key = self.keys.entry();
         txn.lock_key(&entry_key);
         let result = self.entry_or_start_nodes(tc, &entry_key, in_uuid);
         txn.unlock_key(&entry_key);
@@ -156,8 +155,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         // kept.
         match self.calculate_new_entry_vec(tc) {
             Ok((new_entry, _)) if new_entry != in_uuid => {
-                let named =
-                    KeyValue::new(1, self.vec_entry_key.clone(), uint64_to_bytes(new_entry));
+                let named = KeyValue::new(1, self.keys.entry_label(), uint64_to_bytes(new_entry));
                 txn.add_mutation_with_lock_held(entry_key, &named)?;
                 Ok(Start::From(new_entry, vec![named]))
             }
@@ -174,15 +172,15 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         txn: &X,
         in_uuid: u64,
     ) -> Result<Vec<KeyValue>, HnswError> {
-        let key = data_key(&self.vec_key, in_uuid)?;
+        let key = self.keys.neighbours(in_uuid);
         let empty_edges = encode_uint64_matrix(&vec![Vec::new(); self.max_levels]);
-        let edge = KeyValue::new(in_uuid, self.vec_key.clone(), empty_edges);
+        let edge = KeyValue::new(in_uuid, self.keys.neighbours_label(), empty_edges);
         txn.lock_key(&key);
         let written = txn.add_mutation_with_lock_held(&key, &edge);
         txn.unlock_key(&key);
         written?;
         // Dgraph's entryUuidInsert.
-        let entry = KeyValue::new(1, self.vec_entry_key.clone(), uint64_to_bytes(in_uuid));
+        let entry = KeyValue::new(1, self.keys.entry_label(), uint64_to_bytes(in_uuid));
         txn.add_mutation_with_lock_held(entry_key, &entry)?;
         Ok(vec![edge, entry])
     }
@@ -219,7 +217,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         all_layer_neighbors: Vec<Vec<u64>>,
     ) -> Result<KeyValue, HnswError> {
         let txn = tc.txn();
-        let key = data_key(&self.vec_key, uuid)?;
+        let key = self.keys.neighbours(uuid);
         txn.lock_key(&key);
         let result = self.neighbours_added(tc, &key, uuid, all_layer_neighbors);
         txn.unlock_key(&key);
@@ -298,7 +296,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             .insert(uuid, all_layer_edges.clone());
         let edge = KeyValue::new(
             uuid,
-            self.vec_key.clone(),
+            self.keys.neighbours_label(),
             encode_uint64_matrix(&all_layer_edges),
         );
         txn.add_mutation_with_lock_held(key, &edge)?;
@@ -312,12 +310,14 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         tc: &TxnCache<'_, X>,
     ) -> Result<Vec<u64>, HnswError> {
         if self.dead_nodes.borrow().is_none() {
-            let dead: HashSet<u64> = match self.get_data_or_none(&self.vec_dead, 1, tc)? {
-                Some(data) => parse_edges(&String::from_utf8_lossy(&data))?
-                    .into_iter()
-                    .collect(),
-                None => HashSet::new(),
-            };
+            let dead_key = self.keys.dead();
+            let dead: HashSet<u64> =
+                match self.get_data_or_none(&dead_key, &self.keys.dead_label(), 1, tc)? {
+                    Some(data) => parse_edges(&String::from_utf8_lossy(&data))?
+                        .into_iter()
+                        .collect(),
+                    None => HashSet::new(),
+                };
             *self.dead_nodes.borrow_mut() = Some(dead);
         }
         let dead = self.dead_nodes.borrow();

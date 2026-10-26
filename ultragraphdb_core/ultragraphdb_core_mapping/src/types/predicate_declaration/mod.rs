@@ -77,6 +77,11 @@ impl PredicateDeclaration {
         self
     }
 
+    pub fn without_vector_index(mut self) -> Self {
+        self.vector_index = None;
+        self
+    }
+
     pub fn with_domains(mut self, domains: Vec<NamedNode>) -> Self {
         self.domains = domains;
         self

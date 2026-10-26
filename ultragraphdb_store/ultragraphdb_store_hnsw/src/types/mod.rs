@@ -11,4 +11,5 @@ pub(crate) mod query_cache;
 pub(crate) mod search_layer_result;
 pub(crate) mod similarity_type;
 pub(crate) mod txn_cache;
+pub(crate) mod vector_keys;
 pub(crate) mod vi_txn;

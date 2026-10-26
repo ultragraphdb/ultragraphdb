@@ -23,7 +23,7 @@ use ultragraphdb_store_sim::SimRng;
 use ultragraphdb_traits_index::{KeyValue, Txn};
 
 use crate::utils::helpers::{
-    InMemTxn, MapTxn, TsDbs, draw, edge_names, float64_array_as_bytes, key, opts,
+    InMemTxn, MapTxn, TsDbs, draw, edge_names, float64_array_as_bytes, key, opts, vkeys,
 };
 
 const PRED: &str = "0-a";
@@ -35,7 +35,7 @@ fn flat_ph() -> PersistentHnsw<f64> {
         ("efConstruction", "16"),
         ("efSearch", "12"),
     ]);
-    PersistentHnsw::new(PRED, &o, 64).unwrap()
+    PersistentHnsw::new(vkeys(PRED), &o, 64).unwrap()
 }
 
 /// Sets `uid`'s vector at every timestamp and inserts it in a transaction from `start_ts` to `commit_ts`.
@@ -341,21 +341,6 @@ fn test_corrupted_index_values_are_refused() {
         },
         "where Dgraph panics"
     );
-}
-
-/// Deviation: Dgraph's `DataKey` panics on a predicate without a namespace (`ParseNamespaceBytes` indexes the missing
-/// part) and exits on an unparsable namespace (`log.Fatalf`); the port returns the key's error.
-#[test]
-fn test_a_predicate_without_a_namespace_is_a_key_error() {
-    let txn = MapTxn::default();
-    let o = opts(&[("maxLevels", "2")]);
-    for name in ["plain", "zz-a"] {
-        let e = PersistentHnsw::<f64>::new(name, &o, 64)
-            .unwrap()
-            .insert(&TxnCache::new(&txn, 1), 3, &[1.0], &mut || 0.5)
-            .unwrap_err();
-        assert!(matches!(e.0, HnswErrorEnum::Key(_)), "{name}: {e}");
-    }
 }
 
 /// Deviation (ledger 45): when the entry point has lost its vector, Dgraph makes the first node in key order holding

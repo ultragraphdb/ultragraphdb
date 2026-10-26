@@ -3,5 +3,4 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-pub mod apply_error;
 pub mod changeset_error;

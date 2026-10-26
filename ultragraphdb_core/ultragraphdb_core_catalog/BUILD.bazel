@@ -42,10 +42,6 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(
-        ["testdata/**"],
-        allow_empty = True,
-    ),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_core_catalog"] + with_proto_bindings(all_crate_deps(
@@ -57,19 +53,9 @@ rust_test(
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
 rust_test(
     name = "bdd",
-    # bdd.rs includes the unit tests' golden file readers by path.
-    srcs = [
-        "tests/bdd.rs",
-        "tests/golden_json.rs",
-    ],
+    srcs = ["tests/bdd.rs"],
     crate_root = "tests/bdd.rs",
-    data = glob(
-        [
-            "features/**/*.feature",
-            "testdata/**",
-        ],
-        allow_empty = True,
-    ),
+    data = glob(["features/**/*.feature"]),
     tags = ["bdd-test"],
     use_libtest_harness = False,
     deps = [":ultragraphdb_core_catalog"] + with_proto_bindings(all_crate_deps(

@@ -3,12 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+mod changeset_write_data;
 mod changeset_write_declare;
 mod changeset_write_index;
 mod changeset_write_statements;
 mod changeset_write_triples;
+mod changeset_write_vector;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Mutex;
 
 use oxrdf::vocab::rdf;
 use oxrdf::{
@@ -17,16 +20,21 @@ use oxrdf::{
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{CachedList, Request};
+use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_store_quads::{QuadError, QuadErrorEnum, QuadWrite, StatementRecord, WriteTerms};
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
+use crate::types::level_draw::LevelDraw;
+use crate::types::predicate_prefix::PredicatePrefix;
+use crate::types::rebuild::Rebuild;
+use crate::types::write_outcome::WriteOutcome;
 
 /// The application of one changeset: its quad write, the catalog it is checked against, which its declarations and
 /// the default entries of the predicates it names first change, and the statement records it writes, which later
 /// changes of the same changeset read. Records and catalog entries are written once each, at [`ChangesetWrite::finish`],
-/// so that a key the changeset writes twice lands once.
+/// so that a key the changeset writes twice lands once. While an index is built, the predicate built is written under
+/// the declaration the build maintains.
 pub(crate) struct ChangesetWrite<'a, S, C> {
     write: QuadWrite<'a, S, C>,
     catalog: Catalog,
@@ -34,6 +42,19 @@ pub(crate) struct ChangesetWrite<'a, S, C> {
     entries: BTreeMap<Vec<u8>, Entry>,
     /// The statement records the write has written, or removed, by graph and ID.
     records: BTreeMap<(u64, u64), Option<StatementRecord>>,
+    /// The predicate whose indexes are built and the declaration its writes are applied under.
+    maintained: Option<(u64, PredicateDeclaration)>,
+    /// The predicate whose vector index is built: writes record the subjects whose vector they change.
+    vector_built: Option<u64>,
+    /// Whether a build runs, or another changeset of the batch starts one: a declaration needing one is refused.
+    building: bool,
+    /// The build the write's declaration starts.
+    pending: Option<Rebuild>,
+    touched: BTreeSet<(u64, u64)>,
+    /// The keys of the indexes the write's declarations remove.
+    removals: Vec<PredicatePrefix>,
+    /// The level draws of the vector index's inserts.
+    draws: &'a Mutex<LevelDraw>,
 }
 
 impl<'a, S, C> ChangesetWrite<'a, S, C>
@@ -41,13 +62,31 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    pub fn new(write: QuadWrite<'a, S, C>, catalog: Catalog) -> Self {
+    pub fn new(write: QuadWrite<'a, S, C>, catalog: Catalog, draws: &'a Mutex<LevelDraw>) -> Self {
         Self {
             write,
             catalog,
             entries: BTreeMap::new(),
             records: BTreeMap::new(),
+            maintained: None,
+            vector_built: None,
+            building: false,
+            pending: None,
+            touched: BTreeSet::new(),
+            removals: Vec::new(),
+            draws,
         }
+    }
+
+    /// The write while `rebuild` runs, or, with `None`, while another changeset of the batch starts one when
+    /// `building` holds.
+    pub fn under(mut self, rebuild: Option<&Rebuild>, building: bool) -> Self {
+        if let Some(r) = rebuild.filter(|r| r.namespace == self.namespace()) {
+            self.maintained = Some((r.predicate, r.maintained()));
+            self.vector_built = r.plan.build_vector.then_some(r.predicate);
+        }
+        self.building = building || rebuild.is_some();
+        self
     }
 
     /// Applies every change of `changeset`, in order; the first refusal ends it. A namespace with no catalog is given
@@ -130,9 +169,8 @@ where
         }
     }
 
-    /// The request, the terms to commit it with and the catalog its commit leaves, the statement records and catalog
-    /// entries added.
-    pub fn finish(mut self) -> (Request<'a, S, C>, WriteTerms, Catalog) {
+    /// What the write leaves to commit, the statement records and catalog entries added to its request.
+    pub fn finish(mut self) -> WriteOutcome<'a, S, C> {
         for ((graph, id), record) in std::mem::take(&mut self.records) {
             match record {
                 Some(record) => self.write.put_statement(graph, id, &record),
@@ -143,7 +181,14 @@ where
         self.entries
             .into_values()
             .for_each(|e| request.add_entry(e));
-        (request, terms, self.catalog)
+        WriteOutcome {
+            request,
+            terms,
+            catalog: self.catalog,
+            pending: self.pending,
+            touched: self.touched,
+            removals: self.removals,
+        }
     }
 
     fn namespace(&self) -> u64 {
@@ -223,6 +268,9 @@ where
         uid: u64,
         predicate: NamedNodeRef<'_>,
     ) -> Result<PredicateDeclaration, ChangesetError> {
+        if let Some((_, maintained)) = self.maintained.as_ref().filter(|(m, _)| *m == uid) {
+            return Ok(maintained.clone());
+        }
         if let Some(declared) = self.catalog.predicate(uid) {
             return Ok(declared.clone());
         }
@@ -240,6 +288,9 @@ where
 
     /// The declaration predicate `uid` behaves as, recording none: what a delete reads.
     fn behaviour(&self, uid: u64, predicate: NamedNodeRef<'_>) -> PredicateDeclaration {
+        if let Some((_, maintained)) = self.maintained.as_ref().filter(|(m, _)| *m == uid) {
+            return maintained.clone();
+        }
         self.catalog
             .predicate_or_default(uid, &predicate.into_owned())
             .into_owned()

@@ -50,6 +50,14 @@ impl Catalog {
         .with_discard()
     }
 
+    /// The keys of predicate `uid`'s catalog entries: its declaration and its statement-ID mark.
+    pub fn predicate_keys(namespace: u64, uid: u64) -> Vec<Vec<u8>> {
+        vec![
+            Self::key(namespace, PREDICATE, uid),
+            Self::key(namespace, STATEMENTS, uid),
+        ]
+    }
+
     /// The entry removing the declaration of `kind` for `uid` at `version`.
     pub fn removal(namespace: u64, kind: u8, uid: u64, version: u64) -> Entry {
         Entry::deletion(Self::key(namespace, kind, uid), version)
@@ -82,7 +90,9 @@ impl Catalog {
     }
 
     /// The catalog of `namespace` as `snapshot` reads it, every entry decoded, a type's parent resolved among the
-    /// types it holds.
+    /// types it holds. A key that does not parse as a catalog key, or an entry that does not decode, is corruption
+    /// naming the key and refuses the whole catalog: a declaration skipped would let writes go on under the default
+    /// declaration, unchecked and unindexed. Dgraph skips such a key with an error event.
     pub fn load<S: StoreSnapshot>(snapshot: &S, namespace: u64) -> Result<Catalog, CatalogError> {
         let mut catalog = Catalog::new(namespace);
         let mut types = Vec::new();
@@ -90,11 +100,11 @@ impl Catalog {
         for item in snapshot.scan(&scan) {
             let item = item?;
             let Ok((QuadKey::Catalog { kind, uid, .. }, None)) = QuadKey::parse(item.key()) else {
-                return Err(CatalogError::Decode(item.key(), "not a catalog key"));
+                return Err(CatalogError::Corrupted(item.key(), "not a catalog key"));
             };
             if kind == STATEMENTS {
                 if item.value() != statements_marker().as_slice() {
-                    return Err(CatalogError::Decode(
+                    return Err(CatalogError::Corrupted(
                         item.key(),
                         "an unreadable statements marker",
                     ));
@@ -111,7 +121,7 @@ impl Catalog {
                     catalog.relations.insert(uid, r);
                 }
                 _ => {
-                    return Err(CatalogError::Decode(
+                    return Err(CatalogError::Corrupted(
                         item.key(),
                         "the entry's kind is not its key's",
                     ));

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, tok/index/index.go (IndexFactory). Changed for ultragraphdb: translated to Rust;
- * Go's `error` as an associated type.
+ * Go's `error` as an associated type, and the name of an index as one, where Go names an index by a string.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -17,6 +17,8 @@ use crate::types::options::Options;
 pub trait IndexFactory<T: Float> {
     /// The indexes it creates.
     type Index: VectorIndex<T>;
+    /// What names an index: where it keeps its lists.
+    type Name: ?Sized;
     /// Why an operation failed.
     type Error;
 
@@ -32,21 +34,21 @@ pub trait IndexFactory<T: Float> {
     /// A new index under `name`; an error when the name is taken.
     fn create(
         &self,
-        name: &str,
+        name: &Self::Name,
         o: &Options,
         float_bits: usize,
     ) -> Result<Self::Index, Self::Error>;
 
     /// The index under `name`, `None` when there is none.
-    fn find(&self, name: &str) -> Result<Option<Self::Index>, Self::Error>;
+    fn find(&self, name: &Self::Name) -> Result<Option<Self::Index>, Self::Error>;
 
     /// Removes the index under `name`; nothing happens when there is none.
-    fn remove(&self, name: &str) -> Result<(), Self::Error>;
+    fn remove(&self, name: &Self::Name) -> Result<(), Self::Error>;
 
     /// Creates the index under `name`, replacing any that exists.
     fn create_or_replace(
         &self,
-        name: &str,
+        name: &Self::Name,
         o: &Options,
         float_bits: usize,
     ) -> Result<Self::Index, Self::Error>;

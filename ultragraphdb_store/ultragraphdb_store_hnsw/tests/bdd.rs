@@ -23,7 +23,7 @@ mod utils {
 }
 
 use crate::utils::helpers::{
-    TestLists, delete, draw, index_value, insert, key, new_lists, opts, pred, search,
+    TestLists, delete, draw, index_value, insert, key, new_lists, opts, pred, search, vkeys,
 };
 
 /// What a search of an empty index reported, and the neighbours its caller took from it.
@@ -312,7 +312,8 @@ fn empty_result(w: &mut Steps) {
 
 #[when("an hnsw index is declared with `exponent: \"4\"`")]
 fn exponent_four(w: &mut Steps) {
-    let index = PersistentHnsw::<f32>::new(&pred("emb"), &opts(&[("exponent", "4")]), 32).unwrap();
+    let index =
+        PersistentHnsw::<f32>::new(vkeys(&pred("emb")), &opts(&[("exponent", "4")]), 32).unwrap();
     w.parameters = (
         index.max_levels(),
         index.ef_construction(),

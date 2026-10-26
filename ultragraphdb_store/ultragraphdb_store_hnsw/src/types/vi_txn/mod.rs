@@ -6,8 +6,9 @@
  * (viLocalCache, LocalCache.Find) and posting/list.go (indexEdgeToPbEdge). Changed for ultragraphdb: translated to
  * Rust; over a request of the local commit, which owns its lists, so locking a key does nothing; the value read is
  * the list's static value at the request's read timestamp each time, where Dgraph keeps it on the list until the
- * next write; `find` scans the store at the request's read timestamp, after the read gate, and reads each key's
- * value through the request.
+ * next write; a node's vector is read from its forward list, whose value is the vector literal's encoding, its tag
+ * and dimension stripped; `find` scans the forward lists under the prefix at the request's read timestamp, after the
+ * read gate, and reads each key's value through the request.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
@@ -15,13 +16,12 @@ mod vi_txn_local_cache;
 mod vi_txn_txn;
 
 use std::cell::RefCell;
+use std::ops::ControlFlow;
 
-use ultragraphdb_core_keys::{data_key, parse};
-use ultragraphdb_core_types::Value;
-use ultragraphdb_proto_pb::pb::{DirectedEdge, directed_edge};
-use ultragraphdb_store_posting::{
-    BIT_EMPTY_POSTING, CachedList, DEL, PostingError, PostingErrorEnum, Request,
-};
+use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_core_terms::{EncodedTerm, TermView};
+use ultragraphdb_proto_pb::pb::{Posting, posting};
+use ultragraphdb_store_posting::{BIT_EMPTY_POSTING, CachedList, DEL, PostingError, Request, SET};
 use ultragraphdb_traits_index::KeyValue;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
@@ -56,11 +56,24 @@ where
         self.request.borrow().read_ts()
     }
 
-    /// Dgraph's `GetValueFromPostingList`: the first posting of the list's static value at the read timestamp.
+    /// Dgraph's `GetValueFromPostingList`: the first posting of the list's static value at the read timestamp; for a
+    /// forward list, the elements of the vector its value encodes. A list holding no value, or a forward list whose
+    /// value is not a vector, holds none.
     fn value(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
         let mut request = self.request.borrow_mut();
         let read_ts = request.read_ts();
         let list = request.get(key)?;
+        if matches!(QuadKey::parse(key), Ok((QuadKey::Forward { .. }, _))) {
+            // A forward list's newest delta may lead with the deletion of the vector it replaces: read it merged.
+            let mut first = None;
+            list.iterate(read_ts, 0, |p| {
+                first = Some(p.value.clone());
+                Ok::<_, PostingError>(ControlFlow::Break(()))
+            })?;
+            return first
+                .and_then(|v| vector_elements(&v))
+                .ok_or_else(HnswError::NoValue);
+        }
         match list
             .static_value(read_ts)
             .and_then(|pl| pl.postings.first())
@@ -70,12 +83,9 @@ where
         }
     }
 
-    /// Dgraph's `LocalCache.Find`: the uid of the first data key of the attribute `pred` names whose value passes
-    /// `filter`, in key order, skipping keys whose newest version is an empty list.
-    fn find_value(&self, pred: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
-        let attr = String::from_utf8_lossy(pred);
-        let start = data_key(&attr, 0)?;
-        let prefix = start[..start.len() - 8].to_vec();
+    /// Dgraph's `LocalCache.Find`: the node of the first forward list under `prefix` whose vector passes `filter`, in
+    /// key order, skipping lists whose newest version is empty and lists holding no vector.
+    fn find_value(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
         let (lists, read_ts) = {
             let request = self.request.borrow();
             (request.posting_lists(), request.read_ts())
@@ -85,46 +95,53 @@ where
             .store()
             .snapshot(read_ts)
             .map_err(PostingError::from)?;
-        for item in snapshot.scan(&Scan::prefix(prefix)) {
+        for item in snapshot.scan(&Scan::prefix(prefix.to_vec())) {
             let item = item.map_err(PostingError::from)?;
-            let pk = parse(item.key())?;
-            if pk.has_start_uid() || item.meta() & BIT_EMPTY_POSTING != 0 {
+            let Ok((QuadKey::Forward { subject, .. }, None)) = QuadKey::parse(item.key()) else {
+                continue;
+            };
+            if item.meta() & BIT_EMPTY_POSTING != 0 {
                 continue;
             }
-            let value = {
-                let mut request = self.request.borrow_mut();
-                let read_ts = request.read_ts();
-                match request.get(item.key())?.value(read_ts) {
-                    Ok(v) => match v.into_value() {
-                        Some(Value::Bytes(b)) => b,
-                        _ => continue,
-                    },
-                    Err(PostingError(PostingErrorEnum::NoValue)) => continue,
-                    Err(e) => return Err(e.into()),
-                }
+            let value = match self.value(item.key()) {
+                Ok(value) => value,
+                Err(e) if e.is_absence() => continue,
+                Err(e) => return Err(e),
             };
             if filter(&value) {
-                return Ok(pk.uid());
+                return Ok(subject);
             }
         }
         Err(HnswError::KeyNotFound())
     }
 
-    /// Dgraph's `AddMutation`: writes `t` into the scratch layer of `key`'s list, as Dgraph's `indexEdgeToPbEdge`
-    /// makes it an edge: a set of an untyped value.
+    /// Dgraph's `AddMutation`: writes `t`'s value into the scratch layer of `key`'s list, as its one value.
     fn write(&self, key: &[u8], t: &KeyValue) -> Result<(), HnswError> {
-        let edge = DirectedEdge {
-            entity: t.entity(),
-            attr: t.attr().to_string(),
-            value: t.value().to_vec(),
-            value_type: 0,
-            op: directed_edge::Op::Set as i32,
-            ..DirectedEdge::default()
-        };
         self.request
             .borrow_mut()
             .get(key)?
-            .add_mutation(&edge, None)?;
+            .add_posting(index_posting(t.value().to_vec()), false);
         Ok(())
+    }
+}
+
+/// The elements of the vector `encoding` encodes, little-endian 32-bit floats; `None` for another term.
+pub(crate) fn vector_elements(encoding: &[u8]) -> Option<Vec<u8>> {
+    let term = EncodedTerm::from_bytes(encoding).ok()?;
+    match term.view().ok()? {
+        TermView::Vector(v) => Some(v.as_bytes().to_vec()),
+        _ => None,
+    }
+}
+
+/// The posting of a vector-index list's one value, as Dgraph's `indexEdgeToPbEdge` makes the edge of an untyped value:
+/// under the uid of a value that is no list's element, so a later value replaces it.
+pub fn index_posting(value: Vec<u8>) -> Posting {
+    Posting {
+        uid: u64::MAX,
+        value,
+        posting_type: posting::PostingType::Value as i32,
+        op: SET,
+        ..Posting::default()
     }
 }

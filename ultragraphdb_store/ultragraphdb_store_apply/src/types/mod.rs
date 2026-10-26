@@ -4,14 +4,13 @@
  */
 
 pub(crate) mod applied;
-pub(crate) mod applier;
-pub(crate) mod apply_batch;
-pub(crate) mod apply_request;
 pub(crate) mod build_buffer;
 pub(crate) mod changeset_applier;
+pub(crate) mod changeset_core;
 pub(crate) mod changeset_write;
-pub(crate) mod index_op;
-pub(crate) mod index_rebuild;
-pub(crate) mod index_rebuild_info;
-pub(crate) mod index_schema;
+pub(crate) mod index_plan;
 pub(crate) mod level_draw;
+pub(crate) mod overlay_txn;
+pub(crate) mod predicate_prefix;
+pub(crate) mod rebuild;
+pub(crate) mod write_outcome;

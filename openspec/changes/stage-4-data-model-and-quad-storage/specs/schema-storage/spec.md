@@ -30,3 +30,15 @@ writes of one predicate SHALL record the same default entry, so neither depends 
   and `score` was not declared but already has a UID, as an object of an earlier statement (two writes creating one new
   IRI are the term dictionary's "The second creator retries")
 - **THEN** both commit, and the catalog holds `score` with the default entry
+
+## ADDED Requirements
+
+### Requirement: A catalog entry that does not read back is corruption
+A catalog key that does not parse, or a catalog entry that does not decode, SHALL refuse the load of its namespace's
+catalog with the store's corruption error naming the key, skipping nothing: every entry is written from a declaration
+through the catalog's encoding, so one that does not read back is a fault of the store or of the code, and a declaration
+skipped would let writes go on under the default declaration. Dgraph skips such a schema key and logs it.
+
+#### Scenario: A catalog key that does not parse refuses the load
+- **WHEN** a namespace's catalog is loaded from a store holding a catalog key that does not parse
+- **THEN** the load fails with a corruption error naming the key, and nothing panics

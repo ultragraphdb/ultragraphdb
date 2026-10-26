@@ -4,13 +4,13 @@
  */
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_apply::ApplyError;
+use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_store_posting::PostingError;
 
 use crate::errors::bench_error::BenchError;
 
-impl From<ApplyError> for BenchError {
-    fn from(error: ApplyError) -> Self {
+impl From<ChangesetError> for BenchError {
+    fn from(error: ChangesetError) -> Self {
         Self::Apply(error)
     }
 }

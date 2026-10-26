@@ -28,7 +28,7 @@ class.
 - [x] 3.2 Builders for every keyspace of the design's table; objects as self-delimiting UIDs or encodings; split keys with the `0x80` flag and the part's start
 - [x] 3.3 Parsing every keyspace back into its fields; refusal of zero UIDs and of every truncation without a panic, tested by parsing every proper prefix of each key kind
 - [x] 3.4 `Region` from a key, for every keyspace
-- [ ] 3.5 With the user's approval, retire the Dgraph key golden vectors and the generator files that produce only them; list each file removed
+- [x] 3.5 With the user's approval, retire the Dgraph key golden vectors and the generator files that produce only them; list each file removed; removed: `testdata/golden/keys.json`, `keys_namespace_attr.json`, `keys_parse_errors.json`, `keys_reserved.json`, `tests/golden.rs`, `features/key-encoding/key_encoding.feature` and the golden tests of `ultragraphdb_core_keys`, and `tools/golden/keys.go`. The Dgraph key builders stay while the posting crate's edge API, the simulator's store workload and the kv tests use them
 
 ## 4. The mapping contract → `ultragraphdb_core_mapping`
 
@@ -47,7 +47,7 @@ class.
 - [x] 5.4 The write checks: object kind, datatype constraint, single-valued overwrite, unique values by one read of the predicate's reverse list for the object; a declaration whose datatype constraint none of its tokenizers takes refused
 - [x] 5.5 Preorder numbering of the type hierarchy; refusal of a second parent and of a cycle
 - [x] 5.6 Persistence per namespace in catalog keys with the discard flag; load at open; removed declarations stay removed; overlays local to a write; a default entry written in the write's commit batch
-- [ ] 5.7 With the user's approval, remove the DQL schema parser and its tests once the catalog's suites pass; list each file removed
+- [x] 5.7 With the user's approval, remove the DQL schema parser and its tests once the catalog's suites pass; list each file removed; removed from `ultragraphdb_core_catalog`: `src/parse/`, `src/schema/`, `src/state.rs`, `src/types/{parsed_schema.rs, schema_mode.rs, schema_state/}`, `src/errors/schema_error/`, their tests, `tests/golden_json.rs`, the five `testdata/golden/schema_*.json`, `features/schema-parsing/`, `features/schema-storage/schema_storage.feature`, `features/telemetry/telemetry.feature`, and `tools/golden/{schema.go, schema_storage.go}`
 
 ## 6. The dictionary and the quad store → `ultragraphdb_store_quads`
 
@@ -74,19 +74,19 @@ class.
 
 ## 8. Catalog changes, rebuilds and drops → `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`
 
-- [ ] 8.1 Scenarios: schema-changes, vector-index (the modified requirements)
-- [ ] 8.2 The rebuild decision tables over tokenizers, the count index and the vector index; `needsReverseEdgesRebuild` removed; the two-phase rebuild, its temporary keyspace and rebuild record on the quad prefixes
-- [ ] 8.3 Catalog changes refused against the data: single-valued with a subject holding two objects, an edge holding literals, a property holding IRIs, a datatype constraint the data contradicts; applied otherwise
-- [ ] 8.4 Drops: a predicate across every keyspace and graph, its statement records and its entries in the predicate lists; a graph; a namespace's data; everything in a namespace and everything, with the initial catalog at timestamp 1; dictionary entries kept
-- [ ] 8.5 The HNSW lists in the vector-index keyspace, the search reading elements from the vector's encoding and refusing another dimension; the golden replays compare values under a translation from Dgraph's keys
+- [x] 8.1 Scenarios: schema-changes, vector-index (the modified requirements)
+- [x] 8.2 The rebuild decision tables over tokenizers, the count index and the vector index; `needsReverseEdgesRebuild` removed; the two-phase rebuild, its temporary keyspace and rebuild record on the quad prefixes
+- [x] 8.3 Catalog changes refused against the data: single-valued with a subject holding two objects, an edge holding literals, a property holding IRIs, a datatype constraint the data contradicts; applied otherwise
+- [x] 8.4 Drops: a predicate across every keyspace and graph, its statement records and its entries in the predicate lists; a graph; a namespace's data; everything in a namespace and everything, with the initial catalog at timestamp 1; dictionary entries kept
+- [x] 8.5 The HNSW lists in the vector-index keyspace, the search reading elements from the vector's encoding and refusing another dimension; the golden replays compare values under a translation from Dgraph's keys
 
 ## 9. DQL removed
 
-- [ ] 9.1 With the user's approval: remove `ultragraphdb_core_dql`, `ultragraphdb_core_lex`, `ultragraphdb_core_chunker`, `ultragraphdb_core_facets` and `ultragraphdb_client`, their Bazel targets and workspace entries; list each directory removed
+- [x] 9.1 With the user's approval: remove `ultragraphdb_core_dql`, `ultragraphdb_core_lex`, `ultragraphdb_core_chunker`, `ultragraphdb_core_facets` and `ultragraphdb_client`, their Bazel targets and workspace entries; list each directory removed; removed: `ultragraphdb_core/ultragraphdb_core_dql/`, `ultragraphdb_core/ultragraphdb_core_lex/`, `ultragraphdb_core/ultragraphdb_core_chunker/`, `ultragraphdb_core/ultragraphdb_core_facets/`, `ultragraphdb_client/`, `tools/golden/{dql.go, lex.go, chunker.go, facets.go}`; and the Dgraph applier of `ultragraphdb_store_apply` (`Applier`, `ApplyBatch`, `ApplyRequest`, `IndexRebuild`, `IndexSchema`, `ApplyError` and their tests and features), which only the DQL path used
 - [ ] 9.2 The specs `dql-parsing`, `schema-parsing` and `mutation-input` removed at archive; no feature file names them
 
 ## 10. Close the stage
 
 - [ ] 10.1 `store_bench` generates its relation commits as quads and reports list reads per relation, cache hits and reads that found nothing; one run per configuration in OrbStack, recorded in the overview beside stage 2's numbers
-- [ ] 10.2 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; `make fix` and `make format` clean
+- [x] 10.2 Every scenario of this stage has its feature; `scripts/bdd_counts.sh` reports equal counts; `make test` green; `make fix` and `make format` clean
 - [ ] 10.3 Headers on every new file; `AGENTS.md` crate and external-dependency tables updated; the ledger's rows that name removed crates marked

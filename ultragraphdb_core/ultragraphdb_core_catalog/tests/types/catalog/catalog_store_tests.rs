@@ -8,6 +8,7 @@ use ultragraphdb_core_catalog::{
     Catalog, CatalogErrorEnum, ENTITY_TYPE, PREDICATE, encode_declaration,
 };
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
@@ -49,7 +50,10 @@ fn test_an_entry_under_the_wrong_kind_or_undecodable_is_refused() {
         )],
     );
     let error = Catalog::load(&store.snapshot(u64::MAX).unwrap(), 0).unwrap_err();
-    assert!(matches!(error.0, CatalogErrorEnum::Decode { .. }));
+    assert!(matches!(
+        error.0,
+        CatalogErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted { .. }))
+    ));
     write(
         &store,
         vec![Entry::put(Catalog::key(1, PREDICATE, 3), 2, 1, vec![9])],

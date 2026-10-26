@@ -7,6 +7,7 @@ use ultragraphdb_core_catalog::CatalogError;
 use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_tok::TokError;
 use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_hnsw::HnswError;
 use ultragraphdb_store_posting::PostingError;
 use ultragraphdb_store_quads::QuadError;
 
@@ -45,5 +46,11 @@ impl From<StoreError> for ChangesetError {
 impl From<TokError> for ChangesetError {
     fn from(e: TokError) -> Self {
         Self(ChangesetErrorEnum::Tok(e))
+    }
+}
+
+impl From<HnswError> for ChangesetError {
+    fn from(e: HnswError) -> Self {
+        Self(ChangesetErrorEnum::Hnsw(e))
     }
 }

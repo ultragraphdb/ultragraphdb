@@ -3,8 +3,7 @@
 
 Feature: Scalar types
   Dgraph's scalar values: type identifiers, binary encodings, conversions, big floats, datetimes, value inference,
-  passwords and sort order (openspec/specs/scalar-types/spec.md). The facet
-  scenarios belong to ultragraphdb_core_facets.
+  passwords and sort order (openspec/specs/scalar-types/spec.md).
 
   Scenario: Schema type names map to identifiers
     When the names "int", "datetime", "uid", "bigfloat" and "float32vector" are looked up

@@ -14,6 +14,7 @@ use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::hnsw_factory::HnswFactory;
 use crate::types::persistent_hnsw::PersistentHnsw;
+use crate::types::vector_keys::VectorKeys;
 
 /// The registry's entry for `hnsw`, which names the factory and parses and prints its options.
 fn entry() -> Option<VectorIndexFactory> {
@@ -22,6 +23,7 @@ fn entry() -> Option<VectorIndexFactory> {
 
 impl<T: HnswFloat> IndexFactory<T> for HnswFactory<T> {
     type Index = PersistentHnsw<T>;
+    type Name = VectorKeys;
     type Error = HnswError;
 
     fn name(&self) -> &str {
@@ -38,24 +40,24 @@ impl<T: HnswFloat> IndexFactory<T> for HnswFactory<T> {
 
     fn create(
         &self,
-        name: &str,
+        name: &VectorKeys,
         o: &Options,
         float_bits: usize,
     ) -> Result<Self::Index, Self::Error> {
-        PersistentHnsw::new(name, o, float_bits)
+        PersistentHnsw::new(name.clone(), o, float_bits)
     }
 
-    fn find(&self, _: &str) -> Result<Option<Self::Index>, Self::Error> {
+    fn find(&self, _: &VectorKeys) -> Result<Option<Self::Index>, Self::Error> {
         Ok(None)
     }
 
-    fn remove(&self, _: &str) -> Result<(), Self::Error> {
+    fn remove(&self, _: &VectorKeys) -> Result<(), Self::Error> {
         Ok(())
     }
 
     fn create_or_replace(
         &self,
-        name: &str,
+        name: &VectorKeys,
         o: &Options,
         float_bits: usize,
     ) -> Result<Self::Index, Self::Error> {

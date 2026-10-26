@@ -212,6 +212,57 @@ write, the interim declaration during a rebuild.
   dictionary reports a declared predicate under its labels before any node holds it.
 - **Preorder numbers** walk each type's subtypes in UID order, the order the types were first named, so a number
   depends on the hierarchy and the dictionary alone.
+- **A catalog entry that does not read back is corruption.** Keys are built only from `QuadKey::Catalog` and values only
+  by the codec, so a malformed entry cannot be written; one that reads back wrong is bit rot, which fjall's checksums
+  report, or a fault of the code. The load refuses the namespace's whole catalog with the store's `Corrupted` naming the
+  key, as the posting crate and the dictionary report theirs. Dgraph skips such a key and logs it, which lets writes go
+  on under the default declaration, unchecked and unindexed. A corrupt catalog fails its own namespace alone, and
+  dropping the namespace, which reads no catalog, stays possible.
+
+### Catalog changes, rebuilds and drops
+
+A predicate's keys are one range per graph: graph precedes predicate in every quad key, which fits reads, since a query
+reads one graph. An operation over a predicate in every graph **skip-scans each keyspace**: it seeks to the predicate
+under one graph, reads that range, and seeks past the graph to the next. It reads the data itself, so it finds every
+graph that holds the predicate, an index entry a bug left behind included, and costs one seek per graph and keyspace on
+operations that are rare. A registry of the graphs each predicate is held in would cost only the graphs holding it, at a
+write cost nothing needs yet; it is the upgrade once a query lists graphs (SPARQL's `GRAPH ?g`).
+
+- **A declaration of a predicate holding data** is checked against the data when it narrows what the predicate may
+  hold: single-valued, an edge, a property, a datatype constraint. The check reads every forward list of the predicate
+  through the changeset's request, so statements the changeset wrote before the declaration count. A refusal names the
+  predicate and the subject at fault and refuses the changeset.
+- **The decision table** compares the old and new declarations' tokenizers, count index and vector index: what to
+  build, what to remove. Removing an index from a predicate needs no build: the changeset's commit deletes its keys.
+- **A build** runs on the applier's executor. The changeset commits at the change's timestamp with the interim
+  declaration, the new one without the indexes built or removed, as the predicate's catalog entry, so queries and a
+  reopened store read the interim one. Writes after it are checked against the new declaration and maintain the old
+  and new indexes both. The build reads every forward list at the change's timestamp into a temporary keyspace; one
+  batch under the apply lock swaps it in: each built list complete at the change's timestamp, a deletion there for a key
+  the build produced none for, a deletion of every key of a removed index at the batch's timestamp, and the new
+  declaration. Rollups pause while a build runs.
+- **A vector index** is built afresh in memory, one per graph, its inserts reading each node's vector at the change's
+  timestamp. Writes during the build maintain the old declaration's vector index, if it had one, and record the
+  subjects whose vector they change; the swap applies those changes to the built index, then writes its lists over the
+  predicate's vector-index keys at its commit timestamp and deletes those it did not write. The build holds the index's
+  lists in memory, which bounds it by the size of the index.
+- **The rebuild record,** written and synced before the build, names the indexes writes maintain, as prefixes without
+  their graph. A store opened with a record drops, in every graph, the indexes the loaded catalog does not declare, so a
+  crash leaves the interim declaration and its indexes, complete.
+- **One rebuild runs at a time.** A declaration that needs a build, or that changes a predicate being built, is refused
+  while one runs, with `Please retry`.
+- **Drops** take the apply lock. Dropping a predicate removes, in one store drop, every version under its prefixes in
+  every graph, the subject- and object-predicate lists of each node its forward and reverse lists name, and the records
+  of the statement IDs its postings carry; the drop writes each of those predicate lists again without the predicate,
+  complete. The store's drop is atomic and finished at open after a crash, so no older snapshot sees a dropped predicate
+  in a predicate list and no re-declaration under the same UID finds one. The entries are built in memory, which bounds a
+  predicate drop by the number of nodes holding it.
+- **Dropping everything** removes every quad keyspace and keeps the dictionary, as every drop does, so a UID is never
+  reissued. A namespace's initial catalog is written at timestamp 1 when its `rdf:type` has a UID; one without has never
+  been written, and its first write writes the catalog as before.
+- **The HNSW lists** are keyed by graph and predicate in the vector-index keyspace: the entry point, each node's
+  neighbour matrix, the dead list. The index reads a node's vector from the forward list's encoding, its tag and
+  dimension stripped. One HNSW per graph and predicate. A vector of another dimension than the entry point's is refused.
 
 ### The data dictionary
 

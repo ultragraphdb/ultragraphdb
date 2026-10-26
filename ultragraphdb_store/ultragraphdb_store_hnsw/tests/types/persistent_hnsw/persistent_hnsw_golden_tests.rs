@@ -15,7 +15,7 @@ use ultragraphdb_store_hnsw::{HnswFloat, PersistentHnsw, QueryCache, TxnCache, a
 use ultragraphdb_test_bdd::{Golden, load_golden, testdata_dir};
 use ultragraphdb_traits_index::{KeyValue, VectorIndexOptions, accept_all};
 
-use crate::utils::helpers::{MapTxn, draws, key, opts, vec_bytes};
+use crate::utils::helpers::{MapTxn, draws, key, opts, translated, vec_bytes, vkeys};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GraphOp {
@@ -43,6 +43,13 @@ pub struct GraphCase {
 
 pub fn graph_golden() -> Golden<GraphCase> {
     load_golden::<GraphCase>(&testdata_dir().join("golden/hnsw_graph.json"))
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&text[i..i + 2], 16).ok())
+        .collect()
 }
 
 fn hex(b: &[u8]) -> String {
@@ -95,7 +102,7 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
                 txn.db
                     .borrow_mut()
                     .insert(key(&c.pred, op.uid), vec_bytes(&v));
-                let index = PersistentHnsw::<T>::new(&c.pred, &o, c.bits).unwrap();
+                let index = PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits).unwrap();
                 let edges = index.insert(&TxnCache::new(&txn, 1), op.uid, &v, &mut draw);
                 if let Some(heir) = go_hands_over(c, op) {
                     hands_over(c, op, heir, &edges.unwrap());
@@ -115,8 +122,9 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
                 txn.db.borrow_mut().insert(dead_key.clone(), dead);
             }
             search => {
-                let index = search_index
-                    .get_or_insert_with(|| PersistentHnsw::<T>::new(&c.pred, &o, c.bits).unwrap());
+                let index = search_index.get_or_insert_with(|| {
+                    PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits).unwrap()
+                });
                 let qc = QueryCache::new(&txn, 1);
                 let query = vector::<T>(op);
                 let result = match search {
@@ -153,7 +161,17 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
         .iter()
         .map(|(k, v)| (hex(k), hex(v)))
         .collect();
-    assert_eq!(contents, c.contents, "{}: the store after the run", c.name);
+    // Go's keys are Dgraph's: each is compared under its translation to the vector-index and forward keys.
+    let expected: BTreeMap<String, String> = c
+        .contents
+        .iter()
+        .map(|(k, v)| {
+            let key =
+                translated(&unhex(k)).unwrap_or_else(|| panic!("{}: a Dgraph key {k}", c.name));
+            (hex(&key), v.clone())
+        })
+        .collect();
+    assert_eq!(contents, expected, "{}: the store after the run", c.name);
     assert!(searched > 50, "{}", c.name);
     false
 }

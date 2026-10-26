@@ -43,9 +43,7 @@ pub enum CatalogErrorEnum {
     },
     /// A parent that would make the type its own ancestor.
     ParentCycle { entity_type: String, parent: String },
-    /// A catalog entry that cannot be read.
-    Decode { key: Vec<u8>, reason: String },
-    /// The store failed.
+    /// The store failed, or holds a catalog entry that does not parse or decode: its `Corrupted`, naming the key.
     Store(StoreError),
 }
 
@@ -121,12 +119,15 @@ impl CatalogError {
         })
     }
 
+    /// A catalog entry of `key` that does not parse or decode, as the store's `Corrupted`, so a caller sees one kind of
+    /// corruption whichever layer found it. Every entry is written from a declaration through the codec, so one that
+    /// does not read back is a fault of the store or of the code, never data to skip.
     #[allow(non_snake_case)]
-    pub fn Decode(key: &[u8], reason: impl Into<String>) -> Self {
-        Self(CatalogErrorEnum::Decode {
-            key: key.to_vec(),
-            reason: reason.into(),
-        })
+    pub fn Corrupted(key: &[u8], reason: impl Into<String>) -> Self {
+        Self(CatalogErrorEnum::Store(StoreError::Corrupted(
+            key.to_vec(),
+            reason.into(),
+        )))
     }
 }
 

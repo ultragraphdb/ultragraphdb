@@ -10,7 +10,7 @@
 use ultragraphdb_store_hnsw::{HnswError, HnswErrorEnum, HnswFactory};
 use ultragraphdb_traits_index::IndexFactory;
 
-use crate::utils::helpers::opts;
+use crate::utils::helpers::{opts, vkeys};
 
 #[test]
 fn test_the_factory_names_itself_and_its_options() {
@@ -38,24 +38,25 @@ fn test_the_factory_names_itself_and_its_options() {
 fn test_every_index_is_created_fresh() {
     let f = HnswFactory::<f32>::new();
     let o = opts(&[("exponent", "4")]);
-    let ix = f.create("0-emb", &o, 32).unwrap();
+    let keys = vkeys("0-emb");
+    let ix = f.create(&keys, &o, 32).unwrap();
     assert_eq!(
         (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
         (4, 200, 120)
     );
     assert_eq!(
-        f.create_or_replace("0-emb", &o, 32).unwrap().pred(),
+        f.create_or_replace(&keys, &o, 32).unwrap().keys().name(),
         "0-emb"
     );
-    assert!(f.find("0-emb").unwrap().is_none());
-    assert!(f.remove("0-emb").is_ok());
+    assert!(f.find(&keys).unwrap().is_none());
+    assert!(f.remove(&keys).is_ok());
 }
 
 #[test]
 fn test_an_option_below_one_is_refused() {
     let f = HnswFactory::<f32>::new();
     let err = f
-        .create("0-emb", &opts(&[("efSearch", "0")]), 32)
+        .create(&vkeys("0-emb"), &opts(&[("efSearch", "0")]), 32)
         .unwrap_err();
     assert!(
         matches!(

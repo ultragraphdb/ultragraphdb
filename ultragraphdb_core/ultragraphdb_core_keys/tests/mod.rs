@@ -6,8 +6,6 @@
 #[cfg(test)]
 mod errors;
 #[cfg(test)]
-mod golden;
-#[cfg(test)]
 mod keys;
 #[cfg(test)]
 mod types;

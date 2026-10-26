@@ -13,11 +13,10 @@
 
 use std::collections::BTreeMap;
 
-use ultragraphdb_proto_pb::pb::{DirectedEdge, Posting, directed_edge::Op};
+use ultragraphdb_error_store::StoreError;
+use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, List, marshal};
 use ultragraphdb_traits_store::{Entry, Item, Store, Temporary, WriteBatch};
-
-use crate::errors::apply_error::ApplyError;
 
 /// The postings and entries a build holds in memory before it writes them to its temporary keyspace.
 pub(crate) const HELD_BOUND: usize = 10_000;
@@ -103,25 +102,18 @@ impl<'t> BuildBuffer<'t> {
         self.postings + self.swap.len()
     }
 
-    /// Adds `uid` to the index list of `key`, with the facets of `source`.
-    pub fn add(&mut self, key: Vec<u8>, uid: u64, source: &Posting) -> Result<(), ApplyError> {
+    /// Adds `posting` to the list of `key`, as a quad list holds it: a uid, or a literal's value posting.
+    pub fn add_posting(&mut self, key: Vec<u8>, posting: Posting) {
         let start_ts = self.start_ts;
         let list = self.lists.entry(key.clone()).or_insert_with(|| {
             let mut l = List::empty(key);
             l.set_ts(start_ts);
             l
         });
-        let edge = DirectedEdge {
-            value_id: uid,
-            op: Op::Set as i32,
-            facets: source.facets.clone(),
-            ..DirectedEdge::default()
-        };
-        list.add_mutation(&edge, None)?;
+        list.add_posting(posting, false);
         self.postings += 1;
         self.added += 1;
         self.peak = self.peak.max(self.held());
-        Ok(())
     }
 
     /// Buffers `entries` for the swap.
@@ -141,7 +133,7 @@ impl<'t> BuildBuffer<'t> {
     }
 
     /// Writes what is held to the temporary keyspace once it reaches the bound.
-    pub fn maybe_flush<S: Store>(&mut self, store: &S) -> Result<(), ApplyError> {
+    pub fn maybe_flush<S: Store>(&mut self, store: &S) -> Result<(), StoreError> {
         if self.held() >= HELD_BOUND {
             self.flush(store)?;
         }
@@ -150,7 +142,7 @@ impl<'t> BuildBuffer<'t> {
 
     /// Writes every list held as a delta at the next version of the delta region, and every swap entry buffered,
     /// to the temporary keyspace.
-    pub fn flush<S: Store>(&mut self, store: &S) -> Result<(), ApplyError> {
+    pub fn flush<S: Store>(&mut self, store: &S) -> Result<(), StoreError> {
         let mut batch = std::mem::take(&mut self.swap);
         for (key, list) in std::mem::take(&mut self.lists) {
             if let Some(delta) = list.delta() {

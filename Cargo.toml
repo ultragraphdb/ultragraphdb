@@ -6,7 +6,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "ultragraphdb_client",
+    #"ultragraphdb_client/*", # reserved for later
     "ultragraphdb_common/*",
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
@@ -31,20 +31,16 @@ publish = false
 # Internal crates
 # ==============
 ## Client
-ultragraphdb_client = { path = "ultragraphdb_client" }
+# TBDs
 ## Common
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
 ultragraphdb_common_version = { path = "ultragraphdb_common/ultragraphdb_common_version" }
-## Core: the pure packages ported from Dgraph
+## Core
 ultragraphdb_core_algo = { path = "ultragraphdb_core/ultragraphdb_core_algo" }
 ultragraphdb_core_catalog = { path = "ultragraphdb_core/ultragraphdb_core_catalog" }
-ultragraphdb_core_chunker = { path = "ultragraphdb_core/ultragraphdb_core_chunker" }
 ultragraphdb_core_codec = { path = "ultragraphdb_core/ultragraphdb_core_codec" }
-ultragraphdb_core_dql = { path = "ultragraphdb_core/ultragraphdb_core_dql" }
-ultragraphdb_core_facets = { path = "ultragraphdb_core/ultragraphdb_core_facets" }
 ultragraphdb_core_keys = { path = "ultragraphdb_core/ultragraphdb_core_keys" }
-ultragraphdb_core_lex = { path = "ultragraphdb_core/ultragraphdb_core_lex" }
 ultragraphdb_core_mapping = { path = "ultragraphdb_core/ultragraphdb_core_mapping" }
 ultragraphdb_core_terms = { path = "ultragraphdb_core/ultragraphdb_core_terms" }
 ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }

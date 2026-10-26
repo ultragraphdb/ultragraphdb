@@ -20,6 +20,7 @@ use ultragraphdb_traits_index::{VectorIndexOptions, accept_all, accept_none};
 
 use crate::utils::helpers::{
     InMemLocalCache, InMemTxn, MapTxn, MemoryCache, TsDbs, draw, float64_array_as_bytes, key, opts,
+    vkeys,
 };
 
 fn index(metric: &str, max_levels: &str) -> PersistentHnsw<f64> {
@@ -29,7 +30,7 @@ fn index(metric: &str, max_levels: &str) -> PersistentHnsw<f64> {
         ("efSearch", "12"),
         ("metric", metric),
     ]);
-    PersistentHnsw::new("0-a", &o, 64).unwrap()
+    PersistentHnsw::new(vkeys("0-a"), &o, 64).unwrap()
 }
 
 #[test]
@@ -81,13 +82,13 @@ fn test_search_returns_correct_order_for_all_metrics() {
         ] {
             dbs.set_all(&key(&pred, uid), float64_array_as_bytes(&vec));
             let txn = InMemTxn::new(&dbs, start, start + 1);
-            PersistentHnsw::<f64>::new(&pred, &o, 64)
+            PersistentHnsw::<f64>::new(vkeys(&pred), &o, 64)
                 .unwrap()
                 .insert(&TxnCache::new(&txn, start), uid, &vec, &mut || 0.5)
                 .unwrap();
         }
         let lc = InMemLocalCache::new(&dbs, 10);
-        let results = PersistentHnsw::<f64>::new(&pred, &o, 64)
+        let results = PersistentHnsw::<f64>::new(vkeys(&pred), &o, 64)
             .unwrap()
             .search(
                 &QueryCache::new(&lc, 10),
@@ -133,8 +134,8 @@ fn test_hnsw_search_ef_override_improves_recall() {
         ("efSearch", "1"),
         ("metric", "euclidean"),
     ]);
-    let ph = PersistentHnsw::<f64>::new(pred, &o, 64).unwrap();
-    assert_eq!(ph.pred(), pred);
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64).unwrap();
+    assert_eq!(ph.keys().name(), pred);
     let cache = synthetic(
         pred,
         &[
@@ -170,7 +171,7 @@ fn test_hnsw_distance_threshold_euclidean() {
         ("efSearch", "10"),
         ("metric", "euclidean"),
     ]);
-    let ph = PersistentHnsw::<f64>::new(pred, &o, 64).unwrap();
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64).unwrap();
     let cache = synthetic(
         pred,
         &[(1, vec![0.6, 0.0]), (2, vec![0.8, 0.0])],
@@ -198,7 +199,7 @@ fn test_hnsw_distance_threshold_euclidean() {
 fn test_hnsw_distance_threshold_cosine() {
     let pred = "0-thresh_pred_c";
     let o = opts(&[("maxLevels", "1"), ("efSearch", "10"), ("metric", "cosine")]);
-    let ph = PersistentHnsw::<f64>::new(pred, &o, 64).unwrap();
+    let ph = PersistentHnsw::<f64>::new(vkeys(pred), &o, 64).unwrap();
     let cache = synthetic(
         pred,
         &[(1, vec![1.0, 0.0]), (2, vec![0.8, 0.6])],

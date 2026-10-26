@@ -3,67 +3,13 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The reserved, pre-defined, ACL and internal name checks against Dgraph's answers for the same names.
+//! The reserved, pre-defined, ACL and internal name checks.
 
 use ultragraphdb_core_keys::{
-    KeyError, all_acl_predicates, attr_in_root_namespace, is_acl_predicate, is_internal_predicate,
-    is_other_reserved_predicate, is_pre_defined_predicate, is_pre_defined_type,
-    is_registered_reserved_predicate, is_reserved_predicate, is_reserved_type, star_all_predicates,
+    KeyError, all_acl_predicates, attr_in_root_namespace, is_internal_predicate,
+    is_pre_defined_predicate, is_pre_defined_type, is_registered_reserved_predicate,
+    is_reserved_predicate, is_reserved_type, star_all_predicates,
 };
-
-use crate::golden::{ReservedCase, golden};
-
-#[test]
-fn test_golden_reserved() {
-    let golden = golden::<ReservedCase>("keys_reserved");
-    assert!(golden.cases().len() > 30);
-    for c in golden.cases() {
-        let ns_attr = attr_in_root_namespace(&c.name);
-        assert_eq!(
-            is_reserved_predicate(&ns_attr).unwrap(),
-            c.is_reserved_predicate,
-            "{}",
-            c.name
-        );
-        assert_eq!(
-            is_pre_defined_predicate(&ns_attr).unwrap(),
-            c.is_pre_defined_predicate,
-            "{}",
-            c.name
-        );
-        assert_eq!(is_acl_predicate(&c.name), c.is_acl_predicate, "{}", c.name);
-        assert_eq!(
-            is_other_reserved_predicate(&c.name),
-            c.is_other_reserved_predicate,
-            "{}",
-            c.name
-        );
-        assert_eq!(
-            is_internal_predicate(&ns_attr).unwrap(),
-            c.is_internal_predicate,
-            "{}",
-            c.name
-        );
-        assert_eq!(
-            is_reserved_type(&ns_attr).unwrap(),
-            c.is_reserved_type,
-            "{}",
-            c.name
-        );
-        assert_eq!(
-            is_pre_defined_type(&ns_attr).unwrap(),
-            c.is_pre_defined_type,
-            "{}",
-            c.name
-        );
-        assert_eq!(
-            is_registered_reserved_predicate(&ns_attr).unwrap(),
-            c.is_registered_reserved_predicate,
-            "{}",
-            c.name
-        );
-    }
-}
 
 #[test]
 fn test_star_all_predicates() {

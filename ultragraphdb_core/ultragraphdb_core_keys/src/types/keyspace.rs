@@ -76,7 +76,14 @@ impl Keyspace {
                 | Keyspace::ObjectPredicates
                 | Keyspace::ValueIndex
                 | Keyspace::CountIndex
+                | Keyspace::VectorIndex
         )
+    }
+
+    /// Whether its lists tell postings apart by their values as well as their UIDs: every list keyspace but the vector
+    /// index's, whose lists hold one value each, overwritten in place.
+    pub fn compares_values(self) -> bool {
+        self.is_list() && self != Keyspace::VectorIndex
     }
 
     /// Whether its keys name a predicate after the graph.

@@ -8,7 +8,7 @@ mod bench_error_error;
 mod bench_error_from;
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_apply::ApplyError;
+use ultragraphdb_store_apply::ChangesetError;
 
 /// Why a run of `store_bench` stopped.
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub enum BenchErrorEnum {
     /// The arguments name no run it can make.
     Usage(String),
     /// The applier refused an operation.
-    Apply(ApplyError),
+    Apply(ChangesetError),
     /// The store refused an operation.
     Store(StoreError),
     /// A file of the run could not be read or written.
@@ -32,7 +32,7 @@ impl BenchError {
         Self(BenchErrorEnum::Usage(reason))
     }
 
-    pub fn Apply(error: ApplyError) -> Self {
+    pub fn Apply(error: ChangesetError) -> Self {
         Self(BenchErrorEnum::Apply(error))
     }
 

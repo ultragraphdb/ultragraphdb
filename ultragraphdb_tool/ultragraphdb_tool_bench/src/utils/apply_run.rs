@@ -4,9 +4,10 @@
  */
 
 //! Task 10.2's first measurement: the apply thread at a fixed offered rate. A source thread releases Dgraph-shaped
-//! commits at the rate into a channel; the apply thread takes everything waiting in one receive, as Dgraph's apply
-//! loop takes one Raft `Ready`'s committed entries (bounded at 64 MiB, `MaxCommittedSizePerReady`), applies each
-//! commit as a request reading at the applied timestamp, and commits the batch as one store batch. At most 256
+//! commits, as changesets of quads, at the rate into a channel; the apply thread takes everything waiting in one
+//! receive, as Dgraph's apply loop takes one Raft `Ready`'s committed entries (bounded at 64 MiB,
+//! `MaxCommittedSizePerReady`), and applies them as one batch of the changeset applier: each a request, all
+//! committed in one store batch. The run reports the lists the commits read per relation. At most 256
 //! commits are in flight, Dgraph's pending-proposal limit; past it the source waits, and the run measures the rate the
 //! apply thread reaches. Rollups run beside it on a thread of their own, as Dgraph's rollup goroutine does, unless the
 //! run turns them off.
@@ -16,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use ultragraphdb_proto_pb::pb::Mutations;
+use ultragraphdb_core_mapping::{Change, Changeset};
 use ultragraphdb_traits_store::Executor;
 
 use crate::errors::bench_error::BenchError;
@@ -43,6 +44,7 @@ const PENDING_PROPOSALS: u64 = 256;
 /// What one apply-step batch took.
 struct BatchStat {
     commits: u64,
+    lists_read: u64,
     nanos: u64,
     write_nanos: u64,
     write_calls: Vec<WriteCall>,
@@ -57,8 +59,9 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let a = open_applier(args.dir(), args.durability(), args.cache_mb())?;
     let mut shape = CommitShape::new(args.relations(), HUBS, TYPES, 1);
     prepare(&a, &shape, TYPES)?;
-    let data_path = a.lists().store().inner().data_path().to_path_buf();
-    let _ = a.lists().store().take_calls();
+    let lists = a.quads().lists();
+    let data_path = lists.store().inner().data_path().to_path_buf();
+    let _ = lists.store().take_calls();
 
     let clock = WallClock::new();
     let stop = Arc::new(AtomicBool::new(false));
@@ -68,7 +71,7 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let rollups = args
         .rollups()
         .then(|| spawn_rollups(&a, clock, stop.clone()));
-    let (tx, rx) = mpsc::channel::<Mutations>();
+    let (tx, rx) = mpsc::channel::<Changeset>();
     let (source_done, source_result) = mpsc::channel::<(u64, u64, Option<f64>)>();
     {
         let (rate, seconds, applied) = (args.rate(), args.seconds(), applied.clone());
@@ -87,7 +90,7 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
                         owed += pacer.take_due(&clock);
                         continue;
                     }
-                    if tx.send(shape.next(0)).is_err() {
+                    if tx.send(shape.next_commit()).is_err() {
                         break 'run;
                     }
                     sent += 1;
@@ -137,8 +140,8 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     };
     let cpu = process_cpu_secs().zip(cpu_start).map(|(b, a)| b - a);
     let (rss, rss_peak) = rss_kib();
-    let rollup_calls = a.lists().store().other_calls();
-    a.lists().sync()?;
+    let rollup_calls = lists.store().other_calls();
+    lists.sync()?;
     drop(a);
     let sizes = DirSizes::of(args.dir(), &data_path)?;
     Ok(report(
@@ -160,29 +163,28 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     ))
 }
 
-/// Applies `commits` as one apply step: each a request at the applied timestamp, all committed in one batch.
-/// Returns the batch's figures and how many commits failed.
+/// Applies `commits` as one apply step: one batch of the changeset applier. Returns the batch's figures and how many
+/// commits failed.
 fn apply_batch(
     a: &Arc<BenchApplier>,
     clock: &WallClock,
-    commits: &[Mutations],
+    commits: &[Changeset],
 ) -> Result<(BatchStat, u64), BenchError> {
     let start = clock.elapsed();
-    let read_ts = a.lists().applied_ts();
-    let mut batch = a.batch();
-    for m in commits {
-        let mut request = batch.request(read_ts);
-        request.apply_edges(m)?;
-        batch.push(request);
-    }
-    let results = batch.commit()?;
+    let results = a.apply_batch(commits)?;
     let nanos = u64::try_from((clock.elapsed() - start).as_nanos()).unwrap_or(u64::MAX);
     let failed = results.iter().filter(|r| r.is_err()).count() as u64;
-    let write_calls = a.lists().store().take_calls();
+    let lists_read = results
+        .iter()
+        .flatten()
+        .map(|applied| applied.lists_read() as u64)
+        .sum();
+    let write_calls = a.quads().lists().store().take_calls();
     let write_nanos = write_calls.iter().map(WriteCall::nanos).sum();
     Ok((
         BatchStat {
             commits: commits.len() as u64,
+            lists_read,
             nanos,
             write_nanos,
             write_calls,
@@ -209,7 +211,7 @@ fn spawn_rollups(
             if stop.load(Ordering::Acquire) {
                 break Ok(());
             }
-            match a.lists().run_rollups(clock.elapsed().as_secs()) {
+            match a.quads().lists().run_rollups(clock.elapsed().as_secs()) {
                 Ok(0) => std::thread::sleep(Duration::from_millis(1)),
                 Ok(n) => rolled += n,
                 Err(e) => break Err(BenchError::from(e)),
@@ -221,11 +223,19 @@ fn spawn_rollups(
     result
 }
 
-/// The size of a commit as a Raft entry, estimated: each edge's predicate, value and fixed fields.
-fn encoded_size(m: &Mutations) -> usize {
-    m.edges
+/// The size of a commit as a Raft entry, estimated: each statement's terms as text.
+fn encoded_size(c: &Changeset) -> usize {
+    c.changes()
         .iter()
-        .map(|e| e.attr.len() + e.value.len() + 24)
+        .map(|change| match change {
+            Change::Insert {
+                subject,
+                predicate,
+                object,
+                ..
+            } => subject.to_string().len() + predicate.as_str().len() + object.to_string().len(),
+            _ => 24,
+        })
         .sum()
 }
 
@@ -250,6 +260,7 @@ fn report(
     let secs = elapsed.as_secs_f64();
     let applied: u64 = stats.iter().map(|s| s.commits).sum();
     let relations = applied * args.relations() as u64;
+    let lists_read: u64 = stats.iter().map(|s| s.lists_read).sum();
     let mut sizes_of: Vec<u64> = stats.iter().map(|s| s.commits).collect();
     let batch_size = Summary::of(&mut sizes_of);
     let mut us: Vec<u64> = stats.iter().map(|s| s.nanos / 1_000).collect();
@@ -282,7 +293,8 @@ fn report(
         concat!(
             "{{\"run\":\"apply\",\"offered_commits_per_s\":{},\"relations_per_commit\":{},\"durability\":\"{:?}\",",
             "\"rollups\":{},\"max_batch\":{},\"seconds\":{:.2},\"commits_offered\":{},\"commits_applied\":{},\"commit_errors\":{},",
-            "\"achieved_commits_per_s\":{:.0},\"achieved_relations_per_s\":{:.0},\"source_waits_on_pending_limit\":{},",
+            "\"achieved_commits_per_s\":{:.0},\"achieved_relations_per_s\":{:.0},\"lists_read_per_relation\":{:.2},",
+            "\"source_waits_on_pending_limit\":{},",
             "\"batches\":{},\"batch_commits\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
             "\"batch_apply_us\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
             "\"batch_write_call_us\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
@@ -304,6 +316,7 @@ fn report(
         errors,
         applied as f64 / secs,
         relations as f64 / secs,
+        lists_read as f64 / relations.max(1) as f64,
         waits,
         stats.len(),
         batch_size.p50(),

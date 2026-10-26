@@ -35,8 +35,8 @@ use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError, ChangesetErrorE
 use ultragraphdb_store_posting::{CachedList, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
 use ultragraphdb_store_sim::{
-    Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimStore, Simulation, Stream,
-    Violation,
+    Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, SimStore, Simulation,
+    SteppedExecutor, Stream, Violation,
 };
 use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 
@@ -55,7 +55,7 @@ const NS: u64 = 0;
 const SUBJECTS: u64 = 6;
 const PHRASES: [&str; 5] = ["big apple", "red apple", "green pear", "big fig", "red"];
 
-type SimChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>>;
+type SimChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 
 fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -135,7 +135,11 @@ impl ChangesetWorkload {
             cache,
             ListsConfig::new(PersistMode::Buffer, 256),
         );
-        let a = Arc::new(ChangesetApplier::new(lists)?);
+        let a = Arc::new(ChangesetApplier::new(
+            lists,
+            ctx.executor().clone(),
+            ctx.seed().value(),
+        )?);
         let declared = match a.quads().uid_of(NS, ex("friend").as_str())? {
             Some(friend) => a.catalog(NS)?.predicate(friend).is_some(),
             None => false,

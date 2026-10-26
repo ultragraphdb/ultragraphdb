@@ -3,59 +3,33 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Ported from Dgraph v25.5.0: `schema`: the schema language, the schema state, and its storage.
+//! The catalog: per namespace, the declarations of its predicates, entity types and relations, which both engines,
+//! index maintenance and the write checks read, kept in the catalog keyspace and loaded per namespace.
 //!
-//! [`parse`] turns schema text into predicate updates (`pb::SchemaUpdate`) and type updates (`pb::TypeUpdate`),
-//! each named by its namespaced attribute (`0-name`); [`parse_with_namespace`] places every one in a given
-//! namespace. [`SchemaState`] holds the current definitions and answers for them; [`initial_schema`] and
-//! [`initial_types`] are the definitions every namespace starts with. [`schema_entry`] and [`type_entry`] are the
-//! store entries of a definition, and [`SchemaState::load_from_db`] loads the state from a
-//! [`Store`](ultragraphdb_traits_store::Store).
+//! A [`Catalog`] declares a predicate's kind, cardinality, datatype constraint, unique values, indexes and domains,
+//! an entity type's one parent, numbered in preorder, and a relation's roles; it checks a write's object against a
+//! declaration. [`Catalog::entry`] is a declaration's store entry, and [`Catalog::load`] reads a namespace's catalog
+//! back, refusing it whole when an entry does not read back.
 //!
 //! ```
-//! use ultragraphdb_core_catalog::{SchemaError, SchemaMode, SchemaState, parse};
+//! use oxrdf::NamedNode;
+//! use ultragraphdb_core_catalog::Catalog;
+//! use ultragraphdb_core_mapping::{PredicateDeclaration, PredicateKind};
 //!
-//! # fn main() -> Result<(), SchemaError> {
-//! let parsed = parse("name: string @index(exact, term) @upsert .\nfriend: [uid] @reverse .")?;
-//! assert_eq!(parsed.preds()[0].predicate, "0-name");
-//! assert_eq!(parsed.preds()[0].tokenizer, ["exact", "term"]);
-//!
-//! let state = SchemaState::new();
-//! for update in parsed.into_parts().0 {
-//!     state.set(&update.predicate.clone(), update);
-//! }
-//! assert!(state.has_upsert("0-name"));
-//! assert!(state.is_reversed(SchemaMode::Query, "0-friend"));
-//!
-//! let err = parse("friend: [bool] .").unwrap_err();
-//! assert_eq!(err.to_string(), "line 1 column 9: Unsupported type for list: [bool].");
-//! # Ok(())
-//! # }
+//! let mut catalog = Catalog::new(0);
+//! let knows = PredicateDeclaration::new(NamedNode::new_unchecked("http://ex.org/knows"))
+//!     .with_kind(PredicateKind::Edge);
+//! catalog.declare_predicate(7, knows).unwrap();
+//! assert_eq!(catalog.predicate(7).map(|d| d.kind()), Some(PredicateKind::Edge));
 //! ```
 
 mod errors;
-mod parse;
-mod schema;
-mod state;
 mod types;
 mod utils;
 
 pub use crate::errors::catalog_error::{CatalogError, CatalogErrorEnum};
-pub use crate::errors::schema_error::{SchemaError, SchemaErrorEnum};
-pub use crate::parse::{has_tokenizer_or_vector_index_spec, parse, parse_with_namespace};
-pub use crate::schema::entries::{schema_entry, type_entry};
-pub use crate::schema::initial::{
-    complete_initial_schema, complete_initial_types, initial_schema, initial_types,
-};
-pub use crate::schema::pre_defined::{
-    IS_UNIQUE_DGRAPH_XID, check_and_modify_pre_def_predicate, compare_schema_updates,
-    is_pre_def_type_changed,
-};
 pub use crate::types::catalog::Catalog;
 pub use crate::types::catalog::catalog_checks::datatype_of;
-pub use crate::types::parsed_schema::ParsedSchema;
-pub use crate::types::schema_mode::SchemaMode;
-pub use crate::types::schema_state::SchemaState;
 pub use crate::utils::catalog_codec::{
     ENTITY_TYPE, PREDICATE, RELATION, decode as decode_declaration, encode as encode_declaration,
 };

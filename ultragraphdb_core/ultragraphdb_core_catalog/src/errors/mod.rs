@@ -4,4 +4,3 @@
  */
 
 pub(crate) mod catalog_error;
-pub(crate) mod schema_error;

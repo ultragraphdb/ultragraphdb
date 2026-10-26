@@ -12,8 +12,6 @@ use ultragraphdb_core_keys::{
     parse_attr_list, parse_namespace, parse_namespace_attr, parse_namespace_bytes,
 };
 
-use crate::golden::{NamespaceAttrCase, compare, golden};
-
 #[test]
 fn test_name_space() {
     let ns = 133u64;
@@ -45,40 +43,6 @@ fn test_ns_separator() {
     let (ns, attr) = parse_namespace_attr(pk.attr()).unwrap();
     assert_eq!(ROOT_NAMESPACE, ns);
     assert_eq!(pred, attr);
-}
-
-#[test]
-fn test_golden_namespace_attr() {
-    let golden = golden::<NamespaceAttrCase>("keys_namespace_attr");
-    for c in golden.cases() {
-        let formatted = namespace_attr(c.namespace, &c.attr);
-        assert_eq!(formatted, c.formatted);
-        assert_eq!(
-            parse_namespace_attr(&formatted).unwrap(),
-            (c.parsed_namespace, c.parsed_attr.as_str())
-        );
-        assert_eq!(parse_namespace(&formatted).unwrap(), c.parsed_namespace);
-        assert_eq!(parse_attr(&formatted).unwrap(), c.parsed_attr);
-        let (ns_bytes, attr) = parse_namespace_bytes(&formatted).unwrap();
-        compare(&formatted, &c.namespace_bytes, &ns_bytes);
-        compare(
-            &formatted,
-            &c.namespace_bytes,
-            &namespace_to_bytes(c.namespace),
-        );
-        assert_eq!(attr, c.parsed_attr);
-        // Go panics reading the first byte of an empty predicate; the port's empty predicate is not a reverse one.
-        assert_eq!(
-            c.is_reverse_attr_panics,
-            c.parsed_attr.is_empty(),
-            "{formatted}: Dgraph panics exactly on the empty predicate"
-        );
-        assert_eq!(
-            is_reverse_attr(&formatted).unwrap(),
-            c.is_reverse_attr,
-            "{formatted}"
-        );
-    }
 }
 
 #[test]

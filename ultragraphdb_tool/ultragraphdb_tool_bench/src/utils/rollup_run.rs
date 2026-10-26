@@ -4,7 +4,7 @@
  */
 
 //! Task 10.2's second measurement: rollups and the compaction filter over one large predicate. It loads
-//! `rel_t0_org`, `@reverse`, with commits of `relations` records each linked to one of `hubs` hubs, until each hub's
+//! `rel_t0_org`, an edge, with commits of `relations` records each linked to one of `hubs` hubs, until each hub's
 //! reverse list holds about `versions` deltas, rollups off; then rolls up every hub's reverse list, sets the discard
 //! timestamp above every rollup, and runs `Store::compact`, a flush and a major compaction with the GC filter. It
 //! counts the predicate's versions above and below the discard timestamp before and after, and the store's files at
@@ -13,7 +13,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ultragraphdb_core_keys::{attr_in_root_namespace, data_key, reverse_key};
+use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
 
 use crate::errors::bench_error::BenchError;
@@ -46,36 +47,47 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     let a = open_applier(args.dir(), ultragraphdb_store_kv::Durability::Process, 128)?;
     let mut shape = CommitShape::new(args.relations(), args.hubs(), 1, 1);
     prepare(&a, &shape, 1)?;
-    let data_path = a.lists().store().inner().data_path().to_path_buf();
-    let attr = attr_in_root_namespace("rel_t0_org");
-    let reverse =
-        prefix_of(&reverse_key(&attr, 1).map_err(ultragraphdb_store_apply::ApplyError::from)?);
-    let forward =
-        prefix_of(&data_key(&attr, 1).map_err(ultragraphdb_store_apply::ApplyError::from)?);
+    let lists = a.quads().lists();
+    let data_path = lists.store().inner().data_path().to_path_buf();
+    let uid_of = |iri: &str| {
+        a.quads()
+            .uid_of(0, iri)
+            .map_err(ultragraphdb_store_apply::ChangesetError::from)?
+            .ok_or_else(|| BenchError::Usage(format!("{iri} has no UID")))
+    };
+    let predicate = uid_of(CommitShape::iri("rel_t0_org").as_str())?;
+    let prefix = |keyspace| key_prefix(keyspace, false, 0, Some(DEFAULT_GRAPH), Some(predicate));
+    let (reverse, forward) = (prefix(Keyspace::Reverse), prefix(Keyspace::Forward));
 
     let clock = WallClock::new();
     let commits = (args.hubs() * args.versions()).div_ceil(args.relations() as u64);
     let load = load(&a, &mut shape, commits, &clock)?;
-    a.lists().sync()?;
+    lists.sync()?;
     let loaded = DirSizes::of(args.dir(), &data_path)?;
 
     let start = clock.elapsed();
     let cpu = process_cpu_secs();
     let mut rolled = 0u64;
-    for hub in 1..=args.hubs() {
-        let key = reverse_key(&attr, hub).map_err(ultragraphdb_store_apply::ApplyError::from)?;
-        if a.lists().rollup_key(&key)? {
+    for hub in 0..args.hubs() {
+        let key = QuadKey::Reverse {
+            namespace: 0,
+            graph: DEFAULT_GRAPH,
+            predicate,
+            object: EncodedTerm::uid(uid_of(CommitShape::hub(hub).as_str())?),
+        }
+        .to_bytes();
+        if lists.rollup_key(&key)? {
             rolled += 1;
         }
     }
     let rollup = clock.elapsed() - start;
     let rollup_cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
-    a.lists().sync()?;
+    lists.sync()?;
     let rolled_sizes = DirSizes::of(args.dir(), &data_path)?;
 
-    let discard = a.lists().latest_ts();
-    a.lists().set_discard_ts(discard)?;
-    let store = a.lists().store();
+    let discard = lists.latest_ts();
+    lists.set_discard_ts(discard)?;
+    let store = lists.store();
     let before = (
         count(store, &reverse, discard)?,
         count(store, &forward, discard)?,
@@ -149,20 +161,13 @@ fn load(
     let mut left = commits;
     while left > 0 {
         let n = left.min(LOAD_BATCH as u64);
-        let read_ts = a.lists().applied_ts();
-        let ms: Vec<_> = (0..n).map(|_| shape.next(read_ts)).collect();
-        let mut batch = a.batch();
-        for m in &ms {
-            let mut request = batch.request(read_ts);
-            request.apply_edges(m)?;
-            batch.push(request);
-        }
-        if let Some(Err(e)) = batch.commit()?.into_iter().find(Result::is_err) {
+        let changesets: Vec<_> = (0..n).map(|_| shape.next_commit()).collect();
+        if let Some(Err(e)) = a.apply_batch(&changesets)?.into_iter().find(Result::is_err) {
             return Err(e.into());
         }
         left -= n;
         // The rollups this load queues are not run; the measurement runs them itself.
-        let _ = a.lists().store().take_calls();
+        let _ = a.quads().lists().store().take_calls();
     }
     Ok(clock.elapsed() - start)
 }
@@ -185,11 +190,6 @@ fn count<S: Store>(store: &S, prefix: &[u8], discard: u64) -> Result<Versions, B
         }
     }
     Ok(v)
-}
-
-/// A uid key without its uid: the prefix of every key of its kind and predicate.
-fn prefix_of(key: &[u8]) -> Vec<u8> {
-    key[..key.len() - 8].to_vec()
 }
 
 fn versions_json(v: Versions) -> String {

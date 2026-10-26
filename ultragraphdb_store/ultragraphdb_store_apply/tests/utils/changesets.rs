@@ -11,14 +11,17 @@ use oxrdf::{BlankNode, GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_core_mapping::{
     Cardinality, Change, Changeset, Declaration, PredicateDeclaration, PredicateKind,
+    VectorIndexSpec,
 };
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR};
 use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
 use ultragraphdb_store_apply::{Applied, ChangesetApplier, ChangesetError, token_value};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
-use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
+use ultragraphdb_store_sim::{
+    FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
+};
 
-pub type TestChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>>;
+pub type TestChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 
 /// The namespace the tests write.
 pub const NS: u64 = 0;
@@ -30,11 +33,16 @@ pub fn sim_store() -> SimStore {
     SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
 }
 
-/// A changeset applier over `store`, with a fresh cache.
+/// A changeset applier over `store`, with a fresh cache, its builds on a stepped executor.
 pub fn changesets_over(store: SimStore) -> TestChangesets {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
-    ChangesetApplier::new(Lists::new(store, cache, ListsConfig::default()))
-        .expect("the applier opens")
+    let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
+    ChangesetApplier::new(
+        Lists::new(store, cache, ListsConfig::default()),
+        executor,
+        1,
+    )
+    .expect("the applier opens")
 }
 
 /// A changeset applier over a fault-free simulated store.
@@ -181,7 +189,7 @@ pub fn delete_pattern(subject: &str, predicate: &str) -> Change {
 }
 
 /// The declaration a phrase states for `predicate`: `edge` or `property`, `single-valued`, `unique`, `count index`,
-/// a backticked `xsd:` datatype, and backticked tokenizers.
+/// `vector index`, a backticked `xsd:` datatype, and backticked tokenizers.
 pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
     let mut d = PredicateDeclaration::new(ex(predicate));
     if phrase.contains("an edge") {
@@ -198,6 +206,9 @@ pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
     }
     if phrase.contains("count index") {
         d = d.with_count_index(true);
+    }
+    if phrase.contains("vector index") {
+        d = d.with_vector_index(VectorIndexSpec::new("hnsw", Vec::new()));
     }
     let quoted: Vec<&str> = phrase.split('`').skip(1).step_by(2).collect();
     let tokenizers = quoted
@@ -228,13 +239,33 @@ pub fn apply(a: &TestChangesets, changes: Vec<Change>) -> Result<Applied, Change
 
 /// Declares `predicate` as `phrase` states.
 pub fn declare(a: &TestChangesets, predicate: &str, phrase: &str) {
+    declared(a, predicate, phrase).expect("the declaration applies");
+}
+
+/// Applies the declaration of `predicate` `phrase` states: its commit or its refusal.
+pub fn declared(
+    a: &TestChangesets,
+    predicate: &str,
+    phrase: &str,
+) -> Result<Applied, ChangesetError> {
     apply(
         a,
         vec![Change::Declare(Declaration::Predicate(declaration(
             predicate, phrase,
         )))],
     )
-    .expect("the declaration applies");
+}
+
+/// Writes `texts`, one changeset each.
+pub fn write<T: AsRef<str>>(a: &TestChangesets, texts: &[T]) {
+    for text in texts {
+        apply(a, vec![insert(text.as_ref())]).expect("the write applies");
+    }
+}
+
+/// Runs every build waiting, to its swap.
+pub fn finish_builds(a: &TestChangesets) {
+    a.executor().run_until_idle();
 }
 
 /// The UID of the IRI `<name>`.

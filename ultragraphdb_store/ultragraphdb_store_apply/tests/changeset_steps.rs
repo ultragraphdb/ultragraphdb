@@ -18,7 +18,7 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_apply::{Applied, ChangesetApplier, ChangesetError};
 use ultragraphdb_store_posting::{Lists, ListsConfig};
 use ultragraphdb_store_quads::QuadStore;
-use ultragraphdb_store_sim::{Seed, SimListCache, Stream};
+use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
 
 use crate::Steps;
 use crate::utils::changesets::{
@@ -28,14 +28,14 @@ use crate::utils::changesets::{
 };
 
 /// The changeset applier of the scenario, created on first use.
-fn cs(w: &mut Steps) -> Arc<TestChangesets> {
+pub(crate) fn cs(w: &mut Steps) -> Arc<TestChangesets> {
     w.changesets
         .get_or_insert_with(|| Arc::new(changesets()))
         .clone()
 }
 
 /// The backticked items of a step's text, in order.
-fn quoted(text: &str) -> Vec<String> {
+pub(crate) fn quoted(text: &str) -> Vec<String> {
     text.split('`')
         .skip(1)
         .step_by(2)
@@ -44,7 +44,7 @@ fn quoted(text: &str) -> Vec<String> {
 }
 
 /// The last changeset's result.
-fn last(w: &Steps) -> &Result<Applied, ChangesetError> {
+pub(crate) fn last(w: &Steps) -> &Result<Applied, ChangesetError> {
     w.results.last().expect("a changeset was applied")
 }
 
@@ -53,7 +53,7 @@ fn applied(w: &Steps) -> &Applied {
 }
 
 /// Whether the statement `text` names is held.
-fn is_held(a: &TestChangesets, text: &str) -> bool {
+pub(crate) fn is_held(a: &TestChangesets, text: &str) -> bool {
     let t = statement(text);
     let graph = match &t.graph {
         GraphName::NamedNode(n) => n.as_str().trim_start_matches("http://ex.org/").to_string(),
@@ -110,7 +110,9 @@ fn constant_fingerprint(w: &mut Steps) {
     let quads = QuadStore::open(Lists::new(sim_store(), cache, ListsConfig::default()))
         .expect("the quads open")
         .with_fingerprint(|_| 7);
-    w.changesets = Some(Arc::new(ChangesetApplier::over(quads)));
+    let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
+    let applier = ChangesetApplier::over(quads, executor, 1).expect("the applier opens");
+    w.changesets = Some(Arc::new(applier));
 }
 
 #[given(regex = r"^`(.+)` is held with the property `(\S+) (.+)`$")]
@@ -315,7 +317,7 @@ fn not_held(w: &mut Steps, text: String) {
     assert!(!is_held(&a, &text), "{text} is not held");
 }
 
-#[then(regex = r"^the write fails with an error naming (.+)$")]
+#[then(regex = r"^the write fails with an error naming ((?:`[^`]+`(?:, | and )?)+)$")]
 fn fails_naming(w: &mut Steps, names: String) {
     let error = last(w).as_ref().expect_err("the write fails").to_string();
     for name in quoted(&names) {

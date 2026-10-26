@@ -3,14 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! What both runs open: an applier over the timed fjall store with moka's cache, its schema the Dgraph runs'.
+//! What both runs open: a changeset applier over the timed fjall store with moka's cache, its catalog the Dgraph
+//! runs' schema as declarations.
 
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ultragraphdb_core_catalog::parse;
-use ultragraphdb_store_apply::{Applier, ApplyError};
+use ultragraphdb_store_apply::ChangesetApplier;
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 
@@ -20,7 +20,7 @@ use crate::types::size::Size;
 use crate::types::timed_store::TimedStore;
 
 /// The applier both runs drive.
-pub type BenchApplier = Applier<TimedStore, MokaListCache<CachedList>, ThreadExecutor>;
+pub type BenchApplier = ChangesetApplier<TimedStore, MokaListCache<CachedList>, ThreadExecutor>;
 
 /// Dgraph's share of `--cache size-mb` given to the posting-list cache (`percentage=40,40,20`).
 const POSTING_CACHE_PERCENT: u64 = 40;
@@ -47,24 +47,24 @@ pub fn open_applier(
         |_: &[u8], v: &CachedList| v.weight(),
     );
     let lists = Lists::new(store, cache, ListsConfig::default());
-    Ok(Arc::new(Applier::new(lists, ThreadExecutor::new(), 1)?))
+    Ok(Arc::new(ChangesetApplier::new(
+        lists,
+        ThreadExecutor::new(),
+        1,
+    )?))
 }
 
-/// Applies the schema of `types` relation types, waits out any build it started, and writes the hubs.
+/// Declares the predicates of `types` relation types, waits out any build it started, and writes the hubs.
 ///
 /// # Errors
 ///
 /// The applier's.
 pub fn prepare(a: &Arc<BenchApplier>, shape: &CommitShape, types: u64) -> Result<(), BenchError> {
-    let updates = parse(&CommitShape::schema(types))
-        .map_err(ApplyError::from)?
-        .into_parts()
-        .0;
-    a.alter(updates)?;
+    a.apply(&CommitShape::declarations(types))?;
     while a.rebuilding() {
         std::thread::sleep(Duration::from_millis(10));
     }
-    a.apply_mutations(&shape.hubs(a.lists().latest_ts()))?;
+    a.apply(&shape.hubs())?;
     Ok(())
 }
 

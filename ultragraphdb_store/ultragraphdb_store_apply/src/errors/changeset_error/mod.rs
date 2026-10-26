@@ -12,6 +12,7 @@ use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_terms::TermError;
 use ultragraphdb_core_tok::TokError;
 use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_hnsw::HnswError;
 use ultragraphdb_store_posting::PostingError;
 use ultragraphdb_store_quads::QuadError;
 
@@ -28,6 +29,7 @@ pub enum ChangesetErrorEnum {
     Posting(PostingError),
     Store(StoreError),
     Tok(TokError),
+    Hnsw(HnswError),
     /// A literal the write names cannot be encoded, a vector not in its canonical form above all; `predicate` names
     /// the statement's predicate.
     Literal {
@@ -39,6 +41,28 @@ pub enum ChangesetErrorEnum {
         predicate: String,
         value: String,
         holder: String,
+    },
+    /// A declaration the predicate's data contradicts: `subject` holds what the declaration refuses, as `reason`
+    /// states.
+    Contradicted {
+        predicate: String,
+        subject: String,
+        reason: String,
+    },
+    /// A declaration that needs an index built, or that changes the predicate being built, while a build runs.
+    Rebuilding {
+        predicate: String,
+    },
+    /// A vector index whose options its factory refuses.
+    VectorOption {
+        factory: String,
+        error: String,
+    },
+    /// A vector whose dimension is not that of the vectors the predicate's index holds.
+    Dimension {
+        predicate: String,
+        held: usize,
+        written: usize,
     },
 }
 
@@ -61,6 +85,39 @@ impl ChangesetError {
             predicate: predicate.to_string(),
             value,
             holder,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Contradicted(predicate: &str, subject: String, reason: &str) -> Self {
+        Self(ChangesetErrorEnum::Contradicted {
+            predicate: predicate.to_string(),
+            subject,
+            reason: reason.to_string(),
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Rebuilding(predicate: &str) -> Self {
+        Self(ChangesetErrorEnum::Rebuilding {
+            predicate: predicate.to_string(),
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn VectorOption(factory: &str, error: String) -> Self {
+        Self(ChangesetErrorEnum::VectorOption {
+            factory: factory.to_string(),
+            error,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Dimension(predicate: &str, held: usize, written: usize) -> Self {
+        Self(ChangesetErrorEnum::Dimension {
+            predicate: predicate.to_string(),
+            held,
+            written,
         })
     }
 }

@@ -9,7 +9,6 @@ use oxrdf::LiteralRef;
 use ultragraphdb_core_keys::{CountDirection, QuadKey};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
 use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_posting::{CachedList, DEL, SET};
 use ultragraphdb_store_quads::object_posting;
@@ -17,7 +16,7 @@ use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
-use crate::utils::token_values::token_value;
+use crate::utils::literal_tokens::literal_tokens;
 
 impl<S, C> ChangesetWrite<'_, S, C>
 where
@@ -25,26 +24,13 @@ where
     C: ListCache<Value = CachedList>,
 {
     /// The value-index tokens of `literal` under each tokenizer `declaration` names, each with its tokenizer's
-    /// identifier: computed from the literal's value, by its language's tokenizer when it is tagged. A literal of a
-    /// datatype a tokenizer does not take gives that tokenizer no token.
+    /// identifier.
     pub(crate) fn tokens(
         &self,
         declaration: &PredicateDeclaration,
         literal: LiteralRef<'_>,
     ) -> Result<BTreeSet<(u8, Vec<u8>)>, ChangesetError> {
-        let lang = literal.language().unwrap_or_default();
-        let mut tokens = BTreeSet::new();
-        for name in declaration.tokenizers() {
-            let (Some(tokenizer), Some(value)) = (get_tokenizer(name), token_value(literal, name))
-            else {
-                continue;
-            };
-            let tokenizer = get_tokenizer_for_lang(&tokenizer, lang);
-            for token in tokenizer.tokens(&value)? {
-                tokens.insert((tokenizer.identifier(), token));
-            }
-        }
-        Ok(tokens)
+        Ok(literal_tokens(declaration.tokenizers(), literal)?)
     }
 
     /// Adds the subject to, or removes it from, the value-index list of `token`, without reading it.

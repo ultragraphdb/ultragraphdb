@@ -27,11 +27,13 @@ rust_doc(
     visibility = ["//visibility:public"],
 )
 
+# The crate's example runs over the simulated store, a dev-dependency, as Cargo links dev-dependencies into doc tests.
 rust_doc_test(
     name = "doc_test",
     crate = ":ultragraphdb_store_apply",
     tags = ["doc-test"],
     visibility = ["//visibility:public"],
+    deps = with_proto_bindings(all_crate_deps(normal_dev = True)),
 )
 
 # One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It
@@ -43,8 +45,10 @@ rust_test(
         ["tests/**/*.rs"],
         exclude = [
             "tests/bdd.rs",
+            "tests/catalog_change_steps.rs",
             "tests/changeset_steps.rs",
             "tests/utils/probe.rs",
+            "tests/vector_steps.rs",
         ],
     ),
     crate_root = "tests/mod.rs",
@@ -57,15 +61,16 @@ rust_test(
 )
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the
-# unit tests' helpers, the changeset helpers and the probe store by path.
+# changeset helpers and the probe store by path.
 rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/catalog_change_steps.rs",
         "tests/changeset_steps.rs",
         "tests/utils/changesets.rs",
-        "tests/utils/helpers.rs",
         "tests/utils/probe.rs",
+        "tests/vector_steps.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]),

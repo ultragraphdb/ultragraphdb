@@ -16,6 +16,14 @@ pub fn is_quad_list(key: &[u8]) -> bool {
         .is_some_and(|(keyspace, _)| keyspace.is_list())
 }
 
+/// Whether `key`'s list tells its postings apart by value as well as by uid: a quad list but the vector index's,
+/// whose lists hold one value each.
+pub fn compares_values(key: &[u8]) -> bool {
+    key.first()
+        .and_then(|b| Keyspace::from_byte(*b))
+        .is_some_and(|(keyspace, _)| keyspace.compares_values())
+}
+
 /// The key of the part of `key`'s list starting at `start`, in the key's own layout.
 pub fn split_key_of(key: &[u8], start: u64) -> Result<Vec<u8>, PostingError> {
     if is_quad_list(key) {

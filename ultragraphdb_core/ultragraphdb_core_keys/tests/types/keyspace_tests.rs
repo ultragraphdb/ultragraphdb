@@ -26,7 +26,12 @@ fn test_each_keyspace_byte_reads_back_with_and_without_the_split_flag() {
     assert!(
         Keyspace::Forward.is_list()
             && !Keyspace::Statements.is_list()
-            && !Keyspace::VectorIndex.is_list()
+            && Keyspace::VectorIndex.is_list()
     );
     assert!(Keyspace::Statistics.has_predicate() && !Keyspace::ObjectPredicates.has_predicate());
+    assert!(
+        Keyspace::Forward.compares_values()
+            && !Keyspace::VectorIndex.compares_values()
+            && !Keyspace::Statistics.compares_values()
+    );
 }

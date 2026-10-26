@@ -42,10 +42,6 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(
-        ["testdata/**"],
-        allow_empty = True,
-    ),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_core_keys"] + with_proto_bindings(all_crate_deps(
@@ -59,13 +55,7 @@ rust_test(
     name = "bdd",
     srcs = ["tests/bdd.rs"],
     crate_root = "tests/bdd.rs",
-    data = glob(
-        [
-            "features/**/*.feature",
-            "testdata/**",
-        ],
-        allow_empty = True,
-    ),
+    data = glob(["features/**/*.feature"]),
     tags = ["bdd-test"],
     use_libtest_harness = False,
     deps = [":ultragraphdb_core_keys"] + with_proto_bindings(all_crate_deps(
