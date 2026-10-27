@@ -166,8 +166,10 @@ decoders of untrusted bytes fail. Every decoder of bytes from a client, a peer o
   byte string rarely passes). `cargo-fuzz` needs a nightly toolchain, which the machine has, and builds libFuzzer from
   C++ through `libfuzzer-sys`. That C++ dependency exists only in the fuzz packages: no shipped crate depends on it, so
   the pure-Rust rule for shipped binaries holds.
-- **Layout:** each fuzzed crate holds a `fuzz/` package of its own, as `cargo fuzz init` makes it, outside the
-  workspace's member globs and outside Bazel; its targets call the crate's public decoders.
+- **Layout:** each fuzzed crate has a package at `fuzz/<crate>/`, its targets calling the crate's public decoders. The
+  packages form one workspace in `fuzz/`, which the root workspace excludes and Bazel never builds: every dependency is
+  pinned once in `fuzz/Cargo.toml` and declared `{ workspace = true }`, as in the root workspace, and the packages share
+  one lock file and one build directory. Seeds and regression cases stay in the crate's own `testdata/`.
 - **Properties:** never panic; accept or refuse with the typed error; re-encode an accepted value to the same bytes
   where the format has one encoding; the WAL scan never accepts a round whose checksums fail.
 - **Seeds:** the conformance suite's golden frames and the posting format's golden values, so a run starts from inputs
@@ -205,8 +207,12 @@ drops any node whose vector is not visible at its snapshot.
 - [Clock-based versions skew on a runaway clock] → `previous + 2` absorbs steps back; stage 10 bounds the clock.
 - [A drive that tears the last round while reporting its sync complete loses that round on one node] → the scan detects
   it by its checksums and reports the truncation by name; from stage 10 a replica repairs it from a peer.
+- [On macOS a sync does not reach the drive: compio's `sync_data` is `fsync` there, which leaves the drive's cache
+  unflushed (`F_FULLFSYNC` would flush it)] → a known limitation, documented on `CompioStorage` and
+  `CompioFile::sync`; macOS is a development platform and the node ships for Linux, so durability is measured and
+  kill-tested on Linux only.
 - [Elle runs on the Java virtual machine] → it runs outside Bazel, as the Lean model does, through the Rust client.
-- [`cargo-fuzz` needs nightly and builds libFuzzer from C++] → only the fuzz packages depend on it, outside the
+- [`cargo-fuzz` needs nightly and builds libFuzzer from C++] → only the fuzz workspace depends on it, outside the root
   workspace and Bazel; findings enter the hermetic suite as replayed regression cases.
 
 ## Migration Plan

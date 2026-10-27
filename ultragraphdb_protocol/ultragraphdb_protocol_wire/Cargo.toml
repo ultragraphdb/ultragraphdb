@@ -20,7 +20,6 @@ workspace = true
 
 [dependencies]
 ultragraphdb_error_protocol = { workspace = true }
-ultragraphdb_core_terms = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]

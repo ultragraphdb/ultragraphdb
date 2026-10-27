@@ -12,7 +12,11 @@ use ultragraphdb_transactions_log::Superblock;
 
 fuzz_target!(|data: &[u8]| {
     if let Some(record) = Superblock::decode(data) {
-        assert_eq!(record.encode().as_slice(), data, "an accepted record has one encoding");
+        assert_eq!(
+            record.encode().as_slice(),
+            data,
+            "an accepted record has one encoding"
+        );
         assert!(record.copy() == 'a' || record.copy() == 'b');
     }
 });

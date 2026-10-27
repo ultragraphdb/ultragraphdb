@@ -21,7 +21,11 @@ const KEY: &[u8] = b"\x01fuzz";
 
 fn check(bytes: &[u8]) {
     match PostingList::decode(KEY, bytes) {
-        Ok(plist) => assert_eq!(plist.encode(), bytes, "an accepted list encodes back to its bytes"),
+        Ok(plist) => assert_eq!(
+            plist.encode(),
+            bytes,
+            "an accepted list encodes back to its bytes"
+        ),
         Err(StoreError(StoreErrorEnum::Corrupted { key, .. })) => assert_eq!(key, KEY),
         Err(other) => panic!("not refused as corruption: {other:?}"),
     }

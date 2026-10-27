@@ -5,7 +5,7 @@ failing run and its test count recorded in the group's notes; (3) the suite audi
 throwaway implementation; (4) the implementation, judged by the audited suite alone; (5) hardening: a group that decodes
 bytes from a client, a peer or the disk writes its fuzz targets and their seeds, building them, while the runs of
 `scripts/mutants.sh` and `scripts/fuzz.sh` happen once, at the very end, in the stage's final verification (11.7 and
-11.8; decided 2026-10-27). A group is done when its suites pass under Cargo and Bazel with equal
+11.8; decided 2026-10-27). A phase-3 throwaway implementation that passes the audited suite may be kept as the implementation (decided 2026-10-27). A group is done when its suites pass under Cargo and Bazel with equal
 counts and its operations run in the simulator's workload under every fault class. Removing files or crates waits for
 the user's approval at the task that removes them.
 
@@ -14,7 +14,7 @@ the user's approval at the task that removes them.
 - [x] 0.1 Add `compio` and `xxhash-rust` (feature `xxh3`) to `[workspace.dependencies]`, pinned, pure Rust confirmed (no `cc` or `-sys` in their trees); `futures-channel` through the pinned `futures`; record them in `AGENTS.md`'s dependency table
 - [x] 0.2 Create the group folders `ultragraphdb_protocol/`, `ultragraphdb_server/`, `ultragraphdb_transactions/` with their workspace globs, and the crates of the design's table with the repository's layout, headers, `[lints] workspace = true` and Bazel targets, hermetic and sandboxed
 - [x] 0.3 Make `lean/` a Lake project with `lean-toolchain` pinned to MGQL's release and the library `RoundModel`, built outside Bazel
-- [x] 0.4 Fuzzing: `scripts/fuzz.sh`, shaped as `scripts/mutants.sh` (installed-tool check, crate and target arguments, a time budget per target, a report of executions, coverage and failing inputs); `arbitrary` pinned in `[workspace.dependencies]` for the fuzz packages; the replay helper `fuzz_regressions` in `ultragraphdb_tool_bdd`, reading `testdata/fuzz_regressions/<target>/` under Cargo and Bazel; the nightly toolchain the script uses named in it
+- [x] 0.4 Fuzzing: `scripts/fuzz.sh`, shaped as `scripts/mutants.sh` (installed-tool check, crate and target arguments, a time budget per target, a report of executions, coverage and failing inputs); `arbitrary` pinned in `[workspace.dependencies]` for the fuzz packages, which form one workspace in `fuzz/` with a package per fuzzed crate at `fuzz/<crate>/`, its dependencies declared `{ workspace = true }` (decided 2026-10-27); the replay helper `fuzz_regressions` in `ultragraphdb_tool_bdd`, reading `testdata/fuzz_regressions/<target>/` under Cargo and Bazel; the nightly toolchain the script uses named in it
 
 ## 1. The posting format → `ultragraphdb_core_codec`
 
@@ -44,6 +44,7 @@ the user's approval at the task that removes them.
 - [x] 3.6 Phase 4: the ping-pong superblock with its three outcomes; checkpoints and trimming; `seal`
 - [x] 3.7 Phase 4: the power-loss-protection flag's defaults for round bounds and checkpoint interval, never touching the sync
 - [x] 3.8 Phase 5: mutants over the log; fuzz targets for the scan over arbitrary segment bytes (never accepting a round whose checksums fail) and for the superblock's decoding
+- [ ] 3.9 Segment allocation (approved 2026-10-27): `fallocate` with `FALLOC_FL_KEEP_SIZE` through `rustix`, pinned directly, for a segment that has never existed, in place of writing zeros; a checkpoint recycles trimmed segments by renaming them for reuse instead of removing them, so steady state allocates nothing and every round's sync is data only; no preallocation on macOS; the extra sync cost of a fresh segment's extent conversion measured in task 12.4
 
 ## 4. Read sets at statement granularity → `ultragraphdb_store_posting`, `ultragraphdb_store_quads`, `ultragraphdb_store_apply`
 
@@ -94,7 +95,7 @@ the user's approval at the task that removes them.
 - [ ] 9.3 Phase 4: the bodies, including the Round frame and the write-set record
 - [ ] 9.4 Phase 4: the bus over compio: framing reads into pooled buffers, streams, credit, cancel; the simulated network (drop, delay, duplicate, split)
 - [ ] 9.5 Phase 4: prepared statements over quad patterns with schema ids; describe from the data dictionary; columnar result batches over `core_terms`' encoding
-- [ ] 9.6 Phase 5: mutants; fuzz targets for every body's view, the round and write-set record, and quad patterns with parameters, seeded with the golden frames; a structure-aware target that builds valid frames from `arbitrary` fields and mutates them
+- [ ] 9.6 Phase 5: mutants; fuzz targets in the bus and client crates' packages under `fuzz/` for every body's view, the round and write-set record, and quad patterns with parameters, seeded with the golden frames; a structure-aware target that builds valid frames from `arbitrary` fields and mutates them
 
 ## 10. The server and the client → `ultragraphdb_server_session`, `ultragraphdb_server_node`, `ultragraphdb_protocol_client`
 
@@ -115,6 +116,7 @@ the user's approval at the task that removes them.
 - [ ] 11.6 Kill tests on the binary during rounds, syncs and checkpoints
 - [ ] 11.7 Scenarios: transaction-verification ("Every decoder of untrusted or stored bytes is fuzzed"); a full `scripts/fuzz.sh` run over every target at the stage's close, its report recorded, every regression case replayed under Cargo and Bazel; and an audit of the fuzzers themselves, as phase 3 audits a suite: for each target, two or three typical decoder defects planted in a throwaway copy of the decoder (an unchecked length that panics on a slice, an off-by-one that breaks the re-encode round trip, a missing bound behind the checksum), each of which the target must find within its time budget, the time to find each recorded; a target that misses one is strengthened or replaced (decided 2026-10-27)
 - [ ] 11.8 Mutation testing at the stage's close: `scripts/mutants.sh` over every crate the stage added or changed, every surviving mutant resolved as a suite gap (a test added) or a recorded equivalence in `.cargo/mutants.toml`; the counts recorded per crate
+- [ ] 11.9 The write-ahead log's compio suite and kill tests on Linux, in an OrbStack container, so the `O_DIRECT` path, which only type-checks on macOS, runs against a real Linux file system
 
 ## 12. Measurements → `ultragraphdb_tool_bench`
 

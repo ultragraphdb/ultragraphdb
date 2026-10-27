@@ -17,6 +17,8 @@ members = [
     "ultragraphdb_traits/*",
     "ultragraphdb_transactions/*",
 ]
+# The cargo-fuzz packages are a workspace of their own (fuzz/Cargo.toml): nightly-only, and libfuzzer-sys builds C++.
+exclude = ["fuzz"]
 
 [workspace.package]
 edition = "2024"

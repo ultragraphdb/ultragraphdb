@@ -216,7 +216,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `tracing-opentelemetry` | 0.34.0 | `ultragraphdb_common_telemetry` | Bridges `tracing` spans to OpenTelemetry |
 | `compio` | 0.19.2, no default features; `runtime`, `io-uring`, `fs`, `net`, `time` | `ultragraphdb_protocol_bus`, `ultragraphdb_protocol_client`, `ultragraphdb_transactions_log` | The completion-based runtime of the workers, the write-ahead log and the protocol bus, io_uring on Linux; the stable release Apache Iggy builds on. Pure Rust on every shipped target: `cc` enters only through `loom` under `cfg(loom)` |
 | `xxhash-rust` | 0.8.19, `xxh3` | `ultragraphdb_protocol_wire` and the formats checksummed with it | XXH3-64, as xxHash's `doc/xxhash_spec.md` specifies it, for frame, chunk, WAL and posting-list checksums; pure Rust |
-| `arbitrary` | 1.5.0, `derive` | the `fuzz/` packages only | Structure-aware inputs for the `cargo-fuzz` targets run by `scripts/fuzz.sh`; no shipped crate depends on it |
+| `arbitrary` | 1.5.0, `derive` | the fuzz workspace in `fuzz/` only | Structure-aware inputs for the `cargo-fuzz` targets run by `scripts/fuzz.sh`; no shipped crate depends on it |
 
 ## Building and Running
 

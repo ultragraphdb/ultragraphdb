@@ -17,3 +17,5 @@ buildifier -r ultragraphdb_*/
 # Rust code formatting
 # https://github.com/rust-lang/rustfmt
 command cargo fmt --all
+# The fuzz targets, a workspace of their own that the root workspace excludes
+command cargo fmt --all --manifest-path fuzz/Cargo.toml

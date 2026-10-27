@@ -19,24 +19,25 @@
 # Usage
 # ---------------------------------------------------------------------------------------------
 #
-#   scripts/fuzz.sh                                     # every target of every crate with a fuzz/ package
+#   scripts/fuzz.sh                                     # every target of every crate with a fuzz package
 #   scripts/fuzz.sh ultragraphdb_protocol_wire          # every target of one crate
 #   scripts/fuzz.sh ultragraphdb_protocol_wire header   # one target
 #
 #   FUZZ_SECONDS=600 scripts/fuzz.sh ...                # time per target, 60 s by default
 #   FUZZ_TOOLCHAIN=nightly-2026-08-08 scripts/fuzz.sh   # the nightly toolchain, `nightly` by default
 #
-# A crate is fuzzed when it holds a `fuzz/` package, as `cargo fuzz init` makes it: outside the
-# workspace's member globs and outside Bazel. Seeds for a target are read from the crate's
+# A crate is fuzzed when `fuzz/<crate>/` holds its cargo-fuzz package. The packages form one
+# workspace in `fuzz/`, which the root workspace excludes and Bazel never builds, so they share one
+# lock file and one build directory. Seeds for a target are read from the crate's
 # `testdata/fuzz_seeds/<target>/` when it exists, the golden values the suite already holds.
 #
 # ---------------------------------------------------------------------------------------------
 # When a target fails
 # ---------------------------------------------------------------------------------------------
 #
-# libFuzzer writes the failing input to `<crate>/fuzz/artifacts/<target>/`. Minimize it with
-# `cargo +nightly fuzz tmin --fuzz-dir <crate>/fuzz <target> <artifact>`, fix the decoder, and
-# commit the minimized input under `<crate>/testdata/fuzz_regressions/<target>/`, where a unit test
+# libFuzzer writes the failing input to `fuzz/<crate>/artifacts/<target>/`. Minimize it with
+# `cargo +nightly fuzz tmin --fuzz-dir fuzz/<crate> <target> <artifact>`, fix the decoder, and
+# commit the minimized input under the crate's `testdata/fuzz_regressions/<target>/`, where a unit test
 # replays it through `ultragraphdb_tool_bdd::fuzz_regressions` under Cargo and Bazel. Fuzzing is
 # not hermetic and has no fixed end, so it stays outside Bazel, as mutation testing does.
 
@@ -81,20 +82,21 @@ crate_dir() {
         head -1
 }
 
-# Every workspace crate that holds a fuzz/ package, by directory.
-fuzzed_dirs() {
-    find . -path ./target -prune -o -path ./target-bzl -prune -o -type f -path "*/fuzz/Cargo.toml" -print |
-        sed -E 's|^\./||; s|/fuzz/Cargo.toml$||' |
+# Every crate with a package in the fuzz workspace, by name.
+fuzzed_crates() {
+    find fuzz -mindepth 2 -maxdepth 2 -type f -name Cargo.toml |
+        sed -E 's|^fuzz/||; s|/Cargo.toml$||' |
         sort
 }
 
 FAILED=()
 REPORT=()
 
-# Runs one target for SECONDS_PER_TARGET and records its executions, coverage and outcome.
+# Runs one target of CRATE, whose sources are at DIR, for SECONDS_PER_TARGET and records its executions, coverage and
+# outcome.
 run_target() {
-    local dir="$1" target="$2"
-    local fuzz_dir="$dir/fuzz"
+    local crate="$1" dir="$2" target="$3"
+    local fuzz_dir="fuzz/$crate"
     local corpus="$fuzz_dir/corpus/$target"
     local seeds="$dir/testdata/fuzz_seeds/$target"
     local log
@@ -104,7 +106,7 @@ run_target() {
     if [ -d "$seeds" ]; then
         corpora+=("$seeds")
     fi
-    echo "== $dir: $target (${SECONDS_PER_TARGET}s)"
+    echo "== $crate: $target (${SECONDS_PER_TARGET}s)"
     if cargo "+$TOOLCHAIN" fuzz run --fuzz-dir "$fuzz_dir" "$target" "${corpora[@]}" -- \
         -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tee "$log" | grep -E "^(INFO|==|stat::)" ; then
         :
@@ -113,26 +115,32 @@ run_target() {
     runs="$(grep -E '^stat::number_of_executed_units' "$log" | awk '{print $2}' | tail -1)"
     cov="$(grep -oE 'cov: [0-9]+' "$log" | tail -1 | awk '{print $2}')"
     if grep -qE 'SUMMARY: libFuzzer|panicked at|Test unit written to' "$log"; then
-        FAILED+=("$dir:$target")
-        REPORT+=("$dir $target: FAILED after ${runs:-?} executions, coverage ${cov:-?}; artifacts in $fuzz_dir/artifacts/$target/")
+        FAILED+=("$crate:$target")
+        REPORT+=("$crate $target: FAILED after ${runs:-?} executions, coverage ${cov:-?}; artifacts in $fuzz_dir/artifacts/$target/")
     else
-        REPORT+=("$dir $target: ${runs:-?} executions, coverage ${cov:-?}, no failure")
+        REPORT+=("$crate $target: ${runs:-?} executions, coverage ${cov:-?}, no failure")
     fi
     rm -f "$log"
 }
 
-# Runs every target of the crate at DIR, or only TARGET when given.
-run_dir() {
-    local dir="$1" only="${2:-}"
-    if [ ! -f "$dir/fuzz/Cargo.toml" ]; then
-        echo "fuzz.sh: $dir has no fuzz/ package" >&2
+# Runs every target of CRATE, or only TARGET when given.
+run_crate() {
+    local crate="$1" only="${2:-}"
+    if [ ! -f "fuzz/$crate/Cargo.toml" ]; then
+        echo "fuzz.sh: $crate has no package in fuzz/" >&2
+        exit 1
+    fi
+    local dir
+    dir="$(crate_dir "$crate")"
+    if [ -z "$dir" ]; then
+        echo "fuzz.sh: no workspace package named $crate" >&2
         exit 1
     fi
     local targets
-    targets="$(cargo "+$TOOLCHAIN" fuzz list --fuzz-dir "$dir/fuzz")"
+    targets="$(cargo "+$TOOLCHAIN" fuzz list --fuzz-dir "fuzz/$crate")"
     if [ -n "$only" ]; then
         if ! printf '%s\n' "$targets" | grep -qx "$only"; then
-            echo "fuzz.sh: $dir has no fuzz target named $only; it has:" >&2
+            echo "fuzz.sh: $crate has no fuzz target named $only; it has:" >&2
             printf '    %s\n' $targets >&2
             exit 1
         fi
@@ -140,26 +148,21 @@ run_dir() {
     fi
     local target
     for target in $targets; do
-        run_target "$dir" "$target"
+        run_target "$crate" "$dir" "$target"
     done
 }
 
 if [ -z "$CRATE" ]; then
-    DIRS="$(fuzzed_dirs)"
-    if [ -z "$DIRS" ]; then
-        echo "fuzz.sh: no crate holds a fuzz/ package yet"
+    CRATES="$(fuzzed_crates)"
+    if [ -z "$CRATES" ]; then
+        echo "fuzz.sh: no crate has a package in fuzz/ yet"
         exit 0
     fi
-    for dir in $DIRS; do
-        run_dir "$dir"
+    for crate in $CRATES; do
+        run_crate "$crate"
     done
 else
-    DIR="$(crate_dir "$CRATE")"
-    if [ -z "$DIR" ]; then
-        echo "fuzz.sh: no workspace package named $CRATE" >&2
-        exit 1
-    fi
-    run_dir "$DIR" "$TARGET"
+    run_crate "$CRATE" "$TARGET"
 fi
 
 echo

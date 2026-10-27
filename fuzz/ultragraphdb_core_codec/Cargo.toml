@@ -1,0 +1,35 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_core_codec, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_core_codec_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+arbitrary = { workspace = true }
+libfuzzer-sys = { workspace = true }
+ultragraphdb_core_codec = { workspace = true }
+ultragraphdb_error_store = { workspace = true }
+xxhash-rust = { workspace = true }
+
+# Any bytes as a stored posting list, and the same bytes resealed with a valid checksum: decoded or refused as Corrupted
+# naming the key, never a panic; an accepted list encodes back to its bytes.
+[[bin]]
+name = "posting_list_decode"
+path = "fuzz_targets/posting_list_decode.rs"
+test = false
+doc = false
+bench = false

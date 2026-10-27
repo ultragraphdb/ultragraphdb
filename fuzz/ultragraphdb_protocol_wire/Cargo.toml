@@ -2,27 +2,27 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
 #
-# The cargo-fuzz package of ultragraphdb_protocol_wire, run by scripts/fuzz.sh. Outside the workspace (its own
-# [workspace] table) and outside Bazel: it needs a nightly toolchain and builds libFuzzer from C++ through
-# libfuzzer-sys, which no shipped crate depends on. Its targets call the crate's public decoders only.
+# The cargo-fuzz package of ultragraphdb_protocol_wire, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
 
 [package]
 name = "ultragraphdb_protocol_wire_fuzz"
 version = "0.0.0"
-edition = "2024"
-license = "Apache-2.0"
-publish = false
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
 
 [package.metadata]
 cargo-fuzz = true
 
-[workspace]
+[lints]
+workspace = true
 
 [dependencies]
-arbitrary = { version = "=1.5.0", features = ["derive"] }
-libfuzzer-sys = "=0.4.13"
-ultragraphdb_error_protocol = { path = "../../../ultragraphdb_error/ultragraphdb_error_protocol" }
-ultragraphdb_protocol_wire = { path = ".." }
+arbitrary = { workspace = true }
+libfuzzer-sys = { workspace = true }
+ultragraphdb_error_protocol = { workspace = true }
+ultragraphdb_protocol_wire = { workspace = true }
 
 # Every frame a receiver gets: validated, and when accepted rebuilt to the same bytes.
 [[bin]]

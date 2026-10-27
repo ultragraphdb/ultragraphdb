@@ -28,7 +28,11 @@ fn check(bytes: &[u8], start: &ScanStart) {
     let mut previous: Option<(u64, u64)> = start.next().map(|(p, parent)| (p.get() - 1, parent));
     let mut offset = 0u64;
     for round in scan.rounds() {
-        assert_eq!(round.offset(), offset, "rounds lie end to end from the first block");
+        assert_eq!(
+            round.offset(),
+            offset,
+            "rounds lie end to end from the first block"
+        );
         let at = round.offset() as usize;
         let frame = &bytes[at..at + round.size() as usize];
         let view = FrameView::validate(frame, CLUSTER).expect("an accepted round's checksums hold");
@@ -37,8 +41,16 @@ fn check(bytes: &[u8], start: &ScanStart) {
         assert_eq!(header.position(), round.position().get());
         assert_eq!(view.header().checksum(), round.checksum());
         if let Some((position, checksum)) = previous {
-            assert_eq!(round.position().get(), position + 1, "positions are gapless");
-            assert_eq!(round.parent(), checksum, "each round names the one before it");
+            assert_eq!(
+                round.position().get(),
+                position + 1,
+                "positions are gapless"
+            );
+            assert_eq!(
+                round.parent(),
+                checksum,
+                "each round names the one before it"
+            );
         }
         assert_eq!(
             find_complete_round(bytes, at, CLUSTER, INCARNATION, round.position()),
@@ -56,7 +68,16 @@ fuzz_target!(|data: &[u8]| {
     first[..checkpoint.len()].copy_from_slice(checkpoint);
     // The checkpoint's position from the first byte only, so it lies near the seeds' positions; its checksum 0.
     let at = Position::new(u64::from(first[0] % 8));
-    check(data, &ScanStart::new(CLUSTER, INCARNATION, Position::ZERO, 0));
-    check(segment, &ScanStart::new(CLUSTER, INCARNATION, at, u64::from_le_bytes(first)));
-    check(segment, &ScanStart::new(CLUSTER, INCARNATION, Position::ZERO, 0).continuing(Position::new(1), 0));
+    check(
+        data,
+        &ScanStart::new(CLUSTER, INCARNATION, Position::ZERO, 0),
+    );
+    check(
+        segment,
+        &ScanStart::new(CLUSTER, INCARNATION, at, u64::from_le_bytes(first)),
+    );
+    check(
+        segment,
+        &ScanStart::new(CLUSTER, INCARNATION, Position::ZERO, 0).continuing(Position::new(1), 0),
+    );
 });
