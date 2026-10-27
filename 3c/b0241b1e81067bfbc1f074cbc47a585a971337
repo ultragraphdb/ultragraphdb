@@ -1,0 +1,157 @@
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/vector-index/spec.md
+  s_e7d9aa044e41ea::t_f5de09fee14d6c 1-41,43-73
+  s_e7d9aa044e41ea::t_7f0d683f69eb68 42
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/changesets/spec.md
+  s_e7d9aa044e41ea::t_0abdfaafe19131 20-21
+  s_e7d9aa044e41ea::t_f4ade9d1638de1 1-19,22-30
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_e7d9aa044e41ea::t_0c3367cfc7f71e 45
+  s_e7d9aa044e41ea::t_26976287539ab3 27
+  s_e7d9aa044e41ea::t_d13bbbe9b68d60 6-7
+  s_e7d9aa044e41ea::t_e3bfe873bddecf 1-5,8-15,17-26,28-33,35-44,46-74,76-95,97-114,116-128,131-132
+  s_e7d9aa044e41ea::t_0ad768812d7f23 34
+  s_e7d9aa044e41ea::t_58d4f75438ffb6 16
+  s_e7d9aa044e41ea::t_234a315d0f932a 96
+  s_e7d9aa044e41ea::t_281987280e9f61 115
+  s_e7d9aa044e41ea::t_dbbc81e31f2574 75
+  s_e7d9aa044e41ea::t_58639af11674d6 129-130
+"openspec/notes/ zero-copy-binary-protocol.md"
+  s_e7d9aa044e41ea::t_f525fc28861e41 659
+  s_e7d9aa044e41ea::t_2b53e8bd34c206 677-679
+  s_e7d9aa044e41ea::t_0125a914a161d7 352-353
+  s_e7d9aa044e41ea::t_0b0220005c224a 360
+  s_e7d9aa044e41ea::t_06348cdd73301f 481-482
+  s_e7d9aa044e41ea::t_f33bc40374548b 342-345
+  s_e7d9aa044e41ea::t_3b35b6ded72773 362-363
+  s_e7d9aa044e41ea::t_9f741462082942 491,494-496
+  s_e7d9aa044e41ea::t_ee18df2168f05a 723,725,727
+  s_e7d9aa044e41ea::t_6c4ed46a7087c7 31
+  s_e7d9aa044e41ea::t_589df984bb0a51 554-557
+  s_e7d9aa044e41ea::t_8198c0d44967d3 701,703-712
+  s_e7d9aa044e41ea::t_9207c82867540e 425-429
+  s_e7d9aa044e41ea::t_e109af56a2c677 462
+  s_e7d9aa044e41ea::t_09bb43e4518f64 492-493
+  s_e7d9aa044e41ea::t_1157d00b645aaf 284
+  s_e7d9aa044e41ea::t_2126b75245123d 234-235
+  s_e7d9aa044e41ea::t_5bd5c1a256d593 698-699
+  s_e7d9aa044e41ea::t_9a6249f6a8ae45 522-523
+  s_e7d9aa044e41ea::t_d0d59580b20571 358
+  s_e7d9aa044e41ea::t_d8770c7455ee94 250
+  s_e7d9aa044e41ea::t_d155b0fb037ce9 478
+  s_e7d9aa044e41ea::t_4cbdd0267f09b5 728
+  s_e7d9aa044e41ea::t_a00af0213908d0 544-547,552-553,559-565,568-571
+  s_e7d9aa044e41ea::t_a3e2c53aa2bc5b 726
+  s_e7d9aa044e41ea::t_5065a3f5da4469 600-603
+  s_e7d9aa044e41ea::t_5a6836a1d57151 377-382
+  s_e7d9aa044e41ea::t_9b14cda72409e4 367
+  s_e7d9aa044e41ea::t_29e02f283fc25c 566-567
+  s_e7d9aa044e41ea::t_2b43fe805e7121 410-412
+  s_e7d9aa044e41ea::t_17158d454a7340 9-10
+  s_e7d9aa044e41ea::t_a867e0bd4cbed6 179
+  s_e7d9aa044e41ea::t_75c3b0942a35d1 458
+  s_e7d9aa044e41ea::t_707b56b7362db5 534-535
+  s_e7d9aa044e41ea::t_8c6ec091f1d40c 52-53
+  s_e7d9aa044e41ea::t_9e8fd0fa8fa978 674-675
+  s_e7d9aa044e41ea::t_34ff4267a83a1c 713-722
+  s_e7d9aa044e41ea::t_ee3aec2cc98579 375
+  s_e7d9aa044e41ea::t_df70a25fada757 724
+  s_e7d9aa044e41ea::t_90e6c884bb1bd8 401-403
+  s_e7d9aa044e41ea::t_150149a2544ee7 732
+  s_e7d9aa044e41ea::t_ce9dc47d40eabc 1-8,11-30,32-51,58-98,180-188,193-230,291-334,339-341,346-351,354-357,359,361,364-366,368-374,376,383,386-400,404-409,413-424,430-457,459-461,463-469,472-477,479-480,484-490,497-504,518-519,531-533,536-543,572-599,604-627,630-636,644-658,660-666,668-673,680-697,700,702,729-731
+  s_e7d9aa044e41ea::t_7951024ace8746 483
+  s_e7d9aa044e41ea::t_7aba35d6a52ca5 470-471
+  s_e7d9aa044e41ea::t_4a005f6d0c2a39 505-517,520-521,524-530
+  s_e7d9aa044e41ea::t_067d8855069d9d 99-128,133-138,141-178
+  s_e7d9aa044e41ea::t_ca2ec7fc190555 384-385
+  s_e7d9aa044e41ea::t_58476465fafa6d 637-643
+  s_e7d9aa044e41ea::t_05ff14dfcc545c 335-338
+  s_e7d9aa044e41ea::t_633f42a75a04ec 231-233,236-246,248-249,251-283,285-290
+  s_e7d9aa044e41ea::t_92f241161ad2bd 129-132
+  s_e7d9aa044e41ea::t_571d359afbc9e2 676
+  s_e7d9aa044e41ea::t_f65d316a3cad5a 54-57
+  s_e7d9aa044e41ea::t_23108cc7bb9f08 667
+  s_e7d9aa044e41ea::t_9909873c088ca7 247
+  s_e7d9aa044e41ea::t_1eb995b3d9fcdc 628-629
+  s_e7d9aa044e41ea::t_c537697b829675 189-192
+  s_e7d9aa044e41ea::t_26c2a68e7edf0d 139-140
+  s_e7d9aa044e41ea::t_f216da0339bbb6 548-550
+  s_e7d9aa044e41ea::t_4f10bc413255f0 551,558
+openspec/changes/stage-5-transactions-and-binary-protocol/proposal.md
+  s_e7d9aa044e41ea::t_e6b8a9d4d3eb8c 1-91
+openspec/changes/stage-5-transactions-and-binary-protocol/design.md
+  s_e7d9aa044e41ea::t_d96c6b68849ee8 13-14
+  s_e7d9aa044e41ea::t_066b176c92bd09 200-204
+  s_e7d9aa044e41ea::t_0399abf37afbcd 74-75
+  s_e7d9aa044e41ea::t_500df8ffdb4bf4 1-12,15-73,76-120,124,131-154,179-199,205-213
+  s_e7d9aa044e41ea::t_008935b9e53be5 125-130
+  s_e7d9aa044e41ea::t_962927ddb2c714 155-178
+  s_e7d9aa044e41ea::t_c2d05f89444966 121-123
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/write-ahead-log/spec.md
+  s_e7d9aa044e41ea::t_04116b055e3e7f 61-63
+  s_e7d9aa044e41ea::t_0b1cdb3f413947 55
+  s_e7d9aa044e41ea::t_b707a3d4520235 1-53,59-60,64-99,106-107
+  s_e7d9aa044e41ea::t_c13cd50c1a44d5 54
+  s_e7d9aa044e41ea::t_2f983f3eb99762 56-58
+  s_e7d9aa044e41ea::t_ddecc2c253fc31 100-105
+  s_e7d9aa044e41ea::t_24bda656a991ee 108-110
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/wire-protocol/spec.md
+  s_e7d9aa044e41ea::t_c6a2c46941162b 43-46
+  s_e7d9aa044e41ea::t_45007ff2ee9b3b 49-53
+  s_e7d9aa044e41ea::t_0e0163b841742b 23-29
+  s_e7d9aa044e41ea::t_780ab6c049e1b5 119-122
+  s_e7d9aa044e41ea::t_c689626989c121 93-95
+  s_e7d9aa044e41ea::t_0a3fbc15194e69 96
+  s_e7d9aa044e41ea::t_70064002c4d621 1-13,17-22,30-42,47-48,54-62,67-92,99-118,123-150
+  s_e7d9aa044e41ea::t_37e7c5c1e3c6f5 63-66
+  s_e7d9aa044e41ea::t_96304e4d64a9ee 97-98
+  s_e7d9aa044e41ea::t_60a4fe0bca11f2 14-16
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/commit-rounds/spec.md
+  s_e7d9aa044e41ea::t_eba4a35cfab1e8 41-43
+  s_e7d9aa044e41ea::t_213259809a7872 1-3,7-40,44-63,68-76,82-88
+  s_e7d9aa044e41ea::t_1241c71d915194 64-67
+  s_e7d9aa044e41ea::t_03569ffb66453c 4-6
+  s_e7d9aa044e41ea::t_2b32e992e9a233 77-81
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/server-node/spec.md
+  s_e7d9aa044e41ea::t_477418fbeac9f1 1-4,7-12,17-25,30-45
+  s_e7d9aa044e41ea::t_efb6cb981c5014 26-29
+  s_e7d9aa044e41ea::t_9a2a6237aed0f0 5-6
+  s_e7d9aa044e41ea::t_934f446db0921c 13-16
+  s_e7d9aa044e41ea::t_33d13dc1d6caf3 46
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/transaction-verification/spec.md
+  s_e7d9aa044e41ea::t_e3aaa8d0f391c3 35-54
+  s_e7d9aa044e41ea::t_ef4178e3795399 4-9
+  s_e7d9aa044e41ea::t_fcb458c8379219 18-20
+  s_e7d9aa044e41ea::t_bd154a3394bd3c 1-3,10-17,21-34,55-56,59-61
+  s_e7d9aa044e41ea::t_10cf1f1c2d6b05 57-58,62-63
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/posting-lists/spec.md
+  s_e7d9aa044e41ea::t_771b6ec2194b93 1-15
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/local-commit/spec.md
+  s_e7d9aa044e41ea::t_236bd521adba4d 1-63
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/transactions/spec.md
+  s_e7d9aa044e41ea::t_0c7560abc8b7f4 136-139
+  s_e7d9aa044e41ea::t_d7e94605a98d5c 94-109
+  s_e7d9aa044e41ea::t_7e0c2ad178f116 38-41
+  s_e7d9aa044e41ea::t_d41f2e4e8a69d7 144-147
+  s_e7d9aa044e41ea::t_be48ac961fbd9b 1-37,42-51,54,60-80,89-93,110,115-135,140-143
+  s_e7d9aa044e41ea::t_0dbf5cad7bf817 81-88
+  s_e7d9aa044e41ea::t_04e908a35c5150 52-53,55-59
+  s_e7d9aa044e41ea::t_1632e54248dc13 111-114
+openspec/changes/stage-5-transactions-and-binary-protocol/.openspec.yaml
+  s_e7d9aa044e41ea::t_e5670d008489a4 1-2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3cb0241b1e81067bfbc1f074cbc47a585a971337",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
