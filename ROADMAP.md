@@ -8,7 +8,7 @@
 | 2. Storage core |  ✅ | 
 | 3. Website + Public Repo |  ✅ |
 | 4. Data model and quad storage | ✅ |
-| 5. Transactions and the zero copy binary protocol | `next` |
+| 5. Transactions, WAL, and the zero copy binary protocol | `in progress` |
 | 5.5. Hardening Transactions with chaos testing | `open` |
 | 6. Query core: SPARQL and GQL where they overlap | `open` |
 | 7. Single-node server, the base of the DeepBrain MVP | `open` |
