@@ -10,9 +10,10 @@ use crate::types::command::Command;
 use crate::types::execute::Execute;
 use crate::types::execute_view::ExecuteView;
 use crate::types::frame_view::FrameView;
-use crate::types::string_list::StringList;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
+use crate::utils::sections::{as_u32, u32s};
 
 impl<'a> BodyView<'a> for ExecuteView<'a> {
     const COMMAND: Command = Command::Execute;
@@ -23,12 +24,27 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 12)])?;
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let sections = Sections::<4>::read(command, frame.body(), 0)?;
+        let terms = TermTableView::read(
+            command,
+            (0, 1),
+            sections.offset(0),
+            sections.get(0),
+            sections.get(1),
+        )?;
+        let parameters = u32s(command, 2, sections.get(2))?;
+        let limit = as_u32(terms.len());
+        if let Some((at, index)) = parameters.iter().enumerate().find(|(_, i)| **i >= limit) {
+            return Err(ProtocolError::IndexOutOfRange(
+                command, 2, at, *index, limit,
+            ));
+        }
         Ok(Self {
             statement: header.u64_at(0),
             limit: header.u32_at(8),
-            parameters: StringList::read(command, (0, 1), sections.get(0), sections.get(1))?,
-            resume: sections.get(2),
+            terms,
+            parameters,
+            resume: sections.get(3),
         })
     }
 
@@ -36,7 +52,8 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
         Ok(Execute::new(
             self.statement,
             self.limit,
-            self.parameters.iter().map(str::to_string).collect(),
+            self.terms.to_table(),
+            self.parameters.clone(),
             self.resume.to_vec(),
         ))
     }

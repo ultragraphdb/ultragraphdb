@@ -13,19 +13,23 @@ use crate::utils::golden_bodies::{body_data, frame_of, golden, reframe, section,
 fn test_the_golden_prepares_read_their_values() {
     let bytes = golden("prepare_reply").bytes();
     let view = PrepareView::from_frame(&frame_of(&bytes)).unwrap();
-    assert_eq!(view.namespace(), 0);
-    assert_eq!(view.statement(), 1);
-    assert_eq!(view.schema(), 0x5C4E_3A2B_1D0F_7E6A);
-    assert_eq!(view.pattern().subject(), &PatternSlot::Parameter(0));
+    assert_eq!(
+        (view.namespace(), view.statement(), view.schema()),
+        (0, 1, 0x5C4E_3A2B_1D0F_7E6A)
+    );
+    assert_eq!(view.pattern().subject(), PatternSlot::Parameter(0));
+    assert_eq!(view.terms().len(), 1);
     assert_eq!(view.parameter_types(), &[ColumnType::Node]);
     assert_eq!(view.result_types(), &[ColumnType::Term]);
+    let (terms, p) = pattern();
     assert_eq!(
         view.to_body().unwrap(),
         Prepare::new(
             0,
             1,
             0x5C4E_3A2B_1D0F_7E6A,
-            pattern(),
+            terms,
+            p,
             vec![ColumnType::Node],
             vec![ColumnType::Term]
         )
@@ -66,7 +70,6 @@ fn test_types_are_known_and_counted() {
             value: 0
         }
     );
-    // No parameter types for the pattern's one parameter.
     let none = with_section(&bytes, 5, 3, |types| types.clear());
     assert_eq!(
         PrepareView::from_frame(&frame_of(&none)).unwrap_err().0,
@@ -77,7 +80,6 @@ fn test_types_are_known_and_counted() {
             expected: 1
         }
     );
-    // Two result types for the pattern's one unbound slot.
     let two = with_section(&bytes, 5, 4, |types| types.push(2));
     assert_eq!(
         PrepareView::from_frame(&frame_of(&two)).unwrap_err().0,

@@ -4,38 +4,38 @@
  */
 
 //! Changes and declarations as records: 16 bytes each, `kind` u8, `flags` u8, two zero bytes, `args_start` u32 and
-//! `args_len` u32 into an args section of u32s, and `extra` u32; strings in a string list. The args of change `i`
-//! follow those of change `i − 1`. Terms are N-Triples strings, the IRIs a declaration names plain IRI strings.
+//! `args_len` u32 into an args section of u32s, and `extra` u32. The args of change `i` follow those of change `i − 1`.
+//! A term arg is an index into the body's term table; the IRIs, tokenizers and options a declaration names are
+//! indices into a list of names.
 //!
 //! | Kind | Change | Flags | Args |
 //! |---|---|---|---|
-//! | 1 | Insert | — | graph or [`crate::ABSENT`], subject, predicate, object |
+//! | 1 | Insert | — | terms: graph or [`crate::ABSENT`], subject, predicate, object |
 //! | 2 | InsertEdge | — | graph, subject, predicate, object, then a property and its value per pair |
 //! | 3 | Delete | — | graph, subject, predicate, object |
 //! | 4 | DeleteStatement | — | graph, the statement ID's low and high u32 |
 //! | 5 | DeletePattern | — | graph, subject, predicate |
 //! | 6 | SetProperty | bit 0: by triple | the statement (graph, ID low, ID high; or graph, subject, predicate, object), predicate, value |
 //! | 7 | DeleteProperty | bit 0: by triple | the statement, predicate, value or [`crate::ABSENT`] |
-//! | 8 | Declare a predicate | bits 0–1: kind (0 edge, 1 property, 2 either); bit 2: single; bit 3: unique; bit 4: count index; bit 5: vector index | predicate, datatype or [`crate::ABSENT`], the tokenizer count and names, the domain count and IRIs, and with a vector index its factory, the option count and each option's name and value |
-//! | 9 | Declare an entity type | bit 0: abstract | IRI, parent or [`crate::ABSENT`] |
-//! | 10 | Declare a relation | — | IRI, then its roles |
+//! | 8 | Declare a predicate | bits 0–1: kind (0 edge, 1 property, 2 either); bit 2: single; bit 3: unique; bit 4: count index; bit 5: vector index | names: predicate, datatype or [`crate::ABSENT`]; the tokenizer count, then names; the domain count, then names; with a vector index its factory, the option count and each option's name and value |
+//! | 9 | Declare an entity type | bit 0: abstract | names: IRI, parent or [`crate::ABSENT`] |
+//! | 10 | Declare a relation | — | names: IRI, then its roles |
 //!
 //! `extra` is zero but in the data dictionary's answer, where an entity type's holds its preorder number.
 
-use oxrdf::GraphName;
-use ultragraphdb_core_mapping::{
-    Cardinality, Change, Changeset, Declaration, PredicateDeclaration, PredicateKind,
-    RelationDeclaration, StatementId, StatementRef, TypeDeclaration, VectorIndexSpec,
-};
 use ultragraphdb_error_protocol::ProtocolError;
 
+use crate::types::declared::Declared;
+use crate::types::declared_entity_type::DeclaredEntityType;
+use crate::types::declared_kind::DeclaredKind;
+use crate::types::declared_predicate::DeclaredPredicate;
+use crate::types::declared_relation::DeclaredRelation;
+use crate::types::statement_target::StatementTarget;
 use crate::types::string_list::StringList;
+use crate::types::write_change::WriteChange;
 use crate::utils::constants::ABSENT;
 use crate::utils::sections::{as_u32, records as whole_records};
 use crate::utils::string_writer::StringWriter;
-use crate::utils::terms::{
-    graph_text, parse_graph, parse_iri, parse_named, parse_subject, parse_term,
-};
 
 /// The size of a change record.
 pub(crate) const CHANGE_RECORD_SIZE: usize = 16;
@@ -58,27 +58,33 @@ const COUNT_INDEX: u8 = 1 << 4;
 const VECTOR_INDEX: u8 = 1 << 5;
 const ABSTRACT: u8 = 1;
 
-/// Records being written, with their args and strings.
+/// Records being written, with their args and names.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ChangeWriter {
     pub(crate) records: Vec<u8>,
     pub(crate) args: Vec<u32>,
-    pub(crate) strings: StringWriter,
+    pub(crate) names: StringWriter,
+}
+
+/// A graph's arg: its term index, [`ABSENT`] for the default graph.
+fn graph(g: Option<u32>) -> u32 {
+    g.unwrap_or(ABSENT)
+}
+
+/// The args naming `statement`, and the flag of a statement named by its triple.
+fn statement(statement: &StatementTarget) -> (Vec<u32>, u8) {
+    match *statement {
+        StatementTarget::Id { graph: g, id } => (vec![graph(g), id as u32, (id >> 32) as u32], 0),
+        StatementTarget::Triple {
+            graph: g,
+            subject,
+            predicate,
+            object,
+        } => (vec![graph(g), subject, predicate, object], BY_TRIPLE),
+    }
 }
 
 impl ChangeWriter {
-    fn string(&mut self, s: &str) -> u32 {
-        self.strings.intern(s)
-    }
-
-    fn term(&mut self, term: &impl std::fmt::Display) -> u32 {
-        self.strings.intern(&term.to_string())
-    }
-
-    fn graph(&mut self, graph: &GraphName) -> u32 {
-        graph_text(graph).map_or(ABSENT, |text| self.strings.intern(&text))
-    }
-
     fn record(&mut self, kind: u8, flags: u8, args: Vec<u32>, extra: u32) {
         let start = as_u32(self.args.len());
         let len = as_u32(args.len());
@@ -89,163 +95,109 @@ impl ChangeWriter {
         self.records.extend_from_slice(&extra.to_le_bytes());
     }
 
-    /// The args naming `statement`, and whether it is named by its triple.
-    fn statement(&mut self, statement: &StatementRef) -> (Vec<u32>, u8) {
-        match statement {
-            StatementRef::Id { graph, id } => {
-                let graph = self.graph(graph);
-                (vec![graph, id.value() as u32, (id.value() >> 32) as u32], 0)
-            }
-            StatementRef::Triple {
-                graph,
-                subject,
-                predicate,
-                object,
-            } => (
-                vec![
-                    self.graph(graph),
-                    self.term(subject),
-                    self.term(predicate),
-                    self.term(object),
-                ],
-                BY_TRIPLE,
-            ),
-        }
-    }
-
     /// Appends `change`'s record.
-    pub(crate) fn change(&mut self, change: &Change) {
+    pub(crate) fn change(&mut self, change: &WriteChange) {
         match change {
-            Change::Insert {
-                graph,
+            WriteChange::Insert {
+                graph: g,
                 subject,
                 predicate,
                 object,
-            }
-            | Change::Delete {
-                graph,
+            } => self.record(INSERT, 0, vec![graph(*g), *subject, *predicate, *object], 0),
+            WriteChange::Delete {
+                graph: g,
                 subject,
                 predicate,
                 object,
-            } => {
-                let kind = if matches!(change, Change::Insert { .. }) {
-                    INSERT
-                } else {
-                    DELETE
-                };
-                let args = vec![
-                    self.graph(graph),
-                    self.term(subject),
-                    self.term(predicate),
-                    self.term(object),
-                ];
-                self.record(kind, 0, args, 0);
-            }
-            Change::InsertEdge {
-                graph,
+            } => self.record(DELETE, 0, vec![graph(*g), *subject, *predicate, *object], 0),
+            WriteChange::InsertEdge {
+                graph: g,
                 subject,
                 predicate,
                 object,
                 properties,
             } => {
-                let mut args = vec![
-                    self.graph(graph),
-                    self.term(subject),
-                    self.term(predicate),
-                    self.term(object),
-                ];
-                for (property, value) in properties {
-                    args.push(self.term(property));
-                    args.push(self.term(value));
-                }
+                let mut args = vec![graph(*g), *subject, *predicate, *object];
+                properties.iter().for_each(|(p, v)| args.extend([*p, *v]));
                 self.record(INSERT_EDGE, 0, args, 0);
             }
-            Change::DeleteStatement { graph, id } => {
-                let args = vec![
-                    self.graph(graph),
-                    id.value() as u32,
-                    (id.value() >> 32) as u32,
-                ];
-                self.record(DELETE_STATEMENT, 0, args, 0);
+            WriteChange::DeleteStatement { graph: g, id } => {
+                self.record(
+                    DELETE_STATEMENT,
+                    0,
+                    vec![graph(*g), *id as u32, (*id >> 32) as u32],
+                    0,
+                );
             }
-            Change::DeletePattern {
-                graph,
+            WriteChange::DeletePattern {
+                graph: g,
                 subject,
                 predicate,
-            } => {
-                let args = vec![self.graph(graph), self.term(subject), self.term(predicate)];
-                self.record(DELETE_PATTERN, 0, args, 0);
-            }
-            Change::SetProperty {
-                statement,
+            } => self.record(DELETE_PATTERN, 0, vec![graph(*g), *subject, *predicate], 0),
+            WriteChange::SetProperty {
+                statement: target,
                 predicate,
                 value,
             } => {
-                let (mut args, flags) = self.statement(statement);
-                args.push(self.term(predicate));
-                args.push(self.term(value));
+                let (mut args, flags) = statement(target);
+                args.extend([*predicate, *value]);
                 self.record(SET_PROPERTY, flags, args, 0);
             }
-            Change::DeleteProperty {
-                statement,
+            WriteChange::DeleteProperty {
+                statement: target,
                 predicate,
                 value,
             } => {
-                let (mut args, flags) = self.statement(statement);
-                args.push(self.term(predicate));
-                let value = value.as_ref().map_or(ABSENT, |v| self.term(v));
-                args.push(value);
+                let (mut args, flags) = statement(target);
+                args.extend([*predicate, value.unwrap_or(ABSENT)]);
                 self.record(DELETE_PROPERTY, flags, args, 0);
             }
-            Change::Declare(declaration) => self.declaration(declaration, 0),
+            WriteChange::Declare(declaration) => self.declaration(declaration, 0),
         }
     }
 
     /// Appends `declaration`'s record with `extra`.
-    pub(crate) fn declaration(&mut self, declaration: &Declaration, extra: u32) {
+    pub(crate) fn declaration(&mut self, declaration: &Declared, extra: u32) {
         match declaration {
-            Declaration::Predicate(p) => {
+            Declared::Predicate(p) => {
                 let kind = match p.kind() {
-                    PredicateKind::Edge => 0,
-                    PredicateKind::Property => 1,
-                    PredicateKind::Either => 2,
+                    DeclaredKind::Edge => 0,
+                    DeclaredKind::Property => 1,
+                    DeclaredKind::Either => 2,
                 };
-                let flags =
-                    kind | if p.cardinality() == Cardinality::Single {
-                        SINGLE
+                let flags = kind
+                    | if p.single() { SINGLE } else { 0 }
+                    | if p.unique() { UNIQUE } else { 0 }
+                    | if p.count_index() { COUNT_INDEX } else { 0 }
+                    | if p.vector_index().is_some() {
+                        VECTOR_INDEX
                     } else {
                         0
-                    } | if p.unique() { UNIQUE } else { 0 }
-                        | if p.count_index() { COUNT_INDEX } else { 0 }
-                        | if p.vector_index().is_some() {
-                            VECTOR_INDEX
-                        } else {
-                            0
-                        };
-                let mut args = vec![self.string(p.predicate().as_str())];
-                let datatype = p.datatype().map_or(ABSENT, |d| self.string(d.as_str()));
+                    };
+                let mut args = vec![self.names.intern(p.predicate())];
+                let datatype = p.datatype().map_or(ABSENT, |d| self.names.intern(d));
                 args.push(datatype);
                 args.push(as_u32(p.tokenizers().len()));
                 for tokenizer in p.tokenizers() {
-                    args.push(self.string(tokenizer));
+                    args.push(self.names.intern(tokenizer));
                 }
                 args.push(as_u32(p.domains().len()));
                 for domain in p.domains() {
-                    args.push(self.string(domain.as_str()));
+                    args.push(self.names.intern(domain));
                 }
-                if let Some(spec) = p.vector_index() {
-                    args.push(self.string(spec.factory()));
-                    args.push(as_u32(spec.options().len()));
-                    for (name, value) in spec.options() {
-                        args.push(self.string(name));
-                        args.push(self.string(value));
+                if let Some((factory, options)) = p.vector_index() {
+                    args.push(self.names.intern(factory));
+                    args.push(as_u32(options.len()));
+                    for (name, value) in options {
+                        args.push(self.names.intern(name));
+                        args.push(self.names.intern(value));
                     }
                 }
                 self.record(PREDICATE, flags, args, extra);
             }
-            Declaration::EntityType(t) => {
-                let mut args = vec![self.string(t.iri().as_str())];
-                let parent = t.parent().map_or(ABSENT, |p| self.string(p.as_str()));
+            Declared::EntityType(t) => {
+                let mut args = vec![self.names.intern(t.iri())];
+                let parent = t.parent().map_or(ABSENT, |p| self.names.intern(p));
                 args.push(parent);
                 self.record(
                     ENTITY_TYPE,
@@ -254,10 +206,10 @@ impl ChangeWriter {
                     extra,
                 );
             }
-            Declaration::Relation(r) => {
-                let mut args = vec![self.string(r.iri().as_str())];
+            Declared::Relation(r) => {
+                let mut args = vec![self.names.intern(r.iri())];
                 for role in r.roles() {
-                    args.push(self.string(role.as_str()));
+                    args.push(self.names.intern(role));
                 }
                 self.record(RELATION, 0, args, extra);
             }
@@ -277,7 +229,10 @@ struct Record {
 }
 
 fn record_at(records: &[u8], index: usize) -> Option<Record> {
-    let r = records.get(index * CHANGE_RECORD_SIZE..(index + 1) * CHANGE_RECORD_SIZE)?;
+    let r = records.get(
+        index.checked_mul(CHANGE_RECORD_SIZE)?
+            ..index.checked_add(1)?.checked_mul(CHANGE_RECORD_SIZE)?,
+    )?;
     let u32_at = |at: usize| {
         r.get(at..at + 4)
             .and_then(|b| b.try_into().ok())
@@ -309,7 +264,8 @@ struct Run<'r> {
     section: usize,
     base: usize,
     run: &'r [u32],
-    strings: u32,
+    terms: u32,
+    names: u32,
 }
 
 impl Run<'_> {
@@ -330,10 +286,9 @@ impl Run<'_> {
         )
     }
 
-    /// Arg `i` names a string.
-    fn string(&self, i: usize) -> Result<(), ProtocolError> {
+    fn below(&self, i: usize, limit: u32) -> Result<(), ProtocolError> {
         let value = self.run.get(i).copied().unwrap_or(ABSENT);
-        if value < self.strings {
+        if value < limit {
             Ok(())
         } else {
             Err(ProtocolError::IndexOutOfRange(
@@ -341,32 +296,50 @@ impl Run<'_> {
                 self.section,
                 self.base + i,
                 value,
-                self.strings,
+                limit,
             ))
         }
     }
 
-    /// Arg `i` names a string or is absent.
-    fn optional(&self, i: usize) -> Result<(), ProtocolError> {
+    /// Arg `i` names a term.
+    fn term(&self, i: usize) -> Result<(), ProtocolError> {
+        self.below(i, self.terms)
+    }
+
+    /// Arg `i` names a term or is absent.
+    fn optional_term(&self, i: usize) -> Result<(), ProtocolError> {
         if self.run.get(i) == Some(&ABSENT) {
             Ok(())
         } else {
-            self.string(i)
+            self.term(i)
         }
     }
 
-    fn strings(&self, range: std::ops::Range<usize>) -> Result<(), ProtocolError> {
-        range.into_iter().try_for_each(|i| self.string(i))
+    fn terms(&self, range: std::ops::Range<usize>) -> Result<(), ProtocolError> {
+        range.into_iter().try_for_each(|i| self.term(i))
     }
 
-    /// A count at arg `at` followed by that many strings; the arg after them.
+    /// Arg `i` names a name.
+    fn name(&self, i: usize) -> Result<(), ProtocolError> {
+        self.below(i, self.names)
+    }
+
+    fn optional_name(&self, i: usize) -> Result<(), ProtocolError> {
+        if self.run.get(i) == Some(&ABSENT) {
+            Ok(())
+        } else {
+            self.name(i)
+        }
+    }
+
+    /// A count at arg `at` followed by that many `per`-name groups; the arg after them.
     fn counted(&self, at: usize, per: usize) -> Result<usize, ProtocolError> {
         let n = *self.run.get(at).ok_or_else(|| self.mismatch(at + 1))? as usize;
         let end = (at + 1).saturating_add(n.saturating_mul(per));
         if end > self.run.len() {
             return Err(self.mismatch(end));
         }
-        self.strings(at + 1..end)?;
+        (at + 1..end).try_for_each(|i| self.name(i))?;
         Ok(end)
     }
 
@@ -375,67 +348,67 @@ impl Run<'_> {
         match kind {
             INSERT | DELETE => {
                 self.count(4)?;
-                self.optional(0)?;
-                self.strings(1..4)
+                self.optional_term(0)?;
+                self.terms(1..4)
             }
             INSERT_EDGE => {
                 if len < 4 || !(len - 4).is_multiple_of(2) {
                     return Err(self.mismatch(if len < 4 { 4 } else { len + 1 }));
                 }
-                self.optional(0)?;
-                self.strings(1..len)
+                self.optional_term(0)?;
+                self.terms(1..len)
             }
             DELETE_STATEMENT => {
                 self.count(3)?;
-                self.optional(0)
+                self.optional_term(0)
             }
             DELETE_PATTERN => {
                 self.count(3)?;
-                self.optional(0)?;
-                self.strings(1..3)
+                self.optional_term(0)?;
+                self.terms(1..3)
             }
             SET_PROPERTY | DELETE_PROPERTY => {
                 let by_triple = flags & BY_TRIPLE != 0;
-                let statement = if by_triple { 4 } else { 3 };
-                self.count(statement + 2)?;
-                self.optional(0)?;
+                let at = if by_triple { 4 } else { 3 };
+                self.count(at + 2)?;
+                self.optional_term(0)?;
                 if by_triple {
-                    self.strings(1..4)?;
+                    self.terms(1..4)?;
                 }
-                self.string(statement)?;
+                self.term(at)?;
                 if kind == SET_PROPERTY {
-                    self.string(statement + 1)
+                    self.term(at + 1)
                 } else {
-                    self.optional(statement + 1)
+                    self.optional_term(at + 1)
                 }
             }
             PREDICATE => {
                 if len < 3 {
                     return Err(self.mismatch(3));
                 }
-                self.string(0)?;
-                self.optional(1)?;
+                self.name(0)?;
+                self.optional_name(1)?;
                 let after_tokenizers = self.counted(2, 1)?;
                 let mut at = self.counted(after_tokenizers, 1)?;
                 if flags & VECTOR_INDEX != 0 {
                     if at + 2 > len {
                         return Err(self.mismatch(at + 2));
                     }
-                    self.string(at)?;
+                    self.name(at)?;
                     at = self.counted(at + 1, 2)?;
                 }
                 self.count(at)
             }
             ENTITY_TYPE => {
                 self.count(2)?;
-                self.string(0)?;
-                self.optional(1)
+                self.name(0)?;
+                self.optional_name(1)
             }
             _ => {
                 if len == 0 {
                     return Err(self.mismatch(1));
                 }
-                self.strings(0..len)
+                (0..len).try_for_each(|i| self.name(i))
             }
         }
     }
@@ -443,14 +416,14 @@ impl Run<'_> {
 
 /// The records of a body checked: whole records, kinds known (only declarations when `declarations_only`, in the
 /// order predicates, entity types, relations), flags and zero bytes as the kind defines, args contiguous and consumed
-/// exactly, each string index in range. `sections` are the records', the args' and the strings' text section, for
-/// the errors.
+/// exactly, each term index below `terms` and each name index in `names`. `sections` are the records' and the args'.
 pub(crate) fn check_records(
     command: u16,
-    sections: (usize, usize, usize),
+    sections: (usize, usize),
     records: &[u8],
     args: &[u32],
-    strings: &StringList<'_>,
+    terms: usize,
+    names: &StringList<'_>,
     declarations_only: bool,
 ) -> Result<(), ProtocolError> {
     let count = whole_records(command, sections.0, records, CHANGE_RECORD_SIZE)?.len();
@@ -511,7 +484,8 @@ pub(crate) fn check_records(
             section: sections.1,
             base: next,
             run,
-            strings: as_u32(strings.len()),
+            terms: as_u32(terms),
+            names: as_u32(names.len()),
         }
         .check(r.kind, r.flags)?;
         next = end;
@@ -527,282 +501,151 @@ pub(crate) fn check_records(
     Ok(())
 }
 
-/// Reads the strings and terms of a checked record's args.
-struct Reader<'r, 'a> {
-    command: u16,
-    text: usize,
-    run: &'r [u32],
-    strings: &'r StringList<'a>,
-}
-
-impl<'a> Reader<'_, 'a> {
-    fn missing(&self) -> ProtocolError {
-        ProtocolError::CountMismatch(self.command, "change args", self.run.len() as u64, 0)
-    }
-
-    fn raw(&self, i: usize) -> Result<u32, ProtocolError> {
-        self.run.get(i).copied().ok_or_else(|| self.missing())
-    }
-
-    fn text(&self, i: usize) -> Result<(usize, &'a str), ProtocolError> {
-        let index = self.raw(i)? as usize;
-        self.strings
-            .get(index)
-            .map(|s| (index, s))
-            .ok_or_else(|| self.missing())
-    }
-
-    fn optional_text(&self, i: usize) -> Result<Option<(usize, &'a str)>, ProtocolError> {
-        if self.raw(i)? == ABSENT {
-            Ok(None)
-        } else {
-            self.text(i).map(Some)
-        }
-    }
-
-    fn term(&self, i: usize) -> Result<oxrdf::Term, ProtocolError> {
-        let (at, text) = self.text(i)?;
-        parse_term(self.command, self.text, at, text)
-    }
-
-    fn subject(&self, i: usize) -> Result<oxrdf::NamedOrBlankNode, ProtocolError> {
-        let (at, text) = self.text(i)?;
-        parse_subject(self.command, self.text, at, text)
-    }
-
-    fn named(&self, i: usize) -> Result<oxrdf::NamedNode, ProtocolError> {
-        let (at, text) = self.text(i)?;
-        parse_named(self.command, self.text, at, text)
-    }
-
-    fn graph(&self, i: usize) -> Result<GraphName, ProtocolError> {
-        match self.optional_text(i)? {
-            None => parse_graph(self.command, self.text, 0, None),
-            Some((at, text)) => parse_graph(self.command, self.text, at, Some(text)),
-        }
-    }
-
-    fn iri(&self, i: usize) -> Result<oxrdf::NamedNode, ProtocolError> {
-        let (at, text) = self.text(i)?;
-        parse_iri(self.command, self.text, at, text)
-    }
-
-    fn id(&self, i: usize) -> Result<StatementId, ProtocolError> {
-        Ok(StatementId::new(
-            u64::from(self.raw(i)?) | (u64::from(self.raw(i + 1)?) << 32),
-        ))
-    }
-
-    fn statement(&self, by_triple: bool) -> Result<StatementRef, ProtocolError> {
-        Ok(if by_triple {
-            StatementRef::Triple {
-                graph: self.graph(0)?,
-                subject: self.subject(1)?,
-                predicate: self.named(2)?,
-                object: self.term(3)?,
-            }
-        } else {
-            StatementRef::Id {
-                graph: self.graph(0)?,
-                id: self.id(1)?,
-            }
-        })
-    }
-}
-
-fn reader<'r, 'a>(
-    command: u16,
-    text: usize,
-    records: &[u8],
-    index: usize,
-    args: &'r [u32],
-    strings: &'r StringList<'a>,
-) -> Result<(Record, Reader<'r, 'a>), ProtocolError> {
-    let missing = || ProtocolError::CountMismatch(command, "change records", index as u64, 0);
-    let r = record_at(records, index).ok_or_else(missing)?;
+/// The args of checked record `index`, and the record.
+fn run<'r>(records: &[u8], index: usize, args: &'r [u32]) -> Option<(Record, &'r [u32])> {
+    let r = record_at(records, index)?;
     let start = r.start as usize;
-    let run = args
-        .get(start..start.saturating_add(r.len as usize))
-        .ok_or_else(missing)?;
-    Ok((
-        r,
-        Reader {
-            command,
-            text,
-            run,
-            strings,
-        },
-    ))
+    Some((r, args.get(start..start.checked_add(r.len as usize)?)?))
 }
 
-/// Record `index` as a change, its terms parsed.
+/// Checked record `index` as a change; `None` past the last record.
 pub(crate) fn decode_change(
-    command: u16,
-    sections: (usize, usize, usize),
     records: &[u8],
     index: usize,
     args: &[u32],
-    strings: &StringList<'_>,
-) -> Result<Change, ProtocolError> {
-    let (r, a) = reader(command, sections.2, records, index, args, strings)?;
-    Ok(match r.kind {
-        INSERT => Change::Insert {
-            graph: a.graph(0)?,
-            subject: a.subject(1)?,
-            predicate: a.named(2)?,
-            object: a.term(3)?,
+    names: &StringList<'_>,
+) -> Option<WriteChange> {
+    let (r, a) = run(records, index, args)?;
+    let arg = |i: usize| a.get(i).copied();
+    let graph = || arg(0).map(|g| (g != ABSENT).then_some(g));
+    let id = |i: usize| Some(u64::from(arg(i)?) | (u64::from(arg(i + 1)?) << 32));
+    Some(match r.kind {
+        INSERT => WriteChange::Insert {
+            graph: graph()?,
+            subject: arg(1)?,
+            predicate: arg(2)?,
+            object: arg(3)?,
         },
-        DELETE => Change::Delete {
-            graph: a.graph(0)?,
-            subject: a.subject(1)?,
-            predicate: a.named(2)?,
-            object: a.term(3)?,
+        DELETE => WriteChange::Delete {
+            graph: graph()?,
+            subject: arg(1)?,
+            predicate: arg(2)?,
+            object: arg(3)?,
         },
-        INSERT_EDGE => Change::InsertEdge {
-            graph: a.graph(0)?,
-            subject: a.subject(1)?,
-            predicate: a.named(2)?,
-            object: a.term(3)?,
-            properties: (4..a.run.len())
-                .step_by(2)
-                .map(|i| Ok((a.named(i)?, a.term(i + 1)?)))
-                .collect::<Result<_, ProtocolError>>()?,
+        INSERT_EDGE => WriteChange::InsertEdge {
+            graph: graph()?,
+            subject: arg(1)?,
+            predicate: arg(2)?,
+            object: arg(3)?,
+            properties: a
+                .get(4..)?
+                .as_chunks::<2>().0.iter()
+                .map(|pair| (pair[0], pair[1]))
+                .collect(),
         },
-        DELETE_STATEMENT => Change::DeleteStatement {
-            graph: a.graph(0)?,
-            id: a.id(1)?,
+        DELETE_STATEMENT => WriteChange::DeleteStatement {
+            graph: graph()?,
+            id: id(1)?,
         },
-        DELETE_PATTERN => Change::DeletePattern {
-            graph: a.graph(0)?,
-            subject: a.subject(1)?,
-            predicate: a.named(2)?,
+        DELETE_PATTERN => WriteChange::DeletePattern {
+            graph: graph()?,
+            subject: arg(1)?,
+            predicate: arg(2)?,
         },
         SET_PROPERTY | DELETE_PROPERTY => {
             let by_triple = r.flags & BY_TRIPLE != 0;
-            let at = if by_triple { 4 } else { 3 };
-            let statement = a.statement(by_triple)?;
-            let predicate = a.named(at)?;
-            if r.kind == SET_PROPERTY {
-                Change::SetProperty {
-                    statement,
-                    predicate,
-                    value: a.term(at + 1)?,
+            let target = if by_triple {
+                StatementTarget::Triple {
+                    graph: graph()?,
+                    subject: arg(1)?,
+                    predicate: arg(2)?,
+                    object: arg(3)?,
                 }
             } else {
-                let value = match a.optional_text(at + 1)? {
-                    None => None,
-                    Some(_) => Some(a.term(at + 1)?),
-                };
-                Change::DeleteProperty {
-                    statement,
-                    predicate,
-                    value,
+                StatementTarget::Id {
+                    graph: graph()?,
+                    id: id(1)?,
+                }
+            };
+            let at = if by_triple { 4 } else { 3 };
+            if r.kind == SET_PROPERTY {
+                WriteChange::SetProperty {
+                    statement: target,
+                    predicate: arg(at)?,
+                    value: arg(at + 1)?,
+                }
+            } else {
+                WriteChange::DeleteProperty {
+                    statement: target,
+                    predicate: arg(at)?,
+                    value: arg(at + 1).filter(|v| *v != ABSENT),
                 }
             }
         }
-        _ => {
-            Change::Declare(decode_declaration(command, sections, records, index, args, strings)?.0)
-        }
+        _ => WriteChange::Declare(decode_declaration(records, index, args, names)?.0),
     })
 }
 
-/// Record `index` as a declaration and its `extra`.
+/// Checked record `index` as a declaration and its `extra`; `None` past the last record or for a change.
 pub(crate) fn decode_declaration(
-    command: u16,
-    sections: (usize, usize, usize),
     records: &[u8],
     index: usize,
     args: &[u32],
-    strings: &StringList<'_>,
-) -> Result<(Declaration, u32), ProtocolError> {
-    let (r, a) = reader(command, sections.2, records, index, args, strings)?;
-    let names = |from: usize, n: usize| -> Result<Vec<String>, ProtocolError> {
-        (from..from + n)
-            .map(|i| a.text(i).map(|(_, s)| s.to_string()))
-            .collect()
+    names: &StringList<'_>,
+) -> Option<(Declared, u32)> {
+    let (r, a) = run(records, index, args)?;
+    let name = |i: usize| names.get(*a.get(i)? as usize).map(str::to_string);
+    let optional = |i: usize| {
+        if a.get(i) == Some(&ABSENT) {
+            Some(None)
+        } else {
+            name(i).map(Some)
+        }
     };
+    let list = |from: usize, n: usize| (from..from + n).map(name).collect::<Option<Vec<String>>>();
     let declaration = match r.kind {
         PREDICATE => {
             let kind = match r.flags & 0b11 {
-                0 => PredicateKind::Edge,
-                1 => PredicateKind::Property,
-                _ => PredicateKind::Either,
+                0 => DeclaredKind::Edge,
+                1 => DeclaredKind::Property,
+                _ => DeclaredKind::Either,
             };
-            let mut p = PredicateDeclaration::new(a.iri(0)?)
+            let mut p = DeclaredPredicate::new(name(0)?)
                 .with_kind(kind)
-                .with_cardinality(if r.flags & SINGLE != 0 {
-                    Cardinality::Single
-                } else {
-                    Cardinality::Multi
-                })
+                .with_single(r.flags & SINGLE != 0)
                 .with_unique(r.flags & UNIQUE != 0)
                 .with_count_index(r.flags & COUNT_INDEX != 0);
-            if a.optional_text(1)?.is_some() {
-                p = p.with_datatype(a.iri(1)?);
+            if let Some(datatype) = optional(1)? {
+                p = p.with_datatype(datatype);
             }
-            let tokenizers = a.raw(2)? as usize;
-            p = p.with_tokenizers(names(3, tokenizers)?);
+            let tokenizers = *a.get(2)? as usize;
+            p = p.with_tokenizers(list(3, tokenizers)?);
             let at = 3 + tokenizers;
-            let domains = a.raw(at)? as usize;
-            p = p.with_domains(
-                (at + 1..at + 1 + domains)
-                    .map(|i| a.iri(i))
-                    .collect::<Result<_, _>>()?,
-            );
+            let domains = *a.get(at)? as usize;
+            p = p.with_domains(list(at + 1, domains)?);
             let at = at + 1 + domains;
             if r.flags & VECTOR_INDEX != 0 {
-                let factory = a.text(at)?.1.to_string();
-                let options = a.raw(at + 1)? as usize;
-                let pairs = names(at + 2, 2 * options)?;
+                let factory = name(at)?;
+                let options = *a.get(at + 1)? as usize;
+                let pairs = list(at + 2, 2 * options)?;
                 let options = pairs
-                    .chunks(2)
+                    .as_chunks::<2>().0.iter()
                     .map(|kv| (kv[0].clone(), kv[1].clone()))
                     .collect();
-                p = p.with_vector_index(VectorIndexSpec::new(factory, options));
+                p = p.with_vector_index(factory, options);
             }
-            Declaration::Predicate(p)
+            Declared::Predicate(p)
         }
-        ENTITY_TYPE => {
-            let parent = match a.optional_text(1)? {
-                None => None,
-                Some(_) => Some(a.iri(1)?),
-            };
-            Declaration::EntityType(TypeDeclaration::new(
-                a.iri(0)?,
-                parent,
-                r.flags & ABSTRACT != 0,
-            ))
-        }
-        RELATION => Declaration::Relation(RelationDeclaration::new(
-            a.iri(0)?,
-            (1..a.run.len())
-                .map(|i| a.iri(i))
-                .collect::<Result<_, _>>()?,
+        ENTITY_TYPE => Declared::EntityType(DeclaredEntityType::new(
+            name(0)?,
+            optional(1)?,
+            r.flags & ABSTRACT != 0,
         )),
-        other => {
-            return Err(ProtocolError::FieldValue(
-                command,
-                "change kind",
-                other.into(),
-            ));
-        }
+        RELATION => Declared::Relation(DeclaredRelation::new(
+            name(0)?,
+            list(1, a.len().checked_sub(1)?)?,
+        )),
+        _ => return None,
     };
-    Ok((declaration, r.extra))
-}
-
-/// The changeset of `namespace` held by checked records.
-pub(crate) fn decode_changeset(
-    command: u16,
-    sections: (usize, usize, usize),
-    namespace: u64,
-    records: &[u8],
-    args: &[u32],
-    strings: &StringList<'_>,
-) -> Result<Changeset, ProtocolError> {
-    let count = records.len() / CHANGE_RECORD_SIZE;
-    (0..count).try_fold(Changeset::new(namespace), |changeset, index| {
-        Ok(changeset.with(decode_change(
-            command, sections, records, index, args, strings,
-        )?))
-    })
+    Some((declaration, r.extra))
 }

@@ -6,6 +6,7 @@
 mod operation_body_builder;
 
 use crate::types::commit_operation::CommitOperation;
+use crate::types::term_table::TermTable;
 
 /// A commit-time operation (D4), decided by the commit step in commit order; its result comes with the Commit reply.
 ///
@@ -18,17 +19,22 @@ use crate::types::commit_operation::CommitOperation;
 ///
 /// | Section | Contents |
 /// |---|---|
-/// | 0 | args, u32 string indices: graph or [`crate::ABSENT`], then for 1 and 2 the unique predicate, the value, each property and its value, and for 2 each link's predicate, other node and direction (0: the node is the subject, 1: the object); for 3 the subject, predicate, expected and new value; for 4 the subject and predicate |
-/// | 1 | strings: ends |
-/// | 2 | strings: N-Triples text |
+/// | 0 | args, u32 term indices: graph or [`crate::ABSENT`], then for 1 and 2 the unique predicate, the value, each property and its value, and for 2 each link's predicate, other node and direction (0: the node is the subject, 1: the object); for 3 the subject, predicate, expected and new value; for 4 the subject and predicate |
+/// | 1 | the term table's records |
+/// | 2 | the term table's text |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Operation {
+    terms: TermTable,
     operation: CommitOperation,
 }
 
 impl Operation {
-    pub fn new(operation: CommitOperation) -> Self {
-        Self { operation }
+    pub fn new(terms: TermTable, operation: CommitOperation) -> Self {
+        Self { terms, operation }
+    }
+
+    pub fn terms(&self) -> &TermTable {
+        &self.terms
     }
 
     pub fn operation(&self) -> &CommitOperation {

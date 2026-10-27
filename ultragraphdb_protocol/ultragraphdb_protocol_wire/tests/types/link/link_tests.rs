@@ -5,15 +5,13 @@
 
 use ultragraphdb_protocol_wire::Link;
 
-use crate::types::write::write_tests::ex;
-
 #[test]
 fn test_a_link_names_its_direction() {
-    let from = Link::from_node(ex("knows"), ex("b").into());
+    let from = Link::from_node(4, 5);
     assert!(from.node_is_subject());
-    assert_eq!(from.predicate(), &ex("knows"));
-    assert_eq!(from.other(), &ex("b").into());
-    let to = Link::to_node(ex("knows"), ex("b").into());
+    assert_eq!((from.predicate(), from.other()), (4, 5));
+    let to = Link::to_node(4, 5);
     assert!(!to.node_is_subject());
+    assert_eq!((to.predicate(), to.other()), (4, 5));
     assert_ne!(from, to);
 }

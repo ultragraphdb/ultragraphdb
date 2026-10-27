@@ -39,3 +39,8 @@ pub const FLAG_LAST: u8 = 1;
 
 /// An index naming nothing: an unbound cell of a result batch, an absent string, an absent term.
 pub const ABSENT: u32 = u32::MAX;
+
+/// The deepest a triple term of a request's term table nests: a term that is not a triple term has depth 0, a triple
+/// term one more than the deepest of its three. It bounds the recursion of anything that walks a term, a conversion
+/// to another term model above all.
+pub const MAX_TERM_DEPTH: usize = 32;

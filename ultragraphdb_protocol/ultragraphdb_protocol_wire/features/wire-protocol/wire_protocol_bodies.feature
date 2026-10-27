@@ -6,7 +6,8 @@
 Feature: Wire protocol: bodies, statements, describe, result batches and the conformance suite
   A body is a fixed part and sections located by offsets and lengths, checked once and read in place; statements are
   prepared from quad patterns and refused as stale once their catalog changes; Describe answers from the data
-  dictionary; result batches are columnar with one term table; every truncation of every golden frame is refused.
+  dictionary; result batches are columnar with one term table; every truncation of every golden frame is refused;
+  requests name their terms by text in a term table of their own.
   These are the scenarios whose decision this crate makes. Handshake, streams, credit and cancellation run in the
   bus's features; "A refused request keeps the connection" and "A large result streams" in the server's (task group
   10), which owns the dispatch of a stale statement's refusal and the cutting of a large result into frames.
@@ -30,3 +31,31 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
   Scenario: Every truncation is refused cleanly
     When each golden frame is truncated at every length below its size and sent
     Then each truncation yields a `ProtocolError` and none panics
+
+  Scenario: A request names an IRI by its text
+    When a Read binds its subject to the IRI `http://ex.org/a`
+    Then the view reads an IRI entry whose text is `http://ex.org/a`, borrowed from the frame
+
+  Scenario: A request names a blank node by its label
+    When a Write inserts a statement whose subject is the blank node labelled `b1`
+    Then the view reads a blank-node entry labelled `b1`
+
+  Scenario: A request names a typed literal by its datatype's IRI
+    When an Execute binds the literal `35` of datatype `http://www.w3.org/2001/XMLSchema#integer`
+    Then the view reads a literal entry of lexical form `35` and that datatype's IRI
+
+  Scenario: A request names a language-tagged literal
+    When an Operation's value is `chat` tagged `fr`
+    Then the view reads a literal entry of lexical form `chat` and language tag `fr`
+
+  Scenario: A request names a triple term by its parts
+    When a Write's object is the triple term of `http://ex.org/a`, `http://ex.org/knows` and `http://ex.org/b`
+    Then the view reads a triple-term entry naming three earlier entries, those IRIs
+
+  Scenario: A forward index is refused
+    When a triple term's entry names an entry at or after its own index
+    Then the frame is refused with an error naming the entry and the index
+
+  Scenario: A triple term nested deeper than the maximum is refused
+    When a request's term table holds a triple term nested 33 deep
+    Then the frame is refused with an error naming the entry and its depth

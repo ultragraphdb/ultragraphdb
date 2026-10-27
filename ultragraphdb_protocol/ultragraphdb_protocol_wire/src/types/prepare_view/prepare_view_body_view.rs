@@ -13,7 +13,7 @@ use crate::types::pattern_slot::PatternSlot;
 use crate::types::prepare::Prepare;
 use crate::types::prepare_view::PrepareView;
 use crate::types::quad_pattern::QuadPattern;
-use crate::types::string_list::StringList;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 
@@ -27,8 +27,14 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 24)])?;
         let sections = Sections::<5>::read(command, frame.body(), 0)?;
-        let terms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
-        let pattern = QuadPattern::read(command, (0, 1, 2), sections.get(0), &terms, true)?;
+        let terms = TermTableView::read(
+            command,
+            (1, 2),
+            sections.offset(1),
+            sections.get(1),
+            sections.get(2),
+        )?;
+        let pattern = QuadPattern::read(command, 0, sections.get(0), terms.len(), true)?;
         let types = |bytes: &[u8]| -> Result<Vec<ColumnType>, ProtocolError> {
             bytes
                 .iter()
@@ -68,6 +74,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             namespace: header.u64_at(0),
             statement: header.u64_at(8),
             schema: header.u64_at(16),
+            terms,
             pattern,
             parameter_types,
             result_types,
@@ -79,7 +86,8 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             self.namespace,
             self.statement,
             self.schema,
-            self.pattern.to_owned_pattern(),
+            self.terms.to_table(),
+            self.pattern,
             self.parameter_types.clone(),
             self.result_types.clone(),
         ))

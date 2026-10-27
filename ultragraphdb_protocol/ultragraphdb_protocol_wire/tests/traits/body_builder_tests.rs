@@ -36,9 +36,13 @@ fn test_a_body_past_the_largest_frame_is_refused() {
             ..
         }
     ));
-    let parameters = vec!["<http://ex.org/a>".to_string(); 70_000];
+    // 50,000 distinct IRIs: 24 bytes of record and 20 of text each, past 1 MiB.
+    let mut terms = ultragraphdb_protocol_wire::TermTable::new();
+    let parameters = (0..50_000)
+        .map(|i| terms.iri(&format!("http://ex.org/{i:07}")))
+        .collect();
     assert!(
-        Execute::new(1, 0, parameters, Vec::new())
+        Execute::new(1, 0, terms, parameters, Vec::new())
             .frame(Header::new(CLUSTER, Command::Execute))
             .is_err()
     );

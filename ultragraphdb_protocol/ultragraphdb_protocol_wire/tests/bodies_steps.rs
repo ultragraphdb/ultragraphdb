@@ -11,13 +11,18 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use cucumber::{then, when};
 use oxrdf::NamedNode;
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration, PredicateKind};
+use ultragraphdb_core_mapping::{
+    Cardinality, Declaration, PredicateDeclaration, PredicateKind, RelationDeclaration,
+    TypeDeclaration,
+};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, ColumnType, Command, Describe, DescribeView, ErrorCode, Execute,
-    ExecuteView, FrameView, Header, PatternSlot, Prepare, PrepareView, QuadPattern, ResultBatch,
-    ResultTerm, ResultView, StatementCache, StatementError,
+    BodyBuilder, BodyView, ColumnType, Command, CommitOperation, DeclaredEntityType, DeclaredKind,
+    DeclaredPredicate, DeclaredRelation, Describe, DescribeView, ErrorCode, Execute, ExecuteView,
+    FrameView, Header, Operation, OperationView, PatternSlot, Prepare, PrepareView, QuadPattern,
+    Read, ReadView, RequestTerm, RequestTermView, ResultBatch, ResultTerm, ResultView,
+    StatementCache, StatementError, TermTable, Write, WriteChange, WriteView,
 };
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{DataDictionary, QuadStore};
@@ -69,10 +74,57 @@ impl Dictionary {
             .with_labels(d.labels().iter().cloned().collect())
             .with_relationship_types(d.relationship_types().iter().cloned().collect())
             .with_property_keys(d.property_keys().iter().cloned().collect())
-            .with_predicates(d.predicates().to_vec())
-            .with_entity_types(d.entity_types().to_vec())
-            .with_relations(d.relations().to_vec())
+            .with_predicates(d.predicates().iter().map(declared_predicate).collect())
+            .with_entity_types(
+                d.entity_types()
+                    .iter()
+                    .map(|(t, preorder)| (declared_entity_type(t), *preorder))
+                    .collect(),
+            )
+            .with_relations(d.relations().iter().map(declared_relation).collect())
     }
+}
+
+// The conversions the server session makes from the catalog's declarations (task 10.2), here for the scenarios.
+
+fn declared_predicate(p: &PredicateDeclaration) -> DeclaredPredicate {
+    let kind = match p.kind() {
+        PredicateKind::Edge => DeclaredKind::Edge,
+        PredicateKind::Property => DeclaredKind::Property,
+        PredicateKind::Either => DeclaredKind::Either,
+    };
+    let mut declared = DeclaredPredicate::new(p.predicate().as_str())
+        .with_kind(kind)
+        .with_single(p.cardinality() == Cardinality::Single)
+        .with_unique(p.unique())
+        .with_tokenizers(p.tokenizers().to_vec())
+        .with_count_index(p.count_index())
+        .with_domains(p.domains().iter().map(|d| d.as_str().to_string()).collect());
+    if let Some(datatype) = p.datatype() {
+        declared = declared.with_datatype(datatype.as_str());
+    }
+    if let Some(spec) = p.vector_index() {
+        declared = declared.with_vector_index(spec.factory(), spec.options().to_vec());
+    }
+    declared
+}
+
+fn declared_entity_type(t: &TypeDeclaration) -> DeclaredEntityType {
+    DeclaredEntityType::new(
+        t.iri().as_str(),
+        t.parent().map(|p| p.as_str().to_string()),
+        t.is_abstract(),
+    )
+}
+
+fn declared_relation(r: &RelationDeclaration) -> DeclaredRelation {
+    DeclaredRelation::new(
+        r.iri().as_str(),
+        r.roles()
+            .iter()
+            .map(|role| role.as_str().to_string())
+            .collect(),
+    )
 }
 
 fn name() -> PredicateDeclaration {
@@ -120,26 +172,25 @@ fn section_named(w: &mut Steps) {
 // Data requests, prepared statements and describe.
 
 fn prepare_view_frame() -> Vec<u8> {
+    let mut terms = TermTable::new();
+    let name = terms.iri("http://ex.org/name");
     let pattern = QuadPattern::new(
         PatternSlot::DefaultGraph,
         PatternSlot::Parameter(0),
-        PatternSlot::Bound("<http://ex.org/name>".to_string()),
+        PatternSlot::Bound(name),
         PatternSlot::Unbound,
     );
-    Prepare::new(0, 0, 0, pattern, vec![ColumnType::Node], Vec::new())
+    Prepare::new(0, 0, 0, terms, pattern, vec![ColumnType::Node], Vec::new())
         .frame(Header::new(CLUSTER, Command::Prepare).with_stream(3))
         .unwrap()
 }
 
 fn execute_frame(statement: u64) -> Vec<u8> {
-    Execute::new(
-        statement,
-        0,
-        vec!["<http://ex.org/a>".to_string()],
-        Vec::new(),
-    )
-    .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))
-    .unwrap()
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    Execute::new(statement, 0, terms, vec![a], Vec::new())
+        .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))
+        .unwrap()
 }
 
 #[when(
@@ -225,8 +276,8 @@ fn name_listed(w: &mut Steps) {
     let answer = view.to_body().unwrap();
     assert_eq!(answer.predicates().len(), 1);
     let declared = &answer.predicates()[0];
-    assert_eq!(declared.predicate(), &ex("name"));
-    assert_eq!(declared.kind(), PredicateKind::Property);
+    assert_eq!(declared.predicate(), ex("name").as_str());
+    assert_eq!(declared.kind(), DeclaredKind::Property);
     assert_eq!(declared.tokenizers(), &["term".to_string()]);
     assert_eq!(answer.read_version(), 10);
 }
@@ -286,4 +337,258 @@ fn every_truncation_refused(w: &mut Steps) {
     let total: usize = BODIES.iter().map(|b| b.size as usize).sum();
     assert_eq!(w.truncations, total);
     assert_eq!(w.refusals.len(), total);
+}
+
+// Requests name terms by their text.
+
+fn frame_with(body: &impl BodyBuilder) -> Vec<u8> {
+    body.frame(Header::new(CLUSTER, Command::Abort).with_stream(21))
+        .unwrap()
+}
+
+#[when("a Read binds its subject to the IRI `http://ex.org/a`")]
+fn read_binds_iri(w: &mut Steps) {
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Bound(a),
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+    );
+    w.bytes = frame_with(&Read::new(0, 0, terms, pattern, Vec::new()));
+}
+
+#[then("the view reads an IRI entry whose text is `http://ex.org/a`, borrowed from the frame")]
+fn iri_read(w: &mut Steps) {
+    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let view = ReadView::from_frame(&frame).unwrap();
+    let PatternSlot::Bound(index) = view.pattern().subject() else {
+        panic!("the subject is bound");
+    };
+    let Some(RequestTermView::Iri(text)) = view.terms().get(index) else {
+        panic!("the subject is an IRI");
+    };
+    assert_eq!(text, "http://ex.org/a");
+    // In place: the text lies inside the frame's bytes.
+    let range = w.bytes.as_ptr_range();
+    assert!(range.contains(&text.as_ptr()));
+}
+
+#[when("a Write inserts a statement whose subject is the blank node labelled `b1`")]
+fn write_blank(w: &mut Steps) {
+    let mut terms = TermTable::new();
+    let b1 = terms
+        .intern(RequestTerm::BlankNode("b1".to_string()))
+        .unwrap();
+    let p = terms.iri("http://ex.org/p");
+    let o = terms.iri("http://ex.org/o");
+    let insert = WriteChange::Insert {
+        graph: None,
+        subject: b1,
+        predicate: p,
+        object: o,
+    };
+    w.bytes = frame_with(&Write::new(0, terms, vec![insert]));
+}
+
+#[then("the view reads a blank-node entry labelled `b1`")]
+fn blank_read(w: &mut Steps) {
+    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let view = WriteView::from_frame(&frame).unwrap();
+    let Some(WriteChange::Insert { subject, .. }) = view.change(0) else {
+        panic!("an insert");
+    };
+    assert_eq!(
+        view.terms().get(subject),
+        Some(RequestTermView::BlankNode("b1"))
+    );
+}
+
+#[when("an Execute binds the literal `35` of datatype `http://www.w3.org/2001/XMLSchema#integer`")]
+fn execute_typed(w: &mut Steps) {
+    let mut terms = TermTable::new();
+    let n = terms
+        .intern(RequestTerm::Literal {
+            lexical: "35".to_string(),
+            datatype: Some("http://www.w3.org/2001/XMLSchema#integer".to_string()),
+        })
+        .unwrap();
+    w.bytes = frame_with(&Execute::new(1, 0, terms, vec![n], Vec::new()));
+}
+
+#[then("the view reads a literal entry of lexical form `35` and that datatype's IRI")]
+fn typed_read(w: &mut Steps) {
+    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let view = ExecuteView::from_frame(&frame).unwrap();
+    assert_eq!(
+        view.terms().get(view.parameters()[0]),
+        Some(RequestTermView::Literal {
+            lexical: "35",
+            datatype: Some("http://www.w3.org/2001/XMLSchema#integer")
+        })
+    );
+}
+
+#[when("an Operation's value is `chat` tagged `fr`")]
+fn operation_tagged(w: &mut Steps) {
+    let mut terms = TermTable::new();
+    let p = terms.iri("http://ex.org/name");
+    let chat = terms
+        .intern(RequestTerm::LanguageLiteral {
+            lexical: "chat".to_string(),
+            language: "fr".to_string(),
+            direction: None,
+        })
+        .unwrap();
+    let operation = CommitOperation::InsertIfAbsent {
+        graph: None,
+        predicate: p,
+        value: chat,
+        properties: Vec::new(),
+    };
+    w.bytes = frame_with(&Operation::new(terms, operation));
+}
+
+#[then("the view reads a literal entry of lexical form `chat` and language tag `fr`")]
+fn tagged_read(w: &mut Steps) {
+    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let view = OperationView::from_frame(&frame).unwrap();
+    let CommitOperation::InsertIfAbsent { value, .. } = view.operation() else {
+        panic!("an insert-if-absent");
+    };
+    assert_eq!(
+        view.terms().get(value),
+        Some(RequestTermView::LanguageLiteral {
+            lexical: "chat",
+            language: "fr",
+            direction: None
+        })
+    );
+}
+
+#[when(
+    "a Write's object is the triple term of `http://ex.org/a`, `http://ex.org/knows` and `http://ex.org/b`"
+)]
+fn write_triple(w: &mut Steps) {
+    let mut terms = TermTable::new();
+    let (a, knows, b) = (
+        terms.iri("http://ex.org/a"),
+        terms.iri("http://ex.org/knows"),
+        terms.iri("http://ex.org/b"),
+    );
+    let says = terms.iri("http://ex.org/says");
+    let triple = terms
+        .intern(RequestTerm::Triple {
+            subject: a,
+            predicate: knows,
+            object: b,
+        })
+        .unwrap();
+    let insert = WriteChange::Insert {
+        graph: None,
+        subject: a,
+        predicate: says,
+        object: triple,
+    };
+    w.bytes = frame_with(&Write::new(0, terms, vec![insert]));
+}
+
+#[then("the view reads a triple-term entry naming three earlier entries, those IRIs")]
+fn triple_read(w: &mut Steps) {
+    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let view = WriteView::from_frame(&frame).unwrap();
+    let Some(WriteChange::Insert { object, .. }) = view.change(0) else {
+        panic!("an insert");
+    };
+    let Some(RequestTermView::Triple {
+        subject,
+        predicate,
+        object: o,
+    }) = view.terms().get(object)
+    else {
+        panic!("a triple term");
+    };
+    assert!(subject < object && predicate < object && o < object);
+    let text = |i| match view.terms().get(i) {
+        Some(RequestTermView::Iri(t)) => t,
+        other => panic!("an IRI, not {other:?}"),
+    };
+    assert_eq!(
+        [text(subject), text(predicate), text(o)],
+        ["http://ex.org/a", "http://ex.org/knows", "http://ex.org/b"]
+    );
+}
+
+/// A term record: kind, direction, six zero bytes, then the four u32 fields.
+fn record(kind: u8, fields: [u32; 4]) -> Vec<u8> {
+    let mut r = vec![kind, 0, 0, 0, 0, 0, 0, 0];
+    fields
+        .iter()
+        .for_each(|f| r.extend_from_slice(&f.to_le_bytes()));
+    r
+}
+
+/// The golden Execute around a term table of `records` over the text `a`, binding entry 0.
+fn execute_with(records: Vec<Vec<u8>>) -> Vec<u8> {
+    let body = crate::utils::golden_bodies::join_sections(
+        &[],
+        &[
+            records.concat(),
+            b"a".to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            Vec::new(),
+        ],
+    );
+    reframe(&golden("execute").bytes(), &body)
+}
+
+#[when("a triple term's entry names an entry at or after its own index")]
+fn forward_index(w: &mut Steps) {
+    // Entry 1 names entry 2, which does not precede it.
+    w.bytes = execute_with(vec![record(1, [0, 1, 1, 0]), record(5, [0, 0, 2, 0])]);
+    w.refusals = view_any(&w.bytes).err().into_iter().collect();
+}
+
+#[then("the frame is refused with an error naming the entry and the index")]
+fn forward_refused(w: &mut Steps) {
+    assert_eq!(
+        w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
+        vec![ProtocolErrorEnum::IndexOutOfRange {
+            command: 11,
+            section: 0,
+            at: 1,
+            index: 2,
+            limit: 1
+        }]
+    );
+    assert!(
+        w.refusals[0].to_string().contains("entry 1"),
+        "{}",
+        w.refusals[0]
+    );
+}
+
+#[when("a request's term table holds a triple term nested 33 deep")]
+fn too_deep(w: &mut Steps) {
+    let mut records = vec![record(1, [0, 1, 1, 0])];
+    for k in 0..33u32 {
+        records.push(record(5, [k, 0, 0, 0]));
+    }
+    w.bytes = execute_with(records);
+    w.refusals = view_any(&w.bytes).err().into_iter().collect();
+}
+
+#[then("the frame is refused with an error naming the entry and its depth")]
+fn depth_refused(w: &mut Steps) {
+    assert_eq!(
+        w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
+        vec![ProtocolErrorEnum::TermTooDeep {
+            command: 11,
+            section: 0,
+            at: 33,
+            depth: 33,
+            limit: 32
+        }]
+    );
 }

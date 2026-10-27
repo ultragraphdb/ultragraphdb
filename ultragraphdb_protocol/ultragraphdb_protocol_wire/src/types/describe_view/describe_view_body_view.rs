@@ -7,6 +7,7 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::traits::body_view::BodyView;
 use crate::types::command::Command;
+use crate::types::declared::Declared;
 use crate::types::describe::Describe;
 use crate::types::describe_view::DescribeView;
 use crate::types::frame_view::FrameView;
@@ -15,7 +16,6 @@ use crate::utils::changes::{check_records, decode_declaration};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::{as_u32, u32s};
-use ultragraphdb_core_mapping::Declaration;
 
 impl<'a> BodyView<'a> for DescribeView<'a> {
     const COMMAND: Command = Command::Describe;
@@ -42,7 +42,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
         let relationship_types = names(3)?;
         let property_keys = names(4)?;
         let args = u32s(command, 6, sections.get(6))?;
-        check_records(command, (5, 6, 1), sections.get(5), &args, &strings, true)?;
+        check_records(command, (5, 6), sections.get(5), &args, 0, &strings, true)?;
         Ok(Self {
             namespace: header.u64_at(0),
             read_version: header.u64_at(8),
@@ -56,7 +56,6 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
     }
 
     fn to_body(&self) -> Result<Describe, ProtocolError> {
-        let command = Self::COMMAND.number();
         let owned = |list: Vec<&str>| {
             list.into_iter()
                 .map(str::to_string)
@@ -65,17 +64,11 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
         let (mut predicates, mut entity_types, mut relations) =
             (Vec::new(), Vec::new(), Vec::new());
         for index in 0..self.declarations() {
-            match decode_declaration(
-                command,
-                (5, 6, 1),
-                self.records,
-                index,
-                &self.args,
-                &self.strings,
-            )? {
-                (Declaration::Predicate(p), _) => predicates.push(p),
-                (Declaration::EntityType(t), preorder) => entity_types.push((t, preorder)),
-                (Declaration::Relation(r), _) => relations.push(r),
+            match decode_declaration(self.records, index, &self.args, &self.strings) {
+                Some((Declared::Predicate(p), _)) => predicates.push(p),
+                Some((Declared::EntityType(t), preorder)) => entity_types.push((t, preorder)),
+                Some((Declared::Relation(r), _)) => relations.push(r),
+                None => {}
             }
         }
         Ok(Describe::new(self.namespace, self.read_version)

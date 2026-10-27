@@ -7,6 +7,7 @@ mod prepare_body_builder;
 
 use crate::types::column_type::ColumnType;
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::term_table::TermTable;
 
 /// A statement prepared once per session (stage 5: a quad pattern with parameter slots): sent with the pattern and its
 /// parameters' types, `statement` and `schema` zero and no result types; answered with the statement's id, the
@@ -21,16 +22,20 @@ use crate::types::quad_pattern::QuadPattern;
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | the pattern: four [`crate::PatternSlot`]s |
-/// | 1 | the pattern's terms: string ends |
-/// | 2 | the pattern's terms: N-Triples text |
+/// | 1 | the term table's records |
+/// | 2 | the term table's text |
 /// | 3 | parameter types, one [`crate::ColumnType`] byte per parameter |
 /// | 4 | result column types, one byte per unbound slot, or none in a request |
+///
+/// The request's terms are a [`crate::TermTable`] in two sections, its records and its text; every term the body
+/// names is an index into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prepare {
     namespace: u64,
     statement: u64,
     schema: u64,
-    pattern: QuadPattern<String>,
+    terms: TermTable,
+    pattern: QuadPattern,
     parameter_types: Vec<ColumnType>,
     result_types: Vec<ColumnType>,
 }
@@ -40,7 +45,8 @@ impl Prepare {
         namespace: u64,
         statement: u64,
         schema: u64,
-        pattern: QuadPattern<String>,
+        terms: TermTable,
+        pattern: QuadPattern,
         parameter_types: Vec<ColumnType>,
         result_types: Vec<ColumnType>,
     ) -> Self {
@@ -48,6 +54,7 @@ impl Prepare {
             namespace,
             statement,
             schema,
+            terms,
             pattern,
             parameter_types,
             result_types,
@@ -66,7 +73,11 @@ impl Prepare {
         self.schema
     }
 
-    pub fn pattern(&self) -> &QuadPattern<String> {
+    pub fn terms(&self) -> &TermTable {
+        &self.terms
+    }
+
+    pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 

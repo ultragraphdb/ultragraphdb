@@ -23,6 +23,13 @@ The DeepBrain MVP runs on the single node of stage 7. Stage 6 builds only what S
 matching, filters, ordering, aggregates, bounded walks over one relation, and vector and text search. Where the two
 languages diverge, and full conformance testing, follow in stage 8; Bolt follows in stage 9.
 
+Fuzzing in stage 6 centres on the query core, where it pays most: the SPARQL and GQL parsers and the planner take text
+from any client, and a query language's grammar nests without limit. Each parser gets a structure-aware fuzzer that
+builds queries from the grammar, seeded with the conformance suites' queries, so runs reach the planner rather than
+stopping at a syntax error; every nesting is bounded by a stated depth, and unbounded recursion is a finding. Where the
+two languages overlap, a query and its translation into the other language must return the same rows, which turns
+fuzzing into a differential test of both engines.
+
 Improvements, single node:
 
 1. Add a fault-injecting simulator to stress test and harden the storage engine! (done, stage 2)

@@ -123,6 +123,22 @@ pub enum ProtocolErrorEnum {
         field: &'static str,
         value: u64,
     },
+    /// Entry `at` of the term table in section `section` is the same term as entry `earlier`: a table holds each term
+    /// once.
+    DuplicateTerm {
+        command: u16,
+        section: usize,
+        at: usize,
+        earlier: usize,
+    },
+    /// Entry `at` of the term table in section `section` is a triple term nested `depth` deep, past the `limit`.
+    TermTooDeep {
+        command: u16,
+        section: usize,
+        at: usize,
+        depth: usize,
+        limit: usize,
+    },
     /// Write-set record `index` of a Round body is refused for `cause`.
     Record {
         index: usize,
@@ -309,6 +325,33 @@ impl ProtocolError {
             command,
             field,
             value,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn DuplicateTerm(command: u16, section: usize, at: usize, earlier: usize) -> Self {
+        Self(ProtocolErrorEnum::DuplicateTerm {
+            command,
+            section,
+            at,
+            earlier,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn TermTooDeep(
+        command: u16,
+        section: usize,
+        at: usize,
+        depth: usize,
+        limit: usize,
+    ) -> Self {
+        Self(ProtocolErrorEnum::TermTooDeep {
+            command,
+            section,
+            at,
+            depth,
+            limit,
         })
     }
 

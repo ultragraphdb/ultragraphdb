@@ -284,8 +284,59 @@ alone. One option is new request-only tags in `core_terms` for an IRI by text, a
 literal by datatype IRI, each pointing at the text section. Another is a term kind of the wire's own, used only in
 requests. Either one also has to cover triple terms or rule them out of requests. Item 2 is held with it: Write's and
 Operation's own layouts are made of request terms, and Write's declarations share their record types with Describe's,
-so splitting the rework would change the same layouts twice. Nothing of either item has been changed; the wire format
-and dependencies are as described above.
+so splitting the rework would change the same layouts twice. The user chose the wire's own term kind; the next section
+records it.
+
+## Request terms in a table of the wire's own (decided 2026-10-27)
+
+**The encoding.** A request body that names RDF terms carries a term table of two sections, records and text, beside
+its own sections (`TermTable`, `TermTableView`). One 24-byte record per distinct term:
+
+| Record offset | Field | Type |
+|---|---|---|
+| 0 | `kind` | u8: 1 IRI, 2 blank node, 3 literal, 4 language-tagged literal, 5 triple term |
+| 1 | `direction` | u8: 0 none, 1 left to right, 2 right to left; nonzero only for kind 4 |
+| 2 | reserved | 6 bytes, zero |
+| 8 | `first` | u32: the first text's offset in the text section; a triple term's subject index |
+| 12 | `first_len` | u32: the first text's length; a triple term's predicate index |
+| 16 | `second` | u32: the second text's offset, where the first ends; a triple term's object index |
+| 20 | `second_len` | u32: the second text's length; zero for a triple term |
+
+The first text is an IRI, a blank node's label scoped to the request, or a literal's lexical form; the second a
+literal's datatype IRI (empty for `xsd:string`, which is never stated) or a language tag (never empty). Texts follow
+each other in table order with no gap and fill the text section, which is checked for UTF-8 once, every boundary on a
+character boundary; no term appears twice. A triple term names three earlier entries, so the table has no cycle, and
+its depth, computed in the same pass as the indices, is at most `MAX_TERM_DEPTH` (32), refused past it with
+`TermTooDeep`; a repeated entry is refused with `DuplicateTerm`. One encoding per term, so an accepted body re-encodes
+to its bytes. Every term a Read or Prepare pattern, an Execute's parameters, a Write's changes and an Operation's
+arguments name is an index into the table; declarations name their IRIs, tokenizers and options in a list of names.
+
+**Dependencies.** `ultragraphdb_protocol_wire` depends on `ultragraphdb_error_protocol`, `ultragraphdb_core_terms` and
+`xxhash-rust` alone; `oxrdf` and `ultragraphdb_core_mapping` are dev-dependencies of its tests. `src/utils/terms.rs`,
+the N-Triples parser, is removed. Converting Write, Describe and Operation bodies and request terms to `Changeset`,
+declarations and oxrdf types is task 10.2's, iteratively or within the nesting bound.
+
+**Phase 2.** With the surface in place and the suite rewritten: `ultragraphdb_protocol_wire` 66 of 200 unit tests and
+10 of 21 scenarios failed, `ultragraphdb_error_protocol` 2 of 10 (the new variants).
+
+**Phase 3.** 30 defects planted one at a time in the tree, each restored after its run, the crates' suites run under
+Cargo (`audit_terms*.py` in the session's scratchpad). 25 were rejected at first by a test aimed at the rule. Four were
+not:
+
+| Defect | Why it survived | Closed by |
+|---|---|---|
+| a text's end bound one past the section (`end > limit + 1`) | refused anyway by the texts-fill-the-section check, as `CountMismatch` instead of `IndexOutOfRange` naming the entry | `test_a_text_one_byte_past_its_section_names_the_entry` |
+| a term argument bounded by the larger of the term and name counts | the golden Write holds 17 terms and 15 names, so the larger is the term count | `test_a_term_reference_is_bounded_by_the_terms_not_the_names` (3 terms, 5 names) |
+| a Write's term table read at the wrong section's offset | the offset is used only to name a reserved byte's position, which no test checked for a Write | `test_a_reserved_term_byte_is_named_at_its_body_offset` |
+| "second offset written before the first text" | the plant was a no-op (`part.len() * 0`) | replaced by a real defect, a text appended before its offset is recorded, rejected by 27 tests |
+
+Planted again, each of the four is rejected by its test. The agent was stopped during the audit, after four defects,
+with the fifth (the `xsd:string` guard) still planted; it was restored and the audit finished from there.
+
+**Final counts, Cargo and Bazel equal:** `ultragraphdb_error_protocol` 10; `ultragraphdb_protocol_wire` 203 unit tests,
+21 scenarios; `ultragraphdb_protocol_bus` 33 unit tests, 5 scenarios. The fuzz targets that read request bodies (`body`,
+`body_fields`, `quad_pattern`) are updated, `term_table` is new, seeds include a table at the maximum depth; all build,
+none was run (11.7).
 
 ## Noticed outside this group
 

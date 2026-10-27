@@ -1078,14 +1078,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_core_mapping"
-version = "0.1.0"
-dependencies = [
- "oxrdf",
- "ultragraphdb_core_terms",
-]
-
-[[package]]
 name = "ultragraphdb_core_terms"
 version = "0.1.0"
 dependencies = [
@@ -1138,8 +1130,6 @@ dependencies = [
 name = "ultragraphdb_protocol_wire"
 version = "0.1.0"
 dependencies = [
- "oxrdf",
- "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",
  "xxhash-rust",
@@ -1151,8 +1141,6 @@ version = "0.0.0"
 dependencies = [
  "arbitrary",
  "libfuzzer-sys",
- "oxrdf",
- "ultragraphdb_core_mapping",
  "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",

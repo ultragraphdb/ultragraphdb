@@ -10,29 +10,26 @@ use crate::types::prepare::Prepare;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
-use crate::utils::string_writer::StringWriter;
 
 impl BodyBuilder for Prepare {
     const COMMAND: Command = Command::Prepare;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
         command_header(&[
-            (0, &self.namespace.to_le_bytes()),
-            (8, &self.statement.to_le_bytes()),
-            (16, &self.schema.to_le_bytes()),
+            (0, &self.namespace().to_le_bytes()),
+            (8, &self.statement().to_le_bytes()),
+            (16, &self.schema().to_le_bytes()),
         ])
     }
 
     fn body(&self) -> Vec<u8> {
-        let mut terms = StringWriter::default();
-        let slots = self.pattern().write(&mut terms);
-        let (ends, text) = terms.sections();
+        let (records, text) = self.terms().sections();
         let types = |types: &[ColumnType]| types.iter().map(|t| t.number()).collect::<Vec<u8>>();
         write_sections(
             &[],
             &[
-                &slots,
-                &ends,
+                &self.pattern().write(),
+                &records,
                 &text,
                 &types(self.parameter_types()),
                 &types(self.result_types()),

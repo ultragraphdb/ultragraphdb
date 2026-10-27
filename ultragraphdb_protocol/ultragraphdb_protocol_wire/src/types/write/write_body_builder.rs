@@ -16,18 +16,26 @@ impl BodyBuilder for Write {
     const COMMAND: Command = Command::Write;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
-        command_header(&[(0, &self.changeset().namespace().to_le_bytes())])
+        command_header(&[(0, &self.namespace().to_le_bytes())])
     }
 
     fn body(&self) -> Vec<u8> {
         let mut writer = ChangeWriter::default();
-        for change in self.changeset().changes() {
+        for change in self.changes() {
             writer.change(change);
         }
-        let (ends, text) = writer.strings.sections();
+        let (records, text) = self.terms().sections();
+        let (ends, names) = writer.names.sections();
         write_sections(
             &[],
-            &[&writer.records, &u32_bytes(&writer.args), &ends, &text],
+            &[
+                &writer.records,
+                &u32_bytes(&writer.args),
+                &records,
+                &text,
+                &ends,
+                &names,
+            ],
         )
     }
 }

@@ -182,6 +182,25 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
             },
         ),
         (
+            ProtocolError::DuplicateTerm(8, 2, 5, 3),
+            ProtocolErrorEnum::DuplicateTerm {
+                command: 8,
+                section: 2,
+                at: 5,
+                earlier: 3,
+            },
+        ),
+        (
+            ProtocolError::TermTooDeep(11, 0, 33, 33, 32),
+            ProtocolErrorEnum::TermTooDeep {
+                command: 11,
+                section: 0,
+                at: 33,
+                depth: 33,
+                limit: 32,
+            },
+        ),
+        (
             ProtocolError::Record(1, ProtocolError::PaddingNotZero(17, 9)),
             ProtocolErrorEnum::Record {
                 index: 1,

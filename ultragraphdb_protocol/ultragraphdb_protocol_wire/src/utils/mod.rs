@@ -11,4 +11,3 @@ pub mod key_value_writer;
 pub mod le;
 pub mod sections;
 pub mod string_writer;
-pub mod terms;

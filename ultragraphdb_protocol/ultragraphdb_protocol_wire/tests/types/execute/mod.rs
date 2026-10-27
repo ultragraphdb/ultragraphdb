@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod execute_tests;
+pub mod execute_tests;

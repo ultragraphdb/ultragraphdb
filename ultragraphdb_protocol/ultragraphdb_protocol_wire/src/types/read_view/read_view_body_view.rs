@@ -11,7 +11,7 @@ use crate::types::frame_view::FrameView;
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::read::Read;
 use crate::types::read_view::ReadView;
-use crate::types::string_list::StringList;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 
@@ -25,11 +25,18 @@ impl<'a> BodyView<'a> for ReadView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 12)])?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
-        let terms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
-        let pattern = QuadPattern::read(command, (0, 1, 2), sections.get(0), &terms, false)?;
+        let terms = TermTableView::read(
+            command,
+            (1, 2),
+            sections.offset(1),
+            sections.get(1),
+            sections.get(2),
+        )?;
+        let pattern = QuadPattern::read(command, 0, sections.get(0), terms.len(), false)?;
         Ok(Self {
             namespace: header.u64_at(0),
             limit: header.u32_at(8),
+            terms,
             pattern,
             resume: sections.get(3),
         })
@@ -39,7 +46,8 @@ impl<'a> BodyView<'a> for ReadView<'a> {
         Ok(Read::new(
             self.namespace,
             self.limit,
-            self.pattern.to_owned_pattern(),
+            self.terms.to_table(),
+            self.pattern,
             self.resume.to_vec(),
         ))
     }

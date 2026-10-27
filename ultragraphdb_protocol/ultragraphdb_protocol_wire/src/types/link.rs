@@ -3,20 +3,18 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use oxrdf::{NamedNode, NamedOrBlankNode};
-
 /// A link an upsert-and-link writes with the node it resolves: an edge of `predicate` between the node and `other`,
-/// the node as its subject or as its object.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// both term-table indices of the Operation, the node as its subject or as its object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Link {
-    predicate: NamedNode,
-    other: NamedOrBlankNode,
+    predicate: u32,
+    other: u32,
     node_is_subject: bool,
 }
 
 impl Link {
     /// The edge `node predicate other`.
-    pub fn from_node(predicate: NamedNode, other: NamedOrBlankNode) -> Self {
+    pub fn from_node(predicate: u32, other: u32) -> Self {
         Self {
             predicate,
             other,
@@ -25,7 +23,7 @@ impl Link {
     }
 
     /// The edge `other predicate node`.
-    pub fn to_node(predicate: NamedNode, other: NamedOrBlankNode) -> Self {
+    pub fn to_node(predicate: u32, other: u32) -> Self {
         Self {
             predicate,
             other,
@@ -33,12 +31,12 @@ impl Link {
         }
     }
 
-    pub fn predicate(&self) -> &NamedNode {
-        &self.predicate
+    pub fn predicate(&self) -> u32 {
+        self.predicate
     }
 
-    pub fn other(&self) -> &NamedOrBlankNode {
-        &self.other
+    pub fn other(&self) -> u32 {
+        self.other
     }
 
     /// Whether the node is the edge's subject; else its object.

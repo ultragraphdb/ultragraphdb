@@ -7,6 +7,7 @@ mod prepare_view_body_view;
 
 use crate::types::column_type::ColumnType;
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::term_table_view::TermTableView;
 
 /// The body of a received Prepare frame, read in place; see [`crate::Prepare`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,7 +15,8 @@ pub struct PrepareView<'a> {
     namespace: u64,
     statement: u64,
     schema: u64,
-    pattern: QuadPattern<&'a str>,
+    terms: TermTableView<'a>,
+    pattern: QuadPattern,
     parameter_types: Vec<ColumnType>,
     result_types: Vec<ColumnType>,
 }
@@ -32,7 +34,11 @@ impl<'a> PrepareView<'a> {
         self.schema
     }
 
-    pub fn pattern(&self) -> &QuadPattern<&'a str> {
+    pub fn terms(&self) -> &TermTableView<'a> {
+        &self.terms
+    }
+
+    pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 

@@ -46,16 +46,17 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     match cache.execute(&view, 5) {
-        Ok(bound) => {
+        Ok((terms, bound)) => {
             assert_eq!(view.statement(), reply.statement());
             assert_eq!(view.parameters().len(), reply.parameter_types().len());
             assert_eq!(bound.parameters(), 0);
-            assert!(
-                bound
-                    .slots()
-                    .iter()
-                    .all(|s| !matches!(s, PatternSlot::Parameter(_)))
-            );
+            // Every slot is unbound, the default graph, or a term of the merged table.
+            assert!(bound.slots().iter().all(|s| match s {
+                PatternSlot::Parameter(_) => false,
+                PatternSlot::Bound(i) => (*i as usize) < terms.len(),
+                _ => true,
+            }));
+            assert!(terms.len() >= reply.terms().len());
         }
         Err(StatementError(StatementErrorEnum::Unknown { statement })) => {
             assert_ne!(statement, reply.statement());

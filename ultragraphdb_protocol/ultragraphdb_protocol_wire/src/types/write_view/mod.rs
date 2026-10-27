@@ -6,7 +6,9 @@
 mod write_view_body_view;
 
 use crate::types::string_list::StringList;
-use crate::utils::changes::CHANGE_RECORD_SIZE;
+use crate::types::term_table_view::TermTableView;
+use crate::types::write_change::WriteChange;
+use crate::utils::changes::{CHANGE_RECORD_SIZE, decode_change};
 
 /// The body of a received Write frame, read in place; see [`crate::Write`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,7 +16,8 @@ pub struct WriteView<'a> {
     namespace: u64,
     records: &'a [u8],
     args: Vec<u32>,
-    strings: StringList<'a>,
+    terms: TermTableView<'a>,
+    names: StringList<'a>,
 }
 
 impl<'a> WriteView<'a> {
@@ -22,8 +25,12 @@ impl<'a> WriteView<'a> {
         self.namespace
     }
 
-    pub fn strings(&self) -> &StringList<'a> {
-        &self.strings
+    pub fn terms(&self) -> &TermTableView<'a> {
+        &self.terms
+    }
+
+    pub fn names(&self) -> &StringList<'a> {
+        &self.names
     }
 
     /// The number of changes.
@@ -33,5 +40,10 @@ impl<'a> WriteView<'a> {
 
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    /// Change `index`, `None` past the last.
+    pub fn change(&self, index: usize) -> Option<WriteChange> {
+        decode_change(self.records, index, &self.args, &self.names)
     }
 }

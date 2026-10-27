@@ -38,6 +38,12 @@ mod credit_view;
 #[cfg(test)]
 mod decision;
 #[cfg(test)]
+mod declared_entity_type;
+#[cfg(test)]
+mod declared_predicate;
+#[cfg(test)]
+mod declared_relation;
+#[cfg(test)]
 pub mod describe;
 #[cfg(test)]
 mod describe_view;
@@ -48,7 +54,7 @@ mod error_reply;
 #[cfg(test)]
 mod error_reply_view;
 #[cfg(test)]
-mod execute;
+pub mod execute;
 #[cfg(test)]
 mod execute_view;
 #[cfg(test)]
@@ -90,6 +96,8 @@ mod register;
 #[cfg(test)]
 mod register_view;
 #[cfg(test)]
+mod request_term_view;
+#[cfg(test)]
 pub mod result_batch;
 #[cfg(test)]
 mod result_term;
@@ -107,6 +115,10 @@ mod round_view;
 mod statement_cache;
 #[cfg(test)]
 mod string_list;
+#[cfg(test)]
+mod term_table;
+#[cfg(test)]
+pub mod term_table_view;
 #[cfg(test)]
 mod welcome;
 #[cfg(test)]

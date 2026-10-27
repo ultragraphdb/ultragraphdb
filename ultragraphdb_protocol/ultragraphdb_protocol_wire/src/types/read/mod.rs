@@ -6,6 +6,7 @@
 mod read_body_builder;
 
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::term_table::TermTable;
 
 /// A data request of stage 5 (in a transaction on the frame's stream): a quad pattern, at most `limit` rows (0 for
 /// no limit), and the resume key a previous result ended with, empty to start.
@@ -18,22 +19,33 @@ use crate::types::quad_pattern::QuadPattern;
 /// | Section | Contents |
 /// |---|---|
 /// | 0 | the pattern: four [`crate::PatternSlot`]s, no parameter |
-/// | 1 | the pattern's terms: string ends |
-/// | 2 | the pattern's terms: N-Triples text |
+/// | 1 | the term table's records |
+/// | 2 | the term table's text |
 /// | 3 | the resume key |
+///
+/// The request's terms are a [`crate::TermTable`] in two sections, its records and its text; every term the body
+/// names is an index into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Read {
     namespace: u64,
     limit: u32,
-    pattern: QuadPattern<String>,
+    terms: TermTable,
+    pattern: QuadPattern,
     resume: Vec<u8>,
 }
 
 impl Read {
-    pub fn new(namespace: u64, limit: u32, pattern: QuadPattern<String>, resume: Vec<u8>) -> Self {
+    pub fn new(
+        namespace: u64,
+        limit: u32,
+        terms: TermTable,
+        pattern: QuadPattern,
+        resume: Vec<u8>,
+    ) -> Self {
         Self {
             namespace,
             limit,
+            terms,
             pattern,
             resume,
         }
@@ -47,7 +59,11 @@ impl Read {
         self.limit
     }
 
-    pub fn pattern(&self) -> &QuadPattern<String> {
+    pub fn terms(&self) -> &TermTable {
+        &self.terms
+    }
+
+    pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 

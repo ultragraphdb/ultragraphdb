@@ -3,31 +3,40 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Structure-aware: bodies of every kind built from arbitrary fields, which must validate and read back to what was
-//! built; then arbitrary mutations of the body, the frame rebuilt around it so the body's checks are reached, which
+//! Structure-aware: bodies of every kind, their term tables included, built from arbitrary fields, which must validate
+//! and read back to what was built; then arbitrary mutations of the body, the frame rebuilt around it so the body's checks are reached, which
 //! never panic.
 
 #![no_main]
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use oxrdf::{GraphName, Literal, NamedNode, NamedOrBlankNode, Term};
-use ultragraphdb_core_mapping::{Change, Changeset};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, Command, Commit, CommitOperation, CommitView, Credit,
-    CreditView, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header,
-    Hello, HelloView, Link, Operation, OperationResult, OperationView, PatternSlot, Prepare,
-    PrepareView, QuadPattern, Read, ReadView, ResultBatch, ResultTerm, ResultView, RoundBody,
-    RoundView, Welcome, WelcomeView, Write, WriteSetRecord, WriteView,
+    CreditView, Direction, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView,
+    Header, Hello, HelloView, Link, Operation, OperationResult, OperationView, PatternSlot,
+    Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultBatch, ResultTerm,
+    ResultView, RoundBody, RoundView, TermTable, Welcome, WelcomeView, Write, WriteChange,
+    WriteSetRecord, WriteView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
+/// A term from arbitrary fields: a triple term names earlier entries of the table it is interned into.
+#[derive(Debug, Arbitrary)]
+enum Term {
+    Iri(String),
+    BlankNode(String),
+    Literal(String, Option<String>),
+    LanguageLiteral(String, String, u8),
+    Triple(u16, u16, u16),
+}
+
 #[derive(Debug, Arbitrary)]
 enum Slot {
     Unbound,
-    Bound(u8),
+    Bound(u16),
     Parameter,
 }
 
@@ -73,18 +82,18 @@ enum Body {
     },
     Execute {
         statement: u64,
-        parameters: Vec<String>,
+        parameters: Vec<u16>,
         resume: Vec<u8>,
     },
     Write {
         namespace: u64,
-        changes: Vec<(u8, u8, u8, u8)>,
+        changes: Vec<(u8, u16, u16, u16)>,
     },
     Operation {
         kind: u8,
-        names: [u8; 4],
+        args: [u16; 4],
         delta: i64,
-        links: Vec<(u8, bool)>,
+        links: Vec<(u16, bool)>,
     },
     Result {
         columns: u8,
@@ -106,27 +115,49 @@ enum Mutation {
 
 #[derive(Debug, Arbitrary)]
 struct Input {
+    terms: Vec<Term>,
     body: Body,
     stream: u64,
     mutations: Vec<Mutation>,
 }
 
-fn node(n: u8) -> NamedNode {
-    NamedNode::new_unchecked(format!("http://ex.org/n{n}"))
-}
-
-fn term(n: u8) -> Term {
-    match n % 3 {
-        0 => node(n).into(),
-        1 => Literal::new_simple_literal(format!("v{n}")).into(),
-        _ => Literal::new_language_tagged_literal_unchecked(format!("w{n}"), "en").into(),
+/// The table of `terms`, each interned or, when it is refused, left out; at least one IRI, so indices have a term.
+fn table(terms: &[Term]) -> TermTable {
+    let mut table = TermTable::new();
+    table.iri("http://ex.org/0");
+    for term in terms {
+        let len = table.len() as u32;
+        let term = match term {
+            Term::Iri(s) => RequestTerm::Iri(s.clone()),
+            Term::BlankNode(s) => RequestTerm::BlankNode(s.clone()),
+            Term::Literal(lexical, datatype) => RequestTerm::Literal {
+                lexical: lexical.clone(),
+                datatype: datatype.clone(),
+            },
+            Term::LanguageLiteral(lexical, language, direction) => RequestTerm::LanguageLiteral {
+                lexical: lexical.clone(),
+                language: language.clone(),
+                direction: match direction % 3 {
+                    0 => None,
+                    1 => Some(Direction::Ltr),
+                    _ => Some(Direction::Rtl),
+                },
+            },
+            Term::Triple(s, p, o) => RequestTerm::Triple {
+                subject: u32::from(*s) % len,
+                predicate: u32::from(*p) % len,
+                object: u32::from(*o) % len,
+            },
+        };
+        let _ = table.intern(term);
     }
+    table
 }
 
-fn slot(s: &Slot, parameters: &mut u32) -> PatternSlot<String> {
+fn slot(s: &Slot, parameters: &mut u32, terms: u32) -> PatternSlot {
     match s {
         Slot::Unbound => PatternSlot::Unbound,
-        Slot::Bound(n) => PatternSlot::Bound(node(*n).to_string()),
+        Slot::Bound(n) => PatternSlot::Bound(u32::from(*n) % terms),
         Slot::Parameter => {
             *parameters += 1;
             PatternSlot::Parameter(*parameters - 1)
@@ -139,7 +170,9 @@ type Check = Box<dyn Fn(&FrameView<'_>)>;
 
 /// The frame of `body`, and a check that its view reads back what was built, or `None` when the fields make no
 /// valid body.
-fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
+fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Check)> {
+    let n = terms.len() as u32;
+    let t = |i: u16| u32::from(i) % n;
     Some(match body {
         Body::Hello {
             min,
@@ -253,15 +286,15 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
             resume,
         } => {
             let mut parameters = 0;
-            let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters)).collect();
+            let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters, n)).collect();
             if parameters > 0 {
                 return None;
             }
-            let [g, su, p, o]: [PatternSlot<String>; 4] = s.try_into().ok()?;
             let read = Read::new(
                 *namespace,
                 *limit,
-                QuadPattern::new(g, su, p, o),
+                terms,
+                QuadPattern::new(s[0], s[1], s[2], s[3]),
                 resume.clone(),
             );
             let frame = read.frame(header).ok()?;
@@ -277,8 +310,7 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
             node_parameters,
         } => {
             let mut parameters = 0;
-            let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters)).collect();
-            let [g, su, p, o]: [PatternSlot<String>; 4] = s.try_into().ok()?;
+            let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters, n)).collect();
             let kind = if *node_parameters {
                 ColumnType::Node
             } else {
@@ -288,7 +320,8 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
                 0,
                 0,
                 0,
-                QuadPattern::new(g, su, p, o),
+                terms,
+                QuadPattern::new(s[0], s[1], s[2], s[3]),
                 vec![kind; parameters as usize],
                 vec![],
             );
@@ -308,7 +341,8 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
             parameters,
             resume,
         } => {
-            let execute = Execute::new(*statement, 0, parameters.clone(), resume.clone());
+            let parameters = parameters.iter().map(|p| t(*p)).collect();
+            let execute = Execute::new(*statement, 0, terms, parameters, resume.clone());
             let frame = execute.frame(header).ok()?;
             (
                 frame,
@@ -321,35 +355,32 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
             )
         }
         Body::Write { namespace, changes } => {
-            let mut changeset = Changeset::new(*namespace);
-            for (kind, s, p, o) in changes {
-                let subject: NamedOrBlankNode = node(*s).into();
-                let graph = if kind % 2 == 0 {
-                    GraphName::DefaultGraph
-                } else {
-                    node(*o).into()
-                };
-                changeset.push(match kind % 3 {
-                    0 => Change::Insert {
-                        graph,
-                        subject,
-                        predicate: node(*p),
-                        object: term(*o),
-                    },
-                    1 => Change::Delete {
-                        graph,
-                        subject,
-                        predicate: node(*p),
-                        object: term(*o),
-                    },
-                    _ => Change::DeletePattern {
-                        graph,
-                        subject,
-                        predicate: node(*p),
-                    },
-                });
-            }
-            let write = Write::new(changeset);
+            let changes = changes
+                .iter()
+                .map(|(kind, s, p, o)| {
+                    let graph = (kind % 2 == 1).then(|| t(*o));
+                    match kind % 3 {
+                        0 => WriteChange::Insert {
+                            graph,
+                            subject: t(*s),
+                            predicate: t(*p),
+                            object: t(*o),
+                        },
+                        1 => WriteChange::Delete {
+                            graph,
+                            subject: t(*s),
+                            predicate: t(*p),
+                            object: t(*o),
+                        },
+                        _ => WriteChange::DeletePattern {
+                            graph,
+                            subject: t(*s),
+                            predicate: t(*p),
+                        },
+                    }
+                })
+                .collect();
+            let write = Write::new(*namespace, terms, changes);
             let frame = write.frame(header).ok()?;
             (
                 frame,
@@ -360,48 +391,48 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
         }
         Body::Operation {
             kind,
-            names: [a, b, c, d],
+            args: [a, b, c, d],
             delta,
             links,
         } => {
             let operation = match kind % 4 {
                 0 => CommitOperation::InsertIfAbsent {
-                    graph: GraphName::DefaultGraph,
-                    predicate: node(*a),
-                    value: term(*b),
-                    properties: vec![(node(*c), term(*d))],
+                    graph: None,
+                    predicate: t(*a),
+                    value: t(*b),
+                    properties: vec![(t(*c), t(*d))],
                 },
                 1 => CommitOperation::UpsertAndLink {
-                    graph: GraphName::DefaultGraph,
-                    predicate: node(*a),
-                    value: term(*b),
+                    graph: None,
+                    predicate: t(*a),
+                    value: t(*b),
                     properties: vec![],
                     links: links
                         .iter()
-                        .map(|(n, from)| {
+                        .map(|(x, from)| {
                             if *from {
-                                Link::from_node(node(*n), node(*n).into())
+                                Link::from_node(t(*x), t(*x))
                             } else {
-                                Link::to_node(node(*n), node(*n).into())
+                                Link::to_node(t(*x), t(*x))
                             }
                         })
                         .collect(),
                 },
                 2 => CommitOperation::CompareAndSet {
-                    graph: node(*a).into(),
-                    subject: node(*b).into(),
-                    predicate: node(*c),
-                    expected: term(*d),
-                    new: term(*a),
+                    graph: Some(t(*a)),
+                    subject: t(*b),
+                    predicate: t(*c),
+                    expected: t(*d),
+                    new: t(*a),
                 },
                 _ => CommitOperation::CounterAdd {
-                    graph: GraphName::DefaultGraph,
-                    subject: node(*a).into(),
-                    predicate: node(*b),
+                    graph: None,
+                    subject: t(*a),
+                    predicate: t(*b),
                     delta: *delta,
                 },
             };
-            let op = Operation::new(operation);
+            let op = Operation::new(terms, operation);
             let frame = op.frame(header).ok()?;
             (
                 frame,
@@ -414,7 +445,7 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
             let columns = u32::from(columns % 8);
             let mut batch = ResultBatch::new(columns);
             for row in rows {
-                let terms: Vec<Option<ResultTerm>> = (0..columns as usize)
+                let cells: Vec<Option<ResultTerm>> = (0..columns as usize)
                     .map(|c| {
                         row.get(c).copied().flatten().map(|n| {
                             ResultTerm::new(EncodedTerm::uid(u64::from(n)))
@@ -422,7 +453,7 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
                         })
                     })
                     .collect();
-                let refs: Vec<Option<&ResultTerm>> = terms.iter().map(Option::as_ref).collect();
+                let refs: Vec<Option<&ResultTerm>> = cells.iter().map(Option::as_ref).collect();
                 batch.push_row(&refs).ok()?;
             }
             let frame = batch.frame(header).ok()?;
@@ -464,7 +495,7 @@ fn build(body: &Body, header: Header) -> Option<(Vec<u8>, Check)> {
 
 fuzz_target!(|input: Input| {
     let header = Header::new(CLUSTER, Command::Abort).with_stream(input.stream);
-    let Some((frame, check)) = build(&input.body, header) else {
+    let Some((frame, check)) = build(&input.body, table(&input.terms), header) else {
         return;
     };
     let view = FrameView::validate(&frame, CLUSTER).expect("a built frame validates");

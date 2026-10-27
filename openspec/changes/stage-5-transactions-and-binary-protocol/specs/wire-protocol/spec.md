@@ -129,6 +129,43 @@ for IRIs and for literals the store holds by hash.
 - **WHEN** a batch of 1,000 rows names the same IRI in every row
 - **THEN** its term table holds that IRI once
 
+### Requirement: Requests name terms by their text
+A request body that carries RDF terms SHALL carry them in a term table of its own, one entry per distinct term, each a
+kind and offsets into the body's text section: an IRI by its text, a blank node by its label scoped to the request, a
+literal by its lexical form with its datatype's IRI (none for `xsd:string`) or its language tag and base direction, and
+a triple term by the indices of three earlier entries of the same table. Every term the body names SHALL be an index
+into that table. A receiver SHALL refuse an entry that repeats an earlier one, a triple term naming an entry at or
+after its own, and a triple term nested deeper than 32. A client names a term only by its text; result batches keep
+`ultragraphdb_core_terms`' encoding, which names IRIs by the store's UIDs.
+
+#### Scenario: A request names an IRI by its text
+- **WHEN** a Read binds its subject to the IRI `http://ex.org/a`
+- **THEN** the view reads an IRI entry whose text is `http://ex.org/a`, borrowed from the frame
+
+#### Scenario: A request names a blank node by its label
+- **WHEN** a Write inserts a statement whose subject is the blank node labelled `b1`
+- **THEN** the view reads a blank-node entry labelled `b1`
+
+#### Scenario: A request names a typed literal by its datatype's IRI
+- **WHEN** an Execute binds the literal `35` of datatype `http://www.w3.org/2001/XMLSchema#integer`
+- **THEN** the view reads a literal entry of lexical form `35` and that datatype's IRI
+
+#### Scenario: A request names a language-tagged literal
+- **WHEN** an Operation's value is `chat` tagged `fr`
+- **THEN** the view reads a literal entry of lexical form `chat` and language tag `fr`
+
+#### Scenario: A request names a triple term by its parts
+- **WHEN** a Write's object is the triple term of `http://ex.org/a`, `http://ex.org/knows` and `http://ex.org/b`
+- **THEN** the view reads a triple-term entry naming three earlier entries, those IRIs
+
+#### Scenario: A forward index is refused
+- **WHEN** a triple term's entry names an entry at or after its own index
+- **THEN** the frame is refused with an error naming the entry and the index
+
+#### Scenario: A triple term nested deeper than the maximum is refused
+- **WHEN** a request's term table holds a triple term nested 33 deep
+- **THEN** the frame is refused with an error naming the entry and its depth
+
 ### Requirement: The conformance suite
 The protocol SHALL be covered by golden frames for every command; a malformed case for every validation rule, every
 truncation of every golden frame, bit flips in header and body, offsets past the end, overlapping and out of order, and

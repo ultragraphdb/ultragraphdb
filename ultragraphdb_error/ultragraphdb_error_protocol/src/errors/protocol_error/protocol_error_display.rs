@@ -148,6 +148,25 @@ impl fmt::Display for ProtocolError {
                 f,
                 "{field} of command {command} holds {value}, which the command does not define"
             ),
+            ProtocolErrorEnum::DuplicateTerm {
+                command,
+                section,
+                at,
+                earlier,
+            } => write!(
+                f,
+                "entry {at} of the term table in section {section} of command {command} repeats entry {earlier}"
+            ),
+            ProtocolErrorEnum::TermTooDeep {
+                command,
+                section,
+                at,
+                depth,
+                limit,
+            } => write!(
+                f,
+                "entry {at} of the term table in section {section} of command {command} nests {depth} deep, past the {limit} allowed"
+            ),
             ProtocolErrorEnum::Record { index, cause } => write!(
                 f,
                 "write-set record {index} of the round: {}",

@@ -21,8 +21,6 @@ workspace = true
 [dependencies]
 arbitrary = { workspace = true }
 libfuzzer-sys = { workspace = true }
-oxrdf = { workspace = true }
-ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
@@ -88,6 +86,15 @@ bench = false
 [[bin]]
 name = "body_fields"
 path = "fuzz_targets/body_fields.rs"
+test = false
+doc = false
+bench = false
+
+# Structure-aware: term tables built from arbitrary terms and triple-term chains, at and past the nesting bound, then
+# their records mutated.
+[[bin]]
+name = "term_table"
+path = "fuzz_targets/term_table.rs"
 test = false
 doc = false
 bench = false

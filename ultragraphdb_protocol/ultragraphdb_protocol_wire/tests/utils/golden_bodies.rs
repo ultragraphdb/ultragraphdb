@@ -54,196 +54,30 @@ const fn g(
 }
 
 // The generator's output, copied: name, command, stream, flags, size, checksum, checksum_body.
-pub const BODIES: [GoldenBody; 21] = [
-    g(
-        "hello",
-        1,
-        0,
-        0,
-        279,
-        0x614f_89ea_a6f9_fbdf,
-        0x3354_a6ce_4aa5_d7a6,
-    ),
-    g(
-        "welcome",
-        2,
-        0,
-        0,
-        278,
-        0x5695_f23b_680b_77f6,
-        0x9507_47f9_2f0d_9d17,
-    ),
-    g(
-        "register",
-        3,
-        0,
-        0,
-        256,
-        0x5544_d4f1_c445_4b91,
-        0x2d06_8005_38d3_94c2,
-    ),
-    g(
-        "begin",
-        4,
-        5,
-        0,
-        256,
-        0xc652_33ba_d6e6_0399,
-        0x2d06_8005_38d3_94c2,
-    ),
-    g(
-        "commit",
-        5,
-        5,
-        0,
-        296,
-        0x4ce5_2b99_d651_9cdf,
-        0x0a21_f801_015a_ba74,
-    ),
-    g(
-        "abort",
-        6,
-        5,
-        0,
-        256,
-        0xf106_d66a_3e88_8c64,
-        0x2d06_8005_38d3_94c2,
-    ),
-    g(
-        "read",
-        7,
-        11,
-        0,
-        371,
-        0x1818_4ff1_0cee_32e3,
-        0xce84_1e82_aaa7_0d44,
-    ),
-    g(
-        "write",
-        8,
-        5,
-        0,
-        1_276,
-        0x66f3_f327_eefd_d815,
-        0x9b41_3043_eaf2_6023,
-    ),
-    g(
-        "operation",
-        9,
-        5,
-        0,
-        433,
-        0x1fe7_f050_a3f1_3803,
-        0x31a3_a41d_cfe2_9e63,
-    ),
-    g(
-        "operation_counter",
-        9,
-        7,
-        0,
-        351,
-        0xb118_9ced_b99c_0734,
-        0xa60b_bf48_820b_5c2b,
-    ),
-    g(
-        "prepare",
-        10,
-        13,
-        0,
-        368,
-        0x97d4_d390_e581_1475,
-        0x3b50_9552_d575_7531,
-    ),
-    g(
-        "prepare_reply",
-        10,
-        13,
-        0,
-        369,
-        0x5f17_fa2a_0668_aa51,
-        0x7512_5c78_f36b_d39b,
-    ),
-    g(
-        "execute",
-        11,
-        15,
-        0,
-        312,
-        0xdf87_ecb6_6242_2848,
-        0x0008_6d6e_b12b_bd46,
-    ),
-    g(
-        "describe",
-        12,
-        17,
-        0,
-        312,
-        0x19ac_ff22_96ee_5721,
-        0x2464_7a33_d027_0e23,
-    ),
-    g(
-        "describe_reply",
-        12,
-        17,
-        0,
-        508,
-        0x6b73_77b1_e445_c807,
-        0x739b_5e15_2585_486c,
-    ),
-    g(
-        "result",
-        13,
-        11,
-        1,
-        506,
-        0x5143_5849_b5f5_bf35,
-        0x7772_32f3_57f1_d7c5,
-    ),
-    g(
-        "credit",
-        14,
-        11,
-        0,
-        256,
-        0xa4c1_931b_3c87_b6f5,
-        0x2d06_8005_38d3_94c2,
-    ),
-    g(
-        "cancel",
-        15,
-        11,
-        0,
-        256,
-        0x5f55_fc6f_7d1d_3612,
-        0x2d06_8005_38d3_94c2,
-    ),
-    g(
-        "error",
-        16,
-        5,
-        1,
-        304,
-        0x6060_d113_2332_53eb,
-        0x5107_5088_7f86_158a,
-    ),
-    g(
-        "error_operation",
-        16,
-        7,
-        1,
-        318,
-        0xee9e_e1cc_b9c3_4eb6,
-        0x333a_9044_74e6_cc95,
-    ),
-    g(
-        "round",
-        17,
-        0,
-        0,
-        5_712,
-        0x0e86_b49e_288c_861a,
-        0x546c_11ac_2fa8_3358,
-    ),
+#[rustfmt::skip]
+pub const BODIES: [GoldenBody; 22] = [
+    g("hello", 1, 0, 0, 279, 0x614f_89ea_a6f9_fbdf, 0x3354_a6ce_4aa5_d7a6),
+    g("welcome", 2, 0, 0, 278, 0x5695_f23b_680b_77f6, 0x9507_47f9_2f0d_9d17),
+    g("register", 3, 0, 0, 256, 0x5544_d4f1_c445_4b91, 0x2d06_8005_38d3_94c2),
+    g("begin", 4, 5, 0, 256, 0xc652_33ba_d6e6_0399, 0x2d06_8005_38d3_94c2),
+    g("commit", 5, 5, 0, 296, 0x4ce5_2b99_d651_9cdf, 0x0a21_f801_015a_ba74),
+    g("abort", 6, 5, 0, 256, 0xf106_d66a_3e88_8c64, 0x2d06_8005_38d3_94c2),
+    g("read", 7, 11, 0, 411, 0xaa85_d3fd_0a47_1bb3, 0xd495_36ce_eedd_927f),
+    g("write", 8, 5, 0, 1_769, 0x4824_02c9_da12_b1d0, 0x1a97_c571_66f1_f5e1),
+    g("operation", 9, 5, 0, 541, 0x1bf4_68c9_cf8d_db55, 0xc763_0be0_93aa_4f02),
+    g("operation_counter", 9, 7, 0, 387, 0xdee7_f65d_452e_8eb0, 0x95e0_a48a_8ed2_701c),
+    g("operation_deep", 9, 9, 0, 1_142, 0x94cd_573f_44a2_caf7, 0xb338_de68_2070_1115),
+    g("prepare", 10, 13, 0, 384, 0x97d7_cb7a_e584_5a1b, 0xb7d8_3d8f_c6ef_0110),
+    g("prepare_reply", 10, 13, 0, 385, 0x9fa2_ca59_892e_283b, 0x7237_dbcf_ca74_635e),
+    g("execute", 11, 15, 0, 336, 0xa93c_79f0_a6a9_9b8f, 0xb518_2367_cd44_9c6f),
+    g("describe", 12, 17, 0, 312, 0x19ac_ff22_96ee_5721, 0x2464_7a33_d027_0e23),
+    g("describe_reply", 12, 17, 0, 508, 0x6b73_77b1_e445_c807, 0x739b_5e15_2585_486c),
+    g("result", 13, 11, 1, 506, 0x5143_5849_b5f5_bf35, 0x7772_32f3_57f1_d7c5),
+    g("credit", 14, 11, 0, 256, 0xa4c1_931b_3c87_b6f5, 0x2d06_8005_38d3_94c2),
+    g("cancel", 15, 11, 0, 256, 0x5f55_fc6f_7d1d_3612, 0x2d06_8005_38d3_94c2),
+    g("error", 16, 5, 1, 304, 0x6060_d113_2332_53eb, 0x5107_5088_7f86_158a),
+    g("error_operation", 16, 7, 1, 318, 0xee9e_e1cc_b9c3_4eb6, 0x333a_9044_74e6_cc95),
+    g("round", 17, 0, 0, 5_712, 0x0e86_b49e_288c_861a, 0x546c_11ac_2fa8_3358),
 ];
 
 /// The schema id the generator printed for the golden Describe answer's declarations.
@@ -376,13 +210,13 @@ pub fn section(data: &[u8], fixed: usize, index: usize) -> (usize, usize) {
 }
 
 /// `bytes` validated and read through its command's view, and the view read back to its owned body, which builds the
-/// same frame again under the frame's own header: byte for byte, or, for Write, Operation, Describe and Result, whose
-/// strings and terms a builder lays out canonically, a frame that rebuilds to itself.
+/// same frame again under the frame's own header: byte for byte, or, for Write, Describe and Result, whose names and
+/// result terms a builder interns, a frame that rebuilds to itself.
 pub fn view_any(bytes: &[u8]) -> Result<(), ProtocolError> {
     let (command, rebuilt) = rebuild(bytes)?;
     if matches!(
         command,
-        Command::Write | Command::Operation | Command::Describe | Command::Result
+        Command::Write | Command::Describe | Command::Result
     ) {
         let (_, again) = rebuild(&rebuilt).expect("a rebuilt frame reads");
         assert_eq!(again, rebuilt, "{command:?} is not stable");

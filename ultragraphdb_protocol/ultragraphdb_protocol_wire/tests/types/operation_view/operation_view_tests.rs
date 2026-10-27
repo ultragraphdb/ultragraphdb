@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, Operation, OperationView};
+use ultragraphdb_protocol_wire::{BodyView, OperationView, RequestTermView};
 
 use crate::types::operation::operation_tests::{counter, upsert};
 use crate::utils::golden_bodies::{frame_of, golden, put, with_command_header, with_section};
@@ -17,12 +17,18 @@ fn test_the_golden_operations_read_their_values() {
         (view.kind(), view.delta(), view.properties(), view.links()),
         (2, 0, 1, 1)
     );
-    assert_eq!(view.strings().len(), 6);
-    assert_eq!(view.to_body().unwrap(), Operation::new(upsert()));
+    assert_eq!(
+        view.terms().get(1),
+        Some(RequestTermView::Literal {
+            lexical: "x",
+            datatype: None
+        })
+    );
+    assert_eq!(view.to_body().unwrap(), upsert());
     let bytes = golden("operation_counter").bytes();
     let view = OperationView::from_frame(&frame_of(&bytes)).unwrap();
     assert_eq!((view.kind(), view.delta()), (4, -5));
-    assert_eq!(view.to_body().unwrap(), Operation::new(counter()));
+    assert_eq!(view.to_body().unwrap(), counter());
 }
 
 fn header_refused(name: &str, change: impl FnOnce(&mut [u8])) -> ProtocolErrorEnum {
@@ -56,7 +62,6 @@ fn test_command_header_fields_fit_the_kind() {
             value: 1
         }
     );
-    // Insert-if-absent takes no links; compare-and-set and counter add no properties.
     assert_eq!(
         header_refused("operation", |h| h[0] = 1),
         ProtocolErrorEnum::FieldValue {
@@ -117,7 +122,6 @@ fn test_args_are_counted_and_in_range() {
             limit: 6
         }
     );
-    // The graph may be absent; the predicate may not.
     assert_eq!(
         refused(|a| put(a, 4, u32::MAX.into(), 4)),
         ProtocolErrorEnum::IndexOutOfRange {
@@ -126,21 +130,6 @@ fn test_args_are_counted_and_in_range() {
             at: 1,
             index: u32::MAX,
             limit: 6
-        }
-    );
-}
-
-#[test]
-fn test_a_term_of_the_wrong_kind_is_refused_when_read() {
-    // The unique predicate as the value's literal: string 1 is "\"x\"".
-    let bytes = with_section(&golden("operation").bytes(), 3, 0, |a| put(a, 4, 1, 4));
-    let view = OperationView::from_frame(&frame_of(&bytes)).unwrap();
-    assert_eq!(
-        view.to_body().unwrap_err().0,
-        ProtocolErrorEnum::BadTerm {
-            command: 9,
-            section: 2,
-            at: 1
         }
     );
 }

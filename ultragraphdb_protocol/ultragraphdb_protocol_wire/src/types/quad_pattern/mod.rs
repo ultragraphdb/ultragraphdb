@@ -7,30 +7,28 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::column_type::ColumnType;
 use crate::types::pattern_slot::PatternSlot;
-use crate::types::string_list::StringList;
 use crate::utils::le::bytes_at;
 use crate::utils::sections::as_u32;
-use crate::utils::string_writer::StringWriter;
 
 /// The size of a pattern on the wire: four slots of 8 bytes.
 pub(crate) const PATTERN_SIZE: usize = 32;
 
-/// A quad pattern: graph, subject, predicate and object, each a [`PatternSlot`]. `T` is the bound terms' text,
-/// `String` in a request being built and `&str` borrowing a received one.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct QuadPattern<T> {
-    graph: PatternSlot<T>,
-    subject: PatternSlot<T>,
-    predicate: PatternSlot<T>,
-    object: PatternSlot<T>,
+/// A quad pattern: graph, subject, predicate and object, each a [`PatternSlot`], its bound terms indices into the
+/// body's term table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct QuadPattern {
+    graph: PatternSlot,
+    subject: PatternSlot,
+    predicate: PatternSlot,
+    object: PatternSlot,
 }
 
-impl<T> QuadPattern<T> {
+impl QuadPattern {
     pub fn new(
-        graph: PatternSlot<T>,
-        subject: PatternSlot<T>,
-        predicate: PatternSlot<T>,
-        object: PatternSlot<T>,
+        graph: PatternSlot,
+        subject: PatternSlot,
+        predicate: PatternSlot,
+        object: PatternSlot,
     ) -> Self {
         Self {
             graph,
@@ -40,25 +38,25 @@ impl<T> QuadPattern<T> {
         }
     }
 
-    pub fn graph(&self) -> &PatternSlot<T> {
-        &self.graph
+    pub fn graph(&self) -> PatternSlot {
+        self.graph
     }
 
-    pub fn subject(&self) -> &PatternSlot<T> {
-        &self.subject
+    pub fn subject(&self) -> PatternSlot {
+        self.subject
     }
 
-    pub fn predicate(&self) -> &PatternSlot<T> {
-        &self.predicate
+    pub fn predicate(&self) -> PatternSlot {
+        self.predicate
     }
 
-    pub fn object(&self) -> &PatternSlot<T> {
-        &self.object
+    pub fn object(&self) -> PatternSlot {
+        self.object
     }
 
     /// The slots in order: graph, subject, predicate, object.
-    pub fn slots(&self) -> [&PatternSlot<T>; 4] {
-        [&self.graph, &self.subject, &self.predicate, &self.object]
+    pub fn slots(&self) -> [PatternSlot; 4] {
+        [self.graph, self.subject, self.predicate, self.object]
     }
 
     /// The number of parameter slots.
@@ -78,53 +76,32 @@ impl<T> QuadPattern<T> {
             ColumnType::Term,
         ]
     }
-}
 
-impl<T: AsRef<str>> QuadPattern<T> {
-    /// The pattern with its terms as owned strings.
-    pub fn to_owned_pattern(&self) -> QuadPattern<String> {
-        let owned = |slot: &PatternSlot<T>| match slot {
-            PatternSlot::Unbound => PatternSlot::Unbound,
-            PatternSlot::DefaultGraph => PatternSlot::DefaultGraph,
-            PatternSlot::Bound(text) => PatternSlot::Bound(text.as_ref().to_string()),
-            PatternSlot::Parameter(n) => PatternSlot::Parameter(*n),
-        };
-        QuadPattern::new(
-            owned(&self.graph),
-            owned(&self.subject),
-            owned(&self.predicate),
-            owned(&self.object),
-        )
-    }
-
-    /// The 32 bytes of its slots, its bound terms appended to `terms`.
-    pub(crate) fn write(&self, terms: &mut StringWriter) -> Vec<u8> {
+    /// The 32 bytes of its slots.
+    pub(crate) fn write(&self) -> Vec<u8> {
         self.slots()
             .iter()
             .flat_map(|slot| {
                 let (kind, value) = match slot {
                     PatternSlot::Unbound => (0u32, 0u32),
                     PatternSlot::DefaultGraph => (1, 0),
-                    PatternSlot::Bound(text) => (2, terms.push(text.as_ref())),
+                    PatternSlot::Bound(index) => (2, *index),
                     PatternSlot::Parameter(n) => (3, *n),
                 };
                 kind.to_le_bytes().into_iter().chain(value.to_le_bytes())
             })
             .collect()
     }
-}
 
-impl<'a> QuadPattern<&'a str> {
-    /// The pattern of `slots`, section `sections.0` of a body of `command`, its terms in `terms` (whose sections are
-    /// `sections.1` and `sections.2`), checked: 32 bytes ([`ProtocolError::CountMismatch`]); each kind known, the
-    /// default graph only at the graph, a parameter only where `parameters` allows it, numbered in order of
-    /// appearance, and an unused value zero ([`ProtocolError::FieldValue`]); each bound term's index in range
-    /// ([`ProtocolError::IndexOutOfRange`]).
+    /// The pattern of `slots`, section `section` of a body of `command` whose term table holds `terms` entries,
+    /// checked: 32 bytes ([`ProtocolError::CountMismatch`]); each kind known, the default graph only at the graph, a
+    /// parameter only where `parameters` allows it, numbered in order of appearance, and an unused value zero
+    /// ([`ProtocolError::FieldValue`]); each bound term's index in the table ([`ProtocolError::IndexOutOfRange`]).
     pub(crate) fn read(
         command: u16,
-        sections: (usize, usize, usize),
+        section: usize,
         slots: &[u8],
-        terms: &StringList<'a>,
+        terms: usize,
         parameters: bool,
     ) -> Result<Self, ProtocolError> {
         if slots.len() != PATTERN_SIZE {
@@ -136,7 +113,7 @@ impl<'a> QuadPattern<&'a str> {
             ));
         }
         let mut read = [PatternSlot::Unbound; 4];
-        let (mut bound, mut parameters_seen) = (0u32, 0u32);
+        let mut parameters_seen = 0u32;
         for (i, out) in read.iter_mut().enumerate() {
             let kind = bytes_at(slots, 8 * i).map_or(0, u32::from_le_bytes);
             let value = bytes_at(slots, 8 * i + 4).map_or(0, u32::from_le_bytes);
@@ -157,23 +134,16 @@ impl<'a> QuadPattern<&'a str> {
                     ));
                 }
                 1 => PatternSlot::DefaultGraph,
-                2 => {
-                    let limit = as_u32(terms.len());
-                    let text = terms
-                        .get(value as usize)
-                        .ok_or(ProtocolError::IndexOutOfRange(
-                            command, sections.0, i, value, limit,
-                        ))?;
-                    if value != bound {
-                        return Err(ProtocolError::FieldValue(
-                            command,
-                            "term index",
-                            value.into(),
-                        ));
-                    }
-                    bound += 1;
-                    PatternSlot::Bound(text)
+                2 if value as usize >= terms => {
+                    return Err(ProtocolError::IndexOutOfRange(
+                        command,
+                        section,
+                        i,
+                        value,
+                        as_u32(terms),
+                    ));
                 }
+                2 => PatternSlot::Bound(value),
                 3 if !parameters => {
                     return Err(ProtocolError::FieldValue(
                         command,
@@ -200,14 +170,6 @@ impl<'a> QuadPattern<&'a str> {
                     ));
                 }
             };
-        }
-        if bound as usize != terms.len() {
-            return Err(ProtocolError::CountMismatch(
-                command,
-                "pattern terms",
-                terms.len() as u64,
-                bound.into(),
-            ));
         }
         let [graph, subject, predicate, object] = read;
         Ok(QuadPattern::new(graph, subject, predicate, object))

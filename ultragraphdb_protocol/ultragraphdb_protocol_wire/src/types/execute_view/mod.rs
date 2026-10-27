@@ -5,14 +5,15 @@
 
 mod execute_view_body_view;
 
-use crate::types::string_list::StringList;
+use crate::types::term_table_view::TermTableView;
 
 /// The body of a received Execute frame, read in place; see [`crate::Execute`] for its layout.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecuteView<'a> {
     statement: u64,
     limit: u32,
-    parameters: StringList<'a>,
+    terms: TermTableView<'a>,
+    parameters: Vec<u32>,
     resume: &'a [u8],
 }
 
@@ -25,7 +26,11 @@ impl<'a> ExecuteView<'a> {
         self.limit
     }
 
-    pub fn parameters(&self) -> &StringList<'a> {
+    pub fn terms(&self) -> &TermTableView<'a> {
+        &self.terms
+    }
+
+    pub fn parameters(&self) -> &[u32] {
         &self.parameters
     }
 

@@ -43,8 +43,14 @@ pub use crate::types::conflict_kind::ConflictKind;
 pub use crate::types::credit::Credit;
 pub use crate::types::credit_view::CreditView;
 pub use crate::types::decision::Decision;
+pub use crate::types::declared::Declared;
+pub use crate::types::declared_entity_type::DeclaredEntityType;
+pub use crate::types::declared_kind::DeclaredKind;
+pub use crate::types::declared_predicate::DeclaredPredicate;
+pub use crate::types::declared_relation::DeclaredRelation;
 pub use crate::types::describe::Describe;
 pub use crate::types::describe_view::DescribeView;
+pub use crate::types::direction::Direction;
 pub use crate::types::error_code::ErrorCode;
 pub use crate::types::error_reply::ErrorReply;
 pub use crate::types::error_reply_view::ErrorReplyView;
@@ -69,6 +75,8 @@ pub use crate::types::read_view::ReadView;
 pub use crate::types::record_entry::RecordEntry;
 pub use crate::types::register::Register;
 pub use crate::types::register_view::RegisterView;
+pub use crate::types::request_term::RequestTerm;
+pub use crate::types::request_term_view::RequestTermView;
 pub use crate::types::result_batch::ResultBatch;
 pub use crate::types::result_term::ResultTerm;
 pub use crate::types::result_term_view::ResultTermView;
@@ -77,15 +85,19 @@ pub use crate::types::round_body::RoundBody;
 pub use crate::types::round_header::RoundHeader;
 pub use crate::types::round_view::RoundView;
 pub use crate::types::statement_cache::StatementCache;
+pub use crate::types::statement_target::StatementTarget;
 pub use crate::types::string_list::StringList;
+pub use crate::types::term_table::TermTable;
+pub use crate::types::term_table_view::TermTableView;
 pub use crate::types::welcome::Welcome;
 pub use crate::types::welcome_view::WelcomeView;
 pub use crate::types::write::Write;
+pub use crate::types::write_change::WriteChange;
 pub use crate::types::write_set_record::{OwnedEntry, WriteSetRecord};
 pub use crate::types::write_set_record_view::WriteSetRecordView;
 pub use crate::types::write_view::WriteView;
 pub use crate::utils::checksum::{xxh3_64, xxh3_64_with_seed};
 pub use crate::utils::constants::{
     ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE, LEAF_SIZE,
-    MAX_FRAME_SIZE, PROTOCOL_VERSION, REPLICA_COMMANDS, RETIRED_COMMANDS,
+    MAX_FRAME_SIZE, MAX_TERM_DEPTH, PROTOCOL_VERSION, REPLICA_COMMANDS, RETIRED_COMMANDS,
 };

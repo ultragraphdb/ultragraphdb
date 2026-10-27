@@ -7,8 +7,8 @@ use ultragraphdb_protocol_wire::PatternSlot;
 
 #[test]
 fn test_slots_compare_by_kind_and_value() {
-    assert_eq!(PatternSlot::Bound("<a>"), PatternSlot::Bound("<a>"));
-    assert_ne!(PatternSlot::Bound("<a>"), PatternSlot::Bound("<b>"));
-    assert_ne!(PatternSlot::<&str>::Unbound, PatternSlot::DefaultGraph);
-    assert_ne!(PatternSlot::<&str>::Parameter(0), PatternSlot::Parameter(1));
+    assert_eq!(PatternSlot::Bound(0), PatternSlot::Bound(0));
+    assert_ne!(PatternSlot::Bound(0), PatternSlot::Bound(1));
+    assert_ne!(PatternSlot::Unbound, PatternSlot::DefaultGraph);
+    assert_ne!(PatternSlot::Bound(0), PatternSlot::Parameter(0));
 }

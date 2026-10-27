@@ -22,7 +22,6 @@ publish = false
 # Internal crates: the fuzzed crates and the errors their decoders return
 # ==============
 ultragraphdb_core_codec = { path = "../ultragraphdb_core/ultragraphdb_core_codec" }
-ultragraphdb_core_mapping = { path = "../ultragraphdb_core/ultragraphdb_core_mapping" }
 ultragraphdb_core_terms = { path = "../ultragraphdb_core/ultragraphdb_core_terms" }
 ultragraphdb_error_log = { path = "../ultragraphdb_error/ultragraphdb_error_log" }
 ultragraphdb_error_protocol = { path = "../ultragraphdb_error/ultragraphdb_error_protocol" }
@@ -40,7 +39,6 @@ libfuzzer-sys = "=0.4.13"
 # The root workspace's pins.
 arbitrary = { version = "1.5.0", features = ["derive"] }
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
-oxrdf = { version = "0.3", features = ["rdf-12"] }
 xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 
 # Clippy as in the root workspace. `unsafe_code` cannot be forbidden here: `fuzz_target!` expands to `#[no_mangle]`.

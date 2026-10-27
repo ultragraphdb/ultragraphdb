@@ -12,9 +12,6 @@ use crate::utils::constants::ABSENT;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
 use crate::utils::sections::{as_u32, u32_bytes};
-use crate::utils::string_writer::StringWriter;
-use crate::utils::terms::graph_text;
-use oxrdf::GraphName;
 
 impl BodyBuilder for Operation {
     const COMMAND: Command = Command::Operation;
@@ -37,39 +34,30 @@ impl BodyBuilder for Operation {
     }
 
     fn body(&self) -> Vec<u8> {
-        let mut strings = StringWriter::default();
+        let graph = |g: &Option<u32>| g.unwrap_or(ABSENT);
         let mut args = Vec::new();
-        let graph = |g: &GraphName, strings: &mut StringWriter| {
-            graph_text(g).map_or(ABSENT, |text| strings.intern(&text))
-        };
         match self.operation() {
             CommitOperation::InsertIfAbsent {
                 graph: g,
                 predicate,
                 value,
                 properties,
+            } => {
+                args.extend([graph(g), *predicate, *value]);
+                properties.iter().for_each(|(p, v)| args.extend([*p, *v]));
             }
-            | CommitOperation::UpsertAndLink {
+            CommitOperation::UpsertAndLink {
                 graph: g,
                 predicate,
                 value,
                 properties,
-                ..
+                links,
             } => {
-                args.push(graph(g, &mut strings));
-                args.push(strings.intern(&predicate.to_string()));
-                args.push(strings.intern(&value.to_string()));
-                for (property, v) in properties {
-                    args.push(strings.intern(&property.to_string()));
-                    args.push(strings.intern(&v.to_string()));
-                }
-                if let CommitOperation::UpsertAndLink { links, .. } = self.operation() {
-                    for link in links {
-                        args.push(strings.intern(&link.predicate().to_string()));
-                        args.push(strings.intern(&link.other().to_string()));
-                        args.push(u32::from(!link.node_is_subject()));
-                    }
-                }
+                args.extend([graph(g), *predicate, *value]);
+                properties.iter().for_each(|(p, v)| args.extend([*p, *v]));
+                links.iter().for_each(|l| {
+                    args.extend([l.predicate(), l.other(), u32::from(!l.node_is_subject())]);
+                });
             }
             CommitOperation::CompareAndSet {
                 graph: g,
@@ -77,25 +65,15 @@ impl BodyBuilder for Operation {
                 predicate,
                 expected,
                 new,
-            } => {
-                args.push(graph(g, &mut strings));
-                args.push(strings.intern(&subject.to_string()));
-                args.push(strings.intern(&predicate.to_string()));
-                args.push(strings.intern(&expected.to_string()));
-                args.push(strings.intern(&new.to_string()));
-            }
+            } => args.extend([graph(g), *subject, *predicate, *expected, *new]),
             CommitOperation::CounterAdd {
                 graph: g,
                 subject,
                 predicate,
                 ..
-            } => {
-                args.push(graph(g, &mut strings));
-                args.push(strings.intern(&subject.to_string()));
-                args.push(strings.intern(&predicate.to_string()));
-            }
+            } => args.extend([graph(g), *subject, *predicate]),
         }
-        let (ends, text) = strings.sections();
-        write_sections(&[], &[&u32_bytes(&args), &ends, &text])
+        let (records, text) = self.terms().sections();
+        write_sections(&[], &[&u32_bytes(&args), &records, &text])
     }
 }

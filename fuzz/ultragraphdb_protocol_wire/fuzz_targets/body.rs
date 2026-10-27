@@ -5,7 +5,7 @@
 
 //! Any bytes as a frame, read through its command's body view: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
-//! builder lays out canonically (Write, Operation, Describe, Result), a frame that builds itself again.
+//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again.
 
 #![no_main]
 
@@ -63,7 +63,7 @@ fuzz_target!(|data: &[u8]| {
     };
     if matches!(
         command,
-        Command::Write | Command::Operation | Command::Describe | Command::Result
+        Command::Write | Command::Describe | Command::Result
     ) {
         let (_, again) = rebuild(&rebuilt).expect("a rebuilt body reads");
         assert_eq!(again, rebuilt, "{command:?} rebuilds to itself");

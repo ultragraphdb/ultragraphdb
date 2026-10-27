@@ -4,28 +4,48 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{BodyView, Write, WriteView};
+use ultragraphdb_protocol_wire::{
+    BodyBuilder, BodyView, Declared, DeclaredPredicate, RequestTerm, RequestTermView, TermTable,
+    Write, WriteChange, WriteView,
+};
 
-use crate::types::write::write_tests::golden_changeset;
-use crate::utils::golden_bodies::{frame_of, golden, put, with_section};
+use crate::types::write::write_tests::golden_write;
+use crate::utils::golden_bodies::{body_data, frame_of, golden, put, section, with_section};
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum {
-    let bytes = with_section(&golden("write").bytes(), 4, index, change);
-    match WriteView::from_frame(&frame_of(&bytes)) {
-        Err(e) => e.0,
-        Ok(view) => view.to_body().unwrap_err().0,
-    }
+    let bytes = with_section(&golden("write").bytes(), 6, index, change);
+    WriteView::from_frame(&frame_of(&bytes)).unwrap_err().0
 }
 
 #[test]
-fn test_the_golden_write_reads_its_changeset() {
+fn test_the_golden_write_reads_its_changes_and_terms() {
     let bytes = golden("write").bytes();
     let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
     assert_eq!(view.namespace(), 2);
-    assert_eq!(view.len(), 11);
+    assert_eq!(view.len(), 14);
     assert!(!view.is_empty());
-    assert_eq!(view.strings().get(0), Some("<http://ex.org/a>"));
-    assert_eq!(view.to_body().unwrap(), Write::new(golden_changeset()));
+    assert_eq!(view.terms().len(), 17);
+    assert_eq!(view.terms().get(4), Some(RequestTermView::BlankNode("b1")));
+    assert_eq!(
+        view.terms().get(13),
+        Some(RequestTermView::Triple {
+            subject: 0,
+            predicate: 1,
+            object: 2
+        })
+    );
+    assert_eq!(view.names().get(0), Some("http://ex.org/name"));
+    assert_eq!(
+        view.change(7),
+        Some(WriteChange::Insert {
+            graph: None,
+            subject: 0,
+            predicate: 12,
+            object: 13
+        })
+    );
+    assert_eq!(view.change(14), None);
+    assert_eq!(view.to_body().unwrap(), golden_write());
 }
 
 #[test]
@@ -35,7 +55,7 @@ fn test_records_are_whole_known_and_zero_where_unused() {
         ProtocolErrorEnum::SectionLength {
             command: 8,
             section: 0,
-            len: 175,
+            len: 223,
             unit: 16
         }
     );
@@ -73,7 +93,7 @@ fn test_records_are_whole_known_and_zero_where_unused() {
         }
     );
     assert_eq!(
-        refused(0, |r| r[16 * 7 + 1] = 3 | 4),
+        refused(0, |r| r[16 * 10 + 1] = 3 | 4),
         ProtocolErrorEnum::FieldValue {
             command: 8,
             field: "flags",
@@ -81,14 +101,13 @@ fn test_records_are_whole_known_and_zero_where_unused() {
         }
     );
     assert_eq!(
-        refused(0, |r| r[16 * 7 + 1] = 64 | 1),
+        refused(0, |r| r[16 * 10 + 1] = 64 | 1),
         ProtocolErrorEnum::FieldValue {
             command: 8,
             field: "flags",
             value: 65
         }
     );
-    // A change's unused bytes; extra is zero in a Write.
     assert_eq!(
         refused(0, |r| r[2] = 1),
         ProtocolErrorEnum::FieldValue {
@@ -98,7 +117,7 @@ fn test_records_are_whole_known_and_zero_where_unused() {
         }
     );
     assert_eq!(
-        refused(0, |r| r[16 * 9 + 12] = 1),
+        refused(0, |r| r[16 * 12 + 12] = 1),
         ProtocolErrorEnum::FieldValue {
             command: 8,
             field: "extra",
@@ -109,7 +128,6 @@ fn test_records_are_whole_known_and_zero_where_unused() {
 
 #[test]
 fn test_args_follow_each_other_and_are_consumed_exactly() {
-    // Change 1 starts at arg 4.
     assert_eq!(
         refused(0, |r| put(r, 16 + 4, 5, 4)),
         ProtocolErrorEnum::FieldValue {
@@ -118,7 +136,6 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
             value: 5
         }
     );
-    // Insert takes 4 args.
     assert_eq!(
         refused(0, |r| put(r, 8, 3, 4)),
         ProtocolErrorEnum::CountMismatch {
@@ -128,19 +145,19 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
             expected: 4
         }
     );
-    // One arg more than the records consume.
+    // 65 args: 4, 4, 3, 3, 6, 5, 6, 4, 4, 4 for the changes, 7, 10, 2, 3 for the declarations.
     assert_eq!(
         refused(1, |a| a.extend_from_slice(&0u32.to_le_bytes())),
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
-            count: 54,
-            expected: 53
+            count: 66,
+            expected: 65
         }
     );
-    // A tokenizer count past the change's args.
+    // The first declaration's tokenizer count, arg 43 + 2, past its args.
     assert_eq!(
-        refused(1, |a| put(a, 4 * (4 + 4 + 3 + 3 + 6 + 5 + 6 + 2), 40, 4)),
+        refused(1, |a| put(a, 4 * 45, 40, 4)),
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "change args",
@@ -151,17 +168,16 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
 }
 
 #[test]
-fn test_string_references_are_in_range_and_absent_only_where_optional() {
-    // The Insert's subject, arg 1, past the strings; then absent.
-    let strings = 27u32;
+fn test_term_and_name_references_are_in_range() {
+    // The Insert's subject, arg 1, past the 17 terms; absent where it may not be.
     assert_eq!(
-        refused(1, |a| put(a, 4, strings.into(), 4)),
+        refused(1, |a| put(a, 4, 17, 4)),
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
             at: 1,
-            index: strings,
-            limit: strings
+            index: 17,
+            limit: 17
         }
     );
     assert_eq!(
@@ -171,58 +187,71 @@ fn test_string_references_are_in_range_and_absent_only_where_optional() {
             section: 1,
             at: 1,
             index: u32::MAX,
-            limit: strings
+            limit: 17
+        }
+    );
+    // The first declaration's predicate, arg 43, past the 15 names.
+    assert_eq!(
+        refused(1, |a| put(a, 4 * 43, 15, 4)),
+        ProtocolErrorEnum::IndexOutOfRange {
+            command: 8,
+            section: 1,
+            at: 43,
+            index: 15,
+            limit: 15
         }
     );
 }
 
 #[test]
-fn test_terms_parse_as_their_place_takes_them() {
-    // String 0 is "<http://ex.org/a>", the Insert's subject: a literal there, or no term at all, is refused.
-    let replace = |with: &str| {
-        let with = with.to_string();
-        let bytes = golden("write").bytes();
-        let view_bytes = {
-            let secs = crate::utils::golden_bodies::split_sections(
-                crate::utils::golden_bodies::body_data(&bytes),
-                0,
-                4,
-            );
-            let old = "<http://ex.org/a>";
-            let text = String::from_utf8(secs[3].clone()).unwrap();
-            let text = text.replacen(old, &with, 1);
-            let delta = with.len() as i64 - old.len() as i64;
-            let ends: Vec<u8> = secs[2]
-                .chunks(4)
-                .map(|c| (u32::from_le_bytes(c.try_into().unwrap()) as i64 + delta) as u32)
-                .flat_map(|e| e.to_le_bytes())
-                .collect();
-            let joined = crate::utils::golden_bodies::join_sections(
-                &[],
-                &[secs[0].clone(), secs[1].clone(), ends, text.into_bytes()],
-            );
-            crate::utils::golden_bodies::reframe(&bytes, &joined)
-        };
-        WriteView::from_frame(&frame_of(&view_bytes))
+fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() {
+    // Three terms and five names: an Insert's object, arg 3, naming term 3 is out of range though name 3 exists.
+    let mut terms = TermTable::new();
+    let [a, knows, b] = ["a", "knows", "b"].map(|n| {
+        terms
+            .intern(RequestTerm::Iri(format!("http://ex.org/{n}")))
             .unwrap()
-            .to_body()
-            .map(|_| ())
-    };
+    });
+    let declared = DeclaredPredicate::new("http://ex.org/name".to_string())
+        .with_datatype("http://www.w3.org/2001/XMLSchema#string".to_string())
+        .with_tokenizers(vec!["term".to_string(), "exact".to_string()])
+        .with_domains(vec!["http://ex.org/Person".to_string()]);
+    let changes = vec![
+        WriteChange::Insert {
+            graph: None,
+            subject: a,
+            predicate: knows,
+            object: b,
+        },
+        WriteChange::Declare(Declared::Predicate(declared)),
+    ];
+    let bytes = Write::new(2, terms, changes)
+        .frame(golden("write").header())
+        .unwrap();
+    let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
+    assert_eq!((view.terms().len(), view.names().len()), (3, 5));
+    let bytes = with_section(&bytes, 6, 1, |a| put(a, 4 * 3, 3, 4));
     assert_eq!(
-        replace("\"lit\"").unwrap_err().0,
-        ProtocolErrorEnum::BadTerm {
+        WriteView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+        ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
-            section: 3,
-            at: 0
+            section: 1,
+            at: 3,
+            index: 3,
+            limit: 3
         }
     );
+}
+
+#[test]
+fn test_a_reserved_term_byte_is_named_at_its_body_offset() {
+    // The term records are section 2; the first record's reserved bytes start 2 bytes in.
+    let records_at = section(body_data(&golden("write").bytes()), 0, 2).0;
     assert_eq!(
-        replace("not a term").unwrap_err().0,
-        ProtocolErrorEnum::BadTerm {
+        refused(2, |r| r[2] = 1),
+        ProtocolErrorEnum::PaddingNotZero {
             command: 8,
-            section: 3,
-            at: 0
+            offset: records_at + 2
         }
     );
-    assert_eq!(replace("_:z"), Ok(()));
 }

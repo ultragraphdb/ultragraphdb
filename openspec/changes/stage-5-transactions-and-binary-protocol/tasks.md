@@ -100,7 +100,7 @@ the user's approval at the task that removes them.
 ## 10. The server and the client → `ultragraphdb_server_session`, `ultragraphdb_server_node`, `ultragraphdb_protocol_client`
 
 - [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client"), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
-- [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle, the client's surface
+- [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle, the client's surface; the session converts Write, Describe and Operation bodies and request terms to `Changeset`, declarations and oxrdf types (the wire's own layouts, decided 2026-10-27), the conversion of triple terms iterative or bounded by the wire's maximum nesting depth, never recursing past it
 - [ ] 10.3 Phase 4: n−1 compio workers pinned, the commit step on one core, least-loaded accept, bounded queues answering busy; every runtime built with compio's `single_issuer` and `defer_taskrun` (decided 2026-10-27; Linux 6.6 is the baseline)
 - [ ] 10.4 Phase 4: configuration read once by the binary; start with recovery before accept; graceful shutdown; telemetry through `ultragraphdb_common_telemetry`
 - [ ] 10.5 Phase 4: the Rust client, retrying commits only through its session

@@ -6,13 +6,15 @@
 mod read_view_body_view;
 
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::term_table_view::TermTableView;
 
 /// The body of a received Read frame, read in place; see [`crate::Read`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadView<'a> {
     namespace: u64,
     limit: u32,
-    pattern: QuadPattern<&'a str>,
+    terms: TermTableView<'a>,
+    pattern: QuadPattern,
     resume: &'a [u8],
 }
 
@@ -25,7 +27,11 @@ impl<'a> ReadView<'a> {
         self.limit
     }
 
-    pub fn pattern(&self) -> &QuadPattern<&'a str> {
+    pub fn terms(&self) -> &TermTableView<'a> {
+        &self.terms
+    }
+
+    pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 

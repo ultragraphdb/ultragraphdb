@@ -6,8 +6,10 @@
 mod describe_body_builder;
 
 use crate::traits::body_builder::BodyBuilder;
+use crate::types::declared_entity_type::DeclaredEntityType;
+use crate::types::declared_predicate::DeclaredPredicate;
+use crate::types::declared_relation::DeclaredRelation;
 use crate::utils::checksum::xxh3_64;
-use ultragraphdb_core_mapping::{PredicateDeclaration, RelationDeclaration, TypeDeclaration};
 
 /// What a namespace holds, the data dictionary's answer: sent with the namespace alone, answered with the snapshot it
 /// was read at, the labels, relationship types and property keys, and the catalog's declarations: predicates, entity
@@ -34,9 +36,9 @@ pub struct Describe {
     labels: Vec<String>,
     relationship_types: Vec<String>,
     property_keys: Vec<String>,
-    predicates: Vec<PredicateDeclaration>,
-    entity_types: Vec<(TypeDeclaration, u32)>,
-    relations: Vec<RelationDeclaration>,
+    predicates: Vec<DeclaredPredicate>,
+    entity_types: Vec<(DeclaredEntityType, u32)>,
+    relations: Vec<DeclaredRelation>,
 }
 
 impl Describe {
@@ -74,15 +76,15 @@ impl Describe {
         &self.property_keys
     }
 
-    pub fn predicates(&self) -> &[PredicateDeclaration] {
+    pub fn predicates(&self) -> &[DeclaredPredicate] {
         &self.predicates
     }
 
-    pub fn entity_types(&self) -> &[(TypeDeclaration, u32)] {
+    pub fn entity_types(&self) -> &[(DeclaredEntityType, u32)] {
         &self.entity_types
     }
 
-    pub fn relations(&self) -> &[RelationDeclaration] {
+    pub fn relations(&self) -> &[DeclaredRelation] {
         &self.relations
     }
 
@@ -101,18 +103,18 @@ impl Describe {
         self
     }
 
-    pub fn with_predicates(mut self, predicates: Vec<PredicateDeclaration>) -> Self {
+    pub fn with_predicates(mut self, predicates: Vec<DeclaredPredicate>) -> Self {
         self.predicates = predicates;
         self
     }
 
     /// The entity types, each with its preorder number.
-    pub fn with_entity_types(mut self, entity_types: Vec<(TypeDeclaration, u32)>) -> Self {
+    pub fn with_entity_types(mut self, entity_types: Vec<(DeclaredEntityType, u32)>) -> Self {
         self.entity_types = entity_types;
         self
     }
 
-    pub fn with_relations(mut self, relations: Vec<RelationDeclaration>) -> Self {
+    pub fn with_relations(mut self, relations: Vec<DeclaredRelation>) -> Self {
         self.relations = relations;
         self
     }

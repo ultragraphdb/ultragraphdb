@@ -12,12 +12,14 @@ use crate::types::pattern_slot::PatternSlot;
 use crate::types::prepare::Prepare;
 use crate::types::prepare_view::PrepareView;
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::term_table::TermTable;
 
 /// A statement the cache holds: its pattern, its namespace, the schema id it was prepared against and its types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Prepared {
     namespace: u64,
-    pattern: QuadPattern<String>,
+    terms: TermTable,
+    pattern: QuadPattern,
     schema: u64,
     parameter_types: Vec<ColumnType>,
 }
@@ -50,12 +52,12 @@ impl StatementCache {
         request: &PrepareView<'_>,
         schema: u64,
     ) -> Result<Prepare, StatementError> {
-        let pattern = request.pattern();
+        let pattern = *request.pattern();
         let declared = request.parameter_types();
-        let types = QuadPattern::<&str>::slot_types();
+        let types = QuadPattern::slot_types();
         let parameter_slots = pattern
             .slots()
-            .iter()
+            .into_iter()
             .zip(types)
             .filter(|(slot, _)| matches!(slot, PatternSlot::Parameter(_)))
             .map(|(_, slot_type)| slot_type)
@@ -67,19 +69,20 @@ impl StatementCache {
         }
         let result_types = pattern
             .slots()
-            .iter()
+            .into_iter()
             .zip(types)
             .filter(|(slot, _)| matches!(slot, PatternSlot::Unbound))
             .map(|(_, slot_type)| slot_type)
             .collect();
         let statement = self.next;
         self.next = self.next.saturating_add(1);
-        let owned = pattern.to_owned_pattern();
+        let terms = request.terms().to_table();
         self.statements.insert(
             statement,
             Prepared {
                 namespace: request.namespace(),
-                pattern: owned.clone(),
+                terms: terms.clone(),
+                pattern,
                 schema,
                 parameter_types: declared.to_vec(),
             },
@@ -91,21 +94,23 @@ impl StatementCache {
             request.namespace(),
             statement,
             schema,
-            owned,
+            terms,
+            pattern,
             declared.to_vec(),
             result_types,
         ))
     }
 
-    /// The pattern of `request`'s statement with its parameters bound, when `schema` is the namespace's current
-    /// schema id. Refused, in this order: [`StatementError::Unknown`]; [`StatementError::Stale`] when the statement
-    /// was prepared against another schema id; [`StatementError::Parameters`] when the parameters are not one per
-    /// parameter slot.
+    /// The pattern of `request`'s statement with its parameters bound, and the term table its indices name: the
+    /// statement's terms, then the parameters' from the execution's table, each once. Given when `schema` is the
+    /// namespace's current schema id; refused, in this order: [`StatementError::Unknown`]; [`StatementError::Stale`]
+    /// when the statement was prepared against another schema id; [`StatementError::Parameters`] when the parameters
+    /// are not one per parameter slot.
     pub fn execute(
         &self,
         request: &ExecuteView<'_>,
         schema: u64,
-    ) -> Result<QuadPattern<String>, StatementError> {
+    ) -> Result<(TermTable, QuadPattern), StatementError> {
         let statement = request.statement();
         let prepared = self
             .statements
@@ -116,26 +121,30 @@ impl StatementCache {
         }
         let parameters = request.parameters();
         let expected = prepared.parameter_types.len();
+        let mismatch = StatementError::Parameters(statement, expected, parameters.len());
         if parameters.len() != expected {
-            return Err(StatementError::Parameters(
-                statement,
-                expected,
-                parameters.len(),
-            ));
+            return Err(mismatch);
         }
-        let bind = |slot: &PatternSlot<String>| match slot {
-            PatternSlot::Parameter(n) => parameters
-                .get(*n as usize)
-                .map_or(PatternSlot::Unbound, |p| PatternSlot::Bound(p.to_string())),
-            other => other.clone(),
+        let mut terms = prepared.terms.clone();
+        let bound = parameters
+            .iter()
+            .map(|p| terms.import(request.terms(), *p))
+            .collect::<Option<Vec<u32>>>()
+            .ok_or(mismatch)?;
+        let bind = |slot: PatternSlot| match slot {
+            PatternSlot::Parameter(n) => bound
+                .get(n as usize)
+                .map_or(PatternSlot::Unbound, |index| PatternSlot::Bound(*index)),
+            other => other,
         };
-        let p = &prepared.pattern;
-        Ok(QuadPattern::new(
+        let p = prepared.pattern;
+        let pattern = QuadPattern::new(
             bind(p.graph()),
             bind(p.subject()),
             bind(p.predicate()),
             bind(p.object()),
-        ))
+        );
+        Ok((terms, pattern))
     }
 
     /// The namespace statement `statement` reads, `None` when the cache does not hold it.

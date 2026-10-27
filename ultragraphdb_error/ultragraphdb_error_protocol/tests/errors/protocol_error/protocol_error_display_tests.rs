@@ -139,6 +139,14 @@ fn test_body_rules_name_the_command_section_and_values() {
         "mode of command 4 holds 2, which the command does not define"
     );
     assert_eq!(
+        ProtocolError::DuplicateTerm(8, 2, 5, 3).to_string(),
+        "entry 5 of the term table in section 2 of command 8 repeats entry 3"
+    );
+    assert_eq!(
+        ProtocolError::TermTooDeep(11, 0, 33, 33, 32).to_string(),
+        "entry 33 of the term table in section 0 of command 11 nests 33 deep, past the 32 allowed"
+    );
+    assert_eq!(
         ProtocolError::Record(1, ProtocolError::PaddingNotZero(17, 9)).to_string(),
         "write-set record 1 of the round: padding byte 9 of a body of command 17 is not zero"
     );

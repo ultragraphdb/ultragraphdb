@@ -5,7 +5,7 @@
 
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, ErrorCode, Execute, ExecuteView, PatternSlot, Prepare,
-    PrepareView, QuadPattern, StatementCache, StatementError,
+    PrepareView, QuadPattern, RequestTerm, StatementCache, StatementError, TermTable,
 };
 
 use crate::types::prepare::prepare_tests::pattern;
@@ -13,25 +13,24 @@ use crate::utils::golden_bodies::{frame_of, golden};
 
 const SCHEMA: u64 = 0x5C4E_3A2B_1D0F_7E6A;
 
-fn prepare_frame(pattern: QuadPattern<String>, types: Vec<ColumnType>) -> Vec<u8> {
-    Prepare::new(4, 0, 0, pattern, types, Vec::new())
+fn prepare_frame(terms: TermTable, pattern: QuadPattern, types: Vec<ColumnType>) -> Vec<u8> {
+    Prepare::new(4, 0, 0, terms, pattern, types, Vec::new())
         .frame(golden("prepare").header())
         .unwrap()
 }
 
+/// An Execute of `statement` binding `parameters`, IRIs by text, in a table of their own.
 fn execute_frame(statement: u64, parameters: &[&str]) -> Vec<u8> {
-    Execute::new(
-        statement,
-        0,
-        parameters.iter().map(|p| p.to_string()).collect(),
-        Vec::new(),
-    )
-    .frame(golden("execute").header())
-    .unwrap()
+    let mut terms = TermTable::new();
+    let indices = parameters.iter().map(|p| terms.iri(p)).collect();
+    Execute::new(statement, 0, terms, indices, Vec::new())
+        .frame(golden("execute").header())
+        .unwrap()
 }
 
 fn prepare(cache: &mut StatementCache, schema: u64) -> Result<Prepare, StatementError> {
-    let bytes = prepare_frame(pattern(), vec![ColumnType::Node]);
+    let (terms, p) = pattern();
+    let bytes = prepare_frame(terms, p, vec![ColumnType::Node]);
     cache.prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), schema)
 }
 
@@ -40,7 +39,7 @@ fn execute(
     statement: u64,
     parameters: &[&str],
     schema: u64,
-) -> Result<QuadPattern<String>, StatementError> {
+) -> Result<(TermTable, QuadPattern), StatementError> {
     let bytes = execute_frame(statement, parameters);
     cache.execute(&ExecuteView::from_frame(&frame_of(&bytes)).unwrap(), schema)
 }
@@ -49,14 +48,15 @@ fn execute(
 fn test_a_prepare_is_answered_with_its_id_schema_and_types() {
     let mut cache = StatementCache::new(8);
     assert!(cache.is_empty());
-    let reply = prepare(&mut cache, SCHEMA).unwrap();
+    let (terms, p) = pattern();
     assert_eq!(
-        reply,
+        prepare(&mut cache, SCHEMA).unwrap(),
         Prepare::new(
             4,
             1,
             SCHEMA,
-            pattern(),
+            terms,
+            p,
             vec![ColumnType::Node],
             vec![ColumnType::Term]
         )
@@ -65,8 +65,6 @@ fn test_a_prepare_is_answered_with_its_id_schema_and_types() {
     assert_eq!(cache.len(), 2);
     assert_eq!(cache.namespace(1), Some(4));
     assert_eq!(cache.namespace(3), None);
-    // The golden request answered against the golden reply's schema id builds the golden reply but its namespace
-    // and stream, which are the request's.
     let request = golden("prepare").bytes();
     let mut fresh = StatementCache::new(8);
     let answered = fresh
@@ -84,13 +82,13 @@ fn test_a_prepare_is_answered_with_its_id_schema_and_types() {
 #[test]
 fn test_result_types_follow_the_unbound_slots() {
     let mut cache = StatementCache::new(8);
-    let all_unbound = QuadPattern::new(
+    let all = QuadPattern::new(
         PatternSlot::Unbound,
         PatternSlot::Unbound,
         PatternSlot::Unbound,
         PatternSlot::Unbound,
     );
-    let bytes = prepare_frame(all_unbound, Vec::new());
+    let bytes = prepare_frame(TermTable::new(), all, Vec::new());
     let reply = cache
         .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), 1)
         .unwrap();
@@ -108,8 +106,8 @@ fn test_result_types_follow_the_unbound_slots() {
 #[test]
 fn test_a_parameter_type_its_slot_does_not_take_is_refused() {
     let mut cache = StatementCache::new(8);
-    // A term where the subject takes a node.
-    let bytes = prepare_frame(pattern(), vec![ColumnType::Term]);
+    let (terms, p) = pattern();
+    let bytes = prepare_frame(terms, p, vec![ColumnType::Term]);
     let refused = cache
         .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), 1)
         .unwrap_err();
@@ -118,14 +116,15 @@ fn test_a_parameter_type_its_slot_does_not_take_is_refused() {
         StatementError::ParameterType(0, ColumnType::Term, ColumnType::Node)
     );
     assert!(cache.is_empty());
-    // A node where the object takes any term is valid.
+    let mut terms = TermTable::new();
+    let pred = terms.iri("p");
     let at_object = QuadPattern::new(
         PatternSlot::Unbound,
         PatternSlot::Unbound,
-        PatternSlot::Bound("<p>".to_string()),
+        PatternSlot::Bound(pred),
         PatternSlot::Parameter(0),
     );
-    let bytes = prepare_frame(at_object, vec![ColumnType::Node]);
+    let bytes = prepare_frame(terms, at_object, vec![ColumnType::Node]);
     assert!(
         cache
             .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), 1)
@@ -134,25 +133,83 @@ fn test_a_parameter_type_its_slot_does_not_take_is_refused() {
 }
 
 #[test]
-fn test_an_execution_binds_its_parameters_by_position() {
+fn test_an_execution_binds_its_parameters_into_one_table() {
     let mut cache = StatementCache::new(8);
     prepare(&mut cache, SCHEMA).unwrap();
-    let bound = execute(&cache, 1, &["<http://ex.org/a>"], SCHEMA).unwrap();
+    let (terms, bound) = execute(&cache, 1, &["http://ex.org/a"], SCHEMA).unwrap();
+    // The statement's <name>, then the parameter <a>.
+    assert_eq!(
+        terms.terms(),
+        &[
+            RequestTerm::Iri("http://ex.org/name".to_string()),
+            RequestTerm::Iri("http://ex.org/a".to_string())
+        ]
+    );
     assert_eq!(
         bound,
         QuadPattern::new(
             PatternSlot::DefaultGraph,
-            PatternSlot::Bound("<http://ex.org/a>".to_string()),
-            PatternSlot::Bound("<http://ex.org/name>".to_string()),
-            PatternSlot::Unbound,
+            PatternSlot::Bound(1),
+            PatternSlot::Bound(0),
+            PatternSlot::Unbound
         )
     );
-    // The golden Execute against it.
     let bytes = golden("execute").bytes();
     assert_eq!(
         cache.execute(&ExecuteView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA),
-        Ok(bound)
+        Ok((terms, bound))
     );
+    // A parameter the statement already names is not added again.
+    let (terms, bound) = execute(&cache, 1, &["http://ex.org/name"], SCHEMA).unwrap();
+    assert_eq!(terms.len(), 1);
+    assert_eq!(bound.subject(), PatternSlot::Bound(0));
+}
+
+#[test]
+fn test_a_triple_term_parameter_brings_its_parts() {
+    let mut cache = StatementCache::new(8);
+    let all = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Parameter(0),
+    );
+    let bytes = prepare_frame(TermTable::new(), all, vec![ColumnType::Term]);
+    let id = cache
+        .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), 1)
+        .unwrap()
+        .statement();
+    let mut terms = TermTable::new();
+    let (filler, a, k, b) = (
+        terms.iri("filler"),
+        terms.iri("a"),
+        terms.iri("k"),
+        terms.iri("b"),
+    );
+    let triple = terms
+        .intern(RequestTerm::Triple {
+            subject: a,
+            predicate: k,
+            object: b,
+        })
+        .unwrap();
+    let _ = filler;
+    let execute = Execute::new(id, 0, terms, vec![triple], Vec::new())
+        .frame(golden("execute").header())
+        .unwrap();
+    let (bound_terms, bound) = cache
+        .execute(&ExecuteView::from_frame(&frame_of(&execute)).unwrap(), 1)
+        .unwrap();
+    assert_eq!(bound_terms.len(), 4);
+    assert_eq!(
+        bound_terms.get(3),
+        Some(&RequestTerm::Triple {
+            subject: 0,
+            predicate: 1,
+            object: 2
+        })
+    );
+    assert_eq!(bound.object(), PatternSlot::Bound(3));
 }
 
 #[test]
@@ -160,13 +217,12 @@ fn test_a_stale_statement_is_refused_and_prepares_again() {
     let mut cache = StatementCache::new(8);
     prepare(&mut cache, SCHEMA).unwrap();
     assert_eq!(
-        execute(&cache, 1, &["<a>"], SCHEMA + 1),
+        execute(&cache, 1, &["a"], SCHEMA + 1),
         Err(StatementError::Stale(1, SCHEMA, SCHEMA + 1))
     );
     let again = prepare(&mut cache, SCHEMA + 1).unwrap();
-    assert_eq!(again.statement(), 2);
-    assert_eq!(again.schema(), SCHEMA + 1);
-    assert!(execute(&cache, 2, &["<a>"], SCHEMA + 1).is_ok());
+    assert_eq!((again.statement(), again.schema()), (2, SCHEMA + 1));
+    assert!(execute(&cache, 2, &["a"], SCHEMA + 1).is_ok());
     assert_eq!(
         StatementError::Stale(1, SCHEMA, SCHEMA + 1).code(),
         ErrorCode::StaleStatement
@@ -178,7 +234,7 @@ fn test_unknown_statements_and_wrong_parameter_counts_are_refused_in_that_order(
     let mut cache = StatementCache::new(8);
     prepare(&mut cache, SCHEMA).unwrap();
     assert_eq!(
-        execute(&cache, 9, &["<a>"], SCHEMA),
+        execute(&cache, 9, &["a"], SCHEMA),
         Err(StatementError::Unknown(9))
     );
     assert_eq!(
@@ -190,10 +246,9 @@ fn test_unknown_statements_and_wrong_parameter_counts_are_refused_in_that_order(
         Err(StatementError::Parameters(1, 1, 0))
     );
     assert_eq!(
-        execute(&cache, 1, &["<a>", "<b>"], SCHEMA),
+        execute(&cache, 1, &["a", "b"], SCHEMA),
         Err(StatementError::Parameters(1, 1, 2))
     );
-    // Stale before the parameter count.
     assert_eq!(
         execute(&cache, 1, &[], SCHEMA + 1),
         Err(StatementError::Stale(1, SCHEMA, SCHEMA + 1))
@@ -208,14 +263,12 @@ fn test_past_its_capacity_the_oldest_statement_is_evicted() {
     }
     assert_eq!(cache.len(), 2);
     assert_eq!(
-        execute(&cache, 1, &["<a>"], SCHEMA),
+        execute(&cache, 1, &["a"], SCHEMA),
         Err(StatementError::Unknown(1))
     );
-    assert!(execute(&cache, 2, &["<a>"], SCHEMA).is_ok());
-    assert!(execute(&cache, 3, &["<a>"], SCHEMA).is_ok());
-    // Ids are not reused: the next is 4.
+    assert!(execute(&cache, 2, &["a"], SCHEMA).is_ok());
+    assert!(execute(&cache, 3, &["a"], SCHEMA).is_ok());
     assert_eq!(prepare(&mut cache, SCHEMA).unwrap().statement(), 4);
-    // A capacity of zero holds one statement.
     let mut one = StatementCache::new(0);
     prepare(&mut one, SCHEMA).unwrap();
     prepare(&mut one, SCHEMA).unwrap();
@@ -225,20 +278,22 @@ fn test_past_its_capacity_the_oldest_statement_is_evicted() {
 #[test]
 fn test_a_statement_without_parameters_executes_with_none() {
     let mut cache = StatementCache::new(4);
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
     let bound = QuadPattern::new(
         PatternSlot::Unbound,
-        PatternSlot::Bound("<http://ex.org/a>".to_string()),
+        PatternSlot::Bound(a),
         PatternSlot::Unbound,
         PatternSlot::Unbound,
     );
-    let bytes = prepare_frame(bound.clone(), Vec::new());
+    let bytes = prepare_frame(terms.clone(), bound, Vec::new());
     let id = cache
         .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA)
         .unwrap()
         .statement();
-    assert_eq!(execute(&cache, id, &[], SCHEMA), Ok(bound));
+    assert_eq!(execute(&cache, id, &[], SCHEMA), Ok((terms, bound)));
     assert_eq!(
-        execute(&cache, id, &["<b>"], SCHEMA),
+        execute(&cache, id, &["b"], SCHEMA),
         Err(StatementError::Parameters(id, 0, 1))
     );
 }

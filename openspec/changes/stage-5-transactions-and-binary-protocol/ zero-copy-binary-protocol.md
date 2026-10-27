@@ -602,6 +602,21 @@ any length), with a text section for IRIs and for literals the store holds by ha
 `core_terms`' existing `TermView<'a>`. A term repeated across rows is sent once per batch, and storage and the wire
 share one term encoding.
 
+**Requests name terms by text, in a term table of their own** (decided 2026-10-27). A client knows a term only by its
+text: an IRI by its IRI, a blank node by its label, a literal by its lexical form and datatype or language. The store's
+encoding names IRIs, blank nodes and literals of datatypes it does not know by UIDs only its dictionary holds, and has no
+form for a triple term. So a request body carries a table of the terms it names, each once: a record of 24 bytes per
+term, kind (IRI, blank node, literal, language-tagged literal, triple term), base direction, and two offset-and-length
+pairs into the body's text section. A triple term's record names its subject, predicate and object by the indices of
+earlier entries, so the table has no cycle, and nests at most 32 deep, a bound checked in the same pass as the indices.
+Texts follow each other in table order, `xsd:string` is never stated, and no entry repeats another, so a term has one
+encoding. A receiver reads a term in place, as `&str` slices of the text section checked for UTF-8 once, with no parser
+and no escape grammar. Every term a Read or Prepare pattern, an Execute's parameters, a Write's changes and an
+Operation's arguments name is an index into that table. Results differ because the server holds the store's encoding
+and the dictionary's text both, and sends each. The server session converts request terms, Write, Describe and
+Operation bodies to the mapping crate's and oxrdf's types; the wire crate depends on `ultragraphdb_core_terms` alone
+among the term crates.
+
 ### Multiplexing, flow control, cancellation
 
 - **Streams:** each request takes a `stream` id; responses arrive in any order, as CQL v5's stream ids allow

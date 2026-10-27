@@ -168,6 +168,15 @@ the checkpoint.
 Registered through a round; held in the keyspace without versions, written in the round's batch, so recovery restores
 them with the store and replays the rest. Bounded; the oldest evicted.
 
+### Request terms
+
+Decided 2026-10-27: a request names its terms by text, in a term table of its own in the body. Each entry is a kind
+(IRI, blank node, literal, language-tagged literal, triple term), a base direction, and two offset-and-length pairs into
+the body's text section; a triple term names three earlier entries, nested at most 32 deep. Result batches keep
+`ultragraphdb_core_terms`' encoding. `ultragraphdb_protocol_wire` depends only on `ultragraphdb_error_protocol`,
+`ultragraphdb_core_terms` and `xxhash-rust`; its Write, Describe and Operation bodies have layouts of their own, and the
+server session converts them and the request terms to `Changeset`, declarations and oxrdf types.
+
 ### The protocol on compio
 
 Workers are compio runtimes pinned to n−1 cores; a connection is accepted onto the least-loaded worker and stays there;
