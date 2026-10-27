@@ -70,7 +70,7 @@ fn test_a_declaration_needing_a_build_while_one_runs_is_refused() {
 }
 
 #[test]
-fn test_two_builds_in_one_batch_refuse_the_second() {
+fn test_two_builds_executed_together_refuse_the_second() {
     let a = changesets();
     write(&a, &["<a> <name> \"Ann\"", "<a> <tag> \"x\""]);
     let declare_change = |p: &str| {
@@ -79,11 +79,13 @@ fn test_two_builds_in_one_batch_refuse_the_second() {
             "with `exact`",
         )))])
     };
-    let results = a
-        .apply_batch(&[declare_change("name"), declare_change("tag")])
-        .unwrap();
-    assert!(results[0].is_ok(), "{:?}", results[0]);
-    let refused = results[1].as_ref().unwrap_err();
+    let (name, tag) = (
+        a.execute(&declare_change("name")).unwrap(),
+        a.execute(&declare_change("tag")).unwrap(),
+    );
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, name)]).unwrap();
+    let refused = a.apply_round(vec![(next + 2, tag)]).unwrap_err();
     assert_eq!(
         refused.to_string(),
         "An index is being built, so <http://ex.org/tag> cannot be declared now. Please retry"

@@ -190,7 +190,7 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() {
     assert_eq!(ids.len(), 1);
     let record = a
         .quads()
-        .statement(NS, DEFAULT_GRAPH, ids[0], a.quads().lists().latest_ts())
+        .statement(NS, DEFAULT_GRAPH, ids[0], a.quads().lists().applied_ts())
         .unwrap()
         .expect("a record");
     assert_eq!(record.subject(), uid(&a, "a"));
@@ -216,7 +216,7 @@ fn test_a_repeated_edge_gives_both_statements_ids() {
     for id in &ids {
         let record = a
             .quads()
-            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().latest_ts())
+            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().applied_ts())
             .unwrap()
             .expect("a record");
         assert_eq!(
@@ -247,7 +247,7 @@ fn test_deleting_statements_removes_their_records_and_then_the_triple() {
     assert_eq!(ids.len(), 2);
     let record = |id| {
         a.quads()
-            .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().latest_ts())
+            .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
             .unwrap()
     };
     let delete_id = |id| Change::DeleteStatement {

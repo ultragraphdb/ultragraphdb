@@ -78,11 +78,12 @@ copy SHALL refuse the start and every write, and SHALL never be read as a fresh 
 
 ### Requirement: Checkpoints trim the log
 At a checkpoint the store SHALL be synced, the checkpoint's position recorded in the superblock, and the segments
-wholly below it removed; a trim SHALL never remove a round the store has not durably applied.
+wholly below it zeroed, synced and kept as spares, which a new segment reuses before one is created; a trim SHALL never
+remove or zero a round the store has not durably applied.
 
-#### Scenario: A checkpoint removes old segments
+#### Scenario: A checkpoint recycles old segments
 - **WHEN** rounds fill four segments and a checkpoint is taken at the end of the third
-- **THEN** the first three segments are removed, and recovery replays from the checkpoint
+- **THEN** the first three segments are kept as spares holding only zeros, and recovery replays from the checkpoint
 
 ### Requirement: The power-loss-protection flag tunes and never weakens
 A configuration flag SHALL state whether the log's drive has power-loss protection, `false` by default. It SHALL set the

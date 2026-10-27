@@ -21,7 +21,7 @@ fn literal(text: &str) -> EncodedTerm {
 }
 
 fn delete(store: &TestQuads, s: &str, p: &str, object: &EncodedTerm) -> Option<Vec<u64>> {
-    let mut w = QuadWrite::new(store, 0, store.lists().request(store.lists().fresh_ts()));
+    let mut w = QuadWrite::new(store, 0, store.lists().request(store.lists().applied_ts()));
     let (s, p) = (uid(store, 0, &ex(s)), uid(store, 0, &ex(p)));
     let deleted = w.delete(0, s, p, object, "x").unwrap();
     commit(store, vec![w]).remove(0).unwrap();
@@ -127,4 +127,133 @@ fn test_colliding_fingerprints_keep_both_literals_and_deleting_one_keeps_the_oth
         store.list_terms(0, &key, u64::MAX).unwrap(),
         vec![Term::from(Literal::new_simple_literal("B"))]
     );
+}
+
+/// A write over a request at the newest timestamp, the terms of `<s>`, `<p>` and `<o>` resolved: the subject's and
+/// predicate's UIDs and the object's encoding.
+fn resolved<'a>(
+    store: &'a TestQuads,
+    s: &str,
+    p: &str,
+    o: &str,
+) -> (
+    QuadWrite<'a, SimStore, SimListCache<ultragraphdb_store_posting::CachedList>>,
+    u64,
+    u64,
+    EncodedTerm,
+) {
+    let mut w = QuadWrite::new(store, 0, store.lists().request(store.lists().applied_ts()));
+    let (terms, quads) = w.terms();
+    let (st, l) = (quads.store(), quads.leases());
+    let subject = terms.iri(st, l, ex(s).as_str()).unwrap();
+    let predicate = terms.iri(st, l, ex(p).as_str()).unwrap();
+    let object = EncodedTerm::uid(terms.iri(st, l, ex(o).as_str()).unwrap());
+    (w, subject, predicate, object)
+}
+
+/// A statement held is found with its statement IDs, and the write records the statement it tested, by the subject's
+/// forward key and the object's encoding, and no list read whole.
+#[test]
+fn test_a_held_statement_is_found_and_recorded_as_a_statement() {
+    let store = quads();
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("b")), quad("a", "knows", ex("c"))],
+    );
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b");
+    assert_eq!(w.holds(0, s, p, &o).unwrap(), Some(Vec::new()));
+    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"));
+    let request = w.request();
+    assert_eq!(
+        request.tested().collect::<Vec<_>>(),
+        vec![(key.as_slice(), o.as_bytes())]
+    );
+    assert_eq!(request.read_keys().count(), 0);
+}
+
+/// A statement the subject does not hold, beside others it does, is not found, and the test is recorded all the same:
+/// it is what a commit adding the object would change.
+#[test]
+fn test_a_statement_not_held_is_recorded_too() {
+    let store = quads();
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("c")), quad("x", "y", ex("b"))],
+    );
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b");
+    assert_eq!(w.holds(0, s, p, &o).unwrap(), None);
+    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"));
+    assert_eq!(
+        w.request().tested().collect::<Vec<_>>(),
+        vec![(key.as_slice(), o.as_bytes())]
+    );
+    assert_eq!(w.request().read_keys().count(), 0);
+}
+
+/// The statement IDs of a held statement are those its posting carries.
+#[test]
+fn test_a_held_statement_carries_its_statement_ids() {
+    let store = quads();
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b");
+    w.insert(0, s, p, &o, &[7, 9], "iri");
+    commit(&store, vec![w]).remove(0).unwrap();
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b");
+    assert_eq!(w.holds(0, s, p, &o).unwrap(), Some(vec![7, 9]));
+}
+
+/// A subject the write created holds nothing, so its test reads no list and records nothing.
+#[test]
+fn test_a_subject_the_write_created_records_no_test() {
+    let store = quads();
+    write(&store, 0, &[quad("x", "knows", ex("b"))]);
+    let (mut w, s, p, o) = resolved(&store, "new", "knows", "b");
+    assert!(w.is_fresh(s));
+    assert_eq!(w.holds(0, s, p, &o).unwrap(), None);
+    assert_eq!(w.request().tested().count(), 0);
+    assert_eq!(w.request().read_keys().count(), 0);
+    w.insert(0, s, p, &o, &[], "iri");
+    assert_eq!(
+        w.holds(0, s, p, &o).unwrap(),
+        Some(Vec::new()),
+        "its own insert is seen"
+    );
+    assert_eq!(w.request().tested().count(), 0);
+}
+
+/// The write sees its own inserts and deletes: a statement it inserted is held, one it deleted is not.
+#[test]
+fn test_a_test_sees_the_writes_own_insert_and_delete() {
+    let store = quads();
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("b")), quad("a", "knows", ex("c"))],
+    );
+    let (mut w, s, p, b) = resolved(&store, "a", "knows", "b");
+    let d = {
+        let (terms, quads) = w.terms();
+        EncodedTerm::uid(
+            terms
+                .iri(quads.store(), quads.leases(), ex("d").as_str())
+                .unwrap(),
+        )
+    };
+    w.insert(0, s, p, &d, &[], "iri");
+    assert_eq!(w.holds(0, s, p, &d).unwrap(), Some(Vec::new()));
+    assert!(w.delete(0, s, p, &b, "iri").unwrap().is_some());
+    assert_eq!(w.holds(0, s, p, &b).unwrap(), None);
+}
+
+/// A delete keeps its read of the subject's list, which it needs whole to tell whether the predicate stays in the
+/// subject's predicate list.
+#[test]
+fn test_a_delete_reads_the_subjects_list_whole() {
+    let store = quads();
+    write(&store, 0, &[quad("a", "knows", ex("b"))]);
+    let (mut w, s, p, o) = resolved(&store, "a", "knows", "b");
+    w.delete(0, s, p, &o, "iri").unwrap();
+    let key = forward(&store, 0, 0, &ex("a"), &ex("knows"));
+    assert!(w.request().read_keys().any(|k| k == key.as_slice()));
 }

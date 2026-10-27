@@ -13,34 +13,42 @@
 
 mod request_drop;
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
+use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot, VersionlessEntry};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
 use crate::types::stacked_layers::StackedLayers;
+use crate::types::writes::Writes;
 
-/// A list a request holds, and whether it was built without a store read.
+/// A list a request holds, whether it was built without a store read, and whether the request read it whole rather
+/// than only to test one statement.
 #[derive(Debug, Clone)]
 struct Held {
     list: List,
     blind: bool,
+    whole: bool,
 }
 
 /// One request's working set: Dgraph's `LocalCache` of a transaction. Each list it touches is read at its read
-/// timestamp with the writes of the requests before it in its batch stacked on top, and its edges write the list's
-/// scratch layer. Nothing it writes is visible outside its batch until the batch is committed. It holds a read open
+/// timestamp, with the writes of the requests before it in its batch stacked on top when it was begun from a
+/// [`crate::Batch`], and its edges write the list's scratch layer. Nothing it writes is visible to another request
+/// until it is committed: in its batch, or as [`Writes`] in a round ([`crate::Lists::commit_round`]). It holds a read open
 /// at its timestamp, which bounds the discard timestamp, until it is dropped or committed.
 #[derive(Debug)]
 pub struct Request<'a, S, C> {
     lists: &'a Lists<S, C>,
     read_ts: u64,
     held: BTreeMap<Vec<u8>, Held>,
+    /// The statements the request tested, by list key and object.
+    tested: BTreeSet<(Vec<u8>, Vec<u8>)>,
+    /// The key ranges the request scanned, each from its start, inclusive, to its end, exclusive, or to the last key.
+    ranges: BTreeSet<(Vec<u8>, Option<Vec<u8>>)>,
     stacked: StackedLayers,
     entries: Vec<Entry>,
     versioned: Vec<Entry>,
@@ -60,6 +68,8 @@ where
             lists,
             read_ts,
             held: BTreeMap::new(),
+            tested: BTreeSet::new(),
+            ranges: BTreeSet::new(),
             stacked,
             entries: Vec::new(),
             versioned: Vec::new(),
@@ -82,20 +92,7 @@ where
     /// The list of `key` as this request sees it, read whole: Dgraph's `Get`. A list written blind is completed
     /// from the store first, its writes kept on top.
     pub fn get(&mut self, key: &[u8]) -> Result<&mut List, PostingError> {
-        let (lists, read_ts, stacked) = (self.lists, self.read_ts, &self.stacked);
-        match self.held.entry(key.to_vec()) {
-            MapEntry::Occupied(held) if !held.get().blind => Ok(&mut held.into_mut().list),
-            MapEntry::Occupied(mut held) => {
-                let written = held.get().list.delta().cloned();
-                let list = read_list(lists, stacked, key, read_ts)?.with_scratch(read_ts, written);
-                *held.get_mut() = Held { list, blind: false };
-                Ok(&mut held.into_mut().list)
-            }
-            MapEntry::Vacant(vacant) => {
-                let list = read_list(lists, stacked, key, read_ts)?;
-                Ok(&mut vacant.insert(Held { list, blind: false }).list)
-            }
-        }
+        self.fetch(key, true)
     }
 
     /// The list of `key` to write without reading the store: Dgraph's `GetFromDelta`, which index maintenance uses
@@ -106,7 +103,11 @@ where
             let mut list = List::empty(key.to_vec());
             list.mutation_mut().set_stacked(stacked.get(key));
             list.set_ts(read_ts);
-            Held { list, blind: true }
+            Held {
+                list,
+                blind: true,
+                whole: false,
+            }
         });
         &mut held.list
     }
@@ -114,6 +115,59 @@ where
     /// The list of a scalar predicate's key: Dgraph's `GetScalarList`, read whole as [`Request::get`] reads it.
     pub fn get_scalar_list(&mut self, key: &[u8]) -> Result<&mut List, PostingError> {
         self.get(key)
+    }
+
+    /// The list of `key` read to test whether it holds `object`, an object's encoding: read as [`Request::get`] reads
+    /// it, recording the statement and not the list, so that a commit changing other objects of the list does not
+    /// conflict with the test. A list the request reads whole as well is recorded as read whole.
+    pub fn get_tested(&mut self, key: &[u8], object: &[u8]) -> Result<&mut List, PostingError> {
+        self.tested.insert((key.to_vec(), object.to_vec()));
+        self.fetch(key, false)
+    }
+
+    /// The statements the request tested, by list key and object, in key order.
+    pub fn tested(&self) -> impl Iterator<Item = (&[u8], &[u8])> {
+        self.tested
+            .iter()
+            .map(|(k, o)| (k.as_slice(), o.as_slice()))
+    }
+
+    /// The keys of the lists in the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end`
+    /// is `None`, in key order: those the store holds at the request's read timestamp and those the request wrote. The
+    /// range is recorded as scanned.
+    pub fn scan(
+        &mut self,
+        start: Vec<u8>,
+        end: Option<Vec<u8>>,
+    ) -> Result<Vec<Vec<u8>>, PostingError> {
+        self.lists.gate(self.read_ts)?;
+        let snapshot = self.lists.store().snapshot(self.read_ts)?;
+        let range = Scan::range(start.clone(), end.clone());
+        let mut keys = BTreeSet::new();
+        for item in snapshot.scan(&range) {
+            keys.insert(item?.key().to_vec());
+        }
+        keys.extend(
+            self.written_keys()
+                .filter(|k| range.selects(k))
+                .map(<[u8]>::to_vec),
+        );
+        self.ranges.insert((start, end));
+        Ok(keys.into_iter().collect())
+    }
+
+    /// Records the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, as
+    /// scanned: what a scan the caller makes through the store itself, such as a skip scan, reports.
+    pub fn record_range(&mut self, start: Vec<u8>, end: Option<Vec<u8>>) {
+        self.ranges.insert((start, end));
+    }
+
+    /// The key ranges the request scanned, each from its start, inclusive, to its end, exclusive, or to the last key
+    /// when it has none, in order.
+    pub fn ranges(&self) -> impl Iterator<Item = (&[u8], Option<&[u8]>)> {
+        self.ranges
+            .iter()
+            .map(|(start, end)| (start.as_slice(), end.as_deref()))
     }
 
     /// Writes `entry`'s key at the request's commit timestamp, whatever version `entry` names: a schema or type
@@ -158,12 +212,12 @@ where
         self.removed_records.push(id);
     }
 
-    /// The keys of the lists the request read from the store: those it holds, less those it wrote blind and has not
-    /// read since.
+    /// The keys of the lists the request read whole from the store: those it holds, less those it wrote blind and has
+    /// not read since, and those it read only to test a statement ([`Request::tested`]).
     pub fn read_keys(&self) -> impl Iterator<Item = &[u8]> {
         self.held
             .iter()
-            .filter(|(_, h)| !h.blind)
+            .filter(|(_, h)| h.whole)
             .map(|(k, _)| k.as_slice())
     }
 
@@ -174,8 +228,9 @@ where
         Request::new(self.lists, self.read_ts, self.stacked.clone())
     }
 
-    /// Takes the lists and entries of `other`, a fork of this request, into it. The two are meant to hold disjoint
-    /// keys; a key both hold keeps this request's list unless only `other` wrote to it.
+    /// Takes the lists, entries and reads of `other`, a fork of this request, into it. The two are meant to hold
+    /// disjoint keys; a key both hold keeps this request's list unless only `other` wrote to it, and is read whole when
+    /// either read it whole.
     pub fn absorb(&mut self, mut other: Request<'a, S, C>) {
         for (key, held) in std::mem::take(&mut other.held) {
             match self.held.entry(key) {
@@ -183,17 +238,41 @@ where
                     vacant.insert(held);
                 }
                 MapEntry::Occupied(mut mine) => {
+                    let whole = mine.get().whole || held.whole;
                     if mine.get().list.delta().is_none() && held.list.delta().is_some() {
                         mine.insert(held);
                     }
+                    mine.get_mut().whole = whole;
                 }
             }
         }
+        self.tested.append(&mut other.tested);
+        self.ranges.append(&mut other.ranges);
         self.entries.append(&mut other.entries);
         self.versioned.append(&mut other.versioned);
         self.versionless.append(&mut other.versionless);
         self.advance_epoch |= other.advance_epoch;
         self.removed_records.append(&mut other.removed_records);
+    }
+
+    /// What the request writes, apart from it: its deltas, entries, versionless writes, epoch mark and removed rebuild
+    /// records, which the commit step writes at the version it gives the request. Its read is closed.
+    pub fn into_writes(mut self) -> Writes {
+        let deltas = std::mem::take(&mut self.held)
+            .into_iter()
+            .filter_map(|(key, held)| {
+                let delta = held.list.delta()?.clone();
+                (!delta.postings().is_empty()).then_some((key, delta))
+            })
+            .collect();
+        Writes::new(
+            deltas,
+            std::mem::take(&mut self.entries),
+            std::mem::take(&mut self.versioned),
+            std::mem::take(&mut self.versionless),
+            self.advance_epoch,
+            std::mem::take(&mut self.removed_records),
+        )
     }
 
     /// The keys and lists the request holds.
@@ -221,20 +300,34 @@ where
         })
     }
 
-    pub(crate) fn entries(&self) -> &[Entry] {
-        &self.entries
-    }
-
-    pub(crate) fn versioned_entries(&self) -> &[Entry] {
-        &self.versioned
-    }
-
-    pub(crate) fn advances_epoch(&self) -> bool {
-        self.advance_epoch
-    }
-
-    pub(crate) fn removed_records(&self) -> &[u64] {
-        &self.removed_records
+    /// The list of `key` as the request sees it, completed from the store when it was written blind, and marked read
+    /// whole when `whole` holds.
+    fn fetch(&mut self, key: &[u8], whole: bool) -> Result<&mut List, PostingError> {
+        let (lists, read_ts, stacked) = (self.lists, self.read_ts, &self.stacked);
+        let held = match self.held.entry(key.to_vec()) {
+            MapEntry::Occupied(held) if !held.get().blind => held.into_mut(),
+            MapEntry::Occupied(mut held) => {
+                let written = held.get().list.delta().cloned();
+                let list = read_list(lists, stacked, key, read_ts)?.with_scratch(read_ts, written);
+                let was_whole = held.get().whole;
+                *held.get_mut() = Held {
+                    list,
+                    blind: false,
+                    whole: was_whole,
+                };
+                held.into_mut()
+            }
+            MapEntry::Vacant(vacant) => {
+                let list = read_list(lists, stacked, key, read_ts)?;
+                vacant.insert(Held {
+                    list,
+                    blind: false,
+                    whole: false,
+                })
+            }
+        };
+        held.whole |= whole;
+        Ok(&mut held.list)
     }
 }
 

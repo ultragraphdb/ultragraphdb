@@ -47,14 +47,23 @@ async fn preallocate_and_truncate<S: DurableStorage>(storage: &S, root: &Path) {
     file.write_at(0, AlignedBuf::from_slice(b"abc"))
         .await
         .expect("written");
+    // The blocks are reserved where the platform reserves them; the length and the bytes are unchanged.
     file.preallocate(8_192).await.expect("preallocated");
-    assert_eq!(file.length().await.expect("length"), 8_192);
-    let bytes = file.read_at(0, 8_192).await.expect("read");
-    assert_eq!(&bytes.as_slice()[..3], b"abc");
-    assert!(bytes.as_slice()[3..].iter().all(|b| *b == 0));
-    // A file already as long is left as it is.
+    assert_eq!(file.length().await.expect("length"), 3);
+    assert_eq!(file.read_at(0, 3).await.expect("read").as_slice(), b"abc");
+    let past = file.read_at(0, 8_192).await.expect_err("past the end");
+    assert_eq!(past.kind(), ErrorKind::UnexpectedEof);
+    // A write within the reservation grows the file to the write's end, the gap zeros.
+    file.write_at(4_096, AlignedBuf::from_slice(b"xyz"))
+        .await
+        .expect("written");
+    assert_eq!(file.length().await.expect("length"), 4_099);
+    let bytes = file.read_at(0, 4_099).await.expect("read");
+    assert!(bytes.as_slice()[3..4_096].iter().all(|b| *b == 0));
+    assert_eq!(&bytes.as_slice()[4_096..], b"xyz");
+    // A file already longer is left as it is.
     file.preallocate(4_096).await.expect("preallocated");
-    assert_eq!(file.length().await.expect("length"), 8_192);
+    assert_eq!(file.length().await.expect("length"), 4_099);
     file.truncate(2).await.expect("cut");
     assert_eq!(file.length().await.expect("length"), 2);
     assert_eq!(file.read_at(0, 2).await.expect("read").as_slice(), b"ab");
@@ -102,17 +111,16 @@ async fn aligned_files_take_blocks_only<S: DurableStorage>(storage: &S, root: &P
         .await
         .expect_err("not whole blocks");
     assert_eq!(past_a_block.kind(), ErrorKind::InvalidInput);
+    // The reservation's length is checked, not the file's: a file of 100 bytes reserves a whole block.
     short.truncate(100).await.expect("cut");
-    let from_a_partial_block = short
-        .preallocate(4_096)
-        .await
-        .expect_err("not whole blocks");
-    assert_eq!(from_a_partial_block.kind(), ErrorKind::InvalidInput);
+    short.preallocate(4_096).await.expect("preallocated");
+    assert_eq!(short.length().await.expect("length"), 100);
+    // The write's end, not the reservation's.
     let reopened = storage
         .open_aligned(&root.join("a"), OpenMode::Read)
         .await
         .expect("opened");
-    assert_eq!(reopened.length().await.expect("length"), 16_384);
+    assert_eq!(reopened.length().await.expect("length"), 12_288);
 }
 
 #[test]
@@ -155,4 +163,36 @@ fn test_aligned_files_on_the_simulated_storage() {
 fn test_aligned_files_on_compio() {
     let tmp = TempDir::new("aligned");
     run(aligned_files_take_blocks_only(&CompioStorage, tmp.path()));
+}
+
+/// `st_blocks` of the file at `path` after a compio file there reserved 1 MiB, with the file's length.
+fn reserved_blocks(name: &str) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    let tmp = TempDir::new(name);
+    let path = tmp.path().join("r");
+    let length = run(async {
+        let mut file = CompioStorage
+            .open_aligned(&path, OpenMode::Create)
+            .await
+            .expect("created");
+        file.preallocate(1 << 20).await.expect("preallocated");
+        file.length().await.expect("length")
+    });
+    (std::fs::metadata(&path).expect("metadata").blocks(), length)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn test_preallocate_reserves_the_blocks_on_linux() {
+    let (blocks, length) = reserved_blocks("reserve");
+    assert_eq!(length, 0, "FALLOC_FL_KEEP_SIZE leaves the length");
+    // st_blocks counts 512-byte units (stat(2)): 1 MiB reserved is at least 2,048 of them.
+    assert!(blocks >= 2_048, "{blocks} blocks");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn test_preallocate_reserves_nothing_on_macos() {
+    let (blocks, length) = reserved_blocks("reserve");
+    assert_eq!((blocks, length), (0, 0));
 }

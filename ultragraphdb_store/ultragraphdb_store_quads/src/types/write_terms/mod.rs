@@ -31,6 +31,8 @@ pub struct WriteTerms {
     strings: BTreeMap<Hash128, String>,
     /// The UIDs the write created, whose lists hold nothing.
     fresh: BTreeSet<u64>,
+    /// The dictionary keys the write looked up and found absent.
+    absent: BTreeSet<Vec<u8>>,
 }
 
 /// The base of the skolem IRIs of `namespace`'s blank nodes: its default base, under the system vocabulary, until an
@@ -76,6 +78,7 @@ impl WriteTerms {
             self.known.insert(iri.to_string(), uid);
             return Ok(uid);
         }
+        self.absent.insert(key);
         let uid = leases.next_uid(store, self.namespace)?;
         self.created.insert(iri.to_string(), (uid, false));
         self.fresh.insert(uid);
@@ -94,6 +97,7 @@ impl WriteTerms {
         }
         let key = iri_key(self.namespace, iri);
         let Some(value) = store.get_versionless(&key)? else {
+            self.absent.insert(key);
             return Ok(None);
         };
         let uid = decode_uid(&key, &value)?;
@@ -235,6 +239,13 @@ impl WriteTerms {
             .iter()
             .find(|(_, (u, _))| *u == uid)
             .map(|(iri, (_, skolem))| (iri.as_str(), *skolem))
+    }
+
+    /// The dictionary keys the write looked up and found absent, in key order: an IRI it created, and one a delete
+    /// looked for and the store did not hold. A commit creating one of these terms after the write's read changes
+    /// what the write found.
+    pub fn absent(&self) -> impl Iterator<Item = &[u8]> {
+        self.absent.iter().map(Vec::as_slice)
     }
 
     /// The IRIs new to the store, with their UIDs.

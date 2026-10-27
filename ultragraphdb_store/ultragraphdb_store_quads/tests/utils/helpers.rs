@@ -53,7 +53,7 @@ pub fn insert_write<'a>(
     ns: u64,
     quads: &[Quad],
 ) -> QuadWrite<'a, SimStore, SimListCache<CachedList>> {
-    let read_ts = store.lists().fresh_ts();
+    let read_ts = store.lists().applied_ts();
     let mut write = QuadWrite::new(store, ns, store.lists().request(read_ts));
     for q in quads {
         let (terms, quads) = write.terms();

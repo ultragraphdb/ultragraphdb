@@ -21,3 +21,5 @@ mod request;
 mod rollup_output;
 #[cfg(test)]
 mod timestamps;
+#[cfg(test)]
+mod writes;

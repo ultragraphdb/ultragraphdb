@@ -15,7 +15,7 @@ use crate::types::open_mode::OpenMode;
 use crate::types::recovery::Recovery;
 use crate::types::superblock::Superblock;
 use crate::types::superblock_read::SuperblockRead;
-use crate::types::wal::{Wal, segment_index};
+use crate::types::wal::{Wal, segment_index, spare_index};
 use crate::types::wal_config::WalConfig;
 use crate::utils::io_error::io_error;
 
@@ -84,6 +84,8 @@ impl<S: DurableStorage> Wal<S> {
             config,
             superblock,
             files: BTreeMap::new(),
+            spares: names.iter().filter_map(|name| spare_index(name)).collect(),
+            unreserved: false,
             index: VecDeque::new(),
             staged: VecDeque::new(),
             committed: start,
@@ -98,9 +100,10 @@ impl<S: DurableStorage> Wal<S> {
         Ok((wal, recovery))
     }
 
-    /// Removes what an interrupted superblock write or checkpoint left (temporary copies, segments below the first
-    /// kept), opens every segment kept, and syncs the directory: a segment created before a failed directory sync is
-    /// read back now, and its entry must be durable before anything is written into it.
+    /// Finishes what an interrupted superblock write or checkpoint left (temporary copies removed, segments below the
+    /// first kept recycled as the checkpoint recycles them), opens every segment kept, and syncs the directory: a
+    /// segment created before a failed directory sync is read back now, and its entry must be durable before anything
+    /// is written into it.
     async fn sweep(&mut self, names: &[String], segments: &[u64]) -> Result<(), LogError> {
         let temporaries = names
             .iter()
@@ -111,23 +114,17 @@ impl<S: DurableStorage> Wal<S> {
                 .await
                 .map_err(io_error("remove"))?;
         }
-        let first = self.superblock.first_segment();
         for &index in segments {
             let path = self.segment_path(index);
-            if index < first {
-                self.storage
-                    .remove_file(&path)
-                    .await
-                    .map_err(io_error("remove"))?;
-            } else {
-                let file = self
-                    .storage
-                    .open_aligned(&path, OpenMode::ReadWrite)
-                    .await
-                    .map_err(io_error("open"))?;
-                self.files.insert(index, file);
-            }
+            let file = self
+                .storage
+                .open_aligned(&path, OpenMode::ReadWrite)
+                .await
+                .map_err(io_error("open"))?;
+            self.files.insert(index, file);
         }
+        self.recycle_segments_below(self.superblock.first_segment())
+            .await?;
         self.storage
             .sync_directory(&self.dir)
             .await

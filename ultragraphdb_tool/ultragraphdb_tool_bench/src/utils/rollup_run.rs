@@ -85,7 +85,9 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     lists.sync()?;
     let rolled_sizes = DirSizes::of(args.dir(), &data_path)?;
 
-    let discard = lists.latest_ts();
+    // A rollup writes one above the newest commit it folds, so at most one above the watermark: a discard timestamp
+    // there lies at or above every rollup the run wrote.
+    let discard = lists.applied_ts() + 1;
     lists.set_discard_ts(discard)?;
     let store = lists.store();
     let before = (
@@ -162,8 +164,8 @@ fn load(
     while left > 0 {
         let n = left.min(LOAD_BATCH as u64);
         let changesets: Vec<_> = (0..n).map(|_| shape.next_commit()).collect();
-        if let Some(Err(e)) = a.apply_batch(&changesets)?.into_iter().find(Result::is_err) {
-            return Err(e.into());
+        for changeset in &changesets {
+            a.apply(changeset)?;
         }
         left -= n;
         // The rollups this load queues are not run; the measurement runs them itself.

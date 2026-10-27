@@ -19,8 +19,10 @@ pub trait DurableFile: std::fmt::Debug {
     /// Writes `bytes` at `offset` in one write, growing the file when they run past its end.
     fn write_at(&mut self, offset: u64, bytes: AlignedBuf) -> impl Future<Output = io::Result<()>>;
 
-    /// Grows the file to `len` bytes of zeros with its blocks allocated, so a later write within it changes no
-    /// metadata a sync must flush; bytes already written are kept. A file at least `len` long is left as it is.
+    /// Reserves the blocks of the file's first `len` bytes, so a later write within them allocates nothing; the
+    /// file's length and bytes are unchanged, and a read past the length still fails. A platform that reserves no
+    /// blocks does nothing; a file system that cannot reserve them refuses with [`io::ErrorKind::Unsupported`]. On an
+    /// aligned file `len` is a multiple of 4,096.
     fn preallocate(&mut self, len: u64) -> impl Future<Output = io::Result<()>>;
 
     /// The file's length in bytes.

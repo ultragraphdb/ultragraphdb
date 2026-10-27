@@ -13,15 +13,17 @@ use std::sync::{Arc, Mutex};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changeset;
-use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_store_quads::{QuadErrorEnum, QuadStore, QuadWrite, WriteTerms};
+use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
+use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
 use ultragraphdb_traits_store::{ListCache, Store};
 
-use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
+use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::changeset_write::ChangesetWrite;
+use crate::types::executed::Executed;
 use crate::types::level_draw::LevelDraw;
 use crate::types::predicate_prefix::PredicatePrefix;
+use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
 use crate::utils::lock::lock;
 
@@ -36,20 +38,8 @@ pub(crate) struct ChangesetCore<S, C> {
     draw: Mutex<LevelDraw>,
 }
 
-/// What a batch's application gives: each changeset's commit or refusal, and the record of the build it started.
-type BatchOutcome = (Vec<Result<Applied, ChangesetError>>, Option<u64>);
-
-/// A changeset of a batch whose write finished: its index, terms, the catalog it leaves, the regions it read, and the
-/// build it starts.
-struct Pushed {
-    index: usize,
-    terms: WriteTerms,
-    catalog: Catalog,
-    read: BTreeSet<Region>,
-    lists_read: usize,
-    pending: Option<Rebuild>,
-    removals: Vec<PredicatePrefix>,
-}
+/// What a round's application gives: each execution's commit, and the record of the build it started.
+type RoundOutcome = (Vec<Applied>, Option<u64>);
 
 impl<S, C> ChangesetCore<S, C>
 where
@@ -78,7 +68,7 @@ where
         let snapshot = self
             .quads
             .store()
-            .snapshot(self.quads.lists().latest_ts())?;
+            .snapshot(self.quads.lists().applied_ts())?;
         let catalog = Arc::new(Catalog::load(&snapshot, namespace)?);
         lock(&self.catalogs).insert(namespace, catalog.clone());
         Ok(catalog)
@@ -93,84 +83,120 @@ where
         lock(&self.rebuild).is_some()
     }
 
-    /// Applies `changesets` in one store batch, as [`crate::ChangesetApplier::apply_batch`] does, with the number of
-    /// the record of the build a declaration of the batch started. A record naming the indexes the batch's
-    /// declarations build and remove is written and synced before the batch; once it commits, the indexes removed are
-    /// dropped and the build is registered, and a record no build keeps is removed.
-    pub fn apply_batch(&self, changesets: &[Changeset]) -> Result<BatchOutcome, ChangesetError> {
-        let _apply = lock(&self.apply);
+    /// Executes `changeset` at the watermark, as [`crate::ChangesetApplier::execute`] does: under no lock the commits
+    /// take, so executions run beside each other and beside a round being written.
+    pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
         let running = lock(&self.rebuild).clone();
-        let read_ts = self.quads.lists().latest_ts();
-        let mut batch = self.quads.lists().batch();
-        let mut results: Vec<Option<Result<Applied, ChangesetError>>> = Vec::new();
-        let mut pushed: Vec<Pushed> = Vec::new();
-        let mut working: BTreeMap<u64, Catalog> = BTreeMap::new();
+        let read_ts = self.quads.lists().applied_ts();
+        let ns = changeset.namespace();
+        let catalog = (*self.catalog(ns)?).clone();
+        let write = QuadWrite::new(&self.quads, ns, self.quads.lists().request(read_ts));
+        let mut cw = ChangesetWrite::new(write, catalog, &self.draw)
+            .under(running.as_ref(), running.is_some());
+        cw.apply(changeset)?;
+        let outcome = cw.finish();
+        let reads = reads_of(ns, &outcome.request, &outcome.terms);
+        let fetched: BTreeSet<&[u8]> = outcome
+            .request
+            .read_keys()
+            .chain(outcome.request.tested().map(|(key, _)| key))
+            .collect();
+        let read: BTreeSet<Region> = fetched.iter().filter_map(|k| Region::of(k).ok()).collect();
+        let lists_read = fetched.len();
+        let mut request = outcome.request;
+        for (key, value) in outcome.terms.entries() {
+            request.add_versionless(key, value);
+        }
+        Ok(Executed::new(
+            ns,
+            read_ts,
+            request.into_writes(),
+            outcome.terms,
+            reads,
+            read,
+            lists_read,
+            outcome.catalog,
+            outcome.pending,
+            outcome.touched,
+            outcome.removals,
+        ))
+    }
+
+    /// Applies `changeset` on its own, as [`crate::ChangesetApplier::apply`] does: executed and written as a round of
+    /// one at the next version, under the lock rounds take, so that nothing commits between the two.
+    pub fn apply(&self, changeset: &Changeset) -> Result<(Applied, Option<u64>), ChangesetError> {
+        let _apply = lock(&self.apply);
+        let executed = self.execute(changeset)?;
+        let version = self.quads.lists().next_version();
+        let (mut applied, started) = self.write_round(vec![(version, executed)])?;
+        let applied = applied
+            .pop()
+            .expect("a round of one execution gives one commit");
+        Ok((applied, started))
+    }
+
+    /// Writes `round`, as [`crate::ChangesetApplier::apply_round`] does, with the number of the record of the build
+    /// one of its executions started.
+    pub fn apply_round(&self, round: Vec<(u64, Executed)>) -> Result<RoundOutcome, ChangesetError> {
+        let _apply = lock(&self.apply);
+        self.write_round(round)
+    }
+
+    /// Writes `round` under the apply lock the caller holds. A record naming the indexes its declarations build and
+    /// remove is written and synced before the round's batch; once the batch is written, the catalogs are installed,
+    /// the indexes removed are dropped and the build is registered, and a record no build keeps is removed.
+    fn write_round(&self, mut round: Vec<(u64, Executed)>) -> Result<RoundOutcome, ChangesetError> {
+        let running = lock(&self.rebuild).clone();
         let mut building = running.is_some();
-        for (index, changeset) in changesets.iter().enumerate() {
-            let ns = changeset.namespace();
-            let catalog = match working.get(&ns) {
-                Some(c) => c.clone(),
-                None => (*self.catalog(ns)?).clone(),
-            };
-            let write = QuadWrite::new(&self.quads, ns, batch.request(read_ts));
-            let mut cw =
-                ChangesetWrite::new(write, catalog, &self.draw).under(running.as_ref(), building);
-            match cw.apply(changeset) {
-                Ok(()) => {
-                    let outcome = cw.finish();
-                    let read: BTreeSet<Region> = outcome
-                        .request
-                        .read_keys()
-                        .filter_map(|k| Region::of(k).ok())
-                        .collect();
-                    let lists_read = outcome.request.read_keys().count();
-                    building |= outcome.pending.is_some();
-                    if let Some(r) = &running {
-                        self.touch(r, outcome.touched);
-                    }
-                    working.insert(ns, outcome.catalog.clone());
-                    batch.push(outcome.request);
-                    pushed.push(Pushed {
-                        index,
-                        terms: outcome.terms,
-                        catalog: outcome.catalog,
-                        read,
-                        lists_read,
-                        pending: outcome.pending,
-                        removals: outcome.removals,
-                    });
-                    results.push(None);
+        for (_, executed) in &round {
+            if let Some(pending) = &executed.pending {
+                if building {
+                    return Err(ChangesetError::Rebuilding(pending.new.predicate().as_str()));
                 }
-                Err(e) => results.push(Some(Err(e))),
+                building = true;
             }
         }
-        let record = self.record_batch(&mut pushed)?;
-        let terms: Vec<WriteTerms> = pushed.iter().map(|p| p.terms.clone()).collect();
-        let written: Vec<BTreeSet<Region>> = written_regions(&batch);
-        let committed = self.quads.commit(batch, &terms)?;
-        let mut aborted = false;
+        let mut after = self.quads.lists().applied_ts();
+        for (version, _) in &round {
+            if *version <= after {
+                return Err(PostingError::StaleVersion(*version, after).into());
+            }
+            after = *version;
+        }
+        let Some(&(first, _)) = round.first() else {
+            return Ok((Vec::new(), None));
+        };
+        let record = self.record_round(first, &mut round)?;
+        if let Some(r) = &running {
+            for (_, executed) in &mut round {
+                self.touch(r, std::mem::take(&mut executed.touched));
+            }
+        }
+        let writes: Vec<(u64, &Writes)> = round.iter().map(|(v, e)| (*v, &e.writes)).collect();
+        self.quads.lists().commit_round(&writes)?;
         let mut removals: Vec<PredicatePrefix> = Vec::new();
         let mut started = None;
-        for ((p, result), written) in pushed.into_iter().zip(committed).zip(written) {
-            results[p.index] = Some(match result {
-                Ok(ts) => {
-                    lock(&self.catalogs).insert(p.catalog.namespace(), Arc::new(p.catalog));
-                    removals.extend(p.removals);
-                    if let Some(mut rebuild) = p.pending {
-                        rebuild.start_ts = ts;
-                        started = Some(rebuild);
-                    }
-                    Ok(Applied::new(ts, written, p.read, p.lists_read))
-                }
-                Err(e) => {
-                    aborted |= matches!(e.0, QuadErrorEnum::Aborted);
-                    Err(ChangesetError(ChangesetErrorEnum::Quad(e)))
-                }
-            });
-        }
-        if aborted {
-            // A later write of the batch may have read the catalog a refused one changed.
-            self.forget_catalogs();
+        let mut applied = Vec::with_capacity(round.len());
+        for (version, executed) in round {
+            let written: BTreeSet<Region> = executed
+                .writes
+                .written_keys()
+                .chain(executed.writes.entry_keys())
+                .filter_map(|k| Region::of(k).ok())
+                .collect();
+            lock(&self.catalogs).insert(executed.catalog.namespace(), Arc::new(executed.catalog));
+            removals.extend(executed.removals);
+            if let Some(mut rebuild) = executed.pending {
+                rebuild.start_ts = version;
+                started = Some(rebuild);
+            }
+            applied.push(Applied::new(
+                version,
+                written,
+                executed.read,
+                executed.lists_read,
+                executed.reads,
+            ));
         }
         self.drop_removed(&removals)?;
         let started = match (started, record) {
@@ -181,36 +207,31 @@ where
             }
             (None, None) => None,
         };
-        Ok((
-            results
-                .into_iter()
-                .map(|r| {
-                    r.expect(
-                        "every changeset was refused before the batch or decided by its commit",
-                    )
-                })
-                .collect(),
-            started,
-        ))
+        Ok((applied, started))
     }
 }
 
-/// The regions of every key each request of `batch` writes, its entries included.
-fn written_regions<S, C>(
-    batch: &ultragraphdb_store_posting::Batch<'_, S, C>,
-) -> Vec<BTreeSet<Region>>
+/// The read set of the write of namespace `namespace` that `request` and `terms` hold.
+fn reads_of<S, C>(
+    namespace: u64,
+    request: &ultragraphdb_store_posting::Request<'_, S, C>,
+    terms: &WriteTerms,
+) -> Reads
 where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    batch
-        .requests()
-        .iter()
-        .map(|r| {
-            r.written_keys()
-                .chain(r.entry_keys())
-                .filter_map(|k| Region::of(k).ok())
-                .collect()
-        })
-        .collect()
+    Reads::new(
+        namespace,
+        request.read_keys().map(<[u8]>::to_vec).collect(),
+        request
+            .tested()
+            .map(|(key, object)| (key.to_vec(), object.to_vec()))
+            .collect(),
+        request
+            .ranges()
+            .map(|(start, end)| (start.to_vec(), end.map(<[u8]>::to_vec)))
+            .collect(),
+        terms.absent().map(<[u8]>::to_vec).collect(),
+    )
 }

@@ -83,3 +83,63 @@ fn test_chunk_names_its_index_and_byte_range() {
         "chunk 0, body bytes 0..0, does not match its leaf"
     );
 }
+
+#[test]
+fn test_body_rules_name_the_command_section_and_values() {
+    assert_eq!(
+        ProtocolError::WrongCommand(1, 2).to_string(),
+        "a view of command 1 was asked of a frame of command 2"
+    );
+    assert_eq!(
+        ProtocolError::BodyTooShort(7, 3, 32).to_string(),
+        "body of command 7, 3 bytes, is shorter than its 32-byte fixed part and section table"
+    );
+    assert_eq!(
+        ProtocolError::SectionOutOfBounds(7, 2, 64, 8, 60).to_string(),
+        "section 2 of command 7, 8 bytes at 64, runs past the 60-byte body"
+    );
+    assert_eq!(
+        ProtocolError::SectionOffset(7, 1, 33, 40).to_string(),
+        "section 1 of command 7 starts at 33, not at 40"
+    );
+    assert_eq!(
+        ProtocolError::PaddingNotZero(5, 41).to_string(),
+        "padding byte 41 of a body of command 5 is not zero"
+    );
+    assert_eq!(
+        ProtocolError::TrailingBytes(5, 40, 41).to_string(),
+        "body of command 5 holds 41 bytes, past the end of its last section at 40"
+    );
+    assert_eq!(
+        ProtocolError::SectionLength(5, 0, 31, 16).to_string(),
+        "section 0 of command 5, 31 bytes, is not a whole number of 16-byte records"
+    );
+    assert_eq!(
+        ProtocolError::EntryOutOfBounds(17, 1, 2, 32).to_string(),
+        "entry 2 of section 1 of command 17, at 32, runs past its section"
+    );
+    assert_eq!(
+        ProtocolError::CountMismatch(13, "cells", 5, 6).to_string(),
+        "cells of command 13 counts 5 where the body holds 6"
+    );
+    assert_eq!(
+        ProtocolError::NotUtf8(1, 0, 3).to_string(),
+        "section 0 of command 1 is not UTF-8 at 3"
+    );
+    assert_eq!(
+        ProtocolError::IndexOutOfRange(13, 0, 2, 4, 3).to_string(),
+        "entry 2 of section 0 of command 13 is 4, past the 3 it indexes"
+    );
+    assert_eq!(
+        ProtocolError::BadTerm(8, 3, 9).to_string(),
+        "term 9 of section 3 of command 8 is not a term of its place"
+    );
+    assert_eq!(
+        ProtocolError::FieldValue(4, "mode", 2).to_string(),
+        "mode of command 4 holds 2, which the command does not define"
+    );
+    assert_eq!(
+        ProtocolError::Record(1, ProtocolError::PaddingNotZero(17, 9)).to_string(),
+        "write-set record 1 of the round: padding byte 9 of a body of command 17 is not zero"
+    );
+}

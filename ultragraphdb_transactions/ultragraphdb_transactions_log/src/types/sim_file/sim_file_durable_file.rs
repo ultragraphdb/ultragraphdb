@@ -9,6 +9,7 @@ use crate::traits::durable_file::DurableFile;
 use crate::types::aligned_buf::AlignedBuf;
 use crate::types::sim_file::SimFile;
 use crate::types::sim_storage::sim_state::error;
+use crate::types::sim_storage::sim_tear::SimTear;
 use crate::types::storage_operation::StorageOperation;
 use crate::utils::block::aligned;
 
@@ -30,39 +31,45 @@ impl DurableFile for SimFile {
     async fn write_at(&mut self, offset: u64, bytes: AlignedBuf) -> io::Result<()> {
         let at = self.at(offset, bytes.len())?;
         self.perform(StorageOperation::Write, |state, inode, tear| {
-            let len = if tear {
-                state.tear(bytes.len())
-            } else {
-                bytes.len()
+            let kept = match tear {
+                Some(_) => state.tear(bytes.len()),
+                None => bytes.len(),
+            };
+            // The file system records the whole write, whatever the drive kept of it, unless the tear is short.
+            let recorded = match tear {
+                Some(SimTear::ShortLength) => kept,
+                _ => bytes.len(),
             };
             let end = at
-                .checked_add(len)
+                .checked_add(recorded)
                 .ok_or_else(|| error(io::ErrorKind::InvalidInput, "the range overflows"))?;
             let file = state.file_mut(inode)?;
             if file.len() < end {
                 file.resize(end, 0);
             }
-            file[at..end].copy_from_slice(&bytes.as_slice()[..len]);
+            file[at..at + kept].copy_from_slice(&bytes.as_slice()[..kept]);
             Ok(())
         })
     }
 
+    /// Reserves nothing the model can observe: the contents and length are left, as `FALLOC_FL_KEEP_SIZE` leaves
+    /// them. Traced and faulted as any operation, refused on an aligned file unless `len` is whole blocks, and refused
+    /// as [`io::ErrorKind::Unsupported`] after [`crate::SimStorage::refuse_preallocation`].
     async fn preallocate(&mut self, len: u64) -> io::Result<()> {
         let aligned_file = self.aligned;
-        self.perform(StorageOperation::Preallocate, |state, inode, _| {
-            let file = state.file_mut(inode)?;
-            let len = usize::try_from(len)
-                .map_err(|_| error(io::ErrorKind::InvalidInput, "too large"))?;
-            if file.len() >= len {
-                return Ok(());
-            }
-            if aligned_file && !aligned(file.len() as u64, len as u64) {
+        self.perform(StorageOperation::Preallocate, |state, _, _| {
+            if aligned_file && !aligned(0, len) {
                 return Err(error(
                     io::ErrorKind::InvalidInput,
                     "an aligned file takes whole blocks",
                 ));
             }
-            file.resize(len, 0);
+            if state.preallocation_refused() {
+                return Err(error(
+                    io::ErrorKind::Unsupported,
+                    "the file system reserves no blocks",
+                ));
+            }
             Ok(())
         })
     }

@@ -1,0 +1,483 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+//! The golden frames of every command's body, `testdata/golden/bodies/`, written by `generate_bodies.py` from the
+//! layout tables, independently of the crate, with the values it printed; and the helpers that rebuild a frame around
+//! a changed body or command header with xxhash-rust directly, so a mutated body reaches the body's checks.
+
+use std::fs;
+
+use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_wire::{
+    AbortView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView, CreditView,
+    DescribeView, ErrorReplyView, ExecuteView, FrameView, Header, HelloView, OperationView,
+    PrepareView, ReadView, RegisterView, ResultView, RoundView, WelcomeView, WriteView,
+};
+
+/// The cluster every golden frame names.
+pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
+/// The release every golden frame carries.
+pub const RELEASE: u32 = 0x0005_0000;
+
+/// One golden frame, as `generate_bodies.py` wrote it and printed its size and checksums.
+#[derive(Debug, Clone, Copy)]
+pub struct GoldenBody {
+    pub name: &'static str,
+    pub command: u16,
+    pub stream: u64,
+    pub flags: u8,
+    pub size: u32,
+    pub checksum: u64,
+    pub checksum_body: u64,
+}
+
+const fn g(
+    name: &'static str,
+    command: u16,
+    stream: u64,
+    flags: u8,
+    size: u32,
+    checksum: u64,
+    checksum_body: u64,
+) -> GoldenBody {
+    GoldenBody {
+        name,
+        command,
+        stream,
+        flags,
+        size,
+        checksum,
+        checksum_body,
+    }
+}
+
+// The generator's output, copied: name, command, stream, flags, size, checksum, checksum_body.
+pub const BODIES: [GoldenBody; 21] = [
+    g(
+        "hello",
+        1,
+        0,
+        0,
+        279,
+        0x614f_89ea_a6f9_fbdf,
+        0x3354_a6ce_4aa5_d7a6,
+    ),
+    g(
+        "welcome",
+        2,
+        0,
+        0,
+        278,
+        0x5695_f23b_680b_77f6,
+        0x9507_47f9_2f0d_9d17,
+    ),
+    g(
+        "register",
+        3,
+        0,
+        0,
+        256,
+        0x5544_d4f1_c445_4b91,
+        0x2d06_8005_38d3_94c2,
+    ),
+    g(
+        "begin",
+        4,
+        5,
+        0,
+        256,
+        0xc652_33ba_d6e6_0399,
+        0x2d06_8005_38d3_94c2,
+    ),
+    g(
+        "commit",
+        5,
+        5,
+        0,
+        296,
+        0x4ce5_2b99_d651_9cdf,
+        0x0a21_f801_015a_ba74,
+    ),
+    g(
+        "abort",
+        6,
+        5,
+        0,
+        256,
+        0xf106_d66a_3e88_8c64,
+        0x2d06_8005_38d3_94c2,
+    ),
+    g(
+        "read",
+        7,
+        11,
+        0,
+        371,
+        0x1818_4ff1_0cee_32e3,
+        0xce84_1e82_aaa7_0d44,
+    ),
+    g(
+        "write",
+        8,
+        5,
+        0,
+        1_276,
+        0x66f3_f327_eefd_d815,
+        0x9b41_3043_eaf2_6023,
+    ),
+    g(
+        "operation",
+        9,
+        5,
+        0,
+        433,
+        0x1fe7_f050_a3f1_3803,
+        0x31a3_a41d_cfe2_9e63,
+    ),
+    g(
+        "operation_counter",
+        9,
+        7,
+        0,
+        351,
+        0xb118_9ced_b99c_0734,
+        0xa60b_bf48_820b_5c2b,
+    ),
+    g(
+        "prepare",
+        10,
+        13,
+        0,
+        368,
+        0x97d4_d390_e581_1475,
+        0x3b50_9552_d575_7531,
+    ),
+    g(
+        "prepare_reply",
+        10,
+        13,
+        0,
+        369,
+        0x5f17_fa2a_0668_aa51,
+        0x7512_5c78_f36b_d39b,
+    ),
+    g(
+        "execute",
+        11,
+        15,
+        0,
+        312,
+        0xdf87_ecb6_6242_2848,
+        0x0008_6d6e_b12b_bd46,
+    ),
+    g(
+        "describe",
+        12,
+        17,
+        0,
+        312,
+        0x19ac_ff22_96ee_5721,
+        0x2464_7a33_d027_0e23,
+    ),
+    g(
+        "describe_reply",
+        12,
+        17,
+        0,
+        508,
+        0x6b73_77b1_e445_c807,
+        0x739b_5e15_2585_486c,
+    ),
+    g(
+        "result",
+        13,
+        11,
+        1,
+        506,
+        0x5143_5849_b5f5_bf35,
+        0x7772_32f3_57f1_d7c5,
+    ),
+    g(
+        "credit",
+        14,
+        11,
+        0,
+        256,
+        0xa4c1_931b_3c87_b6f5,
+        0x2d06_8005_38d3_94c2,
+    ),
+    g(
+        "cancel",
+        15,
+        11,
+        0,
+        256,
+        0x5f55_fc6f_7d1d_3612,
+        0x2d06_8005_38d3_94c2,
+    ),
+    g(
+        "error",
+        16,
+        5,
+        1,
+        304,
+        0x6060_d113_2332_53eb,
+        0x5107_5088_7f86_158a,
+    ),
+    g(
+        "error_operation",
+        16,
+        7,
+        1,
+        318,
+        0xee9e_e1cc_b9c3_4eb6,
+        0x333a_9044_74e6_cc95,
+    ),
+    g(
+        "round",
+        17,
+        0,
+        0,
+        5_712,
+        0x0e86_b49e_288c_861a,
+        0x546c_11ac_2fa8_3358,
+    ),
+];
+
+/// The schema id the generator printed for the golden Describe answer's declarations.
+pub const DESCRIBE_SCHEMA_ID: u64 = 0xfe70_341d_112b_65a9;
+
+/// The golden frame named `name`.
+///
+/// # Panics
+///
+/// When no golden frame has the name.
+pub fn golden(name: &str) -> GoldenBody {
+    *BODIES
+        .iter()
+        .find(|b| b.name == name)
+        .unwrap_or_else(|| panic!("no golden frame {name}"))
+}
+
+impl GoldenBody {
+    /// The frame's bytes, read from `testdata/golden/bodies/<name>.frame`.
+    ///
+    /// # Panics
+    ///
+    /// When the file cannot be read.
+    pub fn bytes(&self) -> Vec<u8> {
+        let path = ultragraphdb_tool_bdd::testdata_dir()
+            .join("golden")
+            .join("bodies")
+            .join(format!("{}.frame", self.name));
+        fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    }
+
+    /// The header a builder is given to rebuild the frame: the golden fields but the command and command header,
+    /// which the builder supplies.
+    pub fn header(&self) -> Header {
+        Header::new(CLUSTER, Command::Abort)
+            .with_release(RELEASE)
+            .with_stream(self.stream)
+            .with_flags(self.flags)
+    }
+
+    /// The body's bytes before its chunk table, split by the oracle below.
+    pub fn data(&self) -> Vec<u8> {
+        body_data(&self.bytes()).to_vec()
+    }
+}
+
+/// The bytes the chunks of a frame's body cover: the body without its table, the length found by counting chunks of
+/// 3,840 and then 4,096 bytes until data and table add up, independently of the crate's closed form.
+pub fn body_data(frame: &[u8]) -> &[u8] {
+    let body = &frame[256..];
+    if body.len() <= 3_840 {
+        return body;
+    }
+    let mut chunks = 2;
+    loop {
+        let data = body.len() - 8 * chunks;
+        let needed = 1 + (data - 3_840).div_ceil(4_096);
+        if needed == chunks {
+            return &body[..data];
+        }
+        chunks += 1;
+    }
+}
+
+/// `frame`'s header around `data`, the body's new bytes: `size`, the chunk table, `checksum_body` and `checksum`
+/// recomputed with xxhash-rust, so the frame passes every check before the body's structure.
+pub fn reframe(frame: &[u8], data: &[u8]) -> Vec<u8> {
+    use xxhash_rust::xxh3::{xxh3_64, xxh3_64_with_seed};
+    let mut chunks = vec![&data[..data.len().min(3_840)]];
+    let mut at = 3_840;
+    while at < data.len() {
+        chunks.push(&data[at..(at + 4_096).min(data.len())]);
+        at += 4_096;
+    }
+    let leaves: Vec<u64> = chunks
+        .iter()
+        .enumerate()
+        .map(|(i, c)| xxh3_64_with_seed(c, i as u64))
+        .collect();
+    let (table, checksum_body) = if leaves.len() == 1 {
+        (Vec::new(), leaves[0])
+    } else {
+        let table: Vec<u8> = leaves.iter().flat_map(|l| l.to_le_bytes()).collect();
+        let root = xxh3_64(&table);
+        (table, root)
+    };
+    let mut out = frame[..256].to_vec();
+    out.extend_from_slice(data);
+    out.extend_from_slice(&table);
+    let size = out.len() as u32;
+    out[40..44].copy_from_slice(&size.to_le_bytes());
+    out[8..16].copy_from_slice(&checksum_body.to_le_bytes());
+    let checksum = xxh3_64(&out[8..256]);
+    out[0..8].copy_from_slice(&checksum.to_le_bytes());
+    out
+}
+
+/// `frame` with its command header changed by `change` and the header checksum recomputed with xxhash-rust.
+pub fn with_command_header(frame: &[u8], change: impl FnOnce(&mut [u8])) -> Vec<u8> {
+    let mut out = frame.to_vec();
+    change(&mut out[128..256]);
+    let checksum = xxhash_rust::xxh3::xxh3_64(&out[8..256]);
+    out[0..8].copy_from_slice(&checksum.to_le_bytes());
+    out
+}
+
+/// `frame` with its header's `command` set to `command` and the checksum recomputed.
+pub fn with_command(frame: &[u8], command: u16) -> Vec<u8> {
+    let mut out = frame.to_vec();
+    out[54..56].copy_from_slice(&command.to_le_bytes());
+    let checksum = xxhash_rust::xxh3::xxh3_64(&out[8..256]);
+    out[0..8].copy_from_slice(&checksum.to_le_bytes());
+    out
+}
+
+/// Writes `value` little-endian at `at`, `width` bytes.
+pub fn put(bytes: &mut [u8], at: usize, value: u64, width: usize) {
+    bytes[at..at + width].copy_from_slice(&value.to_le_bytes()[..width]);
+}
+
+/// The little-endian u32 at `at`.
+pub fn u32_at(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+}
+
+/// `(offset, len)` of section `index` of a body whose fixed part is `fixed` bytes.
+pub fn section(data: &[u8], fixed: usize, index: usize) -> (usize, usize) {
+    let at = fixed + 8 * index;
+    (u32_at(data, at) as usize, u32_at(data, at + 4) as usize)
+}
+
+/// `bytes` validated and read through its command's view, and the view read back to its owned body, which builds the
+/// same frame again under the frame's own header: byte for byte, or, for Write, Operation, Describe and Result, whose
+/// strings and terms a builder lays out canonically, a frame that rebuilds to itself.
+pub fn view_any(bytes: &[u8]) -> Result<(), ProtocolError> {
+    let (command, rebuilt) = rebuild(bytes)?;
+    if matches!(
+        command,
+        Command::Write | Command::Operation | Command::Describe | Command::Result
+    ) {
+        let (_, again) = rebuild(&rebuilt).expect("a rebuilt frame reads");
+        assert_eq!(again, rebuilt, "{command:?} is not stable");
+    } else {
+        assert_eq!(rebuilt, bytes, "{command:?} rebuilt differs");
+    }
+    Ok(())
+}
+
+/// The frame `bytes` rebuilt from its view's owned body.
+fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
+    fn through<'a, V: BodyView<'a>>(frame: &FrameView<'a>) -> Result<Vec<u8>, ProtocolError> {
+        let body = V::from_frame(frame)?.to_body()?;
+        let h = frame.header();
+        let header = Header::new(h.cluster(), Command::Abort)
+            .with_view(h.view())
+            .with_release(h.release())
+            .with_protocol(h.protocol())
+            .with_stream(h.stream())
+            .with_replica(h.replica())
+            .with_flags(h.flags());
+        body.frame(header)
+    }
+    let frame = FrameView::validate(bytes, CLUSTER)?;
+    let rebuilt = match frame.command() {
+        Command::Hello => through::<HelloView>(&frame),
+        Command::Welcome => through::<WelcomeView>(&frame),
+        Command::Register => through::<RegisterView>(&frame),
+        Command::Begin => through::<BeginView>(&frame),
+        Command::Commit => through::<CommitView>(&frame),
+        Command::Abort => through::<AbortView>(&frame),
+        Command::Read => through::<ReadView>(&frame),
+        Command::Write => through::<WriteView>(&frame),
+        Command::Operation => through::<OperationView>(&frame),
+        Command::Prepare => through::<PrepareView>(&frame),
+        Command::Execute => through::<ExecuteView>(&frame),
+        Command::Describe => through::<DescribeView>(&frame),
+        Command::Result => through::<ResultView>(&frame),
+        Command::Credit => through::<CreditView>(&frame),
+        Command::Cancel => through::<CancelView>(&frame),
+        Command::Error => through::<ErrorReplyView>(&frame),
+        Command::Round => through::<RoundView>(&frame),
+    }?;
+    Ok((frame.command(), rebuilt))
+}
+
+/// `frame` validated, for a view under test.
+///
+/// # Panics
+///
+/// When the frame does not validate.
+pub fn frame_of(bytes: &[u8]) -> FrameView<'_> {
+    FrameView::validate(bytes, CLUSTER).expect("the frame validates")
+}
+
+/// The `n` sections of `data` after a fixed part of `fixed` bytes, by its table.
+pub fn split_sections(data: &[u8], fixed: usize, n: usize) -> Vec<Vec<u8>> {
+    (0..n)
+        .map(|i| {
+            let (offset, len) = section(data, fixed, i);
+            data[offset..offset + len].to_vec()
+        })
+        .collect()
+}
+
+/// A body of `fixed` and `secs` in the layout, laid out here from the layout table: the table of offsets and
+/// lengths, each section at the end of the one before rounded up to 8, zero padding.
+pub fn join_sections(fixed: &[u8], secs: &[Vec<u8>]) -> Vec<u8> {
+    let mut at = fixed.len() + 8 * secs.len();
+    let mut table = Vec::new();
+    for s in secs {
+        at = at.div_ceil(8) * 8;
+        table.push((at, s.len()));
+        at += s.len();
+    }
+    let mut out = fixed.to_vec();
+    for (offset, len) in &table {
+        out.extend_from_slice(&(*offset as u32).to_le_bytes());
+        out.extend_from_slice(&(*len as u32).to_le_bytes());
+    }
+    for ((offset, _), s) in table.iter().zip(secs) {
+        out.resize(*offset, 0);
+        out.extend_from_slice(s);
+    }
+    out
+}
+
+/// `frame` with section `index` of its body (no fixed part, `n` sections) replaced by `change` of it.
+pub fn with_section(
+    frame: &[u8],
+    n: usize,
+    index: usize,
+    change: impl FnOnce(&mut Vec<u8>),
+) -> Vec<u8> {
+    let mut secs = split_sections(body_data(frame), 0, n);
+    change(&mut secs[index]);
+    reframe(frame, &join_sections(&[], &secs))
+}

@@ -36,10 +36,31 @@ rust_doc_test(
 # One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs.
 rust_test(
     name = "ultragraphdb_protocol_bus_tests",
-    srcs = glob(["tests/**/*.rs"]),
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_protocol_bus"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the unit
+# tests' bounded executor by path.
+rust_test(
+    name = "bdd",
+    srcs = [
+        "tests/bdd.rs",
+        "tests/utils/ready.rs",
+    ],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
     deps = [":ultragraphdb_protocol_bus"] + all_crate_deps(
         normal = True,
         normal_dev = True,

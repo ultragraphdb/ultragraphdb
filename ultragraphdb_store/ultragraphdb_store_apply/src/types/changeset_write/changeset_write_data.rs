@@ -10,7 +10,7 @@ use ultragraphdb_core_keys::{Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration, PredicateKind};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
-use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{ListCache, Scan, Store};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_write::ChangesetWrite;
@@ -22,7 +22,8 @@ where
     C: ListCache<Value = CachedList>,
 {
     /// The graph and subject of every forward list of predicate `uid` the write sees: those stored at its read
-    /// timestamp, in every graph, and those it wrote.
+    /// timestamp, in every graph, and those it wrote. The ranges its skip scan and its scans read are recorded, so that
+    /// a commit writing a forward list of the predicate in any graph conflicts with the write.
     fn forward_lists(&mut self, uid: u64) -> Result<BTreeSet<(u64, u64)>, ChangesetError> {
         let ns = self.namespace();
         let read_ts = self.write.read_ts();
@@ -31,12 +32,17 @@ where
         let snapshot = lists.store().snapshot(read_ts)?;
         let mut keys: Vec<Vec<u8>> = Vec::new();
         let prefix = PredicatePrefix::new(Keyspace::Forward, false, ns, uid, Vec::new());
-        for graph_prefix in prefix.expand(&snapshot)? {
-            for item in snapshot.scan(&Scan::prefix(graph_prefix)) {
-                keys.push(item?.key().to_vec());
-            }
+        let (graphs, ranges) = prefix.graphs_read(&snapshot)?;
+        let request = self.write.request();
+        for (start, end) in ranges {
+            request.record_range(start, end);
         }
-        keys.extend(self.write.request().written_keys().map(<[u8]>::to_vec));
+        for graph in graphs {
+            let graph_prefix = prefix.in_graph(graph);
+            let end = Scan::prefix(graph_prefix.clone()).end().map(<[u8]>::to_vec);
+            keys.extend(request.scan(graph_prefix, end)?);
+        }
+        keys.extend(request.written_keys().map(<[u8]>::to_vec));
         Ok(keys
             .iter()
             .filter_map(|k| match QuadKey::parse(k) {

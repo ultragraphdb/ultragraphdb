@@ -5,8 +5,9 @@
 
 //! The scenarios run over a changeset applier on the simulated store: in `changeset_steps`, those of changesets,
 //! index maintenance, posting lists, the catalog's write checks, schema storage's writes and statement IDs; in
-//! `catalog_change_steps`, those of index builds, the declarations data refuses and drops; in `vector_steps`, those of
-//! the vector index's lists and maintenance.
+//! `catalog_change_steps`, those of index builds, the declarations data refuses and drops; in `transaction_steps`, the
+//! recording side of what a transaction's reads record; in `vector_steps`, those of the vector index's lists and
+//! maintenance.
 
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ mod utils {
 
 mod catalog_change_steps;
 mod changeset_steps;
+mod transaction_steps;
 mod vector_steps;
 
 #[derive(Debug, Default, World)]

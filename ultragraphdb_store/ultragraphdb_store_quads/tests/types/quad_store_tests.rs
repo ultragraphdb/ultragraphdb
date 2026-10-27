@@ -103,3 +103,48 @@ fn test_literals_of_every_kind_read_back_exactly() {
     expected.sort_by_key(Term::to_string);
     assert_eq!(read, expected);
 }
+
+/// A write that tested a statement in a list a refused write of its batch wrote is refused too: its test read that
+/// write's delta, which is never committed.
+#[test]
+fn test_a_write_testing_a_list_a_refused_write_wrote_is_refused() {
+    use ultragraphdb_core_terms::EncodedTerm;
+    use ultragraphdb_store_quads::{QuadErrorEnum, QuadWrite};
+
+    let store = quads();
+    write(
+        &store,
+        0,
+        &[quad("a", "knows", ex("c")), quad("b", "p", ex("q"))],
+    );
+    let ts = store.lists().applied_ts();
+    let (a, knows, b) = (
+        uid(&store, 0, &ex("a")),
+        uid(&store, 0, &ex("knows")),
+        EncodedTerm::uid(uid(&store, 0, &ex("b"))),
+    );
+    let mut batch = store.lists().batch();
+    let mut first = QuadWrite::new(&store, 0, batch.request(ts));
+    let new = {
+        let (terms, quads) = first.terms();
+        terms
+            .iri(quads.store(), quads.leases(), ex("n").as_str())
+            .unwrap()
+    };
+    first.insert(0, a, knows, &b, &[], "iri");
+    first.insert(0, new, knows, &b, &[], "iri");
+    let (request, first_terms) = first.finish();
+    batch.push(request);
+    let mut second = QuadWrite::new(&store, 0, batch.request(ts));
+    assert!(
+        second.holds(0, a, knows, &b).unwrap().is_some(),
+        "it reads the first write's delta"
+    );
+    let (request, second_terms) = second.finish();
+    batch.push(request);
+    // A commit claims <n> after the first write took it as new.
+    write(&store, 0, &[quad("n", "p", ex("q"))]);
+    let results = store.commit(batch, &[first_terms, second_terms]).unwrap();
+    assert!(matches!(&results[0], Err(e) if matches!(e.0, QuadErrorEnum::Aborted)));
+    assert!(matches!(&results[1], Err(e) if matches!(e.0, QuadErrorEnum::Aborted)));
+}

@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod applied_tests;
+#[cfg(test)]
 mod changeset_applier;
 #[cfg(test)]
 mod changeset_core;
@@ -11,3 +13,5 @@ mod changeset_core;
 mod changeset_write;
 #[cfg(test)]
 mod level_draw_tests;
+#[cfg(test)]
+mod reads_tests;

@@ -15,3 +15,5 @@ mod quad_write_tests;
 mod statement_record_tests;
 #[cfg(test)]
 mod statistics_tests;
+#[cfg(test)]
+mod write_terms_tests;

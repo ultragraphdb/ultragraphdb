@@ -80,24 +80,43 @@ impl PredicatePrefix {
 
     /// The graphs some version of a key under the prefix is stored in, in order.
     pub fn graphs<S: StoreSnapshot>(&self, snapshot: &S) -> Result<Vec<u64>, StoreError> {
+        Ok(self.graphs_read(snapshot)?.0)
+    }
+
+    /// [`PredicatePrefix::graphs`], with the key ranges the skip scan read, each from its start, inclusive, to its end,
+    /// exclusive, or to the last key: the keys from each seek point to the first key found, none of which is held, the
+    /// prefix's keys in each graph visited, and from the last seek point to the end of the namespace's keyspace. A key
+    /// written under the prefix in any graph lies in one of them. The key found ends its range: a write to it changes
+    /// which graph the scan visits only when it is under the prefix, and then it lies in that graph's prefix.
+    pub fn graphs_read<S: StoreSnapshot>(
+        &self,
+        snapshot: &S,
+    ) -> Result<(Vec<u64>, Vec<Range>), StoreError> {
         let namespace = key_prefix(self.keyspace, self.split, self.namespace, None, None);
+        let namespace_end = Scan::prefix(namespace.clone()).end().map(<[u8]>::to_vec);
         let mut graphs = Vec::new();
+        let mut ranges = Vec::new();
         let mut cursor = namespace.clone();
         loop {
-            let scan = Scan::prefix(namespace.clone()).seek(cursor).all_versions();
+            let scan = Scan::prefix(namespace.clone())
+                .seek(cursor.clone())
+                .all_versions();
             let Some(item) = snapshot.scan(&scan).next().transpose()? else {
-                return Ok(graphs);
+                ranges.push((cursor, namespace_end));
+                return Ok((graphs, ranges));
             };
+            ranges.push((cursor, Some(item.key().to_vec())));
             let Some(graph) = item.key().get(9..17).map(be_u64) else {
-                return Ok(graphs);
+                return Ok((graphs, ranges));
             };
             let prefix = self.in_graph(graph);
             let scan = Scan::prefix(prefix.clone()).all_versions();
+            ranges.push((prefix.clone(), scan.end().map(<[u8]>::to_vec)));
             if snapshot.scan(&scan).next().transpose()?.is_some() {
                 graphs.push(graph);
             }
             let Some(next) = graph.checked_add(1) else {
-                return Ok(graphs);
+                return Ok((graphs, ranges));
             };
             cursor = key_prefix(self.keyspace, self.split, self.namespace, Some(next), None);
         }
@@ -134,6 +153,9 @@ impl PredicatePrefix {
         })
     }
 }
+
+/// A key range read: its start, inclusive, and its end, exclusive, or `None` to the last key.
+pub(crate) type Range = (Vec<u8>, Option<Vec<u8>>);
 
 fn be_u64(bytes: &[u8]) -> u64 {
     let mut b = [0u8; 8];

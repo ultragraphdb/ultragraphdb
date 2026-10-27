@@ -4,8 +4,9 @@
 #
 
 Feature: Changesets
-  A changeset names its namespace and its changes in order; it applies whole, in one request, or not at all, reports
-  the regions it reads and writes, and writes the same bytes from the same stored state.
+  A changeset names its namespace and its changes in order; it executes against the snapshot at the watermark, its new
+  terms taking provisional UIDs its commit confirms; it applies whole, in one request, or not at all, reports what it
+  read and the regions it reads and writes, and writes the same bytes from the same stored state.
 
   Scenario: A delete by pattern removes every object
     Given `<a> <nick> "Al"`, `<a> <nick> <n1>` and `<a> <nick> <n2>` are held
@@ -13,6 +14,10 @@ Feature: Changesets
     Then `a` holds no `nick`
     And the reverse list of `nick` for `n1` does not hold `a`
     And the reverse list of `nick` for `n2` does not hold `a`
+
+  Scenario: A provisional UID is confirmed at commit
+    When a transaction creates `<new>` and commits, and no other transaction created `<new>` meanwhile
+    Then `<new>` holds the UID the transaction gave it
 
   Scenario: One refused operation refuses the changeset
     Given `knows` is declared an edge
@@ -24,6 +29,10 @@ Feature: Changesets
     When `<a> <knows> <b>` is written
     Then the write writes the forward and reverse regions of `knows`
     And the write writes the subject- and object-predicate regions of the default graph
+
+  Scenario: An insert records the statement it tested
+    When a changeset inserting `<a> <knows> <b>` is executed and `a` holds other objects of `knows`
+    Then its read set holds the statement `a`, `knows`, `b`, not the whole list of `knows` of `a`
 
   Scenario: Two applications write the same bytes
     When one changeset is applied to two copies of one store

@@ -9,3 +9,5 @@ mod checksum_tests;
 mod constants_tests;
 #[cfg(test)]
 pub mod golden;
+#[cfg(test)]
+pub mod golden_bodies;

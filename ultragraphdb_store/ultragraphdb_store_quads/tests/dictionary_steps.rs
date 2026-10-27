@@ -64,14 +64,14 @@ fn dictionary(w: &mut Steps) -> Arc<DataDictionary> {
 fn describe(w: &mut Steps) -> Description {
     let d = dictionary(w);
     let store = store(w);
-    d.describe(store, store.lists().latest_ts())
+    d.describe(store, store.lists().applied_ts())
         .expect("the dictionary answers")
 }
 
 fn pass(w: &mut Steps) -> u64 {
     let d = dictionary(w);
     let store = store(w);
-    let ts = store.lists().latest_ts();
+    let ts = store.lists().applied_ts();
     d.run_pass(store, ts).expect("the pass completes");
     ts
 }
@@ -131,7 +131,7 @@ fn written_then_pass(w: &mut Steps, text: String) {
 fn written_during_pass(w: &mut Steps, text: String) {
     let d = dictionary(w);
     let store = store(w);
-    let before = store.lists().latest_ts();
+    let before = store.lists().applied_ts();
     let during = d.run_pass(store, before).expect("the pass completes");
     let write = insert_write(store, 0, &[statement(&text)]);
     let (request, terms) = write.finish();

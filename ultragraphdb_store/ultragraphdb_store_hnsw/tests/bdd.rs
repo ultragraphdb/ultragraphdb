@@ -77,7 +77,7 @@ fn first_insert(w: &mut Steps) {
 
 #[then("the entry point names its uid and its neighbour lists exist, empty, at every level")]
 fn entry_and_empty_lists(w: &mut Steps) {
-    let ts = lists(w).latest_ts();
+    let ts = lists(w).applied_ts();
     let entry = index_value(lists(w), &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts).unwrap();
     assert_eq!(bytes_to_uint64(&entry), Some(w.uid));
     let node = index_value(
@@ -117,7 +117,7 @@ fn vector_deleted(w: &mut Steps) {
     "its uid is added to the dead list, and later inserts leave it out of the neighbour lists they write"
 )]
 fn dead_and_left_out(w: &mut Steps) {
-    let ts = lists(w).latest_ts();
+    let ts = lists(w).applied_ts();
     let dead = index_value(lists(w), &key(&format!("{}{VEC_DEAD}", w.pred), 1), ts).unwrap();
     assert_eq!(
         parse_edges(&String::from_utf8_lossy(&dead)).unwrap(),
@@ -198,7 +198,7 @@ fn entry_deleted(w: &mut Steps) {
         let v = random_vector(&mut rng, 3);
         insert(lists(w), &w.pred, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
     }
-    let ts = lists(w).latest_ts();
+    let ts = lists(w).applied_ts();
     let heir_key = key(&format!("{}{VEC_KEYWORD}", w.pred), 2);
     w.heir_lists = decode_uint64_matrix(&index_value(lists(w), &heir_key, ts).unwrap()).unwrap();
     // Uid 1 is the entry point; uid 2 is the first node holding a vector after it.
@@ -213,7 +213,7 @@ fn entry_deleted(w: &mut Steps) {
 )]
 fn handed_over(w: &mut Steps) {
     // Dgraph rewrites uid 2 with empty lists at every level and does not insert 13 (ledger 45).
-    let ts = lists(w).latest_ts();
+    let ts = lists(w).applied_ts();
     let entry = index_value(lists(w), &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts).unwrap();
     assert_eq!(bytes_to_uint64(&entry), Some(2));
     let vec_key = format!("{}{VEC_KEYWORD}", w.pred);

@@ -220,7 +220,7 @@ impl HnswWorkload {
         let applied = ctx.store().applied_ts();
         if let Some((first, ops)) = self.pending.take() {
             for (i, op) in ops.iter().enumerate() {
-                self.model.commit(first + i as u64, op);
+                self.model.commit(first + 2 * i as u64, op);
             }
         }
         self.model.truncate(applied);
@@ -282,7 +282,7 @@ impl HnswWorkload {
         let mut ops = Vec::new();
         let mut batch_dead = BTreeSet::new();
         for _ in 0..ctx.rng().between(1, 2) {
-            let read_ts = lists.fresh_ts();
+            let read_ts = lists.applied_ts();
             let mut request = batch.request(read_ts);
             let live = self.model.live_uids(read_ts);
             let delete = !live.is_empty() && ctx.rng().chance(250);
@@ -317,7 +317,7 @@ impl HnswWorkload {
             }
             batch.push(request);
         }
-        let first = lists.peek_ts();
+        let first = lists.next_version();
         match lists.commit(batch) {
             Ok(timestamps) => {
                 for (ts, op) in timestamps.into_iter().zip(&ops) {
@@ -332,14 +332,15 @@ impl HnswWorkload {
         }
     }
 
-    /// One search at a timestamp from below the discard timestamp to beyond the newest commit, compared with the
+    /// One search at a timestamp from below the discard timestamp to the watermark, compared with the
     /// model; one time in four, the stored graph checked at that timestamp too.
     fn read(&mut self, ctx: &mut SimContext) -> Result<(), Violation> {
         let lists = self.lists(ctx);
         let discard = lists.store().discard_ts();
-        let read_ts = ctx
-            .rng()
-            .between(discard.saturating_sub(1).max(1), lists.applied_ts() + 2);
+        let read_ts = ctx.rng().between(
+            discard.saturating_sub(1).min(lists.applied_ts()),
+            lists.applied_ts(),
+        );
         let query = random_vector(ctx.rng());
         let k = ctx.rng().between(1, 5) as usize;
         let result = {

@@ -97,7 +97,7 @@ fn test_the_workload_rules_hold_on_fjall() {
         );
         live.push((uid, v));
     }
-    assert_eq!(graph_defect(&lists, &p, lists.latest_ts()).unwrap(), None);
+    assert_eq!(graph_defect(&lists, &p, lists.applied_ts()).unwrap(), None);
     for _ in 0..50 {
         let q: Vec<f32> = (0..3)
             .map(|_| (draw(&mut rng) * 2.0 - 1.0) as f32)

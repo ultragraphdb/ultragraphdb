@@ -64,7 +64,20 @@ until the node restarts.
 A catalog change SHALL be a write to its namespace's catalog range, so every read-write transaction of that namespace
 whose read version is below it and that commits after it SHALL abort. A drop SHALL be a write of its whole key range,
 aborting every read-write transaction whose read version is below it, that commits after it, and that read or wrote in
-the range. The nodes a write changes during an index build SHALL be recorded by the commit step in commit order.
+the range. The nodes a write changes during an index build SHALL be recorded by the commit step in commit order. A
+predicate's implicit default entry, recorded by its first write, SHALL be a commit-time insert-if-absent on its catalog
+key and not a catalog change: concurrent first writes of one predicate both commit, the first creating the entry and
+the second finding it (decided 2026-10-27). A declaration remains a catalog change.
+
+#### Scenario: Concurrent first writes of a predicate both commit
+- **WHEN** two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second
+  `<b> <score> "high"`, and `score` was not declared
+- **THEN** both commit, and the catalog of `ns` holds `score` with the default entry once
+
+#### Scenario: A write after a build's start in the same round aborts
+- **WHEN** a round admits a declaration of `ns` that starts an index build of `p`, and a later transaction of the same
+  round, executed against the catalog before the declaration, writes `p` in `ns`
+- **THEN** the later transaction aborts with a conflict, and its retry is indexed by the build
 
 #### Scenario: A write executed against an old catalog aborts
 - **WHEN** a transaction executes against the catalog of `ns`, and a declaration of `ns` commits before it

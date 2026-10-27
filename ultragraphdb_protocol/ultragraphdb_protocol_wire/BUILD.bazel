@@ -39,7 +39,10 @@ rust_test(
     name = "ultragraphdb_protocol_wire_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/bdd.rs"],
+        exclude = [
+            "tests/bdd.rs",
+            "tests/bodies_steps.rs",
+        ],
     ),
     crate_root = "tests/mod.rs",
     data = glob(["testdata/**"]),
@@ -52,12 +55,14 @@ rust_test(
 )
 
 # cucumber runs its own main: the libtest harness is off, and the feature files and golden frames are runfiles. bdd.rs
-# includes the unit tests' golden-frame helpers by path.
+# includes the unit tests' golden-frame helpers by path, and the body scenarios' steps from bodies_steps.rs.
 rust_test(
     name = "bdd",
     srcs = [
         "tests/bdd.rs",
+        "tests/bodies_steps.rs",
         "tests/utils/golden.rs",
+        "tests/utils/golden_bodies.rs",
     ],
     crate_root = "tests/bdd.rs",
     data = glob([

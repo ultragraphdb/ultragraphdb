@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::types::sim_storage::sim_state::{SimState, error};
+use crate::types::sim_storage::sim_tear::SimTear;
 use crate::types::storage_operation::StorageOperation;
 
 /// A file of a [`crate::SimStorage`], open on its inode: a rename or removal of its entry does not close it.
@@ -41,7 +42,7 @@ impl SimFile {
     fn perform<T>(
         &self,
         op: StorageOperation,
-        action: impl FnOnce(&mut SimState, usize, bool) -> io::Result<T>,
+        action: impl FnOnce(&mut SimState, usize, Option<SimTear>) -> io::Result<T>,
     ) -> io::Result<T> {
         let mut state = self
             .state

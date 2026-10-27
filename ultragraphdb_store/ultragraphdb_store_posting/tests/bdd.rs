@@ -12,7 +12,7 @@ use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListsConfig, MAX_LIST_SIZE, PostingError,
-    PostingErrorEnum, marshal,
+    PostingErrorEnum, Writes, marshal,
 };
 use ultragraphdb_store_sim::{
     Corruption, Event, Fault, FaultConfig, Seed, SimClock, SimListCache, SimStore, Simulation,
@@ -30,9 +30,9 @@ mod utils {
 }
 
 use crate::utils::helpers::{
-    ProbeLists, TestLists, add, commit_edges, del_uid, del_value, delete_all, key, lists_over,
-    new_lists, new_store, next_commit_at, probe_lists, read_back, roll_up, set_uid, set_value,
-    uids, with_facet, write_delta, write_entries,
+    ProbeLists, TestLists, add, commit_edges, commit_edges_at, del_uid, del_value, delete_all, key,
+    lists_over, new_lists, new_store, probe_lists, read_back, roll_up, set_uid, set_value, uids,
+    with_facet, write_delta, write_entries,
 };
 use crate::utils::posting_workload::PostingWorkload;
 
@@ -152,8 +152,7 @@ fn delete_all_at_eight(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
     commit_edges(&lists, &k, &[set_uid(1), set_uid(2)]);
-    next_commit_at(&lists, 8);
-    assert_eq!(commit_edges(&lists, &k, &[delete_all()]), 8);
+    assert_eq!(commit_edges_at(&lists, &k, &[delete_all()], 8), 8);
     w.uids = uids(&lists.read(&k, 8).unwrap(), 8, 0);
     w.second = uids(&lists.read(&k, 7).unwrap(), 7, 0);
 }
@@ -175,6 +174,8 @@ fn rollup_preserves(w: &mut Steps) {
     commit_edges(&lists, &k, &[del_uid(2)]);
     commit_edges(&lists, &k, &[set_uid(7)]);
     let last = commit_edges(&lists, &k, &[set_uid(9), del_uid(1)]);
+    // The watermark passes the reads below with a commit of another list.
+    commit_edges_at(&lists, &key("preserved", 1), &[set_uid(1)], last + 6);
     let before: Vec<Vec<u64>> = (last..last + 6)
         .map(|t| uids(&lists.read_uncached(&k, t).unwrap(), t, 0))
         .collect();
@@ -245,7 +246,8 @@ fn facet_rollup(w: &mut Steps) {
     let k = friend();
     commit_edges(&lists, &k, &[with_facet(set_uid(5), "since")]);
     assert!(lists.rollup_key(&k).unwrap());
-    let ts = lists.latest_ts();
+    // The rollup is written one above the commit it folds, past the watermark: a read of everything reaches it.
+    let ts = u64::MAX;
     w.list = Some(lists.read_uncached(&k, ts).unwrap());
     w.versions = vec![ts];
 }
@@ -291,7 +293,7 @@ fn crash_split_rollup(w: &mut Steps) {
         lists.store().recover();
         let store = lists.store().clone();
         let reopened = lists_over(store, lists.config());
-        let ts = reopened.latest_ts();
+        let ts = reopened.applied_ts();
         let list = reopened.read_uncached(&k, ts).unwrap();
         w.flags
             .push(uids(&list, ts, 0) == (1..=1600).collect::<Vec<_>>());
@@ -345,7 +347,7 @@ fn parts_recorded(w: &mut Steps) {
 fn iterate_split(w: &mut Steps) {
     let (lists, k) = split_with_deltas(1);
     assert!(lists.rollup_key(&k).unwrap());
-    let ts = lists.latest_ts();
+    let ts = lists.applied_ts();
     let list = lists.read(&k, ts).unwrap();
     assert!(list.part_splits().len() > 2);
     assert!(list.part_splits()[1] > 10);
@@ -408,7 +410,7 @@ fn split_keys_held(store: &SimStore, key: &[u8]) -> usize {
 fn read_split_key(w: &mut Steps) {
     let lists = new_lists();
     let part = split_key_of(&friend(), 1).unwrap();
-    w.error = lists.read(&part, lists.latest_ts()).err();
+    w.error = lists.read(&part, lists.applied_ts()).err();
 }
 
 #[then("the read fails with `cannot read posting list using multi-part list key`")]
@@ -422,10 +424,10 @@ fn invalid_key(w: &mut Steps) {
 
 // The local commit.
 
-#[when("`name` of `0x1` holds no value and a request sets it to `A` and then deletes `A`")]
+#[when("`name` of `0x1` holds no value and a transaction sets it to `A` and then deletes `A`")]
 fn set_then_delete(w: &mut Steps) {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &name(), &[set_value("A"), del_value("A")]);
+    let ts = commit_edges_at(&lists, &name(), &[set_value("A"), del_value("A")], 2);
     w.texts = value_of(&lists.read(&name(), ts).unwrap(), ts)
         .into_iter()
         .collect();
@@ -436,32 +438,42 @@ fn holds_no_value(w: &mut Steps) {
     assert!(w.texts.is_empty(), "{:?}", w.texts);
 }
 
-#[when("two requests are applied in one batch and the first sets `name` of `0x1` to `A`")]
-fn two_in_batch(w: &mut Steps) {
+#[when(
+    "two transactions of one round execute from the same watermark and the first sets `name` of `0x1` to `A`"
+)]
+fn two_in_round(w: &mut Steps) {
     let lists = new_lists();
-    let mut batch = lists.batch();
-    let mut first = batch.request(lists.latest_ts());
+    let before = commit_edges_at(&lists, &name(), &[set_value("before")], 2);
+    let watermark = lists.applied_ts();
+    assert_eq!(watermark, before);
+    let mut first = lists.request(watermark);
     first
         .get(&name())
         .unwrap()
-        .add_posting(set_value("A").clone(), false);
-    batch.push(first);
-    let read_ts = lists.latest_ts();
-    let mut second = batch.request(read_ts);
-    w.texts = value_of(second.get(&name()).unwrap(), read_ts)
+        .add_posting(set_value("A"), false);
+    let mut second = lists.request(watermark);
+    w.texts = value_of(second.get(&name()).unwrap(), watermark)
         .into_iter()
         .collect();
+    let (first, second) = (first.into_writes(), second.into_writes());
+    lists
+        .commit_round(&[(4, &first), (6, &second)])
+        .expect("the round is written");
+    w.second = vec![lists.applied_ts()];
 }
 
-#[then("the second reads `A` for `name` of `0x1`")]
-fn second_reads_a(w: &mut Steps) {
-    assert_eq!(w.texts, vec![b"A".to_vec()]);
+#[then("the second reads `name` of `0x1` as it was at the watermark")]
+fn second_reads_watermark(w: &mut Steps) {
+    assert_eq!(w.texts, vec![b"before".to_vec()]);
+    assert_eq!(w.second, vec![6]);
 }
 
-#[when("one request has set `name` on `0x1` and not committed, and a second request reads it")]
+#[when(
+    "one transaction has set `name` on `0x1` and not committed, and a second transaction reads it"
+)]
 fn uncommitted(w: &mut Steps) {
     let lists = new_lists();
-    let ts = commit_edges(&lists, &name(), &[set_value("before")]);
+    let ts = commit_edges_at(&lists, &name(), &[set_value("before")], 2);
     let mut first = lists.request(ts);
     first
         .get(&name())
@@ -473,19 +485,19 @@ fn uncommitted(w: &mut Steps) {
         .collect();
 }
 
-#[then("the second request sees the value before the first request's write")]
+#[then("the second transaction sees the value before the first transaction's write")]
 fn sees_before(w: &mut Steps) {
     assert_eq!(w.texts, vec![b"before".to_vec()]);
 }
 
 #[when(
-    "`friend` of `0x1` holds `0x2` in the store, and a request adds `0x3` without reading the list and then reads it"
+    "`friend` of `0x1` holds `0x2` in the store, and a transaction adds `0x3` without reading the list and then reads it"
 )]
 fn blind(w: &mut Steps) {
     let store = new_store();
     write_delta(&store, &friend(), 2, &[set_uid(2)]);
     let lists = lists_over(store, ListsConfig::default());
-    let read_ts = lists.latest_ts();
+    let read_ts = lists.applied_ts();
     let mut request = lists.request(read_ts);
     request
         .get_from_delta(&friend())
@@ -498,16 +510,15 @@ fn holds_both(w: &mut Steps) {
     assert_eq!(w.uids, vec![2, 3]);
 }
 
-/// Commits `keys`, one request each, in one batch whose first commit is at `first`; while the batch is written,
-/// a reader at `read_ts` asks the gate and reads the store underneath three times.
+/// Commits `keys` as one round at `versions`, one transaction per version, the keys shared out in order (one
+/// transaction writing every key when there is one version); while the round is written, a reader at `read_ts` asks the
+/// gate and reads the store underneath three times.
 fn commit_while_reading(
     keys: &[Vec<u8>],
-    per_request: bool,
-    first: u64,
+    versions: &[u64],
     read_ts: u64,
 ) -> (Arc<ProbeLists>, Vec<bool>, Vec<usize>) {
     let (lists, probe) = probe_lists();
-    next_commit_at(&*lists, first);
     let inside = Arc::clone(&lists);
     let inner = probe.inner().clone();
     let seen = Arc::new(Mutex::new((Vec::new(), Vec::new())));
@@ -526,28 +537,19 @@ fn commit_while_reading(
             );
         }
     }));
-    let mut batch = lists.batch();
-    if per_request {
-        for k in keys {
-            let mut request = batch.request(lists.latest_ts());
-            request
-                .get(k)
-                .unwrap()
-                .add_posting(set_uid(1).clone(), false);
-            batch.push(request);
-        }
-    } else {
-        let mut request = batch.request(lists.latest_ts());
-        for k in keys {
-            request
-                .get(k)
-                .unwrap()
-                .add_posting(set_uid(1).clone(), false);
-        }
-        batch.push(request);
-    }
-    let timestamps = lists.commit(batch).unwrap();
-    assert_eq!(timestamps[0], first);
+    let per_transaction = keys.len().div_ceil(versions.len());
+    let writes: Vec<Writes> = keys
+        .chunks(per_transaction)
+        .map(|chunk| {
+            let mut request = lists.request(lists.applied_ts());
+            for k in chunk {
+                request.get(k).unwrap().add_posting(set_uid(1), false);
+            }
+            request.into_writes()
+        })
+        .collect();
+    let round: Vec<(u64, &Writes)> = versions.iter().copied().zip(&writes).collect();
+    lists.commit_round(&round).unwrap();
     let (gates, during) = seen.lock().unwrap().clone();
     (lists, gates, during)
 }
@@ -563,10 +565,12 @@ fn written_after(lists: &ProbeLists, keys: &[Vec<u8>], read_ts: u64) -> Vec<usiz
         .collect()
 }
 
-#[when("a request writing three lists commits at 12 while another reader reads at 12 repeatedly")]
+#[when(
+    "a transaction writing three lists commits at 12 while another reader reads at 12 repeatedly"
+)]
 fn three_lists(w: &mut Steps) {
     let keys: Vec<Vec<u8>> = (1..=3).map(|u| key("whole", u)).collect();
-    let (lists, gates, during) = commit_while_reading(&keys, false, 12, 12);
+    let (lists, gates, during) = commit_while_reading(&keys, &[12], 12);
     w.flags = gates;
     w.uids = during.into_iter().map(|n| n as u64).collect();
     w.second = written_after(&lists, &keys, 12)
@@ -577,23 +581,27 @@ fn three_lists(w: &mut Steps) {
 
 #[then("every read sees the changes to all three lists or to none of them")]
 fn all_or_none(w: &mut Steps) {
-    // While the batch is written the gate holds a read at 12 back, and the store underneath shows none of it.
+    // While the round is written the gate holds a read at 12 back, and the store underneath shows none of it.
     assert!(w.flags.iter().all(|&open| !open));
     assert!(w.uids.iter().all(|&n| n == 0 || n == 3), "{:?}", w.uids);
     assert_eq!(w.second, vec![3, 3, 3]);
 }
 
 #[when(
-    "one batch holds a commit at 12 and a commit at 13 while another reader reads at 13 repeatedly"
+    "one round holds a commit at 12 and a commit at 14 while another reader reads at 14 repeatedly"
 )]
 fn two_commits(w: &mut Steps) {
     let keys: Vec<Vec<u8>> = (1..=2).map(|u| key("together", u)).collect();
-    let (lists, gates, during) = commit_while_reading(&keys, true, 12, 13);
+    let (lists, gates, during) = commit_while_reading(&keys, &[12, 14], 14);
     w.flags = gates;
     w.uids = during.into_iter().map(|n| n as u64).collect();
-    w.second = written_after(&lists, &keys, 13)
+    w.second = written_after(&lists, &keys, 14)
         .into_iter()
         .map(|n| n as u64)
+        .collect();
+    w.versions = keys
+        .iter()
+        .map(|k| lists.store().inner().contents().versions(k)[0].version())
         .collect();
 }
 
@@ -602,13 +610,13 @@ fn both_or_neither(w: &mut Steps) {
     assert!(w.flags.iter().all(|&open| !open));
     assert!(w.uids.iter().all(|&n| n == 0 || n == 2), "{:?}", w.uids);
     assert_eq!(w.second, vec![2, 2, 2]);
+    assert_eq!(w.versions, vec![12, 14]);
 }
 
-#[when("a request fails after building writes and before committing")]
+#[when("a transaction aborts after building writes")]
 fn failed_request(w: &mut Steps) {
     let lists = new_lists();
-    let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = lists.request(lists.applied_ts());
     request
         .get(&friend())
         .unwrap()
@@ -616,13 +624,10 @@ fn failed_request(w: &mut Steps) {
     request
         .get_from_delta(&key("friend", 2))
         .add_posting(set_uid(2).clone(), false);
-    batch.push(request);
-    // The request fails in its commit check, before any timestamp is assigned.
-    let results = lists
-        .commit_with(batch, |_| Err("conversion failed"))
-        .unwrap();
-    assert_eq!(results, vec![Err("conversion failed")]);
+    // The transaction aborts: its writes are dropped, never handed to a round.
+    drop(request.into_writes());
     w.store = Some(lists.store().clone());
+    w.flags = vec![lists.oldest_open_read().is_none()];
 }
 
 #[then("the store holds none of its writes")]
@@ -630,37 +635,41 @@ fn holds_none(w: &mut Steps) {
     let contents = w.store.as_ref().unwrap().contents();
     assert!(contents.keys().is_empty());
     assert_eq!(contents.applied_ts(), 0);
+    assert_eq!(w.flags, vec![true], "its read is closed");
 }
 
-#[when("a request fails before its batch is written and a read at the next timestamp starts")]
+#[when("a transaction aborts and another transaction begins")]
 fn failed_holds_nothing(w: &mut Steps) {
     let lists = new_lists();
-    let mut request = lists.request(lists.latest_ts());
+    let watermark = commit_edges_at(&lists, &key("friend", 9), &[set_uid(9)], 2);
+    let mut request = lists.request(lists.applied_ts());
     request
         .get(&friend())
         .unwrap()
         .add_posting(set_uid(1).clone(), false);
     drop(request);
-    let next = lists.peek_ts();
-    w.flags = vec![lists.try_gate(next).unwrap()];
-    lists.gate(next).unwrap();
-    w.uids = uids(&lists.read(&friend(), next).unwrap(), next, 0);
+    let begin = lists.applied_ts();
+    w.versions = vec![watermark, begin];
+    w.flags = vec![lists.try_gate(begin).unwrap()];
+    let mut second = lists.request(begin);
+    w.uids = uids(second.get(&friend()).unwrap(), begin, 0);
 }
 
-#[then("the read returns without waiting for the failed request")]
+#[then("the second transaction begins at the watermark without waiting for the aborted one")]
 fn no_wait(w: &mut Steps) {
+    assert_eq!(w.versions[0], w.versions[1]);
     assert_eq!(w.flags, vec![true]);
     assert!(w.uids.is_empty());
 }
 
-#[when("a commit at 10 is being written and a read at 11 starts")]
+#[when("a commit at 10 is being applied and a read at 10 starts")]
 fn read_waits(w: &mut Steps) {
     let k = vec![key("gate", 1)];
-    let (lists, gates, during) = commit_while_reading(&k, false, 10, 11);
+    let (lists, gates, during) = commit_while_reading(&k, &[10], 10);
     w.flags = gates;
     w.uids = during.into_iter().map(|n| n as u64).collect();
-    w.flags.push(lists.try_gate(11).unwrap());
-    w.second = uids(&lists.read(&k[0], 11).unwrap(), 11, 0);
+    w.flags.push(lists.try_gate(10).unwrap());
+    w.second = uids(&lists.read(&k[0], 10).unwrap(), 10, 0);
 }
 
 #[then("the read returns after the commit is applied and sees it")]
@@ -670,29 +679,49 @@ fn waited(w: &mut Steps) {
     assert_eq!(w.second, vec![1]);
 }
 
-#[when("a read at 5 is open and a list with deltas at 5 and 6 is rolled up")]
+#[when("a read at 6 is open and a list with deltas at 6 and 8 is rolled up")]
 fn open_read_rollup(w: &mut Steps) {
     let lists = new_lists();
     let k = friend();
-    next_commit_at(&lists, 5);
-    commit_edges(&lists, &k, &[set_uid(5)]);
-    let mut request = lists.request(5);
-    next_commit_at(&lists, 6);
-    commit_edges(&lists, &k, &[set_uid(6)]);
+    commit_edges_at(&lists, &k, &[set_uid(6)], 6);
+    let mut request = lists.request(6);
+    commit_edges_at(&lists, &k, &[set_uid(8)], 8);
     assert!(lists.rollup_key(&k).unwrap());
     let rolled = lists.store().contents().versions(&k)[0].version();
-    w.uids = uids(request.get(&k).unwrap(), 5, 0);
+    w.uids = uids(request.get(&k).unwrap(), 6, 0);
     lists.set_discard_ts(100).unwrap();
     w.versions = vec![rolled, lists.store().discard_ts()];
 }
 
 #[then(
-    "the rollup is written above 6, the read at 5 still returns its result, and the discard timestamp stays at or below 5"
+    "the rollup is written at 9, the read at 6 still returns its result, and the discard timestamp stays at or below 6"
 )]
 fn open_read_intact(w: &mut Steps) {
-    assert!(w.versions[0] > 6);
-    assert_eq!(w.uids, vec![5]);
-    assert!(w.versions[1] <= 5);
+    assert_eq!(w.versions[0], 9);
+    assert_eq!(w.uids, vec![6]);
+    assert!(w.versions[1] <= 6);
+}
+
+// Rollups and commit versions.
+
+#[when("a list with deltas at 10 and 12 is rolled up")]
+fn rollup_between(w: &mut Steps) {
+    let lists = new_lists();
+    let k = key("between", 1);
+    commit_edges_at(&lists, &k, &[set_uid(10)], 10);
+    commit_edges_at(&lists, &k, &[set_uid(12)], 12);
+    assert!(lists.rollup_key(&k).unwrap());
+    let versions = lists.store().contents().versions(&k).to_vec();
+    w.versions = vec![versions[0].version(), lists.next_version()];
+    w.flags = vec![versions[0].meta() & BIT_COMPLETE_POSTING != 0];
+}
+
+#[then("its complete version is written at 13, and the next commit's version is even")]
+fn written_between(w: &mut Steps) {
+    assert_eq!(w.flags, vec![true]);
+    assert_eq!(w.versions[0], 13);
+    assert_eq!(w.versions[1] % 2, 0);
+    assert!(w.versions[1] > 13);
 }
 
 // The posting cache.
@@ -703,8 +732,9 @@ fn cached_then_commit(w: &mut Steps) {
     let k = friend();
     let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).unwrap();
-    next_commit_at(&lists, 20);
-    commit_edges(&lists, &k, &[set_uid(2)]);
+    commit_edges_at(&lists, &k, &[set_uid(2)], 20);
+    // A read at 21 waits until the watermark reaches it: a commit of another list at 22 takes it there.
+    commit_edges_at(&lists, &key("other", 1), &[set_uid(3)], 22);
     w.uids = uids(&lists.cached(&k, 21).unwrap().expect("a cache hit"), 21, 0);
 }
 
@@ -742,7 +772,7 @@ fn interleaved(seed: u64, capacity: usize) -> Vec<Vec<u64>> {
                     lists.rollup_key(&k).unwrap();
                 }
             } else {
-                let ts = lists.latest_ts();
+                let ts = lists.applied_ts();
                 reads.push(uids(&lists.read(&k, ts).unwrap(), ts, 0));
             }
             Ok(())
@@ -774,7 +804,7 @@ fn commit_cached(w: &mut Steps) {
     let (lists, probe) = probe_lists();
     let k = friend();
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     request
         .get(&k)
         .unwrap()
@@ -784,7 +814,7 @@ fn commit_cached(w: &mut Steps) {
     lists.read(&k, first).unwrap();
     assert!(lists.cache().get(&k).is_some());
 
-    let commit_ts = lists.peek_ts();
+    let commit_ts = lists.next_version();
     let inside = Arc::clone(&lists);
     let seen = Arc::new(Mutex::new(Vec::new()));
     let record = Arc::clone(&seen);
@@ -796,7 +826,7 @@ fn commit_cached(w: &mut Steps) {
             .push(inside.try_gate(commit_ts).unwrap());
     }));
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     request
         .get(&k)
         .unwrap()
@@ -849,7 +879,7 @@ fn drop_friend(lists: &TestLists) {
     };
     let (data, split) = (prefix(false), prefix(true));
     lists
-        .drop_prefixes(lists.fresh_ts(), &[data, split], Vec::new())
+        .drop_prefixes(lists.applied_ts(), &[data, split], Vec::new())
         .unwrap();
 }
 
@@ -861,7 +891,7 @@ fn drop_cached(w: &mut Steps) {
     lists.read(&k, ts).unwrap();
     assert!(lists.cache().get(&k).is_some());
     drop_friend(&lists);
-    let after = lists.latest_ts();
+    let after = lists.applied_ts();
     w.uids = uids(&lists.read(&k, after).unwrap(), after, 0);
     w.second = uids(&lists.read(&k, ts).unwrap(), ts, 0);
 }
@@ -886,7 +916,7 @@ fn fill_across_drop(w: &mut Steps) {
     let miss = lists.miss(&k, ts).unwrap();
     drop_friend(&lists);
     w.flags = vec![lists.fill(miss)];
-    let after = lists.latest_ts();
+    let after = lists.applied_ts();
     w.uids = uids(&lists.read(&k, after).unwrap(), after, 0);
 }
 
@@ -938,7 +968,8 @@ fn corrupted(w: &mut Steps) {
         .store()
         .corrupt(&k, version, Corruption::FlipValueByte);
     lists.cache().remove(&k);
-    let ts = lists.latest_ts();
+    // The rollup is written one above the commit it folds, past the watermark: a read of everything reaches it.
+    let ts = u64::MAX;
     let uncached = lists.read_uncached(&k, ts).err();
     let cached = lists.read(&k, ts).err();
     w.key = k;

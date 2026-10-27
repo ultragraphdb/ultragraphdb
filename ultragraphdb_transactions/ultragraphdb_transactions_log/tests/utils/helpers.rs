@@ -48,6 +48,11 @@ pub fn segment(index: u64) -> PathBuf {
     segment_in(&dir(), index)
 }
 
+/// The spare that segment `index` of the log in [`DIR`] became when a checkpoint recycled it.
+pub fn spare(index: u64) -> PathBuf {
+    dir().join(format!("{index:020}.spare"))
+}
+
 /// Superblock copy `copy` of the log in [`DIR`].
 pub fn superblock(copy: char) -> PathBuf {
     dir().join(format!("superblock.{copy}"))

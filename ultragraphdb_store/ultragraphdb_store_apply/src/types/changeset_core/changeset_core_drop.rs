@@ -55,10 +55,10 @@ where
         let _apply = lock(&self.apply);
         let lists = self.quads.lists();
         let Some(uid) = self.quads.uid_of(namespace, predicate.as_str())? else {
-            return Ok(lists.latest_ts());
+            return Ok(lists.applied_ts());
         };
         self.cancel(|r| r.namespace == namespace && r.predicate == uid);
-        let latest = lists.latest_ts();
+        let latest = lists.applied_ts();
         lists.gate(latest)?;
         let snapshot = lists.store().snapshot(latest)?;
         let mut prefixes: BTreeSet<Vec<u8>> = BTreeSet::new();
@@ -169,7 +169,7 @@ where
             GraphNameRef::BlankNode(_) => None,
         };
         let Some(uid) = uid else {
-            return Ok(lists.latest_ts());
+            return Ok(lists.applied_ts());
         };
         let prefixes: Vec<Vec<u8>> = QUAD_KEYSPACES
             .iter()
@@ -193,7 +193,7 @@ where
                 namespace,
                 r.predicate,
                 &Declaration::Predicate(r.new),
-                lists.latest_ts(),
+                lists.applied_ts(),
             )],
             None => Vec::new(),
         };

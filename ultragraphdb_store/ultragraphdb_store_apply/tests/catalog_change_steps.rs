@@ -54,7 +54,7 @@ fn listed(a: &TestChangesets, predicate: &str, tokenizer: &str, text: &str) -> V
 
 /// The catalog of `namespace` as the store holds it at the newest timestamp.
 fn stored_catalog(a: &TestChangesets, namespace: u64) -> Catalog {
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let snapshot = a.quads().store().snapshot(latest).expect("a snapshot");
     Catalog::load(&snapshot, namespace).expect("the catalog loads")
 }
@@ -75,7 +75,7 @@ fn subject_predicates(a: &TestChangesets, subject: &str) -> Vec<u64> {
         subject: uid(a, subject),
     }
     .to_bytes();
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let list = a
         .quads()
         .lists()
@@ -495,11 +495,11 @@ fn split_data_dropped(w: &mut Steps) {
         .lists()
         .rollup_key(&key)
         .expect("the list rolls up");
-    let latest = a.quads().lists().latest_ts();
+    // The rollup is written one above the commit it folds, past the watermark: a read of everything reaches it.
     let list = a
         .quads()
         .lists()
-        .read(&key, latest)
+        .read(&key, u64::MAX)
         .expect("the list reads");
     assert!(!list.plist().splits().is_empty(), "the list is split");
     w.keys = namespace_keys(&a, NS).0;

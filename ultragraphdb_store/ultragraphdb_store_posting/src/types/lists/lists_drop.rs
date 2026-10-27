@@ -35,10 +35,11 @@ where
         Ok(())
     }
 
-    /// Drops every key under `prefixes` at a fresh timestamp, which it returns, then writes `entries`, as
-    /// [`Lists::drop_prefixes`] does. The timestamp is taken under the writer lock and held in flight until the drop
-    /// is done, so every read at or above it waits for the drop, as it waits for a commit being written, and sees none
-    /// of the dropped data; a read below it may see either side.
+    /// Drops every key under `prefixes` at the next version, which it returns, then writes `entries`, as
+    /// [`Lists::drop_prefixes`] does. The version is taken under the writer lock and held in flight until the drop is
+    /// done, so every read above the watermark waits for the drop, as it waits for a round being written, and sees
+    /// none of the dropped data; the watermark then moves to the drop's version. A read at the watermark may see
+    /// either side.
     pub fn drop_prefixes_now(
         &self,
         prefixes: &[Vec<u8>],
@@ -46,10 +47,10 @@ where
     ) -> Result<u64, PostingError> {
         let _writer = lock(&self.writer);
         self.refuse_if_failed()?;
-        let ts = self.hold_fresh_ts();
+        let ts = self.hold_next_version();
         let result = self.store.drop_prefixes(ts, prefixes, entries);
         self.bump_epoch();
-        self.release_held(ts);
+        self.release_held(ts, result.is_ok());
         if let Err(error) = result {
             tracing::error!(drop_ts = ts, %error, "prefix drop failed; the store must be reopened");
             self.fail_writes(None);
@@ -58,15 +59,15 @@ where
         Ok(ts)
     }
 
-    /// Drops every key at a fresh timestamp, which it returns, then writes `entries`, holding reads at or above it
-    /// as [`Lists::drop_prefixes_now`] does.
+    /// Drops every key at the next version, which it returns, then writes `entries`, holding reads above the watermark
+    /// and moving it as [`Lists::drop_prefixes_now`] does.
     pub fn drop_all_now(&self, entries: Vec<Entry>) -> Result<u64, PostingError> {
         let _writer = lock(&self.writer);
         self.refuse_if_failed()?;
-        let ts = self.hold_fresh_ts();
+        let ts = self.hold_next_version();
         let result = self.store.drop_all(entries);
         self.bump_epoch();
-        self.release_held(ts);
+        self.release_held(ts, result.is_ok());
         if let Err(error) = result {
             tracing::error!(drop_ts = ts, %error, "drop of everything failed; the store must be reopened");
             self.fail_writes(None);
@@ -75,19 +76,23 @@ where
         Ok(ts)
     }
 
-    /// A fresh timestamp, held in flight for the read gate.
-    fn hold_fresh_ts(&self) -> u64 {
+    /// The next version, held in flight for the read gate.
+    fn hold_next_version(&self) -> u64 {
         let mut state = lock(&self.state);
-        let ts = state.ts.fresh();
+        let ts = (state.applied | 1).saturating_add(1);
         state.in_flight = Some(ts);
         ts
     }
 
-    /// Ends the hold of [`Lists::hold_fresh_ts`] and wakes the reads waiting on it.
-    fn release_held(&self, ts: u64) {
+    /// Ends the hold of [`Lists::hold_next_version`], moving the watermark to `ts` when the drop was `done`, and wakes
+    /// the reads waiting on it.
+    fn release_held(&self, ts: u64, done: bool) {
         let mut state = lock(&self.state);
         if state.in_flight == Some(ts) {
             state.in_flight = None;
+        }
+        if done {
+            state.applied = state.applied.max(ts);
         }
         drop(state);
         self.changed.notify_all();

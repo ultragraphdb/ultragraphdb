@@ -11,7 +11,7 @@ fn test_a_batch_holds_its_requests_in_order() {
     let mut batch = lists.batch();
     assert!(batch.is_empty());
     for uid in 1..=3 {
-        let mut request = batch.request(lists.latest_ts());
+        let mut request = batch.request(lists.applied_ts());
         request
             .get(&key("batch", uid))
             .unwrap()
@@ -34,7 +34,7 @@ fn test_a_batch_holds_its_requests_in_order() {
 fn test_a_later_request_reads_an_earlier_ones_static_value() {
     let lists = new_lists();
     let name = key("name", 1);
-    let mut first = lists.request(lists.fresh_ts());
+    let mut first = lists.request(lists.applied_ts());
     first
         .get(&name)
         .unwrap()
@@ -44,7 +44,7 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
     lists.commit(committed).unwrap();
 
     let mut batch = lists.batch();
-    let read_ts = lists.fresh_ts();
+    let read_ts = lists.applied_ts();
     let mut earlier = batch.request(read_ts);
     earlier
         .get(&name)
@@ -72,7 +72,7 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
 /// own and pushed, then reads `hub` in one more request: the holders of the first request's stacked layer.
 fn holders_of_the_first_layer(later: u64) -> usize {
     let lists = new_lists();
-    let read_ts = lists.fresh_ts();
+    let read_ts = lists.applied_ts();
     let hub = key("hub", 1);
     let mut batch = lists.batch();
     let mut first = batch.request(read_ts);
@@ -118,7 +118,7 @@ fn test_a_request_shares_the_batchs_stacked_layers_whatever_the_batch_size() {
 #[test]
 fn test_a_request_sees_the_layers_pushed_before_it_began_and_none_after() {
     let lists = new_lists();
-    let read_ts = lists.fresh_ts();
+    let read_ts = lists.applied_ts();
     let hub = key("hub", 1);
     let mut batch = lists.batch();
     let mut first = batch.request(read_ts);

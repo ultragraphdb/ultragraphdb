@@ -238,7 +238,7 @@ pub fn insert<S>(
 where
     S: Store,
 {
-    let read_ts = lists.fresh_ts();
+    let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
     set_vector(&mut request, pred, uid, vec)?;
@@ -261,7 +261,7 @@ pub fn delete<S>(
 where
     S: Store,
 {
-    let read_ts = lists.fresh_ts();
+    let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
     delete_vector(&mut request, pred, uid)?;
@@ -282,7 +282,7 @@ pub fn search<S>(
 where
     S: Store,
 {
-    let read_ts = lists.latest_ts();
+    let read_ts = lists.applied_ts();
     let mut request = lists.request(read_ts);
     let txn = ViTxn::new(&mut request);
     let qc = QueryCache::new(&txn, read_ts);

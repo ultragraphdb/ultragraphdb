@@ -20,7 +20,7 @@ use ultragraphdb_store_posting::{
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::utils::helpers::{
-    TestLists, commit_edges, delete_all, key, lists_over, new_lists, new_store, next_commit_at,
+    TestLists, commit_edges, commit_edges_at, delete_all, key, lists_over, new_lists, new_store,
     set_uid, uids, write_delta, write_entries,
 };
 
@@ -80,10 +80,11 @@ fn test_a_read_below_an_empty_rollup_reads_the_older_versions() {
     let lists = lists_over(store, ListsConfig::default());
     let list = lists.read(&k, 4).expect("read");
     assert_eq!(uids(&list, 4, 0), vec![9]);
-    let newest = lists.read(&k, 7).expect("read");
+    // The empty version at 6 lies above the watermark, 5: a read of everything reaches it.
+    let newest = lists.read(&k, u64::MAX).expect("read");
     assert!(uids(&newest, 7, 0).is_empty());
     // The empty version is the list's complete version: a read below it through that list is refused.
-    let newest = lists.read_uncached(&k, 7).expect("read");
+    let newest = lists.read_uncached(&k, u64::MAX).expect("read");
     assert!(matches!(
         newest.uids(&ListOptions::at(5)).unwrap_err().0,
         PostingErrorEnum::ReadBelowMinTs { min_ts: 6, .. }
@@ -101,10 +102,10 @@ fn test_cache_after_delta_update_received() {
         token: b"temp".to_vec(),
     }
     .to_bytes();
-    next_commit_at(&lists, 15);
-    assert_eq!(commit_edges(&lists, &k, &[set_uid(1)]), 15);
+    assert_eq!(commit_edges_at(&lists, &k, &[set_uid(1)], 15), 15);
 
-    // A read at 10 does not see the commit, and a read at 20 does.
+    // A read at 10 does not see the commit, and a read at 20 does, once the watermark reaches 20.
+    commit_edges_at(&lists, &key("other", 1), &[set_uid(1)], 20);
     let l = lists.read(&k, 10).expect("read");
     assert_eq!(l.mutation().list_len(10), 0);
     let l1 = lists.read(&k, 20).expect("read");
@@ -117,20 +118,20 @@ fn test_cache_is_replaced_by_a_commit_after_its_fill() {
     // every commit of the port replaces the entry, so the read at 25 is served from the cache and sees uid 2.
     let lists = new_lists();
     let k = key("issue9597", 1);
-    next_commit_at(&lists, 10);
-    assert_eq!(commit_edges(&lists, &k, &[set_uid(1)]), 10);
+    assert_eq!(commit_edges_at(&lists, &k, &[set_uid(1)], 10), 10);
     let l1 = lists.read(&k, 10).expect("read");
     assert_eq!(l1.mutation().list_len(10), 1);
     assert!(lists.cache().get(&k).is_some(), "the read fills the cache");
 
-    next_commit_at(&lists, 20);
-    assert_eq!(commit_edges(&lists, &k, &[set_uid(2)]), 20);
+    assert_eq!(commit_edges_at(&lists, &k, &[set_uid(2)], 20), 20);
     let entry = lists
         .cache()
         .get(&k)
         .expect("the commit replaced the entry");
     assert_eq!(entry.ts(), 20);
 
+    // The watermark passes 25 with a commit of another list.
+    commit_edges_at(&lists, &key("other", 1), &[set_uid(1)], 26);
     let l2 = lists.cached(&k, 25).expect("read").expect("a cache hit");
     assert_eq!(l2.uids(&ListOptions::at(25)).unwrap().uids(), vec![1, 2]);
 }
@@ -141,6 +142,8 @@ fn test_a_read_above_the_lists_newest_version_hits() {
     let k = key("hits", 1);
     let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     lists.read(&k, ts).expect("fill");
+    // The watermark passes ts + 100 with a commit of another list.
+    commit_edges_at(&lists, &key("hits", 2), &[set_uid(1)], ts + 100);
     // Dgraph misses here: its hit needs the read at or below the list's newest version (issue #9597).
     let hit = lists.cached(&k, ts + 100).expect("read").expect("a hit");
     assert_eq!(uids(&hit, ts + 100, 0), vec![1]);
@@ -248,7 +251,7 @@ fn test_a_fill_is_made_when_the_last_commit_to_its_key_is_its_base() {
     let (a, b) = (key("base", 1), key("base", 2));
     commit_edges(&lists, &a, &[set_uid(1)]);
     // A fill under way on another key makes the commits remember their keys.
-    let other = lists.miss(&b, lists.latest_ts()).expect("miss");
+    let other = lists.miss(&b, lists.applied_ts()).expect("miss");
     let ts = commit_edges(&lists, &a, &[set_uid(2)]);
     lists.cache().remove(&a);
     let miss = lists.miss(&a, ts).expect("miss");
@@ -289,6 +292,7 @@ fn test_a_read_of_the_store_is_set_at_the_reads_timestamp() {
     let lists = new_lists();
     let k = key("read-ts", 1);
     let ts = commit_edges(&lists, &k, &[set_uid(1)]);
+    commit_edges_at(&lists, &key("read-ts", 2), &[set_uid(1)], ts + 8);
     assert_eq!(
         lists
             .read_uncached(&k, ts + 3)

@@ -85,8 +85,8 @@ where
     /// Commits `batch`, whose requests carry the writes `terms` resolved, in their order: under the writer lock each
     /// write's new IRIs are confirmed and its dictionary entries added, and a write is refused with
     /// `Transaction has been aborted. Please retry`, writing nothing, when a commit since its read, or an earlier write
-    /// of the batch, claimed an IRI it creates, or when it read a list an earlier refused write of the batch wrote. The
-    /// commit timestamp of each write, or its refusal.
+    /// of the batch, claimed an IRI it creates, or when it read a list an earlier refused write of the batch wrote,
+    /// whole or to test a statement. The commit timestamp of each write, or its refusal.
     pub fn commit(
         &self,
         batch: Batch<'_, S, C>,
@@ -98,7 +98,11 @@ where
         let results = self.lists.commit_with(batch, |request| {
             let write = terms.get(at);
             at += 1;
-            let checked = if request.read_keys().any(|k| refused_writes.contains(k)) {
+            let read = request
+                .read_keys()
+                .chain(request.tested().map(|(key, _)| key))
+                .any(|k| refused_writes.contains(k));
+            let checked = if read {
                 Err(QuadError::Aborted())
             } else {
                 match write {

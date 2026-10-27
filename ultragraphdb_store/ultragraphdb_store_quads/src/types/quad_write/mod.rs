@@ -163,6 +163,31 @@ where
         read_list(&list, &forward)
     }
 
+    /// The statement IDs of `subject predicate object` in `graph` when the subject holds it, as the write sees it,
+    /// `None` when it does not: a read of the subject's list that records the statement it tests, not the list, so
+    /// that an insert conflicts only with a commit that added or removed this object. None is recorded for a subject
+    /// the write created.
+    pub fn holds(
+        &mut self,
+        graph: u64,
+        subject: u64,
+        predicate: u64,
+        object: &EncodedTerm,
+    ) -> Result<Option<Vec<u64>>, QuadError> {
+        let forward = self.forward(graph, predicate, subject);
+        let list = if self.terms.is_fresh(subject) {
+            self.request.get_from_delta(&forward).clone()
+        } else {
+            self.request
+                .get_tested(&forward, object.as_bytes())?
+                .clone()
+        };
+        Ok(read_list(&list, &forward)?
+            .into_iter()
+            .find(|(o, _)| o == object)
+            .map(|(_, ids)| ids))
+    }
+
     /// Deletes `subject predicate object` from `graph` when it is held: whether it was, and the statement IDs its
     /// posting carried. The predicate leaves the subject's predicate list when the subject holds no other object of it,
     /// and the object's when no other subject points at the object with it.

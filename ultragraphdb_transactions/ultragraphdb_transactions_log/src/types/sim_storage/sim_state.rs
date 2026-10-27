@@ -9,6 +9,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::types::fault_mode::FaultMode;
 use crate::types::sim_storage::sim_inode::SimInode;
+use crate::types::sim_storage::sim_tear::SimTear;
 use crate::types::storage_operation::StorageOperation;
 
 /// The simulated filesystem behind every clone of a [`crate::SimStorage`] and its files: the inodes (0 is the root
@@ -21,6 +22,7 @@ pub(crate) struct SimState {
     faults: BTreeMap<usize, FaultMode>,
     one_in: u32,
     draws: u64,
+    preallocation_refused: bool,
 }
 
 pub(crate) fn error(kind: io::ErrorKind, message: &'static str) -> io::Error {
@@ -40,6 +42,7 @@ impl SimState {
             faults: BTreeMap::new(),
             one_in: 0,
             draws: seed,
+            preallocation_refused: false,
         }
     }
 
@@ -63,6 +66,14 @@ impl SimState {
 
     pub(crate) fn fail_randomly(&mut self, one_in: u32) {
         self.one_in = one_in;
+    }
+
+    pub(crate) fn refuse_preallocation(&mut self) {
+        self.preallocation_refused = true;
+    }
+
+    pub(crate) fn preallocation_refused(&self) -> bool {
+        self.preallocation_refused
     }
 
     pub(crate) fn power_loss(&mut self) {
@@ -289,12 +300,12 @@ impl SimState {
     }
 
     /// Runs `action` as operation `op` naming `path`: recorded in the trace, then faulted when a fault is set for its
-    /// index or drawn. `action` is told whether to tear its write.
+    /// index or drawn. `action` is told whether, and how, to tear its write.
     pub(crate) fn perform<T>(
         &mut self,
         op: StorageOperation,
         path: &Path,
-        action: impl FnOnce(&mut Self, bool) -> io::Result<T>,
+        action: impl FnOnce(&mut Self, Option<SimTear>) -> io::Result<T>,
     ) -> io::Result<T> {
         let index = self.trace.len();
         self.trace.push((op, path.to_path_buf()));
@@ -310,13 +321,17 @@ impl SimState {
                 "injected fault before the operation",
             ));
         }
-        let tear = op == StorageOperation::Write
-            && matches!(
-                mode,
-                Some(FaultMode::TornWrite | FaultMode::SilentTornWrite)
-            );
+        let tear = match mode {
+            _ if op != StorageOperation::Write => None,
+            Some(FaultMode::TornWrite | FaultMode::SilentTornWrite) => Some(SimTear::WholeLength),
+            Some(FaultMode::ShortTornWrite) => Some(SimTear::ShortLength),
+            _ => None,
+        };
         let value = action(self, tear)?;
-        if matches!(mode, Some(FaultMode::After | FaultMode::TornWrite)) {
+        if matches!(
+            mode,
+            Some(FaultMode::After | FaultMode::TornWrite | FaultMode::ShortTornWrite)
+        ) {
             return Err(error(
                 io::ErrorKind::Other,
                 "injected fault after the operation",
@@ -335,7 +350,8 @@ impl SimState {
         Some(match self.draw_below(4) {
             0 => FaultMode::Before,
             1 => FaultMode::After,
-            2 => FaultMode::TornWrite,
+            2 if self.draw_below(2) == 0 => FaultMode::TornWrite,
+            2 => FaultMode::ShortTornWrite,
             _ => FaultMode::SilentTornWrite,
         })
     }

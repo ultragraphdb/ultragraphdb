@@ -55,9 +55,13 @@ pub fn ex(name: &str) -> NamedNode {
 }
 
 /// The term `text` names: `<a>` an IRI under `http://ex.org/`, `rdf:type`, `_:b` a blank node, a quoted literal with
-/// an optional `@lang` or `^^xsd:…`, `^^ugdb:float32vector` or `^^geo:geoJSONLiteral`, and a bare integer.
+/// an optional `@lang` or `^^xsd:…`, `^^ugdb:float32vector` or `^^geo:geoJSONLiteral`, a bare `true` or `false`, and
+/// a bare integer.
 pub fn term(text: &str) -> Term {
     let text = text.trim();
+    if text == "true" || text == "false" {
+        return Literal::new_typed_literal(text, xsd::BOOLEAN).into();
+    }
     if let Some(name) = text.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
         return ex(name).into();
     }
@@ -286,7 +290,7 @@ pub fn graph(a: &TestChangesets, name: &str) -> u64 {
 }
 
 fn latest(a: &TestChangesets) -> u64 {
-    a.quads().lists().latest_ts()
+    a.quads().lists().applied_ts()
 }
 
 /// The objects of `subject`'s `predicate` in the default graph, as terms.

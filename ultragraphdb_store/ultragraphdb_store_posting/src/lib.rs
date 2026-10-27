@@ -4,9 +4,10 @@
  */
 
 //! Dgraph's `posting` over the [`Store`](ultragraphdb_traits_store::Store) trait: posting lists read by merging
-//! their deltas over their complete version, rolled up and split; a request's working set and its scratch layers;
-//! the commit of a batch of requests as one store batch at commit timestamps the single writer hands out; the read
-//! gate; the posting cache behind [`ListCache`](ultragraphdb_traits_store::ListCache); the rollup worker on an
+//! their deltas over their complete version, rolled up and split; a request's working set and its scratch layers, and
+//! its writes apart from it; the commit of a round of transactions as one store batch at the versions the commit step
+//! gives them, and of a batch of requests at the next versions; the read gate at the visibility watermark; the
+//! posting cache behind [`ListCache`](ultragraphdb_traits_store::ListCache); the rollup worker on an
 //! [`Executor`](ultragraphdb_traits_store::Executor).
 //!
 //! A request owns its copy of a list: its postings write the list's scratch layer at the request's read timestamp,
@@ -45,6 +46,7 @@ pub use crate::types::request::Request;
 pub use crate::types::rollup_output::{RollupOutput, bin_split, should_split};
 pub use crate::types::rollup_queues::{ROLLUP_BATCH, ROLLUP_DEDUP_SECS, ROLLUP_QUEUE};
 pub use crate::types::timestamps::Timestamps;
+pub use crate::types::writes::Writes;
 pub use crate::utils::constants::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_EMPTY_POSTING, BIT_SCHEMA_POSTING, BLOCK_SIZE,
     DEL, HIGH_PRIORITY_DELTAS, MAX_LIST_SIZE, OVR, SET,

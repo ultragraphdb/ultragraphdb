@@ -17,7 +17,7 @@ use ultragraphdb_transactions_log::{
 
 use crate::utils::helpers::{
     CLUSTER, ONE_BLOCK, TWO_BLOCKS, TempDir, append, append_synced, block_on, body, config, dir,
-    frame_checksum, open, run, segment, segment_in, superblock,
+    frame_checksum, open, run, segment, segment_in, spare, superblock,
 };
 
 fn fresh() -> (SimStorage, Wal<SimStorage>) {
@@ -115,15 +115,14 @@ fn test_rounds_lie_at_block_boundaries_padded_with_zeros() {
     let (storage, mut wal) = fresh();
     let checksums = append_synced(&mut wal, 1, 2, ONE_BLOCK);
     let bytes = storage.stable_contents(&segment(0)).expect("the segment");
-    // A segment is preallocated to its whole length.
-    assert_eq!(bytes.len(), 16_384);
+    // A segment's blocks are reserved, not written: it is as long as its rounds.
+    assert_eq!(bytes.len(), 8_192);
     assert_eq!(&bytes[256..1_256], body(1, ONE_BLOCK).as_slice());
     assert!(bytes[1_256..4_096].iter().all(|b| *b == 0));
     assert_eq!(
         &bytes[4_096 + 256..4_096 + 1_256],
         body(2, ONE_BLOCK).as_slice()
     );
-    assert!(bytes[8_192..].iter().all(|b| *b == 0));
     assert_eq!(frame_checksum(&bytes[..4_096]), checksums[0]);
     assert_eq!(frame_checksum(&bytes[4_096..]), checksums[1]);
     assert_eq!(wal.tail(), (Position::new(2), checksums[1]));
@@ -419,8 +418,8 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() {
 #[test]
 fn test_a_failed_trim_poisons_the_log() {
     // Each step of a checkpoint: the superblock's temporary created, written, synced, renamed, its directory synced,
-    // then segment 0's removal and the directory's sync.
-    for step in 0..7 {
+    // then segment 0 zeroed, synced and renamed a spare, and the directory's sync.
+    for step in 0..9 {
         let (storage, mut wal) = fresh();
         append_synced(&mut wal, 1, 6, ONE_BLOCK);
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
@@ -495,12 +494,13 @@ fn test_the_log_on_compio_survives_a_reopen() {
             assert_eq!(wal.sync().await, Ok(Position::new(position)));
         }
     });
-    // Rounds 1 to 3 and the two-block round 4 do not fit one four-block segment: 4 starts segment 1.
+    // Rounds 1 to 3 and the two-block round 4 do not fit one four-block segment: 4 starts segment 1. Each segment is
+    // as long as its rounds, never written with zeros.
     assert_eq!(
         std::fs::metadata(segment_in(&path, 0))
             .expect("segment 0")
             .len(),
-        16_384
+        12_288
     );
     assert_eq!(
         std::fs::metadata(segment_in(&path, 1))
@@ -520,4 +520,70 @@ fn test_the_log_on_compio_survives_a_reopen() {
         assert_eq!(wal.incarnation(), 1);
         assert_eq!(wal.config().cluster(), CLUSTER);
     });
+}
+
+#[test]
+fn test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares() {
+    let (storage, mut wal) = fresh();
+    append_synced(&mut wal, 1, 12, ONE_BLOCK);
+    let before = storage.trace().len();
+    // Rounds 1 to 8 fill segments 0 and 1; the checkpoint at 8 trims both.
+    block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+    // After the superblock's five steps: each segment zeroed whole, synced, renamed; then the directory synced.
+    assert_eq!(
+        storage.trace()[before + 5..],
+        [
+            (StorageOperation::Write, segment(0)),
+            (StorageOperation::FileSync, segment(0)),
+            (StorageOperation::Rename, segment(0)),
+            (StorageOperation::Write, segment(1)),
+            (StorageOperation::FileSync, segment(1)),
+            (StorageOperation::Rename, segment(1)),
+            (StorageOperation::DirectorySync, dir()),
+        ]
+    );
+    for index in [0, 1] {
+        assert_eq!(storage.stable_contents(&segment(index)), None);
+        assert_eq!(
+            storage.stable_contents(&spare(index)),
+            Some(vec![0u8; 16_384])
+        );
+    }
+    assert!(storage.stable_contents(&segment(2)).is_some());
+}
+
+#[test]
+fn test_a_new_segment_takes_a_spare_and_allocates_nothing() {
+    let (storage, mut wal) = fresh();
+    append_synced(&mut wal, 1, 12, ONE_BLOCK);
+    block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+    let before = storage.trace().len();
+    append_synced(&mut wal, 13, 13, ONE_BLOCK);
+    // The lowest spare renamed as segment 3 and its entry made durable before the round's one write and one sync;
+    // nothing is created or reserved, and the write lies within the segment's length.
+    assert_eq!(
+        storage.trace()[before..],
+        [
+            (StorageOperation::Rename, spare(0)),
+            (StorageOperation::DirectorySync, dir()),
+            (StorageOperation::Open, segment(3)),
+            (StorageOperation::Write, segment(3)),
+            (StorageOperation::FileSync, segment(3)),
+        ]
+    );
+    assert_eq!(storage.stable_contents(&spare(0)), None);
+    assert!(storage.stable_contents(&spare(1)).is_some());
+    let bytes = storage.stable_contents(&segment(3)).expect("segment 3");
+    assert_eq!(bytes.len(), 16_384);
+    assert_eq!(&bytes[256..1_256], body(13, ONE_BLOCK).as_slice());
+    assert!(bytes[4_096..].iter().all(|b| *b == 0));
+    // The next new segment takes the other spare, and the one after it is created.
+    append_synced(&mut wal, 14, 17, ONE_BLOCK);
+    assert_eq!(storage.stable_contents(&spare(1)), None);
+    let before = storage.trace().len();
+    append_synced(&mut wal, 18, 21, ONE_BLOCK);
+    assert!(
+        storage.trace()[before..].contains(&(StorageOperation::Create, segment(5))),
+        "no spare is left"
+    );
 }

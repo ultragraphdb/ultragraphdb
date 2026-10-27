@@ -3,112 +3,334 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Batches of changesets: each committed or refused on its own, at its own timestamp, a refused one unseen by those
-//! after it; a changeset aborted by an earlier one of the batch that assigned the same IRI.
+//! Execution and rounds: a changeset executed against the snapshot at the watermark writes nothing and sees no other
+//! execution's writes; a round of executions is written as one store batch, each at its version, and installs what
+//! they leave in round order; a round that breaks a rule of the store is refused whole.
 
-use ultragraphdb_core_mapping::Changeset;
-use ultragraphdb_store_apply::ChangesetErrorEnum;
-use ultragraphdb_store_quads::QuadErrorEnum;
+use std::collections::BTreeSet;
+
+use ultragraphdb_core_mapping::{Change, Declaration};
+use ultragraphdb_store_apply::{ChangesetErrorEnum, Executed};
+use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
+use ultragraphdb_store_quads::iri_key;
+use ultragraphdb_store_sim::OpRecord;
 use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
-    NS, changeset, changesets, declare, insert, is_held_in_default, objects, term,
+    NS, TestChangesets, changeset, changesets, declaration, ex, finish_builds, insert,
+    is_held_in_default, objects, term, uid, write,
 };
 
-#[test]
-fn test_a_refused_changeset_of_a_batch_leaves_the_others() {
-    let a = changesets();
-    declare(&a, "knows", "an edge");
-    // `a` held before the batch, so no changeset of it assigns `a` a UID.
-    a.apply(&changeset(vec![insert("<a> <knows> <z>")]))
-        .unwrap();
-    let results = a
-        .apply_batch(&[
-            changeset(vec![insert("<a> <knows> <b>")]),
-            changeset(vec![
-                insert("<x> <knows> <y>"),
-                insert("<x> <knows> \"Bob\""),
-            ]),
-            changeset(vec![insert("<a> <knows> <c>")]),
-        ])
-        .unwrap();
-    assert_eq!(results.len(), 3);
-    let ts: Vec<u64> = [&results[0], &results[2]]
-        .iter()
-        .map(|r| r.as_ref().expect("commits").commit_ts())
-        .collect();
-    assert!(ts[0] < ts[1], "{ts:?}");
-    assert!(matches!(
-        results[1].as_ref().unwrap_err().0,
-        ChangesetErrorEnum::Catalog(_)
-    ));
-    let mut held = objects(&a, "a", "knows");
-    held.sort_by_key(|t| t.to_string());
-    assert_eq!(held, vec![term("<b>"), term("<c>"), term("<z>")]);
-    assert_eq!(a.quads().uid_of(NS, "http://ex.org/x").unwrap(), None);
+fn execute(a: &TestChangesets, text: &str) -> Executed {
+    a.execute(&changeset(vec![insert(text)]))
+        .expect("the changeset executes")
 }
 
 #[test]
-fn test_an_empty_batch_applies_nothing() {
+fn test_an_execution_writes_nothing_and_reads_at_the_watermark() {
     let a = changesets();
-    assert!(a.apply_batch(&[]).unwrap().is_empty());
-    assert!(a.quads().store().contents().keys().is_empty());
-}
-
-#[test]
-fn test_a_changeset_assigning_an_iri_an_earlier_one_of_its_batch_assigned_is_aborted() {
-    let a = changesets();
-    declare(&a, "name", "a property");
-    let results = a
-        .apply_batch(&[
-            changeset(vec![insert("<n> <name> \"first\"")]),
-            changeset(vec![insert("<n> <name> \"second\"")]),
-            Changeset::new(NS).with(insert("<m> <name> \"third\"")),
-        ])
-        .unwrap();
-    assert!(results[0].is_ok(), "{:?}", results[0]);
-    let aborted = results[1].as_ref().unwrap_err();
+    write(&a, &["<a> <knows> <z>"]);
+    let watermark = a.quads().lists().applied_ts();
+    let before = a.quads().store().contents();
+    let executed = execute(&a, "<a> <knows> <b>");
+    assert_eq!(a.quads().store().contents(), before, "nothing is written");
+    assert_eq!(executed.read_ts(), watermark);
+    assert_eq!(executed.namespace(), NS);
     assert!(
-        matches!(&aborted.0, ChangesetErrorEnum::Quad(q) if matches!(q.0, QuadErrorEnum::Aborted)),
-        "{aborted:?}"
+        executed
+            .writes()
+            .written_keys()
+            .any(|k| ultragraphdb_core_keys::Region::of(k).is_ok()),
+        "its deltas are in its writes"
     );
+    assert_eq!(executed.reads().namespace(), NS);
+    assert_eq!(executed.reads().absent(), &[iri_key(NS, ex("b").as_str())]);
     assert_eq!(
-        aborted.to_string(),
-        "Transaction has been aborted. Please retry"
+        a.quads().lists().oldest_open_read(),
+        None,
+        "its read is closed"
     );
-    assert!(results[2].is_ok(), "{:?}", results[2]);
-    assert_eq!(objects(&a, "n", "name"), vec![term("\"first\"")]);
-    assert!(is_held_in_default(&a, "m", "name"));
-    // A retry finds the UID the first assigned.
-    a.apply(&changeset(vec![insert("<n> <name> \"second\"")]))
-        .unwrap();
-    let mut held = objects(&a, "n", "name");
-    held.sort_by_key(|t| t.to_string());
-    assert_eq!(held, vec![term("\"first\""), term("\"second\"")]);
 }
 
+/// Two executions from one watermark do not see each other: each inserts a statement neither found held, so both
+/// write it, and each gives a new IRI its own provisional UID.
 #[test]
-fn test_a_catalog_change_of_an_aborted_changeset_is_not_kept() {
+fn test_executions_from_one_watermark_do_not_see_each_other() {
     let a = changesets();
-    declare(&a, "name", "a property");
-    let results = a
-        .apply_batch(&[
-            changeset(vec![insert("<n> <name> \"first\"")]),
-            // Aborted: `n` was assigned by the first; its default entry of `alias` is not committed.
-            changeset(vec![insert("<n> <alias> \"x\"")]),
-            changeset(vec![insert("<m> <name> \"third\"")]),
-        ])
+    write(&a, &["<a> <knows> <z>", "<b> <p> <q>"]);
+    let first = execute(&a, "<a> <knows> <b>");
+    let second = execute(&a, "<a> <knows> <b>");
+    assert_eq!(first.writes().deltas(), second.writes().deltas());
+    assert!(!first.writes().deltas().is_empty());
+    let created = |e: &Executed| -> Vec<(String, u64)> {
+        e.terms()
+            .created()
+            .map(|(i, u)| (i.to_string(), u))
+            .collect()
+    };
+    let (one, two) = (
+        execute(&a, "<n> <knows> <b>"),
+        execute(&a, "<n> <knows> <b>"),
+    );
+    assert_eq!(created(&one).len(), 1);
+    assert_eq!(created(&one)[0].0, ex("n").as_str());
+    assert_ne!(
+        created(&one)[0].1,
+        created(&two)[0].1,
+        "each takes its own provisional UID"
+    );
+    assert_eq!(one.reads().absent(), two.reads().absent());
+}
+
+/// A changeset executes on another thread while one is executed here: executions take no lock the commit step holds,
+/// and an execution moves to the thread that commits it.
+#[test]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the test's subject is executions on threads of their own, which a worker of the server gives them"
+)]
+fn test_executions_run_on_other_threads() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>"]);
+    let executed: Vec<Executed> = std::thread::scope(|scope| {
+        let handles: Vec<_> = ["<a> <knows> <b>", "<a> <knows> <c>"]
+            .iter()
+            .map(|text| {
+                let a = &a;
+                scope.spawn(move || execute(a, text))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("executes"))
+            .collect()
+    });
+    let next = a.quads().lists().next_version();
+    let round: Vec<(u64, Executed)> = [next, next + 2].into_iter().zip(executed).collect();
+    let applied = a.apply_round(round).expect("the round is written");
+    assert_eq!(
+        applied.iter().map(|x| x.commit_ts()).collect::<Vec<_>>(),
+        vec![next, next + 2]
+    );
+    let held: BTreeSet<String> = objects(&a, "a", "knows")
+        .iter()
+        .map(|t| t.to_string())
+        .collect();
+    assert_eq!(held.len(), 3, "{held:?}");
+}
+
+/// A round is one store batch: every execution at its version, the last recorded as applied; each one's `Applied`
+/// carries its version, the regions it wrote and read and its read set.
+#[test]
+fn test_a_round_writes_its_executions_at_their_versions_in_one_batch() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>", "<b> <p> <q>"]);
+    let executions = vec![execute(&a, "<a> <knows> <b>"), execute(&a, "<b> <p> <r>")];
+    let reads: Vec<_> = executions.iter().map(|e| e.reads().clone()).collect();
+    a.quads().store().take_log();
+    let next = a.quads().lists().next_version();
+    let round: Vec<(u64, Executed)> = [next + 2, next + 6].into_iter().zip(executions).collect();
+    let applied = a.apply_round(round).expect("the round is written");
+    let batches = a
+        .quads()
+        .store()
+        .take_log()
+        .into_iter()
+        .filter(|r| matches!(r, OpRecord::Applied { .. }))
+        .count();
+    assert_eq!(batches, 1);
+    assert_eq!(applied[0].commit_ts(), next + 2);
+    assert_eq!(applied[1].commit_ts(), next + 6);
+    assert_eq!(a.quads().lists().applied_ts(), next + 6);
+    assert_eq!(applied[0].reads(), &reads[0]);
+    assert!(!applied[0].written().is_empty() && !applied[0].read().is_empty());
+    let mut held: Vec<String> = objects(&a, "b", "p")
+        .iter()
+        .map(|t| t.to_string())
+        .collect();
+    held.sort();
+    assert_eq!(held, vec![term("<q>").to_string(), term("<r>").to_string()]);
+    assert!(is_held_in_default(&a, "a", "knows"));
+}
+
+/// A term new to an execution takes a provisional UID, which its commit confirms: the dictionary then holds it.
+#[test]
+fn test_a_provisional_uid_is_confirmed_at_commit() {
+    let a = changesets();
+    let executed = execute(&a, "<new> <p> <q>");
+    let provisional: Vec<(String, u64)> = executed
+        .terms()
+        .created()
+        .map(|(i, u)| (i.to_string(), u))
+        .collect();
+    let new_uid = provisional
+        .iter()
+        .find(|(i, _)| i == ex("new").as_str())
+        .expect("<new> is created")
+        .1;
+    assert_eq!(a.quads().uid_of(NS, ex("new").as_str()).unwrap(), None);
+    let version = a.quads().lists().next_version();
+    a.apply_round(vec![(version, executed)]).unwrap();
+    assert_eq!(uid(&a, "new"), new_uid);
+}
+
+/// The catalog an execution leaves is installed by its round, not by its execution.
+#[test]
+fn test_a_round_installs_the_catalogs_its_executions_leave() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>"]);
+    let declared = declaration("tag", "a property");
+    let executed = a
+        .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
+            declared.clone(),
+        ))]))
         .unwrap();
+    let alias = execute(&a, "<a> <alias> \"x\"");
+    let before = (*a.catalog(NS).unwrap()).clone();
     assert!(
-        results[0].is_ok() && results[1].is_err() && results[2].is_ok(),
-        "{results:?}"
+        before
+            .predicates()
+            .all(|(_, d)| d.predicate().as_str() != ex("tag").as_str())
+    );
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, executed)]).unwrap();
+    let catalog = a.catalog(NS).unwrap();
+    assert_eq!(catalog.predicate(uid(&a, "tag")), Some(&declared));
+    drop(alias);
+    assert_eq!(
+        a.quads().uid_of(NS, ex("alias").as_str()).unwrap(),
+        None,
+        "an execution never applied writes nothing"
     );
     let snapshot = a
         .quads()
         .store()
-        .snapshot(a.quads().lists().latest_ts())
+        .snapshot(a.quads().lists().applied_ts())
         .unwrap();
     let stored = ultragraphdb_core_catalog::Catalog::load(&snapshot, NS).unwrap();
     assert_eq!(*a.catalog(NS).unwrap(), stored);
-    assert_eq!(a.quads().uid_of(NS, "http://ex.org/alias").unwrap(), None);
+}
+
+#[test]
+fn test_an_empty_round_writes_nothing() {
+    let a = changesets();
+    assert!(a.apply_round(Vec::new()).unwrap().is_empty());
+    assert!(a.quads().store().contents().keys().is_empty());
+}
+
+/// A version at or below the watermark refuses the round whole, naming it, and nothing is written.
+#[test]
+fn test_a_round_at_a_stale_version_is_refused_whole() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>"]);
+    let watermark = a.quads().lists().applied_ts();
+    let before = a.quads().store().contents();
+    let error = a
+        .apply_round(vec![(watermark, execute(&a, "<a> <knows> <b>"))])
+        .unwrap_err();
+    assert_eq!(
+        error.0,
+        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::StaleVersion {
+            version: watermark,
+            after: watermark
+        }))
+    );
+    assert_eq!(a.quads().store().contents(), before);
+}
+
+/// One build runs at a time: a round whose executions start two, or one while a build runs, is refused whole naming
+/// the predicate, and writes nothing; once the build is done, the declaration is accepted.
+#[test]
+fn test_a_round_starting_a_second_build_is_refused_whole() {
+    let a = changesets();
+    write(&a, &["<a> <name> \"Ann\"", "<a> <tag> \"x\""]);
+    let declare_change = |p: &str| {
+        changeset(vec![Change::Declare(Declaration::Predicate(declaration(
+            p,
+            "with `exact`",
+        )))])
+    };
+    let (name, tag) = (
+        a.execute(&declare_change("name")).unwrap(),
+        a.execute(&declare_change("tag")).unwrap(),
+    );
+    let before = a.quads().store().contents();
+    let next = a.quads().lists().next_version();
+    let refused = a
+        .apply_round(vec![(next, name), (next + 2, tag)])
+        .unwrap_err();
+    assert_eq!(
+        refused.to_string(),
+        "An index is being built, so <http://ex.org/tag> cannot be declared now. Please retry"
+    );
+    assert_eq!(a.quads().store().contents(), before);
+    assert!(!a.rebuilding());
+
+    // A build started by one round refuses a second started while it runs, at execution or at its round.
+    let tag = a.execute(&declare_change("tag")).unwrap();
+    a.apply(&declare_change("name")).unwrap();
+    assert!(a.rebuilding());
+    let next = a.quads().lists().next_version();
+    assert!(matches!(
+        a.apply_round(vec![(next, tag)]).unwrap_err().0,
+        ChangesetErrorEnum::Rebuilding { .. }
+    ));
+    assert!(matches!(
+        a.execute(&declare_change("tag")).unwrap_err().0,
+        ChangesetErrorEnum::Rebuilding { .. }
+    ));
+    finish_builds(&a);
+    a.apply(&declare_change("tag")).unwrap();
+    finish_builds(&a);
+    assert_eq!(
+        a.catalog(NS).unwrap().predicate(uid(&a, "tag")),
+        Some(&declaration("tag", "with `exact`"))
+    );
+}
+
+/// A build started by an execution that is not the first of its round starts at that execution's version: its built
+/// lists are written complete there.
+#[test]
+fn test_a_build_starts_at_its_own_executions_version() {
+    let a = changesets();
+    write(&a, &["<a> <name> \"Ann\""]);
+    let plain = execute(&a, "<b> <p> <q>");
+    let declared = a
+        .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
+            declaration("name", "with `exact`"),
+        ))]))
+        .unwrap();
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, plain), (next + 4, declared)])
+        .unwrap();
+    finish_builds(&a);
+    let key = ultragraphdb_core_keys::QuadKey::ValueIndex {
+        namespace: NS,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: uid(&a, "name"),
+        tokenizer: crate::utils::changesets::exact_token("Ann").0,
+        token: crate::utils::changesets::exact_token("Ann").1,
+    }
+    .to_bytes();
+    let versions = a.quads().store().contents().versions(&key).to_vec();
+    assert_eq!(versions.len(), 1, "{versions:?}");
+    assert_eq!(versions[0].version(), next + 4);
+}
+
+/// A round at a stale version is refused before anything is written, the rebuild record of its declarations
+/// included.
+#[test]
+fn test_a_stale_round_writes_no_rebuild_record() {
+    let a = changesets();
+    write(&a, &["<a> <name> \"Ann\""]);
+    let declared = a
+        .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
+            declaration("name", "with `exact`"),
+        ))]))
+        .unwrap();
+    let before = a.quads().store().contents();
+    let watermark = a.quads().lists().applied_ts();
+    assert!(a.apply_round(vec![(watermark, declared)]).is_err());
+    assert_eq!(a.quads().store().contents(), before);
+    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
 }

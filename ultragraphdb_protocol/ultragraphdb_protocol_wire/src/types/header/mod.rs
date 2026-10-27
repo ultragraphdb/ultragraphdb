@@ -60,6 +60,12 @@ impl Header {
         }
     }
 
+    /// The header of `command`.
+    pub fn with_command(mut self, command: Command) -> Self {
+        self.command = command;
+        self
+    }
+
     /// The header with its VSR `view`; zero on one node and in client frames.
     pub fn with_view(mut self, view: u32) -> Self {
         self.view = view;

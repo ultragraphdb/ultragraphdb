@@ -33,3 +33,9 @@ pub const REPLICA_COMMANDS: RangeInclusive<u16> = 256..=511;
 /// The numbers of retired commands. A retired command's number is never given to another command, and a frame
 /// carrying one is refused as an unknown command. No command has been retired.
 pub const RETIRED_COMMANDS: &[u16] = &[];
+
+/// The header flag of a stream's last frame.
+pub const FLAG_LAST: u8 = 1;
+
+/// An index naming nothing: an unbound cell of a result batch, an absent string, an absent term.
+pub const ABSENT: u32 = u32::MAX;

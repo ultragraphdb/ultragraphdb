@@ -297,7 +297,7 @@ where
         let (ns, predicate, start_ts) = (rebuild.namespace, rebuild.predicate, rebuild.start_ts);
         let plan = &rebuild.plan;
         let lists = self.quads.lists();
-        let latest = lists.latest_ts();
+        let latest = lists.applied_ts();
         lists.gate(latest)?;
         let snapshot = lists.store().snapshot(latest)?;
         let mut request = lists.request(latest);
@@ -389,7 +389,7 @@ where
             built.extend(count_prefixes(ns, predicate));
         }
         let lists = self.quads.lists();
-        let mut request = lists.request(lists.latest_ts());
+        let mut request = lists.request(lists.applied_ts());
         let declaration = Declaration::Predicate(rebuild.old.clone());
         request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
         request.advance_epoch_on_commit();

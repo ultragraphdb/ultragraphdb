@@ -48,9 +48,9 @@ Feature: The write-ahead log
     When one superblock copy is corrupted
     Then the node refuses to start with an error naming the copy, and does not create a new log
 
-  Scenario: A checkpoint removes old segments
+  Scenario: A checkpoint recycles old segments
     When rounds fill four segments and a checkpoint is taken at the end of the third
-    Then the first three segments are removed, and recovery replays from the checkpoint
+    Then the first three segments are kept as spares holding only zeros, and recovery replays from the checkpoint
 
   Scenario: The flag does not remove the sync
     When the flag is `true` and a round is committed

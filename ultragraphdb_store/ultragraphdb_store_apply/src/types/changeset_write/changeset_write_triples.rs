@@ -70,7 +70,8 @@ where
 
     /// Inserts a triple, held once: checked against the catalog, replacing the subject's other objects of a
     /// single-valued predicate. The subject's list is read, so that a triple already held is neither counted twice in
-    /// the statistics nor written over its statement IDs; a subject the write created has none to read.
+    /// the statistics nor written over its statement IDs, and only the statement is recorded as read unless the
+    /// overwrite needs the whole list; a subject the write created has none to read.
     pub(crate) fn insert(
         &mut self,
         graph: GraphNameRef<'_>,
@@ -117,17 +118,21 @@ where
     }
 
     /// The statement IDs of the triple when the subject holds it, after removing the subject's other objects when
-    /// the predicate is single-valued: a read of the subject's list.
+    /// the predicate is single-valued: a read of the subject's list, whole for a single-valued predicate, which the
+    /// overwrite needs, and otherwise a test of the one statement.
     pub(crate) fn held(
         &mut self,
         r: &Resolved,
         declaration: &PredicateDeclaration,
     ) -> Result<Option<Vec<u64>>, ChangesetError> {
+        if declaration.cardinality() != Cardinality::Single {
+            return Ok(self
+                .write
+                .holds(r.graph, r.subject, r.predicate, &r.object)?);
+        }
         let held = self.write.objects(r.graph, r.subject, r.predicate)?;
-        if declaration.cardinality() == Cardinality::Single {
-            for (other, _) in held.iter().filter(|(o, _)| *o != r.object) {
-                self.remove(r.graph, r.subject, r.predicate, declaration, other)?;
-            }
+        for (other, _) in held.iter().filter(|(o, _)| *o != r.object) {
+            self.remove(r.graph, r.subject, r.predicate, declaration, other)?;
         }
         Ok(held
             .into_iter()

@@ -17,12 +17,11 @@ use crate::types::truncation::Truncation;
 use crate::types::wal::Wal;
 use crate::types::wal::wal_entry::WalEntry;
 use crate::types::wal::wal_stop::WalStop;
-use crate::utils::block::BLOCK;
+use crate::types::wal::wal_write::reserve;
+use crate::utils::block::{BLOCK, padded};
 use crate::utils::io_error::io_error;
 use crate::utils::scan::{find_complete_round, scan_segment};
-
-/// Zeros are written in pieces of at most this many bytes when damage is cleared.
-const ZEROS: u64 = 1 << 20;
+use crate::utils::zeros::write_zeros;
 
 impl<S: DurableStorage> Wal<S> {
     /// The bytes of segment `index` the log reads, its whole blocks up to the segment size; `None` when the segment
@@ -197,7 +196,7 @@ impl<S: DurableStorage> Wal<S> {
 
     /// The log holds nothing above its checkpoint, so it continues from the checkpoint in segment `first`, a segment
     /// of its own: the superblock records `first` as the first kept, and the segments below it, holding only rounds the
-    /// checkpoint covers, are removed.
+    /// checkpoint covers, are recycled.
     async fn restart_at_checkpoint(&mut self, first: u64) -> Result<(), LogError> {
         self.tail = (self.checkpoint(), self.superblock.checkpoint_checksum());
         self.cursor = (first, 0);
@@ -212,12 +211,12 @@ impl<S: DurableStorage> Wal<S> {
         );
         record.write(&self.storage, &self.dir).await?;
         self.superblock = record;
-        self.remove_segments_below(first).await
+        self.recycle_segments_below(first).await
     }
 
-    /// Syncs every segment holding a recovered round, and preallocates the segment the cursor is in if it is short:
-    /// what a crashed process left in the page cache was read back as rounds, and is not committed until it is
-    /// durable.
+    /// Syncs every segment holding a recovered round, and reserves the blocks of the segment the cursor is in again
+    /// if it is short (a crash may have cut its creation short of its preallocation): what a crashed process left in
+    /// the page cache was read back as rounds, and is not committed until it is durable.
     async fn sync_recovered(&mut self) -> Result<(), LogError> {
         let held: Vec<u64> = self.index.iter().map(|entry| entry.segment).collect();
         let files = self
@@ -229,37 +228,37 @@ impl<S: DurableStorage> Wal<S> {
         }
         let size = self.config.segment_size();
         if let Some(file) = self.files.get_mut(&self.cursor.0)
-            && file.length().await.map_err(io_error("length"))? < size
+            && let length = file.length().await.map_err(io_error("length"))?
+            && length < size
         {
-            file.preallocate(size)
-                .await
-                .map_err(io_error("preallocate"))?;
+            // A short tear can leave the length inside a block, whose bytes the scan never read.
+            let from = length / BLOCK as u64 * BLOCK as u64;
+            reserve(file, from, size, &mut self.unreserved).await?;
             file.sync().await.map_err(io_error("file sync"))?;
         }
         Ok(())
     }
 
-    /// Writes zeros over the segment after the damaged block, and syncs them, so a round later written over that
-    /// block, shorter than the one torn there, leaves no stale bytes behind it. The damaged block itself is left for
-    /// the next append to overwrite: zeroing it first would destroy the only evidence of the torn round, and a failure
-    /// after that would let the next open start without reporting it. Until a round is written there, every open finds
-    /// the same torn tail and reports it again.
+    /// Writes zeros over the segment after the damaged block, up to its length rounded up to a whole block, and syncs
+    /// them, so a round later
+    /// written over that block, shorter than the one torn there, leaves no stale bytes behind it; past the length a
+    /// segment holds no bytes, only blocks reserved for later writes. The damaged block itself is left for the next
+    /// append to overwrite: zeroing it first would destroy the only evidence of the torn round, and a failure after
+    /// that would let the next open start without reporting it. Until a round is written there, every open finds the
+    /// same torn tail and reports it again.
     async fn clear_after_damage(&mut self, stop: WalStop) -> Result<(), LogError> {
-        let size = self.config.segment_size();
-        let mut at = stop.offset + BLOCK as u64;
+        let at = stop.offset + BLOCK as u64;
         let Some(file) = self.files.get_mut(&stop.segment) else {
             return Ok(());
         };
+        let length = file.length().await.map_err(io_error("length"))?;
+        let size = self.config.segment_size().min(padded(length));
         if at >= size {
             return Ok(());
         }
-        while at < size {
-            let piece = (size - at).min(ZEROS);
-            file.write_at(at, AlignedBuf::zeroed(piece as usize))
-                .await
-                .map_err(io_error("write"))?;
-            at += piece;
-        }
+        write_zeros(file, at, size)
+            .await
+            .map_err(io_error("write"))?;
         file.sync().await.map_err(io_error("file sync"))
     }
 }

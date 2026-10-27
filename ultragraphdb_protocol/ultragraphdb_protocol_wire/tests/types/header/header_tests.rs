@@ -59,3 +59,14 @@ fn test_headers_compare_by_every_field() {
     assert_ne!(a.clone(), Header::new(1, Command::Welcome));
     assert_ne!(a.clone(), a.clone().with_flags(1));
 }
+
+#[test]
+fn test_with_command_replaces_the_command_alone() {
+    let header = Header::new(7, Command::Hello).with_stream(3).with_flags(1);
+    let credit = header.clone().with_command(Command::Credit);
+    assert_eq!(credit.command(), Command::Credit);
+    assert_eq!(credit.stream(), 3);
+    assert_eq!(credit.flags(), 1);
+    assert_eq!(credit.cluster(), 7);
+    assert_eq!(credit.with_command(Command::Hello), header);
+}

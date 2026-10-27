@@ -3,11 +3,12 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The posting lists' workload on the storage simulator, with its shadow model. The apply loop commits batches of
-//! requests, each request reading the writes of the requests before it in its batch, rolls lists up directly and
-//! through the rollup worker on the stepped executor, drops keys, advances the cache's epoch, evicts cache entries,
-//! syncs, and moves the discard timestamp and compacts; readers read keys at timestamps from the discard timestamp
-//! to beyond the newest commit, through the cache and around it. The model holds every key's operations by commit
+//! The posting lists' workload on the storage simulator, with its shadow model. The apply loop commits rounds of
+//! transactions read at the watermark, each reading its own writes and no other's, at even versions with gaps between
+//! them, and batches of requests, each request reading the writes of the requests before it in its batch; rolls lists
+//! up directly and through the rollup worker on the stepped executor, drops keys, advances the cache's epoch, evicts
+//! cache entries, syncs, and moves the discard timestamp and compacts; readers read keys at timestamps from the
+//! discard timestamp to the watermark, through the cache and around it. The model holds every key's operations by commit
 //! timestamp, and every read must return what the model says it holds at its timestamp, through the cache or not.
 //!
 //! The simulator's own model checks the store underneath: whole batches, survivors a prefix, the applied
@@ -35,6 +36,9 @@ pub const CACHE_MATCHES_STORE: &str = "a read through the cache returns what the
 /// The rule a request breaks when it does not see the writes of the requests before it in its batch.
 pub const STACKED_WRITES_SEEN: &str =
     "a request reads the writes of the requests before it in its batch";
+/// The rule a transaction of a round breaks when it reads other than its own writes on the state at its read version.
+pub const OWN_WRITES_ONLY: &str =
+    "a transaction reads its own writes on the state at its read version, and no other's";
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
     "a posting-list operation fails only for a fault the simulator injected";
@@ -141,9 +145,9 @@ impl Model {
     }
 }
 
-/// A batch whose write failed: its requests' operations by key and its first commit timestamp. Whether it
-/// survives is known after the recovery.
-type Pending = (u64, Vec<BTreeMap<Vec<u8>, Vec<Op>>>);
+/// A batch or round whose write failed: each request's commit version and operations by key. Whether it survives is
+/// known after the recovery.
+type Pending = Vec<(u64, BTreeMap<Vec<u8>, Vec<Op>>)>;
 
 /// The posting-list workload of one run.
 pub struct PostingWorkload {
@@ -225,11 +229,9 @@ impl PostingWorkload {
     fn recovered(&mut self, ctx: &SimContext) {
         self.lists = None;
         let applied = ctx.store().applied_ts();
-        if let Some((first, requests)) = self.pending.take() {
-            for (i, ops) in requests.into_iter().enumerate() {
-                for (key, ops) in ops {
-                    self.model.commit(&key, first + i as u64, ops);
-                }
+        for (version, ops) in self.pending.take().into_iter().flatten() {
+            for (key, ops) in ops {
+                self.model.commit(&key, version, ops);
             }
         }
         self.model.truncate(applied);
@@ -254,8 +256,13 @@ impl PostingWorkload {
     fn write(&mut self, ctx: &mut SimContext) -> Result<(), Violation> {
         let lists = self.lists(ctx);
         let result = match ctx.rng().below(100) {
-            0..50 => match self.commit(ctx, &lists) {
+            0..25 => match self.commit(ctx, &lists) {
                 Ok(Some(detail)) => return Err(ctx.violation(STACKED_WRITES_SEEN, detail)),
+                Ok(None) => Ok(()),
+                Err(error) => Err(error),
+            },
+            25..50 => match self.commit_round(ctx, &lists) {
+                Ok(Some(detail)) => return Err(ctx.violation(OWN_WRITES_ONLY, detail)),
                 Ok(None) => Ok(()),
                 Err(error) => Err(error),
             },
@@ -274,7 +281,7 @@ impl PostingWorkload {
                 let key = self.key(ctx);
                 self.dropping = Some(key.clone());
                 let split_prefix = [&[0x04][..], &key[1..]].concat();
-                let ts = lists.fresh_ts();
+                let ts = lists.applied_ts();
                 let result = lists.drop_prefixes(ts, &[key.clone(), split_prefix], Vec::new());
                 if result.is_ok() {
                     self.dropping = None;
@@ -311,7 +318,7 @@ impl PostingWorkload {
         let mut batch = lists.batch();
         let mut written: Vec<BTreeMap<Vec<u8>, Vec<Op>>> = Vec::new();
         for _ in 0..ctx.rng().between(1, 3) {
-            let read_ts = lists.fresh_ts();
+            let read_ts = lists.applied_ts();
             let mut request = batch.request(read_ts);
             let mut ops: BTreeMap<Vec<u8>, Vec<Op>> = BTreeMap::new();
             for _ in 0..ctx.rng().between(1, 4) {
@@ -345,7 +352,8 @@ impl PostingWorkload {
             batch.push(request);
             written.push(ops);
         }
-        let first = lists.peek_ts();
+        let first = lists.next_version();
+        let versions = (0..written.len() as u64).map(|i| first + 2 * i);
         match lists.commit(batch) {
             Ok(timestamps) => {
                 for (ts, ops) in timestamps.into_iter().zip(written) {
@@ -356,7 +364,66 @@ impl PostingWorkload {
                 Ok(None)
             }
             Err(error) => {
-                self.pending = Some((first, written));
+                self.pending = Some(versions.zip(written).collect());
+                Err(error)
+            }
+        }
+    }
+
+    /// One round of one to three transactions, each with one to four operations, all read at the watermark; each
+    /// checks that it reads its own writes on the model's state there and none of the others', and one that does not
+    /// is returned as the violation's detail. The round takes even versions above the watermark, two to six apart.
+    fn commit_round(
+        &mut self,
+        ctx: &mut SimContext,
+        lists: &TestLists,
+    ) -> Result<Option<String>, PostingError> {
+        let read_ts = lists.applied_ts();
+        let mut round: Pending = Vec::new();
+        let mut writes = Vec::new();
+        let mut version = read_ts;
+        for _ in 0..ctx.rng().between(1, 3) {
+            let mut request = lists.request(read_ts);
+            let mut ops: BTreeMap<Vec<u8>, Vec<Op>> = BTreeMap::new();
+            for _ in 0..ctx.rng().between(1, 4) {
+                let key = self.key(ctx);
+                let op = self.op(ctx, &key);
+                let list = if ctx.rng().chance(300) {
+                    request.get_from_delta(&key)
+                } else {
+                    request.get(&key)?
+                };
+                list.add_posting(op.posting(), false);
+                ops.entry(key).or_default().push(op);
+            }
+            for (key, own) in &ops {
+                let mut expected = self.model.held(key, read_ts);
+                own.iter().for_each(|op| expected.apply(op));
+                let seen = Held::of(request.get(key)?, read_ts)?;
+                if seen != expected {
+                    return Ok(Some(format!(
+                        "key {} at {read_ts} read {seen:?} in its round, expected {expected:?}",
+                        hex(key)
+                    )));
+                }
+            }
+            version = (version | 1) + 1 + 2 * ctx.rng().below(3);
+            writes.push(request.into_writes());
+            round.push((version, ops));
+        }
+        let versioned: Vec<(u64, &ultragraphdb_store_posting::Writes)> =
+            round.iter().map(|(v, _)| *v).zip(&writes).collect();
+        match lists.commit_round(&versioned) {
+            Ok(()) => {
+                for (version, ops) in round {
+                    for (key, ops) in ops {
+                        self.model.commit(&key, version, ops);
+                    }
+                }
+                Ok(None)
+            }
+            Err(error) => {
+                self.pending = Some(round);
                 Err(error)
             }
         }
@@ -381,15 +448,17 @@ impl PostingWorkload {
         }
     }
 
-    /// One read: a key at a timestamp from below the discard timestamp to beyond the newest commit, through the
-    /// cache and around it, each compared with the model.
+    /// One read: a key at a timestamp from below the discard timestamp to the watermark, through the cache and around
+    /// it, each compared with the model. A read above the watermark would wait for a commit no step of this
+    /// single-threaded run makes.
     fn read(&mut self, ctx: &mut SimContext) -> Result<(), Violation> {
         let lists = self.lists(ctx);
         let key = self.key(ctx);
         let discard = lists.store().discard_ts();
+        let watermark = lists.applied_ts();
         let read_ts = ctx
             .rng()
-            .between(discard.saturating_sub(1).max(1), lists.applied_ts() + 2);
+            .between(discard.saturating_sub(1).min(watermark), watermark);
         let expected = self.model.held(&key, read_ts);
         let uncached = lists
             .read_uncached(&key, read_ts)

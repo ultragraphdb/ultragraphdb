@@ -158,7 +158,7 @@ fn test_a_rollup_packs_a_shared_uid_once_and_reads_both_literals_back() {
 #[test]
 fn test_a_requests_versionless_writes_commit_with_its_lists() {
     let lists = new_lists();
-    let mut request = lists.request(lists.fresh_ts());
+    let mut request = lists.request(lists.applied_ts());
     request
         .get_from_delta(&quad_key(1))
         .add_posting(reference(2, SET), false);

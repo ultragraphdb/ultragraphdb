@@ -9,23 +9,56 @@ use ultragraphdb_traits_store::{PersistMode, Store};
 use crate::utils::helpers::{commit_edges, key, new_lists, set_uid};
 
 #[test]
-fn test_new_lists_start_above_the_stores_applied_timestamp() {
+fn test_new_lists_read_at_the_stores_applied_version_and_commit_above_it() {
     let lists = new_lists();
     let ts = commit_edges(&lists, &key("start", 1), &[set_uid(1)]);
     let reopened = crate::utils::helpers::lists_over(lists.store().clone(), lists.config());
-    // A rollup may have written one above the newest commit, so the counter starts two above.
-    assert_eq!(reopened.peek_ts(), ts + 2);
     assert_eq!(reopened.applied_ts(), ts);
+    // A rollup may have written one above the newest commit: the next commit version is the even one past it.
+    assert_eq!(reopened.next_version(), ts + 2);
 }
 
+/// The next version is the smallest even one above the watermark, whatever the watermark is, and saturates at the top
+/// of the range, where a round at it is refused rather than wrapped.
 #[test]
-fn test_the_gate_moves_the_counter_past_a_read() {
+fn test_the_next_version_is_the_even_one_above_the_watermark() {
     let lists = new_lists();
-    lists.gate(40).unwrap();
-    assert_eq!(lists.peek_ts(), 41);
-    assert!(lists.try_gate(1000).unwrap());
-    let fresh = lists.fresh_ts();
-    assert_eq!((fresh, lists.peek_ts()), (41, 42));
+    assert_eq!(lists.next_version(), 2, "an empty store's watermark is 0");
+    for (version, next) in [
+        (4, 6),
+        (9, 10),
+        (u64::MAX - 2, u64::MAX - 1),
+        (u64::MAX - 1, u64::MAX),
+    ] {
+        crate::utils::helpers::commit_edges_at(
+            &lists,
+            &key("next", version),
+            &[set_uid(1)],
+            version,
+        );
+        assert_eq!(lists.next_version(), next, "after a commit at {version}");
+    }
+    let empty = new_lists().request(0).into_writes();
+    crate::utils::helpers::commit_edges_at(&lists, &key("next", 1), &[set_uid(1)], u64::MAX);
+    assert_eq!(lists.next_version(), u64::MAX);
+    assert_eq!(
+        lists.commit_round(&[(lists.next_version(), &empty)]),
+        Err(ultragraphdb_store_posting::PostingError::StaleVersion(
+            u64::MAX,
+            u64::MAX
+        ))
+    );
+}
+
+/// A read moves no version: commits are ordered by the commit step, not by the reads.
+#[test]
+fn test_a_read_moves_no_version() {
+    let lists = new_lists();
+    let ts = commit_edges(&lists, &key("read", 1), &[set_uid(1)]);
+    assert!(lists.try_gate(ts).unwrap());
+    let _ = lists.read(&key("read", 1), ts).unwrap();
+    let _open = lists.request(ts);
+    assert_eq!((lists.applied_ts(), lists.next_version()), (ts, ts + 2));
 }
 
 #[test]

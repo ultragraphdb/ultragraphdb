@@ -23,6 +23,16 @@ ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 compio = { workspace = true }
 
+[dev-dependencies]
+ultragraphdb_tool_bdd = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
+
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

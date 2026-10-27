@@ -25,7 +25,7 @@ mod utils {
 
 use crate::utils::helpers::{
     CLUSTER, DIR, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, append, append_synced, block_on, body,
-    config, frame_checksum, open, segment, superblock,
+    config, frame_checksum, open, segment, spare, superblock,
 };
 
 #[derive(Debug, Default, World)]
@@ -136,6 +136,10 @@ fn three_then_zeros(w: &mut Steps) {
     let (mut wal, _) = open(&storage).expect("opened");
     append_synced(&mut wal, 1, 3, ONE_BLOCK);
     drop(wal);
+    // A fresh segment is as long as its rounds; zeros follow them where a recovery cleared a torn tail.
+    let mut bytes = storage.stable_contents(&segment(0)).expect("segment 0");
+    bytes.resize(16_384, 0);
+    storage.put_file(&segment(0), &bytes).expect("put");
     let (_, recovery) = open(&storage).expect("reopened");
     w.recoveries = vec![recovery];
     w.storage = Some(storage);
@@ -332,14 +336,25 @@ fn four_segments_checkpoint(w: &mut Steps) {
         .err()
         .into_iter()
         .collect();
+    // Per segment index: the segment exists, and the spare exists holding only zeros.
     w.checks = (0..4)
-        .map(|i| storage.contents(&segment(i)).is_some())
+        .flat_map(|i| {
+            let zeroed_spare = storage
+                .contents(&spare(i))
+                .is_some_and(|bytes| !bytes.is_empty() && bytes.iter().all(|b| *b == 0));
+            [storage.contents(&segment(i)).is_some(), zeroed_spare]
+        })
         .collect();
 }
 
-#[then("the first three segments are removed, and recovery replays from the checkpoint")]
-fn three_removed(w: &mut Steps) {
-    assert_eq!(w.checks, [false, false, false, true]);
+#[then(
+    "the first three segments are kept as spares holding only zeros, and recovery replays from the checkpoint"
+)]
+fn three_recycled(w: &mut Steps) {
+    assert_eq!(
+        w.checks,
+        [false, true, false, true, false, true, true, false]
+    );
     assert_eq!(w.recoveries[0].checkpoint(), Position::new(12));
     assert_eq!(w.recoveries[0].committed(), Position::new(16));
     assert_eq!(w.positions, [13, 14, 15, 16]);

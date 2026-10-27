@@ -57,6 +57,9 @@ impl Display for PostingError {
             PostingErrorEnum::HighPriorityOp => {
                 f.write_str("Cancelled rollup to make way for high priority operation")
             }
+            PostingErrorEnum::StaleVersion { version, after } => {
+                write!(f, "commit version {version} is not above {after}")
+            }
         }
     }
 }

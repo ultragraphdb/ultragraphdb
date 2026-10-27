@@ -35,7 +35,7 @@ fn elements(v: &[f32]) -> Vec<u8> {
 fn test_reads_see_the_requests_writes_and_absence_is_no_value() {
     let lists = new_lists();
     let p = pred("emb");
-    let mut request = lists.request(lists.fresh_ts());
+    let mut request = lists.request(lists.applied_ts());
     set_vector(&mut request, &p, 7, &[1.0, 2.0]).unwrap();
     let txn = ViTxn::new(&mut request);
     assert_eq!(Txn::get(&txn, &key(&p, 7)), Ok(elements(&[1.0, 2.0])));
@@ -67,7 +67,7 @@ fn test_find_scans_the_committed_vectors_in_key_order() {
     for uid in [9u64, 4, 6] {
         insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut draw).unwrap();
     }
-    let mut request = lists.request(lists.fresh_ts());
+    let mut request = lists.request(lists.applied_ts());
     set_vector(&mut request, &p, 2, &[2.0, 2.0]).unwrap();
     let txn = ViTxn::new(&mut request);
     let prefix = vkeys(&p).vector_prefix();
@@ -86,7 +86,7 @@ fn test_find_scans_the_committed_vectors_in_key_order() {
         Err(HnswError::KeyNotFound())
     );
     delete(&lists, &p, 4).unwrap();
-    let mut request = lists.request(lists.fresh_ts());
+    let mut request = lists.request(lists.applied_ts());
     let txn = ViTxn::new(&mut request);
     assert_eq!(
         Txn::find(&txn, &prefix, |_| true),
@@ -102,7 +102,7 @@ fn test_an_insert_is_committed_with_its_request() {
     let o = opts(&[("maxLevels", "3")]);
     let edges = insert(&lists, &p, &o, 5, &[0.5f32, 0.5], &mut || 0.5).unwrap();
     assert_eq!(edges.len(), 2);
-    let ts = lists.latest_ts();
+    let ts = lists.applied_ts();
     let entry = index_value(&lists, &key(&format!("{p}{VEC_ENTRY}"), 1), ts).unwrap();
     assert_eq!(bytes_to_uint64(&entry), Some(5));
     let node = index_value(&lists, &key(&format!("{p}{VEC_KEYWORD}"), 5), ts).unwrap();
@@ -116,7 +116,7 @@ fn test_an_insert_is_committed_with_its_request() {
     let node = index_value(
         &lists,
         &key(&format!("{p}{VEC_KEYWORD}"), 5),
-        lists.latest_ts(),
+        lists.applied_ts(),
     )
     .unwrap();
     assert_eq!(
@@ -127,7 +127,7 @@ fn test_an_insert_is_committed_with_its_request() {
     let dead = index_value(
         &lists,
         &key(&format!("{p}{VEC_DEAD}"), 1),
-        lists.latest_ts(),
+        lists.applied_ts(),
     )
     .unwrap();
     assert_eq!(dead, b"[8]");
@@ -175,7 +175,7 @@ fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) {
             _ => {}
         }
     }
-    let ts = lists.latest_ts();
+    let ts = lists.applied_ts();
     let snapshot = lists.store().snapshot(ts).unwrap();
     let mut stored = BTreeMap::new();
     for item in snapshot.scan(&Scan::prefix(Vec::new())) {

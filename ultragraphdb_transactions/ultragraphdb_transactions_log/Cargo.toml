@@ -26,6 +26,10 @@ ultragraphdb_protocol_wire = { workspace = true }
 compio = { workspace = true }
 tracing = { workspace = true }
 
+# fallocate(2) for a new segment; macOS reserves nothing.
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { workspace = true }
+
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }

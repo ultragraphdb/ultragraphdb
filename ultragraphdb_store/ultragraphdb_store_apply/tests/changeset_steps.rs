@@ -270,13 +270,16 @@ fn two_copies(w: &mut Steps) {
 )]
 fn concurrent(w: &mut Steps, first: String, second: String) {
     let a = cs(w);
-    let results = a
-        .apply_batch(&[
-            changeset(vec![insert(&first)]),
-            changeset(vec![insert(&second)]),
-        ])
-        .expect("the batch is written");
-    w.results.extend(results);
+    // Both execute from one watermark, then commit in one round.
+    let executed = [first, second].map(|text| a.execute(&changeset(vec![insert(&text)])));
+    let next = a.quads().lists().next_version();
+    let round: Vec<(u64, ultragraphdb_store_apply::Executed)> = executed
+        .into_iter()
+        .zip([next, next + 2])
+        .map(|(e, v)| (v, e.expect("executes")))
+        .collect();
+    let applied = a.apply_round(round).expect("the round is written");
+    w.results.extend(applied.into_iter().map(Ok));
 }
 
 // Outcomes.
@@ -477,7 +480,7 @@ fn written_twice(w: &mut Steps) {
 #[then("the statistics of `knows` report 1 statement")]
 fn counted_once(w: &mut Steps) {
     let a = cs(w);
-    let ts = a.quads().lists().latest_ts();
+    let ts = a.quads().lists().applied_ts();
     let statistics = a
         .quads()
         .statistics(NS, DEFAULT_GRAPH, uid(&a, "knows"), ts)
@@ -542,6 +545,83 @@ fn writes_predicate_lists(w: &mut Steps) {
     assert!(
         wrote(w, Keyspace::SubjectPredicates, None) && wrote(w, Keyspace::ObjectPredicates, None)
     );
+}
+
+#[when(
+    regex = r"^a changeset inserting `(.+)` is executed and `(\w+)` holds other objects of `(\w+)`$"
+)]
+fn insert_beside_others(w: &mut Steps, text: String, subject: String, predicate: String) {
+    let a = cs(w);
+    crate::utils::changesets::write(&a, &[format!("<{subject}> <{predicate}> <other>")]);
+    let result = apply(&a, vec![insert(&text)]);
+    w.results.push(result);
+}
+
+#[then(
+    regex = r"^its read set holds the statement `(\w+)`, `(\w+)`, `(\w+)`, not the whole list of `(\w+)` of `(\w+)`$"
+)]
+fn read_set_holds_statement(
+    w: &mut Steps,
+    subject: String,
+    predicate: String,
+    object: String,
+    list_predicate: String,
+    list_subject: String,
+) {
+    let a = cs(w);
+    let reads = applied(w).reads();
+    let key = |p: &str, s: &str| {
+        ultragraphdb_core_keys::QuadKey::Forward {
+            namespace: NS,
+            graph: DEFAULT_GRAPH,
+            predicate: uid(&a, p),
+            subject: uid(&a, s),
+        }
+        .to_bytes()
+    };
+    let tested = (
+        key(&predicate, &subject),
+        EncodedTerm::uid(uid(&a, &object)).as_bytes().to_vec(),
+    );
+    assert!(
+        reads.statements().contains(&tested),
+        "{:?}",
+        reads.statements()
+    );
+    assert!(
+        !reads.lists().contains(&key(&list_predicate, &list_subject)),
+        "{:?}",
+        reads.lists()
+    );
+}
+
+#[when(
+    regex = r"^a transaction creates `<(\w+)>` and commits, and no other transaction created `<\w+>` meanwhile$"
+)]
+fn creates_and_commits(w: &mut Steps, name: String) {
+    let a = cs(w);
+    let executed = a
+        .execute(&changeset(vec![insert(&format!("<{name}> <p> <q>"))]))
+        .expect("the transaction executes");
+    let provisional = executed
+        .terms()
+        .created()
+        .find(|(iri, _)| *iri == ex(&name).as_str())
+        .map(|(_, uid)| uid)
+        .expect("the transaction creates the IRI");
+    assert_eq!(a.quads().uid_of(NS, ex(&name).as_str()).unwrap(), None);
+    let version = a.quads().lists().next_version();
+    let applied = a
+        .apply_round(vec![(version, executed)])
+        .expect("it commits");
+    w.results.extend(applied.into_iter().map(Ok));
+    w.statement = Some(provisional);
+}
+
+#[then(regex = r"^`<(\w+)>` holds the UID the transaction gave it$")]
+fn holds_given_uid(w: &mut Steps, name: String) {
+    let a = cs(w);
+    assert_eq!(Some(uid(&a, &name)), w.statement);
 }
 
 #[then("both stores hold the same keys, versions and values")]
@@ -629,6 +709,6 @@ fn no_record(w: &mut Steps) {
 /// The record of statement `id` in the default graph, as the last commit left it.
 fn stored_record(a: &TestChangesets, id: u64) -> Option<ultragraphdb_store_quads::StatementRecord> {
     a.quads()
-        .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().latest_ts())
+        .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
         .expect("the record reads")
 }

@@ -22,7 +22,7 @@ use ultragraphdb_store_sim::{Fault, Seed, SteppedExecutor, Stream};
 use ultragraphdb_traits_store::{Entry, ListCache, PersistMode, Store, WriteBatch};
 
 use crate::utils::helpers::{
-    TestLists, commit_edges, delete_all, key, new_lists, next_commit_at, probe_lists, set_uid,
+    TestLists, commit_edges, commit_edges_at, delete_all, key, new_lists, probe_lists, set_uid,
     uids, write_delta,
 };
 
@@ -34,11 +34,11 @@ fn test_rollup_timestamp() {
     write_delta(lists.store(), &k, 2, &[set_uid(2)]);
     write_delta(lists.store(), &k, 4, &[set_uid(3)]);
     write_delta(lists.store(), &k, 6, &[set_uid(4)]);
-    let l = lists.read_uncached(&k, u64::MAX - 1).unwrap();
+    let l = lists.read_uncached(&k, u64::MAX).unwrap();
     assert_eq!(l.uids(&ListOptions::at(7)).unwrap().uids().len(), 3);
 
     write_delta(lists.store(), &k, 10, &[delete_all()]);
-    let nl = lists.read_uncached(&k, u64::MAX - 1).unwrap();
+    let nl = lists.read_uncached(&k, u64::MAX).unwrap();
     assert!(nl.uids(&ListOptions::at(11)).unwrap().uids().is_empty());
 
     // The highest version survives a rollup at the maximum timestamp, the delete-all being the newest update.
@@ -48,6 +48,27 @@ fn test_rollup_timestamp() {
     // At a finite timestamp the rollup is written one above.
     let (version, _) = nl.rollup_entries(12, usize::MAX).unwrap().unwrap();
     assert_eq!(version, 11);
+}
+
+/// A rollup reads at the watermark, writes one above the newest commit it folds, an odd version, and takes no
+/// version: the next commit's version is what it was, and a commit there lands above the rollup.
+#[test]
+fn test_a_rollup_reads_at_the_watermark_and_takes_no_version() {
+    let lists = new_lists();
+    let k = key("between", 1);
+    commit_edges_at(&lists, &k, &[set_uid(10)], 10);
+    commit_edges_at(&lists, &key("between", 2), &[set_uid(1)], 16);
+    let next = lists.next_version();
+    assert!(lists.rollup_key(&k).unwrap());
+    let rolled = lists.store().contents().versions(&k)[0].version();
+    assert_eq!(
+        rolled, 11,
+        "one above the newest commit it folds, not the watermark"
+    );
+    assert_eq!(lists.next_version(), next);
+    assert_eq!(lists.oldest_open_read(), None);
+    commit_edges_at(&lists, &k, &[set_uid(18)], next);
+    assert_eq!(uids(&lists.read(&k, next).unwrap(), next, 0), vec![10, 18]);
 }
 
 #[test]
@@ -95,8 +116,15 @@ fn test_a_list_without_deltas_is_not_rolled_up() {
     let lists = new_lists();
     let k = key("rollup-nothing", 1);
     assert!(!lists.rollup_key(&k).unwrap());
-    commit_edges(&lists, &k, &[set_uid(1)]);
+    let ts = commit_edges(&lists, &k, &[set_uid(1)]);
     assert!(lists.rollup_key(&k).unwrap());
+    let rolled = lists.store().contents().versions(&k)[0].clone();
+    assert_eq!(rolled.version(), ts + 1);
+    // The rollup lies above the watermark, which still reads the delta: a second rollup writes the same list again.
+    assert!(lists.rollup_key(&k).unwrap());
+    assert_eq!(lists.store().contents().versions(&k)[0], rolled);
+    // Once the watermark passes the rollup, the list has no deltas to roll up.
+    commit_edges(&lists, &key("rollup-nothing", 2), &[set_uid(1)]);
     assert!(
         !lists.rollup_key(&k).unwrap(),
         "the rolled-up list has no deltas"
@@ -138,7 +166,7 @@ fn test_a_rollup_whose_key_gained_a_deletion_is_discarded() {
 
 fn commit_edges_probe(lists: &crate::utils::helpers::ProbeLists, k: &[u8]) {
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     request
         .get(k)
         .unwrap()
@@ -151,17 +179,15 @@ fn commit_edges_probe(lists: &crate::utils::helpers::ProbeLists, k: &[u8]) {
 fn test_a_rollup_leaves_an_open_read_intact() {
     let lists = new_lists();
     let k = key("open-read", 1);
-    next_commit_at(&lists, 5);
-    commit_edges(&lists, &k, &[set_uid(5)]);
-    let mut request = lists.request(5);
-    next_commit_at(&lists, 6);
-    commit_edges(&lists, &k, &[set_uid(6)]);
+    commit_edges_at(&lists, &k, &[set_uid(6)], 6);
+    let mut request = lists.request(6);
+    commit_edges_at(&lists, &k, &[set_uid(8)], 8);
     assert!(lists.rollup_key(&k).unwrap());
     let rolled = lists.store().contents().versions(&k)[0].version();
-    assert!(rolled > 6);
-    assert_eq!(uids(request.get(&k).unwrap(), 5, 0), vec![5]);
+    assert_eq!(rolled, 9);
+    assert_eq!(uids(request.get(&k).unwrap(), 6, 0), vec![6]);
     lists.set_discard_ts(100).unwrap();
-    assert!(lists.store().discard_ts() <= 5);
+    assert!(lists.store().discard_ts() <= 6);
 }
 
 #[test]
@@ -280,19 +306,25 @@ fn test_a_discarded_rollup_is_reported() {
 }
 
 /// Writes `n` deltas of `k` straight to the store, so that no commit queues the key.
-fn deltas(lists: &TestLists, k: &[u8], n: u64) {
-    (1..=n).for_each(|i| write_delta(lists.store(), k, 2 * i, &[set_uid(i)]));
+/// Writes `n` deltas of `k` straight to `store`, at 2, 4, and on, as Go's tests commit by hand; lists opened over
+/// the store after read at the newest of them.
+fn deltas(store: &ultragraphdb_store_sim::SimStore, k: &[u8], n: u64) {
+    (1..=n).for_each(|i| write_delta(store, k, 2 * i, &[set_uid(i)]));
 }
 
 #[test]
 fn test_a_read_of_more_than_500_deltas_queues_its_key_at_high_priority() {
     // HIGH_PRIORITY_DELTAS is Dgraph's 500: a read of 500 deltas queues its key at low priority, which waits for a
     // full batch, and one of 501 at high priority, which the worker takes at once.
-    let lists = new_lists();
+    let store = crate::utils::helpers::new_store();
     let (low, high) = (key("priority", 1), key("priority", 2));
-    deltas(&lists, &low, HIGH_PRIORITY_DELTAS as u64);
-    deltas(&lists, &high, HIGH_PRIORITY_DELTAS as u64 + 1);
-    let read_ts = lists.store().applied_ts();
+    deltas(&store, &low, HIGH_PRIORITY_DELTAS as u64);
+    deltas(&store, &high, HIGH_PRIORITY_DELTAS as u64 + 1);
+    let lists = crate::utils::helpers::lists_over(
+        store,
+        ultragraphdb_store_posting::ListsConfig::default(),
+    );
+    let read_ts = lists.applied_ts();
     lists.read_uncached(&low, read_ts).unwrap();
     assert_eq!(lists.rollups_waiting(), 1);
     assert_eq!(
@@ -316,11 +348,15 @@ fn test_a_read_of_more_than_500_deltas_queues_its_key_at_high_priority() {
 
 #[test]
 fn test_a_cache_hit_on_more_than_500_deltas_queues_its_key() {
-    let lists = new_lists();
+    let store = crate::utils::helpers::new_store();
     let (at, above) = (key("hit-priority", 1), key("hit-priority", 2));
-    deltas(&lists, &at, HIGH_PRIORITY_DELTAS as u64);
-    deltas(&lists, &above, HIGH_PRIORITY_DELTAS as u64 + 1);
-    let read_ts = lists.store().applied_ts();
+    deltas(&store, &at, HIGH_PRIORITY_DELTAS as u64);
+    deltas(&store, &above, HIGH_PRIORITY_DELTAS as u64 + 1);
+    let lists = crate::utils::helpers::lists_over(
+        store,
+        ultragraphdb_store_posting::ListsConfig::default(),
+    );
+    let read_ts = lists.applied_ts();
     lists.read(&at, read_ts).unwrap();
     lists.read(&above, read_ts).unwrap();
     let waiting = lists.rollups_waiting();
@@ -428,18 +464,19 @@ fn test_a_pause_after_a_rollups_read_cancels_it() {
 /// Commits `uid 9` to `k` as one request: the commit's result.
 fn commit_edges_result(lists: &TestLists, k: &[u8]) -> Result<Vec<u64>, PostingError> {
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     request.get(k)?.add_posting(set_uid(9), false);
     batch.push(request);
     lists.commit(batch)
 }
 
 /// `n` keys with one delta each, written straight to the store so that nothing queues them.
-fn keys_with_deltas(lists: &TestLists, name: &str, n: u64) -> Vec<Vec<u8>> {
+/// `n` keys of `name`, each given a delta at 2 straight in `store`.
+fn keys_with_deltas(store: &ultragraphdb_store_sim::SimStore, name: &str, n: u64) -> Vec<Vec<u8>> {
     (1..=n)
         .map(|i| {
             let k = key(name, i);
-            write_delta(lists.store(), &k, 2, &[set_uid(1)]);
+            write_delta(store, &k, 2, &[set_uid(1)]);
             k
         })
         .collect()
@@ -448,8 +485,12 @@ fn keys_with_deltas(lists: &TestLists, name: &str, n: u64) -> Vec<Vec<u8>> {
 #[test]
 fn test_a_low_priority_batch_is_taken_once_it_holds_sixteen_keys() {
     // ROLLUP_BATCH is 16: fifteen low-priority keys wait, the sixteenth hands the batch to the worker.
-    let lists = new_lists();
-    let keys = keys_with_deltas(&lists, "low-batch", ROLLUP_BATCH as u64);
+    let store = crate::utils::helpers::new_store();
+    let keys = keys_with_deltas(&store, "low-batch", ROLLUP_BATCH as u64);
+    let lists = crate::utils::helpers::lists_over(
+        store,
+        ultragraphdb_store_posting::ListsConfig::default(),
+    );
     keys[..ROLLUP_BATCH - 1]
         .iter()
         .for_each(|k| lists.add_rollup_key(k.clone(), 1));

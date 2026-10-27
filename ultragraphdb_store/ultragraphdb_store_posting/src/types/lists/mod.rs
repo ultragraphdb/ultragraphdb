@@ -21,17 +21,19 @@ use crate::types::lists_config::ListsConfig;
 use crate::types::rollup_queues::RollupQueues;
 use crate::utils::lock::{lock, wait};
 
-/// The posting lists of one store: the reads through the cache, the single writer of commits and rollups, the read
-/// gate, the local timestamp counter and the rollup queues. What Dgraph spreads over `MemoryLayer`, the oracle,
-/// `TxnWriter` and `incrRollupi`, without the pending-transaction layer: a request's writes reach the store only
-/// in its commit batch.
+/// The posting lists of one store: the reads through the cache, the single writer of rounds, batches and rollups, the
+/// read gate, the visibility watermark and the rollup queues. What Dgraph spreads over `MemoryLayer`, the oracle,
+/// `TxnWriter` and `incrRollupi`, without the pending-transaction layer: a transaction's writes reach the store only
+/// in its round's batch.
 ///
-/// **The writer.** One writer lock serialises commit batches, rollup batches, drops, epoch changes and cache fills.
-/// A commit takes its timestamps from the counter under it, writes one store batch, updates the cache, and only
-/// then advances the applied timestamp.
+/// **The writer.** One writer lock serialises rounds, batches, rollup batches, drops, epoch changes and cache fills.
+/// A round is written at the commit versions the commit step gave its transactions as one store batch, the cache is
+/// updated, and only then does the watermark pass it. A batch and a drop, which the commit step does not order, take
+/// the next even versions above the watermark.
 ///
-/// **The read gate.** A read at `t` waits until every commit timestamp assigned at or below `t` is applied, and
-/// moves the counter past `t`, so no later commit lands at or below it.
+/// **The read gate.** A read at the watermark or below never waits. A read above it waits until the watermark reaches
+/// it, and is refused once a write has failed, as nothing then moves the watermark; a read at `u64::MAX` reads
+/// everything applied, waiting only for a write under way.
 ///
 /// **The cache.** An entry serves a read when its epoch is current and its timestamp is at or below the read's
 /// ([`CachedList::serves`]); commits replace or remove the entries of the lists they write, and a fill is refused
@@ -94,7 +96,8 @@ where
         self.config
     }
 
-    /// The highest commit timestamp applied.
+    /// The visibility watermark: the highest commit version applied, written with its cache updates made. A
+    /// transaction reads at it.
     pub fn applied_ts(&self) -> u64 {
         lock(&self.state).applied
     }
@@ -102,22 +105,6 @@ where
     /// The cache's epoch.
     pub fn epoch(&self) -> u64 {
         lock(&self.state).epoch
-    }
-
-    /// A timestamp from the local counter that no one has had.
-    pub fn fresh_ts(&self) -> u64 {
-        lock(&self.state).ts.fresh()
-    }
-
-    /// The newest timestamp the counter has given: the read timestamp of a request that reads everything assigned
-    /// so far, as Zero's `MaxAssigned` serves a read-only query.
-    pub fn latest_ts(&self) -> u64 {
-        lock(&self.state).ts.peek().saturating_sub(1)
-    }
-
-    /// The timestamp the counter gives next: the first commit timestamp of the next batch.
-    pub fn peek_ts(&self) -> u64 {
-        lock(&self.state).ts.peek()
     }
 
     /// The timestamp of the oldest open request, which bounds the discard timestamp.
@@ -129,21 +116,20 @@ where
     ///
     /// # Errors
     ///
-    /// [`StoreError::Poisoned`] when a commit at or below `read_ts` failed to write.
+    /// As [`Lists::gate`].
     pub fn try_gate(&self, read_ts: u64) -> Result<bool, PostingError> {
         let state = lock(&self.state);
         Ok(matches!(Self::gate_of(&state, read_ts)?, Gate::Open))
     }
 
-    /// Waits until every commit timestamp assigned at or below `read_ts` is applied, and moves the counter past
-    /// `read_ts`.
+    /// Waits until the watermark reaches `read_ts`, or, at `u64::MAX`, until no write is under way.
     ///
     /// # Errors
     ///
-    /// [`StoreError::Poisoned`] when a commit at or below `read_ts` failed to write.
+    /// [`StoreError::Poisoned`] when a write at or below `read_ts` failed, or when one failed and `read_ts` is above
+    /// the watermark, which then never reaches it.
     pub fn gate(&self, read_ts: u64) -> Result<(), PostingError> {
         let mut state = lock(&self.state);
-        state.ts.observe(read_ts);
         while let Gate::Wait = Self::gate_of(&state, read_ts)? {
             state = wait(&self.changed, state);
         }
@@ -154,10 +140,15 @@ where
         if state.unapplied_from.is_some_and(|first| first <= read_ts) {
             return Err(StoreError::Poisoned().into());
         }
-        Ok(match state.in_flight {
-            Some(first) if first <= read_ts => Gate::Wait,
-            _ => Gate::Open,
-        })
+        let waits = if read_ts == u64::MAX {
+            state.in_flight.is_some()
+        } else {
+            state.applied < read_ts
+        };
+        if waits && state.write_failed {
+            return Err(StoreError::Poisoned().into());
+        }
+        Ok(if waits { Gate::Wait } else { Gate::Open })
     }
 
     /// Makes every batch written so far survive a power loss: what the owner of `process` durability calls once a

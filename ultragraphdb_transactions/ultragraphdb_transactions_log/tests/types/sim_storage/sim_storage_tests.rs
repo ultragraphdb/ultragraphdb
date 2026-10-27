@@ -224,11 +224,19 @@ fn test_a_torn_write_keeps_a_prefix_and_reports_it() {
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
     let error = write(&mut file, 0, &bytes).expect_err("torn");
     assert_eq!(error.kind(), ErrorKind::Other);
-    let kept = storage.contents(&path("f")).expect("the file");
-    // A tear keeps whole 512-byte sectors, at least one, and never the whole write.
-    assert!(!kept.is_empty() && kept.len() < bytes.len());
-    assert_eq!(kept.len() % 512, 0);
-    assert!(kept.iter().all(|b| *b == 0xAA));
+    let file = storage.contents(&path("f")).expect("the file");
+    // The file system records the whole write, the drive kept a prefix: the file is as long as the write, and a tear
+    // keeps whole 512-byte sectors of it, at least one and never all, the rest zeros.
+    assert_eq!(file.len(), bytes.len());
+    let kept = prefix(&file, 0xAA);
+    assert!(kept > 0 && kept < bytes.len());
+    assert_eq!(kept % 512, 0);
+    assert!(file[kept..].iter().all(|b| *b == 0));
+}
+
+/// How many leading bytes of `bytes` are `value`.
+fn prefix(bytes: &[u8], value: u8) -> usize {
+    bytes.iter().take_while(|b| **b == value).count()
 }
 
 #[test]
@@ -238,9 +246,12 @@ fn test_a_silent_torn_write_keeps_a_prefix_and_reports_success() {
     let bytes = vec![0xAAu8; 16_384];
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     write(&mut file, 0, &bytes).expect("reported as written");
-    let kept = storage.contents(&path("f")).expect("the file");
-    assert!(!kept.is_empty() && kept.len() < bytes.len());
-    assert_eq!(kept.len() % 512, 0);
+    let file = storage.contents(&path("f")).expect("the file");
+    assert_eq!(file.len(), bytes.len());
+    let kept = prefix(&file, 0xAA);
+    assert!(kept > 0 && kept < bytes.len());
+    assert_eq!(kept % 512, 0);
+    assert!(file[kept..].iter().all(|b| *b == 0));
 }
 
 #[test]
@@ -259,13 +270,80 @@ fn test_a_torn_write_over_existing_bytes_keeps_the_rest() {
 }
 
 #[test]
+fn test_a_torn_write_past_the_end_keeps_the_old_bytes_and_zeros_after_them() {
+    let storage = storage(3);
+    let mut file = create(&storage, "f");
+    write(&mut file, 0, &[0x11u8; 4_096]).expect("written");
+    storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
+    write(&mut file, 0, &[0x22u8; 12_288]).expect("reported as written");
+    let file = storage.contents(&path("f")).expect("the file");
+    assert_eq!(file.len(), 12_288, "as long as the write");
+    let kept = prefix(&file, 0x22);
+    assert!(kept > 0 && kept < 12_288 && kept.is_multiple_of(512));
+    let old_end = kept.max(4_096);
+    assert!(file[kept..old_end].iter().all(|b| *b == 0x11));
+    assert!(file[old_end..].iter().all(|b| *b == 0));
+}
+
+#[test]
+fn test_a_short_torn_write_grows_the_file_only_as_far_as_its_prefix() {
+    let storage = storage(7);
+    let mut file = create(&storage, "f");
+    write(&mut file, 0, &[0x11u8; 4_096]).expect("written");
+    storage.fail_at(storage.trace().len(), FaultMode::ShortTornWrite);
+    let error = write(&mut file, 0, &[0xAAu8; 16_384]).expect_err("torn");
+    assert_eq!(error.kind(), ErrorKind::Other);
+    let file = storage.contents(&path("f")).expect("the file");
+    let kept = prefix(&file, 0xAA);
+    assert!(kept > 0 && kept < 16_384 && kept.is_multiple_of(512));
+    // The length is the prefix's end, or the old length where that lies further.
+    assert_eq!(file.len(), kept.max(4_096));
+    assert!(file[kept..].iter().all(|b| *b == 0x11));
+}
+
+#[test]
+fn test_a_random_tear_reported_with_an_error_is_whole_or_short() {
+    let storage = storage(11);
+    let mut file = create(&storage, "f");
+    storage.fail_randomly(2);
+    for i in 0..400 {
+        let _ = write(&mut file, i * 8, b"12345678");
+    }
+    let injected = storage.injected();
+    for mode in [FaultMode::TornWrite, FaultMode::ShortTornWrite] {
+        assert!(
+            injected.iter().any(|(_, _, m)| *m == mode),
+            "{mode:?} drawn"
+        );
+    }
+}
+
+#[test]
+fn test_a_refused_preallocation_is_unsupported() {
+    let storage = storage(1);
+    let mut file = create(&storage, "f");
+    storage.refuse_preallocation();
+    let before = storage.trace().len();
+    let refused = block_on(file.preallocate(4_096)).expect_err("refused");
+    assert_eq!(refused.kind(), ErrorKind::Unsupported);
+    assert_eq!(
+        storage.trace()[before..],
+        [(StorageOperation::Preallocate, path("f"))]
+    );
+    assert_eq!(storage.contents(&path("f")), Some(Vec::new()));
+}
+
+#[test]
 fn test_a_write_shorter_than_a_sector_tears_inside_it() {
     let storage = storage(5);
     let mut file = create(&storage, "f");
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     write(&mut file, 0, &[0x33u8; 64]).expect("reported as written");
-    let kept = storage.contents(&path("f")).expect("the file");
-    assert!(!kept.is_empty() && kept.len() < 64);
+    let file = storage.contents(&path("f")).expect("the file");
+    assert_eq!(file.len(), 64);
+    let kept = prefix(&file, 0x33);
+    assert!(kept > 0 && kept < 64);
+    assert!(file[kept..].iter().all(|b| *b == 0));
 }
 
 #[test]
@@ -280,6 +358,9 @@ fn test_torn_modes_on_other_operations() {
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     block_on(file.truncate(2)).expect("a silent tear does not fault another operation");
     assert_eq!(storage.contents(&path("f")), Some(b"da".to_vec()));
+    storage.fail_at(storage.trace().len(), FaultMode::ShortTornWrite);
+    block_on(file.truncate(1)).expect_err("a short tear fails another operation after its effect");
+    assert_eq!(storage.contents(&path("f")), Some(b"d".to_vec()));
 }
 
 /// The kept length of a 16,384-byte write torn on a storage seeded with `seed`.
@@ -288,7 +369,7 @@ fn tear_length(seed: u64) -> usize {
     let mut file = create(&storage, "f");
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     write(&mut file, 0, &[0xAAu8; 16_384]).expect("reported as written");
-    storage.contents(&path("f")).expect("the file").len()
+    prefix(&storage.contents(&path("f")).expect("the file"), 0xAA)
 }
 
 #[test]
@@ -449,5 +530,5 @@ fn test_a_torn_one_byte_write_keeps_nothing() {
     let mut file = create(&storage, "f");
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     write(&mut file, 0, &[0x33]).expect("reported as written");
-    assert_eq!(storage.contents(&path("f")), Some(Vec::new()));
+    assert_eq!(storage.contents(&path("f")), Some(vec![0]));
 }

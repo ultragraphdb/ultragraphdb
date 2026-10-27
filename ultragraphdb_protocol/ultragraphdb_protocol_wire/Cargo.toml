@@ -19,11 +19,19 @@ autotests = false
 workspace = true
 
 [dependencies]
+oxrdf = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 xxhash-rust = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_core_catalog = { workspace = true }
+ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
+ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_traits_store = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

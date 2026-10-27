@@ -13,9 +13,6 @@ use crate::types::aligned_buf::AlignedBuf;
 use crate::types::compio_file::CompioFile;
 use crate::utils::block::aligned;
 
-/// Zeros are written in pieces of at most this many bytes when a file is preallocated.
-const ZEROS: u64 = 1 << 20;
-
 impl CompioFile {
     /// Refused as [`io::ErrorKind::InvalidInput`] on an aligned file unless `offset` and `len` are whole blocks: what
     /// `O_DIRECT` demands on Linux, checked here on every platform so a misaligned call fails the same way everywhere.
@@ -52,21 +49,31 @@ impl DurableFile for CompioFile {
         result
     }
 
-    /// Zeros written from the end of the file to `len`: blocks written once need no allocation, and no extent
-    /// conversion, when a round is later written over them and synced with `fdatasync`. `fallocate(2)` reserves
-    /// blocks without writing them, and the first write into an unwritten extent changes metadata a data sync must
-    /// flush.
+    /// On Linux, `fallocate(2)` with `FALLOC_FL_KEEP_SIZE` over the first `len` bytes, through `rustix`: the blocks
+    /// are reserved as unwritten extents and the length is left, so the bytes past it still read as absent. The call
+    /// blocks, so it runs on compio's blocking pool, as compio runs its own blocking file calls, on a duplicate of the
+    /// descriptor. The first write into an unwritten extent converts it, a metadata change the round's `fdatasync`
+    /// then flushes with the length it extends (measured in task 12.4). A file system without `fallocate`
+    /// (`EOPNOTSUPP`) is refused as [`io::ErrorKind::Unsupported`]. On macOS nothing is reserved.
     async fn preallocate(&mut self, len: u64) -> io::Result<()> {
-        let mut at = self.length().await?;
-        if at >= len {
-            return Ok(());
-        }
-        self.check(at, len)?;
-        while at < len {
-            let piece = (len - at).min(ZEROS);
-            self.write_at(at, AlignedBuf::zeroed(piece as usize))
-                .await?;
-            at += piece;
+        self.check(0, len)?;
+        #[cfg(target_os = "linux")]
+        {
+            let fd = std::os::fd::AsFd::as_fd(&self.file).try_clone_to_owned()?;
+            compio::runtime::spawn_blocking(move || {
+                rustix::fs::fallocate(&fd, rustix::fs::FallocateFlags::KEEP_SIZE, 0, len).map_err(
+                    |errno| {
+                        let error = io::Error::from_raw_os_error(errno.raw_os_error());
+                        if errno == rustix::io::Errno::OPNOTSUPP {
+                            io::Error::new(io::ErrorKind::Unsupported, error)
+                        } else {
+                            error
+                        }
+                    },
+                )
+            })
+            .await
+            .map_err(|_| io::Error::other("the preallocation's blocking task failed"))??;
         }
         Ok(())
     }

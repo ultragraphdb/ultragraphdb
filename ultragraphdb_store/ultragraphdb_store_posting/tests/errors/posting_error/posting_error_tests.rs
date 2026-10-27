@@ -81,3 +81,17 @@ fn test_a_refused_value_is_the_stores_corruption_naming_its_key() {
     assert_eq!(error.to_string(), "Corrupted value of key 0102: bad");
     assert!(error.source().is_none());
 }
+
+/// A round's version at or below the one before it is refused naming both.
+#[test]
+fn test_a_stale_version_names_both_versions() {
+    let error = PostingError::StaleVersion(12, 14);
+    assert_eq!(
+        error.0,
+        PostingErrorEnum::StaleVersion {
+            version: 12,
+            after: 14
+        }
+    );
+    assert_eq!(error.to_string(), "commit version 12 is not above 14");
+}

@@ -131,7 +131,12 @@ function over its inputs (commit requests, sync completions), so the simulator d
   in (the creation properties when created, and an upsert-and-link's links) that `ChangesetWrite` applies, so tokens,
   reverse lists, statement IDs, statistics and vectors follow the same code as every write. Placeholders that let any
   write name an unresolved UID were considered and not taken: they reach every key, index and statistic a write
-  derives, where upsert-and-link bounds the commit step's work to one node and its links.
+  derives, where upsert-and-link bounds the commit step's work to one node and its links. A predicate's implicit
+  default catalog entry, recorded by its first write, is an insert-if-absent on its catalog key, not a catalog change,
+  so concurrent first writes of one predicate both commit as stage 4's schema storage requires; a declaration remains a
+  catalog change and aborts its namespace's concurrent writers (decided 2026-10-27).
+- **Reads above the watermark:** the session refuses a request naming a read version above W with an error naming both,
+  instead of letting the store's read gate hold a worker until W reaches it (decided 2026-10-27).
 - **Pipeline:** round k+1 is resolved while round k syncs; round k is applied once synced; the watermark passes k once it
   is applied; replies go out.
 - **Rollups** read at W and write one above the newest commit version they fold, as `posting-lists` already states for
@@ -145,6 +150,19 @@ checksum, cluster and incarnation; Iggy's ping-pong superblock with its three ou
 its simulated storage model, written here without `unsafe` (the commit step owns the files; methods take `&mut self`).
 Recovery reads the store's applied version, finds its round, and replays the rounds after it.
 
+Segment allocation (task 3.9; recycling decided 2026-10-27, option (a)): a segment that has never existed is reserved
+with `fallocate(2)` and `FALLOC_FL_KEEP_SIZE` through `rustix` on Linux, not written with zeros, and is as long as its
+rounds; macOS reserves nothing. A file system without `fallocate` (`EOPNOTSUPP`) gets the segment filled with zeros
+instead, with one warning. A checkpoint does not remove the segments it trims: after the superblock is written, it
+zeroes each one whole, syncs it, renames it a spare and syncs the directory, all on the checkpoint path; a new segment
+is a spare renamed, so the steady state allocates nothing and every round's sync is data only. The zeros are what make
+a recycled segment safe to scan: only a round's first block carries a header, so a block of an old round's body after
+the tail could not be told from a damaged header, and would be reported as a torn tail at every restart. Spares are
+kept and never released: a log keeps the disk of the most segments it has held, at most its capacity, which is the
+price of allocating nothing in the steady state. The round that moves into a new segment pays a rename and a directory
+sync on the commit path, once per segment; task 12.4 measures it, and only a measured spike would move the rename to
+the checkpoint.
+
 ### Sessions
 
 Registered through a round; held in the keyspace without versions, written in the round's batch, so recovery restores
@@ -155,6 +173,12 @@ them with the store and replays the rest. Bounded; the oldest evicted.
 Workers are compio runtimes pinned to n−1 cores; a connection is accepted onto the least-loaded worker and stays there;
 frames are read header first, then body into one pooled buffer; the body is checked once and then read through views.
 Results stream as frames on the request's stream while credit lasts.
+
+Every compio runtime, the workers' and the commit step's, is built with `single_issuer` and `defer_taskrun`
+(decided 2026-10-27): each ring is driven by the one thread that owns it, so `IORING_SETUP_SINGLE_ISSUER` (Linux 6.0)
+holds, and `IORING_SETUP_DEFER_TASKRUN` (6.1) runs a ring's completion work only when its thread waits for
+completions, never interrupting a transaction's execution or the commit step at a system call. The README's baseline,
+Linux 6.6, has both, so they are set unconditionally.
 
 ### Fuzzing
 

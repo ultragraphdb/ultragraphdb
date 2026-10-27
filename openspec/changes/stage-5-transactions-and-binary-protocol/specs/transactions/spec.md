@@ -3,7 +3,14 @@
 ### Requirement: Transactions read a snapshot at the visibility watermark
 A transaction SHALL read at the visibility watermark W when it begins: every commit acknowledged before it began SHALL
 be visible to it, and no commit SHALL become visible to it later. A read-only transaction SHALL never be validated and
-SHALL never abort for a conflict.
+SHALL never abort for a conflict. A request naming a read version above W SHALL be refused with an error naming the
+version and W, never held waiting for the watermark (decided 2026-10-27): every version a client holds came from the
+server at or below W, and a commit is acknowledged only once W passes it.
+
+#### Scenario: A read above the watermark is refused
+- **WHEN** a request names a read version above the visibility watermark
+- **THEN** it is refused at once with an error naming the version and the watermark, and the worker serves the next
+  request
 
 #### Scenario: A transaction sees every commit acknowledged before it began
 - **WHEN** a commit setting `<a> <name> "A"` is acknowledged and a transaction then begins and reads `name` of `a`

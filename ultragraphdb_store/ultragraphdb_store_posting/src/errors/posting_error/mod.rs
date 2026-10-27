@@ -47,6 +47,9 @@ pub enum PostingErrorEnum {
     MissingPart { key: Vec<u8> },
     /// A rollup cancelled because rollups are paused: Dgraph's `ErrHighPriorityOp`.
     HighPriorityOp,
+    /// A commit version of a round at or below the version before it: the watermark for the round's first, the
+    /// round's previous version for the others.
+    StaleVersion { version: u64, after: u64 },
 }
 
 impl PostingError {
@@ -105,6 +108,11 @@ impl PostingError {
     #[allow(non_snake_case)]
     pub fn HighPriorityOp() -> Self {
         Self(PostingErrorEnum::HighPriorityOp)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn StaleVersion(version: u64, after: u64) -> Self {
+        Self(PostingErrorEnum::StaleVersion { version, after })
     }
 
     /// A stored value of `key` the decoder refuses, as the store's `Corrupted`.

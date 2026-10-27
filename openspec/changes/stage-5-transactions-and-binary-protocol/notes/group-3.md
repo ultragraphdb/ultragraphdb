@@ -274,6 +274,221 @@ Prepared for that run:
 - No regression case exists, so no replay test was added, and the unit target declares no `data`: a test that reads
   `testdata/` will declare it then.
 
+## 3.9 Segment allocation
+
+Two halves. The first reserves a fresh segment's blocks with `fallocate(2)` and `FALLOC_FL_KEEP_SIZE` in place of
+writing zeros. The second recycles trimmed segments: it was held back because it needs a guard the design does not
+give ("Recycling needs a guard", below), and the user decided it on 2026-10-27, with the file system without
+`fallocate` and a second tear in the simulator ("The second half", below).
+
+### The first half
+
+#### Decisions
+
+- **The reservation**: `DurableFile::preallocate(len)` now reserves the blocks of the file's first `len` bytes and
+  leaves its length and bytes unchanged; on an aligned file `len` is whole blocks, the file's length unchecked. This
+  supersedes 3.2's "preallocated by writing zeros". `CompioFile` calls `rustix::fs::fallocate` with `KEEP_SIZE` on
+  Linux (`cfg(target_os = "linux")`) on compio's blocking pool, on a duplicate of the descriptor, as compio runs its
+  own blocking file calls; on macOS it reserves nothing. `SimFile` reserves nothing the model can observe. A fresh
+  segment is still created, reserved, synced and its directory synced before its first round, and every sync stays
+  where it was.
+- **What a short segment changes**: a segment is as long as its rounds, so the scan reads only what was written (the
+  scan's contract fix for a final round whose padding lies past the bytes, since committed as 385d0c3, is kept). Two
+  places relied on full-length segments:
+  `clear_after_damage` zeroed up to the segment size, which would have written zeros over the reserved rest of a short
+  segment; it now zeroes only up to the segment's length, since past it a segment holds no bytes. `sync_recovered`
+  keeps reserving the cursor's segment again at the open when it is short, which is now nearly always: `fallocate` is
+  idempotent, and a crash between a segment's creation and its reservation leaves one unreserved.
+- **The simulator's tear**: a torn write used to grow the file only to the bytes kept, so a tear could leave a length
+  short of a block. With full-length segments that never mattered; in a short segment the scan, which reads whole
+  blocks, dropped the torn block and lost a silently torn, acknowledged round without a report (the audit's D1 below:
+  12 unit tests and 2 scenarios fail, the property test among them). A real file system records an `O_DIRECT` write's
+  whole end or none of it, and the drive keeps a prefix of sectors, so a torn write now grows the file to the write's
+  end with zeros where the drive kept nothing. Five simulator tests changed their expectation with it, each to that
+  rule.
+- **`rustix`**: `=1.1.6`, no default features, `fs`, a Linux-only dependency of the crate. The release compio already
+  resolves, so the lock adds no package. Pure Rust: on Linux its `linux_raw` backend makes raw system calls with
+  `linux-raw-sys`'s generated constants (`build = false`, no C), and its build script only probes `rustc`; no `cc` in
+  the crate's tree on either platform (`cargo tree -e normal,build`), and on macOS the crate does not depend on it.
+- **A file system without `fallocate`** (`EOPNOTSUPP`) failed the segment's creation as `Io`; the second half replaces
+  that with a fallback.
+
+#### Phase 2: the failing run
+
+No new public surface; the surface's contract changed (`preallocate`, the simulator's tear). The suite was changed and
+extended first and run against the code that wrote zeros: 147 unit tests, **15 failed**, 132 passed; 13 scenarios
+passed. Every failure an assertion of the new contract, none a compile error or a panic elsewhere:
+
+- `durable_file_tests`: `test_preallocate_and_truncate_on_{the_simulated_storage,compio}` (the length is left),
+  `test_aligned_files_on_{the_simulated_storage,compio}` (a short file reserves whole blocks; the length is the write's
+  end), `test_preallocate_reserves_nothing_on_macos` (`st_blocks` 0). `test_preallocate_reserves_the_blocks_on_linux`
+  (`st_blocks` at least 2,048 for 1 MiB, length 0) is compiled for Linux only.
+- `sim_storage_tests`: the five tear tests, and `test_a_torn_write_past_the_end_keeps_the_old_bytes_and_zeros_after_them`.
+- `wal_ordered_log_tests`: `test_rounds_lie_at_block_boundaries_padded_with_zeros` (8,192 bytes, not 16,384),
+  `test_the_log_on_compio_survives_a_reopen` (segment 0 is 12,288 bytes).
+- `wal_tests`: `test_a_fresh_segment_ends_at_its_last_round`, `test_a_tail_segment_cut_short_is_preallocated_again`
+  (reserved and synced at the open, the length left), `test_a_torn_tail_in_a_short_segment_is_cleared_within_its_length`.
+
+Two tests and one scenario that relied on bytes after the rounds (zeros, or junk) now put them there (`test_preallocated_zeros_are_not_read_as_rounds`,
+`test_junk_where_a_round_did_not_fit_is_passed_over`, the step of "Preallocated zeros are not read as rounds"), so
+each still checks what its name says.
+
+#### Phase 3: the audit
+
+16 deliberate defects, one at a time, against the full suite in an isolated copy of the tree (scratch space, not
+committed), each rejected by a test whose subject it is:
+
+| Defect | Rejected by |
+|---|---|
+| D1 a tear grows the file only to the bytes kept | 5 tear tests, 6 WAL torn-tail tests and the property test; 2 scenarios |
+| D2 the simulator's reservation grows the file with zeros | 6: the two contract tests on the simulator, the two WAL length tests, the cut-short and clearing tests |
+| D3 clearing unbounded by the length; D4 bound one block short; D13 bound flipped (`max`) | `test_a_torn_tail_in_a_short_segment_is_cleared_within_its_length` |
+| D17 clearing starts at the damaged block | the clearing test, `test_a_torn_tail_is_truncated_reported_until_overwritten`, the property test |
+| D5 no reservation again at the open; D6 no sync after it | `test_a_tail_segment_cut_short_is_preallocated_again` |
+| D7 the simulator's alignment check dropped; D8 it checks the file's length | `test_aligned_files_on_the_simulated_storage` |
+| D9 compio's alignment check dropped | `test_aligned_files_on_compio` |
+| D11 a tear keeps everything; D12 the zeros after the kept prefix replaced by the write | 14 each, the superblock's fault test among them |
+| D14 a fresh segment not reserved | the trace test, the poisoning test, two torn-tail tests counting steps; 1 scenario |
+
+Not audited, because they run on Linux only: `fallocate` called without `KEEP_SIZE`, or with offset and length
+swapped. `test_preallocate_reserves_the_blocks_on_linux` and the compio contract tests reject both on Linux; task 11.9
+runs them.
+
+#### Phase 4
+
+The implementation passed the audited suite on its first run. The property test passed at 20,000 seeds in release once
+(4.6 s), as at 3.7. Coverage (`cargo llvm-cov`): every changed line covered on macOS except the Linux block of
+`CompioFile::preallocate`, which is not compiled there; its `JoinError` arm is reached only if the blocking closure
+panics, which `fallocate`'s `Result` does not.
+
+**Exercised on Linux: nothing.** `cargo check` and `cargo clippy` of the crate and its tests pass for
+`x86_64-unknown-linux-gnu`, `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. The `fallocate` path, the
+Linux reservation test and the compio suite against a real Linux file system are task 11.9's; the extra sync cost of
+a fresh segment's extent conversion and length update is task 12.4's.
+
+Final counts, Cargo and Bazel equal: `ultragraphdb_transactions_log` unit 147 passed, `bdd` 13 scenarios (26 steps).
+`cargo +nightly fuzz build --fuzz-dir fuzz/ultragraphdb_transactions_log` passes.
+
+### The second half (decided 2026-10-27)
+
+#### Decisions
+
+- **Recycling, option (a), the user's decision of 2026-10-27**: a checkpoint zeroes each segment it trims whole, to the
+  segment size, through the zeroing loop the log already had (`utils::zeros::write_zeros`, 1 MiB aligned pieces, now
+  shared with the torn-tail clearing and the fallback below), syncs it, and renames it a spare, `{index:020}.spare`,
+  named by the segment it was; the directory is synced once after the last. All of it runs in `trim_through`, the
+  checkpoint path, never in a round's `sync`. A new segment takes the lowest spare: renamed to the segment's name, the
+  directory synced, opened, then the round's one write and one sync, so the steady state creates and reserves nothing
+  and the round writes into blocks already written, inside the file's length. With no spare, a segment is created and
+  reserved as in the first half. Spares do not count toward the capacity, and their number is bounded by it: each was
+  a segment. Nothing caps them below that (a log that once grew to its capacity keeps that much disk), which the design
+  does not ask for.
+- **The sequence and why its order**: superblock (temporary, sync, rename, directory sync), then per segment zeros,
+  file sync, rename, then one directory sync. The superblock goes first: zeroing a segment it still keeps would destroy
+  rounds above its checkpoint (the audit's R5 loses acknowledged rounds in the property test). The zeros are durable
+  before the spare's name, so a spare never holds an old round (R3, R4). A crash at any point leaves either the old
+  superblock and every segment intact, or the new superblock with some segments below its first kept, under their own
+  name or as spares; the open recycles those below the first kept the same way (zeros, sync, rename), where it removed
+  them before, and finds the spares by name. `restart_at_checkpoint` recycles too.
+- **What the scan sees**: a recycled segment is zeros at full length, so the block after the tail is a clean end and the
+  scan's rules stand unchanged; the two stale cases found in the first half cannot arise.
+- **No `fallocate` (`EOPNOTSUPP`), the user's decision of 2026-10-27, scoped to that one error**: `CompioFile` maps
+  `EOPNOTSUPP` to `io::ErrorKind::Unsupported`; the log's `reserve` then writes zeros from the segment's written end to
+  its size through the same loop, which reserves the space as `fallocate` does, so a full disk shows at the segment's
+  creation, and logs one warning per log, naming the error, the first time. Every other error still fails the
+  creation as `Io`. The simulator refuses preallocation as unsupported after `SimStorage::refuse_preallocation`.
+- **The second tear**: `FaultMode::ShortTornWrite`, a write torn to a prefix whose file grows only as far as that
+  prefix, reported as an error: a crash during an unsynced write extending the file. The first half's tear stays as
+  `TornWrite` and `SilentTornWrite` (the whole length recorded). A random fault that draws a reported tear takes each
+  at equal odds; a silent tear always keeps the whole length, because a write the drive tore while reporting success
+  and whose length was lost too leaves no bytes for any checksum to find, which the spec's requirement that such a
+  round is detected cannot cover.
+- **What the short tear exercises, and what it does not**: a short tear leaves a length inside a block. The log reads a
+  segment in whole blocks, so the partial block is never scanned, and the round is absent, as it should be, being
+  unacknowledged. That reaches two places that had to change: the torn-tail clearing now zeroes up to the length
+  rounded up to a block (an unaligned end would fail the aligned write), and the open's re-reservation starts its
+  fallback zeros at the length rounded down. It does **not** reach the scan's "a round whose padding lies past the
+  bytes" contract: whole-block bytes always hold a fitting frame's padding, so that contract is reached only by direct
+  callers of `scan_segment` and the fuzz target, as before. The property test asserts both mechanisms run: over its
+  512 seeds, 141 short tears injected into writes and 1,665 spares taken as new segments.
+
+#### Phase 1 and 2
+
+Surface: `FaultMode::ShortTornWrite`, `SimStorage::refuse_preallocation` (`unimplemented!()`), `DurableFile::preallocate`
+documented to refuse as `Unsupported`. The suite, written first: 156 unit tests, **12 failed**, 144 passed; 13 scenarios
+passed. Each failure an assertion of the new behaviour or the `unimplemented!()` panic of `refuse_preallocation`:
+
+- `sim_storage_tests`: `test_a_short_torn_write_grows_the_file_only_as_far_as_its_prefix`,
+  `test_a_random_tear_reported_with_an_error_is_whole_or_short`, `test_a_refused_preallocation_is_unsupported`,
+  `test_torn_modes_on_other_operations` (a short tear on another operation).
+- `wal_ordered_log_tests`: `test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares` (the trace and the
+  spares' zeros), `test_a_new_segment_takes_a_spare_and_allocates_nothing` (rename, directory sync, open, write, sync;
+  no create, no reservation), `test_a_failed_trim_poisons_the_log` (now nine steps).
+- `wal_tests`: `test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_report` (each of the twelve
+  steps faulted after its effect, with and without a power loss: no report, every acknowledged round above the
+  checkpoint read back, three later rounds surviving the next restart without a report, segment 1's spare zeroed),
+  `test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round` (each of the five steps, both ways),
+  `test_a_clean_restart_with_the_tail_in_a_recycled_segment_reports_no_truncation` (the spare's old life held two-block
+  rounds, so its second block was the middle of one, the first half's case 2; the open finds the other spare and the
+  next segment takes it), `test_without_fallocate_a_new_segment_is_filled_with_zeros_and_warned_once`, and the
+  property test (its tallies).
+
+#### Phase 3: the audit
+
+18 deliberate defects, one at a time, in the isolated copy:
+
+| Defect | Rejected by |
+|---|---|
+| R1 recycling does not zero; R2 it zeroes one block | the checkpoint trace test, the spare test, the clean-restart test, both crash tests, and a torn-checkpoint test |
+| R3 no file sync before the rename | the trace test, the poisoning test, both crash tests |
+| R4 renamed before zeroed | the trace test, the checkpoint crash test |
+| R5 recycled before the superblock is written | the trace test, the checkpoint crash test, the property test |
+| R6 spares never taken | the spare test, the clean-restart test, the property test's tally |
+| R7 no directory sync after taking a spare | the spare test, the clean-restart test, the spare crash test, the property test |
+| R8 spares not found at the open | the clean-restart test, the checkpoint crash test |
+| R9 the open leaves segments below the first kept; R10 it removes them | the checkpoint crash test (R9 also `test_open_finishes_an_interrupted_trim_and_sweeps_temporaries`) |
+| R11 the fallback writes nothing; R12 it refuses; R13 it warns every time | the fallback test |
+| R14 a short tear records the whole length | the short-tear test |
+| R15 the draw never tears short | the random-tear test, the property test's tally |
+| R16 clearing to an unpadded length; R17 the open's fallback from an unrounded length; R18 the restart at the checkpoint does not recycle | **none at first**: three gaps |
+
+The gaps were closed by `test_a_torn_tail_before_a_short_torn_write_is_cleared_to_a_whole_block`,
+`test_without_fallocate_a_segment_whose_zeros_were_torn_short_is_filled_at_the_open` (both pick, among seeds 0 to 63,
+the first whose tear ends inside a block) and `test_a_torn_checkpoint_round_after_rounds_below_it_recycles_their_segment_at_the_open`;
+each rejects its defect on the rerun. Not audited, Linux only: the `EOPNOTSUPP` mapping in `CompioFile`.
+
+#### Phase 4
+
+The implementation passed the suite after one change made against a test, not to it: the fallback first read the
+file's length, an extra traced step the fallback test did not expect; `reserve` now takes the written end from its
+caller (0 for a new segment), which the open already knows. The property test passed at 20,000 seeds in release
+(5.6 s). Coverage: every changed line covered on macOS except the Linux block of `CompioFile::preallocate`.
+
+Exercised on Linux: nothing, as in the first half; `cargo clippy --all-targets` passes for `x86_64-unknown-linux-gnu`
+and `aarch64-unknown-linux-musl`. Final counts, Cargo and Bazel equal: unit 159 passed, `bdd` 13 scenarios.
+`cargo +nightly fuzz build --fuzz-dir fuzz/ultragraphdb_transactions_log` passes.
+
+### Recycling needs a guard the design does not give (found in the first half)
+
+The design relies on self-identifying rounds: "a scan stops at the first block that is not the next round of this
+incarnation, so a preallocated segment's zeros or a reused segment's old rounds are never read as rounds." The chain
+does keep them from being read as rounds: a stale round of this incarnation lies below the checkpoint, so its position
+is never the one expected, and `find_complete_round` looks only at the expected position and later, so stale rounds
+never refuse a start either. What it does not give is a clean end. Only a round's first block carries a header, so the
+block after the current tail of a recycled segment is, depending on how the old life's rounds fell:
+
+1. an old round's header, of this incarnation and a lower position: `scan_segment` returns `Damage::Chain`;
+2. a block from the middle of an old round's body: arbitrary bytes, `Damage::Header`.
+
+Both were checked on `scan_segment` (a segment whose old life held two two-block rounds, then one-block round 10
+written over its start: rounds `[10]`, end 4,096, `Some(Header)`; with one-block old rounds, `Some(Chain { position: 2 })`).
+The recovery turns either into a reported torn-tail truncation naming a round that never existed, at every clean
+restart while the tail sits in a recycled segment, which in steady state is always; it then writes zeros over the rest
+of the segment. Nothing acknowledged is lost, but the report stops meaning anything. Case 1 alone could be made a clean
+end (a complete round below the expected position), though the existing rule that a repeated position is chain damage
+stands against it; case 2 cannot, since a block of old body bytes is indistinguishable from a last round whose header
+was damaged on the medium, which must stay a reported truncation.
+
 ## Open, for later groups
 
 - **An availability risk in the probe**: interior damage is told from a torn tail by searching for a complete round of

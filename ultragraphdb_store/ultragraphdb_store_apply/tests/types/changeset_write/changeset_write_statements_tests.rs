@@ -29,7 +29,7 @@ fn by_triple(text: &str) -> StatementRef {
 
 fn record(a: &TestChangesets, graph: u64, id: u64) -> Option<StatementRecord> {
     a.quads()
-        .statement(NS, graph, id, a.quads().lists().latest_ts())
+        .statement(NS, graph, id, a.quads().lists().applied_ts())
         .unwrap()
 }
 
@@ -215,7 +215,7 @@ fn test_statements_in_a_named_graph_keep_their_records_there() {
     .to_bytes();
     let ids = a
         .quads()
-        .objects(&key, a.quads().lists().latest_ts())
+        .objects(&key, a.quads().lists().applied_ts())
         .unwrap()[0]
         .1
         .clone();

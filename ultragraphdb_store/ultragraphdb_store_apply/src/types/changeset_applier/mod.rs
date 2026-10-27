@@ -15,11 +15,12 @@ use ultragraphdb_traits_store::{Executor, ListCache, Store};
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::changeset_core::ChangesetCore;
+use crate::types::executed::Executed;
 
-/// Applies changesets to the quads of one store: each changeset one request, checked against its namespace's catalog,
-/// its statements written to the quad lists with their index, count and statistics entries, committed whole or not at
-/// all. Commits, drops and the swaps of index builds are serialised by one lock, as the single writer of this stage
-/// serialises them. A namespace's catalog is loaded on first use; a namespace with none is given its initial catalog by
+/// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
+/// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
+/// index, count and statistics entries, and committed whole or not at all, in a round at the version the commit step
+/// gives it. Executions run beside each other; rounds, drops and the swaps of index builds are serialised by one lock. A namespace's catalog is loaded on first use; a namespace with none is given its initial catalog by
 /// its first write.
 ///
 /// A declaration adding an index to a predicate holding data builds it on `executor`, in the background: the catalog
@@ -78,28 +79,53 @@ where
         self.core.rebuilding()
     }
 
-    /// Applies `changeset` on its own: its commit, or its refusal, which writes nothing.
-    pub fn apply(&self, changeset: &Changeset) -> Result<Applied, ChangesetError> {
-        self.apply_batch(std::slice::from_ref(changeset))?.remove(0)
-    }
-
-    /// Applies `changesets` in one store batch, each a request reading the writes of those before it and committed
-    /// at its own timestamp: each one's commit or refusal. A refused changeset writes nothing, and the ones after it
-    /// do not see it. A build a declaration of the batch starts is spawned once the batch commits.
+    /// Executes `changeset` against the snapshot at the watermark, as a worker does, writing nothing: its terms
+    /// resolved through the dictionary, a term new to it given a provisional UID from the leases, its operations
+    /// checked against the catalog the last applied round left, its writes built in a request of its own, and its
+    /// reads recorded. Executions do not wait for each other or for the commit step.
     ///
     /// # Errors
     ///
-    /// The store's error when the batch cannot be written.
-    pub fn apply_batch(
-        &self,
-        changesets: &[Changeset],
-    ) -> Result<Vec<Result<Applied, ChangesetError>>, ChangesetError> {
-        let (results, started) = self.core.apply_batch(changesets)?;
+    /// The changeset's refusal, which writes nothing.
+    pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
+        self.core.execute(changeset)
+    }
+
+    /// Writes `round`, the admitted executions of one round with their commit versions, in round order, as one store
+    /// batch: the store and the posting cache take every one at its version, then the catalogs they leave are
+    /// installed, the indexes their declarations remove are dropped and the build one starts is begun, in round order.
+    /// Each one's [`Applied`]. An empty round writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`ChangesetError::Rebuilding`] when an execution of the round starts a build while one runs or another of the
+    /// round starts one, and a version not above the one before it, the watermark for the first, as the posting
+    /// lists' `StaleVersion`; nothing is written. The store's error when the batch cannot be written.
+    pub fn apply_round(&self, round: Vec<(u64, Executed)>) -> Result<Vec<Applied>, ChangesetError> {
+        let (applied, started) = self.core.apply_round(round)?;
+        self.spawn(started);
+        Ok(applied)
+    }
+
+    /// Applies `changeset` on its own: executed at the watermark and written as a round of one at the next version,
+    /// nothing committing between the two. Its commit, or its refusal, which writes nothing. A build its declaration
+    /// starts is spawned once it commits.
+    ///
+    /// # Errors
+    ///
+    /// The changeset's refusal; the store's error when its round cannot be written.
+    pub fn apply(&self, changeset: &Changeset) -> Result<Applied, ChangesetError> {
+        let (applied, started) = self.core.apply(changeset)?;
+        self.spawn(started);
+        Ok(applied)
+    }
+
+    /// Spawns the build of record `started` on the executor, when one was started.
+    fn spawn(&self, started: Option<u64>) {
         if let Some(record) = started {
             let core = Arc::clone(&self.core);
             self.executor.spawn(move || core.run_rebuild(record));
         }
-        Ok(results)
     }
 
     /// Drops `predicate` of `namespace` in every graph, with its catalog entries, its statement records, and its

@@ -7,3 +7,4 @@ pub(crate) mod block;
 pub mod frame;
 pub(crate) mod io_error;
 pub mod scan;
+pub(crate) mod zeros;

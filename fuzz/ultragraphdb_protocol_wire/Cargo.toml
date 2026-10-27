@@ -21,6 +21,9 @@ workspace = true
 [dependencies]
 arbitrary = { workspace = true }
 libfuzzer-sys = { workspace = true }
+oxrdf = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 
@@ -45,6 +48,46 @@ bench = false
 [[bin]]
 name = "frame_fields"
 path = "fuzz_targets/frame_fields.rs"
+test = false
+doc = false
+bench = false
+
+# Every command's body through its view: never a panic, and an accepted body rebuilds its frame.
+[[bin]]
+name = "body"
+path = "fuzz_targets/body.rs"
+test = false
+doc = false
+bench = false
+
+# A Round body: decisions, the record table and each write-set record; the naming of damaged transactions.
+[[bin]]
+name = "round"
+path = "fuzz_targets/round.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a write-set record: refused, or encoded again to the same bytes.
+[[bin]]
+name = "write_set_record"
+path = "fuzz_targets/write_set_record.rs"
+test = false
+doc = false
+bench = false
+
+# Quad patterns with parameters: Prepare then Execute through the statement cache.
+[[bin]]
+name = "quad_pattern"
+path = "fuzz_targets/quad_pattern.rs"
+test = false
+doc = false
+bench = false
+
+# Structure-aware: bodies of every kind built from arbitrary fields, then their bodies mutated.
+[[bin]]
+name = "body_fields"
+path = "fuzz_targets/body_fields.rs"
 test = false
 doc = false
 bench = false

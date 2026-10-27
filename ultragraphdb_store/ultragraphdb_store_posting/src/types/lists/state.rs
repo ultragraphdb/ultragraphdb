@@ -11,9 +11,9 @@ use crate::types::timestamps::Timestamps;
 #[derive(Debug)]
 pub(crate) struct State {
     pub ts: Timestamps,
-    /// The highest commit timestamp applied: written, and its cache updates made.
+    /// The visibility watermark: the highest commit version applied, written and its cache updates made.
     pub applied: u64,
-    /// The first commit timestamp of the batch being written.
+    /// The first version of the round, batch or drop being written.
     pub in_flight: Option<u64>,
     /// The first commit timestamp of a batch whose write failed: reads at or above it are refused, as nothing tells
     /// whether the batch survives the reopening.
@@ -33,7 +33,7 @@ pub(crate) struct State {
 impl State {
     pub fn new(applied: u64) -> Self {
         Self {
-            ts: Timestamps::new(applied),
+            ts: Timestamps::default(),
             applied,
             in_flight: None,
             unapplied_from: None,

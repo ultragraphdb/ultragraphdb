@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, posting/mvcc.go (incrRollupi.rollUpKey, Process, doRollup, addKeyToBatch). Changed
- * for ultragraphdb: translated to Rust; the worker runs on the caller's executor, each run taking the batches that
+ * for ultragraphdb: translated to Rust; a rollup reads at the visibility watermark and writes one above the newest
+ * commit it folds, where Dgraph's takes a fresh timestamp from Zero; the worker runs on the caller's executor, each run taking the batches that
  * wait; a rollup writes its main key, its parts and the deletions of the parts it removes as one batch at the main
  * key's version through the writer, where Dgraph's TxnWriter commits each key on its own; a rollup is discarded
  * when the cache's epoch moved after its read (a drop, a schema change or a rebuild) or its key gained a deletion
@@ -23,7 +24,7 @@ use crate::errors::posting_error::{PostingError, PostingErrorEnum};
 use crate::types::cached_list::CachedList;
 use crate::types::list::List;
 use crate::types::lists::Lists;
-use crate::utils::lock::{lock, wait};
+use crate::utils::lock::lock;
 
 /// How often the worker reports the number of keys it rolled up, as Dgraph does every thousand.
 const REPORT_EVERY: u64 = 1000;
@@ -113,10 +114,10 @@ where
         });
     }
 
-    /// Rolls up the list of `key`: takes a fresh timestamp, waits until every commit below it is applied, reads the
-    /// list there and writes its rollup through the writer, removing the key's cache entry: Dgraph's `rollUpKey`.
-    /// Returns whether it wrote; it writes nothing for a list without deltas, and discards a rollup whose epoch
-    /// moved or whose key gained a deletion above what it read.
+    /// Rolls up the list of `key`: reads it at the watermark and writes its rollup through the writer, one above the
+    /// newest commit version it folds, an odd version and so never a commit's, removing the key's cache entry:
+    /// Dgraph's `rollUpKey`. It takes no version. Returns whether it wrote; it writes nothing for a list without
+    /// deltas, and discards a rollup whose epoch moved or whose key gained a deletion above what it read.
     ///
     /// # Errors
     ///
@@ -162,23 +163,13 @@ where
         Ok(true)
     }
 
-    /// A fresh timestamp for a rollup, once every commit below it is applied, and the cache's epoch then.
+    /// The watermark a rollup reads at, and the cache's epoch then.
     fn rollup_start(&self) -> Result<(u64, u64), PostingError> {
-        let mut state = lock(&self.state);
+        let state = lock(&self.state);
         if state.paused > 0 {
             return Err(PostingError::HighPriorityOp());
         }
-        let ts = state.ts.fresh();
-        while state.in_flight.is_some_and(|first| first < ts) {
-            state = wait(&self.changed, state);
-            if state.paused > 0 {
-                return Err(PostingError::HighPriorityOp());
-            }
-        }
-        if state.unapplied_from.is_some_and(|first| first < ts) {
-            return Err(ultragraphdb_error_store::StoreError::Poisoned().into());
-        }
-        Ok((ts, state.epoch))
+        Ok((state.applied, state.epoch))
     }
 
     /// Whether the newest versions of `key` still reach down to `max_ts`, the newest version the rollup read: a

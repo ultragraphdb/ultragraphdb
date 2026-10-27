@@ -44,28 +44,28 @@ the user's approval at the task that removes them.
 - [x] 3.6 Phase 4: the ping-pong superblock with its three outcomes; checkpoints and trimming; `seal`
 - [x] 3.7 Phase 4: the power-loss-protection flag's defaults for round bounds and checkpoint interval, never touching the sync
 - [x] 3.8 Phase 5: mutants over the log; fuzz targets for the scan over arbitrary segment bytes (never accepting a round whose checksums fail) and for the superblock's decoding
-- [ ] 3.9 Segment allocation (approved 2026-10-27): `fallocate` with `FALLOC_FL_KEEP_SIZE` through `rustix`, pinned directly, for a segment that has never existed, in place of writing zeros; a checkpoint recycles trimmed segments by renaming them for reuse instead of removing them, so steady state allocates nothing and every round's sync is data only; no preallocation on macOS; the extra sync cost of a fresh segment's extent conversion measured in task 12.4
+- [x] 3.9 Segment allocation (approved 2026-10-27): `fallocate` with `FALLOC_FL_KEEP_SIZE` through `rustix`, pinned directly, for a segment that has never existed, in place of writing zeros, with zeros written instead on a file system without `fallocate` (`EOPNOTSUPP`, one warning); a checkpoint recycles trimmed segments by zeroing them and syncing them on the checkpoint path, then renaming them for reuse instead of removing them (option (a), decided 2026-10-27), so steady state allocates nothing and every round's sync is data only; no preallocation on macOS; the extra sync cost of a fresh segment's extent conversion measured in task 12.4
 
 ## 4. Read sets at statement granularity → `ultragraphdb_store_posting`, `ultragraphdb_store_quads`, `ultragraphdb_store_apply`
 
-- [ ] 4.1 Scenarios: changesets ("A changeset reports its regions"), transactions ("What a transaction's reads record and what conflicts with them", recording side)
-- [ ] 4.2 Phases 1–3: `Request`'s tested statements and scanned ranges beside `read_keys`; `QuadWrite::holds`; dictionary absences in `QuadStore`; ranges in the declaration checks
-- [ ] 4.3 Phase 4: inserts record the statement, not the list; deletes, overwrites and unique checks keep their list reads
-- [ ] 4.4 Phase 5: mutants
+- [x] 4.1 Scenarios: changesets ("A changeset reports its regions"), transactions ("What a transaction's reads record and what conflicts with them", recording side)
+- [x] 4.2 Phases 1–3: `Request`'s tested statements and scanned ranges beside `read_keys`; `QuadWrite::holds`; dictionary absences in `QuadStore`; ranges in the declaration checks
+- [x] 4.3 Phase 4: inserts record the statement, not the list; deletes, overwrites and unique checks keep their list reads
+- [x] 4.4 Phase 5: mutants
 
 ## 5. Execution leaves the commit lock → `ultragraphdb_store_apply`, `ultragraphdb_store_posting`
 
-- [ ] 5.1 Scenarios: local-commit (all modified requirements), changesets ("A changeset describes a write")
-- [ ] 5.2 Phases 1–3: `execute` returning `Executed`, `apply_round` taking a round's admitted `Executed`s at given versions; rollups' version rule
-- [ ] 5.3 Phase 4: `ChangesetCore::apply_batch` split; transactions stop using `Batch` and `StackedLayers`; the store batch written with `PersistMode::Buffer`; `Timestamps` keeps open reads and the discard bound and stops giving commit versions
-- [ ] 5.4 Phase 4: rollups read at the watermark and write one above the newest commit version they fold
-- [ ] 5.5 Phase 5: mutants
+- [x] 5.1 Scenarios: local-commit (all modified requirements), changesets ("A changeset describes a write")
+- [x] 5.2 Phases 1–3: `execute` returning `Executed`, `apply_round` taking a round's admitted `Executed`s at given versions; rollups' version rule
+- [x] 5.3 Phase 4: `ChangesetCore::apply_batch` split; transactions stop using `Batch` and `StackedLayers`; the store batch written with `PersistMode::Buffer`; `Timestamps` keeps open reads and the discard bound and stops giving commit versions
+- [x] 5.4 Phase 4: rollups read at the watermark and write one above the newest commit version they fold
+- [x] 5.5 Phase 5: mutants
 
 ## 6. Transactions on a worker → `ultragraphdb_transactions_txn`
 
 - [ ] 6.1 Scenarios: transactions ("Transactions read a snapshot at the visibility watermark", "A transaction reads its own writes", "Transactions have bounded lifetimes", "Interactive transactions")
 - [ ] 6.2 Phases 1–3: `Transaction`, `ReadSet`, the write-set record builder in `protocol_wire`'s layout, the limits as settings
-- [ ] 6.3 Phase 4: snapshots at W, reads of own writes, the 10 s and 16 s limits with retryable errors naming them
+- [ ] 6.3 Phase 4: snapshots at W, reads of own writes, the 10 s and 16 s limits with retryable errors naming them; a read version above W refused at once with an error naming it and W, never waited on (decided 2026-10-27)
 - [ ] 6.4 Phase 5: mutants
 
 ## 7. The commit step → `ultragraphdb_transactions_commit`
@@ -74,9 +74,9 @@ the user's approval at the task that removes them.
 - [ ] 7.2 Phases 1–3: the step function's inputs and outputs; the sequencer, resolver, history, commit-time operations, sessions table
 - [ ] 7.3 Phase 4: rounds closed by the previous sync, bounded; versions `max(previous + 2, 2 × clock µs)`
 - [ ] 7.4 Phase 4: the conflict history (points, statements, ranges), exact validation in round order, pruning and too-old aborts; `QuadStore::confirm`'s IRI check as one rule
-- [ ] 7.5 Phase 4: insert-if-absent, upsert-and-link, compare-and-set and counter add after admission, against the store at W plus every decided but unapplied round's writes (design, "The commit step"); the created node's properties and the links applied through `ChangesetWrite` with the UID filled in
+- [ ] 7.5 Phase 4: insert-if-absent, upsert-and-link, compare-and-set and counter add after admission, against the store at W plus every decided but unapplied round's writes (design, "The commit step"); a predicate's implicit default catalog entry as an insert-if-absent on its catalog key, not a catalog change (decided 2026-10-27); the created node's properties and the links applied through `ChangesetWrite` with the UID filled in
 - [ ] 7.6 Phase 4: the pipeline: log append and sync, apply, watermark, replies; a failed sync stops every later write
-- [ ] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds
+- [ ] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds; the scenario "A write after a build's start in the same round aborts" tested against the resolver, not assumed (decided 2026-10-27)
 - [ ] 7.8 Phase 4: sessions registered through a round, kept in the keyspace without versions, bounded, retries answered from the table
 - [ ] 7.9 Phase 4: recovery: replay above the store's applied version, refusal of a store ahead of the log or a gap
 - [ ] 7.10 Phase 5: mutants
@@ -90,18 +90,18 @@ the user's approval at the task that removes them.
 
 ## 9. Bodies, the bus and the conformance suite → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_bus`
 
-- [ ] 9.1 Scenarios: wire-protocol ("Bodies are read in place", "Handshake, streams, credit and cancellation", "Data requests, prepared statements and describe", "Result batches are columnar and dictionary-encoded", "The conformance suite")
-- [ ] 9.2 Phases 1–3: every body's view and builder; the bus's connection, pool and stream surface; the golden frames and the malformed corpus
-- [ ] 9.3 Phase 4: the bodies, including the Round frame and the write-set record
-- [ ] 9.4 Phase 4: the bus over compio: framing reads into pooled buffers, streams, credit, cancel; the simulated network (drop, delay, duplicate, split)
-- [ ] 9.5 Phase 4: prepared statements over quad patterns with schema ids; describe from the data dictionary; columnar result batches over `core_terms`' encoding
-- [ ] 9.6 Phase 5: mutants; fuzz targets in the bus and client crates' packages under `fuzz/` for every body's view, the round and write-set record, and quad patterns with parameters, seeded with the golden frames; a structure-aware target that builds valid frames from `arbitrary` fields and mutates them
+- [x] 9.1 Scenarios: wire-protocol ("Bodies are read in place", "Handshake, streams, credit and cancellation", "Data requests, prepared statements and describe", "Result batches are columnar and dictionary-encoded", "The conformance suite")
+- [x] 9.2 Phases 1–3: every body's view and builder; the bus's connection, pool and stream surface; the golden frames and the malformed corpus
+- [x] 9.3 Phase 4: the bodies, including the Round frame and the write-set record
+- [x] 9.4 Phase 4: the bus over compio: framing reads into pooled buffers, streams, credit, cancel; the simulated network (drop, delay, duplicate, split)
+- [x] 9.5 Phase 4: prepared statements over quad patterns with schema ids; describe from the data dictionary; columnar result batches over `core_terms`' encoding
+- [x] 9.6 Phase 5: mutants; fuzz targets in the bus and client crates' packages under `fuzz/` for every body's view, the round and write-set record, and quad patterns with parameters, seeded with the golden frames; a structure-aware target that builds valid frames from `arbitrary` fields and mutates them
 
 ## 10. The server and the client → `ultragraphdb_server_session`, `ultragraphdb_server_node`, `ultragraphdb_protocol_client`
 
-- [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client"), and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
+- [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client"), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
 - [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle, the client's surface
-- [ ] 10.3 Phase 4: n−1 compio workers pinned, the commit step on one core, least-loaded accept, bounded queues answering busy
+- [ ] 10.3 Phase 4: n−1 compio workers pinned, the commit step on one core, least-loaded accept, bounded queues answering busy; every runtime built with compio's `single_issuer` and `defer_taskrun` (decided 2026-10-27; Linux 6.6 is the baseline)
 - [ ] 10.4 Phase 4: configuration read once by the binary; start with recovery before accept; graceful shutdown; telemetry through `ultragraphdb_common_telemetry`
 - [ ] 10.5 Phase 4: the Rust client, retrying commits only through its session
 - [ ] 10.6 Phase 5: mutants
@@ -123,10 +123,11 @@ the user's approval at the task that removes them.
 - [ ] 12.1 The stage-4 workload under `Durability::Filesystem` as the baseline
 - [ ] 12.2 Throughput at 1, 2, 4, 8 and n−1 workers with abort rates; the commit step's cost per transaction against the execution cost divided by n−1
 - [ ] 12.3 Match-then-insert and insert-if-absent over a Zipf-distributed set of entities at 8 writers; D46's batch of 1,000 member moves
-- [ ] 12.4 The sync cost and the round sizes on a drive with power-loss protection and on one without; the flag's defaults set from them
+- [ ] 12.4 The sync cost and the round sizes on a drive with power-loss protection and on one without; the flag's defaults set from them; the latency of the round that moves into a new segment (a spare's rename and directory sync) against a round within one, and of a fresh segment's first sync after `fallocate`
 - [ ] 12.5 The write volume of the log beside fjall's journal; the vector indexer's lag on a vector-heavy workload
 - [ ] 12.6 Read summaries' false-abort rates replayed offline against the log's write sets, per budget and bits per key
-- [ ] 12.7 The results in the overview's "Measured" sections, each naming its drive
+- [ ] 12.7 Commit latency (median and p99) and throughput at n−1 workers with the runtimes' `single_issuer` and `defer_taskrun` on and off, on Linux
+- [ ] 12.8 The results in the overview's "Measured" sections, each naming its drive
 
 ## 13. Documentation and close
 

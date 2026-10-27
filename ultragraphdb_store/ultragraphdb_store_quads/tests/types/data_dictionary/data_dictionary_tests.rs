@@ -29,8 +29,8 @@ fn test_a_label_holding_two_objects_of_a_predicate_is_multi_valued() {
         ],
     );
     let d = DataDictionary::new(0);
-    d.run_pass(&store, store.lists().latest_ts()).unwrap();
-    let described = d.describe(&store, store.lists().latest_ts()).unwrap();
+    d.run_pass(&store, store.lists().applied_ts()).unwrap();
+    let described = d.describe(&store, store.lists().applied_ts()).unwrap();
     let person = &described.shapes()[ex("Person").as_str()];
     assert_eq!(
         person.properties()[ex("nick").as_str()].cardinality(),
@@ -54,13 +54,13 @@ fn test_a_label_holding_two_objects_of_a_predicate_is_multi_valued() {
 fn test_a_pass_over_an_older_snapshot_keeps_the_newer_shapes() {
     let store = quads();
     write(&store, 0, &[typed("a", "Person")]);
-    let old = store.lists().latest_ts();
+    let old = store.lists().applied_ts();
     write(
         &store,
         0,
         &[quad("a", "nick", Literal::new_simple_literal("Al"))],
     );
-    let new = store.lists().latest_ts();
+    let new = store.lists().applied_ts();
     let d = DataDictionary::new(0);
     d.run_pass(&store, new).unwrap();
     d.run_pass(&store, old).unwrap();
@@ -72,7 +72,7 @@ fn test_no_shapes_before_the_first_pass() {
     let store = quads();
     write(&store, 0, &[typed("a", "Person")]);
     let d = DataDictionary::new(0);
-    let described = d.describe(&store, store.lists().latest_ts()).unwrap();
+    let described = d.describe(&store, store.lists().applied_ts()).unwrap();
     assert_eq!(described.shapes_ts(), None);
     assert!(described.shapes().is_empty());
 }

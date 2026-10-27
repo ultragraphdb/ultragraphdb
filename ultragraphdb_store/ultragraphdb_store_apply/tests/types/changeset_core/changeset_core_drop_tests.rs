@@ -30,7 +30,7 @@ fn test_dropping_a_predicate_the_store_never_named_changes_nothing() {
     let a = changesets();
     write(&a, &["<a> <knows> <b>"]);
     let before = a.quads().store().contents();
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     assert_eq!(a.drop_predicate(NS, ex("never").as_ref()).unwrap(), latest);
     assert_eq!(a.quads().store().contents(), before);
 }
@@ -99,7 +99,7 @@ fn test_dropping_a_graph_the_store_does_not_hold_changes_nothing() {
     let a = changesets();
     write(&a, &["<a> <knows> <b> <g1>"]);
     let before = a.quads().store().contents();
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     assert_eq!(
         a.drop_graph(NS, GraphName::from(ex("never")).as_ref())
             .unwrap(),
@@ -212,10 +212,10 @@ fn test_each_drop_returns_its_own_timestamp() {
     ];
     for (i, drop) in drops.iter().enumerate() {
         write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"]);
-        let before = a.quads().lists().latest_ts();
+        let before = a.quads().lists().applied_ts();
         let ts = drop();
         assert!(ts > before, "drop {i}: {ts} after {before}");
-        assert_eq!(ts, a.quads().lists().latest_ts(), "drop {i}");
+        assert_eq!(ts, a.quads().lists().applied_ts(), "drop {i}");
     }
 }
 
@@ -262,11 +262,12 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
     }
     .to_bytes();
     a.quads().lists().rollup_key(&key).unwrap();
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
+    // The rollup is written one above the commit it folds, past the watermark: a read of everything reaches it.
     assert!(
         !a.quads()
             .lists()
-            .read(&key, latest)
+            .read(&key, u64::MAX)
             .unwrap()
             .plist()
             .splits()

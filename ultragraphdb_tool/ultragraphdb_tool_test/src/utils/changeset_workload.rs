@@ -400,7 +400,7 @@ impl ChangesetWorkload {
         ctx: &mut SimContext,
     ) -> Result<Option<(&'static str, String)>, ChangesetError> {
         let a = self.applier(ctx)?;
-        let ts = a.quads().lists().latest_ts();
+        let ts = a.quads().lists().applied_ts();
         a.quads().lists().gate(ts)?;
         let forward = lists_of(&a, Keyspace::Forward)?;
         if let Some(detail) = indexes_disagree(&a, &forward)? {
@@ -538,7 +538,7 @@ fn held_of(
 
 /// The keys of `keyspace` in the namespace's default graph live at the newest timestamp, split parts left out.
 fn live_keys(a: &SimChangesets, keyspace: Keyspace) -> Result<Vec<Vec<u8>>, ChangesetError> {
-    let snapshot = a.quads().store().snapshot(a.quads().lists().latest_ts())?;
+    let snapshot = a.quads().store().snapshot(a.quads().lists().applied_ts())?;
     let keys = snapshot
         .scan(&Scan::prefix(key_prefix(
             keyspace,
@@ -557,7 +557,7 @@ type Lists = Vec<(QuadKey, Vec<(EncodedTerm, Vec<u64>)>)>;
 
 /// The objects of every non-empty list of `keyspace`, with its key, in key order.
 fn lists_of(a: &SimChangesets, keyspace: Keyspace) -> Result<Lists, ChangesetError> {
-    let ts = a.quads().lists().latest_ts();
+    let ts = a.quads().lists().applied_ts();
     let mut out = Vec::new();
     for key in live_keys(a, keyspace)? {
         let objects = a.quads().objects(&key, ts)?;
@@ -578,7 +578,7 @@ fn statements_of(
     a: &SimChangesets,
     forward: &Lists,
 ) -> Result<Vec<(Held, Option<u64>)>, ChangesetError> {
-    let ts = a.quads().lists().latest_ts();
+    let ts = a.quads().lists().applied_ts();
     let q = a.quads();
     let mut out = Vec::new();
     for (key, objects) in forward.iter().cloned() {
@@ -662,7 +662,7 @@ fn orphan_record(
             QuadKey::parse(&key).map_err(QuadError::from)?
             && !ids.contains(&statement)
             && a.quads()
-                .statement(NS, DEFAULT_GRAPH, statement, a.quads().lists().latest_ts())?
+                .statement(NS, DEFAULT_GRAPH, statement, a.quads().lists().applied_ts())?
                 .is_some()
         {
             return Ok(Some(format!("record {statement} has no posting")));

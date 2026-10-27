@@ -128,7 +128,7 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
                 Err(_) => break,
             }
         }
-        let (stat, failed) = apply_batch(&a, &clock, &commits)?;
+        let (stat, failed) = apply_step(&a, &clock, &commits)?;
         errors += failed;
         applied.fetch_add(stat.commits, Ordering::Release);
         stats.push(stat);
@@ -177,15 +177,15 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     ))
 }
 
-/// Applies `commits` as one apply step: one batch of the changeset applier. Returns the batch's figures and how many
-/// commits failed.
-fn apply_batch(
+/// Applies `commits` as one apply step: each a round of one of the changeset applier, as no commit step orders them
+/// into larger rounds yet. Returns the step's figures and how many commits failed.
+fn apply_step(
     a: &Arc<BenchApplier>,
     clock: &WallClock,
     commits: &[Changeset],
 ) -> Result<(BatchStat, u64), BenchError> {
     let start = clock.elapsed();
-    let results = a.apply_batch(commits)?;
+    let results: Vec<_> = commits.iter().map(|c| a.apply(c)).collect();
     let nanos = u64::try_from((clock.elapsed() - start).as_nanos()).unwrap_or(u64::MAX);
     let failed = results.iter().filter(|r| r.is_err()).count() as u64;
     let lists_read = results

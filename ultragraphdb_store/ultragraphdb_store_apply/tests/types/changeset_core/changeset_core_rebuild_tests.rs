@@ -62,7 +62,7 @@ fn nearest_with(
         DEFAULT_GRAPH,
         uid(a, "emb"),
     );
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let mut request = a.quads().lists().request(latest);
     let txn = ViTxn::new(&mut request);
     PersistentHnsw::<f32>::new(keys, options, 32)
@@ -256,7 +256,7 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() {
         ultragraphdb_core_keys::DEFAULT_GRAPH,
         uid(&a, "emb"),
     );
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let dead = a.quads().lists().read(&keys.dead(), latest).unwrap();
     let value = dead
         .static_value(latest)

@@ -18,11 +18,11 @@ fn test_a_drop_advances_the_epoch_and_clears_the_cache() {
     lists.read(&k, ts).unwrap();
     let epoch = lists.epoch();
     lists
-        .drop_prefixes(lists.fresh_ts(), std::slice::from_ref(&k), Vec::new())
+        .drop_prefixes(lists.applied_ts(), std::slice::from_ref(&k), Vec::new())
         .unwrap();
     assert_eq!(lists.epoch(), epoch + 1);
     assert!(lists.cached(&k, ts).unwrap().is_none());
-    let after = lists.fresh_ts();
+    let after = lists.applied_ts();
     assert!(uids(&lists.read(&k, after).unwrap(), after, 0).is_empty());
 }
 
@@ -53,31 +53,33 @@ fn test_the_discard_timestamp_stays_at_or_below_the_oldest_open_request() {
     assert!(lists.store().discard_ts() <= ts);
     drop(request);
     assert_eq!(lists.oldest_open_read(), None);
-    let later = lists.fresh_ts();
+    let later = lists.applied_ts();
     lists.set_discard_ts(later).unwrap();
     assert_eq!(lists.store().discard_ts(), later);
 }
 
-/// A drop that takes its timestamp under the writer holds every read at or above it until it is done, as a commit
-/// being written holds them, so no read at the drop's timestamp sees the data it removes.
+/// A drop that takes the next version under the writer holds every read above the watermark until it is done, as a
+/// round being written holds them, so no read at the drop's version sees the data it removes; the watermark then moves
+/// to the drop's version.
 #[test]
-fn test_a_drop_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
+fn test_a_drop_at_the_next_version_holds_reads_above_the_watermark() {
     let (lists, probe) = crate::utils::helpers::probe_lists();
     let k = key("held", 1);
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     request
         .get(&k)
         .unwrap()
         .add_posting(set_uid(1).clone(), false);
     batch.push(request);
-    lists.commit(batch).unwrap();
-    let expected = lists.peek_ts();
+    let watermark = lists.commit(batch).unwrap()[0];
+    let expected = lists.next_version();
+    assert_eq!(expected, watermark + 2);
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let (inner, record) = (std::sync::Arc::clone(&lists), std::sync::Arc::clone(&seen));
     probe.on_next_drop(Box::new(move || {
         let mut seen = record.lock().unwrap();
-        seen.push(inner.try_gate(expected - 1).unwrap());
+        seen.push(inner.try_gate(watermark).unwrap());
         seen.push(inner.try_gate(expected).unwrap());
     }));
     let ts = lists
@@ -85,14 +87,15 @@ fn test_a_drop_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
         .unwrap();
     assert_eq!(ts, expected);
     assert_eq!(*seen.lock().unwrap(), vec![true, false]);
+    assert_eq!(lists.applied_ts(), ts);
     assert!(lists.try_gate(ts).unwrap());
     assert!(uids(&lists.read(&k, ts).unwrap(), ts, 0).is_empty());
 }
 
 #[test]
-fn test_a_drop_of_everything_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
+fn test_a_drop_of_everything_at_the_next_version_holds_reads_above_the_watermark() {
     let (lists, probe) = crate::utils::helpers::probe_lists();
-    let expected = lists.peek_ts();
+    let expected = lists.next_version();
     let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
     let (inner, record) = (std::sync::Arc::clone(&lists), std::sync::Arc::clone(&seen));
     probe.on_next_drop(Box::new(move || {
@@ -104,6 +107,7 @@ fn test_a_drop_of_everything_at_a_fresh_timestamp_holds_reads_at_or_above_it() {
     assert_eq!(*seen.lock().unwrap(), Some(false));
     assert_eq!(lists.epoch(), epoch + 1);
     assert!(lists.try_gate(ts).unwrap());
+    assert_eq!(lists.applied_ts(), ts);
 }
 
 fn write_failed(error: PostingError) -> bool {
@@ -113,14 +117,14 @@ fn write_failed(error: PostingError) -> bool {
     )
 }
 
-/// A drop that fails still advances the epoch, stops every later write, and holds no read: it took no commit
-/// timestamp a read could wait for.
+/// A drop that fails still advances the epoch and stops every later write; a read at the watermark goes ahead, and one
+/// above it is refused, as nothing will take the watermark there.
 #[test]
 fn test_a_failed_drop_advances_the_epoch_and_stops_writes() {
     type Drop = fn(&crate::utils::helpers::TestLists, &[u8]) -> Result<(), PostingError>;
     let drops: [(&str, Drop); 4] = [
         ("drop_prefixes", |l, k| {
-            l.drop_prefixes(l.fresh_ts(), &[k.to_vec()], Vec::new())
+            l.drop_prefixes(l.applied_ts(), &[k.to_vec()], Vec::new())
         }),
         ("drop_prefixes_now", |l, k| {
             l.drop_prefixes_now(&[k.to_vec()], Vec::new()).map(|_| ())
@@ -147,25 +151,29 @@ fn test_a_failed_drop_advances_the_epoch_and_stops_writes() {
             poisoned,
             "{name}: a later drop of everything"
         );
-        let peek = lists.peek_ts();
-        assert!(lists.try_gate(peek).unwrap(), "{name}: no read waits on it");
+        let next = lists.next_version();
+        assert_eq!(
+            lists.try_gate(next),
+            poisoned.map(|()| false),
+            "{name}: no read waits on it"
+        );
         assert!(lists.try_gate(ts).unwrap(), "{name}");
     }
 }
 
 #[test]
-fn test_a_drop_at_a_given_timestamp_takes_none_from_the_counter() {
+fn test_a_drop_at_a_given_timestamp_moves_no_version() {
     let lists = new_lists();
     let k = key("drop-given", 1);
     commit_edges(&lists, &k, &[set_uid(1)]);
-    let next = lists.peek_ts();
+    let next = lists.next_version();
     lists
         .drop_prefixes(next + 10, std::slice::from_ref(&k), Vec::new())
         .unwrap();
-    assert_eq!(lists.peek_ts(), next);
+    assert_eq!(lists.next_version(), next);
     lists.drop_all(Vec::new()).unwrap();
-    assert_eq!(lists.peek_ts(), next);
+    assert_eq!(lists.next_version(), next);
     assert_eq!(lists.drop_all_now(Vec::new()).unwrap(), next);
-    assert_eq!(lists.drop_prefixes_now(&[k], Vec::new()).unwrap(), next + 1);
-    assert_eq!(lists.peek_ts(), next + 2);
+    assert_eq!(lists.drop_prefixes_now(&[k], Vec::new()).unwrap(), next + 2);
+    assert_eq!(lists.next_version(), next + 4);
 }

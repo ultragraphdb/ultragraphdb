@@ -88,11 +88,11 @@ pub fn delete_all() -> Posting {
     delete_all_posting()
 }
 
-/// Commits `postings` to `key` as one request reading at the newest timestamp: the commit timestamp, the one the
-/// counter gives next.
+/// Commits `postings` to `key` as one request of a batch reading at the watermark: the commit version, the next even
+/// one.
 pub fn commit_edges(lists: &TestLists, key: &[u8], postings: &[Posting]) -> u64 {
     let mut batch = lists.batch();
-    let mut request = batch.request(lists.latest_ts());
+    let mut request = batch.request(lists.applied_ts());
     let list = request.get(key).expect("read");
     postings
         .iter()
@@ -318,12 +318,22 @@ pub fn write_delta(store: &SimStore, key: &[u8], commit_ts: u64, postings: &[Pos
     store.apply(batch, PersistMode::Buffer).expect("write");
 }
 
-/// Moves `lists`' counter so that its next commit is at `commit_ts`.
-pub fn next_commit_at<S: Store>(lists: &Lists<S, SimListCache<CachedList>>, commit_ts: u64) {
-    lists.gate(commit_ts - 1).expect("gate");
-    assert_eq!(
-        lists.peek_ts(),
-        commit_ts,
-        "the counter is already past {commit_ts}"
-    );
+/// Commits `postings` to `key` as one transaction reading the list at the watermark, in a round of its own at
+/// `version`: the version.
+pub fn commit_edges_at<S: Store>(
+    lists: &Lists<S, SimListCache<CachedList>>,
+    key: &[u8],
+    postings: &[Posting],
+    version: u64,
+) -> u64 {
+    let mut request = lists.request(lists.applied_ts());
+    let list = request.get(key).expect("read");
+    postings
+        .iter()
+        .for_each(|p| list.add_posting(p.clone(), false));
+    let writes = request.into_writes();
+    lists
+        .commit_round(&[(version, &writes)])
+        .expect("the round is written");
+    version
 }

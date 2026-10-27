@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The wire-protocol scenarios of the header, checksums and validation.
+//! The wire-protocol scenarios of the header, checksums and validation, and, in `bodies_steps`, of the bodies.
 
 use cucumber::{World, then, when};
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
@@ -16,7 +16,12 @@ mod utils {
     #[allow(dead_code)]
     #[path = "golden.rs"]
     pub mod golden;
+    #[allow(dead_code)]
+    #[path = "golden_bodies.rs"]
+    pub mod golden_bodies;
 }
+
+mod bodies_steps;
 
 use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 
@@ -24,11 +29,16 @@ use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 const SERVER: u64 = CLUSTER;
 
 #[derive(Debug, Default, World)]
-struct Steps {
+pub struct Steps {
     bytes: Vec<u8>,
     frames: Vec<Vec<u8>>,
     refusals: Vec<ProtocolError>,
     checksums: Vec<(u64, u64)>,
+    statement: Option<Result<(), ultragraphdb_protocol_wire::StatementError>>,
+    statement_again: Option<Result<(), ultragraphdb_protocol_wire::StatementError>>,
+    schemas: Vec<u64>,
+    statements: Vec<u64>,
+    truncations: usize,
 }
 
 // One header for every frame.

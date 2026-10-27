@@ -2887,8 +2887,11 @@ name = "ultragraphdb_protocol_bus"
 version = "0.1.0"
 dependencies = [
  "compio",
+ "cucumber",
+ "futures",
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2906,8 +2909,16 @@ version = "0.1.0"
 dependencies = [
  "cucumber",
  "futures",
+ "oxrdf",
+ "ultragraphdb_core_catalog",
+ "ultragraphdb_core_mapping",
+ "ultragraphdb_core_terms",
  "ultragraphdb_error_protocol",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_quads",
+ "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_store",
  "xxhash-rust",
 ]
 
@@ -3141,6 +3152,7 @@ dependencies = [
  "compio",
  "cucumber",
  "futures",
+ "rustix",
  "tracing",
  "tracing-subscriber",
  "ultragraphdb_error_log",

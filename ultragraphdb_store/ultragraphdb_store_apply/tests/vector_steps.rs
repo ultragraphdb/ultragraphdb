@@ -43,7 +43,7 @@ fn keys(a: &TestChangesets, predicate: &str, graph: &str) -> VectorKeys {
 
 /// The single value of the vector-index list `key` at the newest timestamp.
 fn index_value(a: &TestChangesets, key: &[u8]) -> Option<Vec<u8>> {
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let list = a.quads().lists().read(key, latest).expect("the list reads");
     list.static_value(latest)
         .and_then(|pl| pl.postings().first())
@@ -66,7 +66,7 @@ fn neighbours(a: &TestChangesets, keys: &VectorKeys, node: u64) -> Vec<Vec<u64>>
 
 /// The `k` nodes the index at `keys` finds nearest `query`, the text of a vector literal.
 fn search(a: &TestChangesets, keys: &VectorKeys, query: &str, k: usize) -> Vec<u64> {
-    let latest = a.quads().lists().latest_ts();
+    let latest = a.quads().lists().applied_ts();
     let mut request = a.quads().lists().request(latest);
     let txn = ViTxn::new(&mut request);
     let index =

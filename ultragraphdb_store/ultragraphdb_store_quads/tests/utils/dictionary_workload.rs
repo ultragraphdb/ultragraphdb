@@ -180,7 +180,7 @@ impl DictionaryWorkload {
         let mut batch = quads.lists().batch();
         let mut terms: Vec<WriteTerms> = Vec::new();
         for _ in 0..ctx.rng().between(1, 3) {
-            let mut write = QuadWrite::new(&quads, 0, batch.request(quads.lists().fresh_ts()));
+            let mut write = QuadWrite::new(&quads, 0, batch.request(quads.lists().applied_ts()));
             for _ in 0..ctx.rng().between(1, 4) {
                 let subject: NamedOrBlankNode = match self.term(ctx) {
                     Term::NamedNode(n) => n.into(),
@@ -228,7 +228,7 @@ impl DictionaryWorkload {
         quads: &SimQuads,
         ctx: &mut SimContext,
     ) -> Result<Option<Vec<u8>>, QuadError> {
-        let snapshot = quads.store().snapshot(quads.lists().latest_ts())?;
+        let snapshot = quads.store().snapshot(quads.lists().applied_ts())?;
         let keyspace = if ctx.rng().chance(500) {
             Keyspace::Forward
         } else {
@@ -244,7 +244,7 @@ impl DictionaryWorkload {
     /// Reads every forward and reverse list and every term each names through the dictionary.
     fn check(&mut self, ctx: &mut SimContext) -> Result<Option<(&'static str, String)>, QuadError> {
         let quads = self.quads(ctx)?;
-        let ts = quads.lists().latest_ts();
+        let ts = quads.lists().applied_ts();
         let snapshot = quads.store().snapshot(ts)?;
         let mut keys: Vec<Vec<u8>> = Vec::new();
         for keyspace in [Keyspace::Forward, Keyspace::Reverse] {
