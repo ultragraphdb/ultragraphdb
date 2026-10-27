@@ -1,0 +1,30 @@
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/segment_scan/mod.rs
+  s_e7d9aa044e41ea::t_ad0f9818d615fb 11-12
+  s_e7d9aa044e41ea::t_b5c27de0fb0cb6 33
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/utils/scan.rs
+  s_e7d9aa044e41ea::t_7e9d41e3872cae 177-178
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils/scan_tests.rs
+  s_e7d9aa044e41ea::t_84be77030d5129 163-199
+  s_e7d9aa044e41ea::t_297d6f3983251b 200-201
+fuzz/ultragraphdb_transactions_log/fuzz_targets/scan.rs
+  s_e7d9aa044e41ea::t_d180cc4b022fbe 9-10
+  s_e7d9aa044e41ea::t_15b97f6cc0a862 28
+ultragraphdb_transactions/ultragraphdb_transactions_log/BUILD.bazel
+  s_e7d9aa044e41ea::t_fef0409ded94c7 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "385d0c36e978a440775b5551d1dd700eabb34e95",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
