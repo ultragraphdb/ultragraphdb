@@ -1,0 +1,56 @@
+scripts/fuzz.sh
+  s_e7d9aa044e41ea::t_34c1de9a04cef0 95-96,98-99
+  s_e7d9aa044e41ea::t_356ee4e753b430 109
+  s_e7d9aa044e41ea::t_1106315243ffb2 126-136,140,143
+  s_e7d9aa044e41ea::t_cb1d1ba8b81dfd 151,156-158,161-162,165
+  s_e7d9aa044e41ea::t_a9c7cd0a34dc59 118-119,121
+  s_e7d9aa044e41ea::t_48913a57319c98 22,29-31,38-40,85-88
+scripts/format.sh
+  s_e7d9aa044e41ea::t_1c1214d00fc128 20-21
+fuzz/ultragraphdb_core_codec/Cargo.toml
+  s_e7d9aa044e41ea::t_169a3e38a4b1ea 5-29
+fuzz/ultragraphdb_protocol_wire/Cargo.toml
+  s_e7d9aa044e41ea::t_ff4f0aeacb8c5c 5-6
+  s_e7d9aa044e41ea::t_23a829428abadf 11-13,18-19,22-25
+openspec/changes/stage-5-transactions-and-binary-protocol/design.md
+  s_e7d9aa044e41ea::t_650c093234ddfe 215
+  s_e7d9aa044e41ea::t_2242311f381bbc 169-172
+  s_e7d9aa044e41ea::t_3492283b2cf2ce 210-213
+fuzz/Cargo.toml
+  s_e7d9aa044e41ea::t_afd6853eb8803f 1-43
+fuzz/ultragraphdb_transactions_log/Cargo.toml
+  s_e7d9aa044e41ea::t_697afeaf1e59b6 5-6
+  s_e7d9aa044e41ea::t_0807531765fbd8 11-13,18-19,22-27
+.gitignore
+  s_e7d9aa044e41ea::t_2fc681a4e9b498 34-40
+AGENTS.md
+  s_e7d9aa044e41ea::t_d73581967a19bc 219
+Cargo.toml
+  s_e7d9aa044e41ea::t_605e868b734ffa 20-21
+fuzz/Cargo.lock
+  s_e7d9aa044e41ea::t_5a748b0158ca0c 377,409,830,833-834,838-839,841-845,853,857,868-877
+fuzz/ultragraphdb_core_codec/fuzz_targets/posting_list_decode.rs
+  s_e7d9aa044e41ea::t_25e268faaa42d2 24-28
+fuzz/ultragraphdb_transactions_log/fuzz_targets/scan.rs
+  s_e7d9aa044e41ea::t_110b6a3b9e7ba0 31-35,44-53,71-82
+fuzz/ultragraphdb_transactions_log/fuzz_targets/superblock.rs
+  s_e7d9aa044e41ea::t_df78ebe17cf799 15-19
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_e7d9aa044e41ea::t_75aa16173dd192 8,17,47,98,119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a00f51e5de911a96570d08744936466b518de05e",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
