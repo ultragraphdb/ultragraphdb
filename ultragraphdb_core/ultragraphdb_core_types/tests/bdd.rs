@@ -28,8 +28,8 @@ struct Steps {
 }
 
 fn golden<T: for<'de> Deserialize<'de> + Clone>(name: &str) -> Vec<T> {
-    let path = ultragraphdb_test_bdd::testdata_dir().join(format!("golden/{name}.json"));
-    ultragraphdb_test_bdd::load_golden::<T>(&path)
+    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/{name}.json"));
+    ultragraphdb_tool_bdd::load_golden::<T>(&path)
         .cases()
         .to_vec()
 }
@@ -564,6 +564,6 @@ fn main() {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

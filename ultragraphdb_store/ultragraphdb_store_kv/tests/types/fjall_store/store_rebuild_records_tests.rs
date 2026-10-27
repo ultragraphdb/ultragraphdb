@@ -10,7 +10,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::META_KEYSPACE;
 use ultragraphdb_traits_store::{PersistMode, RebuildRecord, Store, WriteBatch};
 
-use crate::test_store::{TestDir, ns_key, put, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, ns_key, put, write_raw_in};
 
 fn record(id: u64) -> RebuildRecord {
     RebuildRecord::new(id, vec![ns_key(0, b"idx"), vec![0x04, 1, 2]])

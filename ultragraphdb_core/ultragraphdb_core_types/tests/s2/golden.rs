@@ -16,8 +16,8 @@ use ultragraphdb_core_types::{CellId, Point, R1Interval, R3Vector, Rect, S1Inter
 /// Loads `testdata/golden/types_s2_<name>`; each file holds its vectors as its one case.
 pub fn load<T: DeserializeOwned>(name: &str) -> T {
     let stem = name.trim_end_matches(".json");
-    let path = ultragraphdb_test_bdd::testdata_dir().join(format!("golden/types_s2_{stem}.json"));
-    let golden = ultragraphdb_test_bdd::load_golden::<serde_json::Value>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/types_s2_{stem}.json"));
+    let golden = ultragraphdb_tool_bdd::load_golden::<serde_json::Value>(&path);
     serde_json::from_value(golden.cases()[0].clone())
         .unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
 }

@@ -10,7 +10,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::FjallStore;
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
-use crate::test_store::{TestDir, held, write, write_raw};
+use ultragraphdb_tool_test::{TestDir, held, write, write_raw};
 
 fn one(store: &FjallStore, entry: Entry) {
     write(store, vec![entry]);

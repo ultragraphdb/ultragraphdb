@@ -1573,8 +1573,8 @@ fn check_rendered(
 
 #[test]
 fn test_golden_conversion_matrix() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_convert.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<ConvCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_convert.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<ConvCase>(&path);
     let mut failures = Vec::new();
     let (mut deviations, mut not_utf8_cases) = (0, 0);
     for c in golden.cases() {

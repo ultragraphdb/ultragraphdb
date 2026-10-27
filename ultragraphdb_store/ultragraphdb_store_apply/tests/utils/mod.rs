@@ -4,10 +4,6 @@
  */
 
 #[cfg(test)]
-pub mod changeset_workload;
-#[cfg(test)]
-mod changeset_workload_tests;
-#[cfg(test)]
 #[allow(dead_code)]
 pub mod changesets;
 #[cfg(test)]

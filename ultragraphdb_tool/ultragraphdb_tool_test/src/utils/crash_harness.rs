@@ -127,7 +127,6 @@ pub fn batch_counts(store: &FjallStore, batches: u64) -> Vec<usize> {
 
 /// For each of the first `batches` batches of the `mixed` mode, how many of its keys without a version the store
 /// holds. The scenarios use it; the crash test does not.
-#[allow(dead_code)]
 pub fn versionless_counts(store: &FjallStore, batches: u64) -> Vec<usize> {
     let held = store.dump_versionless().expect("readable");
     (1..=batches)

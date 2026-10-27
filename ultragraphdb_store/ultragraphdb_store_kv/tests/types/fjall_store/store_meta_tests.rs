@@ -9,7 +9,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::{Durability, FjallStore, META_KEYSPACE};
 use ultragraphdb_traits_store::Store;
 
-use crate::test_store::{TestDir, ns_key, put, write, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, ns_key, put, write, write_raw_in};
 
 #[test]
 fn test_the_settings_survive_a_reopen() {

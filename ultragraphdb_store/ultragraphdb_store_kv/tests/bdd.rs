@@ -8,8 +8,6 @@
 // The scenarios use the harness's batch and drop kills; the crash test alone reads temporary keyspaces raw and
 // names every stage.
 #[allow(dead_code)]
-mod crash_harness;
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +19,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore, GcFilter};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
-use crate::crash_harness::{
+use ultragraphdb_tool_test::{
     DROPPED_KEYS, KEYS_PER_BATCH, batch_counts, drop_outcome, fresh_dir, kill_after, kill_at, open,
     raw_drop_state, versionless_counts,
 };
@@ -908,6 +906,6 @@ fn main() {
         Steps::cucumber()
             .max_concurrent_scenarios(4)
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

@@ -7,7 +7,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::DATA_KEYSPACE;
 use ultragraphdb_traits_store::{Entry, Item, Scan, Store, StoreSnapshot};
 
-use crate::test_store::{TestDir, put, scanned, stored, write, write_raw, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, put, scanned, stored, write, write_raw, write_raw_in};
 
 fn keys(got: &[(Vec<u8>, u64)]) -> Vec<&[u8]> {
     got.iter().map(|(k, _)| k.as_slice()).collect()

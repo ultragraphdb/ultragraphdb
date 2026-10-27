@@ -8,8 +8,6 @@ mod fjall_store_store_tests;
 #[cfg(test)]
 mod fjall_store_tests;
 #[cfg(test)]
-mod fjall_store_workload_tests;
-#[cfg(test)]
 mod store_drops_tests;
 #[cfg(test)]
 mod store_gc_tests;

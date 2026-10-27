@@ -15,7 +15,7 @@ use ultragraphdb_core_types::{
 
 /// Dgraph's `loadPolygon`: the geometry of a GeoJSON Feature under Dgraph's `types/testdata`.
 pub fn load_polygon(name: &str) -> Geometry {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("geo").join(name);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("geo").join(name);
     let text = std::fs::read_to_string(&path).unwrap();
     let feature: serde_json::Value = serde_json::from_str(&text).unwrap();
     Geometry::from_geojson(feature["geometry"].to_string())
@@ -115,8 +115,8 @@ pub fn unhex(s: &str) -> Vec<u8> {
 
 #[test]
 fn test_golden_index_tokens() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_geo_index.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<GeoIndexCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_geo_index.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<GeoIndexCase>(&path);
     for c in golden.cases() {
         let g = Geometry::unmarshal_wkb(&unhex(&c.wkb)).unwrap();
         match index_geo_tokens(&g) {

@@ -64,8 +64,8 @@ fn pack_of(w: &Steps) -> &UidPack {
 
 #[given(expr = "the golden UID lists generated from Dgraph with block size {int}")]
 fn golden_lists(w: &mut Steps, block_size: usize) {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/codec_uidpack.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<PackCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/codec_uidpack.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<PackCase>(&path);
     w.golden = golden
         .cases()
         .iter()
@@ -135,7 +135,7 @@ fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: String) 
         .split_whitespace()
         .map(|b| u8::from_str_radix(b, 16).expect("a hex byte"))
         .collect();
-    ultragraphdb_test_bdd::compare_bytes(&format!("block {index}"), &want, &block.deltas).unwrap();
+    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, &block.deltas).unwrap();
 }
 
 #[given("every sorted UID list of length 0 to 100, below 2^32 and across 2^32")]
@@ -262,6 +262,6 @@ fn main() {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

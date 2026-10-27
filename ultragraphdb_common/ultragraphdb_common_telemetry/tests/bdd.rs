@@ -96,6 +96,6 @@ fn main() {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

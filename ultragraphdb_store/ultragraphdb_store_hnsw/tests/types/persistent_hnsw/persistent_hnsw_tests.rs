@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use ultragraphdb_error_options::OptionsErrorEnum;
 use ultragraphdb_store_hnsw::{HnswErrorEnum, PersistentHnsw, SimilarityType};
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 use ultragraphdb_traits_index::{OptionValue, Options};
 
 use crate::utils::helpers::{opts, vkeys};

@@ -6,7 +6,7 @@ its unit tests pass under Cargo and Bazel with equal counts.
 
 - [x] 1.1 Add `cucumber` and `futures` to `[workspace.dependencies]` and the `cucumber` `crate.annotation` (`rustc_env` `CARGO_MANIFEST_DIR = "."`) to `MODULE.bazel`, as proved in the design
 - [x] 1.2 Extend `scripts/test.sh` with the `bdd-test` run
-- [x] 1.3 Create `ultragraphdb_test_bdd` with the traceability test (archived scenarios, pending scenarios, unique names) and the declaration test; scenarios: port-testing
+- [x] 1.3 Create `ultragraphdb_tool_bdd` with the traceability test (archived scenarios, pending scenarios, unique names) and the declaration test; scenarios: port-testing
 - [x] 1.4 Add `scripts/bdd_counts.sh`, comparing each crate's scenario counts under Cargo and Bazel
 - [x] 1.5 Create `tools/golden/` (Go module with a `replace` to `../../fork/dgraph`) and `scripts/golden.sh`; each vector file records the Dgraph commit
 - [x] 1.6 Generate `ultragraphdb_proto_pb` from `protos/pb.proto` and the Badger messages it imports, built by Cargo and Bazel as `ultragraphdb_proto_dgraph` is

@@ -244,8 +244,8 @@ struct PasswordFile {
 
 #[test]
 fn test_golden_go_written_hashes() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_password.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<PasswordFile>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_password.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<PasswordFile>(&path);
     let f = &golden.cases()[0];
     for e in &f.encrypt {
         match encrypt(&e.plain) {

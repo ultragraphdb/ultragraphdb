@@ -18,7 +18,7 @@ use ultragraphdb_core_algo::{
 };
 use ultragraphdb_core_codec::{Decoder, Encoder, encode};
 use ultragraphdb_proto_pb::pb::List;
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 /// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
 struct Rng(u64);

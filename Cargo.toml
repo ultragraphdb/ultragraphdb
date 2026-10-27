@@ -12,7 +12,6 @@ members = [
     "ultragraphdb_error/*",
     "ultragraphdb_proto/*",
     "ultragraphdb_store/*",
-    "ultragraphdb_test/*",
     "ultragraphdb_tool/*",
     "ultragraphdb_traits/*",
 ]
@@ -22,7 +21,7 @@ edition = "2024"
 rust-version = "1.98.1"
 readme = "README.md"
 license = "Apache-2.0"
-repository = "https://github.com/causalcenter/ultragraphdb.git"
+repository = "https://github.com/ultragraphdb/ultragraphdb.git"
 authors = ["Marvin Hansen <marvin.hansen@gmail.com>"]
 publish = false
 
@@ -61,8 +60,10 @@ ultragraphdb_store_kv = { path = "ultragraphdb_store/ultragraphdb_store_kv" }
 ultragraphdb_store_posting = { path = "ultragraphdb_store/ultragraphdb_store_posting" }
 ultragraphdb_store_quads = { path = "ultragraphdb_store/ultragraphdb_store_quads" }
 ultragraphdb_store_sim = { path = "ultragraphdb_store/ultragraphdb_store_sim" }
-## Test
-ultragraphdb_test_bdd = { path = "ultragraphdb_test/ultragraphdb_test_bdd" }
+## Tool
+ultragraphdb_tool_bdd = { path = "ultragraphdb_tool/ultragraphdb_tool_bdd" }
+ultragraphdb_tool_bench = { path = "ultragraphdb_tool/ultragraphdb_tool_bench" }
+ultragraphdb_tool_test = { path = "ultragraphdb_tool/ultragraphdb_tool_test" }
 ## Traits
 ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
 ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }

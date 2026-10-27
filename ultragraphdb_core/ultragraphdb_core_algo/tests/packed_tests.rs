@@ -14,7 +14,7 @@ use ultragraphdb_core_algo::{
 };
 use ultragraphdb_core_codec::{Encoder, decode, encode};
 use ultragraphdb_proto_pb::pb::UidPack;
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 fn new_uid_pack(data: &[u64]) -> Option<UidPack> {
     // Using a small block size to make sure multiple blocks are used by the tests.

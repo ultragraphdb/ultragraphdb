@@ -13,7 +13,7 @@ use ultragraphdb_traits_store::{
     Entry, MAX_USER_KEY_SIZE, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
 };
 
-use crate::test_store::{TestDir, ns_key, put, write};
+use ultragraphdb_tool_test::{TestDir, ns_key, put, write};
 
 fn batch(entries: Vec<Entry>) -> WriteBatch {
     let mut batch = WriteBatch::new();

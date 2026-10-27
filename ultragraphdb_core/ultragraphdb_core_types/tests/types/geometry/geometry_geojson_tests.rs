@@ -30,8 +30,8 @@ fn unhex(s: &str) -> Vec<u8> {
 
 #[test]
 fn from_geojson_matches_go() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_geojson.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<GeoJsonCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_geojson.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<GeoJsonCase>(&path);
     assert!(golden.cases().len() > 60);
     let failures: Vec<String> = golden
         .cases()

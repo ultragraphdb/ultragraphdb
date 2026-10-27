@@ -8,12 +8,12 @@ load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 rust_library(
-    name = "ultragraphdb_test_bdd",
+    name = "ultragraphdb_tool_bdd",
     srcs = glob(["src/**/*.rs"]),
     aliases = aliases(),
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
-    tags = ["ultragraphdb_test_bdd"],
+    tags = ["ultragraphdb_tool_bdd"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),
 )
@@ -29,7 +29,7 @@ rust_test(
     tags = [
         "unit-test",
     ],
-    deps = [":ultragraphdb_test_bdd"] + all_crate_deps(
+    deps = [":ultragraphdb_tool_bdd"] + all_crate_deps(
         normal = True,
         normal_dev = True,
     ),
@@ -45,7 +45,7 @@ rust_test(
         "bdd-test",
     ],
     use_libtest_harness = False,
-    deps = [":ultragraphdb_test_bdd"] + all_crate_deps(
+    deps = [":ultragraphdb_tool_bdd"] + all_crate_deps(
         normal = True,
         normal_dev = True,
     ),

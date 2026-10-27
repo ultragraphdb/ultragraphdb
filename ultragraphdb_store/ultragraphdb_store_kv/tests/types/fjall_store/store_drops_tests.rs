@@ -10,7 +10,7 @@ use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_kv::{DropStage, META_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, Store};
 
-use crate::test_store::{TestDir, held, ns_key, put, write};
+use ultragraphdb_tool_test::{TestDir, held, ns_key, put, write};
 
 /// An entry of a drop record: key, version, kind, meta byte and value.
 type RecordEntry<'a> = (&'a [u8], u64, u8, u8, &'a [u8]);

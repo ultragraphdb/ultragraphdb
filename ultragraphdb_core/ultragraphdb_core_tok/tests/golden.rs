@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 
 /// The cases of `testdata/golden/<name>.json`.
 pub(crate) fn cases<T: DeserializeOwned + Clone>(name: &str) -> Vec<T> {
-    let path = ultragraphdb_test_bdd::testdata_dir().join(format!("golden/{name}.json"));
-    ultragraphdb_test_bdd::load_golden::<T>(&path)
+    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/{name}.json"));
+    ultragraphdb_tool_bdd::load_golden::<T>(&path)
         .cases()
         .to_vec()
 }

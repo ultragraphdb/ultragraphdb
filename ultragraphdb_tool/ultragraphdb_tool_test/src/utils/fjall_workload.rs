@@ -20,7 +20,7 @@ use ultragraphdb_store_sim::{
 };
 use ultragraphdb_traits_store::{Store, StoreSnapshot, Temporary};
 
-use crate::test_store::TestDir;
+use crate::utils::test_store::TestDir;
 
 /// One stored version as both stores are compared: key, version, meta byte, discard flag, deletion, value.
 type Version = (Vec<u8>, u64, u8, bool, bool, Vec<u8>);
@@ -386,16 +386,38 @@ impl Mirror {
 
 /// What a run on both stores did.
 #[derive(Debug, Default)]
-struct Run {
+pub struct Run {
     replayed: usize,
     fenced: usize,
     recoveries: usize,
     versionless_reads: (usize, usize),
 }
 
+impl Run {
+    /// How many records were replayed on fjall.
+    pub fn replayed(&self) -> usize {
+        self.replayed
+    }
+
+    /// How many entries prefix drops wrote, fenced on both stores.
+    pub fn fenced(&self) -> usize {
+        self.fenced
+    }
+
+    /// How many times fjall was reopened after a crash between steps.
+    pub fn recoveries(&self) -> usize {
+        self.recoveries
+    }
+
+    /// How many versionless reads were replayed, and how many of them found a value.
+    pub fn versionless_reads(&self) -> (usize, usize) {
+        self.versionless_reads
+    }
+}
+
 /// Runs the store workload for `steps` steps of `seed` on the simulated store and fjall at once, as
 /// `Simulation::run` schedules it.
-fn run_both(seed: u64, faults: FaultConfig, steps: u64, readers: usize) -> Result<Run, String> {
+pub fn run_both(seed: u64, faults: FaultConfig, steps: u64, readers: usize) -> Result<Run, String> {
     let seed = Seed::new(seed);
     let mut sim = Simulation::new(seed, faults);
     let mut workload = StoreWorkload::new(readers).with_versionless_reads();
@@ -464,44 +486,4 @@ fn run_both(seed: u64, faults: FaultConfig, steps: u64, readers: usize) -> Resul
     run.fenced = mirror.fenced;
     run.versionless_reads = mirror.versionless_reads;
     Ok(run)
-}
-
-#[test]
-fn test_the_store_workload_passes_the_same_checks_on_fjall() {
-    let runs: Vec<Run> = (1..=12)
-        .map(|seed| run_both(seed, FaultConfig::none(), 300, 2).unwrap_or_else(|e| panic!("{e}")))
-        .collect();
-    let replayed: usize = runs.iter().map(|r| r.replayed).sum();
-    let fenced: usize = runs.iter().map(|r| r.fenced).sum();
-    let (reads, found) = runs.iter().fold((0, 0), |(r, f), run| {
-        (r + run.versionless_reads.0, f + run.versionless_reads.1)
-    });
-    // Evidence that the run did something: a skip and a pass look alike.
-    println!(
-        "replayed {replayed} operations on fjall over 12 seeds; {fenced} fenced entries written by prefix drops; \
-         {reads} versionless reads, {found} of them finding a value"
-    );
-    assert!(replayed > 12 * 300);
-    assert!(
-        found > 0 && found < reads,
-        "versionless reads found {found} values in {reads} reads"
-    );
-}
-
-#[test]
-fn test_the_store_workload_survives_crashes_on_fjall() {
-    let runs: Vec<Run> = (101..=106)
-        .map(|seed| {
-            run_both(
-                seed,
-                FaultConfig::none().with_crash_between_steps(30),
-                300,
-                2,
-            )
-            .unwrap_or_else(|e| panic!("{e}"))
-        })
-        .collect();
-    let recoveries: usize = runs.iter().map(|r| r.recoveries).sum();
-    println!("reopened fjall {recoveries} times over 6 seeds");
-    assert!(recoveries >= 6);
 }

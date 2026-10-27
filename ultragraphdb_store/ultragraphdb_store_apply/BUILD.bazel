@@ -12,7 +12,13 @@ load("//bazel/rust:deps.bzl", "with_proto_bindings")
 rust_library(
     name = "ultragraphdb_store_apply",
     srcs = glob(["src/**/*.rs"]),
-    aliases = aliases(),
+    # aliases() names every dependency, dev-dependencies included; the test helpers depend on this library, so their
+    # alias stays with the test targets.
+    aliases = {
+        label: name
+        for label, name in aliases().items()
+        if label != "//ultragraphdb_tool/ultragraphdb_tool_test"
+    },
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_store_apply"],
@@ -49,6 +55,7 @@ rust_test(
             "tests/changeset_steps.rs",
             "tests/utils/probe.rs",
             "tests/vector_steps.rs",
+            "tests/workload_*.rs",
         ],
     ),
     crate_root = "tests/mod.rs",
@@ -59,6 +66,26 @@ rust_test(
         normal_dev = True,
     )),
 )
+
+# The changeset workload on the simulator: the fixed seeds without faults, with faults, and a seed's replay, one target
+# each so that Bazel runs them in parallel with the unit tests. The workload itself is ultragraphdb_tool_test's.
+[
+    rust_test(
+        name = workload,
+        srcs = ["tests/%s.rs" % workload],
+        crate_root = "tests/%s.rs" % workload,
+        tags = ["unit-test"],
+        deps = [":ultragraphdb_store_apply"] + with_proto_bindings(all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        )),
+    )
+    for workload in [
+        "workload_faults",
+        "workload_replay",
+        "workload_seeds",
+    ]
+]
 
 # cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the
 # changeset helpers and the probe store by path.

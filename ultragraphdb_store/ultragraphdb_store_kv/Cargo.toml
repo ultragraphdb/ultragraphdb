@@ -29,7 +29,8 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
-ultragraphdb_test_bdd = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_tool_test = { workspace = true }
 criterion = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
@@ -48,10 +49,33 @@ path = "tests/mod.rs"
 name = "batch_gib"
 path = "tests/batch_gib.rs"
 
-# Kills the writer binary during a batch and during a drop, then reopens its store.
+# Kills the writer binary during a batch, a drop, a temporary keyspace's life and a rebuild record's write, then
+# reopens its store: one target each, so they run beside each other.
 [[test]]
 name = "crash"
 path = "tests/crash.rs"
+
+[[test]]
+name = "crash_drop"
+path = "tests/crash_drop.rs"
+
+[[test]]
+name = "crash_temporary"
+path = "tests/crash_temporary.rs"
+
+[[test]]
+name = "crash_rebuild"
+path = "tests/crash_rebuild.rs"
+
+# The simulator's store workload run on fjall beside the simulated store, without faults and with crashes: apart
+# from the unit tests, so that the two runs go beside them.
+[[test]]
+name = "fjall_workload_checks"
+path = "tests/fjall_workload_checks.rs"
+
+[[test]]
+name = "fjall_workload_crashes"
+path = "tests/fjall_workload_crashes.rs"
 
 [[test]]
 name = "bdd"

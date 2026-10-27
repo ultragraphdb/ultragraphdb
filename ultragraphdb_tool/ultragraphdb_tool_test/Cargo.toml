@@ -1,0 +1,37 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_tool_test"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# The helpers the store crates' test targets share: a test crate depends on this one, which is how Bazel reaches a
+# helper from more than one test target.
+[dependencies]
+fjall = { workspace = true }
+oxrdf = { workspace = true }
+tracing = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_core_tok = { workspace = true }
+ultragraphdb_error_store = { workspace = true }
+ultragraphdb_store_apply = { workspace = true }
+ultragraphdb_store_kv = { workspace = true }
+ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
+ultragraphdb_store_sim = { workspace = true }
+ultragraphdb_traits_store = { workspace = true }

@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use ultragraphdb_core_codec::{Decoder, SeekPos, decode, encode};
 use ultragraphdb_proto_pb::pb::UidPack;
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SeekStep {

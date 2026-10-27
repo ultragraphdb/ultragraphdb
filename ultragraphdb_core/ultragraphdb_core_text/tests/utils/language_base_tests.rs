@@ -9,7 +9,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_text::language_base;
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 /// Dgraph's `tok.LangBase`, without its cache.
 fn lang_base(lang: &str) -> String {

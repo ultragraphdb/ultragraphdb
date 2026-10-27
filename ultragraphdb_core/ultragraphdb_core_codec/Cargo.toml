@@ -23,7 +23,7 @@ workspace = true
 ultragraphdb_proto_pb = { workspace = true }
 
 [dev-dependencies]
-ultragraphdb_test_bdd = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

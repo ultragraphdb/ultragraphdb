@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_test_bdd::compare_bytes;
+use ultragraphdb_tool_bdd::compare_bytes;
 
 #[test]
 fn equal_bytes_compare_equal() {

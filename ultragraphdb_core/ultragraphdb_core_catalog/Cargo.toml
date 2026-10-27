@@ -29,7 +29,7 @@ oxrdf = { workspace = true }
 [dev-dependencies]
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
-ultragraphdb_test_bdd = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 

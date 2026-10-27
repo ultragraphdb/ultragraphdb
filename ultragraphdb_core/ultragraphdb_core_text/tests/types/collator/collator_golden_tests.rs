@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 
 use serde::Deserialize;
 use ultragraphdb_core_text::{Collator, Tag};
-use ultragraphdb_test_bdd::{compare_bytes, load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{compare_bytes, load_golden, testdata_dir};
 
 #[derive(Debug, Deserialize)]
 struct KeyCase {

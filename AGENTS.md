@@ -141,7 +141,7 @@ Every crate sits in a group folder named for its layer, in a folder named as the
 crate's Bazel package is its path, e.g. `//ultragraphdb_core/ultragraphdb_core_types`. An error raised by more than one
 crate takes a crate of its own under `ultragraphdb_error/`, and a trait implemented outside its crate one under
 `ultragraphdb_traits/`, so a crate naming either depends on that alone. Tests find their crate's `features/` and
-`testdata/` with `ultragraphdb_test_bdd::features_dir()` and `testdata_dir()`, from Bazel's `TEST_TARGET` or Cargo's
+`testdata/` with `ultragraphdb_tool_bdd::features_dir()` and `testdata_dir()`, from Bazel's `TEST_TARGET` or Cargo's
 `CARGO_MANIFEST_DIR`, so moving a crate needs no change in its tests. A binary keeps its own name: the `ultragraph`
 binary is built by `ultragraphdb_bin`.
 
@@ -156,7 +156,7 @@ binary is built by `ultragraphdb_bin`.
 | `ultragraphdb_proto_pb` | `ultragraphdb_proto/ultragraphdb_proto_pb` | `ultragraphdb_proto_dgraph` | Dgraph's internal messages and services, `pb.proto`, with the Badger messages it imports (`badgerpb4.proto`), as modules `pb` and `badgerpb4`. Generated without tonic's transport, whose `connect` clashes with Zero's `Connect` RPC. Built twice, see *Structure exemptions* |
 | `ultragraphdb_traits_collator` | `ultragraphdb_traits/ultragraphdb_traits_collator` | — | `Collator`: the language collation Dgraph's sort uses, implemented by `ultragraphdb_core_types::TextCollator` |
 | `ultragraphdb_traits_index` | `ultragraphdb_traits/ultragraphdb_traits_index` | `ultragraphdb_common_utils`, `ultragraphdb_error_options` | Dgraph's `tok/index` and `tok/options`: the traits `IndexFactory`, `VectorIndex`, `OptionalIndexSupport`, `OptionalSearchOptions`, `Float`, `Txn`, `LocalCache`, `CacheType`, `OptionType`, and the types their signatures name (`Options`, `AllowedOptions`, `OptionValue`, `OptionParser`, `KeyValue`, `SearchPathResult`, `VectorIndexOptions`, `SearchFilter`, `Metric`), so a vector index is implemented without depending on tok. A vector index's cache-generic methods are bounded `C: CacheType<Error = Self::Error>`, and `insert` writes through a `Txn` and takes its level draws from the caller |
-| `ultragraphdb_test_bdd` | `ultragraphdb_test/ultragraphdb_test_bdd` | — | The test harness every crate's suites use: `features_dir` and `testdata_dir`, a crate's `features/` and `testdata/` under both build systems; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors |
+| `ultragraphdb_tool_bdd` | `ultragraphdb_tool/ultragraphdb_tool_bdd` | — | The test harness every crate's suites use: `features_dir` and `testdata_dir`, a crate's `features/` and `testdata/` under both build systems; `load_golden`, `Golden<T>` and `compare_bytes` for golden vectors |
 | `ultragraphdb_core_terms` | `ultragraphdb_core/ultragraphdb_core_terms` | `ultragraphdb_common_utils`, `blake2`, `oxrdf`, `oxsdatatypes` | RDF terms as the store keeps them: `EncodedTerm` and `EncodedLiteral`, the encoding by content with its canonical-form test, `KnownDatatype` and `Datatype`, `Hash128` naming a dictionary entry, the posting fingerprint, vectors (`VectorView`, `FLOAT32_VECTOR`), `TermError` |
 | `ultragraphdb_core_mapping` | `ultragraphdb_core/ultragraphdb_core_mapping` | `ultragraphdb_core_terms`, `oxrdf` | The mapping contract: the canonical statement model (`Statement`, `StatementId`, `CanonicalDataset`), its RDF and property-graph views, the declarations (`PredicateDeclaration`, `TypeDeclaration`, `RelationDeclaration`, `VectorIndexSpec`), and `Changeset` with its `Change`s, the write format the engines produce and storage applies; `MappingError` |
 | `ultragraphdb_core_keys` | `ultragraphdb_core/ultragraphdb_core_keys` | `ultragraphdb_core_terms` | The quad layout's keys: `QuadKey`, one variant per `Keyspace`, built and parsed back into its fields, refusing a truncated key or a zero UID with `QuadKeyError`; split keys under `SPLIT_FLAG`; `key_prefix`, `Region`, `CountDirection`, `ROOT_NAMESPACE`, `DEFAULT_GRAPH` |
@@ -176,6 +176,7 @@ binary is built by `ultragraphdb_bin`.
 | `ultragraphdb_store_quads` | `ultragraphdb_store/ultragraphdb_store_quads` | `ultragraphdb_common_utils`, `ultragraphdb_core_catalog`, `ultragraphdb_core_keys`, `ultragraphdb_core_mapping`, `ultragraphdb_core_terms`, `ultragraphdb_error_store`, `ultragraphdb_proto_pb`, `ultragraphdb_store_posting`, `ultragraphdb_traits_store`, `oxrdf` | Quads on posting lists: `QuadStore` with the term dictionary over the keyspace without versions, `Leases` for UIDs and statement IDs, `QuadWrite` and `WriteTerms`, `StatementRecord`, `Statistics` kept by deltas, and the `DataDictionary` read API with its `Shapes`; `QuadError` |
 | `ultragraphdb_store_apply` | `ultragraphdb_store/ultragraphdb_store_apply` | `ultragraphdb_core_catalog`, `ultragraphdb_core_keys`, `ultragraphdb_core_mapping`, `ultragraphdb_core_terms`, `ultragraphdb_core_tok`, `ultragraphdb_core_types`, `ultragraphdb_error_store`, `ultragraphdb_proto_pb`, `ultragraphdb_store_hnsw`, `ultragraphdb_store_posting`, `ultragraphdb_store_quads`, `ultragraphdb_traits_index`, `ultragraphdb_traits_store`, `oxrdf`, `oxsdatatypes`, `tracing` | Changesets applied to the quads: `ChangesetApplier` (writes checked against the catalog with their value, count and vector indexes, statement records and statistics; declarations checked against the data; index builds in the background with a crash-safe rebuild record; drops of a predicate, graph, namespace or everything), `Applied`, `LevelDraw`, `token_value`, `ChangesetError` |
 | `ultragraphdb_tool_bench` | `ultragraphdb_tool/ultragraphdb_tool_bench` | `ultragraphdb_common_telemetry`, `ultragraphdb_core_keys`, `ultragraphdb_core_mapping`, `ultragraphdb_core_terms`, `ultragraphdb_error_store`, `ultragraphdb_store_apply`, `ultragraphdb_store_kv`, `ultragraphdb_store_posting`, `ultragraphdb_traits_store`, `oxrdf` | The `store_bench` binary: the apply thread at a fixed offered rate with the Dgraph runs' commits as changesets of quads, reporting lists read per relation, cache hits and store reads that found nothing; rollups and the compaction filter over one large predicate; the store's file sizes; each run one JSON line, the clock behind a `Clock` trait so the pacer and summaries are tested without it. Results in the overview's "Measured" sections |
+| `ultragraphdb_tool_test` | `ultragraphdb_tool/ultragraphdb_tool_test` | `ultragraphdb_core_catalog`, `ultragraphdb_core_keys`, `ultragraphdb_core_mapping`, `ultragraphdb_core_terms`, `ultragraphdb_core_tok`, `ultragraphdb_error_store`, `ultragraphdb_store_apply`, `ultragraphdb_store_kv`, `ultragraphdb_store_posting`, `ultragraphdb_store_quads`, `ultragraphdb_store_sim`, `ultragraphdb_traits_store`, `fjall`, `oxrdf`, `tracing` | The helpers the store crates' test targets share, a dev-dependency of `ultragraphdb_store_kv` and `ultragraphdb_store_apply`: `TestDir` and the store's short write and read helpers, the crash writer's harness, the store workload run on fjall beside the simulated store (`run_both`, `Run`), and the changeset applier's workload on the simulator (`ChangesetWorkload`). A slow suite splits into test targets of their own, which Bazel runs in parallel, and each reaches the shared helpers here |
 
 ### Structure exemptions
 
@@ -204,7 +205,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `dashu-base`, `dashu-int` | 0.6 | `ultragraphdb_core_types`; `dashu-int` also `ultragraphdb_common_utils` | Exact integer arithmetic beneath the port of Go's `math/big` for 200-bit big floats |
 | `rust-stemmers` | 1.2 | `ultragraphdb_core_tok` | The Snowball stemmers of nine languages, checked against Go on golden vectors |
 | `unicode-normalization` | 0.1 | `ultragraphdb_core_tok` | NFKC at Unicode 17.0.0, as Go's `x/text` v0.41 |
-| `serde`, `serde_json` | 1.0 | `ultragraphdb_test_bdd`; every core crate's tests | Golden files |
+| `serde`, `serde_json` | 1.0 | `ultragraphdb_tool_bdd`; every core crate's tests | Golden files |
 | `cucumber`, `futures` | 0.23 / 0.3 | every crate's `bdd` test | The BDD scenarios, run without the libtest harness; `futures::executor::block_on` drives them |
 | `criterion` | 0.7.0, no default features | `ultragraphdb_store_kv` (benches) | The kv store's benchmarks, run by `cargo bench` and `bazel run`, never by `make test`. 0.7.0 is the newest release without `alloca`, whose build script compiles C |
 | `fjall` | `=3.1.12` | `ultragraphdb_store_kv` | The LSM-tree storage engine, pure Rust. Pinned exactly: `Store::compact` calls fjall's `#[doc(hidden)]` `rotate_memtable_and_wait` and `major_compact`, which carry no stability promise |
@@ -320,6 +321,9 @@ Shared utils used for testing are stored in the src tree under:
 Bazel cannot access util files from within the test folder, but it can access the full src folder during
 testing. As a result, test utils have to be fully tested to count towards the code coverage score.
 
+A slow suite is split into several test targets, which Bazel runs in parallel. Helpers that more than one of those
+targets uses live in `ultragraphdb_tool/ultragraphdb_tool_test`, a crate the test targets depend on.
+
 The usage of a prelude file is prohibited.
 
 ## Code export
@@ -350,7 +354,7 @@ Panics:
 * Code under `src/` does not panic on any input. Where Dgraph panics, the port returns its crate's error with a clear
   message; the golden file keeps Go's panic as evidence, and the test names the case as a deviation. An `expect`
   remains only where a local invariant proves it cannot fire, and its message states the invariant.
-* `ultragraphdb_test_bdd`, the test harness, panics with a message naming the file or variable at fault and the fault,
+* `ultragraphdb_tool_bdd`, the test harness, panics with a message naming the file or variable at fault and the fault,
   because its callers are tests and a panic is how a test fails. Each panicking function states when under `# Panics`.
 
 Static Dispatch:

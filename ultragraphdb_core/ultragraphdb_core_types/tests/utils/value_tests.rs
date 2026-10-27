@@ -151,8 +151,8 @@ fn hex(b: &[u8]) -> String {
 
 #[test]
 fn test_golden_type_for_value() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_type_for_value.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<TypeForValueCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_type_for_value.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<TypeForValueCase>(&path);
     for c in golden.cases() {
         let (tid, v) = type_for_value(c.input.as_bytes());
         assert_eq!(tid.enum_value(), c.tid, "{}", c.input);

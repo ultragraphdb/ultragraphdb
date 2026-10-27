@@ -232,8 +232,8 @@ fn hex(b: &[u8]) -> String {
 
 #[test]
 fn test_golden_parse_time() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_parse_time.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<ParseTimeCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_parse_time.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<ParseTimeCase>(&path);
     for c in golden.cases() {
         let got = parse_time(&c.input);
         if !c.err.is_empty() {

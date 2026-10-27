@@ -422,9 +422,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
 ]
@@ -1824,9 +1824,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags",
  "errno",
@@ -1950,9 +1950,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smallvec"
-version = "1.16.3"
+version = "1.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
 
 [[package]]
 name = "smart-default"
@@ -2235,9 +2235,9 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac2a5518c70fa84342385732db33fb3f44bc4cc748936eb5833d2df34d6445ef"
+checksum = "16ea7e687c08008d22518056608ad0c1cc721204d30ed48c8439a88ae5b9fc73"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -2255,6 +2255,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
@@ -2263,9 +2264,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-build"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c68f61875ac5293cf72e6c8cf0158086428c82c37229e98c840878f1706b0322"
+checksum = "040c96f2ebcbe22118dfa258310dad07002ccf92139370cf69532e4047c7d400"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -2275,9 +2276,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
+checksum = "8fe9efdab8bb668f5ef526e21c247c8cb658853a754983cb70f1dac3fc4f462a"
 dependencies = [
  "bytes",
  "prost",
@@ -2286,9 +2287,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-prost-build"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "654e5643eff75d7f8c99197ce1440ed19a3474eada74c12bbac488b2cafdae27"
+checksum = "8b0e0e10c4980146d75d5acfe4f7a9822278130ca2025c0dc25c82f7307d63ac"
 dependencies = [
  "prettyplease",
  "proc-macro2",
@@ -2302,9 +2303,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-types"
-version = "0.14.6"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73ab1b02061f83d519bba3caa167f88f261ef05720ab8ebc954ade70de3348e8"
+checksum = "ad1c9997a318a3f912fa8b77dd6cad84707bff7593a9bc2f02be420e41055d52"
 dependencies = [
  "prost",
  "prost-types",
@@ -2483,7 +2484,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "ultragraphdb_common_version",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2494,7 +2495,7 @@ dependencies = [
  "serde",
  "ultragraphdb_error_json",
  "ultragraphdb_error_num",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2511,7 +2512,7 @@ dependencies = [
  "serde_json",
  "ultragraphdb_core_codec",
  "ultragraphdb_proto_pb",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2527,7 +2528,7 @@ dependencies = [
  "ultragraphdb_error_store",
  "ultragraphdb_store_kv",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
 ]
 
@@ -2540,7 +2541,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ultragraphdb_proto_pb",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2551,7 +2552,7 @@ dependencies = [
  "futures",
  "oxrdf",
  "ultragraphdb_core_terms",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2562,7 +2563,7 @@ dependencies = [
  "futures",
  "oxrdf",
  "ultragraphdb_core_terms",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2575,7 +2576,7 @@ dependencies = [
  "oxrdf",
  "oxsdatatypes",
  "ultragraphdb_common_utils",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2585,7 +2586,7 @@ dependencies = [
  "serde",
  "serde_json",
  "ultragraphdb_common_utils",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2604,7 +2605,7 @@ dependencies = [
  "ultragraphdb_error_options",
  "ultragraphdb_proto_pb",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_index",
  "unicode-normalization",
 ]
@@ -2626,7 +2627,7 @@ dependencies = [
  "ultragraphdb_error_num",
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_collator",
 ]
 
@@ -2688,7 +2689,8 @@ dependencies = [
  "ultragraphdb_store_posting",
  "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_tool_test",
  "ultragraphdb_traits_index",
  "ultragraphdb_traits_store",
 ]
@@ -2712,7 +2714,7 @@ dependencies = [
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_index",
  "ultragraphdb_traits_store",
 ]
@@ -2729,7 +2731,8 @@ dependencies = [
  "tracing",
  "ultragraphdb_error_store",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_tool_test",
  "ultragraphdb_traits_store",
 ]
 
@@ -2749,7 +2752,7 @@ dependencies = [
  "ultragraphdb_proto_dgraph",
  "ultragraphdb_proto_pb",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
 ]
 
@@ -2769,7 +2772,7 @@ dependencies = [
  "ultragraphdb_proto_pb",
  "ultragraphdb_store_posting",
  "ultragraphdb_store_sim",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
 ]
 
@@ -2782,12 +2785,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ultragraphdb_error_store",
- "ultragraphdb_test_bdd",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
 ]
 
 [[package]]
-name = "ultragraphdb_test_bdd"
+name = "ultragraphdb_tool_bdd"
 version = "0.1.0"
 dependencies = [
  "cucumber",
@@ -2810,6 +2813,27 @@ dependencies = [
  "ultragraphdb_store_apply",
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",
+ "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_tool_test"
+version = "0.1.0"
+dependencies = [
+ "fjall",
+ "oxrdf",
+ "tracing",
+ "ultragraphdb_core_catalog",
+ "ultragraphdb_core_keys",
+ "ultragraphdb_core_mapping",
+ "ultragraphdb_core_terms",
+ "ultragraphdb_core_tok",
+ "ultragraphdb_error_store",
+ "ultragraphdb_store_apply",
+ "ultragraphdb_store_kv",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_quads",
+ "ultragraphdb_store_sim",
  "ultragraphdb_traits_store",
 ]
 

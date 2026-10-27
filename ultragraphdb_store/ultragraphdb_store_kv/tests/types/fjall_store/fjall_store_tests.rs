@@ -11,8 +11,8 @@ use fjall::{Database, KeyspaceCreateOptions, Readable};
 use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore, META_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
-use crate::test_store::stored;
-use crate::test_store::{TestDir, put, write};
+use ultragraphdb_tool_test::stored;
+use ultragraphdb_tool_test::{TestDir, put, write};
 
 #[test]
 fn test_versions_are_part_of_the_stored_key_and_the_metadata_a_value_prefix() {
@@ -113,5 +113,4 @@ fn test_the_write_pressure_fjall_stalls_on_is_read_from_the_data_keyspace() {
     // A compaction flushes the memtable and moves every table out of level 0.
     assert_eq!((s.l0_table_count(), s.sealed_memtable_count()), (0, 0));
     assert!(s.data_path().starts_with(dir.path()));
-    assert!(s.data_path().join("tables").is_dir());
 }

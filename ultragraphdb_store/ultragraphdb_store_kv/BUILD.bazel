@@ -15,7 +15,13 @@ rust_library(
         ["src/**/*.rs"],
         exclude = ["src/bin/**"],
     ),
-    aliases = aliases(),
+    # aliases() names every dependency, dev-dependencies included; the test helpers depend on this library, so their
+    # alias stays with the test targets.
+    aliases = {
+        label: name
+        for label, name in aliases().items()
+        if label != "//ultragraphdb_tool/ultragraphdb_tool_test"
+    },
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
     tags = ["ultragraphdb_store_kv"],
@@ -47,8 +53,8 @@ rust_doc_test(
     visibility = ["//visibility:public"],
 )
 
-# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It holds
-# the simulator's store workload run on fjall beside the simulated store. Every store lives under TEST_TMPDIR.
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. Every
+# store lives under TEST_TMPDIR; the helpers the targets share are ultragraphdb_tool_test's.
 rust_test(
     name = "ultragraphdb_store_kv_tests",
     srcs = glob(
@@ -56,8 +62,8 @@ rust_test(
         exclude = [
             "tests/batch_gib.rs",
             "tests/bdd.rs",
-            "tests/crash.rs",
-            "tests/crash_harness.rs",
+            "tests/crash*.rs",
+            "tests/fjall_workload_*.rs",
         ],
     ),
     crate_root = "tests/mod.rs",
@@ -83,32 +89,53 @@ rust_test(
     ),
 )
 
-# Kills the writer binary, a declared data dependency, during a batch and during a drop; its stores live under
-# TEST_TMPDIR.
-rust_test(
-    name = "crash",
-    size = "medium",
-    srcs = [
-        "tests/crash.rs",
-        "tests/crash_harness.rs",
-    ],
-    crate_root = "tests/crash.rs",
-    data = [":kv_crash_writer"],
-    env = {"KV_CRASH_WRITER": "$(rootpath :kv_crash_writer)"},
-    tags = ["unit-test"],
-    deps = [":ultragraphdb_store_kv"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
-)
+# Kill the writer binary, a declared data dependency, during a batch, a drop, a temporary keyspace's life and a
+# rebuild record's write: one target each, so Bazel runs them in parallel. Their stores live under TEST_TMPDIR.
+[
+    rust_test(
+        name = crash,
+        size = "medium",
+        srcs = ["tests/%s.rs" % crash],
+        crate_root = "tests/%s.rs" % crash,
+        data = [":kv_crash_writer"],
+        env = {"KV_CRASH_WRITER": "$(rootpath :kv_crash_writer)"},
+        tags = ["unit-test"],
+        deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for crash in [
+        "crash",
+        "crash_drop",
+        "crash_rebuild",
+        "crash_temporary",
+    ]
+]
+
+# The simulator's store workload run on fjall beside the simulated store, without faults and with crashes between
+# steps: one target each, beside the unit tests.
+[
+    rust_test(
+        name = workload,
+        srcs = ["tests/%s.rs" % workload],
+        crate_root = "tests/%s.rs" % workload,
+        tags = ["unit-test"],
+        deps = [":ultragraphdb_store_kv"] + all_crate_deps(
+            normal = True,
+            normal_dev = True,
+        ),
+    )
+    for workload in [
+        "fjall_workload_checks",
+        "fjall_workload_crashes",
+    ]
+]
 
 # cucumber runs its own main: the libtest harness is off, and the feature files and the crash writer are runfiles.
 rust_test(
     name = "bdd",
-    srcs = [
-        "tests/bdd.rs",
-        "tests/crash_harness.rs",
-    ],
+    srcs = ["tests/bdd.rs"],
     crate_root = "tests/bdd.rs",
     data = glob(["features/**/*.feature"]) + [":kv_crash_writer"],
     env = {"KV_CRASH_WRITER": "$(rootpath :kv_crash_writer)"},

@@ -11,7 +11,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_common_utils::go_farm;
-use ultragraphdb_test_bdd::{compare_bytes, load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{compare_bytes, load_golden, testdata_dir};
 
 // go-farm's testData: each input with its Fingerprint64 (the oh64na column).
 const TEST_DATA: &[(u64, &str)] = &[

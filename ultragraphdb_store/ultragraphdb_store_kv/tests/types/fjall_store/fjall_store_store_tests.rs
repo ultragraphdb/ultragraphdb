@@ -10,7 +10,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::TERMS_KEYSPACE;
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
-use crate::test_store::{TestDir, ns_key, put, scanned, versions, write};
+use ultragraphdb_tool_test::{TestDir, ns_key, put, scanned, versions, write};
 
 #[test]
 fn test_a_keys_versions_iterate_newest_first_with_their_meta() {

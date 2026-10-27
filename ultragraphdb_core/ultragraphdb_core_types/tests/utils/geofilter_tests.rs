@@ -473,8 +473,8 @@ struct GeoQueryFile {
 
 #[test]
 fn test_golden_geo_queries() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_geo_query.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<GeoQueryFile>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_geo_query.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<GeoQueryFile>(&path);
     let f = &golden.cases()[0];
     for q in &f.queries {
         let src = pb::SrcFunction {

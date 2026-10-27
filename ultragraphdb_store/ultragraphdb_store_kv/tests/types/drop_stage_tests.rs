@@ -9,7 +9,7 @@
 use ultragraphdb_store_kv::DropStage;
 use ultragraphdb_traits_store::Entry;
 
-use crate::test_store::{TestDir, put, write};
+use ultragraphdb_tool_test::{TestDir, put, write};
 
 fn stages_of_a_drop_over(keys: u32) -> Vec<DropStage> {
     let dir = TestDir::new(&format!("drop-stage-{keys}"));

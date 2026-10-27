@@ -49,8 +49,8 @@ fn val(tid: &str, key: Option<i64>) -> Val {
 
 #[test]
 fn test_golden_sort_order_of_ties() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_sort_order.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<SortOrderCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort_order.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<SortOrderCase>(&path);
     let cases = golden.cases();
     let count = |layer: &str, heap: bool| {
         cases

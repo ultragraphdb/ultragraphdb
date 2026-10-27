@@ -8,7 +8,7 @@
 use fjall::compaction::filter::Verdict;
 use ultragraphdb_store_kv::GcFilter;
 
-use crate::test_store::stored;
+use ultragraphdb_tool_test::stored;
 
 /// A stored value: meta byte, flags (discard 1, deletion 2, fenced 4), value.
 fn value(flags: u8) -> Vec<u8> {

@@ -56,7 +56,7 @@ fork.
 | `ultragraphdb_core_dql` | `ultragraphdb_core_dql` | `dql` |
 | `ultragraphdb_core_schema` | `ultragraphdb_core_schema` | `schema/parse.go`, `schema/state.go`, the in-memory part of `schema/schema.go` |
 | `ultragraphdb_core_chunker` | `ultragraphdb_core_chunker` | `chunker`'s RDF and JSON parsers |
-| `ultragraphdb_test_bdd` | `ultragraphdb_test_bdd` | The traceability check and shared step helpers |
+| `ultragraphdb_tool_bdd` | `ultragraphdb_tool_bdd` | The traceability check and shared step helpers |
 
 One crate per Go package keeps the mapping from a Rust file to its Dgraph source obvious, which the attribution
 rule needs anyway. The crate graph mirrors Dgraph's imports, and Cargo refuses a cycle.
@@ -94,12 +94,12 @@ tokenizer can be checked.
 - Proved on 2026-10-20 in a scratch copy of this workspace (Bazel 9.3.0, `rules_rs` 0.1.0, `cucumber` 0.23.0): both
   build systems ran the same 2 scenarios; a failing step failed the Bazel target; missing feature files failed it with
   a parsing error rather than passing on zero scenarios.
-- `ultragraphdb_test_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
+- `ultragraphdb_tool_bdd` holds the traceability test. It reads every `#### Scenario:` under `openspec/specs/` and
   `openspec/changes/*/specs/`, and every `Scenario:` under `**/features/`. It fails on an archived spec's
   scenario without a feature, on a feature no spec declares, and on a duplicated scenario name; a change's
   scenarios without features are listed as pending, because all five stages' changes exist before their code.
   A stage's change is archived only when none of its scenarios is pending.
-- `ultragraphdb_test_bdd` also holds the declaration test, which checks that every crate with features declares its suite for
+- `ultragraphdb_tool_bdd` also holds the declaration test, which checks that every crate with features declares its suite for
   both build systems. Equal scenario counts under Cargo and Bazel are compared by `scripts/bdd_counts.sh` when a
   stage closes, because a test cannot run both build systems.
 - Dgraph's Go tests are ported to `tests/` as `AGENTS.md` describes, a ported test file named after its Go file.

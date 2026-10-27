@@ -16,7 +16,7 @@ use ultragraphdb_store_hnsw::{
     SimilarityType, add_dead_node, bytes_as_float_array, bytes_to_uint64, concat_strings,
     insert_uids_top_k_by_score, is_equal, parse_edges, uint64_to_bytes, worst_score,
 };
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 #[test]
 fn test_edge_pruning_keeps_best_neighbors() {

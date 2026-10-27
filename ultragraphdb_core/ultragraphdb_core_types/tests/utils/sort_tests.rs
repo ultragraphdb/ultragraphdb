@@ -524,8 +524,8 @@ fn unhex(s: &str) -> Vec<u8> {
 
 #[test]
 fn test_golden_sort_orders() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_sort.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<SortCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<SortCase>(&path);
     for c in golden.cases() {
         let mut rows: Vec<Vec<Val>> = c
             .rows
@@ -592,8 +592,8 @@ const NOT_EXPRESSIBLE: &[(&str, &str, &str)] = &[
 
 #[test]
 fn test_golden_language_sort_orders() {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/types_sort_lang.json");
-    let golden = ultragraphdb_test_bdd::load_golden::<LangSortCase>(&path);
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort_lang.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<LangSortCase>(&path);
     assert!(golden.cases().len() >= 33);
     let (mut checked, mut not_expressible) = (0, 0);
     for c in golden.cases() {

@@ -42,8 +42,8 @@ struct TokensCase {
 }
 
 fn golden() -> Vec<TokensCase> {
-    let path = ultragraphdb_test_bdd::testdata_dir().join("golden/tok_tokens.json");
-    ultragraphdb_test_bdd::load_golden::<TokensCase>(&path)
+    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/tok_tokens.json");
+    ultragraphdb_tool_bdd::load_golden::<TokensCase>(&path)
         .cases()
         .to_vec()
 }
@@ -504,6 +504,6 @@ fn main() {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

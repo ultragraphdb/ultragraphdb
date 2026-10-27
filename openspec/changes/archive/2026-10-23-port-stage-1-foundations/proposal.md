@@ -47,7 +47,7 @@ None; `openspec/specs/` holds no specs yet.
 
 ## Impact
 
-- New crates `ultragraphdb_core_*`, `ultragraphdb_proto_pb` and `ultragraphdb_test_bdd`; new test-only dependencies `cucumber` and its
+- New crates `ultragraphdb_core_*`, `ultragraphdb_proto_pb` and `ultragraphdb_tool_bdd`; new test-only dependencies `cucumber` and its
   runtime, and libraries for the byte-exact formats (BLAKE2b, bcrypt, Snowball stemmers, S2, WKB).
 - `scripts/test.sh` runs the `bdd-test` tag beside `doc-test` and `unit-test`.
 - A Go toolchain is needed to regenerate golden vectors, not to build or test.

@@ -205,7 +205,7 @@ fn regions_shared(w: &mut Steps) {
 
 #[when("the key tests run")]
 fn key_tests_run(w: &mut Steps) {
-    w.golden_files = std::fs::read_dir(ultragraphdb_test_bdd::testdata_dir().join("golden"))
+    w.golden_files = std::fs::read_dir(ultragraphdb_tool_bdd::testdata_dir().join("golden"))
         .map(|entries| entries.filter_map(Result::ok).map(|e| e.path()).collect())
         .unwrap_or_default();
 }
@@ -221,6 +221,6 @@ fn main() {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_test_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
     );
 }

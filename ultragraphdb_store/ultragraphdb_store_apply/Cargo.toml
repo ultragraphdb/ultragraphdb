@@ -38,13 +38,28 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }
-ultragraphdb_test_bdd = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_tool_test = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+# The changeset workload's fixed seeds without faults, with faults, and a seed's replay: apart from the unit tests,
+# one target each, so that they run beside each other.
+[[test]]
+name = "workload_seeds"
+path = "tests/workload_seeds.rs"
+
+[[test]]
+name = "workload_faults"
+path = "tests/workload_faults.rs"
+
+[[test]]
+name = "workload_replay"
+path = "tests/workload_replay.rs"
 
 [[test]]
 name = "bdd"

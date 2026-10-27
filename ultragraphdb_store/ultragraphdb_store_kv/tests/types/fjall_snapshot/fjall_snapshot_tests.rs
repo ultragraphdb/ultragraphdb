@@ -7,7 +7,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::DATA_KEYSPACE;
 use ultragraphdb_traits_store::{Entry, Item, Store, StoreSnapshot};
 
-use crate::test_store::{TestDir, put, write, write_raw, write_raw_in};
+use ultragraphdb_tool_test::{TestDir, put, write, write_raw, write_raw_in};
 
 #[test]
 fn test_a_snapshot_reads_at_its_timestamp_and_releases_the_discard_timestamp_when_dropped() {

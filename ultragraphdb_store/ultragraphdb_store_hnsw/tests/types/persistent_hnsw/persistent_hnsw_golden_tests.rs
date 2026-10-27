@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use ultragraphdb_core_tok::VEC_DEAD;
 use ultragraphdb_store_hnsw::{HnswFloat, PersistentHnsw, QueryCache, TxnCache, add_dead_node};
-use ultragraphdb_test_bdd::{Golden, load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{Golden, load_golden, testdata_dir};
 use ultragraphdb_traits_index::{KeyValue, VectorIndexOptions, accept_all};
 
 use crate::utils::helpers::{MapTxn, draws, key, opts, translated, vec_bytes, vkeys};

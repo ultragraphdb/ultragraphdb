@@ -4,7 +4,7 @@
  */
 
 use cucumber::{World, given, then, when};
-use ultragraphdb_test_bdd::{compare_bytes, features_dir};
+use ultragraphdb_tool_bdd::{compare_bytes, features_dir};
 
 #[derive(Debug, Default, World)]
 struct HarnessWorld {

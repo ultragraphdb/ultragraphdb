@@ -13,7 +13,7 @@
 use serde::Deserialize;
 use ultragraphdb_store_hnsw::HnswFloat;
 use ultragraphdb_store_sim::SimRng;
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 /// A kernel of two vectors of `F`.
 type Kernel<F> = fn(&[F], &[F]) -> F;

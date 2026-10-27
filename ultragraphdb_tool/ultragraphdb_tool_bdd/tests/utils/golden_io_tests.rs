@@ -8,7 +8,7 @@ use std::panic;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use ultragraphdb_test_bdd::{Golden, load_golden};
+use ultragraphdb_tool_bdd::{Golden, load_golden};
 
 /// A file in the temp directory, named for the test that wrote it and removed when the test ends, even on a panic.
 struct TempFile(PathBuf);

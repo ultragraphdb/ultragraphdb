@@ -4,6 +4,4 @@
  */
 
 #[cfg(test)]
-mod test_store;
-#[cfg(test)]
 mod types;

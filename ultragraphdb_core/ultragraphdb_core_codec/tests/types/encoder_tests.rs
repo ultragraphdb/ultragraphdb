@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use ultragraphdb_core_codec::{Encoder, decode, encode, exact_len};
 use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
-use ultragraphdb_test_bdd::{compare_bytes, load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{compare_bytes, load_golden, testdata_dir};
 
 #[derive(Debug, Clone, Deserialize)]
 struct GoldenBlock {

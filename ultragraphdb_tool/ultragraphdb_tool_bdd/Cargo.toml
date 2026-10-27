@@ -4,7 +4,7 @@
 #
 
 [package]
-name = "ultragraphdb_test_bdd"
+name = "ultragraphdb_tool_bdd"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true

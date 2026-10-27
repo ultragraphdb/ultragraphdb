@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_store_hnsw::{decode_uint64_matrix, encode_uint64_matrix};
-use ultragraphdb_test_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 #[derive(Debug, Deserialize)]
 struct MatrixCase {

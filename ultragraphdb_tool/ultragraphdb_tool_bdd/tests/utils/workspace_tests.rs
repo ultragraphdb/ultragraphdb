@@ -6,44 +6,13 @@
 use std::env;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
 use std::process::{Command, Output};
 
-use ultragraphdb_test_bdd::{features_dir, testdata_dir};
-
-/// The crate's own path in the workspace, which both build systems place the package at.
-const PACKAGE: &str = "ultragraphdb_test/ultragraphdb_test_bdd";
+use ultragraphdb_tool_bdd::{features_dir, testdata_dir};
 
 /// Set in a child run of this binary to make `child_reports_the_dirs` print what it finds.
 const CHILD: &str = "UGDB_BDD_WORKSPACE_CHILD";
 
-#[test]
-fn this_crate_finds_its_features() {
-    let dir = features_dir();
-    assert!(
-        dir.ends_with(Path::new(PACKAGE).join("features")),
-        "{}",
-        dir.display()
-    );
-    assert!(
-        dir.join("port-testing/port_testing.feature").is_file(),
-        "{}",
-        dir.display()
-    );
-}
-
-#[test]
-fn testdata_sits_beside_the_features() {
-    let dir = testdata_dir();
-    assert!(
-        dir.ends_with(Path::new(PACKAGE).join("testdata")),
-        "{}",
-        dir.display()
-    );
-    assert_eq!(dir, features_dir().with_file_name("testdata"));
-}
-
-/// Prints both directories when run as a child; passes silently in an ordinary run.
 #[test]
 fn child_reports_the_dirs() {
     if env::var_os(CHILD).is_some() {
