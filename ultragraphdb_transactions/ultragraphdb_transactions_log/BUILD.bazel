@@ -42,6 +42,7 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
+    data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_transactions_log"] + all_crate_deps(

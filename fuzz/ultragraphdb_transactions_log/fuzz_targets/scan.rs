@@ -6,7 +6,8 @@
 //! Any bytes as a segment, scanned as the first segment kept of a log with its checkpoint at 0 and, from the same
 //! bytes, at a checkpoint the input chooses. The scan never panics; every round it accepts is a frame that validates
 //! on its own, at a block boundary, inside the segment, of this cluster and incarnation, and chained to the round
-//! before it; it stops at a block boundary; and the probe finds every accepted round complete.
+//! before it; it stops at a block boundary less than a block past the bytes, inside the last round's padding when the
+//! bytes end there; and the probe finds every accepted round complete.
 
 #![no_main]
 
@@ -24,7 +25,7 @@ fn check(bytes: &[u8], start: &ScanStart) {
         return;
     };
     assert_eq!(scan.end() % 4_096, 0);
-    assert!(scan.end() as usize <= bytes.len());
+    assert!((scan.end() as usize) < bytes.len() + 4_096);
     let mut previous: Option<(u64, u64)> = start.next().map(|(p, parent)| (p.get() - 1, parent));
     let mut offset = 0u64;
     for round in scan.rounds() {

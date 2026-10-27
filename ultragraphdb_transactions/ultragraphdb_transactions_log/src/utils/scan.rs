@@ -174,7 +174,8 @@ fn check_first(round: &ScannedRound, start: &ScanStart) -> Result<(), LogError> 
 /// checksum, command, reserved bytes and cluster; then its incarnation and its place in the chain; then its chunk
 /// table and each chunk. The scan stops at the first block that is not the next round of this incarnation: a block
 /// of zeros or a valid round of another incarnation is a clean end; anything else is damage, named in the result.
-/// Trailing bytes short of a block are not read.
+/// Trailing bytes short of a block are not read. A round whose frame fits in the bytes is accepted though its padding
+/// does not, and the scan then ends at its padded end, past the bytes.
 ///
 /// Refused as [`LogError::Diverged`] when the chain contradicts the checkpoint: a round at the checkpoint whose
 /// checksum is not the checkpoint's, or a first segment whose first round lies past the round after the checkpoint

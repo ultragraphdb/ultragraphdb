@@ -161,6 +161,45 @@ fn test_bytes_short_of_a_block_are_not_read() {
 }
 
 #[test]
+fn test_a_round_whose_padding_lies_past_the_bytes_ends_at_its_padded_end() {
+    let frames = chain(1, 1, 2, 0, ONE_BLOCK);
+    let mut bytes = segment(1, &frames[..1]);
+    bytes.extend_from_slice(&frames[1]);
+    let scan = scan(&bytes);
+    assert_eq!(positions(&scan), [1, 2]);
+    assert_eq!(scan.end(), 8_192);
+    assert_eq!(scan.damage(), None);
+}
+
+/// Each committed case scanned from the fuzz target `scan`'s three starts: the whole input from a fresh log, and the
+/// input after its first eight bytes from the checkpoint those bytes choose and from a continued chain.
+#[test]
+fn test_the_scan_fuzz_regressions_end_within_a_block_of_the_bytes() {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan");
+    assert!(!cases.is_empty(), "the committed cases");
+    for (name, data) in cases {
+        let (checkpoint, rest) = data.split_at(data.len().min(8));
+        let mut first = [0u8; 8];
+        first[..checkpoint.len()].copy_from_slice(checkpoint);
+        let at = Position::new(u64::from(first[0] % 8));
+        let starts = [
+            (data.as_slice(), start()),
+            (
+                rest,
+                ScanStart::new(CLUSTER, 1, at, u64::from_le_bytes(first)),
+            ),
+            (rest, start().continuing(Position::new(1), 0)),
+        ];
+        for (bytes, start) in starts {
+            if let Ok(scan) = scan_segment(bytes, &start) {
+                assert_eq!(scan.end() % 4_096, 0, "{name}");
+                assert!(scan.end() < bytes.len() as u64 + 4_096, "{name}");
+            }
+        }
+    }
+}
+
+#[test]
 fn test_rounds_of_an_older_incarnation_after_the_current_are_a_clean_end() {
     // A reused segment: incarnation 1 wrote rounds 1 to 6; incarnation 2 wrote its rounds 1 to 3 over the first three.
     let old = chain(1, 1, 6, 0, ONE_BLOCK);
