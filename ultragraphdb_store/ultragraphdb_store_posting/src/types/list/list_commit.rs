@@ -9,7 +9,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 
 use crate::types::list::List;
 use crate::utils::posting_codec::marshal;

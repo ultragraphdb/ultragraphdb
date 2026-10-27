@@ -21,7 +21,7 @@ mod list_values;
 
 use std::sync::Arc;
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 
 use crate::types::mutable_layer::MutableLayer;
 use crate::utils::list_keys::compares_values;
@@ -96,7 +96,7 @@ impl List {
 
     /// The start uid of each part, empty for a list that is not split: Dgraph's `PartSplits`.
     pub fn part_splits(&self) -> Vec<u64> {
-        self.plist.splits.clone()
+        self.plist.splits().to_vec()
     }
 
     pub fn mutation(&self) -> &MutableLayer {
@@ -118,7 +118,7 @@ impl List {
         let immutable: usize = self
             .immutable_parts()
             .iter()
-            .filter_map(|p| p.pack.as_ref())
+            .filter_map(|p| p.pack())
             .map(ultragraphdb_core_codec::approx_len)
             .sum();
         self.mutation.len() + immutable
@@ -126,7 +126,7 @@ impl List {
 
     /// The posting lists of the immutable layer in uid order: the parts of a split list, or the complete list.
     pub(crate) fn immutable_parts(&self) -> Vec<&PostingList> {
-        if self.plist.splits.is_empty() {
+        if self.plist.splits().is_empty() {
             vec![self.plist.as_ref()]
         } else {
             self.parts.iter().map(Arc::as_ref).collect()

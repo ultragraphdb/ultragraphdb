@@ -7,7 +7,6 @@ load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
-load("//bazel/rust:deps.bzl", "with_proto_bindings")
 
 rust_library(
     name = "ultragraphdb_core_text",
@@ -17,7 +16,7 @@ rust_library(
     lint_config = lint_config(),
     tags = ["ultragraphdb_core_text"],
     visibility = ["//visibility:public"],
-    deps = with_proto_bindings(all_crate_deps(normal = True)),
+    deps = all_crate_deps(normal = True),
 )
 
 rust_doc(
@@ -41,14 +40,11 @@ rust_test(
         ["tests/**/*.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(
-        ["testdata/**"],
-        allow_empty = True,
-    ),
+    data = glob(["testdata/**"]),
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_core_text"] + with_proto_bindings(all_crate_deps(
+    deps = [":ultragraphdb_core_text"] + all_crate_deps(
         normal = True,
         normal_dev = True,
-    )),
+    ),
 )

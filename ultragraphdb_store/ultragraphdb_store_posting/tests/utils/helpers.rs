@@ -10,10 +10,9 @@ use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_common_utils::go_farm::fingerprint64;
+use ultragraphdb_core_codec::{Facet, Posting, PostingType};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_proto_dgraph::api;
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{
     BIT_DELTA_POSTING, CachedList, DEL, List, Lists, ListsConfig, PostingError, SET,
     delete_all_posting,
@@ -57,47 +56,31 @@ pub fn key(attr: &str, uid: u64) -> Vec<u8> {
 
 /// A set of the reference `uid`.
 pub fn set_uid(uid: u64) -> Posting {
-    Posting {
-        uid,
-        op: SET,
-        ..Posting::default()
-    }
+    Posting::default().with_uid(uid).with_op(SET)
 }
 
 /// A delete of the reference `uid`.
 pub fn del_uid(uid: u64) -> Posting {
-    Posting {
-        op: DEL,
-        ..set_uid(uid)
-    }
+    set_uid(uid).with_op(DEL)
 }
 
 /// `posting` with a facet keyed `key`.
-pub fn with_facet(mut posting: Posting, key: &str) -> Posting {
-    posting.facets = vec![api::Facet {
-        key: key.to_string(),
-        ..api::Facet::default()
-    }];
-    posting
+pub fn with_facet(posting: Posting, key: &str) -> Posting {
+    posting.with_facets(vec![Facet::new(key)])
 }
 
 /// A set of the value `value`, as a quad list holds a literal: its bytes, under their fingerprint.
 pub fn set_value(value: &str) -> Posting {
-    Posting {
-        uid: fingerprint64(value.as_bytes()),
-        value: value.as_bytes().to_vec(),
-        posting_type: posting::PostingType::Value as i32,
-        op: SET,
-        ..Posting::default()
-    }
+    Posting::default()
+        .with_uid(fingerprint64(value.as_bytes()))
+        .with_value(value.as_bytes().to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(SET)
 }
 
 /// A delete of the value `value`.
 pub fn del_value(value: &str) -> Posting {
-    Posting {
-        op: DEL,
-        ..set_value(value)
-    }
+    set_value(value).with_op(DEL)
 }
 
 /// A delete of every posting.
@@ -122,7 +105,7 @@ pub fn commit_edges(lists: &TestLists, key: &[u8], postings: &[Posting]) -> u64 
 pub fn uids(list: &List, read_ts: u64, after_uid: u64) -> Vec<u64> {
     let mut out = Vec::new();
     list.iterate(read_ts, after_uid, |p| {
-        out.push(p.uid);
+        out.push(p.uid());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .expect("iterate");
@@ -133,7 +116,7 @@ pub fn uids(list: &List, read_ts: u64, after_uid: u64) -> Vec<u64> {
 pub fn values(list: &List, read_ts: u64) -> Vec<Vec<u8>> {
     let mut out = Vec::new();
     list.iterate(read_ts, 0, |p| {
-        out.push(p.value.clone());
+        out.push(p.value().to_vec());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .expect("iterate");

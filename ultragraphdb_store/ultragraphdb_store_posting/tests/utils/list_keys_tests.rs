@@ -8,8 +8,8 @@
 
 use std::ops::ControlFlow;
 
+use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey, key_prefix};
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{
     DEL, List, PostingError, PostingErrorEnum, SET, is_quad_list, is_split_key, split_key_of,
 };
@@ -29,28 +29,22 @@ fn quad_key(subject: u64) -> Vec<u8> {
 
 /// A literal's posting under `fingerprint`, its value standing for the literal's encoding.
 fn literal(fingerprint: u64, encoding: &[u8], op: u32) -> Posting {
-    Posting {
-        uid: fingerprint,
-        value: encoding.to_vec(),
-        posting_type: posting::PostingType::Value as i32,
-        op,
-        ..Posting::default()
-    }
+    Posting::default()
+        .with_uid(fingerprint)
+        .with_value(encoding.to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(op)
 }
 
 fn reference(uid: u64, op: u32) -> Posting {
-    Posting {
-        uid,
-        op,
-        ..Posting::default()
-    }
+    Posting::default().with_uid(uid).with_op(op)
 }
 
 /// Every posting at `read_ts`, as `(uid, value)`.
 fn held(list: &List, read_ts: u64) -> Vec<(u64, Vec<u8>)> {
     let mut out = Vec::new();
     list.iterate(read_ts, 0, |p| {
-        out.push((p.uid, p.value.clone()));
+        out.push((p.uid(), p.value().to_vec()));
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .unwrap();
@@ -131,7 +125,7 @@ fn test_a_rollup_packs_a_shared_uid_once_and_reads_both_literals_back() {
     }
     list.commit_mutation(6);
     let (rolled, _) = roll_up(&store, &list, 6, usize::MAX);
-    let pack_uids = ultragraphdb_core_codec::decode(rolled.plist().pack.as_ref().unwrap(), 0);
+    let pack_uids = ultragraphdb_core_codec::decode(rolled.plist().pack().unwrap(), 0);
     assert_eq!(
         pack_uids,
         vec![4, 9, 12],
@@ -273,19 +267,7 @@ fn test_a_vector_index_list_tells_postings_apart_by_uid_alone() {
     // A reference posting is told apart by uid alone even in a forward list: its value carries nothing.
     let mut refs = List::empty(quad_key(2));
     refs.set_ts(5);
-    refs.add_posting(
-        Posting {
-            value: b"x".to_vec(),
-            ..reference(4, SET)
-        },
-        false,
-    );
-    refs.add_posting(
-        Posting {
-            value: b"y".to_vec(),
-            ..reference(4, SET)
-        },
-        false,
-    );
+    refs.add_posting(reference(4, SET).with_value(b"x".to_vec()), false);
+    refs.add_posting(reference(4, SET).with_value(b"y".to_vec()), false);
     assert_eq!(held(&refs, 5), vec![(4, b"y".to_vec())]);
 }

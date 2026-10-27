@@ -37,7 +37,7 @@ fn a_valid_buffer_packs() {
     let pack = encode_from_buffer(&[0x01, 0x01], 256)
         .expect("valid varints")
         .expect("two UIDs");
-    assert_eq!(pack.blocks[0].base, 1);
-    assert_eq!(pack.blocks[0].num_uids, 2);
+    assert_eq!(pack.blocks()[0].base(), 1);
+    assert_eq!(pack.blocks()[0].num_uids(), 2);
     assert_eq!(encode_from_buffer(&[], 256), Ok(None));
 }

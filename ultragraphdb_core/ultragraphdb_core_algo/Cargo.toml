@@ -19,7 +19,6 @@ autotests = false
 workspace = true
 
 [dependencies]
-ultragraphdb_proto_pb = { workspace = true }
 ultragraphdb_core_codec = { workspace = true }
 
 [dev-dependencies]

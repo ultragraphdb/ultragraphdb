@@ -8,37 +8,33 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Posting, PostingList};
 use ultragraphdb_store_posting::{DEL, List, MutableLayer, OVR, SET};
 
 use crate::utils::helpers::{del_uid, delete_all, key, set_uid, with_facet};
 
 fn pl(start_ts: u64, commit_ts: u64, uid: u64, op: u32) -> PostingList {
-    PostingList {
-        postings: vec![Posting {
-            uid,
-            op,
-            start_ts,
-            commit_ts,
-            ..Posting::default()
-        }],
-        commit_ts,
-        ..PostingList::default()
-    }
+    PostingList::default()
+        .with_postings(vec![
+            Posting::default()
+                .with_uid(uid)
+                .with_op(op)
+                .with_start_ts(start_ts)
+                .with_commit_ts(commit_ts),
+        ])
+        .with_commit_ts(commit_ts)
 }
 
 fn delete_all_pl(start_ts: u64, commit_ts: u64) -> PostingList {
-    PostingList {
-        postings: vec![Posting {
-            value: b"_STAR_ALL".to_vec(),
-            op: DEL,
-            start_ts,
-            commit_ts,
-            ..Posting::default()
-        }],
-        commit_ts,
-        ..PostingList::default()
-    }
+    PostingList::default()
+        .with_postings(vec![
+            Posting::default()
+                .with_value(b"_STAR_ALL".to_vec())
+                .with_op(DEL)
+                .with_start_ts(start_ts)
+                .with_commit_ts(commit_ts),
+        ])
+        .with_commit_ts(commit_ts)
 }
 
 #[test]
@@ -79,7 +75,7 @@ fn test_mutable_map_current_entries_has_delete_all() {
 
     let (search_further, pos) = ml.find_posting(2, 1);
     assert!(!search_further);
-    assert_eq!(pos.map(|p| p.commit_ts), Some(2));
+    assert_eq!(pos.map(|p| p.commit_ts()), Some(2));
 
     assert_eq!(ml.list_len(1), 0);
     assert_eq!(ml.list_len(2), 1);
@@ -99,11 +95,11 @@ fn test_mutable_map_data_in_committed_uids_but_found_posting() {
 
     let (search_further, pos) = ml.find_posting(2, 1);
     assert!(!search_further);
-    assert_eq!(pos.map(|p| p.start_ts), Some(1));
+    assert_eq!(pos.map(|p| p.start_ts()), Some(1));
 
     let (search_further, pos) = ml.find_posting(3, 1);
     assert!(!search_further);
-    assert_eq!(pos.map(|p| p.start_ts), Some(2));
+    assert_eq!(pos.map(|p| p.start_ts()), Some(2));
 
     let (search_further, pos) = ml.find_posting(8, 1);
     assert!(!search_further);
@@ -111,7 +107,7 @@ fn test_mutable_map_data_in_committed_uids_but_found_posting() {
 
     let (search_further, pos) = ml.find_posting(7, 2);
     assert!(!search_further);
-    assert_eq!(pos.map(|p| p.start_ts), Some(7));
+    assert_eq!(pos.map(|p| p.start_ts()), Some(7));
 
     // A read at another timestamp than the scratch layer's does not see it.
     let (search_further, pos) = ml.find_posting(8, 2);
@@ -163,12 +159,12 @@ fn test_layers_and_read_ts() {
     assert_eq!(ml.committed().len(), 1);
     assert_eq!(ml.len(), 1);
     // A committed posting takes its delta's commit timestamp.
-    assert_eq!(ml.committed()[&2].postings[0].commit_ts, 2);
+    assert_eq!(ml.committed()[&2].postings()[0].commit_ts(), 2);
 }
 
 fn ops(list: &List) -> Vec<(u64, u32)> {
     list.delta()
-        .map(|d| d.postings.iter().map(|p| (p.uid, p.op)).collect())
+        .map(|d| d.postings().iter().map(|p| (p.uid(), p.op())).collect())
         .unwrap_or_default()
 }
 
@@ -190,7 +186,13 @@ fn test_a_posting_replaces_the_one_of_its_identity_in_the_scratch_layer() {
         vec![(7, DEL), (8, SET)],
         "a delete of a delete stays one"
     );
-    assert!(l.delta().unwrap().postings.iter().all(|p| p.start_ts == 5));
+    assert!(
+        l.delta()
+            .unwrap()
+            .postings()
+            .iter()
+            .all(|p| p.start_ts() == 5)
+    );
 }
 
 #[test]
@@ -204,7 +206,7 @@ fn test_with_a_count_index_the_identities_are_reindexed_after_a_removal() {
     // 8 moved to the front: its overwrite must find it there rather than add a second posting.
     l.add_posting(with_facet(set_uid(8), "again"), true);
     assert_eq!(ops(&l), vec![(8, SET)]);
-    assert_eq!(l.delta().unwrap().postings[0].facets[0].key, "again");
+    assert_eq!(l.delta().unwrap().postings()[0].facets()[0].key(), "again");
     l.add_posting(del_uid(8), true);
     assert!(ops(&l).is_empty());
 }
@@ -214,28 +216,10 @@ fn test_an_overwrite_replaces_a_delete_and_stays_an_overwrite() {
     let mut l = List::empty(key("insert-ovr", 1));
     l.set_ts(5);
     l.add_posting(del_uid(3), false);
-    l.add_posting(
-        Posting {
-            op: OVR,
-            ..set_uid(3)
-        },
-        false,
-    );
+    l.add_posting(set_uid(3).with_op(OVR), false);
     assert_eq!(ops(&l), vec![(3, OVR)]);
-    l.add_posting(
-        Posting {
-            op: OVR,
-            ..set_uid(4)
-        },
-        false,
-    );
-    l.add_posting(
-        Posting {
-            op: OVR,
-            ..set_uid(4)
-        },
-        false,
-    );
+    l.add_posting(set_uid(4).with_op(OVR), false);
+    l.add_posting(set_uid(4).with_op(OVR), false);
     assert_eq!(ops(&l), vec![(3, OVR), (4, OVR)]);
 }
 

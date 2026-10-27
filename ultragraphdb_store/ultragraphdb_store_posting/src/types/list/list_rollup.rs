@@ -14,8 +14,7 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_core_codec::Encoder;
-use ultragraphdb_proto_pb::pb::{PostingList, posting};
+use ultragraphdb_core_codec::{Encoder, PostingList, PostingType};
 use ultragraphdb_traits_store::Entry;
 
 use crate::errors::posting_error::PostingError;
@@ -41,7 +40,7 @@ impl List {
         if read_ts != u64::MAX {
             version += 1;
         }
-        let entries = out.entries(&self.key, &self.plist.splits, version)?;
+        let entries = out.entries(&self.key, self.plist.splits(), version)?;
         Ok(Some((version, entries)))
     }
 
@@ -57,13 +56,10 @@ impl List {
             return Ok(None);
         }
         let mut out = RollupOutput::new(
-            PostingList {
-                splits: self.plist.splits.clone(),
-                ..PostingList::default()
-            },
+            PostingList::default().with_splits(self.plist.splits().to_vec()),
             0,
         );
-        if !self.plist.splits.is_empty() || !self.mutation.is_empty() {
+        if !self.plist.splits().is_empty() || !self.mutation.is_empty() {
             self.encode(&mut out, read_ts, split)?;
         } else {
             out = RollupOutput::new((*self.plist).clone(), 0);
@@ -74,14 +70,14 @@ impl List {
         let (delete_below_ts, mposts) = self.pick_postings(read_ts);
         let max_commit_ts = mposts
             .iter()
-            .map(|p| p.commit_ts)
+            .map(|p| p.commit_ts())
             .fold(self.min_ts.max(delete_below_ts), u64::max);
         out.set_new_min_ts(max_commit_ts);
         if split {
             out.recursive_split(max_list_size);
             out.remove_empty_splits();
         } else {
-            out.plist_mut().splits.clear();
+            out.plist_mut().set_splits(Vec::new());
         }
         Ok(Some(out))
     }
@@ -95,7 +91,7 @@ impl List {
         read_ts: u64,
         split: bool,
     ) -> Result<(), PostingError> {
-        let splits = &self.plist.splits;
+        let splits = self.plist.splits();
         let into_parts = split && !splits.is_empty();
         let mut split_idx = 0usize;
         let bounds = |idx: usize| -> (u64, u64) {
@@ -114,40 +110,37 @@ impl List {
 
         self.iterate(read_ts, 0, |p| {
             // A part no posting falls in is left empty, and removed with the other empty parts.
-            while into_parts && p.uid > end_uid {
+            while into_parts && p.uid() > end_uid {
                 let done = std::mem::replace(&mut enc, Encoder::new(BLOCK_SIZE));
                 let mut part = std::mem::take(&mut plist);
-                part.pack = done.done();
+                part.set_pack(done.done());
                 out.insert_part(start_uid, part);
                 split_idx += 1;
                 (start_uid, end_uid) = bounds(split_idx);
             }
-            if last_uid != Some(p.uid) {
-                enc.add(p.uid);
-                last_uid = Some(p.uid);
+            if last_uid != Some(p.uid()) {
+                enc.add(p.uid());
+                last_uid = Some(p.uid());
                 bare_ref = None;
             }
             // A posting the pack cannot carry stays whole: one with facets, statement IDs or a value.
-            if !p.facets.is_empty()
-                || !p.statement_ids.is_empty()
-                || p.posting_type != posting::PostingType::Ref as i32
+            if !p.facets().is_empty()
+                || !p.statement_ids().is_empty()
+                || p.posting_type() != PostingType::Ref
             {
-                plist.postings.extend(bare_ref.take());
-                plist.postings.push(p.clone());
+                plist.postings_mut().extend(bare_ref.take());
+                plist.postings_mut().push(p.clone());
             } else {
                 bare_ref = Some(p.clone());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
         })?;
 
-        plist.pack = enc.done();
+        plist.set_pack(enc.done());
         if into_parts {
             out.insert_part(start_uid, plist);
         } else {
-            *out.plist_mut() = PostingList {
-                splits: out.plist().splits.clone(),
-                ..plist
-            };
+            *out.plist_mut() = plist.with_splits(out.plist().splits().to_vec());
         }
         Ok(())
     }

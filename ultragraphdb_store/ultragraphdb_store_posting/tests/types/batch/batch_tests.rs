@@ -58,9 +58,12 @@ fn test_a_later_request_reads_an_earlier_ones_static_value() {
         2,
         "one committed delta and one stacked layer"
     );
-    assert_eq!(list.static_value(read_ts).unwrap().postings[0].value, b"B");
     assert_eq!(
-        list.static_value(read_ts + 1).unwrap().postings[0].value,
+        list.static_value(read_ts).unwrap().postings()[0].value(),
+        b"B"
+    );
+    assert_eq!(
+        list.static_value(read_ts + 1).unwrap().postings()[0].value(),
         b"A"
     );
 }

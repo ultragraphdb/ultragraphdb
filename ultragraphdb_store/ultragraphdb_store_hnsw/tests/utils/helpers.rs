@@ -21,10 +21,10 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use oxrdf::{Literal, NamedNode};
+use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, format_vector};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD, get_index_factory};
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_hnsw::{
     HnswError, HnswFloat, PersistentHnsw, QueryCache, TxnCache, VectorKeys, ViTxn, add_dead_node,
     index_posting,
@@ -111,13 +111,11 @@ pub fn vector_encoding(v: &[f32]) -> Vec<u8> {
 
 /// The posting of the vector `encoding` in a forward list, with `op`.
 fn vector_posting(encoding: Vec<u8>, op: u32) -> Posting {
-    Posting {
-        uid: ultragraphdb_common_utils::go_farm::fingerprint64(&encoding),
-        value: encoding,
-        posting_type: posting::PostingType::Value as i32,
-        op,
-        ..Posting::default()
-    }
+    Posting::default()
+        .with_uid(ultragraphdb_common_utils::go_farm::fingerprint64(&encoding))
+        .with_value(encoding)
+        .with_posting_type(PostingType::Value)
+        .with_op(op)
 }
 
 /// Options parsed as the hnsw factory parses a schema's: `exponent`, `maxLevels`, `efConstruction`, `efSearch` and
@@ -191,7 +189,7 @@ fn held_values(
 ) -> Result<Vec<Vec<u8>>, PostingError> {
     let mut held = Vec::new();
     list.iterate(read_ts, 0, |p| {
-        held.push(p.value.clone());
+        held.push(p.value().to_vec());
         Ok::<_, PostingError>(std::ops::ControlFlow::Continue(()))
     })?;
     Ok(held)
@@ -217,9 +215,9 @@ where
     let dead = request.get(&keys.dead())?;
     let existing = dead
         .static_value(read_ts)
-        .and_then(|pl| pl.postings.first())
-        .filter(|p| p.op != DEL)
-        .map(|p| p.value.clone());
+        .and_then(|pl| pl.postings().first())
+        .filter(|p| p.op() != DEL)
+        .map(|p| p.value().to_vec());
     dead.add_posting(
         index_posting(add_dead_node(existing.as_deref(), uid)?),
         false,

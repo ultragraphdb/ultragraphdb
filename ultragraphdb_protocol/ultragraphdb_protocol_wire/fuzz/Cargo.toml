@@ -1,0 +1,50 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_protocol_wire, run by scripts/fuzz.sh. Outside the workspace (its own
+# [workspace] table) and outside Bazel: it needs a nightly toolchain and builds libFuzzer from C++ through
+# libfuzzer-sys, which no shipped crate depends on. Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_protocol_wire_fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+arbitrary = { version = "=1.5.0", features = ["derive"] }
+libfuzzer-sys = "=0.4.13"
+ultragraphdb_error_protocol = { path = "../../../ultragraphdb_error/ultragraphdb_error_protocol" }
+ultragraphdb_protocol_wire = { path = ".." }
+
+# Every frame a receiver gets: validated, and when accepted rebuilt to the same bytes.
+[[bin]]
+name = "frame"
+path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+# A body and its checksum_body: the chunk table and chunks checked, and when accepted re-encoded to the same bytes.
+[[bin]]
+name = "chunk_table"
+path = "fuzz_targets/chunk_table.rs"
+test = false
+doc = false
+bench = false
+
+# Structure-aware: a valid frame built from arbitrary fields, header rules broken on purpose and resealed so the
+# checks after the checksum are reached, then arbitrary mutations.
+[[bin]]
+name = "frame_fields"
+path = "fuzz_targets/frame_fields.rs"
+test = false
+doc = false
+bench = false

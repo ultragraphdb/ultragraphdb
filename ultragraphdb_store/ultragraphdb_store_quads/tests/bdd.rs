@@ -420,7 +420,7 @@ fn reverse_split(w: &mut Steps) {
     let store = w.store.as_ref().unwrap();
     let key: Vec<u8> = w.uids.iter().map(|b| *b as u8).collect();
     let list = store.lists().read(&key, u64::MAX).unwrap();
-    assert!(!list.plist().splits.is_empty(), "the list is split");
+    assert!(!list.plist().splits().is_empty(), "the list is split");
     let subjects: Vec<u64> = store
         .objects(&key, u64::MAX)
         .unwrap()

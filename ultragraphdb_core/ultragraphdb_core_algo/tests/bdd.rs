@@ -8,8 +8,7 @@ use ultragraphdb_core_algo::{
     difference_packed, intersect_compressed_with, intersect_sorted_packed, intersect_with,
     intersect_with_lin_packed, merge_sorted, merge_sorted_packed,
 };
-use ultragraphdb_core_codec::{decode, encode};
-use ultragraphdb_proto_pb::pb::{List, UidPack};
+use ultragraphdb_core_codec::{List, UidPack, decode, encode};
 
 /// The block size the packed lists use, small so that the lists span many blocks.
 const BLOCK_SIZE: usize = 10;
@@ -37,9 +36,7 @@ fn decoded(pack: Option<UidPack>) -> Vec<u64> {
 }
 
 fn list(uids: &[u64]) -> List {
-    List {
-        uids: uids.to_vec(),
-    }
+    List::new(uids.to_vec())
 }
 
 #[given(
@@ -69,7 +66,7 @@ fn intersect_pairs(w: &mut Steps) {
             intersect_compressed_with(pu.as_ref(), 0, &list(v), &mut mixed);
             let name = format!("{} with {} UIDs", u.len(), v.len());
             w.intersections
-                .push((name, [plain.uids, packed, mixed.uids]));
+                .push((name, [plain.into_uids(), packed, mixed.into_uids()]));
         }
     }
 }
@@ -100,7 +97,7 @@ fn three_lists(w: &mut Steps, a: String, b: String, c: String) {
 fn merge(w: &mut Steps) {
     let plain: Vec<List> = w.lists.iter().map(|l| list(l)).collect();
     w.merged
-        .push(merge_sorted(&plain.iter().collect::<Vec<_>>()).uids);
+        .push(merge_sorted(&plain.iter().collect::<Vec<_>>()).into_uids());
     let packs: Vec<Option<UidPack>> = w.lists.iter().map(|l| encode(l, BLOCK_SIZE)).collect();
     w.merged.push(decoded(merge_sorted_packed(
         &packs.iter().map(Option::as_ref).collect::<Vec<_>>(),
@@ -123,7 +120,7 @@ fn packed_and_plain(w: &mut Steps, packed: u64, plain: u64) {
 fn intersect_after(w: &mut Steps, after: u64) {
     let mut out = List::default();
     intersect_compressed_with(w.pack.as_ref(), after, &list(&w.lists[0]), &mut out);
-    w.intersection = out.uids;
+    w.intersection = out.into_uids();
 }
 
 #[then("the intersection is empty")]
@@ -158,10 +155,7 @@ fn subtract_packed(w: &mut Steps, u: String, v: String, block_size: usize) {
 #[when(expr = "the UIDs {string} have an empty pack of block size {int} subtracted")]
 fn subtract_empty_pack(w: &mut Steps, u: String, block_size: u32) {
     let u = encode(&parse_uids(&u), BLOCK_SIZE);
-    let v = UidPack {
-        block_size,
-        ..UidPack::default()
-    };
+    let v = UidPack::new(block_size, Vec::new());
     w.result = decoded(difference_packed(u.as_ref(), Some(&v)));
 }
 

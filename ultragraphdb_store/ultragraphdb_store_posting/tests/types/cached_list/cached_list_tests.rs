@@ -5,10 +5,7 @@
 
 use std::sync::Arc;
 
-use prost::Message;
-
-use ultragraphdb_core_codec::encode;
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::{PostingList, encode};
 use ultragraphdb_store_posting::{BLOCK_SIZE, CachedList, List};
 
 use crate::utils::helpers::{add, key, set_uid};
@@ -18,20 +15,19 @@ fn test_the_weigher_counts_the_lists_bytes() {
     let k = key("weigh", 1);
     let empty = CachedList::new(Arc::new(List::empty(k.clone())), 1, 0);
     let small = empty.weight();
-    // The fixed overhead of 64 and the key, 33 bytes: the keyspace byte and four u64s.
+    // The fixed overhead of 64, the key, 33 bytes: the keyspace byte and four u64s, and the empty list's encoding, 26
+    // bytes: the posting format's version, flags, commit timestamp, posting and split counts and checksum.
     assert_eq!(k.len(), 33);
-    assert_eq!(small, 64 + 33);
+    assert_eq!(small, 64 + 33 + 26);
 
     let uids: Vec<u64> = (1..=10_000).collect();
-    let complete = PostingList {
-        pack: encode(&uids, BLOCK_SIZE),
-        ..PostingList::default()
-    };
+    let complete =
+        PostingList::default().with_pack(encode(&uids, BLOCK_SIZE).expect("the uids pack"));
     let big = CachedList::new(Arc::new(List::new(k.clone(), complete.clone(), 1)), 1, 0);
     assert_eq!(
         big.weight(),
-        small + complete.encoded_len() as u32,
-        "the pack is weighed"
+        64 + 33 + complete.encoded_len() as u32,
+        "the complete list is weighed in place of the empty one"
     );
     assert!(complete.encoded_len() > 10_000);
 

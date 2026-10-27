@@ -8,8 +8,9 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_codec::{Decoder, Encoder, SeekPos, decode, encode, exact_len};
-use ultragraphdb_proto_pb::pb::{List, UidBlock, UidPack};
+use ultragraphdb_core_codec::{
+    Decoder, Encoder, List, SeekPos, UidPack, decode, encode, exact_len,
+};
 
 use crate::types::elem::Elem;
 use crate::types::uint64_heap::Uint64Heap;
@@ -19,7 +20,7 @@ use crate::uidlist::difference;
 pub fn apply_filter_packed(u: &UidPack, mut f: impl FnMut(u64, usize) -> bool) -> Option<UidPack> {
     let mut index = 0;
     let mut decoder = Decoder::new(u);
-    let mut encoder = Encoder::new(u.block_size as usize);
+    let mut encoder = Encoder::new(u.block_size() as usize);
 
     while decoder.valid() {
         for &uid in decoder.uids() {
@@ -43,7 +44,7 @@ pub fn intersect_with_lin_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Op
     let mut u_dec = Decoder::new(u);
     let mut v_dec = Decoder::new(v);
     let (mut u_idx, mut v_idx) = (0, 0);
-    let mut result = Encoder::new(u.block_size as usize);
+    let mut result = Encoder::new(u.block_size() as usize);
 
     loop {
         // Break if the end of a list has been reached.
@@ -131,8 +132,8 @@ pub fn difference_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Option<Uid
     };
     let u = u?;
 
-    let out = difference(&List { uids: decode(u, 0) }, &List { uids: decode(v, 0) });
-    encode(&out.uids, u.block_size as usize)
+    let out = difference(&List::new(decode(u, 0)), &List::new(decode(v, 0)));
+    encode(out.uids(), u.block_size() as usize)
 }
 
 /// Merges sorted packed lists into one without duplicates, packed with the first present list's block size (the
@@ -150,7 +151,7 @@ pub fn merge_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
 
     for l in lists.iter().flatten() {
         if block_size == 0 {
-            block_size = l.block_size as usize;
+            block_size = l.block_size() as usize;
         }
         let decoder = Decoder::new(l);
         let Some(&first) = decoder.uids().first() else {
@@ -227,27 +228,15 @@ pub fn index_of_packed(u: Option<&UidPack>, uid: u64) -> Option<usize> {
     }
 
     let before: usize = u
-        .blocks
+        .blocks()
         .iter()
         .take(decoder.block_idx())
-        .map(|b| b.num_uids as usize)
+        .map(|b| b.num_uids() as usize)
         .sum();
     Some(uidx + before)
 }
 
-/// Go's `codec.CopyUidPack`: the block size and blocks, with `alloc_ref` 0.
+/// Go's `codec.CopyUidPack`: the block size and blocks.
 fn copy_uid_pack(pack: Option<&UidPack>) -> Option<UidPack> {
-    pack.map(|p| UidPack {
-        block_size: p.block_size,
-        blocks: p
-            .blocks
-            .iter()
-            .map(|b| UidBlock {
-                base: b.base,
-                deltas: b.deltas.clone(),
-                num_uids: b.num_uids,
-            })
-            .collect(),
-        alloc_ref: 0,
-    })
+    pack.map(|p| UidPack::new(p.block_size(), p.blocks().to_vec()))
 }

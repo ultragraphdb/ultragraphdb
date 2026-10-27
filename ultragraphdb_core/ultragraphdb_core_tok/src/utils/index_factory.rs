@@ -3,11 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, tok/tok.go (the vector index factory lookups). Changed for ultragraphdb: translated
- * to Rust.
+ * to Rust; a spec is its factory's name and its option pairs, where Dgraph's is the protobuf `VectorIndexSpec`, so
+ * `GetIndexFactoryFromSpec` is `get_index_factory` of the name.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb;
 use ultragraphdb_traits_index::Options;
 
 use crate::errors::tok_error::TokError;
@@ -20,51 +20,49 @@ pub fn get_index_factory(name: &str) -> Option<VectorIndexFactory> {
     (name == HNSW).then(VectorIndexFactory::hnsw)
 }
 
-/// Dgraph's `GetIndexFactoryFromSpec`.
-pub fn get_index_factory_from_spec(spec: &pb::VectorIndexSpec) -> Option<VectorIndexFactory> {
-    get_index_factory(&spec.name)
-}
-
 /// Dgraph's `getOptsFromFactorySpec`: the spec's options, each parsed by the factory.
 fn opts_from_factory_spec(
     f: &VectorIndexFactory,
-    spec: &pb::VectorIndexSpec,
+    options: &[(String, String)],
 ) -> Result<Options, TokError> {
     let allowed = f.allowed_options();
     let mut opts = Options::new();
-    for pair in &spec.options {
-        let v = allowed.get_parsed_option(&pair.key, &pair.value)?;
-        opts.set_opt(pair.key.clone(), v);
+    for (key, value) in options {
+        let v = allowed.get_parsed_option(key, value)?;
+        opts.set_opt(key.clone(), v);
     }
     Ok(opts)
 }
 
-/// Dgraph's `GetFactoryCreateSpecFromSpec`: the factory a spec names with its parsed options.
+/// Dgraph's `GetFactoryCreateSpecFromSpec`: the factory `name` names with its parsed `options`.
 pub fn get_factory_create_spec_from_spec(
-    spec: &pb::VectorIndexSpec,
+    name: &str,
+    options: &[(String, String)],
 ) -> Result<FactoryCreateSpec, TokError> {
-    let factory = get_index_factory_from_spec(spec).ok_or_else(|| {
-        TokError::unknown_factory(format!("cannot find index factory named '{}'", spec.name))
+    let factory = get_index_factory(name).ok_or_else(|| {
+        TokError::unknown_factory(format!("cannot find index factory named '{name}'"))
     })?;
-    let opts = opts_from_factory_spec(&factory, spec)?;
+    let opts = opts_from_factory_spec(&factory, options)?;
     Ok(FactoryCreateSpec::new(factory, opts))
 }
 
-/// Dgraph's `GetIndexFactoryOptsFromSpec`: the parsed options of a spec.
-pub fn get_index_factory_opts_from_spec(spec: &pb::VectorIndexSpec) -> Result<Options, TokError> {
-    let factory = get_index_factory_from_spec(spec).ok_or_else(|| {
+/// Dgraph's `GetIndexFactoryOptsFromSpec`: the parsed `options` of the factory `name` names.
+pub fn get_index_factory_opts_from_spec(
+    name: &str,
+    options: &[(String, String)],
+) -> Result<Options, TokError> {
+    let factory = get_index_factory(name).ok_or_else(|| {
         TokError::unknown_factory(format!(
-            "cannot get Options for factory named '{}' (factory not found)",
-            spec.name
+            "cannot get Options for factory named '{name}' (factory not found)"
         ))
     })?;
-    opts_from_factory_spec(&factory, spec)
+    opts_from_factory_spec(&factory, options)
 }
 
-/// Dgraph's `GetIndexFactoriesFromSpecs`: the factories the specs name, unknown names skipped.
-pub fn get_index_factories_from_specs(specs: &[pb::VectorIndexSpec]) -> Vec<VectorIndexFactory> {
-    specs
+/// Dgraph's `GetIndexFactoriesFromSpecs`: the factories the names name, unknown names skipped.
+pub fn get_index_factories_from_specs(names: &[&str]) -> Vec<VectorIndexFactory> {
+    names
         .iter()
-        .filter_map(get_index_factory_from_spec)
+        .filter_map(|name| get_index_factory(name))
         .collect()
 }

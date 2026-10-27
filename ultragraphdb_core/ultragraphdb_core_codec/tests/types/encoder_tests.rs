@@ -4,8 +4,7 @@
  */
 
 use serde::Deserialize;
-use ultragraphdb_core_codec::{Encoder, decode, encode, exact_len};
-use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
+use ultragraphdb_core_codec::{Encoder, UidBlock, UidPack, decode, encode, exact_len};
 use ultragraphdb_tool_bdd::{compare_bytes, load_golden, testdata_dir};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,21 +35,16 @@ fn unhex(text: &str) -> Vec<u8> {
         .collect()
 }
 
-/// The golden pack as the message Dgraph produced.
+/// The golden pack as Dgraph produced it.
 fn to_pack(golden: &GoldenPack) -> UidPack {
-    UidPack {
-        block_size: golden.block_size,
-        blocks: golden
+    UidPack::new(
+        golden.block_size,
+        golden
             .blocks
             .iter()
-            .map(|b| UidBlock {
-                base: b.base,
-                deltas: unhex(&b.deltas),
-                num_uids: b.num_uids,
-            })
+            .map(|b| UidBlock::new(b.base, unhex(&b.deltas), b.num_uids))
             .collect(),
-        alloc_ref: 0,
-    }
+    )
 }
 
 fn golden_cases() -> Vec<PackCase> {
@@ -71,12 +65,12 @@ fn encoding_matches_golden_packs() {
             (None, None) => {}
             (Some(want), Some(got)) => {
                 let want = to_pack(want);
-                assert_eq!(want.block_size, got.block_size, "{}", case.name);
-                assert_eq!(want.blocks.len(), got.blocks.len(), "{}", case.name);
-                for (i, (a, b)) in want.blocks.iter().zip(&got.blocks).enumerate() {
-                    assert_eq!(a.base, b.base, "{} block {i}", case.name);
-                    assert_eq!(a.num_uids, b.num_uids, "{} block {i}", case.name);
-                    compare_bytes(&format!("{} block {i}", case.name), &a.deltas, &b.deltas)
+                assert_eq!(want.block_size(), got.block_size(), "{}", case.name);
+                assert_eq!(want.blocks().len(), got.blocks().len(), "{}", case.name);
+                for (i, (a, b)) in want.blocks().iter().zip(got.blocks()).enumerate() {
+                    assert_eq!(a.base(), b.base(), "{} block {i}", case.name);
+                    assert_eq!(a.num_uids(), b.num_uids(), "{} block {i}", case.name);
+                    compare_bytes(&format!("{} block {i}", case.name), a.deltas(), b.deltas())
                         .unwrap();
                 }
             }
@@ -101,16 +95,16 @@ fn golden_packs_decode_to_their_lists() {
 #[test]
 fn a_one_uid_block_emits_one_empty_group() {
     let pack = encode(&[7], 256).expect("one UID packs");
-    assert_eq!(1, pack.blocks.len());
-    assert_eq!(7, pack.blocks[0].base);
-    assert_eq!(1, pack.blocks[0].num_uids);
-    assert_eq!(vec![0u8; 5], pack.blocks[0].deltas);
+    assert_eq!(1, pack.blocks().len());
+    assert_eq!(7, pack.blocks()[0].base());
+    assert_eq!(1, pack.blocks()[0].num_uids());
+    assert_eq!(vec![0u8; 5], pack.blocks()[0].deltas());
 }
 
 #[test]
 fn a_block_closes_where_the_upper_32_bits_change() {
     let pack = encode(&[1, 2, (1 << 32) + 1], 256).expect("the list packs");
-    let bases: Vec<u64> = pack.blocks.iter().map(|b| b.base).collect();
+    let bases: Vec<u64> = pack.blocks().iter().map(UidBlock::base).collect();
     assert_eq!(vec![1, (1 << 32) + 1], bases);
 }
 
@@ -122,10 +116,10 @@ fn block_size_zero_packs_one_uid_per_block() {
         encoder.add(uid);
     }
     let pack = encoder.done().expect("the list packs");
-    assert_eq!(0, pack.block_size);
+    assert_eq!(0, pack.block_size());
     assert_eq!(
         vec![3, 4, 9],
-        pack.blocks.iter().map(|b| b.base).collect::<Vec<_>>()
+        pack.blocks().iter().map(UidBlock::base).collect::<Vec<_>>()
     );
     assert_eq!(vec![3, 4, 9], decode(&pack, 0));
 }

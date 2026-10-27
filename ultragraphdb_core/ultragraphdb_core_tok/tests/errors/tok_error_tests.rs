@@ -9,19 +9,12 @@ use ultragraphdb_core_tok::{
     get_tokenizers, get_tokens,
 };
 use ultragraphdb_core_types::{Geometry, Layout, Value};
-use ultragraphdb_proto_pb::pb;
-
-fn spec(name: &str, options: &[(&str, &str)]) -> pb::VectorIndexSpec {
-    pb::VectorIndexSpec {
-        name: name.into(),
-        options: options
-            .iter()
-            .map(|(k, v)| pb::OptionPair {
-                key: (*k).into(),
-                value: (*v).into(),
-            })
-            .collect(),
-    }
+/// A spec's option pairs as the factory lookups take them.
+fn options(options: &[(&str, &str)]) -> Vec<(String, String)> {
+    options
+        .iter()
+        .map(|(k, v)| ((*k).into(), (*v).into()))
+        .collect()
 }
 
 /// Each error the API returns, its variant and its Dgraph text.
@@ -51,20 +44,20 @@ fn test_tok_error_kinds() {
         e.0,
         TokErrorEnum::Arguments("Function requires 1 arguments, but got 2".into())
     );
-    let e = get_factory_create_spec_from_spec(&spec("nosuch", &[])).unwrap_err();
+    let e = get_factory_create_spec_from_spec("nosuch", &[]).unwrap_err();
     assert_eq!(
         e.0,
         TokErrorEnum::UnknownFactory("cannot find index factory named 'nosuch'".into())
     );
     assert_eq!(e.to_string(), "cannot find index factory named 'nosuch'");
-    let e = get_index_factory_opts_from_spec(&spec("", &[])).unwrap_err();
+    let e = get_index_factory_opts_from_spec("", &[]).unwrap_err();
     assert_eq!(
         e.0,
         TokErrorEnum::UnknownFactory(
             "cannot get Options for factory named '' (factory not found)".into()
         )
     );
-    let e = get_factory_create_spec_from_spec(&spec("hnsw", &[("metric", "l1")])).unwrap_err();
+    let e = get_factory_create_spec_from_spec("hnsw", &options(&[("metric", "l1")])).unwrap_err();
     assert!(matches!(e.0, TokErrorEnum::Options(_)));
     let e: &dyn std::error::Error = &e;
     assert_eq!(e.to_string(), "Can't create a vector index for l1");
@@ -127,7 +120,7 @@ fn test_tok_error_constructors() {
         assert_eq!(e.to_string(), types.to_string());
     }
     let TokErrorEnum::Options(options) =
-        get_factory_create_spec_from_spec(&spec("hnsw", &[("efSearch", "x")]))
+        get_factory_create_spec_from_spec("hnsw", &options(&[("efSearch", "x")]))
             .unwrap_err()
             .0
     else {

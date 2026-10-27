@@ -20,7 +20,8 @@ autotests = false
 workspace = true
 
 [dependencies]
-ultragraphdb_proto_pb = { workspace = true }
+ultragraphdb_error_store = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }

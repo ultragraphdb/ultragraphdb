@@ -46,8 +46,8 @@ fn index_value(a: &TestChangesets, key: &[u8]) -> Option<Vec<u8>> {
     let latest = a.quads().lists().latest_ts();
     let list = a.quads().lists().read(key, latest).expect("the list reads");
     list.static_value(latest)
-        .and_then(|pl| pl.postings.first())
-        .map(|p| p.value.clone())
+        .and_then(|pl| pl.postings().first())
+        .map(|p| p.value().to_vec())
 }
 
 /// The nodes the dead list of `predicate` in the default graph holds.

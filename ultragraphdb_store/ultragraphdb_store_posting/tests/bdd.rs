@@ -7,8 +7,8 @@ use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use cucumber::{World, then, when};
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListsConfig, MAX_LIST_SIZE, PostingError,
@@ -63,7 +63,7 @@ fn name() -> Vec<u8> {
 fn value_of(list: &List, read_ts: u64) -> Option<Vec<u8>> {
     let mut value = None;
     list.iterate(read_ts, 0, |p| {
-        value = Some(p.value.clone());
+        value = Some(p.value().to_vec());
         Ok::<_, PostingError>(std::ops::ControlFlow::Break(()))
     })
     .expect("the list iterates");
@@ -89,10 +89,8 @@ fn excludes_delta(w: &mut Steps) {
 fn merges(w: &mut Steps) {
     let store = new_store();
     let k = friend();
-    let complete = PostingList {
-        pack: ultragraphdb_core_codec::encode(&[1, 2], 256),
-        ..PostingList::default()
-    };
+    let complete = PostingList::default()
+        .with_pack(ultragraphdb_core_codec::encode(&[1, 2], 256).expect("the uids pack"));
     write_entries(
         &store,
         vec![Entry::put(k.clone(), 4, BIT_COMPLETE_POSTING, marshal(&complete)).with_discard()],
@@ -263,7 +261,7 @@ fn facet_back(w: &mut Steps) {
         .find_posting(w.versions[0], 5)
         .unwrap()
         .expect("the posting");
-    assert_eq!(p.facets[0].key, "since");
+    assert_eq!(p.facets()[0].key(), "since");
 }
 
 /// A split list in `store` of uids 1..=1500, split at 1,000 bytes, with uids 1501..=1600 committed above it.

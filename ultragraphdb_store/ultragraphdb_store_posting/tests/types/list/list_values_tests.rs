@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_proto_pb::pb::{Posting, posting};
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_store_posting::List;
 
 use crate::utils::helpers::{
@@ -17,11 +17,11 @@ fn test_lengths_and_postings_without_sorting() {
     l.commit_mutation(2);
     assert_eq!(l.get_length(3).unwrap(), 5);
     let (len, found) = l.get_posting_and_length(3, 0, 4);
-    assert_eq!((len, found.map(|p| p.uid)), (5, Some(4)));
+    assert_eq!((len, found.map(|p| p.uid())), (5, Some(4)));
     let (len, found) = l.get_posting_and_length_no_sort(3, 0, 6, false).unwrap();
     assert_eq!((len, found), (5, None));
     let (len, found) = l.get_posting_and_length_no_sort(3, 0, 2, true).unwrap();
-    assert_eq!((len, found.map(|p| p.uid)), (5, Some(2)));
+    assert_eq!((len, found.map(|p| p.uid())), (5, Some(2)));
     assert!(!l.is_empty(3, 0).unwrap());
     assert!(l.is_empty(3, 5).unwrap());
     assert!(l.is_empty(1, 0).unwrap());
@@ -38,14 +38,10 @@ fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() {
     let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000);
     // A posting kept beside the pack comes back whole; a bare uid as a uid posting.
     let found = l.find_posting(2, 4).unwrap().unwrap();
-    assert_eq!((found.uid, found.facets[0].key.as_str()), (4, "f"));
+    assert_eq!((found.uid(), found.facets()[0].key()), (4, "f"));
     assert_eq!(
         l.find_posting(2, 2).unwrap(),
-        Some(Posting {
-            uid: 2,
-            val_type: posting::ValType::Uid as i32,
-            ..Posting::default()
-        })
+        Some(Posting::default().with_uid(2))
     );
     assert_eq!(l.find_posting(2, 3).unwrap(), None, "between two uids");
     assert_eq!(l.find_posting(2, 7).unwrap(), None, "above the last uid");
@@ -54,10 +50,13 @@ fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() {
     add(&mut l, 3, &with_facet(set_uid(6), "g"));
     add(&mut l, 3, &del_uid(2));
     l.commit_mutation(4);
-    assert_eq!(l.find_posting(4, 6).unwrap().unwrap().facets[0].key, "g");
+    assert_eq!(
+        l.find_posting(4, 6).unwrap().unwrap().facets()[0].key(),
+        "g"
+    );
     assert_eq!(l.find_posting(4, 2).unwrap(), None);
     assert_eq!(
-        l.find_posting(3, 2).unwrap().map(|p| p.uid),
+        l.find_posting(3, 2).unwrap().map(|p| p.uid()),
         Some(2),
         "below the delete"
     );
@@ -65,7 +64,7 @@ fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() {
     add(&mut l, 5, &delete_all());
     l.commit_mutation(6);
     assert_eq!(l.find_posting(6, 4).unwrap(), None);
-    assert_eq!(l.find_posting(5, 4).unwrap().map(|p| p.uid), Some(4));
+    assert_eq!(l.find_posting(5, 4).unwrap().map(|p| p.uid()), Some(4));
 }
 
 #[test]
@@ -102,12 +101,12 @@ fn test_a_length_and_a_posting_above_an_after_uid() {
     (1..=5).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
     let (len, found) = l.get_posting_and_length(3, 2, 4);
-    assert_eq!((len, found.map(|p| p.uid)), (3, Some(4)));
+    assert_eq!((len, found.map(|p| p.uid())), (3, Some(4)));
     let (len, found) = l.get_posting_and_length(3, 2, 1);
     assert_eq!((len, found), (3, None), "uid 1 is not above the after-uid");
     let (len, found) = l.get_posting_and_length_no_sort(3, 2, 1, false).unwrap();
     assert_eq!(
-        (len, found.map(|p| p.uid)),
+        (len, found.map(|p| p.uid())),
         (5, Some(1)),
         "without sorting, the after-uid is not applied"
     );
@@ -116,7 +115,7 @@ fn test_a_length_and_a_posting_above_an_after_uid() {
 /// The value of the newest layer `static_value` picks, in the order its documentation gives.
 fn static_of(l: &List, read_ts: u64) -> Option<Vec<u8>> {
     l.static_value(read_ts)
-        .map(|pl| pl.postings[0].value.clone())
+        .map(|pl| pl.postings()[0].value().to_vec())
 }
 
 #[test]

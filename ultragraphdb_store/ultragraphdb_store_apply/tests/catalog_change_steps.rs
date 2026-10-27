@@ -83,7 +83,7 @@ fn subject_predicates(a: &TestChangesets, subject: &str) -> Vec<u64> {
         .expect("the list reads");
     let mut predicates = Vec::new();
     list.iterate(latest, 0, |p| {
-        predicates.push(p.uid);
+        predicates.push(p.uid());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .expect("the list iterates");
@@ -501,7 +501,7 @@ fn split_data_dropped(w: &mut Steps) {
         .lists()
         .read(&key, latest)
         .expect("the list reads");
-    assert!(!list.plist().splits.is_empty(), "the list is split");
+    assert!(!list.plist().splits().is_empty(), "the list is split");
     w.keys = namespace_keys(&a, NS).0;
     a.drop_data(NS).expect("the data drops");
 }

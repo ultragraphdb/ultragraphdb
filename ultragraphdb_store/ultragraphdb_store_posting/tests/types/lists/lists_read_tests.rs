@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, CachedList, List, ListOptions, ListsConfig,
     PostingErrorEnum, marshal,
@@ -30,7 +30,7 @@ fn uid_count(lists: &TestLists, key: &[u8], read_ts: u64) -> usize {
     let (list, _) = List::read(key, &snapshot).expect("read");
     list.uids(&ListOptions::at(read_ts))
         .expect("uids")
-        .uids
+        .uids()
         .len()
 }
 
@@ -132,7 +132,7 @@ fn test_cache_is_replaced_by_a_commit_after_its_fill() {
     assert_eq!(entry.ts(), 20);
 
     let l2 = lists.cached(&k, 25).expect("read").expect("a cache hit");
-    assert_eq!(l2.uids(&ListOptions::at(25)).unwrap().uids, vec![1, 2]);
+    assert_eq!(l2.uids(&ListOptions::at(25)).unwrap().uids(), vec![1, 2]);
 }
 
 #[test]

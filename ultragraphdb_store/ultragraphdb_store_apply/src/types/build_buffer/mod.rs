@@ -13,8 +13,8 @@
 
 use std::collections::BTreeMap;
 
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, List, marshal};
 use ultragraphdb_traits_store::{Entry, Item, Store, Temporary, WriteBatch};
 

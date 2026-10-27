@@ -14,8 +14,7 @@
 use std::collections::BTreeMap;
 
 use crate::utils::list_keys::split_key_of;
-use prost::Message;
-use ultragraphdb_proto_pb::pb::{PostingList, UidPack};
+use ultragraphdb_core_codec::{PostingList, UidPack};
 use ultragraphdb_traits_store::Entry;
 
 use crate::errors::posting_error::PostingError;
@@ -108,7 +107,7 @@ impl RollupOutput {
         if !self.parts.is_empty() {
             self.plist = PostingList::default();
         }
-        self.plist.splits = self.splits();
+        self.plist.set_splits(self.splits());
     }
 
     /// Removes every empty part but the first, and the first when it is the last left, which unsplits the list:
@@ -119,7 +118,7 @@ impl RollupOutput {
         self.update_splits();
         if self.parts.len() == 1 && self.parts.get(&1).is_some_and(is_plist_empty) {
             self.parts.clear();
-            self.plist.splits.clear();
+            self.plist.set_splits(Vec::new());
         }
     }
 
@@ -155,30 +154,22 @@ fn posting_entry(key: Vec<u8>, plist: &PostingList, version: u64) -> Entry {
 
 /// Whether `plist` should be split in two: at least `max_list_size` bytes encoded, over more than one block.
 pub fn should_split(plist: &PostingList, max_list_size: usize) -> bool {
-    plist.encoded_len() >= max_list_size && plist.pack.as_ref().is_some_and(|p| p.blocks.len() > 1)
+    plist.encoded_len() >= max_list_size && plist.pack().is_some_and(|p| p.blocks().len() > 1)
 }
 
 /// Splits `plist`, starting at `low_uid`, at its middle block's base: the start uids of the two halves and the
 /// halves, each with its blocks and postings. Dgraph's `binSplit`.
 pub fn bin_split(low_uid: u64, plist: &PostingList) -> ([u64; 2], [PostingList; 2]) {
-    let pack = plist.pack.clone().unwrap_or_default();
-    let mid_block = pack.blocks.len() / 2;
-    let mid_uid = pack.blocks.get(mid_block).map_or(u64::MAX, |b| b.base);
-    let half = |blocks: &[_]| UidPack {
-        block_size: pack.block_size,
-        blocks: blocks.to_vec(),
-        alloc_ref: pack.alloc_ref,
-    };
-    let pidx = plist.postings.partition_point(|p| p.uid < mid_uid);
-    let low = PostingList {
-        pack: Some(half(&pack.blocks[..mid_block])),
-        postings: plist.postings[..pidx].to_vec(),
-        ..PostingList::default()
-    };
-    let high = PostingList {
-        pack: Some(half(&pack.blocks[mid_block..])),
-        postings: plist.postings[pidx..].to_vec(),
-        ..PostingList::default()
-    };
+    let pack = plist.pack().cloned().unwrap_or_default();
+    let mid_block = pack.blocks().len() / 2;
+    let mid_uid = pack.blocks().get(mid_block).map_or(u64::MAX, |b| b.base());
+    let half = |blocks: &[_]| UidPack::new(pack.block_size(), blocks.to_vec());
+    let pidx = plist.postings().partition_point(|p| p.uid() < mid_uid);
+    let low = PostingList::default()
+        .with_pack(half(&pack.blocks()[..mid_block]))
+        .with_postings(plist.postings()[..pidx].to_vec());
+    let high = PostingList::default()
+        .with_pack(half(&pack.blocks()[mid_block..]))
+        .with_postings(plist.postings()[pidx..].to_vec());
     ([low_uid, mid_uid], [low, high])
 }

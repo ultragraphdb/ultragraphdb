@@ -4,8 +4,7 @@
  */
 
 use serde::Deserialize;
-use ultragraphdb_core_codec::{Decoder, SeekPos, decode, encode};
-use ultragraphdb_proto_pb::pb::UidPack;
+use ultragraphdb_core_codec::{Decoder, SeekPos, UidPack, decode, encode};
 use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 #[derive(Debug, Clone, Deserialize)]

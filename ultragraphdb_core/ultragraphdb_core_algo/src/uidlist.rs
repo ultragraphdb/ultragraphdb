@@ -10,8 +10,7 @@
 
 use std::thread;
 
-use ultragraphdb_core_codec::{Decoder, SeekPos, exact_len};
-use ultragraphdb_proto_pb::pb::{List, UidPack};
+use ultragraphdb_core_codec::{Decoder, List, SeekPos, UidPack, exact_len};
 
 use crate::types::elem::Elem;
 use crate::types::uint64_heap::Uint64Heap;
@@ -22,7 +21,7 @@ const LIN_VS_BIN_RATIO: usize = 10; // When is linear search better than binary
 /// Keeps the UIDs of `u` for which `f(uid, index)` holds, `index` counting from 0 in the original list.
 pub fn apply_filter(u: &mut List, mut f: impl FnMut(u64, usize) -> bool) {
     let mut i = 0;
-    u.uids.retain(|&uid| {
+    u.uids_mut().retain(|&uid| {
         let keep = f(uid, i);
         i += 1;
         keep
@@ -38,12 +37,12 @@ pub fn intersect_compressed_with(pack: Option<&UidPack>, after_uid: u64, v: &Lis
     };
     let mut dec = Decoder::sought(pack, after_uid, SeekPos::Start);
     let mut n = dec.approx_len();
-    let mut m = v.uids.len();
+    let mut m = v.uids().len();
 
     if n > m {
         (n, m) = (m, n);
     }
-    o.uids.clear();
+    o.uids_mut().clear();
 
     // If n equals 0, set it to 1 to avoid division by zero.
     if n == 0 {
@@ -53,9 +52,9 @@ pub fn intersect_compressed_with(pack: Option<&UidPack>, after_uid: u64, v: &Lis
     // Select appropriate function based on heuristics.
     let ratio = m as f64 / n as f64;
     if ratio < LIN_VS_BIN_RATIO as f64 {
-        intersect_compressed_with_lin_jump(&mut dec, &v.uids, &mut o.uids);
+        intersect_compressed_with_lin_jump(&mut dec, v.uids(), o.uids_mut());
     } else {
-        intersect_compressed_with_bin(&mut dec, &v.uids, &mut o.uids);
+        intersect_compressed_with_bin(&mut dec, v.uids(), o.uids_mut());
     }
 }
 
@@ -139,25 +138,25 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[u64], o: &mut Vec<u
 /// Intersects the sorted lists `u` and `v` into `o`, choosing the linear, jumping or binary strategy by the ratio of
 /// their lengths. Go writes the result over `u` when `o` is `u`; here `o` is a list of its own.
 pub fn intersect_with(u: &List, v: &List, o: &mut List) {
-    let mut n = u.uids.len();
-    let mut m = v.uids.len();
+    let mut n = u.uids().len();
+    let mut m = v.uids().len();
 
     if n > m {
         (n, m) = (m, n);
     }
-    o.uids.clear();
-    o.uids.reserve(n);
+    o.uids_mut().clear();
+    o.uids_mut().reserve(n);
     if n == 0 {
         n = 1;
     }
     // Select appropriate function based on heuristics.
     let ratio = m as f64 / n as f64;
     if ratio < 100.0 {
-        intersect_with_lin(&u.uids, &v.uids, &mut o.uids);
+        intersect_with_lin(u.uids(), v.uids(), o.uids_mut());
     } else if ratio < 500.0 {
-        intersect_with_jump(&u.uids, &v.uids, &mut o.uids);
+        intersect_with_jump(u.uids(), v.uids(), o.uids_mut());
     } else {
-        intersect_with_bin(&u.uids, &v.uids, &mut o.uids);
+        intersect_with_bin(u.uids(), v.uids(), o.uids_mut());
     }
 }
 
@@ -285,7 +284,7 @@ pub fn intersect_sorted(lists: &[&List]) -> List {
     }
     let mut ls: Vec<&List> = lists.to_vec();
     // Sort the lists based on length.
-    ls.sort_by_key(|l| l.uids.len());
+    ls.sort_by_key(|l| l.uids().len());
     if ls.len() == 1 {
         return ls[0].clone();
     }
@@ -299,7 +298,7 @@ pub fn intersect_sorted(lists: &[&List]) -> List {
         std::mem::swap(&mut out, &mut scratch);
         // Break if we reach size 0 as we can no longer
         // add any element.
-        if out.uids.is_empty() {
+        if out.uids().is_empty() {
             break;
         }
     }
@@ -308,7 +307,7 @@ pub fn intersect_sorted(lists: &[&List]) -> List {
 
 /// The UIDs of `u` not in `v`.
 pub fn difference(u: &List, v: &List) -> List {
-    let (u, v) = (&u.uids, &v.uids);
+    let (u, v) = (u.uids(), v.uids());
     let n = u.len();
     let m = v.len();
     let mut out = Vec::with_capacity(n / 2);
@@ -335,7 +334,7 @@ pub fn difference(u: &List, v: &List) -> List {
         out.push(u[i]);
         i += 1;
     }
-    List { uids: out }
+    List::new(out)
 }
 
 /// Merges sorted lists into one without duplicates, splitting more than 100 lists over 10 threads recursively.
@@ -370,20 +369,20 @@ pub fn merge_sorted_more_mem(lists: &[&List]) -> List {
 
 /// Merges sorted lists into one without duplicates.
 fn internal_merge_sort(lists: &[&List]) -> List {
-    let sz = lists.iter().map(|l| l.uids.len()).sum();
+    let sz = lists.iter().map(|l| l.uids().len()).sum();
     internal_merge_sort_with_buffer(lists, Vec::with_capacity(sz))
 }
 
 fn internal_merge_sort_with_buffer(lists: &[&List], mut output: Vec<u64>) -> List {
     output.clear();
     if lists.is_empty() {
-        return List { uids: output };
+        return List::new(output);
     }
 
     let elems = lists
         .iter()
         .enumerate()
-        .filter_map(|(i, l)| l.uids.first().map(|&val| Elem::new(val, i)))
+        .filter_map(|(i, l)| l.uids().first().map(|&val| Elem::new(val, i)))
         .collect();
     let mut h = Uint64Heap::new(elems);
 
@@ -395,7 +394,7 @@ fn internal_merge_sort_with_buffer(lists: &[&List], mut output: Vec<u64>) -> Lis
             output.push(me.val());
             last = me.val();
         }
-        let l = &lists[me.list_idx()].uids;
+        let l = lists[me.list_idx()].uids();
         if idx[me.list_idx()] >= l.len() - 1 {
             h.pop();
         } else {
@@ -405,7 +404,7 @@ fn internal_merge_sort_with_buffer(lists: &[&List], mut output: Vec<u64>) -> Lis
         }
     }
 
-    List { uids: output }
+    List::new(output)
 }
 
 const NUM_THREADS: usize = 10;
@@ -432,7 +431,7 @@ pub fn merge_sorted(lists: &[&List]) -> List {
                 }
                 let chunk = &lists[start..end];
                 Some(s.spawn(move || {
-                    let cap = chunk.iter().map(|l| l.uids.len()).sum();
+                    let cap = chunk.iter().map(|l| l.uids().len()).sum();
                     internal_merge_sort_with_buffer(chunk, Vec::with_capacity(cap))
                 }))
             })
@@ -447,13 +446,16 @@ pub fn merge_sorted(lists: &[&List]) -> List {
     });
 
     // Leave out empty results.
-    let valid: Vec<&List> = intermediate.iter().filter(|l| !l.uids.is_empty()).collect();
-    let total = valid.iter().map(|l| l.uids.len()).sum();
+    let valid: Vec<&List> = intermediate
+        .iter()
+        .filter(|l| !l.uids().is_empty())
+        .collect();
+    let total = valid.iter().map(|l| l.uids().len()).sum();
     internal_merge_sort_with_buffer(&valid, Vec::with_capacity(total))
 }
 
 /// The index of `uid` in the sorted list, by binary search.
 pub fn index_of(u: &List, uid: u64) -> Option<usize> {
-    let i = u.uids.partition_point(|&x| x < uid);
-    (u.uids.get(i) == Some(&uid)).then_some(i)
+    let i = u.uids().partition_point(|&x| x < uid);
+    (u.uids().get(i) == Some(&uid)).then_some(i)
 }

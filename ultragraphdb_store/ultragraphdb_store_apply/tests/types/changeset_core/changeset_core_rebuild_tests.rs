@@ -260,8 +260,8 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() {
     let dead = a.quads().lists().read(&keys.dead(), latest).unwrap();
     let value = dead
         .static_value(latest)
-        .and_then(|pl| pl.postings.first())
-        .map(|p| p.value.clone())
+        .and_then(|pl| pl.postings().first())
+        .map(|p| p.value().to_vec())
         .expect("a dead list");
     assert_eq!(
         ultragraphdb_store_hnsw::parse_edges(&String::from_utf8_lossy(&value)).unwrap(),

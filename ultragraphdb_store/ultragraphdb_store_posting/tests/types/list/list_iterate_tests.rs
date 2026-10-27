@@ -9,8 +9,8 @@
 
 use std::ops::ControlFlow;
 
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::QuadKey;
-use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_store_posting::{List, ListOptions, PostingError, PostingErrorEnum};
 
 use crate::utils::helpers::{
@@ -32,8 +32,11 @@ fn facets(list: &List, read_ts: u64) -> Vec<(u64, String)> {
     let mut out = Vec::new();
     list.iterate(read_ts, 0, |p| {
         out.push((
-            p.uid,
-            p.facets.first().map(|f| f.key.clone()).unwrap_or_default(),
+            p.uid(),
+            p.facets()
+                .first()
+                .map(|f| f.key().to_string())
+                .unwrap_or_default(),
         ));
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
@@ -51,7 +54,7 @@ fn test_an_empty_list_reads_empty_everywhere() {
         assert_eq!(l.get_length(read_ts).unwrap(), 0);
         assert_eq!(l.find_posting(read_ts, 1).unwrap(), None);
         assert!(l.static_value(read_ts).is_none());
-        assert!(l.uids(&ListOptions::at(read_ts)).unwrap().uids.is_empty());
+        assert!(l.uids(&ListOptions::at(read_ts)).unwrap().uids().is_empty());
         assert_eq!(l.pick_postings(read_ts), (0, Vec::new()));
     }
     assert_eq!(l.approx_len(), 0);
@@ -114,13 +117,7 @@ fn test_a_delete_all_below_the_complete_version_is_refused_and_one_at_it_hides_t
         "a rollup at 4 writes one above the commit at 2"
     );
 
-    let below = rolled.committed(
-        2,
-        PostingList {
-            postings: vec![delete_all()],
-            ..PostingList::default()
-        },
-    );
+    let below = rolled.committed(2, PostingList::default().with_postings(vec![delete_all()]));
     let error = below.is_empty(5, 0).unwrap_err();
     assert_eq!(
         error.0,
@@ -135,13 +132,7 @@ fn test_a_delete_all_below_the_complete_version_is_refused_and_one_at_it_hides_t
     );
 
     // The transaction starting at the rollup's version may delete all at it.
-    let at = rolled.committed(
-        3,
-        PostingList {
-            postings: vec![delete_all()],
-            ..PostingList::default()
-        },
-    );
+    let at = rolled.committed(3, PostingList::default().with_postings(vec![delete_all()]));
     assert!(uids(&at, 3, 0).is_empty());
     assert_eq!(at.get_length(3).unwrap(), 0);
     assert_eq!(uids(&rolled, 3, 0), vec![3]);
@@ -215,7 +206,7 @@ fn test_the_largest_uid_is_read_from_the_deltas_and_from_the_pack() {
     assert_eq!(uids(&rolled, 2, u64::MAX - 1), vec![u64::MAX]);
     assert!(uids(&rolled, 2, u64::MAX).is_empty());
     assert_eq!(
-        rolled.find_posting(2, u64::MAX).unwrap().map(|p| p.uid),
+        rolled.find_posting(2, u64::MAX).unwrap().map(|p| p.uid()),
         Some(u64::MAX)
     );
 }
@@ -227,8 +218,8 @@ fn test_iteration_stops_where_the_callback_breaks_and_passes_its_error() {
     l.commit_mutation(2);
     let mut seen = Vec::new();
     l.iterate(2, 0, |p| {
-        seen.push(p.uid);
-        Ok::<_, PostingError>(if p.uid == 2 {
+        seen.push(p.uid());
+        Ok::<_, PostingError>(if p.uid() == 2 {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())

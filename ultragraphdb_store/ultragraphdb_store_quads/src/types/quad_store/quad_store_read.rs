@@ -83,7 +83,7 @@ where
         let mut objects = Vec::new();
         list.iterate(read_ts, 0, |p| {
             match posting_object(key, p) {
-                Ok(object) => objects.push((object, p.statement_ids.clone())),
+                Ok(object) => objects.push((object, p.statement_ids().to_vec())),
                 Err(e) => return Err(PostingErrorOr::Quad(e)),
             }
             Ok(ControlFlow::Continue(()))

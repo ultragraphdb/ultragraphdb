@@ -5,7 +5,7 @@ nothing validates a read, because nothing runs concurrently. The protobuf messag
 storage format, and no server or client exists. Stage 5 makes every acknowledged commit survive power loss, takes write
 execution to n−1 cores under strict serializability, and replaces protobuf with a binary format of the project's own
 that a receiver reads in place, before stage 6's query core writes through it. The design is
-`openspec/notes/ zero-copy-binary-protocol.md`, approved on 2026-10-27; it refines stage 5 of
+` zero-copy-binary-protocol.md` in this change's folder, approved on 2026-10-27; it refines stage 5 of
 `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
 
 ## What Changes

@@ -51,9 +51,9 @@ where
         let list = request.get(key)?;
         Ok(list
             .static_value(read_ts)
-            .and_then(|pl| pl.postings.first())
-            .filter(|p| p.op != DEL)
-            .map(|p| p.value.clone()))
+            .and_then(|pl| pl.postings().first())
+            .filter(|p| p.op() != DEL)
+            .map(|p| p.value().to_vec()))
     }
 
     /// Writes `value` as the single value of the vector-index list `key`.

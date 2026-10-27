@@ -10,10 +10,12 @@ members = [
     "ultragraphdb_common/*",
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
-    "ultragraphdb_proto/*",
+    "ultragraphdb_protocol/*",
+    "ultragraphdb_server/*",
     "ultragraphdb_store/*",
     "ultragraphdb_tool/*",
     "ultragraphdb_traits/*",
+    "ultragraphdb_transactions/*",
 ]
 
 [workspace.package]
@@ -47,12 +49,18 @@ ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
 ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ## Error
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
+ultragraphdb_error_log = { path = "ultragraphdb_error/ultragraphdb_error_log" }
 ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
 ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
+ultragraphdb_error_protocol = { path = "ultragraphdb_error/ultragraphdb_error_protocol" }
 ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store" }
-## Proto
-ultragraphdb_proto_dgraph = { path = "ultragraphdb_proto/ultragraphdb_proto_dgraph" }
-ultragraphdb_proto_pb = { path = "ultragraphdb_proto/ultragraphdb_proto_pb" }
+## Protocol: the binary protocol client and server share
+ultragraphdb_protocol_bus = { path = "ultragraphdb_protocol/ultragraphdb_protocol_bus" }
+ultragraphdb_protocol_client = { path = "ultragraphdb_protocol/ultragraphdb_protocol_client" }
+ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
+## Server
+ultragraphdb_server_node = { path = "ultragraphdb_server/ultragraphdb_server_node" }
+ultragraphdb_server_session = { path = "ultragraphdb_server/ultragraphdb_server_session" }
 ## Store: storage over the Store trait
 ultragraphdb_store_apply = { path = "ultragraphdb_store/ultragraphdb_store_apply" }
 ultragraphdb_store_hnsw = { path = "ultragraphdb_store/ultragraphdb_store_hnsw" }
@@ -67,18 +75,19 @@ ultragraphdb_tool_test = { path = "ultragraphdb_tool/ultragraphdb_tool_test" }
 ## Traits
 ultragraphdb_traits_collator = { path = "ultragraphdb_traits/ultragraphdb_traits_collator" }
 ultragraphdb_traits_index = { path = "ultragraphdb_traits/ultragraphdb_traits_index" }
+ultragraphdb_traits_log = { path = "ultragraphdb_traits/ultragraphdb_traits_log" }
 ultragraphdb_traits_store = { path = "ultragraphdb_traits/ultragraphdb_traits_store" }
+## Transactions
+ultragraphdb_transactions_commit = { path = "ultragraphdb_transactions/ultragraphdb_transactions_commit" }
+ultragraphdb_transactions_log = { path = "ultragraphdb_transactions/ultragraphdb_transactions_log" }
+ultragraphdb_transactions_sim = { path = "ultragraphdb_transactions/ultragraphdb_transactions_sim" }
+ultragraphdb_transactions_txn = { path = "ultragraphdb_transactions/ultragraphdb_transactions_txn" }
 
 # ==============
 # External crates
 # ==============
-prost = "0.14"
 serde_json = "1.0"
 tokio = "1"
-tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
-tonic-prost = "0.14"
-tonic-prost-build = "0.14"
-# Byte-exact formats of the ported packages (stage 1 design, "External libraries for the byte-exact formats").
 bcrypt = "0.19"
 blake2 = "0.11"
 dashu-base = "0.6"
@@ -86,30 +95,23 @@ dashu-int = "0.6"
 rust-stemmers = "1.2"
 serde = { version = "1.0", features = ["derive"] }
 unicode-normalization = "0.1"
-# The RDF term model and XSD values beneath the term dictionary (stage 4 design, "Crates"): pure Rust, MIT OR
-# Apache-2.0. `rdf-12` gives the directional language-tagged strings RDF 1.2 adds.
-oxrdf = { version = "0.3.5", features = ["rdf-12"] }
-oxsdatatypes = "0.2.4"
-# Structured logging; library crates emit events and never install a subscriber.
+oxrdf = { version = "0.3", features = ["rdf-12"] }
+oxsdatatypes = "0.2"
 tracing = "0.1"
-# Telemetry, installed once by a binary through ultragraphdb_common_telemetry: the 0.33 OpenTelemetry release
-# train, tracing-opentelemetry 0.34 built on it, the OTLP span exporter over tonic 0.14 and prost 0.14.
-tracing-subscriber = { version = "0.3.23", features = ["fmt", "json", "env-filter"] }
-opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
-opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["grpc-tonic", "trace"] }
-tracing-opentelemetry = { version = "0.34.0", default-features = false }
-# fjall is pinned exactly for its #[doc(hidden)] major_compact and
-# rotate_memtable_and_wait, which Store::compact calls.
+tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
 fjall = "=3.1.12"
-moka = { version = "0.12.16", features = ["sync"] }
-# Test-only: BDD scenarios from the specs, run without the libtest harness.
-cucumber = "0.23"
+moka = { version = "0.12", features = ["sync"] }
 futures = "0.3"
-# Bench-only: criterion 0.7.0, the newest release without `alloca`, whose build script compiles C (0.8 added it);
-# no default features, so no plotters, no rayon and no async runtimes.
-criterion = { version = "0.7.0", default-features = false }
-
+compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+## Dev dependencies
+arbitrary = { version = "1.5", features = ["derive"] }
+cucumber = "0.23"
+criterion = { version = "0.8", default-features = false }
 
 [workspace.lints.clippy]
 all = "warn"

@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, WriteBatch};
 
 use crate::errors::posting_error::PostingError;

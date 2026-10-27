@@ -22,10 +22,10 @@ use std::ops::ControlFlow;
 
 use oxrdf::Term;
 use ultragraphdb_core_catalog::Catalog;
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_keys::{CountDirection, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_hnsw::{VectorKeys, add_dead_node, bytes_as_float_array, index_posting};
 use ultragraphdb_store_posting::{CachedList, List, PostingError, PostingErrorEnum, SET};
 use ultragraphdb_store_quads::object_posting;
@@ -406,11 +406,7 @@ where
 
 /// A subject's posting in a value-index or forward count list.
 fn ref_posting(uid: u64) -> Posting {
-    Posting {
-        uid,
-        op: SET,
-        ..Posting::default()
-    }
+    Posting::default().with_uid(uid).with_op(SET)
 }
 
 /// Every key `snapshot` holds under `prefixes`, in every graph.

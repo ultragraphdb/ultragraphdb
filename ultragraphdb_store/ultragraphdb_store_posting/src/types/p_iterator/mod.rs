@@ -9,8 +9,7 @@
  */
 
 use crate::utils::list_keys::split_key_of;
-use ultragraphdb_core_codec::{Decoder, SeekPos};
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Decoder, Posting, PostingList, SeekPos};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
@@ -25,7 +24,7 @@ pub(crate) enum PPosting<'a> {
 impl PPosting<'_> {
     pub fn uid(&self) -> u64 {
         match self {
-            PPosting::Found(p) => p.uid,
+            PPosting::Found(p) => p.uid(),
             PPosting::Uid(uid) => *uid,
         }
     }
@@ -60,7 +59,7 @@ impl<'a> PIterator<'a> {
                 list.min_ts(),
             ));
         }
-        let splits = &list.plist().splits;
+        let splits = list.plist().splits();
         if list.parts().len() < splits.len() {
             let missing = splits[list.parts().len()];
             return Err(PostingError::MissingPart(split_key_of(
@@ -90,7 +89,7 @@ impl<'a> PIterator<'a> {
             return;
         };
         self.decoder = part
-            .pack
+            .pack()
             .as_ref()
             .map(|pack| Decoder::sought(pack, self.after_uid, SeekPos::Current));
         self.uids = self
@@ -100,7 +99,7 @@ impl<'a> PIterator<'a> {
             .unwrap_or_default();
         self.uidx = 0;
         let after = self.after_uid;
-        self.pidx = part.postings.partition_point(|p| p.uid <= after);
+        self.pidx = part.postings().partition_point(|p| p.uid() <= after);
     }
 
     /// Moves on to the next part holding uids, if the list is split.
@@ -130,11 +129,14 @@ impl<'a> PIterator<'a> {
             return;
         }
         if let (Some(&uid), Some(part)) = (self.uids.get(self.uidx), self.parts.get(self.part_idx))
-            && part.postings.get(self.pidx).is_some_and(|p| p.uid == uid)
             && part
-                .postings
+                .postings()
+                .get(self.pidx)
+                .is_some_and(|p| p.uid() == uid)
+            && part
+                .postings()
                 .get(self.pidx + 1)
-                .is_some_and(|p| p.uid == uid)
+                .is_some_and(|p| p.uid() == uid)
         {
             self.pidx += 1;
             return;
@@ -161,11 +163,11 @@ impl<'a> PIterator<'a> {
         let Some(part) = self.parts.get(self.part_idx).copied() else {
             return PPosting::Uid(uid);
         };
-        while let Some(p) = part.postings.get(self.pidx) {
-            if p.uid > uid {
+        while let Some(p) = part.postings().get(self.pidx) {
+            if p.uid() > uid {
                 break;
             }
-            if p.uid == uid {
+            if p.uid() == uid {
                 return PPosting::Found(p);
             }
             self.pidx += 1;

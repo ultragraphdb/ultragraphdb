@@ -5,8 +5,8 @@
 
 //! Ported from Dgraph v25.5.0: `algo`: sorted-set operations over UID lists and packed lists.
 //!
-//! Intersection, merge, difference and index-of over sorted [`List`](ultragraphdb_proto_pb::pb::List)s and over
-//! [`UidPack`](ultragraphdb_proto_pb::pb::UidPack)s, with the heap the merges use. Where Dgraph accepts a nil pack,
+//! Intersection, merge, difference and index-of over sorted [`List`](ultragraphdb_core_codec::List)s and over
+//! [`UidPack`](ultragraphdb_core_codec::UidPack)s, with the heap the merges use. Where Dgraph accepts a nil pack,
 //! the port takes an `Option`. The count-min sketch (`algo/cm-sketch.go`) is not ported.
 
 mod packed;

@@ -12,8 +12,7 @@
 use std::ops::ControlFlow;
 
 use ultragraphdb_common_utils::go_farm::fingerprint64;
-use ultragraphdb_core_codec::decode;
-use ultragraphdb_proto_pb::pb::{Posting, PostingList, posting};
+use ultragraphdb_core_codec::{List as UidList, Posting, PostingList, PostingType, decode};
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListOptions, MAX_LIST_SIZE, PostingError,
     bin_split, from_backup_posting_list, marshal, split_key_of, unmarshal_complete,
@@ -41,18 +40,12 @@ fn single_key(attr: &str, node: u64) -> Vec<u8> {
 
 /// A set of the one value of a single-value list.
 fn set_single(value: &str) -> Posting {
-    Posting {
-        uid: u64::MAX,
-        ..set_value(value)
-    }
+    set_value(value).with_uid(u64::MAX)
 }
 
 /// A delete of the one value of a single-value list.
 fn del_single(value: &str) -> Posting {
-    Posting {
-        uid: u64::MAX,
-        ..del_value(value)
-    }
+    del_value(value).with_uid(u64::MAX)
 }
 
 fn first(list: &List, read_ts: u64) -> Posting {
@@ -67,8 +60,8 @@ fn first(list: &List, read_ts: u64) -> Posting {
 
 fn check_value(list: &List, value: &str, read_ts: u64) {
     let p = first(list, read_ts);
-    assert_eq!(p.uid, u64::MAX);
-    assert_eq!(p.value, value.as_bytes());
+    assert_eq!(p.uid(), u64::MAX);
+    assert_eq!(p.value(), value.as_bytes());
 }
 
 fn count(list: &List, read_ts: u64) -> usize {
@@ -78,33 +71,33 @@ fn count(list: &List, read_ts: u64) -> usize {
 #[test]
 fn test_get_single_posting() {
     let k = key("GetSinglePosting", 123);
-    let create = |start_ts: u64, commit_ts: u64| PostingList {
-        postings: vec![Posting {
-            uid: 1,
-            op: 1,
-            start_ts,
-            commit_ts,
-            ..Posting::default()
-        }],
-        commit_ts: start_ts,
-        ..PostingList::default()
+    let create = |start_ts: u64, commit_ts: u64| {
+        PostingList::default()
+            .with_postings(vec![
+                Posting::default()
+                    .with_uid(1)
+                    .with_op(1)
+                    .with_start_ts(start_ts)
+                    .with_commit_ts(commit_ts),
+            ])
+            .with_commit_ts(start_ts)
     };
     let l = List::empty(k.clone());
     assert!(l.static_value(1).is_none());
 
     let l = List::new(k, create(1, 1), 0);
-    assert_eq!(l.static_value(1).unwrap().postings[0].start_ts, 1);
-    assert_eq!(l.static_value(4).unwrap().postings[0].start_ts, 1);
+    assert_eq!(l.static_value(1).unwrap().postings()[0].start_ts(), 1);
+    assert_eq!(l.static_value(4).unwrap().postings()[0].start_ts(), 1);
 
     let l = l.committed(3, create(2, 3));
-    assert_eq!(l.static_value(1).unwrap().postings[0].start_ts, 1);
-    assert_eq!(l.static_value(3).unwrap().postings[0].start_ts, 2);
-    assert_eq!(l.static_value(4).unwrap().postings[0].start_ts, 2);
+    assert_eq!(l.static_value(1).unwrap().postings()[0].start_ts(), 1);
+    assert_eq!(l.static_value(3).unwrap().postings()[0].start_ts(), 2);
+    assert_eq!(l.static_value(4).unwrap().postings()[0].start_ts(), 2);
 
     // A transaction from 4 to 6.
     let l = l.committed(6, create(4, 6));
-    assert_eq!(l.static_value(5).unwrap().postings[0].start_ts, 2);
-    assert_eq!(l.static_value(6).unwrap().postings[0].start_ts, 4);
+    assert_eq!(l.static_value(5).unwrap().postings()[0].start_ts(), 2);
+    assert_eq!(l.static_value(6).unwrap().postings()[0].start_ts(), 4);
 }
 
 #[test]
@@ -113,7 +106,7 @@ fn test_add_mutation() {
     let edge = with_facet(set_uid(9), "testing");
     add(&mut l, 1, &edge);
     assert_eq!(uids(&l, 1, 0), vec![9]);
-    assert_eq!(first(&l, 1).facets[0].key, "testing");
+    assert_eq!(first(&l, 1).facets()[0].key(), "testing");
 
     add(&mut l, 1, &with_facet(set_uid(81), "testing"));
     assert_eq!(uids(&l, 1, 0), vec![9, 81]);
@@ -128,7 +121,7 @@ fn test_add_mutation() {
     l.commit_mutation(2);
 
     check_uids(&l, &[9, 69, 81], 3);
-    assert_eq!(first(&l, 3).facets[0].key, "anti-testing");
+    assert_eq!(first(&l, 3).facets()[0].key(), "anti-testing");
 }
 
 #[test]
@@ -281,10 +274,10 @@ fn stored_value(store: &SimStore, key: &[u8], read_ts: u64) -> Vec<u8> {
         unmarshal_delta(key, item.value()).expect("delta")
     };
     plist
-        .postings
+        .postings()
         .iter()
-        .find(|p| p.uid == u64::MAX)
-        .map(|p| p.value.clone())
+        .find(|p| p.uid() == u64::MAX)
+        .map(|p| p.value().to_vec())
         .unwrap_or_default()
 }
 
@@ -358,8 +351,8 @@ fn test_million() {
         commits += 1;
     }
     let l = ol.uids(&ListOptions::at(n + 1)).expect("uids");
-    assert_eq!(l.uids.len(), commits);
-    for (i, uid) in l.uids.iter().enumerate() {
+    assert_eq!(l.uids().len(), commits);
+    for (i, uid) in l.uids().iter().enumerate() {
         assert_eq!(*uid, (i as u64 + 1) * 2);
     }
 }
@@ -562,10 +555,10 @@ fn create_multi_part_list(store: &SimStore, name: &str, size: u64, facet: bool) 
     assert_eq!(version, size + 1);
     write_entries(store, entries);
     let ol = read_back(store, &k);
-    assert!(ol.plist().pack.is_none());
-    assert!(ol.plist().postings.is_empty());
-    assert!(!ol.plist().splits.is_empty());
-    verify_splits(&ol.plist().splits);
+    assert!(ol.plist().pack().is_none());
+    assert!(ol.plist().postings().is_empty());
+    assert!(!ol.plist().splits().is_empty());
+    verify_splits(ol.plist().splits());
     (ol, commits)
 }
 
@@ -584,8 +577,8 @@ fn create_and_delete_multi_part_list(store: &SimStore, size: u64) -> (List, usiz
         }
         commits += 1;
     }
-    assert!(!ol.plist().splits.is_empty());
-    verify_splits(&ol.plist().splits);
+    assert!(!ol.plist().splits().is_empty());
+    verify_splits(ol.plist().splits());
 
     let base = size + 1;
     for i in 1..=size {
@@ -596,7 +589,7 @@ fn create_and_delete_multi_part_list(store: &SimStore, size: u64) -> (List, usiz
         }
         commits += 1;
     }
-    assert!(ol.plist().splits.is_empty());
+    assert!(ol.plist().splits().is_empty());
     (ol, commits)
 }
 
@@ -607,8 +600,7 @@ fn test_large_plist_split() {
     let mut ol = read_back(&store, &k);
     let big = vec![7u8; 300 << 10];
     for i in 1..=2u64 {
-        let mut edge = with_facet(set_uid(i), &i.to_string());
-        edge.value = big.clone();
+        let edge = with_facet(set_uid(i), &i.to_string()).with_value(big.clone());
         add(&mut ol, i, &edge);
         ol.commit_mutation(i + 1);
     }
@@ -619,15 +611,14 @@ fn test_large_plist_split() {
     let value = vec![9u8; 100 << 10];
     // Uids far apart, so that the pack's blocks break at each.
     for i in 0..63u64 {
-        let mut edge = with_facet(set_uid(1 << i), &i.to_string());
-        edge.value = value.clone();
+        let edge = with_facet(set_uid(1 << i), &i.to_string()).with_value(value.clone());
         add(&mut ol, i, &edge);
         ol.commit_mutation(i + 1);
     }
     let ol = roll_up(&store, &ol, u64::MAX, MAX_LIST_SIZE).0;
-    assert!(ol.plist().postings.is_empty());
-    assert!(!ol.plist().splits.is_empty());
-    verify_splits(&ol.plist().splits);
+    assert!(ol.plist().postings().is_empty());
+    assert!(!ol.plist().splits().is_empty());
+    verify_splits(ol.plist().splits());
 }
 
 #[test]
@@ -649,8 +640,8 @@ fn test_multi_part_list_basic() {
     let size = 100_000;
     let (ol, commits) = create_multi_part_list(&store, "basic", size, false);
     let l = ol.uids(&ListOptions::at(size + 1)).expect("uids");
-    assert_eq!(l.uids.len(), commits);
-    for (i, uid) in l.uids.iter().enumerate() {
+    assert_eq!(l.uids().len(), commits);
+    for (i, uid) in l.uids().iter().enumerate() {
         assert_eq!(*uid, i as u64 + 1);
     }
 }
@@ -667,22 +658,22 @@ fn test_bin_split() {
     }
     let (ol, version) = roll_up(&store, &ol, u64::MAX, usize::MAX);
     assert_eq!(version, size + 1);
-    assert!(ol.plist().splits.is_empty());
-    assert_eq!(ol.plist().postings.len(), size as usize);
+    assert!(ol.plist().splits().is_empty());
+    assert_eq!(ol.plist().postings().len(), size as usize);
 
     let verify = |plist: &PostingList, starts: [u64; 2], halves: &[PostingList; 2]| {
-        let all = decode(plist.pack.as_ref().unwrap(), 0);
-        let mut low = decode(halves[0].pack.as_ref().unwrap(), starts[0]);
-        let high = decode(halves[1].pack.as_ref().unwrap(), starts[1]);
+        let all = decode(plist.pack().unwrap(), 0);
+        let mut low = decode(halves[0].pack().unwrap(), starts[0]);
+        let high = decode(halves[1].pack().unwrap(), starts[1]);
         low.extend(high);
         assert_eq!(all, low);
-        let mut postings = halves[0].postings.clone();
-        postings.extend(halves[1].postings.clone());
-        assert_eq!(plist.postings, postings);
-        let mid = halves[1].pack.as_ref().unwrap().blocks[0].base;
+        let mut postings = halves[0].postings().to_vec();
+        postings.extend(halves[1].postings().to_vec());
+        assert_eq!(plist.postings(), postings);
+        let mid = halves[1].pack().unwrap().blocks()[0].base();
         assert_eq!(starts[1], mid);
-        assert!(halves[0].postings.iter().all(|p| p.uid < mid));
-        assert!(halves[1].postings.iter().all(|p| p.uid >= mid));
+        assert!(halves[0].postings().iter().all(|p| p.uid() < mid));
+        assert!(halves[1].postings().iter().all(|p| p.uid() >= mid));
     };
     let plist = ol.plist().clone();
     let (starts, halves) = bin_split(1, &plist);
@@ -690,12 +681,12 @@ fn test_bin_split() {
 
     // The postings cut down to a third, and to none.
     let mut third = plist.clone();
-    third.postings.truncate(size as usize / 3);
+    third.postings_mut().truncate(size as usize / 3);
     let (starts, halves) = bin_split(1, &third);
     verify(&third, starts, &halves);
 
     let mut none = plist;
-    none.postings.clear();
+    none.postings_mut().clear();
     let (starts, halves) = bin_split(1, &none);
     verify(&none, starts, &halves);
 }
@@ -715,8 +706,8 @@ fn test_multi_part_list_iter_after_uid() {
 fn facet_keys(list: &List, read_ts: u64) -> Vec<String> {
     let mut facets = Vec::new();
     list.iterate(read_ts, 0, |p| {
-        if let Some(f) = p.facets.first() {
-            facets.push(f.key.clone());
+        if let Some(f) = p.facets().first() {
+            facets.push(f.key().to_string());
         }
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
@@ -746,9 +737,9 @@ fn test_multi_part_list_marshal() {
         .rollup_entries(u64::MAX, 5000)
         .expect("rollup")
         .expect("output");
-    assert_eq!(entries.len(), ol.plist().splits.len() + 1);
+    assert_eq!(entries.len(), ol.plist().splits().len() + 1);
     entries.sort_by(|a, b| a.key().cmp(b.key()));
-    for (i, start) in ol.plist().splits.iter().enumerate() {
+    for (i, start) in ol.plist().splits().iter().enumerate() {
         let part_key = split_key_of(entries[0].key(), *start).expect("split key");
         assert_eq!(entries[i + 1].key(), part_key);
         assert_eq!(
@@ -770,7 +761,7 @@ fn test_multi_part_list_write_to_disk() {
     let opt = ListOptions::at(size + 1);
     let original_uids = original.uids(&opt).expect("uids");
     let new_uids = new_list.uids(&opt).expect("uids");
-    assert_eq!(original_uids.uids.len(), commits);
+    assert_eq!(original_uids.uids().len(), commits);
     assert_eq!(original_uids, new_uids);
 }
 
@@ -806,7 +797,7 @@ fn test_multi_part_list_delete_and_add() {
         }
     }
     let all = ol.uids(&ListOptions::at(u64::MAX)).expect("uids");
-    assert_eq!(all.uids, (1..=size).collect::<Vec<_>>());
+    assert_eq!(all.uids(), (1..=size).collect::<Vec<_>>());
 
     // Delete the first half.
     let base = size + 1;
@@ -825,7 +816,7 @@ fn test_multi_part_list_delete_and_add() {
     write_entries(&store, entries);
     let mut ol = read_back(&store, &k);
     let half = ol.uids(&ListOptions::at(u64::MAX)).expect("uids");
-    assert_eq!(half.uids, (size / 2 + 1..=size).collect::<Vec<_>>());
+    assert_eq!(half.uids(), (size / 2 + 1..=size).collect::<Vec<_>>());
 
     // Add the deleted half back.
     let base = 2 * size + 1;
@@ -838,7 +829,7 @@ fn test_multi_part_list_delete_and_add() {
     }
     let ol = roll_up(&store, &ol, u64::MAX, max).0;
     let all = ol.uids(&ListOptions::at(u64::MAX)).expect("uids");
-    assert_eq!(all.uids, (1..=size).collect::<Vec<_>>());
+    assert_eq!(all.uids(), (1..=size).collect::<Vec<_>>());
 }
 
 #[test]
@@ -858,8 +849,8 @@ fn test_single_list_rollup() {
         .expect("output");
     assert_eq!(entry.meta(), BIT_COMPLETE_POSTING);
     let plist = from_backup_posting_list(&bl).expect("from backup");
-    assert!(plist.splits.is_empty());
-    assert_eq!(decode(plist.pack.as_ref().unwrap(), 0).len(), size as usize);
+    assert!(plist.splits().is_empty());
+    assert_eq!(decode(plist.pack().unwrap(), 0).len(), size as usize);
 }
 
 #[test]
@@ -881,7 +872,7 @@ fn recursively_split(store: &SimStore, name: &str, size: u64) -> List {
         ol.commit_mutation(i + 1);
     }
     let ol = roll_up(store, &ol, u64::MAX, MAX_LIST_SIZE).0;
-    assert!(ol.plist().splits.len() > 2);
+    assert!(ol.plist().splits().len() > 2);
     ol
 }
 
@@ -907,7 +898,9 @@ fn test_recursive_splits() {
 
 /// Uids of `list` at `read_ts`.
 fn uids_at(list: &List, read_ts: u64) -> Vec<u64> {
-    list.uids(&ListOptions::at(read_ts)).expect("uids").uids
+    list.uids(&ListOptions::at(read_ts))
+        .expect("uids")
+        .into_uids()
 }
 
 #[test]
@@ -938,15 +931,15 @@ fn test_calculated_uids_skipped_for_bounded_reads() {
     let worker = l
         .uids(&ListOptions::at(10).first(i64::from(i32::MAX)))
         .expect("uids");
-    assert_eq!(worker.uids, vec![2, 3, 4]);
+    assert_eq!(worker.uids(), vec![2, 3, 4]);
     let first = l.uids(&ListOptions::at(10).first(1)).expect("uids");
-    assert_eq!(first.uids, vec![2]);
+    assert_eq!(first.uids(), vec![2]);
     let negative = l.uids(&ListOptions::at(10).first(-1)).expect("uids");
-    assert_eq!(negative.uids, vec![2, 3, 4]);
+    assert_eq!(negative.uids(), vec![2, 3, 4]);
     let intersect = l
-        .uids(&ListOptions::at(10).intersect(ultragraphdb_proto_pb::pb::List { uids: vec![3] }))
+        .uids(&ListOptions::at(10).intersect(UidList::new(vec![3])))
         .expect("uids");
-    assert_eq!(intersect.uids, vec![3]);
+    assert_eq!(intersect.uids(), vec![3]);
 }
 
 #[test]
@@ -967,13 +960,13 @@ fn test_uids_does_not_apply_a_negative_first() {
         let got = build(n as u64)
             .uids(&ListOptions::at(10).first(first))
             .expect("uids");
-        assert_eq!(got.uids, all, "first: {first}");
+        assert_eq!(got.uids(), all, "first: {first}");
     }
     // The after-uid still applies.
     let got = build(99)
         .uids(&ListOptions::at(10).first(-2).after(4))
         .expect("uids");
-    assert_eq!(got.uids, vec![6, 8, 10]);
+    assert_eq!(got.uids(), vec![6, 8, 10]);
 }
 
 #[test]
@@ -987,13 +980,10 @@ fn test_value_postings_are_kept_beside_the_uids() {
         .rollup(3, true, MAX_LIST_SIZE)
         .expect("rollup")
         .expect("output");
-    assert_eq!(out.plist().postings.len(), 1);
+    assert_eq!(out.plist().postings().len(), 1);
+    assert_eq!(out.plist().postings()[0].posting_type(), PostingType::Value);
     assert_eq!(
-        out.plist().postings[0].posting_type,
-        posting::PostingType::Value as i32
-    );
-    assert_eq!(
-        decode(out.plist().pack.as_ref().unwrap(), 0),
+        decode(out.plist().pack().unwrap(), 0),
         vec![5, fingerprint64(b"v")]
     );
 }

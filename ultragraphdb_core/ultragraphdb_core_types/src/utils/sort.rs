@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, types/sort.go. Changed for ultragraphdb: translated to Rust; the language collator is
- * a parameter (the Collator trait, TextCollator for golang.org/x/text/collate).
+ * a parameter (the Collator trait, TextCollator for golang.org/x/text/collate); `SortWithFacet`, a query-layer
+ * function of protobuf facets, is not ported.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use std::cmp::Ordering;
 
-use ultragraphdb_proto_pb::pb;
 use ultragraphdb_traits_collator::Collator;
 
 use crate::errors::types_error::TypesError;
@@ -27,11 +27,10 @@ struct Collation<'c, C: Collator> {
     language: C::Language,
 }
 
-/// Dgraph's `byValue`: rows of values sorted together with their uids and facets.
+/// Dgraph's `byValue`: rows of values sorted together with their uids.
 struct ByValue<'a, C: Collator> {
     values: &'a mut [Vec<Val>],
     uids: &'a mut [u64],
-    facets: Option<&'a mut [pb::Facets]>,
     desc: &'a [bool],
     cl: Option<Collation<'a, C>>,
     len: usize,
@@ -67,9 +66,6 @@ impl<C: Collator> SortData for ByValue<'_, C> {
     fn swap(&mut self, i: usize, j: usize) {
         self.values.swap(i, j);
         self.uids.swap(i, j);
-        if let Some(f) = self.facets.as_deref_mut() {
-            f.swap(i, j);
-        }
     }
 }
 
@@ -93,11 +89,10 @@ pub fn is_sortable(tid: TypeId) -> bool {
 }
 
 /// Refuses rows Dgraph's sort would index past: a non-empty row shorter or longer than the first, fewer
-/// directions than the first row has values, and uids or facets other than one per row (`exact_uids`) or fewer.
+/// directions than the first row has values, and uids other than one per row (`exact_uids`) or fewer.
 fn check_shape(
     values: &[Vec<Val>],
     uids: usize,
-    facets: Option<usize>,
     desc: usize,
     exact_uids: bool,
 ) -> Result<(), TypesError> {
@@ -115,12 +110,6 @@ fn check_shape(
     if uids < values.len() || exact_uids && uids != values.len() {
         return Err(TypesError::compare(format!(
             "Sort has {} rows of values but {uids} uids",
-            values.len()
-        )));
-    }
-    if let Some(facets) = facets.filter(|&f| f < values.len()) {
-        return Err(TypesError::compare(format!(
-            "Sort has {} rows of values but {facets} facets",
             values.len()
         )));
     }
@@ -177,13 +166,12 @@ pub fn sort_top_n<C: Collator>(
         return Ok(());
     }
     check_sortable(values)?;
-    check_shape(values, uids.len(), None, desc.len(), true)?;
+    check_shape(values, uids.len(), desc.len(), true)?;
     let cl = collation(lang, collator);
     let len = values.len();
     let mut s = ByValue {
         values,
         uids,
-        facets: None,
         desc,
         cl,
         len,
@@ -208,11 +196,10 @@ pub fn sort_top_n<C: Collator>(
     Ok(())
 }
 
-/// Dgraph's `SortWithFacet`: sorts rows of values in place with their uids and facets; a nil value sorts last.
-pub fn sort_with_facet<C: Collator>(
+/// Dgraph's `Sort`: sorts rows of values in place with their uids; a nil value sorts last.
+pub fn sort<C: Collator>(
     values: &mut [Vec<Val>],
     uids: &mut [u64],
-    facets: Option<&mut [pb::Facets]>,
     desc: &[bool],
     lang: &str,
     collator: &C,
@@ -221,35 +208,17 @@ pub fn sort_with_facet<C: Collator>(
         return Ok(());
     }
     check_sortable(values)?;
-    check_shape(
-        values,
-        uids.len(),
-        facets.as_deref().map(<[pb::Facets]>::len),
-        desc.len(),
-        false,
-    )?;
+    check_shape(values, uids.len(), desc.len(), false)?;
     let cl = collation(lang, collator);
     let len = values.len();
     go_sort::sort(&mut ByValue {
         values,
         uids,
-        facets,
         desc,
         cl,
         len,
     });
     Ok(())
-}
-
-/// Dgraph's `Sort`.
-pub fn sort<C: Collator>(
-    values: &mut [Vec<Val>],
-    uids: &mut [u64],
-    desc: &[bool],
-    lang: &str,
-    collator: &C,
-) -> Result<(), TypesError> {
-    sort_with_facet(values, uids, None, desc, lang, collator)
 }
 
 /// Dgraph's `Less`: whether `a` is strictly less than `b`, for values of one sortable type (uid included).

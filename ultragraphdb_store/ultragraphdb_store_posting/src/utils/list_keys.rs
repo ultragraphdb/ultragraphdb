@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_keys::{Keyspace, SPLIT_FLAG};
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 
 use crate::errors::posting_error::PostingError;
 
@@ -54,9 +54,9 @@ pub fn is_split_key(key: &[u8]) -> Result<bool, PostingError> {
 /// which is the literal's encoding. Two literals whose fingerprints collide then stay two postings under one uid,
 /// ordered by their encodings; in a vector-index list a uid names its one value.
 pub(crate) fn identity(p: &Posting, by_value: bool) -> (u64, &[u8]) {
-    if by_value && p.posting_type != posting::PostingType::Ref as i32 {
-        (p.uid, &p.value)
+    if by_value && p.posting_type() != PostingType::Ref {
+        (p.uid(), p.value())
     } else {
-        (p.uid, &[])
+        (p.uid(), &[])
     }
 }

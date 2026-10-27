@@ -13,18 +13,18 @@
 //! and a commit adds that layer as a delta at its commit timestamp.
 //!
 //! ```
+//! use ultragraphdb_core_codec::Posting;
 //! use ultragraphdb_core_keys::QuadKey;
-//! use ultragraphdb_proto_pb::pb::Posting;
 //! use ultragraphdb_store_posting::{List, ListOptions, SET};
 //!
 //! let key = QuadKey::Forward { namespace: 0, graph: 0, predicate: 7, subject: 1 }.to_bytes();
 //! let mut list = List::empty(key);
 //! list.set_ts(5);
-//! list.add_posting(Posting { uid: 2, op: SET, ..Posting::default() }, false);
+//! list.add_posting(Posting::default().with_uid(2).with_op(SET), false);
 //! list.commit_mutation(6);
 //!
-//! assert_eq!(list.uids(&ListOptions::at(6)).unwrap().uids, vec![2]);
-//! assert!(list.uids(&ListOptions::at(5)).unwrap().uids.is_empty());
+//! assert_eq!(list.uids(&ListOptions::at(6)).unwrap().uids(), &[2]);
+//! assert!(list.uids(&ListOptions::at(5)).unwrap().uids().is_empty());
 //! ```
 
 mod errors;

@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, codec/codec.go. Changed for ultragraphdb: translated to Rust; blocks are allocated
- * on the heap rather than on ristretto's z.Allocator, so a pack needs no FreePack and its alloc_ref stays 0.
+ * on the heap rather than on ristretto's z.Allocator, so a pack needs no FreePack and carries no alloc_ref.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
-
 use crate::codec::match32_msb;
 use crate::groupvarint;
+use crate::types::uid_block::UidBlock;
+use crate::types::uid_pack::UidPack;
 
 /// Converts a list of UIDs, added in ascending order, into a [`UidPack`].
 #[derive(Debug, Clone)]
@@ -39,10 +39,7 @@ impl Encoder {
     /// differ from the previous UID's.
     pub fn add(&mut self, uid: u64) {
         if self.pack.is_none() {
-            self.pack = Some(UidPack {
-                block_size: self.block_size as u32,
-                ..UidPack::default()
-            });
+            self.pack = Some(UidPack::new(self.block_size as u32, Vec::new()));
         }
 
         if let Some(&last) = self.uids.last()
@@ -86,13 +83,9 @@ impl Encoder {
             rest.chunks(4).for_each(group);
         }
 
-        let block = UidBlock {
-            base,
-            deltas,
-            num_uids: self.uids.len() as u32,
-        };
+        let block = UidBlock::new(base, deltas, self.uids.len() as u32);
         if let Some(pack) = self.pack.as_mut() {
-            pack.blocks.push(block);
+            pack.push_block(block);
         }
         self.uids.clear();
     }

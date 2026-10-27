@@ -7,7 +7,6 @@ load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
-load("//bazel/rust:deps.bzl", "with_proto_bindings")
 
 rust_library(
     name = "ultragraphdb_store_apply",
@@ -23,7 +22,7 @@ rust_library(
     lint_config = lint_config(),
     tags = ["ultragraphdb_store_apply"],
     visibility = ["//visibility:public"],
-    deps = with_proto_bindings(all_crate_deps(normal = True)),
+    deps = all_crate_deps(normal = True),
 )
 
 rust_doc(
@@ -39,7 +38,7 @@ rust_doc_test(
     crate = ":ultragraphdb_store_apply",
     tags = ["doc-test"],
     visibility = ["//visibility:public"],
-    deps = with_proto_bindings(all_crate_deps(normal_dev = True)),
+    deps = all_crate_deps(normal_dev = True),
 )
 
 # One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. It
@@ -61,10 +60,10 @@ rust_test(
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_store_apply"] + with_proto_bindings(all_crate_deps(
+    deps = [":ultragraphdb_store_apply"] + all_crate_deps(
         normal = True,
         normal_dev = True,
-    )),
+    ),
 )
 
 # The changeset workload on the simulator: the fixed seeds without faults, with faults, and a seed's replay, one target
@@ -75,10 +74,10 @@ rust_test(
         srcs = ["tests/%s.rs" % workload],
         crate_root = "tests/%s.rs" % workload,
         tags = ["unit-test"],
-        deps = [":ultragraphdb_store_apply"] + with_proto_bindings(all_crate_deps(
+        deps = [":ultragraphdb_store_apply"] + all_crate_deps(
             normal = True,
             normal_dev = True,
-        )),
+        ),
     )
     for workload in [
         "workload_faults",
@@ -103,8 +102,8 @@ rust_test(
     data = glob(["features/**/*.feature"]),
     tags = ["bdd-test"],
     use_libtest_harness = False,
-    deps = [":ultragraphdb_store_apply"] + with_proto_bindings(all_crate_deps(
+    deps = [":ultragraphdb_store_apply"] + all_crate_deps(
         normal = True,
         normal_dev = True,
-    )),
+    ),
 )

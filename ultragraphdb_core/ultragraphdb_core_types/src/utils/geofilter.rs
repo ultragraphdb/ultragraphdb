@@ -6,77 +6,22 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb;
-
 use crate::errors::types_error::TypesError;
 use crate::s2::{Loop, Point};
 use crate::types::geo_query_data::GeoQueryData;
 use crate::types::geometry::Geometry;
 use crate::types::geometry_kind::GeometryKind;
 use crate::types::query_type::QueryType;
-use crate::types::type_id::TypeId;
-use crate::types::val::Val;
-use crate::types::value::Value;
-use crate::utils::conversion::convert;
 use crate::utils::earth::earth_angle;
-use crate::utils::s2::convert_to_geom;
 use crate::utils::s2index::{
     COVER_PREFIX, MAX_CELL_LEVEL, MAX_CELLS, MIN_CELL_LEVEL, PARENT_PREFIX, cover_loop,
     create_tokens, get_parent_cells, index_cells, loop_from_polygon, parent_cover_tokens,
     point_from_coord,
 };
-use ultragraphdb_common_utils::go_strconv;
 
 /// Dgraph's `IsGeoFunc`: `near`, `contains`, `within` and `intersects`.
 pub fn is_geo_func(name: &str) -> bool {
     matches!(name, "near" | "contains" | "within" | "intersects")
-}
-
-fn args_error(name: &str, want: usize, got: usize) -> TypesError {
-    TypesError::geo(format!(
-        "{name} function requires {want} arguments, but got {got}"
-    ))
-}
-
-/// Dgraph's `GetGeoTokens`: the index tokens a geo function looks up, and the data its candidates are filtered by.
-/// An empty function name is refused with `Invalid function`, the text of Dgraph's assertion against it.
-pub fn get_geo_tokens(src: &pb::SrcFunction) -> Result<(Vec<String>, GeoQueryData), TypesError> {
-    if src.name.is_empty() {
-        return Err(TypesError::geo("Invalid function"));
-    }
-    let name = src.name.to_lowercase();
-    let args = &src.args;
-    match name.as_str() {
-        "near" => {
-            if args.len() != 2 {
-                return Err(TypesError::geo(format!(
-                    "near function requires 2 arguments, but got {}",
-                    args.len()
-                )));
-            }
-            let max_dist = go_strconv::parse_float(&args[1], 64).map_err(|e| {
-                TypesError::from(e).wrap("Error while converting distance to float")
-            })?;
-            if max_dist < 0.0 {
-                return Err(TypesError::geo("Distance cannot be negative"));
-            }
-            let g = convert_to_geom(&args[0])?;
-            query_tokens_geo(QueryType::Near, &g, max_dist)
-        }
-        "within" | "contains" | "intersects" => {
-            if args.len() != 1 {
-                return Err(args_error(&name, 1, args.len()));
-            }
-            let g = convert_to_geom(&args[0])?;
-            let qt = match name.as_str() {
-                "within" => QueryType::Within,
-                "contains" => QueryType::Contains,
-                _ => QueryType::Intersects,
-            };
-            query_tokens_geo(qt, &g, 0.0)
-        }
-        _ => Err(TypesError::geo("Invalid geo function")),
-    }
 }
 
 /// Dgraph's `queryTokensGeo`: the index tokens for a geo query on a point, polygon or multipolygon;
@@ -158,17 +103,5 @@ pub fn query_tokens_geo(
                 GeoQueryData::new(None, loops, qt),
             ))
         }
-    }
-}
-
-/// Dgraph's `MatchGeo`: whether a stored geo value (WKB) satisfies the query.
-pub fn match_geo(value: &pb::TaskValue, q: &GeoQueryData) -> bool {
-    if value.val.is_empty() || TypeId::new(value.val_type) != TypeId::GEO {
-        return false;
-    }
-    match convert(&Val::bytes(TypeId::BINARY, value.val.clone()), TypeId::GEO).map(Val::into_value)
-    {
-        Ok(Some(Value::Geo(g))) => q.matches_filter(&g),
-        _ => false,
     }
 }

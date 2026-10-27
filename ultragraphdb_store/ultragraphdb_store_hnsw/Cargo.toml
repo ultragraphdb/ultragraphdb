@@ -20,11 +20,11 @@ workspace = true
 
 [dependencies]
 ultragraphdb_common_utils = { workspace = true }
+ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_error_options = { workspace = true }
-ultragraphdb_proto_pb = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_index = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }

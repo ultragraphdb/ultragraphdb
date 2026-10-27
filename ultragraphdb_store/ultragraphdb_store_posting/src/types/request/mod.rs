@@ -16,7 +16,7 @@ mod request_drop;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
 use crate::errors::posting_error::PostingError;
@@ -217,7 +217,7 @@ where
     pub(crate) fn written(&self) -> impl Iterator<Item = (&[u8], &PostingList)> {
         self.held.iter().filter_map(|(key, h)| {
             let delta = h.list.delta()?;
-            (!delta.postings.is_empty()).then_some((key.as_slice(), delta))
+            (!delta.postings().is_empty()).then_some((key.as_slice(), delta))
         })
     }
 

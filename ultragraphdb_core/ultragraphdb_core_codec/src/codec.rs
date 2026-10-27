@@ -8,12 +8,11 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::UidPack;
-
 use crate::errors::codec_error::CodecError;
 use crate::types::decoder::Decoder;
 use crate::types::encoder::Encoder;
 use crate::types::seek_pos::SeekPos;
+use crate::types::uid_pack::UidPack;
 
 const BIT_MASK: u64 = 0xffff_ffff_0000_0000;
 
@@ -52,13 +51,13 @@ pub fn encode_from_buffer(buf: &[u8], block_size: usize) -> Result<Option<UidPac
 
 /// The number of UIDs the pack's blocks could hold, its block count times its block size.
 pub fn approx_len(pack: &UidPack) -> usize {
-    pack.blocks.len() * pack.block_size as usize
+    pack.blocks().len() * pack.block_size() as usize
 }
 
 /// The number of UIDs in the pack.
 pub fn exact_len(pack: &UidPack) -> usize {
     // num_uids includes the base UID.
-    pack.blocks.iter().map(|b| b.num_uids as usize).sum()
+    pack.blocks().iter().map(|b| b.num_uids() as usize).sum()
 }
 
 /// The pack's UIDs at or after `seek`, in order.

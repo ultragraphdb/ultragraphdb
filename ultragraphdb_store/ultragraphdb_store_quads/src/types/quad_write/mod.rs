@@ -6,9 +6,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, DEL, PostingError, Request, SET};
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
@@ -110,11 +110,7 @@ where
             .get_from_delta(&forward)
             .add_posting(object_posting(object, SET, statement_ids, fp), false);
         let ns = self.namespace();
-        let predicate_posting = || Posting {
-            uid: predicate,
-            op: SET,
-            ..Posting::default()
-        };
+        let predicate_posting = || Posting::default().with_uid(predicate).with_op(SET);
         let subject_predicates = QuadKey::SubjectPredicates {
             namespace: ns,
             graph,
@@ -126,14 +122,9 @@ where
             .add_posting(predicate_posting(), false);
         if !object.is_vector() {
             let reverse = self.reverse(graph, predicate, object);
-            self.request.get_from_delta(&reverse).add_posting(
-                Posting {
-                    uid: subject,
-                    op: SET,
-                    ..Posting::default()
-                },
-                false,
-            );
+            self.request
+                .get_from_delta(&reverse)
+                .add_posting(Posting::default().with_uid(subject).with_op(SET), false);
             let object_predicates = QuadKey::ObjectPredicates {
                 namespace: ns,
                 graph,
@@ -194,11 +185,7 @@ where
         self.request
             .get(&forward)?
             .add_posting(object_posting(object, DEL, &[], fp), false);
-        let predicate_delete = || Posting {
-            uid: predicate,
-            op: DEL,
-            ..Posting::default()
-        };
+        let predicate_delete = || Posting::default().with_uid(predicate).with_op(DEL);
         if held.len() == 1 {
             let subject_predicates = QuadKey::SubjectPredicates {
                 namespace: ns,
@@ -213,14 +200,7 @@ where
         if !object.is_vector() {
             let reverse = self.reverse(graph, predicate, object);
             let list = self.request.get(&reverse)?;
-            list.add_posting(
-                Posting {
-                    uid: subject,
-                    op: DEL,
-                    ..Posting::default()
-                },
-                false,
-            );
+            list.add_posting(Posting::default().with_uid(subject).with_op(DEL), false);
             let remaining = list.clone();
             if read_list(&remaining, &reverse)?.is_empty() {
                 let object_predicates = QuadKey::ObjectPredicates {
@@ -347,7 +327,7 @@ fn read_list(
     let mut failure = None;
     list.iterate(list.mutation().read_ts(), 0, |p| {
         match posting_object(key, p) {
-            Ok(object) => objects.push((object, p.statement_ids.clone())),
+            Ok(object) => objects.push((object, p.statement_ids().to_vec())),
             Err(e) => {
                 failure = Some(e);
                 return Ok(ControlFlow::Break(()));

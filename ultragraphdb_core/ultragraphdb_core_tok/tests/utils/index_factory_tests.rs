@@ -8,7 +8,6 @@ use ultragraphdb_core_tok::{
     get_factory_create_spec_from_spec, get_index_factories_from_specs, get_index_factory,
     get_index_factory_opts_from_spec,
 };
-use ultragraphdb_proto_pb::pb;
 use ultragraphdb_traits_index::OptionValue;
 
 use crate::golden::cases;
@@ -30,31 +29,20 @@ struct HnswCase {
     parsed: Vec<Parsed>,
 }
 
-fn spec(name: &str, options: &[(String, String)]) -> pb::VectorIndexSpec {
-    pb::VectorIndexSpec {
-        name: name.to_string(),
-        options: options
-            .iter()
-            .map(|(k, v)| pb::OptionPair {
-                key: k.clone(),
-                value: v.clone(),
-            })
-            .collect(),
-    }
-}
-
 #[test]
 fn test_hnsw_options_golden() {
     let cases: Vec<HnswCase> = cases("tok_hnsw_options");
     assert_eq!(cases.len(), 46);
     for c in cases {
-        let s = spec(&c.factory, &c.options);
-        match get_factory_create_spec_from_spec(&s) {
+        match get_factory_create_spec_from_spec(&c.factory, &c.options) {
             Ok(fcs) => {
                 assert!(c.error.is_empty(), "{c:?}");
                 assert_eq!(fcs.name(), c.name, "{c:?}");
                 assert_eq!(fcs.factory().name(), "hnsw");
-                assert_eq!(get_index_factory_opts_from_spec(&s).unwrap(), *fcs.opts());
+                assert_eq!(
+                    get_index_factory_opts_from_spec(&c.factory, &c.options).unwrap(),
+                    *fcs.opts()
+                );
             }
             Err(e) => assert_eq!(e.to_string(), c.error, "{c:?}"),
         }
@@ -82,21 +70,15 @@ fn test_hnsw_options_golden() {
 
 #[test]
 fn test_factory_lookups_from_specs() {
-    let none: Vec<(String, String)> = Vec::new();
-    let specs = [
-        spec("hnsw", &none),
-        spec("nosuch", &none),
-        spec("hnsw", &none),
-    ];
     // Go's GetIndexFactoriesFromSpecs: the found factories in spec order, an unknown name skipped.
-    let names: Vec<String> = get_index_factories_from_specs(&specs)
+    let names: Vec<String> = get_index_factories_from_specs(&["hnsw", "nosuch", "hnsw"])
         .iter()
         .map(|f| f.name().to_string())
         .collect();
     assert_eq!(names, vec!["hnsw", "hnsw"]);
     assert!(get_index_factories_from_specs(&[]).is_empty());
     assert_eq!(
-        get_index_factory_opts_from_spec(&specs[1])
+        get_index_factory_opts_from_spec("nosuch", &[])
             .unwrap_err()
             .to_string(),
         "cannot get Options for factory named 'nosuch' (factory not found)"

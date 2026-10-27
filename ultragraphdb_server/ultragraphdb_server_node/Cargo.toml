@@ -1,0 +1,32 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+[package]
+name = "ultragraphdb_server_node"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+readme.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+autotests = false
+
+[lints]
+workspace = true
+
+[dependencies]
+ultragraphdb_server_session = { workspace = true }
+ultragraphdb_common_telemetry = { workspace = true }
+ultragraphdb_store_kv = { workspace = true }
+
+[[test]]
+name = "unit"
+path = "tests/mod.rs"
+
+[[bin]]
+name = "ultragraphdb"
+path = "src/bin/ultragraphdb.rs"

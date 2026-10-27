@@ -16,8 +16,7 @@ use ultragraphdb_core_algo::{
     intersect_compressed_with_lin_jump, intersect_sorted, intersect_with, intersect_with_bin,
     intersect_with_jump, intersect_with_lin, merge_sorted, merge_sorted_more_mem,
 };
-use ultragraphdb_core_codec::{Decoder, Encoder, encode};
-use ultragraphdb_proto_pb::pb::List;
+use ultragraphdb_core_codec::{Decoder, Encoder, List, UidPack, encode};
 use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 /// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
@@ -34,17 +33,15 @@ impl Rng {
 }
 
 fn new_list(data: &[u64]) -> List {
-    List {
-        uids: data.to_vec(),
-    }
+    List::new(data.to_vec())
 }
 
 fn merged(input: &[List]) -> Vec<u64> {
-    merge_sorted(&input.iter().collect::<Vec<_>>()).uids
+    merge_sorted(&input.iter().collect::<Vec<_>>()).into_uids()
 }
 
 fn intersected(input: &[List]) -> Vec<u64> {
-    intersect_sorted(&input.iter().collect::<Vec<_>>()).uids
+    intersect_sorted(&input.iter().collect::<Vec<_>>()).into_uids()
 }
 
 /// Go's `IntersectWith(u, v, u)`: the result replaces `u`.
@@ -103,17 +100,20 @@ fn test_merge_sorted_random() {
     let mut create_list = |n: usize| {
         let mut list: Vec<u64> = (0..n).map(|_| rng.next_u64() >> 1).collect();
         list.sort_unstable();
-        List { uids: list }
+        List::new(list)
     };
 
     let input: Vec<List> = (0..1000).map(|_| create_list(1000)).collect();
     let refs: Vec<&List> = input.iter().collect();
 
-    let mut want: Vec<u64> = input.iter().flat_map(|l| l.uids.iter().copied()).collect();
+    let mut want: Vec<u64> = input
+        .iter()
+        .flat_map(|l| l.uids().iter().copied())
+        .collect();
     want.sort_unstable();
     want.dedup();
-    assert_eq!(merge_sorted(&refs).uids, want);
-    assert_eq!(merge_sorted_more_mem(&refs).uids, want);
+    assert_eq!(merge_sorted(&refs).into_uids(), want);
+    assert_eq!(merge_sorted_more_mem(&refs).into_uids(), want);
 }
 
 #[test]
@@ -192,43 +192,43 @@ fn test_intersect_sorted6() {
 #[test]
 fn test_diff_sorted1() {
     let output = difference(&new_list(&[1, 2, 3]), &new_list(&[1]));
-    assert_eq!(vec![2, 3], output.uids);
+    assert_eq!(vec![2, 3], output.uids());
 }
 
 #[test]
 fn test_diff_sorted2() {
     let output = difference(&new_list(&[1, 2, 3]), &new_list(&[2]));
-    assert_eq!(vec![1, 3], output.uids);
+    assert_eq!(vec![1, 3], output.uids());
 }
 
 #[test]
 fn test_diff_sorted3() {
     let output = difference(&new_list(&[1, 2, 3]), &new_list(&[3]));
-    assert_eq!(vec![1, 2], output.uids);
+    assert_eq!(vec![1, 2], output.uids());
 }
 
 #[test]
 fn test_diff_sorted4() {
     let output = difference(&new_list(&[1, 2, 3]), &new_list(&[]));
-    assert_eq!(vec![1, 2, 3], output.uids);
+    assert_eq!(vec![1, 2, 3], output.uids());
 }
 
 #[test]
 fn test_diff_sorted5() {
     let output = difference(&new_list(&[]), &new_list(&[1, 2]));
-    assert_eq!(Vec::<u64>::new(), output.uids);
+    assert_eq!(Vec::<u64>::new(), output.uids());
 }
 
 #[test]
 fn test_sub_sorted1() {
     let output = difference(&new_list(&[1, 2, 3]), &new_list(&[2, 3, 4, 5]));
-    assert_eq!(vec![1], output.uids);
+    assert_eq!(vec![1], output.uids());
 }
 
 #[test]
 fn test_sub_sorted6() {
     let output = difference(&new_list(&[10, 12, 13]), &new_list(&[2, 3, 4, 13]));
-    assert_eq!(vec![10, 12], output.uids);
+    assert_eq!(vec![10, 12], output.uids());
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn test_uid_list_intersect1() {
     let mut u = new_list(&[1, 2, 3]);
     let v = new_list(&[]);
     intersect_into_u(&mut u, &v);
-    assert!(u.uids.is_empty());
+    assert!(u.uids().is_empty());
 }
 
 #[test]
@@ -244,8 +244,8 @@ fn test_uid_list_intersect2() {
     let mut u = new_list(&[1, 2, 3]);
     let v = new_list(&[1, 2, 3, 4, 5]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![1, 2, 3], u.uids);
-    assert_eq!(vec![1, 2, 3, 4, 5], v.uids);
+    assert_eq!(vec![1, 2, 3], u.uids());
+    assert_eq!(vec![1, 2, 3, 4, 5], v.uids());
 }
 
 #[test]
@@ -253,8 +253,8 @@ fn test_uid_list_intersect3() {
     let mut u = new_list(&[1, 2, 3]);
     let v = new_list(&[2]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![2], u.uids);
-    assert_eq!(vec![2], v.uids);
+    assert_eq!(vec![2], u.uids());
+    assert_eq!(vec![2], v.uids());
 }
 
 #[test]
@@ -262,8 +262,8 @@ fn test_uid_list_intersect4() {
     let mut u = new_list(&[1, 2, 3]);
     let v = new_list(&[0, 5]);
     intersect_into_u(&mut u, &v);
-    assert!(u.uids.is_empty());
-    assert_eq!(vec![0, 5], v.uids);
+    assert!(u.uids().is_empty());
+    assert_eq!(vec![0, 5], v.uids());
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn test_uid_list_intersect5() {
     let mut u = new_list(&[1, 2, 3]);
     let v = new_list(&[3, 5]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![3], u.uids);
+    assert_eq!(vec![3], u.uids());
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn test_uid_list_intersect6() {
     let mut u = new_list(&common);
     let v = new_list(&other);
     intersect_into_u(&mut u, &v);
-    assert_eq!(common, u.uids);
+    assert_eq!(common, u.uids());
 }
 
 #[test]
@@ -289,7 +289,7 @@ fn test_uid_list_intersect7() {
     let mut u = new_list(&common);
     let v = new_list(&other);
     intersect_into_u(&mut u, &v);
-    assert_eq!(common, u.uids);
+    assert_eq!(common, u.uids());
 }
 
 #[test]
@@ -299,8 +299,8 @@ fn test_uid_list_intersect8() {
     let v = new_list(&other);
     let mut o = new_list(&[]);
     intersect_with(&u, &v, &mut o);
-    assert_eq!(common, u.uids);
-    assert_eq!(common, o.uids);
+    assert_eq!(common, u.uids());
+    assert_eq!(common, o.uids());
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn test_uid_list_intersect_dup_first() {
     let mut u = new_list(&[1, 1, 2, 3]);
     let v = new_list(&[1, 2]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![1, 2], u.uids);
+    assert_eq!(vec![1, 2], u.uids());
 }
 
 #[test]
@@ -316,7 +316,7 @@ fn test_uid_list_intersect_dup_both() {
     let mut u = new_list(&[1, 1, 2, 3, 5]);
     let v = new_list(&[1, 1, 2, 4]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![1, 1, 2], u.uids);
+    assert_eq!(vec![1, 1, 2], u.uids());
 }
 
 #[test]
@@ -324,7 +324,7 @@ fn test_uid_list_intersect_dup_second() {
     let mut u = new_list(&[1, 2, 3, 5]);
     let v = new_list(&[1, 1, 2, 4]);
     intersect_into_u(&mut u, &v);
-    assert_eq!(vec![1, 2], u.uids);
+    assert_eq!(vec![1, 2], u.uids());
 }
 
 #[test]
@@ -332,7 +332,7 @@ fn test_apply_filter_uint() {
     let l = [1u64, 2, 3, 4, 5];
     let mut u = new_list(&l);
     apply_filter(&mut u, |_, idx| l[idx] % 2 == 1);
-    assert_eq!(vec![1, 3, 5], u.uids);
+    assert_eq!(vec![1, 3, 5], u.uids());
 }
 
 fn fill_nums_diff(
@@ -399,7 +399,7 @@ fn fill_nums(rng: &mut Rng, n1: usize, n2: usize) -> (Vec<u64>, Vec<u64>, Vec<u6
     (common_nums, block_nums, other_nums)
 }
 
-fn block_pack(nums: &[u64], block_size: usize) -> Option<ultragraphdb_proto_pb::pb::UidPack> {
+fn block_pack(nums: &[u64], block_size: usize) -> Option<UidPack> {
     let mut enc = Encoder::new(block_size);
     for &num in nums {
         enc.add(num);
@@ -505,17 +505,17 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
         "intersect_with" => {
             let mut o = List::default();
             intersect_with(refs[0], refs[1], &mut o);
-            out = o.uids;
+            out = o.into_uids();
         }
         "intersect_with_lin" => (i, k) = intersect_with_lin(pair().0, pair().1, &mut out),
         "intersect_with_jump" => (i, k) = intersect_with_jump(pair().0, pair().1, &mut out),
         "intersect_with_bin" => k = intersect_with_bin(pair().0, pair().1, &mut out),
-        "difference" => out = difference(refs[0], refs[1]).uids,
+        "difference" => out = difference(refs[0], refs[1]).into_uids(),
         "intersect_compressed_with" => {
             let pack = encode(pair().0, case.block_size);
             let mut o = List::default();
             intersect_compressed_with(pack.as_ref(), r.arg, refs[1], &mut o);
-            out = o.uids;
+            out = o.into_uids();
         }
         "intersect_compressed_with_lin_jump" | "intersect_compressed_with_bin" => {
             let pack = encode(pair().0, case.block_size).expect("the golden list is not empty");
@@ -526,9 +526,9 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
                 intersect_compressed_with_lin_jump(&mut dec, pair().1, &mut out);
             }
         }
-        "merge_sorted" => out = merge_sorted(&refs).uids,
-        "merge_sorted_more_mem" => out = merge_sorted_more_mem(&refs).uids,
-        "intersect_sorted" => out = intersect_sorted(&refs).uids,
+        "merge_sorted" => out = merge_sorted(&refs).into_uids(),
+        "merge_sorted_more_mem" => out = merge_sorted_more_mem(&refs).into_uids(),
+        "intersect_sorted" => out = intersect_sorted(&refs).into_uids(),
         "index_of" => {
             let index = index_of(refs[0], r.arg).map_or(-1, |i| i as i64);
             assert_eq!(r.index, index, "{} index_of {}", case.name, r.arg);

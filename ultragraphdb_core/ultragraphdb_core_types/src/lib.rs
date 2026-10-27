@@ -35,11 +35,9 @@ pub use crate::types::type_id::{TYPE_NAMES, TypeId};
 pub use crate::types::val::Val;
 pub use crate::types::value::Value;
 pub use crate::utils::compare::{compare_between, compare_vals};
-pub use crate::utils::conversion::{
-    convert, marshal, marshal_binary, marshal_json, object_value, parse_vfloat,
-};
+pub use crate::utils::conversion::{convert, marshal, marshal_binary, marshal_json, parse_vfloat};
 pub use crate::utils::earth::{EARTH_RADIUS_METERS, earth_angle, earth_area, earth_distance};
-pub use crate::utils::geofilter::{get_geo_tokens, is_geo_func, match_geo, query_tokens_geo};
+pub use crate::utils::geofilter::{is_geo_func, query_tokens_geo};
 pub use crate::utils::password::{encrypt, verify_password};
 pub use crate::utils::s2::{convert_to_geom, loop_contains, loop_intersects};
 pub use crate::utils::s2index::{
@@ -48,7 +46,7 @@ pub use crate::utils::s2index::{
 pub use crate::utils::scalar_types::{
     BIG_FLOAT_PRECISION, good_time_zone, parse_time, value_for_type,
 };
-pub use crate::utils::sort::{equal, is_sortable, less, sort, sort_top_n, sort_with_facet};
+pub use crate::utils::sort::{equal, is_sortable, less, sort, sort_top_n};
 pub use crate::utils::value::{
     bytes_as_float_array, float_array_as_bytes, float_array_as_string, type_for_value,
 };

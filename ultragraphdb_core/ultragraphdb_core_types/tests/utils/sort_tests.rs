@@ -10,10 +10,7 @@
 use serde::Deserialize;
 use ultragraphdb_core_types::{
     TextCollator, TypeId, Val, Value, convert, equal, is_sortable, less, marshal, sort, sort_top_n,
-    sort_with_facet,
 };
-use ultragraphdb_proto_dgraph::api;
-use ultragraphdb_proto_pb::pb;
 
 fn to_string(values: &[Vec<Val>]) -> Vec<String> {
     values
@@ -664,17 +661,6 @@ fn test_sort_of_mismatched_shapes_is_refused() {
     );
     let err = sort_top_n(&mut values, &mut [1, 2, 3], &[false], "", 1, &TextCollator).unwrap_err();
     assert_eq!(err.to_string(), "Sort has 2 rows of values but 3 uids");
-    let mut facets = vec![pb::Facets::default()];
-    let err = sort_with_facet(
-        &mut values,
-        &mut [1, 2],
-        Some(&mut facets),
-        &[false],
-        "",
-        &TextCollator,
-    )
-    .unwrap_err();
-    assert_eq!(err.to_string(), "Sort has 2 rows of values but 1 facets");
     // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them: an empty row is never
     // less nor greater, so Go's insertion sort of three rows leaves them where they are.
     let mut values = vec![vec![int(2)], vec![], vec![int(1)]];
@@ -703,34 +689,6 @@ fn test_is_sortable() {
     ] {
         assert_eq!(is_sortable(tid), want, "{}", tid.name());
     }
-}
-
-fn facet(key: &str) -> pb::Facets {
-    pb::Facets {
-        facets: vec![api::Facet {
-            key: key.into(),
-            ..Default::default()
-        }],
-    }
-}
-
-#[test]
-fn test_sort_with_facet_moves_facets_with_their_rows() {
-    let int = |i: i64| vec![Val::new(TypeId::INT, Value::Int(i))];
-    let mut values = vec![int(3), int(1), int(2)];
-    let mut uids = [10, 20, 30];
-    let mut facets = vec![facet("a"), facet("b"), facet("c")];
-    sort_with_facet(
-        &mut values,
-        &mut uids,
-        Some(&mut facets),
-        &[false],
-        "",
-        &TextCollator,
-    )
-    .unwrap();
-    assert_eq!(uids, [20, 30, 10]);
-    assert_eq!(facets, [facet("b"), facet("c"), facet("a")]);
 }
 
 #[test]

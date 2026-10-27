@@ -7,7 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb;
+use ultragraphdb_core_codec::List as UidList;
 
 /// What [`crate::List::uids`] returns: the uids at the read timestamp above the after-uid, intersected with a list
 /// when given, the first `first` of them when `first` is positive. Dgraph's `ListOptions`.
@@ -15,7 +15,7 @@ use ultragraphdb_proto_pb::pb;
 pub struct ListOptions {
     read_ts: u64,
     after_uid: u64,
-    intersect: Option<pb::List>,
+    intersect: Option<UidList>,
     first: i64,
 }
 
@@ -35,7 +35,7 @@ impl ListOptions {
     }
 
     /// Only the uids also in `uids`, a sorted list.
-    pub fn intersect(mut self, uids: pb::List) -> Self {
+    pub fn intersect(mut self, uids: UidList) -> Self {
         self.intersect = Some(uids);
         self
     }
@@ -54,7 +54,7 @@ impl ListOptions {
         self.after_uid
     }
 
-    pub fn intersect_with(&self) -> Option<&pb::List> {
+    pub fn intersect_with(&self) -> Option<&UidList> {
         self.intersect.as_ref()
     }
 

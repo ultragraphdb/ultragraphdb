@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::ControlFlow;
 use std::sync::Arc;
 
+use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{List, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::{
     Event, FaultConfig, RunOutcome, Seed, SimContext, SimListCache, Simulation, Stream, Violation,
@@ -96,10 +96,10 @@ impl Held {
     fn of(list: &List, read_ts: u64) -> Result<Held, PostingError> {
         let mut held = Held::default();
         list.iterate(read_ts, 0, |p| {
-            if p.posting_type == posting::PostingType::Ref as i32 {
-                held.uids.insert(p.uid);
+            if p.posting_type() == PostingType::Ref {
+                held.uids.insert(p.uid());
             } else {
-                held.values.insert(p.value.clone());
+                held.values.insert(p.value().to_vec());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
         })?;

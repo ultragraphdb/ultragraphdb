@@ -6,10 +6,10 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::UidPack;
-
 use crate::groupvarint;
 use crate::types::seek_pos::SeekPos;
+use crate::types::uid_block::UidBlock;
+use crate::types::uid_pack::UidPack;
 
 /// Reads a [`UidPack`] back into UIDs, one block at a time.
 ///
@@ -57,15 +57,15 @@ impl<'a> Decoder<'a> {
     /// Unpacks the current block, all of it, or nothing past the last block.
     pub fn unpack_block(&mut self) -> &[u64] {
         self.uids.clear();
-        let Some(block) = self.pack.blocks.get(self.block_idx) else {
+        let Some(block) = self.pack.blocks().get(self.block_idx) else {
             return &self.uids;
         };
 
-        let num_uids = block.num_uids as usize;
-        let mut last = block.base;
+        let num_uids = block.num_uids() as usize;
+        let mut last = block.base();
         self.uids.push(last);
 
-        let mut enc_data: &[u8] = &block.deltas;
+        let mut enc_data: &[u8] = block.deltas();
         while self.uids.len() < num_uids {
             // Bytes past the end of the deltas read as zero, as Go pads them to 17 bytes.
             let tmp = groupvarint::decode4(enc_data);
@@ -83,7 +83,7 @@ impl<'a> Decoder<'a> {
 
     /// The number of UIDs the blocks from the current one on could hold.
     pub fn approx_len(&self) -> usize {
-        self.pack.block_size as usize * self.pack.blocks.len().saturating_sub(self.block_idx)
+        self.pack.block_size() as usize * self.pack.blocks().len().saturating_sub(self.block_idx)
     }
 
     /// Finds the block holding `uid` and unpacks it whole, which is faster than [`seek`](Self::seek) when the result
@@ -101,23 +101,23 @@ impl<'a> Decoder<'a> {
             return self.unpack_block();
         }
 
-        let blocks = &self.pack.blocks;
+        let blocks = self.pack.blocks();
         // If for some reason we are searching an older uid, we need to search the entire pack.
-        if prev_block_idx > 0 && blocks.get(prev_block_idx).is_some_and(|b| uid < b.base) {
+        if prev_block_idx > 0 && blocks.get(prev_block_idx).is_some_and(|b| uid < b.base()) {
             prev_block_idx = 0;
         }
 
         // A decoder past the last block searches nothing after it, so idx is the block count.
         let idx = prev_block_idx
             + blocks.get(prev_block_idx..).map_or(0, |rest| {
-                rest.partition_point(|b| !whence.reached(b.base, uid))
+                rest.partition_point(|b| !whence.reached(b.base(), uid))
             });
         // The first block.Base >= uid.
         if idx == 0 {
             return self.unpack_block();
         }
         // The uid is the first entry in the block.
-        if idx < blocks.len() && blocks[idx].base == uid {
+        if idx < blocks.len() && blocks[idx].base() == uid {
             self.block_idx = idx;
             return self.unpack_block();
         }
@@ -145,14 +145,14 @@ impl<'a> Decoder<'a> {
             return self.unpack_block();
         }
 
-        let blocks = &self.pack.blocks;
-        let idx = blocks.partition_point(|b| !whence.reached(b.base, uid));
+        let blocks = self.pack.blocks();
+        let idx = blocks.partition_point(|b| !whence.reached(b.base(), uid));
         // The first block.Base >= uid.
         if idx == 0 {
             return self.unpack_block();
         }
         // The uid is the first entry in the block.
-        if idx < blocks.len() && blocks[idx].base == uid {
+        if idx < blocks.len() && blocks[idx].base() == uid {
             self.block_idx = idx;
             return self.unpack_block();
         }
@@ -188,14 +188,14 @@ impl<'a> Decoder<'a> {
     /// The base of the next block without advancing, or `None` at or past the last one.
     pub fn peek_next_base(&self) -> Option<u64> {
         self.pack
-            .blocks
+            .blocks()
             .get(self.block_idx.saturating_add(1))
-            .map(|b| b.base)
+            .map(UidBlock::base)
     }
 
     /// Whether the decoder has not moved past the last block.
     pub fn valid(&self) -> bool {
-        self.block_idx < self.pack.blocks.len()
+        self.block_idx < self.pack.blocks().len()
     }
 
     /// Moves on to the next block and unpacks it: Go's `Next`.

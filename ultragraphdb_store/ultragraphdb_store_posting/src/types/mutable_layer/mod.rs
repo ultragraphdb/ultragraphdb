@@ -15,7 +15,7 @@ mod mutable_layer_insert;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Posting, PostingList};
 
 use crate::utils::constants::DEL;
 use crate::utils::list_keys::identity;
@@ -103,11 +103,11 @@ impl MutableLayer {
     /// Adds a committed delta read from the store: Dgraph's `insertCommittedPostings`. The delta's commit timestamp
     /// is its `commit_ts`, which every posting of it takes.
     pub fn insert_committed_postings(&mut self, mut plist: PostingList) {
-        let commit_ts = plist.commit_ts;
+        let commit_ts = plist.commit_ts();
         plist
-            .postings
+            .postings_mut()
             .iter_mut()
-            .for_each(|p| p.commit_ts = commit_ts);
+            .for_each(|p| p.set_commit_ts(commit_ts));
         Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(plist));
     }
 
@@ -157,7 +157,7 @@ impl MutableLayer {
         self.visible(read_ts)
             .into_iter()
             .rev()
-            .find(|(_, pl)| pl.postings.iter().any(has_delete_all))
+            .find(|(_, pl)| pl.postings().iter().any(has_delete_all))
             .map(|(rank, _)| rank)
     }
 
@@ -189,9 +189,9 @@ impl MutableLayer {
         let (_, layers) = self.live(read_ts);
         layers
             .iter()
-            .flat_map(|(_, pl)| pl.postings.iter())
+            .flat_map(|(_, pl)| pl.postings().iter())
             .filter(|p| !has_delete_all(p))
-            .map(|p| crate::utils::postings::length_delta(p.op))
+            .map(|p| crate::utils::postings::length_delta(p.op()))
             .sum()
     }
 
@@ -217,12 +217,14 @@ impl MutableLayer {
         pick: impl Fn(&Posting) -> bool,
     ) -> (bool, Option<&Posting>) {
         let (marker, layers) = self.live(read_ts);
-        let found = layers
-            .iter()
-            .rev()
-            .find_map(|(_, pl)| pl.postings.iter().rev().find(|p| p.uid == uid && pick(p)));
+        let found = layers.iter().rev().find_map(|(_, pl)| {
+            pl.postings()
+                .iter()
+                .rev()
+                .find(|p| p.uid() == uid && pick(p))
+        });
         match found {
-            Some(p) if p.op != DEL => (false, Some(p)),
+            Some(p) if p.op() != DEL => (false, Some(p)),
             Some(_) => (false, None),
             None => (marker.is_none(), None),
         }
@@ -232,11 +234,11 @@ impl MutableLayer {
     /// drops the scratch layer and the stacked layers: Dgraph's `setMutationAfterCommit`. The deltas are copied
     /// only when another list shares them.
     pub(crate) fn commit(&mut self, commit_ts: u64, mut delta: PostingList) {
-        delta.commit_ts = commit_ts;
+        delta.set_commit_ts(commit_ts);
         delta
-            .postings
+            .postings_mut()
             .iter_mut()
-            .for_each(|p| p.commit_ts = commit_ts);
+            .for_each(|p| p.set_commit_ts(commit_ts));
         Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(delta));
         self.stacked.clear();
         self.current = None;
@@ -260,7 +262,7 @@ impl MutableLayer {
 /// The index of each identity's last posting in `plist`.
 pub(crate) fn uid_index(plist: &PostingList, by_value: bool) -> BTreeMap<(u64, Vec<u8>), usize> {
     plist
-        .postings
+        .postings()
         .iter()
         .enumerate()
         .map(|(i, p)| {

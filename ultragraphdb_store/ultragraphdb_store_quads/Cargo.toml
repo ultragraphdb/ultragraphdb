@@ -21,7 +21,7 @@ workspace = true
 [dependencies]
 oxrdf = { workspace = true }
 ultragraphdb_common_utils = { workspace = true }
-ultragraphdb_proto_pb = { workspace = true }
+ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }

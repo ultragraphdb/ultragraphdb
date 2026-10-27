@@ -5,8 +5,6 @@
 
 use std::sync::Arc;
 
-use prost::Message;
-
 use crate::types::list::List;
 
 /// An entry of the posting cache: an immutable list, the timestamp it is current from, and the cache's epoch when it

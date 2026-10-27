@@ -12,7 +12,7 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_proto_pb::pb::{Posting, PostingList, posting};
+use ultragraphdb_core_codec::{Posting, PostingList};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
@@ -35,7 +35,7 @@ impl List {
             return Ok(None);
         }
         Ok(match pitr.posting() {
-            PPosting::Found(p) if p.uid == uid => Some(p.clone()),
+            PPosting::Found(p) if p.uid() == uid => Some(p.clone()),
             PPosting::Uid(u) if u == uid => Some(uid_posting(uid)),
             _ => None,
         })
@@ -58,7 +58,7 @@ impl List {
         Ok(self
             .immutable_parts()
             .iter()
-            .filter_map(|p| p.pack.as_ref())
+            .filter_map(|p| p.pack())
             .map(ultragraphdb_core_codec::exact_len)
             .sum())
     }
@@ -74,7 +74,7 @@ impl List {
         let mut count = 0i64;
         let mut found = None;
         let result = self.iterate(read_ts, after_uid, |p| {
-            if p.uid == uid {
+            if p.uid() == uid {
                 found = Some(p.clone());
             }
             count += 1;
@@ -127,17 +127,13 @@ impl List {
         let newest = layers
             .into_iter()
             .filter(|(rank, _)| matches!(rank, Rank::Committed(_)))
-            .max_by_key(|(_, pl)| pl.commit_ts)
+            .max_by_key(|(_, pl)| pl.commit_ts())
             .map(|(_, pl)| pl);
-        newest.or_else(|| (!self.plist.postings.is_empty()).then_some(self.plist.as_ref()))
+        newest.or_else(|| (!self.plist.postings().is_empty()).then_some(self.plist.as_ref()))
     }
 }
 
 /// The uid posting the immutable layer yields for a uid it holds no posting for.
 fn uid_posting(uid: u64) -> Posting {
-    Posting {
-        uid,
-        val_type: posting::ValType::Uid as i32,
-        ..Posting::default()
-    }
+    Posting::default().with_uid(uid)
 }

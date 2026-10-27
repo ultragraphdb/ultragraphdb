@@ -6,10 +6,10 @@
 use std::collections::BTreeSet;
 
 use oxrdf::LiteralRef;
+use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_keys::{CountDirection, QuadKey};
 use ultragraphdb_core_mapping::PredicateDeclaration;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_proto_pb::pb::Posting;
 use ultragraphdb_store_posting::{CachedList, DEL, SET};
 use ultragraphdb_store_quads::object_posting;
 use ultragraphdb_traits_store::{ListCache, Store};
@@ -51,11 +51,9 @@ where
             token,
         }
         .to_bytes();
-        let posting = Posting {
-            uid: subject,
-            op: if add { SET } else { DEL },
-            ..Posting::default()
-        };
+        let posting = Posting::default()
+            .with_uid(subject)
+            .with_op(if add { SET } else { DEL });
         self.write
             .request()
             .get_from_delta(&key)
@@ -89,11 +87,7 @@ where
         subjects: (u32, u32),
     ) {
         let fp = self.write.quads().fingerprint();
-        let subject_posting = |op| Posting {
-            uid: subject,
-            op,
-            ..Posting::default()
-        };
+        let subject_posting = |op| Posting::default().with_uid(subject).with_op(op);
         self.count(
             graph,
             predicate,

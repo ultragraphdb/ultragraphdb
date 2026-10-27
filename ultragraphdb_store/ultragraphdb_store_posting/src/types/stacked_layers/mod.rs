@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError, RwLock};
 
-use ultragraphdb_proto_pb::pb::PostingList;
+use ultragraphdb_core_codec::PostingList;
 
 /// The deltas a batch's requests have stacked, by key, each with the number of the request that pushed it.
 #[derive(Debug, Default)]

@@ -9,7 +9,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Posting, PostingList};
 
 use crate::types::list::List;
 use crate::utils::postings::has_delete_all;
@@ -20,22 +20,17 @@ impl List {
     /// the posting crate does not derive. A posting replaces the one of its identity, its uid and for a value posting
     /// its value; with `has_count_index`, a delete of a posting this scratch layer set removes the set.
     pub fn add_posting(&mut self, mut posting: Posting, has_count_index: bool) {
-        posting.start_ts = self.mutation.read_ts();
+        posting.set_start_ts(self.mutation.read_ts());
         self.update_mutation_layer(posting, has_count_index);
     }
 
     /// Dgraph's `updateMutationLayer`: a delete-all replaces the scratch layer; anything else goes in beside what is
     /// there.
     fn update_mutation_layer(&mut self, mpost: Posting, has_count_index: bool) {
-        let start_ts = mpost.start_ts;
+        let start_ts = mpost.start_ts();
         if has_delete_all(&mpost) {
-            self.mutation.set_current_entries(
-                start_ts,
-                PostingList {
-                    postings: vec![mpost],
-                    ..PostingList::default()
-                },
-            );
+            self.mutation
+                .set_current_entries(start_ts, PostingList::default().with_postings(vec![mpost]));
             return;
         }
         self.mutation.insert_posting(mpost, has_count_index);

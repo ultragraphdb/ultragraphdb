@@ -5,7 +5,6 @@
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
-load("//bazel/rust:deps.bzl", "with_proto_bindings")
 
 # The helpers the store crates' test targets share. Bazel compiles each test target from its own sources, so a helper
 # more than one target uses lives in a library they depend on.
@@ -17,5 +16,5 @@ rust_library(
     lint_config = lint_config(),
     tags = ["ultragraphdb_tool_test"],
     visibility = ["//visibility:public"],
-    deps = with_proto_bindings(all_crate_deps(normal = True)),
+    deps = all_crate_deps(normal = True),
 )

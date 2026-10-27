@@ -5,8 +5,10 @@
 
 use cucumber::{World, given, then, when};
 use serde::Deserialize;
-use ultragraphdb_core_codec::{Decoder, SeekPos, decode, encode};
-use ultragraphdb_proto_pb::pb::{UidBlock, UidPack};
+use ultragraphdb_core_codec::{
+    Decoder, Facet, Posting, PostingList, PostingType, SeekPos, UidBlock, UidPack, decode, encode,
+};
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 
 #[derive(Debug, Clone, Deserialize)]
 struct GoldenBlock {
@@ -38,6 +40,10 @@ struct Steps {
     mismatches: Vec<String>,
     seek: Option<(u64, SeekPos)>,
     result: Vec<u64>,
+    plist: PostingList,
+    key: Vec<u8>,
+    stored: Vec<u8>,
+    decoded: Vec<Result<PostingList, StoreError>>,
 }
 
 fn parse_uids(text: &str) -> Vec<u64> {
@@ -82,10 +88,12 @@ fn encode_golden(w: &mut Steps, block_size: usize) {
         let same = match (&case.pack, &actual) {
             (None, None) => true,
             (Some(want), Some(got)) => {
-                want.block_size == got.block_size
-                    && want.blocks.len() == got.blocks.len()
-                    && want.blocks.iter().zip(&got.blocks).all(|(a, b)| {
-                        a.base == b.base && a.num_uids == b.num_uids && a.deltas == hex(&b.deltas)
+                want.block_size == got.block_size()
+                    && want.blocks.len() == got.blocks().len()
+                    && want.blocks.iter().zip(got.blocks()).all(|(a, b)| {
+                        a.base == b.base()
+                            && a.num_uids == b.num_uids()
+                            && a.deltas == hex(b.deltas())
                     })
             }
             _ => false,
@@ -117,25 +125,25 @@ fn encode_list(w: &mut Steps, block_size: usize) {
 
 #[then(expr = "the pack has {int} block(s)")]
 fn block_count(w: &mut Steps, n: usize) {
-    assert_eq!(pack_of(w).blocks.len(), n);
+    assert_eq!(pack_of(w).blocks().len(), n);
 }
 
 #[then(expr = "the block bases are {string}")]
 fn block_bases(w: &mut Steps, text: String) {
-    let bases: Vec<u64> = pack_of(w).blocks.iter().map(|b| b.base).collect();
+    let bases: Vec<u64> = pack_of(w).blocks().iter().map(UidBlock::base).collect();
     assert_eq!(bases, parse_uids(&text));
 }
 
 #[then(expr = "block {int} has base {int}, count {int} and deltas {string}")]
 fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: String) {
-    let block = &pack_of(w).blocks[index - 1];
-    assert_eq!(block.base, base);
-    assert_eq!(block.num_uids, count);
+    let block = &pack_of(w).blocks()[index - 1];
+    assert_eq!(block.base(), base);
+    assert_eq!(block.num_uids(), count);
     let want: Vec<u8> = deltas
         .split_whitespace()
         .map(|b| u8::from_str_radix(b, 16).expect("a hex byte"))
         .collect();
-    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, &block.deltas).unwrap();
+    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, block.deltas()).unwrap();
 }
 
 #[given("every sorted UID list of length 0 to 100, below 2^32 and across 2^32")]
@@ -230,14 +238,13 @@ fn pack_with_empty_block(w: &mut Steps, first: String, base: u64, last: String) 
         (from.parse().expect("a UID")..=to.parse().expect("a UID")).collect()
     };
     let (first, last) = (range(&first), range(&last));
-    let mut pack = encode(&first, 10).expect("the first block packs");
-    pack.blocks.push(UidBlock {
-        base,
-        deltas: Vec::new(),
-        num_uids: 0,
-    });
-    pack.blocks
-        .extend(encode(&last, 10).expect("the last block packs").blocks);
+    let mut blocks = encode(&first, 10)
+        .expect("the first block packs")
+        .blocks()
+        .to_vec();
+    blocks.push(UidBlock::new(base, Vec::new(), 0));
+    blocks.extend_from_slice(encode(&last, 10).expect("the last block packs").blocks());
+    let pack = UidPack::new(10, blocks);
     w.uids = first.into_iter().chain(last).collect();
     w.pack = Some(pack);
 }
@@ -256,6 +263,75 @@ fn linear_seek(w: &mut Steps, target: u64) {
 #[then(expr = "the result is {string}")]
 fn result_is(w: &mut Steps, text: String) {
     assert_eq!(w.result, parse_uids(&text));
+}
+
+#[given("a list with a UID pack, value postings with statement IDs and splits")]
+fn full_list(w: &mut Steps) {
+    let pack = encode(&[2, 3, 5, (1 << 32) + 7], 256).expect("the list packs");
+    w.plist = PostingList::default()
+        .with_pack(pack)
+        .with_commit_ts(9)
+        .with_postings(vec![
+            Posting::default()
+                .with_uid(2)
+                .with_op(1)
+                .with_facets(vec![Facet::new("since")]),
+            Posting::default()
+                .with_uid(5)
+                .with_op(1)
+                .with_posting_type(PostingType::Value)
+                .with_value(b"\x01five".to_vec())
+                .with_statement_ids(vec![40, 41]),
+            Posting::default()
+                .with_uid((1 << 32) + 7)
+                .with_op(3)
+                .with_posting_type(PostingType::Value)
+                .with_value(b"\x01seven".to_vec())
+                .with_statement_ids(vec![42]),
+        ])
+        .with_splits(vec![1, 1 << 32]);
+}
+
+#[given(
+    expr = "a list with a UID pack, value postings with statement IDs and splits, stored under the key {string}"
+)]
+fn stored_list(w: &mut Steps, key: String) {
+    full_list(w);
+    w.key = key.into_bytes();
+    w.stored = w.plist.encode();
+}
+
+#[when("the list is encoded and decoded")]
+fn encode_and_decode(w: &mut Steps) {
+    let bytes = w.plist.encode();
+    w.decoded = vec![PostingList::decode(b"list", &bytes)];
+}
+
+#[then("the decoded list equals the original")]
+fn decoded_equals(w: &mut Steps) {
+    assert_eq!(w.decoded, vec![Ok(w.plist.clone())]);
+}
+
+#[when("one byte of the stored list is flipped and the list is read, for every byte in turn")]
+fn flip_each_byte(w: &mut Steps) {
+    w.decoded = (0..w.stored.len())
+        .map(|at| {
+            let mut flipped = w.stored.clone();
+            flipped[at] ^= 0x5a;
+            PostingList::decode(&w.key, &flipped)
+        })
+        .collect();
+}
+
+#[then(expr = "every read fails with a corruption error naming the key {string}")]
+fn every_read_corrupted(w: &mut Steps, key: String) {
+    assert_eq!(w.decoded.len(), w.stored.len());
+    for (at, result) in w.decoded.iter().enumerate() {
+        assert!(
+            matches!(result, Err(StoreError(StoreErrorEnum::Corrupted { key: k, .. })) if *k == key.as_bytes()),
+            "byte {at}: {result:?}"
+        );
+    }
 }
 
 fn main() {

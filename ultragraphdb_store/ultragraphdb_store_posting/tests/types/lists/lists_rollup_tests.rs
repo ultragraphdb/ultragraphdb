@@ -35,11 +35,11 @@ fn test_rollup_timestamp() {
     write_delta(lists.store(), &k, 4, &[set_uid(3)]);
     write_delta(lists.store(), &k, 6, &[set_uid(4)]);
     let l = lists.read_uncached(&k, u64::MAX - 1).unwrap();
-    assert_eq!(l.uids(&ListOptions::at(7)).unwrap().uids.len(), 3);
+    assert_eq!(l.uids(&ListOptions::at(7)).unwrap().uids().len(), 3);
 
     write_delta(lists.store(), &k, 10, &[delete_all()]);
     let nl = lists.read_uncached(&k, u64::MAX - 1).unwrap();
-    assert!(nl.uids(&ListOptions::at(11)).unwrap().uids.is_empty());
+    assert!(nl.uids(&ListOptions::at(11)).unwrap().uids().is_empty());
 
     // The highest version survives a rollup at the maximum timestamp, the delete-all being the newest update.
     let (version, entries) = nl.rollup_entries(u64::MAX, usize::MAX).unwrap().unwrap();

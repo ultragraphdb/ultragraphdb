@@ -135,7 +135,7 @@ where
         let mut kept = List::empty(key.clone());
         kept.set_ts(version);
         held.iterate(version, 0, |p| {
-            if p.uid != predicate {
+            if p.uid() != predicate {
                 kept.add_posting(p.clone(), false);
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))

@@ -27,4 +27,14 @@ rustc-ice-*.txt
 
 # Binary built by `go build` in the golden-vector generator
 tools/golden/golden
+
+# Lake's build output for the Lean proofs under lean/
+lean/.lake/
+
+# cargo-fuzz output: builds, working corpora, crash artifacts and coverage. Seeds come from the crates' golden test
+# data, and minimized failing inputs are committed under testdata/fuzz_regressions/.
+**/fuzz/target/
+**/fuzz/corpus/
+**/fuzz/artifacts/
+**/fuzz/coverage/
 /website/.wrangler/

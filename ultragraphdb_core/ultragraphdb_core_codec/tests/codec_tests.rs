@@ -7,10 +7,9 @@
  */
 
 use ultragraphdb_core_codec::{
-    Decoder, Encoder, SeekPos, approx_len, decode, decode_to_buffer, encode, encode_from_buffer,
-    exact_len,
+    Decoder, Encoder, SeekPos, UidPack, approx_len, decode, decode_to_buffer, encode,
+    encode_from_buffer, exact_len,
 };
-use ultragraphdb_proto_pb::pb::UidPack;
 
 /// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
 struct Rng(u64);

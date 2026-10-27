@@ -13,8 +13,8 @@
 use std::sync::Arc;
 
 use crate::utils::list_keys::{is_split_key, split_key_of};
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_traits_store::{Item, StoreSnapshot};
 
 use crate::errors::posting_error::PostingError;
@@ -62,7 +62,7 @@ impl List {
                 }
                 BIT_DELTA_POSTING => {
                     let mut delta = unmarshal_delta(key, item.value())?;
-                    delta.commit_ts = item.version();
+                    delta.set_commit_ts(item.version());
                     list.mutation.insert_committed_postings(delta);
                     deltas += 1;
                 }
@@ -80,10 +80,10 @@ impl List {
     /// snapshot, and how many deltas it read.
     pub fn read<S: StoreSnapshot>(key: &[u8], snapshot: &S) -> Result<(List, usize), PostingError> {
         let (mut list, deltas) = Self::read_versions(key, snapshot.versions(key))?;
-        if !list.plist.splits.is_empty() {
+        if !list.plist.splits().is_empty() {
             let keys = list
                 .plist
-                .splits
+                .splits()
                 .iter()
                 .map(|&start| split_key_of(key, start))
                 .collect::<Result<Vec<_>, _>>()?;

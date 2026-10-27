@@ -13,7 +13,7 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_proto_pb::pb::{Posting, posting};
+use ultragraphdb_core_codec::Posting;
 
 use crate::errors::posting_error::PostingError;
 use crate::types::list::List;
@@ -34,7 +34,7 @@ impl List {
         };
         let mut posts: Vec<(Rank, usize, &Posting)> = layers
             .iter()
-            .flat_map(|(rank, pl)| pl.postings.iter().enumerate().map(|(i, p)| (*rank, i, p)))
+            .flat_map(|(rank, pl)| pl.postings().iter().enumerate().map(|(i, p)| (*rank, i, p)))
             .collect();
         let by_value = self.mutation.by_value();
         posts.sort_by(|(ra, ia, pa), (rb, ib, pb)| {
@@ -68,7 +68,7 @@ impl List {
             );
         }
         let mut midx = if after_uid > 0 {
-            mposts.partition_point(|mp| mp.uid <= after_uid)
+            mposts.partition_point(|mp| mp.uid() <= after_uid)
         } else {
             0
         };
@@ -77,12 +77,12 @@ impl List {
         let mut prev: Option<(u64, Vec<u8>)> = None;
         let (mut read, mut deleted) = (0usize, 0usize);
         let mut count = |mp: Option<&Posting>| match mp {
-            Some(p) if p.op == DEL => deleted += 1,
+            Some(p) if p.op() == DEL => deleted += 1,
             _ => read += 1,
         };
         let result = loop {
             let mp = mposts.get(midx).copied();
-            let mp_id = mp.filter(|p| p.uid > 0).map(|p| identity(p, by_value));
+            let mp_id = mp.filter(|p| p.uid() > 0).map(|p| identity(p, by_value));
             let pp = if pitr.valid() {
                 Some(pitr.posting())
             } else {
@@ -164,11 +164,7 @@ where
 {
     match pp {
         Some(PPosting::Found(p)) => f(p),
-        Some(PPosting::Uid(uid)) => f(&Posting {
-            uid,
-            val_type: posting::ValType::Uid as i32,
-            ..Posting::default()
-        }),
+        Some(PPosting::Uid(uid)) => f(&Posting::default().with_uid(uid)),
         None => Ok(ControlFlow::Continue(())),
     }
 }
@@ -179,7 +175,7 @@ where
     F: FnMut(&Posting) -> Result<ControlFlow<()>, E>,
 {
     match mp {
-        Some(p) if p.op != DEL => f(p),
+        Some(p) if p.op() != DEL => f(p),
         _ => Ok(ControlFlow::Continue(())),
     }
 }

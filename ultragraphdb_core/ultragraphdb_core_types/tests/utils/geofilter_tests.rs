@@ -2,19 +2,17 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, types/geofilter_test.go. Changed for ultragraphdb: translated to Rust; plus the golden
- * geo queries (tools/golden/types_geo.go, types_geo_query).
+ * Ported from Dgraph v25.5.0, types/geofilter_test.go. Changed for ultragraphdb: translated to Rust; the tests of
+ * `GetGeoTokens` and `MatchGeo`, query-layer functions that are not ported, are left out.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use serde::Deserialize;
 use ultragraphdb_core_types::{
     GeoQueryData, Geometry, Layout, MAX_CELL_LEVEL, MIN_CELL_LEVEL, QueryType, TypeId, Val, Value,
-    convert, get_geo_tokens, is_geo_func, match_geo, query_tokens_geo,
+    convert, is_geo_func, query_tokens_geo,
 };
-use ultragraphdb_proto_pb::pb;
 
-use crate::utils::s2index_tests::{load_polygon, unhex};
+use crate::utils::s2index_tests::load_polygon;
 
 /// Dgraph's test helper `queryTokens`: the GeoJSON text parsed as geo, then `queryTokensGeo`.
 fn query_tokens(
@@ -141,147 +139,6 @@ fn test_is_geo_func() {
     ] {
         assert_eq!(is_geo_func(name), want, "{name:?}");
     }
-}
-
-/// Go v25.5.0's `GetGeoTokens` refusals the golden queries leave out, with Go's texts: argument counts, distances
-/// `ParseFloat` refuses, polygons `convertToGeom` refuses, and geometries no geo query takes.
-#[test]
-fn test_get_geo_tokens_refusals() {
-    const SQ: &str = "[[[-122, 37], [-123, 37], [-123, 38], [-122, 38], [-122, 37]]]";
-    let cases: [(&str, &[&str], &str); 21] = [
-        (
-            "contains",
-            &[SQ, SQ],
-            "contains function requires 1 arguments, but got 2",
-        ),
-        (
-            "contains",
-            &[],
-            "contains function requires 1 arguments, but got 0",
-        ),
-        (
-            "intersects",
-            &[],
-            "intersects function requires 1 arguments, but got 0",
-        ),
-        (
-            "intersects",
-            &[SQ, "1"],
-            "intersects function requires 1 arguments, but got 2",
-        ),
-        (
-            "near",
-            &["[1,2]", "1", "2"],
-            "near function requires 2 arguments, but got 3",
-        ),
-        (
-            "near",
-            &["[1,2]", "1e400"],
-            "Error while converting distance to float: strconv.ParseFloat: parsing \"1e400\": value out of range",
-        ),
-        (
-            "near",
-            &["[1,2]", ""],
-            "Error while converting distance to float: strconv.ParseFloat: parsing \"\": invalid syntax",
-        ),
-        (
-            "within",
-            &[r#"{"type":"Polygon","coordinates":[]}"#],
-            "Got empty polygon.",
-        ),
-        (
-            "within",
-            &[r#"{"type":"MultiPolygon","coordinates":[[[[0,0],[1,0],[1,1],[0,1]]]]}"#],
-            "Last coord not same as first",
-        ),
-        (
-            "within",
-            &["[[[0,0],[1,0],[1,1]]]"],
-            "Last coord not same as first",
-        ),
-        (
-            "within",
-            &["[[[[0,0],[1,0],[1,1],[0,1]]]]"],
-            "Last coord not same as first",
-        ),
-        (
-            "within",
-            &["[1, 2, 3]"],
-            "Covering only available for 2D co-ordinates.",
-        ),
-        (
-            "within",
-            &["[[[1,2]"],
-            "Invalid coordinates: unexpected end of JSON input",
-        ),
-        (
-            "within",
-            &["[[[[1,2]"],
-            "Invalid coordinates: unexpected end of JSON input",
-        ),
-        ("within", &["[1,2"], "Invalid coordinates"),
-        (
-            "within",
-            &["[1,2,]"],
-            "invalid character ']' looking for beginning of value",
-        ),
-        ("within", &["null"], "geojson: unsupported type: "),
-        (
-            "within",
-            &[r#"{"type":"LineString","coordinates":[[0,0],[1,1]]}"#],
-            "Cannot query using a geometry of type *geom.LineString",
-        ),
-        (
-            "within",
-            &[r#"{"type":"GeometryCollection","geometries":[]}"#],
-            "Cannot query using a geometry of type *geom.GeometryCollection",
-        ),
-        (
-            "contains",
-            &[r#"{"type":"MultiPoint","coordinates":[[0,0]]}"#],
-            "Cannot query using a geometry of type *geom.MultiPoint",
-        ),
-        ("", &[SQ], "Invalid function"),
-    ];
-    let failures: Vec<String> = cases
-        .iter()
-        .filter_map(|(name, args, want)| {
-            let src = pb::SrcFunction {
-                name: (*name).into(),
-                args: args.iter().map(|a| (*a).into()).collect(),
-                is_count: false,
-            };
-            let got = get_geo_tokens(&src)
-                .map(|(t, _)| format!("{} tokens", t.len()))
-                .unwrap_or_else(|e| e.to_string());
-            (got != *want).then(|| format!("{name}{args:?}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-    // The function name is lowercased.
-    let src = pb::SrcFunction {
-        name: "INTERSECTS".into(),
-        args: vec![SQ.into()],
-        is_count: false,
-    };
-    assert_eq!(get_geo_tokens(&src).unwrap().0.len(), 47);
-}
-
-#[test]
-fn test_match_geo_refuses_what_is_not_stored_geo() {
-    // Dgraph's MatchGeo: no bytes, another value type, or bytes that are not WKB never match.
-    let (_, q) = query_tokens(QueryType::Intersects, &form_data(&poly(&SQUARE)), 0.0).unwrap();
-    let inside = pt(-122.5, 37.5).marshal_wkb().unwrap();
-    let task = |val: Vec<u8>, tid: TypeId| pb::TaskValue {
-        val,
-        val_type: tid.enum_value(),
-    };
-    assert!(match_geo(&task(inside.clone(), TypeId::GEO), &q));
-    assert!(!match_geo(&task(inside, TypeId::BINARY), &q));
-    assert!(!match_geo(&task(Vec::new(), TypeId::GEO), &q));
-    assert!(!match_geo(&task(vec![1, 2, 3], TypeId::GEO), &q));
-    let outside = pt(-120.0, 37.5).marshal_wkb().unwrap();
-    assert!(!match_geo(&task(outside, TypeId::GEO), &q));
 }
 
 #[test]
@@ -453,85 +310,10 @@ fn test_matches_filter_near_point() {
     assert!(qd.matches_filter(&poly(&SQUARE)));
 }
 
-#[derive(Deserialize)]
-struct GeoQueryCase {
-    func: String,
-    args: Vec<String>,
-    #[serde(default)]
-    tokens: Vec<String>,
-    #[serde(default)]
-    err: String,
-    #[serde(default)]
-    matches: Vec<bool>,
-}
-
-#[derive(Deserialize)]
-struct GeoQueryFile {
-    candidates: Vec<String>,
-    queries: Vec<GeoQueryCase>,
-}
-
-#[test]
-fn test_golden_geo_queries() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_geo_query.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<GeoQueryFile>(&path);
-    let f = &golden.cases()[0];
-    for q in &f.queries {
-        let src = pb::SrcFunction {
-            name: q.func.clone(),
-            args: q.args.clone(),
-            is_count: false,
-        };
-        let ctx = format!(
-            "{}({})",
-            q.func,
-            q.args.join(", ").chars().take(80).collect::<String>()
-        );
-        match get_geo_tokens(&src) {
-            Err(e) => assert_eq!(e.to_string(), q.err, "{ctx}"),
-            Ok((mut toks, qd)) => {
-                assert!(q.err.is_empty(), "{ctx}: Go refused with {}", q.err);
-                toks.sort();
-                assert_eq!(toks, q.tokens, "{ctx}");
-                let matches: Vec<bool> = f
-                    .candidates
-                    .iter()
-                    .map(|c| {
-                        match_geo(
-                            &pb::TaskValue {
-                                val: unhex(c),
-                                val_type: TypeId::GEO.enum_value(),
-                            },
-                            &qd,
-                        )
-                    })
-                    .collect();
-                assert_eq!(matches, q.matches, "{ctx}");
-            }
-        }
-    }
-}
-
 #[test]
 fn test_geo_inputs_dgraph_panics_on_are_refused() {
-    // Dgraph asserts against a function without a name.
-    let err = get_geo_tokens(&pb::SrcFunction::default()).unwrap_err();
-    assert_eq!(err.to_string(), "Invalid function");
-    // A near distance of NaN or infinity passes Go's sign check and reaches exact predicates, where Go's big.Float
-    // panics; the port refuses it.
-    for d in ["NaN", "+Inf", "Inf"] {
-        let src = pb::SrcFunction {
-            name: "near".into(),
-            args: vec!["[-122.0, 37.0]".into(), d.into()],
-            ..Default::default()
-        };
-        let err = get_geo_tokens(&src).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "Invalid max distance specified for a near query",
-            "{d}"
-        );
-    }
+    // A near distance of NaN passes Go's sign check and reaches exact predicates, where Go's big.Float panics; the
+    // port refuses it.
     assert_eq!(
         query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0), f64::NAN)
             .unwrap_err()

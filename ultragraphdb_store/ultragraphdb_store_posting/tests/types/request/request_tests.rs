@@ -241,7 +241,7 @@ fn test_a_list_whose_writes_cancelled_out_is_not_written() {
     let list = request.get_from_delta(&k);
     list.add_posting(set_uid(7), true);
     list.add_posting(del_uid(7), true);
-    assert_eq!(list.delta().map(|d| d.postings.len()), Some(0));
+    assert_eq!(list.delta().map(|d| d.postings().len()), Some(0));
     assert!(request.deltas().is_empty());
     assert_eq!(request.written_keys().count(), 0);
 }

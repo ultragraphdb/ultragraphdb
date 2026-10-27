@@ -18,9 +18,9 @@ mod vi_txn_txn;
 use std::cell::RefCell;
 use std::ops::ControlFlow;
 
+use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::{EncodedTerm, TermView};
-use ultragraphdb_proto_pb::pb::{Posting, posting};
 use ultragraphdb_store_posting::{BIT_EMPTY_POSTING, CachedList, DEL, PostingError, Request, SET};
 use ultragraphdb_traits_index::KeyValue;
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
@@ -67,7 +67,7 @@ where
             // A forward list's newest delta may lead with the deletion of the vector it replaces: read it merged.
             let mut first = None;
             list.iterate(read_ts, 0, |p| {
-                first = Some(p.value.clone());
+                first = Some(p.value().to_vec());
                 Ok::<_, PostingError>(ControlFlow::Break(()))
             })?;
             return first
@@ -76,9 +76,9 @@ where
         }
         match list
             .static_value(read_ts)
-            .and_then(|pl| pl.postings.first())
+            .and_then(|pl| pl.postings().first())
         {
-            Some(p) if p.op != DEL => Ok(p.value.clone()),
+            Some(p) if p.op() != DEL => Ok(p.value().to_vec()),
             _ => Err(HnswError::NoValue()),
         }
     }
@@ -137,11 +137,9 @@ pub(crate) fn vector_elements(encoding: &[u8]) -> Option<Vec<u8>> {
 /// The posting of a vector-index list's one value, as Dgraph's `indexEdgeToPbEdge` makes the edge of an untyped value:
 /// under the uid of a value that is no list's element, so a later value replaces it.
 pub fn index_posting(value: Vec<u8>) -> Posting {
-    Posting {
-        uid: u64::MAX,
-        value,
-        posting_type: posting::PostingType::Value as i32,
-        op: SET,
-        ..Posting::default()
-    }
+    Posting::default()
+        .with_uid(u64::MAX)
+        .with_value(value)
+        .with_posting_type(PostingType::Value)
+        .with_op(SET)
 }

@@ -11,7 +11,6 @@ use ultragraphdb_core_tok::{
     get_ngram_query_tokens, get_ngram_tokens, get_tokenizer, get_tokenizer_for_lang, lang_base,
 };
 use ultragraphdb_core_types::{TypeId, Val, Value, convert};
-use ultragraphdb_proto_pb::pb;
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -439,14 +438,7 @@ fn not_valid(w: &mut Steps) {
 
 #[when(expr = "the hnsw factory is given metric {string}")]
 fn hnsw_metric(w: &mut Steps, metric: String) {
-    let spec = pb::VectorIndexSpec {
-        name: "hnsw".into(),
-        options: vec![pb::OptionPair {
-            key: "metric".into(),
-            value: metric,
-        }],
-    };
-    w.error = get_factory_create_spec_from_spec(&spec)
+    w.error = get_factory_create_spec_from_spec("hnsw", &[("metric".into(), metric)])
         .unwrap_err()
         .to_string();
 }

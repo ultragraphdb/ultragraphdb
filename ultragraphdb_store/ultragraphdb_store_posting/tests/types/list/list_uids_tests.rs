@@ -9,17 +9,15 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_proto_pb::pb::{self, Posting, posting};
+use ultragraphdb_core_codec::{List as UidList, Posting, PostingType};
 use ultragraphdb_store_posting::{List, ListOptions, PostingError, PostingErrorEnum};
 
 use crate::utils::helpers::{
     add, del_uid, key, new_store, roll_up, set_uid, set_value, with_facet,
 };
 
-fn list_of(uids: &[u64]) -> pb::List {
-    pb::List {
-        uids: uids.to_vec(),
-    }
+fn list_of(uids: &[u64]) -> UidList {
+    UidList::new(uids.to_vec())
 }
 
 /// A rolled-up list of the uids 2, 4, …, 600, complete at its rollup's version, with no deltas: 300 uids in two
@@ -44,7 +42,7 @@ fn test_the_pack_is_intersected_directly_without_deltas() {
     let got = l
         .uids(&ListOptions::at(2).intersect(list_of(&[1, 4, 8, 9, 600, 601])))
         .unwrap();
-    assert_eq!(got.uids, vec![4, 8, 600]);
+    assert_eq!(got.uids(), vec![4, 8, 600]);
     // Go 1.27 probe of algo.IntersectCompressedWith over the same pack: [4 8]. The direct path seeks with SeekStart,
     // which keeps the after-uid itself, where iterating starts above it (below): a Dgraph inconsistency kept.
     let after = l
@@ -54,7 +52,7 @@ fn test_the_pack_is_intersected_directly_without_deltas() {
                 .after(4),
         )
         .unwrap();
-    assert_eq!(after.uids, vec![4, 8]);
+    assert_eq!(after.uids(), vec![4, 8]);
     let mut with_delta = l.clone();
     add(&mut with_delta, 2, &set_uid(1));
     with_delta.commit_mutation(3);
@@ -67,7 +65,7 @@ fn test_the_pack_is_intersected_directly_without_deltas() {
                 .after(4),
         )
         .unwrap();
-    assert_eq!(looked_up.uids, vec![1, 4, 8]);
+    assert_eq!(looked_up.uids(), vec![1, 4, 8]);
 }
 
 #[test]
@@ -96,7 +94,7 @@ fn test_a_short_intersection_looks_each_uid_up() {
         .uids(&ListOptions::at(4).intersect(list_of(&[4, 5, 6, 7])))
         .unwrap();
     assert_eq!(
-        got.uids,
+        got.uids(),
         vec![5, 6],
         "4 deleted, 5 set, 6 held, 7 never held"
     );
@@ -104,7 +102,7 @@ fn test_a_short_intersection_looks_each_uid_up() {
         .uids(&ListOptions::at(3).intersect(list_of(&[4, 5, 6])))
         .unwrap();
     assert_eq!(
-        before.uids,
+        before.uids(),
         vec![4, 6],
         "the delta at 4 is not visible at 3"
     );
@@ -121,21 +119,28 @@ fn test_a_long_intersection_iterates_only_its_range() {
     let got = l
         .uids(&ListOptions::at(2).intersect(list_of(&[3, 7, 12])))
         .unwrap();
-    assert_eq!(got.uids, vec![3, 7]);
+    assert_eq!(got.uids(), vec![3, 7]);
     let after = l
         .uids(&ListOptions::at(2).intersect(list_of(&[3, 7, 12])).after(3))
         .unwrap();
-    assert_eq!(after.uids, vec![7], "iterating starts above the after-uid");
+    assert_eq!(
+        after.uids(),
+        vec![7],
+        "iterating starts above the after-uid"
+    );
     let first = l
         .uids(&ListOptions::at(2).intersect(list_of(&[3, 5, 7])).first(2))
         .unwrap();
     assert_eq!(
-        first.uids,
+        first.uids(),
         vec![3, 5],
         "the count applies after the intersection"
     );
     let empty = l.uids(&ListOptions::at(2).intersect(list_of(&[]))).unwrap();
-    assert!(empty.uids.is_empty(), "an empty intersection holds nothing");
+    assert!(
+        empty.uids().is_empty(),
+        "an empty intersection holds nothing"
+    );
 }
 
 #[test]
@@ -150,7 +155,7 @@ fn test_a_positive_count_at_and_around_the_list_length() {
         (0, vec![1, 2, 3, 4, 5]),
     ] {
         let got = l.uids(&ListOptions::at(2).first(first)).unwrap();
-        assert_eq!(got.uids, expected, "first: {first}");
+        assert_eq!(got.uids(), expected, "first: {first}");
     }
 }
 
@@ -160,10 +165,10 @@ fn test_uids_are_the_reference_postings_alone() {
     add(&mut l, 1, &set_uid(3));
     add(&mut l, 1, &set_value("literal"));
     l.commit_mutation(2);
-    assert_eq!(l.uids(&ListOptions::at(2)).unwrap().uids, vec![3]);
+    assert_eq!(l.uids(&ListOptions::at(2)).unwrap().uids(), vec![3]);
     let mut seen = Vec::new();
     l.postings(&ListOptions::at(2), |p| {
-        seen.push(p.uid);
+        seen.push(p.uid());
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .unwrap();
@@ -177,8 +182,8 @@ fn test_postings_stop_where_the_callback_breaks_and_pass_its_error() {
     l.commit_mutation(2);
     let mut seen = Vec::new();
     l.postings(&ListOptions::at(2).after(1), |p| {
-        seen.push((p.uid, p.facets[0].key.clone()));
-        Ok::<_, PostingError>(if p.uid == 3 {
+        seen.push((p.uid(), p.facets()[0].key().to_string()));
+        Ok::<_, PostingError>(if p.uid() == 3 {
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -199,13 +204,11 @@ fn test_postings_stop_where_the_callback_breaks_and_pass_its_error() {
 /// (uid, encoding), so the two postings coexist in a delta.
 fn coincident() -> List {
     let mut l = List::empty(key("uids-coincident", 1));
-    let literal = Posting {
-        uid: 5,
-        value: b"\x20\x01x".to_vec(),
-        posting_type: posting::PostingType::Value as i32,
-        op: ultragraphdb_store_posting::SET,
-        ..Posting::default()
-    };
+    let literal = Posting::default()
+        .with_uid(5)
+        .with_value(b"\x20\x01x".to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(ultragraphdb_store_posting::SET);
     add(&mut l, 1, &set_uid(5));
     add(&mut l, 1, &literal);
     add(&mut l, 1, &set_uid(7));
@@ -216,7 +219,7 @@ fn coincident() -> List {
 #[test]
 fn test_a_reference_coinciding_with_a_literals_fingerprint_is_one_uid() {
     let l = coincident();
-    assert_eq!(l.uids(&ListOptions::at(2)).unwrap().uids, vec![5, 7]);
+    assert_eq!(l.uids(&ListOptions::at(2)).unwrap().uids(), vec![5, 7]);
     assert_eq!(l.length(2, 0), 3, "the reference, the literal and 7");
 }
 
@@ -228,20 +231,17 @@ fn test_a_rollup_keeps_a_reference_coinciding_with_a_literals_fingerprint() {
     let store = new_store();
     let l = coincident();
     let (rolled, _) = roll_up(&store, &l, u64::MAX, usize::MAX);
-    let kept: Vec<(u64, i32)> = rolled
+    let kept: Vec<(u64, PostingType)> = rolled
         .plist()
-        .postings
+        .postings()
         .iter()
-        .map(|p| (p.uid, p.posting_type))
+        .map(|p| (p.uid(), p.posting_type()))
         .collect();
-    let (reference, value) = (
-        posting::PostingType::Ref as i32,
-        posting::PostingType::Value as i32,
-    );
+    let (reference, value) = (PostingType::Ref, PostingType::Value);
     assert_eq!(kept, vec![(5, reference), (5, value)], "7 stays a bare uid");
     assert_eq!(rolled.length(u64::MAX, 0), 3);
     assert_eq!(
-        rolled.uids(&ListOptions::at(u64::MAX)).unwrap().uids,
+        rolled.uids(&ListOptions::at(u64::MAX)).unwrap().uids(),
         vec![5, 7]
     );
 }
@@ -253,21 +253,19 @@ fn test_a_rollup_keeps_a_reference_coinciding_with_a_literals_fingerprint() {
 fn test_uids_leave_out_a_literals_fingerprint_on_every_path() {
     let store = new_store();
     let mut l = List::empty(key("uids-mixed", 1));
-    let literal = Posting {
-        uid: 5,
-        value: b"\x20\x01x".to_vec(),
-        posting_type: posting::PostingType::Value as i32,
-        op: ultragraphdb_store_posting::SET,
-        ..Posting::default()
-    };
+    let literal = Posting::default()
+        .with_uid(5)
+        .with_value(b"\x20\x01x".to_vec())
+        .with_posting_type(PostingType::Value)
+        .with_op(ultragraphdb_store_posting::SET);
     add(&mut l, 1, &set_uid(3));
     add(&mut l, 1, &literal);
     l.commit_mutation(2);
     let with = || ListOptions::at(4).intersect(list_of(&[3, 5]));
-    assert_eq!(l.uids(&with()).unwrap().uids, vec![3], "iterating");
+    assert_eq!(l.uids(&with()).unwrap().uids(), vec![3], "iterating");
     let (rolled, _) = roll_up(&store, &l, u64::MAX, usize::MAX);
     assert_eq!(
-        rolled.uids(&with()).unwrap().uids,
+        rolled.uids(&with()).unwrap().uids(),
         vec![3],
         "the pack directly"
     );
@@ -275,7 +273,7 @@ fn test_uids_leave_out_a_literals_fingerprint_on_every_path() {
     add(&mut looked_up, 3, &set_uid(9));
     looked_up.commit_mutation(4);
     assert_eq!(
-        looked_up.uids(&with()).unwrap().uids,
+        looked_up.uids(&with()).unwrap().uids(),
         vec![3],
         "each uid looked up"
     );
@@ -289,7 +287,7 @@ fn test_uids_keep_a_reference_coinciding_with_a_literals_fingerprint_on_every_pa
     let (rolled, _) = roll_up(&store, &coincident(), u64::MAX, usize::MAX);
     let with = |ts: u64| ListOptions::at(ts).intersect(list_of(&[5, 7]));
     assert_eq!(
-        rolled.uids(&with(2)).unwrap().uids,
+        rolled.uids(&with(2)).unwrap().uids(),
         vec![5, 7],
         "the pack directly"
     );
@@ -297,14 +295,14 @@ fn test_uids_keep_a_reference_coinciding_with_a_literals_fingerprint_on_every_pa
     add(&mut looked_up, 3, &set_uid(9));
     looked_up.commit_mutation(4);
     assert_eq!(
-        looked_up.uids(&with(4)).unwrap().uids,
+        looked_up.uids(&with(4)).unwrap().uids(),
         vec![5, 7],
         "each uid looked up"
     );
     add(&mut looked_up, 5, &del_uid(5));
     looked_up.commit_mutation(6);
     assert_eq!(
-        looked_up.uids(&with(6)).unwrap().uids,
+        looked_up.uids(&with(6)).unwrap().uids(),
         vec![7],
         "the reference deleted"
     );
@@ -312,5 +310,5 @@ fn test_uids_keep_a_reference_coinciding_with_a_literals_fingerprint_on_every_pa
     let iterated = looked_up
         .uids(&ListOptions::at(6).intersect(list_of(&[5, 7, 9])))
         .unwrap();
-    assert_eq!(iterated.uids, vec![7, 9], "iterating");
+    assert_eq!(iterated.uids(), vec![7, 9], "iterating");
 }

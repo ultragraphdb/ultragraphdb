@@ -82,8 +82,8 @@ fn test_iteration_after_a_uid_crosses_part_boundaries() {
 #[test]
 fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() {
     use std::ops::ControlFlow;
+    use ultragraphdb_core_codec::Posting;
     use ultragraphdb_core_keys::QuadKey;
-    use ultragraphdb_proto_pb::pb::Posting;
     use ultragraphdb_store_posting::{PostingError, SET};
 
     let store = new_store();
@@ -97,19 +97,17 @@ fn test_a_rollup_keeps_the_statement_ids_of_a_uid_posting() {
     let mut l = read_back(&store, &k);
     l.set_ts(1);
     for (uid, statement_ids) in [(7, vec![3, 4]), (8, Vec::new())] {
-        let posting = Posting {
-            uid,
-            op: SET,
-            statement_ids,
-            ..Posting::default()
-        };
+        let posting = Posting::default()
+            .with_uid(uid)
+            .with_op(SET)
+            .with_statement_ids(statement_ids);
         l.add_posting(posting, false);
     }
     l.commit_mutation(2);
     let (l, _) = roll_up(&store, &l, u64::MAX, 2000);
     let mut held = Vec::new();
     l.iterate(10, 0, |p| {
-        held.push((p.uid, p.statement_ids.clone()));
+        held.push((p.uid(), p.statement_ids().to_vec()));
         Ok::<_, PostingError>(ControlFlow::Continue(()))
     })
     .unwrap();
@@ -170,9 +168,9 @@ fn test_a_rollup_keeps_the_newest_version_of_a_posting() {
     l.commit_mutation(4);
     let (rolled, version) = roll_up(&store, &l, u64::MAX, 2000);
     assert_eq!(version, 4);
-    assert_eq!(rolled.plist().postings.len(), 1);
-    assert_eq!(rolled.plist().postings[0].facets[0].key, "new");
-    assert_eq!(rolled.plist().postings[0].commit_ts, 4);
+    assert_eq!(rolled.plist().postings().len(), 1);
+    assert_eq!(rolled.plist().postings()[0].facets()[0].key(), "new");
+    assert_eq!(rolled.plist().postings()[0].commit_ts(), 4);
 }
 
 #[test]
@@ -198,9 +196,9 @@ fn test_a_rollup_without_splitting_makes_one_list_of_a_split_one() {
     let (l, _) = roll_up(&store, &l, u64::MAX, 2000);
     assert!(l.part_splits().len() > 1);
     let out = l.rollup(u64::MAX, false, 2000).unwrap().unwrap();
-    assert!(out.plist().splits.is_empty() && out.parts().is_empty());
+    assert!(out.plist().splits().is_empty() && out.parts().is_empty());
     assert_eq!(
-        ultragraphdb_core_codec::decode(out.plist().pack.as_ref().unwrap(), 0),
+        ultragraphdb_core_codec::decode(out.plist().pack().unwrap(), 0),
         (1..=2000).collect::<Vec<_>>()
     );
 }
@@ -233,7 +231,7 @@ fn test_a_rollup_puts_each_uid_in_its_part_when_a_part_empties() {
         b + 6
     );
     assert_eq!(
-        rolled.find_posting(5, b + 6).unwrap().map(|p| p.uid),
+        rolled.find_posting(5, b + 6).unwrap().map(|p| p.uid()),
         Some(b + 6)
     );
     let all: Vec<u64> = (1..a).chain(b + 6..=3000).collect();
@@ -242,7 +240,7 @@ fn test_a_rollup_puts_each_uid_in_its_part_when_a_part_empties() {
     let splits = rolled.part_splits();
     for (i, part) in rolled.parts().iter().enumerate() {
         let end = splits.get(i + 1).map_or(u64::MAX, |next| next - 1);
-        let held = ultragraphdb_core_codec::decode(part.pack.as_ref().unwrap(), 0);
+        let held = ultragraphdb_core_codec::decode(part.pack().unwrap(), 0);
         assert!(
             held.iter().all(|&u| (splits[i]..=end).contains(&u)),
             "part {} holds {:?}..{:?}",

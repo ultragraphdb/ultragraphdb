@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_proto_pb::pb::PostingList;
 use ultragraphdb_store_posting::split_key_of;
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_DELTA_POSTING, BIT_SCHEMA_POSTING, List, PostingErrorEnum, marshal,
@@ -96,10 +96,7 @@ fn test_a_complete_version_ends_the_read() {
 fn test_a_missing_part_is_an_error() {
     let store = new_store();
     let k = key("missing-part", 1);
-    let split = PostingList {
-        splits: vec![1, 500],
-        ..PostingList::default()
-    };
+    let split = PostingList::default().with_splits(vec![1, 500]);
     write_entries(
         &store,
         vec![Entry::put(
@@ -134,10 +131,7 @@ fn test_a_missing_part_is_an_error() {
 fn test_a_length_over_a_missing_part_is_an_error_where_dgraph_panics() {
     // Deviation: Dgraph's GetLength and getPostingAndLengthNoSort panic when a part cannot be read.
     let k = key("missing-part-length", 1);
-    let split = PostingList {
-        splits: vec![1, 500],
-        ..PostingList::default()
-    };
+    let split = PostingList::default().with_splits(vec![1, 500]);
     let bare = List::new(k.clone(), split, 3);
     let missing = PostingErrorEnum::MissingPart {
         key: split_key_of(&k, 1).unwrap(),
@@ -155,10 +149,7 @@ fn test_a_length_over_a_missing_part_is_an_error_where_dgraph_panics() {
 fn test_a_part_that_is_not_a_complete_or_empty_list_is_refused() {
     let store = new_store();
     let k = key("part-meta", 1);
-    let split = PostingList {
-        splits: vec![1, 500],
-        ..PostingList::default()
-    };
+    let split = PostingList::default().with_splits(vec![1, 500]);
     let part = |start: u64| split_key_of(&k, start).unwrap();
     write_entries(
         &store,
@@ -188,13 +179,12 @@ fn test_a_part_that_is_not_a_complete_or_empty_list_is_refused() {
             part(500),
             4,
             BIT_COMPLETE_POSTING,
-            marshal(&PostingList {
-                pack: ultragraphdb_core_codec::encode(
-                    &[600],
-                    ultragraphdb_store_posting::BLOCK_SIZE,
+            marshal(
+                &PostingList::default().with_pack(
+                    ultragraphdb_core_codec::encode(&[600], ultragraphdb_store_posting::BLOCK_SIZE)
+                        .expect("the uids pack"),
                 ),
-                ..PostingList::default()
-            }),
+            ),
         )],
     );
     let (list, _) = List::read(&k, &store.snapshot(5).unwrap()).unwrap();

@@ -3,9 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use prost::Message;
-use ultragraphdb_core_codec::{decode, encode};
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Posting, PostingList, decode, encode};
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BLOCK_SIZE, List, PostingErrorEnum, bin_split, should_split, split_key_of,
 };
@@ -14,15 +12,11 @@ use crate::utils::helpers::{add, del_uid, key, set_uid};
 
 #[test]
 fn test_a_list_splits_only_over_more_than_one_block() {
-    let one_block = PostingList {
-        pack: encode(&(1..=200).collect::<Vec<_>>(), BLOCK_SIZE),
-        ..PostingList::default()
-    };
+    let one_block = PostingList::default()
+        .with_pack(encode(&(1..=200).collect::<Vec<_>>(), BLOCK_SIZE).expect("the uids pack"));
     assert!(!should_split(&one_block, 1));
-    let two_blocks = PostingList {
-        pack: encode(&(1..=300).collect::<Vec<_>>(), BLOCK_SIZE),
-        ..PostingList::default()
-    };
+    let two_blocks = PostingList::default()
+        .with_pack(encode(&(1..=300).collect::<Vec<_>>(), BLOCK_SIZE).expect("the uids pack"));
     assert!(should_split(&two_blocks, 1));
     assert!(!should_split(&two_blocks, usize::MAX));
 }
@@ -33,8 +27,8 @@ fn test_a_list_left_with_one_empty_part_becomes_unsplit() {
     (1..=1000).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
     let out = l.rollup(3, true, 1000).unwrap().unwrap();
-    assert!(out.plist().splits.len() > 1);
-    assert_eq!(out.splits(), out.plist().splits);
+    assert!(out.plist().splits().len() > 1);
+    assert_eq!(out.splits(), out.plist().splits());
     assert_eq!(out.splits()[0], 1);
 
     let split = List::new(key("unsplit", 1), out.plist().clone(), 2)
@@ -44,25 +38,23 @@ fn test_a_list_left_with_one_empty_part_becomes_unsplit() {
     emptied.commit_mutation(4);
     let out = emptied.rollup(5, true, 1000).unwrap().unwrap();
     assert!(out.parts().is_empty());
-    assert!(out.plist().splits.is_empty());
+    assert!(out.plist().splits().is_empty());
     assert_eq!(out.new_min_ts(), 4);
 }
 
 fn pack_of(n: u64) -> PostingList {
-    PostingList {
-        pack: encode(&(1..=n).collect::<Vec<_>>(), BLOCK_SIZE),
-        ..PostingList::default()
-    }
+    PostingList::default()
+        .with_pack(encode(&(1..=n).collect::<Vec<_>>(), BLOCK_SIZE).expect("the uids pack"))
 }
 
 #[test]
 fn test_a_list_splits_from_its_threshold_on() {
     // 256 uids fill one block of 256; 257 need two.
     let one_block = pack_of(256);
-    assert_eq!(one_block.pack.as_ref().unwrap().blocks.len(), 1);
+    assert_eq!(one_block.pack().unwrap().blocks().len(), 1);
     assert!(!should_split(&one_block, 0), "one block never splits");
     let two_blocks = pack_of(257);
-    assert_eq!(two_blocks.pack.as_ref().unwrap().blocks.len(), 2);
+    assert_eq!(two_blocks.pack().unwrap().blocks().len(), 2);
     let size = two_blocks.encoded_len();
     assert!(should_split(&two_blocks, size - 1));
     assert!(should_split(&two_blocks, size), "at the threshold");
@@ -76,14 +68,12 @@ fn test_a_list_splits_from_its_threshold_on() {
 #[test]
 fn test_a_list_is_split_at_its_middle_blocks_base() {
     // 1..=1000 in blocks of 256 start at 1, 257, 513 and 769; the middle block of four is the third, at 513.
-    let mut plist = pack_of(1000);
-    plist.postings = [256, 512, 513, 1000]
-        .iter()
-        .map(|&uid| Posting {
-            uid,
-            ..Posting::default()
-        })
-        .collect();
+    let plist = pack_of(1000).with_postings(
+        [256, 512, 513, 1000]
+            .iter()
+            .map(|&uid| Posting::default().with_uid(uid))
+            .collect(),
+    );
     let (starts, [low, high]) = bin_split(100, &plist);
     assert_eq!(
         starts,
@@ -92,20 +82,20 @@ fn test_a_list_is_split_at_its_middle_blocks_base() {
     );
     assert_eq!(
         (
-            low.pack.as_ref().unwrap().blocks.len(),
-            high.pack.as_ref().unwrap().blocks.len()
+            low.pack().unwrap().blocks().len(),
+            high.pack().unwrap().blocks().len()
         ),
         (2, 2)
     );
     assert_eq!(
-        decode(low.pack.as_ref().unwrap(), 0),
+        decode(low.pack().unwrap(), 0),
         (1..=512).collect::<Vec<_>>()
     );
     assert_eq!(
-        decode(high.pack.as_ref().unwrap(), 0),
+        decode(high.pack().unwrap(), 0),
         (513..=1000).collect::<Vec<_>>()
     );
-    let uids = |p: &PostingList| p.postings.iter().map(|p| p.uid).collect::<Vec<_>>();
+    let uids = |p: &PostingList| p.postings().iter().map(|p| p.uid()).collect::<Vec<_>>();
     assert_eq!((uids(&low), uids(&high)), (vec![256, 512], vec![513, 1000]));
     // Of three blocks, the middle is the second, at 257.
     let (starts, _) = bin_split(1, &pack_of(600));

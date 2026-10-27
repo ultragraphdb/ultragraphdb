@@ -8,7 +8,6 @@ load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
-load("//bazel/rust:deps.bzl", "with_proto_bindings")
 
 rust_library(
     name = "ultragraphdb_tool_bench",
@@ -21,7 +20,7 @@ rust_library(
     lint_config = lint_config(),
     tags = ["ultragraphdb_tool_bench"],
     visibility = ["//visibility:public"],
-    deps = with_proto_bindings(all_crate_deps(normal = True)),
+    deps = all_crate_deps(normal = True),
 )
 
 # The measurements of stage 2, task 10.2, run by hand with `bazel run -c opt :store_bench -- <run>`; no test runs it.
@@ -31,7 +30,7 @@ rust_binary(
     crate_root = "src/bin/store_bench.rs",
     lint_config = lint_config(),
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_tool_bench"] + with_proto_bindings(all_crate_deps(normal = True)),
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
 )
 
 rust_doc(
@@ -57,10 +56,10 @@ rust_test(
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_tool_bench"] + with_proto_bindings(all_crate_deps(
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(
         normal = True,
         normal_dev = True,
-    )),
+    ),
 )
 
 # The in-src #[cfg(test)] module of src/utils/apply_run.rs: the report's arithmetic over private figures, which a test

@@ -4,11 +4,9 @@
  *
  * Ported from Dgraph v25.5.0, types/conversion.go. Changed for ultragraphdb: translated to Rust; a float outside int64
  * is refused as an int and as a datetime, bytes that are not UTF-8 are refused as a string, and `toBinary` returns
- * an error where Go panics.
+ * an error where Go panics; `ObjectValue`, a query-layer function of the dgo API's protobuf value, is not ported.
  * Copyright (c) 2026. Marvin Hansen.
  */
-
-use ultragraphdb_proto_dgraph::api;
 
 use crate::errors::types_error::TypesError;
 use crate::types::big_float::BigFloat;
@@ -24,29 +22,6 @@ use crate::utils::value::{bytes_as_float_array, float_array_as_bytes, float_arra
 use ultragraphdb_common_utils::{go_fmt, go_strconv};
 
 const NANO_SECONDS_IN_SEC: i64 = 1_000_000_000;
-
-/// Go's `%v` of the values `ObjectValue` reports. Datetimes, geometries and big floats print in their text forms,
-/// where Go prints its struct.
-fn go_value(v: &Value) -> String {
-    match v {
-        Value::Bytes(b) => go_fmt::byte_slice(b),
-        Value::Str(s) => s.clone(),
-        Value::Int(i) => i.to_string(),
-        Value::Float(f) => go_strconv::format_float(*f, b'g', 64),
-        Value::Bool(b) => go_strconv::format_bool(*b).into(),
-        Value::DateTime(t) => t.marshal_text().unwrap_or_default(),
-        Value::Geo(g) => g.to_geojson().unwrap_or_default(),
-        Value::Uid(u) => u.to_string(),
-        Value::BigFloat(b) => b.text_g(10),
-        Value::VFloat(v) => {
-            let items: Vec<String> = v
-                .iter()
-                .map(|f| go_strconv::format_float(f64::from(*f), b'g', 32))
-                .collect();
-            format!("[{}]", items.join(" "))
-        }
-    }
-}
 
 fn cant_convert(from: TypeId, to: TypeId) -> TypesError {
     TypesError::conversion(format!(
@@ -531,55 +506,6 @@ pub fn marshal_binary(v: &Val) -> Result<Vec<u8>, TypesError> {
         // marshal writes every value it accepts to binary as bytes.
         other => Err(not_bytes(other.as_ref().map_or("<nil>", Value::go_type))),
     }
-}
-
-fn to_binary(id: TypeId, value: &Value) -> Result<Vec<u8>, TypesError> {
-    marshal_binary(&Val::new(id, value.clone()))
-}
-
-fn expected(go_type: &str, v: &Value) -> TypesError {
-    TypesError::conversion(format!(
-        "Expected value of type {go_type}. Got : {}",
-        go_value(v)
-    ))
-}
-
-/// Dgraph's `ObjectValue`: a converted value as the dgo API's `Value`. Geo, datetime, bigfloat and vector values
-/// go in their binary forms. On error Go also returns an empty string value, which this port leaves out.
-pub fn object_value(id: TypeId, value: &Value) -> Result<api::Value, TypesError> {
-    use api::value::Val as V;
-    let v = match (id, value) {
-        (TypeId::STRING, Value::Str(s)) => V::StrVal(s.clone()),
-        (TypeId::STRING, v) => return Err(expected("string", v)),
-        (TypeId::DEFAULT, Value::Str(s)) => V::DefaultVal(s.clone()),
-        (TypeId::DEFAULT, v) => return Err(expected("string", v)),
-        (TypeId::INT, Value::Int(i)) => V::IntVal(*i),
-        (TypeId::INT, v) => return Err(expected("int64", v)),
-        (TypeId::FLOAT, Value::Float(f)) => V::DoubleVal(*f),
-        (TypeId::FLOAT, v) => return Err(expected("float64", v)),
-        (TypeId::BOOL, Value::Bool(b)) => V::BoolVal(*b),
-        (TypeId::BOOL, v) => return Err(expected("bool", v)),
-        (TypeId::BINARY, Value::Bytes(b)) => V::BytesVal(b.clone()),
-        (TypeId::BINARY, v) => return Err(expected("[]byte", v)),
-        (TypeId::BIGFLOAT, v) => V::BigfloatVal(to_binary(id, v)?),
-        (TypeId::GEO, v) => V::GeoVal(to_binary(id, v)?),
-        (TypeId::DATETIME, v) => V::DatetimeVal(to_binary(id, v)?),
-        (TypeId::PASSWORD, Value::Str(s)) => V::PasswordVal(s.clone()),
-        (TypeId::PASSWORD, v) => {
-            return Err(TypesError::conversion(format!(
-                "Expected value of type password. Got type: {}",
-                v.go_type()
-            )));
-        }
-        (TypeId::VFLOAT, v) => V::Vfloat32Val(to_binary(id, v)?),
-        _ => {
-            return Err(TypesError::conversion(format!(
-                "ObjectValue not available for: {}",
-                id.enum_value()
-            )));
-        }
-    };
-    Ok(api::Value { val: Some(v) })
 }
 
 /// The first coordinate go-geom's `geojson.Marshal` writes that is NaN or infinite: each geometry writes its flat

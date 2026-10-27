@@ -269,7 +269,7 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
             .read(&key, latest)
             .unwrap()
             .plist()
-            .splits
+            .splits()
             .is_empty(),
         "the list is split"
     );

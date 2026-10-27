@@ -1,6 +1,6 @@
 ## Context
 
-The design behind this change is `openspec/notes/ zero-copy-binary-protocol.md`, approved on 2026-10-27: the evidence
+The design behind this change is ` zero-copy-binary-protocol.md` in this folder, approved on 2026-10-27: the evidence
 for each decision, from the code, the literature and Apache Iggy's and TigerBeetle's sources, is there. This document
 states how the code gets there.
 
@@ -65,8 +65,9 @@ Today:
 - `compio` (pure Rust, io_uring on Linux) and `xxhash-rust` (feature `xxh3`) are added to `[workspace.dependencies]`.
   The bounded queues between workers and the commit step use `futures-channel`, part of the `futures` the workspace
   already pins.
-- The Lean model is a Lake project in `tools/round_model/`, beside `tools/golden`, built outside Bazel as MGQL's Lean
-  is; its toolchain is pinned in `lean-toolchain` to the release MGQL uses.
+- The repository's Lean proofs live in `lean/`, one Lake project whose libraries hold them; the round model is its
+  library `RoundModel`. It is built outside Bazel as MGQL's Lean is, and its toolchain is pinned in `lean-toolchain`
+  to the release MGQL uses.
 
 ### The posting format (first, because it removes protobuf from storage)
 
@@ -121,8 +122,11 @@ function over its inputs (commit requests, sync completions), so the simulator d
   written ranges, pruned below the read version of the oldest open read-write transaction. Each transaction: check its
   read set against the history above its read version, then against the round's admitted writes; admit, then add its
   writes. `QuadStore::confirm`'s new-IRI check becomes one rule of it.
-- **Commit-time operations** run after a transaction is admitted, against the store at W plus the round's admitted
-  writes, through the posting cache. Insert-if-absent and upsert-and-link resolve the node through the unique
+- **Commit-time operations** run after a transaction is admitted, against the store at W plus the writes of every round
+  decided above W (the round still syncing included) and the current round's admitted writes, through the posting
+  cache. The commit step keeps those decided but unapplied writes in memory until their round is applied. Reading the
+  store at W alone loses updates under pipelining: a counter add in round k+1 would read the value from before round
+  k, which is still syncing (found by the Lean model, `RoundModel.serializable`). Insert-if-absent and upsert-and-link resolve the node through the unique
   predicate's index, draw a UID from the leases when they create it, and build a small changeset with the UID filled
   in (the creation properties when created, and an upsert-and-link's links) that `ChangesetWrite` applies, so tokens,
   reverse lists, statement IDs, statistics and vectors follow the same code as every write. Placeholders that let any
@@ -172,8 +176,10 @@ decoders of untrusted bytes fail. Every decoder of bytes from a client, a peer o
   installed, runs each target time-boxed (`-max_total_time`), and reports executions, coverage and failing inputs.
   Fuzzing is not hermetic and has no fixed end, so it stays outside Bazel, as mutation testing does.
 - **What Bazel keeps:** every failing input is minimized (`cargo fuzz tmin`) and committed under the crate's
-  `tests/fuzz_regressions/`, and a unit test replays each one, so the hermetic suite carries every finding.
-- **In the protocol:** phase 5 of a group that decodes bytes is mutation testing and fuzzing; stage 5.5 runs longer
+  `testdata/fuzz_regressions/<target>/`, the test data Bazel already declares, and a unit test replays each one through
+  `ultragraphdb_tool_bdd`'s `fuzz_regressions`, so the hermetic suite carries every finding.
+- **In the protocol:** a group that decodes bytes writes its fuzz targets and seeds in phase 5; mutation testing and the
+  fuzz runs happen once, at the very end, in the stage's final verification (decided 2026-10-27); stage 5.5 runs longer
   campaigns.
 
 ### The vector indexer

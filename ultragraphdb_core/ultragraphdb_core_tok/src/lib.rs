@@ -51,7 +51,7 @@ pub use crate::utils::ident::{
 };
 pub use crate::utils::index_factory::{
     get_factory_create_spec_from_spec, get_index_factories_from_specs, get_index_factory,
-    get_index_factory_from_spec, get_index_factory_opts_from_spec,
+    get_index_factory_opts_from_spec,
 };
 pub use crate::utils::index_helper::{bytes_as_float_array, bytes_to_float};
 pub use crate::utils::langbase::lang_base;

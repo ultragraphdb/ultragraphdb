@@ -12,8 +12,7 @@ use ultragraphdb_core_algo::{
     apply_filter_packed, difference_packed, index_of_packed, intersect_sorted_packed,
     intersect_with_lin_packed, merge_sorted_packed,
 };
-use ultragraphdb_core_codec::{Encoder, decode, encode};
-use ultragraphdb_proto_pb::pb::UidPack;
+use ultragraphdb_core_codec::{Encoder, UidBlock, UidPack, decode, encode};
 use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
 
 fn new_uid_pack(data: &[u64]) -> Option<UidPack> {
@@ -622,17 +621,15 @@ fn packed_operations_match_golden() {
 #[test]
 fn merge_sorted_packed_skips_an_empty_block() {
     // A corrupt block with no UIDs between two others: Dgraph indexes the empty block and panics; the port moves on.
-    let mut pack = new_uid_pack(&(1..=10).collect::<Vec<_>>()).expect("the list is not empty");
-    pack.blocks.push(ultragraphdb_proto_pb::pb::UidBlock {
-        base: 11,
-        deltas: Vec::new(),
-        num_uids: 0,
-    });
-    pack.blocks.extend(
+    let first = new_uid_pack(&(1..=10).collect::<Vec<_>>()).expect("the list is not empty");
+    let mut blocks = first.blocks().to_vec();
+    blocks.push(UidBlock::new(11, Vec::new(), 0));
+    blocks.extend_from_slice(
         new_uid_pack(&(21..=30).collect::<Vec<_>>())
             .expect("the list is not empty")
-            .blocks,
+            .blocks(),
     );
+    let pack = UidPack::new(first.block_size(), blocks);
     let other = new_uid_pack(&[5, 25]).expect("the list is not empty");
     let want: Vec<u64> = (1..=10).chain(21..=30).collect();
     assert_eq!(

@@ -25,7 +25,7 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
-    data = glob(["features/**/*.feature"]),
+    data = glob(["features/**/*.feature"]) + glob(["testdata/**"]),
     tags = [
         "unit-test",
     ],

@@ -9,7 +9,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_proto_pb::pb::{Posting, PostingList};
+use ultragraphdb_core_codec::{Posting, PostingList};
 
 use crate::types::mutable_layer::{MutableLayer, uid_index};
 use crate::utils::constants::{DEL, OVR, SET};
@@ -21,31 +21,31 @@ impl MutableLayer {
     /// that the layer's length stays a count of its sets; an overwrite of a set it holds stays a set, where Dgraph's
     /// replaces the set and the length misses the uid.
     pub(crate) fn insert_posting(&mut self, mpost: Posting, has_count_index: bool) {
-        self.read_ts = mpost.start_ts;
+        self.read_ts = mpost.start_ts();
         let current = self.current.get_or_insert_with(PostingList::default);
-        if mpost.uid == 0 {
-            current.postings.push(mpost);
+        if mpost.uid() == 0 {
+            current.postings_mut().push(mpost);
             return;
         }
         let (uid, value) = identity(&mpost, self.by_value);
         let id = (uid, value.to_vec());
         let at = self.current_uids.get(&id).copied();
-        match at.and_then(|at| current.postings.get_mut(at).map(|slot| (at, slot))) {
-            Some((at, slot)) if has_count_index && mpost.op == DEL && slot.op != DEL => {
-                current.postings.remove(at);
+        match at.and_then(|at| current.postings_mut().get_mut(at).map(|slot| (at, slot))) {
+            Some((at, slot)) if has_count_index && mpost.op() == DEL && slot.op() != DEL => {
+                current.postings_mut().remove(at);
                 self.current_uids = uid_index(current, self.by_value);
             }
             Some((_, slot)) => {
                 // An overwrite of a set this layer holds is still the set: a length counts the layer's sets.
-                let still_set = mpost.op == OVR && slot.op == SET;
+                let still_set = mpost.op() == OVR && slot.op() == SET;
                 *slot = mpost;
                 if still_set {
-                    slot.op = SET;
+                    slot.set_op(SET);
                 }
             }
             None => {
-                self.current_uids.insert(id, current.postings.len());
-                current.postings.push(mpost);
+                self.current_uids.insert(id, current.postings().len());
+                current.postings_mut().push(mpost);
             }
         }
     }

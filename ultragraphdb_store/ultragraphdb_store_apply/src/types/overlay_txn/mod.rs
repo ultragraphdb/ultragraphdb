@@ -69,7 +69,7 @@ where
         let list = self.quads.lists().read(key, self.read_ts)?;
         let mut first = None;
         list.iterate(self.read_ts, 0, |p| {
-            first = Some(p.value.clone());
+            first = Some(p.value().to_vec());
             Ok::<_, PostingError>(ControlFlow::Break(()))
         })?;
         first

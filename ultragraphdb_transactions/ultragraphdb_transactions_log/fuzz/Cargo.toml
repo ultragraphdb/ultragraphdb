@@ -1,0 +1,44 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_transactions_log, run by scripts/fuzz.sh. Outside the workspace (its own
+# [workspace] table) and outside Bazel: it needs a nightly toolchain and builds libFuzzer from C++ through
+# libfuzzer-sys, which no shipped crate depends on. Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_transactions_log_fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+arbitrary = { version = "=1.5.0", features = ["derive"] }
+libfuzzer-sys = "=0.4.13"
+ultragraphdb_error_log = { path = "../../../ultragraphdb_error/ultragraphdb_error_log" }
+ultragraphdb_protocol_wire = { path = "../../../ultragraphdb_protocol/ultragraphdb_protocol_wire" }
+ultragraphdb_traits_log = { path = "../../../ultragraphdb_traits/ultragraphdb_traits_log" }
+ultragraphdb_transactions_log = { path = ".." }
+
+# Any bytes as a segment: the scan never panics and never accepts a round whose checksums fail or that breaks the
+# chain; the probe for a complete round agrees.
+[[bin]]
+name = "scan"
+path = "fuzz_targets/scan.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a superblock copy: decoded or refused, never a panic; an accepted record re-encodes to the same bytes.
+[[bin]]
+name = "superblock"
+path = "fuzz_targets/superblock.rs"
+test = false
+doc = false
+bench = false

@@ -9,8 +9,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    DateTime, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal, object_value,
-    verify_password,
+    DateTime, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal, verify_password,
 };
 
 fn bs_bool(b: bool) -> Vec<u8> {
@@ -966,16 +965,6 @@ fn test_convert_to_string() {
     for (tid, data, want) in cases {
         assert_eq!(conv(tid, data, TypeId::STRING), ok(TypeId::STRING, s(want)));
     }
-}
-
-#[test]
-fn test_object_value_password_error_does_not_leak_value() {
-    let err = object_value(TypeId::PASSWORD, &Value::Int(123456789))
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("Expected value of type password"));
-    assert!(err.contains("int64"));
-    assert!(!err.contains("123456789"));
 }
 
 #[test]
@@ -2542,118 +2531,6 @@ fn test_marshal_json_go_texts() {
             let got = json(v.clone());
             let want = want.map(String::from).map_err(String::from);
             (got != want).then(|| format!("{v:?}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-/// Go v25.5.0's `ObjectValue`, as Go answers it: each type's `api.Value` field, binary forms for datetime, geo,
-/// bigfloat and vfloat, and the texts of its refusals. Go panics on a datetime that is not a `time.Time`; the port
-/// returns the panic's text.
-#[test]
-fn test_object_value() {
-    use ultragraphdb_core_types::{BigFloat, Geometry, Layout};
-    use ultragraphdb_proto_dgraph::api::value::Val as V;
-    let point = Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
-    let datetime = Value::DateTime(date(2006, 1, 2, 15, 4, 5, 0));
-    let cases: Vec<(TypeId, Value, Result<V, &str>)> = vec![
-        (TypeId::STRING, s("a"), Ok(V::StrVal("a".into()))),
-        (
-            TypeId::STRING,
-            Value::Int(5),
-            Err("Expected value of type string. Got : 5"),
-        ),
-        (TypeId::DEFAULT, s("d"), Ok(V::DefaultVal("d".into()))),
-        (
-            TypeId::DEFAULT,
-            Value::Float(2.5),
-            Err("Expected value of type string. Got : 2.5"),
-        ),
-        (TypeId::INT, Value::Int(-7), Ok(V::IntVal(-7))),
-        (
-            TypeId::INT,
-            s("a"),
-            Err("Expected value of type int64. Got : a"),
-        ),
-        (TypeId::FLOAT, Value::Float(1.5), Ok(V::DoubleVal(1.5))),
-        (
-            TypeId::FLOAT,
-            Value::Bool(true),
-            Err("Expected value of type float64. Got : true"),
-        ),
-        (TypeId::BOOL, Value::Bool(true), Ok(V::BoolVal(true))),
-        (
-            TypeId::BOOL,
-            Value::Int(1),
-            Err("Expected value of type bool. Got : 1"),
-        ),
-        (
-            TypeId::BINARY,
-            Value::Bytes(b"ab".to_vec()),
-            Ok(V::BytesVal(b"ab".to_vec())),
-        ),
-        (
-            TypeId::BINARY,
-            s("s"),
-            Err("Expected value of type []byte. Got : s"),
-        ),
-        (TypeId::PASSWORD, s("pw"), Ok(V::PasswordVal("pw".into()))),
-        (
-            TypeId::PASSWORD,
-            Value::Float(1.5),
-            Err("Expected value of type password. Got type: float64"),
-        ),
-        (
-            TypeId::DATETIME,
-            datetime,
-            Ok(V::DatetimeVal(vec![
-                0x01, 0x00, 0x00, 0x00, 0x0e, 0xbb, 0x4b, 0x37, 0xe5, 0x00, 0x00, 0x00, 0x00, 0xff,
-                0xff,
-            ])),
-        ),
-        (
-            TypeId::DATETIME,
-            Value::Int(1),
-            Err("interface conversion: interface {} is int64, not time.Time"),
-        ),
-        (
-            TypeId::VFLOAT,
-            Value::VFloat(vec![1.0, 2.0]),
-            Ok(V::Vfloat32Val(vec![0, 0, 0x80, 0x3f, 0, 0, 0, 0x40])),
-        ),
-        (
-            TypeId::BIGFLOAT,
-            Value::BigFloat(BigFloat::unmarshal_text("-0.125", 200).unwrap()),
-            Ok(V::BigfloatVal(b"-0.125".to_vec())),
-        ),
-        (
-            TypeId::GEO,
-            Value::Geo(point),
-            Ok(V::GeoVal(vec![
-                0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f, 0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40,
-            ])),
-        ),
-        (TypeId::GEO, s("x"), Err("Expected a Geo type")),
-        (
-            TypeId::UID,
-            Value::Uid(1),
-            Err("ObjectValue not available for: 7"),
-        ),
-        (
-            TypeId::OBJECT,
-            Value::Int(0),
-            Err("ObjectValue not available for: 10"),
-        ),
-    ];
-    let failures: Vec<String> = cases
-        .into_iter()
-        .filter_map(|(id, v, want)| {
-            let got = object_value(id, &v)
-                .map(|a| a.val)
-                .map_err(|e| e.to_string());
-            let want = want.map(Some).map_err(String::from);
-            (got != want).then(|| format!("{id:?} {v:?}: got {got:?}, Go {want:?}"))
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
