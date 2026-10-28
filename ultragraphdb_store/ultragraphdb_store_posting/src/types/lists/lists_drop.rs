@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_traits_store::{Entry, ListCache, Store};
+use ultragraphdb_traits_store::{Entry, ListCache, Store, WriteBatch};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::cached_list::CachedList;
@@ -57,6 +57,46 @@ where
             return Err(error.into());
         }
         Ok(ts)
+    }
+
+    /// Drops every key under `prefixes` physically at the watermark, taking no version: what removes the keys of an
+    /// index no catalog names any more, which no read of the watermark's catalog reads, so the watermark stays and the
+    /// commit step's next version stays free (decided 2026-10-28). A read at an older version reading those keys may
+    /// see either side, as a read at the watermark sees [`Lists::drop_prefixes_now`]'s.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, which stops writes as [`Lists::drop_prefixes_now`]'s does.
+    pub fn drop_prefixes_at_watermark(&self, prefixes: &[Vec<u8>]) -> Result<(), PostingError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_failed()?;
+        let ts = lock(&self.state).applied;
+        let result = self.store.drop_prefixes(ts, prefixes, Vec::new());
+        self.bump_epoch();
+        if let Err(error) = result {
+            tracing::error!(drop_ts = ts, %error, "prefix drop failed; the store must be reopened");
+            self.fail_writes(None);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
+    /// Removes rebuild record `id` in a batch of its own, taking no version: the record is no write a read sees.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, which stops writes as a round's does.
+    pub fn remove_rebuild_record(&self, id: u64) -> Result<(), PostingError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_failed()?;
+        let mut batch = WriteBatch::new();
+        batch.remove_rebuild_record(id);
+        if let Err(error) = self.store.apply(batch, self.config.persist()) {
+            tracing::error!(record = id, %error, "removing a rebuild record failed; the store must be reopened");
+            self.fail_writes(None);
+            return Err(error.into());
+        }
+        Ok(())
     }
 
     /// Drops every key under `prefixes` at `ts`, a version the commit step gave the drop, then writes `entries`, as

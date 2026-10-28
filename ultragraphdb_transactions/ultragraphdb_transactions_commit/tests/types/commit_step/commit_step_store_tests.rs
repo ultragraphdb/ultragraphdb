@@ -193,17 +193,19 @@ fn build_in(
     prepared
 }
 
-/// Two declarations starting index builds in different namespaces conflict on no key: the round closes before the
-/// second, which is decided in the next round, and both commit (7.7, decided 2026-10-28).
+/// Two declarations starting index builds in different namespaces conflict on no key, and one build runs at a time:
+/// the second waits in the step, set aside, until the first's end is admitted, in a round of its own, then is decided,
+/// and every one commits (decided 2026-10-28).
 #[test]
-fn test_a_round_holds_at_most_one_index_build() {
-    use ultragraphdb_core_mapping::{Change, Changeset};
+fn test_a_second_build_waits_for_the_first_builds_end() {
+    use ultragraphdb_core_mapping::Changeset;
+    use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
     let applier = applier();
     setup(&applier, vec![insert_literal("a", "name", "apple")]);
     applier
         .apply(&Changeset::new(1).with(insert_literal("a", "name", "pear")))
         .expect("namespace 1 holds data");
-    let _: Option<Change> = None;
+    applier.sequence_builds();
     let mut driver = Driver::new(&applier, unbounded());
     let mut first = begin(&applier);
     write(&mut first, vec![insert("x", "knows", "y")]);
@@ -212,17 +214,21 @@ fn test_a_round_holds_at_most_one_index_build() {
     driver.submit(3, build_in(&applier, 1, "name"));
     driver.sync();
     assert_eq!(
-        driver.step.waiting(),
-        1,
-        "the second build waits for the next round"
+        (driver.step.waiting(), driver.step.deferred()),
+        (0, 1),
+        "the second build waits while the first runs"
     );
-    // The second round applied starts the first build, and the third round closes over the second build alone. Its
-    // apply waits for the first build: the applier runs one build at a time (see the notes, group 7c).
     driver.sync();
     assert!(applier.rebuilding(), "the first build runs");
+    applier.executor().run_until_idle();
+    let end = applier.take_build_end().expect("the first build is done");
+    driver.submit(4, Prepared::end_build(&applier, end, TxnBuffers::new()).unwrap());
+    assert_eq!(driver.step.deferred(), 0, "back in the queue once the end is admitted");
+    driver.sync();
+    driver.sync();
+    assert!(applier.rebuilding(), "the second build runs");
     let counts: Vec<u32> = driver.appended.iter().map(|r| r.transactions()).collect();
-    assert_eq!(counts, vec![1, 1, 1]);
-    assert_eq!(driver.step.waiting(), 0);
+    assert_eq!(counts, vec![1, 1, 1, 1], "the end alone in its round");
     assert!(
         driver.replies.iter().all(|r| r.outcome().is_ok()),
         "{:?}",

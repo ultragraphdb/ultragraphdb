@@ -4,7 +4,9 @@
  */
 
 use crate::types::operation_result::OperationResult;
+use crate::types::record_operation::RecordOperation;
 use crate::utils::key_value_writer::write_entries;
+use crate::utils::operation::encode_operation;
 use crate::utils::results::encode_results;
 use crate::utils::sections::write_sections;
 
@@ -34,6 +36,7 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// | 7 | conflict statements: a list key and the object it changed |
 /// | 8 | conflict ranges: the first key and the key past the last |
 /// | 9 | the commit-time operations' results, 16 bytes each as a Commit reply's, in the order asked; empty for none |
+/// | 10 | the record's operation ([`RecordOperation`]), 16 bytes; empty for a transaction |
 ///
 /// A key-value section holds entries of `key_len` u32, `value_len` u32 (`u32::MAX` for a removal, which holds no
 /// value), the key, the value, then zeros to a multiple of 8. The fixed part and the section table are those of every
@@ -54,6 +57,7 @@ pub struct WriteSetRecord {
     conflict_statements: Vec<(Vec<u8>, Vec<u8>)>,
     conflict_ranges: Vec<(Vec<u8>, Vec<u8>)>,
     results: Vec<OperationResult>,
+    operation: Option<RecordOperation>,
 }
 
 impl WriteSetRecord {
@@ -105,6 +109,10 @@ impl WriteSetRecord {
 
     pub fn push_result(&mut self, result: OperationResult) {
         self.results.push(result);
+    }
+
+    pub fn set_operation(&mut self, operation: RecordOperation) {
+        self.operation = Some(operation);
     }
 
     pub fn namespace(&self) -> u64 {
@@ -164,6 +172,11 @@ impl WriteSetRecord {
         &self.results
     }
 
+    /// The record's operation, `None` for a transaction.
+    pub fn operation(&self) -> Option<RecordOperation> {
+        self.operation
+    }
+
     /// The record's bytes.
     pub fn encode(&self) -> Vec<u8> {
         let fixed: Vec<u8> = [
@@ -203,6 +216,7 @@ impl WriteSetRecord {
                 &pairs(&self.conflict_statements),
                 &pairs(&self.conflict_ranges),
                 &encode_results(&self.results),
+                &encode_operation(self.operation),
             ],
         )
     }

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_apply::{ChangesetApplier, Executed, Operation};
+use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, Executed, Operation};
 use ultragraphdb_store_posting::{Batch, CachedList};
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
@@ -84,6 +84,42 @@ impl Prepared {
             Vec::new(),
             Rewrite::default(),
         ))
+    }
+
+    /// The end of a build sequenced through the commit step on `applier` as a proposal of the step, on `buffers`
+    /// (decided 2026-10-28): a sealed empty read set at the watermark and a record naming the swap or undo, which the
+    /// step decides in a round of its own and whose round's apply writes at the version the step gives it.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::Changeset`] for the store's error.
+    pub fn end_build<S, C, E>(
+        applier: &ChangesetApplier<S, C, E>,
+        end: BuildEnd,
+        buffers: TxnBuffers,
+    ) -> Result<Self, TxnError>
+    where
+        S: Store + Send + Sync + 'static,
+        C: ListCache<Value = CachedList> + Send + Sync + 'static,
+        E: Executor,
+    {
+        let executed = applier.prepare_build_end(end)?;
+        let (mut read_set, mut record) = buffers.into_parts();
+        read_set.reset(executed.namespace(), executed.read_ts(), usize::MAX);
+        read_set.seal();
+        WriteSetBuilder::new(&executed, 0, 0, &[]).write_into(&mut record, usize::MAX)?;
+        Ok(Self::new(
+            executed,
+            read_set,
+            record,
+            Vec::new(),
+            Rewrite::default(),
+        ))
+    }
+
+    /// The end of a build the proposal is, `None` for any other: its round holds nothing else.
+    pub fn build_end(&self) -> Option<BuildEnd> {
+        self.executed.build_end()
     }
 
     /// Whether the proposal is a drop: its round closes after it.

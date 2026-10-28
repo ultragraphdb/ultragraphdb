@@ -10,6 +10,7 @@ use ultragraphdb_core_keys::Region;
 use ultragraphdb_store_posting::Writes;
 use ultragraphdb_store_quads::WriteTerms;
 
+use crate::types::build_end::BuildEnd;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
@@ -38,6 +39,9 @@ pub struct Executed {
     /// its last (7.7).
     pub(crate) dropped: Option<u64>,
     pub(crate) drop_ranges: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The end of a build sequenced through the commit step this execution is: it writes nothing itself, and its
+    /// round writes it at its version.
+    pub(crate) build_end: Option<BuildEnd>,
 }
 
 impl Executed {
@@ -73,6 +77,7 @@ impl Executed {
             removals,
             dropped: None,
             drop_ranges: Vec::new(),
+            build_end: None,
         }
     }
 
@@ -102,6 +107,25 @@ impl Executed {
                 Vec::new(),
             )
         }
+    }
+
+    /// The end of a build of `namespace` read at `read_ts`, as its proposal to the commit step.
+    pub(crate) fn ending(namespace: u64, read_ts: u64, catalog: Catalog, end: BuildEnd) -> Self {
+        Self {
+            build_end: Some(end),
+            ..Self::dropping(namespace, read_ts, catalog, None, Vec::new())
+        }
+    }
+
+    /// The end of a build this execution is, `None` for any other: a round of its own (decided 2026-10-28).
+    pub fn build_end(&self) -> Option<BuildEnd> {
+        self.build_end
+    }
+
+    /// The predicate a drop decided in a round drops, `None` for any other execution and for a drop of a predicate the
+    /// store does not know.
+    pub fn dropped(&self) -> Option<u64> {
+        self.dropped
     }
 
     /// Whether the execution is a drop decided in a round: its round closes after it (7.7).

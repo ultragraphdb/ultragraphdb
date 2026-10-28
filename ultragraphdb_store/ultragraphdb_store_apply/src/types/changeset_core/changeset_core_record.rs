@@ -54,18 +54,15 @@ where
         Ok(Some(id))
     }
 
-    /// Removes record `id` in a batch of its own.
+    /// Removes record `id` in a batch of its own, taking no version: the commit step's next version stays free
+    /// (decided 2026-10-28).
     pub(super) fn remove_record(&self, id: u64) -> Result<(), ChangesetError> {
-        let lists = self.quads.lists();
-        let mut request = lists.request(lists.applied_ts());
-        request.remove_rebuild_record_on_commit(id);
-        let mut batch = lists.batch();
-        batch.push(request);
-        lists.commit(batch)?;
+        self.quads.lists().remove_rebuild_record(id)?;
         Ok(())
     }
 
-    /// Drops every key under `prefixes`, in every graph holding one, physically.
+    /// Drops every key under `prefixes`, in every graph holding one, physically, at the watermark: the keys of indexes
+    /// no catalog names, which take no version (decided 2026-10-28).
     pub(super) fn drop_removed(&self, prefixes: &[PredicatePrefix]) -> Result<(), ChangesetError> {
         if prefixes.is_empty() {
             return Ok(());
@@ -79,7 +76,7 @@ where
             expanded.extend(p.expand(&snapshot)?);
         }
         if !expanded.is_empty() {
-            lists.drop_prefixes_now(&expanded, Vec::new())?;
+            lists.drop_prefixes_at_watermark(&expanded)?;
         }
         Ok(())
     }

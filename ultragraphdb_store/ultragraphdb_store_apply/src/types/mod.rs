@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod applied;
+pub(crate) mod build_end;
 pub(crate) mod build_buffer;
 pub(crate) mod changeset_applier;
 pub(crate) mod changeset_core;

@@ -1024,7 +1024,7 @@ table a whole number of 8 bytes; one entry per commit (`CountMismatch` `"records
 What a worker builds for a transaction: its writes as store entries and the conflict keys of its writes. The commit step
 writes it again, once, for a transaction that ran commit-time operations: the operations' writes added and their results
 in section 9, so the log holds exactly what was applied and what was answered. It is the body layout of section 4.1 with
-a 32-byte fixed part and 10 sections; its offsets count from the record's first byte.
+a 32-byte fixed part and 11 sections; its offsets count from the record's first byte.
 
 | Fixed part | Width | Field | Type |
 |---|---|---|---|
@@ -1045,6 +1045,25 @@ a 32-byte fixed part and 10 sections; its offsets count from the record's first 
 | 7 | conflict statements: a list key and the object it changed |
 | 8 | conflict ranges: the first key and the key past the last |
 | 9 | the commit-time operations' results, 16 bytes each in the Commit reply's result layout (section 6.3), in the order the transaction asked them; empty for a transaction that asked none (decided 2026-10-28) |
+| 10 | the record's operation, empty for a transaction: one 16-byte operation (decided 2026-10-28) |
+
+An operation is a write the store computes when it applies the record, at the record's commit version, rather than one
+the record carries:
+
+| Operation offset | Width | Field |
+|---|---|---|
+| 0 | 2 | `operation` u16: 1 drop a predicate, 2 swap a build in, 3 undo a build |
+| 2 | 6 | zero |
+| 8 | 8 | `argument` u64: the dropped predicate's UID in the record's namespace, or the build's record number |
+
+- **Drop a predicate** removes every key of the predicate in the namespace and its catalog entry. Its record holds the
+  predicate's key ranges in section 8, so a transaction writing into them after its read version conflicts; it is the
+  last record of its round.
+- **Swap a build in** writes the lists the build made, complete at the version of the round that started it, and its
+  new declaration. **Undo a build** writes the build's old declaration back, after the build failed. Each is a round of
+  its own and holds nothing in its other sections.
+- Recovery performs a record's operation again at the record's version: a swap whose build is no longer held builds
+  again first.
 
 A key-value section is entries back to back, each 8-aligned within the section:
 
@@ -1060,15 +1079,16 @@ Order: the fixed part and table (section 4.1); sections 0–4 and 6–8 in turn,
 (`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every conflict point's value present and empty (`FieldValue`
 `"conflict point"`); every conflict statement's and conflict range's value present (`FieldValue` `"conflict
 statement"`, `"conflict range"`); section 9 a whole number of 16-byte results (`SectionLength`), each with
-`created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero (`PaddingNotZero`). The keys' and values' contents are the
-store's. Recovery restores a session's stored reply from the record: its commit version from the round, its results
+`created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero (`PaddingNotZero`); section 10 empty or one operation
+(`SectionLength`), its `operation` 1, 2 or 3 (`FieldValue` `"operation"`) and bytes 2–7 zero (`PaddingNotZero`). The
+keys' and values' contents are the store's. Recovery restores a session's stored reply from the record: its commit version from the round, its results
 from section 9.
 
 ## 13. Open points
 
 ### 13.1 Left to the server, which does not exist yet
 
-`ultragraphdb_server_session` and `ultragraphdb_server_node` hold no code. The connection rules of section 11 come from
+`ultragraphdb_server_session` and `ultragraphdb_server` hold no code. The connection rules of section 11 come from
 the transport crate's machines (`ServerHandshake`, `Outbound`), the Rust client core and the design; the server's
 answers below have no code to read.
 
@@ -1141,3 +1161,10 @@ answers below have no code to read.
     code adds `incarnation` and `transactions` to the command header.
 27. The design says a client reads a result cell "as `core_terms`' existing `TermView<'a>`"; a native client has no
     `TermView`, and section 10 states the bytes instead.
+
+### 13.5 Commands not yet in the protocol
+
+28. No command drops anything: a predicate, a graph, a namespace's data, a namespace or every namespace. The node's
+    drop of a predicate is a commit step proposal whose record carries operation 1 (section 12.2), reached today only
+    from code; the other four drops have no proposal and no operation code yet. Which drops does the protocol offer,
+    as which command, answered how, and which operation code does each take in the write-set record?

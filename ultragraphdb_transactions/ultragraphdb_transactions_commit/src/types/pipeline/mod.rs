@@ -34,6 +34,11 @@ use crate::types::step_output::StepOutput;
 /// once. A synced round the store refuses is durable but not applied: its replies are withheld, the step stops the
 /// same way, and recovery replays it after a restart.
 ///
+/// **Builds** (decided 2026-10-28). The pipeline sequences its applier's builds through the commit step, so every
+/// write takes its version from the step: a build done, failed or cancelled ends with a proposal
+/// ([`Pipeline::poll_builds`]), its swap or undo, decided in a round of its own under [`Pipeline::SYSTEM_TICKET`],
+/// whose reply goes to nobody.
+///
 /// **Commit-time operations** run on the applier ([`ApplierOperator`]), over the store at the watermark and the
 /// writes of the round syncing and of the round being decided.
 ///
@@ -58,8 +63,11 @@ where
     C: ListCache<Value = CachedList> + Send + Sync + 'static,
     E: Executor,
 {
+    /// The ticket of the proposals the pipeline makes itself, a build's end: a caller's ticket is never this one.
+    pub const SYSTEM_TICKET: u64 = u64::MAX;
+
     /// The pipeline of `log` and `applier`, its commit step after the store's applied version within `bounds`,
-    /// holding the session table the store holds.
+    /// holding the session table the store holds, and the applier's builds sequenced through the step from now on.
     ///
     /// # Errors
     ///
@@ -71,10 +79,13 @@ where
     ) -> Result<Self, PipelineError> {
         let applied = applier.quads().lists().applied_ts();
         let sessions = Sessions::load(applier.quads().store()).map_err(PipelineError::Sessions)?;
+        applier.sequence_builds();
         Ok(Self {
             applier,
             log,
-            step: CommitStep::new(bounds, applied).with_table(sessions),
+            step: CommitStep::new(bounds, applied)
+                .with_table(sessions)
+                .with_build_running(applier.rebuilding()),
             operator: ApplierOperator::new(applier),
             out: StepOutput::new(),
             replies: Vec::new(),
@@ -136,12 +147,40 @@ where
         }
         self.unsynced = false;
         match self.log.sync().await {
-            Ok(_) => self.run(Input::Synced, now_us),
+            Ok(_) => {
+                self.run(Input::Synced, now_us)?;
+                self.poll_builds(now_us)
+            }
             Err(cause) => {
                 self.stop(now_us);
                 Err(PipelineError::Log(cause))
             }
         }
+    }
+
+    /// Proposes the end of every build the applier finished since the last call at `now_us`, its swap or undo, each a
+    /// round of its own; [`Pipeline::sync`] calls it too. The node calls it when its executor finishes a build.
+    ///
+    /// # Errors
+    ///
+    /// [`PipelineError::BuildEnd`] when an end cannot be proposed, and [`PipelineError::Log`] when the log refuses its
+    /// round; each stops the pipeline.
+    pub fn poll_builds(&mut self, now_us: u64) -> Result<(), PipelineError> {
+        while let Some(end) = self.applier.take_build_end() {
+            let buffers = self.buffers.pop().unwrap_or_default();
+            let prepared = match Prepared::end_build(self.applier, end, buffers) {
+                Ok(prepared) => prepared,
+                Err(cause) => {
+                    self.stop(now_us);
+                    return Err(PipelineError::BuildEnd(cause));
+                }
+            };
+            self.run(
+                Input::Commit(CommitRequest::new(Self::SYSTEM_TICKET, prepared)),
+                now_us,
+            )?;
+        }
+        Ok(())
     }
 
     /// The oldest read version an open read-write transaction holds, which prunes the conflict history.
@@ -156,7 +195,9 @@ where
         let refused = self.append().err();
         let applied = self.apply();
         if applied.is_ok() {
-            self.replies.append(&mut self.out.replies);
+            let replies = self.out.replies.drain(..);
+            self.replies
+                .extend(replies.filter(|r| r.ticket() != Self::SYSTEM_TICKET));
         }
         self.release();
         match (refused, applied) {
@@ -216,7 +257,9 @@ where
     fn stop(&mut self, now_us: u64) {
         self.unsynced = false;
         self.step.step(Input::SyncFailed, now_us, &mut self.out);
-        self.replies.append(&mut self.out.replies);
+        let replies = self.out.replies.drain(..);
+        self.replies
+            .extend(replies.filter(|r| r.ticket() != Self::SYSTEM_TICKET));
         self.release();
     }
 

@@ -50,6 +50,7 @@ pub mod quad_pattern;
 pub mod read;
 pub mod read_view;
 pub mod record_entry;
+pub mod record_operation;
 pub mod register;
 pub mod register_view;
 pub mod request_term;

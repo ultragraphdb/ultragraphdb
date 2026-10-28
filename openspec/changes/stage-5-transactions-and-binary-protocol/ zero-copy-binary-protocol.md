@@ -482,7 +482,7 @@ is not committed.
 | `ultragraphdb_client_tokio` | `../../../ultragraphdb_client` | `_client_core`, `tokio` | The primary public Rust client, the core's tokio shell with `Send` futures (decided 2026-10-28) |
 | `ultragraphdb_client_compio` | `../../../ultragraphdb_client` | `_client_core`, `_transport_compio` | The public compio client, the core's compio shell (decided 2026-10-28) |
 | `ultragraphdb_server_session` | `../../../ultragraphdb_server` | `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, the describe request |
-| `ultragraphdb_server_node` | `../../../ultragraphdb_server` | `ultragraphdb_server_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The single-node server binary: configuration, startup, recovery, shutdown |
+| `ultragraphdb_server` | `../../../ultragraphdb_server` | `ultragraphdb_server_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The single-node server binary: configuration, startup, recovery, shutdown |
 | `ultragraphdb_error_log` | `../../../ultragraphdb_error` | — | `LogError(pub LogErrorEnum)` (D2) |
 | `ultragraphdb_traits_log` | `../../../ultragraphdb_traits` | `ultragraphdb_error_log` | `OrderedLog`, `Position`, `Round` (D2) |
 | `ultragraphdb_transactions_log` | `../../../ultragraphdb_transactions` | `ultragraphdb_traits_log`, `_wire`, `compio` | The local log: segments, superblock, recovery; its storage over compio and simulated |

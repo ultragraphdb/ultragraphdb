@@ -2959,7 +2959,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_server_node"
+name = "ultragraphdb_server"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_telemetry",

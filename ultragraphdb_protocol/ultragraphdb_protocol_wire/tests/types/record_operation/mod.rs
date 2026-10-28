@@ -3,4 +3,5 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The tests of `ultragraphdb_server_node`, mirroring `src/`.
+#[cfg(test)]
+mod record_operation_tests;

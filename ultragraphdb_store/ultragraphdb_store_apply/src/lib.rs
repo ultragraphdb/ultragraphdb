@@ -47,6 +47,7 @@ mod utils;
 
 pub use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
 pub use crate::types::applied::Applied;
+pub use crate::types::build_end::BuildEnd;
 pub use crate::types::changeset_applier::ChangesetApplier;
 pub use crate::types::executed::Executed;
 pub use crate::types::execution::Execution;

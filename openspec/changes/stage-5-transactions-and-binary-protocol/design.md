@@ -61,7 +61,7 @@ Today:
 | `ultragraphdb_transactions_commit` | `ultragraphdb_transactions/` | `_txn`, `ultragraphdb_traits_log`, `_wire`, `ultragraphdb_store_apply` | Sequencer, resolver, conflict history, commit-time operations, apply, watermark, sessions |
 | `ultragraphdb_transactions_sim` | `ultragraphdb_transactions/` | the above, `ultragraphdb_store_sim` | The node simulator, the white-box history checker |
 | `ultragraphdb_server_session` | `ultragraphdb_server/` | `_wire`, `_transport`, `_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, describe |
-| `ultragraphdb_server_node` | `ultragraphdb_server/` | `_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The server binary |
+| `ultragraphdb_server` | `ultragraphdb_server/` | `_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The server binary |
 
 - The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_server/*` and
   `ultragraphdb_transactions/*`, and loses `ultragraphdb_proto/*`.
@@ -172,15 +172,20 @@ function over its inputs (commit requests, sync completions), so the simulator d
   is applied; replies go out.
 - **Rollups** read at W and write one above the newest commit version they fold, as `posting-lists` already states for
   a finite read timestamp; they never take a version from the sequencer.
-- **Every write of the node takes its version from the sequencer** (decided 2026-10-28). An index build's swap and every
-  drop (a predicate, a graph, a namespace's data, a namespace, everything) is a proposal of the commit step, a round of
-  its own, computed at apply time under the apply lock at the version its round took; rounds apply in order, so the
-  swap's catch-up sees every write committed before it and every later transaction aborts on its catalog change. A
-  build-starting declaration that arrives while a build runs waits in the step until the swap's round is applied, so
-  `apply_round` never refuses a durable round. The applier's direct entry points (`apply`, the direct drops) remain for
-  tests and tools that run no commit step; the node never calls them. Recovery redoes a swap round the store had not
-  applied as a build and swap at that round's version before replaying later rounds: an index is a function of the
-  data at its version, so the redone index equals the lost one.
+- **Every write of the node takes its version from the sequencer** (decided 2026-10-28). An index build's end and a
+  predicate's drop are proposals of the commit step, computed at apply time under the apply lock at the version their
+  round took, and named in their write-set record's section 10 (`PROTOCOL.md` §12.2): drop a predicate, swap a build
+  in, undo a build. A build's end is a round of its own; a drop is its round's last. The pipeline sequences its
+  applier's builds (`ChangesetApplier::sequence_builds`): a build done ends with a swap, a build failed or cancelled by
+  a drop with an undo, which the pipeline proposes (`Pipeline::poll_builds`); a swap whose build was cancelled after it
+  was made is discarded. Rounds apply in order, so the swap's catch-up sees every write committed before it and every
+  later transaction aborts on its catalog change. A build-starting declaration that arrives while a build runs waits in
+  the step, set aside, until the build's end is admitted, so `apply_round` never refuses a durable round. The physical
+  removal of an index no catalog names and a rebuild record's removal take no version: they write at the watermark.
+  The applier's direct entry points (`apply`, the drops of a graph, a namespace's data, a namespace and everything)
+  remain for tests and tools that run no commit step; the wire carries no drop command yet (`PROTOCOL.md` open point
+  28). Recovery redoes a swap round the store had not applied as a build and swap at that round's version before
+  replaying later rounds: an index is a function of the data at its version, so the redone index equals the lost one.
 - **The operations' overlay holds the dictionary too** (decided 2026-10-28): the entries without versions that the
   unapplied rounds wrote, long literals' strings among them, so a compare-and-set or counter add on a value stored out
   of line reads it rather than being refused.

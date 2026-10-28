@@ -79,6 +79,10 @@ enum Update {
 /// the round is applied, the oldest session evicted when full, and hands the entries they changed to the round's
 /// apply ([`StepOutput::system`]), so the store holds the table as of every round it applied.
 ///
+/// **Builds** (decided 2026-10-28). One index build runs at a time, from the admission of the proposal starting it to
+/// the admission of its end, its swap or undo, which is a round of its own: a proposal starting another build meanwhile
+/// waits, set aside ([`CommitStep::deferred`]), and goes back to the front of the queue once the end is admitted.
+///
 /// **Decided but unapplied.** The round in flight keeps its admitted proposals until its sync completes
 /// ([`CommitStep::in_flight`]), which commit-time operations read beside the store at the watermark.
 #[derive(Debug)]
@@ -87,6 +91,10 @@ pub struct CommitStep<P> {
     sequencer: Sequencer,
     resolver: Resolver,
     waiting: VecDeque<Waiting<P>>,
+    /// The proposals starting a build, set aside while one runs.
+    deferred: VecDeque<Waiting<P>>,
+    /// Whether a build runs: its start admitted, its end not yet.
+    building: bool,
     in_flight: Option<RoundRecord>,
     admitted: Vec<(u64, P)>,
     decided: Vec<(u64, Result<u64, CommitError>)>,
@@ -110,6 +118,8 @@ impl<P: Proposal> CommitStep<P> {
             sequencer: Sequencer::new(previous),
             resolver: Resolver::new(previous),
             waiting: VecDeque::new(),
+            deferred: VecDeque::new(),
+            building: false,
             in_flight: None,
             admitted: Vec::new(),
             decided: Vec::new(),
@@ -137,6 +147,14 @@ impl<P: Proposal> CommitStep<P> {
     pub fn with_sessions(self, capacity: usize) -> Self {
         Self {
             sessions: self.sessions.bounded(capacity),
+            ..self
+        }
+    }
+
+    /// The step with a build running when `running` holds, as the store it applies to has one when it opens.
+    pub fn with_build_running(self, running: bool) -> Self {
+        Self {
+            building: running,
             ..self
         }
     }
@@ -204,7 +222,7 @@ impl<P: Proposal> CommitStep<P> {
             out.released.push(request.into_parts());
             return;
         }
-        if self.waiting.len() >= self.queue {
+        if self.waiting.len() + self.deferred.len() >= self.queue {
             out.replies.push(Reply::new(
                 request.ticket(),
                 Err(CommitError::Busy(self.queue)),
@@ -295,6 +313,16 @@ impl<P: Proposal> CommitStep<P> {
     /// The number of requests waiting for the next round.
     pub fn waiting(&self) -> usize {
         self.waiting.len()
+    }
+
+    /// The number of proposals starting a build set aside while one runs.
+    pub fn deferred(&self) -> usize {
+        self.deferred.len()
+    }
+
+    /// Whether a build runs: its start admitted and its end not yet.
+    pub fn is_building(&self) -> bool {
+        self.building
     }
 
     /// The session table, as the rounds applied left it.

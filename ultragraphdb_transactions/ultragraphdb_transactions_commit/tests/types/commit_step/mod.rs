@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod commit_step_build_tests;
+#[cfg(test)]
 mod commit_step_operations_tests;
 #[cfg(test)]
 mod commit_step_release_tests;

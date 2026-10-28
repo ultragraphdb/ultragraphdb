@@ -9,9 +9,11 @@ use crate::types::command::Command;
 use crate::types::key_values::KeyValues;
 use crate::types::operation_result::OperationResult;
 use crate::types::record_entry::RecordEntry;
+use crate::types::record_operation::RecordOperation;
 use crate::types::write_set_record::WriteSetRecord;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
+use crate::utils::operation::read_operation;
 use crate::utils::results::{RESULT_SIZE, check_results, result_at};
 use crate::utils::sections::Sections;
 
@@ -29,15 +31,16 @@ pub struct WriteSetRecordView<'a> {
     tables: [KeyValues<'a>; 8],
     commit_record: &'a [u8],
     results: &'a [u8],
+    operation: Option<RecordOperation>,
 }
 
 impl<'a> WriteSetRecordView<'a> {
     /// The record `bytes`, checked once: the fixed part and section table, then each key-value section's entries,
-    /// then the results. Errors name the Round command and the record's own sections, offsets within the record; a
+    /// then the results, then the operation. Errors name the Round command and the record's own sections, offsets within the record; a
     /// conflict point with a value is [`ProtocolError::FieldValue`].
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::Round.number();
-        let sections = Sections::<10>::read(command, bytes, FIXED_SIZE)?;
+        let sections = Sections::<11>::read(command, bytes, FIXED_SIZE)?;
         let fixed = sections.fixed();
         let field = |at: usize| bytes_at(fixed, at).map_or(0, u64::from_le_bytes);
         let table = |i: usize| KeyValues::read(command, i, sections.offset(i), sections.get(i));
@@ -65,6 +68,7 @@ impl<'a> WriteSetRecordView<'a> {
             }
         }
         check_results(command, 9, sections.offset(9), sections.get(9))?;
+        let operation = read_operation(command, 10, sections.offset(10), sections.get(10))?;
         Ok(Self {
             bytes,
             namespace: field(0),
@@ -74,6 +78,7 @@ impl<'a> WriteSetRecordView<'a> {
             tables,
             commit_record: sections.get(5),
             results: sections.get(9),
+            operation,
         })
     }
 
@@ -145,6 +150,11 @@ impl<'a> WriteSetRecordView<'a> {
         result_at(self.results, index)
     }
 
+    /// The record's operation, `None` for a transaction.
+    pub fn operation(&self) -> Option<RecordOperation> {
+        self.operation
+    }
+
     /// The owned record of the view's values.
     pub fn to_record(&self) -> WriteSetRecord {
         let mut record = WriteSetRecord::new(
@@ -181,6 +191,9 @@ impl<'a> WriteSetRecordView<'a> {
         }
         for result in (0..self.result_count()).filter_map(|i| self.result(i)) {
             record.push_result(result);
+        }
+        if let Some(operation) = self.operation {
+            record.set_operation(operation);
         }
         record
     }

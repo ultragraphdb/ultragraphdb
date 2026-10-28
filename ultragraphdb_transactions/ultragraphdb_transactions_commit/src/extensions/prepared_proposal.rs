@@ -28,4 +28,8 @@ impl Proposal for Prepared {
     fn is_drop(&self) -> bool {
         Prepared::is_drop(self)
     }
+
+    fn ends_build(&self) -> bool {
+        Prepared::build_end(self).is_some()
+    }
 }

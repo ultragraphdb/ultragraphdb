@@ -10,7 +10,7 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
 
 rust_library(
-    name = "ultragraphdb_server_node",
+    name = "ultragraphdb_server",
     srcs = glob(
         ["src/**/*.rs"],
         exclude = ["src/bin/**"],
@@ -18,7 +18,7 @@ rust_library(
     aliases = aliases(),
     crate_root = "src/lib.rs",
     lint_config = lint_config(),
-    tags = ["ultragraphdb_server_node"],
+    tags = ["ultragraphdb_server"],
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True),
 )
@@ -29,19 +29,19 @@ rust_binary(
     crate_root = "src/bin/ultragraphdb.rs",
     lint_config = lint_config(),
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_server_node"] + all_crate_deps(normal = True),
+    deps = [":ultragraphdb_server"] + all_crate_deps(normal = True),
 )
 
 rust_doc(
     name = "doc",
-    crate = ":ultragraphdb_server_node",
+    crate = ":ultragraphdb_server",
     tags = ["doc"],
     visibility = ["//visibility:public"],
 )
 
 rust_doc_test(
     name = "doc_test",
-    crate = ":ultragraphdb_server_node",
+    crate = ":ultragraphdb_server",
     tags = ["doc-test"],
     visibility = ["//visibility:public"],
 )
@@ -53,7 +53,7 @@ rust_test(
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_server_node"] + all_crate_deps(
+    deps = [":ultragraphdb_server"] + all_crate_deps(
         normal = True,
         normal_dev = True,
     ),

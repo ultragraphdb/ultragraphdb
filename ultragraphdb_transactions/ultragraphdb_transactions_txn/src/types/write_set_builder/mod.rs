@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_store_apply::Executed;
+use ultragraphdb_store_apply::{BuildEnd, Executed};
 use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI, posting_object};
 
 use crate::errors::txn_error::TxnError;
@@ -14,7 +14,7 @@ use crate::types::txn_limits::TxnLimits;
 /// The fixed part's size: namespace, read version, session and request.
 const FIXED: usize = 32;
 /// The number of sections.
-const SECTIONS: usize = 10;
+const SECTIONS: usize = 11;
 /// Where section 0 starts: after the fixed part and the table of offsets and lengths.
 const TABLE_END: usize = FIXED + 8 * SECTIONS;
 /// A key-value entry's lengths, before its key.
@@ -42,6 +42,7 @@ const TAG_AT: usize = 8;
 /// | 7 | conflict statements: a list key and an object it changed, for each list changed by no more than the bound's objects and not cleared whole |
 /// | 8 | conflict ranges: a drop's key ranges, each its first key and the key past its last; none for any other execution (7.7) |
 /// | 9 | the commit-time operations' results, 16 bytes each, as the commit step writes them; empty for a worker's record (decided 2026-10-28) |
+/// | 10 | the record's operation: a drop's predicate (code 1), a build's swap (2) or undo (3) with its record number; empty for any other execution (decided 2026-10-28) |
 ///
 /// Only a forward list is named object by object, since only a forward list's statements are tested by a read; a list
 /// of any other keyspace, a forward list changed by more objects than the bound, or one holding a posting that names
@@ -59,6 +60,18 @@ pub struct WriteSetBuilder<'e> {
 
 /// The size of one commit-time operation's result: `uid` u64, `created` u8, 7 zero bytes.
 const RESULT_SIZE: usize = 16;
+/// The size of a record's operation: `operation` u16, 6 zero bytes, `argument` u64.
+const OPERATION_SIZE: usize = 16;
+
+/// The operation `executed` is, as section 10 names it: its code and argument.
+fn operation_of(executed: &Executed) -> Option<(u16, u64)> {
+    match (executed.dropped(), executed.build_end()) {
+        (Some(uid), _) => Some((1, uid)),
+        (None, Some(BuildEnd::Swap(record))) => Some((2, record)),
+        (None, Some(BuildEnd::Undo(record))) => Some((3, record)),
+        (None, None) => None,
+    }
+}
 
 /// An entry's value as the builder writes it: bytes, a delta in the posting format, or a removal.
 #[derive(Clone, Copy)]
@@ -240,6 +253,9 @@ impl<'e> WriteSetBuilder<'e> {
         if section == 9 {
             return RESULT_SIZE * self.results.len();
         }
+        if section == 10 {
+            return operation_of(self.executed).map_or(0, |_| OPERATION_SIZE);
+        }
         let mut len = 0;
         self.visit(section, &mut |key, value| len += entry_len(key, value));
         len
@@ -291,6 +307,12 @@ impl<'e> WriteSetBuilder<'e> {
                     out.extend_from_slice(&uid.to_le_bytes());
                     out.push(u8::from(*created));
                     out.extend_from_slice(&[0; 7]);
+                }
+            } else if section == 10 {
+                if let Some((code, argument)) = operation_of(self.executed) {
+                    out.extend_from_slice(&code.to_le_bytes());
+                    out.extend_from_slice(&[0; 6]);
+                    out.extend_from_slice(&argument.to_le_bytes());
                 }
             } else {
                 self.visit(section, &mut |key, value| write_entry(out, key, value));

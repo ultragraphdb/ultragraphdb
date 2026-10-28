@@ -8,6 +8,7 @@ use ultragraphdb_core_tok::get_tokenizer;
 
 use ultragraphdb_core_keys::{CountDirection, Keyspace};
 use ultragraphdb_store_sim::LogCapture;
+use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
     NS, apply, changesets, counted, declaration, declare, delete, exact_token, finish_builds,
@@ -444,4 +445,112 @@ fn test_a_count_build_lists_no_list_emptied_before_it() {
         );
     }
     assert_eq!(keys_of(&a, Keyspace::CountIndex, "friend").len(), 2);
+}
+
+/// Two above the watermark: the version the commit step gives the next round here.
+fn next_version(a: &crate::utils::changesets::TestChangesets) -> u64 {
+    a.quads().lists().applied_ts() + 2
+}
+
+/// A round of `changes` executed at the watermark and applied at the next version.
+fn round_of(a: &crate::utils::changesets::TestChangesets, changes: Vec<ultragraphdb_core_mapping::Change>) -> u64 {
+    let version = next_version(a);
+    let executed = a.execute(&crate::utils::changesets::changeset(changes)).unwrap();
+    a.apply_round(vec![(version, executed)]).unwrap();
+    version
+}
+
+/// An index removed by a round is dropped, and the round's record removed, at the watermark: no version of their own,
+/// so the commit step's next version is free (fix 1).
+#[test]
+fn test_removing_an_index_takes_no_version_of_its_own() {
+    use ultragraphdb_core_mapping::{Change, Declaration};
+    let a = changesets();
+    write(&a, &["<a> <name> \"big apple\""]);
+    declare(&a, "name", "with `term`");
+    finish_builds(&a);
+    assert!(!indexed(&a, "name", &term_token("apple")).is_empty());
+    let version = round_of(
+        &a,
+        vec![Change::Declare(Declaration::Predicate(declaration("name", "")))],
+    );
+    assert_eq!(a.quads().lists().applied_ts(), version, "the round's version, no other");
+    assert!(indexed(&a, "name", &term_token("apple")).is_empty(), "dropped");
+    assert!(a.quads().store().rebuild_records().unwrap().is_empty(), "removed");
+    // The next round takes the next version.
+    round_of(&a, vec![insert("<b> <name> \"pear\"")]);
+}
+
+/// Sequenced builds (fix 1): the job builds and ends with a swap the commit step gives a version; the build is over
+/// only once the swap is written there.
+#[test]
+fn test_a_sequenced_build_ends_with_a_swap_written_at_its_rounds_version() {
+    use ultragraphdb_store_apply::BuildEnd;
+    let a = changesets();
+    a.sequence_builds();
+    write(&a, &["<a> <name> \"big apple\""]);
+    declare(&a, "name", "with `term`");
+    assert!(a.rebuilding());
+    assert_eq!(a.take_build_end(), None, "the job has not run");
+    finish_builds(&a);
+    assert!(a.rebuilding(), "built, not swapped");
+    assert!(indexed(&a, "name", &term_token("apple")).is_empty());
+    let end = a.take_build_end().expect("the job ended");
+    assert!(matches!(end, BuildEnd::Swap(_)), "{end:?}");
+    assert_eq!(a.take_build_end(), None, "one end a build");
+    let swap = a.prepare_build_end(end).unwrap();
+    assert_eq!(swap.build_end(), Some(end));
+    assert!(!swap.starts_build() && !swap.is_drop());
+    let version = next_version(&a);
+    a.apply_round(vec![(version, swap)]).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), version);
+    assert!(!a.rebuilding());
+    assert_eq!(indexed(&a, "name", &term_token("apple")), vec![uid(&a, "a")]);
+    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
+}
+
+/// A sequenced build a drop cancels ends with an undo, which removes its record at its round's version and writes
+/// nothing else.
+#[test]
+fn test_a_sequenced_build_a_drop_cancels_ends_with_an_undo() {
+    use ultragraphdb_store_apply::BuildEnd;
+    let a = changesets();
+    a.sequence_builds();
+    write(&a, &["<a> <name> \"big apple\""]);
+    declare(&a, "name", "with `term`");
+    let drop = a
+        .prepare_drop_predicate(NS, crate::utils::changesets::ex("name").as_ref())
+        .unwrap();
+    let version = next_version(&a);
+    a.apply_round(vec![(version, drop)]).unwrap();
+    assert!(!a.rebuilding(), "the drop cancelled it");
+    finish_builds(&a);
+    let end = a.take_build_end().expect("the job ended");
+    assert!(matches!(end, BuildEnd::Undo(_)), "{end:?}");
+    assert!(!a.quads().store().rebuild_records().unwrap().is_empty(), "kept until the undo");
+    let undo = a.prepare_build_end(end).unwrap();
+    let version = next_version(&a);
+    a.apply_round(vec![(version, undo)]).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), version);
+    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
+}
+
+/// A sequenced build swapped after a drop cancelled it is discarded: its record removed, nothing swapped in.
+#[test]
+fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() {
+    let a = changesets();
+    a.sequence_builds();
+    write(&a, &["<a> <name> \"big apple\""]);
+    declare(&a, "name", "with `term`");
+    finish_builds(&a);
+    let swap = a.prepare_build_end(a.take_build_end().unwrap()).unwrap();
+    let drop = a
+        .prepare_drop_predicate(NS, crate::utils::changesets::ex("name").as_ref())
+        .unwrap();
+    let version = next_version(&a);
+    a.apply_round(vec![(version, drop)]).unwrap();
+    a.apply_round(vec![(version + 2, swap)]).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), version + 2);
+    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
+    assert!(a.catalog(NS).unwrap().predicate(uid(&a, "name")).is_none() || indexed(&a, "name", &term_token("apple")).is_empty());
 }

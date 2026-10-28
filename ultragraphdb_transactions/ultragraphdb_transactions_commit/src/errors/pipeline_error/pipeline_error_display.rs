@@ -19,6 +19,9 @@ impl fmt::Display for PipelineError {
             PipelineErrorEnum::Sessions { cause } => {
                 write!(f, "the store's session table could not be read: {cause}")
             }
+            PipelineErrorEnum::BuildEnd { cause } => {
+                write!(f, "a build's end could not be proposed: {cause}")
+            }
         }
     }
 }

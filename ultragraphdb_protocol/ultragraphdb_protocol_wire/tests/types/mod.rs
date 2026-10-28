@@ -92,6 +92,8 @@ mod read_view;
 #[cfg(test)]
 mod record_entry;
 #[cfg(test)]
+mod record_operation;
+#[cfg(test)]
 mod register;
 #[cfg(test)]
 mod register_view;

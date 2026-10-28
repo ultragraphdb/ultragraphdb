@@ -322,3 +322,42 @@ fn test_the_session_table_survives_a_restart_with_the_store() {
         "the retry applied nothing"
     );
 }
+
+/// Every write takes its version from the commit step (decided 2026-10-28): a build the pipeline's applier runs ends
+/// with a swap the pipeline proposes once the build is done, decided in a round of its own, and a write after it
+/// commits at the step's next version; the swap's reply goes to nobody.
+#[test]
+fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    let applier = applier();
+    setup(&applier, vec![insert_literal("a", "name", "apple")]);
+    let (_s, mut pipe) = pipeline(&applier);
+    let mut declaration = begin(&applier);
+    write(
+        &mut declaration,
+        vec![Change::Declare(Declaration::Predicate(
+            PredicateDeclaration::new(crate::utils::fixture::ex("name"))
+                .with_tokenizers(vec!["term".to_string()]),
+        ))],
+    );
+    pipe.commit(1, prepare(declaration), 0).unwrap();
+    block_on(pipe.sync(0)).unwrap();
+    assert!(applier.rebuilding());
+    assert!(pipe.step().is_building());
+    applier.executor().run_until_idle();
+    assert!(applier.rebuilding(), "built, its swap not yet decided");
+    pipe.poll_builds(0).unwrap();
+    assert!(!pipe.step().is_building(), "the swap is admitted");
+    block_on(pipe.sync(0)).unwrap();
+    assert!(!applier.rebuilding(), "swapped in");
+    let swapped = pipe.watermark();
+    assert_eq!(swapped, pipe.step().previous_version(), "at the step's version");
+    let mut txn = begin(&applier);
+    write(&mut txn, vec![insert("b", "knows", "c")]);
+    pipe.commit(2, prepare(txn), 0).unwrap();
+    block_on(pipe.sync(0)).expect("the write applies after the swap");
+    let replies: Vec<u64> = pipe.replies_mut().drain(..).map(|r| r.ticket()).collect();
+    assert_eq!(replies, vec![1, 2], "the swap's reply goes to nobody");
+    assert!(pipe.watermark() > swapped);
+    assert_eq!(held(&applier, "b", "knows").len(), 1);
+}

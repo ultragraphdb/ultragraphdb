@@ -121,3 +121,21 @@ fn test_an_operation_is_refused_in_a_read_only_or_ended_transaction() {
         ultragraphdb_transactions_txn::TxnError::Ended()
     );
 }
+
+/// A build's end as a proposal: a sealed empty read set at the watermark and a record naming its operation, which ends
+/// the build and starts none (decided 2026-10-28).
+#[test]
+fn test_a_builds_end_is_a_proposal_naming_its_operation() {
+    use ultragraphdb_protocol_wire::RecordOperation;
+    use ultragraphdb_store_apply::BuildEnd;
+    use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
+    let applier = applier();
+    let prepared = Prepared::end_build(&applier, BuildEnd::Swap(8), TxnBuffers::new()).unwrap();
+    assert_eq!(prepared.build_end(), Some(BuildEnd::Swap(8)));
+    assert!(!prepared.starts_build() && !prepared.is_drop() && !prepared.has_operations());
+    assert!(prepared.read_set().is_sealed());
+    assert_eq!(prepared.read_set().read_version(), applier.quads().lists().applied_ts());
+    let record = WriteSetRecordView::new(prepared.record()).unwrap();
+    assert_eq!(record.operation(), Some(RecordOperation::SwapBuild(8)));
+    assert_eq!((record.session(), record.request()), (0, 0));
+}

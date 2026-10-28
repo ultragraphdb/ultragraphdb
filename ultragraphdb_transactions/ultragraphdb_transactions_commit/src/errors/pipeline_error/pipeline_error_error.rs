@@ -11,6 +11,7 @@ impl std::error::Error for PipelineError {
             PipelineErrorEnum::Log { cause } => Some(cause),
             PipelineErrorEnum::Apply { cause } => Some(cause),
             PipelineErrorEnum::Sessions { cause } => Some(cause),
+            PipelineErrorEnum::BuildEnd { cause } => Some(cause),
         }
     }
 }

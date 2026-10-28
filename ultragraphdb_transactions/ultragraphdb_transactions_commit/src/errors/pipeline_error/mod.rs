@@ -9,6 +9,7 @@ mod pipeline_error_error;
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::ChangesetError;
+use ultragraphdb_transactions_txn::TxnError;
 
 /// Why the pipeline stopped or did not open: the log refused a round or failed its sync, or the store refused a synced
 /// round, each of which stops the commit step, so the node refuses writes until it restarts and recovers; or the
@@ -27,6 +28,9 @@ pub enum PipelineErrorEnum {
     Apply { cause: ChangesetError },
     /// The store's session table could not be read, or is corrupted: the pipeline does not open.
     Sessions { cause: StoreError },
+    /// A build's end could not be proposed: the store failed reading the build's catalog. The pipeline stops, and the
+    /// build is finished when the store opens again.
+    BuildEnd { cause: TxnError },
 }
 
 impl PipelineError {
@@ -43,5 +47,10 @@ impl PipelineError {
     #[allow(non_snake_case)]
     pub fn Sessions(cause: StoreError) -> Self {
         Self(PipelineErrorEnum::Sessions { cause })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn BuildEnd(cause: TxnError) -> Self {
+        Self(PipelineErrorEnum::BuildEnd { cause })
     }
 }

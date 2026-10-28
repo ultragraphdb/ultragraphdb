@@ -150,6 +150,40 @@ from a seed.
 - `Lists::commit_round_with`: a `through` below the watermark is refused; one at the watermark writes the system's
   entries alone and leaves it.
 
+## Every write through the step
+
+The bug, found reading the code: a build's swap and undo committed at the store's own next version, and so did the
+physical removal of a removed index and a rebuild record's removal. Under the pipeline the step's next round took the
+same version, and its apply was refused as stale, which stops the pipeline. A build-starting declaration admitted
+while a build ran was refused at apply the same way.
+
+- **Protocol first.** A write-set record's section 10 names its operation (`RecordOperation`: drop a predicate, swap
+  a build in, undo a build, with the predicate's UID or the build's record number), so the log says what a round the
+  store computes does, and recovery can redo it (`PROTOCOL.md` §12.2). The golden Round regenerated (5,776 bytes;
+  records 280 and 5,136), the wire's `write_set_record` and `round` fuzz seeds with it, which were stale since before
+  section 9.
+- **Cleanups take no version.** `Lists::drop_prefixes_at_watermark` and `Lists::remove_rebuild_record` write at the
+  watermark: an index no catalog names is read by no read of the watermark's catalog.
+- **Sequenced builds.** `ChangesetApplier::sequence_builds`, which `Pipeline::new` calls: the build job keeps what it
+  made and ends with `BuildEnd::Swap`, or with `BuildEnd::Undo` when it failed or a drop cancelled it; a build the
+  store failed under proposes nothing. `prepare_build_end` and `Prepared::end_build` make the proposal; its round's
+  apply swaps or undoes at its version, building again first when nothing is kept (what recovery will need), and a swap
+  whose build a drop cancelled meanwhile is discarded. A round's apply now always ends with the watermark at its last
+  version.
+- **The step.** `Proposal::ends_build`; a build runs from its start's admission to its end's; a proposal starting
+  another waits, set aside (`CommitStep::deferred`), and goes back to the queue's front once the end is admitted; an end
+  is a round of its own; a failed sync answers the set-aside unavailable. `with_build_running` for a store opened with
+  one. This replaces 7c's "a round closes before a second build": `test_a_round_holds_at_most_one_index_build` became
+  `test_a_second_build_waits_for_the_first_builds_end`.
+- **The pipeline.** `poll_builds` proposes every finished build's end under `Pipeline::SYSTEM_TICKET`, whose replies go
+  to nobody; `sync` calls it after each round; `PipelineError::BuildEnd` when one cannot be proposed.
+- **Not done.** The drops of a graph, a namespace's data, a namespace and everything stay direct-only: the wire has no
+  drop command (`PROTOCOL.md` open point 28), so no client reaches them through the node.
+- Tests written before the code and seen failing (compile errors or the assertion): the wire's three
+  `record_operation_tests`, the builder's section 10, `Prepared::end_build`, `store_apply`'s four sequenced and
+  watermark tests, the step's three build tests and the pipeline's swap test. The posting lists' cleanup test was
+  written with its code, not before; the audit covers it.
+
 ## Phase 3: the audit
 
 34 defects over 7.5 and 7.7, each planted alone in the tree and restored in a `finally`, the five crates' `src/` hashed
@@ -195,8 +229,6 @@ audit's original hash, and closed the survivors.
   missing between them, is refused naming the version. Its scenarios in `write-ahead-log` ("Rounds lost from the store
   are replayed", "A store ahead of the log refuses to start", "A round never reaches the store before the log", "A
   reported fault loses no acknowledged round") are not bound yet.
-- **Every write through the step** (approved 2026-10-28): the build's swap and the direct drops become proposals, each a
-  round of its own, computed at apply time; a build-starting declaration waits in the step while a build runs.
 - The two build questions above.
 
 ## What groups 8 and 10 should expect

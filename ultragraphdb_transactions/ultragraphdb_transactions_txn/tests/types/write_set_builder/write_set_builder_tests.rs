@@ -9,7 +9,7 @@ use oxrdf::{GraphName, Literal};
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_mapping::Change;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_protocol_wire::{KeyValues, WriteSetRecordView};
+use ultragraphdb_protocol_wire::{KeyValues, RecordOperation, WriteSetRecordView};
 use ultragraphdb_store_apply::Executed;
 use ultragraphdb_store_quads::{iri_key, uid_key, uid_value};
 use ultragraphdb_transactions_txn::{TxnError, WriteSetBuilder};
@@ -111,7 +111,7 @@ fn test_the_fixed_part_is_written_little_endian_first() {
         .collect();
     assert_eq!(&bytes[..32], fixed.as_slice());
     // Section 0 starts where the table of ten sections ends: 32 + 10 × 8.
-    assert_eq!(u32::from_le_bytes(bytes[32..36].try_into().unwrap()), 112);
+    assert_eq!(u32::from_le_bytes(bytes[32..36].try_into().unwrap()), 120);
 }
 
 /// A worker's record holds no results; the commit step's record of a transaction with operations holds each one in
@@ -133,6 +133,36 @@ fn test_results_are_written_into_section_nine_in_order() {
         .map(|r| (r.uid(), r.created()))
         .collect();
     assert_eq!(read, results);
+}
+
+/// A drop's record names its operation in section 10, the predicate's UID; a build's end names its record; any other
+/// execution's record has none (decided 2026-10-28).
+#[test]
+fn test_a_drop_and_a_builds_end_name_their_operation_in_section_ten() {
+    let applier = known();
+    let plain = executed(&applier, vec![insert("a", "knows", "b")]);
+    let bytes = written(&WriteSetBuilder::new(&plain, 1, 1, &[]));
+    assert_eq!(WriteSetRecordView::new(&bytes).unwrap().operation(), None);
+    let drop = applier
+        .prepare_drop_predicate(NS, ex("knows").as_ref())
+        .unwrap();
+    let builder = WriteSetBuilder::new(&drop, 0, 0, &[]);
+    let bytes = written(&builder);
+    assert_eq!(bytes.len(), builder.len());
+    assert_eq!(
+        WriteSetRecordView::new(&bytes).unwrap().operation(),
+        Some(RecordOperation::DropPredicate(uid(&applier, "knows")))
+    );
+    for (end, operation) in [
+        (ultragraphdb_store_apply::BuildEnd::Swap(12), RecordOperation::SwapBuild(12)),
+        (ultragraphdb_store_apply::BuildEnd::Undo(14), RecordOperation::UndoBuild(14)),
+    ] {
+        let ending = applier.prepare_build_end(end).unwrap();
+        let builder = WriteSetBuilder::new(&ending, 0, 0, &[]);
+        let bytes = written(&builder);
+        assert_eq!(bytes.len(), builder.len());
+        assert_eq!(WriteSetRecordView::new(&bytes).unwrap().operation(), Some(operation));
+    }
 }
 
 #[test]

@@ -14,6 +14,7 @@ use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
+use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
@@ -79,6 +80,30 @@ where
     /// Whether an index is being built.
     pub fn rebuilding(&self) -> bool {
         self.core.rebuilding()
+    }
+
+    /// Sequences every later build through the commit step (decided 2026-10-28): a build ends with a proposal
+    /// ([`ChangesetApplier::take_build_end`]) instead of swapping itself in at a version of its own, so every write
+    /// takes its version from the step. What the pipeline asks of the applier it drives; an applier driven directly,
+    /// by tests and tools, swaps its builds in itself.
+    pub fn sequence_builds(&self) {
+        self.core.sequence_builds();
+    }
+
+    /// The oldest end of a sequenced build not yet taken: a build done, to swap in, or failed or cancelled by a drop,
+    /// to undo. Each build ends once.
+    pub fn take_build_end(&self) -> Option<BuildEnd> {
+        self.core.take_build_end()
+    }
+
+    /// The proposal of `end` for the commit step: an execution at the watermark that writes nothing itself, whose
+    /// round writes the swap or the undo at the version the step gives it, alone in its round.
+    ///
+    /// # Errors
+    ///
+    /// The store's error loading the build's namespace's catalog.
+    pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
+        self.core.prepare_build_end(end)
     }
 
     /// Executes `changeset` against the snapshot at the watermark, as a worker does, writing nothing: its terms

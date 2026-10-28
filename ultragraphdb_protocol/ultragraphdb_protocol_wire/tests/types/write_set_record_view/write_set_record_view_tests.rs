@@ -87,7 +87,7 @@ fn test_a_record_is_checked_as_a_body_with_a_fixed_part() {
         ProtocolErrorEnum::BodyTooShort {
             command: 17,
             len: 100,
-            need: 112
+            need: 120
         }
     );
     let mut trailing = bytes.clone();
@@ -96,8 +96,8 @@ fn test_a_record_is_checked_as_a_body_with_a_fixed_part() {
         WriteSetRecordView::new(&trailing).unwrap_err().0,
         ProtocolErrorEnum::TrailingBytes {
             command: 17,
-            end: 272,
-            len: 273
+            end: 280,
+            len: 281
         }
     );
     assert_eq!(
@@ -156,6 +156,8 @@ fn test_results_are_whole_and_their_padding_zero() {
     let end = short.len() as u32;
     short[at..at + 4].copy_from_slice(&end.to_le_bytes());
     short[at + 4..at + 8].copy_from_slice(&8u32.to_le_bytes());
+    // Section 10, the operation, empty after it.
+    short[at + 8..at + 12].copy_from_slice(&(end + 8).to_le_bytes());
     short.extend_from_slice(&[0; 8]);
     assert_eq!(
         WriteSetRecordView::new(&short).unwrap_err().0,

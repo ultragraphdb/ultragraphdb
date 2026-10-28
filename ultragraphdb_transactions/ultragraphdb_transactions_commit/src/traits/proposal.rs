@@ -22,9 +22,15 @@ pub trait Proposal {
         false
     }
 
-    /// Whether the proposal's declaration starts an index build: a round holds at most one, closing before a second
-    /// (7.7); none by default.
+    /// Whether the proposal's declaration starts an index build: one runs at a time, so a second waits in the step,
+    /// set aside, until the first's end is admitted (decided 2026-10-28); none by default.
     fn starts_build(&self) -> bool {
+        false
+    }
+
+    /// Whether the proposal is the end of a build, its swap or undo: a round of its own, after which a proposal set
+    /// aside may start the next build (decided 2026-10-28); none by default.
+    fn ends_build(&self) -> bool {
         false
     }
 

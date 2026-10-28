@@ -88,11 +88,16 @@ impl<P: Proposal> CommitStep<P> {
         // The requests the round takes, every one counted as committed: the sum of their records' padded lengths
         // before the last, and the last one's own.
         let (mut count, mut padded) = (0usize, 0usize);
-        // Whether an admitted proposal of the round starts an index build: a second closes the round before it.
-        let mut building = false;
         while let Some(next) = self.waiting.front() {
             let len = match next {
-                Waiting::Commit(request) if building && request.proposal().starts_build() => break,
+                Waiting::Commit(request) if self.building && request.proposal().starts_build() => {
+                    if let Some(set_aside) = self.waiting.pop_front() {
+                        self.deferred.push_back(set_aside);
+                    }
+                    continue;
+                }
+                // A build's end is a round of its own.
+                Waiting::Commit(request) if request.proposal().ends_build() && count > 0 => break,
                 Waiting::Commit(request) => request.proposal().record().len(),
                 Waiting::Register(_) => registration_len(),
             };
@@ -116,8 +121,15 @@ impl<P: Proposal> CommitStep<P> {
                             if let Some(results) = results {
                                 self.results.push((ticket, results));
                             }
-                            building |= proposal.starts_build();
-                            let drop = proposal.is_drop();
+                            self.building |= proposal.starts_build();
+                            let ends = proposal.ends_build();
+                            if ends {
+                                self.building = false;
+                                while let Some(set_aside) = self.deferred.pop_back() {
+                                    self.waiting.push_front(set_aside);
+                                }
+                            }
+                            let drop = proposal.is_drop() || ends;
                             self.sources.push(Source::Txn(self.admitted.len()));
                             self.admitted.push((version, proposal));
                             self.decided.push((ticket, Ok(version)));
@@ -327,7 +339,7 @@ impl<P: Proposal> CommitStep<P> {
                 .drain(..)
                 .map(|(ticket, _)| unavailable(ticket)),
         );
-        for waiting in self.waiting.drain(..) {
+        for waiting in self.deferred.drain(..).chain(self.waiting.drain(..)) {
             out.replies.push(unavailable(waiting.ticket()));
             if let Waiting::Commit(request) = waiting {
                 out.released.push(request.into_parts());

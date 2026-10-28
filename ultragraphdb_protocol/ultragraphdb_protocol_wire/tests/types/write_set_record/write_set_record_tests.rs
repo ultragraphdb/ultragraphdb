@@ -71,9 +71,9 @@ fn test_a_record_keeps_its_fields_and_tables() {
         ]
     );
     assert!(record1().results().is_empty());
-    // generate_bodies.py printed 272 and 5,128 bytes.
-    assert_eq!(record0().encode().len(), 272);
-    assert_eq!(record1().encode().len(), 5_128);
+    // generate_bodies.py printed 280 and 5,136 bytes.
+    assert_eq!(record0().encode().len(), 280);
+    assert_eq!(record1().encode().len(), 5_136);
     let mut all = WriteSetRecord::new(1, 2, 3, 4);
     all.push_statement(b"s".to_vec(), Some(b"v".to_vec()));
     all.push_catalog(b"c".to_vec(), None);

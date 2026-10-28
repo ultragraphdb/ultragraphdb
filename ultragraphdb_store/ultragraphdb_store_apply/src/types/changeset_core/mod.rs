@@ -9,6 +9,7 @@ mod changeset_core_rebuild;
 mod changeset_core_record;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_core_catalog::Catalog;
@@ -16,10 +17,11 @@ use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
-use ultragraphdb_traits_store::{ListCache, Store, VersionlessEntry};
+use ultragraphdb_traits_store::{ListCache, Store, Temporary, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
+use crate::types::build_end::BuildEnd;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
@@ -29,8 +31,20 @@ use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
 use crate::utils::lock::lock;
 
+/// The lists a build made, by graph, then by key: a vector index's, built in memory.
+pub(crate) type BuiltVectors = BTreeMap<u64, BTreeMap<Vec<u8>, Vec<u8>>>;
+
+/// What a sequenced build made, kept until its swap's round: its temporary keyspace and its vector lists.
+#[derive(Debug)]
+pub(crate) struct Built {
+    pub temporary: Option<Temporary>,
+    pub vectors: BuiltVectors,
+}
+
 /// What a [`crate::ChangesetApplier`] holds, shared with the builds it runs in the background: the quads, the
 /// catalogs loaded, the lock commits, drops and swaps take, the build under way, and the vector index's level draws.
+/// Sequenced (decided 2026-10-28), a build ends with a proposal for the commit step instead of swapping itself in: the
+/// ends waiting to be taken, and what each build made, until its swap's round.
 #[derive(Debug)]
 pub(crate) struct ChangesetCore<S, C> {
     quads: QuadStore<S, C>,
@@ -38,6 +52,9 @@ pub(crate) struct ChangesetCore<S, C> {
     apply: Mutex<()>,
     rebuild: Mutex<Option<Rebuild>>,
     draw: Mutex<LevelDraw>,
+    sequenced: AtomicBool,
+    ended: Mutex<Vec<BuildEnd>>,
+    built: Mutex<BTreeMap<u64, Built>>,
 }
 
 /// What a round's application gives: each execution's commit, and the record of the build it started.
@@ -55,7 +72,52 @@ where
             apply: Mutex::new(()),
             rebuild: Mutex::new(None),
             draw: Mutex::new(LevelDraw::new(seed)),
+            sequenced: AtomicBool::new(false),
+            ended: Mutex::new(Vec::new()),
+            built: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Sequences builds through the commit step from now on, as [`crate::ChangesetApplier::sequence_builds`] does.
+    pub fn sequence_builds(&self) {
+        self.sequenced.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn sequenced(&self) -> bool {
+        self.sequenced.load(Ordering::Acquire)
+    }
+
+    /// The oldest end of a sequenced build not yet taken.
+    pub fn take_build_end(&self) -> Option<BuildEnd> {
+        let mut ended = lock(&self.ended);
+        (!ended.is_empty()).then(|| ended.remove(0))
+    }
+
+    pub(crate) fn push_build_end(&self, end: BuildEnd) {
+        lock(&self.ended).push(end);
+    }
+
+    pub(crate) fn keep_built(&self, record: u64, built: Built) {
+        lock(&self.built).insert(record, built);
+    }
+
+    pub(crate) fn take_built(&self, record: u64) -> Option<Built> {
+        lock(&self.built).remove(&record)
+    }
+
+    /// The proposal of `end`, as [`crate::ChangesetApplier::prepare_build_end`] makes it: at the watermark, in the
+    /// build's namespace while it is held, else namespace 0.
+    pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
+        let record = match end {
+            BuildEnd::Swap(r) | BuildEnd::Undo(r) => r,
+        };
+        let namespace = lock(&self.rebuild)
+            .as_ref()
+            .filter(|r| r.record == record)
+            .map_or(0, |r| r.namespace);
+        let read_ts = self.quads.lists().applied_ts();
+        let catalog = (*self.catalog(namespace)?).clone();
+        Ok(Executed::ending(namespace, read_ts, catalog, end))
     }
 
     pub fn quads(&self) -> &QuadStore<S, C> {
@@ -160,6 +222,9 @@ where
             }
             after = *version;
         }
+        // The watermark ends at the round's last version, which a round ending in a build's end that wrote nothing,
+        // an undo of a build a drop cancelled, reaches only so.
+        let through = through.max(round.last().map_or(0, |(version, _)| *version));
         let Some(&(first, _)) = round.first() else {
             self.quads.lists().commit_round_with(&[], system, through)?;
             return Ok((Vec::new(), None));
@@ -170,23 +235,29 @@ where
                 self.touch(r, std::mem::take(&mut executed.touched));
             }
         }
-        // A drop writes nothing in the batch: it drops its predicate at its version once the batch is written, and
-        // the system's entries and `through` follow it, so the watermark stays below the drop's version until then.
+        // A drop and a build's end write nothing in the batch: each writes at its version once the batch is written,
+        // and the system's entries and `through` follow, so the watermark stays below that version until then.
         let writes: Vec<(u64, &Writes)> = round
             .iter()
-            .filter(|(_, e)| e.dropped.is_none())
+            .filter(|(_, e)| e.dropped.is_none() && e.build_end.is_none())
             .map(|(v, e)| (*v, &e.writes))
             .collect();
         let drops: Vec<(u64, u64, u64)> = round
             .iter()
             .filter_map(|(v, e)| e.dropped.map(|uid| (*v, e.namespace, uid)))
             .collect();
-        if drops.is_empty() {
+        // A build's end writes at its version once the batch is written, as a drop does.
+        let ends: Vec<(u64, BuildEnd)> = round
+            .iter()
+            .filter_map(|(v, e)| e.build_end.map(|end| (*v, end)))
+            .collect();
+        let deferred = !drops.is_empty() || !ends.is_empty();
+        if deferred {
+            self.quads.lists().commit_round_with(&writes, &[], 0)?;
+        } else {
             self.quads
                 .lists()
                 .commit_round_with(&writes, system, through)?;
-        } else {
-            self.quads.lists().commit_round_with(&writes, &[], 0)?;
         }
         let mut removals: Vec<PredicatePrefix> = Vec::new();
         let mut started = None;
@@ -217,10 +288,13 @@ where
             ));
         }
         self.drop_removed(&removals)?;
-        if !drops.is_empty() {
-            for &(version, namespace, uid) in &drops {
-                self.drop_predicate_uid(namespace, uid, Some(version))?;
-            }
+        for &(version, namespace, uid) in &drops {
+            self.drop_predicate_uid(namespace, uid, Some(version))?;
+        }
+        for &(version, end) in &ends {
+            self.end_build(end, version)?;
+        }
+        if deferred {
             self.quads.lists().commit_round_with(&[], system, through)?;
         }
         let started = match (started, record) {

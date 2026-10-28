@@ -76,7 +76,7 @@ that a receiver reads in place, before stage 6's query core writes through it. T
 - **New group folders and crates:**
   - `ultragraphdb_protocol/`: `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`;
   - `ultragraphdb_client/`: `ultragraphdb_client`, the Rust client;
-  - `ultragraphdb_server/`: `ultragraphdb_server_session`, `ultragraphdb_server_node` (the binary);
+  - `ultragraphdb_server/`: `ultragraphdb_server_session`, `ultragraphdb_server` (the binary);
   - `ultragraphdb_transactions/`: `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`,
     `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_sim`;
   - `ultragraphdb_traits_log`, `ultragraphdb_error_log`, `ultragraphdb_error_protocol`.

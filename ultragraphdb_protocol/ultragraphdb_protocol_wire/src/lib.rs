@@ -73,6 +73,7 @@ pub use crate::types::quad_pattern::QuadPattern;
 pub use crate::types::read::Read;
 pub use crate::types::read_view::ReadView;
 pub use crate::types::record_entry::RecordEntry;
+pub use crate::types::record_operation::RecordOperation;
 pub use crate::types::register::Register;
 pub use crate::types::register_view::RegisterView;
 pub use crate::types::request_term::RequestTerm;

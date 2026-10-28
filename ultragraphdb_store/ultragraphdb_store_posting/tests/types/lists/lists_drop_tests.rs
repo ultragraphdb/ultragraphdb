@@ -210,3 +210,27 @@ fn test_a_drop_at_a_given_version_drops_its_keys_and_moves_the_watermark_there()
     assert!(uids(&lists.read(&k, read).unwrap(), read, 0).is_empty());
     assert_eq!(uids(&lists.read(&kept, read).unwrap(), read, 0), vec![3]);
 }
+
+/// A drop at the watermark and a record's removal take no version: the watermark stays, the keys are gone, the
+/// record removed (decided 2026-10-28).
+#[test]
+fn test_cleanups_at_the_watermark_take_no_version() {
+    use ultragraphdb_traits_store::{RebuildRecord, Store};
+    let lists = crate::utils::helpers::new_lists();
+    let ts = crate::utils::helpers::commit_edges_at(
+        &lists,
+        &crate::utils::helpers::key("gone", 1),
+        &[crate::utils::helpers::set_uid(1)],
+        6,
+    );
+    lists
+        .store()
+        .write_rebuild_record(&RebuildRecord::new(4, vec![b"p".to_vec()]))
+        .unwrap();
+    let prefix = crate::utils::helpers::key("gone", 1);
+    lists.drop_prefixes_at_watermark(std::slice::from_ref(&prefix)).unwrap();
+    lists.remove_rebuild_record(4).unwrap();
+    assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (ts, ts));
+    assert!(lists.store().get_at(&prefix, ts).unwrap().is_none());
+    assert!(lists.store().rebuild_records().unwrap().is_empty());
+}

@@ -27,14 +27,17 @@ use ultragraphdb_core_keys::{CountDirection, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{VectorKeys, add_dead_node, bytes_as_float_array, index_posting};
-use ultragraphdb_store_posting::{CachedList, List, PostingError, PostingErrorEnum, SET};
+use ultragraphdb_store_posting::{
+    CachedList, List, Lists, PostingError, PostingErrorEnum, Request, SET,
+};
 use ultragraphdb_store_quads::object_posting;
 use ultragraphdb_traits_index::{Txn, VectorIndex};
 use ultragraphdb_traits_store::{Entry, Item, ListCache, Scan, Store, StoreSnapshot, Temporary};
 
 use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
 use crate::types::build_buffer::{BuildBuffer, DELTAS, SWAP, delta_item, swap_entry};
-use crate::types::changeset_core::ChangesetCore;
+use crate::types::build_end::BuildEnd;
+use crate::types::changeset_core::{Built, BuiltVectors, ChangesetCore};
 use crate::types::overlay_txn::OverlayTxn;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
@@ -43,8 +46,6 @@ use crate::utils::lock::lock;
 use crate::utils::quad_prefixes::{count_prefixes, tokenizer_prefixes, vector_prefixes};
 use crate::utils::vector_index::hnsw;
 
-/// The vector-index lists a build made, by graph, then by key.
-type BuiltVectors = BTreeMap<u64, BTreeMap<Vec<u8>, Vec<u8>>>;
 
 impl<S, C> ChangesetCore<S, C>
 where
@@ -86,8 +87,12 @@ where
     }
 
     /// The build of record `record`, run on the executor: built outside the apply lock, swapped, or undone, under it,
-    /// its temporary keyspace dropped after.
+    /// its temporary keyspace dropped after. Sequenced, it ends with a proposal instead (`run_sequenced`).
     pub fn run_rebuild(&self, record: u64) {
+        if self.sequenced() {
+            self.run_sequenced(record);
+            return;
+        }
         let Some(rebuild) = self.current(record) else {
             // A drop cancelled the build before it ran: its job removes its record.
             let _apply = lock(&self.apply);
@@ -101,9 +106,9 @@ where
         let built = self.build(&rebuild, &mut temporary);
         let _apply = lock(&self.apply);
         let outcome = match built {
-            Ok(vectors) => self.swap(record, temporary.as_ref(), vectors),
+            Ok(vectors) => self.swap(record, temporary.as_ref(), vectors, None),
             Err(error) if store_failed(&error) => Err(error),
-            Err(error) => self.undo(record).and(Err(error)),
+            Err(error) => self.undo(record, None).and(Err(error)),
         };
         let failed_write = outcome.as_ref().is_err_and(store_failed);
         if let Some(t) = temporary.filter(|_| !failed_write)
@@ -113,6 +118,68 @@ where
         }
         if let Err(error) = outcome {
             tracing::error!(record, %error, "error in building indexes, aborting");
+        }
+    }
+
+    /// The build of record `record` sequenced through the commit step, run on the executor outside the apply lock: what
+    /// it made kept and a swap proposed, or, when it failed or a drop cancelled it, an undo proposed. A build the store
+    /// failed under proposes nothing: the store refuses every write until it is reopened.
+    fn run_sequenced(&self, record: u64) {
+        let Some(rebuild) = self.current(record) else {
+            tracing::info!(record, "build discarded: a drop cancelled it");
+            self.push_build_end(BuildEnd::Undo(record));
+            return;
+        };
+        let mut temporary = None;
+        match self.build(&rebuild, &mut temporary) {
+            Ok(vectors) => {
+                self.keep_built(record, Built { temporary, vectors });
+                self.push_build_end(BuildEnd::Swap(record));
+            }
+            Err(error) if store_failed(&error) => {
+                tracing::error!(record, %error, "error in building indexes, aborting");
+            }
+            Err(error) => {
+                tracing::error!(record, %error, "error in building indexes, undoing");
+                self.drop_temporary(record, temporary);
+                self.push_build_end(BuildEnd::Undo(record));
+            }
+        }
+    }
+
+    /// Ends a sequenced build at `version`, the version its round took, under the apply lock the caller holds: a swap
+    /// of what it made, built again first when nothing is kept (after a restart), or an undo.
+    pub(super) fn end_build(&self, end: BuildEnd, version: u64) -> Result<(), ChangesetError> {
+        match end {
+            BuildEnd::Swap(record) => {
+                let mut kept = self.take_built(record);
+                if kept.is_none()
+                    && let Some(rebuild) = self.current(record)
+                {
+                    let mut temporary = None;
+                    let vectors = self.build(&rebuild, &mut temporary)?;
+                    kept = Some(Built { temporary, vectors });
+                }
+                let Built { temporary, vectors } = kept.unwrap_or(Built {
+                    temporary: None,
+                    vectors: BTreeMap::new(),
+                });
+                let outcome = self.swap(record, temporary.as_ref(), vectors, Some(version));
+                if !outcome.as_ref().is_err_and(store_failed) {
+                    self.drop_temporary(record, temporary);
+                }
+                outcome.map(|_| ())
+            }
+            BuildEnd::Undo(record) => self.undo(record, Some(version)),
+        }
+    }
+
+    /// Drops a build's temporary keyspace, logging a failure.
+    fn drop_temporary(&self, record: u64, temporary: Option<Temporary>) {
+        if let Some(t) = temporary
+            && let Err(error) = self.quads.store().drop_temporary(t)
+        {
+            tracing::error!(record, %error, "the build's temporary keyspace could not be dropped");
         }
     }
 
@@ -281,13 +348,14 @@ where
         Ok(())
     }
 
-    /// The swap batch of record `record`, under the apply lock the caller holds: its commit timestamp, 0 when a drop
-    /// cancelled the build.
+    /// The swap batch of record `record`, under the apply lock the caller holds, at version `at` when the commit step
+    /// gave it one, else at the store's next: its commit timestamp, 0 when a drop cancelled the build.
     fn swap(
         &self,
         record: u64,
         temporary: Option<&Temporary>,
         mut vectors: BuiltVectors,
+        at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
         let Some(rebuild) = self.current(record) else {
             tracing::info!(record, "build discarded: a drop cancelled it");
@@ -358,9 +426,7 @@ where
         let declaration = Declaration::Predicate(rebuild.new.clone());
         request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
         request.advance_epoch_on_commit();
-        let mut batch = lists.batch();
-        batch.push(request);
-        let ts = lists.commit(batch)?.into_iter().next().unwrap_or(0);
+        let ts = commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();
         catalog.declare_predicate(predicate, rebuild.new.clone())?;
         lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
@@ -372,9 +438,10 @@ where
     }
 
     /// Undoes the change of record `record` after its build failed, under the apply lock the caller holds: writes the
-    /// old declaration back, then drops the keys of the indexes the build made, which it does not name, and removes
-    /// the record.
-    fn undo(&self, record: u64) -> Result<(), ChangesetError> {
+    /// old declaration back, at version `at` when the commit step gave it one, else at the store's next, then drops the
+    /// keys of the indexes the build made, which it does not name, and removes the record. A build a drop cancelled
+    /// only has its record removed.
+    fn undo(&self, record: u64, at: Option<u64>) -> Result<(), ChangesetError> {
         let Some(rebuild) = self.cancel(|r| r.record == record) else {
             return self.remove_record(record);
         };
@@ -393,14 +460,36 @@ where
         let declaration = Declaration::Predicate(rebuild.old.clone());
         request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
         request.advance_epoch_on_commit();
-        let mut batch = lists.batch();
-        batch.push(request);
-        lists.commit(batch)?;
+        commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();
         catalog.declare_predicate(predicate, rebuild.old.clone())?;
         lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
         self.drop_removed(&built)?;
         self.remove_record(record)
+    }
+}
+
+/// Commits `request` at `at`, the version the commit step gave it, or at the store's next: its version.
+fn commit_at<S, C>(
+    lists: &Lists<S, C>,
+    request: Request<'_, S, C>,
+    at: Option<u64>,
+) -> Result<u64, ChangesetError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    match at {
+        Some(version) => {
+            let writes = request.into_writes();
+            lists.commit_round(&[(version, &writes)])?;
+            Ok(version)
+        }
+        None => {
+            let mut batch = lists.batch();
+            batch.push(request);
+            Ok(lists.commit(batch)?.into_iter().next().unwrap_or(0))
+        }
     }
 }
 
