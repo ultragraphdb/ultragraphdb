@@ -4,6 +4,7 @@
 #
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
@@ -36,9 +37,46 @@ rust_doc_test(
 # One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs.
 rust_test(
     name = "ultragraphdb_transactions_commit_tests",
-    srcs = glob(["tests/**/*.rs"]),
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
     crate_root = "tests/mod.rs",
     tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_transactions_commit"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles. bdd.rs includes the unit
+# tests' doubles and fixture by path.
+rust_test(
+    name = "bdd",
+    srcs = [
+        "tests/bdd.rs",
+        "tests/utils/fixture.rs",
+        "tests/utils/proposal_double.rs",
+    ],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_transactions_commit"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# The criterion bench behind the conflict history's design, run with `bazel run :history_bench -- --bench` and never as
+# a test: no test rule wraps it, and `make test` builds it without running it.
+rust_binary(
+    name = "history_bench",
+    srcs = ["benches/history_bench.rs"],
+    crate_root = "benches/history_bench.rs",
+    lint_config = lint_config(),
+    tags = ["bench"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_transactions_commit"] + all_crate_deps(
         normal = True,

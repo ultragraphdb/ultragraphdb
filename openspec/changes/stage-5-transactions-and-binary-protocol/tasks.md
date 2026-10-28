@@ -77,8 +77,8 @@ benchmark recorded in the group's notes, and nothing traded for clarity or safet
 
 - [ ] 7.1 Scenarios: commit-rounds, all requirements; transactions ("Transactions are strictly serializable", "Commit-time operations", "Exactly-once commits through sessions", "Aborts name their reason")
 - [ ] 7.2 Phases 1–3: the step function's inputs and outputs; the sequencer, resolver, history, commit-time operations, sessions table
-- [ ] 7.3 Phase 4: rounds closed by the previous sync, bounded; versions `max(previous + 2, 2 × clock µs)`
-- [ ] 7.4 Phase 4: the conflict history (points, statements, ranges), exact validation in round order, pruning and too-old aborts; `QuadStore::confirm`'s IRI check as one rule
+- [x] 7.3 Phase 4: rounds closed by the previous sync, bounded; versions `max(previous + 2, 2 × clock µs)`
+- [x] 7.4 Phase 4: the conflict history (points, statements, ranges), exact validation in round order, pruning and too-old aborts; `QuadStore::confirm`'s IRI check as one rule
 - [ ] 7.5 Phase 4: insert-if-absent, upsert-and-link, compare-and-set and counter add after admission, against the store at W plus every decided but unapplied round's writes (design, "The commit step"); a predicate's implicit default catalog entry as an insert-if-absent on its catalog key, not a catalog change (decided 2026-10-27); the created node's properties and the links applied through `ChangesetWrite` with the UID filled in
 - [ ] 7.6 Phase 4: the pipeline: log append and sync, apply, watermark, replies; a failed sync stops every later write
 - [ ] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds; the scenario "A write after a build's start in the same round aborts" tested against the resolver, not assumed (decided 2026-10-27)

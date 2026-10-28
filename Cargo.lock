@@ -3138,10 +3138,20 @@ dependencies = [
 name = "ultragraphdb_transactions_commit"
 version = "0.1.0"
 dependencies = [
+ "criterion",
+ "cucumber",
+ "futures",
+ "oxrdf",
+ "ultragraphdb_core_mapping",
  "ultragraphdb_error_log",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_sim",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
  "ultragraphdb_transactions_txn",
 ]
 
