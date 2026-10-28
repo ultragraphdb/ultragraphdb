@@ -27,16 +27,14 @@ impl Sessions {
         };
         let corrupted =
             |key: &[u8], reason: &str| StoreError::Corrupted(key.to_vec(), reason.to_string());
-        if index.len() % 8 != 0 {
+        let (numbers, rest) = index.as_chunks::<8>();
+        if !rest.is_empty() {
             return Err(corrupted(
                 SessionEntry::INDEX_KEY,
                 "a session index whose length is not a multiple of 8",
             ));
         }
-        let numbers: Vec<u64> = index
-            .chunks_exact(8)
-            .map(|n| u64::from_le_bytes(n.try_into().unwrap_or_default()))
-            .collect();
+        let numbers: Vec<u64> = numbers.iter().map(|n| u64::from_le_bytes(*n)).collect();
         if numbers.first() == Some(&0) || numbers.windows(2).any(|w| w[0] >= w[1]) {
             return Err(corrupted(
                 SessionEntry::INDEX_KEY,

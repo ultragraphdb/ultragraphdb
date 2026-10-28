@@ -102,18 +102,15 @@ impl SessionEntry {
         let request = u64::from_le_bytes(request.try_into().unwrap_or_default());
         let version = u64::from_le_bytes(version.try_into().unwrap_or_default());
         let count = u32::from_le_bytes(count.try_into().unwrap_or_default()) as usize;
-        let records = bytes.get(FIXED..).unwrap_or_default();
-        if count.checked_mul(RESULT) != Some(records.len()) {
+        let (records, rest) = bytes.get(FIXED..).unwrap_or_default().as_chunks::<RESULT>();
+        if !rest.is_empty() || records.len() != count {
             return Err(corrupted("a session entry whose results do not fill it"));
         }
-        if padding.iter().any(|b| *b != 0)
-            || records
-                .chunks_exact(RESULT)
-                .any(|r| r[9..].iter().any(|b| *b != 0))
+        if padding.iter().any(|b| *b != 0) || records.iter().any(|r| r[9..].iter().any(|b| *b != 0))
         {
             return Err(corrupted("a session entry's padding is not zero"));
         }
-        if records.chunks_exact(RESULT).any(|r| r[8] > 1) {
+        if records.iter().any(|r| r[8] > 1) {
             return Err(corrupted("a session entry's result has a created above 1"));
         }
         if request == 0 && (version != 0 || count != 0) {
@@ -127,7 +124,7 @@ impl SessionEntry {
             ));
         }
         let results = records
-            .chunks_exact(RESULT)
+            .iter()
             .map(|r| {
                 let uid = u64::from_le_bytes(r[..8].try_into().unwrap_or_default());
                 OperationResult::new(uid, r[8] == 1)
