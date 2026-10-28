@@ -3,4 +3,5 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod operator;
 pub mod proposal;

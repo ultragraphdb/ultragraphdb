@@ -23,13 +23,18 @@ ultragraphdb_transactions_txn = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_error_log = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
+ultragraphdb_error_store = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
+ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_traits_store = { workspace = true }
 
 [dev-dependencies]
 oxrdf = { workspace = true }
+ultragraphdb_core_catalog = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
-ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }

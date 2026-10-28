@@ -10,6 +10,9 @@ use crate::types::commit_request::CommitRequest;
 pub enum Input<P> {
     /// A commit request: it waits for the next round, which closes at once when no round is syncing.
     Commit(CommitRequest<P>),
+    /// A session registration under its ticket: it waits for the next round as a commit does, takes a commit version,
+    /// which numbers the session, and is answered with it once its round is applied.
+    Register(u64),
     /// The sync of the round in flight completed: that round is to be applied and acknowledged, and the next round
     /// closes over the requests waiting.
     Synced,

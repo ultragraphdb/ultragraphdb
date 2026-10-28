@@ -43,13 +43,13 @@ fn test_a_damaged_range_is_named_by_the_transactions_it_holds() {
     let bytes = golden("round").bytes();
     let data = body_data(&bytes).to_vec();
     let (records, _) = section(&data, 0, 2);
-    // Record 0 is transaction 0, 232 bytes at `records`; record 1 is transaction 2, from records + 232.
+    // Record 0 is transaction 0, 272 bytes at `records`; record 1 is transaction 2, from records + 272.
     assert_eq!(
         RoundView::transactions_overlapping(&data, records..records + 1),
         vec![0]
     );
     assert_eq!(
-        RoundView::transactions_overlapping(&data, records + 231..records + 233),
+        RoundView::transactions_overlapping(&data, records + 271..records + 273),
         vec![0, 2]
     );
     assert_eq!(
@@ -164,16 +164,16 @@ fn test_the_record_table_lays_records_end_to_end() {
             command: 17,
             section: 1,
             at: 1,
-            index: 6_232,
-            limit: 5_352
+            index: 6_272,
+            limit: 5_400
         }
     );
     assert_eq!(
         refused(2, |r| r.push(0)),
         ProtocolErrorEnum::TrailingBytes {
             command: 17,
-            end: 5_440,
-            len: 5_441
+            end: 5_488,
+            len: 5_489
         }
     );
 }

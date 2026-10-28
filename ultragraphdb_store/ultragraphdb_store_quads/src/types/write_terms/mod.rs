@@ -8,11 +8,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, TermRef};
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_terms::{EncodedTerm, Hash128, SYSTEM_VOCABULARY};
-use ultragraphdb_traits_store::Store;
+use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
 use crate::errors::quad_error::{QuadError, QuadErrorEnum};
 use crate::types::leases::Leases;
-use crate::utils::dictionary_keys::{iri_key, string_key, uid_key, uid_value};
+use crate::utils::dictionary_keys::{
+    HASH_TO_STRING, UID_TO_IRI, iri_key, string_key, uid_key, uid_value,
+};
 
 /// The terms one write names, resolved to their encodings: each IRI to the UID the dictionary holds for it, or to a
 /// UID drawn from the leases when it is new to the store; each blank node to a fresh UID, its skolem IRI new; each
@@ -33,6 +35,10 @@ pub struct WriteTerms {
     fresh: BTreeSet<u64>,
     /// The dictionary keys the write looked up and found absent.
     absent: BTreeSet<Vec<u8>>,
+    /// The IRIs, by UID, and the strings, by hash, of the dictionary entries decided but unapplied writes made, which
+    /// no layer the write reads holds: read as the write's own are, never written again (7.5).
+    inherited_iris: BTreeMap<u64, (String, bool)>,
+    inherited_strings: BTreeMap<Hash128, String>,
 }
 
 /// The base of the skolem IRIs of `namespace`'s blank nodes: its default base, under the system vocabulary, until an
@@ -56,6 +62,15 @@ impl WriteTerms {
     /// Whether `uid` was created by this write, so that no list keyed by it holds anything.
     pub fn is_fresh(&self, uid: u64) -> bool {
         self.fresh.contains(&uid)
+    }
+
+    /// Takes `iri` as known by `uid` unless the write already resolved it: an IRI a decided but unapplied write
+    /// created, whose dictionary entry that write's round writes before this one's, so this write neither creates it
+    /// again nor writes its entry (7.5).
+    pub fn know(&mut self, iri: &str, uid: u64) {
+        if !self.known.contains_key(iri) && !self.created.contains_key(iri) {
+            self.known.insert(iri.to_string(), uid);
+        }
     }
 
     /// The UID of `iri`: the dictionary's, or a new one.
@@ -228,17 +243,68 @@ impl WriteTerms {
         iris.chain(strings).collect()
     }
 
-    /// The string `hash` names among the write's own literals, whose dictionary entries its commit writes.
+    /// The string `hash` names among the write's own literals, whose dictionary entries its commit writes, or among
+    /// the strings it inherited.
     pub fn pending_string(&self, hash: &Hash128) -> Option<&str> {
-        self.strings.get(hash).map(String::as_str)
+        self.strings
+            .get(hash)
+            .or_else(|| self.inherited_strings.get(hash))
+            .map(String::as_str)
     }
 
-    /// The IRI `uid` names among the IRIs the write created, and whether it skolemizes a blank node.
+    /// The IRI `uid` names among the IRIs the write created or inherited, and whether it skolemizes a blank node.
     pub fn pending_iri(&self, uid: u64) -> Option<(&str, bool)> {
         self.created
             .iter()
             .find(|(_, (u, _))| *u == uid)
             .map(|(iri, (_, skolem))| (iri.as_str(), *skolem))
+            .or_else(|| {
+                self.inherited_iris
+                    .get(&uid)
+                    .map(|(iri, skolem)| (iri.as_str(), *skolem))
+            })
+    }
+
+    /// Inherits the dictionary entries of `entries`, the entries without versions decided but unapplied writes made
+    /// (7.5): each UID's IRI, known by its UID as [`WriteTerms::know`] takes it, and each string by its hash, so the
+    /// write reads them as its own and writes neither again. Entries of another namespace, other tags, removals and
+    /// entries that do not parse are left alone: the writes that made them parsed them.
+    pub fn inherit(&mut self, entries: &[&VersionlessEntry]) {
+        let prefix = self.namespace.to_be_bytes();
+        for entry in entries {
+            let (key, Some(value)) = (entry.key(), entry.value()) else {
+                continue;
+            };
+            let Some(rest) = key.strip_prefix(prefix.as_slice()) else {
+                continue;
+            };
+            match rest.split_first() {
+                Some((&UID_TO_IRI, uid)) => {
+                    let (Ok(uid), Some((flag, iri))) =
+                        (<[u8; 8]>::try_from(uid), value.split_first())
+                    else {
+                        continue;
+                    };
+                    let Ok(iri) = std::str::from_utf8(iri) else {
+                        continue;
+                    };
+                    let uid = u64::from_be_bytes(uid);
+                    self.know(iri, uid);
+                    self.inherited_iris
+                        .insert(uid, (iri.to_string(), *flag == 1));
+                }
+                Some((&HASH_TO_STRING, hash)) => {
+                    let (Ok(hash), Ok(string)) =
+                        (<[u8; 16]>::try_from(hash), std::str::from_utf8(value))
+                    else {
+                        continue;
+                    };
+                    self.inherited_strings
+                        .insert(Hash128::from_bytes(hash), string.to_string());
+                }
+                _ => {}
+            }
+        }
     }
 
     /// The dictionary keys the write looked up and found absent, in key order: an IRI it created, and one a delete

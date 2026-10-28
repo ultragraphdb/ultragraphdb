@@ -476,9 +476,12 @@ is not committed.
 |---|---|---|---|
 | `ultragraphdb_error_protocol` | `../../../ultragraphdb_error` | — | `ProtocolError(pub ProtocolErrorEnum)`, one variant per validation rule |
 | `ultragraphdb_protocol_wire` | `../../../ultragraphdb_protocol` | `ultragraphdb_error_protocol`, `ultragraphdb_core_terms`, `xxhash-rust` (`xxh3`) | The header, commands, checksums, the body layouts and their views and builders; no I/O |
-| `ultragraphdb_protocol_bus` | `../../../ultragraphdb_protocol` | `_wire`, `compio` | Connections over compio, the per-core buffer pool, framing, multiplexing, credits; the simulated network |
-| `ultragraphdb_protocol_client` | `../../../ultragraphdb_protocol` | `_wire`, `_bus` | The Rust client |
-| `ultragraphdb_server_session` | `../../../ultragraphdb_server` | `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_bus`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, the describe request |
+| `ultragraphdb_protocol_transport` | `../../../ultragraphdb_protocol` | `_wire` | The transport, sans-I/O and with no runtime: the pull-style framer, the handshake machines, the buffer pool, the streams with credit, the simulated network's model (renamed from `_bus`, sans-I/O, decided 2026-10-28) |
+| `ultragraphdb_protocol_transport_compio` | `../../../ultragraphdb_protocol` | `_transport`, `compio` | The transport's compio shell, `Connection`, shared by the server and the compio client (decided 2026-10-28) |
+| `ultragraphdb_client_core` | `../../../ultragraphdb_client` | `_transport` | The Rust client, sans-I/O, time passed in: every rule of the protocol a client follows (decided 2026-10-28) |
+| `ultragraphdb_client_tokio` | `../../../ultragraphdb_client` | `_client_core`, `tokio` | The primary public Rust client, the core's tokio shell with `Send` futures (decided 2026-10-28) |
+| `ultragraphdb_client_compio` | `../../../ultragraphdb_client` | `_client_core`, `_transport_compio` | The public compio client, the core's compio shell (decided 2026-10-28) |
+| `ultragraphdb_server_session` | `../../../ultragraphdb_server` | `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, the describe request |
 | `ultragraphdb_server_node` | `../../../ultragraphdb_server` | `ultragraphdb_server_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The single-node server binary: configuration, startup, recovery, shutdown |
 | `ultragraphdb_error_log` | `../../../ultragraphdb_error` | — | `LogError(pub LogErrorEnum)` (D2) |
 | `ultragraphdb_traits_log` | `../../../ultragraphdb_traits` | `ultragraphdb_error_log` | `OrderedLog`, `Position`, `Round` (D2) |

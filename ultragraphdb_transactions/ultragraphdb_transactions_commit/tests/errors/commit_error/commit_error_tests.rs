@@ -117,3 +117,45 @@ fn test_only_a_malformed_record_has_a_source() {
     assert!(malformed().source().is_some());
     assert!(CommitError::Unsealed().source().is_none());
 }
+
+#[test]
+fn test_the_operation_refusals_carry_their_codes_and_what_was_found() {
+    let failed = CommitError::OperationFailed(Some("\"done\"".to_string()));
+    assert_eq!(
+        failed.0,
+        CommitErrorEnum::OperationFailed {
+            found: Some("\"done\"".to_string())
+        }
+    );
+    assert_eq!(failed.code(), ErrorCode::OperationFailed);
+    assert_eq!(failed.detail(), 0);
+    assert!(!failed.is_retryable());
+    assert_eq!(failed.found(), Some("\"done\""));
+    assert_eq!(
+        failed.to_string(),
+        "the compare-and-set did not hold: \"done\" is held"
+    );
+    let nothing = CommitError::OperationFailed(None);
+    assert_eq!(nothing.found(), None);
+    assert_eq!(
+        nothing.to_string(),
+        "the compare-and-set did not hold: no value is held"
+    );
+    let refused = CommitError::Refused("no".to_string());
+    assert_eq!(
+        refused.0,
+        CommitErrorEnum::Refused {
+            reason: "no".to_string()
+        }
+    );
+    assert_eq!(refused.code(), ErrorCode::Refused);
+    assert_eq!(refused.detail(), 0);
+    assert!(!refused.is_retryable());
+    assert_eq!(refused.found(), None);
+    assert_eq!(
+        refused.to_string(),
+        "the commit-time operation was refused: no"
+    );
+    assert!(refused.source().is_none());
+    assert_eq!(CommitError::Unavailable().found(), None);
+}

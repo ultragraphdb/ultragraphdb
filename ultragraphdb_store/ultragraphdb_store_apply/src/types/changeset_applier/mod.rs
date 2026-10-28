@@ -8,15 +8,16 @@ use std::sync::Arc;
 use oxrdf::{GraphNameRef, NamedNodeRef};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::Changeset;
-use ultragraphdb_store_posting::{CachedList, Lists};
+use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_store_quads::QuadStore;
-use ultragraphdb_traits_store::{Executor, ListCache, Store};
+use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
+use crate::types::operation::Operation;
 
 /// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
 /// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
@@ -119,9 +120,53 @@ where
     /// round starts one, and a version not above the one before it, the watermark for the first, as the posting
     /// lists' `StaleVersion`; nothing is written. The store's error when the batch cannot be written.
     pub fn apply_round(&self, round: Vec<(u64, Executed)>) -> Result<Vec<Applied>, ChangesetError> {
-        let (applied, started) = self.core.apply_round(round)?;
+        self.apply_round_with(round, &[], 0)
+    }
+
+    /// Applies `round` as [`ChangesetApplier::apply_round`] does, with `system`, the commit step's own entries
+    /// without versions (its session table, 7.8), written in the round's batch, after its drop when it ends in one,
+    /// and `through`, the version of the round's last decision, recorded as applied when it is above the round's last
+    /// execution: a round ending in, or holding only, session registrations moves the watermark past them (decided
+    /// 2026-10-28).
+    ///
+    /// # Errors
+    ///
+    /// As [`ChangesetApplier::apply_round`], and the posting lists' `StaleVersion` for a `through` below the
+    /// watermark.
+    pub fn apply_round_with(
+        &self,
+        round: Vec<(u64, Executed)>,
+        system: &[VersionlessEntry],
+        through: u64,
+    ) -> Result<Vec<Applied>, ChangesetError> {
+        let (applied, started) = self.core.apply_round_with(round, system, through)?;
         self.spawn(started);
         Ok(applied)
+    }
+
+    /// Runs `operations`, the commit-time operations of the transaction `executed` describes, in order, against the
+    /// store at the watermark with `overlay`'s layers above it (the writes of every decided but unapplied round) and
+    /// `executed`'s own writes on top (7.5), and `dictionary`, the dictionary entries the unapplied writes made, read as
+    /// the transaction's own (decided 2026-10-28). Gives the transaction as it commits, its writes and the operations' in one
+    /// execution, and appends each operation's result to `results`: the UID of the node an insert-if-absent or
+    /// upsert-and-link found or created and whether it created it, zero and `false` for a compare-and-set and a counter
+    /// add. `executed` is left as it was; the operations' reads are no part of its read set.
+    ///
+    /// # Errors
+    ///
+    /// [`ChangesetError::OperationFailed`] for a compare-and-set whose expected value is not held, or a counter that
+    /// is no integer or would overflow; [`ChangesetError::NotUnique`] for an insert-if-absent on a predicate not
+    /// declared unique; a change the catalog refuses; the store's error.
+    pub fn operate(
+        &self,
+        executed: &Executed,
+        operations: &[Operation],
+        overlay: &Batch<'_, S, C>,
+        dictionary: &[&VersionlessEntry],
+        results: &mut Vec<(u64, bool)>,
+    ) -> Result<Executed, ChangesetError> {
+        self.core
+            .operate(executed, operations, overlay, dictionary, results)
     }
 
     /// Applies `changeset` on its own: executed at the watermark and written as a round of one at the next version,
@@ -153,6 +198,21 @@ where
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
         self.core.drop_predicate(namespace, predicate)
+    }
+
+    /// The drop of `predicate` of `namespace` as a proposal of the commit step (7.7): an execution writing the
+    /// predicate's key ranges and nothing else, which [`ChangesetApplier::apply_round`] drops at the version the step
+    /// gives it, once its round's batch is written; a round closes after a drop.
+    ///
+    /// # Errors
+    ///
+    /// The store's error reading the catalog or the predicate's graphs.
+    pub fn prepare_drop_predicate(
+        &self,
+        namespace: u64,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Executed, ChangesetError> {
+        self.core.prepare_drop_predicate(namespace, predicate)
     }
 
     /// Drops every key of `graph` in `namespace`: the drop's timestamp.

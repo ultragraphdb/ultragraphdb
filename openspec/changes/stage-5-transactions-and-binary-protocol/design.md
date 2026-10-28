@@ -51,13 +51,16 @@ Today:
 | `ultragraphdb_error_log` | `ultragraphdb_error/` | — | `LogError(pub LogErrorEnum)` |
 | `ultragraphdb_traits_log` | `ultragraphdb_traits/` | `ultragraphdb_error_log` | `OrderedLog`, `Position`, `RoundRef`, `LogEvent` |
 | `ultragraphdb_protocol_wire` | `ultragraphdb_protocol/` | `ultragraphdb_error_protocol`, `ultragraphdb_core_terms`, `xxhash-rust` | Header, commands, checksums, chunk tables, bodies with their views and builders, the round and write-set record layouts; no I/O |
-| `ultragraphdb_protocol_bus` | `ultragraphdb_protocol/` | `_wire`, `compio` | Connections, framing reads, buffer pools, streams, credit; a simulated network |
-| `ultragraphdb_protocol_client` | `ultragraphdb_protocol/` | `_wire`, `_bus` | The Rust client |
+| `ultragraphdb_protocol_transport` | `ultragraphdb_protocol/` | `_wire` | The transport that carries the wire protocol, sans-I/O and with no runtime: the pull-style `Framer` (it tells a shell how many bytes the frame's pooled buffer must hold, so an owned-buffer read or a `&mut [u8]` read lands bytes where the frame stays), the handshake machines `ClientHandshake` and `ServerHandshake`, `Outbound` (streams, credit, cancel), `BufferPool` (`Send`), and the simulated network's model (renamed from `_bus` and made sans-I/O, decided 2026-10-28) |
+| `ultragraphdb_protocol_transport_compio` | `ultragraphdb_protocol/` | `_transport`, `_wire`, `compio` | `Connection`, the thin compio shell obeying the transport's machines, and `CompioSimStream`, the simulated stream as a compio stream; shared by the server and the compio client (decided 2026-10-28) |
+| `ultragraphdb_client_core` | `ultragraphdb_client/` | `_transport`, `_wire` | The Rust client, sans-I/O and with no runtime: handshake through the transport's machine, sessions, transactions, requests in the wire's bodies, replies and result batches read through views, streams, credit, cancel, timeouts, and commits retried only through their session, the time passed in; the scripted server behind `test-utils` (decided 2026-10-28) |
+| `ultragraphdb_client_tokio` | `ultragraphdb_client/` | `_client_core`, `_transport`, `tokio` | The primary public Rust client: the core's tokio shell, `Send` futures over TCP; what the conformance suite, Elle and every stage-5 test drive the server with (decided 2026-10-28: most Rust applications run tokio) |
+| `ultragraphdb_client_compio` | `ultragraphdb_client/` | `_client_core`, `_transport_compio`, `compio` | The public compio client: the core's compio shell over the transport's compio `Connection`, thread per core (decided 2026-10-28) |
 | `ultragraphdb_transactions_txn` | `ultragraphdb_transactions/` | `_wire`, `ultragraphdb_store_apply` | `Transaction` on a worker: snapshot, `ReadSet`, write-set builder, limits |
 | `ultragraphdb_transactions_log` | `ultragraphdb_transactions/` | `ultragraphdb_traits_log`, `_wire`, `compio` | The WAL: `DurableStorage`, `DurableFile`, segments, superblock, scan, recovery; compio and simulated storage |
 | `ultragraphdb_transactions_commit` | `ultragraphdb_transactions/` | `_txn`, `ultragraphdb_traits_log`, `_wire`, `ultragraphdb_store_apply` | Sequencer, resolver, conflict history, commit-time operations, apply, watermark, sessions |
 | `ultragraphdb_transactions_sim` | `ultragraphdb_transactions/` | the above, `ultragraphdb_store_sim` | The node simulator, the white-box history checker |
-| `ultragraphdb_server_session` | `ultragraphdb_server/` | `_wire`, `_bus`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, describe |
+| `ultragraphdb_server_session` | `ultragraphdb_server/` | `_wire`, `_transport`, `_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, describe |
 | `ultragraphdb_server_node` | `ultragraphdb_server/` | `_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The server binary |
 
 - The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_server/*` and
@@ -118,10 +121,21 @@ function over its inputs (commit requests, sync completions), so the simulator d
   and a count; the bounds' defaults follow the power-loss-protection flag.
 - **Versions:** `max(previous + 2, 2 × clock µs)`, even; the round records its first version and count. `Timestamps`
   loses its role as the commit counter; it keeps open reads and the discard bound.
-- **Resolver:** the conflict history is a `BTreeMap` of written keys and statements to versions and an interval map of
-  written ranges, pruned below the read version of the oldest open read-write transaction. Each transaction: check its
-  read set against the history above its read version, then against the round's admitted writes; admit, then add its
-  writes. `QuadStore::confirm`'s new-IRI check becomes one rule of it.
+- **Resolver:** the conflict history is a sequence of sorted runs, oldest first (replacing the `BTreeMap` of written
+  keys and the interval map of written ranges sketched here before; approved 2026-10-28): each admitted transaction's
+  conflict points, statements and ranges become a run of their own, its keys held once in one byte arena and named by
+  u32 spans, sorted and deduplicated with the newest version that wrote each; the newest run is merged into the one
+  before it while that one is no larger, a binary counter capped at 16,384 entries a run, so the young end holds a
+  logarithmic number of small runs. Pruning below the read version of the oldest open read-write transaction drops
+  whole runs from the old end; a merge leaves out what is at or below the floor. Each transaction is checked once, in
+  round order, against every run holding a version above its read version, the round's admitted transactions being in
+  the history at their versions: a merge join of its sealed read set against each run, exact byte for byte. A run
+  records the bounds of its keys, its first and last point and the lowest start and highest end of its ranges, and a
+  check skips a run whose bounds cannot hold a read's key; the bounds only skip and never decide (approved 2026-10-28;
+  a probabilistic filter was not taken). A written statement also counts as its list touched, an absent key conflicts
+  as a list read does, a written range conflicts as a drop with every read sharing a key with it, and the kind reported
+  is the first of list, statement, range, absent term and catalog, then drop (the conflict table of `transactions`,
+  amended 2026-10-28). `QuadStore::confirm`'s new-IRI check becomes one rule of it.
 - **Commit-time operations** run after a transaction is admitted, against the store at W plus the writes of every round
   decided above W (the round still syncing included) and the current round's admitted writes, through the posting
   cache. The commit step keeps those decided but unapplied writes in memory until their round is applied. Reading the
@@ -135,12 +149,41 @@ function over its inputs (commit requests, sync completions), so the simulator d
   default catalog entry, recorded by its first write, is an insert-if-absent on its catalog key, not a catalog change,
   so concurrent first writes of one predicate both commit as stage 4's schema storage requires; a declaration remains a
   catalog change and aborts its namespace's concurrent writers (decided 2026-10-27).
+  As built (2026-10-28, 7c): the operations run between the resolver's checks and the version, so a refused one takes
+  no version and adds nothing to the history; they run in a write of their own seeded with the transaction's
+  (`QuadWrite::seed`: its terms, its deltas as the request's own blind writes, its statistics merged), over the
+  posting lists' stacked layers (`Batch::stack`) of the round syncing and the current round's admitted proposals,
+  built at a round's first operation and dropped when the next round begins, and with the IRIs those proposals created
+  known by their UIDs, whose dictionary entries no layer holds. The transaction's record is written again from the
+  result and is what the history admits, the round logs and the apply writes, so a replay applies what was applied and
+  never runs an operation again; the wire format is unchanged. A record that no longer fits its round waits for the
+  next, decided there from the start. The operations' reads are no part of the read set. Results come with the reply
+  in the wire's `OperationResult` (a UID and whether it was created; zero for compare-and-set and counter add).
+- **Drops in rounds** (decided 2026-10-28, 7c): a drop is a proposal, an execution writing nothing but the
+  predicate's key ranges in each graph holding it and its catalog entry; a round closes after a drop, which
+  `apply_round` performs at its version, the round's last, once the batch is written. Its catalog entry lies in the
+  namespace's catalog range every transaction reads, so a drop aborts the namespace's transactions that read below it
+  as a declaration does; the resolver also checks each transaction's written keys and statements' lists against the
+  ranges written above its read version. A round closes before a second declaration starting an index build, so it
+  holds at most one; nothing aborts.
 - **Reads above the watermark:** the session refuses a request naming a read version above W with an error naming both,
   instead of letting the store's read gate hold a worker until W reaches it (decided 2026-10-27).
 - **Pipeline:** round k+1 is resolved while round k syncs; round k is applied once synced; the watermark passes k once it
   is applied; replies go out.
 - **Rollups** read at W and write one above the newest commit version they fold, as `posting-lists` already states for
   a finite read timestamp; they never take a version from the sequencer.
+- **Every write of the node takes its version from the sequencer** (decided 2026-10-28). An index build's swap and every
+  drop (a predicate, a graph, a namespace's data, a namespace, everything) is a proposal of the commit step, a round of
+  its own, computed at apply time under the apply lock at the version its round took; rounds apply in order, so the
+  swap's catch-up sees every write committed before it and every later transaction aborts on its catalog change. A
+  build-starting declaration that arrives while a build runs waits in the step until the swap's round is applied, so
+  `apply_round` never refuses a durable round. The applier's direct entry points (`apply`, the direct drops) remain for
+  tests and tools that run no commit step; the node never calls them. Recovery redoes a swap round the store had not
+  applied as a build and swap at that round's version before replaying later rounds: an index is a function of the
+  data at its version, so the redone index equals the lost one.
+- **The operations' overlay holds the dictionary too** (decided 2026-10-28): the entries without versions that the
+  unapplied rounds wrote, long literals' strings among them, so a compare-and-set or counter add on a value stored out
+  of line reads it rather than being refused.
 
 ### The WAL
 
@@ -166,7 +209,9 @@ the checkpoint.
 ### Sessions
 
 Registered through a round; held in the keyspace without versions, written in the round's batch, so recovery restores
-them with the store and replays the rest. Bounded; the oldest evicted.
+them with the store and replays the rest. Bounded; the oldest evicted. Each session's entry holds its last committed
+request and that request's whole reply, the commit version and every operation's result, so a retry is answered byte
+for byte as the original was (decided 2026-10-28).
 
 ### Request terms
 

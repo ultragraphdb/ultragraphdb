@@ -145,3 +145,42 @@ fn test_pruning_raises_the_floor() {
     resolver.prune(6);
     assert_eq!(resolver.history().floor(), 10);
 }
+
+/// A key a transaction writes, whole or as a statement's list, inside a range written above its read version is a
+/// write into a dropped range: it conflicts as a drop; at or below its read version, or outside the range, it does not
+/// (7.7).
+#[test]
+fn test_a_write_into_a_range_written_above_the_read_version_conflicts_as_a_drop() {
+    let mut resolver = Resolver::new(0);
+    admit(&mut resolver, 10, &Writes::range(b"p", Some(b"q")));
+    admit(&mut resolver, 12, &Writes::range(b"x", None));
+    let check = |rv: u64, writes: &Writes| {
+        let bytes = record(0, rv, writes, 0);
+        resolver.check_writes(rv, &WriteSetRecordView::new(&bytes).unwrap())
+    };
+    assert_eq!(
+        check(8, &Writes::point(b"pa")),
+        Err(CommitError::Conflict(ConflictKind::Drop))
+    );
+    assert_eq!(
+        check(8, &Writes::statement(b"pb", b"o")),
+        Err(CommitError::Conflict(ConflictKind::Drop))
+    );
+    assert_eq!(
+        check(10, &Writes::point(b"pa")),
+        Ok(()),
+        "the drop at the read version"
+    );
+    assert_eq!(
+        check(8, &Writes::point(b"q")),
+        Ok(()),
+        "the range's end is not in it"
+    );
+    assert_eq!(check(8, &Writes::point(b"o")), Ok(()));
+    assert_eq!(check(8, &Writes::default()), Ok(()));
+    assert_eq!(
+        check(8, &Writes::point(b"zzz")),
+        Err(CommitError::Conflict(ConflictKind::Drop)),
+        "an open range reaches past the last key"
+    );
+}

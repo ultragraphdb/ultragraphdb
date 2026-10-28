@@ -17,8 +17,10 @@ use ultragraphdb_store_sim::{
 use ultragraphdb_transactions_commit::{
     CommitRequest, CommitStep, Input, Reply, RoundBounds, RoundRecord, StepOutput,
 };
+use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 use ultragraphdb_transactions_txn::{Commit, Mode, Prepared, Transaction, TxnBuffers, TxnLimits};
 
+pub type Log = Wal<SimStorage>;
 pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
 
@@ -38,8 +40,31 @@ pub fn applier() -> Applier {
     .expect("the applier opens")
 }
 
+/// A fresh write-ahead log over simulated storage, and the storage, to inject its faults.
+pub fn wal() -> (SimStorage, Log) {
+    futures::executor::block_on(open_wal())
+}
+
+/// The same, awaited: for a caller already on an executor.
+pub async fn open_wal() -> (SimStorage, Log) {
+    let storage = SimStorage::new(1);
+    let (wal, _) = Wal::open(storage.clone(), "/wal", WalConfig::new(1, true))
+        .await
+        .expect("the log opens");
+    (storage, wal)
+}
+
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
+}
+
+/// The UID the store holds for `<name>`.
+pub fn uid_of(applier: &Applier, name: &str) -> u64 {
+    applier
+        .quads()
+        .uid_of(NS, ex(name).as_str())
+        .expect("the dictionary reads")
+        .expect("the IRI is known")
 }
 
 /// The insert of `<subject> <predicate> <object>`, all three IRIs under `http://ex.org/`.
@@ -89,6 +114,11 @@ pub fn setup(applier: &Applier, changes: Vec<Change>) -> u64 {
 
 /// Begins a read-write transaction of `NS` at the watermark.
 pub fn begin(applier: &Applier) -> Txn<'_> {
+    begin_with(applier, TxnBuffers::new())
+}
+
+/// Begins a read-write transaction of `NS` at the watermark on `buffers`.
+pub fn begin_with(applier: &Applier, buffers: TxnBuffers) -> Txn<'_> {
     Transaction::begin(
         applier,
         NS,
@@ -96,7 +126,7 @@ pub fn begin(applier: &Applier) -> Txn<'_> {
         0,
         0,
         TxnLimits::default(),
-        TxnBuffers::new(),
+        buffers,
     )
     .expect("it begins")
 }
@@ -124,7 +154,12 @@ pub fn write(txn: &mut Txn<'_>, changes: Vec<Change>) {
 
 /// Ends a read-write `txn` as its proposal.
 pub fn prepare(txn: Txn<'_>) -> Prepared {
-    match txn.commit(0, 0, &[], 0).expect("it prepares") {
+    prepare_in(txn, 0, 0)
+}
+
+/// Ends a read-write `txn` as its proposal, request `request` of session `session`.
+pub fn prepare_in(txn: Txn<'_>, session: u64, request: u64) -> Prepared {
+    match txn.commit(session, request, &[], 0).expect("it prepares") {
         Commit::ReadWrite(prepared) => prepared,
         Commit::ReadOnly(_) => panic!("a read-write transaction prepares"),
     }
@@ -147,6 +182,8 @@ pub struct Driver<'a> {
     pub syncs: usize,
     /// Every reply, in order.
     pub replies: Vec<Reply>,
+    /// The buffers of every proposal the step released, under its ticket, in order.
+    pub released: Vec<(u64, TxnBuffers)>,
     pub now_us: u64,
 }
 
@@ -161,6 +198,7 @@ impl<'a> Driver<'a> {
             appended: Vec::new(),
             syncs: 0,
             replies: Vec::new(),
+            released: Vec::new(),
             now_us: 0,
         }
     }
@@ -180,6 +218,12 @@ impl<'a> Driver<'a> {
             self.applier.apply_round(round).expect("the round applies");
         }
         self.replies.extend(self.out.replies().iter().cloned());
+        let released = self
+            .out
+            .released_mut()
+            .drain(..)
+            .map(|(ticket, prepared)| (ticket, prepared.into_parts().1));
+        self.released.extend(released);
     }
 
     /// Hands `prepared` to the commit step under `ticket`.

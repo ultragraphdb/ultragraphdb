@@ -6,7 +6,7 @@
 [workspace]
 resolver = "2"
 members = [
-    #"ultragraphdb_client/*", # reserved for later
+    "ultragraphdb_client/*",
     "ultragraphdb_common/*",
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
@@ -34,7 +34,9 @@ publish = false
 # Internal crates
 # ==============
 ## Client
-# TBDs
+ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }
+ultragraphdb_client_compio = { path = "ultragraphdb_client/ultragraphdb_client_compio" }
+ultragraphdb_client_tokio = { path = "ultragraphdb_client/ultragraphdb_client_tokio" }
 ## Common
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
@@ -57,8 +59,8 @@ ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_opt
 ultragraphdb_error_protocol = { path = "ultragraphdb_error/ultragraphdb_error_protocol" }
 ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store" }
 ## Protocol: the binary protocol client and server share
-ultragraphdb_protocol_bus = { path = "ultragraphdb_protocol/ultragraphdb_protocol_bus" }
-ultragraphdb_protocol_client = { path = "ultragraphdb_protocol/ultragraphdb_protocol_client" }
+ultragraphdb_protocol_transport = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport" }
+ultragraphdb_protocol_transport_compio = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport_compio" }
 ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
 ## Server
 ultragraphdb_server_node = { path = "ultragraphdb_server/ultragraphdb_server_node" }
@@ -89,7 +91,7 @@ ultragraphdb_transactions_txn = { path = "ultragraphdb_transactions/ultragraphdb
 # External crates
 # ==============
 serde_json = "1.0"
-tokio = "1"
+tokio = "1.54"
 bcrypt = "0.19"
 blake2 = "0.11"
 dashu-base = "0.6"
@@ -105,12 +107,12 @@ opentelemetry = { version = "0.33", default-features = false, features = ["trace
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
 tracing-opentelemetry = { version = "0.34", default-features = false }
-fjall = "=3.1.12"
+fjall = "3.1"
 moka = { version = "0.12", features = ["sync"] }
 futures = "0.3"
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-rustix = { version = "=1.1.6", default-features = false, features = ["fs"] }
+rustix = { version = "1.1", default-features = false, features = ["fs"] }
 ## Dev dependencies
 arbitrary = { version = "1.5", features = ["derive"] }
 cucumber = "0.23"

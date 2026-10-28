@@ -3,14 +3,17 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::types::operation_result::OperationResult;
 use crate::utils::key_value_writer::write_entries;
+use crate::utils::results::encode_results;
 use crate::utils::sections::write_sections;
 
 /// One entry of a write-set record's tables: a key and its value, `None` to remove the key.
 pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 
-/// What a worker builds for a transaction and nothing re-encodes: the transaction's writes as store entries and the
-/// conflict keys of its writes. It is a section of a Round frame unchanged.
+/// What a worker builds for a transaction: the transaction's writes as store entries and the conflict keys of its
+/// writes. The commit step writes it again, once, for a transaction that ran commit-time operations, with their writes
+/// and their results (decided 2026-10-28). It is a section of a Round frame unchanged.
 ///
 /// | Fixed part | Field | Type |
 /// |---|---|---|
@@ -30,6 +33,7 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// | 6 | conflict points: entries whose value is empty, a key written |
 /// | 7 | conflict statements: a list key and the object it changed |
 /// | 8 | conflict ranges: the first key and the key past the last |
+/// | 9 | the commit-time operations' results, 16 bytes each as a Commit reply's, in the order asked; empty for none |
 ///
 /// A key-value section holds entries of `key_len` u32, `value_len` u32 (`u32::MAX` for a removal, which holds no
 /// value), the key, the value, then zeros to a multiple of 8. The fixed part and the section table are those of every
@@ -49,6 +53,7 @@ pub struct WriteSetRecord {
     conflict_points: Vec<Vec<u8>>,
     conflict_statements: Vec<(Vec<u8>, Vec<u8>)>,
     conflict_ranges: Vec<(Vec<u8>, Vec<u8>)>,
+    results: Vec<OperationResult>,
 }
 
 impl WriteSetRecord {
@@ -96,6 +101,10 @@ impl WriteSetRecord {
 
     pub fn push_conflict_range(&mut self, start: Vec<u8>, end: Vec<u8>) {
         self.conflict_ranges.push((start, end));
+    }
+
+    pub fn push_result(&mut self, result: OperationResult) {
+        self.results.push(result);
     }
 
     pub fn namespace(&self) -> u64 {
@@ -150,6 +159,11 @@ impl WriteSetRecord {
         &self.conflict_ranges
     }
 
+    /// The commit-time operations' results, in the order the transaction asked them.
+    pub fn results(&self) -> &[OperationResult] {
+        &self.results
+    }
+
     /// The record's bytes.
     pub fn encode(&self) -> Vec<u8> {
         let fixed: Vec<u8> = [
@@ -188,6 +202,7 @@ impl WriteSetRecord {
                 &points,
                 &pairs(&self.conflict_statements),
                 &pairs(&self.conflict_ranges),
+                &encode_results(&self.results),
             ],
         )
     }

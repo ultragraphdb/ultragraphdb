@@ -18,6 +18,7 @@ mod types;
 
 pub use crate::errors::txn_error::{TxnError, TxnErrorEnum};
 pub use crate::types::mode::Mode;
+pub use crate::types::operated::Operated;
 pub use crate::types::prepared::Prepared;
 pub use crate::types::read_set::ReadSet;
 pub use crate::types::transaction::{Commit, Transaction};

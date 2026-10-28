@@ -26,6 +26,33 @@ impl fmt::Display for CommitError {
             CommitErrorEnum::Unavailable => {
                 f.write_str("the node refuses writes after a failed log sync, until it restarts")
             }
+            CommitErrorEnum::Busy { limit } => {
+                write!(f, "the commit queue is full at {limit} requests: retry")
+            }
+            CommitErrorEnum::SessionEvicted { session } => {
+                write!(
+                    f,
+                    "session {session} was evicted from the session table: register a new one"
+                )
+            }
+            CommitErrorEnum::RequestOutOfOrder { expected } => {
+                write!(
+                    f,
+                    "the request number is out of order: {expected} is expected"
+                )
+            }
+            CommitErrorEnum::SessionBusy { session } => {
+                write!(f, "session {session} already has a commit in flight")
+            }
+            CommitErrorEnum::OperationFailed { found: Some(found) } => {
+                write!(f, "the compare-and-set did not hold: {found} is held")
+            }
+            CommitErrorEnum::OperationFailed { found: None } => {
+                f.write_str("the compare-and-set did not hold: no value is held")
+            }
+            CommitErrorEnum::Refused { reason } => {
+                write!(f, "the commit-time operation was refused: {reason}")
+            }
         }
     }
 }

@@ -8,6 +8,7 @@ use crate::types::command::Command;
 use crate::types::commit::Commit;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
+use crate::utils::results::encode_results;
 use crate::utils::sections::write_sections;
 
 impl BodyBuilder for Commit {
@@ -22,17 +23,6 @@ impl BodyBuilder for Commit {
     }
 
     fn body(&self) -> Vec<u8> {
-        let results: Vec<u8> = self
-            .results()
-            .iter()
-            .flat_map(|r| {
-                r.uid()
-                    .to_le_bytes()
-                    .into_iter()
-                    .chain([u8::from(r.created())])
-                    .chain([0; 7])
-            })
-            .collect();
-        write_sections(&[], &[&results])
+        write_sections(&[], &[&encode_results(self.results())])
     }
 }

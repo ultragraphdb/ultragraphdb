@@ -64,6 +64,15 @@ pub enum ChangesetErrorEnum {
         held: usize,
         written: usize,
     },
+    /// A compare-and-set whose expected value is not held, or a counter add on a value that is no integer or would
+    /// overflow: `found` is the value held, an N-Triples term, `None` when none is (7.5).
+    OperationFailed {
+        found: Option<String>,
+    },
+    /// An insert-if-absent or upsert-and-link on a predicate the catalog does not declare unique (7.5).
+    NotUnique {
+        predicate: String,
+    },
 }
 
 /// See [`ChangesetErrorEnum`].
@@ -109,6 +118,18 @@ impl ChangesetError {
         Self(ChangesetErrorEnum::VectorOption {
             factory: factory.to_string(),
             error,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn OperationFailed(found: Option<String>) -> Self {
+        Self(ChangesetErrorEnum::OperationFailed { found })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NotUnique(predicate: &str) -> Self {
+        Self(ChangesetErrorEnum::NotUnique {
+            predicate: predicate.to_string(),
         })
     }
 

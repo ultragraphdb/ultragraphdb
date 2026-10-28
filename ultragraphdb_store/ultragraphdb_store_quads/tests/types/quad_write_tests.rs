@@ -257,3 +257,48 @@ fn test_a_delete_reads_the_subjects_list_whole() {
     let key = forward(&store, 0, 0, &ex("a"), &ex("knows"));
     assert!(w.request().read_keys().any(|k| k == key.as_slice()));
 }
+
+/// A write seeded with a finished write continues it: its terms resolve as they did, its deltas and its statistics are
+/// the write's own, and the two commit as one write with one statistics delta per predicate (7.5).
+#[test]
+fn test_a_seeded_write_continues_the_write_it_was_seeded_with() {
+    let store = quads();
+    let iri = |w: &mut QuadWrite<'_, _, _>, name: &str| {
+        let (terms, quads) = w.terms();
+        terms
+            .iri(quads.store(), quads.leases(), ex(name).as_str())
+            .unwrap()
+    };
+    let read_ts = store.lists().applied_ts();
+    let mut first = QuadWrite::new(&store, 0, store.lists().request(read_ts));
+    let (s1, p) = (iri(&mut first, "s1"), iri(&mut first, "p"));
+    first.insert(0, s1, p, &literal("a"), &[], "x");
+    let (request, terms) = first.finish();
+    let writes = request.into_writes();
+
+    let mut second = QuadWrite::new(&store, 0, store.lists().request(read_ts));
+    second.seed(&writes, terms).unwrap();
+    assert_eq!(
+        iri(&mut second, "s1"),
+        s1,
+        "the seeded terms resolve as before"
+    );
+    let s2 = iri(&mut second, "s2");
+    second.insert(0, s2, p, &literal("b"), &[], "x");
+    commit(&store, vec![second]).remove(0).unwrap();
+    let stats = store
+        .statistics(0, 0, p, store.lists().applied_ts())
+        .unwrap();
+    assert_eq!(stats.statements(), 2, "both inserts counted, in one delta");
+    assert_eq!(
+        store
+            .objects(
+                &forward(&store, 0, 0, &ex("s1"), &ex("p")),
+                store.lists().applied_ts()
+            )
+            .unwrap()
+            .len(),
+        1,
+        "the seeded insert is written"
+    );
+}

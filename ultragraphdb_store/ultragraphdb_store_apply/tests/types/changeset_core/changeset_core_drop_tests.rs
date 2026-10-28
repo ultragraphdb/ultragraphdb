@@ -296,3 +296,77 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
     assert_eq!(held.len(), 1_999);
     assert!(!held.contains(&uid(&a, "p0")));
 }
+
+/// A drop prepared for the commit step writes the predicate's key ranges, its catalog entry's among them, and nothing
+/// else; applied in a round at its version, it drops the predicate, and a predicate the store does not know is no drop
+/// (7.7).
+#[test]
+fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version() {
+    use ultragraphdb_core_catalog::Catalog;
+    let a = crate::utils::changesets::changesets();
+    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
+    let unknown = a
+        .prepare_drop_predicate(NS, crate::utils::changesets::ex("none").as_ref())
+        .unwrap();
+    assert!(!unknown.is_drop());
+    assert!(unknown.drop_ranges().is_empty());
+    let p = crate::utils::changesets::uid(&a, "p");
+    let drop = a
+        .prepare_drop_predicate(NS, crate::utils::changesets::ex("p").as_ref())
+        .unwrap();
+    assert!(drop.is_drop());
+    assert!(!drop.starts_build());
+    let catalog = Catalog::predicate_key(NS, p);
+    assert!(
+        drop.drop_ranges()
+            .iter()
+            .any(|(start, end)| start == &catalog && end.as_slice() > catalog.as_slice()),
+        "the catalog entry's range"
+    );
+    assert!(drop.drop_ranges().iter().all(|(s, e)| s < e));
+    assert!(drop.writes().deltas().is_empty());
+    let version = a.quads().lists().applied_ts() + 2;
+    a.apply_round(vec![(version, drop)]).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), version);
+    assert!(crate::utils::changesets::objects(&a, "a", "p").is_empty());
+    assert_eq!(crate::utils::changesets::objects(&a, "a", "q").len(), 1);
+}
+
+/// A round ending in a drop, with the system's entries and a `through` of the drop's version: the drop lands above the
+/// watermark, then the entries are written and the watermark is the drop's version (7.8).
+#[test]
+fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
+    use ultragraphdb_traits_store::VersionlessEntry;
+    let a = crate::utils::changesets::changesets();
+    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
+    let before = a.quads().lists().applied_ts();
+    let write = a
+        .execute(&crate::utils::changesets::changeset(vec![insert(
+            "<c> <q> <d>",
+        )]))
+        .unwrap();
+    let drop = a
+        .prepare_drop_predicate(NS, crate::utils::changesets::ex("p").as_ref())
+        .unwrap();
+    let system = [VersionlessEntry::put(
+        b"\xffsession".to_vec(),
+        b"entry".to_vec(),
+    )];
+    a.apply_round_with(
+        vec![(before + 2, write), (before + 6, drop)],
+        &system,
+        before + 6,
+    )
+    .unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), before + 6);
+    assert!(crate::utils::changesets::objects(&a, "a", "p").is_empty());
+    assert_eq!(crate::utils::changesets::objects(&a, "c", "q").len(), 1);
+    assert_eq!(
+        a.quads().store().get_versionless(b"\xffsession").unwrap(),
+        Some(b"entry".to_vec())
+    );
+    // A round of the system's entries alone moves the watermark to `through`; one below it is refused.
+    a.apply_round_with(Vec::new(), &system, before + 8).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), before + 8);
+    assert!(a.apply_round_with(Vec::new(), &system, before + 4).is_err());
+}

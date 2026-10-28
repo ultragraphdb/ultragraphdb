@@ -343,16 +343,19 @@ golden("error_operation", 16, command_header([(0, le(8, 2))]),
 
 
 # 17 Round: position 3, its parent, incarnation 1, first version 2000, three transactions; the second aborted with a
-# conflict on a list (detail 1). Two write-set records, the second's delta 5,000 bytes, so the body takes chunks.
-def record(namespace, read_version, session, request, tables, commit_record):
+# conflict on a list (detail 1). Two write-set records, the second's delta 5,000 bytes, so the body takes chunks; the
+# first carries two commit-time operations' results in section 9 (uid u64, created u8, 7 zero bytes), the second none.
+def record(namespace, read_version, session, request, tables, commit_record, results=()):
     fixed = le(namespace, 8) + le(read_version, 8) + le(session, 8) + le(request, 8)
     secs = [kv(tables.get(i, [])) for i in range(5)] + [commit_record] + [kv(tables.get(i, [])) for i in (6, 7, 8)]
+    secs.append(b"".join(le(uid, 8) + bytes([created]) + bytes(7) for uid, created in results))
     return sections(secs, fixed)
 
 
 rec0 = record(0, 1998, 4, 2, {0: [(b"\x10key-a", b"delta-a")], 1: [(b"\x20dict", None)],
                               4: [(b"sess-4", b"reply")], 6: [(b"\x10key-a", b"")],
-                              7: [(b"\x10key-a", b"\x01obj")], 8: [(b"\x30a", b"\x30b")]}, b"cr")
+                              7: [(b"\x10key-a", b"\x01obj")], 8: [(b"\x30a", b"\x30b")]}, b"cr",
+             results=[(0x2A, 1), (0x2B, 0)])
 rec1 = record(0, 1990, 6, 9, {0: [(b"\x10big", bytes((i * 31 + 7) % 251 for i in range(5000)))]}, b"")
 decisions = (le(0, 2) + le(0, 2) + le(0, 4) + le(0, 8) + le(2, 2) + le(0, 2) + le(ABSENT, 4) + le(1, 8)
              + le(0, 2) + le(0, 2) + le(1, 4) + le(0, 8))

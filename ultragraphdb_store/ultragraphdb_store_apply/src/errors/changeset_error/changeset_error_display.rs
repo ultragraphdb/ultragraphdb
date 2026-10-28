@@ -54,6 +54,16 @@ impl fmt::Display for ChangesetError {
                 f,
                 "Predicate <{predicate}> indexes vectors of {held} elements, and a vector of {written} was written"
             ),
+            ChangesetErrorEnum::OperationFailed { found: Some(found) } => {
+                write!(f, "The operation did not hold: {found} is held")
+            }
+            ChangesetErrorEnum::OperationFailed { found: None } => {
+                f.write_str("The operation did not hold: no value is held")
+            }
+            ChangesetErrorEnum::NotUnique { predicate } => write!(
+                f,
+                "Predicate <{predicate}> is not declared unique, so no node is found by its value"
+            ),
         }
     }
 }

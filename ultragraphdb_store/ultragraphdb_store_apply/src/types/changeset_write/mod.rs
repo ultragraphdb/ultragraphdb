@@ -6,6 +6,7 @@
 mod changeset_write_data;
 mod changeset_write_declare;
 mod changeset_write_index;
+mod changeset_write_operation;
 mod changeset_write_read;
 mod changeset_write_statements;
 mod changeset_write_triples;
@@ -41,6 +42,10 @@ pub(crate) struct ChangesetWrite<'a, S, C> {
     catalog: Catalog,
     /// The catalog entries the write adds, by key.
     entries: BTreeMap<Vec<u8>, Entry>,
+    /// The keys of `entries` that are a predicate's implicit default entry and no declaration's, with the predicate.
+    defaults: BTreeMap<Vec<u8>, u64>,
+    /// Whether the write changes the catalog: a declaration, or the namespace's initial catalog.
+    catalog_changed: bool,
     /// The statement records the write has written, or removed, by graph and ID.
     records: BTreeMap<(u64, u64), Option<StatementRecord>>,
     /// The predicate whose indexes are built and the declaration its writes are applied under.
@@ -68,6 +73,8 @@ where
             write,
             catalog,
             entries: BTreeMap::new(),
+            defaults: BTreeMap::new(),
+            catalog_changed: false,
             records: BTreeMap::new(),
             maintained: None,
             vector_built: None,
@@ -93,6 +100,15 @@ where
     /// Applies every change of `changeset`, in order; the first refusal ends it. A namespace with no catalog is given
     /// its initial one, written with the changeset.
     pub fn apply(&mut self, changeset: &Changeset) -> Result<(), ChangesetError> {
+        self.initial()?;
+        changeset
+            .changes()
+            .iter()
+            .try_for_each(|change| self.change(change))
+    }
+
+    /// Gives a namespace with no catalog its initial one, written with the write.
+    pub(crate) fn initial(&mut self) -> Result<(), ChangesetError> {
         if self.catalog.predicates().next().is_none() {
             let rdf_type = self.iri(rdf::TYPE)?;
             self.catalog = Catalog::initial(self.namespace(), rdf_type);
@@ -101,10 +117,7 @@ where
                 .into_iter()
                 .for_each(|e| self.add_entry(e));
         }
-        changeset
-            .changes()
-            .iter()
-            .try_for_each(|change| self.change(change))
+        Ok(())
     }
 
     fn change(&mut self, change: &Change) -> Result<(), ChangesetError> {
@@ -186,6 +199,9 @@ where
             request,
             terms,
             catalog: self.catalog,
+            catalog_changed: self.catalog_changed,
+            default_uids: self.defaults.values().copied().collect(),
+            defaults: self.defaults.into_keys().collect(),
             pending: self.pending,
             touched: self.touched,
             removals: self.removals,
@@ -196,7 +212,16 @@ where
         self.write.namespace()
     }
 
+    /// Adds a catalog change's entry: a declaration's, or the namespace's initial catalog's.
     fn add_entry(&mut self, entry: Entry) {
+        self.catalog_changed = true;
+        self.defaults.remove(entry.key());
+        self.entries.insert(entry.key().to_vec(), entry);
+    }
+
+    /// Adds predicate `uid`'s implicit default entry, an insert-if-absent on its key rather than a catalog change.
+    fn add_default(&mut self, uid: u64, entry: Entry) {
+        self.defaults.insert(entry.key().to_vec(), uid);
         self.entries.insert(entry.key().to_vec(), entry);
     }
 
@@ -283,7 +308,7 @@ where
             &Declaration::Predicate(default.clone()),
             0,
         );
-        self.add_entry(entry);
+        self.add_default(uid, entry);
         Ok(default)
     }
 

@@ -16,4 +16,16 @@ impl Proposal for Prepared {
     fn record(&self) -> &[u8] {
         Prepared::record(self)
     }
+
+    fn has_operations(&self) -> bool {
+        Prepared::has_operations(self)
+    }
+
+    fn starts_build(&self) -> bool {
+        Prepared::starts_build(self)
+    }
+
+    fn is_drop(&self) -> bool {
+        Prepared::is_drop(self)
+    }
 }

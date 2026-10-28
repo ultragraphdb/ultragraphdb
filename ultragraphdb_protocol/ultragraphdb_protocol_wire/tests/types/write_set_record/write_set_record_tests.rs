@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{WriteSetRecord, WriteSetRecordView};
+use ultragraphdb_protocol_wire::{OperationResult, WriteSetRecord, WriteSetRecordView};
 
 /// Record 0 of the golden Round, as generate_bodies.py lays it out.
 pub fn record0() -> WriteSetRecord {
@@ -15,6 +15,8 @@ pub fn record0() -> WriteSetRecord {
     record.push_conflict_point(b"\x10key-a".to_vec());
     record.push_conflict_statement(b"\x10key-a".to_vec(), b"\x01obj".to_vec());
     record.push_conflict_range(b"\x30a".to_vec(), b"\x30b".to_vec());
+    record.push_result(OperationResult::new(0x2A, true));
+    record.push_result(OperationResult::new(0x2B, false));
     record
 }
 
@@ -61,9 +63,17 @@ fn test_a_record_keeps_its_fields_and_tables() {
         record.conflict_ranges(),
         &[(b"\x30a".to_vec(), b"\x30b".to_vec())]
     );
-    // generate_bodies.py printed 232 and 5,120 bytes.
-    assert_eq!(record0().encode().len(), 232);
-    assert_eq!(record1().encode().len(), 5_120);
+    assert_eq!(
+        record.results(),
+        &[
+            OperationResult::new(0x2A, true),
+            OperationResult::new(0x2B, false)
+        ]
+    );
+    assert!(record1().results().is_empty());
+    // generate_bodies.py printed 272 and 5,128 bytes.
+    assert_eq!(record0().encode().len(), 272);
+    assert_eq!(record1().encode().len(), 5_128);
     let mut all = WriteSetRecord::new(1, 2, 3, 4);
     all.push_statement(b"s".to_vec(), Some(b"v".to_vec()));
     all.push_catalog(b"c".to_vec(), None);

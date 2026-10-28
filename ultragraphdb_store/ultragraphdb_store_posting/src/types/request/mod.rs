@@ -170,6 +170,25 @@ where
             .map(|(start, end)| (start.as_slice(), end.as_deref()))
     }
 
+    /// Takes `deltas` as the request's own writes to their lists, as though it had written them blind: a list is
+    /// completed from the store, with the batch's layers beneath, when it is read, the delta kept on top, and later
+    /// edges add to it. What a commit-time operation continues a transaction's writes with, so that the two leave one
+    /// delta per list (7.5). A list the request already holds is left as it is.
+    pub fn seed_deltas(&mut self, deltas: &[(Vec<u8>, PostingList)]) {
+        let (read_ts, stacked) = (self.read_ts, &self.stacked);
+        for (key, delta) in deltas {
+            self.held.entry(key.clone()).or_insert_with(|| {
+                let mut list = List::empty(key.clone()).with_scratch(read_ts, Some(delta.clone()));
+                list.mutation_mut().set_stacked(stacked.get(key));
+                Held {
+                    list,
+                    blind: true,
+                    whole: false,
+                }
+            });
+        }
+    }
+
     /// Writes `entry`'s key at the request's commit timestamp, whatever version `entry` names: a schema or type
     /// entry, or a deletion, committed with the request's lists.
     pub fn add_entry(&mut self, entry: Entry) {
@@ -187,6 +206,11 @@ where
     /// dictionary entry, written with the lists that name the term.
     pub fn add_versionless(&mut self, key: Vec<u8>, value: Vec<u8>) {
         self.versionless.push(VersionlessEntry::put(key, value));
+    }
+
+    /// Adds `entry`, a put or a removal of the keyspace without versions, to the request's commit batch, as it is.
+    pub fn add_versionless_entry(&mut self, entry: VersionlessEntry) {
+        self.versionless.push(entry);
     }
 
     /// The keys of the entries the request adds to its commit batch, at its commit timestamp or at their own versions.

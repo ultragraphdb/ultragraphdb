@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use crate::utils::helpers::{key, new_lists, set_uid, set_value};
+use crate::utils::helpers::{check_uids, commit_edges, key, new_lists, set_uid, set_value};
 
 #[test]
 fn test_a_batch_holds_its_requests_in_order() {
@@ -131,4 +131,34 @@ fn test_a_request_sees_the_layers_pushed_before_it_began_and_none_after() {
     let mut late = batch.request(read_ts);
     assert!(early.get(&hub).unwrap().mutation().stacked().is_empty());
     assert_eq!(late.get(&hub).unwrap().mutation().stacked().len(), 1);
+}
+
+/// Writes stacked in a batch are read by every request begun after them, above the committed state, and the batch
+/// commits nothing of them: the commit step's overlay of decided but unapplied rounds (7.5).
+#[test]
+fn test_stacked_writes_are_read_by_later_requests_and_never_committed() {
+    let lists = new_lists();
+    let hub = key("hub", 1);
+    commit_edges(&lists, &hub, &[set_uid(1)]);
+    let read_ts = lists.applied_ts();
+    let mut written = lists.request(read_ts);
+    written
+        .get(&hub)
+        .unwrap()
+        .add_posting(set_uid(2).clone(), false);
+    let writes = written.into_writes();
+    let mut batch = lists.batch();
+    let before = batch.request(read_ts);
+    batch.stack(&writes);
+    batch.stack(&writes);
+    let mut after = batch.request(read_ts);
+    check_uids(after.get(&hub).unwrap(), &[1, 2], read_ts);
+    let mut earlier = before;
+    check_uids(earlier.get(&hub).unwrap(), &[1], read_ts);
+    assert!(
+        batch.is_empty(),
+        "a stacked write is no request of the batch"
+    );
+    let mut fresh = lists.request(read_ts);
+    check_uids(fresh.get(&hub).unwrap(), &[1], read_ts);
 }

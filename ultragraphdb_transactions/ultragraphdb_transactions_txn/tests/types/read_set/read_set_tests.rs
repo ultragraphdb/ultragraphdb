@@ -271,11 +271,21 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
                 assert_eq!(result, Ok(()), "seed {seed}");
                 model.bytes += cost;
                 match kind {
-                    0 => drop(model.lists.insert(a)),
-                    1 => drop(model.statements.insert((a, b))),
-                    2 => drop(model.ranges.insert((a, End::Bounded(b)))),
-                    3 => drop(model.absent.insert(a)),
-                    _ => drop(model.ranges.insert((a, End::Open))),
+                    0 => {
+                        model.lists.insert(a);
+                    }
+                    1 => {
+                        model.statements.insert((a, b));
+                    }
+                    2 => {
+                        model.ranges.insert((a, End::Bounded(b)));
+                    }
+                    3 => {
+                        model.absent.insert(a);
+                    }
+                    _ => {
+                        model.ranges.insert((a, End::Open));
+                    }
                 }
             }
             assert_eq!(r.bytes(), model.bytes, "seed {seed}");

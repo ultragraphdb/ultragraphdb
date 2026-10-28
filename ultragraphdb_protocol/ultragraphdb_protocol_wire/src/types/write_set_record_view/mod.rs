@@ -7,10 +7,12 @@ use ultragraphdb_error_protocol::ProtocolError;
 
 use crate::types::command::Command;
 use crate::types::key_values::KeyValues;
+use crate::types::operation_result::OperationResult;
 use crate::types::record_entry::RecordEntry;
 use crate::types::write_set_record::WriteSetRecord;
 use crate::utils::constants::ABSENT;
 use crate::utils::le::bytes_at;
+use crate::utils::results::{RESULT_SIZE, check_results, result_at};
 use crate::utils::sections::Sections;
 
 /// The fixed part's size: namespace, read version, session and request.
@@ -26,15 +28,16 @@ pub struct WriteSetRecordView<'a> {
     request: u64,
     tables: [KeyValues<'a>; 8],
     commit_record: &'a [u8],
+    results: &'a [u8],
 }
 
 impl<'a> WriteSetRecordView<'a> {
-    /// The record `bytes`, checked once: the fixed part and section table, then each key-value section's entries.
-    /// Errors name the Round command and the record's own sections, offsets within the record; a conflict point
-    /// with a value is [`ProtocolError::FieldValue`].
+    /// The record `bytes`, checked once: the fixed part and section table, then each key-value section's entries,
+    /// then the results. Errors name the Round command and the record's own sections, offsets within the record; a
+    /// conflict point with a value is [`ProtocolError::FieldValue`].
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::Round.number();
-        let sections = Sections::<9>::read(command, bytes, FIXED_SIZE)?;
+        let sections = Sections::<10>::read(command, bytes, FIXED_SIZE)?;
         let fixed = sections.fixed();
         let field = |at: usize| bytes_at(fixed, at).map_or(0, u64::from_le_bytes);
         let table = |i: usize| KeyValues::read(command, i, sections.offset(i), sections.get(i));
@@ -61,6 +64,7 @@ impl<'a> WriteSetRecordView<'a> {
                 return Err(ProtocolError::FieldValue(command, field, ABSENT.into()));
             }
         }
+        check_results(command, 9, sections.offset(9), sections.get(9))?;
         Ok(Self {
             bytes,
             namespace: field(0),
@@ -69,6 +73,7 @@ impl<'a> WriteSetRecordView<'a> {
             request: field(24),
             tables,
             commit_record: sections.get(5),
+            results: sections.get(9),
         })
     }
 
@@ -130,6 +135,16 @@ impl<'a> WriteSetRecordView<'a> {
         self.tables[7]
     }
 
+    /// The number of commit-time operations' results.
+    pub fn result_count(&self) -> usize {
+        self.results.len() / RESULT_SIZE
+    }
+
+    /// Result `index`, in the order the transaction asked its operations; `None` past the last.
+    pub fn result(&self, index: usize) -> Option<OperationResult> {
+        result_at(self.results, index)
+    }
+
     /// The owned record of the view's values.
     pub fn to_record(&self) -> WriteSetRecord {
         let mut record = WriteSetRecord::new(
@@ -163,6 +178,9 @@ impl<'a> WriteSetRecordView<'a> {
         }
         for (key, value) in self.conflict_ranges().iter().map(owned) {
             record.push_conflict_range(key, value.unwrap_or_default());
+        }
+        for result in (0..self.result_count()).filter_map(|i| self.result(i)) {
+            record.push_result(result);
         }
         record
     }

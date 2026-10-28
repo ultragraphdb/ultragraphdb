@@ -9,5 +9,6 @@ pub mod command_header;
 pub mod constants;
 pub mod key_value_writer;
 pub mod le;
+pub mod results;
 pub mod sections;
 pub mod string_writer;

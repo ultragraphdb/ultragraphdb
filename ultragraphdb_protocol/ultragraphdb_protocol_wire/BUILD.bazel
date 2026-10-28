@@ -76,3 +76,10 @@ rust_test(
         normal_dev = True,
     ),
 )
+
+# The golden frames, for the conformance suites of the crates that speak the protocol (the Rust client's core).
+filegroup(
+    name = "golden_bodies",
+    srcs = glob(["testdata/golden/bodies/*.frame"]),
+    visibility = ["//visibility:public"],
+)

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::WriteSetRecordView;
+use ultragraphdb_protocol_wire::{ConflictKind, WriteSetRecordView};
 use ultragraphdb_transactions_txn::ReadSet;
 
 use crate::errors::commit_error::CommitError;
@@ -50,6 +50,31 @@ impl Resolver {
             Some(kind) => Err(CommitError::Conflict(kind)),
             None => Ok(()),
         }
+    }
+
+    /// Decides whether the writes of `record`, read at `read_version`, may be admitted: a key it writes, whole or as a
+    /// statement's list, inside a range written above its read version, a drop, conflicts (7.7). Changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`CommitError::Conflict`] of kind [`ConflictKind::Drop`].
+    pub fn check_writes(
+        &self,
+        read_version: u64,
+        record: &WriteSetRecordView<'_>,
+    ) -> Result<(), CommitError> {
+        let points = record.conflict_points();
+        let statements = record.conflict_statements();
+        let written = || {
+            points
+                .iter()
+                .map(|e| e.key())
+                .chain(statements.iter().map(|e| e.key()))
+        };
+        if self.history.written_into_range(read_version, written) {
+            return Err(CommitError::Conflict(ConflictKind::Drop));
+        }
+        Ok(())
     }
 
     /// Adds the conflict points, statements and ranges of `record`, admitted at `version`, to the history.

@@ -122,9 +122,12 @@ fn write_failed(error: PostingError) -> bool {
 #[test]
 fn test_a_failed_drop_advances_the_epoch_and_stops_writes() {
     type Drop = fn(&crate::utils::helpers::TestLists, &[u8]) -> Result<(), PostingError>;
-    let drops: [(&str, Drop); 4] = [
+    let drops: [(&str, Drop); 5] = [
         ("drop_prefixes", |l, k| {
             l.drop_prefixes(l.applied_ts(), &[k.to_vec()], Vec::new())
+        }),
+        ("drop_prefixes_at", |l, k| {
+            l.drop_prefixes_at(l.applied_ts() + 2, &[k.to_vec()], Vec::new())
         }),
         ("drop_prefixes_now", |l, k| {
             l.drop_prefixes_now(&[k.to_vec()], Vec::new()).map(|_| ())
@@ -176,4 +179,34 @@ fn test_a_drop_at_a_given_timestamp_moves_no_version() {
     assert_eq!(lists.drop_all_now(Vec::new()).unwrap(), next);
     assert_eq!(lists.drop_prefixes_now(&[k], Vec::new()).unwrap(), next + 2);
     assert_eq!(lists.next_version(), next + 4);
+}
+
+/// A drop at a version the commit step gave it drops every version of its keys and moves the watermark to that
+/// version; one at or below the applied version is refused, writing nothing (7.7).
+#[test]
+fn test_a_drop_at_a_given_version_drops_its_keys_and_moves_the_watermark_there() {
+    let lists = new_lists();
+    let k = key("dropped", 1);
+    let kept = key("kept", 1);
+    commit_edges(&lists, &k, &[set_uid(2)]);
+    commit_edges(&lists, &kept, &[set_uid(3)]);
+    let applied = lists.applied_ts();
+    let stale = lists
+        .drop_prefixes_at(applied, std::slice::from_ref(&k), Vec::new())
+        .unwrap_err();
+    assert_eq!(
+        stale.0,
+        PostingErrorEnum::StaleVersion {
+            version: applied,
+            after: applied
+        }
+    );
+    assert_eq!(lists.applied_ts(), applied);
+    lists
+        .drop_prefixes_at(applied + 10, std::slice::from_ref(&k), Vec::new())
+        .unwrap();
+    assert_eq!(lists.applied_ts(), applied + 10);
+    let read = lists.applied_ts();
+    assert!(uids(&lists.read(&k, read).unwrap(), read, 0).is_empty());
+    assert_eq!(uids(&lists.read(&kept, read).unwrap(), read, 0), vec![3]);
 }

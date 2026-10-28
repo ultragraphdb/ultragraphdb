@@ -41,11 +41,22 @@ transaction SHALL see them before the transaction is acknowledged.
 ### Requirement: What a transaction's reads record and what conflicts with them
 A read-write transaction SHALL record: the key of each list it read whole; the list key and object of each statement
 it tested; each key range it scanned; each dictionary key it found absent; and its namespace's catalog range. It SHALL
-abort with a conflict when a transaction committed after its read version wrote, respectively: the list; that object in
-that list; a key in the range; that dictionary entry; or the catalog. A commit that changed a list by more objects
-than the commit step's bound SHALL be recorded as writing the whole list, which can only add conflicts. Writes made
-without a read (reverse, predicate-list, index and statistics deltas, and inserts' forward deltas) SHALL never conflict
-with each other.
+abort with a conflict when a transaction committed after its read version wrote what the table below names for one of
+its reads, a written statement counting as its list touched and a written range being a drop (amended 2026-10-28 to
+state the rules the resolver holds):
+
+| Read | A key written whole | A statement written | A range written (a drop) |
+|---|---|---|---|
+| a list read whole | that key | a statement of that list | one holding the key |
+| a statement tested | its list key | that list key and object | one holding the list key |
+| a range scanned, or the catalog range | a key inside it | a statement whose list key is inside it | one sharing a key with it |
+| a dictionary key found absent | that key | a statement of that key | one holding the key |
+
+The conflict SHALL name the first kind of read that conflicts, in the order list, statement, range, absent term,
+catalog, and a conflict with a written range SHALL be named a drop after them. A commit that changed a list by more
+objects than the commit step's bound SHALL be recorded as writing the whole list, which can only add conflicts. Writes
+made without a read (reverse, predicate-list, index and statistics deltas, and inserts' forward deltas) SHALL never
+conflict with each other.
 
 #### Scenario: Inserts of different objects into one list both commit
 - **WHEN** two transactions concurrently insert `<a> <knows> <b>` and `<a> <knows> <c>`
@@ -93,6 +104,10 @@ deltas that never conflict. A commit-time operation SHALL not abort for the race
 expected value is not held SHALL refuse its whole transaction, writing nothing, and report the value it found. An
 operation's result is known only at commit and is returned in the reply, with whether the node was created: the
 transaction's other writes SHALL not name it, and the links an upsert-and-link carries are the way to connect it.
+The round's log SHALL record the transaction's writes with its operations' resulting writes, so a replay applies them
+and never runs an operation again; a counter add's result in the reply is zero, as a compare-and-set's is, and a
+counter holding a value that is no integer, or that the add would overflow, refuses its transaction as a failed
+compare-and-set does (decided 2026-10-28).
 
 #### Scenario: Concurrent insert-if-absent yields one node
 - **WHEN** eight transactions concurrently insert-if-absent a node with `epi.id` `"x"`, declared unique

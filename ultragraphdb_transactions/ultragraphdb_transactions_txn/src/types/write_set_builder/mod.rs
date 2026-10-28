@@ -14,7 +14,7 @@ use crate::types::txn_limits::TxnLimits;
 /// The fixed part's size: namespace, read version, session and request.
 const FIXED: usize = 32;
 /// The number of sections.
-const SECTIONS: usize = 9;
+const SECTIONS: usize = 10;
 /// Where section 0 starts: after the fixed part and the table of offsets and lengths.
 const TABLE_END: usize = FIXED + 8 * SECTIONS;
 /// A key-value entry's lengths, before its key.
@@ -38,9 +38,10 @@ const TAG_AT: usize = 8;
 /// | 3 | catalog entries, a removal for an entry deleted |
 /// | 4 | the other writes of the keyspace without versions |
 /// | 5 | the commit record the client attached, unchanged |
-/// | 6 | conflict points: the key of every write but the lists named object by object |
+/// | 6 | conflict points: the key of every write but the lists named object by object and a predicate's implicit default catalog entry, an insert-if-absent on its key and not a catalog change (decided 2026-10-27) |
 /// | 7 | conflict statements: a list key and an object it changed, for each list changed by no more than the bound's objects and not cleared whole |
-/// | 8 | conflict ranges: none, since an execution writes no range |
+/// | 8 | conflict ranges: a drop's key ranges, each its first key and the key past its last; none for any other execution (7.7) |
+/// | 9 | the commit-time operations' results, 16 bytes each, as the commit step writes them; empty for a worker's record (decided 2026-10-28) |
 ///
 /// Only a forward list is named object by object, since only a forward list's statements are tested by a read; a list
 /// of any other keyspace, a forward list changed by more objects than the bound, or one holding a posting that names
@@ -53,7 +54,11 @@ pub struct WriteSetBuilder<'e> {
     request: u64,
     commit_record: &'e [u8],
     objects_per_list: usize,
+    results: &'e [(u64, bool)],
 }
+
+/// The size of one commit-time operation's result: `uid` u64, `created` u8, 7 zero bytes.
+const RESULT_SIZE: usize = 16;
 
 /// An entry's value as the builder writes it: bytes, a delta in the posting format, or a removal.
 #[derive(Clone, Copy)]
@@ -103,7 +108,7 @@ fn entry_section(key: &[u8]) -> usize {
 
 impl<'e> WriteSetBuilder<'e> {
     /// The record of `executed`, committed as request `request` of session `session` with `commit_record`, its
-    /// lists named object by object up to the default bound of [`crate::TxnLimits`].
+    /// lists named object by object up to the default bound of [`TxnLimits`].
     pub fn new(
         executed: &'e Executed,
         session: u64,
@@ -116,7 +121,15 @@ impl<'e> WriteSetBuilder<'e> {
             request,
             commit_record,
             objects_per_list: TxnLimits::default().objects_per_list(),
+            results: &[],
         }
+    }
+
+    /// The builder writing `results`, the commit-time operations' UIDs and whether each created its node, in the
+    /// order the transaction asked them, into section 9: what the commit step's record of a transaction with
+    /// operations holds (decided 2026-10-28).
+    pub fn with_results(self, results: &'e [(u64, bool)]) -> Self {
+        Self { results, ..self }
     }
 
     /// The builder naming at most `objects` objects of one list one by one.
@@ -185,8 +198,15 @@ impl<'e> WriteSetBuilder<'e> {
                         f(key, empty);
                     }
                 }
+                // A predicate's implicit default entry is an insert-if-absent on its catalog key, no catalog change.
+                let defaults = self.executed.defaults();
                 for e in writes.entries() {
-                    f(e.key(), empty);
+                    if defaults
+                        .binary_search_by(|k| k.as_slice().cmp(e.key()))
+                        .is_err()
+                    {
+                        f(e.key(), empty);
+                    }
                 }
                 for e in writes.versionless() {
                     f(e.key(), empty);
@@ -203,6 +223,11 @@ impl<'e> WriteSetBuilder<'e> {
                     }
                 }
             }
+            8 => {
+                for (start, end) in self.executed.drop_ranges() {
+                    f(start, Value::Bytes(end));
+                }
+            }
             _ => {}
         }
     }
@@ -211,6 +236,9 @@ impl<'e> WriteSetBuilder<'e> {
     fn section_len(&self, section: usize) -> usize {
         if section == 5 {
             return self.commit_record.len();
+        }
+        if section == 9 {
+            return RESULT_SIZE * self.results.len();
         }
         let mut len = 0;
         self.visit(section, &mut |key, value| len += entry_len(key, value));
@@ -258,6 +286,12 @@ impl<'e> WriteSetBuilder<'e> {
             let start = out.len();
             if section == 5 {
                 out.extend_from_slice(self.commit_record);
+            } else if section == 9 {
+                for (uid, created) in self.results {
+                    out.extend_from_slice(&uid.to_le_bytes());
+                    out.push(u8::from(*created));
+                    out.extend_from_slice(&[0; 7]);
+                }
             } else {
                 self.visit(section, &mut |key, value| write_entry(out, key, value));
             }

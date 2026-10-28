@@ -13,7 +13,9 @@
 use std::sync::Arc;
 
 use ultragraphdb_core_codec::PostingList;
-use ultragraphdb_traits_store::{Entry, ListCache, PersistMode, Store, WriteBatch};
+use ultragraphdb_traits_store::{
+    Entry, ListCache, PersistMode, Store, VersionlessEntry, WriteBatch,
+};
 
 use crate::errors::posting_error::PostingError;
 use crate::types::batch::Batch;
@@ -85,7 +87,7 @@ where
             }
         }
         let round: Vec<(u64, &Writes)> = kept.iter().map(|(v, w)| (*v, w)).collect();
-        self.write_round(&round, self.config.persist())?;
+        self.write_round(&round, &[], 0, self.config.persist())?;
         Ok(results)
     }
 
@@ -107,27 +109,60 @@ where
     /// and nothing is written; the store's error when the batch cannot be written, after which every write is refused
     /// until the store is reopened, as is every read at or above the round's first version.
     pub fn commit_round(&self, round: &[(u64, &Writes)]) -> Result<(), PostingError> {
+        self.commit_round_with(round, &[], 0)
+    }
+
+    /// Writes `round` as [`Lists::commit_round`] does, with `system`, the system's own entries without versions (the
+    /// commit step's session table, 7.8), in the same batch, and records `through` as applied when it is above the
+    /// round's last version: the version of the round's last decision, a session registration that wrote no
+    /// execution. A round of `system` alone writes its entries and moves the watermark to `through`, or leaves it
+    /// where `through` is the watermark itself, as after a drop that moved it; nothing to write moves the watermark
+    /// to a `through` above it (decided 2026-10-28). A `through` of 0 names none.
+    ///
+    /// # Errors
+    ///
+    /// As [`Lists::commit_round`], and [`PostingError::StaleVersion`] for a `through` below the watermark.
+    pub fn commit_round_with(
+        &self,
+        round: &[(u64, &Writes)],
+        system: &[VersionlessEntry],
+        through: u64,
+    ) -> Result<(), PostingError> {
         let _writer = lock(&self.writer);
         self.refuse_if_failed()?;
-        let mut after = lock(&self.state).applied;
+        let applied = lock(&self.state).applied;
+        let mut after = applied;
         for (version, _) in round {
             if *version <= after {
                 return Err(PostingError::StaleVersion(*version, after));
             }
             after = *version;
         }
-        self.write_round(round, PersistMode::Buffer)
+        if through != 0 && through < applied {
+            return Err(PostingError::StaleVersion(through, applied));
+        }
+        if round.is_empty() && system.is_empty() && through <= applied {
+            return Ok(());
+        }
+        self.write_round(round, system, through.max(applied), PersistMode::Buffer)
     }
 
-    /// Writes `round`, its versions checked, under the writer lock the caller holds, in `persist` mode.
+    /// Writes `round`, its versions checked, with `system` and `through`, under the writer lock the caller holds, in
+    /// `persist` mode.
     fn write_round(
         &self,
         round: &[(u64, &Writes)],
+        system: &[VersionlessEntry],
+        through: u64,
         persist: PersistMode,
     ) -> Result<(), PostingError> {
-        let (Some(&(first, _)), Some(&(last, _))) = (round.first(), round.last()) else {
+        if round.is_empty() && system.is_empty() && through == 0 {
             return Ok(());
-        };
+        }
+        let first = round.first().map_or(through, |(version, _)| *version);
+        let last = round
+            .last()
+            .map_or(through, |(version, _)| (*version).max(through));
         let epoch = {
             let mut state = lock(&self.state);
             state.in_flight = Some(first);
@@ -154,10 +189,11 @@ where
                 store_batch.remove_rebuild_record(*id);
             }
             for entry in writes.versionless() {
-                if let Some(value) = entry.value() {
-                    store_batch.put_versionless(entry.key().to_vec(), value.to_vec());
-                }
+                put_versionless(&mut store_batch, entry);
             }
+        }
+        for entry in system {
+            put_versionless(&mut store_batch, entry);
         }
         store_batch.set_applied_ts(last);
 
@@ -231,5 +267,13 @@ fn at_version(entry: &Entry, version: u64) -> Entry {
         written.with_discard()
     } else {
         written
+    }
+}
+
+/// Writes `entry` into `batch`: its value, or its removal.
+fn put_versionless(batch: &mut WriteBatch, entry: &VersionlessEntry) {
+    match entry.value() {
+        Some(value) => batch.put_versionless(entry.key().to_vec(), value.to_vec()),
+        None => batch.remove_versionless(entry.key().to_vec()),
     }
 }

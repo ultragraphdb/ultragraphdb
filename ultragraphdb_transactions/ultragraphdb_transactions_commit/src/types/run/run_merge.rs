@@ -129,5 +129,6 @@ impl Run {
             });
             self.newest = self.newest.max(range.version);
         }
+        self.bound_ranges();
     }
 }

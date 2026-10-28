@@ -11,9 +11,10 @@ use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_transactions_commit::{CommitError, RoundBounds};
 
 use crate::utils::fixture::{
-    Driver, applier, begin, delete_literal, held, insert, insert_literal, prepare, read, setup,
-    write,
+    Driver, applier, begin, begin_with, delete_literal, held, insert, insert_literal, prepare,
+    read, setup, write,
 };
+use ultragraphdb_transactions_txn::TxnBuffers;
 
 fn unbounded() -> RoundBounds {
     RoundBounds::new(u32::MAX, u32::MAX)
@@ -116,4 +117,158 @@ fn test_inserts_of_one_new_statement_conflict_and_of_different_objects_do_not() 
         ))
     ));
     assert_eq!(held(&applier, "a", "knows").len(), 3);
+}
+
+/// An aborted transaction's buffers come back through the step's released proposals with their capacity, as a
+/// committed one's come back through its apply, and the worker's next transaction runs on them.
+#[test]
+fn test_an_aborted_transaction_gives_its_buffers_back() {
+    let applier = applier();
+    setup(&applier, vec![insert_literal("x", "name", "X")]);
+    let mut driver = Driver::new(&applier, unbounded());
+    let buffers = TxnBuffers::with_capacity(4_096, 64, 8_192);
+    let (read_cap, record_cap) = (buffers.read_set_capacity(), buffers.record_capacity());
+    let mut loser = begin_with(&applier, buffers);
+    read(&mut loser, "x", "name");
+    write(&mut loser, vec![insert("l", "knows", "b")]);
+    let mut winner = begin(&applier);
+    write(
+        &mut winner,
+        vec![
+            delete_literal("x", "name", "X"),
+            insert_literal("x", "name", "X1"),
+        ],
+    );
+    driver.submit(1, prepare(winner));
+    driver.submit(2, prepare(loser));
+    driver.sync();
+    driver.sync();
+    assert_eq!(
+        driver.reply(2).map(|r| r.outcome().clone()),
+        Some(Err(CommitError::Conflict(ConflictKind::List)))
+    );
+    assert_eq!(driver.released.len(), 1);
+    let (ticket, back) = driver.released.pop().expect("released");
+    assert_eq!(ticket, 2);
+    assert_eq!(
+        (back.read_set_capacity(), back.record_capacity()),
+        (read_cap, record_cap)
+    );
+    let mut next = begin_with(&applier, back);
+    write(&mut next, vec![insert("n", "knows", "b")]);
+    driver.submit(3, prepare(next));
+    driver.sync();
+    assert!(driver.reply(3).is_some_and(|r| r.outcome().is_ok()));
+    assert!(held(&applier, "l", "knows").is_empty());
+}
+
+/// A declaration starting an index build of `predicate` in `namespace`, executed at the watermark.
+fn build_in(
+    applier: &crate::utils::fixture::Applier,
+    namespace: u64,
+    predicate: &str,
+) -> ultragraphdb_transactions_txn::Prepared {
+    use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
+    use ultragraphdb_transactions_txn::{Commit, Mode, Transaction, TxnLimits};
+    let mut txn = Transaction::begin(
+        applier,
+        namespace,
+        Mode::ReadWrite,
+        0,
+        0,
+        TxnLimits::default(),
+        TxnBuffers::new(),
+    )
+    .expect("it begins");
+    let declared = PredicateDeclaration::new(crate::utils::fixture::ex(predicate))
+        .with_tokenizers(vec!["term".to_string()]);
+    txn.write(
+        &Changeset::new(namespace).with(Change::Declare(Declaration::Predicate(declared))),
+        0,
+    )
+    .expect("declared");
+    let Ok(Commit::ReadWrite(prepared)) = txn.commit(0, 0, &[], 0) else {
+        panic!("a read-write commit");
+    };
+    prepared
+}
+
+/// Two declarations starting index builds in different namespaces conflict on no key: the round closes before the
+/// second, which is decided in the next round, and both commit (7.7, decided 2026-10-28).
+#[test]
+fn test_a_round_holds_at_most_one_index_build() {
+    use ultragraphdb_core_mapping::{Change, Changeset};
+    let applier = applier();
+    setup(&applier, vec![insert_literal("a", "name", "apple")]);
+    applier
+        .apply(&Changeset::new(1).with(insert_literal("a", "name", "pear")))
+        .expect("namespace 1 holds data");
+    let _: Option<Change> = None;
+    let mut driver = Driver::new(&applier, unbounded());
+    let mut first = begin(&applier);
+    write(&mut first, vec![insert("x", "knows", "y")]);
+    driver.submit(1, prepare(first));
+    driver.submit(2, build_in(&applier, 0, "name"));
+    driver.submit(3, build_in(&applier, 1, "name"));
+    driver.sync();
+    assert_eq!(
+        driver.step.waiting(),
+        1,
+        "the second build waits for the next round"
+    );
+    // The second round applied starts the first build, and the third round closes over the second build alone. Its
+    // apply waits for the first build: the applier runs one build at a time (see the notes, group 7c).
+    driver.sync();
+    assert!(applier.rebuilding(), "the first build runs");
+    let counts: Vec<u32> = driver.appended.iter().map(|r| r.transactions()).collect();
+    assert_eq!(counts, vec![1, 1, 1]);
+    assert_eq!(driver.step.waiting(), 0);
+    assert!(
+        driver.replies.iter().all(|r| r.outcome().is_ok()),
+        "{:?}",
+        driver.replies
+    );
+}
+
+/// A drop closes its round: the transaction waiting after it is decided in the next round (7.7).
+#[test]
+fn test_a_round_closes_after_a_drop() {
+    let applier = applier();
+    setup(
+        &applier,
+        vec![insert("a", "p", "b"), insert("w", "knows", "y")],
+    );
+    let mut driver = Driver::new(&applier, unbounded());
+    let mut first = begin(&applier);
+    write(&mut first, vec![insert("x", "knows", "y")]);
+    driver.submit(1, prepare(first));
+    let drop = ultragraphdb_transactions_txn::Prepared::drop_predicate(
+        &applier,
+        crate::utils::fixture::NS,
+        crate::utils::fixture::ex("p").as_ref(),
+        TxnBuffers::new(),
+    )
+    .expect("the drop prepares");
+    driver.submit(2, drop);
+    let mut after = begin(&applier);
+    write(&mut after, vec![insert("z", "knows", "y")]);
+    driver.submit(3, prepare(after));
+    driver.sync();
+    driver.sync();
+    driver.sync();
+    let counts: Vec<u32> = driver.appended.iter().map(|r| r.transactions()).collect();
+    assert_eq!(counts, vec![1, 1, 1]);
+    let reply = |t: u64| driver.reply(t).expect("decided").outcome().clone();
+    assert_eq!(reply(1), Ok(4));
+    assert_eq!(reply(2), Ok(6), "the drop takes its round's last version");
+    // The drop writes `p`'s catalog entry, inside the namespace's catalog range every transaction of it reads: one
+    // that read below the drop aborts as a catalog change aborts it, and its retry commits.
+    assert_eq!(reply(3), Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert!(held(&applier, "a", "p").is_empty());
+    let mut retry = begin(&applier);
+    write(&mut retry, vec![insert("z", "knows", "y")]);
+    driver.submit(4, prepare(retry));
+    driver.sync();
+    assert!(driver.reply(4).expect("decided").outcome().is_ok());
+    assert_eq!(held(&applier, "z", "knows").len(), 1);
 }

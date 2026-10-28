@@ -6,9 +6,7 @@
 mod commit_view_body_view;
 
 use crate::types::operation_result::OperationResult;
-
-/// The size of an operation result.
-pub(crate) const RESULT_SIZE: usize = 16;
+use crate::utils::results::{RESULT_SIZE, result_at};
 
 /// The body of a received Commit frame, read in place; see [`crate::Commit`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,10 +37,6 @@ impl<'a> CommitView<'a> {
 
     /// Result `index`, `None` past the last.
     pub fn result(&self, index: usize) -> Option<OperationResult> {
-        let record = self.results.get(
-            index.checked_mul(RESULT_SIZE)?..index.checked_add(1)?.checked_mul(RESULT_SIZE)?,
-        )?;
-        let uid = u64::from_le_bytes(record.get(..8)?.try_into().ok()?);
-        Some(OperationResult::new(uid, record.get(8) == Some(&1)))
+        result_at(self.results, index)
     }
 }

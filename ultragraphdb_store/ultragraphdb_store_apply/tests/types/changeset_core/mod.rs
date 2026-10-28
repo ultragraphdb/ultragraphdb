@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod changeset_core_drop_tests;
 #[cfg(test)]
+mod changeset_core_operate_tests;
+#[cfg(test)]
 mod changeset_core_rebuild_tests;
 #[cfg(test)]
 mod changeset_core_record_tests;

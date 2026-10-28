@@ -51,5 +51,7 @@ pub use crate::types::changeset_applier::ChangesetApplier;
 pub use crate::types::executed::Executed;
 pub use crate::types::execution::Execution;
 pub use crate::types::level_draw::LevelDraw;
+pub use crate::types::operation::Operation;
+pub use crate::types::operation_link::OperationLink;
 pub use crate::types::reads::Reads;
 pub use crate::utils::token_values::token_value;

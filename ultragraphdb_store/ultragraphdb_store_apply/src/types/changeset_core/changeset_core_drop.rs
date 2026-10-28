@@ -22,6 +22,7 @@ use ultragraphdb_traits_store::{Entry, ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::ChangesetCore;
+use crate::types::executed::Executed;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::utils::lock::lock;
 use crate::utils::quad_prefixes::predicate_prefixes;
@@ -57,6 +58,20 @@ where
         let Some(uid) = self.quads.uid_of(namespace, predicate.as_str())? else {
             return Ok(lists.applied_ts());
         };
+        tracing::info!(predicate = predicate.as_str(), "dropping predicate");
+        self.drop_predicate_uid(namespace, uid, None)
+    }
+
+    /// Drops predicate `uid` of `namespace` as [`ChangesetCore::drop_predicate`] does, under the apply lock the caller
+    /// holds: at the next version, or at `at`, the version the commit step gave a drop decided in a round (7.7). The
+    /// drop's version.
+    pub(crate) fn drop_predicate_uid(
+        &self,
+        namespace: u64,
+        uid: u64,
+        at: Option<u64>,
+    ) -> Result<u64, ChangesetError> {
+        let lists = self.quads.lists();
         self.cancel(|r| r.namespace == namespace && r.predicate == uid);
         let latest = lists.applied_ts();
         lists.gate(latest)?;
@@ -109,11 +124,50 @@ where
             }
         }
         prefixes.insert(Catalog::predicate_key(namespace, uid));
-        tracing::info!(predicate = predicate.as_str(), "dropping predicate");
         let prefixes: Vec<Vec<u8>> = prefixes.into_iter().collect();
-        let ts = lists.drop_prefixes_now(&prefixes, entries)?;
+        let ts = match at {
+            Some(ts) => {
+                lists.drop_prefixes_at(ts, &prefixes, entries)?;
+                ts
+            }
+            None => lists.drop_prefixes_now(&prefixes, entries)?,
+        };
         self.forget_catalogs();
         Ok(ts)
+    }
+
+    /// The drop of `predicate` of `namespace` as a proposal of the commit step (7.7): an execution at the watermark that
+    /// writes nothing but its key ranges, every key of the predicate in each graph holding it and its catalog entry,
+    /// which the commit step holds as a write of those ranges at its version, and which `apply_round` drops once its
+    /// round's batch is written. A predicate the store does not know is dropped as nothing.
+    pub fn prepare_drop_predicate(
+        &self,
+        namespace: u64,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<Executed, ChangesetError> {
+        let lists = self.quads.lists();
+        let read_ts = lists.applied_ts();
+        let catalog = (*self.catalog(namespace)?).clone();
+        let mut ranges = Vec::new();
+        let dropped = self.quads.uid_of(namespace, predicate.as_str())?;
+        if let Some(uid) = dropped {
+            lists.gate(read_ts)?;
+            let snapshot = lists.store().snapshot(read_ts)?;
+            for p in predicate_prefixes(namespace, uid) {
+                ranges.extend(p.expand(&snapshot)?);
+            }
+            ranges.push(Catalog::predicate_key(namespace, uid));
+        }
+        let ranges = ranges
+            .into_iter()
+            .map(|start| {
+                let end = successor(&start);
+                (start, end)
+            })
+            .collect();
+        Ok(Executed::dropping(
+            namespace, read_ts, catalog, dropped, ranges,
+        ))
     }
 
     /// Adds the predicate list `list`, its split parts with it, to the drop's prefixes, and its postings but
@@ -263,4 +317,17 @@ fn namespace_prefixes(namespace: u64, catalog: bool) -> Vec<Vec<u8>> {
     keyspaces
         .flat_map(|k| parts(k, |split| key_prefix(k, split, namespace, None, None)))
         .collect()
+}
+
+/// The first key past every key `prefix` begins: the prefix with its last byte below 0xff raised by one and what follows
+/// it removed; empty, past the last key, when every byte is 0xff.
+fn successor(prefix: &[u8]) -> Vec<u8> {
+    let mut end = prefix.to_vec();
+    while let Some(last) = end.pop() {
+        if last < u8::MAX {
+            end.push(last + 1);
+            return end;
+        }
+    }
+    end
 }

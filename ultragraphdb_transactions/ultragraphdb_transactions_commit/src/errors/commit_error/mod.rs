@@ -28,8 +28,23 @@ pub enum CommitErrorEnum {
     Malformed { cause: ProtocolError },
     /// The read set was handed over unsealed, so its tables are not in the order validation walks them.
     Unsealed,
+    /// The commit queue holds `limit` requests already. Retryable.
+    Busy { limit: usize },
     /// The node refuses writes, after a failed log sync or once commit versions are exhausted, until it restarts.
     Unavailable,
+    /// The commit names a session the session table does not hold: evicted, or never registered. The client registers
+    /// a new session.
+    SessionEvicted { session: u64 },
+    /// The commit's request number is not one above its session's last committed one, nor that one: `expected` is.
+    RequestOutOfOrder { expected: u64 },
+    /// The session already has a commit in flight; its reply comes first.
+    SessionBusy { session: u64 },
+    /// A commit-time compare-and-set whose expected value was not held, or a counter add that could not add: the whole
+    /// transaction is refused and wrote nothing; `found` is the value held, an N-Triples term, `None` when none is.
+    OperationFailed { found: Option<String> },
+    /// The catalog or the store refused a commit-time operation's write, as `reason` states; the transaction wrote
+    /// nothing.
+    Refused { reason: String },
 }
 
 impl CommitError {
@@ -66,6 +81,45 @@ impl CommitError {
         Self(CommitErrorEnum::Unavailable)
     }
 
+    #[allow(non_snake_case)]
+    pub fn Busy(limit: usize) -> Self {
+        Self(CommitErrorEnum::Busy { limit })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn SessionEvicted(session: u64) -> Self {
+        Self(CommitErrorEnum::SessionEvicted { session })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn RequestOutOfOrder(expected: u64) -> Self {
+        Self(CommitErrorEnum::RequestOutOfOrder { expected })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn SessionBusy(session: u64) -> Self {
+        Self(CommitErrorEnum::SessionBusy { session })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn OperationFailed(found: Option<String>) -> Self {
+        Self(CommitErrorEnum::OperationFailed { found })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Refused(reason: String) -> Self {
+        Self(CommitErrorEnum::Refused { reason })
+    }
+
+    /// The value a failed compare-and-set found, the Error frame's value: an N-Triples term, `None` when the failure
+    /// is another or no value was held.
+    pub fn found(&self) -> Option<&str> {
+        match &self.0 {
+            CommitErrorEnum::OperationFailed { found } => found.as_deref(),
+            _ => None,
+        }
+    }
+
     /// The Error frame's code, which the Round decision records as its outcome.
     pub fn code(&self) -> ErrorCode {
         match self.0 {
@@ -74,23 +128,35 @@ impl CommitError {
             CommitErrorEnum::TooLarge { .. } => ErrorCode::TooLarge,
             CommitErrorEnum::Malformed { .. } | CommitErrorEnum::Unsealed => ErrorCode::Protocol,
             CommitErrorEnum::Unavailable => ErrorCode::Unavailable,
+            CommitErrorEnum::Busy { .. } => ErrorCode::Busy,
+            CommitErrorEnum::SessionEvicted { .. } => ErrorCode::SessionEvicted,
+            CommitErrorEnum::RequestOutOfOrder { .. } => ErrorCode::RequestOutOfOrder,
+            CommitErrorEnum::SessionBusy { .. } => ErrorCode::SessionBusy,
+            CommitErrorEnum::OperationFailed { .. } => ErrorCode::OperationFailed,
+            CommitErrorEnum::Refused { .. } => ErrorCode::Refused,
         }
     }
 
-    /// The code's detail: the conflict's kind, or the too-large limit in bytes; zero otherwise.
+    /// The code's detail: the conflict's kind, the too-large limit in bytes, the session evicted or busy, or the
+    /// request number expected; zero otherwise.
     pub fn detail(&self) -> u64 {
         match self.0 {
             CommitErrorEnum::Conflict { kind } => kind.number(),
             CommitErrorEnum::TooLarge { limit, .. } => limit as u64,
+            CommitErrorEnum::SessionEvicted { session }
+            | CommitErrorEnum::SessionBusy { session } => session,
+            CommitErrorEnum::RequestOutOfOrder { expected } => expected,
             _ => 0,
         }
     }
 
-    /// Whether a retry of the transaction may commit: a conflict and too old are.
+    /// Whether a retry of the transaction may commit: a conflict, too old and busy are.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self.0,
-            CommitErrorEnum::Conflict { .. } | CommitErrorEnum::TooOld { .. }
+            CommitErrorEnum::Conflict { .. }
+                | CommitErrorEnum::TooOld { .. }
+                | CommitErrorEnum::Busy { .. }
         )
     }
 }

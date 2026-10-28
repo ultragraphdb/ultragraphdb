@@ -334,3 +334,160 @@ fn test_a_stale_round_writes_no_rebuild_record() {
     assert_eq!(a.quads().store().contents(), before);
     assert!(a.quads().store().rebuild_records().unwrap().is_empty());
 }
+
+/// An execution names the catalog keys it writes as a predicate's implicit default entry, sorted, and no other: a
+/// declaration's entry, even of a predicate the changeset first wrote, is a catalog change (decided 2026-10-27).
+#[test]
+fn test_an_execution_names_the_default_entries_it_writes() {
+    let a = changesets();
+    write(
+        &a,
+        &["<a> <knows> <z>", "<z> <seen> <score>", "<z> <seen> <age>"],
+    );
+    let first = a
+        .execute(&changeset(vec![
+            insert("<a> <score> \"x\""),
+            insert("<a> <age> \"y\""),
+            insert("<a> <knows> <b>"),
+        ]))
+        .unwrap();
+    let mut expected = vec![
+        ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "score")),
+        ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "age")),
+    ];
+    expected.sort();
+    assert_eq!(first.defaults(), expected.as_slice());
+    let declared = a
+        .execute(&changeset(vec![
+            insert("<a> <score> \"x\""),
+            Change::Declare(Declaration::Predicate(declaration("score", "a score"))),
+        ]))
+        .unwrap();
+    assert!(declared.defaults().is_empty());
+    let known = a
+        .execute(&changeset(vec![insert("<a> <knows> <c>")]))
+        .unwrap();
+    assert!(known.defaults().is_empty());
+}
+
+/// Two executions from one watermark first write one predicate, the first another besides: once their round is
+/// written, the catalog holds both predicates' default entries, as the store does, so the second execution's catalog
+/// does not hide the first one's entry.
+#[test]
+fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() {
+    let a = changesets();
+    write(
+        &a,
+        &["<a> <knows> <z>", "<z> <seen> <score>", "<z> <seen> <age>"],
+    );
+    let first = a
+        .execute(&changeset(vec![
+            insert("<a> <score> \"x\""),
+            insert("<a> <age> \"y\""),
+        ]))
+        .unwrap();
+    let second = a
+        .execute(&changeset(vec![insert("<b> <score> \"z\"")]))
+        .unwrap();
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, first), (next + 2, second)])
+        .unwrap();
+    let catalog = a.catalog(NS).unwrap();
+    assert!(catalog.predicate(uid(&a, "age")).is_some());
+    assert!(catalog.predicate(uid(&a, "score")).is_some());
+    let snapshot = a
+        .quads()
+        .store()
+        .snapshot(a.quads().lists().applied_ts())
+        .unwrap();
+    let stored = ultragraphdb_core_catalog::Catalog::load(&snapshot, NS).unwrap();
+    assert_eq!(*catalog, stored);
+}
+
+/// An execution that changed the catalog, from the watermark another execution of its round first wrote a predicate
+/// from, is installed with that predicate's default entry: the default entry did not abort it, so its catalog does
+/// not hold it.
+#[test]
+fn test_a_catalog_change_keeps_the_default_entries_written_since_it_read() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>", "<z> <seen> <age>"]);
+    let first = a
+        .execute(&changeset(vec![insert("<a> <age> \"y\"")]))
+        .unwrap();
+    let declared = a
+        .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
+            declaration("tag", "a property"),
+        ))]))
+        .unwrap();
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, first), (next + 2, declared)])
+        .unwrap();
+    let catalog = a.catalog(NS).unwrap();
+    assert!(catalog.predicate(uid(&a, "age")).is_some());
+    assert!(catalog.predicate(uid(&a, "tag")).is_some());
+    let snapshot = a
+        .quads()
+        .store()
+        .snapshot(a.quads().lists().applied_ts())
+        .unwrap();
+    assert_eq!(
+        *catalog,
+        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS).unwrap()
+    );
+}
+
+/// An execution that wrote no catalog entry leaves the catalog as the executions before it in its round left it.
+#[test]
+fn test_an_execution_writing_no_catalog_entry_leaves_the_catalog() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>", "<z> <seen> <age>"]);
+    let first = a
+        .execute(&changeset(vec![insert("<a> <age> \"y\"")]))
+        .unwrap();
+    let plain = a
+        .execute(&changeset(vec![insert("<a> <knows> <c>")]))
+        .unwrap();
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, first), (next + 2, plain)])
+        .unwrap();
+    let catalog = a.catalog(NS).unwrap();
+    assert!(catalog.predicate(uid(&a, "age")).is_some());
+    let snapshot = a
+        .quads()
+        .store()
+        .snapshot(a.quads().lists().applied_ts())
+        .unwrap();
+    assert_eq!(
+        *catalog,
+        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS).unwrap()
+    );
+}
+
+/// The catalog installed is the one the store holds whatever the round's order: a default entry written after a
+/// declaration of its predicate in one round, which the resolver never admits together since the declaration is a
+/// catalog change, lands in both as the store's batch writes it, the later write.
+#[test]
+fn test_the_installed_catalog_is_the_stored_one_after_a_default_follows_a_declaration() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <z>", "<z> <seen> <score>"]);
+    let declared = a
+        .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
+            declaration("score", "a property"),
+        ))]))
+        .unwrap();
+    let default = a
+        .execute(&changeset(vec![insert("<a> <score> \"y\"")]))
+        .unwrap();
+    let next = a.quads().lists().next_version();
+    a.apply_round(vec![(next, declared), (next + 2, default)])
+        .unwrap();
+    let snapshot = a
+        .quads()
+        .store()
+        .snapshot(a.quads().lists().applied_ts())
+        .unwrap();
+    assert_eq!(
+        *a.catalog(NS).unwrap(),
+        ultragraphdb_core_catalog::Catalog::load(&snapshot, NS).unwrap()
+    );
+}

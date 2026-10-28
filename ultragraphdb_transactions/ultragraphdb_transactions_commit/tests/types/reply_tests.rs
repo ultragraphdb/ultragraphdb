@@ -13,3 +13,18 @@ fn test_a_reply_keeps_its_ticket_and_outcome() {
     let refused = Reply::new(4, Err(CommitError::Unavailable()));
     assert_eq!(refused.outcome(), &Err(CommitError::Unavailable()));
 }
+
+#[test]
+fn test_a_reply_carries_its_operations_results() {
+    use ultragraphdb_protocol_wire::OperationResult;
+    let plain = Reply::new(3, Ok(12));
+    assert!(plain.results().is_empty());
+    let results = vec![
+        OperationResult::new(9, true),
+        OperationResult::new(0, false),
+    ];
+    let with = Reply::new(3, Ok(12)).with_results(results.clone());
+    assert_eq!(with.results(), results.as_slice());
+    assert_eq!(with.outcome(), &Ok(12));
+    assert_ne!(with, plain);
+}

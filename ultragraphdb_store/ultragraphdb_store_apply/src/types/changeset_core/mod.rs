@@ -4,6 +4,7 @@
  */
 
 mod changeset_core_drop;
+mod changeset_core_operate;
 mod changeset_core_rebuild;
 mod changeset_core_record;
 
@@ -15,7 +16,7 @@ use ultragraphdb_core_keys::Region;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
-use ultragraphdb_traits_store::{ListCache, Store};
+use ultragraphdb_traits_store::{ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
@@ -114,24 +115,34 @@ where
         let _apply = lock(&self.apply);
         let executed = self.execute(changeset)?;
         let version = self.quads.lists().next_version();
-        let (mut applied, started) = self.write_round(vec![(version, executed)])?;
+        let (mut applied, started) = self.write_round(vec![(version, executed)], &[], 0)?;
         let applied = applied
             .pop()
             .expect("a round of one execution gives one commit");
         Ok((applied, started))
     }
 
-    /// Writes `round`, as [`crate::ChangesetApplier::apply_round`] does, with the number of the record of the build
-    /// one of its executions started.
-    pub fn apply_round(&self, round: Vec<(u64, Executed)>) -> Result<RoundOutcome, ChangesetError> {
+    /// Writes `round` with `system` and `through`, as [`crate::ChangesetApplier::apply_round_with`] does, with the
+    /// number of the record of the build one of its executions started.
+    pub fn apply_round_with(
+        &self,
+        round: Vec<(u64, Executed)>,
+        system: &[VersionlessEntry],
+        through: u64,
+    ) -> Result<RoundOutcome, ChangesetError> {
         let _apply = lock(&self.apply);
-        self.write_round(round)
+        self.write_round(round, system, through)
     }
 
     /// Writes `round` under the apply lock the caller holds. A record naming the indexes its declarations build and
     /// remove is written and synced before the round's batch; once the batch is written, the catalogs are installed,
     /// the indexes removed are dropped and the build is registered, and a record no build keeps is removed.
-    fn write_round(&self, mut round: Vec<(u64, Executed)>) -> Result<RoundOutcome, ChangesetError> {
+    fn write_round(
+        &self,
+        mut round: Vec<(u64, Executed)>,
+        system: &[VersionlessEntry],
+        through: u64,
+    ) -> Result<RoundOutcome, ChangesetError> {
         let running = lock(&self.rebuild).clone();
         let mut building = running.is_some();
         for (_, executed) in &round {
@@ -150,6 +161,7 @@ where
             after = *version;
         }
         let Some(&(first, _)) = round.first() else {
+            self.quads.lists().commit_round_with(&[], system, through)?;
             return Ok((Vec::new(), None));
         };
         let record = self.record_round(first, &mut round)?;
@@ -158,8 +170,24 @@ where
                 self.touch(r, std::mem::take(&mut executed.touched));
             }
         }
-        let writes: Vec<(u64, &Writes)> = round.iter().map(|(v, e)| (*v, &e.writes)).collect();
-        self.quads.lists().commit_round(&writes)?;
+        // A drop writes nothing in the batch: it drops its predicate at its version once the batch is written, and
+        // the system's entries and `through` follow it, so the watermark stays below the drop's version until then.
+        let writes: Vec<(u64, &Writes)> = round
+            .iter()
+            .filter(|(_, e)| e.dropped.is_none())
+            .map(|(v, e)| (*v, &e.writes))
+            .collect();
+        let drops: Vec<(u64, u64, u64)> = round
+            .iter()
+            .filter_map(|(v, e)| e.dropped.map(|uid| (*v, e.namespace, uid)))
+            .collect();
+        if drops.is_empty() {
+            self.quads
+                .lists()
+                .commit_round_with(&writes, system, through)?;
+        } else {
+            self.quads.lists().commit_round_with(&writes, &[], 0)?;
+        }
         let mut removals: Vec<PredicatePrefix> = Vec::new();
         let mut started = None;
         let mut applied = Vec::with_capacity(round.len());
@@ -170,7 +198,11 @@ where
                 .chain(executed.writes.entry_keys())
                 .filter_map(|k| Region::of(k).ok())
                 .collect();
-            lock(&self.catalogs).insert(executed.catalog.namespace(), Arc::new(executed.catalog));
+            self.install(
+                executed.catalog,
+                &executed.default_uids,
+                executed.catalog_changed,
+            )?;
             removals.extend(executed.removals);
             if let Some(mut rebuild) = executed.pending {
                 rebuild.start_ts = version;
@@ -185,6 +217,12 @@ where
             ));
         }
         self.drop_removed(&removals)?;
+        if !drops.is_empty() {
+            for &(version, namespace, uid) in &drops {
+                self.drop_predicate_uid(namespace, uid, Some(version))?;
+            }
+            self.quads.lists().commit_round_with(&[], system, through)?;
+        }
         let started = match (started, record) {
             (Some(rebuild), _) => Some(self.begin(rebuild)),
             (None, Some(record)) => {
@@ -194,6 +232,49 @@ where
             (None, None) => None,
         };
         Ok((applied, started))
+    }
+}
+
+impl<S, C> ChangesetCore<S, C> {
+    /// Installs the catalog an execution leaves. One that changed the catalog is installed with every predicate the
+    /// installed catalog holds and it does not: the implicit default entries other executions wrote since it read,
+    /// which are no catalog change and so did not abort it. One that only wrote default entries adds each to the
+    /// installed catalog; one that did neither leaves the catalog alone. The catalog installed is the one the store
+    /// holds after the round.
+    fn install(
+        &self,
+        mut catalog: Catalog,
+        defaults: &[u64],
+        changed: bool,
+    ) -> Result<(), ChangesetError> {
+        let mut catalogs = lock(&self.catalogs);
+        let namespace = catalog.namespace();
+        let installed = catalogs.get(&namespace);
+        let merged = match installed {
+            None => catalog,
+            Some(installed) if changed => {
+                for (uid, declaration) in installed.predicates() {
+                    if catalog.predicate(uid).is_none() {
+                        catalog.declare_predicate(uid, declaration.clone())?;
+                    }
+                }
+                catalog
+            }
+            Some(_) if defaults.is_empty() => return Ok(()),
+            Some(installed) => {
+                let mut merged = (**installed).clone();
+                // Written as the store's batch writes them, the later write of a key last. A default entry over a
+                // declaration of its round is never admitted together with it: the declaration is a catalog change.
+                for &uid in defaults {
+                    if let Some(default) = catalog.predicate(uid) {
+                        merged.declare_predicate(uid, default.clone())?;
+                    }
+                }
+                merged
+            }
+        };
+        catalogs.insert(namespace, Arc::new(merged));
+        Ok(())
     }
 }
 

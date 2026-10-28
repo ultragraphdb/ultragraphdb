@@ -5,13 +5,13 @@
 
 use oxrdf::{GraphNameRef, NamedNodeRef, NamedOrBlankNodeRef, Term};
 use ultragraphdb_core_mapping::Changeset;
-use ultragraphdb_store_apply::{ChangesetApplier, Execution};
+use ultragraphdb_store_apply::{ChangesetApplier, Execution, Operation};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 
 use crate::errors::txn_error::TxnError;
 use crate::types::mode::Mode;
-use crate::types::prepared::Prepared;
+use crate::types::prepared::{Prepared, Rewrite};
 use crate::types::txn_buffers::TxnBuffers;
 use crate::types::txn_limits::TxnLimits;
 use crate::types::write_set_builder::WriteSetBuilder;
@@ -46,6 +46,7 @@ pub struct Transaction<'a, S, C> {
     began_us: u64,
     limits: TxnLimits,
     buffers: TxnBuffers,
+    operations: Vec<Operation>,
 }
 
 impl<'a, S, C> Transaction<'a, S, C>
@@ -89,6 +90,7 @@ where
             began_us: now_us,
             limits,
             buffers,
+            operations: Vec::new(),
         })
     }
 
@@ -129,6 +131,21 @@ where
             self.execution = None;
             return Err(e.into());
         }
+        Ok(())
+    }
+
+    /// Asks the commit step to decide `operation` at `now_us`, after the transaction's other checks and its writes, in
+    /// the order asked (7.5): its result comes with the commit's reply, and nothing the transaction writes names it.
+    ///
+    /// # Errors
+    ///
+    /// [`TxnError::Ended`]; [`TxnError::PastLimit`], ending it; [`TxnError::ReadOnly`], which leaves it as it was.
+    pub fn operate(&mut self, operation: Operation, now_us: u64) -> Result<(), TxnError> {
+        if self.mode == Mode::ReadOnly {
+            return Err(TxnError::ReadOnly());
+        }
+        self.live(now_us)?;
+        self.operations.push(operation);
         Ok(())
     }
 
@@ -191,7 +208,24 @@ where
         WriteSetBuilder::new(&executed, session, request, commit_record)
             .with_objects_per_list(self.limits.objects_per_list())
             .write_into(&mut record, self.limits.max_write_set())?;
-        Ok(Commit::ReadWrite(Prepared::new(executed, read_set, record)))
+        let rewrite = Rewrite {
+            session,
+            request,
+            commit_record: if self.operations.is_empty() {
+                Vec::new()
+            } else {
+                commit_record.to_vec()
+            },
+            objects_per_list: self.limits.objects_per_list(),
+            max_write_set: self.limits.max_write_set(),
+        };
+        Ok(Commit::ReadWrite(Prepared::new(
+            executed,
+            read_set,
+            record,
+            self.operations,
+            rewrite,
+        )))
     }
 
     /// The limit of the transaction's mode.

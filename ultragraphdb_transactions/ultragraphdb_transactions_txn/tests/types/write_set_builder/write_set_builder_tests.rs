@@ -110,8 +110,29 @@ fn test_the_fixed_part_is_written_little_endian_first() {
         .flat_map(|v| v.to_le_bytes())
         .collect();
     assert_eq!(&bytes[..32], fixed.as_slice());
-    // Section 0 starts where the table of nine sections ends: 32 + 9 × 8.
-    assert_eq!(u32::from_le_bytes(bytes[32..36].try_into().unwrap()), 104);
+    // Section 0 starts where the table of ten sections ends: 32 + 10 × 8.
+    assert_eq!(u32::from_le_bytes(bytes[32..36].try_into().unwrap()), 112);
+}
+
+/// A worker's record holds no results; the commit step's record of a transaction with operations holds each one in
+/// section 9, in the order asked, which the wire's view reads back (decided 2026-10-28).
+#[test]
+fn test_results_are_written_into_section_nine_in_order() {
+    let applier = known();
+    let executed = executed(&applier, vec![insert("a", "knows", "b")]);
+    let none = written(&WriteSetBuilder::new(&executed, 1, 1, &[]));
+    assert_eq!(WriteSetRecordView::new(&none).unwrap().result_count(), 0);
+    let results = [(41, true), (7, false)];
+    let builder = WriteSetBuilder::new(&executed, 1, 1, &[]).with_results(&results);
+    let bytes = written(&builder);
+    assert_eq!(bytes.len(), builder.len());
+    assert_eq!(bytes.len(), none.len() + 32);
+    let view = WriteSetRecordView::new(&bytes).unwrap();
+    let read: Vec<(u64, bool)> = (0..view.result_count())
+        .filter_map(|i| view.result(i))
+        .map(|r| (r.uid(), r.created()))
+        .collect();
+    assert_eq!(read, results);
 }
 
 #[test]
@@ -223,8 +244,11 @@ fn test_a_new_iri_writes_its_dictionary_entries_as_points() {
     assert_eq!(view.versionless().len(), 0);
 }
 
+/// A predicate's implicit default entry is an insert-if-absent on its catalog key, not a catalog change (decided
+/// 2026-10-27): the record carries the entry and names no conflict point for it, so concurrent first writes of one
+/// predicate both commit.
 #[test]
-fn test_a_predicates_first_write_writes_its_catalog_entry_as_a_point() {
+fn test_a_predicates_first_write_writes_its_default_entry_without_a_point() {
     let applier = known();
     let executed = executed(&applier, vec![insert("a", "likes", "b")]);
     let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]));
@@ -235,8 +259,28 @@ fn test_a_predicates_first_write_writes_its_catalog_entry_as_a_point() {
     let mut prefix = vec![0x01];
     prefix.extend_from_slice(&NS.to_be_bytes());
     assert!(catalog[0].starts_with(&prefix));
-    assert!(keys(view.conflict_points()).contains(&catalog[0]));
+    assert!(!keys(view.conflict_points()).contains(&catalog[0]));
     assert!(view.catalog().iter().all(|e| e.value().is_some()));
+}
+
+/// A declaration remains a catalog change: its entry is a conflict point, even when the changeset first wrote the
+/// predicate under its default entry.
+#[test]
+fn test_a_declarations_catalog_entry_is_a_point() {
+    let applier = known();
+    let declared = ultragraphdb_core_mapping::PredicateDeclaration::new(ex("likes"));
+    let executed = executed(
+        &applier,
+        vec![
+            insert("a", "likes", "b"),
+            Change::Declare(ultragraphdb_core_mapping::Declaration::Predicate(declared)),
+        ],
+    );
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]));
+    let view = WriteSetRecordView::new(&bytes).unwrap();
+    let catalog = keys(view.catalog());
+    assert_eq!(catalog.len(), 1, "the declaration of likes");
+    assert!(keys(view.conflict_points()).contains(&catalog[0]));
 }
 
 #[test]

@@ -505,3 +505,52 @@ fn test_a_malformed_record_is_refused_before_the_read_set_is_checked() {
         ))
     ));
 }
+
+/// A transaction that wrote into a range written above its read version, and read nothing there, aborts as a write into
+/// a dropped range; one that wrote outside it commits (7.7).
+#[test]
+fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() {
+    let mut step = Step::new(unbounded(), 0);
+    let mut out = Out::new();
+    commit(
+        &mut step,
+        &mut out,
+        1,
+        proposal(0, &Reads::default(), &Writes::range(b"p", Some(b"q"))),
+        0,
+    );
+    commit(
+        &mut step,
+        &mut out,
+        2,
+        proposal(0, &Reads::default(), &Writes::point(b"pa")),
+        0,
+    );
+    commit(
+        &mut step,
+        &mut out,
+        3,
+        proposal(0, &Reads::default(), &Writes::statement(b"pb", b"o")),
+        0,
+    );
+    commit(
+        &mut step,
+        &mut out,
+        4,
+        proposal(0, &Reads::default(), &Writes::point(b"r")),
+        0,
+    );
+    sync(&mut step, &mut out, 0);
+    sync(&mut step, &mut out, 0);
+    let outcome = |t: u64| {
+        out.replies()
+            .iter()
+            .find(|r| r.ticket() == t)
+            .expect("decided")
+            .outcome()
+            .clone()
+    };
+    assert_eq!(outcome(2), Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(3), Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(4), Ok(4));
+}

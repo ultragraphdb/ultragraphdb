@@ -67,7 +67,10 @@ aborting every read-write transaction whose read version is below it, that commi
 the range. The nodes a write changes during an index build SHALL be recorded by the commit step in commit order. A
 predicate's implicit default entry, recorded by its first write, SHALL be a commit-time insert-if-absent on its catalog
 key and not a catalog change: concurrent first writes of one predicate both commit, the first creating the entry and
-the second finding it (decided 2026-10-27). A declaration remains a catalog change.
+the second finding it (decided 2026-10-27). A declaration remains a catalog change. A drop's range SHALL hold the
+dropped predicate's catalog entry, so a drop aborts its namespace's transactions as a catalog change does, and a
+round SHALL close after a drop and before a second declaration that starts an index build: a round holds at most one
+build, and nothing aborts for it (decided 2026-10-28).
 
 #### Scenario: Concurrent first writes of a predicate both commit
 - **WHEN** two transactions of `ns` read before either commits, the first writes `<a> <score> 12` and the second

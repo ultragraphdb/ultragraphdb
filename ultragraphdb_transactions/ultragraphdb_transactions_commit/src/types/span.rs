@@ -4,7 +4,7 @@
  */
 
 /// A key held in a run's arena, by offset and length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub(crate) struct Span {
     pub at: u32,
     pub len: u32,

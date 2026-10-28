@@ -77,7 +77,7 @@ pub const BODIES: [GoldenBody; 22] = [
     g("cancel", 15, 11, 0, 256, 0x5f55_fc6f_7d1d_3612, 0x2d06_8005_38d3_94c2),
     g("error", 16, 5, 1, 304, 0x6060_d113_2332_53eb, 0x5107_5088_7f86_158a),
     g("error_operation", 16, 7, 1, 318, 0xee9e_e1cc_b9c3_4eb6, 0x333a_9044_74e6_cc95),
-    g("round", 17, 0, 0, 5_712, 0x0e86_b49e_288c_861a, 0x546c_11ac_2fa8_3358),
+    g("round", 17, 0, 0, 5_760, 0xd4ab_1e25_1805_8b88, 0x90d6_5ebd_b93d_8c59),
 ];
 
 /// The schema id the generator printed for the golden Describe answer's declarations.

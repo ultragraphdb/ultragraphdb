@@ -131,6 +131,19 @@ impl ConflictHistory {
             .then_some(ConflictKind::Drop)
     }
 
+    /// Whether a range written above `read_version` holds a key of `written`, the keys a transaction wrote, whole or as
+    /// a statement's list, as `written` gives them each time it is called: a write into a range dropped after the
+    /// transaction read (7.7).
+    pub fn written_into_range<'k, I>(&self, read_version: u64, written: impl Fn() -> I) -> bool
+    where
+        I: Iterator<Item = &'k [u8]>,
+    {
+        self.runs
+            .iter()
+            .filter(|run| run.newest() > read_version)
+            .any(|run| run.ranges_hold(written(), read_version))
+    }
+
     /// Raises the floor to `floor`, never lowering it, and drops what only versions at or below it wrote.
     pub fn prune(&mut self, floor: u64) {
         self.floor = self.floor.max(floor);

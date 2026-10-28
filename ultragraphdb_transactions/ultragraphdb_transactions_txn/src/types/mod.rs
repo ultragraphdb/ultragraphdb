@@ -4,6 +4,7 @@
  */
 
 pub(crate) mod mode;
+pub(crate) mod operated;
 pub(crate) mod prepared;
 pub(crate) mod read_set;
 pub(crate) mod span;

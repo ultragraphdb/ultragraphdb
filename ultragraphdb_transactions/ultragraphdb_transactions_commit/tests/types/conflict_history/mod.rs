@@ -6,4 +6,6 @@
 #[cfg(test)]
 mod conflict_history_model_tests;
 #[cfg(test)]
+mod conflict_history_skip_tests;
+#[cfg(test)]
 mod conflict_history_tests;

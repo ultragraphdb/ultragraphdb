@@ -8,7 +8,7 @@ use std::sync::Arc;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::{BIT_SCHEMA_POSTING, PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::Fault;
-use ultragraphdb_traits_store::{Entry, ListCache, Store, StoreSnapshot};
+use ultragraphdb_traits_store::{Entry, ListCache, Store, StoreSnapshot, VersionlessEntry};
 
 use crate::utils::helpers::{
     TestLists, commit_edges, key, lists_over, new_lists, probe_lists, set_uid, uids,
@@ -338,6 +338,95 @@ fn test_an_empty_round_writes_nothing() {
     lists.commit_round(&[]).unwrap();
     assert!(lists.store().take_log().is_empty());
     assert_eq!(lists.applied_ts(), 0);
+}
+
+/// A round writes the system's entries without versions in its batch, a removal among them, and records its last version
+/// as applied though no execution took it: a round whose last decision, or whose every decision, is a session
+/// registration (7.8, decided 2026-10-28). A request's own removal without a version is written too.
+#[test]
+fn test_a_round_writes_the_systems_entries_and_moves_past_its_last_version() {
+    let lists = new_lists();
+    let mut request = lists.request(0);
+    request.add_versionless(b"gone".to_vec(), b"old".to_vec());
+    let first = request.into_writes();
+    lists.commit_round(&[(2, &first)]).unwrap();
+    let mut request = lists.request(2);
+    request.add_versionless_entry(VersionlessEntry::removal(b"gone".to_vec()));
+    let removing = request.into_writes();
+    let system = [
+        VersionlessEntry::put(b"session".to_vec(), b"entry".to_vec()),
+        VersionlessEntry::removal(b"evicted".to_vec()),
+    ];
+    lists
+        .store()
+        .apply(
+            single_versionless(b"evicted"),
+            ultragraphdb_traits_store::PersistMode::Buffer,
+        )
+        .unwrap();
+    lists
+        .commit_round_with(&[(4, &removing)], &system, 6)
+        .unwrap();
+    assert_eq!(
+        lists.store().get_versionless(b"gone").unwrap(),
+        None,
+        "the request's removal"
+    );
+    assert_eq!(
+        lists.store().get_versionless(b"session").unwrap(),
+        Some(b"entry".to_vec())
+    );
+    assert_eq!(
+        lists.store().get_versionless(b"evicted").unwrap(),
+        None,
+        "the system's removal"
+    );
+    assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (6, 6));
+    // A round of the system's entries alone.
+    lists
+        .commit_round_with(
+            &[],
+            &[VersionlessEntry::put(b"alone".to_vec(), b"x".to_vec())],
+            8,
+        )
+        .unwrap();
+    assert_eq!(
+        lists.store().get_versionless(b"alone").unwrap(),
+        Some(b"x".to_vec())
+    );
+    assert_eq!(lists.applied_ts(), 8);
+    // At the watermark, as after a drop that moved it: the entries are written and the watermark stays.
+    lists
+        .commit_round_with(
+            &[],
+            &[VersionlessEntry::put(b"after".to_vec(), b"y".to_vec())],
+            8,
+        )
+        .unwrap();
+    assert_eq!(
+        lists.store().get_versionless(b"after").unwrap(),
+        Some(b"y".to_vec())
+    );
+    assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (8, 8));
+    // Below the watermark it is refused naming both, and nothing is written.
+    assert_eq!(
+        lists.commit_round_with(&[], &system, 6),
+        Err(PostingError::StaleVersion(6, 8))
+    );
+    assert_eq!(
+        lists.store().get_versionless(b"session").unwrap(),
+        Some(b"entry".to_vec())
+    );
+    // Nothing to write and a version above the watermark: the watermark moves.
+    lists.commit_round_with(&[], &[], 10).unwrap();
+    assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (10, 10));
+}
+
+/// A batch holding one entry without a version, `key`.
+fn single_versionless(key: &[u8]) -> ultragraphdb_traits_store::WriteBatch {
+    let mut batch = ultragraphdb_traits_store::WriteBatch::new();
+    batch.put_versionless(key.to_vec(), b"present".to_vec());
+    batch
 }
 
 /// A version at or below the watermark, or not above the round's previous one, is refused naming both, and nothing of

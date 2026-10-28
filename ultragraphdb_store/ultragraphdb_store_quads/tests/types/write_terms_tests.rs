@@ -4,7 +4,9 @@
  */
 
 use oxrdf::{BlankNode, Literal, Term};
-use ultragraphdb_store_quads::{WriteTerms, iri_key};
+use ultragraphdb_core_terms::Hash128;
+use ultragraphdb_store_quads::{WriteTerms, iri_key, string_key, uid_key, uid_value};
+use ultragraphdb_traits_store::VersionlessEntry;
 
 use crate::utils::helpers::{ex, quad, quads, write};
 
@@ -96,5 +98,44 @@ fn test_a_datatype_is_looked_up_and_a_blank_node_is_not() {
     assert_eq!(
         terms.absent().collect::<Vec<_>>(),
         vec![iri_key(0, ex("custom").as_str()).as_slice()]
+    );
+}
+
+/// Inherited dictionary entries, those decided but unapplied writes made, read as the write's own: a UID's IRI and its
+/// skolem flag, the IRI known by its UID, a string by its hash; entries of another namespace and removals are left
+/// alone, and nothing inherited is written again (7.5).
+#[test]
+fn test_inherited_dictionary_entries_are_read_and_never_written() {
+    let store = quads();
+    let hash = Hash128::of(b"a long string");
+    let iri = ex("fresh");
+    let entries = [
+        VersionlessEntry::put(uid_key(0, 41), uid_value(iri.as_str(), false)),
+        VersionlessEntry::put(uid_key(0, 42), uid_value("http://ex.org/blank", true)),
+        VersionlessEntry::put(string_key(0, &hash), b"a long string".to_vec()),
+        VersionlessEntry::put(uid_key(1, 43), uid_value("http://ex.org/elsewhere", false)),
+        VersionlessEntry::removal(uid_key(0, 44)),
+    ];
+    let mut terms = WriteTerms::new(0);
+    terms.inherit(&entries.iter().collect::<Vec<_>>());
+    assert_eq!(terms.pending_iri(41), Some((iri.as_str(), false)));
+    assert_eq!(terms.pending_iri(42), Some(("http://ex.org/blank", true)));
+    assert_eq!(terms.pending_string(&hash), Some("a long string"));
+    assert_eq!(terms.pending_iri(43), None, "another namespace's entry");
+    assert_eq!(terms.pending_iri(44), None, "a removal");
+    assert_eq!(
+        terms
+            .iri(store.store(), store.leases(), iri.as_str())
+            .unwrap(),
+        41,
+        "the inherited IRI is known by its UID, not created again"
+    );
+    assert!(
+        terms.entries().is_empty(),
+        "nothing inherited is written again"
+    );
+    assert!(
+        terms.absent().next().is_none(),
+        "a known IRI is not looked up"
     );
 }

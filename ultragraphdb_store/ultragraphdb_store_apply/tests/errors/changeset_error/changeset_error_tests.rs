@@ -152,3 +152,33 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
     assert!(matches!(hnsw.0, ChangesetErrorEnum::Hnsw(_)));
     assert_eq!(hnsw.to_string(), "No value found");
 }
+
+#[test]
+fn test_the_operation_errors_name_what_they_found() {
+    let failed = ChangesetError::OperationFailed(Some("\"done\"".to_string()));
+    assert_eq!(
+        failed.0,
+        ChangesetErrorEnum::OperationFailed {
+            found: Some("\"done\"".to_string())
+        }
+    );
+    assert_eq!(
+        failed.to_string(),
+        "The operation did not hold: \"done\" is held"
+    );
+    assert_eq!(
+        ChangesetError::OperationFailed(None).to_string(),
+        "The operation did not hold: no value is held"
+    );
+    let not_unique = ChangesetError::NotUnique("http://ex.org/p");
+    assert_eq!(
+        not_unique.0,
+        ChangesetErrorEnum::NotUnique {
+            predicate: "http://ex.org/p".to_string()
+        }
+    );
+    assert_eq!(
+        not_unique.to_string(),
+        "Predicate <http://ex.org/p> is not declared unique, so no node is found by its value"
+    );
+}

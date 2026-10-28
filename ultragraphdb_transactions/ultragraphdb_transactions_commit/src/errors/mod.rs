@@ -4,3 +4,5 @@
  */
 
 pub mod commit_error;
+
+pub mod pipeline_error;

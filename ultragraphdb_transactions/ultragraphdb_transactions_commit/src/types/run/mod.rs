@@ -45,12 +45,20 @@ pub(crate) struct Written {
 
 /// One sorted run of the conflict history: its keys in one arena, its points sorted by key and its statements by key
 /// and object, each held once with the newest version that wrote it, and its ranges. Cleared, it keeps its capacity.
+///
+/// **Key ranges** (approved 2026-10-28). A check skips a run whose keys cannot hold a read's key: the points' keys lie
+/// between the first and the last point, which the sort gives with nothing stored, and every statement's list key is
+/// among the points; the ranges, unsorted, are bounded by `ranges_low`, their lowest start, and `ranges_high`, their
+/// highest end or `None` past every key, set by [`Run::fill`] and [`Run::merge`]. The bounds only skip: a key within
+/// them is still compared exactly.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Run {
     arena: Vec<u8>,
     points: Vec<Point>,
     statements: Vec<Statement>,
     ranges: Vec<Written>,
+    ranges_low: Span,
+    ranges_high: Option<Span>,
     newest: u64,
 }
 
@@ -61,7 +69,49 @@ impl Run {
         self.points.clear();
         self.statements.clear();
         self.ranges.clear();
+        self.ranges_low = Span::default();
+        self.ranges_high = None;
         self.newest = 0;
+    }
+
+    /// The keys of the first and the last point, `None` for a run without one.
+    pub fn point_bounds(&self) -> Option<(&[u8], &[u8])> {
+        let first = self.points.first()?;
+        let last = self.points.last()?;
+        Some((first.key.of(&self.arena), last.key.of(&self.arena)))
+    }
+
+    /// The lowest start and the highest end of the ranges, an end of `None` past every key; `None` for a run without a
+    /// range.
+    pub fn range_bounds(&self) -> Option<(&[u8], Option<&[u8]>)> {
+        if self.ranges.is_empty() {
+            return None;
+        }
+        Some((
+            self.ranges_low.of(&self.arena),
+            self.ranges_high.map(|h| h.of(&self.arena)),
+        ))
+    }
+
+    /// Sets the ranges' bounds from the ranges held.
+    fn bound_ranges(&mut self) {
+        let arena = self.arena.as_slice();
+        let Some(first) = self.ranges.first() else {
+            return;
+        };
+        let (mut low, mut high) = (first.start, first.end);
+        for w in &self.ranges {
+            if w.start.of(arena) < low.of(arena) {
+                low = w.start;
+            }
+            high = match (high, w.end) {
+                (Some(h), Some(e)) if e.of(arena) > h.of(arena) => Some(e),
+                (Some(h), Some(_)) => Some(h),
+                _ => None,
+            };
+        }
+        self.ranges_low = low;
+        self.ranges_high = high;
     }
 
     /// The number of entries: points, statements and ranges.
@@ -156,6 +206,7 @@ impl Run {
             .sort_unstable_by(|a, b| pair(a).cmp(&pair(b)));
         self.statements
             .dedup_by(|later, kept| pair(later) == pair(kept));
+        self.bound_ranges();
         if !self.is_empty() {
             self.newest = version;
         }

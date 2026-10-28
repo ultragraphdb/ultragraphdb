@@ -20,7 +20,8 @@ workspace = true
 
 [dependencies]
 ultragraphdb_protocol_wire = { workspace = true }
-ultragraphdb_protocol_bus = { workspace = true }
+ultragraphdb_protocol_transport = { workspace = true }
+ultragraphdb_protocol_transport_compio = { workspace = true }
 ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }

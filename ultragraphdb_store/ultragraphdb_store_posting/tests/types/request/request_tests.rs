@@ -6,7 +6,7 @@
 use ultragraphdb_traits_store::{Entry, ListCache};
 
 use crate::utils::helpers::{
-    commit_edges, del_uid, key, new_lists, set_uid, set_value, uids, values,
+    check_uids, commit_edges, del_uid, key, new_lists, set_uid, set_value, uids, values,
 };
 
 #[test]
@@ -493,4 +493,58 @@ fn test_absorbing_a_fork_keeps_its_tests_ranges_and_whole_reads() {
         request.ranges().collect::<Vec<_>>(),
         vec![(b"\x10r".as_slice(), None)]
     );
+}
+
+/// Seeded deltas are the request's own writes: a read completes the list from the store and keeps them on top, a later
+/// edge adds to them, and the request leaves one delta per list, the seeded postings with its own (7.5).
+#[test]
+fn test_seeded_deltas_are_the_requests_own_writes() {
+    let lists = new_lists();
+    let hub = key("hub", 1);
+    let other = key("other", 1);
+    commit_edges(&lists, &hub, &[set_uid(1)]);
+    let read_ts = lists.applied_ts();
+    let mut first = lists.request(read_ts);
+    first
+        .get(&hub)
+        .unwrap()
+        .add_posting(set_uid(2).clone(), false);
+    first
+        .get(&other)
+        .unwrap()
+        .add_posting(set_uid(7).clone(), false);
+    let writes = first.into_writes();
+
+    let mut request = lists.request(read_ts);
+    request.seed_deltas(writes.deltas());
+    check_uids(request.get(&hub).unwrap(), &[1, 2], read_ts);
+    request
+        .get(&hub)
+        .unwrap()
+        .add_posting(set_uid(3).clone(), false);
+    let combined = request.into_writes();
+    let deltas: Vec<(Vec<u8>, Vec<u64>)> = combined
+        .deltas()
+        .iter()
+        .map(|(k, d)| (k.clone(), d.postings().iter().map(|p| p.uid()).collect()))
+        .collect();
+    assert_eq!(
+        deltas,
+        vec![(hub.clone(), vec![2, 3]), (other.clone(), vec![7])],
+        "one delta per list, the seeded postings and the request's"
+    );
+}
+
+/// A versionless entry added as it is keeps its removal.
+#[test]
+fn test_a_versionless_entry_is_added_as_it_is() {
+    let lists = new_lists();
+    let mut request = lists.request(lists.applied_ts());
+    request.add_versionless_entry(ultragraphdb_traits_store::VersionlessEntry::removal(
+        b"k".to_vec(),
+    ));
+    request.add_versionless(b"j".to_vec(), b"v".to_vec());
+    let writes = request.into_writes();
+    assert!(writes.versionless()[0].is_removal());
+    assert_eq!(writes.versionless()[1].value(), Some(&b"v"[..]));
 }

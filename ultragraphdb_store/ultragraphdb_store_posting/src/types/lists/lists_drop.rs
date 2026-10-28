@@ -59,6 +59,39 @@ where
         Ok(ts)
     }
 
+    /// Drops every key under `prefixes` at `ts`, a version the commit step gave the drop, then writes `entries`, as
+    /// [`Lists::drop_prefixes_now`] does: what a drop decided in a round does once the round's batch is written (7.7).
+    ///
+    /// # Errors
+    ///
+    /// [`PostingError::StaleVersion`] when `ts` is not above the applied version, writing nothing; the store's error,
+    /// which stops writes as [`Lists::drop_prefixes_now`]'s does.
+    pub fn drop_prefixes_at(
+        &self,
+        ts: u64,
+        prefixes: &[Vec<u8>],
+        entries: Vec<Entry>,
+    ) -> Result<(), PostingError> {
+        let _writer = lock(&self.writer);
+        self.refuse_if_failed()?;
+        {
+            let mut state = lock(&self.state);
+            if ts <= state.applied {
+                return Err(PostingError::StaleVersion(ts, state.applied));
+            }
+            state.in_flight = Some(ts);
+        }
+        let result = self.store.drop_prefixes(ts, prefixes, entries);
+        self.bump_epoch();
+        self.release_held(ts, result.is_ok());
+        if let Err(error) = result {
+            tracing::error!(drop_ts = ts, %error, "prefix drop failed; the store must be reopened");
+            self.fail_writes(None);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
     /// Drops every key at the next version, which it returns, then writes `entries`, holding reads above the watermark
     /// and moving it as [`Lists::drop_prefixes_now`] does.
     pub fn drop_all_now(&self, entries: Vec<Entry>) -> Result<u64, PostingError> {

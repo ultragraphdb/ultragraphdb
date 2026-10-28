@@ -198,7 +198,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 |---------------------------------------|-----------------------|-------------------------------------|---------------------------------------------------------------------------------------------------------|
 | `prost`, `tonic`, `tonic-prost`       | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb`; `prost` also `ultragraphdb_store_posting` | Generated protobuf types and the gRPC surface; the posting codec                                        |
 | `tonic-prost-build`                   | 0.14                  | `ultragraphdb_proto_dgraph`, `ultragraphdb_proto_pb` (build) | Cargo-side codegen. Bazel generates the same crate with `rust_prost_library` and the toolchains under `bazel/toolchains/` |
-| `tokio`                               | 1                     | `ultragraphdb_common_telemetry` | The runtime the OTLP exporter sends on |
+| `tokio`                               | =1.54.1; features per crate: `rt` (telemetry), `net`, `io-util`, `time` (client), `rt` in the client's tests | `ultragraphdb_common_telemetry`, `ultragraphdb_client_tokio` | The runtime the OTLP exporter sends on, and the primary public Rust client's: most Rust applications run tokio, so the client's first shell is a tokio one with `Send` futures (decided 2026-10-28). Pure Rust: `mio`, `socket2`, `bytes`, `pin-project-lite`, and `libc` as bindings only, no C toolchain |
 | `bcrypt` | 0.19 | `ultragraphdb_core_types` | Hashes and verifies passwords as Go's bcrypt does, `$2a$` hashes included |
 | `blake2` | 0.11 | `ultragraphdb_core_tok`, `ultragraphdb_core_terms` | BLAKE2b-256 of the hash tokenizer; BLAKE2b-128 of a dictionary entry's hash |
 | `oxrdf`, `oxsdatatypes` | 0.3.5, `rdf-12` / 0.2.4 | `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_core_catalog`, `ultragraphdb_store_quads`, `ultragraphdb_store_apply`, `ultragraphdb_tool_bench` | The RDF term model and the XSD datatypes' parsing and canonical forms, from Oxigraph |
@@ -214,7 +214,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `tracing-subscriber` | 0.3.23, `fmt` + `json` + `env-filter` | `ultragraphdb_common_telemetry`, `ultragraphdb_store_sim` | The level filter and plain or JSON output; the simulator's capturing subscriber |
 | `opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` | 0.33.1, `trace`; `grpc-tonic` | `ultragraphdb_common_telemetry` | Span export over OTLP, on the workspace's tonic 0.14 |
 | `tracing-opentelemetry` | 0.34.0 | `ultragraphdb_common_telemetry` | Bridges `tracing` spans to OpenTelemetry |
-| `compio` | 0.19.2, no default features; `runtime`, `io-uring`, `fs`, `net`, `time` | `ultragraphdb_protocol_bus`, `ultragraphdb_protocol_client`, `ultragraphdb_transactions_log` | The completion-based runtime of the workers, the write-ahead log and the protocol bus, io_uring on Linux; the stable release Apache Iggy builds on. Pure Rust on every shipped target: `cc` enters only through `loom` under `cfg(loom)` |
+| `compio` | 0.19.2, no default features; `runtime`, `io-uring`, `fs`, `net`, `time` | `ultragraphdb_protocol_transport_compio`, `ultragraphdb_client_compio`, `ultragraphdb_transactions_log` | The completion-based runtime of the workers, the write-ahead log, the transport's compio shell and the compio client, io_uring on Linux; the stable release Apache Iggy builds on. Pure Rust on every shipped target: `cc` enters only through `loom` under `cfg(loom)` |
 | `xxhash-rust` | 0.8.19, `xxh3` | `ultragraphdb_protocol_wire` and the formats checksummed with it | XXH3-64, as xxHash's `doc/xxhash_spec.md` specifies it, for frame, chunk, WAL and posting-list checksums; pure Rust |
 | `rustix` | `=1.1.6`, no default features; `fs` | `ultragraphdb_transactions_log`, on Linux only | `fallocate(2)` with `FALLOC_FL_KEEP_SIZE`, which reserves a new WAL segment's blocks without writing zeros; compio has no such call and the workspace forbids `unsafe`. Pinned exactly, at the release compio already resolves. Pure Rust: its Linux backend makes raw system calls with `linux-raw-sys`'s generated constants, which builds nothing, and its build script only probes `rustc`; macOS does not depend on it |
 | `arbitrary` | 1.5.0, `derive` | the fuzz workspace in `fuzz/` only | Structure-aware inputs for the `cargo-fuzz` targets run by `scripts/fuzz.sh`; no shipped crate depends on it |
@@ -278,11 +278,18 @@ Test targets live in the crate's own `BUILD.bazel`, beside the library. A crate 
 through `tests/mod.rs` takes one `rust_test` with `crate_root = "tests/mod.rs"`, tagged `unit-test`.
 A `rust_test_suite` over `*_tests.rs` fits only when every test file stands alone.
 
-`ultragraphdb_client` has three test roots, one per `[[test]]` in its `Cargo.toml` under
-`autotests = false`: `tests/lib_tests.rs` for the crate as consumers get it, `tests/utils_test_tests.rs`
-for the `test-utils` fixture, and `tests/dgraph_container_test.rs`, the acceptance test against a
-running Dgraph, tagged `integration_test` and run with
-`bazel test //... --test_tag_filters=integration_test`. `make test` leaves it out.
+The Rust client is three crates in `ultragraphdb_client/`, each with a test root `tests/mod.rs`,
+declared as `[[test]] unit` under `autotests = false` and run by one `rust_test` tagged `unit-test`;
+`ultragraphdb_client_core` adds `tests/bdd.rs`, the wire protocol's client-side scenarios, its own
+`bdd` target with the harness included by path.
+`ultragraphdb_client_core` is tested synchronously, with no runtime: `tests/utils/harness.rs` drives
+the core against the scripted server over the simulated network, under drop, delay, duplicate and
+split, moving time itself. The scripted server is `src/utils_test/`, behind the `test-utils`
+feature, so the shells' tests serve the same script; the core's `BUILD.bazel` sets
+`crate_features = ["test-utils"]`, and its own dev-dependency on itself turns it on under Cargo.
+`ultragraphdb_client_tokio` and `ultragraphdb_client_compio` run the same conversations through
+their shells, over the simulated network and a TCP loopback, with the server served from
+`tests/utils/serve.rs`.
 
 ### TDD and BDD
 

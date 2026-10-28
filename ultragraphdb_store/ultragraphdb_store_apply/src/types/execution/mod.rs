@@ -111,6 +111,11 @@ where
             read,
             lists_read,
             outcome.catalog,
+            (
+                outcome.defaults,
+                outcome.default_uids,
+                outcome.catalog_changed,
+            ),
             outcome.pending,
             outcome.touched,
             outcome.removals,

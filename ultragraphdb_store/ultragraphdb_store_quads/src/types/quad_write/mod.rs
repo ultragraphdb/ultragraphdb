@@ -9,7 +9,9 @@ use std::ops::ControlFlow;
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_core_terms::EncodedTerm;
-use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, DEL, PostingError, Request, SET};
+use ultragraphdb_store_posting::{
+    BIT_DELTA_POSTING, CachedList, DEL, PostingError, Request, SET, Writes,
+};
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::errors::quad_error::QuadError;
@@ -46,6 +48,52 @@ where
             stats: BTreeMap::new(),
             inserted: BTreeSet::new(),
         }
+    }
+
+    /// Continues the write `writes` and `terms` describe, a write finished before: its terms resolved as it resolved
+    /// them, its list deltas the request's own blind writes, its statistics deltas merged into this write's, and its
+    /// other entries, versionless writes, epoch mark and removed records added to the request. What a commit-time
+    /// operation writes on top of its transaction with, so that the two commit as one write (7.5).
+    ///
+    /// # Errors
+    ///
+    /// [`QuadError::Corrupted`] when a statistics delta of `writes` does not decode.
+    pub fn seed(&mut self, writes: &Writes, terms: WriteTerms) -> Result<(), QuadError> {
+        self.terms = terms;
+        self.request.seed_deltas(writes.deltas());
+        for entry in writes.entries() {
+            match (QuadKey::parse(entry.key()), entry.value()) {
+                (
+                    Ok((
+                        QuadKey::Statistics {
+                            graph, predicate, ..
+                        },
+                        _,
+                    )),
+                    Some(value),
+                ) => {
+                    let delta = Statistics::decode(entry.key(), value)?;
+                    self.stats
+                        .entry((graph, predicate))
+                        .or_default()
+                        .merge(&delta);
+                }
+                _ => self.request.add_entry(entry.clone()),
+            }
+        }
+        for entry in writes.versioned_entries() {
+            self.request.add_entry_at_version(entry.clone());
+        }
+        for entry in writes.versionless() {
+            self.request.add_versionless_entry(entry.clone());
+        }
+        if writes.advances_epoch() {
+            self.request.advance_epoch_on_commit();
+        }
+        for &id in writes.removed_records() {
+            self.request.remove_rebuild_record_on_commit(id);
+        }
+        Ok(())
     }
 
     pub fn namespace(&self) -> u64 {

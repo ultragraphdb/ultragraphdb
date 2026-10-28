@@ -9,6 +9,7 @@ use crate::types::cached_list::CachedList;
 use crate::types::lists::Lists;
 use crate::types::request::Request;
 use crate::types::stacked_layers::StackedLayers;
+use crate::types::writes::Writes;
 
 /// Requests committed together, in order, each at its own commit timestamp, in one store batch. A request begun
 /// from the batch reads the writes of the requests already pushed to it: their deltas stack on the lists it reads,
@@ -42,6 +43,13 @@ where
     pub fn push(&mut self, request: Request<'a, S, C>) {
         self.stacked.push(request.deltas());
         self.requests.push(request);
+    }
+
+    /// Stacks the deltas of `writes`, a request's writes committed elsewhere, under the requests begun after it, as a
+    /// pushed request's are: what the commit step's overlay of decided but unapplied rounds holds, read by its
+    /// commit-time operations (7.5). The batch commits nothing of them.
+    pub fn stack(&mut self, writes: &Writes) {
+        self.stacked.push(writes.deltas().to_vec());
     }
 
     pub fn requests(&self) -> &[Request<'a, S, C>] {

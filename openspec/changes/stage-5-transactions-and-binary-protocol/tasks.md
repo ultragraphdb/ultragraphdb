@@ -75,16 +75,16 @@ benchmark recorded in the group's notes, and nothing traded for clarity or safet
 
 ## 7. The commit step → `ultragraphdb_transactions_commit`
 
-- [ ] 7.1 Scenarios: commit-rounds, all requirements; transactions ("Transactions are strictly serializable", "Commit-time operations", "Exactly-once commits through sessions", "Aborts name their reason")
-- [ ] 7.2 Phases 1–3: the step function's inputs and outputs; the sequencer, resolver, history, commit-time operations, sessions table
+- [x] 7.1 Scenarios: commit-rounds, all requirements; transactions ("Transactions are strictly serializable", "Commit-time operations", "Exactly-once commits through sessions", "Aborts name their reason")
+- [x] 7.2 Phases 1–3: the step function's inputs and outputs; the sequencer, resolver, history, commit-time operations, sessions table
 - [x] 7.3 Phase 4: rounds closed by the previous sync, bounded; versions `max(previous + 2, 2 × clock µs)`
 - [x] 7.4 Phase 4: the conflict history (points, statements, ranges), exact validation in round order, pruning and too-old aborts; `QuadStore::confirm`'s IRI check as one rule
-- [ ] 7.5 Phase 4: insert-if-absent, upsert-and-link, compare-and-set and counter add after admission, against the store at W plus every decided but unapplied round's writes (design, "The commit step"); a predicate's implicit default catalog entry as an insert-if-absent on its catalog key, not a catalog change (decided 2026-10-27); the created node's properties and the links applied through `ChangesetWrite` with the UID filled in
-- [ ] 7.6 Phase 4: the pipeline: log append and sync, apply, watermark, replies; a failed sync stops every later write
-- [ ] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds; the scenario "A write after a build's start in the same round aborts" tested against the resolver, not assumed (decided 2026-10-27)
-- [ ] 7.8 Phase 4: sessions registered through a round, kept in the keyspace without versions, bounded, retries answered from the table
+- [x] 7.5 Phase 4: insert-if-absent, upsert-and-link, compare-and-set and counter add after admission, against the store at W plus every decided but unapplied round's writes (design, "The commit step"); a predicate's implicit default catalog entry as an insert-if-absent on its catalog key, not a catalog change (decided 2026-10-27); the created node's properties and the links applied through `ChangesetWrite` with the UID filled in
+- [x] 7.6 Phase 4: the pipeline: log append and sync, apply, watermark, replies; a failed sync stops every later write
+- [x] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds; the scenario "A write after a build's start in the same round aborts" tested against the resolver, not assumed (decided 2026-10-27)
+- [x] 7.8 Phase 4: sessions registered through a round, kept in the keyspace without versions, bounded, retries answered from the table
 - [ ] 7.9 Phase 4: recovery: replay above the store's applied version, refusal of a store ahead of the log or a gap
-- [ ] 7.10 Phase 5: mutants
+- [x] 7.10 Phase 5: mutants (deferred to 11.8, the stage's one run of `scripts/mutants.sh`, decided 2026-10-27)
 
 ## 8. The vector indexer → `ultragraphdb_store_hnsw`, `ultragraphdb_store_apply`, `ultragraphdb_core_mapping`
 
@@ -102,13 +102,31 @@ benchmark recorded in the group's notes, and nothing traded for clarity or safet
 - [x] 9.5 Phase 4: prepared statements over quad patterns with schema ids; describe from the data dictionary; columnar result batches over `core_terms`' encoding
 - [x] 9.6 Phase 5: mutants; fuzz targets in the bus and client crates' packages under `fuzz/` for every body's view, the round and write-set record, and quad patterns with parameters, seeded with the golden frames; a structure-aware target that builds valid frames from `arbitrary` fields and mutates them
 
-## 10. The server and the client → `ultragraphdb_server_session`, `ultragraphdb_server_node`, `ultragraphdb_protocol_client`
+## 9b. The Rust client → `ultragraphdb_client_core`, `ultragraphdb_client_tokio`, `ultragraphdb_client_compio`; the transport → `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_transport_compio` (decided 2026-10-28)
 
-- [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client"), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
-- [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle, the client's surface; the session converts Write, Describe and Operation bodies and request terms to `Changeset`, declarations and oxrdf types (the wire's own layouts, decided 2026-10-27), the conversion of triple terms iterative or bounded by the wire's maximum nesting depth, never recursing past it
+A complete client, not a skeleton: the library a Rust application links, and what the conformance suite, Elle and every
+stage-5 test drive the server with. It speaks the same protocol as the server, through `ultragraphdb_protocol_wire` and
+`ultragraphdb_protocol_transport`, and adds no protocol of its own.
+
+- [x] 9b.1 Scenarios: wire-protocol ("The Rust client"), and the client's side of "Handshake, streams, credit and cancellation" ("Credit stops a stream", "Cancel ends a stream"), "Data requests, prepared statements and describe" ("A stale statement is refused") and "Result batches are columnar and dictionary-encoded" ("A repeated term is sent once per batch"), against a scripted server over the simulated network; the end-to-end runs against the node are 10.1's
+- [x] 9b.2 Phases 1–3: the client's surface: connect over TCP or a simulated stream; the handshake; sessions; read-only and read-write transactions (begin, read, write, commit, abort); data requests; prepared statements, stale after a catalog change by their schema id; describe; result streams with credit and cancel, read in place; typed errors, retryable exactly where the wire says
+- [x] 9b.3 Phase 4: the implementation over the transport: request terms in the wire's term table; result batches read through their views with no copy; buffers reused per connection; a commit retried only through its session (same session and request number), with reconnects and bounded retries, so a retry is applied once
+- [ ] 9b.4 The conformance suite run against the client core and both shells: every golden frame read or built as its bytes, every malformed frame refused with the connection's rule, in the simulator under drop, delay, duplicate and split (done against the core directly; the golden frames under the simulator's faults and through the shells remain)
+- [x] 9b.5 Phase 5: fuzz targets in `fuzz/ultragraphdb_client_core/` for everything the client decodes from a server (replies, errors, result batches, describe), seeded with the golden frames, built and not run; mutants at 11.8
+- [x] 9b.6 `AGENTS.md`: the stale `ultragraphdb_client` test-roots paragraph rewritten for the client's crates
+- [x] 9b.7 `ultragraphdb_protocol_bus` renamed `ultragraphdb_protocol_transport` (the transport that carries the wire protocol), with its fuzz package and `BusError` → `TransportError` (decided 2026-10-28)
+- [x] 9b.8 The transport made sans-I/O (https://sans-io.readthedocs.io/how-to-sans-io.html) with no runtime dependency: framing as a pull-style state machine telling the shell what to read into which pooled buffer, no copy, and the handshake as state machines, beside `Outbound` and `BufferPool`; `Connection` a thin compio shell in `ultragraphdb_protocol_transport_compio`; the state machines tested synchronously (decided 2026-10-28)
+- [x] 9b.9 `ultragraphdb_client_core`: the client as a sans-I/O core (handshake, sessions, transactions, requests, replies and result batches, streams, credit, cancel, retries through the session, time passed in), tested synchronously against the scripted server over the simulated network under every fault class (decided 2026-10-28)
+- [x] 9b.10 `ultragraphdb_client_tokio`, the primary public Rust client: the core's tokio shell with `Send` futures over TCP, `tokio` pinned; tested against the scripted server over the simulated network and a TCP loopback (decided 2026-10-28)
+- [x] 9b.11 `ultragraphdb_client_compio`, the public compio client: the core's compio shell over the transport's compio `Connection`; the same tests (decided 2026-10-28)
+
+## 10. The server → `ultragraphdb_server_session`, `ultragraphdb_server_node`
+
+- [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
+- [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle; the session converts Write, Describe and Operation bodies and request terms to `Changeset`, declarations and oxrdf types (the wire's own layouts, decided 2026-10-27), the conversion of triple terms iterative or bounded by the wire's maximum nesting depth, never recursing past it
 - [ ] 10.3 Phase 4: n−1 compio workers pinned, the commit step on one core, least-loaded accept, bounded queues answering busy; every runtime built with compio's `single_issuer` and `defer_taskrun` (decided 2026-10-27; Linux 6.6 is the baseline)
 - [ ] 10.4 Phase 4: configuration read once by the binary; start with recovery before accept; graceful shutdown; telemetry through `ultragraphdb_common_telemetry`
-- [ ] 10.5 Phase 4: the Rust client, retrying commits only through its session
+- [ ] 10.5 Phase 4: every server scenario and the conformance suite run through `ultragraphdb_client` against the node
 - [ ] 10.6 Phase 5: mutants
 
 ## 11. Verification → `lean/` (`RoundModel`), `ultragraphdb_transactions_sim`

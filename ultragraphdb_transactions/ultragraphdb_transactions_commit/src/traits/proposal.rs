@@ -15,4 +15,22 @@ pub trait Proposal {
 
     /// The write-set record's bytes.
     fn record(&self) -> &[u8];
+
+    /// Whether the proposal asks for commit-time operations, which the step's [`crate::Operator`] runs once it is
+    /// admitted (7.5); none by default.
+    fn has_operations(&self) -> bool {
+        false
+    }
+
+    /// Whether the proposal's declaration starts an index build: a round holds at most one, closing before a second
+    /// (7.7); none by default.
+    fn starts_build(&self) -> bool {
+        false
+    }
+
+    /// Whether the proposal is a drop, a write of its key ranges: its round closes after it, so the drop is applied
+    /// once the round's batch is written, at its round's last version (7.7); none by default.
+    fn is_drop(&self) -> bool {
+        false
+    }
 }

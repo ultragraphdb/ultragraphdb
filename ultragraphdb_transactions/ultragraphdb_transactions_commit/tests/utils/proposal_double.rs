@@ -122,7 +122,19 @@ pub fn read_set(namespace: u64, read_version: u64, reads: &Reads) -> ReadSet {
 /// The record of a transaction of `namespace` at `read_version` that wrote `writes`, with `padding` bytes of commit
 /// record to give it a size.
 pub fn record(namespace: u64, read_version: u64, writes: &Writes, padding: usize) -> Vec<u8> {
-    let mut record = WriteSetRecord::new(namespace, read_version, 0, 0);
+    record_in(namespace, read_version, 0, 0, writes, padding)
+}
+
+/// The same, committed as request `request` of session `session`.
+pub fn record_in(
+    namespace: u64,
+    read_version: u64,
+    session: u64,
+    request: u64,
+    writes: &Writes,
+    padding: usize,
+) -> Vec<u8> {
+    let mut record = WriteSetRecord::new(namespace, read_version, session, request);
     for key in &writes.points {
         record.push_conflict_point(key.clone());
     }
@@ -141,5 +153,20 @@ pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestPropos
     TestProposal {
         read_set: read_set(0, read_version, reads),
         record: record(0, read_version, writes, 0),
+    }
+}
+
+/// A proposal of namespace 0 at `read_version`, request `request` of session `session`, reading `reads` and writing
+/// `writes`.
+pub fn proposal_in(
+    session: u64,
+    request: u64,
+    read_version: u64,
+    reads: &Reads,
+    writes: &Writes,
+) -> TestProposal {
+    TestProposal {
+        read_set: read_set(0, read_version, reads),
+        record: record_in(0, read_version, session, request, writes, 0),
     }
 }
