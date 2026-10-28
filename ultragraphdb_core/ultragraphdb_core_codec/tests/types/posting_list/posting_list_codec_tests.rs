@@ -119,6 +119,20 @@ fn a_list_encodes_to_its_golden_bytes() {
 }
 
 #[test]
+fn a_list_appended_to_a_buffer_is_its_golden_bytes_after_what_was_there() {
+    for (name, list, golden) in goldens() {
+        let mut buffer = b"before".to_vec();
+        list.encode_into(&mut buffer);
+        assert_eq!(&buffer[..6], b"before", "{name}");
+        assert_eq!(
+            &buffer[6..],
+            golden.as_slice(),
+            "{name}: the checksum covers the list alone"
+        );
+    }
+}
+
+#[test]
 fn golden_bytes_decode_to_their_list() {
     for (name, plist, bytes) in goldens() {
         assert_eq!(PostingList::decode(KEY, &bytes), Ok(plist), "{name}");

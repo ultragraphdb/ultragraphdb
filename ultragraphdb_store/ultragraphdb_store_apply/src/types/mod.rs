@@ -9,6 +9,7 @@ pub(crate) mod changeset_applier;
 pub(crate) mod changeset_core;
 pub(crate) mod changeset_write;
 pub(crate) mod executed;
+pub(crate) mod execution;
 pub(crate) mod index_plan;
 pub(crate) mod level_draw;
 pub(crate) mod overlay_txn;

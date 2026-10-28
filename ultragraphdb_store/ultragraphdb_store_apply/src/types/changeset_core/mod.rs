@@ -21,6 +21,7 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
+use crate::types::execution::Execution;
 use crate::types::level_draw::LevelDraw;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::reads::Reads;
@@ -86,40 +87,25 @@ where
     /// Executes `changeset` at the watermark, as [`crate::ChangesetApplier::execute`] does: under no lock the commits
     /// take, so executions run beside each other and beside a round being written.
     pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
-        let running = lock(&self.rebuild).clone();
         let read_ts = self.quads.lists().applied_ts();
-        let ns = changeset.namespace();
-        let catalog = (*self.catalog(ns)?).clone();
-        let write = QuadWrite::new(&self.quads, ns, self.quads.lists().request(read_ts));
-        let mut cw = ChangesetWrite::new(write, catalog, &self.draw)
+        let mut execution = self.begin_execution(changeset.namespace(), read_ts)?;
+        execution.apply(changeset)?;
+        Ok(execution.finish())
+    }
+
+    /// An execution in `namespace` reading at `read_ts`, as [`crate::ChangesetApplier::begin`] begins it: the build
+    /// running now and the catalog the last applied round left.
+    pub fn begin_execution(
+        &self,
+        namespace: u64,
+        read_ts: u64,
+    ) -> Result<Execution<'_, S, C>, ChangesetError> {
+        let running = lock(&self.rebuild).clone();
+        let catalog = (*self.catalog(namespace)?).clone();
+        let write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
+        let cw = ChangesetWrite::new(write, catalog, &self.draw)
             .under(running.as_ref(), running.is_some());
-        cw.apply(changeset)?;
-        let outcome = cw.finish();
-        let reads = reads_of(ns, &outcome.request, &outcome.terms);
-        let fetched: BTreeSet<&[u8]> = outcome
-            .request
-            .read_keys()
-            .chain(outcome.request.tested().map(|(key, _)| key))
-            .collect();
-        let read: BTreeSet<Region> = fetched.iter().filter_map(|k| Region::of(k).ok()).collect();
-        let lists_read = fetched.len();
-        let mut request = outcome.request;
-        for (key, value) in outcome.terms.entries() {
-            request.add_versionless(key, value);
-        }
-        Ok(Executed::new(
-            ns,
-            read_ts,
-            request.into_writes(),
-            outcome.terms,
-            reads,
-            read,
-            lists_read,
-            outcome.catalog,
-            outcome.pending,
-            outcome.touched,
-            outcome.removals,
-        ))
+        Ok(Execution::new(namespace, read_ts, cw))
     }
 
     /// Applies `changeset` on its own, as [`crate::ChangesetApplier::apply`] does: executed and written as a round of
@@ -212,7 +198,7 @@ where
 }
 
 /// The read set of the write of namespace `namespace` that `request` and `terms` hold.
-fn reads_of<S, C>(
+pub(crate) fn reads_of<S, C>(
     namespace: u64,
     request: &ultragraphdb_store_posting::Request<'_, S, C>,
     terms: &WriteTerms,

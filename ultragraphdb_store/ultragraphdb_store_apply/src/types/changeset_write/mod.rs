@@ -6,6 +6,7 @@
 mod changeset_write_data;
 mod changeset_write_declare;
 mod changeset_write_index;
+mod changeset_write_read;
 mod changeset_write_statements;
 mod changeset_write_triples;
 mod changeset_write_vector;

@@ -16,6 +16,7 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::executed::Executed;
+use crate::types::execution::Execution;
 
 /// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
 /// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
@@ -89,6 +90,22 @@ where
     /// The changeset's refusal, which writes nothing.
     pub fn execute(&self, changeset: &Changeset) -> Result<Executed, ChangesetError> {
         self.core.execute(changeset)
+    }
+
+    /// Begins an execution in `namespace` reading at `read_ts`, held open across a transaction's requests: the build
+    /// running now and the catalog the last applied round left, as [`ChangesetApplier::execute`] reads them. A
+    /// `read_ts` above the watermark makes its reads wait at the read gate until the watermark reaches it, so a caller
+    /// refuses one first.
+    ///
+    /// # Errors
+    ///
+    /// The store's error loading the namespace's catalog.
+    pub fn begin(
+        &self,
+        namespace: u64,
+        read_ts: u64,
+    ) -> Result<Execution<'_, S, C>, ChangesetError> {
+        self.core.begin_execution(namespace, read_ts)
     }
 
     /// Writes `round`, the admitted executions of one round with their commit versions, in round order, as one store

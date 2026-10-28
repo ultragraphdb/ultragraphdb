@@ -46,43 +46,48 @@ impl PostingList {
     /// The list's bytes in the posting format.
     pub fn encode(&self) -> Vec<u8> {
         let mut w = Vec::with_capacity(self.encoded_len());
+        self.encode_into(&mut w);
+        w
+    }
+
+    /// Appends the list's bytes in the posting format to `w`, as [`PostingList::encode`] gives them: what a caller
+    /// writing the list into a buffer of its own uses, with no copy between.
+    pub fn encode_into(&self, w: &mut Vec<u8>) {
+        let start = w.len();
         w.push(VERSION);
         w.push(if self.pack.is_some() { HAS_PACK } else { 0 });
         w.extend_from_slice(&self.commit_ts.to_le_bytes());
         if let Some(pack) = &self.pack {
             w.extend_from_slice(&pack.block_size().to_le_bytes());
-            count(&mut w, pack.blocks().len());
+            count(w, pack.blocks().len());
             for block in pack.blocks() {
                 w.extend_from_slice(&block.base().to_le_bytes());
                 w.extend_from_slice(&block.num_uids().to_le_bytes());
-                bytes(&mut w, block.deltas());
+                bytes(w, block.deltas());
             }
         }
-        count(&mut w, self.postings.len());
+        count(w, self.postings.len());
         for p in &self.postings {
             w.extend_from_slice(&p.uid().to_le_bytes());
             w.extend_from_slice(&p.op().to_le_bytes());
             w.push(p.posting_type().to_byte());
             w.extend_from_slice(&p.start_ts().to_le_bytes());
             w.extend_from_slice(&p.commit_ts().to_le_bytes());
-            bytes(&mut w, p.value());
-            bytes(&mut w, p.lang_tag());
-            count(&mut w, p.facets().len());
-            p.facets()
-                .iter()
-                .for_each(|f| bytes(&mut w, f.key().as_bytes()));
-            count(&mut w, p.statement_ids().len());
+            bytes(w, p.value());
+            bytes(w, p.lang_tag());
+            count(w, p.facets().len());
+            p.facets().iter().for_each(|f| bytes(w, f.key().as_bytes()));
+            count(w, p.statement_ids().len());
             p.statement_ids()
                 .iter()
                 .for_each(|id| w.extend_from_slice(&id.to_le_bytes()));
         }
-        count(&mut w, self.splits.len());
+        count(w, self.splits.len());
         self.splits
             .iter()
             .for_each(|s| w.extend_from_slice(&s.to_le_bytes()));
-        let checksum = xxh3_64(&w);
+        let checksum = xxh3_64(w.get(start..).unwrap_or_default());
         w.extend_from_slice(&checksum.to_le_bytes());
-        w
     }
 
     /// The number of bytes [`PostingList::encode`] writes, without writing them.

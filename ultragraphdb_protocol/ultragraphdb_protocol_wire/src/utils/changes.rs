@@ -539,7 +539,9 @@ pub(crate) fn decode_change(
             object: arg(3)?,
             properties: a
                 .get(4..)?
-                .as_chunks::<2>().0.iter()
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| (pair[0], pair[1]))
                 .collect(),
         },
@@ -629,7 +631,9 @@ pub(crate) fn decode_declaration(
                 let options = *a.get(at + 1)? as usize;
                 let pairs = list(at + 2, 2 * options)?;
                 let options = pairs
-                    .as_chunks::<2>().0.iter()
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|kv| (kv[0].clone(), kv[1].clone()))
                     .collect();
                 p = p.with_vector_index(factory, options);

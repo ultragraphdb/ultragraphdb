@@ -3177,8 +3177,22 @@ dependencies = [
 name = "ultragraphdb_transactions_txn"
 version = "0.1.0"
 dependencies = [
+ "criterion",
+ "cucumber",
+ "futures",
+ "oxrdf",
+ "ultragraphdb_core_catalog",
+ "ultragraphdb_core_codec",
+ "ultragraphdb_core_keys",
+ "ultragraphdb_core_mapping",
+ "ultragraphdb_core_terms",
  "ultragraphdb_protocol_wire",
  "ultragraphdb_store_apply",
+ "ultragraphdb_store_posting",
+ "ultragraphdb_store_quads",
+ "ultragraphdb_store_sim",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_store",
 ]
 
 [[package]]

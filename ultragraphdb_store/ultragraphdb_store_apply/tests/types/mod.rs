@@ -12,6 +12,8 @@ mod changeset_core;
 #[cfg(test)]
 mod changeset_write;
 #[cfg(test)]
+mod execution;
+#[cfg(test)]
 mod level_draw_tests;
 #[cfg(test)]
 mod reads_tests;

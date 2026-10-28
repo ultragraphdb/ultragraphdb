@@ -19,9 +19,35 @@ autotests = false
 workspace = true
 
 [dependencies]
+oxrdf = { workspace = true }
+ultragraphdb_core_codec = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
+ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_store_apply = { workspace = true }
+ultragraphdb_store_posting = { workspace = true }
+ultragraphdb_store_quads = { workspace = true }
+ultragraphdb_traits_store = { workspace = true }
+
+[dev-dependencies]
+ultragraphdb_core_catalog = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_store_sim = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
+criterion = { workspace = true }
+cucumber = { workspace = true }
+futures = { workspace = true }
 
 [[test]]
 name = "unit"
 path = "tests/mod.rs"
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false
+
+# The criterion bench behind the read set's design, run by `cargo bench` and `bazel run`, never by `make test`.
+[[bench]]
+name = "read_set_bench"
+harness = false

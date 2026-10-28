@@ -7,7 +7,12 @@ bytes from a client, a peer or the disk writes its fuzz targets and their seeds,
 `scripts/mutants.sh` and `scripts/fuzz.sh` happen once, at the very end, in the stage's final verification (11.7 and
 11.8; decided 2026-10-27). A phase-3 throwaway implementation that passes the audited suite may be kept as the implementation (decided 2026-10-27). A group is done when its suites pass under Cargo and Bazel with equal
 counts and its operations run in the simulator's workload under every fault class. Removing files or crates waits for
-the user's approval at the task that removes them.
+the user's approval at the task that removes them. Groups 6, 7 and 8 build the transaction path memory-efficient and
+performance-optimized by design, before any benchmarking (decided 2026-10-27): no allocation per read or write on the
+hot path, keys held once and named by u32 spans, sorted read sets merge-joined against the history with validation
+exact, write-set records written straight into their wire buffer, per-transaction memory bounded and accounted; each
+optimized structure tested differentially against a plain reference model, close design choices settled by a short
+benchmark recorded in the group's notes, and nothing traded for clarity or safety without a measured gain.
 
 ## 0. Workspace
 
@@ -63,10 +68,10 @@ the user's approval at the task that removes them.
 
 ## 6. Transactions on a worker → `ultragraphdb_transactions_txn`
 
-- [ ] 6.1 Scenarios: transactions ("Transactions read a snapshot at the visibility watermark", "A transaction reads its own writes", "Transactions have bounded lifetimes", "Interactive transactions")
-- [ ] 6.2 Phases 1–3: `Transaction`, `ReadSet`, the write-set record builder in `protocol_wire`'s layout, the limits as settings
-- [ ] 6.3 Phase 4: snapshots at W, reads of own writes, the 10 s and 16 s limits with retryable errors naming them; a read version above W refused at once with an error naming it and W, never waited on (decided 2026-10-27)
-- [ ] 6.4 Phase 5: mutants
+- [x] 6.1 Scenarios: transactions ("Transactions read a snapshot at the visibility watermark", "A transaction reads its own writes", "Transactions have bounded lifetimes", "Interactive transactions")
+- [x] 6.2 Phases 1–3: `Transaction`, `ReadSet`, the write-set record builder in `protocol_wire`'s layout, the limits as settings
+- [x] 6.3 Phase 4: snapshots at W, reads of own writes, the 10 s and 16 s limits with retryable errors naming them; a read version above W refused at once with an error naming it and W, never waited on (decided 2026-10-27)
+- [x] 6.4 Phase 5: mutants
 
 ## 7. The commit step → `ultragraphdb_transactions_commit`
 
