@@ -54,6 +54,7 @@ ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ## Error
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_log = { path = "ultragraphdb_error/ultragraphdb_error_log" }
+ultragraphdb_error_invariant = { path = "ultragraphdb_error/ultragraphdb_error_invariant" }
 ultragraphdb_error_num = { path = "ultragraphdb_error/ultragraphdb_error_num" }
 ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_options" }
 ultragraphdb_error_protocol = { path = "ultragraphdb_error/ultragraphdb_error_protocol" }
@@ -132,6 +133,11 @@ all = "warn"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 deprecated_safe = { level = "warn", priority = -1 }
+# Ultra Style rule 7: every value computed is used; no `let _ =` discards one.
+let_underscore_must_use = "warn"
+# Ultra Style rule 7: a result or a returned value is never left unused.
+#unused_must_use = "warn"
+#unused_results = "warn"
 
 [profile.release]
 opt-level = 3

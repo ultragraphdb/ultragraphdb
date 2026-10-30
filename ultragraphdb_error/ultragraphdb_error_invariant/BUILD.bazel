@@ -1,0 +1,76 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+rust_library(
+    name = "ultragraphdb_error_invariant",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb_error_invariant"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_error_invariant",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_error_invariant",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs. The
+# build's debug assertions are on, so `invariant` panics on a violation, the half its debug-build tests check.
+rust_test(
+    name = "ultragraphdb_error_invariant_tests",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/mod.rs",
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_error_invariant"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# The crate as a release build compiles it, debug assertions off, under its own crate name: `invariant` returns a
+# violation instead of panicking. Only the release half's tests read it, so both halves run on every `bazel test`.
+rust_library(
+    name = "ultragraphdb_error_invariant_release",
+    testonly = True,
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_name = "ultragraphdb_error_invariant",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    rustc_flags = ["-Cdebug-assertions=off"],
+    tags = ["ultragraphdb_error_invariant"],
+    deps = all_crate_deps(normal = True),
+)
+
+# The same suite against the release build, compiled with debug assertions off itself, so its release-build tests run.
+rust_test(
+    name = "ultragraphdb_error_invariant_release_tests",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_root = "tests/mod.rs",
+    rustc_flags = ["-Cdebug-assertions=off"],
+    tags = ["unit-test"],
+    deps = [":ultragraphdb_error_invariant_release"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

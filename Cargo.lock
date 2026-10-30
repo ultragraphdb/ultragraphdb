@@ -2952,6 +2952,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_error_invariant"
+version = "0.1.0"
+
+[[package]]
 name = "ultragraphdb_error_json"
 version = "0.1.0"
 

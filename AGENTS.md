@@ -148,6 +148,7 @@ binary is built by `ultragraphdb_bin`.
 | Crate | Path | Depends on | Provides |
 |---|---|---|---|
 | `ultragraphdb_common_version` | `ultragraphdb_common/ultragraphdb_common_version` | — | `PRODUCT_NAME`; the workspace's first crate |
+| `ultragraphdb_error_invariant` | `ultragraphdb_error/ultragraphdb_error_invariant` | — | `InvariantError(pub InvariantErrorEnum)` and `invariant(holds, name)`, the check of Ultra Style rule 5 (`openspec/protocols/ULTRA_STYLE.md`): a violation panics at the caller in a debug build and is returned in a release build, which the component it was found in fails-stop on; depends on nothing. Its `BUILD.bazel` also builds and tests the crate with debug assertions off, so both halves run |
 | `ultragraphdb_error_num` | `ultragraphdb_error/ultragraphdb_error_num` | — | `NumError(pub NumErrorEnum)`: Go's `strconv.NumError`, `Syntax` and `Range`, with Go's texts; depends on nothing |
 | `ultragraphdb_error_json` | `ultragraphdb_error/ultragraphdb_error_json` | — | `JsonError(pub JsonErrorEnum)`: Go's `encoding/json` errors, `io.EOF`, `io.ErrUnexpectedEOF`, `SyntaxError` with its offset, `UnmarshalTypeError` and a reader's error, with Go 1.27's texts; raised by `ultragraphdb_common_utils`' JSON decoder, carried by the chunker and types |
 | `ultragraphdb_error_options` | `ultragraphdb_error/ultragraphdb_error_options` | — | `OptionsError(pub OptionsErrorEnum)`: why an index option was refused, raised by `ultragraphdb_traits_index` and tok's hnsw factory |
