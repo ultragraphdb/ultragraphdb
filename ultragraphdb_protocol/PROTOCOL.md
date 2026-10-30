@@ -3,9 +3,12 @@
 This file specifies the bytes of UltraGraphDB's binary protocol, version 1: the frame, every command's body, the term
 encodings, the error codes and the connection's rules. A client in any language implements the protocol from this file
 and the golden frames in `ultragraphdb_protocol_wire/testdata/golden/`. The Rust crates `ultragraphdb_protocol_wire`
-(the bytes) and `ultragraphdb_protocol_transport` (the connection's state machines) implement it for client and server,
-and this file states what they do. Section 13 lists the points the code leaves open and where the design documents
-differ from the code.
+(the bytes) and `ultragraphdb_protocol_transport` (the connection's state machines) implement it for client and server.
+`SECURITY.md` beside this file describes the security architecture the protocol carries: authentication,
+authorization and encryption.
+
+This file leads the code: group 9c of stage 5 brings the crates and the golden frames to it
+(`openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md`).
 
 ## Contents
 
@@ -13,21 +16,20 @@ differ from the code.
 2. The frame
 3. Commands
 4. The body layout and its shared structures
-5. Bodies of the connection: Hello, Welcome
-6. Bodies of sessions and transactions: Register, Begin, Commit, Abort
+5. Bodies of the connection: Hello, Welcome, Authenticate
+6. Bodies of sessions, transactions and drops: Register, Begin, Commit, Abort, Drop
 7. Bodies of data requests: Read, Write, Operation
 8. Bodies of prepared statements and the dictionary: Prepare, Execute, Describe
 9. Bodies of results and control: Result, Credit, Cancel, Error
 10. The term encoding of results
-11. The connection: handshake, streams, credit, cancel, sessions, statements
+11. The connection: handshake, authentication, streams, credit, cancel, sessions, statements, limits
 12. Internal to the server and the log: Round and the write-set record
-13. Open points
 
 ## 1. Conventions
 
 | Rule | Statement |
 |---|---|
-| Byte order | Little-endian, except inside a result term's encoding (section 10), which states its own order per field |
+| Byte order | Little-endian, except inside a result term's encoding (section 10): a term is the store's sortable key encoding, sent as stored, so its UIDs and by-value numbers are big-endian, which sorts keys as their values, and a vector's elements little-endian. Section 10 states the order per field |
 | Integers | `u8`, `u16`, `u32`, `u64`, `u128` unsigned; `i16`, `i64`, `i128` two's complement. Widths in bytes: 1, 2, 4, 8, 16 |
 | Offsets | A header offset counts from the frame's first byte. A command-header offset counts from the command header's first byte, the frame's byte 128. A body offset counts from the body's first byte, the frame's byte 256. A section offset counts from its section's first byte |
 | Alignment | Every section starts at a body offset that is a multiple of 8. A multi-byte field needs no alignment in memory: read every field byte by byte |
@@ -50,16 +52,16 @@ and body. The body is the command's data followed, when the data takes more than
 |---|---|---|---|---|---|
 | 0 | 8 | `checksum` | u64 | XXH3-64, seed 0, of header bytes 8 to 255 | the computed value |
 | 8 | 8 | `checksum_body` | u64 | The body's root checksum (section 2.3) | the computed value |
-| 16 | 16 | `nonce_reserved` | u128 | Reserved for an authenticated cipher | 0 |
+| 16 | 16 | `sequence` | u128 | The frame's place among the frames its sender sent on the connection: 1 for the first, one more for each after (section 11.2). A log frame's is its round's `position` | the expected value |
 | 32 | 8 | `cluster` | u64 | The cluster's identity, drawn at random when the cluster is created | the receiver's cluster |
 | 40 | 4 | `size` | u32 | The frame's length, header and body | 256 to 1,048,576 |
-| 44 | 4 | `view` | u32 | The VSR view | 0 in client frames and on one node |
-| 48 | 4 | `release` | u32 | The sender's release | any |
-| 52 | 2 | `protocol` | u16 | The frame format's version | see section 11.1 |
+| 44 | 4 | `view` | u32 | The VSR view | 0 from a client, and on one node |
+| 48 | 4 | `release` | u32 | The sender's release, opaque: logged, never compared | any |
+| 52 | 2 | `protocol` | u16 | The frame format's version | 1 in Hello and Welcome; the Welcome's `protocol` after them (section 11.1) |
 | 54 | 2 | `command` | u16 | What the body is (section 3) | a number of section 3 |
 | 56 | 8 | `stream` | u64 | The request the frame belongs to | 0 for connection-level frames |
 | 64 | 1 | `replica` | u8 | The sending replica | 0 from clients |
-| 65 | 1 | `flags` | u8 | Bit 0 (`LAST`, value 1): the stream's last frame | bits 1 to 7: any; senders write 0 |
+| 65 | 1 | `flags` | u8 | Bit 0 (`LAST`, value 1): the stream's last frame | bits 1 to 7: 0 |
 | 66 | 62 | reserved | bytes | | all 0 |
 | 128 | 128 | `command_header` | bytes | The command's fixed fields, laid out by each command | each command's rules |
 
@@ -96,9 +98,9 @@ frame otherwise. A body of 3,841 bytes, for one, has no split.
 
 | Bytes | Hex | Field | Value |
 |---|---|---|---|
-| 0–7 | `df fb f9 a6 ea 89 4f 61` | `checksum` | `0x614F89EAA6F9FBDF` |
+| 0–7 | `b3 70 0d 76 02 a2 cb 13` | `checksum` | `0x13CBA202760D70B3` |
 | 8–15 | `a6 d7 a5 4a ce a6 54 33` | `checksum_body` | `0x3354A6CE4AA5D7A6` |
-| 16–31 | `00` × 16 | `nonce_reserved` | 0 |
+| 16–31 | `01` then `00` × 15 | `sequence` | 1: the client's first frame |
 | 32–39 | `ef cd ab 89 67 45 23 01` | `cluster` | `0x0123456789ABCDEF` |
 | 40–43 | `17 01 00 00` | `size` | 279 |
 | 44–47 | `00 00 00 00` | `view` | 0 |
@@ -109,11 +111,12 @@ frame otherwise. A body of 3,841 bytes, for one, has no split.
 | 64, 65 | `00`, `00` | `replica`, `flags` | 0, 0 |
 | 66–127 | `00` × 62 | reserved | |
 | 128–135 | `01 00 01 00 00 00 05 00` | command header: `protocol_min`, `protocol_max`, `release` | 1, 1, `0x00050000` |
-| 136–255 | `00` × 120 | command header, unused | |
+| 136–139 | `00 00 10 00` | command header: `max_frame` | 1,048,576 |
+| 140–255 | `00` × 116 | command header, unused | |
 | 256–263 | `08 00 00 00 0f 00 00 00` | body: section 0's `offset`, `len` | 8, 15 |
 | 264–278 | `75 6c 74 72 61 67 72 61 70 68 2d 74 65 73 74` | section 0 | `ultragraph-test` |
 
-XXH3-64 (seed 0) of bytes 8 to 255 is `0x614F89EAA6F9FBDF`, the `checksum`. The body's 23 bytes take one chunk, so
+XXH3-64 (seed 0) of bytes 8 to 255 is `0x13CBA202760D70B3`, the `checksum`. The body's 23 bytes take one chunk, so
 `checksum_body` is XXH3-64 (seed 0) of bytes 256 to 278: `0x3354A6CE4AA5D7A6`.
 
 A body of two chunks, `testdata/golden/two_chunks.frame` (size 4,113): the data is 3,841 bytes, chunk 0 its bytes 0 to
@@ -132,20 +135,34 @@ rule's text in its message (section 9.4).
 | 1 | `ShortHeader` | The frame holds at least 256 bytes |
 | 2 | `HeaderChecksum` | `checksum` equals XXH3-64 of bytes 8 to 255 |
 | 3 | `UnknownCommand` | `command` is a number of section 3 |
-| 4 | `ReservedNotZero` (offset of the first nonzero byte) | Bytes 16 to 31, then bytes 66 to 127, are zero |
+| 4 | `ReservedNotZero` (offset of the first nonzero byte) | Bytes 66 to 127 are zero |
 | 5 | `WrongCluster` | `cluster` is the receiver's cluster |
-| 6 | `SizeBelowHeader` | `size ≥ 256` |
-| 7 | `FrameTooLarge` | `size ≤ 1,048,576`; a stream receiver also refuses a `size` past its receive buffer, naming the buffer's capacity |
-| 8 | `LengthMismatch` | The bytes received equal `size` |
-| 9 | `BodyLength` | The body's length has a split into chunks and table (section 2.3) |
-| 10 | `Chunk` (index 0, bytes 0 to D) | One chunk: XXH3-64(data, seed 0) equals `checksum_body` |
-| 10 | `ChunkTable` | Two or more chunks: XXH3-64(table, seed 0) equals `checksum_body` |
-| 11 | `Chunk` (index, start, end) | Each chunk in order equals its leaf |
-| 12 | `WrongCommand` | A command's view reads a frame of that command |
-| 13 | the command's rules | The command header, then the body (sections 4 to 9, 12) |
+| 6 | `FieldValue` (`"flags"`, then `"view"`, then `"replica"`) | `flags` bits 1 to 7 are zero; in a client's frame, `view` and `replica` are 0 |
+| 7 | `SizeBelowHeader` | `size ≥ 256` |
+| 8 | `FrameTooLarge` | `size ≤ 1,048,576`, and at most the `max_frame` the receiver announced: the server's in its Welcome, the client's in its Hello; a stream receiver also refuses a `size` past its receive buffer, naming the buffer's capacity |
+| 9 | `LengthMismatch` | The bytes received equal `size` |
+| 10 | `BodyLength` | The body's length has a split into chunks and table (section 2.3) |
+| 11 | `Chunk` (index 0, bytes 0 to D) | One chunk: XXH3-64(data, seed 0) equals `checksum_body` |
+| 11 | `ChunkTable` | Two or more chunks: XXH3-64(table, seed 0) equals `checksum_body` |
+| 12 | `Chunk` (index, start, end) | Each chunk in order equals its leaf |
+| 13 | `SequenceOrder` (the expected sequence, the frame's) | A connection's receiver: `sequence` is one above the previous frame's from the same sender, 1 for its first |
+| 14 | `FieldValue` (`"protocol"`) | A connection's receiver: `protocol` is 1 in Hello and Welcome, and the Welcome's `protocol` in every later frame |
+| 15 | `WrongCommand` | A command's view reads a frame of that command |
+| 16 | the command's rules | The command header, then the body (sections 4 to 9, 12) |
 
-A stream receiver reads the 256-byte header first, applies steps 1 to 7 to it, then reads `size − 256` more bytes and
+A stream receiver reads the 256-byte header first, applies steps 1 to 8 to it, then reads `size − 256` more bytes and
 applies the rest.
+
+### 2.6 Connection errors and stream errors
+
+A server answers a refusal in one of two ways:
+
+| Refusal | Answer | The connection |
+|---|---|---|
+| A frame-level rule, steps 1 to 15 of section 2.5; a request on stream 0 other than Hello and Authenticate; a new request on a stream already open | Error 1 (Protocol) on stream 0, its message the rule's text | closed after the Error |
+| A body's rule, step 16, or a rule of section 4 | Error 1 (Protocol) on the frame's stream, which the Error ends; a transaction's stream ends its transaction | stays open |
+
+A client refusing a frame from the server closes the connection.
 
 ## 3. Commands
 
@@ -169,6 +186,8 @@ applies the rest.
 | 15 | Cancel | client → server | empty | nothing |
 | 16 | Error | server → client | sections | |
 | 17 | Round | log and server only (section 12) | sections | |
+| 18 | Authenticate | both, stream 0 | sections | Authenticate, until the server's final one; or Error on stream 0 |
+| 19 | Drop | both | sections | Drop, or Error |
 | 256–511 | reserved for the replica commands of stage 10 | | | |
 
 A receiver refuses every other number, and these, as `UnknownCommand`. A retired command's number stays retired and is
@@ -232,7 +251,8 @@ A sender interns: each distinct string appears once, at its first use, in the or
 
 ### 4.4 Request term table
 
-Every RDF term a request names (Read, Write, Operation, Prepare, Execute) is a u32 index into the request's term table:
+Every RDF term a request names (Read, Write, Operation, Prepare, Execute, Drop) is a u32 index into the request's
+term table, as is the value an OperationFailed Error reports (section 9.4):
 two sections, `records` and `text`.
 
 `records` holds one 24-byte record per term, in table order:
@@ -289,6 +309,16 @@ Then, once for the table:
 | 10 | `CountMismatch` (`"term text"`) | the texts end at the text section's end |
 | 11 | `NotUtf8` (text's section, first invalid byte) | `text` is UTF-8 |
 | 12 | `NotUtf8` (text's section, the boundary) | every text's start and end fall on character boundaries |
+
+The layout's rules above are the receiver's. The server then checks each term's content, and refuses a term breaking
+one with Error 7 (Refused) on the request's stream, `detail` the term's index and the message naming the rule:
+
+| Term | Rule |
+|---|---|
+| IRI | an absolute IRI (RFC 3987); one under a namespace's skolem base, `…/.well-known/genid/`, only when the namespace's dictionary holds it as a blank node's skolem IRI (section 10.2) |
+| Language tag | well-formed (BCP 47) |
+| Literal of a known datatype (section 10.4) | its lexical form valid for its datatype |
+| The predicate slot of a pattern or a change | an IRI |
 
 ### 4.5 Quad pattern
 
@@ -386,43 +416,82 @@ every golden frame does.
 
 ### 5.1 Hello (1)
 
-A client opens a connection: the protocols it speaks, its release and its name.
+A client opens a connection: the protocols it speaks, its release, the largest frame it takes and its name.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 2 | `protocol_min` | u16 | at least 1, refused as `FieldValue` (`"protocol_min"`) |
 | 2 | 2 | `protocol_max` | u16 | at least `protocol_min`, refused as `FieldValue` (`"protocol_max"`) |
 | 4 | 4 | `release` | u32 | any |
+| 8 | 4 | `max_frame` | u32 | the largest frame the client takes, 524,288 to 1,048,576 (`FieldValue` `"max_frame"`) |
 
 | Section | Contents |
 |---|---|
 | 0 | the client's name, UTF-8 |
 
-Order: unused bytes 8–127 zero; `protocol_min`; `protocol_max`; sections; section 0 UTF-8.
+Order: unused bytes 12–127 zero; `protocol_min`; `protocol_max`; `max_frame`; sections; section 0 UTF-8.
+
+The floor of 524,288 bytes holds a Result frame of one term of the largest encoding, a vector of 65,535 dimensions
+(262,143 bytes), with room to spare.
 
 ### 5.2 Welcome (2)
 
-The server's answer to Hello.
+The server's answer to Hello: the protocol chosen, its limits, and how the connection authenticates.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
 | 0 | 2 | `protocol` | u16 | the chosen protocol, at least 1 (`FieldValue` `"protocol"`) |
+| 2 | 1 | `auth` | u8 | 1: the connection authenticates before its first request (section 11.1); 0: the server runs without authentication; else `FieldValue` (`"auth"`) |
 | 4 | 4 | `release` | u32 | the server's release |
-| 8 | 4 | `max_frame` | u32 | the largest frame the server takes, 4,096 to 1,048,576 (`FieldValue` `"max_frame"`) |
+| 8 | 4 | `max_frame` | u32 | the largest frame the server takes, 524,288 to 1,048,576 (`FieldValue` `"max_frame"`) |
 | 12 | 4 | `max_streams` | u32 | the streams a connection holds in flight, at least 1 (`FieldValue` `"max_streams"`) |
 | 16 | 4 | `initial_credit` | u32 | the Result frames each result stream may send before a Credit |
+| 20 | 4 | `max_write_set` | u32 | the largest write-set record a transaction commits, in bytes (section 11.9) |
+| 24 | 4 | `transaction_ms` | u32 | the longest a read-write transaction lives, in milliseconds (section 11.9) |
 
 | Section | Contents |
 |---|---|
 | 0 | the server's name, UTF-8 |
+| 1 | the authentication mechanisms the server accepts: string list `ends` (section 4.3) |
+| 2 | the mechanisms: string list `text`, each a SASL mechanism name (section 11.1) |
 
-Order: unused bytes 2–3 and 20–127 zero; `protocol`; `max_frame`; `max_streams`; sections; section 0 UTF-8.
+Order: unused bytes 3 and 28–127 zero; `protocol`; `auth`; `max_frame`; `max_streams`; sections; section 0 UTF-8; the
+string list (1, 2); with `auth` 1 at least one mechanism, with `auth` 0 none (`CountMismatch` `"mechanisms"`).
 
-## 6. Bodies of sessions and transactions
+### 5.3 Authenticate (18)
+
+One message of a SASL exchange (RFC 4422) on stream 0: the client's first names the mechanism, and each side answers
+the other's until the server's final message, or its refusal (section 11.1). A connection authenticates before its
+first request and again, on the open connection, before its credential expires.
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 4 | `step` | u32 | the message's place in its exchange, from 0: the client's messages even, the server's odd (`FieldValue` `"step"`) |
+| 4 | 1 | `final` | u8 | boolean: the server's last message of the exchange; 0 from a client (`FieldValue` `"final"`) |
+| 8 | 8 | `principal` | u64 | in a final message, the principal the connection acts for; 0 otherwise (`FieldValue` `"principal"`) |
+| 16 | 8 | `expires` | u64 | in a final message, when the credential expires, in microseconds of Unix time, 0 for never; 0 otherwise (`FieldValue` `"expires"`) |
+
+| Section | Contents |
+|---|---|
+| 0 | the mechanism's name, UTF-8: in the client's message of step 0, one the Welcome listed; empty in every other (`FieldValue` `"mechanism"`) |
+| 1 | the mechanism's message, its own bytes |
+
+Order: unused bytes 5–7 and 24–127 zero; `step`; `final`; `principal`; `expires`; sections; section 0 UTF-8 and its
+rule.
+
+| Mechanism | Messages |
+|---|---|
+| `SCRAM-SHA-256` (RFC 5802, RFC 7677) | step 0 the client-first-message, 1 the server-first-message, 2 the client-final-message, 3 the server-final-message, final |
+| `OAUTHBEARER` (RFC 7628) | step 0 the client's initial response, holding the token; 1 the server's final message on success; on a refusal, 1 the server's error JSON, naming the issuer's discovery document and the scope to ask for, 2 the client's single byte `0x01`, then the server's Error 19 |
+
+`OAUTHBEARER` is offered only on a connection encrypted with TLS (`SECURITY.md`).
+
+## 6. Bodies of sessions, transactions and drops
 
 ### 6.1 Register (3)
 
-A session is registered. The client sends `session` 0; the server answers with the session's number.
+A session is registered for the connection's principal, which owns it (section 11.5). The client sends `session` 0;
+the server answers with the session's number.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -432,12 +501,12 @@ No sections: the body is empty. Order: unused bytes 8–127 zero; sections.
 
 ### 6.2 Begin (4)
 
-A transaction begins on the frame's stream. The client sends `read_version` 0; the server answers with the snapshot the
-transaction reads.
+A transaction begins on the frame's stream, which becomes the transaction's (section 11.2). The client sends
+`read_version` 0; the server answers with the snapshot the transaction reads.
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
-| 0 | 8 | `namespace` | u64 | |
+| 0 | 8 | `namespace` | u64 | the transaction's namespace, which its every request acts in |
 | 8 | 8 | `read_version` | u64 | |
 | 16 | 1 | `mode` | u8 | 0 read-write, 1 read-only; else `FieldValue` (`"mode"`) |
 
@@ -445,9 +514,9 @@ No sections. Order: unused bytes 17–127 zero; `mode`; sections.
 
 ### 6.3 Commit (5)
 
-A transaction commits through a session with the session's next request number. The client sends `commit_version` 0
-and no results; the server answers with the commit version and the result of each commit-time operation the
-transaction asked for, in the order asked.
+A transaction commits through a session with the session's next request number, or through no session, `session` 0
+(section 11.5). The client sends `commit_version` 0 and no results; the server answers with the commit version and the
+result of each commit-time operation the transaction asked for, in the order asked.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -457,32 +526,66 @@ transaction asked for, in the order asked.
 
 | Section | Contents |
 |---|---|
-| 0 | results, 16 bytes each |
+| 0 | results, 16 bytes each; empty in a request |
 
 | Result offset | Width | Field | Type |
 |---|---|---|---|
-| 0 | 8 | `uid` | u64: the node an insert-if-absent or upsert-and-link found or created; 0 for compare-and-set and counter add |
-| 8 | 1 | `created` | u8 boolean: whether the operation created the node |
+| 0 | 8 | `uid` | u64: the node an insert-if-absent or upsert-and-link found or created; a counter add's new value, an i64 in two's complement; 0 for compare-and-set |
+| 8 | 1 | `created` | u8 boolean: whether the operation created the node; 0 for compare-and-set and counter add |
 | 9 | 7 | zero | 0 |
 
-Order: unused bytes 24–127 zero; sections; section 0 a whole number of 16-byte results (`SectionLength`); each result in
-order: `created ≤ 1` (`FieldValue` `"created"`), bytes 9–15 zero (`PaddingNotZero` at the body offset).
+Order: unused bytes 24–127 zero; sections; in a request, section 0 empty (`CountMismatch` `"results"`); section 0 a
+whole number of 16-byte results (`SectionLength`); each result in order: `created ≤ 1` (`FieldValue` `"created"`),
+bytes 9–15 zero (`PaddingNotZero` at the body offset).
 
 ### 6.4 Abort (6)
 
 The frame's transaction aborts. The command header is all zero (`ReservedNotZero` otherwise); no sections.
 
+### 6.5 Drop (19)
+
+A drop on a stream of its own, outside any transaction: a predicate, a graph, a namespace's data, a namespace, or every
+namespace. It commits as a transaction does, through a session with the session's next request number or through no
+session, and is answered as a Commit is: the client sends `commit_version` 0; the server answers with the drop's
+commit version. The commit step decides it as the last transaction of its round, and its write-set record names the
+drop in section 10 (section 12.2). A transaction that read or wrote what the drop removes, below its version, aborts
+with Conflict, kind Drop.
+
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 1 | `kind` | u8 | 1 a predicate, 2 a graph, 3 a namespace's data, 4 a namespace, 5 every namespace; else `FieldValue` (`"kind"`) |
+| 8 | 8 | `namespace` | u64 | the namespace of kinds 1 to 4; 0 for kind 5 (`FieldValue` `"namespace"`) |
+| 16 | 8 | `session` | u64 | as Commit's |
+| 24 | 8 | `request` | u64 | as Commit's |
+| 32 | 8 | `commit_version` | u64 | as Commit's |
+
+| Section | Contents |
+|---|---|
+| 0 | the term table's records (section 4.4): one IRI, the predicate's for kind 1 and the graph's for kind 2; none for kinds 3 to 5 |
+| 1 | the term table's text |
+
+Order: unused bytes 1–7 and 40–127 zero; `kind`; `namespace`; sections; the term table; one entry of kind 1 (IRI) for
+drop kinds 1 and 2, none for 3 to 5 (`CountMismatch` `"drop terms"`).
+
+A graph drop removes every key of the graph in the namespace. A namespace's data drop removes the namespace's data and
+keeps its catalog. A namespace drop removes everything in the namespace and writes its initial catalog. A drop of
+every namespace removes every quad key, keeps the dictionary and writes the root namespace's initial catalog. The
+privilege each takes is in `SECURITY.md`.
+
 ## 7. Bodies of data requests
 
 ### 7.1 Read (7)
 
-A data request in the transaction of the frame's stream: a quad pattern, at most `limit` rows (0 for no limit), and the
-resume key a previous result ended with, empty to start.
+A data request on a stream of its own, in the transaction it names: a quad pattern, at most `limit` rows (0 for no
+limit), and the resume key a previous result of the same request ended with, empty to start (section 11.8). A
+transaction's reads run beside each other, each on its stream, all at the transaction's snapshot; cancelling one ends
+that read alone (section 11.4).
 
-| Command header | Width | Field | Type |
-|---|---|---|---|
-| 0 | 8 | `namespace` | u64 |
-| 8 | 4 | `limit` | u32 |
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 8 | `transaction` | u64 | the stream number of the transaction's Begin, an open transaction of the connection |
+| 8 | 4 | `limit` | u32 | |
+| 12 | 4 | `flags` | u32 | bit 0: return each row's statement ID (section 9.1); bits 1 to 31 zero (`FieldValue` `"flags"`) |
 
 | Section | Contents |
 |---|---|
@@ -491,16 +594,14 @@ resume key a previous result ended with, empty to start.
 | 2 | the term table's text |
 | 3 | the resume key, bytes the server gave |
 
-Order: unused bytes 12–127 zero; sections; the term table; the pattern.
+Order: unused bytes 16–127 zero; `flags`; sections; the term table; the pattern.
+
+A Read naming a transaction the connection does not hold open is refused with Error 1 (Protocol) on its stream.
 
 ### 7.2 Write (8)
 
-A changeset in the transaction of the frame's stream. No reply; a refusal arrives as an Error on the stream and ends the
-transaction.
-
-| Command header | Width | Field | Type |
-|---|---|---|---|
-| 0 | 8 | `namespace` | u64 |
+A changeset in the transaction of the frame's stream, in the transaction's namespace. No reply; a refusal arrives as an
+Error on the stream and ends the transaction. The command header is all zero.
 
 | Section | Contents |
 |---|---|
@@ -511,8 +612,8 @@ transaction.
 | 4 | the names: string list `ends` (section 4.3) |
 | 5 | the names: string list `text` |
 
-Order: unused bytes 8–127 zero; sections; the term table (2, 3); the names (4, 5); the args a whole number of u32s
-(`SectionLength`, section 1); the records.
+Order: command header bytes 0–127 zero; sections; the term table (2, 3); the names (4, 5); the args a whole number of
+u32s (`SectionLength`, section 1); the records.
 
 ### 7.3 Operation (9)
 
@@ -543,7 +644,8 @@ Insert-if-absent resolves the node that holds `value` for the unique `predicate`
 properties when none does. Upsert-and-link does the same and writes the links between that node and the others in the
 same step. Compare-and-set replaces `subject`'s single value of `predicate` with `new` when it is `expected`; else the
 commit is refused with `OperationFailed` and the value found. Counter add adds `delta` to `subject`'s integer counter
-`predicate` without reading it.
+`predicate` without reading it; its result carries the counter's new value, computed by the commit step in commit
+order.
 
 Order: unused bytes 1–7 and 24–127 zero; `kind`; `delta`; `properties`; `links`; sections; the term table; the args a
 whole number of u32s (`SectionLength`); the count (`CountMismatch` `"args"`); each arg in order: a link's direction is 0
@@ -554,9 +656,10 @@ or 1 (`FieldValue` `"link direction"`), every other arg is below the term table'
 
 ### 8.1 Prepare (10)
 
-A statement prepared once per session: a quad pattern with parameter slots. The client sends the pattern and its
-parameters' types with `statement` and `schema` 0 and no result types; the server answers with the statement's id, its
-namespace's schema id (section 11.7), and the result column types.
+A statement prepared once per connection, which holds it (section 11.7): a quad pattern with parameter slots. The
+client sends the pattern and its parameters' types with `statement` and `schema` 0 and no result types; the server
+answers with the statement's id, its namespace's schema id as the connection's principal sees it (section 11.7), and
+the result column types.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -578,17 +681,21 @@ subject and predicate, 2 at object.
 
 Order: unused bytes 24–127 zero; sections; the term table; the pattern; section 3's bytes, then section 4's, each 1 or 2
 (`FieldValue` `"column type"`); parameter types count the pattern's parameter slots (`CountMismatch` `"parameter
-types"`); result types are empty or count the unbound slots (`CountMismatch` `"result types"`).
+types"`); in a request, result types are empty, and in an answer they count the unbound slots (`CountMismatch` `"result
+types"`).
 
 ### 8.2 Execute (11)
 
-A prepared statement executed in the transaction of the frame's stream, its parameters bound by position, at most
-`limit` rows (0 for no limit), from the resume key a previous result ended with.
+A prepared statement executed on a stream of its own, in the transaction it names, as a Read is (section 7.1): its
+parameters bound by position, at most `limit` rows (0 for no limit), from the resume key a previous result of the same
+request ended with.
 
-| Command header | Width | Field | Type |
-|---|---|---|---|
-| 0 | 8 | `statement` | u64 |
-| 8 | 4 | `limit` | u32 |
+| Command header | Width | Field | Type | Rule |
+|---|---|---|---|---|
+| 0 | 8 | `statement` | u64 | |
+| 8 | 8 | `transaction` | u64 | the stream number of the transaction's Begin, an open transaction of the connection |
+| 16 | 4 | `limit` | u32 | |
+| 20 | 4 | `flags` | u32 | bit 0: return each row's statement ID (section 9.1); bits 1 to 31 zero (`FieldValue` `"flags"`) |
 
 | Section | Contents |
 |---|---|
@@ -597,14 +704,14 @@ A prepared statement executed in the transaction of the frame's stream, its para
 | 2 | the parameters, u32 term indices, parameter 0 first |
 | 3 | the resume key |
 
-Order: unused bytes 12–127 zero; sections; the term table (0, 1); the parameters a whole number of u32s
+Order: unused bytes 24–127 zero; `flags`; sections; the term table (0, 1); the parameters a whole number of u32s
 (`SectionLength`); each below the term table's length (`IndexOutOfRange`, section 2).
 
 ### 8.3 Describe (12)
 
-What a namespace holds, the data dictionary's answer. The client sends the namespace alone: `read_version` 0 and seven
-empty sections. The server answers with the snapshot it read, the labels, relationship types and property keys, and
-the catalog's declarations.
+What a namespace holds, the data dictionary's answer, as far as the connection's principal may read it. The client
+sends the namespace alone: `read_version` 0 and seven empty sections. The server answers with the snapshot it read, the
+labels, relationship types and property keys, and the catalog's declarations the principal may read.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -618,7 +725,7 @@ the catalog's declarations.
 | 2 | labels, u32 string indices, in order |
 | 3 | relationship types, u32 string indices |
 | 4 | property keys, u32 string indices |
-| 5 | declarations: change records of kinds 8, 9, 10, in that order (section 4.6); an entity type's `extra` is its preorder number |
+| 5 | declarations: change records of kinds 8, 9, 10, in that order, each kind's records in the order of their UIDs (section 4.6); an entity type's `extra` is its preorder number: its place, from 1, in a preorder walk of the type hierarchy, each type before its children, roots and siblings in the order of their UIDs |
 | 6 | the declarations' args, u32s |
 
 Order: unused bytes 16–127 zero; sections; the string list (0, 1); sections 2, 3, 4 in turn, each a whole number of
@@ -633,8 +740,10 @@ The request's body, seven empty sections, is 56 bytes: the table, every `offset`
 
 A columnar, dictionary-encoded batch of a Read or Execute: per column a u32 cell per row, an index into the batch's
 term table or `ABSENT` for unbound; the term table holding the batch's terms in the encoding of section 10, with the
-texts those encodings name but do not hold. The stream's last batch carries the header flag `LAST`; its resume key,
-when not empty, continues a limited read.
+texts those encodings name but do not hold; and, when the request asked, each row's statement ID. A row is one
+statement the pattern matched; the columns are the pattern's unbound slots, in slot order. Rows come in the store's key
+order. The stream's last batch carries the header flag `LAST`; its resume key, when not empty, continues a limited
+read. A read that matches nothing answers one batch flagged `LAST`, `rows` 0 and `columns` the unbound slots.
 
 | Command header | Width | Field | Type |
 |---|---|---|---|
@@ -650,18 +759,21 @@ when not empty, continues a limited read.
 | 4 | strings: string list `ends` |
 | 5 | strings: string list `text` |
 | 6 | the resume key |
+| 7 | the statement IDs, u64s, one per row in row order; empty unless the request set its `flags` bit 0 |
 
-A term's `text` is what its encoding names by UID or by hash: an IRI's text or a blank node's label for a UID
-encoding, the lexical form of a literal held by hash. Its `annotation` is a language tag held by hash, or the IRI of a
-datatype held by UID (section 10.3).
+A term's `text` is what its encoding names by UID or by hash: an IRI's text, or a blank node's skolem IRI, for a UID
+encoding; the lexical form of a literal held by hash. Its `annotation` is a language tag held by hash, or the IRI of a
+datatype held by UID (section 10.3). A statement ID names the statement in Write's change records 4, 6 and 7, whose
+args are its low and high u32 halves (section 4.6).
 
 Order: unused bytes 8–127 zero; sections; offsets (1) a whole number of u32s; texts (3) a whole number of 8-byte pairs
 (`SectionLength`); one pair per term (`CountMismatch` `"term texts"`); the string list (4, 5); cells (0) a whole number
-of u32s; `columns × rows` cells (`CountMismatch` `"cells"`); each cell `ABSENT` or below the term count
-(`IndexOutOfRange`, section 0); with no terms, section 2 is empty (`CountMismatch` `"term encodings"`); each term in
-order: offset 0 for the first, its bytes from its offset to the next term's offset (or the section's end) hold exactly
-one encoding of section 10.1 (`BadTerm`, section 2, the term); each text index `ABSENT` or below the string count
-(`IndexOutOfRange`, section 3).
+of u32s; `columns × rows` cells, the product computed in 64 bits (`CountMismatch` `"cells"`); each cell `ABSENT` or
+below the term count (`IndexOutOfRange`, section 0); with no terms, section 2 is empty (`CountMismatch` `"term
+encodings"`); each term in order: offset 0 for the first, its bytes from its offset to the next term's offset (or the
+section's end) hold exactly one whole encoding of section 10.1 (`BadTerm`, section 2, the term); each text index
+`ABSENT` or below the string count (`IndexOutOfRange`, section 3); the statement IDs (7) empty or 8 bytes per row
+(`CountMismatch` `"statement ids"`).
 
 ### 9.2 Credit (14)
 
@@ -679,8 +791,8 @@ The frame's stream is cancelled. The command header is all zero; no sections.
 
 ### 9.4 Error (16)
 
-A request refused on the frame's stream; or, on stream 0, the connection's last frame after a protocol error or a
-refused handshake.
+A request refused on the frame's stream; or, on stream 0, the connection's last frame after a connection error, a
+refused handshake or authentication, or an expired credential (sections 2.6, 11.1).
 
 | Command header | Width | Field | Type | Rule |
 |---|---|---|---|---|
@@ -690,32 +802,47 @@ refused handshake.
 | Section | Contents |
 |---|---|
 | 0 | the message, UTF-8, for people |
-| 1 | the value found, for `OperationFailed`: an RDF term in N-Triples syntax; empty otherwise |
+| 1 | for `OperationFailed`, the value found: a request term table's records (section 4.4), one entry; empty otherwise |
+| 2 | that term table's text |
 
-Order: unused bytes 2–7 and 16–127 zero; `code`; sections; section 1 UTF-8; section 0 UTF-8. An empty section 1 means
-no value.
+Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1, 2), at most one entry
+(`CountMismatch` `"value"`); section 0 UTF-8. An empty term table means no value: the predicate held none.
 
 | Number | Code | Retryable | `detail` | Meaning |
 |---|---|---|---|---|
-| 1 | Protocol | no | 0 | A frame broke a validation rule; the server closes the connection after this reply. The message is the rule's text |
+| 1 | Protocol | no | 0 | A frame broke a validation rule: a connection error, after which the server closes the connection, or a stream error, which ends the request's stream (section 2.6). The message is the rule's text |
 | 2 | Conflict | yes | the conflict kind below | A transaction's read conflicted with a commit ordered before it |
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds |
-| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit |
+| 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms` |
 | 5 | Busy | yes | 0 | The commit queue is full |
-| 6 | TooLarge | no | the limit in bytes | A write set exceeds the largest frame |
-| 7 | Refused | no | 0 | The catalog refused a write |
-| 8 | OperationFailed | no | 0 | A compare-and-set did not hold; section 1 holds the value found |
+| 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set` |
+| 7 | Refused | no | 0; for a term's rule, the term's index | The catalog refused a write, or a term broke the server's rules (section 4.4) |
+| 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its namespace's |
-| 10 | UnknownStatement | no | the statement | The session holds no statement of this id: never prepared, or evicted |
+| 10 | UnknownStatement | no | the statement | The connection holds no statement of this id: never prepared, or evicted |
 | 11 | Parameters | no | the statement; 0 for a parameter type | The parameters do not fit the statement |
-| 12 | SessionEvicted | no | the session | The session table evicted the session |
+| 12 | SessionEvicted | no | the session | The session table evicted the session; a retried commit refused so has an unknown outcome (section 11.5) |
 | 13 | RequestOutOfOrder | no | the request number expected | A commit's request number is not one above the session's last |
-| 14 | SessionBusy | no | the session | The session has a commit in flight |
+| 14 | SessionBusy | yes, after a delay | the session | The session has a commit in flight |
 | 15 | StreamLimit | no | the limit | The connection holds as many streams as Welcome allows |
-| 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak |
+| 16 | ProtocolVersion | no | the server's highest protocol | No protocol both sides speak; the server closes the connection |
 | 17 | Unavailable | no | 0 | The node refuses writes after a failed log sync, until it restarts |
+| 18 | NotCommitted | yes | the request | A retried commit the session table does not hold, with no transaction open: the request was not committed, and the client runs its transaction again (section 11.5) |
+| 19 | AuthenticationFailed | no | 0 | The authentication exchange failed; the server closes the connection. The message says nothing of what failed |
+| 20 | Unauthenticated | no | 0 | A request before the connection authenticated; the server closes the connection |
+| 21 | PermissionDenied | no | the action below | The connection's principal may not do what the request asks; the request is refused, and a transaction's request ends the transaction |
+| 22 | CredentialExpired | no | 0 | The connection's credential expired before a new authentication; the server closes the connection |
 
 A client retries a request refused with a retryable code. Code numbers are never reused.
+
+| Action (`detail` of code 21) | Asked for |
+|---|---|
+| 1 | `read` |
+| 2 | `write` |
+| 3 | `declare` |
+| 4 | `drop` |
+| 5 | `admin` |
+| 6 | `operate` |
 
 | Conflict kind (`detail` of code 2) | Read |
 |---|---|
@@ -728,8 +855,10 @@ A client retries a request refused with a retryable code. Code numbers are never
 
 ## 10. The term encoding of results
 
-A Result batch holds each term in the store's own encoding: a tag byte and its payload. The tag fixes the encoding's
-length, or where to read it. A vector's encoding is `3 + 4 × dimension` bytes; every other encoding is at most 33.
+A Result batch holds each term in the store's own encoding, a tag byte and its payload, with one difference: the store
+keeps an IRI and a blank node under one tag, `0x01`, and a Result tells them apart, `0x02` for a blank node. The tag
+fixes the encoding's length, or where to read it. A vector's encoding is `3 + 4 × dimension` bytes; every other
+encoding is at most 33.
 
 ### 10.1 Tags and lengths
 
@@ -739,7 +868,8 @@ digest, unkeyed, of the text's UTF-8 bytes: the result batch's string list suppl
 
 | Tag | Term | Payload after the tag | Length |
 |---|---|---|---|
-| `0x01` | IRI or blank node | UID | 9 |
+| `0x01` | IRI | UID | 9 |
+| `0x02` | blank node | UID | 9 |
 | `0x10` | `xsd:boolean` by value | 1 byte | 2 |
 | `0x11` | `xsd:integer` by value | 8 bytes | 9 |
 | `0x12` | `xsd:decimal` by value | 16 bytes | 17 |
@@ -770,19 +900,21 @@ digest, unkeyed, of the text's UTF-8 bytes: the result batch's string list suppl
 The three tags of each language-tagged row are for the base direction: the first none, the second `ltr`, the third
 `rtl`. A language tag over 15 bytes hashes the lexical form too, whatever its length.
 
-An encoding is whole when its tag is listed, each inline length is at most 15, a vector's dimension is at least 1, and
-the bytes hold exactly the length the table gives. A Result receiver checks this per term (section 9.1).
+An encoding is whole when its tag is listed, each inline length is at most 15 and its text UTF-8, a boolean's byte 0
+or 1, a known datatype's code in section 10.4, a vector's dimension at least 1, and the bytes hold exactly the length
+the table gives. A Result receiver checks this per term (section 9.1).
 
 ### 10.2 How the server chooses the encoding
 
 | Term | Encoding |
 |---|---|
-| IRI, blank node | `0x01`, with the IRI's text or the label as the term's `text` |
+| IRI | `0x01`, with the IRI's text as the term's `text` |
+| Blank node | `0x02`, with its skolem IRI, `…/namespace/{n}/.well-known/genid/{uid}` (RDF 1.1 §3.5), as the term's `text`; a request names the node again by that IRI, as an IRI (section 4.4) |
 | `xsd:string` literal | `0x20` up to 15 bytes, else `0x21` |
 | Language-tagged literal | by tag length, then lexical form length, as the table gives |
-| Literal of datatypes `0x10` to `0x1F` whose lexical form is the canonical form of its value (section 10.5) | the by-value tag |
+| Literal of datatypes `0x10` to `0x1F` whose lexical form is the canonical form of its value (section 10.5) and whose value the payload holds exactly: an integer within i64, a decimal of at most 18 fraction digits within the i128 payload, a date, time or duration within its payload, and no timezone offset of −00:01, whose minutes would read as the payload's "no timezone" | the by-value tag |
 | `float32vector` literal in canonical form: `[`, the elements separated by `, `, `]`, each element the shortest decimal that reads back as the same finite f32, without exponent | `0x40` |
-| Any other literal of a known datatype, a by-value datatype's non-canonical form included | `0x30` up to 15 bytes, else `0x31` |
+| Any other literal of a known datatype, a by-value datatype's non-canonical form or a value its payload does not hold included | `0x30` up to 15 bytes, else `0x31` |
 | A literal of any other datatype | `0x32` up to 15 bytes, else `0x33` |
 
 Equal terms encode equally and unequal terms unequally.
@@ -791,7 +923,8 @@ Equal terms encode equally and unequal terms unequally.
 
 | Tag | `text` | `annotation` |
 |---|---|---|
-| `0x01` | the IRI or the blank node's label | |
+| `0x01` | the IRI | |
+| `0x02` | the blank node's skolem IRI | |
 | `0x21`, `0x23`, `0x26`, `0x29`, `0x31` | the lexical form | |
 | `0x24`, `0x27`, `0x2A` | the lexical form | the language tag |
 | `0x32` | | the datatype's IRI |
@@ -825,7 +958,7 @@ Each multi-byte number in a by-value payload is **big-endian**. A decimal number
 
 | Tag | Payload | Value |
 |---|---|---|
-| `0x10` | u8 | 0 false, 1 true; a reader takes any nonzero byte as true |
+| `0x10` | u8 | 0 false, 1 true; any other byte is no whole encoding |
 | `0x11` | i64 | the integer |
 | `0x12` | i128 | the decimal × 10¹⁸ |
 | `0x13` | f64, IEEE 754 binary64 | the double |
@@ -865,7 +998,8 @@ time in whole seconds after 0001-01-01T00:00:00 in the proleptic Gregorian calen
 `(L mod 86400) div 3600` and the minute `(L mod 3600) div 60`; the second is `(T / 10¹⁸) mod 60`, with its fraction. A
 client reads the properties its type has and ignores the others.
 
-A literal is encoded by value only when its lexical form equals the form below, so a client writes that form back:
+A literal is encoded by value only when its lexical form equals the form below, so a client writes that form back.
+The forms are the protocol's own, independent of any library's formatting, and golden vectors hold them:
 
 | Datatype | Canonical lexical form |
 |---|---|
@@ -882,104 +1016,183 @@ A literal is encoded by value only when its lexical form equals the form below, 
 
 ## 11. The connection
 
-### 11.1 Handshake
+### 11.1 Handshake and authentication
 
-1. The client opens a TCP connection and sends Hello on stream 0: header `cluster` the cluster it is configured for,
-   `release` its release, `protocol` 1, every other field 0.
+1. The client opens a TCP connection, encrypted with TLS from its first byte when the server is configured for TLS
+   (`SECURITY.md`), and sends Hello on stream 0: header `sequence` 1, `cluster` the cluster it is configured for,
+   `release` its release, `protocol` 1, every other field 0; command header the protocols it speaks and its
+   `max_frame`.
 2. The server validates the frame. A frame breaking a rule, or a first frame of another command, is answered with an
    Error of code 1 (Protocol) on stream 0, and the server closes the connection.
 3. When `protocol_min` exceeds the server's highest protocol, the server answers an Error of code 16 (ProtocolVersion),
    `detail` the server's highest protocol, on stream 0, and closes the connection.
 4. Otherwise the server answers Welcome on stream 0, its `protocol` the lesser of its highest protocol and
    `protocol_max`. A server speaks every protocol from 1 to its highest. The Welcome's header carries `protocol` 1 and
-   the server's `release`.
-5. The client validates the Welcome and refuses a `protocol` outside its Hello's range (`FieldValue` `"protocol"`).
+   the server's `release`; its command header the server's limits and `auth`, and its sections the mechanisms.
+5. The client validates the Welcome and refuses a `protocol` outside its Hello's range (`FieldValue` `"protocol"`),
+   closing the connection.
+6. With `auth` 1, the client authenticates: an Authenticate exchange on stream 0 (section 5.3) by a mechanism the
+   Welcome listed. The server's final Authenticate names the principal the connection acts for and when its credential
+   expires. A refusal is an Error of code 19 (AuthenticationFailed) on stream 0, and the server closes the connection.
+   A request on any stream before the final Authenticate is refused with an Error of code 20 (Unauthenticated) on
+   stream 0, and the server closes the connection. With `auth` 0, nothing is exchanged, and the connection acts for
+   the anonymous principal, which a server offers only on its loopback interface (`SECURITY.md`).
 
-Every later client frame carries in its header the cluster, the client's `release`, `protocol` equal to the Welcome's
-`protocol`, and its stream. A client sends no frame larger than the Welcome's `max_frame`.
+Every later frame carries in its header the cluster, the sender's `release`, `protocol` equal to the Welcome's
+`protocol`, its stream and its sequence. No side sends a frame larger than the other's `max_frame`: the client's from
+its Hello, the server's from its Welcome.
+
+**Re-authentication.** A credential that expires, as a token does, is renewed on the open connection: before the
+expiry the final Authenticate named, the client runs a new exchange on stream 0, by any mechanism the Welcome listed,
+while requests on the other streams go on. The exchange must end as the same principal; another is refused with code
+19, and the connection closes. The new final Authenticate's expiry replaces the old. A credential that expires before
+a new exchange ends, or that its principal loses (a password changed, the principal disabled, the mechanism removed),
+ends the connection: an Error of code 22 (CredentialExpired) on stream 0, then the close.
 
 ### 11.2 Streams
 
-- Stream 0 carries the connection's own frames: Hello, Welcome, and the server's closing Error.
+- Stream 0 carries the connection's own frames: Hello, Welcome, Authenticate, and the server's Error that ends the
+  connection.
 - Every request opens a new stream. The client numbers streams from 1 on each connection, upward, and never reuses a
   number on that connection. At most `max_streams` streams are open at once; the server refuses another with Error code
-  15 (StreamLimit), `detail` the limit.
+  15 (StreamLimit), `detail` the limit. A request on stream 0 other than Hello and Authenticate, or a new request on a
+  stream already open, is a connection error (section 2.6).
 - The server answers streams independently, in whatever order their results are ready.
-- A stream ends when its last frame arrives, when the client cancels it, or when an Error on it ends it. A frame of a
-  stream that has ended is late; the Rust client drops it, and drops a frame whose `checksum` equals the previous
-  frame's of its stream as a duplicate.
+- A stream ends with its frame flagged `LAST`, when the client cancels it, or with an Error on it. Every reply that
+  ends its stream carries `LAST`: Register, Commit, Prepare, Describe and Drop replies, a read's last Result, and every
+  Error. Begin's reply does not: the transaction's stream stays open.
+- Each side numbers the frames it sends on the connection, its `sequence`, from 1 and one more for each frame. A
+  receiver refuses a frame whose sequence is not one above the previous frame's from the same side: a connection
+  error (`SequenceOrder`), which a lost, repeated or reordered frame cannot pass. A frame of a stream that has ended is
+  late; the Rust client drops it.
 
 | Request | Stream | Reply |
 |---|---|---|
+| Authenticate | stream 0 | Authenticate, until the server's final one; or Error 19, closing the connection |
 | Register | a new stream | Register with the session number, or Error; the stream ends |
 | Begin | a new stream, which becomes the transaction's | Begin with `read_version` filled; the stream stays open |
-| Read, Execute | the transaction's stream | Result frames, the last flagged `LAST`; or Error |
+| Read, Execute | a new stream, naming the transaction | Result frames, the last flagged `LAST`; or Error |
 | Write, Operation | the transaction's stream | none; a refusal is an Error on the stream, which ends the transaction and answers its next request |
 | Commit | the transaction's stream; a retry goes on a new stream of its own | Commit or Error; the stream ends |
 | Abort | the transaction's stream | none; the stream ends |
-| Prepare, Describe | a new stream | Prepare or Describe, or Error; the stream ends |
-| Credit, Cancel | the result's stream | none |
+| Prepare, Describe, Drop | a new stream | Prepare, Describe or Drop, or Error; the stream ends |
+| Credit | the read's stream | none |
+| Cancel | a read's stream, or the transaction's | none |
 
-A transaction is its stream: one request at a time waits on it, and cancelling its result stream ends the
-transaction. The Rust client sends no Write, Operation or Commit in a read-only transaction (Begin `mode` 1).
+A transaction is its stream and its reads. Its stream takes one request at a time; its reads run beside it, each on a
+stream of its own, at the transaction's snapshot. When the transaction ends, by its Commit's reply, its Abort, or an
+Error on its stream, the reads still open end with it, as a Cancel ends them (section 11.4): a client that wants a
+read's every row reads it to its `LAST` first, as SQL closes a transaction's cursors when it ends. The Rust client
+sends no Write, Operation or Commit in a read-only transaction (Begin `mode` 1).
 
 ### 11.3 Credit
 
-Each result stream starts with the Welcome's `initial_credit`. The server sends a Result frame on a stream only while
+Each read's stream starts with the Welcome's `initial_credit`. The server sends a Result frame on a stream only while
 the stream's credit is above 0, and each Result frame it sends spends 1. A Credit frame on the stream adds `frames`
 (saturating at 2³² − 1). Only Result frames spend credit; an Error and every other frame leave it. The server ignores
 Credit for a stream that is not open. The Rust client grants more credit when its count reaches 0 and it waits for a
 batch.
 
-### 11.4 Cancel
+### 11.4 Cancel and disconnection
 
-A Cancel frame on a stream drops the frames the server queued for it, and the server sends nothing further on it.
-Credit for it afterwards is ignored.
+- A Cancel frame on a read's stream drops the frames the server queued for it, and the server sends nothing further on
+  it. Credit for it afterwards is ignored. The read's transaction goes on.
+- A Cancel on a transaction's stream aborts the transaction and ends its reads.
+- A Cancel never undoes a commit the commit step decided: a Commit or Drop whose stream is cancelled may still commit,
+  and the client learns its outcome by retrying it through its session (section 11.5).
+- A connection that closes, from either side, aborts its open transactions. Its commits already in the commit step
+  proceed, and its sessions, which belong to its principal, carry over to the principal's next connection.
+- The server keeps TCP keepalive on, and closes a connection that sends no frame for its idle limit (section 11.9).
+  The protocol has no ping command.
 
 ### 11.5 Sessions and exactly-once commits
 
-- A client registers a session with Register (`session` 0) and receives its number. A connection holds as many
-  sessions as it needs concurrent writers; reads need no session.
-- Each Commit carries its session and a request number one above the session's last committed request; a new
-  session's first request is 1. The server refuses another number with code 13 (RequestOutOfOrder), `detail` the number
-  expected.
-- One commit is in flight per session; the server refuses a second with code 14 (SessionBusy). The Rust client retries a
-  SessionBusy commit after a delay.
+- A client registers a session with Register (`session` 0) and receives its number. The session belongs to the
+  connection's principal. A connection holds as many sessions as it needs concurrent writers; reads need no session.
+- Each Commit and Drop carries its session and a request number one above the session's last committed request; a new
+  session's first request is 1. The server refuses another number with code 13 (RequestOutOfOrder), `detail` the
+  number expected.
+- One commit is in flight per session; the server refuses a second with code 14 (SessionBusy), which a client retries
+  after a delay.
+- Only the session's principal commits through it or reads its stored reply; another principal's request is refused
+  with code 21 (PermissionDenied), `detail` 2, `write`.
 - The server's session table holds each session's last committed request and its whole reply: the commit version and
   every commit-time operation's result. A retry of that request, with the same session and request number, returns the
   stored reply byte for byte, results included; so a client whose connection dropped after sending a Commit sends it
   again on the next connection, on a new stream, without a transaction, and is answered from the table if it committed.
+  A retry of a request the table does not hold, with no transaction open for it, is answered with code 18
+  (NotCommitted): the request was not committed, and the client runs its transaction again. A retry while the original
+  is still in the commit step is answered with code 14.
 - The table is durable: a session's registration and each committed request with its reply are written in the same
-  round as the commit, so the table survives a restart of the server exactly as the commit does (decided 2026-10-28).
-- The table is bounded; an evicted session's request is refused with code 12 (SessionEvicted).
+  round as the commit, so the table survives a restart of the server exactly as the commit does.
+- The table is bounded; an evicted session's request is refused with code 12 (SessionEvicted). A retry refused with
+  code 12 has an unknown outcome: the client reports it as unknown and does not retry.
 - After a Commit reply the session's next request number is one higher; after a refusal it stays.
+- A commit through no session, `session` 0, commits without exactly-once: a lost reply leaves its outcome unknown.
+- A Register whose reply is lost leaves a session no client uses, which ages out of the bounded table; the client
+  registers again.
 
 ### 11.6 Commit-time operations
 
 A transaction sends any number of Operation frames before its Commit. The Commit reply's results hold one 16-byte
 result per operation, in the order the operations were sent: the node's UID and whether the operation created it for
-kinds 1 and 2, `uid` 0 and `created` 0 for kinds 3 and 4. A compare-and-set that does not hold refuses the commit with
-code 8 (OperationFailed), the value found in the Error's section 1.
+kinds 1 and 2; the counter's new value for kind 4; `uid` 0 and `created` 0 for kind 3. A compare-and-set that does not
+hold refuses the commit with code 8 (OperationFailed), the value found in the Error's term table.
 
 ### 11.7 Prepared statements and the schema id
 
-- A statement is prepared per session; its id starts at 1 and is never reused within the session. The cache holds a
-  bounded number of statements and evicts the oldest; executing an evicted statement is refused with code 10
-  (UnknownStatement).
+- A statement is prepared on a connection, which holds it; its id starts at 1 and is never reused on the connection.
+  The connection's cache holds a bounded number of statements and evicts the oldest; executing an evicted statement is
+  refused with code 10 (UnknownStatement).
 - Preparing refuses a parameter declared `2` (any term) at a graph, subject or predicate slot with code 11
   (Parameters), `detail` 0.
 - Execute refuses, in this order: an unknown statement (code 10); a statement prepared against another schema id than
   its namespace's current one (code 9, StaleStatement), after which preparing it again succeeds; parameters that are not
-  one per parameter slot (code 11). Each `detail` is the statement id.
+  one per parameter slot (code 11); a literal bound at a slot of column type 1 (code 11). Each `detail` is the statement
+  id.
 - The schema id is XXH3-64, seed 0, of the Describe body (the data before any chunk table) that holds the namespace's
-  declarations alone: sections 2, 3 and 4 empty, the strings only the declarations' names, interned in record order,
-  arg by arg, and the declarations in the order the server lists them. It changes with the catalog and not with the
-  data. For the golden `describe_reply.frame` it is `0xFE70341D112B65A9`.
+  declarations alone, as the connection's principal sees them: sections 2, 3 and 4 empty, the strings only the
+  declarations' names, interned in record order, arg by arg, and the declarations in Describe's order (section 8.3).
+  It changes with the catalog and with what the principal may read, and not with the data. For the golden
+  `describe_reply.frame` it is `0xFE70341D112B65A9`.
+
+### 11.8 Resume keys
+
+A Result batch's resume key continues its own request: the same Read or Execute, in the same transaction, with the
+same pattern, parameters and flags, sent on a new stream with the key in its resume section. Rows come in the store's
+key order, so a resumed read neither repeats nor skips a row at the transaction's snapshot. The server refuses a key
+that lies outside the pattern's keys with Error 1 (Protocol) on the request's stream.
+
+### 11.9 Limits
+
+The Welcome states the limits a client must know before it sends: `max_frame`, `max_streams`, `initial_credit`,
+`max_write_set` and `transaction_ms`. A transaction is bounded by both: its write-set record within `max_write_set`,
+which one Round frame holds, refused with code 6 (TooLarge) otherwise; its life within `transaction_ms`, refused with
+code 4 (PastLimit) otherwise. A load larger than one transaction is many transactions.
+
+| Limit | Default |
+|---|---|
+| `max_frame` | 1,048,576 bytes |
+| `max_write_set` | 1,040,384 bytes |
+| `transaction_ms`, a read-write transaction's life | 10,000 ms |
+| `max_streams` | 256 |
+| `initial_credit` | 4 |
+| Sessions in the table | 4,096 |
+| Statements per connection | 256 |
+| Idle limit, a connection sending no frame | 600 s |
+
+### 11.10 Authorization
+
+Every request is authorized against the connection's principal (`SECURITY.md`). A statement the principal may not read
+is absent from a read: a pattern naming a predicate or graph it may not read matches nothing, and one leaving it
+unbound returns no row of it. A write, declaration, drop, administration or cluster operation the principal may not do
+is refused with code 21 (PermissionDenied), `detail` the action (section 9.4).
 
 ## 12. Internal to the server and the log
 
 No client sends or receives these. The log stores each round as a Round frame, header and body, and stage 10's
-replication will carry the same bytes.
+replication will carry the same bytes. A Round frame's header holds `sequence` its round's `position`, `stream` 0,
+`flags` 0, `protocol` 1, `view` 0, `replica` 0 and `release` the release of the node that wrote it.
 
 ### 12.1 Round (17)
 
@@ -1024,7 +1237,7 @@ table a whole number of 8 bytes; one entry per commit (`CountMismatch` `"records
 What a worker builds for a transaction: its writes as store entries and the conflict keys of its writes. The commit step
 writes it again, once, for a transaction that ran commit-time operations: the operations' writes added and their results
 in section 9, so the log holds exactly what was applied and what was answered. It is the body layout of section 4.1 with
-a 32-byte fixed part and 11 sections; its offsets count from the record's first byte.
+a 40-byte fixed part and 11 sections; its offsets count from the record's first byte.
 
 | Fixed part | Width | Field | Type |
 |---|---|---|---|
@@ -1032,6 +1245,7 @@ a 32-byte fixed part and 11 sections; its offsets count from the record's first 
 | 8 | 8 | `read_version` | u64 |
 | 16 | 8 | `session` | u64 |
 | 24 | 8 | `request` | u64 |
+| 32 | 8 | `principal` | u64: the principal the transaction acted for, the administrator of a security change; 0 without authentication (`SECURITY.md`) |
 
 | Section | Contents |
 |---|---|
@@ -1044,21 +1258,22 @@ a 32-byte fixed part and 11 sections; its offsets count from the record's first 
 | 6 | conflict points: entries whose value is present and empty, a key written |
 | 7 | conflict statements: a list key and the object it changed |
 | 8 | conflict ranges: the first key and the key past the last |
-| 9 | the commit-time operations' results, 16 bytes each in the Commit reply's result layout (section 6.3), in the order the transaction asked them; empty for a transaction that asked none (decided 2026-10-28) |
-| 10 | the record's operation, empty for a transaction: one 16-byte operation (decided 2026-10-28) |
+| 9 | the commit-time operations' results, 16 bytes each in the Commit reply's result layout (section 6.3), in the order the transaction asked them; empty for a transaction that asked none |
+| 10 | the record's operation, empty for a transaction: one 16-byte operation |
 
 An operation is a write the store computes when it applies the record, at the record's commit version, rather than one
 the record carries:
 
 | Operation offset | Width | Field |
 |---|---|---|
-| 0 | 2 | `operation` u16: 1 drop a predicate, 2 swap a build in, 3 undo a build |
+| 0 | 2 | `operation` u16: 1 drop a predicate, 2 swap a build in, 3 undo a build, 4 drop a graph, 5 drop a namespace's data, 6 drop a namespace, 7 drop every namespace |
 | 2 | 6 | zero |
-| 8 | 8 | `argument` u64: the dropped predicate's UID in the record's namespace, or the build's record number |
+| 8 | 8 | `argument` u64: the dropped predicate's UID in the record's namespace, the build's record number, the dropped graph's UID; 0 for operations 5, 6 and 7 |
 
-- **Drop a predicate** removes every key of the predicate in the namespace and its catalog entry. Its record holds the
-  predicate's key ranges in section 8, so a transaction writing into them after its read version conflicts; it is the
-  last record of its round.
+- **A drop** (operations 1 and 4 to 7, the Drop command's kinds 1 to 5) removes what section 6.5 says of its kind:
+  the predicate's keys and its catalog entry, the graph's keys, the namespace's data, the namespace, or every
+  namespace. Its record holds the dropped key ranges in section 8, so a transaction reading or writing into them below
+  the drop's version conflicts; it is the last record of its round.
 - **Swap a build in** writes the lists the build made, complete at the version of the round that started it, and its
   new declaration. **Undo a build** writes the build's old declaration back, after the build failed or a drop
   cancelled it, and removes every index key of the predicate that declaration does not name. Each is a round of its
@@ -1077,12 +1292,15 @@ A key-value section is entries back to back, each 8-aligned within the section:
 | | to a multiple of 8 | zero |
 
 Order: the fixed part and table (section 4.1); sections 0–4 and 6–8 in turn, each entry inside its section
-(`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every conflict point's value present and empty (`FieldValue`
-`"conflict point"`); every conflict statement's and conflict range's value present (`FieldValue` `"conflict
-statement"`, `"conflict range"`); section 9 a whole number of 16-byte results (`SectionLength`), each with
-`created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero (`PaddingNotZero`); section 10 empty or one operation
-(`SectionLength`), its `operation` 1, 2 or 3 (`FieldValue` `"operation"`) and bytes 2–7 zero (`PaddingNotZero`). The
-keys' and values' contents are the store's.
+(`EntryOutOfBounds`) with zero padding (`PaddingNotZero`); every list delta's value present (`FieldValue` `"list
+delta"`); every conflict point's value present and empty (`FieldValue` `"conflict point"`); every conflict statement's
+and conflict range's value present (`FieldValue` `"conflict statement"`, `"conflict range"`); section 9 a whole number
+of 16-byte results (`SectionLength`), each with `created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero
+(`PaddingNotZero`); section 10 empty or one operation (`SectionLength`), its `operation` 1 to 7 (`FieldValue`
+`"operation"`) and bytes 2–7 zero (`PaddingNotZero`).
+
+The keys' and values' contents, the posting format of list deltas and the commit record are the store's: the server
+alone writes and reads them, and the store's mapping contract versions them. This file states their framing.
 
 Recovery replays the log's rounds above the store's applied version, which is the last commit version of a round the
 log holds, or 0. Each committed record is written at its commit version: sections 0 to 4 as its writes, a session's
@@ -1091,91 +1309,9 @@ and its operation. A swap rebuilds the build at the version before its own, from
 then swaps it in; a swap or undo writes nothing when the store's catalog no longer declares the predicate, as its
 first apply found its build cancelled by a drop. No record between the drop and the end declares the predicate again:
 a write executed before the drop conflicts with its ranges, a declaration during the build is refused, and the server
-proposes a build done before the drop at the drop's own sync, before any later write is decided. Recovery refuses to start, naming the version, when the store's applied version is
-neither 0 nor a held round's last version, except below the first round held after a checkpoint, which the
-checkpoint covers; and when the store is empty and the log was trimmed, naming the checkpoint.
+proposes a build done before the drop at the drop's own sync, before any later write is decided.
 
-## 13. Open points
-
-### 13.1 Left to the server, which does not exist yet
-
-`ultragraphdb_server_session` and `ultragraphdb_server` hold no code. The connection rules of section 11 come from
-the transport crate's machines (`ServerHandshake`, `Outbound`), the Rust client core and the design; the server's
-answers below have no code to read.
-
-1. Which frames besides the last Result carry `LAST`? The `Outbound` scheduler closes a stream after any frame flagged
-   `LAST`, the golden Error frames carry it, and the golden Commit, Begin and other replies do not. Does every reply that
-   ends a stream (Register, Commit, Prepare, Describe, Error) carry `LAST`?
-2. What does the server answer to a request on stream 0, or on a stream already open (`StreamZero`, `StreamOpen` of
-   the transport)? An Error of which code, on which stream, and does the connection stay open?
-3. Does the server refuse a frame larger than its Welcome's `max_frame`, and with which code? The framer refuses only a
-   frame past its receive buffer's capacity.
-4. In which order does the server list a namespace's declarations in a Describe answer? The schema id hashes them in
-   that order, so a client recomputing it depends on it.
-5. Which RDF syntax rules does the server apply to a request's terms (IRI syntax, language-tag syntax, a literal's
-   lexical form against its datatype, an IRI or blank node at the predicate slot)? The wire's views check only the
-   layout of section 4.4.
-6. Which N-Triples serialization does an OperationFailed Error's value use: escapes, `xsd:string` stated or not,
-   directional language tags?
-7. Does the server's Hello answer close the connection after code 16 (ProtocolVersion)? `ServerHandshake` returns the
-   refusal and the Error frame; the closing is the shell's.
-8. How long may a transaction live (code 4's limit), how many sessions and statements a server holds, and what
-   `initial_credit` and `max_streams` it offers? These are configuration; no default is in the code.
-9. What does the server send for a Result with `columns` 0, and for a read that matches nothing: one empty batch flagged
-   `LAST`?
-
-### 13.2 Left to a Rust crate's internals
-
-10. A result term with tag `0x01` names an IRI or a blank node by a UID, and its `text` is the IRI's text or the
-    label; nothing in the batch tells a client which. How does a client tell an IRI from a blank node?
-11. A by-value date or time with timezone offset −1 minute (`-00:01`) encodes `Z` as `0xFFFF`, the marker for "no
-    timezone": oxsdatatypes 0.2.4's own layout, which this protocol adopts. Is the collision accepted, or does the
-    protocol take its own marker?
-12. The by-value lexical forms of section 10.5 are oxsdatatypes 0.2.4's `Display` output, which the encoder compares
-    against. A future oxsdatatypes that formats differently changes which literals are encoded by value. Does the
-    protocol pin these forms as its own?
-13. The Result view accepts a term encoding whose inline text is not UTF-8 or whose known-datatype code (tags `0x30`,
-    `0x31`) is not in section 10.4; `ultragraphdb_core_terms` refuses such a term only when a reader opens it. Should
-    the batch's check refuse it?
-14. Describe's preorder number in an entity type's `extra`: preorder of which tree, counted from 0 or 1?
-15. The write-set record's key and value contents, the posting format of list deltas and the commit record are the
-    store's (`ultragraphdb_store_*`); the log alone reads them, and this file states their framing only.
-16. The Round frame's header fields other than the command header (`stream`, `flags`, `release`, `protocol`) are the
-    log writer's; the golden Round has them 0, `release` `0x00050000` and `protocol` 1.
-
-### 13.3 Ambiguous in the code
-
-17. No receiver checks the header's `protocol`, `view`, `replica` or `flags` bits 1 to 7. Should a server refuse a
-    frame whose `protocol` is not the Welcome's?
-18. `release` is an opaque u32 everywhere; the golden frames use `0x00050000`. Does it have a structure (major, minor)?
-19. The Error frame's `stream` of a protocol error: `ErrorReply` documents stream 0 for the connection's last frame, and
-    the transport machines send handshake refusals on stream 0. Does a protocol error found in a body of stream n go on
-    stream 0 or n?
-20. The receivers enforce one encoding for the request term table's text order but not its entry order, and not for
-    Write's names, Describe's strings or a Result batch's term and string order (section 4.7). Is the sender's
-    convention part of the protocol, so a receiver may refuse other orders?
-21. A Commit request may carry results, and a Prepare request result types; the views accept them. Should a server
-    refuse them?
-22. A list delta (write-set section 0) may hold a removal (`value_len` `ABSENT`); the view accepts it and the owned
-    record reads it as an empty delta.
-
-### 13.4 Documents and code disagree
-
-23. `ultragraphdb_protocol_wire/src/lib.rs` says "Terms a client sends are RDF terms in N-Triples text". The code
-    sends them in the term table of section 4.4, by text without N-Triples syntax; only the Error's value is N-Triples.
-24. The design (`zero-copy-binary-protocol.md`, "Multiplexing") lists the Welcome's limits as "in-flight streams per
-    connection, frames per stream"; the Welcome carries `max_frame` in bytes, `max_streams` and `initial_credit`.
-25. The design's validation order reads "command known, reserved bytes zero, `size` within the maximum"; the code also
-    checks the cluster between the reserved bytes and `size`, as the wire-protocol spec states, and `size ≥ 256` and
-    the received length before the chunks.
-26. The design's Round body lists "position, parent, first version, decisions, the admitted write-set records"; the
-    code adds `incarnation` and `transactions` to the command header.
-27. The design says a client reads a result cell "as `core_terms`' existing `TermView<'a>`"; a native client has no
-    `TermView`, and section 10 states the bytes instead.
-
-### 13.5 Commands not yet in the protocol
-
-28. No command drops anything: a predicate, a graph, a namespace's data, a namespace or every namespace. The node's
-    drop of a predicate is a commit step proposal whose record carries operation 1 (section 12.2), reached today only
-    from code; the other four drops have no proposal and no operation code yet. Which drops does the protocol offer,
-    as which command, answered how, and which operation code does each take in the write-set record?
+A checkpoint trims the log through a round and records, beside its position, the last commit version it covers.
+Recovery refuses to start, naming both versions, when the store's applied version is below the checkpoint's; naming
+the version, when the store's applied version is neither the checkpoint's nor a held round's last version, nor 0 on a
+log never trimmed.

@@ -120,6 +120,26 @@ stage-5 test drive the server with. It speaks the same protocol as the server, t
 - [x] 9b.10 `ultragraphdb_client_tokio`, the primary public Rust client: the core's tokio shell with `Send` futures over TCP, `tokio` pinned; tested against the scripted server over the simulated network and a TCP loopback (decided 2026-10-28)
 - [x] 9b.11 `ultragraphdb_client_compio`, the public compio client: the core's compio shell over the transport's compio `Connection`; the same tests (decided 2026-10-28)
 
+## 9c. The protocol block → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_client_core` and its shells, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn`, `ultragraphdb_store_apply`, `ultragraphdb_transactions_log`, `ultragraphdb_core_terms` (decided 2026-10-28, scoped 2026-10-30)
+
+The specification's open points resolved before the remaining groups (decided 2026-10-28): every point of
+`ultragraphdb_protocol/PROTOCOL.md` §13, as its triage §13.8 records them (category A approved row by row, category B
+decided, 2026-10-30), and the security design, `openspec/notes/security.md`. Specification first: each change is written
+into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and 13 wait until this group closes.
+
+- [x] 9c.1 The open points found and triaged: a critical reading of the specification (points 35–55), the points carried from the stage's notes (29–34), category A's recommendations and category B's decisions (2026-10-30)
+- [x] 9c.2 The security design, checked against Dgraph's ACL and current practice: `openspec/notes/security.md` (2026-10-30)
+- [x] 9c.3 The security design's open questions answered by the user (its "Open questions", 2026-10-30)
+- [x] 9c.4 Specification: `PROTOCOL.md` written to every resolution of §13.8 and to the security design's wire changes, §13 removed with every point resolved (its record in `notes/group-9c.md`); `SECURITY.md`, the security architecture; the design documents written to the code (points 23–27) (2026-10-30)
+- [ ] 9c.5 Scenarios: the wire-protocol and transactions specs' deltas for the new behaviour, verbatim as Gherkin: authentication (SCRAM-SHA-256, a refusal, a request before it, re-authentication on an open connection, a credential's expiry), a session's owner, reads and executes on streams of their own naming their transaction (B3), the Drop command (B2), statement IDs in results (B4), the blank-node tag and the genid guard (B1), the write-set bound in Welcome (B5), the frame sequence (point 32), connection and stream errors (points 19, 45), NotCommitted (point 29), the counter's value (point 33)
+- [ ] 9c.6 Phases 1–3: the surfaces: the wire's Authenticate and Drop commands, Hello's `max_frame`, Welcome's authentication and limits, the transaction field of Read and Execute, the statement-ID column, tag `0x02`, error codes 18 to 22, the write-set record's `principal` and operations 4 to 7, the OperationFailed value as a term table, the counter's value; the transport's authentication phase and re-authentication, stream rules and frame sequence; the client core's SCRAM, its reads on their own streams and its retry rules (points 29, 36, 38); the commit and store sides of drops 4 to 7, `principal`, the session's owner and the checkpoint's version (point 34)
+- [ ] 9c.7 Phase 4, the frame and the connection: points 2, 3, 7, 16, 17, 19 and 45, 32, 44, 55; the handshake with authentication; reads on their own streams with credit per request (B3, points 1, 30); the golden frames regenerated
+- [ ] 9c.8 Phase 4, terms and results: points 11, 12, 13, 49, 50, 51, 52, 54 in the wire and `ultragraphdb_core_terms`; tag `0x02` (B1); statement IDs (B4)
+- [ ] 9c.9 Phase 4, requests, errors and sessions: points 4, 5, 8, 9, 14, 20, 21, 22, 29, 33, 35–40, 46–48; the session's owner; the Drop command with its proposals and operation codes, recovery redoing them (B2); the write-set bound (B5)
+- [ ] 9c.10 Phase 4, the log: `principal` in the write-set record; the checkpoint's version and recovery's refusal of a store behind it (point 34); point 15 stated
+- [ ] 9c.11 The transport's state machines audited as phase 3 audits a suite: defects planted in a throwaway copy, each found by the suite or the suite strengthened
+- [ ] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
+
 ## 10. The server → `ultragraphdb_server_session`, `ultragraphdb_server`
 
 - [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
@@ -128,6 +148,7 @@ stage-5 test drive the server with. It speaks the same protocol as the server, t
 - [ ] 10.4 Phase 4: configuration read once by the binary; start with recovery before accept; graceful shutdown; telemetry through `ultragraphdb_common_telemetry`
 - [ ] 10.5 Phase 4: every server scenario and the conformance suite run through `ultragraphdb_client` against the node
 - [ ] 10.6 Phase 5: mutants
+- [ ] 10.7 Phase 4: the server's side of security, as `openspec/notes/security.md` phases it for group 10: SCRAM-SHA-256, the password rules, throttling of failed attempts, the audit of authentication; running without authentication on loopback only; the bootstrap administrator from its secret file; the authorizer seam, holding every privilege for an authenticated principal and failing closed on what it does not know
 
 ## 11. Verification → `lean/` (`RoundModel`), `ultragraphdb_transactions_sim`
 

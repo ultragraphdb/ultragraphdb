@@ -32,7 +32,8 @@ Today:
 
 **Non-Goals:**
 - SPARQL and GQL (stage 6): stage 5's statements are quad patterns.
-- TLS, access control and namespaces as tenants (stage 7).
+- RBAC enforcement, the security catalog and namespaces as tenants (stage 7), and TLS (later): `openspec/notes/security.md`
+  designs them now, and stage 5 builds the protocol's part and authentication (group 9c, 10.7).
 - The commit-log feed API (stage 7): the write-set record reserves its section, and no read API is built.
 - Backups and loaders (stage 7); Bolt (stage 9).
 - VSR, the ordering service across nodes, tiles (stage 10).

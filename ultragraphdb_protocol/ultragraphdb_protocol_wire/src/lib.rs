@@ -14,8 +14,9 @@
 //! A body is read through its command's view, a [`BodyView`] constructed from the validated frame, which checks the
 //! command header's fields and the body's structure once: a section table of u32 offsets and lengths, sections
 //! aligned to 8 bytes, counts, UTF-8 text and terms; every value is then read in place. A body is built from its
-//! owned type, a [`BodyBuilder`], whose [`BodyBuilder::frame`] gives the frame. Terms a client sends are RDF terms in
-//! N-Triples text; terms a server returns are `ultragraphdb_core_terms`' encodings, in a result batch's term table.
+//! owned type, a [`BodyBuilder`], whose [`BodyBuilder::frame`] gives the frame. Terms a client sends are RDF terms by
+//! their text, in a request's term table (`PROTOCOL.md` §4.4); terms a server returns are `ultragraphdb_core_terms`'
+//! encodings, in a result batch's term table.
 
 mod errors;
 mod traits;

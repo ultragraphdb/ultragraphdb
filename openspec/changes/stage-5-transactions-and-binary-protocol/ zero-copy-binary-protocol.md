@@ -533,9 +533,10 @@ TigerBeetle's and Iggy's are (`message_header.zig:17-78`; Iggy `core/binary_prot
   is faster but 32 bits. A keyed MAC can replace the function through `protocol` and the reserved nonce.
 - **A log record is a frame.** The commit step writes a round as one frame, header and body, so the log and stage 10's
   replication carry the same bytes; a replica writes a prepare to its log as it arrived.
-- **Validation order:** length; header checksum; command known, reserved bytes zero, `size` within the maximum; then
-  the body, read; the chunk table against `checksum_body`, then each chunk against its entry; then the command's own
-  rules. Every failure is a `ProtocolError`, answered with an
+- **Validation order:** length; header checksum; command known, reserved bytes zero, the cluster, the header's
+  fields, `size` at least the header and within the maximum; then the body, read to `size`; the chunk table against
+  `checksum_body`, then each chunk against its entry; the sequence; then the command's own rules
+  (`ultragraphdb_protocol/PROTOCOL.md` §2.5 states the order step by step). Every failure is a `ProtocolError`, answered with an
   error frame where the connection can still carry one and then closed. TigerBeetle crashes the process on an unknown
   command with a valid checksum (`src/message_buffer.zig:144`); this protocol never does.
 - **Commands are never renumbered:** a retired command's number stays reserved, as TigerBeetle's `deprecated_N`.
@@ -592,7 +593,7 @@ value.
 | Result | A columnar batch (below) |
 | Credit, Cancel | Flow control and cancellation of a stream |
 | Error | A code, the stream, and a message |
-| Round | The log record: position, parent, first version, decisions, the admitted write-set records |
+| Round | The log record: position, parent, incarnation, first version and transaction count in the command header; the decisions and the admitted write-set records in the body |
 
 **The write-set record** is what a worker builds and nothing re-encodes: list deltas in the posting format, dictionary
 entries, statement records, catalog entries, versionless entries, the commit record, and the conflict keys of its
@@ -601,9 +602,9 @@ writes. It is a section of a Round frame unchanged.
 **A result batch is columnar and dictionary-encoded.** A cell is a u32 index into the batch's term table, `u32::MAX`
 for an unbound variable; the term table holds each distinct term of the batch once, in `ultragraphdb_core_terms`'
 encoding (a tag byte and its payload, self-delimiting; at most 32 bytes except a vector, which is stored by value at
-any length), with a text section for IRIs and for literals the store holds by hash. A client reads a cell as
-`core_terms`' existing `TermView<'a>`. A term repeated across rows is sent once per batch, and storage and the wire
-share one term encoding.
+any length), with a text section for IRIs and for literals the store holds by hash. The Rust client reads a cell as `core_terms`'
+`TermView<'a>`; `PROTOCOL.md` §10 states the bytes for a client in any language. A term repeated across rows is sent
+once per batch, and storage and the wire share one term encoding.
 
 **Requests name terms by text, in a term table of their own** (decided 2026-10-27). A client knows a term only by its
 text: an IRI by its IRI, a blank node by its label, a literal by its lexical form and datatype or language. The store's
@@ -627,7 +628,9 @@ among the term crates.
 - **Credit:** a result stream sends batches while the client has credit, and a `Credit` frame grants more, as Bolt's
   `PULL n` and HTTP/2's `WINDOW_UPDATE` (RFC 9113) do; the server holds no unbounded output.
 - **Cancel:** in-band, by stream, as ClickHouse's `Cancel` packet; PostgreSQL's separate connection is not copied.
-- **Limits** from Welcome: in-flight streams per connection, frames per stream.
+- **Limits** from Welcome: the largest frame in bytes (`max_frame`), the streams in flight per connection
+  (`max_streams`), each result stream's initial credit in frames (`initial_credit`), the largest write set and a
+  transaction's time limit (`PROTOCOL.md` §5.2).
 - **Buffers:** each core holds a pool of frame buffers sized at start, as TigerBeetle's `MessagePool`; a frame is read
   header first, then body into the same buffer, as Iggy's `read_message` does.
 
