@@ -29,7 +29,7 @@ fn view(
     property_graph_view(
         &statements,
         graph,
-        &Names::new("http://ex.org/"),
+        &Names::new("http://ex.org/").unwrap(),
         cardinality,
     )
 }
@@ -131,7 +131,7 @@ fn test_an_edge_carries_its_id_and_every_value_of_each_property() {
 
 #[test]
 fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() {
-    let names = Names::new("http://ex.org/");
+    let names = Names::new("http://ex.org/").unwrap();
     let g = GraphName::NamedNode(iri("g"));
     let pg = PropertyGraph::new()
         .with_node(

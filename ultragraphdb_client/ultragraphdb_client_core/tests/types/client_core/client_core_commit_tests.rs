@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_client_core::{ClientErrorEnum, Reply, Session, Transaction};
-use ultragraphdb_protocol_transport::Anonymous;
+use ultragraphdb_protocol_transport::{Anonymous, TransportError};
 use ultragraphdb_protocol_wire::{
     BodyView, CommitView, ErrorCode, FrameView, MAX_FRAME_SIZE, TermTable,
 };
@@ -141,6 +141,8 @@ fn test_a_busy_session_is_asked_again_until_the_commit_is_answered() {
 
 #[test]
 fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
+    // Three attempts, each sent and lost with its connection before its reply: the first send, applied, then two
+    // retries, each arriving and lost before it is answered.
     let mut h = Harness::with(
         config().with_commit_attempts(3),
         server(),
@@ -152,7 +154,8 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
     h.until(|h| h.core.is_ready());
     let s = session(&mut h);
     let tx = begin(&mut h);
-    h.blackhole = true;
+    h.server.drop_after_next_commit();
+    h.server.lose_next_retries(2);
     let p = h.core.commit(tx, s, h.now).unwrap();
     let answer = h.settle(p).unwrap_err();
     assert_eq!(
@@ -164,20 +167,19 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
         }
     );
     assert_eq!(
-        commits(&h).len(),
-        1,
-        "the reconnects' Welcomes were lost too, so only the first send arrived"
+        commits(&h),
+        vec![(9, 1); 3],
+        "the first send and two retries, each sent before its connection was lost"
     );
+    assert_eq!(h.connections, 3, "one connection per attempt");
     assert_eq!(
         h.server.applied(),
         1,
         "the first attempt was applied, its reply lost"
     );
-    h.blackhole = false;
-    if !h.core.is_ready() {
-        h.connect();
-        h.until(|h| h.core.is_ready());
-    }
+    assert!(!h.core.needs_connection(), "nothing waits to be retried");
+    h.connect();
+    h.until(|h| h.core.is_ready());
     let tx = begin(&mut h);
     assert_eq!(
         h.core.commit(tx, s, h.now).unwrap_err().0,
@@ -718,4 +720,174 @@ fn test_a_drop_before_a_connection_is_refused_as_not_connected() {
         panic!("dropped")
     };
     assert_eq!(dropped.request(), 1);
+}
+
+/// A connection lost before a commit's frame left the client does not use one of the commit's attempts. Here the retry's
+/// connection fails in its handshake: two attempts suffice, the first send and the retry.
+#[test]
+fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() {
+    let mut h = Harness::with(
+        config().with_commit_attempts(2),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    h.until(|h| h.connections == 2);
+    // Its Welcome lost: the second connection times out in its handshake, before the retry was sent.
+    h.blackhole = true;
+    h.until(|h| !h.core.is_connected());
+    h.blackhole = false;
+    assert_eq!(
+        h.core.take_reply(p),
+        None,
+        "the failed handshake used no attempt"
+    );
+    assert!(
+        h.core.needs_connection(),
+        "the retry waits for the next connection"
+    );
+    let Ok(Reply::Committed(c)) = h.settle(p) else {
+        panic!("the retry on the third connection is answered from the record")
+    };
+    assert_eq!(c.request(), 1);
+    assert_eq!(commits(&h), vec![(9, 1); 2]);
+    assert_eq!(h.server.applied(), 1);
+}
+
+/// The commit's frame still queued when the connection is lost: one attempt, and it is still to be made.
+#[test]
+fn test_a_loss_with_the_commit_still_queued_consumes_no_attempt() {
+    let mut h = Harness::with(
+        config().with_commit_attempts(1),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    h.core.disconnected(TransportError::Closed(), h.now);
+    assert_eq!(h.core.take_reply(p), None, "not answered");
+    assert!(
+        h.core.needs_connection(),
+        "the commit waits for a connection"
+    );
+    // Its retry finds no transaction and nothing committed: code 18 (PROTOCOL.md section 11.5).
+    let error = h.settle(p).unwrap_err();
+    assert!(
+        matches!(
+            error.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::NotCommitted,
+                detail: 1,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        commits(&h),
+        vec![(9, 1)],
+        "only the retry reached the server"
+    );
+    assert_eq!(h.server.applied(), 0);
+}
+
+/// Lost while a busy answer's delay runs: the busy answer used its attempt, the loss none.
+#[test]
+fn test_a_loss_during_a_busy_answers_delay_consumes_no_attempt() {
+    let mut h = Harness::with(
+        config().with_commit_attempts(3),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    h.server.drop_after_next_commit();
+    h.server.answer_busy_retries(1);
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    // The first send lost with its connection (attempt 1), the retry answered busy (attempt 2).
+    h.until(|h| commits(h).len() == 2);
+    while h.step() {}
+    assert_eq!(h.core.take_reply(p), None, "waiting out the delay");
+    h.core.disconnected(TransportError::Closed(), h.now);
+    let Ok(Reply::Committed(c)) = h.settle(p) else {
+        panic!("the third attempt is answered from the record")
+    };
+    assert_eq!(c.request(), 1);
+    assert_eq!(commits(&h), vec![(9, 1); 3]);
+    assert_eq!(h.server.applied(), 1);
+}
+
+/// A connection lost after a commit's frame left the client uses one of its attempts, whether or not the frame
+/// reached the server.
+#[test]
+fn test_a_loss_after_a_commit_is_sent_consumes_an_attempt() {
+    // Handed to the shell, then the connection lost before it was written: one attempt, used.
+    let mut h = Harness::with(
+        config().with_commit_attempts(1),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    assert!(
+        h.core.transmit().is_some(),
+        "the commit's frame leaves the core"
+    );
+    h.core.disconnected(TransportError::Closed(), h.now);
+    assert_eq!(
+        h.core.take_reply(p).unwrap().unwrap_err().0,
+        ClientErrorEnum::RetriesExhausted {
+            session: 9,
+            request: 1,
+            attempts: 1
+        }
+    );
+    assert!(!h.core.needs_connection());
+
+    // Arrived and applied, its reply lost with the connection: one attempt, used.
+    let mut h = Harness::with(
+        config().with_commit_attempts(1),
+        server(),
+        Default::default(),
+        1,
+        Anonymous,
+    );
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    assert_eq!(
+        h.settle(p).unwrap_err().0,
+        ClientErrorEnum::RetriesExhausted {
+            session: 9,
+            request: 1,
+            attempts: 1
+        }
+    );
+    assert_eq!(commits(&h), vec![(9, 1)]);
+    assert_eq!(h.server.applied(), 1);
+    assert_eq!(h.connections, 1, "nothing is retried");
 }

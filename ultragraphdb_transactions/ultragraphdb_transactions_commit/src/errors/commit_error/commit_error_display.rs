@@ -17,7 +17,7 @@ impl fmt::Display for CommitError {
             CommitErrorEnum::TooOld { .. } => f.write_str("Transaction is too old"),
             CommitErrorEnum::TooLarge { size, limit } => write!(
                 f,
-                "the write set takes a round of {size} bytes, over the round bound of {limit}"
+                "the write-set record of {size} bytes is over the largest a round holds, {limit} bytes"
             ),
             CommitErrorEnum::Malformed { cause } => {
                 write!(f, "a write-set record is malformed: {cause}")

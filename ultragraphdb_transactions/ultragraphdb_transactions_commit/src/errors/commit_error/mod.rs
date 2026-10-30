@@ -21,8 +21,9 @@ pub enum CommitErrorEnum {
     Conflict { kind: ConflictKind },
     /// The read version is below `floor`, the version the conflict history is pruned to. Retryable.
     TooOld { read_version: u64, floor: u64 },
-    /// The transaction's write-set record cannot fit a round: a round of it alone is `size` bytes, over the round's
-    /// bound of `limit`.
+    /// The transaction's write-set record, `size` bytes as it arrived or as its commit-time operations left it, is over
+    /// `limit`, the largest a round holds on its own ([`crate::RoundBounds::max_write_set`]), the Welcome's
+    /// `max_write_set`.
     TooLarge { size: usize, limit: usize },
     /// The write-set record does not read as one: a worker built it wrongly.
     Malformed { cause: ProtocolError },
@@ -156,7 +157,8 @@ impl CommitError {
     }
 
     /// The code's detail: the conflict's kind, the too-large limit in bytes, the session evicted or busy, the request
-    /// number expected or not committed, the action denied, write; zero otherwise.
+    /// number expected or not committed, the action denied, write; zero otherwise. The too-large limit is the largest
+    /// record a round holds, the Welcome's `max_write_set`.
     pub fn detail(&self) -> u64 {
         match self.0 {
             CommitErrorEnum::Conflict { kind } => kind.number(),

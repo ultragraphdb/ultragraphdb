@@ -158,14 +158,19 @@ fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() {
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
     let alone = frame_of(&[&p]);
     let bound = alone as u32 - 1;
+    let size = p.record.len();
     let mut step = Step::new(RoundBounds::new(bound, u32::MAX), 0);
     let mut out = Out::new();
     commit(&mut step, &mut out, 5, p, 0);
+    // The record's size against the largest record a round of it alone holds, the wire's builder's measure.
     assert_eq!(
         out.replies(),
         &[Reply::new(
             5,
-            Err(CommitError::TooLarge(alone, bound as usize))
+            Err(CommitError::TooLarge(
+                size,
+                crate::utils::frames::largest_record(bound as usize)
+            ))
         )]
     );
     assert_eq!(out.append(), None);
@@ -670,4 +675,38 @@ fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() {
     assert_eq!(outcome(2), Err(CommitError::Conflict(ConflictKind::Drop)));
     assert_eq!(outcome(3), Err(CommitError::Conflict(ConflictKind::Drop)));
     assert_eq!(outcome(4), Ok(4));
+}
+
+/// A blind write whose record is exactly `len` bytes, a multiple of 8 as every record is, padded by its commit record.
+fn sized(len: usize) -> TestProposal {
+    let base = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), 0).len();
+    let mut p = blind(b"k");
+    p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), len - base);
+    assert_eq!(p.record.len(), len, "a commit record of a multiple of 8 pads byte for byte");
+    p
+}
+
+#[test]
+fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_byte_more_is_refused() {
+    // The power-loss-protected drive's round of 262,144 bytes holds a record of 261,328 alone (RoundBounds' test).
+    let config = WalConfig::new(0, true);
+    let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
+    let mut step = Step::new(bounds, 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, sized(261_328), 0);
+    assert!(out.replies().is_empty(), "{:?}", out.replies());
+    assert_eq!(
+        out.append().map(|(r, _)| r),
+        Some(RoundRecord::new(2, 1, 1))
+    );
+    // One byte more, no longer a record: the arrival check reads only the length.
+    let mut over = blind(b"k");
+    over.record = vec![0; 261_329];
+    commit(&mut step, &mut out, 2, over, 0);
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(2, Err(CommitError::TooLarge(261_329, 261_328)))]
+    );
+    assert_eq!(step.waiting(), 0);
+    assert_eq!(CommitError::TooLarge(261_329, 261_328).detail(), 261_328);
 }

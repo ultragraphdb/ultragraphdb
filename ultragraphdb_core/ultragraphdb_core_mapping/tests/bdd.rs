@@ -31,6 +31,11 @@ fn node(name: &str) -> NamedOrBlankNode {
     iri(name).into()
 }
 
+/// The names under `BASE`, a valid base IRI.
+fn names() -> Names {
+    Names::new(BASE).expect("BASE is an absolute IRI ending in '/'")
+}
+
 fn multi(_: &NamedNode) -> Cardinality {
     Cardinality::Multi
 }
@@ -54,7 +59,7 @@ impl Steps {
         property_graph_view(
             &self.statements(),
             &GraphName::DefaultGraph,
-            &Names::new(BASE),
+            &names(),
             multi,
         )
     }
@@ -229,7 +234,7 @@ fn pg_age(w: &mut Steps) {
         &pg,
         0,
         &GraphName::DefaultGraph,
-        &Names::new("http://ex.org/"),
+        &Names::new("http://ex.org/").expect("a valid base"),
     );
     w.dataset.apply(&changeset, multi).expect("applies");
 }
@@ -372,12 +377,8 @@ fn pg_written(w: &mut Steps) {
         .with_edge(PgEdge::new(node("a"), "knows", node("b")).with_property("since", since("2020")))
         .with_edge(PgEdge::new(node("a"), "knows", node("b")).with_property("since", since("2024")))
         .with_edge(PgEdge::new(node("b"), "likes", node("a")));
-    let changeset = property_graph_to_changeset(
-        &w.pg_written,
-        0,
-        &GraphName::DefaultGraph,
-        &Names::new(BASE),
-    );
+    let changeset =
+        property_graph_to_changeset(&w.pg_written, 0, &GraphName::DefaultGraph, &names());
     w.dataset
         .apply(&changeset, |p: &NamedNode| {
             if *p == iri("name") {
@@ -394,7 +395,7 @@ fn pg_equal(w: &mut Steps) {
     let read = property_graph_view(
         &w.statements(),
         &GraphName::DefaultGraph,
-        &Names::new(BASE),
+        &names(),
         |p: &NamedNode| {
             if *p == iri("name") {
                 Cardinality::Single

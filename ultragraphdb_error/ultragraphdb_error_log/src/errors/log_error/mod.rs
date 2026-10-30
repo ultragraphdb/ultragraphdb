@@ -12,6 +12,8 @@ use std::io::ErrorKind;
 ///
 /// - **Retry or redirect:** [`NotPrimary`](Self::NotPrimary), [`Busy`](Self::Busy), [`Sealed`](Self::Sealed). The
 ///   round was not accepted; nothing was written.
+/// - **Exhausted:** [`Exhausted`](Self::Exhausted). The log holds the last position a round can take; it accepts no
+///   round ever again, and nothing was written.
 /// - **Outcome unknown:** [`Truncated`](Self::Truncated). The round may or may not be durable; the client's session
 ///   resolves it.
 /// - **Programming errors:** [`PositionMismatch`](Self::PositionMismatch), [`ParentMismatch`](Self::ParentMismatch),
@@ -30,6 +32,9 @@ pub enum LogErrorEnum {
     Busy { segments: u64 },
     /// The log was sealed at `position`; a later round goes to the log that continues it.
     Sealed { position: u64 },
+    /// The log holds a round at `position`, the last position a round can take (`u64::MAX`): no position follows it,
+    /// so no round can be appended; nothing was written.
+    Exhausted { position: u64 },
     /// The round at `position` was appended and then replaced before it became durable; its outcome is resolved
     /// through the client's session.
     Truncated { position: u64 },
@@ -102,6 +107,11 @@ impl LogError {
     #[allow(non_snake_case)]
     pub fn Sealed(position: u64) -> Self {
         Self(LogErrorEnum::Sealed { position })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Exhausted(position: u64) -> Self {
+        Self(LogErrorEnum::Exhausted { position })
     }
 
     #[allow(non_snake_case)]

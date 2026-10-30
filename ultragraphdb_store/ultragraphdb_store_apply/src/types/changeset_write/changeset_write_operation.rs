@@ -237,10 +237,34 @@ where
     }
 }
 
-/// The value of an `xsd:integer` literal within `i64`.
+/// `xsd:integer` and the built-in datatypes derived from it, each with its value range where it has one: XML Schema
+/// 1.1 Part 2, §3.4.13 to §3.4.25, their minInclusive and maxInclusive facets.
+const INTEGER_TYPES: [(NamedNodeRef<'static>, Option<i128>, Option<i128>); 13] = [
+    (xsd::INTEGER, None, None),
+    (xsd::NON_POSITIVE_INTEGER, None, Some(0)),
+    (xsd::NEGATIVE_INTEGER, None, Some(-1)),
+    (xsd::LONG, Some(i64::MIN as i128), Some(i64::MAX as i128)),
+    (xsd::INT, Some(i32::MIN as i128), Some(i32::MAX as i128)),
+    (xsd::SHORT, Some(i16::MIN as i128), Some(i16::MAX as i128)),
+    (xsd::BYTE, Some(i8::MIN as i128), Some(i8::MAX as i128)),
+    (xsd::NON_NEGATIVE_INTEGER, Some(0), None),
+    (xsd::UNSIGNED_LONG, Some(0), Some(u64::MAX as i128)),
+    (xsd::UNSIGNED_INT, Some(0), Some(u32::MAX as i128)),
+    (xsd::UNSIGNED_SHORT, Some(0), Some(u16::MAX as i128)),
+    (xsd::UNSIGNED_BYTE, Some(0), Some(u8::MAX as i128)),
+    (xsd::POSITIVE_INTEGER, Some(1), None),
+];
+
+/// The value of a literal of `xsd:integer` or a datatype derived from it, within `i64`: `None` for another datatype, a
+/// lexical form no integer has, a value outside its datatype's range, which is no value of that datatype, and one
+/// beyond the 64 bits a counter holds. The sum is then `xs:integer`, whatever the operand's datatype (XPath and
+/// XQuery Functions and Operators 3.1, §4.2, by subtype substitution).
 fn integer(term: &Term) -> Option<i64> {
-    match term {
-        Term::Literal(l) if l.datatype() == xsd::INTEGER => l.value().parse().ok(),
-        _ => None,
-    }
+    let Term::Literal(l) = term else {
+        return None;
+    };
+    let (_, min, max) = INTEGER_TYPES.iter().find(|(t, _, _)| l.datatype() == *t)?;
+    let value: i128 = l.value().parse().ok()?;
+    let within = min.is_none_or(|m| value >= m) && max.is_none_or(|m| value <= m);
+    within.then(|| i64::try_from(value).ok()).flatten()
 }

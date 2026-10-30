@@ -23,19 +23,21 @@ busy rather than queued.
 - **THEN** further commits are refused as busy until the queue drains
 
 ### Requirement: Configuration
-The server binary SHALL read its configuration once at start: the listen address, the data directory, whether
-connections authenticate and the bootstrap secret file, the transaction limits, the power-loss-protection flag, and overrides of the round bounds and the checkpoint interval. The cluster
-identity SHALL be drawn at random when the data directory is created and kept in the superblock, not configured.
-Library crates SHALL take their settings as values and read no environment.
+The server binary SHALL read its configuration once at start, from its environment: the listen and health addresses, the
+data directory, whether connections authenticate and the bootstrap secret file, the transaction limits, the
+power-loss-protection flag, and overrides of the round bounds and the checkpoint interval. The cluster identity SHALL be
+drawn at random when the data directory is created and kept in the superblock, not configured. Library crates SHALL take
+their settings as values and read no environment.
 
 #### Scenario: An invalid setting stops the start
 - **WHEN** the server starts with a read-write limit of zero
-- **THEN** it exits with an error naming the setting, before opening the store
+- **THEN** it exits with code 2 and an error naming the setting, before opening the store
 
 ### Requirement: Start, recovery and shutdown
-The server SHALL open the store and the log, run recovery, and only then accept connections; a recovery that fails
-SHALL stop the start with its error. On shutdown it SHALL stop accepting, finish or abort open transactions, sync the
-log and the store, and exit. Telemetry SHALL be installed once, through `ultragraphdb_common_telemetry`.
+The server SHALL open the store and the log, run recovery, and only then accept connections; a recovery that fails SHALL
+stop the start with its error. On shutdown, at SIGTERM or SIGINT, it SHALL stop accepting, answer requests with Error
+17, abort open transactions, decide and answer the commits already queued within its shutdown grace, sync the log and
+the store, and exit with code 0. Telemetry SHALL be installed once, through `ultragraphdb_common_telemetry`.
 
 #### Scenario: Connections wait for recovery
 - **WHEN** the server starts with rounds to replay
@@ -83,3 +85,50 @@ proof or token SHALL be written to any log (`ultragraphdb_protocol/SECURITY.md`)
 - **WHEN** a client authenticates once with a wrong password and once with the right one
 - **THEN** the audit log holds both attempts with their outcomes and the principal named, and no log holds the
   password, a proof or a SCRAM message
+
+### Requirement: The node reports its health
+The server SHALL serve HTTP/1.1 on its health address, apart from its protocol address: `GET /livez` SHALL answer 200
+while the commit step and every worker run their loops, recovery included, and 503 once one has stalled for 10 seconds;
+`GET /readyz` SHALL answer 200 from when the node accepts connections until its shutdown begins or it stops on a
+failure, and 503 otherwise. Every other path SHALL answer 404. The endpoint SHALL hold no data and require no
+authentication.
+
+#### Scenario: Readiness waits for recovery
+- **WHEN** the server starts with rounds to replay and `/readyz` is asked during the replay
+- **THEN** it answers 503, `/livez` answers 200, and `/readyz` answers 200 once connections are accepted
+
+#### Scenario: Readiness ends with the shutdown
+- **WHEN** the server receives SIGTERM
+- **THEN** `/readyz` answers 503 before the listener closes
+
+### Requirement: Connections are bounded
+The server SHALL hold at most its configured number of connections; a connection past it SHALL have its Hello answered
+with Error 5 (Busy) on stream 0 and be closed.
+
+#### Scenario: A connection past the limit is told why
+- **WHEN** a server configured for two connections holds two and a third connects
+- **THEN** the third's Hello is answered with Error 5 and the connection closes, and the first two are served
+
+### Requirement: A store or log failure stops the node
+A failed sync, a store or log I/O failure, a corruption found, or a violated invariant SHALL stop the node: every
+request from then on SHALL be answered with Error 17 (Unavailable), the failure SHALL be logged at error naming it, and
+the node SHALL shut down and exit with code 1, so recovery starts from the log at the next start.
+
+#### Scenario: A failed sync stops the node
+- **WHEN** the log's sync fails while commits are in flight
+- **THEN** none of them is acknowledged, later requests are answered with Error 17, and the process exits with code 1
+
+### Requirement: Reads match quad patterns in their transaction
+A Read or an Execute SHALL return every statement of its transaction's snapshot that its pattern matches, in the order
+of its access path, with a read-write transaction's own writes and with its reads recorded for validation; an unbound
+graph slot SHALL match in every graph of the namespace. A limit SHALL end the read with a resume key that continues it
+without repeating or skipping a row.
+
+#### Scenario: A resumed read neither repeats nor skips
+- **WHEN** a read of a predicate holding ten statements is made with limit 4, and resumed twice with its resume keys
+- **THEN** the three reads return 4, 4 and 2 rows, the ten statements once each, in the order one unlimited read returns
+
+#### Scenario: A pattern over every graph
+- **WHEN** a predicate holds a statement in the default graph and one in the graph `<g>`, and a read leaves the graph
+  slot unbound
+- **THEN** it returns both statements, each with its graph

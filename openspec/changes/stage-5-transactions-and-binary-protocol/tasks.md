@@ -140,15 +140,47 @@ into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and
 - [x] 9c.11 The transport's state machines audited as phase 3 audits a suite: defects planted in a throwaway copy, each found by the suite or the suite strengthened
 - [x] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
 
-## 10. The server → `ultragraphdb_server_session`, `ultragraphdb`
+## 10. The server → `ultragraphdb_server_session`, `ultragraphdb`, `ultragraphdb_tests`
 
-- [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
-- [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle; the session converts Write, Describe and Operation bodies and request terms to `Changeset`, declarations and oxrdf types (the wire's own layouts, decided 2026-10-27), the conversion of triple terms iterative or bounded by the wire's maximum nesting depth, never recursing past it
-- [ ] 10.3 Phase 4: n−1 compio workers pinned, the commit step on one core, least-loaded accept, bounded queues answering busy; every runtime built with compio's `single_issuer` and `defer_taskrun` (decided 2026-10-27; Linux 6.6 is the baseline)
-- [ ] 10.4 Phase 4: configuration read once by the binary; start with recovery before accept; graceful shutdown; telemetry through `ultragraphdb_common_telemetry`
-- [ ] 10.5 Phase 4: every server scenario and the conformance suite run through `ultragraphdb_client` against the node
-- [ ] 10.6 Phase 5: mutants
-- [ ] 10.7 Phase 4: the server's side of security, as `openspec/notes/security.md` phases it for group 10: SCRAM-SHA-256, the password rules, throttling of failed attempts, the audit of authentication; running without authentication on loopback only; the bootstrap administrator from its secret file; the authorizer seam, holding every privilege for an authenticated principal and failing closed on what it does not know
+Written to Ultra Style (`openspec/protocols/ULTRA_STYLE.md`): each crate carries the Ultra lint set in its own `[lints]`
+table, and checks its invariants through `ultragraphdb_error_invariant`. The design is `design.md`, *The server*.
+
+- [ ] 10.0 The design: *The server*'s proposals (`design.md`, *Open Questions* 1 to 9) confirmed or changed by the user;
+  then `PROTOCOL.md` first, before any code: §4.6, change record 8's vector dimension, and §12.2, the write-set
+  record's operation 8, create a principal
+- [ ] 10.1 Scenarios: server-node, all requirements, the health endpoint, the connection bound, fail-stop and reads
+  among them; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the
+  watermark is refused", at the session); the two scenarios group 2 left to the server, "A refused request keeps the
+  connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and
+  closing the connection; vector-index, the dimension declared on the wire and the contradiction refused
+- [ ] 10.2 Phases 1–3, the session layer (`ultragraphdb_server_session`), sans-I/O: a connection's requests turned into
+  transaction operations; Write, Describe and Operation bodies and request terms converted to `Changeset`, declarations
+  and oxrdf types, a triple term iteratively or within the wire's nesting bound, never recursing past it (decided
+  2026-10-27); result batches from rows, texts and skolem flags looked up once per batch, 4,096 rows or `max_frame`
+  per batch; the error table; the authenticator over the principals' `Credentials`, throttling and the audit events
+- [ ] 10.3 Phases 1–3, the pattern engine (`ultragraphdb_transactions_txn`): `Transaction::match_into` over the access
+  paths of *Reads*, an unbound graph skip-scanning the namespace's graphs, resume keys checked against the path, a
+  read-write transaction's matches recorded in its read set and its own writes seen
+- [ ] 10.4 Phases 1–3, the commit step's new work (`ultragraphdb_transactions_commit`, `_txn`,
+  `ultragraphdb_store_apply`, `ultragraphdb_transactions_log`): `Input::CreatePrincipal` and its replay; the vector
+  indexer under the pipeline (`Pipeline::poll_vectors`, its read set, its queue taken at apply, reconciliation at open);
+  checkpoints driven by the rounds' bytes (store sync, then `trim_through`)
+- [ ] 10.5 Phases 1–3, the node (`ultragraphdb`): configuration from `UGDB_*`, every value checked before the data
+  directory opens; the data directory, the superblock's three outcomes and cluster creation with the bootstrap
+  administrator (the secret file's rules); the start's order, the shutdown's and the exit codes; the health endpoint's
+  responses; the bounds; the ticket routing between workers and the commit step
+- [ ] 10.6 Phase 4: 10.2 to 10.5 implemented against their audited suites: the threads in one scope, workers pinned on
+  Linux, the commit step on its thread, the acceptor handing sockets to the least-loaded worker, bounded channels
+  answering busy, every compio runtime with `single_issuer` and `defer_taskrun` (decided 2026-10-27) and the kernel
+  checked for 6.6; the health endpoint over `std::net`; telemetry through `ultragraphdb_common_telemetry`, the audit
+  target written to its own file; signals and the shutdown's grace; fail-stop
+- [ ] 10.7 Acceptance (`ultragraphdb_tests`): the binary copied into the sandbox and started by `service_utils`, its
+  environment set per battery, `WaitForHttpHealthCheck` on `/readyz`, batteries sequenced in one `#[test]` each through
+  `ultragraphdb_client_tokio`, as scrith's `smdb_tests` run; every server scenario and the conformance suite;
+  `service_utils` pinned in the workspace and listed in `AGENTS.md`
+- [ ] 10.8 Phase 5: fuzz targets for the decoders the group adds — resume keys, the configuration's values, the health
+  endpoint's request, the bootstrap secret file, the principal entry — built and not run (11.7); mutation testing is
+  11.8's, at the stage's close
 
 ## 11. Verification → `lean/` (`RoundModel`), `ultragraphdb_transactions_sim`
 

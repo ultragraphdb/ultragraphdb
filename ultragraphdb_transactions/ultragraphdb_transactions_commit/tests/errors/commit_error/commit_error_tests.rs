@@ -93,7 +93,7 @@ fn test_each_reason_displays_its_text() {
     );
     assert_eq!(
         CommitError::TooLarge(2_000_000, 1_048_576).to_string(),
-        "the write set takes a round of 2000000 bytes, over the round bound of 1048576"
+        "the write-set record of 2000000 bytes is over the largest a round holds, 1048576 bytes"
     );
     assert!(
         malformed()

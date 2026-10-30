@@ -816,7 +816,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 3 | TooOld | yes | 0 | The read version is below what validation still holds |
 | 4 | PastLimit | yes | the limit in milliseconds | The transaction lived past its limit, the Welcome's `transaction_ms` |
 | 5 | Busy | yes | 0 | The commit queue is full |
-| 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set` |
+| 6 | TooLarge | no | the limit in bytes | A write set exceeds the Welcome's `max_write_set`, as sent or as its commit-time operations leave it (section 11.9) |
 | 7 | Refused | no | 0; for a term's rule, the term's index | The catalog refused a write, or a term broke the server's rules (section 4.4) |
 | 8 | OperationFailed | no | 0 | A compare-and-set did not hold; sections 1 and 2 hold the value found |
 | 9 | StaleStatement | no | the statement | The statement's schema id no longer matches its namespace's |
@@ -1169,13 +1169,21 @@ that lies outside the pattern's keys with Error 1 (Protocol) on the request's st
 
 The Welcome states the limits a client must know before it sends: `max_frame`, `max_streams`, `initial_credit`,
 `max_write_set` and `transaction_ms`. A transaction is bounded by both: its write-set record within `max_write_set`,
-which one Round frame holds, refused with code 6 (TooLarge) otherwise; its life within `transaction_ms`, refused with
-code 4 (PastLimit) otherwise. A load larger than one transaction is many transactions.
+refused with code 6 (TooLarge) otherwise; its life within `transaction_ms`, refused with code 4 (PastLimit) otherwise.
+A load larger than one transaction is many transactions.
+
+`max_write_set` is never more than a round of the server's log holds on its own: the Round frame (section 12.1) of
+one committed record, its header, section table, decision, record entry and chunk table counted, within the log's
+round bound. A round bound of 1,048,576 bytes holds a record of 1,046,224, and one of 262,144, a log's on a drive with
+power-loss protection, a record of 261,328, which that server announces at most. A write set the server takes when it
+arrives therefore always fits a round. The record a transaction's commit-time operations leave is held to the same
+bound: one over it is refused with code 6 when the transaction is decided, `detail` the bound, taking no commit version
+and writing nothing; one within it that its round has no room for waits for the next round.
 
 | Limit | Default |
 |---|---|
 | `max_frame` | 1,048,576 bytes |
-| `max_write_set` | 1,040,384 bytes |
+| `max_write_set` | 1,040,384 bytes; at most 261,328 on a drive with power-loss protection |
 | `transaction_ms`, a read-write transaction's life | 10,000 ms |
 | `max_streams` | 256 |
 | `initial_credit` | 4 |

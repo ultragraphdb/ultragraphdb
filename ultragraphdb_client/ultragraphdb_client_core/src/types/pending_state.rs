@@ -21,12 +21,14 @@ pub(crate) enum Expect {
     Describe,
 }
 
-/// A request in flight: its stream, `None` while a commit waits to be sent again; what it waits for; its answer once
-/// arrived; for a commit, the times it was lost or answered busy, when it is sent again after a busy answer, and
-/// whether it was sent again, on a stream of its own, through its session; for a drop, the Drop it sends again.
+/// A request in flight: its stream, `None` while a commit waits to be sent again; the connection's sequence its frame
+/// leaves with, which tells whether it has left; what it waits for; its answer once arrived; for a commit, the times
+/// it was lost or answered busy, when it is sent again after a busy answer, and whether it was sent again, on a
+/// stream of its own, through its session; for a drop, the Drop it sends again.
 #[derive(Debug)]
 pub(crate) struct PendingState {
     pub stream: Option<u64>,
+    pub sequence: Option<u128>,
     pub expect: Expect,
     pub outcome: Option<Result<Reply, ClientError>>,
     pub tries: u32,
@@ -39,6 +41,7 @@ impl PendingState {
     pub(crate) fn new(stream: Option<u64>, expect: Expect) -> Self {
         Self {
             stream,
+            sequence: None,
             expect,
             outcome: None,
             tries: 0,

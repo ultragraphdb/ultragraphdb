@@ -534,6 +534,31 @@ fn test_the_round_at_the_last_position_ends_the_scan() {
     assert_eq!((scan.end(), scan.damage()), (4_096, None));
 }
 
+/// A checkpoint at the last position has no round after it: a first kept segment starting with the checkpoint's own
+/// round, `u64::MAX`, whose parent is the round before it, is read, not taken as the round after the checkpoint with
+/// the wrong parent.
+#[test]
+fn test_a_checkpoint_at_the_last_position_has_no_round_after_it() {
+    let frames = chain(1, u64::MAX - 1, u64::MAX, 0x55, ONE_BLOCK);
+    let last = frame_checksum(&frames[1]);
+    // The segment starts at round u64::MAX, its parent round u64::MAX - 1's checksum.
+    let bytes = segment(4, &frames[1..]);
+    let start = ScanStart::new(CLUSTER, 1, Position::new(u64::MAX), last);
+    let scan = scan_segment(&bytes, &start).expect("scanned, not diverged");
+    assert_eq!(positions(&scan), [u64::MAX]);
+    assert_eq!((scan.end(), scan.damage()), (4_096, None));
+    // Its checksum must still be the checkpoint's.
+    let error = scan_segment(
+        &bytes,
+        &ScanStart::new(CLUSTER, 1, Position::new(u64::MAX), last ^ 1),
+    )
+    .expect_err("diverged");
+    assert_eq!(
+        diverged(error),
+        ("the checkpoint's checksum", last ^ 1, last)
+    );
+}
+
 /// A Round frame is numbered by its round's position (`PROTOCOL.md` §12): one whose header says another, its checksum
 /// sound, is no round of the log and stops the scan as damage.
 #[test]

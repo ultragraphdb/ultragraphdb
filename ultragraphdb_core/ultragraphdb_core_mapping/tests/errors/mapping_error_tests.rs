@@ -24,6 +24,10 @@ fn test_each_error_says_what_was_refused() {
             MappingError::UnsupportedObject("<< >>".into()),
             "The object << >> is a triple term, which no write stores",
         ),
+        (
+            MappingError::InvalidBase("ex.org/".into(), "not an absolute IRI"),
+            "Invalid base IRI \"ex.org/\": not an absolute IRI",
+        ),
     ];
     for (error, text) in cases {
         assert_eq!(error.to_string(), text);

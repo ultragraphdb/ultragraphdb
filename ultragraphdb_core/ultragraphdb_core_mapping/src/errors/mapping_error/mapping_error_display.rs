@@ -34,6 +34,9 @@ impl fmt::Display for MappingError {
                     "The object {object} is a triple term, which no write stores"
                 )
             }
+            MappingErrorEnum::InvalidBase { base, reason } => {
+                write!(f, "Invalid base IRI {base:?}: {reason}")
+            }
         }
     }
 }

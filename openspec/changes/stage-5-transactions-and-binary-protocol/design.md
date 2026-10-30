@@ -282,6 +282,247 @@ A worker task per predicate with a vector index reads committed rounds in order 
 of applied versions), inserts their vectors and records the version it has indexed. A search reads the HNSW lists, then
 drops any node whose vector is not visible at its snapshot.
 
+### The server
+
+Drafted 2026-10-30 for review (task 10.0), after the review of group 10 found the server under-specified. Where an
+earlier decision settles a point it is cited; every other choice below is a proposal, listed under *Open Questions*
+until the user confirms it. The code follows Ultra Style (`openspec/protocols/ULTRA_STYLE.md`), which applies from
+this group on.
+
+#### Crates
+
+| Crate | Holds |
+|---|---|
+| `ultragraphdb_server_session` | The connection's session layer, sans-I/O: the transport's `ServerConnection` per connection, the requests it hands over turned into transaction operations, the conversions of Write, Describe and Operation bodies and request terms (10.2's), result batches built from rows, the authenticator, throttling and the audit events. A step function over a connection's frames, the time and the commit step's replies, so the node simulator (11.3) drives it without a runtime |
+| `ultragraphdb` | The node: configuration, the data directory, cluster creation, recovery, the threads and their runtimes, the acceptor, the commit-step thread, the health endpoint, signals and shutdown, telemetry; the `ultragraphdb` binary |
+| `ultragraphdb_tests` | The acceptance batteries: the built binary started by `service_utils` and driven through `ultragraphdb_client_tokio`, as scrith's `smdb_tests` drive their services |
+
+The pattern engine (*Reads*) lives in `ultragraphdb_transactions_txn`, beside the transaction whose reads it records.
+Each group-10 crate carries the Ultra lint set in its own `[lints]` table: Cargo lets a crate inherit the workspace's
+table or state its own, not both.
+
+#### Reads
+
+A Read or an Execute is a quad pattern matched in its transaction: `Transaction::match_into(pattern, resume, limit,
+now_us, rows)`, which fills `rows` with each match's terms in slot order (store encodings) and statement IDs and returns
+the resume key when `limit` stopped it. A read-write transaction's matches are recorded in its read set (the lists read,
+the ranges scanned, the dictionary absences), so a conflicting commit aborts it; it reads its own writes. A read-only
+transaction reads its snapshot and records nothing.
+
+Bound terms are resolved through the dictionary first (`QuadStore::uid_of`); a bound IRI or literal the dictionary
+does not hold matches nothing, recorded as an absent term. Then one access path per binding of subject (S), predicate
+(P) and object (O), in each graph the graph slot names:
+
+| Bound | Path | Rows in the order of |
+|---|---|---|
+| S P O | the forward list (G, P, S), tested for O | — |
+| S P | the forward list (G, P, S) | its postings |
+| P O | the reverse list (G, P, O) | its postings |
+| P | the forward lists of the range (G, P) | subject, then postings |
+| S | the subject's predicates (`0x12`, G, S), then each forward list (G, P, S) | predicate, then postings |
+| O | the object's predicates (`0x13`, G, O), then each reverse list (G, P, O) | predicate, then postings |
+| S O | as S, each list tested for O | predicate |
+| none | the forward keyspace of G | predicate, subject, postings |
+
+A bound graph or the default graph names one graph; an unbound graph slot skip-scans the namespace's graphs, as the
+stage-4 drops do (one seek per graph). A vector is never a bound object: the reverse keyspace holds none (stage 4), so
+a pattern binding one is refused with code 7.
+
+**Resume keys.** A resume key is the key of the list being read when the limit was reached, followed by the `uid`
+field (u64 big-endian) of the last posting returned; the next request starts after it. The server refuses a key outside
+the pattern's access path, or one it cannot parse, with Error 1 on the request's stream (`PROTOCOL.md` §11.8, point 47).
+
+**Result batches.** The session layer turns rows into `ResultBatch`es: a UID's text and its skolem flag from
+`QuadStore::iri_of` (tag `0x02` for a skolem), a hash's text from `string_of`, a custom datatype's IRI as the
+annotation, each looked up once per batch, which holds each distinct term once. A batch closes before a row would take
+its frame past the smaller of the client's and the server's `max_frame`, or at 4,096 rows; it streams while the stream
+holds credit (`Outbound`). The last batch of a read carries `LAST`, and the resume key when the limit was reached. A
+read matching nothing answers one empty batch flagged `LAST` (point 9).
+
+#### Threads and queues
+
+A node runs, inside one `std::thread::scope` so every thread borrows the store, the applier and the configuration
+without reference counting:
+
+- **The commit-step thread**, a compio runtime owning the `Pipeline` (its log, its step, its applier's apply).
+- **Workers**, one compio runtime per thread, one thread per core but the commit step's (n−1, at least one; on one core
+  the worker and the commit step share it, `server-node`), each pinned with `sched_setaffinity` (`rustix`) on Linux and
+  unpinned on macOS. A worker owns its connections, their transactions and their statement caches.
+- **The acceptor**, a thread with a blocking `std::net` listener: it accepts, sets `TCP_NODELAY` and keepalive (60 s
+  idle, 10 s interval, 6 probes), and hands the socket to the worker holding the fewest connections (an `AtomicU32` per
+  worker; ties to the lowest index) over that worker's bounded channel.
+- **The health endpoint**, a thread of its own (*Health*).
+
+Every compio runtime is built with `single_issuer` and `defer_taskrun` on Linux (decided 2026-10-27); the node checks
+at start that the kernel is 6.6 or later and refuses to start below it, naming the kernel. The node's threads are its
+own: `std::thread::scope` carries the `#[expect(clippy::disallowed_methods, reason)]` the store's production
+implementations carry (`clippy.toml`), and the simulator drives the step functions those threads run, not the threads.
+
+**Worker to commit step.** One bounded channel (`futures-channel`, as decided) carries the pipeline's inputs —
+commits, registrations, drops, retries — tagged with a ticket: the worker's index in its top 8 bits, a counter of the
+worker's in the rest. A send to a full channel is refused at once with code 5 (Busy). The pipeline's own waiting
+queue is bounded by `Pipeline::with_queue`. **Commit step to worker:** one bounded channel per worker carries replies
+and the transaction buffers coming back (`Pipeline::buffers_mut`), routed by the ticket's top bits; its capacity is the
+most commits a worker may have in flight, so the commit step never waits on it, and a full one is an invariant
+violation. A worker maps each ticket to its connection and stream. **Read floor:** each worker publishes the read
+version of its oldest open read-write transaction in an `AtomicU64`; the commit step takes their minimum, or the
+watermark when none is open, as `Input::OldestRead` once per round.
+
+**Time.** Every thread reads the time through the clock it is given (`clippy.toml`'s `disallowed-methods`). A worker
+checks a transaction's limit (`TxnLimits`, the Welcome's `transaction_ms`) at each of its requests and once a second
+over all its open transactions, ending an expired one with Error 4 on its stream.
+
+#### Bounds
+
+| Bound | Default | Past it |
+|---|---|---|
+| Connections per node | 1,024 | the Hello is answered with Error 5 (Busy) on stream 0, and the connection closes |
+| Frame buffers per worker | 64 of `max_frame` | a connection's next frame waits for a free buffer |
+| Commits in flight per worker | the commit queue divided among the workers | Error 5 |
+| Commit queue (channel and pipeline) | 4,096 | Error 5 |
+| Rows per result batch | 4,096, within `max_frame` | the next batch |
+| Source addresses tracked by throttling | 65,536 | the address least recently seen is forgotten |
+| Streams, credit, sessions, statements | `PROTOCOL.md` §11.9 | its codes |
+
+Outgoing frames are built into the worker's pooled buffers, so a worker's steady state allocates nothing (Ultra
+rule 3).
+
+#### The error table
+
+| Raised | Answered |
+|---|---|
+| `TxnError::ReadAboveWatermark` | Error 7 on the stream, `detail` the watermark, the message naming both versions; the worker serves on |
+| `TxnError::PastLimit` | Error 4, the transaction ended |
+| `TxnError::WriteSetTooLarge`, `ReadSetTooLarge` | Error 6, `detail` the limit |
+| A catalog's or a term's refusal | Error 7, `detail` the term's index where one is at fault |
+| `CommitError` | its own `code()` |
+| A body breaking a rule | Error 1 on the stream; a frame breaking one, Error 1 on stream 0 and the connection closes (§2.6) |
+| A store or log I/O failure, a corruption, an `InvariantError` | fail-stop: Error 17 to every request from then on, the event logged at error, the node shuts down and exits 1 |
+
+#### Configuration
+
+The node reads its configuration once, at start, from environment variables, as scrith's `dgraph_migration` does:
+every place it runs supplies the environment, a container manifest and the test harness alike. The binary takes no
+arguments but `--help` and `--version`. Every value is parsed and range-checked before the data directory is opened;
+the first one broken stops the start with exit code 2, naming the variable and its rule.
+
+| Variable | Default | Rule |
+|---|---|---|
+| `UGDB_DATA_DIR` | required | a directory, created when missing |
+| `UGDB_LISTEN` | `127.0.0.1:7400` | an address and port; loopback when `UGDB_AUTH` is `off` |
+| `UGDB_HEALTH_LISTEN` | `127.0.0.1:7401` | an address and port, apart from `UGDB_LISTEN`'s |
+| `UGDB_AUTH` | `on` | `on` or `off` |
+| `UGDB_BOOTSTRAP_SECRET_FILE` | none | required with `UGDB_AUTH=on` on an empty data directory |
+| `UGDB_PASSWORD_DENYLIST_FILE` | none | a file of passwords, one per line |
+| `UGDB_AUDIT_LOG` | `<UGDB_DATA_DIR>/audit.log` | a file path |
+| `UGDB_WORKERS` | cores − 1, at least 1 | 1 to cores |
+| `UGDB_CONNECTIONS_MAX` | 1,024 | 1 to 65,535 |
+| `UGDB_FRAME_BUFFERS` | 64 | per worker, at least 4 |
+| `UGDB_COMMIT_QUEUE` | 4,096 | 1 to 1,048,576 |
+| `UGDB_TRANSACTION_MS` | 10,000 | a read-write transaction's life, 1 to 600,000 |
+| `UGDB_READ_ONLY_MS` | 16,000 | 1 to 3,600,000 |
+| `UGDB_MAX_WRITE_SET` | 1,040,384 | 4,096 to 1,040,384 |
+| `UGDB_SESSIONS`, `UGDB_STATEMENTS`, `UGDB_MAX_STREAMS`, `UGDB_INITIAL_CREDIT`, `UGDB_MAX_FRAME` | §11.9's | §11.9's ranges |
+| `UGDB_IDLE_LIMIT_S`, `UGDB_AUTH_TIMEOUT_S`, `UGDB_REFUSAL_INTERVAL_S` | 600, 60, 900 | at least 1 |
+| `UGDB_POWER_LOSS_PROTECTION` | `false` | `true` or `false` |
+| `UGDB_ROUND_BYTES`, `UGDB_ROUND_TRANSACTIONS`, `UGDB_CHECKPOINT_BYTES` | the flag's (`WalConfig`) | within the log's limits |
+| `UGDB_SHUTDOWN_GRACE_S` | 30 | 0 to 3,600 |
+| `UGDB_LOG_FILTER`, `UGDB_LOG_FORMAT`, `UGDB_OTLP_ENDPOINT` | `info`, `plain`, none | `ultragraphdb_common_telemetry`'s |
+
+#### The data directory and the cluster
+
+`<UGDB_DATA_DIR>/store` holds the store (fjall), `<UGDB_DATA_DIR>/wal` the log, `audit.log` the audit log by default. At
+start the node reads the log's superblock (`SuperblockRead`): `Present` gives the cluster; `Empty` on an empty data
+directory creates one, the cluster drawn from the operating system's randomness; `Empty` beside a store, or
+`Unreadable`, stops the start naming the directory (exit 3).
+
+**The bootstrap administrator.** A cluster created with authentication takes its first principal from the bootstrap
+secret file: UTF-8, the password alone, one trailing line feed (or CR LF) dropped. The node refuses a file readable by
+group or others on Unix, a password under 15 characters or on the deny list, naming the rule and never the password,
+and creates nothing. It derives the SCRAM-SHA-256 verifier at `DEFAULT_ITERATIONS` and proposes the principal to the
+commit step as its first input, `Input::CreatePrincipal { name, verifier }`, numbered by its commit version as a session
+is: its round writes the principal's entry under `\xffultragraphdb/security/principal/` without versions, the security
+catalog's first entry and its format's first version, and its write-set record names it with operation 8, create a
+principal (`PROTOCOL.md` §12.2, to be added), so replay restores it. Until stage 7 the node loads every principal entry
+at start into the authenticator's `Credentials`; the file is read only when the cluster is created.
+
+#### Start and shutdown
+
+Start: configuration; telemetry, once; the kernel check; the data directory; the log opened and recovered
+(`Wal::open`); the store opened (`Durability::Process`: the log is the durable record); `Replay::run`; the pipeline;
+the principal entries; the threads; the listener bound; then the health endpoint turns ready and the node logs
+`ultragraphdb ready` with both addresses.
+
+Shutdown, on SIGTERM or SIGINT: readiness turns false; the listener closes; requests on open connections are answered
+Error 17; open transactions are aborted; the commits already queued are decided, synced and answered for up to
+`UGDB_SHUTDOWN_GRACE_S`; the log and the store are synced; the node exits 0. A second signal exits at once, code 1;
+recovery covers it. A fail-stop takes the same path with exit code 1.
+
+**Checkpoints.** The commit-step thread checkpoints when the rounds since the last checkpoint pass
+`UGDB_CHECKPOINT_BYTES`: it syncs the store (`FjallStore::sync`), then trims the log through the last applied round with
+its version (`OrderedLog::trim_through`), between rounds.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | a clean shutdown |
+| 1 | a fail-stop, a failed sync, a second signal |
+| 2 | a configuration refused, or a kernel below 6.6 |
+| 3 | a data directory or a recovery refused |
+
+#### Health
+
+A thread of its own serves HTTP/1.1 on `UGDB_HEALTH_LISTEN`, after Kubernetes' probe conventions and the paths
+`kube-apiserver` serves: `GET /livez` and `GET /readyz`, 200 with `ok` or 503 with the reason as text, every other path
+404, every request one response and the connection closed. It reads a request line and headers of at most 1 KiB within
+one second, answers one request at a time, and holds no data: it reads the node's state from atomics.
+
+- `/livez` answers 200 while the commit-step thread and every worker have marked their loop within the last 10 seconds,
+  through recovery included, so a long recovery is not restarted; a stalled loop answers 503.
+- `/readyz` answers 200 from the ready log line until shutdown begins or a fail-stop, 503 before and after: Kubernetes
+  sends connections only to a node that accepts them.
+
+Kubernetes probes `/livez` for liveness, `/readyz` for readiness and as the startup probe. The tests wait on `/readyz`.
+It is written over `std::net` by hand, a few hundred lines, so the node adds no HTTP or gRPC stack (tonic and hyper
+need tokio; the node runs compio).
+
+#### Throttling and the audit
+
+Each failed authentication delays its Error 19 by `min(100 ms × 2^(n−1), 10 s)`, n the consecutive failures of the
+principal or of the source address, whichever is more; the connection holds the reply until its deadline, so no worker
+waits. After 100 consecutive failures of a principal its authentications are refused from every source for
+`UGDB_REFUSAL_INTERVAL_S`; a success resets both counts (`server-node`).
+
+The audit log is JSON lines: one object per authentication with `time` (RFC 3339, UTC, microseconds), `event`,
+`outcome`, `name` claimed, `principal` (or null), `mechanism`, `source` and `connection`, never a password, proof or
+SCRAM message. Events go to the `ultragraphdb::audit` tracing target, which `ultragraphdb_common_telemetry` writes to
+the audit file alone.
+
+#### The vector indexer under the pipeline (group 8's open questions)
+
+- **The pipeline drives the indexer**, in the form builds take: `prepare_index_vectors` making a pass an `Executed`,
+  `Prepared::index_vectors`, and `Pipeline::poll_vectors` proposing each predicate with work under
+  `Pipeline::SYSTEM_TICKET`, one pass in flight per predicate. A pass reads the predicate's catalog entry and its
+  vector-index range, so a drop, a declaration or a build decided meanwhile aborts it; its queue entries are taken when
+  it is applied.
+- **After a restart** the indexer reconciles each vector predicate at open: its forward lists against its neighbour
+  lists, re-queueing the vectors the lists do not hold. It writes nothing per vector; it scans once per restart.
+- **The dimension travels on the wire**: change record 8 (declare a predicate) gains a u32 argument, the vector
+  dimension, 0 for none, matching the catalog (`PROTOCOL.md` §4.6, to be added before 10.2).
+- **A declaration over vectors of another dimension** is refused as `Contradicted`, as every other contradiction a
+  predicate's data makes of a declaration is.
+
+#### Tests
+
+- **Unit and BDD**, in each crate: the session layer, the pattern engine, configuration, the start's decisions and the
+  health responses as step functions, without a runtime.
+- **Acceptance**, `ultragraphdb_tests`: the binary copied into the sandbox (`copy_file`), started by
+  `service_utils::ServiceUtil` with its environment (a data directory under `TEST_TMPDIR`, a port per battery),
+  `WaitForHttpHealthCheck` on `/readyz`, then a battery of scenarios sequenced in one `#[test]` through
+  `ultragraphdb_client_tokio`, as scrith's `smdb_tests` run. Every server scenario and the conformance suite run this
+  way (10.5). `service_utils` joins the workspace's dependencies for it, as in scrith.
+- **Simulation**: the node simulator (11.3) drives the session layer, the workers' logic and the commit step as step
+  functions, the threads replaced by its schedule.
+
 ## Risks / Trade-offs
 
 - [Every round is written twice, to the WAL and fjall's journal] → measured in stage 5; option C (fjall without its
@@ -314,4 +555,17 @@ missing WAL superblock. Data enters again through stage 7's loaders or is regene
 
 ## Open Questions
 
-None: every decision was taken on 2026-10-27 in the note.
+Every decision of the note was taken on 2026-10-27. *The server* (task 10.0, drafted 2026-10-30) proposes the rest of
+the server's design; each proposal stands until the user confirms or changes it:
+
+1. Reads: the access paths, the resume key's form, 4,096 rows per batch, and a bound vector object refused.
+2. Threads: one `std::thread::scope`, a blocking acceptor thread, pinning through `rustix`, tickets carrying the
+   worker's index.
+3. The bounds' defaults: 1,024 connections, 64 frame buffers per worker, a commit queue of 4,096.
+4. The error table, a read above the watermark answered with code 7, and fail-stop on a store or log failure.
+5. Configuration from `UGDB_*` environment variables, the ports 7400 and 7401, and the exit codes.
+6. The bootstrap principal through the commit step, `Input::CreatePrincipal` and the log's operation 8.
+7. The health endpoint: HTTP/1.1 written over `std::net`, `/livez` and `/readyz`.
+8. Throttling's delay, `min(100 ms × 2^(n−1), 10 s)`, and the audit log's JSON lines.
+9. The vector indexer: the pipeline's proposals, reconciliation at open, the dimension on the wire, the refused
+   contradiction.

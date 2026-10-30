@@ -329,7 +329,9 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`, and
-    /// each commit is retried on the next connection while it has attempts left, else it is in doubt.
+    /// each commit is retried on the next connection while it has attempts left, else it is in doubt. A commit uses an
+    /// attempt only when its frame left on the connection lost; one still queued, or waiting for a connection or out a
+    /// busy answer's delay, keeps its attempts.
     fn lose(&mut self, reason: ClientError) {
         self.link = Link::Down;
         self.renewal = None;
@@ -347,9 +349,17 @@ impl<L: Login> ClientCore<L> {
                     }
                 }
                 Some((session, request)) => {
-                    pending.tries += 1;
+                    let sent = pending.stream.is_some()
+                        && pending
+                            .sequence
+                            .is_some_and(|sequence| sequence <= self.sent);
                     pending.stream = None;
+                    pending.sequence = None;
                     pending.resend_at = None;
+                    if !sent {
+                        continue;
+                    }
+                    pending.tries += 1;
                     if pending.tries >= attempts {
                         pending.outcome = Some(Err(ClientError::RetriesExhausted(
                             session,
@@ -406,11 +416,12 @@ impl<L: Login> ClientCore<L> {
         &mut self,
         stream: u64,
         frame: Vec<u8>,
-        pending: PendingState,
+        mut pending: PendingState,
         now: Instant,
     ) -> Pending {
         let id = self.next_pending;
         self.next_pending += 1;
+        pending.sequence = Some(self.next_sequence());
         self.pending.insert(id, pending);
         if let Some(state) = self.streams.get_mut(&stream) {
             state.pending = Some(id);
@@ -434,12 +445,14 @@ impl<L: Login> ClientCore<L> {
             }
             .map(|frame| (stream, frame))
         });
+        let sequence = self.next_sequence();
         let Some(pending) = self.pending.get_mut(&id) else {
             return;
         };
         match sent {
             Ok((stream, frame)) => {
                 pending.stream = Some(stream);
+                pending.sequence = Some(sequence);
                 pending.resend_at = None;
                 pending.retried = true;
                 if let Some(state) = self.streams.get_mut(&stream) {
@@ -455,6 +468,11 @@ impl<L: Login> ClientCore<L> {
                 }
             }
         }
+    }
+
+    /// The sequence the next frame queued leaves with: after every frame sent and every frame queued before it.
+    fn next_sequence(&self) -> u128 {
+        self.sent + self.outbox.len() as u128 + 1
     }
 
     /// Every commit waiting for a connection, sent on the new one.

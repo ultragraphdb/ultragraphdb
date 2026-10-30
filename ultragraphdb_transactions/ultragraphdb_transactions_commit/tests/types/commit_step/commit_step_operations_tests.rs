@@ -412,3 +412,143 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
     assert_eq!(out.replies(), &[Reply::new(2, Ok(4)).with_results(results)]);
     assert_eq!(script.seen.len(), operations, "no operation runs again");
 }
+
+/// The record `script`'s operation leaves, built as `Script::operate` builds it.
+fn staged(script: &Script) -> Vec<u8> {
+    let mut record = WriteSetRecord::new(0, 0, 0, 0);
+    record.push_conflict_point(script.key.clone());
+    record.set_commit_record(vec![1; script.padding]);
+    record.encode()
+}
+
+/// An operation whose record no round holds, even one of its own, is refused too large when it is decided: no
+/// version, nothing in the history, its record not adopted, released and answered with its round, and the commit behind
+/// it decided next. Without the refusal it was put back at the head of every round, each closing empty, forever.
+#[test]
+fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_queue_moves_on() {
+    use crate::utils::frames::{largest_record, round_frame};
+    let mut script = Script {
+        key: b"node".to_vec(),
+        padding: 5_000,
+        ..Script::default()
+    };
+    let size = staged(&script).len();
+    assert!(round_frame(&[staged(&script)]).is_some_and(|f| f > 4_096));
+    let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
+    let mut out = Out::new();
+    let op = asking(&Writes::point(b"a"));
+    let original = op.inner.record.clone();
+    commit(&mut step, &mut out, 1, op, &mut script);
+    // Decided in the round it closed at once: an abort, no version (max(0 + 2, 0) would have been 2).
+    assert_eq!(
+        out.append().map(|(r, _)| r),
+        Some(ultragraphdb_transactions_commit::RoundRecord::new(2, 1, 0))
+    );
+    let released: Vec<(u64, Vec<u8>)> = out
+        .released()
+        .iter()
+        .map(|(t, p)| (*t, p.inner.record.clone()))
+        .collect();
+    assert_eq!(released, vec![(1, original)], "released with its own record");
+    commit(
+        &mut step,
+        &mut out,
+        2,
+        plain(0, &Reads::default(), &Writes::point(b"b")),
+        &mut script,
+    );
+    sync(&mut step, &mut out, &mut script);
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(
+            1,
+            Err(CommitError::TooLarge(size, largest_record(4_096)))
+        )]
+    );
+    assert_eq!(
+        out.append().map(|(r, _)| r),
+        Some(ultragraphdb_transactions_commit::RoundRecord::new(2, 1, 1))
+    );
+    sync(&mut step, &mut out, &mut script);
+    assert_eq!(out.replies(), &[Reply::new(2, Ok(2))]);
+    assert_eq!(script.seen.len(), 1, "decided once");
+    assert_eq!(script.admitted, 1, "the plain commit alone");
+    assert_eq!(
+        step.resolver().check(&read_set(0, 0, &Reads::list(b"node"))),
+        Ok(()),
+        "nothing of the operation in the history"
+    );
+}
+
+/// The largest operation record a fresh round holds waits for one when the round it is decided in is too full, then
+/// commits there; one more byte and no round holds it, so it is refused instead of waiting.
+#[test]
+fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_byte_more_is_refused() {
+    use crate::utils::frames::{largest_record, round_frame};
+    // The largest padding whose record a round of 4,096 bytes holds alone, by the wire's builder.
+    let fits = |padding: usize| {
+        round_frame(&[staged(&Script {
+            key: b"node".to_vec(),
+            padding,
+            ..Script::default()
+        })])
+        .is_some_and(|f| f <= 4_096)
+    };
+    let padding = (0..4_096).rev().find(|p| fits(*p)).expect("some record fits");
+    assert!(!fits(padding + 1));
+    let small = || plain(0, &Reads::default(), &Writes::point(b"a"));
+    let run = |padding: usize| {
+        let mut script = Script {
+            key: b"node".to_vec(),
+            padding,
+            ..Script::default()
+        };
+        let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
+        let mut out = Out::new();
+        let mut replies = Vec::new();
+        let mut rounds = Vec::new();
+        commit(&mut step, &mut out, 1, small(), &mut script);
+        rounds.extend(out.append().map(|(r, _)| r));
+        commit(&mut step, &mut out, 2, small(), &mut script);
+        commit(&mut step, &mut out, 3, asking(&Writes::point(b"b")), &mut script);
+        for _ in 0..3 {
+            sync(&mut step, &mut out, &mut script);
+            replies.extend(out.replies().iter().cloned());
+            rounds.extend(out.append().map(|(r, _)| r));
+        }
+        (replies, rounds, staged(&script).len())
+    };
+    use ultragraphdb_transactions_commit::RoundRecord;
+    // At the capacity: 1 alone at 2; 2 at 4 with the operation deferred; the operation alone at 6.
+    let (replies, rounds, _) = run(padding);
+    assert_eq!(
+        rounds,
+        vec![
+            RoundRecord::new(2, 1, 1),
+            RoundRecord::new(4, 1, 1),
+            RoundRecord::new(6, 1, 1)
+        ]
+    );
+    assert_eq!(
+        replies,
+        vec![
+            Reply::new(1, Ok(2)),
+            Reply::new(2, Ok(4)),
+            Reply::new(3, Ok(6)).with_results(vec![OperationResult::new(0, true)])
+        ]
+    );
+    // One byte more: refused in the round it is decided in, beside 2.
+    let (replies, rounds, size) = run(padding + 1);
+    assert_eq!(
+        rounds,
+        vec![RoundRecord::new(2, 1, 1), RoundRecord::new(4, 2, 1)]
+    );
+    assert_eq!(
+        replies,
+        vec![
+            Reply::new(1, Ok(2)),
+            Reply::new(2, Ok(4)),
+            Reply::new(3, Err(CommitError::TooLarge(size, largest_record(4_096))))
+        ]
+    );
+}

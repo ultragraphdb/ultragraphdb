@@ -18,6 +18,10 @@ impl fmt::Display for LogError {
             LogErrorEnum::Sealed { position } => {
                 write!(f, "the log was sealed at position {position}")
             }
+            LogErrorEnum::Exhausted { position } => write!(
+                f,
+                "the log holds round {position}, the last position; no round can follow it"
+            ),
             LogErrorEnum::Truncated { position } => write!(
                 f,
                 "round {position} was replaced before it became durable; its outcome is unknown"

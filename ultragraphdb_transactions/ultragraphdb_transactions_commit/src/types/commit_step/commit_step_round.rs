@@ -43,7 +43,7 @@ pub(crate) fn registration_record(session: u64, principal: u64) -> Vec<u8> {
 }
 
 /// The length of every registration's record.
-fn registration_len() -> usize {
+pub(crate) fn registration_len() -> usize {
     registration_record(0, 0).len()
 }
 
@@ -51,8 +51,8 @@ fn registration_len() -> usize {
 enum Decided {
     /// Admitted at the version, with its commit-time operations' results when it asked any.
     Admitted(u64, Option<Vec<OperationResult>>),
-    /// Its commit-time operations left a record that does not fit the round: it waits for the next, decided again
-    /// there from the start.
+    /// Its commit-time operations left a record that a fresh round holds but this round has no room for: it waits for
+    /// the next, decided again there from the start, first in its round.
     Deferred,
     /// A retry of its session's last committed request: that commit's version and results, nothing committed.
     Retry(u64, Vec<OperationResult>),
@@ -223,7 +223,13 @@ impl<P: Proposal> CommitStep<P> {
                 Ok(operated) => operated,
                 Err(cause) => return Decided::Refused(CommitError::Malformed(cause)),
             };
-            if !fits(operated.bytes().len()) {
+            let size = operated.bytes().len();
+            if !fits(size) {
+                // A record no round holds on its own would wait at the head of every round: refused instead.
+                let limit = self.bounds.max_write_set();
+                if size > limit {
+                    return Decided::Refused(CommitError::TooLarge(size, limit));
+                }
                 return Decided::Deferred;
             }
             let Some(version) = self.sequencer.take() else {

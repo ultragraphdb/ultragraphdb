@@ -31,7 +31,8 @@ use crate::utils_test::test_authenticator::TestAuthenticator;
 /// a statement for Prepare, and a commit from its session table, which answers a retry from its record.
 ///
 /// A test injects a fault by name before the request it hits: [`TestServer::drop_after_next_commit`],
-/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::evict`]. Sessions and the
+/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::lose_next_retries`],
+/// [`TestServer::evict`]. Sessions and the
 /// commits applied outlive a connection; transactions and statements, which belong to it, do not.
 #[derive(Debug)]
 pub struct TestServer {
@@ -48,6 +49,7 @@ pub struct TestServer {
     drop_after_commit: bool,
     lose_commit: bool,
     busy_retries: u32,
+    lost_retries: u32,
     sessions: BTreeMap<u64, SessionRecord>,
     transactions: BTreeMap<u64, u32>,
     statements: BTreeMap<u64, u64>,
@@ -75,6 +77,7 @@ impl TestServer {
             drop_after_commit: false,
             lose_commit: false,
             busy_retries: 0,
+            lost_retries: 0,
             sessions: BTreeMap::new(),
             transactions: BTreeMap::new(),
             statements: BTreeMap::new(),
@@ -132,6 +135,12 @@ impl TestServer {
     /// retry is while its original is still in the commit step.
     pub fn answer_busy_retries(&mut self, retries: u32) {
         self.busy_retries = retries;
+    }
+
+    /// The next `retries` retried commits, on streams of their own, are lost with the connection before they are
+    /// answered: a retry that arrived and whose reply never left.
+    pub fn lose_next_retries(&mut self, retries: u32) {
+        self.lost_retries = retries;
     }
 
     /// `session` is evicted from the table, so its next commit is refused with code 12 (SessionEvicted).

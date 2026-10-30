@@ -74,9 +74,14 @@ impl Sessions {
         self
     }
 
-    /// What a commit of `session` numbered `request` by `principal` is, in the order the Lean model checks it:
-    /// `Ok(None)` a new request to decide, `Ok(Some((version, results)))` a retry of the session's last committed
-    /// request, answered with its stored reply and not committed again. Session 0 is no session and is always new.
+    /// What a commit of `session` numbered `request` by `principal` is: `Ok(None)` a new request to decide,
+    /// `Ok(Some((version, results)))` a retry of the session's last committed request, answered with its stored reply
+    /// and not committed again. Session 0 is no session and is always new.
+    ///
+    /// The checks run in this order: held, owner, busy, retry, request number. The last two are the Lean model's order
+    /// (`lean/RoundModel/Round.lean`, `decideTxn`: a retry before a number out of order); the model leaves out eviction,
+    /// owners and requests in flight, which come first here, so a retry while a request of the session is in flight is
+    /// refused busy.
     ///
     /// # Errors
     ///

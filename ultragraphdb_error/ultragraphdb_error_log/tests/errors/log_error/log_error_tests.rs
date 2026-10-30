@@ -15,6 +15,10 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
         (LogError::Busy(8), LogErrorEnum::Busy { segments: 8 }),
         (LogError::Sealed(9), LogErrorEnum::Sealed { position: 9 }),
         (
+            LogError::Exhausted(11),
+            LogErrorEnum::Exhausted { position: 11 },
+        ),
+        (
             LogError::Truncated(5),
             LogErrorEnum::Truncated { position: 5 },
         ),
@@ -91,5 +95,6 @@ fn test_errors_compare_by_variant_and_values() {
     assert_eq!(LogError::Sealed(9), LogError::Sealed(9));
     assert_ne!(LogError::Sealed(9), LogError::Sealed(10));
     assert_ne!(LogError::Sealed(9), LogError::Truncated(9));
+    assert_ne!(LogError::Sealed(9), LogError::Exhausted(9));
     assert_eq!(LogError::Poisoned().clone(), LogError::Poisoned());
 }

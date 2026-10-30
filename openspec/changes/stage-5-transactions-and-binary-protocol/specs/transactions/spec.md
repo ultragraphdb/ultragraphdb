@@ -174,7 +174,9 @@ error saying so.
 ### Requirement: Aborts name their reason
 An abort SHALL carry one of: conflict, with the kind of read that conflicted; too old, when the transaction's read
 version is below what validation still holds; past its limit; busy, when the commit queue is full; too large, when its
-write set exceeds the Welcome's largest write set; refused, when the catalog refuses a write or a term breaks the
+write set exceeds the Welcome's largest write set, as sent or as its commit-time operations leave it, the latter
+refused when the transaction is decided and taking no commit version (amended 2026-10-30); refused, when the catalog
+refuses a write or a term breaks the
 server's rules; operation failed, when a compare-and-set did not hold, with the value found; permission denied, when
 its principal may not do what a request asks. Conflict, too old, past its limit and busy SHALL be marked retryable;
 too large, refused, operation failed and permission denied SHALL not.

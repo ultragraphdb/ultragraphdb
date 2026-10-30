@@ -659,38 +659,65 @@ fn test_each_round_names_the_release_the_log_is_configured_with() {
     }
 }
 
-/// A log whose tail is the last position, `u64::MAX`, has no next position: an append is refused, whatever it names,
-/// and the positions never wrap to 0. The round at `u64::MAX` itself is written and recovered.
+/// A log whose tail is the last position, `u64::MAX`, has exhausted its positions: no round can follow it, so every
+/// append is refused as `Exhausted`, naming that position, whatever position or parent it names, and the positions never
+/// wrap to 0. The rounds at `u64::MAX - 1` and `u64::MAX` themselves are accepted, written and recovered.
 #[test]
 fn test_the_last_position_ends_the_log_without_wrapping() {
     let storage = SimStorage::new(1);
-    // A checkpoint one below the last position, with checksum 0x77; no segment yet.
+    // A checkpoint two below the last position, with checksum 0x77; no segment yet.
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 1), 0x77, 0, 0).encode(),
+            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 2), 0x77, 0, 0).encode(),
         )
         .expect("put");
     let (mut wal, recovery) = open(&storage).expect("opened");
-    assert_eq!(recovery.committed(), Position::new(u64::MAX - 1));
-    assert_eq!(wal.tail(), (Position::new(u64::MAX - 1), 0x77));
+    assert_eq!(recovery.committed(), Position::new(u64::MAX - 2));
+    assert_eq!(wal.tail(), (Position::new(u64::MAX - 2), 0x77));
     let data = body(1, ONE_BLOCK);
     assert_eq!(
-        wal.append(RoundRef::new(Position::new(u64::MAX), 0x77, 0, 1, &data)),
+        wal.append(RoundRef::new(
+            Position::new(u64::MAX - 1),
+            0x77,
+            0,
+            1,
+            &data
+        )),
+        Ok(Position::new(u64::MAX - 1))
+    );
+    let parent = wal.tail().1;
+    assert_eq!(
+        wal.append(RoundRef::new(Position::new(u64::MAX), parent, 0, 1, &data)),
         Ok(Position::new(u64::MAX))
     );
     assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
     let tail = wal.tail();
     let before = storage.trace().len();
-    // Position 0 is what u64::MAX + 1 would wrap to: refused, nothing written. With no next position the error's
-    // `expected` carries the sentinel u64::MAX.
-    assert_eq!(
-        wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
-        Err(LogError::PositionMismatch(u64::MAX, 0))
-    );
+    // Position 0 is what u64::MAX + 1 would wrap to; u64::MAX is the tail's own; a wrong parent and a body past the
+    // frame would each be refused otherwise, but exhaustion is decided first.
+    let past_frame = vec![1u8; 1_046_273];
+    for (position, parent, bytes) in [
+        (0, tail.1, data.as_slice()),
+        (u64::MAX, tail.1, data.as_slice()),
+        (0, tail.1 ^ 1, data.as_slice()),
+        (0, tail.1, past_frame.as_slice()),
+    ] {
+        assert_eq!(
+            wal.append(RoundRef::new(Position::new(position), parent, 0, 1, bytes)),
+            Err(LogError::Exhausted(u64::MAX)),
+            "position {position}"
+        );
+    }
     assert_eq!(wal.tail(), tail);
     assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
-    assert_eq!(storage.trace().len(), before);
+    assert_eq!(storage.trace().len(), before, "nothing is written");
+    // A sealed log is refused as sealed first, as the order of the refusals says.
+    assert_eq!(wal.seal(), Ok(Position::new(u64::MAX)));
+    assert_eq!(
+        wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
+        Err(LogError::Sealed(u64::MAX))
+    );
     drop(wal);
     let (mut wal, recovery) = open(&storage).expect("reopened");
     assert_eq!(
@@ -701,4 +728,47 @@ fn test_the_last_position_ends_the_log_without_wrapping() {
     assert_eq!(rounds.len(), 1);
     assert_eq!(rounds[0].checksum(), tail.1);
     assert_eq!(rounds[0].body(), data.as_slice());
+    // Reopened, the log is exhausted still.
+    assert_eq!(
+        wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
+        Err(LogError::Exhausted(u64::MAX))
+    );
+}
+
+/// A checkpoint at the last position covers the round there, and no round follows it: the log reopens with that round
+/// first in its first kept segment, committed and checkpointed at `u64::MAX`, and is exhausted, never diverged.
+#[test]
+fn test_a_checkpoint_at_the_last_position_reopens() {
+    let storage = SimStorage::new(1);
+    storage
+        .put_file(
+            &superblock('a'),
+            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 1), 0x77, 0, 0).encode(),
+        )
+        .expect("put");
+    let (mut wal, _) = open(&storage).expect("opened");
+    let data = body(1, ONE_BLOCK);
+    // Round u64::MAX starts segment 0, so the first kept segment's first round is the checkpoint's.
+    wal.append(RoundRef::new(Position::new(u64::MAX), 0x77, 0, 1, &data))
+        .expect("accepted");
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
+    let last = wal.tail().1;
+    block_on(wal.trim_through(Position::new(u64::MAX), 90)).expect("trimmed");
+    assert_eq!(wal.checkpoint(), Position::new(u64::MAX));
+    drop(wal);
+    let (mut wal, recovery) = open(&storage).expect("reopened, not diverged");
+    assert_eq!(
+        (
+            recovery.checkpoint(),
+            recovery.committed(),
+            recovery.truncation()
+        ),
+        (Position::new(u64::MAX), Position::new(u64::MAX), None)
+    );
+    assert_eq!(wal.tail(), (Position::new(u64::MAX), last));
+    assert_eq!(wal.checkpoint_version(), 90);
+    assert_eq!(
+        wal.append(RoundRef::new(Position::ZERO, last, 0, 1, &data)),
+        Err(LogError::Exhausted(u64::MAX))
+    );
 }

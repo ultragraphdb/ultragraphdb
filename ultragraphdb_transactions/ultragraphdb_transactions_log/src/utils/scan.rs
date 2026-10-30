@@ -153,9 +153,12 @@ fn step(
 }
 
 /// The first round of the first segment kept lies at or below the round after the checkpoint, and is that round only
-/// with the checkpoint's checksum as its parent.
+/// with the checkpoint's checksum as its parent. A checkpoint at `u64::MAX` has no round after it.
 fn check_first(round: &ScannedRound, start: &ScanStart) -> Result<(), LogError> {
-    let after = start.checkpoint().get().saturating_add(1);
+    // A checkpoint at the last position has no round after it: every round lies at or below it.
+    let Some(after) = start.checkpoint().next().map(|p| p.get()) else {
+        return Ok(());
+    };
     let position = round.position().get();
     if position > after {
         return Err(LogError::Diverged(

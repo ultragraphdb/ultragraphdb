@@ -23,6 +23,9 @@ pub enum MappingErrorEnum {
     AmbiguousStatement { statement: String },
     /// An object the contract does not hold: a triple term, which RDF 1.2's reifiers present but no write stores.
     UnsupportedObject { object: String },
+    /// A base IRI the property-graph view cannot name IRIs under: not an absolute IRI, with a query or a fragment, or
+    /// not ending in `/`.
+    InvalidBase { base: String, reason: &'static str },
 }
 
 /// See [`MappingErrorEnum`].
@@ -58,5 +61,10 @@ impl MappingError {
     #[allow(non_snake_case)]
     pub fn UnsupportedObject(object: String) -> Self {
         Self(MappingErrorEnum::UnsupportedObject { object })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn InvalidBase(base: String, reason: &'static str) -> Self {
+        Self(MappingErrorEnum::InvalidBase { base, reason })
     }
 }

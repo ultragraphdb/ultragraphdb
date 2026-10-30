@@ -316,3 +316,44 @@ fn test_a_retry_is_answered_before_its_reads_are_validated() {
     commit(&mut step, &mut out, 3, retry);
     assert_eq!(out.replies(), &[Reply::new(3, Ok(104))]);
 }
+
+/// A registration whose round alone would exceed the bound is refused too large when it arrives, as a commit is; at
+/// the bound it registers. Without the refusal it was never taken, and every round closed empty.
+#[test]
+fn test_a_registration_no_round_holds_is_refused_too_large_and_one_that_fits_registers() {
+    use crate::utils::frames::{largest_record, round_frame};
+    let mut record = WriteSetRecord::new(0, 0, 102, 0);
+    record.set_principal(7);
+    let record = record.encode();
+    let alone = round_frame(std::slice::from_ref(&record)).expect("within the frame");
+    let register = |step: &mut Step, out: &mut Out| {
+        step.step(
+            Input::Register {
+                ticket: 1,
+                principal: 7,
+            },
+            0,
+            out,
+        )
+    };
+    let bound = alone as u32 - 1;
+    let mut step = Step::new(RoundBounds::new(bound, 16), 100);
+    let mut out = Out::new();
+    register(&mut step, &mut out);
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(
+            1,
+            Err(CommitError::TooLarge(
+                record.len(),
+                largest_record(bound as usize)
+            ))
+        )]
+    );
+    assert_eq!(out.append(), None);
+    assert_eq!(step.waiting(), 0);
+    let mut step = Step::new(RoundBounds::new(alone as u32, 16), 100);
+    register(&mut step, &mut out);
+    sync(&mut step, &mut out);
+    assert_eq!(out.replies(), &[Reply::new(1, Ok(102))]);
+}

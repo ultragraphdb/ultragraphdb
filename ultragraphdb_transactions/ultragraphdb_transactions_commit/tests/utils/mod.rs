@@ -4,5 +4,6 @@
  */
 
 pub mod fixture;
+pub mod frames;
 pub mod model;
 pub mod proposal_double;

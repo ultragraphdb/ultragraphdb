@@ -77,3 +77,12 @@ fn test_fatal_texts_name_where() {
         "the log is poisoned by an earlier failed write or sync; open it again"
     );
 }
+
+#[test]
+fn test_exhausted_text_names_the_last_position() {
+    // u64::MAX, the last position a round can take.
+    assert_eq!(
+        LogError::Exhausted(18_446_744_073_709_551_615).to_string(),
+        "the log holds round 18446744073709551615, the last position; no round can follow it"
+    );
+}

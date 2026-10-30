@@ -23,6 +23,11 @@ impl TestServer {
                 "a commit in flight",
             );
         }
+        if transaction.is_none() && self.lost_retries > 0 {
+            self.lost_retries -= 1;
+            self.dropped = true;
+            return;
+        }
         let Some(record) = self.sessions.get(&session).cloned() else {
             return self.error(
                 stream,

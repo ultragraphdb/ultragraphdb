@@ -5,6 +5,8 @@
 
 mod commit_step_round;
 
+pub(crate) use commit_step_round::frame_len;
+
 use std::collections::VecDeque;
 
 use ultragraphdb_protocol_wire::OperationResult;
@@ -60,8 +62,10 @@ enum Update {
 /// **Rounds.** A round closes when the sync of the round in flight completes, or at once when a commit request
 /// arrives with no round in flight, with no timer. It holds the requests waiting then, in arrival order, while its
 /// frame stays within the bounds' bytes, every request counted as committed, and its transactions within their
-/// count; the rest wait for the next round. A request whose round alone would exceed the bytes is refused as too large
-/// when it arrives. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the
+/// count; the rest wait for the next round. A request whose record is over the largest a round holds on its own
+/// ([`RoundBounds::max_write_set`]) is refused as too large when it arrives; one whose commit-time operations leave such
+/// a record is refused as too large when it is decided, taking no version, and one whose operations leave a record
+/// that a fresh round holds but its own round has no room for waits for the next round, decided again there first. The round's transactions are decided in round order ([`Resolver`]), each admitted one taking the
 /// next version of the [`Sequencer`], whose clock is read once per round; the body, every decision and the record of
 /// each committed transaction, is written into the output's buffer in `ultragraphdb_protocol_wire`'s `RoundBody`
 /// layout. A round is acknowledged as a unit: its replies, aborts included, go out once its sync has completed and
@@ -74,9 +78,12 @@ enum Update {
 /// waiting and every later request are answered unavailable.
 ///
 /// **Sessions** (D9). A commit names its session and request number in its record's fixed part, session 0 for none.
-/// Before anything else is checked, a retry of the session's last committed request is answered with that commit's
-/// stored reply, its version and its operations' results, and committed nothing (its proposal released), and a
-/// session evicted, busy with a request in flight or numbering out of order is refused; a registration
+/// Its session is checked once its record reads and before validation, in this order ([`Sessions::check`]): a session
+/// the table does not hold is refused as evicted, one another principal registered as permission denied, and one with
+/// a request decided and not yet applied as busy; then a retry of the session's last committed request is answered
+/// with that commit's stored reply, its version and its operations' results, and commits nothing (its proposal
+/// released); and a number neither that one nor one above it is refused as out of order. A retry sent while a request
+/// of its session is in flight is therefore refused busy, not answered. A registration
 /// ([`Input::Register`]) takes a commit version in its round, which numbers the session, its record a write-set record
 /// of that session, request 0 and no writes. The table takes each round's registrations and committed requests once
 /// the round is applied, the oldest session evicted when full, and hands the entries they changed to the round's
@@ -200,8 +207,8 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// A commit request arrives: refused when the step is stopped or the request cannot fit any round, else it waits,
-    /// and a round closes at once when none is in flight.
+    /// A commit request arrives: refused when the step is stopped or its record is over the largest a round holds on
+    /// its own ([`RoundBounds::max_write_set`]), else it waits, and a round closes at once when none is in flight.
     fn arrive<O: Operator<P>>(
         &mut self,
         request: CommitRequest<P>,
@@ -217,12 +224,12 @@ impl<P: Proposal> CommitStep<P> {
             out.released.push(request.into_parts());
             return;
         }
-        let alone = commit_step_round::frame_len(1, 1, request.proposal().record().len());
-        let limit = self.bounds.bytes() as usize;
-        if alone > limit {
+        let size = request.proposal().record().len();
+        let limit = self.bounds.max_write_set();
+        if size > limit {
             out.replies.push(Reply::new(
                 request.ticket(),
-                Err(CommitError::TooLarge(alone, limit)),
+                Err(CommitError::TooLarge(size, limit)),
             ));
             out.released.push(request.into_parts());
             return;
@@ -241,7 +248,8 @@ impl<P: Proposal> CommitStep<P> {
         }
     }
 
-    /// A session registration arrives: refused when the step is stopped, else it waits as a commit does.
+    /// A session registration arrives: refused when the step is stopped or its record cannot fit any round, else it
+    /// waits as a commit does.
     fn register<O: Operator<P>>(
         &mut self,
         ticket: u64,
@@ -253,6 +261,13 @@ impl<P: Proposal> CommitStep<P> {
         if self.stopped {
             out.replies
                 .push(Reply::new(ticket, Err(CommitError::Unavailable())));
+            return;
+        }
+        let size = commit_step_round::registration_len();
+        let limit = self.bounds.max_write_set();
+        if size > limit {
+            out.replies
+                .push(Reply::new(ticket, Err(CommitError::TooLarge(size, limit))));
             return;
         }
         self.waiting

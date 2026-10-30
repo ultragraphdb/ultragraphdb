@@ -70,7 +70,7 @@ impl<S: DurableStorage> Wal<S> {
 
 impl<S: DurableStorage> OrderedLog for Wal<S> {
     /// Refused, in this order: [`LogError::Poisoned`] after a failed write or sync; [`LogError::Sealed`];
-    /// [`LogError::PositionMismatch`] unless the round is at the position after the tail;
+    /// [`LogError::Exhausted`] when the tail is the last position, `u64::MAX`; [`LogError::PositionMismatch`] unless the round is at the position after the tail;
     /// [`LogError::ParentMismatch`] unless its parent is the tail's checksum; [`LogError::TooLarge`] when its frame
     /// exceeds 1 MiB or its padded frame a segment; [`LogError::Busy`] when it would need a segment past the
     /// capacity. Nothing is written before [`OrderedLog::sync`].
@@ -79,10 +79,12 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         if self.sealed {
             return Err(LogError::Sealed(self.tail.0.get()));
         }
-        let expected = self.tail.0.next();
-        if expected != Some(round.position()) {
+        let Some(expected) = self.tail.0.next() else {
+            return Err(LogError::Exhausted(self.tail.0.get()));
+        };
+        if round.position() != expected {
             return Err(LogError::PositionMismatch(
-                expected.map_or(u64::MAX, |p| p.get()),
+                expected.get(),
                 round.position().get(),
             ));
         }

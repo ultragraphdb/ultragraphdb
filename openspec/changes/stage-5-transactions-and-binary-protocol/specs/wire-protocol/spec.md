@@ -78,8 +78,10 @@ an error reply on the request's stream, and the connection SHALL stay open. No i
 ### Requirement: Frames are at most 1 MiB
 A frame SHALL be at most 1 MiB, and at most the `max_frame` its receiver announced: the client in its Hello, the server
 in its Welcome, each at least 524,288 bytes. A result larger than a frame SHALL be sent as a stream of frames, the last
-flagged. A transaction's write set SHALL be at most the Welcome's `max_write_set`, which one Round frame holds, and a
-larger one SHALL be refused with an error naming the limit.
+flagged. A transaction's write set SHALL be at most the Welcome's `max_write_set`, and a larger one SHALL be refused
+with an error naming the limit. The Welcome's `max_write_set` SHALL never exceed the largest record a round of the
+server's log holds on its own, its framing counted, so a write set the server takes when it arrives always fits a
+round (amended 2026-10-30).
 
 #### Scenario: A large result streams
 - **WHEN** a read returns 5 MiB of results
