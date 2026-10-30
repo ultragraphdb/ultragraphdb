@@ -1,0 +1,68 @@
+openspec/protocols/ULTRA_STYLE.md
+  s_e7d9aa044e41ea::t_c86d7515a99caa 1-423
+  s_e7d9aa044e41ea::t_527f439227271f 424-436
+AGENTS.md
+  s_e7d9aa044e41ea::t_989371db49bff1 151
+Cargo.lock
+  s_6c9dcf457e80d9::t_ef9df23bbefd47 2954-2957
+ultragraphdb_error/ultragraphdb_error_invariant/BUILD.bazel
+  s_e7d9aa044e41ea::t_553b591f2effea 1-76
+ultragraphdb_error/ultragraphdb_error_invariant/Cargo.toml
+  s_e7d9aa044e41ea::t_dccb4c6b571924 1-25
+ultragraphdb_error/ultragraphdb_error_invariant/src/errors/invariant_error/invariant_error_display.rs
+  s_e7d9aa044e41ea::t_8e8c63e5d56811 1-16
+ultragraphdb_error/ultragraphdb_error_invariant/src/errors/invariant_error/invariant_error_error.rs
+  s_e7d9aa044e41ea::t_d5603574d96e00 1-8
+ultragraphdb_error/ultragraphdb_error_invariant/src/errors/invariant_error/mod.rs
+  s_6c9dcf457e80d9::t_2b1f4c52a1a8e0 1-33
+ultragraphdb_error/ultragraphdb_error_invariant/src/errors/mod.rs
+  s_e7d9aa044e41ea::t_e4f0c16029e852 1-6
+ultragraphdb_error/ultragraphdb_error_invariant/src/lib.rs
+  s_e7d9aa044e41ea::t_a4e6bd1d41577d 1-16
+ultragraphdb_error/ultragraphdb_error_invariant/src/utils/invariant.rs
+  s_e7d9aa044e41ea::t_968b08332ce018 1-26
+ultragraphdb_error/ultragraphdb_error_invariant/src/utils/mod.rs
+  s_e7d9aa044e41ea::t_3b7fae5bee9ea1 1-6
+ultragraphdb_error/ultragraphdb_error_invariant/tests/errors/invariant_error/invariant_error_display_tests.rs
+  s_e7d9aa044e41ea::t_d803a21856dda0 1-18
+ultragraphdb_error/ultragraphdb_error_invariant/tests/errors/invariant_error/invariant_error_error_tests.rs
+  s_e7d9aa044e41ea::t_69c1b18cc9f85f 1-18
+ultragraphdb_error/ultragraphdb_error_invariant/tests/errors/invariant_error/invariant_error_tests.rs
+  s_e7d9aa044e41ea::t_cb2f28bd6b3224 1-23
+ultragraphdb_error/ultragraphdb_error_invariant/tests/errors/invariant_error/mod.rs
+  s_e7d9aa044e41ea::t_85dd1e55359a27 1-11
+ultragraphdb_error/ultragraphdb_error_invariant/tests/errors/mod.rs
+  s_e7d9aa044e41ea::t_8c1c34f700dc64 1-7
+ultragraphdb_error/ultragraphdb_error_invariant/tests/mod.rs
+  s_e7d9aa044e41ea::t_74d446951f3270 1-9
+ultragraphdb_error/ultragraphdb_error_invariant/tests/utils/invariant_tests.rs
+  s_6c9dcf457e80d9::t_59ac1aea1c8d93 1-61
+ultragraphdb_error/ultragraphdb_error_invariant/tests/utils/mod.rs
+  s_e7d9aa044e41ea::t_45a1ed5fe45753 1-7
+Cargo.toml
+  s_e7d9aa044e41ea::t_7b9bc8e4d5f32c 57,136-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be5d241a71fe9b22e22257558cb5b8f9ac0df8f8",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
