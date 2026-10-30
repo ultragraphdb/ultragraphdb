@@ -7,8 +7,9 @@ mod protocol_error_display;
 mod protocol_error_error;
 
 /// Why a frame was refused: one variant per validation rule, raised before the command's own rules run: the header's
-/// and the chunks' rules, then the body's structure (its sections, records, counts, text and terms). A receiver
-/// answers it with an error frame where the connection can still carry one, then closes the connection.
+/// and the chunks' rules, the connection's sequence, then the body's structure (its sections, records, counts, text
+/// and terms). A frame-level rule is a connection error, answered on stream 0 before the connection closes; a body's
+/// rule is a stream error, answered on the request's stream, and the connection stays (`PROTOCOL.md` §2.6).
 ///
 /// The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -20,15 +21,16 @@ pub enum ProtocolErrorEnum {
     /// The `command` number names no command of this protocol: never assigned, retired, or reserved for the replica
     /// commands of a later stage.
     UnknownCommand { command: u16 },
-    /// A reserved header byte is not zero: `offset` is the first such byte, in `nonce_reserved` (16 to 32) or in the
-    /// reserved bytes (66 to 128).
+    /// A reserved header byte is not zero: `offset` is the first such byte, in the reserved bytes (66 to 128) or among
+    /// the command header's unused bytes (128 to 256).
     ReservedNotZero { offset: usize },
     /// The frame's `cluster` is `found`, not the receiver's `expected`.
     WrongCluster { expected: u64, found: u64 },
     /// The header's `size` is below the 256 bytes of the header it is part of.
     SizeBelowHeader { size: u32 },
-    /// A frame of `size` bytes, header and body, is larger than `limit`, the 1 MiB maximum: stated by a header
-    /// received, or what a frame being built would take.
+    /// A frame of `size` bytes, header and body, is larger than `limit`: the 1 MiB maximum, the `max_frame` the
+    /// receiver announced, or a stream receiver's buffer; stated by a header received, or what a frame being built
+    /// would take.
     FrameTooLarge { size: usize, limit: usize },
     /// The frame's `size` is not the `len` bytes received: a truncated body, or bytes past the frame.
     LengthMismatch { size: u32, len: usize },
@@ -43,6 +45,9 @@ pub enum ProtocolErrorEnum {
         start: usize,
         end: usize,
     },
+    /// A connection's frame carries `sequence` `found` where `expected`, one above the previous frame's from the same
+    /// sender, was due: a lost, repeated or reordered frame.
+    SequenceOrder { expected: u128, found: u128 },
     /// A view of command `expected` was asked of a frame of command `found`.
     WrongCommand { expected: u16, found: u16 },
     /// A body of command `command`, `len` bytes, is shorter than its fixed part and section table, `need` bytes.
@@ -205,6 +210,11 @@ impl ProtocolError {
     #[allow(non_snake_case)]
     pub fn Chunk(index: usize, start: usize, end: usize) -> Self {
         Self(ProtocolErrorEnum::Chunk { index, start, end })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn SequenceOrder(expected: u128, found: u128) -> Self {
+        Self(ProtocolErrorEnum::SequenceOrder { expected, found })
     }
 
     #[allow(non_snake_case)]

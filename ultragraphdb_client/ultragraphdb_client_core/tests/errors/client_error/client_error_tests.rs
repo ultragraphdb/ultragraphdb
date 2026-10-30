@@ -8,13 +8,18 @@ use std::error::Error;
 use ultragraphdb_client_core::{ClientError, ClientErrorEnum};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
-use ultragraphdb_protocol_wire::ErrorCode;
+use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
 
 fn every() -> Vec<ClientError> {
     vec![
         ClientError::Transport(TransportError::Closed()),
         ClientError::Protocol(ProtocolError::FrameTooLarge(9, 8)),
-        ClientError::Refused(ErrorCode::Conflict, 3, "conflict", Some("v".into())),
+        ClientError::Refused(
+            ErrorCode::Conflict,
+            3,
+            "conflict",
+            Some(RequestTerm::Iri("http://ex.org/v".into())),
+        ),
         ClientError::Closed(ErrorCode::Protocol, "bye"),
         ClientError::TimedOut(),
         ClientError::ConnectionLost(),

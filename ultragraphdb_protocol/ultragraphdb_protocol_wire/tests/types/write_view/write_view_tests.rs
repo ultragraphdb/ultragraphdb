@@ -10,7 +10,9 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::types::write::write_tests::golden_write;
-use crate::utils::golden_bodies::{body_data, frame_of, golden, put, section, with_section};
+use crate::utils::golden_bodies::{
+    body_data, frame_of, golden, put, section, with_command_header, with_section,
+};
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum {
     let bytes = with_section(&golden("write").bytes(), 6, index, change);
@@ -21,7 +23,6 @@ fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum
 fn test_the_golden_write_reads_its_changes_and_terms() {
     let bytes = golden("write").bytes();
     let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
-    assert_eq!(view.namespace(), 2);
     assert_eq!(view.len(), 14);
     assert!(!view.is_empty());
     assert_eq!(view.terms().len(), 17);
@@ -225,7 +226,7 @@ fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() {
         },
         WriteChange::Declare(Declared::Predicate(declared)),
     ];
-    let bytes = Write::new(2, terms, changes)
+    let bytes = Write::new(terms, changes)
         .frame(golden("write").header())
         .unwrap();
     let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
@@ -254,4 +255,17 @@ fn test_a_reserved_term_byte_is_named_at_its_body_offset() {
             offset: records_at + 2
         }
     );
+}
+
+#[test]
+fn test_every_command_header_byte_is_unused() {
+    // The transaction's Begin names the namespace; a Write's command header is all zero.
+    let bytes = golden("write").bytes();
+    for at in [0usize, 7, 8, 127] {
+        let frame = with_command_header(&bytes, |h| h[at] = 2);
+        assert_eq!(
+            WriteView::from_frame(&frame_of(&frame)).unwrap_err().0,
+            ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
+        );
+    }
 }

@@ -4,8 +4,9 @@
  */
 
 use ultragraphdb_core_keys::QuadKey;
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    RecordEntry, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
+    Command, RecordEntry, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
 };
 use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, Executed, RecordWrites};
 use ultragraphdb_store_posting::CachedList;
@@ -138,6 +139,23 @@ impl Replay {
                 }
                 Some(RecordOperation::UndoBuild(id)) => {
                     end_build(applier, record, BuildEnd::Undo(id)).map_err(apply)?
+                }
+                // The drops of a graph, a namespace's data, a namespace and every namespace: no commit step of this
+                // release proposes one, so a round holding one is a round this release does not read.
+                Some(
+                    operation @ (RecordOperation::DropGraph(_)
+                    | RecordOperation::DropNamespaceData
+                    | RecordOperation::DropNamespace
+                    | RecordOperation::DropAll),
+                ) => {
+                    return Err(RecoveryError::Round(
+                        position,
+                        ProtocolError::FieldValue(
+                            Command::Round.number(),
+                            "operation",
+                            operation.code().into(),
+                        ),
+                    ));
                 }
                 None => applier
                     .prepare_replay(namespace, record_writes(record))

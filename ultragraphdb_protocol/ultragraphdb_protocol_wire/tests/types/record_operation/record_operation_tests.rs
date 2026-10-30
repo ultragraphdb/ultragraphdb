@@ -13,16 +13,29 @@ use crate::utils::golden_bodies::section;
 
 #[test]
 fn test_each_operation_has_its_code_and_argument() {
-    for (operation, code, argument) in [
-        (RecordOperation::DropPredicate(7), 1, 7),
-        (RecordOperation::SwapBuild(1_000), 2, 1_000),
-        (RecordOperation::UndoBuild(u64::MAX), 3, u64::MAX),
+    for (operation, code, argument, drop) in [
+        (RecordOperation::DropPredicate(7), 1, 7, true),
+        (RecordOperation::SwapBuild(1_000), 2, 1_000, false),
+        (RecordOperation::UndoBuild(u64::MAX), 3, u64::MAX, false),
+        (RecordOperation::DropGraph(9), 4, 9, true),
+        (RecordOperation::DropNamespaceData, 5, 0, true),
+        (RecordOperation::DropNamespace, 6, 0, true),
+        (RecordOperation::DropAll, 7, 0, true),
     ] {
         assert_eq!((operation.code(), operation.argument()), (code, argument));
         assert_eq!(RecordOperation::from_parts(code, argument), Some(operation));
+        assert_eq!(operation.is_drop(), drop, "{operation:?}");
     }
     assert_eq!(RecordOperation::from_parts(0, 1), None);
-    assert_eq!(RecordOperation::from_parts(4, 1), None);
+    assert_eq!(RecordOperation::from_parts(8, 1), None);
+    // The drops of a namespace's data, a namespace and every namespace take no argument.
+    for code in 5..=7 {
+        assert_eq!(RecordOperation::from_parts(code, 1), None, "code {code}");
+    }
+    assert_eq!(
+        RecordOperation::from_parts(4, 0),
+        Some(RecordOperation::DropGraph(0))
+    );
 }
 
 /// A record of `operation` alone, in namespace 5.
@@ -35,7 +48,7 @@ fn operating(operation: RecordOperation) -> Vec<u8> {
 #[test]
 fn test_an_operation_is_sixteen_bytes_in_section_ten() {
     let bytes = operating(RecordOperation::SwapBuild(0x0102));
-    let (offset, len) = section(&bytes, 32, 10);
+    let (offset, len) = section(&bytes, 40, 10);
     assert_eq!(len, 16);
     let mut expected = 2u16.to_le_bytes().to_vec();
     expected.extend_from_slice(&[0; 6]);
@@ -50,22 +63,43 @@ fn test_an_operation_is_sixteen_bytes_in_section_ten() {
     );
     // A transaction's record has none.
     let plain = WriteSetRecord::new(5, 0, 0, 0).encode();
-    assert_eq!(section(&plain, 32, 10).1, 0);
+    assert_eq!(section(&plain, 40, 10).1, 0);
     assert_eq!(WriteSetRecordView::new(&plain).unwrap().operation(), None);
 }
 
 #[test]
 fn test_a_malformed_operation_is_refused() {
     let bytes = operating(RecordOperation::DropPredicate(9));
-    let (offset, _) = section(&bytes, 32, 10);
+    let (offset, _) = section(&bytes, 40, 10);
     let mut unknown = bytes.clone();
-    unknown[offset] = 4;
+    unknown[offset] = 8;
     assert_eq!(
         WriteSetRecordView::new(&unknown).unwrap_err().0,
         ProtocolErrorEnum::FieldValue {
             command: 17,
             field: "operation",
-            value: 4
+            value: 8
+        }
+    );
+    // Operation 5 with the predicate drop's argument 9: the namespace's data drop takes none.
+    let mut argument = bytes.clone();
+    argument[offset] = 5;
+    assert_eq!(
+        WriteSetRecordView::new(&argument).unwrap_err().0,
+        ProtocolErrorEnum::FieldValue {
+            command: 17,
+            field: "argument",
+            value: 9
+        }
+    );
+    // Padding is checked before the argument.
+    let mut both = argument.clone();
+    both[offset + 2] = 1;
+    assert_eq!(
+        WriteSetRecordView::new(&both).unwrap_err().0,
+        ProtocolErrorEnum::PaddingNotZero {
+            command: 17,
+            offset: offset + 2
         }
     );
     let mut zero = bytes.clone();
@@ -89,7 +123,7 @@ fn test_a_malformed_operation_is_refused() {
     );
     // A section of 8 bytes: the table's last entry names it, the bytes follow.
     let mut short = WriteSetRecord::new(0, 1, 2, 3).encode();
-    let at = 32 + 8 * 10;
+    let at = 40 + 8 * 10;
     let end = short.len() as u32;
     short[at..at + 4].copy_from_slice(&end.to_le_bytes());
     short[at + 4..at + 8].copy_from_slice(&8u32.to_le_bytes());

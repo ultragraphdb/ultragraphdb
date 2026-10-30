@@ -51,7 +51,8 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
     }
     let frame = bytes.get(offset..offset + size).unwrap_or_default();
     // size is at least a header, so the view's length rule holds; verify checks the rest.
-    let verified = HeaderView::new(frame).and_then(|view| Ok((view, view.verify(cluster)?)));
+    let verified =
+        HeaderView::new(frame).and_then(|view| Ok((view, view.verify(cluster, MAX_FRAME_SIZE)?)));
     match verified {
         Ok((view, header)) if header.command() == Command::Round => {
             let fields = RoundHeader::decode(view.command_header());

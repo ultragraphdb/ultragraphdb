@@ -58,7 +58,7 @@ async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scr
     let session = client.register().await.expect("a session");
     let tx = client.begin(0, false).await.expect("a transaction");
     client
-        .write(&tx, &Write::new(0, TermTable::new(), Vec::new()))
+        .write(&tx, &Write::new(TermTable::new(), Vec::new()))
         .await
         .unwrap();
     client.operation(&tx, &counter()).await.unwrap();
@@ -103,7 +103,7 @@ async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scr
     let execute = |id| {
         let mut terms = TermTable::new();
         let a = terms.iri("http://ex.org/a");
-        Execute::new(id, 0, terms, vec![a], Vec::new())
+        Execute::new(id, 0, 0, terms, vec![a], Vec::new())
     };
     scripted.borrow_mut().set_schema(7);
     let tx = client.begin(0, true).await.unwrap();

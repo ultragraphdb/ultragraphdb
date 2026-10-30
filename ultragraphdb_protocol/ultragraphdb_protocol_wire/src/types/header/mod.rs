@@ -9,14 +9,14 @@ use crate::types::command::Command;
 use crate::utils::constants::{COMMAND_HEADER_SIZE, PROTOCOL_VERSION};
 
 /// The header's fields a sender chooses, to be written in front of a body. `size`, `checksum_body` and `checksum`
-/// follow from the body and the other fields, so [`Header::encode_frame`] fills them in, and `nonce_reserved` and
-/// the reserved bytes are always zero.
+/// follow from the body and the other fields, so [`Header::encode_frame`] fills them in, and the reserved bytes are
+/// always zero.
 ///
 /// | Offset | Field | Type |
 /// |---|---|---|
 /// | 0 | `checksum` | u64, XXH3-64 of bytes 8 to 256 |
 /// | 8 | `checksum_body` | u64 |
-/// | 16 | `nonce_reserved` | u128, zero |
+/// | 16 | `sequence` | u128, the frame's place among its sender's frames on the connection, from 1 |
 /// | 32 | `cluster` | u64 |
 /// | 40 | `size` | u32, header and body |
 /// | 44 | `view` | u32 |
@@ -32,6 +32,7 @@ use crate::utils::constants::{COMMAND_HEADER_SIZE, PROTOCOL_VERSION};
 /// Every field is little-endian.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Header {
+    sequence: u128,
     cluster: u64,
     view: u32,
     release: u32,
@@ -44,10 +45,11 @@ pub struct Header {
 }
 
 impl Header {
-    /// A header of `command` for `cluster`, at [`crate::PROTOCOL_VERSION`], with every other field zero: view,
-    /// release, stream, replica, flags and the command header.
+    /// A header of `command` for `cluster`, at [`crate::PROTOCOL_VERSION`], with every other field zero: sequence,
+    /// view, release, stream, replica, flags and the command header.
     pub fn new(cluster: u64, command: Command) -> Self {
         Self {
+            sequence: 0,
             cluster,
             view: 0,
             release: 0,
@@ -63,6 +65,13 @@ impl Header {
     /// The header of `command`.
     pub fn with_command(mut self, command: Command) -> Self {
         self.command = command;
+        self
+    }
+
+    /// The header with its `sequence`: its sender's count of the frames it sent on the connection, this one
+    /// included; a log frame's round position.
+    pub fn with_sequence(mut self, sequence: u128) -> Self {
+        self.sequence = sequence;
         self
     }
 
@@ -106,6 +115,10 @@ impl Header {
     pub fn with_command_header(mut self, command_header: [u8; COMMAND_HEADER_SIZE]) -> Self {
         self.command_header = command_header;
         self
+    }
+
+    pub fn sequence(&self) -> u128 {
+        self.sequence
     }
 
     pub fn cluster(&self) -> u64 {

@@ -8,13 +8,15 @@ mod read_body_builder;
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::term_table::TermTable;
 
-/// A data request of stage 5 (in a transaction on the frame's stream): a quad pattern, at most `limit` rows (0 for
-/// no limit), and the resume key a previous result ended with, empty to start.
+/// A data request of stage 5 on a stream of its own, in the transaction it names: a quad pattern, at most `limit` rows
+/// (0 for no limit), the resume key a previous result of the same request ended with, empty to start, and whether
+/// each row's statement ID is returned.
 ///
 /// | Command header | Field | Type |
 /// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// | 0 | `transaction` | u64: the stream number of the transaction's Begin |
 /// | 8 | `limit` | u32 |
+/// | 12 | `flags` | u32: bit 0, return each row's statement ID; bits 1 to 31 zero |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -27,8 +29,9 @@ use crate::types::term_table::TermTable;
 /// names is an index into it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Read {
-    namespace: u64,
+    transaction: u64,
     limit: u32,
+    statement_ids: bool,
     terms: TermTable,
     pattern: QuadPattern,
     resume: Vec<u8>,
@@ -36,23 +39,36 @@ pub struct Read {
 
 impl Read {
     pub fn new(
-        namespace: u64,
+        transaction: u64,
         limit: u32,
         terms: TermTable,
         pattern: QuadPattern,
         resume: Vec<u8>,
     ) -> Self {
         Self {
-            namespace,
+            transaction,
             limit,
+            statement_ids: false,
             terms,
             pattern,
             resume,
         }
     }
 
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    /// The read asking for each row's statement ID.
+    pub fn with_statement_ids(mut self) -> Self {
+        self.statement_ids = true;
+        self
+    }
+
+    /// The stream number of the Begin of the transaction the read runs in.
+    pub fn transaction(&self) -> u64 {
+        self.transaction
+    }
+
+    /// Whether each row's statement ID is returned.
+    pub fn statement_ids(&self) -> bool {
+        self.statement_ids
     }
 
     pub fn limit(&self) -> u32 {

@@ -10,7 +10,8 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_transport::{BufferPool, ClientHandshake, NetworkFaults};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, ColumnType, Command, CommitOperation, ErrorCode, ErrorReply, FrameView, Header,
-    HeaderView, Operation, PatternSlot, Prepare, QuadPattern, TermTable, Welcome, Write,
+    HeaderView, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern, TermTable, Welcome,
+    Write,
 };
 
 use crate::utils::harness::{CLUSTER, Harness, RELEASE, config, received, welcome};
@@ -54,7 +55,10 @@ fn test_a_welcome_outside_the_range_closes_the_connection() {
     core.connect(now).unwrap();
     let _ = core.transmit();
     let pool = BufferPool::new(2, 1 << 20);
-    let other = Welcome::new(2, 0, 1 << 20, 1, 1, "s")
+    let other = Welcome::new(2, 0, "s")
+        .with_max_frame(1 << 20)
+        .with_max_streams(1)
+        .with_initial_credit(1)
         .frame(Header::new(CLUSTER, Command::Welcome))
         .unwrap();
     let refused = core
@@ -114,7 +118,7 @@ fn test_a_read_only_transaction_neither_writes_nor_commits() {
         panic!()
     };
     let stream = tx.stream();
-    let write = Write::new(0, TermTable::new(), Vec::new());
+    let write = Write::new(TermTable::new(), Vec::new());
     assert_eq!(
         h.core.write(&tx, &write).unwrap_err().0,
         ClientErrorEnum::ReadOnly { stream }
@@ -242,7 +246,10 @@ fn test_an_unanswered_request_times_out_and_closes_the_connection() {
 fn test_streams_beyond_the_welcomes_limit_are_refused() {
     let mut h = Harness::with(
         config(),
-        Welcome::new(1, RELEASE, 1 << 20, 1, 4, "s"),
+        Welcome::new(1, RELEASE, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(1)
+            .with_initial_credit(4),
         ServerScript::default(),
         NetworkFaults::none(),
         1,
@@ -263,7 +270,10 @@ fn test_streams_beyond_the_welcomes_limit_are_refused() {
 fn test_a_request_past_the_welcomes_frame_is_refused_before_it_is_sent() {
     let mut h = Harness::with(
         config(),
-        Welcome::new(1, RELEASE, 4_096, 8, 4, "s"),
+        Welcome::new(1, RELEASE, "s")
+            .with_max_frame(524_288)
+            .with_max_streams(8)
+            .with_initial_credit(4),
         ServerScript::default(),
         NetworkFaults::none(),
         1,
@@ -275,14 +285,14 @@ fn test_a_request_past_the_welcomes_frame_is_refused_before_it_is_sent() {
         panic!()
     };
     let mut terms = TermTable::new();
-    let big = "x".repeat(5_000);
+    let big = "x".repeat(530_000);
     let _ = terms.iri(&big);
     let error = h
         .core
-        .write(&tx, &Write::new(0, terms, Vec::new()))
+        .write(&tx, &Write::new(terms, Vec::new()))
         .unwrap_err();
     assert!(
-        matches!(error.0, ClientErrorEnum::Request { error: ref e } if matches!(e.0, ProtocolErrorEnum::FrameTooLarge { limit: 4_096, .. })),
+        matches!(error.0, ClientErrorEnum::Request { error: ref e } if matches!(e.0, ProtocolErrorEnum::FrameTooLarge { limit: 524_288, .. })),
         "{error:?}"
     );
 }
@@ -307,7 +317,9 @@ fn test_a_duplicated_reply_is_taken_once() {
     assert_eq!(session.number(), 77);
     assert!(h.core.is_ready());
     assert_eq!(
-        FrameView::validate(&frame, CLUSTER).unwrap().command(),
+        FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+            .unwrap()
+            .command(),
         Command::Register
     );
 }
@@ -362,7 +374,7 @@ fn test_a_refused_write_is_the_answer_of_the_next_request() {
         panic!()
     };
     h.core
-        .write(&tx, &Write::new(0, TermTable::new(), Vec::new()))
+        .write(&tx, &Write::new(TermTable::new(), Vec::new()))
         .unwrap();
     while h.core.transmit().is_some() {}
     let frame = ErrorReply::new(ErrorCode::Refused, "the catalog refuses")
@@ -377,7 +389,7 @@ fn test_a_refused_write_is_the_answer_of_the_next_request() {
         .unwrap();
     let refused = h
         .core
-        .write(&tx, &Write::new(0, TermTable::new(), Vec::new()))
+        .write(&tx, &Write::new(TermTable::new(), Vec::new()))
         .unwrap_err();
     assert!(
         matches!(refused.0, ClientErrorEnum::Refused { code: ErrorCode::Refused, ref message, .. } if message == "the catalog refuses"),
@@ -385,7 +397,7 @@ fn test_a_refused_write_is_the_answer_of_the_next_request() {
     );
     assert_eq!(
         h.core
-            .write(&tx, &Write::new(0, TermTable::new(), Vec::new()))
+            .write(&tx, &Write::new(TermTable::new(), Vec::new()))
             .unwrap_err()
             .0,
         ClientErrorEnum::StreamFinished {

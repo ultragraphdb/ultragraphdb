@@ -5,7 +5,11 @@
 
 mod prepare_view_body_view;
 
+use ultragraphdb_error_protocol::ProtocolError;
+
 use crate::types::column_type::ColumnType;
+use crate::types::command::Command;
+use crate::types::pattern_slot::PatternSlot;
 use crate::types::quad_pattern::QuadPattern;
 use crate::types::term_table_view::TermTableView;
 
@@ -48,5 +52,35 @@ impl<'a> PrepareView<'a> {
 
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
+    }
+
+    /// The rule a server holds a received Prepare to, a request: no result types, refused as
+    /// [`ProtocolError::CountMismatch`] (`"result types"`).
+    pub fn check_request(&self) -> Result<(), ProtocolError> {
+        self.result_types_count(0)
+    }
+
+    /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot, refused as
+    /// [`ProtocolError::CountMismatch`] (`"result types"`).
+    pub fn check_reply(&self) -> Result<(), ProtocolError> {
+        let unbound = self
+            .pattern
+            .slots()
+            .iter()
+            .filter(|slot| matches!(slot, PatternSlot::Unbound))
+            .count();
+        self.result_types_count(unbound)
+    }
+
+    fn result_types_count(&self, expected: usize) -> Result<(), ProtocolError> {
+        if self.result_types.len() == expected {
+            return Ok(());
+        }
+        Err(ProtocolError::CountMismatch(
+            Command::Prepare.number(),
+            "result types",
+            self.result_types.len() as u64,
+            expected as u64,
+        ))
     }
 }

@@ -5,6 +5,10 @@
 
 mod commit_view_body_view;
 
+use ultragraphdb_error_protocol::ProtocolError;
+
+use crate::types::command::Command;
+
 use crate::types::operation_result::OperationResult;
 use crate::utils::results::{RESULT_SIZE, result_at};
 
@@ -38,5 +42,19 @@ impl<'a> CommitView<'a> {
     /// Result `index`, `None` past the last.
     pub fn result(&self, index: usize) -> Option<OperationResult> {
         result_at(self.results, index)
+    }
+
+    /// The rule a server holds a received Commit to, a request: no results, refused as
+    /// [`ProtocolError::CountMismatch`] (`"results"`).
+    pub fn check_request(&self) -> Result<(), ProtocolError> {
+        if self.result_count() == 0 {
+            return Ok(());
+        }
+        Err(ProtocolError::CountMismatch(
+            Command::Commit.number(),
+            "results",
+            self.result_count() as u64,
+            0,
+        ))
     }
 }

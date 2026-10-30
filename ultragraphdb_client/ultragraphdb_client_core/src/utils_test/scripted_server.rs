@@ -12,8 +12,8 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::{Outbound, ServerHandshake};
 use ultragraphdb_protocol_wire::{
     BeginView, BodyBuilder, BodyView, Command, Commit, CommitView, Describe, ErrorCode, ErrorReply,
-    ExecuteView, FLAG_LAST, FrameView, Header, OperationResult, PrepareView, Register, ResultBatch,
-    ResultTerm, Welcome,
+    ExecuteView, FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE, OperationResult, PrepareView,
+    Register, ResultBatch, ResultTerm, Welcome,
 };
 
 pub use crate::utils_test::server_script::ServerScript;
@@ -155,7 +155,7 @@ impl ScriptedServer {
             self.welcomed = outcome.is_ok();
             return;
         }
-        let Ok(view) = FrameView::validate(frame, self.cluster) else {
+        let Ok(view) = FrameView::validate_client(frame, self.cluster, MAX_FRAME_SIZE) else {
             return;
         };
         let stream = view.header().stream();

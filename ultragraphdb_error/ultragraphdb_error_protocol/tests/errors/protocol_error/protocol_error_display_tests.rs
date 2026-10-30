@@ -82,6 +82,10 @@ fn test_chunk_names_its_index_and_byte_range() {
         ProtocolError::Chunk(0, 0, 0).to_string(),
         "chunk 0, body bytes 0..0, does not match its leaf"
     );
+    assert_eq!(
+        ProtocolError::SequenceOrder(7, 9).to_string(),
+        "frame of sequence 9 where sequence 7 was due"
+    );
 }
 
 #[test]

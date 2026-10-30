@@ -72,6 +72,13 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
             },
         ),
         (
+            ProtocolError::SequenceOrder(2, 4),
+            ProtocolErrorEnum::SequenceOrder {
+                expected: 2,
+                found: 4,
+            },
+        ),
+        (
             ProtocolError::WrongCommand(1, 2),
             ProtocolErrorEnum::WrongCommand {
                 expected: 1,
@@ -236,6 +243,10 @@ fn test_argument_order_is_kept_where_two_values_share_a_type() {
         ProtocolError::FrameTooLarge(2, 1)
     );
     assert_ne!(ProtocolError::Chunk(1, 2, 3), ProtocolError::Chunk(1, 3, 2));
+    assert_ne!(
+        ProtocolError::SequenceOrder(1, 2),
+        ProtocolError::SequenceOrder(2, 1)
+    );
     assert_ne!(
         ProtocolError::WrongCommand(1, 2),
         ProtocolError::WrongCommand(2, 1)

@@ -36,13 +36,17 @@ pub(crate) fn read_operation(
     let code = u16::from_le_bytes([operation[0], operation[1]]);
     let mut argument = [0; 8];
     argument.copy_from_slice(&operation[8..]);
-    let Some(read) = RecordOperation::from_parts(code, u64::from_le_bytes(argument)) else {
+    let argument = u64::from_le_bytes(argument);
+    if !(1..=7).contains(&code) {
         return Err(ProtocolError::FieldValue(command, "operation", code.into()));
-    };
+    }
     if let Some(j) = operation[2..8].iter().position(|b| *b != 0) {
         return Err(ProtocolError::PaddingNotZero(command, offset + 2 + j));
     }
-    Ok(Some(read))
+    // Every code from 1 to 7 is an operation; an argument where the operation takes none is the remaining refusal.
+    RecordOperation::from_parts(code, argument)
+        .map(Some)
+        .ok_or(ProtocolError::FieldValue(command, "argument", argument))
 }
 
 /// The bytes of `operation`, empty for none.

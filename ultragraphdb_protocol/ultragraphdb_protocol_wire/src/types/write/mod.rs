@@ -8,13 +8,10 @@ mod write_body_builder;
 use crate::types::term_table::TermTable;
 use crate::types::write_change::WriteChange;
 
-/// A changeset (in a transaction on the frame's stream) in the wire's own layout: its changes in order, their terms
-/// indices into the Write's term table, the IRIs, tokenizers and options its declarations name in a list of names. The
-/// server session converts it to the mapping crate's `Changeset`.
-///
-/// | Command header | Field | Type |
-/// |---|---|---|
-/// | 0 | `namespace` | u64 |
+/// A changeset in the transaction of the frame's stream, in the transaction's namespace, in the wire's own layout: its
+/// changes in order, their terms indices into the Write's term table, the IRIs, tokenizers and options its
+/// declarations name in a list of names. The server session converts it to the mapping crate's `Changeset`. The
+/// command header is all zero.
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -30,22 +27,13 @@ use crate::types::write_change::WriteChange;
 /// an entity type 9 and a relation 10.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Write {
-    namespace: u64,
     terms: TermTable,
     changes: Vec<WriteChange>,
 }
 
 impl Write {
-    pub fn new(namespace: u64, terms: TermTable, changes: Vec<WriteChange>) -> Self {
-        Self {
-            namespace,
-            terms,
-            changes,
-        }
-    }
-
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    pub fn new(terms: TermTable, changes: Vec<WriteChange>) -> Self {
+        Self { terms, changes }
     }
 
     pub fn terms(&self) -> &TermTable {

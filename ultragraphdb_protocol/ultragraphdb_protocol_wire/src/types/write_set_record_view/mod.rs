@@ -17,8 +17,8 @@ use crate::utils::operation::read_operation;
 use crate::utils::results::{RESULT_SIZE, check_results, result_at};
 use crate::utils::sections::Sections;
 
-/// The fixed part's size: namespace, read version, session and request.
-const FIXED_SIZE: usize = 32;
+/// The fixed part's size: namespace, read version, session, request and principal.
+const FIXED_SIZE: usize = 40;
 
 /// A received write-set record read in place; see [`WriteSetRecord`] for its layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +28,7 @@ pub struct WriteSetRecordView<'a> {
     read_version: u64,
     session: u64,
     request: u64,
+    principal: u64,
     tables: [KeyValues<'a>; 8],
     commit_record: &'a [u8],
     results: &'a [u8],
@@ -54,7 +55,14 @@ impl<'a> WriteSetRecordView<'a> {
             table(7)?,
             table(8)?,
         ];
-        let [.., points, statements, ranges] = tables;
+        let [deltas, .., points, statements, ranges] = tables;
+        if deltas.iter().any(|e| e.value().is_none()) {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "list delta",
+                ABSENT.into(),
+            ));
+        }
         if let Some(entry) = points.iter().find(|e| e.value() != Some(&[][..])) {
             let value = entry.value().map_or(u64::from(ABSENT), |v| v.len() as u64);
             return Err(ProtocolError::FieldValue(command, "conflict point", value));
@@ -75,6 +83,7 @@ impl<'a> WriteSetRecordView<'a> {
             read_version: field(8),
             session: field(16),
             request: field(24),
+            principal: field(32),
             tables,
             commit_record: sections.get(5),
             results: sections.get(9),
@@ -82,7 +91,6 @@ impl<'a> WriteSetRecordView<'a> {
         })
     }
 
-    /// The record's bytes.
     pub fn bytes(&self) -> &'a [u8] {
         self.bytes
     }
@@ -101,6 +109,10 @@ impl<'a> WriteSetRecordView<'a> {
 
     pub fn request(&self) -> u64 {
         self.request
+    }
+
+    pub fn principal(&self) -> u64 {
+        self.principal
     }
 
     pub fn list_deltas(&self) -> KeyValues<'a> {
@@ -163,6 +175,7 @@ impl<'a> WriteSetRecordView<'a> {
             self.session,
             self.request,
         );
+        record.set_principal(self.principal);
         let owned = |e: RecordEntry<'_>| (e.key().to_vec(), e.value().map(<[u8]>::to_vec));
         for (key, value) in self.list_deltas().iter().map(owned) {
             record.push_list_delta(key, value.unwrap_or_default());

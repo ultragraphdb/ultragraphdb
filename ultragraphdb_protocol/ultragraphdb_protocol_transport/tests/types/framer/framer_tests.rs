@@ -8,7 +8,7 @@ use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, HEADER_SIZE, Header, Hello,
+    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, HEADER_SIZE, Header, Hello, MAX_FRAME_SIZE,
 };
 
 use crate::utils::feed::feed;
@@ -16,9 +16,15 @@ use crate::utils::feed::feed;
 const CLUSTER: u64 = 7;
 
 fn hello() -> Vec<u8> {
-    Hello::new(1, 1, 3, "a client named at some length")
-        .frame(Header::new(CLUSTER, Command::Hello))
-        .unwrap()
+    Hello::new(
+        1,
+        1,
+        3,
+        MAX_FRAME_SIZE as u32,
+        "a client named at some length",
+    )
+    .frame(Header::new(CLUSTER, Command::Hello))
+    .unwrap()
 }
 
 fn credit() -> Vec<u8> {

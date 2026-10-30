@@ -288,3 +288,106 @@ fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() {
         );
     }
 }
+
+/// The golden vectors of `testdata/by_value/by_value.tsv`, which `generate_by_value.py` computed from PROTOCOL.md
+/// section 10.5 alone: each lexical form and the encoding it takes, by value or kept by its lexical form.
+fn by_value_vectors() -> Vec<(String, String, Vec<u8>)> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()
+        .join("by_value")
+        .join("by_value.tsv");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+    text.lines()
+        .map(|line| {
+            let mut fields = line.split('\t');
+            let (datatype, lexical, hex) = (
+                fields.next().unwrap(),
+                fields.next().unwrap(),
+                fields.next().unwrap(),
+            );
+            let bytes = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            (datatype.to_string(), lexical.to_string(), bytes)
+        })
+        .collect()
+}
+
+#[test]
+fn test_the_by_value_forms_are_the_protocols_own() {
+    // Point 12: the canonical forms are normative, pinned against a formatting library's upgrade. Points 11 and 49:
+    // an offset of -00:01, and a value past its payload, are kept by their lexical form.
+    let vectors = by_value_vectors();
+    assert_eq!(vectors.len(), 114);
+    let mut failures = Vec::new();
+    for (datatype, lexical, want) in &vectors {
+        let literal = Literal::new_typed_literal(lexical, NamedNode::new_unchecked(datatype));
+        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
+        if encoded.term().as_bytes() != want.as_slice() {
+            failures.push(format!(
+                "{lexical}^^{datatype}: {:02x?}, want {want:02x?}",
+                encoded.term().as_bytes()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
+    for (datatype, lexical) in [
+        (xsd::DATE_TIME, "2026-10-26T12:00:00-00:01"),
+        (xsd::TIME, "12:00:00-00:01"),
+        (xsd::DATE, "2026-10-26-00:01"),
+        (xsd::G_YEAR_MONTH, "2026-10-00:01"),
+        (xsd::G_YEAR, "2026-00:01"),
+        (xsd::G_MONTH_DAY, "--10-26-00:01"),
+        (xsd::G_DAY, "---26-00:01"),
+        (xsd::G_MONTH, "--10-00:01"),
+    ] {
+        let literal = Literal::new_typed_literal(lexical, datatype);
+        let (term, decoded) = round_trip(&literal);
+        assert!(
+            matches!(term.as_bytes()[0], 0x30 | 0x31),
+            "{lexical} is kept by its lexical form"
+        );
+        assert_eq!(decoded, literal);
+        // One minute east is held by value, and reads back with its offset.
+        let east = lexical.replace("-00:01", "+00:01");
+        let (term, _) = round_trip(&Literal::new_typed_literal(east.as_str(), datatype));
+        assert!(
+            (0x15..=0x1C).contains(&term.as_bytes()[0]),
+            "{east} is by value"
+        );
+    }
+}
+
+#[test]
+fn test_february_29_of_a_gmonthday_is_held_by_value_and_reads_back() {
+    // XML Schema 1.1's day-of-month constraint takes --02-29; the payload is February 28's and one day.
+    for lexical in ["--02-29", "--02-29Z", "--02-29+05:30"] {
+        let literal = Literal::new_typed_literal(lexical, xsd::G_MONTH_DAY);
+        let (term, decoded) = round_trip(&literal);
+        assert_eq!(term.as_bytes()[0], 0x1A, "{lexical} is by value");
+        assert_eq!(decoded, literal);
+    }
+    let day_before = EncodedTerm::literal(
+        Literal::new_typed_literal("--02-28Z", xsd::G_MONTH_DAY).as_ref(),
+        other_uid,
+    )
+    .unwrap()
+    .into_term();
+    let leap_day = EncodedTerm::literal(
+        Literal::new_typed_literal("--02-29Z", xsd::G_MONTH_DAY).as_ref(),
+        other_uid,
+    )
+    .unwrap()
+    .into_term();
+    let instant = |t: &EncodedTerm| i128::from_be_bytes(t.as_bytes()[1..17].try_into().unwrap());
+    assert_eq!(
+        instant(&leap_day) - instant(&day_before),
+        86_400 * 10i128.pow(18)
+    );
+    assert!(day_before < leap_day, "terms order as their values");
+}

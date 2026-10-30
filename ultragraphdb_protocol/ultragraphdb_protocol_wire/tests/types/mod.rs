@@ -8,6 +8,12 @@ mod abort;
 #[cfg(test)]
 mod abort_view;
 #[cfg(test)]
+mod action;
+#[cfg(test)]
+pub mod authenticate;
+#[cfg(test)]
+mod authenticate_view;
+#[cfg(test)]
 mod begin;
 #[cfg(test)]
 mod begin_view;
@@ -47,6 +53,12 @@ mod declared_relation;
 pub mod describe;
 #[cfg(test)]
 mod describe_view;
+#[cfg(test)]
+pub mod drop_command;
+#[cfg(test)]
+mod drop_command_view;
+#[cfg(test)]
+mod drop_kind;
 #[cfg(test)]
 mod error_code;
 #[cfg(test)]

@@ -91,3 +91,32 @@ fn test_types_are_known_and_counted() {
         }
     );
 }
+
+#[test]
+fn test_a_request_carries_no_result_types_and_an_answer_one_per_unbound_slot() {
+    let request = golden("prepare").bytes();
+    let reply = golden("prepare_reply").bytes();
+    let request_view = PrepareView::from_frame(&frame_of(&request)).unwrap();
+    let reply_view = PrepareView::from_frame(&frame_of(&reply)).unwrap();
+    assert_eq!(request_view.check_request(), Ok(()));
+    assert_eq!(reply_view.check_reply(), Ok(()));
+    assert_eq!(
+        reply_view.check_request().unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "result types",
+            count: 1,
+            expected: 0
+        }
+    );
+    // The request read as an answer: no result type for its one unbound slot.
+    assert_eq!(
+        request_view.check_reply().unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 10,
+            field: "result types",
+            count: 0,
+            expected: 1
+        }
+    );
+}

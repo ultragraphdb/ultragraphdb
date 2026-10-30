@@ -14,7 +14,8 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::NetworkFaults;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, Command, CommitView, Execute, FLAG_LAST, FrameView, Header,
-    PatternSlot, Prepare, QuadPattern, Read, ResultBatch, ResultTerm, TermTable, Welcome,
+    MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read, ResultBatch, ResultTerm, TermTable,
+    Welcome,
 };
 
 mod utils {
@@ -112,11 +113,13 @@ fn lost_reply(w: &mut Steps) {
         .received()
         .iter()
         .filter_map(|f| {
-            FrameView::validate(f, CLUSTER).ok().and_then(|v| {
-                CommitView::from_frame(&v)
-                    .ok()
-                    .map(|c| (c.session(), c.request()))
-            })
+            FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE)
+                .ok()
+                .and_then(|v| {
+                    CommitView::from_frame(&v)
+                        .ok()
+                        .map(|c| (c.session(), c.request()))
+                })
         })
         .collect();
     assert_eq!(
@@ -135,7 +138,10 @@ fn applied_once(w: &mut Steps) {
 fn credit_two(w: &mut Steps) {
     let mut h = Harness::with(
         config().with_credit(2),
-        Welcome::new(1, RELEASE, 1 << 20, 8, 0, "s"),
+        Welcome::new(1, RELEASE, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(8)
+            .with_initial_credit(0),
         ServerScript {
             results: 10,
             ..ServerScript::default()
@@ -250,7 +256,7 @@ fn stale(w: &mut Steps) {
         .core
         .execute(
             &tx,
-            &Execute::new(statement.id(), 0, terms, vec![a], Vec::new()),
+            &Execute::new(statement.id(), 0, 0, terms, vec![a], Vec::new()),
             h.now,
         )
         .unwrap();

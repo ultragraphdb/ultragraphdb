@@ -152,13 +152,16 @@ pub fn golden_write() -> Write {
             vec![ex("employee"), ex("employer")],
         ))),
     ];
-    Write::new(2, t, changes)
+    Write::new(t, changes)
 }
 
 #[test]
 fn test_write_builds_the_golden_frame() {
     let write = golden_write();
-    assert_eq!(write.namespace(), 2);
+    assert!(
+        write.command_header().iter().all(|b| *b == 0),
+        "a Write's command header is all zero"
+    );
     assert_eq!(write.terms().len(), 17);
     assert_eq!(write.changes().len(), 14);
     assert_eq!(
@@ -169,14 +172,13 @@ fn test_write_builds_the_golden_frame() {
 
 #[test]
 fn test_an_empty_write_is_valid() {
-    let bytes = Write::new(9, TermTable::new(), Vec::new())
+    let bytes = Write::new(TermTable::new(), Vec::new())
         .frame(golden("write").header())
         .unwrap();
     let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
     assert!(view.is_empty());
-    assert_eq!(view.namespace(), 9);
     assert_eq!(
         view.to_body().unwrap(),
-        Write::new(9, TermTable::new(), Vec::new())
+        Write::new(TermTable::new(), Vec::new())
     );
 }

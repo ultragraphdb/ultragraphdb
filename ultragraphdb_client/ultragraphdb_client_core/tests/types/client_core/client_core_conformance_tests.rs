@@ -14,8 +14,8 @@ use ultragraphdb_client_core::{
 };
 use ultragraphdb_protocol_transport::{BufferPool, TransportErrorEnum};
 use ultragraphdb_protocol_wire::{
-    BodyView, ColumnType, DescribeView, ErrorCode, ExecuteView, FrameView, OperationResult,
-    OperationView, PrepareView, ReadView, WriteView,
+    BodyView, ColumnType, DescribeView, ErrorCode, ExecuteView, FrameView, MAX_FRAME_SIZE,
+    OperationResult, OperationView, PrepareView, ReadView, WriteView,
 };
 
 use crate::utils::harness::{CLUSTER, Harness, received, start};
@@ -35,6 +35,16 @@ fn golden(name: &str) -> Vec<u8> {
 fn restream(frame: &[u8], stream: u64) -> Vec<u8> {
     let mut frame = frame.to_vec();
     frame[56..64].copy_from_slice(&stream.to_le_bytes());
+    let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
+    frame[..8].copy_from_slice(&checksum.to_le_bytes());
+    frame
+}
+
+/// `frame` with the header's `sequence` of `sent`, its checksum recomputed: the client's frame numbering is tested
+/// apart from the bodies.
+fn resequence(frame: &[u8], sent: &[u8]) -> Vec<u8> {
+    let mut frame = frame.to_vec();
+    frame[16..32].copy_from_slice(&sent[16..32]);
     let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
     frame[..8].copy_from_slice(&checksum.to_le_bytes());
     frame
@@ -71,12 +81,16 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
     let mut check = |h: &mut Harness, name: &str, stream: u64| {
         while h.step() {}
         let frame = last(h);
-        assert_eq!(frame, restream(&golden(name), stream), "{name}");
+        assert_eq!(
+            frame,
+            resequence(&restream(&golden(name), stream), &frame),
+            "{name}"
+        );
         sent.push(name.to_string());
     };
     for name in ["write", "operation", "operation_counter", "operation_deep"] {
         let g = golden(name);
-        let frame = FrameView::validate(&g, CLUSTER).unwrap();
+        let frame = FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap();
         if name == "write" {
             h.core.write(&writer, &view::<WriteView>(&frame)).unwrap();
         } else {
@@ -93,7 +107,7 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         .core
         .read(
             &reader,
-            &view::<ReadView>(&FrameView::validate(&g, CLUSTER).unwrap()),
+            &view::<ReadView>(&FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap()),
             h.now,
         )
         .unwrap();
@@ -106,20 +120,27 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
     let p = h
         .core
         .prepare(
-            &view::<PrepareView>(&FrameView::validate(&g, CLUSTER).unwrap()),
+            &view::<PrepareView>(&FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap()),
             h.now,
         )
         .unwrap();
     while h.core.transmit().map(|f| h.server.receive(&f)).is_some() {}
     let prepared = last(&h);
-    assert_eq!(prepared, restream(&g, stream_of(&prepared)), "prepare");
+    assert_eq!(
+        prepared,
+        resequence(&restream(&g, stream_of(&prepared)), &prepared),
+        "prepare"
+    );
     let _ = h.settle(p);
     let p = h.core.describe(0, h.now).unwrap();
     while h.core.transmit().map(|f| h.server.receive(&f)).is_some() {}
     let described = last(&h);
     assert_eq!(
         described,
-        restream(&golden("describe"), stream_of(&described)),
+        resequence(
+            &restream(&golden("describe"), stream_of(&described)),
+            &described
+        ),
         "describe"
     );
     let _ = h.settle(p);
@@ -132,12 +153,17 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         .core
         .execute(
             &tx,
-            &view::<ExecuteView>(&FrameView::validate(&g, CLUSTER).unwrap()),
+            &view::<ExecuteView>(&FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap()),
             h.now,
         )
         .unwrap();
     while h.core.transmit().map(|f| h.server.receive(&f)).is_some() {}
-    assert_eq!(last(&h), restream(&g, tx.stream()), "execute");
+    let executed = last(&h);
+    assert_eq!(
+        executed,
+        resequence(&restream(&g, tx.stream()), &executed),
+        "execute"
+    );
     assert_eq!(sent.len(), 8);
 }
 
@@ -192,7 +218,9 @@ fn test_every_golden_reply_is_read_as_its_values() {
     );
     let p = c
         .prepare(
-            &view::<PrepareView>(&FrameView::validate(&golden("prepare"), CLUSTER).unwrap()),
+            &view::<PrepareView>(
+                &FrameView::validate(&golden("prepare"), CLUSTER, MAX_FRAME_SIZE).unwrap(),
+            ),
             now,
         )
         .unwrap();
@@ -208,7 +236,8 @@ fn test_every_golden_reply_is_read_as_its_values() {
         panic!()
     };
     let reply = golden("describe_reply");
-    let expected = view::<DescribeView>(&FrameView::validate(&reply, CLUSTER).unwrap());
+    let expected =
+        view::<DescribeView>(&FrameView::validate(&reply, CLUSTER, MAX_FRAME_SIZE).unwrap());
     assert_eq!((describe.read_version(), &describe), (42, &expected));
 }
 
@@ -258,7 +287,9 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
     let stream = c
         .read(
             &reader,
-            &view::<ReadView>(&FrameView::validate(&golden("read"), CLUSTER).unwrap()),
+            &view::<ReadView>(
+                &FrameView::validate(&golden("read"), CLUSTER, MAX_FRAME_SIZE).unwrap(),
+            ),
             now,
         )
         .unwrap();
@@ -292,7 +323,10 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
             4,
             ErrorCode::OperationFailed,
             0,
-            Some("\"done\"".to_string()),
+            Some(ultragraphdb_protocol_wire::RequestTerm::Literal {
+                lexical: "done".into(),
+                datatype: None,
+            }),
         ),
     ] {
         let tx = begin(&mut c, stream, false);
@@ -340,7 +374,8 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() {
                 "prepare_reply" => c
                     .prepare(
                         &view::<PrepareView>(
-                            &FrameView::validate(&golden("prepare"), CLUSTER).unwrap(),
+                            &FrameView::validate(&golden("prepare"), CLUSTER, MAX_FRAME_SIZE)
+                                .unwrap(),
                         ),
                         now,
                     )
@@ -358,7 +393,7 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() {
                     continue;
                 }
             };
-            let expected = FrameView::validate(&bad, CLUSTER).err();
+            let expected = FrameView::validate(&bad, CLUSTER, MAX_FRAME_SIZE).err();
             match c.receive(frame, now) {
                 Err(error) => {
                     if let Some(rule) = expected {

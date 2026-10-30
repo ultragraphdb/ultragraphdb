@@ -25,7 +25,7 @@ impl<'a> BodyView<'a> for WriteView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 8)])?;
+        header.unused_zero(&[])?;
         let sections = Sections::<6>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -46,7 +46,6 @@ impl<'a> BodyView<'a> for WriteView<'a> {
             false,
         )?;
         Ok(Self {
-            namespace: header.u64_at(0),
             records: sections.get(0),
             args,
             terms,
@@ -58,6 +57,6 @@ impl<'a> BodyView<'a> for WriteView<'a> {
         let changes = (0..self.len())
             .filter_map(|index| self.change(index))
             .collect();
-        Ok(Write::new(self.namespace, self.terms.to_table(), changes))
+        Ok(Write::new(self.terms.to_table(), changes))
     }
 }

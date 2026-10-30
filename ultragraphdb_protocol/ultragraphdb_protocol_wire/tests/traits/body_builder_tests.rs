@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, Execute, FrameView, Header,
+    BodyBuilder, Command, Credit, ErrorCode, ErrorReply, Execute, FrameView, Header, MAX_FRAME_SIZE,
 };
 
 use crate::utils::golden_bodies::{CLUSTER, golden};
@@ -14,11 +14,12 @@ use crate::utils::golden_bodies::{CLUSTER, golden};
 fn test_frame_takes_the_command_and_command_header_from_the_body() {
     // The header names Abort; the frame is the Credit's.
     let header = Header::new(CLUSTER, Command::Abort)
+        .with_sequence(1)
         .with_stream(11)
         .with_release(0x0005_0000);
     let bytes = Credit::new(2).frame(header).unwrap();
     assert_eq!(bytes, golden("credit").bytes());
-    let frame = FrameView::validate(&bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     assert_eq!(frame.command(), Command::Credit);
     assert_eq!(&frame.header().command_header()[..4], &2u32.to_le_bytes());
     assert_eq!(<Credit as BodyBuilder>::COMMAND, Command::Credit);
@@ -42,7 +43,7 @@ fn test_a_body_past_the_largest_frame_is_refused() {
         .map(|i| terms.iri(&format!("http://ex.org/{i:07}")))
         .collect();
     assert!(
-        Execute::new(1, 0, terms, parameters, Vec::new())
+        Execute::new(1, 5, 0, terms, parameters, Vec::new())
             .frame(Header::new(CLUSTER, Command::Execute))
             .is_err()
     );

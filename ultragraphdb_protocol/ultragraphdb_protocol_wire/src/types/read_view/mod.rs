@@ -11,16 +11,21 @@ use crate::types::term_table_view::TermTableView;
 /// The body of a received Read frame, read in place; see [`crate::Read`] for its layout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadView<'a> {
-    namespace: u64,
+    transaction: u64,
     limit: u32,
+    statement_ids: bool,
     terms: TermTableView<'a>,
     pattern: QuadPattern,
     resume: &'a [u8],
 }
 
 impl<'a> ReadView<'a> {
-    pub fn namespace(&self) -> u64 {
-        self.namespace
+    pub fn transaction(&self) -> u64 {
+        self.transaction
+    }
+
+    pub fn statement_ids(&self) -> bool {
+        self.statement_ids
     }
 
     pub fn limit(&self) -> u32 {

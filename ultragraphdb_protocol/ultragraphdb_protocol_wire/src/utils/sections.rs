@@ -185,3 +185,12 @@ pub(crate) fn expect_command<'a>(
         frame.header().command_header(),
     ))
 }
+
+/// The `flags` of a Read or an Execute: bit 0 asks for each row's statement ID, and no other bit is set, refused as
+/// [`ProtocolError::FieldValue`] (`"flags"`).
+pub(crate) fn statement_ids_flag(command: u16, flags: u32) -> Result<bool, ProtocolError> {
+    if flags > 1 {
+        return Err(ProtocolError::FieldValue(command, "flags", flags.into()));
+    }
+    Ok(flags == 1)
+}

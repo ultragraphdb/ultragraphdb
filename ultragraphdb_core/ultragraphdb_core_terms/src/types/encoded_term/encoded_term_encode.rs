@@ -171,8 +171,43 @@ fn lang_string<'a>(
 
 /// The by-value encoding of `lexical` as `datatype`, when the datatype is encoded by value and the lexical form is
 /// canonical.
+/// The offset of a timezone one minute west, which a by-value payload cannot hold: its minutes, -1 as an i16, are the
+/// payload's marker of no timezone (`PROTOCOL.md` §10.2). A canonical form ends with its timezone, so the form names it.
+const WEST_ONE_MINUTE: &str = "-00:01";
+
+/// February 29 of a gMonthDay, which XML Schema 1.1 takes (the day-of-month constraint) and oxsdatatypes 0.2.4
+/// refuses as "29 is not a valid day of 2"; its payload is February 28's and one day.
+const FEBRUARY_29: &str = "--02-29";
+
+/// One day in a by-value payload's seconds × 10¹⁸.
+const DAY: i128 = 86_400 * 1_000_000_000_000_000_000;
+
 fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
     let encoded = |t: u8, bytes: &[u8]| Builder::new(t).push(bytes).build();
+    let dated = matches!(
+        datatype,
+        KnownDatatype::DateTime
+            | KnownDatatype::Time
+            | KnownDatatype::Date
+            | KnownDatatype::GYearMonth
+            | KnownDatatype::GYear
+            | KnownDatatype::GMonthDay
+            | KnownDatatype::GDay
+            | KnownDatatype::GMonth
+    );
+    if dated && lexical.ends_with(WEST_ONE_MINUTE) {
+        return None;
+    }
+    if datatype == KnownDatatype::GMonthDay
+        && let Some(timezone) = lexical.strip_prefix(FEBRUARY_29)
+    {
+        let mut bytes = canonical::<GMonthDay>(&format!("--02-28{timezone}"))?.to_be_bytes();
+        let (instant, _) = bytes.split_first_chunk_mut::<16>()?;
+        *instant = i128::from_be_bytes(*instant)
+            .checked_add(DAY)?
+            .to_be_bytes();
+        return Some(encoded(tag::G_MONTH_DAY, &bytes));
+    }
     match datatype {
         KnownDatatype::Boolean => {
             canonical::<Boolean>(lexical).map(|v| encoded(tag::BOOLEAN, &[u8::from(bool::from(v))]))

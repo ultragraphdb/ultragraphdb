@@ -11,8 +11,8 @@ use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI, posting_o
 use crate::errors::txn_error::TxnError;
 use crate::types::txn_limits::TxnLimits;
 
-/// The fixed part's size: namespace, read version, session and request.
-const FIXED: usize = 32;
+/// The fixed part's size: namespace, read version, session, request and principal.
+const FIXED: usize = 40;
 /// The number of sections.
 const SECTIONS: usize = 11;
 /// Where section 0 starts: after the fixed part and the table of offsets and lengths.
@@ -27,7 +27,7 @@ const TAG_AT: usize = 8;
 /// Writes an executed transaction's write-set record straight into a buffer, in `ultragraphdb_protocol_wire`'s
 /// [`WriteSetRecord`](ultragraphdb_protocol_wire::WriteSetRecord) layout, which a
 /// [`WriteSetRecordView`](ultragraphdb_protocol_wire::WriteSetRecordView) reads in place: the fixed part (namespace,
-/// read version, session, request), the section table, then the sections, in one pass with no copy of the writes in
+/// read version, session, request, and the principal, 0 here), the section table, then the sections, in one pass with no copy of the writes in
 /// between.
 ///
 /// | Section | What the transaction's writes put there |

@@ -47,11 +47,15 @@ pub enum Command {
     Error,
     /// The log record of a round.
     Round,
+    /// One message of a SASL exchange on stream 0.
+    Authenticate,
+    /// A predicate, a graph, a namespace's data, a namespace or every namespace dropped.
+    Drop,
 }
 
 impl Command {
     /// Every command, in the order of its number.
-    pub const ALL: [Command; 17] = [
+    pub const ALL: [Command; 19] = [
         Command::Hello,
         Command::Welcome,
         Command::Register,
@@ -69,6 +73,8 @@ impl Command {
         Command::Cancel,
         Command::Error,
         Command::Round,
+        Command::Authenticate,
+        Command::Drop,
     ];
 
     /// The command's number in the header.
@@ -91,6 +97,8 @@ impl Command {
             Command::Cancel => 15,
             Command::Error => 16,
             Command::Round => 17,
+            Command::Authenticate => 18,
+            Command::Drop => 19,
         }
     }
 
@@ -115,6 +123,8 @@ impl Command {
             15 => Ok(Command::Cancel),
             16 => Ok(Command::Error),
             17 => Ok(Command::Round),
+            18 => Ok(Command::Authenticate),
+            19 => Ok(Command::Drop),
             _ => Err(ProtocolError::UnknownCommand(number)),
         }
     }

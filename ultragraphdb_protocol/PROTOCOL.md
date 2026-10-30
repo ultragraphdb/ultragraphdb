@@ -202,7 +202,7 @@ Every body, and the write-set record (section 12.2), is a fixed part, a section 
 
 | Body offset | Contents |
 |---|---|
-| 0 | the fixed part, `F` bytes, a multiple of 8. Every command body has `F = 0`; the write-set record has `F = 32` |
+| 0 | the fixed part, `F` bytes, a multiple of 8. Every command body has `F = 0`; the write-set record has `F = 40` |
 | F | the section table: for each of the command's `N` sections, `offset` u32 then `len` u32, both body offsets and lengths |
 | F + 8N | the sections, in order |
 
@@ -564,8 +564,9 @@ with Conflict, kind Drop.
 | 0 | the term table's records (section 4.4): one IRI, the predicate's for kind 1 and the graph's for kind 2; none for kinds 3 to 5 |
 | 1 | the term table's text |
 
-Order: unused bytes 1–7 and 40–127 zero; `kind`; `namespace`; sections; the term table; one entry of kind 1 (IRI) for
-drop kinds 1 and 2, none for 3 to 5 (`CountMismatch` `"drop terms"`).
+Order: unused bytes 1–7 and 40–127 zero; `kind`; `namespace`; sections; the term table; one entry for drop kinds 1
+and 2, none for 3 to 5 (`CountMismatch` `"drop terms"`); the entry of kind 1, an IRI (`FieldValue` `"drop term"`, the
+entry's kind).
 
 A graph drop removes every key of the graph in the namespace. A namespace's data drop removes the namespace's data and
 keeps its catalog. A namespace drop removes everything in the namespace and writes its initial catalog. A drop of
@@ -1300,7 +1301,8 @@ delta"`); every conflict point's value present and empty (`FieldValue` `"conflic
 and conflict range's value present (`FieldValue` `"conflict statement"`, `"conflict range"`); section 9 a whole number
 of 16-byte results (`SectionLength`), each with `created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero
 (`PaddingNotZero`); section 10 empty or one operation (`SectionLength`), its `operation` 1 to 7 (`FieldValue`
-`"operation"`) and bytes 2–7 zero (`PaddingNotZero`).
+`"operation"`), bytes 2–7 zero (`PaddingNotZero`), and its `argument` 0 for operations 5 to 7 (`FieldValue`
+`"argument"`).
 
 The keys' and values' contents, the posting format of list deltas and the commit record are the store's: the server
 alone writes and reads them, and the store's mapping contract versions them. This file states their framing.

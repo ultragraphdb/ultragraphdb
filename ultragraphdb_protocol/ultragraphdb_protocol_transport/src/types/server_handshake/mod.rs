@@ -5,7 +5,8 @@
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, ErrorReply, FrameView, Header, HelloView, Welcome,
+    BodyBuilder, BodyView, Command, ErrorReply, FrameView, Header, HelloView, MAX_FRAME_SIZE,
+    Welcome,
 };
 
 use crate::errors::transport_error::TransportError;
@@ -45,7 +46,8 @@ impl ServerHandshake {
                 Err(error),
             )
         };
-        let view = match FrameView::validate(frame, self.cluster) {
+        // A client's first frame: its view and replica are 0 besides the header's other rules.
+        let view = match FrameView::validate_client(frame, self.cluster, MAX_FRAME_SIZE) {
             Ok(view) => view,
             Err(refusal) => return refuse(refusal.clone(), TransportError::Protocol(refusal)),
         };

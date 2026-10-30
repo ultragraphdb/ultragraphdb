@@ -11,6 +11,7 @@ use crate::types::error_code::ErrorCode;
 use crate::types::error_reply::ErrorReply;
 use crate::types::error_reply_view::ErrorReplyView;
 use crate::types::frame_view::FrameView;
+use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::text;
@@ -30,20 +31,34 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
             "code",
             number.into(),
         ))?;
-        let sections = Sections::<2>::read(command, frame.body(), 0)?;
-        let value = text(command, 1, sections.get(1))?;
+        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let terms = TermTableView::read(
+            command,
+            (1, 2),
+            sections.offset(1),
+            sections.get(1),
+            sections.get(2),
+        )?;
+        if terms.len() > 1 {
+            return Err(ProtocolError::CountMismatch(
+                command,
+                "value",
+                terms.len() as u64,
+                1,
+            ));
+        }
         Ok(Self {
             code,
             detail: header.u64_at(8),
             message: text(command, 0, sections.get(0))?,
-            value: (!value.is_empty()).then_some(value),
+            value: terms.get(0),
         })
     }
 
     fn to_body(&self) -> Result<ErrorReply, ProtocolError> {
         let reply = ErrorReply::new(self.code, self.message).with_detail(self.detail);
         Ok(match self.value {
-            Some(value) => reply.with_value(value),
+            Some(value) => reply.with_value(value.to_term()),
             None => reply,
         })
     }

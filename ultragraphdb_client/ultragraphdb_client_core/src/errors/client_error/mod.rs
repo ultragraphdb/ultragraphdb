@@ -8,7 +8,7 @@ mod client_error_error;
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
-use ultragraphdb_protocol_wire::ErrorCode;
+use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
 
 /// Why a client operation failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +22,7 @@ pub enum ClientErrorEnum {
         code: ErrorCode,
         detail: u64,
         message: String,
-        value: Option<String>,
+        value: Option<RequestTerm>,
     },
     /// The server closed the connection with an Error frame on stream 0.
     Closed { code: ErrorCode, message: String },
@@ -85,7 +85,7 @@ impl ClientError {
         code: ErrorCode,
         detail: u64,
         message: impl Into<String>,
-        value: Option<String>,
+        value: Option<RequestTerm>,
     ) -> Self {
         Self(ClientErrorEnum::Refused {
             code,

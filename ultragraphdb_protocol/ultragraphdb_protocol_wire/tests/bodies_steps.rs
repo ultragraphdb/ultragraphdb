@@ -20,8 +20,8 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, Command, CommitOperation, DeclaredEntityType, DeclaredKind,
     DeclaredPredicate, DeclaredRelation, Describe, DescribeView, ErrorCode, Execute, ExecuteView,
-    FrameView, Header, Operation, OperationView, PatternSlot, Prepare, PrepareView, QuadPattern,
-    Read, ReadView, RequestTerm, RequestTermView, ResultBatch, ResultTerm, ResultView,
+    FrameView, Header, MAX_FRAME_SIZE, Operation, OperationView, PatternSlot, Prepare, PrepareView,
+    QuadPattern, Read, ReadView, RequestTerm, RequestTermView, ResultBatch, ResultTerm, ResultView,
     StatementCache, StatementError, TermTable, Write, WriteChange, WriteView,
 };
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
@@ -188,7 +188,7 @@ fn prepare_view_frame() -> Vec<u8> {
 fn execute_frame(statement: u64) -> Vec<u8> {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
-    Execute::new(statement, 0, terms, vec![a], Vec::new())
+    Execute::new(statement, 5, 0, terms, vec![a], Vec::new())
         .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))
         .unwrap()
 }
@@ -204,7 +204,10 @@ fn prepared_then_changed(w: &mut Steps) {
     let request = prepare_view_frame();
     let prepared = cache
         .prepare(
-            &PrepareView::from_frame(&FrameView::validate(&request, CLUSTER).unwrap()).unwrap(),
+            &PrepareView::from_frame(
+                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
+            )
+            .unwrap(),
             before,
         )
         .expect("the statement prepares");
@@ -217,16 +220,23 @@ fn prepared_then_changed(w: &mut Steps) {
     let after = dictionary.describe(20).schema_id();
     assert_ne!(before, after, "a declaration changes the schema id");
     let execute = execute_frame(prepared.statement());
-    let view = ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER).unwrap()).unwrap();
+    let view =
+        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
+            .unwrap();
     w.statement = Some(cache.execute(&view, after).map(|_| ()));
     let again = cache
         .prepare(
-            &PrepareView::from_frame(&FrameView::validate(&request, CLUSTER).unwrap()).unwrap(),
+            &PrepareView::from_frame(
+                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
+            )
+            .unwrap(),
             after,
         )
         .expect("preparing again succeeds");
     let execute = execute_frame(again.statement());
-    let view = ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER).unwrap()).unwrap();
+    let view =
+        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
+            .unwrap();
     w.statement_again = Some(cache.execute(&view, after).map(|_| ()));
     w.schemas = vec![before, after];
     w.statements = vec![prepared.statement(), again.statement()];
@@ -254,7 +264,9 @@ fn describe_name(w: &mut Steps) {
     let request = Describe::request(0)
         .frame(Header::new(CLUSTER, Command::Describe).with_stream(9))
         .unwrap();
-    let asked = DescribeView::from_frame(&FrameView::validate(&request, CLUSTER).unwrap()).unwrap();
+    let asked =
+        DescribeView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap())
+            .unwrap();
     // The server answers the namespace asked, from the dictionary.
     let answer = dictionary.describe(10);
     assert_eq!(asked.namespace(), answer.namespace());
@@ -267,7 +279,7 @@ fn describe_name(w: &mut Steps) {
     "the answer lists `name` as a property with its `term` index, as the data dictionary reports it"
 )]
 fn name_listed(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = DescribeView::from_frame(&frame).unwrap();
     assert_eq!(
         view.property_keys().collect::<Vec<_>>(),
@@ -300,7 +312,7 @@ fn thousand_rows(w: &mut Steps) {
 
 #[then("its term table holds that IRI once")]
 fn iri_once(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = ResultView::from_frame(&frame).unwrap();
     assert_eq!(view.rows(), 1_000);
     // 1,000 distinct objects and the one IRI.
@@ -361,7 +373,7 @@ fn read_binds_iri(w: &mut Steps) {
 
 #[then("the view reads an IRI entry whose text is `http://ex.org/a`, borrowed from the frame")]
 fn iri_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = ReadView::from_frame(&frame).unwrap();
     let PatternSlot::Bound(index) = view.pattern().subject() else {
         panic!("the subject is bound");
@@ -389,12 +401,12 @@ fn write_blank(w: &mut Steps) {
         predicate: p,
         object: o,
     };
-    w.bytes = frame_with(&Write::new(0, terms, vec![insert]));
+    w.bytes = frame_with(&Write::new(terms, vec![insert]));
 }
 
 #[then("the view reads a blank-node entry labelled `b1`")]
 fn blank_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = WriteView::from_frame(&frame).unwrap();
     let Some(WriteChange::Insert { subject, .. }) = view.change(0) else {
         panic!("an insert");
@@ -414,12 +426,12 @@ fn execute_typed(w: &mut Steps) {
             datatype: Some("http://www.w3.org/2001/XMLSchema#integer".to_string()),
         })
         .unwrap();
-    w.bytes = frame_with(&Execute::new(1, 0, terms, vec![n], Vec::new()));
+    w.bytes = frame_with(&Execute::new(1, 5, 0, terms, vec![n], Vec::new()));
 }
 
 #[then("the view reads a literal entry of lexical form `35` and that datatype's IRI")]
 fn typed_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = ExecuteView::from_frame(&frame).unwrap();
     assert_eq!(
         view.terms().get(view.parameters()[0]),
@@ -452,7 +464,7 @@ fn operation_tagged(w: &mut Steps) {
 
 #[then("the view reads a literal entry of lexical form `chat` and language tag `fr`")]
 fn tagged_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = OperationView::from_frame(&frame).unwrap();
     let CommitOperation::InsertIfAbsent { value, .. } = view.operation() else {
         panic!("an insert-if-absent");
@@ -491,12 +503,12 @@ fn write_triple(w: &mut Steps) {
         predicate: says,
         object: triple,
     };
-    w.bytes = frame_with(&Write::new(0, terms, vec![insert]));
+    w.bytes = frame_with(&Write::new(terms, vec![insert]));
 }
 
 #[then("the view reads a triple-term entry naming three earlier entries, those IRIs")]
 fn triple_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER).unwrap();
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = WriteView::from_frame(&frame).unwrap();
     let Some(WriteChange::Insert { object, .. }) = view.change(0) else {
         panic!("an insert");
@@ -591,4 +603,89 @@ fn depth_refused(w: &mut Steps) {
             limit: 32
         }]
     );
+}
+
+#[when("a statement's subject parameter is bound to a literal")]
+fn literal_at_a_node_slot(w: &mut Steps) {
+    let mut cache = StatementCache::new(16);
+    let request = prepare_view_frame();
+    let prepared = cache
+        .prepare(
+            &PrepareView::from_frame(
+                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
+            )
+            .unwrap(),
+            1,
+        )
+        .expect("the statement prepares");
+    let mut terms = TermTable::new();
+    let literal = terms
+        .intern(RequestTerm::Literal {
+            lexical: "35".into(),
+            datatype: Some("http://www.w3.org/2001/XMLSchema#integer".into()),
+        })
+        .unwrap();
+    let execute = Execute::new(prepared.statement(), 5, 0, terms, vec![literal], Vec::new())
+        .frame(Header::new(CLUSTER, Command::Execute).with_stream(7))
+        .unwrap();
+    let view =
+        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
+            .unwrap();
+    w.statement = Some(cache.execute(&view, 1).map(|_| ()));
+    w.statements = vec![prepared.statement()];
+}
+
+#[then("the execution is refused with code 11, `detail` the statement")]
+fn refused_not_a_node(w: &mut Steps) {
+    let refusal = w.statement.clone().unwrap().unwrap_err();
+    let reply = refusal.reply();
+    assert_eq!(reply.code(), ErrorCode::Parameters);
+    assert_eq!(reply.code().number(), 11);
+    assert_eq!(reply.detail(), w.statements[0]);
+}
+
+#[when(
+    "a literal `\"0.1234567890123456789\"^^xsd:decimal`, of 19 fraction digits, is written and read back"
+)]
+fn decimal_past_its_payload(w: &mut Steps) {
+    let lexical = "0.1234567890123456789";
+    let literal = oxrdf::Literal::new_typed_literal(lexical, oxrdf::vocab::xsd::DECIMAL);
+    let encoded =
+        EncodedTerm::literal::<ultragraphdb_core_terms::TermError>(literal.as_ref(), |_| {
+            panic!("a known datatype takes no UID")
+        })
+        .expect("the literal encodes");
+    let text = encoded.strings().next().map(|(_, text)| text.to_string());
+    let term = ResultTerm::new(encoded.term().clone());
+    let term = match &text {
+        Some(text) => term.with_text(text.clone()),
+        None => term,
+    };
+    let mut batch = ResultBatch::new(1);
+    batch.push_row(&[Some(&term)]).unwrap();
+    let bytes = batch
+        .frame(Header::new(CLUSTER, Command::Result).with_stream(3))
+        .unwrap();
+    let view =
+        ResultView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).unwrap())
+            .unwrap();
+    let read = view.term(0).unwrap();
+    w.terms = vec![(read.encoding().to_vec(), read.text().map(str::to_string))];
+}
+
+#[then(
+    "its term carries tag `0x31`, a known datatype's code and the hash of its lexical form, and the batch's text holds the lexical form unchanged"
+)]
+fn kept_by_its_lexical_form(w: &mut Steps) {
+    let lexical = "0.1234567890123456789";
+    let (encoding, text) = &w.terms[0];
+    // Tag 0x31, the code of xsd:decimal (3), then BLAKE2b-128 of the lexical form: 18 bytes.
+    assert_eq!(encoding.len(), 18);
+    assert_eq!(encoding[0], 0x31);
+    assert_eq!(encoding[1], 3);
+    assert_eq!(
+        &encoding[2..],
+        ultragraphdb_core_terms::Hash128::of(lexical.as_bytes()).as_bytes()
+    );
+    assert_eq!(text.as_deref(), Some(lexical));
 }

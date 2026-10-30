@@ -6,7 +6,7 @@
 use std::time::Instant;
 
 use ultragraphdb_protocol_wire::{
-    BodyView, Cancel, Command, Credit, FLAG_LAST, FrameView, ResultView,
+    BodyView, Cancel, Command, Credit, FLAG_LAST, FrameView, MAX_FRAME_SIZE, ResultView,
 };
 
 use crate::errors::client_error::ClientError;
@@ -52,7 +52,7 @@ impl ClientCore {
             return Ok(BatchPoll::Wait);
         };
         let cluster = self.config.cluster();
-        let view = match FrameView::validate(frame.bytes(), cluster) {
+        let view = match FrameView::validate(frame.bytes(), cluster, MAX_FRAME_SIZE) {
             Ok(view) => view,
             Err(error) => {
                 self.lose(ClientError::ConnectionLost());

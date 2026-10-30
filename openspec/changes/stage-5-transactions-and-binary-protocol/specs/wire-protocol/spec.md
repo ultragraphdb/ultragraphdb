@@ -191,7 +191,8 @@ its payload holds the value exactly. A read that matches nothing SHALL answer on
 
 #### Scenario: A decimal the payload cannot hold is kept by its lexical form
 - **WHEN** a literal `"0.1234567890123456789"^^xsd:decimal`, of 19 fraction digits, is written and read back
-- **THEN** its term carries tag `0x30` and its lexical form unchanged
+- **THEN** its term carries tag `0x31`, a known datatype's code and the hash of its lexical form, and the batch's text
+  holds the lexical form unchanged
 
 ### Requirement: Requests name terms by their text
 A request body that carries RDF terms SHALL carry them in a term table of its own, one entry per distinct term, each a

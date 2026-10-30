@@ -11,6 +11,7 @@ fn test_new_header_is_zero_but_its_cluster_command_and_protocol() {
     assert_eq!(header.cluster(), 0x0123_4567_89AB_CDEF);
     assert_eq!(header.command(), Command::Read);
     assert_eq!(header.protocol(), 1);
+    assert_eq!(header.sequence(), 0);
     assert_eq!(header.view(), 0);
     assert_eq!(header.release(), 0);
     assert_eq!(header.stream(), 0);
@@ -26,6 +27,7 @@ fn test_each_setter_sets_its_field_alone() {
     command_header[127] = 0xDE;
     // Distinct values per field, so a setter writing another field's slot fails.
     let header = Header::new(7, Command::Commit)
+        .with_sequence(0x0F0E_0D0C_0B0A_0908_0706_0504_0302_0100)
         .with_view(0x0A0B_0C0D)
         .with_release(0x0102_0304)
         .with_protocol(0x0302)
@@ -35,6 +37,7 @@ fn test_each_setter_sets_its_field_alone() {
         .with_command_header(command_header);
     assert_eq!(header.cluster(), 7);
     assert_eq!(header.command(), Command::Commit);
+    assert_eq!(header.sequence(), 0x0F0E_0D0C_0B0A_0908_0706_0504_0302_0100);
     assert_eq!(header.view(), 0x0A0B_0C0D);
     assert_eq!(header.release(), 0x0102_0304);
     assert_eq!(header.protocol(), 0x0302);
@@ -48,6 +51,7 @@ fn test_each_setter_sets_its_field_alone() {
         (only_view.release(), only_view.stream(), only_view.flags()),
         (0, 0, 0)
     );
+    assert_eq!(only_view.sequence(), 0);
     assert_eq!(only_view.protocol(), 1);
 }
 
@@ -58,6 +62,7 @@ fn test_headers_compare_by_every_field() {
     assert_ne!(a.clone(), Header::new(2, Command::Hello));
     assert_ne!(a.clone(), Header::new(1, Command::Welcome));
     assert_ne!(a.clone(), a.clone().with_flags(1));
+    assert_ne!(a.clone(), a.clone().with_sequence(1));
 }
 
 #[test]

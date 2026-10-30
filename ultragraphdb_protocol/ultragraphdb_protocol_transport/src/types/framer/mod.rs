@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{HEADER_SIZE, HeaderView};
+use ultragraphdb_protocol_wire::{HEADER_SIZE, HeaderView, MAX_FRAME_SIZE};
 
 use crate::errors::transport_error::TransportError;
 use crate::types::frame_step::FrameStep;
@@ -56,7 +56,10 @@ impl Framer {
         }
         if self.want == HEADER_SIZE {
             let size = HeaderView::new(bytes)
-                .and_then(|view| view.verify(self.cluster).map(|_| view.size() as usize))
+                .and_then(|view| {
+                    view.verify(self.cluster, MAX_FRAME_SIZE)
+                        .map(|_| view.size() as usize)
+                })
                 .map_err(TransportError::Protocol)?;
             if size > buffer.capacity() {
                 return Err(TransportError::Protocol(ProtocolError::FrameTooLarge(

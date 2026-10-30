@@ -17,7 +17,9 @@ impl BodyBuilder for Execute {
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
         command_header(&[
             (0, &self.statement().to_le_bytes()),
-            (8, &self.limit().to_le_bytes()),
+            (8, &self.transaction().to_le_bytes()),
+            (16, &self.limit().to_le_bytes()),
+            (20, &u32::from(self.statement_ids()).to_le_bytes()),
         ])
     }
 

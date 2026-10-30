@@ -15,12 +15,11 @@ use crate::utils::le::bytes_at;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HeaderView<'a> {
     tail: &'a [u8],
-    nonce: &'a [u8],
     reserved: &'a [u8],
     command_header: &'a [u8; COMMAND_HEADER_SIZE],
     checksum: u64,
     checksum_body: u64,
-    nonce_reserved: u128,
+    sequence: u128,
     cluster: u64,
     size: u32,
     view: u32,
@@ -39,7 +38,6 @@ impl<'a> HeaderView<'a> {
         let short = || ProtocolError::ShortHeader(bytes.len());
         Ok(Self {
             tail: bytes.get(8..HEADER_SIZE).ok_or_else(short)?,
-            nonce: bytes.get(16..32).ok_or_else(short)?,
             reserved: bytes.get(66..128).ok_or_else(short)?,
             command_header: bytes
                 .get(128..HEADER_SIZE)
@@ -47,7 +45,7 @@ impl<'a> HeaderView<'a> {
                 .ok_or_else(short)?,
             checksum: u64::from_le_bytes(bytes_at(bytes, 0).ok_or_else(short)?),
             checksum_body: u64::from_le_bytes(bytes_at(bytes, 8).ok_or_else(short)?),
-            nonce_reserved: u128::from_le_bytes(bytes_at(bytes, 16).ok_or_else(short)?),
+            sequence: u128::from_le_bytes(bytes_at(bytes, 16).ok_or_else(short)?),
             cluster: u64::from_le_bytes(bytes_at(bytes, 32).ok_or_else(short)?),
             size: u32::from_le_bytes(bytes_at(bytes, 40).ok_or_else(short)?),
             view: u32::from_le_bytes(bytes_at(bytes, 44).ok_or_else(short)?),
@@ -68,8 +66,8 @@ impl<'a> HeaderView<'a> {
         self.checksum_body
     }
 
-    pub fn nonce_reserved(&self) -> u128 {
-        self.nonce_reserved
+    pub fn sequence(&self) -> u128 {
+        self.sequence
     }
 
     pub fn cluster(&self) -> u64 {

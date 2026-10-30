@@ -76,3 +76,29 @@ fn test_results_are_whole_records_with_a_flag_and_zeros() {
         }
     );
 }
+
+#[test]
+fn test_a_commit_request_carries_no_results() {
+    // The golden Commit is a reply, with two results: as a request it is refused.
+    let reply = golden("commit").bytes();
+    let view = CommitView::from_frame(&frame_of(&reply)).unwrap();
+    assert_eq!(
+        view.check_request().unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 5,
+            field: "results",
+            count: 2,
+            expected: 0
+        }
+    );
+    use ultragraphdb_protocol_wire::BodyBuilder;
+    let request = Commit::new(9, 7, 0, Vec::new())
+        .frame(golden("commit").header())
+        .unwrap();
+    assert_eq!(
+        CommitView::from_frame(&frame_of(&request))
+            .unwrap()
+            .check_request(),
+        Ok(())
+    );
+}

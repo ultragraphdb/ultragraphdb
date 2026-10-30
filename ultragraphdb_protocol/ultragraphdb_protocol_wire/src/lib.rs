@@ -28,6 +28,9 @@ pub use crate::traits::body_builder::BodyBuilder;
 pub use crate::traits::body_view::BodyView;
 pub use crate::types::abort::Abort;
 pub use crate::types::abort_view::AbortView;
+pub use crate::types::action::Action;
+pub use crate::types::authenticate::Authenticate;
+pub use crate::types::authenticate_view::AuthenticateView;
 pub use crate::types::begin::Begin;
 pub use crate::types::begin_view::BeginView;
 pub use crate::types::cancel::Cancel;
@@ -52,6 +55,9 @@ pub use crate::types::declared_relation::DeclaredRelation;
 pub use crate::types::describe::Describe;
 pub use crate::types::describe_view::DescribeView;
 pub use crate::types::direction::Direction;
+pub use crate::types::drop_command::DropCommand;
+pub use crate::types::drop_command_view::DropCommandView;
+pub use crate::types::drop_kind::DropKind;
 pub use crate::types::error_code::ErrorCode;
 pub use crate::types::error_reply::ErrorReply;
 pub use crate::types::error_reply_view::ErrorReplyView;
@@ -100,6 +106,8 @@ pub use crate::types::write_set_record_view::WriteSetRecordView;
 pub use crate::types::write_view::WriteView;
 pub use crate::utils::checksum::{xxh3_64, xxh3_64_with_seed};
 pub use crate::utils::constants::{
-    ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE, LEAF_SIZE,
-    MAX_FRAME_SIZE, MAX_TERM_DEPTH, PROTOCOL_VERSION, REPLICA_COMMANDS, RETIRED_COMMANDS,
+    ABSENT, CHUNK_SIZE, COMMAND_HEADER_SIZE, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS,
+    DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, FIRST_CHUNK_SIZE, FLAG_LAST, HEADER_SIZE,
+    LEAF_SIZE, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, MAX_TERM_DEPTH, PROTOCOL_VERSION, REPLICA_COMMANDS,
+    RETIRED_COMMANDS,
 };

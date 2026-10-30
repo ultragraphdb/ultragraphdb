@@ -52,6 +52,10 @@ impl fmt::Display for ProtocolError {
                 f,
                 "chunk {index}, body bytes {start}..{end}, does not match its leaf"
             ),
+            ProtocolErrorEnum::SequenceOrder { expected, found } => write!(
+                f,
+                "frame of sequence {found} where sequence {expected} was due"
+            ),
             ProtocolErrorEnum::WrongCommand { expected, found } => write!(
                 f,
                 "a view of command {expected} was asked of a frame of command {found}"

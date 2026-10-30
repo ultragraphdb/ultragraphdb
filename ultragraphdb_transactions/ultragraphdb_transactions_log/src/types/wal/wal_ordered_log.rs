@@ -5,7 +5,7 @@
 
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{FrameView, RoundHeader};
+use ultragraphdb_protocol_wire::{FrameView, MAX_FRAME_SIZE, RoundHeader};
 use ultragraphdb_traits_log::{LogEvent, OrderedLog, Position, Round, RoundRef};
 
 use crate::traits::durable_file::DurableFile;
@@ -40,8 +40,8 @@ impl<S: DurableStorage> Wal<S> {
             .as_slice()
             .get(..entry.size as usize)
             .unwrap_or_default();
-        let view = FrameView::validate(frame, self.config.cluster()).map_err(|refusal| {
-            match refusal.0 {
+        let view = FrameView::validate(frame, self.config.cluster(), MAX_FRAME_SIZE).map_err(
+            |refusal| match refusal.0 {
                 ProtocolErrorEnum::Chunk { index, start, end } => LogError::CorruptChunk(
                     entry.position.get(),
                     entry.segment,
@@ -51,8 +51,8 @@ impl<S: DurableStorage> Wal<S> {
                     end,
                 ),
                 _ => corrupt(),
-            }
-        })?;
+            },
+        )?;
         if view.header().checksum() != entry.checksum {
             return Err(corrupt());
         }

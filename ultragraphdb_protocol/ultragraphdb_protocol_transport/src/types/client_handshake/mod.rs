@@ -5,7 +5,8 @@
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, ErrorReplyView, FrameView, Header, Hello, Welcome, WelcomeView,
+    BodyBuilder, BodyView, Command, ErrorReplyView, FrameView, Header, Hello, MAX_FRAME_SIZE,
+    Welcome, WelcomeView,
 };
 
 use crate::errors::transport_error::TransportError;
@@ -28,9 +29,11 @@ impl ClientHandshake {
         &self.hello
     }
 
-    /// The Hello frame, on stream 0 with the Hello's release.
+    /// The Hello frame, the client's first: sequence 1, on stream 0, with the Hello's release.
     pub fn hello_frame(&self) -> Result<Vec<u8>, TransportError> {
-        let header = Header::new(self.cluster, Command::Hello).with_release(self.hello.release());
+        let header = Header::new(self.cluster, Command::Hello)
+            .with_sequence(1)
+            .with_release(self.hello.release());
         self.hello.frame(header).map_err(TransportError::Protocol)
     }
 
@@ -38,7 +41,8 @@ impl ClientHandshake {
     /// Error frame, [`TransportError::UnexpectedCommand`] for another command, and [`TransportError::Protocol`] when
     /// the frame or the Welcome breaks a rule or the Welcome chose a protocol outside the Hello's range.
     pub fn receive(&self, frame: &[u8]) -> Result<Welcome, TransportError> {
-        let view = FrameView::validate(frame, self.cluster).map_err(TransportError::Protocol)?;
+        let view = FrameView::validate(frame, self.cluster, MAX_FRAME_SIZE)
+            .map_err(TransportError::Protocol)?;
         match view.command() {
             Command::Welcome => {
                 let welcome = WelcomeView::from_frame(&view)

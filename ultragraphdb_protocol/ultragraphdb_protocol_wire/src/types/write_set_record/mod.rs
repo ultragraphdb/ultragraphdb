@@ -23,6 +23,7 @@ pub type OwnedEntry = (Vec<u8>, Option<Vec<u8>>);
 /// | 8 | `read_version` | u64 |
 /// | 16 | `session` | u64 |
 /// | 24 | `request` | u64 |
+/// | 32 | `principal` | u64: the principal the transaction acted for; 0 without authentication |
 ///
 /// | Section | Contents |
 /// |---|---|
@@ -47,6 +48,7 @@ pub struct WriteSetRecord {
     read_version: u64,
     session: u64,
     request: u64,
+    principal: u64,
     list_deltas: Vec<OwnedEntry>,
     dictionary: Vec<OwnedEntry>,
     statements: Vec<OwnedEntry>,
@@ -67,6 +69,7 @@ impl WriteSetRecord {
             read_version,
             session,
             request,
+            principal: 0,
             ..Self::default()
         }
     }
@@ -111,6 +114,11 @@ impl WriteSetRecord {
         self.results.push(result);
     }
 
+    /// The principal the transaction acted for, or the administrator of a security change.
+    pub fn set_principal(&mut self, principal: u64) {
+        self.principal = principal;
+    }
+
     pub fn set_operation(&mut self, operation: RecordOperation) {
         self.operation = Some(operation);
     }
@@ -129,6 +137,10 @@ impl WriteSetRecord {
 
     pub fn request(&self) -> u64 {
         self.request
+    }
+
+    pub fn principal(&self) -> u64 {
+        self.principal
     }
 
     pub fn list_deltas(&self) -> &[OwnedEntry] {
@@ -184,6 +196,7 @@ impl WriteSetRecord {
             self.read_version,
             self.session,
             self.request,
+            self.principal,
         ]
         .iter()
         .flat_map(|v| v.to_le_bytes())

@@ -103,7 +103,10 @@ pub fn start() -> Instant {
 }
 
 pub fn welcome() -> Welcome {
-    Welcome::new(1, RELEASE, 1 << 20, 64, 4, "scripted")
+    Welcome::new(1, RELEASE, "scripted")
+        .with_max_frame(1 << 20)
+        .with_max_streams(64)
+        .with_initial_credit(4)
 }
 
 pub fn config() -> ClientConfig {

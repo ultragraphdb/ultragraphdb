@@ -21,7 +21,7 @@ fn test_each_field_reads_its_golden_value() {
             "{}",
             golden.name
         );
-        assert_eq!(view.nonce_reserved(), 0, "{}", golden.name);
+        assert_eq!(view.sequence(), golden.sequence, "{}", golden.name);
         assert_eq!(view.cluster(), CLUSTER, "{}", golden.name);
         assert_eq!(view.size(), golden.size, "{}", golden.name);
         assert_eq!(view.view(), golden.view, "{}", golden.name);
@@ -50,7 +50,7 @@ fn test_fields_are_little_endian() {
     bytes[54..56].copy_from_slice(&[0x34, 0x12]);
     let view = HeaderView::new(&bytes).expect("a header");
     assert_eq!(view.size(), 0x0403_0201);
-    assert_eq!(view.nonce_reserved(), (1u128 << 127) | 1);
+    assert_eq!(view.sequence(), (1u128 << 127) | 1);
     assert_eq!(view.command(), 0x1234);
 }
 
@@ -101,5 +101,5 @@ fn test_a_view_reads_whatever_is_there_until_verified() {
     let view = HeaderView::new(&ones).expect("256 bytes are a header");
     assert_eq!(view.size(), 7);
     assert_eq!(view.cluster(), u64::MAX);
-    assert_eq!(view.nonce_reserved(), u128::MAX);
+    assert_eq!(view.sequence(), u128::MAX);
 }

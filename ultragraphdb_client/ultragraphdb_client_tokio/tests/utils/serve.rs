@@ -30,7 +30,10 @@ pub fn config() -> ClientConfig {
 pub fn server(script: ServerScript) -> Rc<RefCell<ScriptedServer>> {
     Rc::new(RefCell::new(ScriptedServer::new(
         CLUSTER,
-        Welcome::new(1, 0, 1 << 20, 64, 1, "scripted"),
+        Welcome::new(1, 0, "scripted")
+            .with_max_frame(1 << 20)
+            .with_max_streams(64)
+            .with_initial_credit(1),
         script,
     )))
 }

@@ -18,6 +18,7 @@ impl BodyBuilder for Hello {
             (0, &self.protocol_min.to_le_bytes()),
             (2, &self.protocol_max.to_le_bytes()),
             (4, &self.release.to_le_bytes()),
+            (8, &self.max_frame.to_le_bytes()),
         ])
     }
 

@@ -23,7 +23,7 @@ fn prepare_frame(terms: TermTable, pattern: QuadPattern, types: Vec<ColumnType>)
 fn execute_frame(statement: u64, parameters: &[&str]) -> Vec<u8> {
     let mut terms = TermTable::new();
     let indices = parameters.iter().map(|p| terms.iri(p)).collect();
-    Execute::new(statement, 0, terms, indices, Vec::new())
+    Execute::new(statement, 5, 0, terms, indices, Vec::new())
         .frame(golden("execute").header())
         .unwrap()
 }
@@ -194,7 +194,7 @@ fn test_a_triple_term_parameter_brings_its_parts() {
         })
         .unwrap();
     let _ = filler;
-    let execute = Execute::new(id, 0, terms, vec![triple], Vec::new())
+    let execute = Execute::new(id, 5, 0, terms, vec![triple], Vec::new())
         .frame(golden("execute").header())
         .unwrap();
     let (bound_terms, bound) = cache
@@ -295,5 +295,120 @@ fn test_a_statement_without_parameters_executes_with_none() {
     assert_eq!(
         execute(&cache, id, &["b"], SCHEMA),
         Err(StatementError::Parameters(id, 0, 1))
+    );
+}
+
+/// An Execute of `statement` binding `parameter`, a term of a table of its own.
+fn execute_term(
+    cache: &StatementCache,
+    statement: u64,
+    parameter: RequestTerm,
+) -> Result<(), StatementError> {
+    let mut terms = TermTable::new();
+    let index = terms.intern(parameter).unwrap();
+    let bytes = Execute::new(statement, 5, 0, terms, vec![index], Vec::new())
+        .frame(golden("execute").header())
+        .unwrap();
+    cache
+        .execute(&ExecuteView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA)
+        .map(|_| ())
+}
+
+#[test]
+fn test_a_literal_or_a_triple_term_at_a_node_slot_is_refused() {
+    // The golden statement's parameter is its subject, a slot taking a node.
+    let mut cache = StatementCache::new(8);
+    let id = prepare(&mut cache, SCHEMA).unwrap().statement();
+    let literal = RequestTerm::Literal {
+        lexical: "x".into(),
+        datatype: None,
+    };
+    assert_eq!(
+        execute_term(&cache, id, literal),
+        Err(StatementError::NotANode(id, 0))
+    );
+    let tagged = RequestTerm::LanguageLiteral {
+        lexical: "x".into(),
+        language: "en".into(),
+        direction: None,
+    };
+    assert_eq!(
+        execute_term(&cache, id, tagged),
+        Err(StatementError::NotANode(id, 0))
+    );
+    // A triple term, its parts before it in the execution's table.
+    let mut terms = TermTable::new();
+    let (a, k) = (terms.iri("a"), terms.iri("k"));
+    let triple = terms
+        .intern(RequestTerm::Triple {
+            subject: a,
+            predicate: k,
+            object: a,
+        })
+        .unwrap();
+    let bytes = Execute::new(id, 5, 0, terms, vec![triple], Vec::new())
+        .frame(golden("execute").header())
+        .unwrap();
+    assert_eq!(
+        cache
+            .execute(&ExecuteView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA)
+            .map(|_| ()),
+        Err(StatementError::NotANode(id, 0))
+    );
+    // An IRI and a blank node are nodes.
+    assert_eq!(
+        execute_term(&cache, id, RequestTerm::Iri("http://ex.org/a".into())),
+        Ok(())
+    );
+    assert_eq!(
+        execute_term(&cache, id, RequestTerm::BlankNode("b".into())),
+        Ok(())
+    );
+    // The refusal is code 11, its detail the statement.
+    let reply = StatementError::NotANode(id, 0).reply();
+    assert_eq!(reply.code(), ErrorCode::Parameters);
+    assert_eq!(reply.detail(), id);
+}
+
+#[test]
+fn test_a_literal_at_a_slot_taking_any_term_executes() {
+    let mut cache = StatementCache::new(8);
+    let object = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+        PatternSlot::Parameter(0),
+    );
+    let bytes = prepare_frame(TermTable::new(), object, vec![ColumnType::Term]);
+    let id = cache
+        .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA)
+        .unwrap()
+        .statement();
+    let literal = RequestTerm::Literal {
+        lexical: "x".into(),
+        datatype: None,
+    };
+    assert_eq!(execute_term(&cache, id, literal), Ok(()));
+}
+
+#[test]
+fn test_a_wrong_parameter_count_is_named_before_a_literal() {
+    let mut cache = StatementCache::new(8);
+    let id = prepare(&mut cache, SCHEMA).unwrap().statement();
+    let mut terms = TermTable::new();
+    let literal = terms
+        .intern(RequestTerm::Literal {
+            lexical: "x".into(),
+            datatype: None,
+        })
+        .unwrap();
+    let bytes = Execute::new(id, 5, 0, terms, vec![literal, literal], Vec::new())
+        .frame(golden("execute").header())
+        .unwrap();
+    assert_eq!(
+        cache
+            .execute(&ExecuteView::from_frame(&frame_of(&bytes)).unwrap(), SCHEMA)
+            .map(|_| ()),
+        Err(StatementError::Parameters(id, 1, 2))
     );
 }

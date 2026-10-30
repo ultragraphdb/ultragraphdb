@@ -16,7 +16,7 @@ impl BodyBuilder for Write {
     const COMMAND: Command = Command::Write;
 
     fn command_header(&self) -> [u8; COMMAND_HEADER_SIZE] {
-        command_header(&[(0, &self.namespace().to_le_bytes())])
+        command_header(&[])
     }
 
     fn body(&self) -> Vec<u8> {

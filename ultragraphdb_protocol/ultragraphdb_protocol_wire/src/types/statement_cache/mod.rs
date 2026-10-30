@@ -12,6 +12,7 @@ use crate::types::pattern_slot::PatternSlot;
 use crate::types::prepare::Prepare;
 use crate::types::prepare_view::PrepareView;
 use crate::types::quad_pattern::QuadPattern;
+use crate::types::request_term_view::RequestTermView;
 use crate::types::term_table::TermTable;
 
 /// A statement the cache holds: its pattern, its namespace, the schema id it was prepared against and its types.
@@ -24,8 +25,8 @@ struct Prepared {
     parameter_types: Vec<ColumnType>,
 }
 
-/// A session's prepared statements, by id: prepared once, executed with parameters bound by position, refused as
-/// stale once their namespace's schema id no longer matches. Ids start at 1 and are never reused within a session;
+/// A connection's prepared statements, by id: prepared once, executed with parameters bound by position, refused as
+/// stale once their namespace's schema id no longer matches. Ids start at 1 and are never reused on the connection;
 /// past `capacity` statements the oldest is evicted, and executing it is refused as unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatementCache {
@@ -105,7 +106,8 @@ impl StatementCache {
     /// statement's terms, then the parameters' from the execution's table, each once. Given when `schema` is the
     /// namespace's current schema id; refused, in this order: [`StatementError::Unknown`]; [`StatementError::Stale`]
     /// when the statement was prepared against another schema id; [`StatementError::Parameters`] when the parameters
-    /// are not one per parameter slot.
+    /// are not one per parameter slot; [`StatementError::NotANode`] when a literal or a triple term is bound at a slot
+    /// taking a node.
     pub fn execute(
         &self,
         request: &ExecuteView<'_>,
@@ -125,6 +127,29 @@ impl StatementCache {
         if parameters.len() != expected {
             return Err(mismatch);
         }
+        let p = prepared.pattern;
+        let node_parameters = p
+            .slots()
+            .into_iter()
+            .zip(QuadPattern::slot_types())
+            .filter_map(|(slot, slot_type)| match slot {
+                PatternSlot::Parameter(n) if slot_type == ColumnType::Node => Some(n as usize),
+                _ => None,
+            });
+        for n in node_parameters {
+            let node = parameters
+                .get(n)
+                .and_then(|index| request.terms().get(*index))
+                .is_some_and(|term| {
+                    matches!(
+                        term,
+                        RequestTermView::Iri(_) | RequestTermView::BlankNode(_)
+                    )
+                });
+            if !node {
+                return Err(StatementError::NotANode(statement, n));
+            }
+        }
         let mut terms = prepared.terms.clone();
         let bound = parameters
             .iter()
@@ -137,7 +162,6 @@ impl StatementCache {
                 .map_or(PatternSlot::Unbound, |index| PatternSlot::Bound(*index)),
             other => other,
         };
-        let p = prepared.pattern;
         let pattern = QuadPattern::new(
             bind(p.graph()),
             bind(p.subject()),

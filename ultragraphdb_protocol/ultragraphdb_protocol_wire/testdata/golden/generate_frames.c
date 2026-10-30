@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  *
  * The golden frames of ultragraphdb_protocol_wire, written by an implementation independent of the crate: the header
- * laid out field by field from the offsets of the wire-protocol spec ("One header for every frame"), the body split
- * into chunks as "Chunked body checksums" states it, and every checksum computed by the xxHash reference
+ * laid out field by field from the offsets of PROTOCOL.md section 2.1, the body split into chunks as section 2.3
+ * states it, and every checksum computed by the xxHash reference
  * implementation, xxhash.h of https://github.com/Cyan4973/xxHash at tag v0.8.3 (commit
  * e626a72bc2321cd320e953a0ccf1584cad60f363, blob 78fc2e8dbf6db809650fbb59762c5566a71677ca).
  *
@@ -56,6 +56,8 @@ static size_t chunks_of(size_t data_len) {
 
 typedef struct {
     const char *name;
+    uint64_t sequence_low;
+    uint64_t sequence_high;
     uint64_t cluster;
     uint32_t view;
     uint32_t release;
@@ -95,7 +97,8 @@ static void write_frame(const char *dir, const spec_t *s) {
     }
 
     put(frame, 8, checksum_body, 8);
-    /* nonce_reserved at 16..32 stays zero */
+    put(frame, 16, s->sequence_low, 8);
+    put(frame, 24, s->sequence_high, 8);
     put(frame, 32, s->cluster, 8);
     put(frame, 40, size, 4);
     put(frame, 44, s->view, 4);
@@ -126,19 +129,22 @@ static void write_frame(const char *dir, const spec_t *s) {
 
 int main(int argc, char **argv) {
     const char *dir = argc > 1 ? argv[1] : ".";
-    /* Hello on the connection: view, stream, replica and flags zero, as a client sends it. */
-    const spec_t hello = {"hello", 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 1, 0, 0, 0, 0x00, 100};
-    /* Read on a stream, every field distinct and nonzero, a body of six chunks and a 48-byte table (20 KiB). */
-    const spec_t read = {"read", 0x0123456789ABCDEFULL, 0x0A0B0C0D, 0x01020304, 0x0302, 7, 0x1122334455667788ULL,
-                         0x5A, 0xA5, 0xFF, 20432};
+    /* Hello on the connection: the client's first frame, sequence 1, view, stream, replica and flags zero. */
+    const spec_t hello = {"hello", 1, 0, 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 1, 0, 0, 0, 0x00, 100};
+    /* Read on a stream, every field distinct and nonzero, the sequence using all 128 bits and the flags LAST, the
+     * only flag; a body of six chunks and a 48-byte table (20 KiB). */
+    const spec_t read = {"read", 0x0706050403020100ULL, 0x0F0E0D0C0B0A0908ULL, 0x0123456789ABCDEFULL, 0x0A0B0C0D,
+                         0x01020304, 0x0302, 7, 0x1122334455667788ULL, 0x5A, 0x01, 0xFF, 20432};
     /* Credit with an empty body: one empty chunk, no table. */
-    const spec_t credit = {"credit", 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 14, 9, 0, 1, 0x11, 0};
+    const spec_t credit = {"credit", 9, 0, 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 14, 9, 0, 1, 0x11, 0};
     /* Result whose body fills the first chunk exactly: no table. */
-    const spec_t one_chunk = {"one_chunk", 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 13, 3, 0, 0, 0x22, 3840};
+    const spec_t one_chunk = {"one_chunk", 3, 0, 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 13, 3, 0, 0, 0x22, 3840};
     /* Result one byte past the first chunk: two chunks, the second of one byte, and a 16-byte table. */
-    const spec_t two_chunks = {"two_chunks", 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 13, 4, 0, 0, 0x33, 3841};
-    /* Round of two full chunks, ending the frame's second block, then its 16-byte table. */
-    const spec_t round = {"round", 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 17, 0, 0, 0, 0x44, 7936};
+    const spec_t two_chunks = {"two_chunks", 4, 0, 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 13, 4, 0, 0, 0x33,
+                               3841};
+    /* Round of two full chunks, ending the frame's second block, then its 16-byte table; its sequence the round's
+     * position, 1. */
+    const spec_t round = {"round", 1, 0, 0x0123456789ABCDEFULL, 0, 0x00050000, 1, 17, 0, 0, 0, 0x44, 7936};
     write_frame(dir, &hello);
     write_frame(dir, &read);
     write_frame(dir, &credit);

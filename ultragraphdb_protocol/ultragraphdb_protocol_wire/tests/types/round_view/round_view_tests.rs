@@ -43,13 +43,13 @@ fn test_a_damaged_range_is_named_by_the_transactions_it_holds() {
     let bytes = golden("round").bytes();
     let data = body_data(&bytes).to_vec();
     let (records, _) = section(&data, 0, 2);
-    // Record 0 is transaction 0, 280 bytes at `records`; record 1 is transaction 2, from records + 280.
+    // Record 0 is transaction 0, 288 bytes at `records`; record 1 is transaction 2, from records + 288.
     assert_eq!(
         RoundView::transactions_overlapping(&data, records..records + 1),
         vec![0]
     );
     assert_eq!(
-        RoundView::transactions_overlapping(&data, records + 279..records + 281),
+        RoundView::transactions_overlapping(&data, records + 287..records + 289),
         vec![0, 2]
     );
     assert_eq!(
@@ -164,25 +164,25 @@ fn test_the_record_table_lays_records_end_to_end() {
             command: 17,
             section: 1,
             at: 1,
-            index: 6_280,
-            limit: 5_416
+            index: 6_288,
+            limit: 5_432
         }
     );
     assert_eq!(
         refused(2, |r| r.push(0)),
         ProtocolErrorEnum::TrailingBytes {
             command: 17,
-            end: 5_504,
-            len: 5_505
+            end: 5_520,
+            len: 5_521
         }
     );
 }
 
 #[test]
 fn test_a_bad_record_is_named_by_its_index() {
-    // Record 1's commit record section offset broken: its section 5 table entry, at 32 + 40.
+    // Record 1's commit record section offset broken: its section 5 table entry, at 40 + 40.
     let bytes = with_section(&golden("round").bytes(), 3, 2, |r| {
-        put(r, 280 + 32 + 40, 1, 4)
+        put(r, 288 + 40 + 40, 1, 4)
     });
     assert!(matches!(
         RoundView::from_frame(&frame_of(&bytes)).unwrap_err().0,

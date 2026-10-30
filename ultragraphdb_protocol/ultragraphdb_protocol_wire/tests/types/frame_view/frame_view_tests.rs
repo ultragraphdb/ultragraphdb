@@ -4,12 +4,12 @@
  */
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
-use ultragraphdb_protocol_wire::{Command, FrameView};
+use ultragraphdb_protocol_wire::{Command, FrameView, MAX_FRAME_SIZE};
 
 use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 
 fn validate(bytes: &[u8]) -> Result<FrameView<'_>, ProtocolErrorEnum> {
-    FrameView::validate(bytes, CLUSTER).map_err(|e| e.0)
+    FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE).map_err(|e| e.0)
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn test_a_body_length_with_no_split_is_refused_naming_it() {
     put(&mut bytes, 40, 256 + 3_841, 4);
     reseal(&mut bytes);
     assert_eq!(
-        FrameView::validate(&bytes, CLUSTER),
+        FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE),
         Err(ProtocolError(ProtocolErrorEnum::BodyLength { len: 3_841 }))
     );
 }
@@ -137,7 +137,7 @@ fn test_the_header_is_checked_before_the_length() {
     let mut bytes = READ.bytes();
     bytes.truncate(1_000);
     assert_eq!(
-        FrameView::validate(&bytes, 1).err(),
+        FrameView::validate(&bytes, 1, MAX_FRAME_SIZE).err(),
         Some(ProtocolError(ProtocolErrorEnum::WrongCluster {
             expected: 1,
             found: CLUSTER

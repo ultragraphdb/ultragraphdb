@@ -9,7 +9,7 @@
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
-    BodyView, CreditView, FrameView, HelloView, RoundView, WelcomeView,
+    BodyView, CreditView, FrameView, HelloView, MAX_FRAME_SIZE, RoundView, WelcomeView,
 };
 
 use crate::utils::golden_bodies::{
@@ -20,7 +20,8 @@ use crate::utils::golden_bodies::{
 /// The sections each command's body has, as its layout table states.
 fn sections_of(command: u16) -> usize {
     match command {
-        1 | 2 => 1,
+        1 => 1,
+        2 => 3,
         3 | 4 | 6 | 14 | 15 => 0,
         5 => 1,
         7 => 4,
@@ -29,9 +30,11 @@ fn sections_of(command: u16) -> usize {
         10 => 5,
         11 => 4,
         12 => 7,
-        13 => 7,
-        16 => 2,
+        13 => 8,
+        16 => 3,
         17 => 3,
+        18 => 2,
+        19 => 2,
         _ => unreachable!("no such command"),
     }
 }
@@ -39,22 +42,23 @@ fn sections_of(command: u16) -> usize {
 /// The command-header bytes each command's fields use, as its layout table states.
 fn used(command: u16) -> Vec<(usize, usize)> {
     match command {
-        1 => vec![(0, 8)],
-        2 => vec![(0, 2), (4, 20)],
+        1 => vec![(0, 12)],
+        2 => vec![(0, 3), (4, 28)],
         3 => vec![(0, 8)],
         4 => vec![(0, 17)],
         5 => vec![(0, 24)],
-        6 | 15 => vec![],
-        7 => vec![(0, 12)],
-        8 => vec![(0, 8)],
+        6 | 8 | 15 => vec![],
+        7 => vec![(0, 16)],
         9 => vec![(0, 1), (8, 24)],
         10 => vec![(0, 24)],
-        11 => vec![(0, 12)],
+        11 => vec![(0, 24)],
         12 => vec![(0, 16)],
         13 => vec![(0, 8)],
         14 => vec![(0, 4)],
         16 => vec![(0, 2), (8, 16)],
         17 => vec![(0, 36)],
+        18 => vec![(0, 5), (8, 24)],
+        19 => vec![(0, 1), (8, 40)],
         _ => unreachable!("no such command"),
     }
 }
@@ -68,7 +72,8 @@ fn test_every_golden_body_reads_and_rebuilds() {
     for body in BODIES {
         let bytes = body.bytes();
         assert_eq!(bytes.len(), body.size as usize, "{}", body.name);
-        let frame = FrameView::validate(&bytes, CLUSTER).expect("a golden frame validates");
+        let frame =
+            FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).expect("a golden frame validates");
         assert_eq!(frame.command().number(), body.command, "{}", body.name);
         assert_eq!(frame.header().checksum(), body.checksum, "{}", body.name);
         assert_eq!(
@@ -311,7 +316,7 @@ fn test_each_layout_rule_is_refused_naming_its_section() {
 fn test_a_view_of_another_command_is_refused() {
     let hello = golden("hello").bytes();
     let welcome = golden("welcome").bytes();
-    let frame = FrameView::validate(&welcome, CLUSTER).unwrap();
+    let frame = FrameView::validate(&welcome, CLUSTER, MAX_FRAME_SIZE).unwrap();
     assert_eq!(
         HelloView::from_frame(&frame).err(),
         Some(ProtocolError(ProtocolErrorEnum::WrongCommand {
@@ -319,7 +324,7 @@ fn test_a_view_of_another_command_is_refused() {
             found: 2
         }))
     );
-    let frame = FrameView::validate(&hello, CLUSTER).unwrap();
+    let frame = FrameView::validate(&hello, CLUSTER, MAX_FRAME_SIZE).unwrap();
     assert_eq!(
         WelcomeView::from_frame(&frame).unwrap_err().0,
         ProtocolErrorEnum::WrongCommand {
@@ -349,7 +354,7 @@ fn test_a_frame_relabelled_as_every_other_command_never_panics() {
     // it or read it, never panic.
     for body in BODIES {
         let bytes = body.bytes();
-        for command in 1..=17u16 {
+        for command in 1..=19u16 {
             let _ = view_any(&with_command(&bytes, command));
         }
     }

@@ -4,7 +4,9 @@
  */
 
 use ultragraphdb_client_core::{ClientErrorEnum, Reply, ServerScript, Session, Transaction};
-use ultragraphdb_protocol_wire::{BodyView, CommitView, ErrorCode, FrameView, TermTable};
+use ultragraphdb_protocol_wire::{
+    BodyView, CommitView, ErrorCode, FrameView, MAX_FRAME_SIZE, TermTable,
+};
 
 use crate::types::client_core::client_core_tests::counter;
 use crate::utils::harness::{CLUSTER, Harness, config, welcome};
@@ -31,11 +33,13 @@ fn commits(h: &Harness) -> Vec<(u64, u64)> {
         .received()
         .iter()
         .filter_map(|f| {
-            FrameView::validate(f, CLUSTER).ok().and_then(|v| {
-                CommitView::from_frame(&v)
-                    .ok()
-                    .map(|c| (c.session(), c.request()))
-            })
+            FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE)
+                .ok()
+                .and_then(|v| {
+                    CommitView::from_frame(&v)
+                        .ok()
+                        .map(|c| (c.session(), c.request()))
+                })
         })
         .collect()
 }
@@ -102,7 +106,7 @@ fn test_a_lost_reply_is_retried_through_the_session_and_applied_once() {
         !h.core
             .write(
                 &tx,
-                &ultragraphdb_protocol_wire::Write::new(0, TermTable::new(), Vec::new())
+                &ultragraphdb_protocol_wire::Write::new(TermTable::new(), Vec::new())
             )
             .is_ok(),
         "the old stream is gone"

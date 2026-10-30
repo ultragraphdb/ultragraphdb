@@ -9,24 +9,30 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, Credit, ErrorCode, ErrorReplyView, FrameView, Header, Hello,
-    Welcome,
+    MAX_FRAME_SIZE, Welcome,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
 fn server() -> ServerHandshake {
-    ServerHandshake::new(CLUSTER, Welcome::new(2, 9, 1 << 20, 16, 4, "s"))
+    ServerHandshake::new(
+        CLUSTER,
+        Welcome::new(2, 9, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(16)
+            .with_initial_credit(4),
+    )
 }
 
 fn hello(min: u16, max: u16) -> Vec<u8> {
-    ClientHandshake::new(CLUSTER, Hello::new(min, max, 5, "c"))
+    ClientHandshake::new(CLUSTER, Hello::new(min, max, 5, MAX_FRAME_SIZE as u32, "c"))
         .hello_frame()
         .unwrap()
 }
 
 /// The answer frame's error code.
 fn code(frame: &[u8]) -> ErrorCode {
-    let view = FrameView::validate(frame, CLUSTER).unwrap();
+    let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE).unwrap();
     ErrorReplyView::from_frame(&view).unwrap().code()
 }
 
@@ -37,7 +43,7 @@ fn test_a_hello_is_welcomed_at_the_highest_protocol_both_speak() {
     assert_eq!(welcome.protocol(), 2);
     let frame = answer.frame().unwrap();
     assert_eq!(
-        ClientHandshake::new(CLUSTER, Hello::new(1, 3, 5, "c"))
+        ClientHandshake::new(CLUSTER, Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"))
             .receive(frame)
             .unwrap(),
         welcome,

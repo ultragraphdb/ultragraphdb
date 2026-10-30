@@ -38,9 +38,9 @@ fn test_entries_read_back_in_order_with_removals() {
 #[test]
 fn test_entries_are_padded_to_eight_bytes() {
     let bytes = record();
-    // Section 1 (dictionary) of the record, after its 32-byte fixed part: 8 + 2 + 5 = 15 → 16; 8 + 7 → 16 (removal);
+    // Section 1 (dictionary) of the record, after its 40-byte fixed part: 8 + 2 + 5 = 15 → 16; 8 + 7 → 16 (removal);
     // 8 → 8: 40 bytes.
-    let (offset, len) = section(&bytes, 32, 1);
+    let (offset, len) = section(&bytes, 40, 1);
     assert_eq!(len, 40);
     assert_eq!(&bytes[offset..offset + 4], &2u32.to_le_bytes());
     assert_eq!(&bytes[offset + 4..offset + 8], &5u32.to_le_bytes());
@@ -52,7 +52,7 @@ fn test_entries_are_padded_to_eight_bytes() {
 #[test]
 fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
     let bytes = record();
-    let (offset, _) = section(&bytes, 32, 1);
+    let (offset, _) = section(&bytes, 40, 1);
     let mut long = bytes.clone();
     put(&mut long, offset + 4, 1_000, 4);
     assert_eq!(
@@ -86,7 +86,7 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
     );
     // An entry header cut short: the section's last 4 bytes.
     let mut cut = bytes.clone();
-    put(&mut cut, 32 + 8 + 4, 36, 4);
+    put(&mut cut, 40 + 8 + 4, 36, 4);
     assert_eq!(
         WriteSetRecordView::new(&cut).unwrap_err().0,
         ProtocolErrorEnum::EntryOutOfBounds {

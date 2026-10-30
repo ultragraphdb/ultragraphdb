@@ -17,7 +17,7 @@ impl Header {
         // Bytes 8 to 256 in field order, then the checksum over them in front: no index into the result.
         let tail: Vec<u8> = [
             &checksum_body.to_le_bytes()[..],
-            &0u128.to_le_bytes(),
+            &self.sequence().to_le_bytes(),
             &self.cluster.to_le_bytes(),
             &size.to_le_bytes(),
             &self.view.to_le_bytes(),

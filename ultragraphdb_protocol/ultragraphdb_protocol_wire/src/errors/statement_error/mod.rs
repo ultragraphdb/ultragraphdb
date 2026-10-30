@@ -14,7 +14,7 @@ use crate::types::error_reply::ErrorReply;
 /// after which the connection stays open.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementErrorEnum {
-    /// The session holds no statement `statement`: never prepared, or evicted.
+    /// The connection holds no statement `statement`: never prepared, or evicted.
     Unknown { statement: u64 },
     /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
     Stale {
@@ -34,6 +34,8 @@ pub enum StatementErrorEnum {
         declared: ColumnType,
         slot: ColumnType,
     },
+    /// Parameter `parameter` of statement `statement` is bound to a literal or a triple term at a slot taking a node.
+    NotANode { statement: u64, parameter: usize },
 }
 
 /// Why a statement was refused; `.0` classifies it.
@@ -73,15 +75,23 @@ impl StatementError {
         })
     }
 
+    #[allow(non_snake_case)]
+    pub fn NotANode(statement: u64, parameter: usize) -> Self {
+        Self(StatementErrorEnum::NotANode {
+            statement,
+            parameter,
+        })
+    }
+
     /// The Error frame's code: [`ErrorCode::UnknownStatement`], [`ErrorCode::StaleStatement`] or
     /// [`ErrorCode::Parameters`].
     pub fn code(&self) -> ErrorCode {
         match self.0 {
             StatementErrorEnum::Unknown { .. } => ErrorCode::UnknownStatement,
             StatementErrorEnum::Stale { .. } => ErrorCode::StaleStatement,
-            StatementErrorEnum::Parameters { .. } | StatementErrorEnum::ParameterType { .. } => {
-                ErrorCode::Parameters
-            }
+            StatementErrorEnum::Parameters { .. }
+            | StatementErrorEnum::ParameterType { .. }
+            | StatementErrorEnum::NotANode { .. } => ErrorCode::Parameters,
         }
     }
 
@@ -90,7 +100,8 @@ impl StatementError {
         let statement = match self.0 {
             StatementErrorEnum::Unknown { statement }
             | StatementErrorEnum::Stale { statement, .. }
-            | StatementErrorEnum::Parameters { statement, .. } => statement,
+            | StatementErrorEnum::Parameters { statement, .. }
+            | StatementErrorEnum::NotANode { statement, .. } => statement,
             StatementErrorEnum::ParameterType { .. } => 0,
         };
         ErrorReply::new(self.code(), self.to_string()).with_detail(statement)

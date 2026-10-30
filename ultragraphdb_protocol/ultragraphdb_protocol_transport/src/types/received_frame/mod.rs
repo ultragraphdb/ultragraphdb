@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::FrameView;
+use ultragraphdb_protocol_wire::{FrameView, MAX_FRAME_SIZE};
 
 use crate::types::pooled_buffer::PooledBuffer;
 
@@ -28,7 +28,7 @@ impl ReceivedFrame {
 
     /// The frame validated in place ([`FrameView::validate`]) for the connection's cluster.
     pub fn view(&self) -> Result<FrameView<'_>, ProtocolError> {
-        FrameView::validate(self.buffer.as_slice(), self.cluster)
+        FrameView::validate(self.buffer.as_slice(), self.cluster, MAX_FRAME_SIZE)
     }
 
     /// The header's `command` number.

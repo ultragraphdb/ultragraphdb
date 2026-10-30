@@ -35,6 +35,7 @@ use crate::utils::sections::as_u32;
 /// | 4 | strings: ends |
 /// | 5 | strings: text |
 /// | 6 | the resume key |
+/// | 7 | the statement IDs, u64s, one per row; empty unless the request asked for them |
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultBatch {
     columns: u32,
@@ -43,6 +44,7 @@ pub struct ResultBatch {
     terms: Vec<ResultTerm>,
     index: HashMap<Vec<u8>, u32>,
     resume: Vec<u8>,
+    statement_ids: Option<Vec<u64>>,
 }
 
 impl ResultBatch {
@@ -55,12 +57,51 @@ impl ResultBatch {
             terms: Vec::new(),
             index: HashMap::new(),
             resume: Vec::new(),
+            statement_ids: None,
+        }
+    }
+
+    /// An empty batch of `columns` columns carrying each row's statement ID, for a request that asked for them.
+    pub fn with_statement_ids(columns: u32) -> Self {
+        Self {
+            statement_ids: Some(Vec::new()),
+            ..Self::new(columns)
         }
     }
 
     /// Appends a row, a term or `None` (unbound) per column; a term already in the table is not added again. Refused
-    /// as [`ProtocolError::CountMismatch`] when the row's length is not the batch's column count.
+    /// as [`ProtocolError::CountMismatch`] when the row's length is not the batch's column count, or when the batch
+    /// carries statement IDs ([`ResultBatch::push_row_with_id`]).
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
+        if self.statement_ids.is_some() {
+            return Err(Self::ids_mismatch(0, 1));
+        }
+        self.push_cells(row)
+    }
+
+    /// Appends a row as [`ResultBatch::push_row`] does, with the ID of the statement it read. Refused as
+    /// [`ProtocolError::CountMismatch`] when the batch carries no statement IDs.
+    pub fn push_row_with_id(
+        &mut self,
+        row: &[Option<&ResultTerm>],
+        statement_id: u64,
+    ) -> Result<(), ProtocolError> {
+        if self.statement_ids.is_none() {
+            return Err(Self::ids_mismatch(1, 0));
+        }
+        self.push_cells(row)?;
+        if let Some(ids) = self.statement_ids.as_mut() {
+            ids.push(statement_id);
+        }
+        Ok(())
+    }
+
+    /// A row pushed with `found` statement IDs to a batch taking `expected` per row.
+    fn ids_mismatch(found: u64, expected: u64) -> ProtocolError {
+        ProtocolError::CountMismatch(Command::Result.number(), "statement ids", found, expected)
+    }
+
+    fn push_cells(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         if row.len() != self.columns as usize {
             return Err(ProtocolError::CountMismatch(
                 Command::Result.number(),
@@ -73,12 +114,12 @@ impl ResultBatch {
             let index = match cell {
                 None => ABSENT,
                 Some(term) => {
-                    let encoding = term.term().as_bytes();
-                    match self.index.get(encoding) {
+                    let encoding = term.encoding();
+                    match self.index.get(&encoding) {
                         Some(index) => *index,
                         None => {
                             let index = as_u32(self.terms.len());
-                            self.index.insert(encoding.to_vec(), index);
+                            self.index.insert(encoding, index);
                             self.terms.push((*term).clone());
                             index
                         }
@@ -123,6 +164,11 @@ impl ResultBatch {
 
     pub fn resume(&self) -> &[u8] {
         &self.resume
+    }
+
+    /// Each row's statement ID, in row order; `None` for a batch that carries none.
+    pub fn statement_ids(&self) -> Option<&[u64]> {
+        self.statement_ids.as_deref()
     }
 
     /// The bytes the batch's body takes, before its chunk table, so a sender cuts batches below the maximum frame.

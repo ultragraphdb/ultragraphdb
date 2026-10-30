@@ -8,7 +8,8 @@
 use cucumber::{World, then, when};
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
-    Command, FrameView, Header, HeaderView, RETIRED_COMMANDS, xxh3_64, xxh3_64_with_seed,
+    Command, FrameView, Header, HeaderView, MAX_FRAME_SIZE, RETIRED_COMMANDS, xxh3_64,
+    xxh3_64_with_seed,
 };
 
 // The golden frames of the unit tests, shared by path.
@@ -39,6 +40,7 @@ pub struct Steps {
     schemas: Vec<u64>,
     statements: Vec<u64>,
     truncations: usize,
+    terms: Vec<(Vec<u8>, Option<String>)>,
 }
 
 // One header for every frame.
@@ -51,11 +53,11 @@ fn read_hello(w: &mut Steps) {
 #[then("each field holds its golden value, and writing the fields back yields the same 256 bytes")]
 fn hello_round_trips(w: &mut Steps) {
     let view = HeaderView::new(&w.bytes).expect("a header");
-    // generate_frames.c's Hello: cluster, release 0x00050000, protocol 1, command 1, the rest zero, command header
-    // byte i = i * 7 + 3, a 100-byte body.
-    assert_eq!(view.checksum(), 0x8B60_6B87_756C_942F);
+    // generate_frames.c's Hello: sequence 1, cluster, release 0x00050000, protocol 1, command 1, the rest zero,
+    // command header byte i = i * 7 + 3, a 100-byte body.
+    assert_eq!(view.checksum(), 0x51C7_F42A_F2F6_FA27);
     assert_eq!(view.checksum_body(), 0x93CD_9543_2B7D_483F);
-    assert_eq!(view.nonce_reserved(), 0);
+    assert_eq!(view.sequence(), 1);
     assert_eq!(view.cluster(), 0x0123_4567_89AB_CDEF);
     assert_eq!(view.size(), 356);
     assert_eq!(view.view(), 0);
@@ -67,7 +69,9 @@ fn hello_round_trips(w: &mut Steps) {
     assert_eq!(view.flags(), 0);
     assert_eq!(view.reserved(), &[0u8; 62][..]);
     assert_eq!(view.command_header(), &HELLO.command_header());
-    let header = view.verify(SERVER).expect("the golden header verifies");
+    let header = view
+        .verify(SERVER, MAX_FRAME_SIZE)
+        .expect("the golden header verifies");
     assert_eq!(header.command(), Command::Hello);
     assert_eq!(
         header.encode(view.size(), view.checksum_body()).as_slice(),
@@ -107,7 +111,7 @@ fn flip_chunk_three(w: &mut Steps) {
     let mut bytes = READ.bytes();
     assert_eq!(bytes.len() - 256, 20 * 1_024);
     bytes[256 + 14_000] ^= 0x01;
-    w.refusals = FrameView::validate(&bytes, SERVER)
+    w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
@@ -135,7 +139,7 @@ fn swap_chunks(w: &mut Steps) {
     let chunk_two = bytes[two.clone()].to_vec();
     bytes[one].copy_from_slice(&chunk_two);
     bytes[two].copy_from_slice(&chunk_one);
-    w.refusals = FrameView::validate(&bytes, SERVER)
+    w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
@@ -156,6 +160,7 @@ fn chunk_one_named(w: &mut Steps) {
 #[when("a frame with a 100-byte body is built")]
 fn build_small(w: &mut Steps) {
     let header = Header::new(CLUSTER, Command::Hello)
+        .with_sequence(1)
         .with_release(0x0005_0000)
         .with_command_header(HELLO.command_header());
     w.bytes = header.encode_frame(&HELLO.data()).expect("a small frame");
@@ -179,7 +184,7 @@ fn arrives_3841(w: &mut Steps) {
     bytes.extend_from_slice(&[0x3C; 3_841]);
     put(&mut bytes, 40, 256 + 3_841, 4);
     reseal(&mut bytes);
-    w.refusals = FrameView::validate(&bytes, SERVER)
+    w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
@@ -201,7 +206,7 @@ fn other_cluster(w: &mut Steps) {
     let mut bytes = CREDIT.bytes();
     put(&mut bytes, 32, 0xFEDC_BA98_7654_3210, 8);
     reseal(&mut bytes);
-    w.refusals = FrameView::validate(&bytes, SERVER)
+    w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
@@ -223,10 +228,10 @@ fn cluster_named(w: &mut Steps) {
 #[when("a frame with a valid checksum names an unknown command")]
 fn unknown_command(w: &mut Steps) {
     let mut bytes = CREDIT.bytes();
-    put(&mut bytes, 54, 18, 2);
+    put(&mut bytes, 54, 20, 2);
     reseal(&mut bytes);
     assert!(HeaderView::new(&bytes).unwrap().checksum() == xxh3_64(&bytes[8..256]));
-    w.refusals = FrameView::validate(&bytes, SERVER)
+    w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
@@ -241,11 +246,12 @@ fn command_named(w: &mut Steps) {
     assert_eq!(
         w.refusals,
         vec![ProtocolError(ProtocolErrorEnum::UnknownCommand {
-            command: 18
+            command: 20
         })]
     );
-    assert_eq!(w.refusals[0].to_string(), "unknown command 18");
-    let other = FrameView::validate(&w.frames[0], SERVER).expect("another frame is served");
+    assert_eq!(w.refusals[0].to_string(), "unknown command 20");
+    let other =
+        FrameView::validate(&w.frames[0], SERVER, MAX_FRAME_SIZE).expect("another frame is served");
     assert_eq!(other.command(), Command::Read);
 }
 
@@ -258,7 +264,7 @@ fn retired_number(w: &mut Steps) {
     let numbers: Vec<u16> = RETIRED_COMMANDS
         .iter()
         .copied()
-        .chain((0..=u16::MAX).filter(|n| !(1..=17).contains(n)))
+        .chain((0..=u16::MAX).filter(|n| !(1..=19).contains(n)))
         .collect();
     let golden = CREDIT.bytes();
     w.refusals = numbers
@@ -267,7 +273,8 @@ fn retired_number(w: &mut Steps) {
             let mut bytes = golden.clone();
             put(&mut bytes, 54, number.into(), 2);
             reseal(&mut bytes);
-            FrameView::validate(&bytes, SERVER).expect_err("an unregistered number is refused")
+            FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
+                .expect_err("an unregistered number is refused")
         })
         .collect();
     w.checksums = numbers.iter().map(|&n| (n.into(), 0)).collect();
@@ -275,7 +282,7 @@ fn retired_number(w: &mut Steps) {
 
 #[then("it is refused as an unknown command")]
 fn refused_unknown(w: &mut Steps) {
-    assert_eq!(w.refusals.len(), 65_536 - 17);
+    assert_eq!(w.refusals.len(), 65_536 - 19);
     for (refusal, (number, _)) in w.refusals.iter().zip(&w.checksums) {
         assert_eq!(
             refusal.0,

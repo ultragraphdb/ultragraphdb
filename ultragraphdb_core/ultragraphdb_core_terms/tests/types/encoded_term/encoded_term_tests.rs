@@ -128,3 +128,60 @@ fn test_the_fingerprint_is_farm_of_the_encoding_and_order_is_byte_order() {
             .all(|t| t.is_vector() || t.as_bytes().len() <= 33)
     );
 }
+
+#[test]
+fn test_check_takes_every_whole_encoding() {
+    for term in every_kind() {
+        assert_eq!(
+            EncodedTerm::check(term.as_bytes()),
+            Ok(()),
+            "{:02x?}",
+            term.as_bytes()
+        );
+    }
+    for bytes in [
+        &[0x10, 0][..],
+        &[0x10, 1],
+        &[0x20, 0],
+        &[0x20, 2, 0xC3, 0xA9],
+        &[0x30, 1, 1, b'x'],
+        &[0x30, 33, 0],
+        &[0x22, 1, b'x', 2, b'e', b'n'],
+        &[0x40, 1, 0, 0, 0, 0x80, 0x3F],
+    ] {
+        assert_eq!(EncodedTerm::check(bytes), Ok(()), "{bytes:02x?}");
+    }
+}
+
+#[test]
+fn test_check_refuses_what_a_peer_may_not_send() {
+    // PROTOCOL.md section 10.1: each rule of a whole encoding broken once.
+    for bytes in [
+        // An unknown tag, and the result-only blank-node tag the store never holds.
+        &[0x7F][..],
+        &[0x02, 0, 0, 0, 0, 0, 0, 0, 6],
+        // A boolean other than 0 or 1 (point 50).
+        &[0x10, 2],
+        &[0x10, 0xFF],
+        // Inline text that is not UTF-8 (point 13): a string, a language string's lexical form and its tag, a known
+        // datatype's lexical form, another datatype's lexical form.
+        &[0x20, 1, 0xFF],
+        &[0x22, 1, 0xFF, 2, b'e', b'n'],
+        &[0x22, 1, b'x', 2, b'e', 0xFF],
+        &[0x30, 1, 1, 0xFF],
+        &[0x32, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0xFF],
+        // A known datatype's code outside section 10.4 (point 13).
+        &[0x30, 0, 1, b'x'],
+        &[0x30, 34, 1, b'x'],
+        &[0x31, 200, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        // An inline part longer than 15 bytes, a vector of no dimension.
+        &[0x20, 16],
+        &[0x40, 0, 0],
+        // Truncated, and with a byte past the encoding.
+        &[0x11, 0, 0],
+        &[0x10, 1, 0],
+        &[],
+    ] {
+        assert!(EncodedTerm::check(bytes).is_err(), "{bytes:02x?}");
+    }
+}

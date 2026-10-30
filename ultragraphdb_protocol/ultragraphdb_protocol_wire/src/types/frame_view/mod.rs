@@ -20,13 +20,38 @@ pub struct FrameView<'a> {
 
 impl<'a> FrameView<'a> {
     /// `bytes` checked as one frame for `cluster`, in the protocol's order: the length of a header
-    /// ([`HeaderView::new`]); the header's checksum, command, reserved bytes, cluster and size
-    /// ([`HeaderView::verify`]); `size` equal to the bytes given, refused as [`ProtocolError::LengthMismatch`]; then
-    /// the body's chunk table and chunks ([`ChunkedBody::verify`]). The body's structure is its command's view's to
-    /// check.
-    pub fn validate(bytes: &'a [u8], cluster: u64) -> Result<Self, ProtocolError> {
+    /// ([`HeaderView::new`]); the header's checksum, command, reserved bytes, cluster, flags and size within
+    /// `max_frame` ([`HeaderView::verify`]); `size` equal to the bytes given, refused as
+    /// [`ProtocolError::LengthMismatch`]; then the body's chunk table and chunks ([`ChunkedBody::verify`]). For a frame
+    /// a server or the log sent. The connection's sequence and protocol are its receiver's to check, and the body's
+    /// structure its command's view's.
+    pub fn validate(
+        bytes: &'a [u8],
+        cluster: u64,
+        max_frame: usize,
+    ) -> Result<Self, ProtocolError> {
         let header = HeaderView::new(bytes)?;
-        let command = header.verify(cluster)?.command();
+        let command = header.verify(cluster, max_frame)?.command();
+        Self::validate_body(bytes, header, command)
+    }
+
+    /// [`FrameView::validate`] for a frame a client sent ([`HeaderView::verify_client`]).
+    pub fn validate_client(
+        bytes: &'a [u8],
+        cluster: u64,
+        max_frame: usize,
+    ) -> Result<Self, ProtocolError> {
+        let header = HeaderView::new(bytes)?;
+        let command = header.verify_client(cluster, max_frame)?.command();
+        Self::validate_body(bytes, header, command)
+    }
+
+    /// The frame of a verified `header`: its length, then its chunks.
+    fn validate_body(
+        bytes: &'a [u8],
+        header: HeaderView<'a>,
+        command: Command,
+    ) -> Result<Self, ProtocolError> {
         if header.size() as usize != bytes.len() {
             return Err(ProtocolError::LengthMismatch(header.size(), bytes.len()));
         }

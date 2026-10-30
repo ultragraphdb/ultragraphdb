@@ -10,13 +10,13 @@ use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
 use crate::types::result_batch::ResultBatch;
 use crate::types::result_term::ResultTerm;
+use crate::types::result_term_view::result_encoding_whole;
 use crate::types::result_view::ResultView;
 use crate::types::string_list::StringList;
 use crate::utils::constants::ABSENT;
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::{as_u32, records, u32s};
-use ultragraphdb_core_terms::EncodedTerm;
 
 impl<'a> BodyView<'a> for ResultView<'a> {
     const COMMAND: Command = Command::Result;
@@ -28,7 +28,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 8)])?;
         let (columns, rows) = (header.u32_at(0), header.u32_at(4));
-        let sections = Sections::<7>::read(command, frame.body(), 0)?;
+        let sections = Sections::<8>::read(command, frame.body(), 0)?;
         let offsets = u32s(command, 1, sections.get(1))?;
         let terms = offsets.len();
         let texts = sections.get(3);
@@ -75,9 +75,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 .get(at + 1)
                 .map_or(encodings.len(), |end| *end as usize);
             let whole = (at > 0 || start == 0)
-                && encodings
-                    .get(start..end)
-                    .is_some_and(|bytes| EncodedTerm::from_bytes(bytes).is_ok());
+                && encodings.get(start..end).is_some_and(result_encoding_whole);
             if !whole {
                 return Err(ProtocolError::BadTerm(command, 2, at));
             }
@@ -97,6 +95,16 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 string_limit,
             ));
         }
+        let statement_ids = sections.get(7);
+        let per_rows = 8 * u64::from(rows);
+        if !statement_ids.is_empty() && statement_ids.len() as u64 != per_rows {
+            return Err(ProtocolError::CountMismatch(
+                command,
+                "statement ids",
+                statement_ids.len() as u64,
+                per_rows,
+            ));
+        }
         Ok(Self {
             columns,
             rows,
@@ -106,6 +114,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             texts,
             strings,
             resume: sections.get(6),
+            statement_ids,
         })
     }
 
@@ -116,6 +125,9 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 let view = self
                     .term(i)
                     .ok_or(ProtocolError::BadTerm(command, 2, i as usize))?;
+                if let Some(uid) = view.blank_uid() {
+                    return Ok(ResultTerm::blank(uid, view.text()));
+                }
                 let term = view
                     .term()
                     .ok_or(ProtocolError::BadTerm(command, 2, i as usize))?;
@@ -129,12 +141,20 @@ impl<'a> BodyView<'a> for ResultView<'a> {
                 Ok(owned)
             })
             .collect::<Result<Vec<_>, ProtocolError>>()?;
-        let mut batch = ResultBatch::new(self.columns).with_resume(self.resume.to_vec());
+        let batch = if self.has_statement_ids() {
+            ResultBatch::with_statement_ids(self.columns)
+        } else {
+            ResultBatch::new(self.columns)
+        };
+        let mut batch = batch.with_resume(self.resume.to_vec());
         for row in 0..self.rows {
             let cells: Vec<Option<&ResultTerm>> = (0..self.columns)
                 .map(|column| self.cell(column, row).and_then(|i| terms.get(i as usize)))
                 .collect();
-            batch.push_row(&cells)?;
+            match self.statement_id(row) {
+                Some(id) => batch.push_row_with_id(&cells, id)?,
+                None => batch.push_row(&cells)?,
+            }
         }
         Ok(batch)
     }

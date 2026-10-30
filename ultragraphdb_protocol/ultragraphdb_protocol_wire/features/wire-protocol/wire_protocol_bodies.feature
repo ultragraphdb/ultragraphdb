@@ -20,6 +20,10 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
     When a statement is prepared, the catalog of its namespace changes, and the statement is executed
     Then the execution is refused as stale, and preparing it again succeeds
 
+  Scenario: A literal at a node slot is refused
+    When a statement's subject parameter is bound to a literal
+    Then the execution is refused with code 11, `detail` the statement
+
   Scenario: Describe answers from the data dictionary
     When `name` is declared a property with a `term` index and a client sends Describe for the namespace
     Then the answer lists `name` as a property with its `term` index, as the data dictionary reports it
@@ -27,6 +31,10 @@ Feature: Wire protocol: bodies, statements, describe, result batches and the con
   Scenario: A repeated term is sent once per batch
     When a batch of 1,000 rows names the same IRI in every row
     Then its term table holds that IRI once
+
+  Scenario: A decimal the payload cannot hold is kept by its lexical form
+    When a literal `"0.1234567890123456789"^^xsd:decimal`, of 19 fraction digits, is written and read back
+    Then its term carries tag `0x31`, a known datatype's code and the hash of its lexical form, and the batch's text holds the lexical form unchanged
 
   Scenario: Every truncation is refused cleanly
     When each golden frame is truncated at every length below its size and sent

@@ -6,7 +6,7 @@
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{ABSENT, BodyView, ResultBatch, ResultView};
 
-use crate::types::result_batch::result_batch_tests::{LONG, golden_batch};
+use crate::types::result_batch::result_batch_tests::{LONG, SKOLEM_6, golden_batch};
 use crate::utils::golden_bodies::{frame_of, golden, put, with_command_header, with_section};
 
 #[test]
@@ -24,14 +24,21 @@ fn test_the_golden_batch_reads_its_cells_and_terms() {
     );
     assert_eq!(view.cell(2, 0), None);
     assert_eq!(view.term(2).unwrap().text(), Some(LONG));
-    assert_eq!(view.term(3).unwrap().text(), Some("http://ex.org/b"));
+    assert_eq!(view.term(3).unwrap().text(), Some(SKOLEM_6));
+    assert!(view.term(3).unwrap().is_blank_node());
+    assert!(!view.term(0).unwrap().is_blank_node());
+    assert!(view.has_statement_ids());
+    assert_eq!(
+        (0..4).map(|r| view.statement_id(r)).collect::<Vec<_>>(),
+        vec![Some(0x1001), Some(0x1002), Some(0x1003), None]
+    );
     assert_eq!(view.term(4), None);
     assert_eq!(view.resume(), b"rk");
     assert_eq!(view.to_body().unwrap(), golden_batch());
 }
 
 fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum {
-    let bytes = with_section(&golden("result").bytes(), 7, index, change);
+    let bytes = with_section(&golden("result").bytes(), 8, index, change);
     ResultView::from_frame(&frame_of(&bytes)).unwrap_err().0
 }
 
@@ -126,7 +133,7 @@ fn test_the_first_term_starts_its_section() {
     // A junk byte before the first encoding, every offset moved past it: each term would still parse.
     use crate::utils::golden_bodies::{body_data, join_sections, reframe, split_sections};
     let bytes = golden("result").bytes();
-    let mut secs = split_sections(body_data(&bytes), 0, 7);
+    let mut secs = split_sections(body_data(&bytes), 0, 8);
     secs[1] = secs[1]
         .chunks(4)
         .map(|c| u32::from_le_bytes(c.try_into().unwrap()) + 1)
@@ -191,4 +198,106 @@ fn test_a_batch_of_vectors_and_long_terms_round_trips() {
         Some("http://ex.org/type")
     );
     assert_eq!(view.to_body().unwrap(), batch);
+}
+
+#[test]
+fn test_statement_ids_are_none_or_one_per_row() {
+    assert_eq!(
+        refused(7, |ids| ids.truncate(16)),
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "statement ids",
+            count: 16,
+            expected: 24
+        }
+    );
+    assert_eq!(
+        refused(7, |ids| ids.push(0)),
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "statement ids",
+            count: 25,
+            expected: 24
+        }
+    );
+    let none = with_section(&golden("result").bytes(), 8, 7, |ids| ids.clear());
+    let view = ResultView::from_frame(&frame_of(&none)).unwrap();
+    assert!(!view.has_statement_ids());
+    assert_eq!(view.statement_id(0), None);
+}
+
+#[test]
+fn test_cells_count_rows_times_columns_in_sixty_four_bits() {
+    // 65,536 × 65,536 is 2^32: a 32-bit product would wrap to 0 and match a batch of no cells.
+    let wrapped = with_command_header(&golden("result").bytes(), |h| {
+        put(h, 0, 65_536, 4);
+        put(h, 4, 65_536, 4);
+    });
+    let empty = with_section(&wrapped, 8, 0, |cells| cells.clear());
+    let empty = with_section(&empty, 8, 7, |ids| ids.clear());
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&empty)).unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "cells",
+            count: 0,
+            expected: 1 << 32
+        }
+    );
+}
+
+/// A one-term batch of `encoding`, which the store's length rules take, read through the view.
+fn one_term(encoding: &[u8]) -> Result<(), ProtocolErrorEnum> {
+    use ultragraphdb_core_terms::EncodedTerm;
+    use ultragraphdb_protocol_wire::{BodyBuilder, ResultTerm};
+    let term = ResultTerm::new(EncodedTerm::from_bytes(encoding).expect("the length rules hold"));
+    let mut batch = ResultBatch::new(1);
+    batch.push_row(&[Some(&term)]).unwrap();
+    let bytes = batch.frame(golden("result").header()).unwrap();
+    ResultView::from_frame(&frame_of(&bytes))
+        .map(|_| ())
+        .map_err(|e| e.0)
+}
+
+#[test]
+fn test_each_term_is_one_whole_encoding() {
+    let bad = Err(ProtocolErrorEnum::BadTerm {
+        command: 13,
+        section: 2,
+        at: 0,
+    });
+    // PROTOCOL.md section 10.1: inline text UTF-8, a boolean 0 or 1, a known datatype's code listed.
+    assert_eq!(one_term(&[0x20, 1, 0xFF]), bad);
+    assert_eq!(one_term(&[0x10, 2]), bad);
+    assert_eq!(one_term(&[0x10, 0xFF]), bad);
+    assert_eq!(one_term(&[0x30, 99, 1, b'x']), bad);
+    assert_eq!(one_term(&[0x30, 0, 1, b'x']), bad);
+    assert_eq!(one_term(&[0x10, 1]), Ok(()));
+    assert_eq!(one_term(&[0x10, 0]), Ok(()));
+    assert_eq!(one_term(&[0x30, 33, 1, b'x']), Ok(()));
+    assert_eq!(one_term(&[0x20, 2, 0xC3, 0xA9]), Ok(()));
+    // The term table's bytes: a blank node's tag with a UID's nine bytes is whole, eight are not.
+    let blank = golden("result").bytes();
+    assert!(ResultView::from_frame(&frame_of(&blank)).is_ok());
+    let short = with_section(&blank, 8, 2, |e| {
+        e.pop();
+    });
+    assert!(matches!(
+        ResultView::from_frame(&frame_of(&short)).unwrap_err().0,
+        ProtocolErrorEnum::BadTerm {
+            section: 2,
+            at: 3,
+            ..
+        }
+    ));
+    // A tag the store never writes, 0x03, is no encoding.
+    let unknown = with_section(&blank, 8, 2, |e| e[30] = 0x03);
+    assert!(matches!(
+        ResultView::from_frame(&frame_of(&unknown)).unwrap_err().0,
+        ProtocolErrorEnum::BadTerm {
+            section: 2,
+            at: 3,
+            ..
+        }
+    ));
 }

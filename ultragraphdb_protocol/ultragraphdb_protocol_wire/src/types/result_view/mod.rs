@@ -20,6 +20,7 @@ pub struct ResultView<'a> {
     texts: &'a [u8],
     strings: StringList<'a>,
     resume: &'a [u8],
+    statement_ids: &'a [u8],
 }
 
 impl<'a> ResultView<'a> {
@@ -62,6 +63,20 @@ impl<'a> ResultView<'a> {
             text(2 * index),
             text(2 * index + 1),
         ))
+    }
+
+    /// Whether the batch carries each row's statement ID.
+    pub fn has_statement_ids(&self) -> bool {
+        !self.statement_ids.is_empty()
+    }
+
+    /// The ID of the statement row `row` read; `None` past the last row or for a batch that carries none.
+    pub fn statement_id(&self, row: u32) -> Option<u64> {
+        let at = 8 * row as usize;
+        self.statement_ids
+            .get(at..at + 8)
+            .and_then(|bytes| bytes.try_into().ok())
+            .map(u64::from_le_bytes)
     }
 
     pub fn resume(&self) -> &'a [u8] {

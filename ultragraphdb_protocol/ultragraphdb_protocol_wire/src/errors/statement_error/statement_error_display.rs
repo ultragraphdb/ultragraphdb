@@ -11,7 +11,7 @@ impl fmt::Display for StatementError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
             StatementErrorEnum::Unknown { statement } => {
-                write!(f, "no statement {statement} is prepared in this session")
+                write!(f, "no statement {statement} is prepared on this connection")
             }
             StatementErrorEnum::Stale {
                 statement,
@@ -37,6 +37,14 @@ impl fmt::Display for StatementError {
             } => write!(
                 f,
                 "parameter {parameter} is declared {declared:?}, which its slot, of type {slot:?}, does not take"
+            ),
+            StatementErrorEnum::NotANode {
+                statement,
+                parameter,
+            } => write!(
+                f,
+                "parameter {parameter} of statement {statement} binds a literal or a triple term at a slot taking a \
+                 node"
             ),
         }
     }

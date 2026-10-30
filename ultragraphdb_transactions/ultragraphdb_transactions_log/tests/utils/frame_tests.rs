@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_log::LogErrorEnum;
-use ultragraphdb_protocol_wire::{Command, FrameView};
+use ultragraphdb_protocol_wire::{Command, FrameView, MAX_FRAME_SIZE};
 use ultragraphdb_traits_log::{Position, RoundRef};
 use ultragraphdb_transactions_log::encode_round;
 
@@ -46,7 +46,8 @@ fn test_a_round_is_a_round_frame_laid_out_by_the_tables() {
     assert!(bytes[1_256..].iter().all(|b| *b == 0), "padding is zeros");
     assert_eq!(checksum, frame_checksum(bytes));
     assert_eq!(checksum, u64_at(bytes, 0));
-    let view = FrameView::validate(&bytes[..1_256], CLUSTER).expect("a valid frame");
+    let view =
+        FrameView::validate(&bytes[..1_256], CLUSTER, MAX_FRAME_SIZE).expect("a valid frame");
     assert_eq!(view.command(), Command::Round);
     assert_eq!(view.body(), data.as_slice());
 }
@@ -58,7 +59,8 @@ fn test_a_round_of_two_chunks_carries_its_table_and_pads_to_two_blocks() {
     let (frame, _) = encode_round(CLUSTER, 1, &round).expect("encoded");
     // 256 + 5,000 + a 16-byte table = 5,272 bytes, two blocks.
     assert_eq!(frame.len(), 8_192);
-    let view = FrameView::validate(&frame.as_slice()[..5_272], CLUSTER).expect("a valid frame");
+    let view = FrameView::validate(&frame.as_slice()[..5_272], CLUSTER, MAX_FRAME_SIZE)
+        .expect("a valid frame");
     assert_eq!(view.body(), data.as_slice());
 }
 

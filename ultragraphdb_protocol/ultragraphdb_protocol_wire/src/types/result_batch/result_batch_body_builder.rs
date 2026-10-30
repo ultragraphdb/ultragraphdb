@@ -35,7 +35,7 @@ impl BodyBuilder for ResultBatch {
         let mut strings = StringWriter::default();
         for term in self.terms() {
             offsets.push(as_u32(encodings.len()));
-            encodings.extend_from_slice(term.term().as_bytes());
+            encodings.extend_from_slice(&term.encoding());
             texts.push(term.text().map_or(ABSENT, |t| strings.intern(t)));
             texts.push(term.annotation().map_or(ABSENT, |a| strings.intern(a)));
         }
@@ -50,6 +50,12 @@ impl BodyBuilder for ResultBatch {
                 &ends,
                 &text,
                 self.resume(),
+                &self
+                    .statement_ids()
+                    .unwrap_or_default()
+                    .iter()
+                    .flat_map(|id| id.to_le_bytes())
+                    .collect::<Vec<u8>>(),
             ],
         )
     }

@@ -8,9 +8,10 @@ use ultragraphdb_error_protocol::ProtocolError;
 use crate::traits::body_view::BodyView;
 use crate::types::command::Command;
 use crate::types::frame_view::FrameView;
+use crate::types::string_list::StringList;
 use crate::types::welcome::Welcome;
 use crate::types::welcome_view::WelcomeView;
-use crate::utils::constants::{CHUNK_SIZE, MAX_FRAME_SIZE};
+use crate::utils::constants::{MAX_FRAME_FLOOR, MAX_FRAME_SIZE};
 use crate::utils::sections::Sections;
 use crate::utils::sections::expect_command;
 use crate::utils::sections::text;
@@ -23,14 +24,18 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 2), (4, 20)])?;
+        header.unused_zero(&[(0, 3), (4, 28)])?;
         let protocol = header.u16_at(0);
+        let auth = header.u8_at(2);
         let max_frame = header.u32_at(8);
         let max_streams = header.u32_at(12);
         if protocol == 0 {
             return Err(ProtocolError::FieldValue(command, "protocol", 0));
         }
-        if !(CHUNK_SIZE..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
+        if auth > 1 {
+            return Err(ProtocolError::FieldValue(command, "auth", auth.into()));
+        }
+        if !(MAX_FRAME_FLOOR..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
             return Err(ProtocolError::FieldValue(
                 command,
                 "max_frame",
@@ -40,25 +45,39 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
         if max_streams == 0 {
             return Err(ProtocolError::FieldValue(command, "max_streams", 0));
         }
-        let sections = Sections::<1>::read(command, frame.body(), 0)?;
+        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        let server = text(command, 0, sections.get(0))?;
+        let mechanisms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
+        let authenticates = auth == 1;
+        if authenticates == mechanisms.is_empty() {
+            return Err(ProtocolError::CountMismatch(
+                command,
+                "mechanisms",
+                mechanisms.len() as u64,
+                u64::from(authenticates),
+            ));
+        }
         Ok(Self {
             protocol,
+            authenticates,
             release: header.u32_at(4),
             max_frame,
             max_streams,
             initial_credit: header.u32_at(16),
-            server: text(command, 0, sections.get(0))?,
+            max_write_set: header.u32_at(20),
+            transaction_ms: header.u32_at(24),
+            server,
+            mechanisms,
         })
     }
 
     fn to_body(&self) -> Result<Welcome, ProtocolError> {
-        Ok(Welcome::new(
-            self.protocol,
-            self.release,
-            self.max_frame,
-            self.max_streams,
-            self.initial_credit,
-            self.server,
-        ))
+        Ok(Welcome::new(self.protocol, self.release, self.server)
+            .with_max_frame(self.max_frame)
+            .with_max_streams(self.max_streams)
+            .with_initial_credit(self.initial_credit)
+            .with_max_write_set(self.max_write_set)
+            .with_transaction_ms(self.transaction_ms)
+            .with_mechanisms(self.mechanisms.iter()))
     }
 }

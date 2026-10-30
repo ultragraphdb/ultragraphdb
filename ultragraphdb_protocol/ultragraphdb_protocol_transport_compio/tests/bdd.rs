@@ -58,7 +58,7 @@ impl Conversation {
         let mut server = Connection::new(server, CLUSTER);
         let pool = BufferPool::new(64, MAX_FRAME_SIZE);
         let (hello, answered) = ready(futures::future::join(
-            client.hello(&pool, &Hello::new(1, 1, 0, "client")),
+            client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "client")),
             server.welcome(&pool, &welcome),
         ));
         let welcome = hello.expect("the client is welcomed");
@@ -136,7 +136,10 @@ impl Conversation {
 }
 
 fn welcome(initial_credit: u32) -> Welcome {
-    Welcome::new(1, 0, 1 << 20, 16, initial_credit, "server")
+    Welcome::new(1, 0, "server")
+        .with_max_frame(1 << 20)
+        .with_max_streams(16)
+        .with_initial_credit(initial_credit)
 }
 
 async fn credit_conversation(w: &mut Steps, faults: NetworkFaults) {
@@ -229,9 +232,15 @@ async fn hello_one_to_three(w: &mut Steps) {
     let mut client = Connection::new(client, CLUSTER);
     let mut server = Connection::new(server, CLUSTER);
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
-    let limits = Welcome::new(2, 0x0005_0000, 1 << 20, 32, 4, "server");
+    let limits = Welcome::new(2, 0x0005_0000, "server")
+        .with_max_frame(1 << 20)
+        .with_max_streams(32)
+        .with_initial_credit(4);
     let (hello, answered) = ready(futures::future::join(
-        client.hello(&pool, &Hello::new(1, 3, 0x0005_0000, "client")),
+        client.hello(
+            &pool,
+            &Hello::new(1, 3, 0x0005_0000, MAX_FRAME_SIZE as u32, "client"),
+        ),
         server.welcome(&pool, &limits),
     ));
     w.welcome = Some(hello.unwrap());

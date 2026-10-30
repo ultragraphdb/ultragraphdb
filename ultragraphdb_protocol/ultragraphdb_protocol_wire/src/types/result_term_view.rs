@@ -5,6 +5,22 @@
 
 use ultragraphdb_core_terms::EncodedTerm;
 
+use crate::types::result_term::BLANK_NODE_TAG;
+
+/// The UID of `encoding`, a blank node's tag and a big-endian u64; `None` for any other bytes.
+pub(crate) fn blank_uid(encoding: &[u8]) -> Option<u64> {
+    match encoding {
+        [BLANK_NODE_TAG, uid @ ..] => uid.try_into().ok().map(u64::from_be_bytes),
+        _ => None,
+    }
+}
+
+/// Whether `encoding`, a term of a received batch, holds exactly one whole encoding (`PROTOCOL.md` §10.1): a blank
+/// node's tag and UID, or one of the store's encodings by [`EncodedTerm::check`].
+pub(crate) fn result_encoding_whole(encoding: &[u8]) -> bool {
+    blank_uid(encoding).is_some() || EncodedTerm::check(encoding).is_ok()
+}
+
 /// A term of a received result batch, read in place: its encoding, checked once, and its text and annotation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ResultTermView<'a> {
@@ -31,10 +47,23 @@ impl<'a> ResultTermView<'a> {
         self.encoding
     }
 
-    /// The term, read from its encoding, which the batch's check proved whole; a client reads it through
-    /// [`EncodedTerm::view`].
+    /// The term in the store's encoding, a blank node under the IRI's tag, read from its encoding, which the batch's
+    /// check proved whole; a client reads it through [`EncodedTerm::view`].
     pub fn term(&self) -> Option<EncodedTerm> {
-        EncodedTerm::from_bytes(self.encoding).ok()
+        match self.blank_uid() {
+            Some(uid) => Some(EncodedTerm::uid(uid)),
+            None => EncodedTerm::from_bytes(self.encoding).ok(),
+        }
+    }
+
+    /// Whether the term is a blank node, tag `0x02`, named by its skolem IRI in [`ResultTermView::text`].
+    pub fn is_blank_node(&self) -> bool {
+        self.encoding.first() == Some(&BLANK_NODE_TAG)
+    }
+
+    /// A blank node's UID, read from its nine bytes; `None` for any other term.
+    pub(crate) fn blank_uid(&self) -> Option<u64> {
+        blank_uid(self.encoding)
     }
 
     pub fn text(&self) -> Option<&'a str> {

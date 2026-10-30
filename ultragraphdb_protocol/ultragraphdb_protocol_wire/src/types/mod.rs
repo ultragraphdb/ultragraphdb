@@ -5,6 +5,9 @@
 
 pub mod abort;
 pub mod abort_view;
+pub mod action;
+pub mod authenticate;
+pub mod authenticate_view;
 pub mod begin;
 pub mod begin_view;
 pub mod cancel;
@@ -28,6 +31,9 @@ pub mod declared_relation;
 pub mod describe;
 pub mod describe_view;
 pub mod direction;
+pub mod drop_command;
+pub mod drop_command_view;
+pub mod drop_kind;
 pub mod error_code;
 pub mod error_reply;
 pub mod error_reply_view;

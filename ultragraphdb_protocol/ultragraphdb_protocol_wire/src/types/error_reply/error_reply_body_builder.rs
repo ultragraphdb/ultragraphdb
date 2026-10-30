@@ -6,6 +6,7 @@
 use crate::traits::body_builder::BodyBuilder;
 use crate::types::command::Command;
 use crate::types::error_reply::ErrorReply;
+use crate::types::term_table::TermTable;
 use crate::utils::command_header::command_header;
 use crate::utils::constants::COMMAND_HEADER_SIZE;
 use crate::utils::sections::write_sections;
@@ -21,7 +22,12 @@ impl BodyBuilder for ErrorReply {
     }
 
     fn body(&self) -> Vec<u8> {
-        let value = self.value.as_deref().unwrap_or_default();
-        write_sections(&[], &[self.message.as_bytes(), value.as_bytes()])
+        let mut terms = TermTable::new();
+        if let Some(value) = &self.value {
+            // A value the table refuses is no value; ErrorReply::with_value states which terms a table holds.
+            let _ = terms.intern(value.clone());
+        }
+        let (records, text) = terms.sections();
+        write_sections(&[], &[self.message.as_bytes(), &records, &text])
     }
 }

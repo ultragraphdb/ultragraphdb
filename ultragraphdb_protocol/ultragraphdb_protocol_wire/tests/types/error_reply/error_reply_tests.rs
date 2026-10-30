@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply};
+use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply, RequestTerm};
 
 use crate::utils::golden_bodies::golden;
 
@@ -25,8 +25,17 @@ fn test_error_replies_build_the_golden_frames() {
         ErrorCode::OperationFailed,
         "compare-and-set found another value",
     )
-    .with_value("\"done\"");
-    assert_eq!(failed.value(), Some("\"done\""));
+    .with_value(RequestTerm::Literal {
+        lexical: "done".into(),
+        datatype: None,
+    });
+    assert_eq!(
+        failed.value(),
+        Some(&RequestTerm::Literal {
+            lexical: "done".into(),
+            datatype: None
+        })
+    );
     assert!(!failed.retryable());
     assert_eq!(
         failed.frame(golden("error_operation").header()).unwrap(),
@@ -36,9 +45,9 @@ fn test_error_replies_build_the_golden_frames() {
 
 #[test]
 fn test_a_protocol_error_is_answered_with_its_text() {
-    let reply = ErrorReply::protocol(&ProtocolError::UnknownCommand(18));
+    let reply = ErrorReply::protocol(&ProtocolError::UnknownCommand(20));
     assert_eq!(reply.code(), ErrorCode::Protocol);
-    assert_eq!(reply.message(), "unknown command 18");
+    assert_eq!(reply.message(), "unknown command 20");
     assert_eq!(reply.detail(), 0);
     assert_eq!(reply.value(), None);
 }

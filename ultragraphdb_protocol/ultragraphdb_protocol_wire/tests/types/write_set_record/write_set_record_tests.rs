@@ -8,6 +8,7 @@ use ultragraphdb_protocol_wire::{OperationResult, WriteSetRecord, WriteSetRecord
 /// Record 0 of the golden Round, as generate_bodies.py lays it out.
 pub fn record0() -> WriteSetRecord {
     let mut record = WriteSetRecord::new(0, 1998, 4, 2);
+    record.set_principal(7);
     record.push_list_delta(b"\x10key-a".to_vec(), b"delta-a".to_vec());
     record.push_dictionary(b"\x20dict".to_vec(), None);
     record.push_versionless(b"sess-4".to_vec(), Some(b"reply".to_vec()));
@@ -42,6 +43,12 @@ fn test_a_record_keeps_its_fields_and_tables() {
         ),
         (0, 1998, 4, 2)
     );
+    assert_eq!(record.principal(), 7);
+    assert_eq!(
+        record1().principal(),
+        0,
+        "a new record acts for no principal"
+    );
     assert_eq!(
         record.list_deltas(),
         &[(b"\x10key-a".to_vec(), Some(b"delta-a".to_vec()))]
@@ -71,9 +78,16 @@ fn test_a_record_keeps_its_fields_and_tables() {
         ]
     );
     assert!(record1().results().is_empty());
-    // generate_bodies.py printed 280 and 5,136 bytes.
-    assert_eq!(record0().encode().len(), 280);
-    assert_eq!(record1().encode().len(), 5_136);
+    // generate_bodies.py printed 288 and 5,144 bytes.
+    assert_eq!(record0().encode().len(), 288);
+    assert_eq!(record1().encode().len(), 5_144);
+    // The principal is the fixed part's fifth u64, after namespace, read version, session and request.
+    let mut principal = WriteSetRecord::new(1, 2, 3, 4);
+    principal.set_principal(0x0102_0304_0506_0708);
+    assert_eq!(
+        &principal.encode()[32..40],
+        &0x0102_0304_0506_0708u64.to_le_bytes()
+    );
     let mut all = WriteSetRecord::new(1, 2, 3, 4);
     all.push_statement(b"s".to_vec(), Some(b"v".to_vec()));
     all.push_catalog(b"c".to_vec(), None);

@@ -4,8 +4,9 @@
  */
 
 use ultragraphdb_protocol_wire::{
-    CHUNK_SIZE, COMMAND_HEADER_SIZE, Command, FIRST_CHUNK_SIZE, HEADER_SIZE, LEAF_SIZE,
-    MAX_FRAME_SIZE, PROTOCOL_VERSION, REPLICA_COMMANDS, RETIRED_COMMANDS,
+    CHUNK_SIZE, COMMAND_HEADER_SIZE, Command, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS,
+    DEFAULT_MAX_WRITE_SET, DEFAULT_TRANSACTION_MS, FIRST_CHUNK_SIZE, HEADER_SIZE, LEAF_SIZE,
+    MAX_FRAME_FLOOR, MAX_FRAME_SIZE, PROTOCOL_VERSION, REPLICA_COMMANDS, RETIRED_COMMANDS,
 };
 
 #[test]
@@ -22,6 +23,19 @@ fn test_sizes_are_the_specs() {
     assert_eq!(MAX_FRAME_SIZE % CHUNK_SIZE, 0);
     assert_eq!(LEAF_SIZE, 8);
     assert_eq!(PROTOCOL_VERSION, 1);
+}
+
+#[test]
+fn test_limits_are_the_specs() {
+    // PROTOCOL.md sections 5.1 and 11.9: the floor holds a Result frame of a vector of 65,535 dimensions.
+    assert_eq!(MAX_FRAME_FLOOR, 524_288);
+    const { assert!(HEADER_SIZE + 3 + 4 * 65_535 < MAX_FRAME_FLOOR) };
+    assert_eq!(DEFAULT_MAX_WRITE_SET, 1_040_384);
+    assert_eq!(DEFAULT_TRANSACTION_MS, 10_000);
+    assert_eq!(DEFAULT_MAX_STREAMS, 256);
+    assert_eq!(DEFAULT_INITIAL_CREDIT, 4);
+    // The default write set, a Round frame's one record, leaves the frame 8,192 bytes for the rest.
+    assert_eq!(MAX_FRAME_SIZE - DEFAULT_MAX_WRITE_SET as usize, 8_192);
 }
 
 #[test]

@@ -101,17 +101,18 @@ fn test_the_record_is_in_the_wires_layout_and_its_one_encoding() {
 
 #[test]
 fn test_the_fixed_part_is_written_little_endian_first() {
-    // The layout table of `WriteSetRecord`: namespace, read version, session, request, each u64 little-endian.
+    // The layout table of `WriteSetRecord`: namespace, read version, session, request, principal, each u64
+    // little-endian; the principal 0 here.
     let applier = known();
     let executed = executed(&applier, vec![insert("a", "knows", "b")]);
     let bytes = written(&WriteSetBuilder::new(&executed, 0x0102, 0x0304, &[]));
-    let fixed: Vec<u8> = [NS, executed.read_ts(), 0x0102, 0x0304]
+    let fixed: Vec<u8> = [NS, executed.read_ts(), 0x0102, 0x0304, 0]
         .iter()
         .flat_map(|v| v.to_le_bytes())
         .collect();
-    assert_eq!(&bytes[..32], fixed.as_slice());
-    // Section 0 starts where the table of ten sections ends: 32 + 10 × 8.
-    assert_eq!(u32::from_le_bytes(bytes[32..36].try_into().unwrap()), 120);
+    assert_eq!(&bytes[..40], fixed.as_slice());
+    // Section 0 starts where the table of eleven sections ends: 40 + 11 × 8.
+    assert_eq!(u32::from_le_bytes(bytes[40..44].try_into().unwrap()), 128);
 }
 
 /// A worker's record holds no results; the commit step's record of a transaction with operations holds each one in

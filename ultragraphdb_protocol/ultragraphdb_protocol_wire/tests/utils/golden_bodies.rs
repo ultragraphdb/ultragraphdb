@@ -11,9 +11,10 @@ use std::fs;
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    AbortView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView, CreditView,
-    DescribeView, ErrorReplyView, ExecuteView, FrameView, Header, HelloView, OperationView,
-    PrepareView, ReadView, RegisterView, ResultView, RoundView, WelcomeView, WriteView,
+    AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
+    CreditView, DescribeView, DropCommandView, ErrorReplyView, ExecuteView, FrameView, Header,
+    HelloView, MAX_FRAME_SIZE, OperationView, PrepareView, ReadView, RegisterView, ResultView,
+    RoundView, WelcomeView, WriteView,
 };
 
 /// The cluster every golden frame names.
@@ -28,16 +29,20 @@ pub struct GoldenBody {
     pub command: u16,
     pub stream: u64,
     pub flags: u8,
+    pub sequence: u128,
     pub size: u32,
     pub checksum: u64,
     pub checksum_body: u64,
 }
 
+// One golden frame per row, its arguments the generator's printed columns in order.
+#[allow(clippy::too_many_arguments)]
 const fn g(
     name: &'static str,
     command: u16,
     stream: u64,
     flags: u8,
+    sequence: u128,
     size: u32,
     checksum: u64,
     checksum_body: u64,
@@ -47,37 +52,45 @@ const fn g(
         command,
         stream,
         flags,
+        sequence,
         size,
         checksum,
         checksum_body,
     }
 }
 
-// The generator's output, copied: name, command, stream, flags, size, checksum, checksum_body.
+// The generator's output, copied: name, command, stream, flags, sequence, size, checksum, checksum_body.
 #[rustfmt::skip]
-pub const BODIES: [GoldenBody; 22] = [
-    g("hello", 1, 0, 0, 279, 0x614f_89ea_a6f9_fbdf, 0x3354_a6ce_4aa5_d7a6),
-    g("welcome", 2, 0, 0, 278, 0x5695_f23b_680b_77f6, 0x9507_47f9_2f0d_9d17),
-    g("register", 3, 0, 0, 256, 0x5544_d4f1_c445_4b91, 0x2d06_8005_38d3_94c2),
-    g("begin", 4, 5, 0, 256, 0xc652_33ba_d6e6_0399, 0x2d06_8005_38d3_94c2),
-    g("commit", 5, 5, 0, 296, 0x4ce5_2b99_d651_9cdf, 0x0a21_f801_015a_ba74),
-    g("abort", 6, 5, 0, 256, 0xf106_d66a_3e88_8c64, 0x2d06_8005_38d3_94c2),
-    g("read", 7, 11, 0, 411, 0xaa85_d3fd_0a47_1bb3, 0xd495_36ce_eedd_927f),
-    g("write", 8, 5, 0, 1_769, 0x4824_02c9_da12_b1d0, 0x1a97_c571_66f1_f5e1),
-    g("operation", 9, 5, 0, 541, 0x1bf4_68c9_cf8d_db55, 0xc763_0be0_93aa_4f02),
-    g("operation_counter", 9, 7, 0, 387, 0xdee7_f65d_452e_8eb0, 0x95e0_a48a_8ed2_701c),
-    g("operation_deep", 9, 9, 0, 1_142, 0x94cd_573f_44a2_caf7, 0xb338_de68_2070_1115),
-    g("prepare", 10, 13, 0, 384, 0x97d7_cb7a_e584_5a1b, 0xb7d8_3d8f_c6ef_0110),
-    g("prepare_reply", 10, 13, 0, 385, 0x9fa2_ca59_892e_283b, 0x7237_dbcf_ca74_635e),
-    g("execute", 11, 15, 0, 336, 0xa93c_79f0_a6a9_9b8f, 0xb518_2367_cd44_9c6f),
-    g("describe", 12, 17, 0, 312, 0x19ac_ff22_96ee_5721, 0x2464_7a33_d027_0e23),
-    g("describe_reply", 12, 17, 0, 508, 0x6b73_77b1_e445_c807, 0x739b_5e15_2585_486c),
-    g("result", 13, 11, 1, 506, 0x5143_5849_b5f5_bf35, 0x7772_32f3_57f1_d7c5),
-    g("credit", 14, 11, 0, 256, 0xa4c1_931b_3c87_b6f5, 0x2d06_8005_38d3_94c2),
-    g("cancel", 15, 11, 0, 256, 0x5f55_fc6f_7d1d_3612, 0x2d06_8005_38d3_94c2),
-    g("error", 16, 5, 1, 304, 0x6060_d113_2332_53eb, 0x5107_5088_7f86_158a),
-    g("error_operation", 16, 7, 1, 318, 0xee9e_e1cc_b9c3_4eb6, 0x333a_9044_74e6_cc95),
-    g("round", 17, 0, 0, 5_776, 0xf098_3b52_dc89_1398, 0x69e2_43bc_4827_3b17),
+pub const BODIES: [GoldenBody; 29] = [
+    g("hello", 1, 0, 0, 1, 279, 0x13cb_a202_760d_70b3, 0x3354_a6ce_4aa5_d7a6),
+    g("welcome", 2, 0, 0, 1, 317, 0x4561_84ae_8da6_048f, 0x7bc2_2fd5_5be2_26d0),
+    g("welcome_no_auth", 2, 0, 0, 1, 296, 0xb417_f160_aa24_f995, 0xf789_a351_5d20_daef),
+    g("authenticate_client_first", 18, 0, 0, 2, 320, 0x3e70_5c2c_9545_6070, 0xea43_1ed9_5666_34a9),
+    g("authenticate_server_first", 18, 0, 0, 2, 358, 0x5959_a508_58a8_c174, 0x64c6_adf9_e815_8a07),
+    g("authenticate_client_final", 18, 0, 0, 3, 378, 0x001e_a553_4a66_ad71, 0xa712_172f_ecff_5b46),
+    g("authenticate_server_final", 18, 0, 0, 3, 318, 0x3773_4e3a_a087_2a3c, 0x28b7_b669_06df_e983),
+    g("register", 3, 0, 0, 1, 256, 0x9df1_4939_26e5_6dd6, 0x2d06_8005_38d3_94c2),
+    g("begin", 4, 5, 0, 1, 256, 0xfd25_1229_2899_0449, 0x2d06_8005_38d3_94c2),
+    g("commit", 5, 5, 0, 1, 296, 0x369e_f720_2bb0_49a6, 0x0a21_f801_015a_ba74),
+    g("abort", 6, 5, 0, 1, 256, 0xbb90_ba9a_6b33_92ef, 0x2d06_8005_38d3_94c2),
+    g("read", 7, 11, 0, 1, 411, 0xd530_96eb_a6c9_9b26, 0xd495_36ce_eedd_927f),
+    g("write", 8, 5, 0, 1, 1_769, 0x10ea_04f3_2c09_f6ce, 0x1a97_c571_66f1_f5e1),
+    g("operation", 9, 5, 0, 1, 541, 0x819c_9678_0d07_b06d, 0xc763_0be0_93aa_4f02),
+    g("operation_counter", 9, 7, 0, 1, 387, 0x853a_2deb_e648_b96d, 0x95e0_a48a_8ed2_701c),
+    g("operation_deep", 9, 9, 0, 1, 1_142, 0x08b8_0462_4235_b2ce, 0xb338_de68_2070_1115),
+    g("prepare", 10, 13, 0, 1, 384, 0xc36e_3c3e_21de_e50a, 0xb7d8_3d8f_c6ef_0110),
+    g("prepare_reply", 10, 13, 0, 1, 385, 0x08fb_03f7_3f5f_a1cf, 0x7237_dbcf_ca74_635e),
+    g("execute", 11, 15, 0, 1, 336, 0xf929_6433_8595_88a7, 0xb518_2367_cd44_9c6f),
+    g("describe", 12, 17, 0, 1, 312, 0xe91a_4ff9_f41a_ff36, 0x2464_7a33_d027_0e23),
+    g("describe_reply", 12, 17, 0, 1, 508, 0x62ff_8ac6_af26_c4dc, 0x739b_5e15_2585_486c),
+    g("result", 13, 11, 1, 1, 600, 0x4d6e_08e4_6c9e_c9d2, 0x59bb_9f05_6f37_4d5a),
+    g("credit", 14, 11, 0, 1, 256, 0x2f73_37ee_fe0c_7c44, 0x2d06_8005_38d3_94c2),
+    g("cancel", 15, 11, 0, 1, 256, 0x5032_665c_3cbb_1b5f, 0x2d06_8005_38d3_94c2),
+    g("error", 16, 5, 1, 1, 312, 0xd3ee_ce7e_9292_95f8, 0x5167_54f7_3689_214d),
+    g("error_operation", 16, 7, 1, 1, 348, 0x2e88_d89f_9888_6cf3, 0x2897_5799_bf0a_e6df),
+    g("drop", 19, 19, 0, 1, 311, 0x6d0b_29f7_340a_0d3b, 0xabf6_85b8_5add_94f2),
+    g("drop_reply", 19, 19, 1, 1, 311, 0xeade_41ee_16c1_aee0, 0xabf6_85b8_5add_94f2),
+    g("round", 17, 0, 0, 3, 5_792, 0x8448_5601_23ef_5d44, 0x0913_d3cc_f34d_1ed6),
 ];
 
 /// The schema id the generator printed for the golden Describe answer's declarations.
@@ -113,6 +126,7 @@ impl GoldenBody {
     /// which the builder supplies.
     pub fn header(&self) -> Header {
         Header::new(CLUSTER, Command::Abort)
+            .with_sequence(self.sequence)
             .with_release(RELEASE)
             .with_stream(self.stream)
             .with_flags(self.flags)
@@ -232,6 +246,7 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         let body = V::from_frame(frame)?.to_body()?;
         let h = frame.header();
         let header = Header::new(h.cluster(), Command::Abort)
+            .with_sequence(h.sequence())
             .with_view(h.view())
             .with_release(h.release())
             .with_protocol(h.protocol())
@@ -240,7 +255,7 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
             .with_flags(h.flags());
         body.frame(header)
     }
-    let frame = FrameView::validate(bytes, CLUSTER)?;
+    let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
     let rebuilt = match frame.command() {
         Command::Hello => through::<HelloView>(&frame),
         Command::Welcome => through::<WelcomeView>(&frame),
@@ -259,6 +274,8 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Cancel => through::<CancelView>(&frame),
         Command::Error => through::<ErrorReplyView>(&frame),
         Command::Round => through::<RoundView>(&frame),
+        Command::Authenticate => through::<AuthenticateView>(&frame),
+        Command::Drop => through::<DropCommandView>(&frame),
     }?;
     Ok((frame.command(), rebuilt))
 }
@@ -269,7 +286,7 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
 ///
 /// When the frame does not validate.
 pub fn frame_of(bytes: &[u8]) -> FrameView<'_> {
-    FrameView::validate(bytes, CLUSTER).expect("the frame validates")
+    FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE).expect("the frame validates")
 }
 
 /// The `n` sections of `data` after a fixed part of `fixed` bytes, by its table.

@@ -12,8 +12,8 @@ use crate::types::execute_view::ExecuteView;
 use crate::types::frame_view::FrameView;
 use crate::types::term_table_view::TermTableView;
 use crate::utils::sections::Sections;
-use crate::utils::sections::expect_command;
 use crate::utils::sections::{as_u32, u32s};
+use crate::utils::sections::{expect_command, statement_ids_flag};
 
 impl<'a> BodyView<'a> for ExecuteView<'a> {
     const COMMAND: Command = Command::Execute;
@@ -23,7 +23,8 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
-        header.unused_zero(&[(0, 12)])?;
+        header.unused_zero(&[(0, 24)])?;
+        let statement_ids = statement_ids_flag(command, header.u32_at(20))?;
         let sections = Sections::<4>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
             command,
@@ -41,7 +42,9 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
         }
         Ok(Self {
             statement: header.u64_at(0),
-            limit: header.u32_at(8),
+            transaction: header.u64_at(8),
+            limit: header.u32_at(16),
+            statement_ids,
             terms,
             parameters,
             resume: sections.get(3),
@@ -49,12 +52,18 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
     }
 
     fn to_body(&self) -> Result<Execute, ProtocolError> {
-        Ok(Execute::new(
+        let execute = Execute::new(
             self.statement,
+            self.transaction,
             self.limit,
             self.terms.to_table(),
             self.parameters.clone(),
             self.resume.to_vec(),
-        ))
+        );
+        Ok(if self.statement_ids {
+            execute.with_statement_ids()
+        } else {
+            execute
+        })
     }
 }

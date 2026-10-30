@@ -11,6 +11,7 @@ pub struct HelloView<'a> {
     protocol_min: u16,
     protocol_max: u16,
     release: u32,
+    max_frame: u32,
     client: &'a str,
 }
 
@@ -25,6 +26,10 @@ impl<'a> HelloView<'a> {
 
     pub fn release(&self) -> u32 {
         self.release
+    }
+
+    pub fn max_frame(&self) -> u32 {
+        self.max_frame
     }
 
     pub fn client(&self) -> &'a str {

@@ -62,7 +62,7 @@ fn test_frames_split_in_flight_are_read_whole() {
     let frames = vec![
         credit(1),
         large(),
-        Hello::new(1, 1, 0, "c")
+        Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")
             .frame(Header::new(CLUSTER, Command::Hello))
             .unwrap(),
     ];
@@ -201,19 +201,28 @@ fn handshake(
 
 #[test]
 fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() {
-    let welcome = Welcome::new(2, 9, 1 << 20, 16, 4, "s");
-    let (client, server) = handshake(Hello::new(1, 3, 5, "c"), welcome.clone());
+    let welcome = Welcome::new(2, 9, "s")
+        .with_max_frame(1 << 20)
+        .with_max_streams(16)
+        .with_initial_credit(4);
+    let (client, server) = handshake(
+        Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"),
+        welcome.clone(),
+    );
     assert_eq!(client.unwrap(), welcome);
     assert_eq!(server.unwrap(), welcome);
-    let (client, _) = handshake(Hello::new(1, 1, 5, "c"), welcome);
+    let (client, _) = handshake(Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), welcome);
     assert_eq!(client.unwrap().protocol(), 1);
 }
 
 #[test]
 fn test_a_hello_above_the_server_is_refused_on_both_sides() {
     let (client, server) = handshake(
-        Hello::new(3, 4, 5, "c"),
-        Welcome::new(2, 9, 1 << 20, 16, 4, "s"),
+        Hello::new(3, 4, 5, MAX_FRAME_SIZE as u32, "c"),
+        Welcome::new(2, 9, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(16)
+            .with_initial_credit(4),
     );
     assert!(matches!(
         client.unwrap_err().0,
@@ -238,7 +247,16 @@ fn test_a_handshake_of_another_command_is_refused() {
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
     ready(client.write_frame(credit(1))).unwrap();
     assert_eq!(
-        ready(server.welcome(&pool, &Welcome::new(1, 0, 1 << 20, 1, 1, "s"))).unwrap_err(),
+        ready(
+            server.welcome(
+                &pool,
+                &Welcome::new(1, 0, "s")
+                    .with_max_frame(1 << 20)
+                    .with_max_streams(1)
+                    .with_initial_credit(1)
+            )
+        )
+        .unwrap_err(),
         TransportError::UnexpectedCommand(1, 14)
     );
     let answer = ready(client.read_frame(&pool)).unwrap();
@@ -246,7 +264,7 @@ fn test_a_handshake_of_another_command_is_refused() {
     // The server answers Hello with Credit: the client refuses it.
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
     let (refused, _) = ready(futures::future::join(
-        client.hello(&pool, &Hello::new(1, 1, 0, "c")),
+        client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
         async {
             let _hello = server.read_frame(&pool).await.unwrap();
             server.write_frame(credit(0)).await
@@ -259,10 +277,13 @@ fn test_a_handshake_of_another_command_is_refused() {
     // The server welcomes at a protocol the client did not offer.
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
     let (refused, _) = ready(futures::future::join(
-        client.hello(&pool, &Hello::new(1, 2, 0, "c")),
+        client.hello(&pool, &Hello::new(1, 2, 0, MAX_FRAME_SIZE as u32, "c")),
         async {
             let _hello = server.read_frame(&pool).await.unwrap();
-            let welcome = Welcome::new(5, 0, 1 << 20, 1, 1, "s")
+            let welcome = Welcome::new(5, 0, "s")
+                .with_max_frame(1 << 20)
+                .with_max_streams(1)
+                .with_initial_credit(1)
                 .frame(Header::new(CLUSTER, Command::Welcome))
                 .unwrap();
             server.write_frame(welcome).await
@@ -288,9 +309,12 @@ fn test_a_connection_runs_over_compio_tcp() {
         let mut server = Connection::new(accepted.unwrap().0, CLUSTER);
         let mut client = Connection::new(connected.unwrap(), CLUSTER);
         let pool = BufferPool::new(4, MAX_FRAME_SIZE);
-        let welcome = Welcome::new(1, 0, 1 << 20, 8, 2, "s");
+        let welcome = Welcome::new(1, 0, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(8)
+            .with_initial_credit(2);
         let (client_side, server_side) = futures::future::join(
-            client.hello(&pool, &Hello::new(1, 1, 0, "c")),
+            client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
             server.welcome(&pool, &welcome),
         )
         .await;

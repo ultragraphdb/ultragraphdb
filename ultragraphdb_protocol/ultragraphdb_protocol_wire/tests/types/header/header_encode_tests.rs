@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
-use ultragraphdb_protocol_wire::{Command, FrameView, Header};
+use ultragraphdb_protocol_wire::{Command, FrameView, Header, MAX_FRAME_SIZE};
 
 use crate::utils::golden::{CLUSTER, GOLDEN, GoldenFrame, HELLO, READ};
 
@@ -14,6 +14,7 @@ fn header_of(golden: &GoldenFrame) -> Header {
         CLUSTER,
         Command::from_number(golden.command).expect("a golden command"),
     )
+    .with_sequence(golden.sequence)
     .with_view(golden.view)
     .with_release(golden.release)
     .with_protocol(golden.protocol)
@@ -38,8 +39,29 @@ fn test_encode_places_size_and_checksum_body_as_given() {
     let encoded = Header::new(CLUSTER, Command::Hello).encode(0x0403_0201, 0x0807_0605_0403_0201);
     assert_eq!(&encoded[40..44], &[0x01, 0x02, 0x03, 0x04]);
     assert_eq!(&encoded[8..16], &[1, 2, 3, 4, 5, 6, 7, 8]);
-    assert_eq!(&encoded[16..32], &[0u8; 16], "nonce_reserved is zero");
+    assert_eq!(
+        &encoded[16..32],
+        &[0u8; 16],
+        "a new header's sequence is zero"
+    );
     assert_eq!(&encoded[66..128], &[0u8; 62], "the reserved bytes are zero");
+}
+
+#[test]
+fn test_encode_writes_the_sequence_little_endian_at_16() {
+    let sequence = 0x0F0E_0D0C_0B0A_0908_0706_0504_0302_0100u128;
+    let encoded = Header::new(CLUSTER, Command::Read)
+        .with_sequence(sequence)
+        .encode(256, 0);
+    assert_eq!(
+        &encoded[16..32],
+        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    );
+    assert_eq!(
+        &encoded[32..40],
+        &CLUSTER.to_le_bytes(),
+        "cluster follows it"
+    );
 }
 
 #[test]
@@ -61,7 +83,8 @@ fn test_the_largest_frame_is_one_mebibyte() {
         .encode_frame(&vec![0x5Au8; 1_046_272])
         .expect("1 MiB fits");
     assert_eq!(frame.len(), 1_048_576);
-    let view = FrameView::validate(&frame, CLUSTER).expect("the builder's frame validates");
+    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+        .expect("the builder's frame validates");
     assert_eq!(view.body().len(), 1_046_272);
 }
 

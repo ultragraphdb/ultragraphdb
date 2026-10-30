@@ -8,8 +8,8 @@ use ultragraphdb_client_core::{
 };
 use ultragraphdb_protocol_transport::NetworkFaults;
 use ultragraphdb_protocol_wire::{
-    ABSENT, BodyView, ColumnType, Command, CreditView, Execute, FrameView, PatternSlot, Prepare,
-    QuadPattern, Read, TermTable, Welcome,
+    ABSENT, BodyView, ColumnType, Command, CreditView, Execute, FrameView, MAX_FRAME_SIZE,
+    PatternSlot, Prepare, QuadPattern, Read, TermTable, Welcome,
 };
 
 use crate::utils::harness::{CLUSTER, Harness, RELEASE, config};
@@ -80,7 +80,7 @@ fn credits(h: &Harness) -> Vec<u32> {
         .received()
         .iter()
         .filter_map(|f| {
-            FrameView::validate(f, CLUSTER)
+            FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE)
                 .ok()
                 .and_then(|v| CreditView::from_frame(&v).ok().map(|c| c.frames()))
         })
@@ -114,7 +114,10 @@ fn test_a_read_streams_its_batches_read_in_place_until_the_last() {
 fn test_without_credit_the_client_grants_before_any_frame_arrives() {
     let mut h = Harness::with(
         config(),
-        Welcome::new(1, RELEASE, 1 << 20, 8, 0, "s"),
+        Welcome::new(1, RELEASE, "s")
+            .with_max_frame(1 << 20)
+            .with_max_streams(8)
+            .with_initial_credit(0),
         ServerScript {
             results: 3,
             ..ServerScript::default()
@@ -164,7 +167,10 @@ fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() {
         .server
         .received()
         .iter()
-        .filter(|f| FrameView::validate(f, CLUSTER).is_ok_and(|v| v.command() == Command::Cancel))
+        .filter(|f| {
+            FrameView::validate(f, CLUSTER, MAX_FRAME_SIZE)
+                .is_ok_and(|v| v.command() == Command::Cancel)
+        })
         .count();
     assert_eq!(cancels, 1);
     let next = h.core.read(&other, &read(), h.now).unwrap();
@@ -198,7 +204,7 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
     let execute = |id| {
         let mut terms = TermTable::new();
         let a = terms.iri("http://ex.org/a");
-        Execute::new(id, 0, terms, vec![a], Vec::new())
+        Execute::new(id, 0, 0, terms, vec![a], Vec::new())
     };
     let p = h.core.prepare(&prepare(), h.now).unwrap();
     let Ok(Reply::Prepared(statement)) = h.settle(p) else {

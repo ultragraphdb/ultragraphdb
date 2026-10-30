@@ -11,6 +11,7 @@ mod encoded_term_view;
 use ultragraphdb_common_utils::go_farm::fingerprint64;
 
 use crate::errors::term_error::TermError;
+use crate::types::known_datatype::KnownDatatype;
 
 /// The tags an encoding begins with. Each fixes how many bytes follow, or where to read their length, so an encoding
 /// inside a key ends where its tag says and a key needs no length field. They are stored: none changes meaning.
@@ -89,6 +90,48 @@ impl EncodedTerm {
                 bytes.to_vec(),
                 "bytes follow the encoding",
             ))
+        }
+    }
+
+    /// Whether `bytes`, received from a peer, hold exactly one whole encoding (`PROTOCOL.md` §10.1): its tag listed,
+    /// each inline length at most 15 and its text UTF-8, a boolean's byte 0 or 1, a known datatype's code one of
+    /// [`KnownDatatype`]'s, a vector's dimension at least 1, and exactly the length its tag gives.
+    /// [`EncodedTerm::from_bytes`] holds the rules of length alone, for the store's own keys.
+    pub fn check(bytes: &[u8]) -> Result<(), TermError> {
+        Self::from_bytes(bytes)?;
+        let malformed = |reason| Err(TermError::Malformed(bytes.to_vec(), reason));
+        // An inline part at `at`: its length byte, then its bytes, which the length rules proved present.
+        let inline_utf8 = |at: usize| {
+            let n = bytes.get(at).copied().map_or(0, usize::from);
+            bytes
+                .get(at + 1..at + 1 + n)
+                .is_some_and(|text| std::str::from_utf8(text).is_ok())
+        };
+        let known = |at: usize| {
+            bytes
+                .get(at)
+                .is_some_and(|code| KnownDatatype::from_code(*code).is_some())
+        };
+        let lexical_len = bytes.get(1).copied().map_or(0, usize::from);
+        match bytes.first().copied().unwrap_or_default() {
+            tag::BOOLEAN if bytes.get(1).is_none_or(|b| *b > 1) => {
+                malformed("a boolean other than 0 or 1")
+            }
+            tag::SMALL_STRING if !inline_utf8(1) => malformed("inline text that is not UTF-8"),
+            t if tag::SMALL_LANG.contains(&t)
+                && !(inline_utf8(1) && inline_utf8(2 + lexical_len)) =>
+            {
+                malformed("inline text that is not UTF-8")
+            }
+            t if tag::BIG_LANG.contains(&t) && !inline_utf8(17) => {
+                malformed("inline text that is not UTF-8")
+            }
+            tag::SMALL_KNOWN | tag::BIG_KNOWN if !known(1) => Err(TermError::UnknownDatatype(
+                bytes.get(1).copied().unwrap_or_default(),
+            )),
+            tag::SMALL_KNOWN if !inline_utf8(2) => malformed("inline text that is not UTF-8"),
+            tag::SMALL_TYPED if !inline_utf8(9) => malformed("inline text that is not UTF-8"),
+            _ => Ok(()),
         }
     }
 

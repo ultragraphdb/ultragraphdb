@@ -8,7 +8,7 @@ use std::time::Instant;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     BeginView, BodyView, Command, CommitView, DescribeView, ErrorCode, ErrorReplyView, FrameView,
-    PrepareView, RegisterView,
+    MAX_FRAME_SIZE, PrepareView, RegisterView,
 };
 
 use crate::errors::client_error::ClientError;
@@ -29,7 +29,7 @@ pub(crate) fn refusal(view: &FrameView<'_>) -> Result<ClientError, ClientError> 
         error.code(),
         error.detail(),
         error.message(),
-        error.value().map(str::to_string),
+        error.value().map(|value| value.to_term()),
     ))
 }
 
@@ -61,8 +61,8 @@ impl ClientCore {
             if frame.command() != Command::Error.number() {
                 return Ok(());
             }
-            let closed =
-                FrameView::validate(frame.bytes(), self.config.cluster()).and_then(|view| {
+            let closed = FrameView::validate(frame.bytes(), self.config.cluster(), MAX_FRAME_SIZE)
+                .and_then(|view| {
                     ErrorReplyView::from_frame(&view)
                         .map(|e| ClientError::Closed(e.code(), e.message()))
                 });
@@ -94,10 +94,11 @@ impl ClientCore {
             return Ok(());
         }
         if frame.command() == Command::Error.number() {
-            let view = match FrameView::validate(frame.bytes(), self.config.cluster()) {
-                Ok(view) => view,
-                Err(error) => return self.fatal(ClientError::Protocol(error)),
-            };
+            let view =
+                match FrameView::validate(frame.bytes(), self.config.cluster(), MAX_FRAME_SIZE) {
+                    Ok(view) => view,
+                    Err(error) => return self.fatal(ClientError::Protocol(error)),
+                };
             match refusal(&view) {
                 Ok(error) => {
                     if let Some(state) = self.streams.get_mut(&stream) {
@@ -127,7 +128,7 @@ impl ClientCore {
         let Some(expect) = self.pending.get(&id).map(|p| p.expect) else {
             return Ok(());
         };
-        let view = match FrameView::validate(frame.bytes(), self.config.cluster()) {
+        let view = match FrameView::validate(frame.bytes(), self.config.cluster(), MAX_FRAME_SIZE) {
             Ok(view) => view,
             Err(error) => return self.fatal(ClientError::Protocol(error)),
         };
