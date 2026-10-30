@@ -56,6 +56,9 @@ where
         }
         Catalog::check_predicate(new)?;
         if let Some(spec) = new.vector_index() {
+            if spec.dimension().is_none() {
+                return Err(ChangesetError::NoDimension(iri));
+            }
             hnsw(
                 spec,
                 VectorKeys::new(iri, self.namespace(), DEFAULT_GRAPH, uid),

@@ -83,7 +83,11 @@ fn test_a_vector_index_is_built_over_held_vectors_and_the_writes_during_its_buil
             "<b> <emb> \"[0, 1, 0]\"^^ugdb:float32vector",
         ],
     );
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    );
     assert!(a.rebuilding());
     // Written while the index is built: the swap inserts it.
     write(&a, &["<c> <emb> \"[0, 0, 1]\"^^ugdb:float32vector"]);
@@ -237,7 +241,11 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() {
             "<b> <emb> \"[0, 1, 0]\"^^ugdb:float32vector",
         ],
     );
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    );
     apply(
         &a,
         vec![delete("<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector")],
@@ -248,7 +256,10 @@ fn test_a_vector_deleted_during_its_build_is_dead_after_the_swap() {
     assert_eq!(found, vec![uid(&a, "b")], "a dead node is not found");
     assert_eq!(
         a.catalog(NS).unwrap().predicate(uid(&a, "emb")),
-        Some(&declaration("emb", "single-valued with a vector index"))
+        Some(&declaration(
+            "emb",
+            "single-valued with a vector index of dimension 3"
+        ))
     );
     // The swap marks the node whose vector the write deleted dead: the dead list holds `a` alone.
     let keys = ultragraphdb_store_hnsw::VectorKeys::new(
@@ -349,7 +360,11 @@ fn test_a_key_the_build_produces_nothing_for_is_deleted_at_the_build_s_timestamp
 #[test]
 fn test_a_vector_index_rebuilt_with_other_options_replaces_its_lists() {
     let a = changesets();
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    );
     write(
         &a,
         &[
@@ -361,10 +376,13 @@ fn test_a_vector_index_rebuilt_with_other_options_replaces_its_lists() {
     let with_levels =
         ultragraphdb_core_mapping::PredicateDeclaration::new(crate::utils::changesets::ex("emb"))
             .with_cardinality(ultragraphdb_core_mapping::Cardinality::Single)
-            .with_vector_index(ultragraphdb_core_mapping::VectorIndexSpec::new(
-                "hnsw",
-                vec![("maxLevels".to_string(), "4".to_string())],
-            ));
+            .with_vector_index(
+                ultragraphdb_core_mapping::VectorIndexSpec::new(
+                    "hnsw",
+                    vec![("maxLevels".to_string(), "4".to_string())],
+                )
+                .with_dimension(std::num::NonZeroU16::new(3).unwrap()),
+            );
     apply(
         &a,
         vec![ultragraphdb_core_mapping::Change::Declare(
@@ -412,7 +430,11 @@ fn test_a_vector_deleted_before_its_build_is_not_marked_dead() {
         vec![delete("<a> <emb> \"[1, 0, 0]\"^^ugdb:float32vector")],
     )
     .unwrap();
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    );
     finish_builds(&a);
     let keys = ultragraphdb_store_hnsw::VectorKeys::new(
         crate::utils::changesets::ex("emb").as_str(),

@@ -48,12 +48,19 @@ impl fmt::Display for ChangesetError {
             }
             ChangesetErrorEnum::Dimension {
                 predicate,
-                held,
+                declared,
                 written,
             } => write!(
                 f,
-                "Predicate <{predicate}> indexes vectors of {held} elements, and a vector of {written} was written"
+                "Predicate <{predicate}> indexes vectors of {declared} elements, and a vector of {written} was written"
             ),
+            ChangesetErrorEnum::NoDimension { predicate } => write!(
+                f,
+                "Predicate <{predicate}> declares a vector index without its dimension"
+            ),
+            ChangesetErrorEnum::NoVectorIndex { predicate } => {
+                write!(f, "Predicate <{predicate}> has no vector index")
+            }
             ChangesetErrorEnum::OperationFailed { found: Some(found) } => {
                 write!(f, "The operation did not hold: {found} is held")
             }

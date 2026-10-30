@@ -9,3 +9,5 @@ mod canonical_dataset;
 mod contract_version_tests;
 #[cfg(test)]
 mod names_tests;
+#[cfg(test)]
+mod vector_index_spec_tests;

@@ -5,7 +5,8 @@
 
 Feature: Vector index
   Dgraph's HNSW index from tok/hnsw, stored in posting lists: the entry point, every node's neighbour lists and the
-  dead list, searched by the predicate's metric.
+  dead list, searched by the predicate's metric. The scenarios of a declaration's parameters run in
+  ultragraphdb_store_apply's features, where a declaration states its dimension.
 
   Scenario: The first insert creates the entry point
     When the first vector is inserted into an empty index
@@ -26,10 +27,6 @@ Feature: Vector index
   Scenario: An empty index returns nothing
     When an index holding no vectors is searched
     Then the index reports an empty-index result, which the caller treats as no neighbours, and the search returns an empty result without error
-
-  Scenario: The exponent sets the parameters
-    When an hnsw index is declared with `exponent: "4"`
-    Then it uses 4 levels, an `efConstruction` of 200 and an `efSearch` of 120
 
   Scenario: A dead entry point hands over without wiping a node
     When the entry point's vector is deleted and another vector is inserted

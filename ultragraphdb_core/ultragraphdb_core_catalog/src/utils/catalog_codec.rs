@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::NonZeroU16;
+
 use oxrdf::NamedNode;
 use ultragraphdb_core_mapping::{
     Cardinality, Declaration, PredicateDeclaration, PredicateKind, RelationDeclaration,
@@ -13,7 +15,8 @@ use crate::errors::catalog_error::CatalogError;
 
 /// The format of a catalog entry's value: a version byte, then the declaration. A string is a u32 big-endian length
 /// and its UTF-8 bytes, an optional string a presence byte before it, a list a u16 big-endian count before its items.
-const FORMAT: u8 = 1;
+/// Format 2 holds a vector index's dimension, u16 big-endian after its factory, 0 for none.
+const FORMAT: u8 = 2;
 
 /// The kind of a catalog entry: the byte after the namespace in its key, and the byte after the format in its value.
 pub const PREDICATE: u8 = 1;
@@ -51,6 +54,8 @@ pub fn encode(declaration: &Declaration) -> Vec<u8> {
                 Some(spec) => {
                     w.push(1);
                     string(&mut w, spec.factory());
+                    let dimension = spec.dimension().map_or(0, NonZeroU16::get);
+                    w.extend_from_slice(&dimension.to_be_bytes());
                     count(&mut w, spec.options().len());
                     spec.options().iter().for_each(|(k, v)| {
                         string(&mut w, k);
@@ -119,10 +124,15 @@ pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Declaration, CatalogError> {
             p = p.with_count_index(r.flag()?);
             if r.flag()? {
                 let factory = r.string()?;
+                let dimension = NonZeroU16::new(r.u16()?);
                 let options = (0..r.count()?)
                     .map(|_| Ok((r.string()?, r.string()?)))
                     .collect::<Result<_, CatalogError>>()?;
-                p = p.with_vector_index(VectorIndexSpec::new(factory, options));
+                let spec = VectorIndexSpec::new(factory, options);
+                p = p.with_vector_index(match dimension {
+                    Some(d) => spec.with_dimension(d),
+                    None => spec,
+                });
             }
             let domains = (0..r.count()?).map(|_| r.iri()).collect::<Result<_, _>>()?;
             Declaration::Predicate(p.with_domains(domains))
@@ -205,9 +215,13 @@ impl Reader<'_> {
         }
     }
 
-    fn count(&mut self) -> Result<usize, CatalogError> {
+    fn u16(&mut self) -> Result<u16, CatalogError> {
         let b = self.take(2)?;
-        Ok(usize::from(u16::from_be_bytes([b[0], b[1]])))
+        Ok(u16::from_be_bytes([b[0], b[1]]))
+    }
+
+    fn count(&mut self) -> Result<usize, CatalogError> {
+        self.u16().map(usize::from)
     }
 
     fn string(&mut self) -> Result<String, CatalogError> {

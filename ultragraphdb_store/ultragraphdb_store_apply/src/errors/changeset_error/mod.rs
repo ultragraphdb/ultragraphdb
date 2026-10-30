@@ -58,11 +58,19 @@ pub enum ChangesetErrorEnum {
         factory: String,
         error: String,
     },
-    /// A vector whose dimension is not that of the vectors the predicate's index holds.
+    /// A vector whose dimension is not the one the predicate's vector index declares.
     Dimension {
         predicate: String,
-        held: usize,
+        declared: usize,
         written: usize,
+    },
+    /// A vector index declared without its dimension.
+    NoDimension {
+        predicate: String,
+    },
+    /// A vector search or index pass on a predicate the catalog declares with no vector index.
+    NoVectorIndex {
+        predicate: String,
     },
     /// A compare-and-set whose expected value is not held, or a counter add on a value that is no integer or would
     /// overflow: `found` is the value held, an N-Triples term, `None` when none is (7.5).
@@ -134,11 +142,25 @@ impl ChangesetError {
     }
 
     #[allow(non_snake_case)]
-    pub fn Dimension(predicate: &str, held: usize, written: usize) -> Self {
+    pub fn Dimension(predicate: &str, declared: usize, written: usize) -> Self {
         Self(ChangesetErrorEnum::Dimension {
             predicate: predicate.to_string(),
-            held,
+            declared,
             written,
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NoDimension(predicate: &str) -> Self {
+        Self(ChangesetErrorEnum::NoDimension {
+            predicate: predicate.to_string(),
+        })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn NoVectorIndex(predicate: &str) -> Self {
+        Self(ChangesetErrorEnum::NoVectorIndex {
+            predicate: predicate.to_string(),
         })
     }
 }

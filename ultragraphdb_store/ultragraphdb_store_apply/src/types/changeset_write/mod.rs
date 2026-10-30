@@ -13,7 +13,6 @@ mod changeset_write_triples;
 mod changeset_write_vector;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Mutex;
 
 use oxrdf::vocab::rdf;
 use oxrdf::{
@@ -27,7 +26,6 @@ use ultragraphdb_store_quads::{QuadError, QuadErrorEnum, QuadWrite, StatementRec
 use ultragraphdb_traits_store::{Entry, ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
-use crate::types::level_draw::LevelDraw;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 use crate::types::write_outcome::WriteOutcome;
@@ -59,8 +57,6 @@ pub(crate) struct ChangesetWrite<'a, S, C> {
     touched: BTreeSet<(u64, u64)>,
     /// The keys of the indexes the write's declarations remove.
     removals: Vec<PredicatePrefix>,
-    /// The level draws of the vector index's inserts.
-    draws: &'a Mutex<LevelDraw>,
 }
 
 impl<'a, S, C> ChangesetWrite<'a, S, C>
@@ -68,7 +64,7 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
-    pub fn new(write: QuadWrite<'a, S, C>, catalog: Catalog, draws: &'a Mutex<LevelDraw>) -> Self {
+    pub fn new(write: QuadWrite<'a, S, C>, catalog: Catalog) -> Self {
         Self {
             write,
             catalog,
@@ -82,7 +78,6 @@ where
             pending: None,
             touched: BTreeSet::new(),
             removals: Vec::new(),
-            draws,
         }
     }
 

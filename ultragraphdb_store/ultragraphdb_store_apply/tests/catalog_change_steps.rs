@@ -316,7 +316,11 @@ fn knows_gone(w: &mut Steps) {
 #[when("`emb` is declared with a vector index, holds vectors, and is dropped")]
 fn emb_dropped(w: &mut Steps) {
     let a = cs(w);
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 3",
+    );
     write(
         &a,
         &[

@@ -15,3 +15,5 @@ mod changeset_core_record_tests;
 mod changeset_core_replay_tests;
 #[cfg(test)]
 mod changeset_core_tests;
+#[cfg(test)]
+mod changeset_core_vectors_tests;

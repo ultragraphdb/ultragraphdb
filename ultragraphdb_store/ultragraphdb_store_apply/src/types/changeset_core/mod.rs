@@ -8,13 +8,14 @@ mod changeset_core_operate;
 mod changeset_core_rebuild;
 mod changeset_core_record;
 mod changeset_core_replay;
+mod changeset_core_vectors;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use ultragraphdb_core_catalog::Catalog;
-use ultragraphdb_core_keys::Region;
+use ultragraphdb_core_keys::{QuadKey, Region};
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
@@ -26,10 +27,10 @@ use crate::types::build_end::BuildEnd;
 use crate::types::changeset_write::ChangesetWrite;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
-use crate::types::level_draw::LevelDraw;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
+use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
 
 /// The lists a build made, by graph, then by key: a vector index's, built in memory.
@@ -43,7 +44,8 @@ pub(crate) struct Built {
 }
 
 /// What a [`crate::ChangesetApplier`] holds, shared with the builds it runs in the background: the quads, the
-/// catalogs loaded, the lock commits, drops and swaps take, the build under way, and the vector index's level draws.
+/// catalogs loaded, the lock commits, drops and swaps take, the build under way, the seed of the vector index's level
+/// draws, and each vector predicate's queue, which every applied round feeds and the vector indexer drains.
 /// Sequenced (decided 2026-10-28), a build ends with a proposal for the commit step instead of swapping itself in: the
 /// ends waiting to be taken, and what each build made, until its swap's round.
 #[derive(Debug)]
@@ -52,7 +54,8 @@ pub(crate) struct ChangesetCore<S, C> {
     catalogs: Mutex<BTreeMap<u64, Arc<Catalog>>>,
     apply: Mutex<()>,
     rebuild: Mutex<Option<Rebuild>>,
-    draw: Mutex<LevelDraw>,
+    seed: u64,
+    vectors: Mutex<BTreeMap<(u64, u64), VectorQueue>>,
     sequenced: AtomicBool,
     ended: Mutex<Vec<BuildEnd>>,
     built: Mutex<BTreeMap<u64, Built>>,
@@ -72,7 +75,8 @@ where
             catalogs: Mutex::new(BTreeMap::new()),
             apply: Mutex::new(()),
             rebuild: Mutex::new(None),
-            draw: Mutex::new(LevelDraw::new(seed)),
+            seed,
+            vectors: Mutex::new(BTreeMap::new()),
             sequenced: AtomicBool::new(false),
             ended: Mutex::new(Vec::new()),
             built: Mutex::new(BTreeMap::new()),
@@ -183,8 +187,7 @@ where
         let running = lock(&self.rebuild).clone();
         let catalog = (*self.catalog(namespace)?).clone();
         let write = QuadWrite::new(&self.quads, namespace, self.quads.lists().request(read_ts));
-        let cw = ChangesetWrite::new(write, catalog, &self.draw)
-            .under(running.as_ref(), running.is_some());
+        let cw = ChangesetWrite::new(write, catalog).under(running.as_ref(), running.is_some());
         Ok(Execution::new(namespace, read_ts, cw))
     }
 
@@ -214,8 +217,9 @@ where
     }
 
     /// Writes `round` under the apply lock the caller holds. A record naming the indexes its declarations build and
-    /// remove is written and synced before the round's batch; once the batch is written, the catalogs are installed,
-    /// the indexes removed are dropped and the build is registered, and a record no build keeps is removed.
+    /// remove is written and synced before the round's batch; once the batch is written, each execution's vectors are
+    /// queued for the indexer in commit order, the catalogs are installed, the indexes removed are dropped and the
+    /// build is registered, and a record no build keeps is removed.
     fn write_round(
         &self,
         mut round: Vec<(u64, Executed)>,
@@ -280,6 +284,7 @@ where
         let mut started = None;
         let mut applied = Vec::with_capacity(round.len());
         for (version, executed) in round {
+            self.queue_vectors(version, &executed);
             let written: BTreeSet<Region> = executed
                 .writes
                 .written_keys()
@@ -327,6 +332,40 @@ where
 }
 
 impl<S, C> ChangesetCore<S, C> {
+    /// Queues for the indexer each vector `executed`, committed at `version`, wrote or removed: every forward list it
+    /// wrote of a predicate its catalog declares with a vector index, a transaction's, an operation's or a replayed
+    /// record's alike.
+    fn queue_vectors(&self, version: u64, executed: &Executed) {
+        let changed = executed.writes.written_keys().filter_map(|key| {
+            let Ok((
+                QuadKey::Forward {
+                    namespace,
+                    graph,
+                    predicate,
+                    subject,
+                },
+                None,
+            )) = QuadKey::parse(key)
+            else {
+                return None;
+            };
+            executed
+                .catalog
+                .predicate(predicate)
+                .and_then(|d| d.vector_index())
+                .map(|_| ((namespace, predicate), (version, graph, subject)))
+        });
+        let mut queues = None;
+        for (queue, change) in changed {
+            queues
+                .get_or_insert_with(|| lock(&self.vectors))
+                .entry(queue)
+                .or_insert_with(VectorQueue::default)
+                .pending
+                .push(change);
+        }
+    }
+
     /// Installs the catalog an execution leaves. One that changed the catalog is installed with every predicate the
     /// installed catalog holds and it does not: the implicit default entries other executions wrote since it read,
     /// which are no catalog change and so did not abort it. One that only wrote default entries adds each to the

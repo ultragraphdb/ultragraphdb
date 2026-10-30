@@ -193,7 +193,8 @@ pub fn delete_pattern(subject: &str, predicate: &str) -> Change {
 }
 
 /// The declaration a phrase states for `predicate`: `edge` or `property`, `single-valued`, `unique`, `count index`,
-/// `vector index`, a backticked `xsd:` datatype, and backticked tokenizers.
+/// `vector index`, with its dimension when the phrase says `of dimension N`, a backticked `xsd:` datatype, and
+/// backticked tokenizers.
 pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
     let mut d = PredicateDeclaration::new(ex(predicate));
     if phrase.contains("an edge") {
@@ -212,7 +213,12 @@ pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
         d = d.with_count_index(true);
     }
     if phrase.contains("vector index") {
-        d = d.with_vector_index(VectorIndexSpec::new("hnsw", Vec::new()));
+        let mut spec = VectorIndexSpec::new("hnsw", Vec::new());
+        if let Some((_, after)) = phrase.split_once("of dimension ") {
+            let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
+            spec = spec.with_dimension(digits.parse().expect("a dimension"));
+        }
+        d = d.with_vector_index(spec);
     }
     let quoted: Vec<&str> = phrase.split('`').skip(1).step_by(2).collect();
     let tokenizers = quoted
@@ -264,6 +270,20 @@ pub fn declared(
 pub fn write<T: AsRef<str>>(a: &TestChangesets, texts: &[T]) {
     for text in texts {
         apply(a, vec![insert(text.as_ref())]).expect("the write applies");
+    }
+}
+
+/// Runs one pass of the vector indexer of `predicate`: the version it indexed through.
+pub fn index(a: &TestChangesets, predicate: &str) -> u64 {
+    a.index_vectors(NS, ex(predicate).as_ref())
+        .expect("the indexer runs")
+}
+
+/// Writes `texts`, one changeset each, the vector indexer of `predicate` running after each.
+pub fn write_indexed<T: AsRef<str>>(a: &TestChangesets, predicate: &str, texts: &[T]) {
+    for text in texts {
+        apply(a, vec![insert(text.as_ref())]).expect("the write applies");
+        index(a, predicate);
     }
 }
 

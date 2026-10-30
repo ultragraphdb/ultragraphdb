@@ -10,6 +10,7 @@ use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_store_quads::QuadStore;
+use ultragraphdb_traits_index::VectorIndexOptions;
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -253,6 +254,61 @@ where
         let (applied, started) = self.core.apply(changeset)?;
         self.spawn(started);
         Ok(applied)
+    }
+
+    /// One pass of the vector indexer of `predicate` in `namespace`: every vector the rounds applied since its last pass
+    /// wrote or removed, in commit order, inserted into the predicate's HNSW lists of its graph, or its node marked
+    /// dead, each node's vector read at the watermark, and the lists written at the next version, nothing committing
+    /// between the two. Transactions write vectors in their forward lists alone; the indexer is what writes the HNSW
+    /// lists. The version indexed through: the watermark the pass read at.
+    ///
+    /// # Errors
+    ///
+    /// [`ChangesetError::NoVectorIndex`] when the catalog declares `predicate` with no vector index; the store's error.
+    pub fn index_vectors(
+        &self,
+        namespace: u64,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<u64, ChangesetError> {
+        self.core.index_vectors(namespace, predicate)
+    }
+
+    /// The version the vector indexer of `predicate` in `namespace` has indexed through: every vector a round applied
+    /// at or below it is in the HNSW lists; 0 before its first pass.
+    ///
+    /// # Errors
+    ///
+    /// The store's error reading the dictionary.
+    pub fn indexed_version(
+        &self,
+        namespace: u64,
+        predicate: NamedNodeRef<'_>,
+    ) -> Result<u64, ChangesetError> {
+        self.core.indexed_version(namespace, predicate)
+    }
+
+    /// The nodes of at most `k` vectors of `predicate` in `graph` of `namespace` nearest `query`, best first, by the
+    /// predicate's vector index as `options` ask, read at `read_ts`. A search reads the HNSW lists, and returns only
+    /// nodes whose vector is visible at its snapshot and which the lists hold: a vector committed and not yet indexed
+    /// is absent until the indexer reaches it. An index holding no vector finds none.
+    ///
+    /// # Errors
+    ///
+    /// [`ChangesetError::NoVectorIndex`] when the catalog declares `predicate` with no vector index; the store's error;
+    /// a stored list that does not decode.
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_vectors(
+        &self,
+        namespace: u64,
+        graph: GraphNameRef<'_>,
+        predicate: NamedNodeRef<'_>,
+        query: &[f32],
+        k: usize,
+        options: &VectorIndexOptions<f32>,
+        read_ts: u64,
+    ) -> Result<Vec<u64>, ChangesetError> {
+        self.core
+            .search_vectors(namespace, graph, predicate, query, k, options, read_ts)
     }
 
     /// Spawns the build of record `started` on the executor, when one was started.

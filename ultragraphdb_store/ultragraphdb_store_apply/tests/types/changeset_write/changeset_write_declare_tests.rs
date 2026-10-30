@@ -5,7 +5,10 @@
 
 //! Declarations and the decision table: an index added to a predicate holding data is built, one added to a predicate
 //! without data is declared at once, one removed has its keys deleted without a build; one build runs at a time; a
-//! vector index's options are checked by its factory; entity types and relations are declared with their entries.
+//! vector index's options are checked by its factory, and its dimension is stated; entity types and relations are
+//! declared with their entries.
+
+use std::num::NonZeroU16;
 
 use ultragraphdb_core_keys::{CountDirection, Keyspace};
 use ultragraphdb_core_mapping::{
@@ -18,7 +21,7 @@ use ultragraphdb_traits_store::Store;
 
 use crate::utils::changesets::{
     NS, apply, changeset, changesets, counts_of, declaration, declare, declared, ex, finish_builds,
-    keys_of, reverse, uid, write,
+    index, keys_of, reverse, uid, write,
 };
 
 #[test]
@@ -114,7 +117,11 @@ fn test_removing_the_count_index_deletes_its_keys_and_keeps_the_reverse_lists() 
 #[test]
 fn test_removing_the_vector_index_deletes_its_lists_and_keeps_the_vectors() {
     let a = changesets();
-    declare(&a, "emb", "single-valued with a vector index");
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 2",
+    );
     write(
         &a,
         &[
@@ -122,6 +129,7 @@ fn test_removing_the_vector_index_deletes_its_lists_and_keeps_the_vectors() {
             "<b> <emb> \"[0, 1]\"^^ugdb:float32vector",
         ],
     );
+    index(&a, "emb");
     assert!(!keys_of(&a, Keyspace::VectorIndex, "emb").is_empty());
     declare(&a, "emb", "single-valued");
     assert!(!a.rebuilding());
@@ -130,11 +138,57 @@ fn test_removing_the_vector_index_deletes_its_lists_and_keeps_the_vectors() {
 }
 
 #[test]
+fn test_a_vector_index_without_a_dimension_is_refused_and_not_held() {
+    let a = changesets();
+    let refused = declared(&a, "emb", "single-valued with a vector index").unwrap_err();
+    assert!(
+        matches!(&refused.0, ChangesetErrorEnum::NoDimension { predicate } if predicate == ex("emb").as_str()),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        "Predicate <http://ex.org/emb> declares a vector index without its dimension"
+    );
+    // Nothing of the declaration is held: no catalog entry for `emb`.
+    let held = a
+        .quads()
+        .uid_of(NS, ex("emb").as_str())
+        .unwrap()
+        .and_then(|p| a.catalog(NS).unwrap().predicate(p).cloned());
+    assert_eq!(held, None);
+}
+
+#[test]
+fn test_a_vector_index_s_dimension_is_held_in_the_catalog() {
+    let a = changesets();
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 768",
+    );
+    let declared = a.catalog(NS).unwrap().predicate(uid(&a, "emb")).cloned();
+    assert_eq!(
+        declared
+            .as_ref()
+            .and_then(|d| d.vector_index())
+            .and_then(|v| v.dimension()),
+        NonZeroU16::new(768)
+    );
+    // The catalog loaded again from the store holds it too.
+    a.forget_catalogs();
+    assert_eq!(
+        a.catalog(NS).unwrap().predicate(uid(&a, "emb")).cloned(),
+        declared
+    );
+}
+
+#[test]
 fn test_vector_options_their_factory_refuses_are_refused() {
     let a = changesets();
     let with = |options: Vec<(String, String)>| {
-        PredicateDeclaration::new(ex("emb"))
-            .with_vector_index(VectorIndexSpec::new("hnsw", options))
+        PredicateDeclaration::new(ex("emb")).with_vector_index(
+            VectorIndexSpec::new("hnsw", options).with_dimension(NonZeroU16::new(2).unwrap()),
+        )
     };
     let refused = apply(
         &a,

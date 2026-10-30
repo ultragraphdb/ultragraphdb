@@ -20,4 +20,5 @@ pub(crate) mod predicate_prefix;
 pub(crate) mod reads;
 pub(crate) mod rebuild;
 pub(crate) mod record_writes;
+pub(crate) mod vector_queue;
 pub(crate) mod write_outcome;

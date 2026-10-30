@@ -5,10 +5,11 @@
 
 Feature: HNSW lists in the vector-index keyspace
   A predicate declared with a vector index keeps each vector as a `ugdb:float32vector` literal in its forward list,
-  which the HNSW search reads, and its HNSW lists in the vector-index keyspace under its graph and predicate.
+  which the HNSW search reads, and its HNSW lists in the vector-index keyspace under its graph and predicate, which the
+  vector indexer writes; the steps run its pass after each write.
 
   Scenario: A vector of another dimension is refused
-    When a vector index on `embedding` holds 768-element vectors and a 512-element vector is written to `embedding`
+    When a vector index on `embedding` is declared with dimension 768 and a 512-element vector is written to `embedding`
     Then the write fails with an error naming `embedding`, 768 and 512, and nothing of its changeset is held
 
   Scenario: The first insert creates the entry point

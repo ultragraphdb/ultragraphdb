@@ -296,7 +296,7 @@ The numbers above are placeholders until the protocol block assigns them.
 
 | When | What |
 |---|---|
-| Protocol block (stage 5) | Every wire change above, in the specification, the wire, the transport's handshake machine and the Rust client: the Authenticate exchange and re-authentication, the codes, `principal` in the record and the session entry, the session's owner checked. `SCRAM-SHA-256` in the client core and the scripted server |
+| Protocol block (stage 5) | Every wire change above, in the specification, the wire, the transport's handshake machine and the Rust client: the Authenticate exchange and re-authentication, the codes, `principal` in the record and the session entry, the session's owner checked. `SCRAM-SHA-256` in the client core and its test server |
 | The server (group 10) | The server's side of the exchange: `SCRAM-SHA-256`, the password rules, throttling, the audit of authentication; running without authentication on loopback only; the bootstrap administrator from its secret file; the authorizer seam, holding every privilege for an authenticated principal and failing closed on what it does not know |
 | Stage 7 | The security catalog: principals, their external identities, roles, grants, trusted issuers and their group mappings, the epoch; RBAC enforcement through the access value; Describe filtered; the administration commands and their audit |
 | With TLS | TLS 1.3 on the port; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER`, and with it single sign-on; `EXTERNAL`; replica certificates |

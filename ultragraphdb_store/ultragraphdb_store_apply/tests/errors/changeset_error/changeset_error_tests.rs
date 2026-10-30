@@ -62,8 +62,20 @@ fn test_the_constructors_build_their_variants() {
         ChangesetError::Dimension("p", 768, 512).0,
         ChangesetErrorEnum::Dimension {
             predicate: "p".into(),
-            held: 768,
+            declared: 768,
             written: 512,
+        }
+    );
+    assert_eq!(
+        ChangesetError::NoDimension("p").0,
+        ChangesetErrorEnum::NoDimension {
+            predicate: "p".into()
+        }
+    );
+    assert_eq!(
+        ChangesetError::NoVectorIndex("p").0,
+        ChangesetErrorEnum::NoVectorIndex {
+            predicate: "p".into()
         }
     );
 }
@@ -105,6 +117,14 @@ fn test_the_texts_of_the_applier_s_own_variants() {
         (
             ChangesetError::Dimension("http://ex.org/e", 768, 512),
             "Predicate <http://ex.org/e> indexes vectors of 768 elements, and a vector of 512 was written",
+        ),
+        (
+            ChangesetError::NoDimension("http://ex.org/e"),
+            "Predicate <http://ex.org/e> declares a vector index without its dimension",
+        ),
+        (
+            ChangesetError::NoVectorIndex("http://ex.org/e"),
+            "Predicate <http://ex.org/e> has no vector index",
         ),
     ];
     for (error, text) in cases {

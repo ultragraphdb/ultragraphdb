@@ -9,9 +9,7 @@
 
 use cucumber::{World, then, when};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
-use ultragraphdb_store_hnsw::{
-    HnswError, PersistentHnsw, bytes_to_uint64, decode_uint64_matrix, parse_edges,
-};
+use ultragraphdb_store_hnsw::{HnswError, bytes_to_uint64, decode_uint64_matrix, parse_edges};
 use ultragraphdb_store_sim::SimRng;
 use ultragraphdb_traits_index::{KeyValue, Metric, VectorIndexOptions, accept_all};
 
@@ -24,7 +22,7 @@ mod utils {
 
 use crate::utils::helpers::{
     TestLists, brute_force, delete, draw, index_value, insert, key, new_lists, opts, oracle_score,
-    pred, search, vkeys,
+    pred, search,
 };
 
 /// What a search of an empty index reported, and the neighbours its caller took from it.
@@ -39,7 +37,6 @@ struct Steps {
     compared: Vec<(Metric, Vec<u64>, Vec<u64>)>,
     within: Vec<(Metric, f64, Vec<f64>)>,
     empty: Option<EmptySearch>,
-    parameters: (usize, usize, usize),
     heir_lists: Vec<Vec<u64>>,
 }
 
@@ -304,22 +301,6 @@ fn empty_result(w: &mut Steps) {
         "{reported:?}"
     );
     assert!(neighbours.is_empty());
-}
-
-#[when("an hnsw index is declared with `exponent: \"4\"`")]
-fn exponent_four(w: &mut Steps) {
-    let index =
-        PersistentHnsw::<f32>::new(vkeys(&pred("emb")), &opts(&[("exponent", "4")]), 32).unwrap();
-    w.parameters = (
-        index.max_levels(),
-        index.ef_construction(),
-        index.ef_search(),
-    );
-}
-
-#[then("it uses 4 levels, an `efConstruction` of 200 and an `efSearch` of 120")]
-fn exponent_parameters(w: &mut Steps) {
-    assert_eq!(w.parameters, (4, 200, 120));
 }
 
 fn main() {

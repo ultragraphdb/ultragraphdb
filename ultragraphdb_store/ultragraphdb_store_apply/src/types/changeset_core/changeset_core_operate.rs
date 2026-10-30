@@ -39,7 +39,7 @@ where
         terms.inherit(dictionary);
         write.seed(&executed.writes, terms)?;
         let running = lock(&self.rebuild).clone();
-        let mut cw = ChangesetWrite::new(write, executed.catalog.clone(), &self.draw)
+        let mut cw = ChangesetWrite::new(write, executed.catalog.clone())
             .under(running.as_ref(), running.is_some());
         cw.initial()?;
         for (index, operation) in operations.iter().enumerate() {

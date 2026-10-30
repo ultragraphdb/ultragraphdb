@@ -162,7 +162,7 @@ where
             statement_ids,
             &kind_of(object),
         );
-        self.index_vector(r.graph, r.subject, r.predicate, declaration, &r.object)?;
+        self.vector_changed(r.graph, r.subject, r.predicate, &r.object);
         if let Some((objects, subjects)) = counts {
             self.move_counts(
                 r.graph,
@@ -215,7 +215,7 @@ where
         ids.into_iter().for_each(|id| {
             self.records.insert((graph, id), None);
         });
-        self.unindex_vector(graph, subject, predicate, declaration, object)?;
+        self.vector_changed(graph, subject, predicate, object);
         if let Some((objects, subjects)) = counts {
             self.move_counts(
                 graph,

@@ -38,6 +38,7 @@ use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
 use crate::types::build_buffer::{BuildBuffer, DELTAS, SWAP, delta_item, swap_entry};
 use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::{Built, BuiltVectors, ChangesetCore};
+use crate::types::level_draw::LevelDraw;
 use crate::types::overlay_txn::OverlayTxn;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
@@ -334,8 +335,9 @@ where
                 let Some(vector) = bytes_as_float_array::<f32>(&bytes) else {
                     return Ok(());
                 };
-                let mut draw = || lock(&self.draw).next_f64();
-                VectorIndex::insert(index, txn, node, &vector, &mut draw)?;
+                let mut levels =
+                    LevelDraw::of_node(self.seed, keys.namespace(), keys.predicate(), node);
+                VectorIndex::insert(index, txn, node, &vector, &mut || levels.next_f64())?;
             }
             Err(e) if e.is_absence() => {
                 if dead_when_absent {

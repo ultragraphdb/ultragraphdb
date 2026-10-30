@@ -8,9 +8,15 @@
 //! A [`ChangesetApplier`] holds the quad store, the catalog of each namespace and the executor its builds run on. A
 //! changeset is one request of the posting lists: its terms resolved, its operations checked against the catalog, its
 //! statements written to the forward, reverse and predicate lists with their value-index tokens, counts, statement
-//! records, HNSW lists and statistics, committed whole or not at all. A declaration the data contradicts is refused; one
-//! adding an index to a predicate holding data builds it in the background while writes maintain the old declaration's
-//! indexes and the new one's, and swaps it in with one batch. Drops remove what they drop physically, in every graph.
+//! records and statistics, committed whole or not at all. A declaration the data contradicts is refused; one adding an
+//! index to a predicate holding data builds it in the background while writes maintain the old declaration's indexes
+//! and the new one's, and swaps it in with one batch. Drops remove what they drop physically, in every graph.
+//!
+//! A vector is written in its forward list alone, checked against the dimension its predicate's vector index declares.
+//! Each round applied queues the vectors it wrote or removed; the vector indexer
+//! ([`ChangesetApplier::index_vectors`]) inserts them into the HNSW lists in commit order, each node's level drawn from
+//! its own stream ([`LevelDraw::of_node`]), and records the version it indexed through; a search
+//! ([`ChangesetApplier::search_vectors`]) returns only nodes the lists hold whose vector is visible at its snapshot.
 //!
 //! ```
 //! use oxrdf::{GraphName, Literal, NamedNode, Term};
