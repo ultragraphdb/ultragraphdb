@@ -1,0 +1,23 @@
+ROADMAP.md
+  s_e7d9aa044e41ea::t_1674259dd0ccb4 46-68
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/message.rs
+  s_e7d9aa044e41ea::t_442fb06b9dff1c 53
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/bdd.rs
+  s_e7d9aa044e41ea::t_ade40c57f17610 21,23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e9cd774e569defa6e0d22a9338617c1d21260e87",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
