@@ -1,0 +1,190 @@
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/scram_error/scram_error_display.rs
+  s_e7d9aa044e41ea::t_b89beb9b1ac6ea 1-31
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_f8b87d48f5ace9 1-13
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_connection/mod.rs
+  s_e7d9aa044e41ea::t_e856295715e06f 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/mod.rs
+  s_e7d9aa044e41ea::t_226ce15e68813c 1-13
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/constants.rs
+  s_e7d9aa044e41ea::t_1e438f81745ab9 1-16
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/traits/authenticator.rs
+  s_e7d9aa044e41ea::t_09ba0088834db2 1-16
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/errors/scram_error/scram_error_tests.rs
+  s_e7d9aa044e41ea::t_ccfde9af65823b 1-67
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/features/wire-protocol/conversations.feature
+  s_e7d9aa044e41ea::t_338fa3a4e288f1 6-11,32-91
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/utils/mod.rs
+  s_e7d9aa044e41ea::t_0ba9870fdb9476 8-11
+ultragraphdb_client/ultragraphdb_client_compio/src/types/client/mod.rs
+  s_e7d9aa044e41ea::t_a2af45dc82a5be 11,84-87
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/crypto.rs
+  s_e7d9aa044e41ea::t_9303cafa11de45 1-47
+Cargo.toml
+  s_e7d9aa044e41ea::t_5686cf0dcf3a2d 62,113-118
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/server_handshake/mod.rs
+  s_e7d9aa044e41ea::t_a2c854afef4f40 29,31-33
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/mod.rs
+  s_e7d9aa044e41ea::t_7833081f314213 1-10
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/mechanism_step.rs
+  s_e7d9aa044e41ea::t_e816f5a5291177 1-16
+MODULE.bazel.lock
+  s_e7d9aa044e41ea::t_52f9fd4143348b 592,595,682,794,893,910,970,974
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/pooled_buffer/pooled_buffer_tests.rs
+  s_e7d9aa044e41ea::t_d0a26e75744937 7,22-29
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/server_connection/mod.rs
+  s_e7d9aa044e41ea::t_3a6feb9e5e47b6 1-440
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/received_frame/mod.rs
+  s_e7d9aa044e41ea::t_96253f3f068ec2 7,11-12,17-20,24-41,49-52,54-83
+ultragraphdb_client/ultragraphdb_client_compio/tests/utils/serve.rs
+  s_e7d9aa044e41ea::t_10a40ff1db1c1c 20,22,48
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/client_authentication/mod.rs
+  s_e7d9aa044e41ea::t_468930cb5f85a9 1-7
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  s_e7d9aa044e41ea::t_60dddce51a5045 296-381
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/mod.rs
+  s_e7d9aa044e41ea::t_6d82fee58f96a4 1-6
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_authenticator/mod.rs
+  s_e7d9aa044e41ea::t_d89bc461aac2bc 1-53
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/traits/mod.rs
+  s_e7d9aa044e41ea::t_03117e340df747 1-6
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/utils/rfc7677.rs
+  s_e7d9aa044e41ea::t_ed31feb5a374fa 1-36
+AGENTS.md
+  s_e7d9aa044e41ea::t_ea6a71dabfd52b 219
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/message.rs
+  s_e7d9aa044e41ea::t_5f0ce94391e638 1-62
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/traits/credentials.rs
+  s_e7d9aa044e41ea::t_4fb0d615fae9c8 1-13
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_client/mod.rs
+  s_e7d9aa044e41ea::t_e8b6d112537c7e 1-128
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/framer/framer_tests.rs
+  s_e7d9aa044e41ea::t_b34d6991b2cb7d 181
+  s_e7d9aa044e41ea::t_d1deb6493b229a 40,76-83,92,116-123,127,151-158,165-172,182-190,204,213,223-310
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_server/mod.rs
+  s_e7d9aa044e41ea::t_4db124f39a7f7e 1-168
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_client/scram_client_tests.rs
+  s_e7d9aa044e41ea::t_962aa8355e8491 1-128
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/credential/credential_tests.rs
+  s_e7d9aa044e41ea::t_fc22fe513658d2 1-23
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/received_frame/received_frame_tests.rs
+  s_e7d9aa044e41ea::t_c33c9ff6a0486e 9,20,27-31,36,49-150
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/utils/mechanism.rs
+  s_e7d9aa044e41ea::t_a94b673ca6d384 1-130
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/traits/server_mechanism.rs
+  s_e7d9aa044e41ea::t_8085336c8df6ee 1-19
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_server/mod.rs
+  s_e7d9aa044e41ea::t_9be6e7901d1bec 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/client_authentication/client_authentication_tests.rs
+  s_e7d9aa044e41ea::t_92144c4c70e65f 1-138
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header/header_encode.rs
+  s_e7d9aa044e41ea::t_ccbc126864f959 42-58
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/scram_error/mod.rs
+  s_e7d9aa044e41ea::t_0da0372455dd35 1-85
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/bdd.rs
+  s_e7d9aa044e41ea::t_5ba53836815573 7-10,13-18,21-24,39-41,53-82,85-96,99-137,143,145-146,150-151,155-156,158-162,164-182,185-189,192-197,200-210,212-224,227,230,233,242-243,245,248-295,300-320,328-367,369-370,374-375,378-379,414-416,421-428,449-450,484-490,500,502,512-1014
+  s_e7d9aa044e41ea::t_c88ba823084feb 97-98
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/errors/transport_error/transport_error_display.rs
+  s_e7d9aa044e41ea::t_f29d1642463a77 40-42
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/utils/constants_tests.rs
+  s_e7d9aa044e41ea::t_c77ae04d07175d 1-15
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_verifier/scram_verifier_tests.rs
+  s_e7d9aa044e41ea::t_252f09c284869a 1-59
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/header/header_encode_tests.rs
+  s_e7d9aa044e41ea::t_bdd9b33abe3a4d 111-134
+ultragraphdb_client/ultragraphdb_client_tokio/src/types/client/mod.rs
+  s_e7d9aa044e41ea::t_82eba91e0f5564 82
+ultragraphdb_protocol/ultragraphdb_protocol_scram/BUILD.bazel
+  s_e7d9aa044e41ea::t_b0c70c9757dd1e 1-47
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/utils/mod.rs
+  s_e7d9aa044e41ea::t_2aac09204260fb 1-8
+  s_e7d9aa044e41ea::t_2b6ceb946347ea 9
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/errors/mod.rs
+  s_e7d9aa044e41ea::t_870bc7ff8f0872 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/Cargo.toml
+  s_e7d9aa044e41ea::t_781448628c3e0e 28
+Cargo.lock
+  s_e7d9aa044e41ea::t_6a66c60402b182 527-532,542-550,784,1120-1128,1790-1799,2206-2216,2301-2311,2978-2990,3007,3321-3326,3342-3347
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/scram_error/scram_error_error.rs
+  s_e7d9aa044e41ea::t_02251e9da2c2ca 1-10
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_exchange/scram_exchange_server_mechanism.rs
+  s_e7d9aa044e41ea::t_02bda53fbd989f 1-29
+ultragraphdb_protocol/ultragraphdb_protocol_scram/Cargo.toml
+  s_e7d9aa044e41ea::t_51b86bf4dcbba9 1-34
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_server/scram_server_tests.rs
+  s_e7d9aa044e41ea::t_e5c86623e2b2ef 1-136
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_dc867d751717c8 9-10,13-14,29-30
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_verifier/mod.rs
+  s_e7d9aa044e41ea::t_589d220e34fbfa 1-7
+ultragraphdb_client/ultragraphdb_client_core/tests/utils/harness.rs
+  s_e7d9aa044e41ea::t_52ecaabbe4969a 21,61
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_authenticator/scram_authenticator_tests.rs
+  s_e7d9aa044e41ea::t_e7a86f2d3c8380 1-68
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/errors/transport_error/mod.rs
+  s_e7d9aa044e41ea::t_1a64871aecdded 42-43,111-117
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/utils/peer.rs
+  s_e7d9aa044e41ea::t_6eb9c0ac52ecd7 1-64
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/credential.rs
+  s_e7d9aa044e41ea::t_7e5e5169dffe9c 1-50
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_authenticator/mod.rs
+  s_e7d9aa044e41ea::t_44077bd90d64c0 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/traits/client_mechanism.rs
+  s_e7d9aa044e41ea::t_fba16e37bec939 1-25
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/lib.rs
+  s_e7d9aa044e41ea::t_320e0ee2dc87f5 1-30
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/outbound/mod.rs
+  s_e7d9aa044e41ea::t_4e92f130e0f808 8,22-31,34,39-44,50,52,63,65-108,110-123,129-132,145,172-173,175,178-180,182-185,204,207
+ultragraphdb_client/ultragraphdb_client_tokio/tests/utils/serve.rs
+  s_e7d9aa044e41ea::t_d2e192e527a2fd 19,49
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/inbound.rs
+  s_e7d9aa044e41ea::t_926ff58b6548f5 1-27
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_client/mod.rs
+  s_e7d9aa044e41ea::t_617fd8b5812735 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_connection/server_connection_tests.rs
+  s_e7d9aa044e41ea::t_8dc2fc3b432b1c 1-716
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/client_authentication/mod.rs
+  s_e7d9aa044e41ea::t_2090d0f3c58cfc 1-101
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/traits/mod.rs
+  s_e7d9aa044e41ea::t_69381bbeca8eb6 1-8
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_client/scram_client_mechanism.rs
+  s_e7d9aa044e41ea::t_36a226d610d61b 1-30
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/lib.rs
+  s_e7d9aa044e41ea::t_7236bb93ee73f7 14-18,22,27-29,31,33,37-38,44
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/framer/mod.rs
+  s_e7d9aa044e41ea::t_2fae354559e89e 7,17-20,24-25,27-28,32-34,37-38,40-41,45-58,73,84-89,122-123,126-135
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_exchange/mod.rs
+  s_e7d9aa044e41ea::t_10b5d5020d62cd 1-28
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/types/connection/connection_tests.rs
+  s_e7d9aa044e41ea::t_e55c728636ae56 9-11,32-33,71-79,149-150,320-324
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_verifier/mod.rs
+  s_e7d9aa044e41ea::t_26f0c7545aed19 1-62
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/mod.rs
+  s_e7d9aa044e41ea::t_e9a7bc1ac6c882 7,9,13-14,20
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/errors/scram_error/mod.rs
+  s_e7d9aa044e41ea::t_9b47b1c67cd534 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/mod.rs
+  s_e7d9aa044e41ea::t_6bd1bd1014146e 1-8
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/connection/mod.rs
+  s_e7d9aa044e41ea::t_9e2ac350fc2486 52-60,137-139
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/credential/mod.rs
+  s_e7d9aa044e41ea::t_b46aeec23ca9ac 1-7
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/outbound/outbound_tests.rs
+  s_e7d9aa044e41ea::t_c9aee8dbdbc7d9 9-10,36-45,47-51,99,136,171,187-302
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7318d5b6787f3e07b00a664730cec80c1f3fe987",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
