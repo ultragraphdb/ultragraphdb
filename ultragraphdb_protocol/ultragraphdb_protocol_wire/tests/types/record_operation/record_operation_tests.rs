@@ -137,4 +137,20 @@ fn test_a_malformed_operation_is_refused() {
             unit: 16
         }
     );
+    // A section of 24 bytes: one operation and eight more, which is not "empty or one operation".
+    let mut long = WriteSetRecord::new(0, 1, 2, 3).encode();
+    let end = long.len() as u32;
+    long[at..at + 4].copy_from_slice(&end.to_le_bytes());
+    long[at + 4..at + 8].copy_from_slice(&24u32.to_le_bytes());
+    long.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]);
+    long.extend_from_slice(&[0; 16]);
+    assert_eq!(
+        WriteSetRecordView::new(&long).unwrap_err().0,
+        ProtocolErrorEnum::SectionLength {
+            command: 17,
+            section: 10,
+            len: 24,
+            unit: 16
+        }
+    );
 }

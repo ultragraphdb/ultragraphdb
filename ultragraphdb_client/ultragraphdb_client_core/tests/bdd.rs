@@ -570,11 +570,24 @@ fn renewal(w: &mut Steps) {
         u64::from(h.connections),
         h.core.principal().unwrap_or(0),
     ];
+    // A second past the first expiry, both sides' deadlines checked, a request is still served on this connection.
+    h.now += Duration::from_secs(1);
+    assert!(h.unix() > first.unwrap_or(0), "past the first expiry");
+    h.server.handle_timeout(h.now);
+    h.core.handle_timeout(h.now);
+    let p = h.core.register(h.now).unwrap();
+    w.outcome
+        .push(u64::from(matches!(h.settle(p), Ok(Reply::Registered(_)))));
+    w.outcome.push(u64::from(h.connections));
 }
 
 #[then("the read continues, and the connection serves requests past the first expiry")]
 fn renewed(w: &mut Steps) {
-    assert_eq!(w.outcome, vec![6, 1, TEST_PRINCIPAL]);
+    assert_eq!(
+        w.outcome,
+        vec![6, 1, TEST_PRINCIPAL, 1, 1],
+        "six batches, one connection, the principal; past the first expiry a Register served, on that connection"
+    );
 }
 
 fn main() {

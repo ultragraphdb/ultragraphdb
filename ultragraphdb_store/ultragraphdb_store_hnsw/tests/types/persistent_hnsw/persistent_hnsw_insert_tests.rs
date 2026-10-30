@@ -16,7 +16,7 @@ use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_hnsw::{
     HnswError, HnswErrorEnum, PersistentHnsw, TxnCache, bytes_as_float_array, bytes_to_uint64,
-    decode_uint64_matrix, encode_uint64_matrix,
+    decode_uint64_matrix, encode_uint64_matrix, uint64_to_bytes,
 };
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::SimRng;
@@ -231,12 +231,13 @@ impl Txn for FailingTxn {
     fn unlock_key(&self, _: &[u8]) {}
 }
 
-fn is_read_failure(e: &HnswError) -> bool {
+/// Whether `e` is the store's failed read of `failing`, the key the transaction fails.
+fn is_read_failure(e: &HnswError, failing: &[u8]) -> bool {
     matches!(
         &e.0,
         HnswErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(
-            StoreErrorEnum::ReadFailed { .. }
-        ))))
+            StoreErrorEnum::ReadFailed { key, .. }
+        )))) if key.as_slice() == failing
     )
 }
 
@@ -247,12 +248,12 @@ fn test_a_failed_entry_read_is_an_error() {
     let entry_key = key(&format!("{PRED}{VEC_ENTRY}"), 1);
     let txn = FailingTxn {
         inner: MapTxn::default(),
-        failing: entry_key,
+        failing: entry_key.clone(),
     };
     let e = flat_ph()
         .insert(&TxnCache::new(&txn, 1), 9, &[1.0], &mut || 0.5)
         .unwrap_err();
-    assert!(is_read_failure(&e), "{e}");
+    assert!(is_read_failure(&e, &entry_key), "{e}");
     assert!(txn.inner.db.borrow().is_empty(), "nothing written");
 }
 
@@ -282,7 +283,7 @@ fn test_a_failed_vector_read_is_an_error() {
     let e = flat_ph()
         .insert(&TxnCache::new(&txn, 1), 9, &[2.0, 2.0], &mut || 0.99)
         .unwrap_err();
-    assert!(is_read_failure(&e), "{e}");
+    assert!(is_read_failure(&e, &key(PRED, 6)), "{e}");
 }
 
 /// What the decoders refuse: a neighbour matrix that does not fill its bytes, an entry point of other than 8 bytes,
@@ -530,4 +531,155 @@ fn test_a_node_scores_worst_against_itself() {
     );
     let written = lists(&insert_one(&txn, 9, &[1.1, 0.0]));
     assert_eq!(written[&6], vec![vec![9, 6, 3]]);
+}
+
+/// A vector of another dimension than the index's fails the insert with the metric's `DifferentLengths`, Go's text
+/// (`helper.go` applyDistanceFunction), at the first layer search scoring it against the entry point; index
+/// maintenance then drops the changeset (`ultragraphdb_store_apply`). By hand: the entry point 3 holds 2 elements, the
+/// vector inserted 3. A draw of 0.99 starts the node on the bottom level of five (insert_layer(5, 0.99) = 4), so the
+/// search above it fails before anything is written for 9.
+#[test]
+fn test_an_insert_of_another_dimension_is_refused() {
+    for (metric, func_name) in [
+        ("euclidean", "euclidean distance"),
+        ("cosine", "cosine distance"),
+        ("dotproduct", "dot product"),
+    ] {
+        let o = opts(&[
+            ("maxLevels", "5"),
+            ("efConstruction", "16"),
+            ("efSearch", "12"),
+            ("metric", metric),
+        ]);
+        let index = || PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64).unwrap();
+        let txn = MapTxn::default();
+        txn.db
+            .borrow_mut()
+            .insert(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
+        index()
+            .insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.99)
+            .unwrap();
+        txn.db
+            .borrow_mut()
+            .insert(key(PRED, 9), float64_array_as_bytes(&[1.0, 0.0, 0.0]));
+        let e = index()
+            .insert(&TxnCache::new(&txn, 1), 9, &[1.0, 0.0, 0.0], &mut || 0.99)
+            .unwrap_err();
+        assert_eq!(e.0, HnswErrorEnum::DifferentLengths(func_name), "{metric}");
+        assert!(
+            !txn.db
+                .borrow()
+                .contains_key(&key(&format!("{PRED}{VEC_KEYWORD}"), 9)),
+            "{metric}: nothing written for 9"
+        );
+    }
+}
+
+/// When the entry point has lost its vector and the first node in key order holding one is the node inserted, that
+/// node becomes the entry point with empty lists at every level and the insert ends, as in Dgraph
+/// (`createEntryAndStartNodes` calls `create_edges(entry)` with `entry == inUuid`). By hand: 3 is the entry point, 6
+/// its neighbour; 3 loses its vector, and 1, which sorts before 6, is inserted.
+#[test]
+fn test_a_dead_entry_point_hands_over_to_the_node_inserted() {
+    let txn = MapTxn::default();
+    insert_one(&txn, 3, &[0.0, 0.0]);
+    insert_one(&txn, 6, &[1.0, 0.0]);
+    txn.db.borrow_mut().remove(&key(PRED, 3));
+    let edges = insert_one(&txn, 1, &[0.5, 0.0]);
+    assert_eq!(
+        edge_names(&edges),
+        vec!["0-a__vector__1", "0-a__vector_entry_1"]
+    );
+    assert_eq!(decode_uint64_matrix(edges[0].value()), Ok(vec![vec![]]));
+    assert_eq!(edges[1].value(), 1u64.to_be_bytes());
+}
+
+/// A node whose vector the transaction does not hold cannot score its neighbours: Dgraph's `addNeighbors` appends the
+/// new ones, drops `notAUid` and repeats, keeping the first of each, and cuts the list to `efConstruction`. By hand,
+/// with an `efConstruction` of 3: 9's stored list [0, 6, 6, 12, 15, 3] gains the search's [6, 3] (6 is 1 from 9's
+/// query vector (2, 0), 3 is 2 away), giving [0, 6, 6, 12, 15, 3, 6, 3], then [6, 12, 15, 3], then [6, 12, 15].
+/// Its neighbours score 9 worst, having no vector to score it by, so it goes last in their lists.
+#[test]
+fn test_a_node_without_its_vector_appends_dedupes_and_truncates() {
+    let o = opts(&[
+        ("maxLevels", "1"),
+        ("efConstruction", "3"),
+        ("efSearch", "3"),
+    ]);
+    let index = || PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64).unwrap();
+    let txn = MapTxn::default();
+    for (uid, v) in [(3u64, [0.0, 0.0]), (6, [1.0, 0.0])] {
+        txn.db
+            .borrow_mut()
+            .insert(key(PRED, uid), float64_array_as_bytes(&v));
+        index()
+            .insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)
+            .unwrap();
+    }
+    txn.db.borrow_mut().insert(
+        key(&format!("{PRED}{VEC_KEYWORD}"), 9),
+        encode_uint64_matrix(&[vec![0, 6, 6, 12, 15, 3]]),
+    );
+    let edges = index()
+        .insert(&TxnCache::new(&txn, 1), 9, &[2.0, 0.0], &mut || 0.5)
+        .unwrap();
+    assert_eq!(
+        lists(&edges),
+        BTreeMap::from([
+            (3, vec![vec![6, 9]]),
+            (6, vec![vec![3, 9]]),
+            (9, vec![vec![6, 12, 15]]),
+        ])
+    );
+}
+
+/// Above its own level an insert only looks for a better start, with the narrow `efSearch`, as Dgraph's
+/// `insertHelper` does; `efConstruction` is the breadth of the levels it joins. By hand, on the third axis, with
+/// `efSearch` 1 and `efConstruction` 4: the entry point 1 is at 10, 200 at 3, 201 at 3.2 and 100 at 0.1; level 0 holds
+/// 1 -> [200, 201], 200 -> [1], 201 -> [1, 100], 100 -> [201], and level 1 no edges. A draw of 0.5 inserts 300, at
+/// 0.12, from level 1 (insert_layer(2, 0.5) = 1). On level 0 a breadth of 1 keeps 200 (2.88 away) over 201 (3.08) and
+/// stops there; a breadth of 4 would reach 100 (0.02 away) through 201. Level 1 then finds nothing beyond the start, so
+/// 300 links to 200 alone.
+#[test]
+fn test_an_insert_searches_above_its_level_with_ef_search() {
+    let o = opts(&[
+        ("maxLevels", "2"),
+        ("efConstruction", "4"),
+        ("efSearch", "1"),
+    ]);
+    let txn = MapTxn::default();
+    let at = |x: f64| float64_array_as_bytes(&[0.0, 0.0, x, 0.0]);
+    for (uid, x, level0) in [
+        (1u64, 10.0, vec![200, 201]),
+        (200, 3.0, vec![1]),
+        (201, 3.2, vec![1, 100]),
+        (100, 0.1, vec![201]),
+    ] {
+        let mut db = txn.db.borrow_mut();
+        db.insert(key(PRED, uid), at(x));
+        db.insert(
+            key(&format!("{PRED}{VEC_KEYWORD}"), uid),
+            encode_uint64_matrix(&[level0, vec![]]),
+        );
+    }
+    txn.db
+        .borrow_mut()
+        .insert(key(&format!("{PRED}{VEC_ENTRY}"), 1), uint64_to_bytes(1));
+    txn.db.borrow_mut().insert(key(PRED, 300), at(0.12));
+    let edges = PersistentHnsw::<f64>::new(vkeys(PRED), &o, 64)
+        .unwrap()
+        .insert(
+            &TxnCache::new(&txn, 1),
+            300,
+            &[0.0, 0.0, 0.12, 0.0],
+            &mut || 0.5,
+        )
+        .unwrap();
+    assert_eq!(
+        lists(&edges),
+        BTreeMap::from([
+            (200, vec![vec![1], vec![300]]),
+            (300, vec![vec![], vec![200]])
+        ])
+    );
 }

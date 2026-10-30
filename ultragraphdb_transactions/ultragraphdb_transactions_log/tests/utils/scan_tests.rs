@@ -14,7 +14,9 @@ use ultragraphdb_transactions_log::{
     Damage, ScanStart, SegmentScan, encode_round, find_complete_round, scan_segment,
 };
 
-use crate::utils::helpers::{CLUSTER, ONE_BLOCK, TWO_BLOCKS, body, frame_checksum};
+use crate::utils::helpers::{
+    CLUSTER, FULL_BLOCK, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, body, frame_checksum,
+};
 
 /// A round to lay into a segment: position, parent, incarnation, body length.
 #[derive(Clone, Copy)]
@@ -541,4 +543,122 @@ fn test_a_round_numbered_other_than_its_position_is_damage() {
     let scan = scan(&segment(8, &frames));
     assert_eq!(positions(&scan), [1]);
     assert_eq!(scan.damage(), Some(Damage::Header));
+}
+
+/// The damage a scan must report for a round whose frame `frame` kept only its first `kept` bytes, the rest zeros, as a
+/// torn write leaves it, derived from the order the log checks a round in (the header, then the chunk table, then each
+/// chunk) and from which bytes the tear changed: `None` when it changed none. `table` is the frame's chunk-table
+/// range, `None` for a one-chunk body, whose checksum is its only chunk's; `chunks` the frame ranges of the chunks.
+fn torn_damage(
+    frame: &[u8],
+    kept: usize,
+    position: u64,
+    table: Option<std::ops::Range<usize>>,
+    chunks: &[(usize, std::ops::Range<usize>)],
+) -> Option<Option<Damage>> {
+    // Whether the tear zeroed a nonzero byte of `range`; a range wholly kept was not changed.
+    let changed = |range: std::ops::Range<usize>| {
+        frame
+            .get(kept.max(range.start)..range.end)
+            .is_some_and(|bytes| bytes.iter().any(|b| *b != 0))
+    };
+    let position = Position::new(position);
+    if kept == 0 {
+        // Nothing kept: a block of zeros, the clean end of the segment.
+        return Some(None);
+    }
+    if changed(0..256) {
+        return Some(Some(Damage::Header));
+    }
+    if let Some(table) = table
+        && changed(table)
+    {
+        return Some(Some(Damage::ChunkTable { position }));
+    }
+    for (index, range) in chunks {
+        if changed(range.clone()) {
+            // A chunk's range is named in body bytes: its frame range less the 256-byte header.
+            return Some(Some(Damage::Chunk {
+                position,
+                index: *index,
+                start: range.start - 256,
+                end: range.end - 256,
+            }));
+        }
+    }
+    None
+}
+
+/// A torn tail at every byte boundary of its frame: a one-block round (one 3,840-byte chunk, no table) and a two-block
+/// round (chunks of body bytes 0 to 3,840 and 3,840 to 7,904, then its 16-byte table, frame bytes 8,176 to 8,192). Each
+/// tear is damage named as the checks' order says, a clean end when nothing was kept, and the whole round only when
+/// the tear changed no byte; the round before it is always read.
+#[test]
+fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
+    let chunk = |index, start, end| {
+        Some(Damage::Chunk {
+            position: Position::new(2),
+            index,
+            start,
+            end,
+        })
+    };
+    let table_damage = Some(Damage::ChunkTable {
+        position: Position::new(2),
+    });
+    // Each case with the outcomes its tears must reach, so the rule is never checked on one branch alone: the clean
+    // end (nothing kept), header damage (a tear inside the command header's nonzero bytes), then the body's damage.
+    let cases: [(
+        usize,
+        Option<std::ops::Range<usize>>,
+        Vec<(usize, std::ops::Range<usize>)>,
+        Vec<Option<Damage>>,
+    ); 2] = [
+        (
+            FULL_BLOCK,
+            None,
+            vec![(0, 256..4_096)],
+            vec![None, Some(Damage::Header), chunk(0, 0, 3_840)],
+        ),
+        (
+            FULL_TWO_BLOCKS,
+            Some(8_176..8_192),
+            vec![(0, 256..4_096), (1, 4_096..8_160)],
+            vec![None, Some(Damage::Header), table_damage],
+        ),
+    ];
+    for (len, table, chunks, reached) in cases {
+        let mut outcomes = std::collections::BTreeSet::new();
+        let frames = chain(1, 1, 2, 0, ONE_BLOCK);
+        let torn_frame = frame_of(Spec {
+            position: 2,
+            parent: frame_checksum(&frames[0]),
+            incarnation: 1,
+            len,
+        });
+        let size = torn_frame.len();
+        for kept in 0..size {
+            let mut torn = torn_frame.clone();
+            torn[kept..].fill(0);
+            let scan = scan(&segment(4, &[frames[0].clone(), torn]));
+            match torn_damage(&torn_frame, kept, 2, table.clone(), &chunks) {
+                Some(damage) => {
+                    outcomes.insert(format!("{damage:?}"));
+                    assert_eq!(positions(&scan), [1], "len {len}, kept {kept}");
+                    assert_eq!(
+                        (scan.end(), scan.damage()),
+                        (4_096, damage),
+                        "len {len}, kept {kept}"
+                    );
+                }
+                None => assert_eq!(positions(&scan), [1, 2], "len {len}, kept {kept}"),
+            }
+        }
+        for outcome in reached {
+            assert!(
+                outcomes.contains(&format!("{outcome:?}")),
+                "len {len}: {outcome:?} never reached in {outcomes:?}"
+            );
+        }
+    }
 }

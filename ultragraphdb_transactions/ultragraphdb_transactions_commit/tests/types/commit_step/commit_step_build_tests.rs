@@ -135,10 +135,38 @@ fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() {
     assert_eq!(step.deferred(), 1);
     step.step(Input::SyncFailed, 0, &mut out);
     assert_eq!(step.deferred(), 0);
-    assert!(
-        out.replies()
-            .iter()
-            .any(|r| r.ticket() == 2 && r.outcome().is_err())
+    // The round in flight decided nothing (2 was set aside), so 2 is the only one answered, unavailable, and released.
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(
+            2,
+            Err(ultragraphdb_transactions_commit::CommitError::Unavailable())
+        )]
     );
-    assert!(out.released().iter().any(|(t, _)| *t == 2));
+    let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
+    assert_eq!(released, vec![2]);
+}
+
+/// A proposal set aside while a build runs still holds its place in the commit queue: with a queue of one, a commit
+/// arriving while it waits is refused busy.
+#[test]
+fn test_a_proposal_set_aside_counts_against_the_commit_queue() {
+    let mut step = Step::new(unbounded(), 0)
+        .with_build_running(true)
+        .with_queue(1);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 1, of(b"x", false, false));
+    commit(&mut step, &mut out, 2, of(b"b", true, false));
+    sync(&mut step, &mut out);
+    assert_eq!((step.waiting(), step.deferred()), (0, 1));
+    commit(&mut step, &mut out, 3, of(b"c", false, false));
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(
+            3,
+            Err(ultragraphdb_transactions_commit::CommitError::Busy(1))
+        )]
+    );
+    let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
+    assert_eq!(released, vec![3]);
 }

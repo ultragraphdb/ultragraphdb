@@ -145,7 +145,13 @@ fn test_without_credit_the_client_grants_before_any_frame_arrives() {
     ));
     assert_eq!(drain(&mut h, &stream).len(), 3);
     assert_eq!(credits(&h), vec![2, 2]);
-    h.core.grant(&stream, 1).unwrap_err();
+    assert_eq!(
+        h.core.grant(&stream, 1).unwrap_err().0,
+        ClientErrorEnum::StreamFinished {
+            stream: stream.stream()
+        },
+        "a finished read takes no credit"
+    );
 }
 
 #[test]
@@ -235,6 +241,17 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
     });
     let refused = refused.unwrap();
     assert!(refused.is_stale() && !refused.retryable(), "{refused:?}");
+    assert!(
+        matches!(
+            refused.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::StaleStatement,
+                detail,
+                ..
+            } if detail == statement.id()
+        ),
+        "detail names the statement: {refused:?}"
+    );
     assert!(h.core.is_ready(), "a refused request keeps the connection");
     assert_eq!(drain(&mut h, &other).len(), 1, "and the other stream");
     assert_eq!(
@@ -244,8 +261,10 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
         },
         "the refusal ended its stream"
     );
-    assert!(
-        h.core.read(&tx, &read(&tx), h.now).is_ok(),
+    let goes_on = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    assert_eq!(
+        drain(&mut h, &goes_on).len(),
+        1,
         "and its transaction goes on"
     );
     let p = h.core.prepare(&prepare(), h.now).unwrap();
@@ -556,7 +575,12 @@ fn test_a_transactions_end_leaves_another_transactions_read() {
     let theirs = h.core.read(&other, &read(&other), h.now).unwrap();
     let p = h.core.commit(tx, session, h.now).unwrap();
     assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
-    assert!(h.core.next_batch(&mine, h.now, |_| ()).is_err());
+    assert_eq!(
+        h.core.next_batch(&mine, h.now, |_| ()).unwrap_err().0,
+        ClientErrorEnum::StreamFinished {
+            stream: mine.stream()
+        }
+    );
     assert_eq!(drain(&mut h, &theirs).len(), 3);
 }
 
@@ -571,4 +595,38 @@ fn test_a_read_matching_nothing_ends_after_one_empty_batch() {
         h.core.next_batch(&stream, h.now, |_| ()),
         Ok(BatchPoll::Done)
     ));
+}
+
+/// A grant adds the frames asked for to the read's credit, in a Credit frame of that many.
+#[test]
+fn test_a_grant_sends_a_credit_of_the_frames_asked_for() {
+    let mut h = Harness::ready(server().with_results(3));
+    let tx = begin(&mut h);
+    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    h.core.grant(&stream, 7).unwrap();
+    while h.step() {}
+    assert_eq!(credits(&h), vec![7]);
+    assert_eq!(drain(&mut h, &stream).len(), 3);
+    assert_eq!(
+        credits(&h),
+        vec![7],
+        "4 + 7 frames of credit cover the 3, so no grant follows"
+    );
+}
+
+/// PROTOCOL.md section 9.2: a Credit grants at least 1 frame, so a grant of none is no request the client sends.
+#[test]
+fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() {
+    let mut h = Harness::ready(server().with_results(3));
+    let tx = begin(&mut h);
+    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    while h.step() {}
+    assert_eq!(
+        h.core.grant(&stream, 0).unwrap_err().0,
+        ClientErrorEnum::Request {
+            error: ultragraphdb_error_protocol::ProtocolError::FieldValue(14, "frames", 0)
+        }
+    );
+    assert_eq!(h.core.transmit(), None, "no Credit queued");
+    assert_eq!(drain(&mut h, &stream).len(), 3, "the read goes on");
 }

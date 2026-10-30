@@ -241,6 +241,17 @@ fn test_the_text_is_utf8_and_cut_on_character_boundaries() {
             offset: 1
         }
     );
+    // The boundary between one entry's first and second text: a language-tagged literal whose lexical form takes
+    // "x" and the first byte of "é" (bytes 0..2), its tag the second byte and "en" (2..5). The text is UTF-8 and
+    // each entry starts and ends on a boundary; the cut at 2 does not (PROTOCOL.md section 4.4 step 12).
+    assert_eq!(
+        refused(&[record(4, 0, [0, 2, 2, 3])], "xéen".as_bytes()),
+        ProtocolErrorEnum::NotUtf8 {
+            command: 11,
+            section: 1,
+            offset: 2
+        }
+    );
 }
 
 #[test]
@@ -369,12 +380,16 @@ fn test_no_term_appears_twice() {
         }
     );
     // The same text as an IRI and as a blank node is two terms.
-    assert!(
+    assert_eq!(
         read(
             &[record(1, 0, [0, 1, 1, 0]), record(2, 0, [1, 1, 2, 0])],
             b"aa"
         )
-        .is_ok()
+        .map(|table| table.terms().to_vec()),
+        Ok(vec![
+            RequestTerm::Iri("a".to_string()),
+            RequestTerm::BlankNode("a".to_string())
+        ])
     );
 }
 
@@ -394,8 +409,10 @@ fn chain(depth: usize, at: usize) -> Vec<Vec<u8>> {
 #[test]
 fn test_triple_terms_nest_at_most_the_maximum_through_any_part() {
     for at in [0, 2] {
-        assert!(
-            read(&chain(MAX_TERM_DEPTH, at), b"a").is_ok(),
+        // <a> and 32 triple terms: 33 entries.
+        assert_eq!(
+            read(&chain(MAX_TERM_DEPTH, at), b"a").map(|table| table.len()),
+            Ok(33),
             "depth 32 through part {at}"
         );
         assert_eq!(
@@ -414,4 +431,42 @@ fn test_triple_terms_nest_at_most_the_maximum_through_any_part() {
     let bytes = golden("operation_deep").bytes();
     let view = ultragraphdb_protocol_wire::OperationView::from_frame(&frame_of(&bytes)).unwrap();
     assert_eq!(view.terms().len(), 34);
+}
+
+#[test]
+fn test_a_direction_is_read_and_tells_two_terms_apart() {
+    // PROTOCOL.md section 4.4: direction 0 none, 1 `ltr`, 2 `rtl`; two text entries are equal when kind, direction,
+    // first and second texts are equal. "hi"@ar three times, one per direction: three terms.
+    let records = [
+        record(4, 0, [0, 2, 2, 2]),
+        record(4, 1, [4, 2, 6, 2]),
+        record(4, 2, [8, 2, 10, 2]),
+    ];
+    let table = read(&records, b"hiarhiarhiar").expect("three distinct terms");
+    let tagged = |direction| RequestTerm::LanguageLiteral {
+        lexical: "hi".to_string(),
+        language: "ar".to_string(),
+        direction,
+    };
+    assert_eq!(
+        table.terms(),
+        &[
+            tagged(None),
+            tagged(Some(Direction::Ltr)),
+            tagged(Some(Direction::Rtl))
+        ]
+    );
+    // The same direction twice is one term repeated.
+    assert_eq!(
+        refused(
+            &[record(4, 1, [0, 2, 2, 2]), record(4, 1, [4, 2, 6, 2])],
+            b"hiarhiar"
+        ),
+        ProtocolErrorEnum::DuplicateTerm {
+            command: 11,
+            section: 0,
+            at: 1,
+            earlier: 0
+        }
+    );
 }

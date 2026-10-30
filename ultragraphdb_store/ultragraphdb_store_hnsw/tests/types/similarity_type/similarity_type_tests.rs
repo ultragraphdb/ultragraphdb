@@ -37,6 +37,11 @@ fn test_scores_rank_by_metric() {
     let c = SimilarityType::new(Metric::Cosine);
     assert!(e.is_better_score(0.1f32, 0.2) && !e.is_better_score(0.2f32, 0.1));
     assert!(c.is_better_score(0.2f32, 0.1) && !c.is_better_score(0.1f32, 0.1));
+    // A tie is no better under either order, and a dot product ranks its negative scores highest first too.
+    assert!(!e.is_better_score(0.1f32, 0.1));
+    let d = SimilarityType::new(Metric::DotProduct);
+    assert!(d.is_better_score(-1.0f64, -2.0) && !d.is_better_score(-2.0f64, -1.0));
+    assert!(!d.is_better_score(3.0f64, 3.0));
     assert_eq!(e.distance_score(&[0.0f32, 3.0], &[4.0, 0.0]), Ok(5.0));
     assert_eq!(c.distance_score(&[1.0f64, 0.0], &[2.0, 0.0]), Ok(1.0));
     assert_eq!(

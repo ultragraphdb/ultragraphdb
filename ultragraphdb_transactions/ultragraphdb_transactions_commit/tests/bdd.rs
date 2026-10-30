@@ -72,7 +72,7 @@ fn unbounded() -> RoundBounds {
 #[when("one transaction commits on an idle node")]
 fn lone_commit(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let mut driver = Driver::new(&applier, unbounded());
     let mut txn = begin(&applier);
     write(&mut txn, vec![insert("c", "knows", "d")]);
@@ -90,8 +90,8 @@ fn alone_after_one_sync(w: &mut Steps) {
     assert_eq!(w.appended.len(), 1);
     assert_eq!(w.appended[0].transactions(), 1);
     assert_eq!(w.syncs_before_reply, vec![1]);
-    assert_eq!(w.replies.len(), 1);
-    assert!(w.replies[0].outcome().is_ok(), "{:?}", w.replies);
+    // At the set-up's version plus 2: max(previous + 2, 2 × 0).
+    assert_eq!(w.replies, vec![Reply::new(1, Ok(w.version + 2))]);
     // Applied: a transaction beginning now reads it.
     assert_eq!(w.held.len(), 1);
 }
@@ -99,7 +99,7 @@ fn alone_after_one_sync(w: &mut Steps) {
 #[when("ten transactions commit while a round's sync is in progress")]
 fn ten_during_a_sync(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let mut driver = Driver::new(&applier, unbounded());
     let mut first = begin(&applier);
     write(&mut first, vec![insert("first", "knows", "b")]);
@@ -132,12 +132,11 @@ fn ten_share_a_round(w: &mut Steps) {
     assert_eq!(w.appended[1].transactions(), 10);
     assert_eq!(w.appended[1].committed(), 10);
     assert_eq!(w.syncs_before_reply, vec![2]);
-    assert_eq!(w.replies.len(), 11);
-    assert!(
-        w.replies.iter().all(|r| r.outcome().is_ok()),
-        "{:?}",
-        w.replies
-    );
+    // The first alone at base + 2; the ten in arrival order at base + 4, …, base + 22, versions 2 apart in one round.
+    let expected: Vec<Reply> = (0..=10u64)
+        .map(|t| Reply::new(t, Ok(w.version + 2 + 2 * t)))
+        .collect();
+    assert_eq!(w.replies, expected);
 }
 
 #[when("the commit step's clock steps back by one second between two rounds")]
@@ -174,7 +173,7 @@ fn versions_rise(w: &mut Steps) {
 #[when("in one round T1 aborts, and T2's reads conflict only with what T1 would have written")]
 fn aborted_write(w: &mut Steps) {
     let applier = applier();
-    setup(
+    w.version = setup(
         &applier,
         vec![
             insert_literal("x", "name", "X"),
@@ -232,12 +231,14 @@ fn aborted_write(w: &mut Steps) {
 #[then("T2 commits")]
 fn t2_commits(w: &mut Steps) {
     let reply = |t: u64| w.replies.iter().find(|r| r.ticket() == t).expect("decided");
-    assert!(reply(0).outcome().is_ok(), "{:?}", reply(0));
+    // The blocker alone at base + 2; then T0 at base + 4, T1 aborted taking none, T2 at base + 6.
+    assert_eq!(reply(9).outcome(), &Ok(w.version + 2));
+    assert_eq!(reply(0).outcome(), &Ok(w.version + 4));
     assert_eq!(
         reply(1).outcome(),
         &Err(CommitError::Conflict(ConflictKind::List))
     );
-    assert!(reply(2).outcome().is_ok(), "{:?}", reply(2));
+    assert_eq!(reply(2).outcome(), &Ok(w.version + 6));
     assert_eq!(w.held, vec![Term::from(Literal::new_simple_literal("Z2"))]);
 }
 
@@ -279,14 +280,18 @@ fn twice(w: &mut Steps) {
 fn alike(w: &mut Steps) {
     assert_eq!(w.decisions[0].len(), 13);
     assert_eq!(w.decisions[0], w.decisions[1]);
-    assert!(w.decisions[0].iter().any(|r| r.outcome().is_err()));
-    assert!(
-        w.decisions[0]
-            .iter()
-            .filter(|r| r.outcome().is_ok())
-            .count()
-            > 2
-    );
+    // And both decide what the round's serial order decides, worked by hand: 0 wrote k0 at 2; t reads k(t % 5) and
+    // writes k(t % 4) at read version 0, aborting once k(t % 5) was written before it. 1 to 4 read k1 to k4, free, and
+    // write k1, k2, k3, k0; then only 9, reading k4, is free. The five admitted take 4, 6, 8, 10, 12.
+    let admitted = [(1u64, 4u64), (2, 6), (3, 8), (4, 10), (9, 12)];
+    let mut expected = vec![Reply::new(0, Ok(2))];
+    for t in 1..=12u64 {
+        expected.push(match admitted.iter().find(|(a, _)| *a == t) {
+            Some((_, version)) => Reply::new(t, Ok(*version)),
+            None => Reply::new(t, Err(CommitError::Conflict(ConflictKind::List))),
+        });
+    }
+    assert_eq!(w.decisions[0], expected);
 }
 
 #[when(
@@ -294,7 +299,7 @@ fn alike(w: &mut Steps) {
 )]
 fn pruned_above(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let mut driver = Driver::new(&applier, unbounded());
     let mut old = begin(&applier);
     write(&mut old, vec![insert("old", "knows", "b")]);
@@ -321,10 +326,8 @@ fn too_old(w: &mut Steps) {
     let Err(error) = reply.outcome() else {
         panic!("the old transaction commits: {reply:?}");
     };
-    assert!(
-        matches!(error.0, CommitErrorEnum::TooOld { .. }),
-        "{error:?}"
-    );
+    // It read at the set-up's version; two commits moved the watermark, and the floor with it, 4 above.
+    assert_eq!(error, &CommitError::TooOld(w.version, w.version + 4));
     assert!(error.is_retryable());
     assert!(w.held.is_empty());
 }
@@ -334,7 +337,7 @@ fn too_old(w: &mut Steps) {
 )]
 fn write_skew(w: &mut Steps) {
     let applier = applier();
-    setup(
+    w.version = setup(
         &applier,
         vec![
             insert_literal("alice", "on-call", "true"),
@@ -381,6 +384,14 @@ fn one_commits(w: &mut Steps) {
         )
         .count();
     assert_eq!((committed, conflicts), (1, 1), "{:?}", w.replies);
+    // In round order: the first alone at base + 2; the second read alice's list the first rewrote.
+    assert_eq!(
+        w.replies,
+        vec![
+            Reply::new(1, Ok(w.version + 2)),
+            Reply::new(2, Err(CommitError::Conflict(ConflictKind::List)))
+        ]
+    );
 }
 
 #[when(
@@ -389,7 +400,7 @@ fn one_commits(w: &mut Steps) {
 fn first_writes(w: &mut Steps) {
     let applier = applier();
     // `score` is a known IRI, never written as a predicate, so the catalog of `ns` holds no entry for it.
-    setup(&applier, vec![insert("z", "seen", "score")]);
+    w.version = setup(&applier, vec![insert("z", "seen", "score")]);
     let score = uid_of(&applier, "score");
     assert!(applier.catalog(NS).unwrap().predicate(score).is_none());
     let mut driver = Driver::new(&applier, unbounded());
@@ -427,11 +438,13 @@ fn first_writes(w: &mut Steps) {
 
 #[then("both commit, and the catalog of `ns` holds `score` with the default entry once")]
 fn both_first_writes_commit(w: &mut Steps) {
-    assert_eq!(w.replies.len(), 2);
-    assert!(
-        w.replies.iter().all(|r| r.outcome().is_ok()),
-        "{:?}",
-        w.replies
+    // Neither aborts: the first alone at base + 2, the second in the next round at base + 4.
+    assert_eq!(
+        w.replies,
+        vec![
+            Reply::new(1, Ok(w.version + 2)),
+            Reply::new(2, Ok(w.version + 4))
+        ]
     );
     assert_eq!(w.entries, vec![PredicateDeclaration::new(ex("score"))]);
 }
@@ -447,7 +460,7 @@ type Pipe<'a> = Pipeline<
 #[when("a transaction is acknowledged and another transaction begins at any time after")]
 async fn acknowledged_then_begins(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let (_storage, log) = open_wal().await;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
     let mut first = begin(&applier);
@@ -467,9 +480,8 @@ async fn acknowledged_then_begins(w: &mut Steps) {
 
 #[then("the second transaction reads the first one's writes")]
 fn reads_the_first(w: &mut Steps) {
-    assert_eq!(w.replies.len(), 1);
-    assert!(w.replies[0].outcome().is_ok(), "{:?}", w.replies);
-    assert_eq!(w.held.len(), 1);
+    assert_eq!(w.replies, vec![Reply::new(1, Ok(w.version + 2))]);
+    assert_eq!(w.held, vec![Term::from(ex("d"))]);
 }
 
 #[when("the log sync of a round fails")]
@@ -511,7 +523,7 @@ fn none_acknowledged(w: &mut Steps) {
 #[when("a transaction inserts `<a> <p> <b>` and a drop of `p` commits after its read version")]
 fn write_into_drop(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("x", "p", "y"), insert("x", "q", "y")]);
+    w.version = setup(&applier, vec![insert("x", "p", "y"), insert("x", "q", "y")]);
     let mut driver = Driver::new(&applier, unbounded());
     let mut txn = begin(&applier);
     write(&mut txn, vec![insert("a", "p", "b")]);
@@ -538,7 +550,7 @@ fn write_into_drop(w: &mut Steps) {
 #[then("the transaction aborts, and nothing of `p` is held after the drop")]
 fn dropped_nothing_held(w: &mut Steps) {
     let reply = |t: u64| w.replies.iter().find(|r| r.ticket() == t).expect("decided");
-    assert!(reply(1).outcome().is_ok(), "{:?}", w.replies);
+    assert_eq!(reply(1).outcome(), &Ok(w.version + 2), "the drop alone");
     assert_eq!(
         reply(2).outcome(),
         &Err(CommitError::Conflict(ConflictKind::Drop))
@@ -703,7 +715,7 @@ async fn register(pipe: &mut Pipe<'_>, ticket: u64) -> u64 {
 #[when("a client commits request 7 of its session, loses the reply, and sends request 7 again")]
 async fn retried(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let (_storage, log) = open_wal().await;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
     let session = register(&mut pipe, 100).await;
@@ -738,16 +750,22 @@ async fn retried(w: &mut Steps) {
 
 #[then("it receives the same reply and commit version, and the transaction's writes are held once")]
 fn same_reply(w: &mut Steps) {
-    assert_eq!(w.replies.len(), 2, "{:?}", w.replies);
-    assert!(w.replies[0].outcome().is_ok());
-    assert_eq!(w.replies[0].outcome(), w.replies[1].outcome());
+    // One round each: the registration at base + 2, requests 1 to 6 at base + 4 to base + 14, request 7 at base + 16;
+    // the retry, under ticket 8, takes no version and is answered with 7's.
+    assert_eq!(
+        w.replies,
+        vec![
+            Reply::new(7, Ok(w.version + 16)),
+            Reply::new(8, Ok(w.version + 16))
+        ]
+    );
     assert_eq!(w.held.len(), 1);
 }
 
 #[when("a session is evicted from the full table and its client sends its next request")]
 async fn evicted(w: &mut Steps) {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let (_storage, log) = open_wal().await;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded())
         .expect("it opens")
@@ -769,10 +787,8 @@ fn told_evicted(w: &mut Steps) {
     let Err(error) = w.replies[0].outcome() else {
         panic!("committed: {:?}", w.replies);
     };
-    assert!(
-        matches!(error.0, CommitErrorEnum::SessionEvicted { .. }),
-        "{error:?}"
-    );
+    // The oldest, registered first at base + 2, evicted by the second at base + 4 from a table of one.
+    assert_eq!(error, &CommitError::SessionEvicted(w.version + 2));
     assert!(error.to_string().contains("evicted"));
     assert!(w.held.is_empty());
 }
@@ -1587,7 +1603,7 @@ async fn bobs_commit(w: &mut Steps) {
     const ALICE: u64 = 7;
     const BOB: u64 = 8;
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    w.version = setup(&applier, vec![insert("a", "knows", "b")]);
     let (_storage, log) = open_wal().await;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
     let session = register_as(&mut pipe, 1, ALICE).await;
@@ -1620,8 +1636,10 @@ fn bob_refused(w: &mut Steps) {
     );
     assert_eq!(error.code().number(), 21);
     assert_eq!(error.detail(), 2);
+    // Alice's session is numbered by its registration's version, base + 2; bob's commit takes none, alice's the next.
+    assert_eq!(error, &CommitError::PermissionDenied(w.version + 2));
     assert!(w.held.is_empty(), "nothing committed");
-    assert!(w.replies[1].outcome().is_ok(), "{:?}", w.replies);
+    assert_eq!(w.replies[1], Reply::new(3, Ok(w.version + 4)));
     assert_eq!(w.terms[0].len(), 1);
 }
 

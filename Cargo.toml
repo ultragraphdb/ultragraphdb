@@ -65,7 +65,7 @@ ultragraphdb_protocol_transport = { path = "ultragraphdb_protocol/ultragraphdb_p
 ultragraphdb_protocol_transport_compio = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport_compio" }
 ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
 ## Server
-ultragraphdb_server = { path = "ultragraphdb_server/ultragraphdb_server" }
+ultragraphdb = { path = "ultragraphdb_server/ultragraphdb" }
 ultragraphdb_server_session = { path = "ultragraphdb_server/ultragraphdb_server_session" }
 ## Store: storage over the Store trait
 ultragraphdb_store_apply = { path = "ultragraphdb_store/ultragraphdb_store_apply" }

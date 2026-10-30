@@ -377,7 +377,22 @@ fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
     // A round of the system's entries alone moves the watermark to `through`; one below it is refused.
     a.apply_round_with(Vec::new(), &system, before + 8).unwrap();
     assert_eq!(a.quads().lists().applied_ts(), before + 8);
-    assert!(a.apply_round_with(Vec::new(), &system, before + 4).is_err());
+    let refused = a
+        .apply_round_with(Vec::new(), &system, before + 4)
+        .unwrap_err();
+    // `through` at before + 4 is below the watermark, before + 8.
+    assert_eq!(
+        refused.0,
+        ultragraphdb_store_apply::ChangesetErrorEnum::Posting(
+            ultragraphdb_store_posting::PostingError(
+                ultragraphdb_store_posting::PostingErrorEnum::StaleVersion {
+                    version: before + 4,
+                    after: before + 8
+                }
+            )
+        )
+    );
+    assert_eq!(a.quads().lists().applied_ts(), before + 8);
 }
 
 /// The store a drop of each kind is tried on: statements in the default graph, in `g1` and in another namespace, and a

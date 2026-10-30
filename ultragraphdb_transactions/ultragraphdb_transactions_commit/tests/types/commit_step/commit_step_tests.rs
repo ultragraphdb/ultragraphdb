@@ -174,6 +174,24 @@ fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() {
 }
 
 #[test]
+fn test_a_request_whose_round_alone_is_exactly_the_bound_is_taken() {
+    // The bound is inclusive: a round of exactly `bytes` fits (the request above is refused one byte below it).
+    let mut p = blind(b"big");
+    p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
+    let alone = frame_of(&[&p]);
+    let mut step = Step::new(RoundBounds::new(alone as u32, u32::MAX), 0);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 5, p, 0);
+    assert!(out.replies().is_empty(), "{:?}", out.replies());
+    assert_eq!(
+        out.append().map(|(r, _)| r),
+        Some(RoundRecord::new(2, 1, 1))
+    );
+    sync(&mut step, &mut out, 0);
+    assert_eq!(out.replies(), &[Reply::new(5, Ok(2))]);
+}
+
+#[test]
 fn test_a_round_s_body_is_the_wire_s_round_body() {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
@@ -387,8 +405,23 @@ fn test_two_runs_of_one_round_decide_alike() {
     };
     let (first, second) = (run(), run());
     assert_eq!(first, second);
-    assert!(first.0.iter().any(|r| r.outcome().is_err()));
-    assert!(first.0.iter().filter(|r| r.outcome().is_ok()).count() > 1);
+    // And both decide what the round's serial order decides, worked by hand: transaction t reads `a + t % 5` and writes
+    // `a + t % 3`, every read at 0, so t aborts on a list conflict once a transaction admitted before it in the round
+    // wrote its key. b, c, d and e are free for 1 to 4, which write b, c, a, b; then a, b and c are taken and only the
+    // readers of d and e (8, 9, 13, 14, 18, 19) commit. The ten admitted take 4, 6, …, 22 in round order, after the
+    // first round's 2.
+    let admitted = [1u64, 2, 3, 4, 8, 9, 13, 14, 18, 19];
+    let mut expected = vec![Reply::new(0, Ok(2))];
+    let mut version = 2;
+    for t in 1..20u64 {
+        expected.push(if admitted.contains(&t) {
+            version += 2;
+            Reply::new(t, Ok(version))
+        } else {
+            Reply::new(t, Err(CommitError::Conflict(ConflictKind::List)))
+        });
+    }
+    assert_eq!(first.0, expected);
 }
 
 #[test]
@@ -409,9 +442,11 @@ fn test_a_malformed_record_and_an_unsealed_read_set_are_refused() {
     sync(&mut step, &mut out, 0);
     let replies = out.replies();
     assert_eq!(replies.len(), 2);
+    assert_eq!(replies[0].ticket(), 1);
     assert!(matches!(
         replies[0].outcome(),
-        Err(e) if e.code() == ErrorCode::Protocol && e.to_string().starts_with("a write-set record is malformed")
+        Err(e @ CommitError(ultragraphdb_transactions_commit::CommitErrorEnum::Malformed { .. }))
+            if e.code() == ErrorCode::Protocol && e.to_string().starts_with("a write-set record is malformed")
     ));
     assert_eq!(replies[1], Reply::new(2, Err(CommitError::Unsealed())));
 }
@@ -427,6 +462,88 @@ fn test_exhausted_versions_stop_the_step() {
     );
     assert_eq!(out.append(), None);
     assert!(step.is_stopped());
+}
+
+/// A blind write of `key` read at u64::MAX − 5, the floor of a step opened there.
+fn late(key: &[u8]) -> TestProposal {
+    proposal(u64::MAX - 5, &Reads::default(), &Writes::point(key))
+}
+
+/// A step after u64::MAX − 5: the first round takes u64::MAX − 3 and the second u64::MAX − 1, the largest even
+/// version, so the second round's next transaction finds none.
+fn nearly_exhausted() -> (Step, Out) {
+    let mut step = Step::new(unbounded(), u64::MAX - 5);
+    let mut out = Out::new();
+    commit(&mut step, &mut out, 0, late(b"first"), 0);
+    assert_eq!(
+        out.append().map(|(r, _)| r.first_version()),
+        Some(u64::MAX - 3)
+    );
+    (step, out)
+}
+
+#[test]
+fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() {
+    let (mut step, mut out) = nearly_exhausted();
+    let a = late(b"a");
+    let record = a.record.clone();
+    commit(&mut step, &mut out, 1, a, 0);
+    commit(&mut step, &mut out, 2, late(b"b"), 0);
+    sync(&mut step, &mut out, 0);
+    assert_eq!(out.replies(), &[Reply::new(0, Ok(u64::MAX - 3))]);
+    // Transaction 1 takes the last version; 2 finds none and is refused unavailable in the round's body.
+    let (round, body) = out.append().expect("the second round");
+    assert_eq!(round, RoundRecord::new(u64::MAX - 1, 2, 1));
+    let mut expected = RoundBody::new(0, 0, 0, u64::MAX - 1);
+    expected.commit(record);
+    expected.abort(ErrorCode::Unavailable, 0);
+    assert_eq!(body, expected.body().as_slice());
+    assert!(step.is_stopped());
+    // Every later commit is refused at once.
+    commit(&mut step, &mut out, 3, late(b"c"), 0);
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(3, Err(CommitError::Unavailable()))]
+    );
+    sync(&mut step, &mut out, 0);
+    assert_eq!(
+        out.replies(),
+        &[
+            Reply::new(1, Ok(u64::MAX - 1)),
+            Reply::new(2, Err(CommitError::Unavailable()))
+        ]
+    );
+    assert_eq!(applied_versions(&out), vec![u64::MAX - 1]);
+    assert_eq!(step.watermark(), u64::MAX - 1);
+}
+
+#[test]
+fn test_versions_exhausted_at_a_registration_refuse_it_and_stop_the_step() {
+    let (mut step, mut out) = nearly_exhausted();
+    commit(&mut step, &mut out, 1, late(b"a"), 0);
+    step.step(
+        Input::Register {
+            ticket: 2,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
+    sync(&mut step, &mut out, 0);
+    assert_eq!(
+        out.append().map(|(r, _)| r),
+        Some(RoundRecord::new(u64::MAX - 1, 2, 1))
+    );
+    assert!(step.is_stopped());
+    sync(&mut step, &mut out, 0);
+    assert_eq!(
+        out.replies(),
+        &[
+            Reply::new(1, Ok(u64::MAX - 1)),
+            Reply::new(2, Err(CommitError::Unavailable()))
+        ]
+    );
+    assert!(step.sessions().is_empty(), "no session numbered");
 }
 
 #[test]

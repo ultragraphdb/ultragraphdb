@@ -80,9 +80,10 @@ fn test_a_row_of_the_wrong_width_is_refused() {
         }
     );
     assert_eq!(batch.rows(), 0);
-    assert!(batch.push_row(&[None, None]).is_ok());
+    assert_eq!(batch.push_row(&[None, None]), Ok(()));
+    assert_eq!((batch.rows(), batch.cell(1, 0)), (1, Some(ABSENT)));
     let mut none = ResultBatch::new(0);
-    assert!(none.push_row(&[]).is_ok());
+    assert_eq!(none.push_row(&[]), Ok(()));
     assert_eq!(none.rows(), 1);
 }
 
@@ -113,7 +114,15 @@ fn test_a_batch_carries_statement_ids_for_every_row_or_none() {
     );
     assert_eq!(ids.statement_ids(), Some(&[][..]));
     // A row of the wrong width with an ID adds neither.
-    assert!(ids.push_row_with_id(&[None, None], 9).is_err());
+    assert_eq!(
+        ids.push_row_with_id(&[None, None], 9).unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "row",
+            count: 2,
+            expected: 1
+        }
+    );
     assert_eq!((ids.rows(), ids.statement_ids()), (0, Some(&[][..])));
     // Section 7 holds the IDs, u64s little-endian, one per row.
     ids.push_row_with_id(&[None], 0x0102_0304_0506_0708)

@@ -35,3 +35,16 @@ fn test_names_map_to_iris_under_the_base_and_back() {
         NamedNode::new_unchecked("http://ex.org/.well-known/genid/9")
     );
 }
+
+#[test]
+fn test_an_iri_under_the_base_holding_a_colon_is_named_by_itself() {
+    let names = Names::new("http://ex.org/");
+    // Its name would read back as an absolute IRI, "a:b", not as the IRI it came from.
+    let colon = NamedNode::new_unchecked("http://ex.org/a:b");
+    assert_eq!(names.name(&colon), "http://ex.org/a:b");
+    assert_eq!(names.iri(&names.name(&colon)), colon);
+    // A path under the base is a name, and maps back.
+    let nested = NamedNode::new_unchecked("http://ex.org/x/y");
+    assert_eq!(names.name(&nested), "x/y");
+    assert_eq!(names.iri("x/y"), nested);
+}

@@ -117,11 +117,43 @@ fn test_initial_credit_applies_to_each_stream_and_grants_saturate() {
     outbound.open(1).unwrap();
     outbound.open(2).unwrap();
     assert_eq!(outbound.credit(1), Some(1));
+    // A grant adds to what the stream holds: 1 + 3 (PROTOCOL.md section 11.3).
+    outbound.grant(1, 3);
+    assert_eq!(outbound.credit(1), Some(4));
     outbound.grant(2, u32::MAX);
     assert_eq!(outbound.credit(2), Some(u32::MAX));
+    outbound.grant(2, 1);
+    assert_eq!(outbound.credit(2), Some(u32::MAX), "saturating at 2^32 - 1");
     // A grant for a stream not open is ignored.
     outbound.grant(9, 3);
     assert!(!outbound.is_open(9));
+    assert_eq!(outbound.credit(9), None);
+}
+
+#[test]
+fn test_transactions_and_reads_count_toward_the_stream_limit() {
+    // Every open stream counts, whatever it carries (PROTOCOL.md section 11.2).
+    let mut outbound = Outbound::new(3, 1);
+    outbound.open_transaction(1).unwrap();
+    outbound.open_read(2, 1).unwrap();
+    outbound.open(3).unwrap();
+    assert_eq!(
+        outbound.open_read(4, 1).unwrap_err(),
+        TransportError::StreamLimit(3)
+    );
+    assert_eq!(
+        outbound.open_transaction(5).unwrap_err(),
+        TransportError::StreamLimit(3)
+    );
+    assert_eq!(outbound.open_streams(), 3);
+    // A read's end makes room for one more.
+    assert!(outbound.cancel(2));
+    outbound.open_read(4, 1).unwrap();
+    assert_eq!(outbound.open_streams(), 3);
+    // A limit of 0 opens nothing.
+    let mut none = Outbound::new(0, 1);
+    assert_eq!(none.open(1).unwrap_err(), TransportError::StreamLimit(0));
+    assert_eq!(none.open_streams(), 0);
 }
 
 #[test]

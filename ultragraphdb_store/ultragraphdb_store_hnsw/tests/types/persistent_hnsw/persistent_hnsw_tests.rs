@@ -220,7 +220,19 @@ fn test_options_set_gos_parameters() {
                     c.name
                 );
             }
-            Err(e) => assert_eq!(e.to_string(), c.error, "{}", c.name),
+            Err(e) => {
+                assert_eq!(e.to_string(), c.error, "{}", c.name);
+                // The variant behind Go's text: a metric of another type, or an int option of another type.
+                if c.name == "wrong_type_metric" {
+                    assert_eq!(e.0, HnswErrorEnum::CannotCast("int"), "{}", c.name);
+                } else {
+                    assert!(
+                        matches!(&e.0, HnswErrorEnum::Options(oe) if matches!(oe.0, OptionsErrorEnum::Type(_))),
+                        "{}: {e:?}",
+                        c.name
+                    );
+                }
+            }
         }
         compared += 1;
     }

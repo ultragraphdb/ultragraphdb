@@ -88,12 +88,35 @@ fn test_every_golden_body_reads_and_rebuilds() {
 
 #[test]
 fn test_every_truncation_of_every_body_is_refused() {
+    // PROTOCOL.md section 4.1: a body shorter than its table is `BodyTooShort`; otherwise the first section, in table
+    // order, running past the shortened body is `SectionOutOfBounds`. The expectation is read off the golden body's
+    // own table by the test's helpers, not by the crate.
     for body in BODIES {
         let bytes = body.bytes();
         let data = body_data(&bytes);
+        let n = sections_of(body.command);
         for len in 0..data.len() {
             let truncated = reframe(&bytes, &data[..len]);
-            assert!(view_any(&truncated).is_err(), "{} at {len}", body.name);
+            let want = if len < 8 * n {
+                ProtocolErrorEnum::BodyTooShort {
+                    command: body.command,
+                    len,
+                    need: 8 * n,
+                }
+            } else {
+                let (section, (offset, slen)) = (0..n)
+                    .map(|i| (i, section(data, 0, i)))
+                    .find(|(_, (offset, slen))| offset + slen > len)
+                    .expect("a truncation cuts a section");
+                ProtocolErrorEnum::SectionOutOfBounds {
+                    command: body.command,
+                    section,
+                    offset: offset as u32,
+                    len: slen as u32,
+                    body: len,
+                }
+            };
+            assert_eq!(refusal(&truncated), want, "{} at {len}", body.name);
         }
     }
 }

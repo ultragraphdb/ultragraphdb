@@ -62,7 +62,7 @@ Today:
 | `ultragraphdb_transactions_commit` | `ultragraphdb_transactions/` | `_txn`, `ultragraphdb_traits_log`, `_wire`, `ultragraphdb_store_apply` | Sequencer, resolver, conflict history, commit-time operations, apply, watermark, sessions |
 | `ultragraphdb_transactions_sim` | `ultragraphdb_transactions/` | the above, `ultragraphdb_store_sim` | The node simulator, the white-box history checker |
 | `ultragraphdb_server_session` | `ultragraphdb_server/` | `_wire`, `_transport`, `_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, describe |
-| `ultragraphdb_server` | `ultragraphdb_server/` | `_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The server binary |
+| `ultragraphdb` | `ultragraphdb_server/` | `ultragraphdb_server_session`, `ultragraphdb_common_telemetry`, `ultragraphdb_store_kv` | The server: its library and the `ultragraphdb` binary (renamed from `ultragraphdb_server`, 2026-10-30) |
 
 - The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_server/*` and
   `ultragraphdb_transactions/*`, and loses `ultragraphdb_proto/*`.

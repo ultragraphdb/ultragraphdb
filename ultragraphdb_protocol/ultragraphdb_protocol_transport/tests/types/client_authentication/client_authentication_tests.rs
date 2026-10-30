@@ -136,3 +136,113 @@ fn test_the_mechanisms_refusal_is_an_authentication_error() {
         ))
     );
 }
+
+/// A mechanism that cannot start, as a login whose secret is unavailable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Unstartable;
+
+impl ultragraphdb_protocol_transport::ClientMechanism for Unstartable {
+    type Error = &'static str;
+
+    fn name(&self) -> &str {
+        TEST
+    }
+
+    fn start(&mut self) -> Result<Vec<u8>, &'static str> {
+        Err("no secret to start with")
+    }
+
+    fn answer(&mut self, _challenge: &[u8]) -> Result<Vec<u8>, &'static str> {
+        Ok(Vec::new())
+    }
+
+    fn finish(&mut self, _outcome: &[u8]) -> Result<(), &'static str> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_a_mechanism_that_cannot_start_is_an_authentication_error() {
+    let mut auth = ClientAuthentication::new(Unstartable);
+    assert_eq!(
+        auth.start(),
+        Err(TransportError::Authentication("no secret to start with"))
+    );
+    // Not started, so the server's step 1 is out of step.
+    let challenge = Authenticate::new(1, "", b"challenge".to_vec())
+        .frame(Header::new(CLUSTER, Command::Abort))
+        .unwrap();
+    assert_eq!(
+        auth.receive(&FrameView::validate(&challenge, CLUSTER, MAX_FRAME_SIZE).unwrap()),
+        Err(TransportError::Protocol(ProtocolError::FieldValue(
+            18, "step", 1
+        )))
+    );
+}
+
+#[test]
+fn test_each_challenge_is_answered_at_the_step_after_it() {
+    // Two challenges before the final message: the client's messages take steps 0, 2, 4 and the server's 1, 3, 5
+    // (PROTOCOL.md section 5.3).
+    let mut auth = started();
+    for (challenge, answer) in [(1, 2), (3, 4)] {
+        let message = frame(&Authenticate::new(challenge, "", b"challenge".to_vec()));
+        assert_eq!(
+            receive(&mut auth, &message),
+            Ok(AuthenticationStep::Send(Authenticate::new(
+                answer,
+                "",
+                b"pass=pw".to_vec()
+            )))
+        );
+    }
+    // Step 3 again, where 5 is due.
+    let repeated = frame(&Authenticate::new(3, "", b"challenge".to_vec()));
+    let mut again = started();
+    receive(
+        &mut again,
+        &frame(&Authenticate::new(1, "", b"challenge".to_vec())),
+    )
+    .unwrap();
+    receive(
+        &mut again,
+        &frame(&Authenticate::new(3, "", b"challenge".to_vec())),
+    )
+    .unwrap();
+    assert_eq!(
+        receive(&mut again, &repeated),
+        Err(TransportError::Protocol(ProtocolError::FieldValue(
+            18, "step", 3
+        )))
+    );
+    let last = frame(&Authenticate::new(5, "", b"welcome".to_vec()).with_final(7, 0));
+    assert_eq!(
+        receive(&mut auth, &last),
+        Ok(AuthenticationStep::Done {
+            principal: 7,
+            expires: 0
+        })
+    );
+    // The exchange is over: any later message is out of step, the final message repeated among them.
+    assert_eq!(
+        receive(&mut auth, &last),
+        Err(TransportError::Protocol(ProtocolError::FieldValue(
+            18, "step", 5
+        )))
+    );
+}
+
+#[test]
+fn test_a_server_message_breaking_its_bodys_rules_is_a_protocol_error() {
+    // A message after step 0 names no mechanism (PROTOCOL.md section 5.3): one naming `TEST`, 4 bytes, is refused.
+    let mut auth = started();
+    let named = frame(&Authenticate::new(1, TEST, b"challenge".to_vec()));
+    assert_eq!(
+        receive(&mut auth, &named),
+        Err(TransportError::Protocol(ProtocolError::FieldValue(
+            18,
+            "mechanism",
+            4
+        )))
+    );
+}

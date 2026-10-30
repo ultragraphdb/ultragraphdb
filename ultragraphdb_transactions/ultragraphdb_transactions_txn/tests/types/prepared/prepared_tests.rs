@@ -18,7 +18,12 @@ fn test_its_parts_are_the_execution_and_the_buffers() {
         panic!("a read-write commit");
     };
     let record_len = prepared.record().len();
-    assert!(WriteSetRecordView::new(prepared.record()).is_ok());
+    let view = WriteSetRecordView::new(prepared.record()).expect("the wire reads the record");
+    assert_eq!(
+        (view.namespace(), view.session(), view.request()),
+        (NS, 1, 2)
+    );
+    assert_eq!(view.read_version(), prepared.read_version());
     let (executed, buffers) = prepared.into_parts();
     assert_eq!(executed.namespace(), NS);
     assert!(buffers.record_capacity() >= record_len);

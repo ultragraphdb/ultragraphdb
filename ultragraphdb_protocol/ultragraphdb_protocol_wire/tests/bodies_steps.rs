@@ -349,6 +349,23 @@ fn every_truncation_refused(w: &mut Steps) {
     let total: usize = BODIES.iter().map(|b| b.size as usize).sum();
     assert_eq!(w.truncations, total);
     assert_eq!(w.refusals.len(), total);
+    // PROTOCOL.md section 2.5, steps 1 and 9: fewer than 256 bytes is `ShortHeader`, a whole header with fewer bytes
+    // than its `size` is `LengthMismatch`; the refusals are in the order the truncations were sent.
+    let expected = BODIES.iter().flat_map(|body| {
+        (0..body.size as usize).map(move |len| {
+            if len < 256 {
+                ProtocolErrorEnum::ShortHeader { len }
+            } else {
+                ProtocolErrorEnum::LengthMismatch {
+                    size: body.size,
+                    len,
+                }
+            }
+        })
+    });
+    for (refusal, want) in w.refusals.iter().zip(expected) {
+        assert_eq!(refusal.0, want);
+    }
 }
 
 // Requests name terms by their text.

@@ -165,7 +165,8 @@ fn test_a_one_chunk_body_is_checked_against_checksum_body() {
             end: 0
         })
     );
-    assert!(verify(&[], CREDIT.checksum_body).is_ok());
+    assert_eq!(verify(&[], CREDIT.checksum_body), Ok(ChunkLayout::of_data(0)));
+    assert_eq!(ChunkLayout::of_data(0).chunks(), 1);
 }
 
 #[test]

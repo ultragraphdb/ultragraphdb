@@ -121,7 +121,17 @@ fn test_a_header_is_refused_before_its_body_is_read() {
         1 << 20,
     )
     .unwrap_err();
-    assert!(matches!(refused.0, TransportErrorEnum::Protocol { .. }));
+    // Byte 60 lies in the header's `stream`, which the checksum of bytes 8 to 255 covers (PROTOCOL.md section 2.5,
+    // step 2).
+    assert!(
+        matches!(
+            refused.0,
+            TransportErrorEnum::Protocol {
+                error: ProtocolError(ProtocolErrorEnum::HeaderChecksum { .. })
+            }
+        ),
+        "{refused:?}"
+    );
     assert_eq!(at, HEADER_SIZE, "no byte of the body was asked for");
     let other = feed(
         &mut Framer::new(CLUSTER + 1, MAX_FRAME_SIZE),
@@ -131,14 +141,10 @@ fn test_a_header_is_refused_before_its_body_is_read() {
         1 << 20,
     )
     .unwrap_err();
-    assert!(
-        matches!(
-            other.0,
-            TransportErrorEnum::Protocol {
-                error: ProtocolError(ProtocolErrorEnum::WrongCluster { .. })
-            }
-        ),
-        "{other:?}"
+    // Step 5: the framer's cluster expected, the frame's found.
+    assert_eq!(
+        other,
+        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER + 1, CLUSTER))
     );
 }
 
@@ -160,18 +166,29 @@ fn test_a_frame_larger_than_the_buffer_is_refused_naming_its_capacity() {
         refused,
         TransportError::Protocol(ProtocolError::FrameTooLarge(frame.len(), 300))
     );
-    let fits = BufferPool::new(1, frame.len());
-    assert!(
+    // One byte short of the frame: refused, naming the capacity.
+    let short = BufferPool::new(1, frame.len() - 1);
+    assert_eq!(
         feed(
             &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
-            &fits,
+            &short,
             &frame,
             &mut 0,
             1 << 20
         )
-        .is_ok(),
-        "a frame of the capacity fits"
+        .unwrap_err(),
+        TransportError::Protocol(ProtocolError::FrameTooLarge(frame.len(), frame.len() - 1))
     );
+    let fits = BufferPool::new(1, frame.len());
+    let received = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &fits,
+        &frame,
+        &mut 0,
+        1 << 20,
+    )
+    .expect("a frame of the capacity fits");
+    assert_eq!(received.bytes(), &frame[..]);
 }
 
 #[test]
@@ -218,12 +235,33 @@ fn test_a_reset_forgets_a_frame_in_progress() {
     assert_eq!(framer.advance(&buffer), Ok(FrameStep::Read(frame.len())));
     framer.reset();
     assert_eq!(framer.want(), HEADER_SIZE);
+    assert!(framer.between_frames());
     assert_eq!(framer.cluster(), CLUSTER);
 }
 
 #[test]
+fn test_a_close_with_nothing_of_the_body_read_is_truncated_at_the_frames_size() {
+    // A shell whose buffer was emptied after the header reports 0 bytes of a frame in progress: still inside the
+    // frame, so truncated at its size, not a close between frames.
+    let pool = BufferPool::new(1, 4_096);
+    let frame = hello();
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
+    let mut buffer = pool.acquire().unwrap();
+    let mut bytes = buffer.take();
+    bytes.extend_from_slice(&frame[..HEADER_SIZE]);
+    buffer.restore(bytes);
+    assert_eq!(framer.advance(&buffer), Ok(FrameStep::Read(frame.len())));
+    assert_eq!(framer.closed(0), TransportError::Truncated(0, frame.len()));
+    assert!(
+        framer.between_frames(),
+        "the framer waits for a header again"
+    );
+    assert_eq!(framer.closed(0), TransportError::Closed());
+}
+
+#[test]
 fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() {
-    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    let pool = BufferPool::new(3, MAX_FRAME_SIZE);
     // A Write of 600,000 bytes of text: past a framer that announced 524,288 bytes.
     let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(600_000))
         .frame(Header::new(CLUSTER, Command::Error).with_stream(3))
@@ -240,21 +278,41 @@ fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() {
         refused,
         TransportError::Protocol(ProtocolError::FrameTooLarge(big.len(), 524_288))
     );
-    assert!(
+    let read = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &big,
+        &mut 0,
+        1 << 20,
+    )
+    .expect("within 1 MiB");
+    assert_eq!(read.bytes(), &big[..]);
+    // At the announced maximum exactly the frame is taken; one byte below it, refused naming that maximum.
+    let at = feed(
+        &mut Framer::new(CLUSTER, big.len()),
+        &pool,
+        &big,
+        &mut 0,
+        1 << 20,
+    )
+    .expect("a frame of the announced maximum");
+    assert_eq!(at.bytes().len(), big.len());
+    assert_eq!(
         feed(
-            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            &mut Framer::new(CLUSTER, big.len() - 1),
             &pool,
             &big,
             &mut 0,
             1 << 20
         )
-        .is_ok()
+        .unwrap_err(),
+        TransportError::Protocol(ProtocolError::FrameTooLarge(big.len(), big.len() - 1))
     );
 }
 
 #[test]
 fn test_a_servers_framer_holds_a_clients_header_to_its_rules() {
-    let pool = BufferPool::new(2, MAX_FRAME_SIZE);
+    let pool = BufferPool::new(4, MAX_FRAME_SIZE);
     // A frame with view 3: a server's frame may carry it, a client's may not.
     let viewed = Credit::new(1)
         .frame(
@@ -263,16 +321,15 @@ fn test_a_servers_framer_holds_a_clients_header_to_its_rules() {
                 .with_view(3),
         )
         .unwrap();
-    assert!(
-        feed(
-            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
-            &pool,
-            &viewed,
-            &mut 0,
-            1 << 20
-        )
-        .is_ok()
-    );
+    let read = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &viewed,
+        &mut 0,
+        1 << 20,
+    )
+    .expect("a server's frame may name a view");
+    assert_eq!(read.bytes(), &viewed[..]);
     assert!(matches!(
         feed(
             &mut Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
@@ -291,6 +348,34 @@ fn test_a_servers_framer_holds_a_clients_header_to_its_rules() {
             })
         }
     ));
+    // Replica 1: a server's frame may name its replica, a client's names 0 (PROTOCOL.md section 2.5, step 6).
+    let replica = Credit::new(1)
+        .frame(
+            Header::new(CLUSTER, Command::Credit)
+                .with_stream(3)
+                .with_replica(1),
+        )
+        .unwrap();
+    let read = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &replica,
+        &mut 0,
+        1 << 20,
+    )
+    .expect("a server's frame may name a replica");
+    assert_eq!(read.bytes(), &replica[..]);
+    assert_eq!(
+        feed(
+            &mut Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
+            &pool,
+            &replica,
+            &mut 0,
+            1 << 20
+        )
+        .unwrap_err(),
+        TransportError::Protocol(ProtocolError::FieldValue(14, "replica", 1))
+    );
 }
 
 #[test]

@@ -10,6 +10,7 @@
 
 use std::num::NonZeroU16;
 
+use ultragraphdb_core_catalog::CatalogError;
 use ultragraphdb_core_keys::{CountDirection, Keyspace};
 use ultragraphdb_core_mapping::{
     Change, Declaration, PredicateDeclaration, RelationDeclaration, TypeDeclaration,
@@ -198,27 +199,41 @@ fn test_vector_options_their_factory_refuses_are_refused() {
         )])))],
     )
     .unwrap_err();
-    assert!(
-        matches!(&refused.0, ChangesetErrorEnum::VectorOption { factory, .. } if factory == "hnsw"),
-        "{refused:?}"
+    // maxLevels takes an integer, parsed by Go's strconv.Atoi (Dgraph's `IntOptParser`, tok/options/option_parser.go),
+    // whose error for "x" is `strconv.Atoi: parsing "x": invalid syntax`.
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::VectorOption {
+            factory: "hnsw".into(),
+            error: "strconv.Atoi: parsing \"x\": invalid syntax".into(),
+        }
     );
-    assert!(
-        refused
-            .to_string()
-            .starts_with("IndexFactory: hnsw issues this error: '"),
-        "{refused}"
+    assert_eq!(
+        refused.to_string(),
+        "IndexFactory: hnsw issues this error: 'strconv.Atoi: parsing \"x\": invalid syntax'"
     );
+    // A factory the registry does not know is the catalog's refusal, checked before any option or dimension.
     let unknown = PredicateDeclaration::new(ex("emb"))
         .with_vector_index(VectorIndexSpec::new("nope", Vec::new()));
     let refused = apply(&a, vec![Change::Declare(Declaration::Predicate(unknown))]).unwrap_err();
-    assert!(
-        matches!(
-            &refused.0,
-            ChangesetErrorEnum::Catalog(_) | ChangesetErrorEnum::VectorOption { .. }
-        ),
-        "{refused:?}"
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Catalog(CatalogError::UnknownVectorIndex(
+            ex("emb").as_str(),
+            "nope"
+        ))
     );
-    assert!(refused.to_string().contains("nope"), "{refused}");
+    assert_eq!(
+        refused.to_string(),
+        "Predicate <http://ex.org/emb> declares the unknown vector index nope"
+    );
+    // Neither refusal declared `emb`.
+    let held = a
+        .quads()
+        .uid_of(NS, ex("emb").as_str())
+        .unwrap()
+        .and_then(|p| a.catalog(NS).unwrap().predicate(p).cloned());
+    assert_eq!(held, None);
 }
 
 #[test]
@@ -250,6 +265,7 @@ fn test_entity_types_and_relations_are_declared_with_their_entries() {
         .entity_type(uid(&a, "Person"))
         .expect("Person is declared");
     assert_eq!(person.parent(), Some(&ex("Agent")));
+    assert!(!person.is_abstract());
     assert!(
         catalog
             .entity_type(uid(&a, "Agent"))

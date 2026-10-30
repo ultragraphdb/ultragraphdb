@@ -474,14 +474,15 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() {
         }
         for len in 0..good.len() {
             let mut d = Direct::new(&pool);
+            // Nothing read is a close between frames; a cut header is short of its 256 bytes, a cut body of the
+            // frame's size.
+            let expected = match len {
+                0 => TransportError::Closed(),
+                len if len < 256 => TransportError::Truncated(len, 256),
+                len => TransportError::Truncated(len, good.len()),
+            };
             match d.frame(&pool, &good[..len]) {
-                Err(error) => assert!(
-                    matches!(
-                        error.0,
-                        TransportErrorEnum::Truncated { .. } | TransportErrorEnum::Closed
-                    ),
-                    "{name} cut at {len}"
-                ),
+                Err(error) => assert_eq!(error, expected, "{name} cut at {len}"),
                 Ok(_) => panic!("{name} cut at {len} read whole"),
             }
         }

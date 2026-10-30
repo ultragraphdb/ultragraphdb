@@ -170,13 +170,15 @@ impl CommitError {
         }
     }
 
-    /// Whether a retry of the transaction may commit: a conflict, too old, busy and not committed are.
+    /// Whether a retry of the transaction may commit: a conflict, too old, busy, session busy (after a delay) and not
+    /// committed are, as `PROTOCOL.md` §9 marks their codes.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self.0,
             CommitErrorEnum::Conflict { .. }
                 | CommitErrorEnum::TooOld { .. }
                 | CommitErrorEnum::Busy { .. }
+                | CommitErrorEnum::SessionBusy { .. }
                 | CommitErrorEnum::NotCommitted { .. }
         )
     }

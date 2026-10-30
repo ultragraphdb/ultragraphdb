@@ -54,8 +54,8 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
     }
 
     /// The server's frame on stream 0 read: its next Authenticate answered, its final one checked, its Error refused
-    /// as [`TransportError::Refused`]; a message out of step, or another command, as [`TransportError::Protocol`],
-    /// and the mechanism's refusal as [`TransportError::Authentication`].
+    /// as [`TransportError::Refused`]; a message out of step as [`TransportError::Protocol`], another command as
+    /// [`TransportError::UnexpectedCommand`], and the mechanism's refusal as [`TransportError::Authentication`].
     pub fn receive(&mut self, frame: &FrameView<'_>) -> Result<AuthenticationStep, TransportError> {
         match frame.command() {
             Command::Error => {

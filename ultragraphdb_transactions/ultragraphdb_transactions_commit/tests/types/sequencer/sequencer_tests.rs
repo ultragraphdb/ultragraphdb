@@ -93,3 +93,24 @@ fn test_an_exhausted_round_forgets_the_version_of_the_round_before() {
     assert_eq!(sequencer.open_round(u64::MAX / 2 + 1), None);
     assert_eq!(sequencer.take(), None);
 }
+
+#[test]
+fn test_the_clock_and_the_previous_version_meeting_and_one_apart() {
+    // After 8: at 5 µs both rules give 10, a tie; at 6 µs the clock's 12 wins; at 4 µs the previous version's 10 wins
+    // over the clock's 8. Each is max(8 + 2, 2 × clock) by hand.
+    for (now_us, first) in [(5u64, 10u64), (6, 12), (4, 10)] {
+        let mut sequencer = Sequencer::new(8);
+        assert_eq!(sequencer.open_round(now_us), Some(first), "at {now_us} µs");
+        assert_eq!(sequencer.take(), Some(first));
+        assert_eq!(sequencer.take(), Some(first + 2));
+    }
+}
+
+#[test]
+fn test_the_largest_clock_whose_double_fits_still_gives_a_version() {
+    // 2 × (u64::MAX / 2) = u64::MAX − 1, the largest even u64; one microsecond more overflows (the test above).
+    let mut sequencer = Sequencer::new(0);
+    assert_eq!(sequencer.open_round(u64::MAX / 2), Some(u64::MAX - 1));
+    assert_eq!(sequencer.take(), Some(u64::MAX - 1));
+    assert_eq!(sequencer.take(), None, "nothing follows the largest even version");
+}

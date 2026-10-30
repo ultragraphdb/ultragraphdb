@@ -27,24 +27,32 @@ fn test_frame_takes_the_command_and_command_header_from_the_body() {
 
 #[test]
 fn test_a_body_past_the_largest_frame_is_refused() {
-    // 1 MiB of message: the frame exceeds 1,048,576 bytes.
+    // 1 MiB of message. Error's body (PROTOCOL.md sections 4.1, 9.4): a 24-byte table, the 1,048,576-byte message,
+    // two empty sections: 1,048,600 data bytes, 1 + ceil((1,048,600 - 3,840) / 4,096) = 257 chunks and a table of
+    // 2,056, behind the 256-byte header: 1,050,912 bytes (section 2.3).
     let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(1 << 20));
     let refused = big.frame(Header::new(CLUSTER, Command::Error)).unwrap_err();
-    assert!(matches!(
+    assert_eq!(
         refused.0,
         ProtocolErrorEnum::FrameTooLarge {
-            limit: 1_048_576,
-            ..
+            size: 1_050_912,
+            limit: 1_048_576
         }
-    ));
-    // 50,000 distinct IRIs: 24 bytes of record and 20 of text each, past 1 MiB.
+    );
+    // 50,000 distinct IRIs of 21 bytes, "http://ex.org/" and seven digits. Execute's body (section 8.2): a 32-byte
+    // table, 1,200,000 bytes of records, 1,050,000 of text, 200,000 of parameters, an empty resume key: 2,450,032 data
+    // bytes, 1 + ceil(2,446,192 / 4,096) = 599 chunks and a table of 4,792: 2,455,080 bytes with the header.
     let mut terms = ultragraphdb_protocol_wire::TermTable::new();
     let parameters = (0..50_000)
         .map(|i| terms.iri(&format!("http://ex.org/{i:07}")))
         .collect();
-    assert!(
+    assert_eq!(
         Execute::new(1, 5, 0, terms, parameters, Vec::new())
             .frame(Header::new(CLUSTER, Command::Execute))
-            .is_err()
+            .map_err(|e| e.0),
+        Err(ProtocolErrorEnum::FrameTooLarge {
+            size: 2_455_080,
+            limit: 1_048_576
+        })
     );
 }

@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_doc")
+
+# The library is `ultragraphdb_lib` in Bazel, `ultragraphdb` as a crate, so the binary keeps the name `ultragraphdb`.
+rust_library(
+    name = "ultragraphdb_lib",
+    srcs = glob(
+        ["src/**/*.rs"],
+        exclude = ["src/bin/**"],
+    ),
+    aliases = aliases(),
+    crate_name = "ultragraphdb",
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = ["ultragraphdb"],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_binary(
+    name = "ultragraphdb",
+    srcs = ["src/bin/ultragraphdb.rs"],
+    crate_root = "src/bin/ultragraphdb.rs",
+    lint_config = lint_config(),
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_lib"] + all_crate_deps(normal = True),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_lib",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)

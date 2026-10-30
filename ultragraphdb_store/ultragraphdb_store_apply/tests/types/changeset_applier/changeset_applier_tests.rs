@@ -3,16 +3,22 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use oxrdf::GraphName;
+use oxrdf::{GraphName, GraphNameRef};
 use ultragraphdb_core_catalog::CatalogErrorEnum;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, Region};
 use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementId, StatementRef};
 use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_core_tok::TokErrorEnum;
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_hnsw::HnswErrorEnum;
+use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
+use ultragraphdb_store_sim::Fault;
+use ultragraphdb_traits_index::VectorIndexOptions;
 
 use crate::utils::changesets::{
-    NS, apply, changesets, changesets_over, declare, delete, ex, indexed, insert, insert_edge,
-    int_token, objects, postings, sim_store, statement, term, uid,
+    NS, apply, changesets, changesets_over, declare, delete, ex, index, indexed, insert,
+    insert_edge, int_token, objects, postings, sim_store, statement, term, uid, write,
 };
 
 fn keyspaces(regions: &std::collections::BTreeSet<Region>) -> Vec<Keyspace> {
@@ -93,6 +99,16 @@ fn test_the_written_regions_name_the_predicate_and_the_graph() {
     assert!(has(Keyspace::Reverse, Some(knows)));
     assert!(has(Keyspace::SubjectPredicates, None));
     assert!(has(Keyspace::ObjectPredicates, None));
+    // An undeclared predicate has no value or count index, so its write touches neither keyspace.
+    let touched = keyspaces(applied.written());
+    assert!(!touched.contains(&Keyspace::ValueIndex), "{touched:?}");
+    assert!(!touched.contains(&Keyspace::CountIndex), "{touched:?}");
+    // With a count index declared, the write touches the count keyspace, and still no value index.
+    declare(&a, "likes", "with an exact count index");
+    let counted = apply(&a, vec![insert("<a> <likes> <b>")]).unwrap();
+    let touched = keyspaces(counted.written());
+    assert!(touched.contains(&Keyspace::CountIndex), "{touched:?}");
+    assert!(!touched.contains(&Keyspace::ValueIndex), "{touched:?}");
 }
 
 #[test]
@@ -328,4 +344,123 @@ fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() {
     assert_eq!(a.quads().store().contents().versionless(), &before);
     assert_eq!(a.quads().uid_of(NS, ex("never").as_str()).unwrap(), None);
     assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
+}
+
+/// A batch the store fails to persist refuses the changeset with the store's error, and nothing of it is held; the
+/// store is then poisoned, and the next changeset is refused with that. The texts are the simulated store's
+/// (`ultragraphdb_store_sim`, `Fault::FailNextBatch`) and `StoreError::Poisoned`'s.
+#[test]
+fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() {
+    let a = changesets();
+    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+    let watermark = a.quads().lists().applied_ts();
+    a.quads().store().inject(Fault::FailNextBatch);
+    let refused = apply(&a, vec![insert("<a> <knows> <c>")]).unwrap_err();
+    // The posting lists' commit writes the batch, so the store's error reaches the changeset through theirs.
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError::WriteFailed(
+            "simulated failure during the batch's persist".into()
+        )))),
+        "{refused:?}"
+    );
+    assert_eq!(a.quads().lists().applied_ts(), watermark);
+    let poisoned = apply(&a, vec![insert("<a> <knows> <d>")]).unwrap_err();
+    assert_eq!(
+        poisoned.0,
+        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(
+            StoreErrorEnum::Poisoned
+        )))),
+        "{poisoned:?}"
+    );
+}
+
+/// A drop whose read of the store fails is refused with the store's own error, which no other crate wraps: a drop
+/// scans the store's snapshot directly. The text is the simulated store's (`Fault::FailNextScanAfter`). Nothing is
+/// dropped.
+#[test]
+fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() {
+    let a = changesets();
+    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+    a.quads().store().inject(Fault::FailNextScanAfter(0));
+    let refused = a.drop_predicate(NS, ex("knows").as_ref()).unwrap_err();
+    assert!(
+        matches!(
+            &refused.0,
+            ChangesetErrorEnum::Store(StoreError(StoreErrorEnum::ReadFailed { reason, .. }))
+                if reason == "simulated read failure partway through a scan"
+        ),
+        "{refused:?}"
+    );
+    assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
+}
+
+/// A geometry the geo index cannot cover refuses the write with the tokenizer's error: Dgraph's `indexCells`
+/// (`types/s2index.go`) indexes points, polygons and multipolygons, and refuses any other geometry with
+/// `Cannot index geometry of type %T`, here `*geom.LineString`. Nothing of the changeset is held.
+#[test]
+fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_error() {
+    let a = changesets();
+    declare(&a, "where", "with a `geo` index");
+    let line = r#"<a> <where> "{\"type\": \"LineString\", \"coordinates\": [[8.63, 50.12], [8.64, 50.13]]}"^^geo:geoJSONLiteral"#;
+    let refused = apply(&a, vec![insert(line)]).unwrap_err();
+    assert!(
+        matches!(&refused.0, ChangesetErrorEnum::Tok(t) if matches!(t.0, TokErrorEnum::Geo(_))),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        "Cannot index geometry of type *geom.LineString"
+    );
+    assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
+    // The same predicate without the index holds the line.
+    declare(&a, "where", "");
+    apply(&a, vec![insert(line)]).unwrap();
+    assert_eq!(objects(&a, "a", "where").len(), 1);
+}
+
+/// A search whose query is not of the index's dimension is refused with the index's error: Dgraph's
+/// `applyDistanceFunction` (`tok/hnsw/helper.go`) refuses vectors of different lengths, naming the metric, euclidean
+/// by default.
+#[test]
+fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_error() {
+    let a = changesets();
+    declare(
+        &a,
+        "emb",
+        "single-valued with a vector index of dimension 2",
+    );
+    write(
+        &a,
+        &[
+            "<a> <emb> \"[1, 0]\"^^ugdb:float32vector",
+            "<b> <emb> \"[0, 1]\"^^ugdb:float32vector",
+        ],
+    );
+    index(&a, "emb");
+    let search = |query: &[f32]| {
+        a.search_vectors(
+            NS,
+            GraphNameRef::DefaultGraph,
+            ex("emb").as_ref(),
+            query,
+            2,
+            &VectorIndexOptions::default(),
+            a.quads().lists().applied_ts(),
+        )
+    };
+    // A query of the index's dimension finds the nearer first: [1, 0] is at 0 from `a`, at sqrt(2) from `b`.
+    assert_eq!(search(&[1.0, 0.0]).unwrap(), vec![uid(&a, "a"), uid(&a, "b")]);
+    let refused = search(&[1.0, 0.0, 0.0]).unwrap_err();
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Hnsw(ultragraphdb_store_hnsw::HnswError(
+            HnswErrorEnum::DifferentLengths("euclidean distance")
+        )),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        "can not compute euclidean distance on vectors of different lengths"
+    );
 }

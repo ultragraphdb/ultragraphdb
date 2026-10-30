@@ -9,7 +9,7 @@ use ultragraphdb_client_core::{
     BatchPoll, ClientCore, ClientErrorEnum, Reply, TEST_NAME, TEST_PRINCIPAL, TestServer,
 };
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin};
-use ultragraphdb_protocol_transport::{Anonymous, BufferPool, NetworkFaults, TransportErrorEnum};
+use ultragraphdb_protocol_transport::{Anonymous, BufferPool, NetworkFaults, TransportError};
 use ultragraphdb_protocol_wire::{
     AuthenticateView, BodyBuilder, BodyView, Command, FrameView, Header, HeaderView,
     MAX_FRAME_SIZE, PatternSlot, QuadPattern, Read, TermTable,
@@ -81,9 +81,10 @@ fn test_requests_wait_for_the_final_authenticate() {
     let view = FrameView::validate_client(&first, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let message = AuthenticateView::from_frame(&view).unwrap();
     assert_eq!((message.step(), message.mechanism()), (0, "SCRAM-SHA-256"));
-    assert!(
-        core.next_deadline().is_some(),
-        "the exchange is awaited within the timeout"
+    assert_eq!(
+        core.next_deadline(),
+        Some(now + Duration::from_secs(1)),
+        "the exchange is awaited within the configured timeout, 1 s"
     );
 }
 
@@ -113,12 +114,13 @@ fn test_a_login_speaking_no_offered_mechanism_gives_the_connection_up() {
     let refused = core
         .receive(received(&pool, &welcome_frame()).unwrap(), now)
         .unwrap_err();
-    assert!(
-        matches!(
-            &refused.0,
-            ClientErrorEnum::Transport { error } if matches!(error.0, TransportErrorEnum::Authentication { .. })
-        ),
-        "{refused:?}"
+    assert_eq!(
+        refused.0,
+        ClientErrorEnum::Transport {
+            error: TransportError::Authentication(
+                "the login speaks none of the server's mechanisms"
+            )
+        }
     );
     assert!(!core.is_connected());
 }
@@ -293,18 +295,27 @@ impl Played {
 fn test_a_renewal_ending_as_another_principal_gives_the_connection_up() {
     let expires = UNIX + 600_000_000;
     let mut played = Played::authenticated(expires);
+    // The Hello and the first exchange's step 0, frames 1 and 2, go first.
+    assert_eq!(std::iter::from_fn(|| played.core.transmit()).count(), 2);
     let renew = played.core.next_deadline().unwrap();
+    assert_eq!(played.core.transmit(), None, "nothing before the renewal");
     played.core.handle_timeout(renew);
-    assert!(
-        played.core.transmit().is_some(),
-        "the renewal's first message"
-    );
+    // The renewal's first message: step 0 on stream 0, naming the mechanism, the connection's frame after the
+    // first exchange's step 0.
+    let first = played.core.transmit().expect("the renewal's first message");
+    let header = HeaderView::new(&first).unwrap();
+    assert_eq!((header.stream(), header.sequence()), (0, 3));
+    let view = FrameView::validate_client(&first, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    let message = AuthenticateView::from_frame(&view).unwrap();
+    assert_eq!((message.step(), message.mechanism()), (0, "TEST"));
     let refused = played
         .play(&Played::last(8, expires + 600_000_000))
         .unwrap_err();
-    assert!(
-        matches!(&refused.0, ClientErrorEnum::Transport { error } if matches!(error.0, TransportErrorEnum::Authentication { .. })),
-        "{refused:?}"
+    assert_eq!(
+        refused.0,
+        ClientErrorEnum::Transport {
+            error: TransportError::Authentication("renewed as another principal")
+        }
     );
     assert!(!played.core.is_connected());
 }
@@ -331,9 +342,11 @@ fn test_a_server_that_does_not_prove_itself_gives_the_connection_up() {
         .frame(Header::new(CLUSTER, Command::Authenticate))
         .unwrap();
     let refused = fresh.play(&forged).unwrap_err();
-    assert!(
-        matches!(&refused.0, ClientErrorEnum::Transport { error } if matches!(error.0, TransportErrorEnum::Authentication { .. })),
-        "{refused:?}"
+    assert_eq!(
+        refused.0,
+        ClientErrorEnum::Transport {
+            error: TransportError::Authentication("the server did not prove itself")
+        }
     );
     assert!(!fresh.core.is_connected());
     assert_eq!(fresh.core.principal(), None);

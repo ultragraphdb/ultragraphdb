@@ -67,6 +67,12 @@ fn test_each_constructor_builds_its_variant() {
             found: 16
         }
     );
+    assert_eq!(
+        TransportError::Authentication("the server did not prove itself").0,
+        TransportErrorEnum::Authentication {
+            reason: "the server did not prove itself".to_string()
+        }
+    );
     assert_ne!(
         TransportError::Truncated(3, 256),
         TransportError::Truncated(256, 3)
@@ -122,6 +128,10 @@ fn test_each_names_its_values() {
     assert_eq!(
         TransportError::UnexpectedCommand(2, 16).to_string(),
         "command 16 arrived where command 2 was due"
+    );
+    assert_eq!(
+        TransportError::Authentication("the server did not prove itself").to_string(),
+        "the server's authentication was refused: the server did not prove itself"
     );
     let error: Box<dyn Error> = Box::new(TransportError::Closed());
     assert!(error.source().is_none());

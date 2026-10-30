@@ -23,6 +23,24 @@ use crate::utils::helpers::{
     body, config, dir, open, segment, spare, superblock,
 };
 
+/// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
+fn assert_io(error: &LogError, operation: &str) {
+    match &error.0 {
+        LogErrorEnum::Io {
+            operation: named,
+            kind,
+            ..
+        } => {
+            assert_eq!(
+                (*named, *kind),
+                (operation, std::io::ErrorKind::Other),
+                "{error:?}"
+            );
+        }
+        other => panic!("not an I/O error of {operation}: {other:?}"),
+    }
+}
+
 fn writes_in(storage: &SimStorage, from: usize) -> usize {
     storage.trace()[from..]
         .iter()
@@ -198,7 +216,17 @@ fn test_a_failed_directory_creation_is_an_io_error() {
         ),
         "{refusal:?}"
     );
-    assert!(open(&storage).is_ok());
+    // The fault fired once and wrote nothing: the next open creates a fresh log.
+    let (wal, recovery) = open(&storage).expect("the next open succeeds");
+    assert_eq!(
+        (
+            recovery.checkpoint(),
+            recovery.committed(),
+            recovery.truncation()
+        ),
+        (Position::ZERO, Position::ZERO, None)
+    );
+    assert_eq!(wal.tail(), (Position::ZERO, 0));
 }
 
 #[test]
@@ -300,7 +328,8 @@ fn test_a_torn_tail_is_truncated_reported_until_overwritten() {
     append_synced(&mut wal, 1, 3, ONE_BLOCK);
     append(&mut wal, 4, FULL_BLOCK).expect("staged");
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
-    block_on(wal.sync()).expect_err("the torn write is reported");
+    let torn = block_on(wal.sync()).expect_err("the torn write is reported");
+    assert_io(&torn, "write");
     drop(wal);
     // The process restarts with the torn bytes in place.
     let (wal, recovery) = open(&storage).expect("reopened");
@@ -363,9 +392,18 @@ fn test_a_silent_torn_write_is_caught_and_named() {
     drop(wal);
     storage.power_loss();
     let (mut wal, recovery) = open(&storage).expect("reopened");
+    // Round 3's frame fills blocks 2 and 3 of segment 0, its 16-byte chunk table in the write's last sector: a tear
+    // keeps at least one sector and never all, so the table is always lost and its checksum fails before any chunk.
     assert_eq!(
-        recovery.truncation().map(|t| t.position()),
-        Some(Position::new(3))
+        recovery.truncation(),
+        Some(Truncation::new(
+            Position::new(3),
+            0,
+            8_192,
+            Damage::ChunkTable {
+                position: Position::new(3)
+            }
+        ))
     );
     assert_eq!(recovery.committed(), Position::new(2));
     assert_eq!(
@@ -382,7 +420,7 @@ fn test_a_truncation_is_a_warning_event() {
     append_synced(&mut wal, 1, 2, ONE_BLOCK);
     append(&mut wal, 3, FULL_BLOCK).expect("staged");
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
-    block_on(wal.sync()).expect_err("torn");
+    assert_io(&block_on(wal.sync()).expect_err("torn"), "write");
     drop(wal);
     let events = Arc::new(Mutex::new(Vec::new()));
     let subscriber = tracing_subscriber::registry().with(Capture(events.clone()));
@@ -672,12 +710,28 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
     };
     // The superblock's five steps, then segments 0 and 1 each zeroed, synced and renamed, then the directory synced.
     assert_eq!(steps, 12);
+    // The operation each step's error names, in the order above.
+    let operations = [
+        "create",
+        "write",
+        "file sync",
+        "rename",
+        "directory sync",
+        "write",
+        "file sync",
+        "rename",
+        "write",
+        "file sync",
+        "rename",
+        "directory sync",
+    ];
     for step in 0..steps {
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
             storage.fail_at(storage.trace().len() + step, FaultMode::After);
-            block_on(wal.trim_through(Position::new(8), 0))
+            let failed = block_on(wal.trim_through(Position::new(8), 0))
                 .expect_err("the step fails after its effect");
+            assert_io(&failed, operations[step]);
             drop(wal);
             if power {
                 storage.power_loss();
@@ -698,6 +752,7 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
 #[test]
 fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
     // The spare renamed, the directory synced, the segment opened, the round written and synced.
+    let operations = ["rename", "directory sync", "open", "write", "file sync"];
     for step in 0..5 {
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
@@ -708,7 +763,8 @@ fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
             );
             append(&mut wal, 13, ONE_BLOCK).expect("staged");
             storage.fail_at(storage.trace().len() + step, FaultMode::After);
-            block_on(wal.sync()).expect_err("the step fails after its effect");
+            let failed = block_on(wal.sync()).expect_err("the step fails after its effect");
+            assert_io(&failed, operations[step]);
             drop(wal);
             if power {
                 storage.power_loss();
@@ -820,7 +876,7 @@ fn test_a_torn_tail_before_a_short_torn_write_is_cleared_to_a_whole_block() {
         assert_eq!(block_on(wal.sync()), Ok(Position::new(3)));
         append(&mut wal, 4, ONE_BLOCK).expect("staged");
         storage.fail_at(storage.trace().len(), FaultMode::ShortTornWrite);
-        block_on(wal.sync()).expect_err("torn short");
+        assert_io(&block_on(wal.sync()).expect_err("torn short"), "write");
     });
     let (mut wal, recovery) = open(&storage).expect("reopened");
     assert_eq!(
@@ -842,7 +898,7 @@ fn test_without_fallocate_a_segment_whose_zeros_were_torn_short_is_filled_at_the
         append(&mut wal, 1, ONE_BLOCK).expect("staged");
         // Created, its reservation refused, then the zeros.
         storage.fail_at(storage.trace().len() + 2, FaultMode::ShortTornWrite);
-        block_on(wal.sync()).expect_err("torn short");
+        assert_io(&block_on(wal.sync()).expect_err("torn short"), "write");
     });
     let (mut wal, recovery) = open(&storage).expect("reopened");
     assert_eq!(recovery.committed(), Position::ZERO);
@@ -995,7 +1051,9 @@ fn run_seed(seed: u64) -> (usize, usize) {
             }
             acknowledged.retain(|p, _| *p <= recovery.committed().get());
             let from = recovery.checkpoint().get() + 1;
-            let rounds = block_on(log.read(Position::new(from), u32::MAX)).unwrap_or_default();
+            // Faults are off: a read of what the recovery found fails only if the log is wrong.
+            let rounds = block_on(log.read(Position::new(from), u32::MAX))
+                .unwrap_or_else(|e| panic!("seed {seed}: the recovered rounds read back: {e:?}"));
             for round in &rounds {
                 if let Some(checksum) = acknowledged.get(&round.position().get()) {
                     assert_eq!(*checksum, round.checksum(), "seed {seed}");

@@ -45,6 +45,8 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() {
         .operate(&five, std::iter::empty(), &mut results)
         .expect("operated");
     assert!(operator.has_overlay());
+    // The counter's new value, 0 + 5, created 0 as a counter add's always is (PROTOCOL.md §6.3).
+    assert_eq!(results, vec![ultragraphdb_protocol_wire::OperationResult::new(5, false)]);
     operator.adopt(&mut five, staged);
     // A counter of "zero" is no integer: refused with the value found.
     let mut refused = begin(&applier);
@@ -53,9 +55,12 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() {
     let Err(error) = operator.operate(&refused, std::iter::empty(), &mut results) else {
         panic!("a string is no counter");
     };
-    assert!(
-        matches!(error.0, CommitErrorEnum::OperationFailed { .. }),
-        "{error:?}"
+    // The value found, as an N-Triples term: the plain literal "zero".
+    assert_eq!(
+        error.0,
+        CommitErrorEnum::OperationFailed {
+            found: Some("\"zero\"".to_string())
+        }
     );
     operator.begin_round();
     assert!(

@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use cucumber::{World, then, when};
-use ultragraphdb_error_log::LogError;
+use ultragraphdb_error_log::{LogError, LogErrorEnum};
 use ultragraphdb_traits_log::{OrderedLog, Position, RoundRef};
 use ultragraphdb_transactions_log::{
     Damage, FaultMode, Recovery, ScanStart, SimStorage, StorageOperation, Superblock, Wal,
@@ -110,8 +110,11 @@ fn power_at_every_step(w: &mut Steps) {
             let mut store: Vec<u64> = (1..=4).collect();
             append(&mut wal, 5, ONE_BLOCK).expect("staged");
             storage.fail_at(storage.trace().len() + step, mode);
-            if let Ok(committed) = block_on(wal.sync()) {
-                store.extend(5..=committed.get());
+            match block_on(wal.sync()) {
+                Ok(committed) => store.extend(5..=committed.get()),
+                // Every step faulted fails the sync with the storage's error.
+                Err(LogError(LogErrorEnum::Io { .. })) => {}
+                Err(other) => panic!("step {step} {mode:?}: {other:?}"),
             }
             drop(wal);
             storage.power_loss();
@@ -237,7 +240,7 @@ fn torn_by_a_crash(w: &mut Steps) {
     append_synced(&mut wal, 1, 2, ONE_BLOCK);
     append(&mut wal, 3, FULL_TWO_BLOCKS).expect("staged");
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
-    w.checks = vec![block_on(wal.sync()).is_err()];
+    w.refusals = block_on(wal.sync()).err().into_iter().collect();
     drop(wal);
     // The process dies with the torn bytes written; they are as the drive left them.
     let (mut wal, recovery) = open(&storage).expect("recovered");
@@ -251,12 +254,29 @@ fn torn_by_a_crash(w: &mut Steps) {
 fn truncated_before(w: &mut Steps) {
     let truncation = w.recoveries[0].truncation().expect("reported");
     assert_eq!(truncation.position(), Position::new(3));
+    // Round 3 starts at block 2 of segment 0; its chunk table lies in the write's last sector, which a tear never
+    // keeps, so the table fails first.
+    assert_eq!((truncation.segment(), truncation.offset()), (0, 8_192));
+    assert_eq!(
+        truncation.damage(),
+        Damage::ChunkTable {
+            position: Position::new(3)
+        }
+    );
     assert_eq!(w.recoveries[0].committed(), Position::new(2));
     assert_eq!(w.positions, [1, 2]);
-    assert_eq!(
-        w.checks,
-        [true],
-        "its sync failed, so it was never acknowledged"
+    // Its write failed, so its sync never reported it: it was never acknowledged.
+    assert_eq!(w.refusals.len(), 1, "{:?}", w.refusals);
+    assert!(
+        matches!(
+            w.refusals[0].0,
+            LogErrorEnum::Io {
+                operation: "write",
+                ..
+            }
+        ),
+        "{:?}",
+        w.refusals
     );
 }
 
@@ -416,7 +436,17 @@ fn reported_faults(w: &mut Steps) {
         if fault {
             // The write succeeds, its sync fails: never acknowledged.
             storage.fail_at(storage.trace().len() + 1, FaultMode::Before);
-            assert!(block_on(wal.sync()).is_err());
+            let refused = block_on(wal.sync()).expect_err("the sync fails");
+            assert!(
+                matches!(
+                    refused.0,
+                    LogErrorEnum::Io {
+                        operation: "file sync",
+                        ..
+                    }
+                ),
+                "{refused:?}"
+            );
         } else {
             block_on(wal.sync()).expect("acknowledged");
             acknowledged.insert(7, wal.tail().1);
@@ -465,10 +495,14 @@ fn silent_tear_caught(w: &mut Steps) {
     assert_eq!(w.positions[0], 3);
     let truncation = w.recoveries[0].truncation().expect("reported");
     assert_eq!(truncation.position(), Position::new(3));
-    assert!(matches!(
+    // A 7,920-byte body ends with its 16-byte chunk table in the write's last sector, which a tear never keeps: the
+    // table fails before any chunk is checked.
+    assert_eq!(
         truncation.damage(),
-        Damage::Chunk { .. } | Damage::ChunkTable { .. }
-    ));
+        Damage::ChunkTable {
+            position: Position::new(3)
+        }
+    );
     assert_eq!(w.recoveries[0].committed(), Position::new(2));
     assert_eq!(&w.positions[1..], [1, 2]);
 }

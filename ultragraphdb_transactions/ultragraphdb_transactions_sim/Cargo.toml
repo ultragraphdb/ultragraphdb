@@ -23,7 +23,3 @@ ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }
-
-[[test]]
-name = "unit"
-path = "tests/mod.rs"

@@ -217,13 +217,14 @@ where
         });
         self.vector_changed(graph, subject, predicate, object);
         if let Some((objects, subjects)) = counts {
+            // A vector has no reverse list, so it counts no subject; move_counts leaves its reverse count alone.
             self.move_counts(
                 graph,
                 subject,
                 predicate,
                 object,
                 (objects, objects - 1),
-                (subjects, subjects - 1),
+                (subjects, subjects.saturating_sub(1)),
             );
         }
         if let oxrdf::Term::Literal(literal) = &term

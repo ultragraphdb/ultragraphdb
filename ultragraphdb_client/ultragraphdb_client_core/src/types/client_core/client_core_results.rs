@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{BodyView, Cancel, Command, Credit, FLAG_LAST, ResultView};
 
@@ -81,13 +82,21 @@ impl<L: Login> ClientCore<L> {
         Ok(BatchPoll::Batch(value))
     }
 
-    /// Grants `stream` credit for `frames` more Result frames, beyond what [`ClientCore::next_batch`] grants.
+    /// Grants `stream` credit for `frames` more Result frames, beyond what [`ClientCore::next_batch`] grants; refused
+    /// as [`ClientError::Request`] for no frames, which a Credit cannot carry (`PROTOCOL.md` §9.2).
     pub fn grant(&mut self, stream: &ResultStream, frames: u32) -> Result<(), ClientError> {
         let id = stream.stream();
         let open = stream.generation() == self.generation
             && self.streams.get(&id).is_some_and(|s| s.results);
         if !open {
             return Err(ClientError::StreamFinished(id));
+        }
+        if frames == 0 {
+            return Err(ClientError::Request(ProtocolError::FieldValue(
+                Command::Credit.number(),
+                "frames",
+                0,
+            )));
         }
         let frame = self.frame(&Credit::new(frames), id)?;
         if let Some(state) = self.streams.get_mut(&id) {

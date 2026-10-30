@@ -125,10 +125,12 @@ fn test_a_parameter_type_its_slot_does_not_take_is_refused() {
         PatternSlot::Parameter(0),
     );
     let bytes = prepare_frame(terms, at_object, vec![ColumnType::Node]);
-    assert!(
+    // A node parameter at the object, which takes any term, is taken: the first statement prepared, id 1.
+    assert_eq!(
         cache
             .prepare(&PrepareView::from_frame(&frame_of(&bytes)).unwrap(), 1)
-            .is_ok()
+            .map(|reply| reply.statement()),
+        Ok(1)
     );
 }
 
@@ -222,7 +224,11 @@ fn test_a_stale_statement_is_refused_and_prepares_again() {
     );
     let again = prepare(&mut cache, SCHEMA + 1).unwrap();
     assert_eq!((again.statement(), again.schema()), (2, SCHEMA + 1));
-    assert!(execute(&cache, 2, &["a"], SCHEMA + 1).is_ok());
+    // The parameter <a> follows the statement's <name>: index 1, at the subject.
+    assert_eq!(
+        execute(&cache, 2, &["a"], SCHEMA + 1).map(|(_, p)| p.subject()),
+        Ok(PatternSlot::Bound(1))
+    );
     assert_eq!(
         StatementError::Stale(1, SCHEMA, SCHEMA + 1).code(),
         ErrorCode::StaleStatement
@@ -266,8 +272,13 @@ fn test_past_its_capacity_the_oldest_statement_is_evicted() {
         execute(&cache, 1, &["a"], SCHEMA),
         Err(StatementError::Unknown(1))
     );
-    assert!(execute(&cache, 2, &["a"], SCHEMA).is_ok());
-    assert!(execute(&cache, 3, &["a"], SCHEMA).is_ok());
+    for statement in [2, 3] {
+        assert_eq!(
+            execute(&cache, statement, &["a"], SCHEMA).map(|(_, p)| p.subject()),
+            Ok(PatternSlot::Bound(1)),
+            "statement {statement}"
+        );
+    }
     assert_eq!(prepare(&mut cache, SCHEMA).unwrap().statement(), 4);
     let mut one = StatementCache::new(0);
     prepare(&mut one, SCHEMA).unwrap();
@@ -426,5 +437,8 @@ fn test_the_default_cache_holds_256_statements() {
         execute(&cache, 1, &["a"], SCHEMA),
         Err(StatementError::Unknown(1))
     );
-    assert!(execute(&cache, 2, &["a"], SCHEMA).is_ok());
+    assert_eq!(
+        execute(&cache, 2, &["a"], SCHEMA).map(|(_, p)| p.subject()),
+        Ok(PatternSlot::Bound(1))
+    );
 }

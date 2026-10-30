@@ -88,6 +88,23 @@ fn test_only_declarations_and_names_in_range_are_read() {
             limit: 4
         }
     );
+    // Relationship types (section 3) and property keys (4) index the four strings as labels do.
+    for section in [3, 4] {
+        let bytes = with_section(&golden("describe_reply").bytes(), 7, section, |names| {
+            put(names, 0, 4, 4)
+        });
+        assert_eq!(
+            DescribeView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+            ProtocolErrorEnum::IndexOutOfRange {
+                command: 12,
+                section,
+                at: 0,
+                index: 4,
+                limit: 4
+            },
+            "section {section}"
+        );
+    }
     let bytes = with_section(&golden("describe_reply").bytes(), 7, 5, |records| {
         records[0] = 1
     });

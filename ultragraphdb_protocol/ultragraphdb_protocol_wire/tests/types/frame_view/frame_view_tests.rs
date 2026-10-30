@@ -160,3 +160,60 @@ fn test_a_refusal_leaves_the_next_frame_unaffected() {
     );
     assert_eq!(validate(&golden).unwrap().command(), Command::Credit);
 }
+
+fn validate_client(bytes: &[u8]) -> Result<FrameView<'_>, ProtocolErrorEnum> {
+    FrameView::validate_client(bytes, CLUSTER, MAX_FRAME_SIZE).map_err(|e| e.0)
+}
+
+#[test]
+fn test_a_clients_frame_is_validated_with_the_clients_header_rules() {
+    // The golden Hello is a client's frame: view and replica 0.
+    let golden = HELLO.bytes();
+    let frame = validate_client(&golden).expect("a client's golden frame");
+    assert_eq!(frame.command(), Command::Hello);
+    assert_eq!(frame.body(), &HELLO.data()[..]);
+    // PROTOCOL.md section 2.5 step 6: in a client's frame `view` and `replica` are 0; a server's frame takes any.
+    let mut viewed = golden.clone();
+    put(&mut viewed, 44, 7, 4);
+    reseal(&mut viewed);
+    assert_eq!(
+        validate_client(&viewed).err(),
+        Some(ProtocolErrorEnum::FieldValue {
+            command: 1,
+            field: "view",
+            value: 7
+        })
+    );
+    assert_eq!(validate(&viewed).map(|f| f.header().view()), Ok(7));
+    let mut replica = golden.clone();
+    replica[64] = 3;
+    reseal(&mut replica);
+    assert_eq!(
+        validate_client(&replica).err(),
+        Some(ProtocolErrorEnum::FieldValue {
+            command: 1,
+            field: "replica",
+            value: 3
+        })
+    );
+    // Past the header the client's frame takes the same steps: the length, then the chunks.
+    assert_eq!(
+        validate_client(&golden[..300]).err(),
+        Some(ProtocolErrorEnum::LengthMismatch { size: 356, len: 300 })
+    );
+    let mut flipped = golden.clone();
+    flipped[300] ^= 1;
+    // HELLO's body is one chunk of its 100 data bytes.
+    assert_eq!(
+        validate_client(&flipped).err(),
+        Some(ProtocolErrorEnum::Chunk {
+            index: 0,
+            start: 0,
+            end: 100
+        })
+    );
+    assert_eq!(
+        validate_client(&golden[..10]).err(),
+        Some(ProtocolErrorEnum::ShortHeader { len: 10 })
+    );
+}

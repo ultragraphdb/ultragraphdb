@@ -16,7 +16,7 @@ use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::{Cardinality, Change, Changeset};
 use ultragraphdb_core_tok::get_tokenizer;
-use ultragraphdb_store_apply::ChangesetApplier;
+use ultragraphdb_store_apply::{ChangesetApplier, ChangesetErrorEnum};
 use ultragraphdb_store_posting::{Lists, ListsConfig, PostingError};
 use ultragraphdb_store_sim::{Fault, LogCapture, Seed, SimListCache, SteppedExecutor, Stream};
 use ultragraphdb_traits_store::{PersistMode, Store};
@@ -246,11 +246,25 @@ fn friend_gained_and_lost(w: &mut Steps) {
     regex = r"^the change fails with an error naming (`\w+`) and (`\w+`)(?:, and `(\w+)` stays multi-valued)?$"
 )]
 fn change_fails(w: &mut Steps, predicate: String, subject: String, multi: String) {
-    let error = last(w).as_ref().expect_err("the change fails").to_string();
-    for name in [predicate, subject] {
+    let refused = last(w).as_ref().expect_err("the change fails");
+    let error = refused.to_string();
+    for name in [&predicate, &subject] {
         let shown = format!("<{}>", ex(name.trim_matches('`')).as_str());
         assert!(error.contains(&shown), "{error} names {shown}");
     }
+    // A declaration the data contradicts, naming the predicate and the subject at fault in their fields too.
+    let (p, s) = (
+        ex(predicate.trim_matches('`')),
+        format!("<{}>", ex(subject.trim_matches('`')).as_str()),
+    );
+    assert!(
+        matches!(
+            &refused.0,
+            ChangesetErrorEnum::Contradicted { predicate, subject, .. }
+                if predicate == p.as_str() && *subject == s
+        ),
+        "{refused:?}"
+    );
     if !multi.is_empty() {
         let a = cs(w);
         let catalog = a.catalog(NS).expect("the catalog");

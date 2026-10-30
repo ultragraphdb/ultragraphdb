@@ -535,7 +535,13 @@ fn test_the_queue_of_a_vector_index_removed_goes_with_it() {
     emb_with(&a, &[("a", "[1, 0]")]);
     // The index is removed before a pass: the pass is refused, and `a`'s queued vector dropped.
     declare(&a, "emb", "single-valued");
-    assert!(a.index_vectors(NS, ex("emb").as_ref()).is_err());
+    let refused = a.index_vectors(NS, ex("emb").as_ref()).unwrap_err();
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::NoVectorIndex {
+            predicate: ex("emb").as_str().to_string()
+        }
+    );
     apply(&a, vec![delete("<a> <emb> \"[1, 0]\"^^ugdb:float32vector")]).unwrap();
     declare(
         &a,

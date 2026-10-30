@@ -843,3 +843,136 @@ fn test_the_candidate_heap_keeps_one_beyond_the_breadth() {
         );
     }
 }
+
+/// A search whose entry point lost its vector, or whose index holds no entry point, starts from the first node in key
+/// order holding a vector (Dgraph's `PickStartNode` and `calculateNewEntryVec`) and still answers exactly. By hand,
+/// on a line: 3 at 0, 6 at 1, 9 at 2, 12 at 3; 3 loses its vector; from (2.2, 0) the nearest are 9 (0.2 away), 12
+/// (0.8) and 6 (1.2), the brute-force order.
+#[test]
+fn test_a_search_from_a_lost_entry_point_starts_at_the_first_vector() {
+    let nodes = [
+        (3, vec![0.0, 0.0]),
+        (6, vec![1.0, 0.0]),
+        (9, vec![2.0, 0.0]),
+        (12, vec![3.0, 0.0]),
+    ];
+    for levels in ["1", "3"] {
+        let (txn, ix) = probe_index("euclidean", levels, &nodes);
+        txn.db.borrow_mut().remove(&key("0-a", 3));
+        let q = [2.2, 0.0];
+        let live: Vec<(u64, Vec<f64>)> = nodes[1..].to_vec();
+        assert_eq!(brute_force(Metric::Euclidean, &live, &q, 3), vec![9, 12, 6]);
+        let qc = QueryCache::new(&txn, 1);
+        assert_eq!(
+            ix.search(&qc, &q, 3, accept_all::<f64>),
+            Ok(vec![9, 12, 6]),
+            "{levels} levels"
+        );
+        assert_eq!(
+            ix.search_with_options(&qc, &q, 3, &options(0, None)),
+            Ok(vec![9, 12, 6]),
+            "{levels} levels"
+        );
+        // Without any entry point the search starts from the same node.
+        txn.db
+            .borrow_mut()
+            .remove(&key(&format!("0-a{VEC_ENTRY}"), 1));
+        let qc = QueryCache::new(&txn, 1);
+        assert_eq!(
+            ix.search(&qc, &q, 3, accept_all::<f64>),
+            Ok(vec![9, 12, 6]),
+            "{levels} levels, no entry point"
+        );
+    }
+}
+
+/// A cache whose `find` offers every value under the prefix to its filter, an empty one included, as Dgraph's
+/// in-memory doubles do; its reads are the golden transaction's.
+struct EveryValue(MapTxn);
+
+impl CacheType for EveryValue {
+    type Error = HnswError;
+
+    fn get(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
+        LocalCache::get(&self.0, key)
+    }
+
+    fn ts(&self) -> u64 {
+        1
+    }
+
+    fn find(&self, prefix: &[u8], filter: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
+        let db = self.0.db.borrow();
+        db.iter()
+            .filter(|(k, _)| k.starts_with(prefix))
+            .find(|(_, v)| filter(v))
+            .and_then(|(k, _)| vkeys("0-a").node_of(k))
+            .ok_or_else(HnswError::KeyNotFound)
+    }
+}
+
+/// The scan for a new entry point passes over a node holding no elements, as Dgraph's `calculateNewEntryVec` takes the
+/// first value that decodes to a non-empty vector: uid 2's value is empty, so the search starts from 5, the only vector,
+/// and finds it.
+#[test]
+fn test_the_entry_scan_passes_over_an_empty_vector() {
+    let txn = MapTxn::default();
+    txn.db.borrow_mut().insert(key("0-a", 2), Vec::new());
+    txn.db
+        .borrow_mut()
+        .insert(key("0-a", 5), float64_array_as_bytes(&[1.0, 0.0]));
+    let cache = EveryValue(txn);
+    assert_eq!(
+        index("euclidean", "1").search(&cache, &[1.0, 0.0], 1, accept_all::<f64>),
+        Ok(vec![5])
+    );
+}
+
+/// A query equal to the start's vector skips the levels above the bottom, as Dgraph's `SearchWithPath` breaks on
+/// `isEqual`: the path and counters hold the bottom level alone. By hand, on the graph of the test above: the query
+/// (0, 1) is the entry point 3's vector; on level 1 the search scores 6 (1 away, kept) and 9 (sqrt 41 away, not), then
+/// pops 6, whose neighbours are visited: three distances, three visits, path [3].
+#[test]
+fn test_a_query_equal_to_the_start_searches_the_bottom_level_alone() {
+    let txn = MapTxn::default();
+    for (uid, v) in [(3, [0.0, 1.0]), (6, [1.0, 1.0]), (9, [5.0, 5.0])] {
+        txn.db
+            .borrow_mut()
+            .insert(key("0-a", uid), float64_array_as_bytes(&v));
+        index("euclidean", "2")
+            .insert(&TxnCache::new(&txn, 1), uid, &v, &mut || 0.5)
+            .unwrap();
+    }
+    let r = index("euclidean", "2")
+        .search_with_path(&QueryCache::new(&txn, 1), &[0.0, 1.0], 2, accept_all::<f64>)
+        .unwrap();
+    assert_eq!(r.neighbors(), &[3, 6]);
+    assert_eq!(r.path(), &[3]);
+    assert_eq!(
+        r.metrics().clone(),
+        std::collections::HashMap::from([
+            ("vector_distance_computations".to_string(), 3),
+            ("visited_vectors_level_1".to_string(), 3),
+        ])
+    );
+}
+
+/// A query equal to the start's vector skips the levels above the bottom in every search, as Dgraph's `isEqual` break
+/// does, even where a level above would find a better start: under dot product the entry point 1 at (1, 0) scores 1
+/// against the query (1, 0), while 2 at (5, 0), its neighbour on level 0 alone, scores 5. The bottom level holds no
+/// edges, so each search returns its start: 1, Dgraph's answer (a search of the upper level would return 2).
+#[test]
+fn test_a_query_equal_to_the_start_keeps_the_start_under_dot_product() {
+    let cache = synthetic(
+        "0-a",
+        &[(1, vec![1.0, 0.0]), (2, vec![5.0, 0.0])],
+        &[(1, vec![vec![2], vec![]]), (2, vec![vec![1], vec![]])],
+    );
+    let ph = index("dotproduct", "2");
+    let q = [1.0, 0.0];
+    assert_eq!(ph.search(&cache, &q, 1, accept_all::<f64>), Ok(vec![1]));
+    assert_eq!(
+        ph.search_with_options(&cache, &q, 1, &options(0, None)),
+        Ok(vec![1])
+    );
+}

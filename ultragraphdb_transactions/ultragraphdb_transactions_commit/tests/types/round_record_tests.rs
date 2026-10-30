@@ -22,4 +22,13 @@ fn test_the_last_version_is_two_per_commit_after_the_first() {
     assert_eq!(RoundRecord::new(10, 4, 0).last_version(), None);
     // Past u64::MAX there is no last version.
     assert_eq!(RoundRecord::new(u64::MAX - 1, 2, 2).last_version(), None);
+    // At it, the largest even version is a last version still.
+    assert_eq!(
+        RoundRecord::new(u64::MAX - 1, 1, 1).last_version(),
+        Some(u64::MAX - 1)
+    );
+    assert_eq!(
+        RoundRecord::new(u64::MAX - 3, 2, 2).last_version(),
+        Some(u64::MAX - 1)
+    );
 }

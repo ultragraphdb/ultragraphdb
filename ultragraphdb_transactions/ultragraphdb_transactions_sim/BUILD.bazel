@@ -5,8 +5,7 @@
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
-load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc")
 
 rust_library(
     name = "ultragraphdb_transactions_sim",
@@ -24,24 +23,4 @@ rust_doc(
     crate = ":ultragraphdb_transactions_sim",
     tags = ["doc"],
     visibility = ["//visibility:public"],
-)
-
-rust_doc_test(
-    name = "doc_test",
-    crate = ":ultragraphdb_transactions_sim",
-    tags = ["doc-test"],
-    visibility = ["//visibility:public"],
-)
-
-# One rust_test, not a suite: tests/ mirrors src/, so the test files are modules reached through tests/mod.rs.
-rust_test(
-    name = "ultragraphdb_transactions_sim_tests",
-    srcs = glob(["tests/**/*.rs"]),
-    crate_root = "tests/mod.rs",
-    tags = ["unit-test"],
-    visibility = ["//visibility:public"],
-    deps = [":ultragraphdb_transactions_sim"] + all_crate_deps(
-        normal = True,
-        normal_dev = True,
-    ),
 )

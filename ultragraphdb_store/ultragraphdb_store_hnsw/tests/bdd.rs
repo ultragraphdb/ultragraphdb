@@ -36,6 +36,7 @@ struct Steps {
     later_edges: Vec<KeyValue>,
     compared: Vec<(Metric, Vec<u64>, Vec<u64>)>,
     within: Vec<(Metric, f64, Vec<f64>)>,
+    within_exact: Vec<(Metric, Vec<u64>, Vec<u64>)>,
     empty: Option<EmptySearch>,
     heir_lists: Vec<Vec<u64>>,
 }
@@ -247,6 +248,24 @@ fn threshold_search(w: &mut Steps) {
         let query = random_vector(&mut rng, 3);
         let options = VectorIndexOptions::new(0, Some(threshold), accept_all::<f32>);
         let found = search(&lists, &p, &o, &query, 40, Some(&options)).unwrap();
+        // The exhaustive oracle: every vector within the threshold, best first. The count asked for is the whole set and
+        // the default efSearch of 90 exceeds it, so the search is exact.
+        let oracle_distance = |v: &[f32]| {
+            let score = oracle_score(metric, &widen(v), &widen(&query));
+            if metric == Metric::Cosine {
+                1.0 - score
+            } else {
+                score
+            }
+        };
+        let exact: Vec<u64> = brute_force(metric, &widened(&vectors), &widen(&query), 40)
+            .into_iter()
+            .filter(|uid| {
+                let (_, v) = vectors.iter().find(|(u, _)| u == uid).unwrap();
+                oracle_distance(v) <= threshold
+            })
+            .collect();
+        w.within_exact.push((metric, found.clone(), exact));
         let distances = found
             .iter()
             .map(|uid| {
@@ -274,6 +293,11 @@ fn within_threshold(w: &mut Steps) {
             distances.iter().all(|d| d <= threshold),
             "{metric:?}: {distances:?} beyond {threshold}"
         );
+    }
+    // Nor does the threshold hold back a vector within it.
+    assert_eq!(w.within_exact.len(), 2);
+    for (metric, found, exact) in &w.within_exact {
+        assert_eq!(found, exact, "{metric:?}");
     }
 }
 

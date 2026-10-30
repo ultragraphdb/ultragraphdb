@@ -11,9 +11,11 @@
 use std::collections::BTreeMap;
 
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD};
-use ultragraphdb_store_hnsw::{HnswError, ViTxn, bytes_to_uint64, decode_uint64_matrix};
+use ultragraphdb_store_hnsw::{
+    HnswError, ViTxn, bytes_to_uint64, decode_uint64_matrix, index_posting,
+};
 use ultragraphdb_store_kv::{Durability, FjallStore};
-use ultragraphdb_store_posting::{CachedList, Lists};
+use ultragraphdb_store_posting::{CachedList, DEL, Lists};
 use ultragraphdb_store_sim::SimListCache;
 use ultragraphdb_traits_index::{KeyValue, LocalCache, Txn};
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
@@ -93,6 +95,53 @@ fn test_find_scans_the_committed_vectors_in_key_order() {
         Ok(6),
         "a deleted vector is skipped"
     );
+}
+
+/// An index list whose value is a delete holds none, as Dgraph's `GetValueFromPostingList` reads a first posting with
+/// `Op == Del` as `ErrNoValue`; a set of the same value reads back.
+#[test]
+fn test_a_deleted_index_value_is_no_value() {
+    let lists = new_lists();
+    let p = pred("emb");
+    let entry = key(&format!("{p}{VEC_ENTRY}"), 1);
+    let named = 7u64.to_be_bytes().to_vec();
+    let mut request = lists.request(lists.applied_ts());
+    request
+        .get(&entry)
+        .unwrap()
+        .add_posting(index_posting(named.clone()).with_op(DEL), false);
+    let txn = ViTxn::new(&mut request);
+    assert_eq!(Txn::get(&txn, &entry), Err(HnswError::NoValue()));
+    assert_eq!(LocalCache::get(&txn, &entry), Err(HnswError::NoValue()));
+    let kv = KeyValue::new(1, format!("{p}{VEC_ENTRY}"), named.clone());
+    txn.add_mutation(&entry, &kv).unwrap();
+    assert_eq!(Txn::get(&txn, &entry), Ok(named));
+}
+
+/// `find` passes over a list whose newest stored version is empty, as Dgraph's `LocalCache.Find` skips a key marked
+/// `BitEmptyPosting`, even when the request sets its vector again: 2 is committed, deleted, rolled up into an empty
+/// version, and set again in the request, so the scan names 4, the next committed vector, ahead of 6.
+#[test]
+fn test_find_passes_over_a_list_emptied_by_its_last_commit() {
+    let lists = new_lists();
+    let p = pred("emb");
+    let o = opts(&[("maxLevels", "2")]);
+    for uid in [2u64, 4] {
+        insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut || 0.5).unwrap();
+    }
+    delete(&lists, &p, 2).unwrap();
+    assert_eq!(
+        lists.rollup_key(&key(&p, 2)),
+        Ok(true),
+        "the rollup writes the empty version"
+    );
+    // The rollup writes its version above the newest commit; a later commit brings it below the read timestamp.
+    insert(&lists, &p, &o, 6, &[6.0, 1.0], &mut || 0.5).unwrap();
+    let mut request = lists.request(lists.applied_ts());
+    set_vector(&mut request, &p, 2, &[2.0, 2.0]).unwrap();
+    let txn = ViTxn::new(&mut request);
+    assert_eq!(Txn::get(&txn, &key(&p, 2)), Ok(elements(&[2.0, 2.0])));
+    assert_eq!(Txn::find(&txn, &vkeys(&p).vector_prefix(), |_| true), Ok(4));
 }
 
 #[test]

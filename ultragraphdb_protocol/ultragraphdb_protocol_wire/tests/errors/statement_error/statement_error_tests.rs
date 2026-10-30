@@ -88,6 +88,12 @@ fn test_each_maps_to_its_error_code_and_reply() {
         0
     );
     assert_eq!(StatementError::Unknown(7).reply().detail(), 7);
+    // PROTOCOL.md section 9.4, code 11: `detail` the statement, here 5, distinct from the counts 2 and 3.
+    assert_eq!(StatementError::Parameters(5, 2, 3).reply().detail(), 5);
+    assert_eq!(
+        StatementError::Parameters(5, 2, 3).reply().code(),
+        ErrorCode::Parameters
+    );
     assert_eq!(StatementError::NotANode(4, 1).code(), ErrorCode::Parameters);
     assert_eq!(StatementError::NotANode(4, 1).reply().detail(), 4);
 }

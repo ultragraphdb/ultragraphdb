@@ -8,7 +8,8 @@
 //! its end's record names built again, and an end whose build is gone writes nothing.
 
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_store_apply::{BuildEnd, Executed, RecordWrites};
+use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_apply::{BuildEnd, ChangesetErrorEnum, Executed, RecordWrites};
 use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI};
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
@@ -340,4 +341,56 @@ fn test_an_end_whose_predicate_is_gone_is_not_restored() {
             .unwrap()
     );
     assert!(!b.rebuilding());
+}
+
+/// A record whose list delta is no posting list is refused with the store's corruption naming the key, and nothing is
+/// prepared: the posting codec's version byte is 1 (`ultragraphdb_core_codec`), so a value starting 0xFF is of an
+/// unknown version.
+#[test]
+fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key() {
+    let a = changesets();
+    write(&a, &["<a> <knows> <b>"]);
+    let key = ultragraphdb_core_keys::QuadKey::Forward {
+        namespace: NS,
+        graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
+        predicate: uid(&a, "knows"),
+        subject: uid(&a, "a"),
+    }
+    .to_bytes();
+    let record = RecordWrites::new(
+        vec![(key.as_slice(), &[0xFF, 0, 0][..])],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let refused = a.prepare_replay(NS, record).unwrap_err();
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Store(StoreError::Corrupted(
+            key.clone(),
+            "unknown posting format version 255".to_string()
+        ))
+    );
+}
+
+/// A build end whose catalog entry is no declaration is refused with the catalog's corruption naming the key, and no
+/// build is restored: the catalog codec's format byte is 2 (`ultragraphdb_core_catalog`), so a value starting 0xFF is
+/// of an unknown format.
+#[test]
+fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() {
+    let a = changesets();
+    write(&a, &["<a> <name> \"big apple\""]);
+    let key = ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "name"));
+    let refused = a
+        .restore_build(NS, BuildEnd::Swap(1), &key, &[0xFF])
+        .unwrap_err();
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Catalog(ultragraphdb_core_catalog::CatalogError::Corrupted(
+            &key,
+            "unknown format 255".to_string()
+        ))
+    );
+    assert!(!a.rebuilding());
 }

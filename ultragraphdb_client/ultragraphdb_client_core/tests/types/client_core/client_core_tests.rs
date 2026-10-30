@@ -6,12 +6,12 @@
 use std::time::Duration;
 
 use ultragraphdb_client_core::{ClientCore, ClientErrorEnum, Reply, TestServer};
-use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_transport::{Anonymous, BufferPool, ClientHandshake, NetworkFaults};
+use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
+use ultragraphdb_protocol_transport::{Anonymous, BufferPool, NetworkFaults, TransportError};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, ColumnType, Command, CommitOperation, ErrorCode, ErrorReply, FrameView, Header,
-    HeaderView, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern, TermTable, Welcome,
-    Write,
+    BodyBuilder, BodyView, ColumnType, Command, CommitOperation, ErrorCode, ErrorReply, FrameView,
+    Header, HeaderView, HelloView, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern,
+    TermTable, Welcome, Write,
 };
 
 use crate::utils::harness::{CLUSTER, Harness, RELEASE, UNIX, config, received, server, welcome};
@@ -36,13 +36,32 @@ fn test_connect_sends_the_hello_and_a_welcome_makes_it_ready() {
     assert_eq!(core.transmit(), None);
     core.connect(crate::utils::harness::start(), UNIX).unwrap();
     let hello = core.transmit().unwrap();
+    assert_eq!(core.transmit(), None, "the Hello alone");
+    // PROTOCOL.md section 11.1, step 1: the first frame, on stream 0, at protocol 1, of the cluster and release.
+    let header = HeaderView::new(&hello).unwrap();
     assert_eq!(
-        hello,
-        ClientHandshake::new(CLUSTER, config().hello())
-            .hello_frame()
-            .unwrap()
+        (
+            header.sequence(),
+            header.stream(),
+            header.protocol(),
+            header.cluster(),
+            header.release()
+        ),
+        (1, 0, 1, CLUSTER, RELEASE)
     );
-    assert_eq!(HeaderView::new(&hello).unwrap().release(), RELEASE);
+    let view = FrameView::validate(&hello, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    let body = HelloView::from_frame(&view).unwrap();
+    // The configuration's: protocols 1 to the crate's, 1, the largest frame, 1 MiB, and its name.
+    assert_eq!(
+        (
+            body.protocol_min(),
+            body.protocol_max(),
+            body.release(),
+            body.max_frame(),
+            body.client()
+        ),
+        (1, 1, RELEASE, 1_048_576, "ultragraph-test")
+    );
     let h = Harness::ready(server());
     assert_eq!(h.core.welcome(), Some(&welcome()));
     assert_eq!(h.core.next_deadline(), None, "nothing is awaited");
@@ -64,11 +83,15 @@ fn test_a_welcome_outside_the_range_closes_the_connection() {
     let refused = core
         .receive(received(&pool, &other).unwrap(), now)
         .unwrap_err();
-    assert!(
-        matches!(refused.0, ClientErrorEnum::Transport { .. }),
-        "{refused:?}"
+    // Section 11.1, step 5: a protocol outside the Hello's range, 1 to 1, refused naming the Welcome's 2.
+    assert_eq!(
+        refused.0,
+        ClientErrorEnum::Transport {
+            error: TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", 2))
+        }
     );
     assert!(!core.is_ready());
+    assert!(!core.is_connected(), "the connection is given up");
 }
 
 #[test]

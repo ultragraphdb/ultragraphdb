@@ -100,7 +100,7 @@ impl<A: Authenticator> ServerConnection<A> {
             Err(refusal) => return self.refuse_connection(&refusal),
         };
         if self.phase == Phase::Hello {
-            return self.hello(frame.bytes());
+            return self.hello(frame.bytes(), now);
         }
         let stream = view.header().stream();
         if stream == 0 {
@@ -215,8 +215,9 @@ impl<A: Authenticator> ServerConnection<A> {
         }
     }
 
-    /// The Hello answered as [`ServerHandshake`] decides: its Welcome, or its refusal and the close.
-    fn hello(&mut self, frame: &[u8]) -> Inbound {
+    /// The Hello answered at `now` as [`ServerHandshake`] decides: its Welcome, from which the authentication timeout
+    /// runs (`PROTOCOL.md` §11.9), or its refusal and the close.
+    fn hello(&mut self, frame: &[u8], now: Instant) -> Inbound {
         let (answer, outcome) = ServerHandshake::new(self.cluster, self.server.clone())
             .receive(frame)
             .into_parts();
@@ -228,6 +229,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 let protocol = welcome.protocol();
                 if welcome.authenticates() {
                     self.phase = Phase::Authenticating;
+                    self.opened = now;
                 } else {
                     self.phase = Phase::Serving;
                     self.principal = Some(0);

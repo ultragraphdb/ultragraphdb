@@ -78,6 +78,24 @@ fn test_command_header_fields_fit_the_kind() {
             value: 1
         }
     );
+    // Compare-and-set, kind 3, takes no properties: the golden upsert's one property is refused before its link.
+    assert_eq!(
+        header_refused("operation", |h| h[0] = 3),
+        ProtocolErrorEnum::FieldValue {
+            command: 9,
+            field: "properties",
+            value: 1
+        }
+    );
+    // A negative delta is a delta too: the counter's -5 under insert-if-absent, as its u64 bits 2^64 - 5.
+    assert_eq!(
+        header_refused("operation_counter", |h| h[0] = 1),
+        ProtocolErrorEnum::FieldValue {
+            command: 9,
+            field: "delta",
+            value: 18_446_744_073_709_551_611
+        }
+    );
     assert_eq!(
         header_refused("operation_counter", |h| put(h, 20, 2, 4)),
         ProtocolErrorEnum::FieldValue {

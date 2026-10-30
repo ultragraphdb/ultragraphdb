@@ -92,6 +92,23 @@ fn test_a_commit_request_carries_no_results() {
         }
     );
     use ultragraphdb_protocol_wire::BodyBuilder;
+    // One result is one too many as well.
+    let one = Commit::new(9, 7, 0, vec![OperationResult::new(1, false)])
+        .frame(golden("commit").header())
+        .unwrap();
+    assert_eq!(
+        CommitView::from_frame(&frame_of(&one))
+            .unwrap()
+            .check_request()
+            .unwrap_err()
+            .0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 5,
+            field: "results",
+            count: 1,
+            expected: 0
+        }
+    );
     let request = Commit::new(9, 7, 0, Vec::new())
         .frame(golden("commit").header())
         .unwrap();

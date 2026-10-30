@@ -211,7 +211,24 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
     assert_eq!(refusal(&ragged).0, SessionEntry::INDEX_KEY);
     let unordered = store();
     write(&unordered, &[index(&[12, 10])]);
-    assert!(refusal(&unordered).1.contains("ascending"));
+    assert_eq!(
+        refusal(&unordered),
+        (
+            SessionEntry::INDEX_KEY.to_vec(),
+            "a session index whose numbers are not ascending from above 0".to_string()
+        )
+    );
+    // A number twice is not ascending either, though each entry exists.
+    let repeated = store();
+    write(
+        &repeated,
+        &[
+            index(&[10, 10]),
+            put(10, SessionEntry::new(0, 0, 0, Vec::new())),
+        ],
+    );
+    assert_eq!(refusal(&repeated).0, SessionEntry::INDEX_KEY);
+    assert!(refusal(&repeated).1.contains("ascending"));
     let zero = store();
     write(&zero, &[index(&[0])]);
     assert!(refusal(&zero).1.contains("ascending"));
@@ -306,4 +323,19 @@ fn test_the_owner_survives_a_reload() {
     let loaded = Sessions::load(&store).unwrap();
     assert_eq!(loaded.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
     assert_eq!(loaded.check(5, 1, 7), Ok(None));
+}
+
+/// A read the store fails while loading is the store's error, passed on as it is, not reported as corruption.
+#[test]
+fn test_a_failed_read_while_loading_is_the_stores_error() {
+    use ultragraphdb_store_sim::Fault;
+    let failing = store();
+    failing.inject(Fault::FailNextRead);
+    assert_eq!(
+        Sessions::load(&failing).map(|t| t.len()).unwrap_err().0,
+        StoreErrorEnum::ReadFailed {
+            key: SessionEntry::INDEX_KEY.to_vec(),
+            reason: "simulated read failure".to_string()
+        }
+    );
 }

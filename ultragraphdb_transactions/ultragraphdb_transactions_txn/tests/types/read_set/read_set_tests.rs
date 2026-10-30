@@ -371,13 +371,56 @@ fn test_gathering_an_executions_reads_records_each_of_them() {
     let mut r = ReadSet::new();
     r.reset(NS, executed.read_ts(), 1 << 20);
     r.gather(reads).unwrap();
+    // Gathering accounts as pushing each read one at a time does: a second path through the documented rule.
+    let mut oracle = pushed(reads, NS, executed.read_ts());
+    assert_eq!(r.bytes(), oracle.bytes());
+    assert!(r.bytes() > CATALOG_BYTES, "the reads are accounted");
     r.seal();
+    oracle.seal();
+    assert_eq!(lists(&r), lists(&oracle));
+    assert_eq!(statements(&r), statements(&oracle));
+    assert_eq!(ranges(&r), ranges(&oracle));
+    assert_eq!(absent(&r), absent(&oracle));
     assert_eq!(lists(&r), reads.lists().to_vec());
     assert_eq!(statements(&r), reads.statements().to_vec());
     assert_eq!(ranges(&r), reads.ranges().to_vec());
     assert_eq!(absent(&r), reads.absent().to_vec());
     let (start, end) = reads.catalog();
     assert_eq!(r.catalog(), (start.as_slice(), end.as_deref()));
+    // The bound exactly, and one byte below it: the gather is checked as a whole before anything is added, its
+    // statements counted with two spans each.
+    let needed = oracle.bytes();
+    let mut at = ReadSet::new();
+    at.reset(NS, executed.read_ts(), needed);
+    assert_eq!(at.gather(reads), Ok(()));
+    assert_eq!(at.bytes(), needed);
+    let mut below = ReadSet::new();
+    below.reset(NS, executed.read_ts(), needed - 1);
+    assert_eq!(
+        below.gather(reads),
+        Err(TxnError::ReadSetTooLarge(needed, needed - 1))
+    );
+    assert_eq!(below.bytes(), CATALOG_BYTES, "nothing is added");
+}
+
+/// `reads` recorded one push at a time into a read set of `ns` at `version` with no effective bound: the oracle
+/// `gather`, which reserves room for all of them at once, is checked against.
+fn pushed(reads: &ultragraphdb_store_apply::Reads, ns: u64, version: u64) -> ReadSet {
+    let mut r = ReadSet::new();
+    r.reset(ns, version, usize::MAX);
+    for key in reads.lists() {
+        r.push_list(key).unwrap();
+    }
+    for (key, object) in reads.statements() {
+        r.push_statement(key, object).unwrap();
+    }
+    for (start, end) in reads.ranges() {
+        r.push_range(start, end.as_deref()).unwrap();
+    }
+    for key in reads.absent() {
+        r.push_absent(key).unwrap();
+    }
+    r
 }
 
 #[test]
@@ -403,6 +446,8 @@ fn test_gathering_a_declarations_scan_records_its_ranges() {
     let gathered: BTreeSet<_> = ranges(&r).into_iter().collect();
     let expected: BTreeSet<_> = reads.ranges().iter().cloned().collect();
     assert_eq!(gathered, expected);
+    // A range names two keys, its end included: accounted as pushing each range does.
+    assert_eq!(r.bytes(), pushed(reads, NS, executed.read_ts()).bytes());
 }
 
 #[test]
@@ -422,8 +467,12 @@ fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() {
     r.reset(NS, 1, CATALOG_BYTES + 20);
     r.push_list(b"before").unwrap();
     let error = r.gather(executed.reads()).unwrap_err();
-    assert!(
-        matches!(error.0, TxnErrorEnum::ReadSetTooLarge { limit, .. } if limit == CATALOG_BYTES + 20)
+    // The size refused: the 14 bytes of "before" and its span, and everything the reads add, as pushing them would.
+    let added = pushed(executed.reads(), NS, 1).bytes() - CATALOG_BYTES;
+    assert!(added > 6, "the reads take more than the 6 bytes left");
+    assert_eq!(
+        error,
+        TxnError::ReadSetTooLarge(CATALOG_BYTES + 14 + added, CATALOG_BYTES + 20)
     );
     assert_eq!(r.bytes(), CATALOG_BYTES + 14);
     assert_eq!(lists(&r), vec![b"before".to_vec()]);

@@ -10,6 +10,7 @@
 use futures::executor::block_on;
 use oxrdf::{Literal, Term};
 use ultragraphdb_error_log::LogErrorEnum;
+use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_store_apply::ChangesetErrorEnum;
 use ultragraphdb_traits_log::{OrderedLog, Position};
 use ultragraphdb_transactions_commit::{
@@ -184,7 +185,7 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
 #[test]
 fn test_the_buffers_of_applied_and_aborted_transactions_come_back() {
     let applier = applier();
-    setup(&applier, vec![insert_literal("x", "name", "X")]);
+    let base = setup(&applier, vec![insert_literal("x", "name", "X")]);
     let (_storage, mut pipe) = pipeline(&applier);
     let mut loser = begin(&applier);
     read(&mut loser, "x", "name");
@@ -201,10 +202,14 @@ fn test_the_buffers_of_applied_and_aborted_transactions_come_back() {
     pipe.commit(2, prepare(loser), 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     block_on(pipe.sync(0)).unwrap();
-    let replies = drained(&mut pipe);
-    assert_eq!(replies.len(), 2);
-    assert!(replies[0].outcome().is_ok());
-    assert!(replies[1].outcome().is_err());
+    // The winner alone at the set-up's version plus 2; the loser read x's list the winner rewrote.
+    assert_eq!(
+        drained(&mut pipe),
+        vec![
+            Reply::new(1, Ok(base + 2)),
+            Reply::new(2, Err(CommitError::Conflict(ConflictKind::List)))
+        ]
+    );
     assert_eq!(pipe.buffers_mut().len(), 2);
     assert_eq!(
         held(&applier, "x", "name"),
@@ -235,7 +240,7 @@ fn test_pipeline_errors_name_their_cause() {
 #[test]
 fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline() {
     let applier = applier();
-    setup(&applier, vec![insert("z", "seen", "score")]);
+    let base = setup(&applier, vec![insert("z", "seen", "score")]);
     let score = uid_of(&applier, "score");
     let (_storage, mut pipe) = pipeline(&applier);
     let mut first = begin(&applier);
@@ -246,8 +251,11 @@ fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline(
     pipe.commit(2, prepare(second), 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     block_on(pipe.sync(0)).unwrap();
-    let replies = drained(&mut pipe);
-    assert!(replies.iter().all(|r| r.outcome().is_ok()), "{replies:?}");
+    // Neither aborts: the first alone, the second in the next round.
+    assert_eq!(
+        drained(&mut pipe),
+        vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 4))]
+    );
     assert!(applier.catalog(NS).unwrap().predicate(score).is_some());
     assert_eq!(held(&applier, "b", "score").len(), 1);
 }
@@ -291,12 +299,13 @@ fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() {
 #[test]
 fn test_the_session_table_survives_a_restart_with_the_store() {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+    let base = setup(&applier, vec![insert("a", "knows", "b")]);
     let (_, log) = wal();
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
     pipe.register(1, 0, 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
+    assert_eq!(session, base + 2, "numbered by its registration's version");
     assert_eq!(
         pipe.watermark(),
         session,
@@ -308,6 +317,7 @@ fn test_the_session_table_survives_a_restart_with_the_store() {
     block_on(pipe.sync(0)).unwrap();
     let first = pipe.replies_mut().pop().unwrap();
     let version = first.outcome().clone().unwrap();
+    assert_eq!(version, base + 4);
     drop(pipe);
     let (_, log) = wal();
     let mut again: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens again");
@@ -330,7 +340,7 @@ fn test_the_session_table_survives_a_restart_with_the_store() {
 fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() {
     use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
     let applier = applier();
-    setup(&applier, vec![insert_literal("a", "name", "apple")]);
+    let base = setup(&applier, vec![insert_literal("a", "name", "apple")]);
     let (_s, mut pipe) = pipeline(&applier);
     let mut declaration = begin(&applier);
     write(
@@ -356,12 +366,111 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
         pipe.step().previous_version(),
         "at the step's version"
     );
+    // The declaration took base + 2 and the swap, a round of its own, the step's next version.
+    assert_eq!(swapped, base + 4);
     let mut txn = begin(&applier);
     write(&mut txn, vec![insert("b", "knows", "c")]);
     pipe.commit(2, prepare(txn), 0).unwrap();
     block_on(pipe.sync(0)).expect("the write applies after the swap");
-    let replies: Vec<u64> = pipe.replies_mut().drain(..).map(|r| r.ticket()).collect();
-    assert_eq!(replies, vec![1, 2], "the swap's reply goes to nobody");
-    assert!(pipe.watermark() > swapped);
+    assert_eq!(
+        drained(&mut pipe),
+        vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 6))],
+        "the swap's reply goes to nobody"
+    );
+    assert_eq!(pipe.watermark(), base + 6);
     assert_eq!(held(&applier, "b", "knows").len(), 1);
+}
+
+/// Writes the session index `index` into `applier`'s store, as a damaged store would hold it.
+fn write_index(applier: &Applier, index: Vec<u8>) {
+    use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
+    let mut batch = WriteBatch::new();
+    batch.put_versionless(
+        ultragraphdb_transactions_commit::SessionEntry::INDEX_KEY.to_vec(),
+        index,
+    );
+    applier
+        .quads()
+        .store()
+        .apply(batch, PersistMode::Buffer)
+        .expect("the batch applies");
+}
+
+/// A store whose session table is corrupted, or cannot be read, does not open a pipeline (7.8).
+#[test]
+fn test_a_session_table_that_does_not_read_refuses_the_pipeline() {
+    use ultragraphdb_error_store::StoreError;
+    use ultragraphdb_transactions_commit::SessionEntry;
+    // Nine bytes: no whole number of 8-byte session numbers.
+    let applier = applier();
+    write_index(&applier, vec![1; 9]);
+    let (_, log) = wal();
+    let refused = Pipeline::new(&applier, log, unbounded()).map(|_| ()).unwrap_err();
+    assert_eq!(
+        refused,
+        PipelineError::Sessions(StoreError::Corrupted(
+            SessionEntry::INDEX_KEY.to_vec(),
+            "a session index whose length is not a multiple of 8".to_string()
+        ))
+    );
+    // A read the store fails is the store's own error, not corruption.
+    let applier = crate::utils::fixture::applier();
+    applier
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextRead);
+    let (_, log) = wal();
+    let refused = Pipeline::new(&applier, log, unbounded()).map(|_| ()).unwrap_err();
+    assert_eq!(
+        refused,
+        PipelineError::Sessions(StoreError::ReadFailed(
+            SessionEntry::INDEX_KEY.to_vec(),
+            "simulated read failure".to_string()
+        ))
+    );
+}
+
+/// A build's end that cannot be proposed, its catalog unreadable, stops the pipeline: nothing later commits.
+#[test]
+fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    let applier = applier();
+    setup(&applier, vec![insert_literal("a", "name", "apple")]);
+    let (_s, mut pipe) = pipeline(&applier);
+    let mut declaration = begin(&applier);
+    write(
+        &mut declaration,
+        vec![Change::Declare(Declaration::Predicate(
+            PredicateDeclaration::new(crate::utils::fixture::ex("name"))
+                .with_tokenizers(vec!["term".to_string()]),
+        ))],
+    );
+    pipe.commit(1, prepare(declaration), 0).unwrap();
+    block_on(pipe.sync(0)).unwrap();
+    applier.executor().run_until_idle();
+    // The catalog is read from the store again, and that read fails.
+    applier.forget_catalogs();
+    applier
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
+    let error = pipe.poll_builds(0).expect_err("the end is not proposed");
+    assert!(
+        matches!(
+            &error.0,
+            PipelineErrorEnum::BuildEnd { cause }
+                if matches!(cause.0, ultragraphdb_transactions_txn::TxnErrorEnum::Changeset(_))
+        ),
+        "{error:?}"
+    );
+    assert!(pipe.is_stopped());
+    assert!(!pipe.needs_sync());
+    commit_insert(&mut pipe, &applier, 2, "q");
+    assert_eq!(
+        drained(&mut pipe),
+        vec![
+            Reply::new(1, Ok(4)),
+            Reply::new(2, Err(CommitError::Unavailable()))
+        ]
+    );
 }

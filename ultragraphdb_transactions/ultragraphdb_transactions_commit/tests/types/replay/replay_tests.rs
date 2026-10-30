@@ -80,16 +80,14 @@ fn test_rounds_the_store_lost_are_replayed() {
     store.recover();
     let applier = applier_over(store);
     let lost = applier.quads().lists().applied_ts();
-    assert!(lost < tail, "rounds 8 to 10 were never synced to the store");
+    // One commit a round from an empty store with the clock at 0: round i at 2i, so 14 synced to the store after round
+    // 7 and the log's tail at 20.
+    assert_eq!((lost, tail), (14, 20), "rounds 8 to 10 were never synced to the store");
     let (mut log, _) = reopen_wal(&storage);
     let replayed = replay(&applier, &mut log, 1).unwrap();
     assert_eq!(applier.quads().lists().applied_ts(), tail);
     assert_eq!(replayed.applied(), tail);
-    assert!(
-        replayed.rounds() >= 1 && replayed.rounds() <= 3,
-        "{}",
-        replayed.rounds()
-    );
+    assert_eq!(replayed.rounds(), 3, "rounds 8, 9 and 10");
     for i in 1..=10 {
         assert_eq!(held(&applier, &format!("s{i}"), "knows").len(), 1, "s{i}");
     }
@@ -232,7 +230,9 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
     let replica = applier_over(sim_store());
     let replayed = replay(&replica, &mut log, 1).unwrap();
     assert_eq!(replica.quads().lists().applied_ts(), applied);
-    assert!(replayed.rounds() >= 8);
+    // Nine rounds, each committing: the insert, the registration, the session's commit, the declaration of `name`, its
+    // swap, the insert of `c`, the declaration of `label`, the drop and the cancelled build's end.
+    assert_eq!(replayed.rounds(), 9);
     assert_eq!(held(&replica, "s", "knows"), held(&original, "s", "knows"));
     assert_eq!(
         indexed(&replica, "name", "apple"),
@@ -404,4 +404,105 @@ fn test_a_store_behind_its_checkpoint_refuses_to_start() {
         behind,
         "nothing replayed"
     );
+}
+
+/// A log holding one round, `<a> <knows> <b>` committed at 2 by a pipeline over a fresh store, and the log's storage.
+fn one_round_log() -> (ultragraphdb_transactions_log::SimStorage, Log) {
+    let original = applier();
+    let (storage, log) = wal();
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded()).unwrap();
+    // The first commit after an empty store: max(0 + 2, 2 × 0) = 2.
+    let reply = commit(&mut pipe, &original, 1, vec![insert("a", "knows", "b")]);
+    assert_eq!(reply, Reply::new(1, Ok(2)));
+    (storage, pipe.into_log())
+}
+
+/// A store whose session table is corrupted refuses recovery before any round is replayed.
+#[test]
+fn test_a_corrupted_session_table_refuses_recovery() {
+    use ultragraphdb_error_store::StoreError;
+    use ultragraphdb_traits_store::{PersistMode, WriteBatch};
+    use ultragraphdb_transactions_commit::SessionEntry;
+    let (_storage, mut log) = one_round_log();
+    let replica = applier_over(sim_store());
+    let mut batch = WriteBatch::new();
+    // Nine bytes: no whole number of 8-byte session numbers.
+    batch.put_versionless(SessionEntry::INDEX_KEY.to_vec(), vec![1; 9]);
+    replica
+        .quads()
+        .store()
+        .apply(batch, PersistMode::Buffer)
+        .unwrap();
+    let refused = replay(&replica, &mut log, 1).unwrap_err();
+    assert_eq!(
+        refused.0,
+        RecoveryErrorEnum::Sessions {
+            cause: StoreError::Corrupted(
+                SessionEntry::INDEX_KEY.to_vec(),
+                "a session index whose length is not a multiple of 8".to_string()
+            )
+        }
+    );
+    assert_eq!(replica.quads().lists().applied_ts(), 0, "nothing replayed");
+}
+
+/// A log whose storage fails the read refuses recovery with the log's error.
+#[test]
+fn test_a_log_that_cannot_be_read_refuses_recovery() {
+    use ultragraphdb_error_log::LogErrorEnum;
+    use ultragraphdb_transactions_log::FaultMode;
+    let (storage, log) = one_round_log();
+    drop(log);
+    let (mut log, _) = reopen_wal(&storage);
+    storage.fail_at(storage.trace().len(), FaultMode::Before);
+    let replica = applier_over(sim_store());
+    let refused = replay(&replica, &mut log, 1).unwrap_err();
+    assert!(
+        matches!(&refused.0, RecoveryErrorEnum::Log { cause } if matches!(cause.0, LogErrorEnum::Io { .. })),
+        "{refused:?}"
+    );
+    assert_eq!(replica.quads().lists().applied_ts(), 0, "nothing replayed");
+}
+
+/// A round the log holds whose body is no Round body refuses recovery naming its position, after the rounds before it
+/// were replayed.
+#[test]
+fn test_a_round_that_is_no_round_body_refuses_recovery_naming_it() {
+    use ultragraphdb_traits_log::{OrderedLog, RoundRef};
+    let (_storage, mut log) = one_round_log();
+    let (tail, parent) = log.tail();
+    assert_eq!(tail, Position::new(1));
+    // Eight bytes of 0xff: a section table pointing far past the body.
+    let garbage = [0xffu8; 8];
+    log.append(RoundRef::new(Position::new(2), parent, 4, 1, &garbage))
+        .expect("the log takes any body");
+    block_on(log.sync()).expect("synced");
+    let replica = applier_over(sim_store());
+    let refused = replay(&replica, &mut log, 1).unwrap_err();
+    assert!(
+        matches!(refused.0, RecoveryErrorEnum::Round { position: 2, .. }),
+        "{refused:?}"
+    );
+    assert_eq!(
+        replica.quads().lists().applied_ts(),
+        2,
+        "round 1 was replayed first"
+    );
+}
+
+/// A store refusing a replayed round refuses recovery naming the round's position.
+#[test]
+fn test_a_round_the_store_refuses_refuses_recovery_naming_it() {
+    let (_storage, mut log) = one_round_log();
+    let replica = applier_over(sim_store());
+    replica
+        .quads()
+        .store()
+        .inject(ultragraphdb_store_sim::Fault::FailNextBatch);
+    let refused = replay(&replica, &mut log, 1).unwrap_err();
+    assert!(
+        matches!(refused.0, RecoveryErrorEnum::Apply { position: 1, .. }),
+        "{refused:?}"
+    );
+    assert_eq!(replica.quads().lists().applied_ts(), 0, "nothing applied");
 }

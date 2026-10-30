@@ -381,6 +381,15 @@ fn index_lists(
             let listed = indexed(&a, &predicate, token).contains(&uid(&a, &subject));
             assert_eq!(listed, lists == "lists", "{subject} under {token:?}");
         }
+        // Under a literal's tokens, exactly those: the subject holds that one literal, so no other value-index key of
+        // the predicate lists it. The tokens themselves are pinned by hand in the unit tests.
+        if lists == "lists" && under.starts_with("the tokens of ") {
+            assert_eq!(
+                index_keys_holding(&a, &predicate, uid(&a, &subject)).len(),
+                tokens.len(),
+                "{subject}"
+            );
+        }
     }
 }
 

@@ -49,7 +49,7 @@ fn test_a_commit_is_held_once_its_round_is_synced_and_applied() {
 #[test]
 fn test_write_skew_is_refused() {
     let applier = applier();
-    setup(
+    let base = setup(
         &applier,
         vec![
             insert_literal("alice", "on-call", "true"),
@@ -81,7 +81,9 @@ fn test_write_skew_is_refused() {
     driver.submit(2, prepare(second));
     driver.sync();
     driver.sync();
-    assert!(driver.reply(1).expect("decided").outcome().is_ok());
+    // The first commits alone at the set-up's version plus 2 (the clock reads 0); the second, in the next round, read
+    // alice's list the first rewrote.
+    assert_eq!(driver.reply(1).expect("decided").outcome(), &Ok(base + 2));
     assert_eq!(
         driver.reply(2).expect("decided").outcome(),
         &Err(CommitError::Conflict(ConflictKind::List))
@@ -93,7 +95,7 @@ fn test_write_skew_is_refused() {
 #[test]
 fn test_inserts_of_one_new_statement_conflict_and_of_different_objects_do_not() {
     let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "z")]);
+    let base = setup(&applier, vec![insert("a", "knows", "z")]);
     let mut driver = Driver::new(&applier, unbounded());
     let txns: Vec<_> = ["b", "c", "b"]
         .iter()
@@ -108,14 +110,15 @@ fn test_inserts_of_one_new_statement_conflict_and_of_different_objects_do_not() 
     }
     driver.sync();
     driver.sync();
-    assert!(driver.reply(0).expect("decided").outcome().is_ok());
-    assert!(driver.reply(1).expect("decided").outcome().is_ok());
-    assert!(matches!(
+    // 0 alone, then 1 and 2 in the next round: 1, another object of the list, commits; 2 found the IRI `b` absent from
+    // the dictionary, and 0 created it, so 2 conflicts on the absent term (QuadStore::confirm's rule), the first of its
+    // reads a write above its read version touches.
+    assert_eq!(driver.reply(0).expect("decided").outcome(), &Ok(base + 2));
+    assert_eq!(driver.reply(1).expect("decided").outcome(), &Ok(base + 4));
+    assert_eq!(
         driver.reply(2).expect("decided").outcome(),
-        Err(CommitError(
-            ultragraphdb_transactions_commit::CommitErrorEnum::Conflict { .. }
-        ))
-    ));
+        &Err(CommitError::Conflict(ConflictKind::AbsentTerm))
+    );
     assert_eq!(held(&applier, "a", "knows").len(), 3);
 }
 
@@ -124,7 +127,7 @@ fn test_inserts_of_one_new_statement_conflict_and_of_different_objects_do_not() 
 #[test]
 fn test_an_aborted_transaction_gives_its_buffers_back() {
     let applier = applier();
-    setup(&applier, vec![insert_literal("x", "name", "X")]);
+    let base = setup(&applier, vec![insert_literal("x", "name", "X")]);
     let mut driver = Driver::new(&applier, unbounded());
     let buffers = TxnBuffers::with_capacity(4_096, 64, 8_192);
     let (read_cap, record_cap) = (buffers.read_set_capacity(), buffers.record_capacity());
@@ -158,7 +161,9 @@ fn test_an_aborted_transaction_gives_its_buffers_back() {
     write(&mut next, vec![insert("n", "knows", "b")]);
     driver.submit(3, prepare(next));
     driver.sync();
-    assert!(driver.reply(3).is_some_and(|r| r.outcome().is_ok()));
+    // 1 at base + 2; 2 aborted and took none; 3 alone in the next round.
+    assert_eq!(driver.reply(1).map(|r| r.outcome().clone()), Some(Ok(base + 2)));
+    assert_eq!(driver.reply(3).map(|r| r.outcome().clone()), Some(Ok(base + 4)));
     assert!(held(&applier, "l", "knows").is_empty());
 }
 
@@ -202,9 +207,10 @@ fn test_a_second_build_waits_for_the_first_builds_end() {
     use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
     let applier = applier();
     setup(&applier, vec![insert_literal("a", "name", "apple")]);
-    applier
+    let base = applier
         .apply(&Changeset::new(1).with(insert_literal("a", "name", "pear")))
-        .expect("namespace 1 holds data");
+        .expect("namespace 1 holds data")
+        .commit_ts();
     applier.sequence_builds();
     let mut driver = Driver::new(&applier, unbounded());
     let mut first = begin(&applier);
@@ -236,10 +242,21 @@ fn test_a_second_build_waits_for_the_first_builds_end() {
     assert!(applier.rebuilding(), "the second build runs");
     let counts: Vec<u32> = driver.appended.iter().map(|r| r.transactions()).collect();
     assert_eq!(counts, vec![1, 1, 1, 1], "the end alone in its round");
-    assert!(
-        driver.replies.iter().all(|r| r.outcome().is_ok()),
-        "{:?}",
-        driver.replies
+    // One transaction a round, each at the version after the last: 1, then the first build 2, its end 4, then the second
+    // build 3, set aside until the end was admitted.
+    let replies: Vec<(u64, Result<u64, CommitError>)> = driver
+        .replies
+        .iter()
+        .map(|r| (r.ticket(), r.outcome().clone()))
+        .collect();
+    assert_eq!(
+        replies,
+        vec![
+            (1, Ok(base + 2)),
+            (2, Ok(base + 4)),
+            (4, Ok(base + 6)),
+            (3, Ok(base + 8))
+        ]
     );
 }
 
@@ -285,6 +302,7 @@ fn test_a_round_closes_after_a_drop() {
     write(&mut retry, vec![insert("z", "knows", "y")]);
     driver.submit(4, prepare(retry));
     driver.sync();
-    assert!(driver.reply(4).expect("decided").outcome().is_ok());
+    // Rounds took 4 and 6; 3 aborted and took none, so the retry follows 6.
+    assert_eq!(driver.reply(4).expect("decided").outcome(), &Ok(8));
     assert_eq!(held(&applier, "z", "knows").len(), 1);
 }

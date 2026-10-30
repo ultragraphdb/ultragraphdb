@@ -10,7 +10,7 @@
 use ultragraphdb_protocol_wire::{ConflictKind, OperationResult, WriteSetRecord};
 use ultragraphdb_traits_store::VersionlessEntry;
 use ultragraphdb_transactions_commit::{
-    CommitError, CommitErrorEnum, CommitRequest, CommitStep, Input, NoOperations, Operator,
+    CommitError, CommitRequest, CommitStep, Input, NoOperations, Operator,
     Proposal, Reply, RoundBounds, SessionEntry, StepOutput,
 };
 use ultragraphdb_transactions_txn::ReadSet;
@@ -318,8 +318,11 @@ fn test_an_operation_whose_record_no_longer_fits_waits_for_the_next_round() {
     let (round, _) = out.append().expect("the third round");
     assert_eq!(round.transactions(), 1);
     sync(&mut step, &mut out, &mut script);
-    assert_eq!(out.replies()[0].ticket(), 4);
-    assert!(out.replies()[0].outcome().is_ok(), "{:?}", out.replies());
+    // 1 alone at 2; 2 and 3 at 4 and 6; the operation, decided again, alone at 8 with its result.
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(4, Ok(8)).with_results(vec![OperationResult::new(0, true)])]
+    );
     assert_eq!(script.seen.len(), 2, "decided again in the next round");
 }
 
@@ -333,12 +336,14 @@ fn test_a_step_without_an_operator_refuses_operations() {
         &mut out,
     );
     step.step(Input::Synced, 0, &mut out);
-    let Err(refusal) = out.replies()[0].outcome() else {
-        panic!("committed");
-    };
-    assert!(
-        matches!(refusal.0, CommitErrorEnum::Refused { .. }),
-        "{refusal:?}"
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(
+            1,
+            Err(CommitError::Refused(
+                "the commit step runs no commit-time operations".to_string()
+            ))
+        )]
     );
     let mut none = NoOperations;
     let staged = ();

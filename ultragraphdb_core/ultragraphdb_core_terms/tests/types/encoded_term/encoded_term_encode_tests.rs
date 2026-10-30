@@ -8,8 +8,7 @@ use std::collections::BTreeMap;
 use oxrdf::vocab::xsd;
 use oxrdf::{BaseDirection, Literal, NamedNode, NamedNodeRef};
 use ultragraphdb_core_terms::{
-    Datatype, EncodedTerm, FLOAT32_VECTOR, Hash128, KnownDatatype, TermError, TermErrorEnum,
-    TermView, Text,
+    Datatype, EncodedTerm, FLOAT32_VECTOR, Hash128, KnownDatatype, TermError, TermView, Text,
 };
 
 /// The UID the tests give a datatype the encoding does not know.
@@ -180,7 +179,33 @@ fn test_strings_are_inline_up_to_fifteen_bytes_and_hashed_beyond() {
         "xsd:string is a simple literal"
     );
     let (unicode, _) = round_trip(&Literal::new_simple_literal("ünïcödé"));
-    assert!(unicode.as_bytes().len() <= 17);
+    // Seven characters, eleven bytes of UTF-8: the length byte counts bytes.
+    assert_eq!(
+        unicode.as_bytes(),
+        [&[0x20, 11][..], "ünïcödé".as_bytes()].concat().as_slice()
+    );
+}
+
+#[test]
+fn test_the_inline_limit_counts_bytes_not_characters() {
+    // Seven two-byte characters and one ASCII byte are 15 bytes, held inline.
+    let fifteen = "ééééééé".to_string() + "a";
+    let (inline, _) = round_trip(&Literal::new_simple_literal(fifteen.clone()));
+    assert_eq!(
+        inline.as_bytes(),
+        [&[0x20, 15][..], fifteen.as_bytes()].concat().as_slice()
+    );
+    // Eight two-byte characters are 16 bytes, though only 8 characters: hashed. BLAKE2b-128 of "é" × 8 from Python's
+    // `hashlib.blake2b(digest_size=16)`.
+    let sixteen = "é".repeat(8);
+    let (hashed, _) = round_trip(&Literal::new_simple_literal(sixteen));
+    assert_eq!(
+        hashed.as_bytes(),
+        [
+            0x21, 0x76, 0xda, 0x9f, 0x69, 0x54, 0x45, 0xf4, 0x21, 0x6a, 0x53, 0x1a, 0x8f, 0x70,
+            0x36, 0x66, 0xb1
+        ]
+    );
 }
 
 #[test]
@@ -257,17 +282,213 @@ fn test_other_typed_literals_name_their_datatype_by_uid() {
 
 #[test]
 fn test_a_known_datatype_takes_no_uid() {
-    for literal in [
-        Literal::new_typed_literal("x".repeat(30), xsd::INT),
-        Literal::new_typed_literal(
-            "{}",
-            NamedNode::new_unchecked("http://www.opengis.net/ont/geosparql#geoJSONLiteral"),
+    let long = "x".repeat(30);
+    for (literal, expected) in [
+        (
+            Literal::new_typed_literal(long.clone(), xsd::INT),
+            TermView::Typed {
+                datatype: Datatype::Known(KnownDatatype::Int),
+                lexical: Text::Hashed(Hash128::of(long.as_bytes())),
+            },
+        ),
+        (
+            Literal::new_typed_literal(
+                "{}",
+                NamedNode::new_unchecked("http://www.opengis.net/ont/geosparql#geoJSONLiteral"),
+            ),
+            TermView::Typed {
+                datatype: Datatype::Known(KnownDatatype::GeoJsonLiteral),
+                lexical: Text::Inline("{}"),
+            },
         ),
     ] {
-        EncodedTerm::literal(literal.as_ref(), |_| -> Result<u64, TermError> {
+        let encoded = EncodedTerm::literal(literal.as_ref(), |_| -> Result<u64, TermError> {
             panic!("no UID is needed")
         })
         .unwrap();
+        assert_eq!(encoded.term().view(), Ok(expected), "{literal}");
+    }
+}
+
+#[test]
+fn test_a_failure_to_name_a_datatype_is_returned_as_the_callers_error() {
+    #[derive(Debug, PartialEq)]
+    enum Failure {
+        NoUid(String),
+        Term(TermError),
+    }
+    impl From<TermError> for Failure {
+        fn from(e: TermError) -> Self {
+            Failure::Term(e)
+        }
+    }
+    let literal =
+        Literal::new_typed_literal("x", NamedNode::new_unchecked("http://example.org/other"));
+    let refused = EncodedTerm::literal(literal.as_ref(), |d| {
+        Err::<u64, _>(Failure::NoUid(d.as_str().to_string()))
+    });
+    assert_eq!(
+        refused,
+        Err(Failure::NoUid("http://example.org/other".to_string()))
+    );
+    // A term's own refusal arrives through `From<TermError>`.
+    let vector = Literal::new_typed_literal("[]", NamedNode::new_unchecked(FLOAT32_VECTOR));
+    let refused = EncodedTerm::literal(vector.as_ref(), |_| Ok::<u64, Failure>(0));
+    assert_eq!(
+        refused,
+        Err(Failure::Term(TermError::InvalidVector(
+            "[]".into(),
+            "empty"
+        )))
+    );
+}
+
+/// The hash of "the quick brown fox", "chat" and the language tag "zh-hant-tw-x-abcdefgh", each BLAKE2b-128 from
+/// Python's `hashlib.blake2b(digest_size=16)`.
+const FOX: [u8; 16] = [
+    0x98, 0xd9, 0x90, 0x55, 0xe2, 0xa4, 0xfb, 0x92, 0xe4, 0x71, 0x80, 0x42, 0xab, 0x65, 0x5a, 0x22,
+];
+const CHAT: [u8; 16] = [
+    0xc5, 0x4e, 0xfd, 0x77, 0x0e, 0x4d, 0xd8, 0x6d, 0x29, 0xeb, 0x35, 0x5c, 0x84, 0x90, 0xdb, 0x5a,
+];
+const LONG_TAG: [u8; 16] = [
+    0xc5, 0xc0, 0x6d, 0x8e, 0x28, 0x05, 0x94, 0xcc, 0xd7, 0xfa, 0x11, 0x74, 0x02, 0xfe, 0x99, 0x6c,
+];
+/// BLAKE2b-128 of "b" × 16, "x" × 16 and "de-de-x-abcdefgh", likewise.
+const B16: [u8; 16] = [
+    0x4e, 0xd1, 0x83, 0x05, 0x7f, 0x51, 0xfe, 0xb7, 0x9d, 0x68, 0x4a, 0x85, 0x82, 0xfb, 0x02, 0xb3,
+];
+const X16: [u8; 16] = [
+    0x5d, 0x2e, 0x91, 0x71, 0xbb, 0x7d, 0xcd, 0x6d, 0x1c, 0x7b, 0xd5, 0x44, 0x31, 0x54, 0x0d, 0xa4,
+];
+const TAG16: [u8; 16] = [
+    0x52, 0x72, 0xf3, 0xd4, 0xc3, 0x74, 0xf5, 0x82, 0x88, 0xaa, 0x60, 0xc7, 0x44, 0x30, 0x56, 0x3a,
+];
+
+#[test]
+fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
+    // PROTOCOL.md section 10.1, written byte by byte: the tag, then each part in order; a UID big-endian, an inline
+    // part its length then its bytes, a hash 16 bytes; and the strings the encoding names.
+    const FOX_TEXT: &str = "the quick brown fox";
+    const TAG_TEXT: &str = "zh-hant-tw-x-abcdefgh";
+    let other = NamedNode::new_unchecked("http://example.org/other");
+    let uid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+    let lang = |lexical: &str, language: &str, direction: Option<BaseDirection>| match direction {
+        None => Literal::new_language_tagged_literal(lexical, language).unwrap(),
+        Some(d) => Literal::new_directional_language_tagged_literal(lexical, language, d).unwrap(),
+    };
+    let fifteen_b = "b".repeat(15);
+    let fifteen_x = "x".repeat(15);
+    let mut cases: Vec<(Literal, Vec<u8>, Vec<(Hash128, String)>)> = vec![
+        (
+            Literal::new_simple_literal("short"),
+            [&[0x20, 5][..], b"short"].concat(),
+            vec![],
+        ),
+        (
+            Literal::new_simple_literal(FOX_TEXT),
+            [&[0x21][..], &FOX].concat(),
+            vec![(Hash128::from_bytes(FOX), FOX_TEXT.into())],
+        ),
+        (
+            Literal::new_typed_literal("7", xsd::INT),
+            vec![0x30, 18, 1, b'7'],
+            vec![],
+        ),
+        (
+            Literal::new_typed_literal(FOX_TEXT, xsd::INT),
+            [&[0x31, 18][..], &FOX].concat(),
+            vec![(Hash128::from_bytes(FOX), FOX_TEXT.into())],
+        ),
+        (
+            Literal::new_typed_literal("x", other.clone()),
+            [&[0x32][..], &uid, &[1, b'x']].concat(),
+            vec![],
+        ),
+        (
+            Literal::new_typed_literal(fifteen_x.clone(), other.clone()),
+            [&[0x32][..], &uid, &[15], fifteen_x.as_bytes()].concat(),
+            vec![],
+        ),
+        (
+            Literal::new_typed_literal("x".repeat(16), other.clone()),
+            [&[0x33][..], &uid, &X16].concat(),
+            vec![(Hash128::from_bytes(X16), "x".repeat(16))],
+        ),
+        (
+            Literal::new_typed_literal(FOX_TEXT, other),
+            [&[0x33][..], &uid, &FOX].concat(),
+            vec![(Hash128::from_bytes(FOX), FOX_TEXT.into())],
+        ),
+        (
+            Literal::new_typed_literal("[1, -2.5, 3]", NamedNode::new_unchecked(FLOAT32_VECTOR)),
+            vec![
+                0x40, 3, 0, 0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x20, 0xC0, 0x00, 0x00, 0x40, 0x40,
+            ],
+            vec![],
+        ),
+        // A 15-byte tag is the longest held inline; a 16-byte one hashes the lexical form too.
+        (
+            lang("chat", "de-de-x-abcdefg", None),
+            [&[0x22, 4][..], b"chat", &[15], b"de-de-x-abcdefg"].concat(),
+            vec![],
+        ),
+        (
+            lang("chat", "de-de-x-abcdefgh", None),
+            [&[0x24][..], &CHAT, &TAG16].concat(),
+            vec![
+                (Hash128::from_bytes(CHAT), "chat".into()),
+                (Hash128::from_bytes(TAG16), "de-de-x-abcdefgh".into()),
+            ],
+        ),
+        // A 15-byte lexical form is the longest held inline beside an inline tag.
+        (
+            lang(&fifteen_b, "fr", None),
+            [&[0x22, 15][..], fifteen_b.as_bytes(), &[2, b'f', b'r']].concat(),
+            vec![],
+        ),
+        (
+            lang(&"b".repeat(16), "fr", None),
+            [&[0x23][..], &B16, &[2, b'f', b'r']].concat(),
+            vec![(Hash128::from_bytes(B16), "b".repeat(16))],
+        ),
+    ];
+    // The three tags of each language-tagged row, for no direction, ltr and rtl.
+    for (set, direction) in [None, Some(BaseDirection::Ltr), Some(BaseDirection::Rtl)]
+        .into_iter()
+        .enumerate()
+    {
+        let shift = 3 * set as u8;
+        cases.push((
+            lang("chat", "fr", direction),
+            [&[0x22 + shift, 4][..], b"chat", &[2, b'f', b'r']].concat(),
+            vec![],
+        ));
+        cases.push((
+            lang(FOX_TEXT, "fr", direction),
+            [&[0x23 + shift][..], &FOX, &[2, b'f', b'r']].concat(),
+            vec![(Hash128::from_bytes(FOX), FOX_TEXT.into())],
+        ));
+        cases.push((
+            lang("chat", TAG_TEXT, direction),
+            [&[0x24 + shift][..], &CHAT, &LONG_TAG].concat(),
+            vec![
+                (Hash128::from_bytes(CHAT), "chat".into()),
+                (Hash128::from_bytes(LONG_TAG), TAG_TEXT.into()),
+            ],
+        ));
+    }
+    for (literal, bytes, strings) in cases {
+        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
+        assert_eq!(encoded.term().as_bytes(), bytes.as_slice(), "{literal}");
+        // The strings it names, in any order: the writer enters each in the dictionary.
+        let mut named: Vec<(Hash128, String)> =
+            encoded.strings().map(|(h, s)| (h, s.to_string())).collect();
+        named.sort();
+        let mut strings = strings;
+        strings.sort();
+        assert_eq!(named, strings, "{literal}");
+        round_trip(&literal);
     }
 }
 
@@ -280,12 +501,16 @@ fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() {
         panic!("a vector");
     };
     assert_eq!(elements.iter().collect::<Vec<_>>(), vec![0.5, -1.0, 2.25]);
-    for bad in ["[0.50, -1]", "[0.5,-1]", "[]", "0.5", "[NaN]", "[inf]"] {
+    for (bad, reason) in [
+        ("[0.50, -1]", "not in canonical form"),
+        ("[0.5,-1]", "an element is no 32-bit float"),
+        ("[]", "empty"),
+        ("0.5", "not in brackets"),
+        ("[NaN]", "an element is not finite"),
+        ("[inf]", "an element is not finite"),
+    ] {
         let error = EncodedTerm::literal(vector(bad).as_ref(), other_uid).unwrap_err();
-        assert!(
-            matches!(error.0, TermErrorEnum::InvalidVector { .. }),
-            "{bad}: {error}"
-        );
+        assert_eq!(error, TermError::InvalidVector(bad.into(), reason), "{bad}");
     }
 }
 
@@ -353,14 +578,31 @@ fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
             "{lexical} is kept by its lexical form"
         );
         assert_eq!(decoded, literal);
-        // One minute east is held by value, and reads back with its offset.
+        // One minute east is held by value, and reads back with its offset: Z, the payload's last two bytes, is the
+        // i16 +1 (PROTOCOL.md section 10.5).
         let east = lexical.replace("-00:01", "+00:01");
         let (term, _) = round_trip(&Literal::new_typed_literal(east.as_str(), datatype));
-        assert!(
-            (0x15..=0x1C).contains(&term.as_bytes()[0]),
-            "{east} is by value"
-        );
+        let bytes = term.as_bytes();
+        assert_eq!(bytes.len(), 19, "{east} is by value");
+        assert_eq!(&bytes[17..], &[0x00, 0x01], "{east}");
+        // Two minutes west is held by value too: Z is the i16 -2, 0xFFFE, which is no "no timezone" marker.
+        let west_two = lexical.replace("-00:01", "-00:02");
+        let (term, _) = round_trip(&Literal::new_typed_literal(west_two.as_str(), datatype));
+        let bytes = term.as_bytes();
+        assert_eq!(bytes.len(), 19, "{west_two} is by value");
+        assert_eq!(&bytes[17..], &[0xFF, 0xFE], "{west_two}");
     }
+    // The whole payload of two minutes west, from testdata/by_value/generate_by_value.py's `date_payload(year=2026,
+    // month=10, day=26, hour=12, minute=0, second=0, tz=-2)`, PROTOCOL.md section 10.5's formula with exact decimals.
+    let two_west = Literal::new_typed_literal("2026-10-26T12:00:00-00:02", xsd::DATE_TIME);
+    let encoded = EncodedTerm::literal(two_west.as_ref(), other_uid).unwrap();
+    assert_eq!(
+        encoded.term().as_bytes(),
+        &[
+            0x15, 0x00, 0x00, 0x00, 0x00, 0xce, 0x90, 0x82, 0x5a, 0x97, 0xaa, 0x6f, 0x0e, 0x7d,
+            0xe0, 0x00, 0x00, 0xff, 0xfe
+        ]
+    );
 }
 
 #[test]

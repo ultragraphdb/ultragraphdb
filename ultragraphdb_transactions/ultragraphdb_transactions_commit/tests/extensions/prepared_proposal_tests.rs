@@ -25,5 +25,6 @@ fn test_a_prepared_transaction_proposes_its_read_set_and_record() {
         prepared.record().as_ptr()
     ));
     assert!(Proposal::read_set(&prepared).is_sealed());
-    assert!(Proposal::read_set(&prepared).lists().count() > 0);
+    // The one list read whole: the objects of `<a> <knows>`.
+    assert_eq!(Proposal::read_set(&prepared).lists().count(), 1);
 }

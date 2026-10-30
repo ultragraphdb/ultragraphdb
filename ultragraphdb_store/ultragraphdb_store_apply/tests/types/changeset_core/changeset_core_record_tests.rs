@@ -8,6 +8,8 @@
 //! names, wherever the build was interrupted.
 
 use ultragraphdb_core_keys::{Keyspace, QuadKey};
+use ultragraphdb_error_store::StoreError;
+use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_sim::{Fault, RebuildStage};
 
 use ultragraphdb_traits_store::Store;
@@ -28,7 +30,9 @@ fn restarted(a: TestChangesets) -> TestChangesets {
 
 /// `name` indexed by `term` holding `"big apple"` for `a`; `exact` added while `b` writes `"red pear"`, the build
 /// interrupted at `stage`, or never run without one; the store restarted.
-fn interrupted(stage: Option<RebuildStage>) -> TestChangesets {
+///
+/// With the store's refusal of the declaration, when the crash stopped the round that declares it.
+fn interrupted(stage: Option<RebuildStage>) -> (TestChangesets, Option<ChangesetError>) {
     let a = changesets();
     declare(&a, "name", "with `term`");
     write(&a, &["<a> <name> \"big apple\""]);
@@ -37,14 +41,18 @@ fn interrupted(stage: Option<RebuildStage>) -> TestChangesets {
             .store()
             .inject(Fault::CrashDuringNextRebuild(stage));
     }
-    if declared(&a, "name", "with `term` and `exact`").is_ok() {
-        assert_eq!(a.quads().store().rebuild_records().unwrap().len(), 1);
-        write(&a, &["<b> <name> \"red pear\""]);
-        if stage.is_some() {
-            finish_builds(&a);
+    let refusal = match declared(&a, "name", "with `term` and `exact`") {
+        Ok(_) => {
+            assert_eq!(a.quads().store().rebuild_records().unwrap().len(), 1);
+            write(&a, &["<b> <name> \"red pear\""]);
+            if stage.is_some() {
+                finish_builds(&a);
+            }
+            None
         }
-    }
-    restarted(a)
+        Err(e) => Some(e),
+    };
+    (restarted(a), refusal)
 }
 
 /// The catalog declares `term`, and `exact` with it or not; every index it declares holds each literal held, and no
@@ -115,7 +123,8 @@ fn assert_complete(a: &TestChangesets, case: &str) {
 
 #[test]
 fn test_a_build_never_run_is_finished_at_open_with_the_interim_declaration() {
-    let a = interrupted(None);
+    let (a, refusal) = interrupted(None);
+    assert_eq!(refusal, None);
     assert!(is_held_in_default(&a, "b", "name"));
     // The interim declaration, the new one without `exact`, which was being built.
     assert_eq!(
@@ -128,7 +137,41 @@ fn test_a_build_never_run_is_finished_at_open_with_the_interim_declaration() {
 #[test]
 fn test_a_build_interrupted_at_any_stage_is_finished_at_open() {
     for stage in RebuildStage::ALL {
-        let a = interrupted(Some(stage));
+        let (a, refusal) = interrupted(Some(stage));
+        // The record is written by the declaring round, before its batch: a crash at the record's first three stages
+        // stops that round, which is refused with the simulated store's crash text, and the build never starts. A crash
+        // at a temporary batch stops the build itself, after the round committed; one at the record's removal stops
+        // it after the swap's batch was written, which holds the new declaration.
+        let refused_round = matches!(
+            stage,
+            RebuildStage::Start | RebuildStage::RecordWritten | RebuildStage::RecordSynced
+        );
+        match &refusal {
+            Some(e) => assert!(
+                refused_round
+                    && e.0
+                        == ChangesetErrorEnum::Store(StoreError::WriteFailed(
+                            "simulated process crash during a rebuild".into()
+                        )),
+                "{stage:?}: {e:?}"
+            ),
+            None => assert!(!refused_round, "{stage:?}: the declaration applied"),
+        }
+        assert_eq!(
+            is_held_in_default(&a, "b", "name"),
+            !refused_round,
+            "{stage:?}: `b` written after the declaration"
+        );
+        let expected = if stage == RebuildStage::RecordRemoved {
+            declaration("name", "with `term` and `exact`")
+        } else {
+            declaration("name", "with `term`")
+        };
+        assert_eq!(
+            a.catalog(NS).unwrap().predicate(uid(&a, "name")),
+            Some(&expected),
+            "{stage:?}"
+        );
         assert_complete(&a, &format!("{stage:?}"));
         // The store serves writes after the restart, and maintains what it declares.
         write(&a, &["<c> <name> \"green fig\""]);

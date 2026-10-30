@@ -97,3 +97,36 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
         }
     );
 }
+
+#[test]
+fn test_an_entry_whose_padding_runs_past_its_section_is_refused() {
+    use crate::utils::golden_bodies::join_sections;
+    // PROTOCOL.md section 12.2: entries are back to back, each 8-aligned within the section, so an entry's padding is
+    // the section's. One dictionary entry of key "k1" and value "value", 8 + 2 + 5 = 15 bytes, without its padding
+    // byte: the section ends at 15, the entry's padding at 16.
+    let entry = [&2u32.to_le_bytes()[..], &5u32.to_le_bytes(), b"k1value"].concat();
+    let mut secs = vec![Vec::new(); 11];
+    secs[1] = entry.clone();
+    assert_eq!(
+        WriteSetRecordView::new(&join_sections(&[0u8; 40], &secs))
+            .unwrap_err()
+            .0,
+        ProtocolErrorEnum::EntryOutOfBounds {
+            command: 17,
+            section: 1,
+            entry: 0,
+            offset: 0
+        }
+    );
+    // With its padding byte it is held.
+    secs[1].push(0);
+    let bytes = join_sections(&[0u8; 40], &secs);
+    assert_eq!(
+        WriteSetRecordView::new(&bytes)
+            .unwrap()
+            .dictionary()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![RecordEntry::new(b"k1", Some(b"value"))]
+    );
+}

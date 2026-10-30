@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use ultragraphdb_core_mapping::{Change, Declaration};
+use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
 use ultragraphdb_store_apply::{ChangesetErrorEnum, Executed};
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_quads::iri_key;
@@ -20,6 +20,12 @@ use crate::utils::changesets::{
     NS, TestChangesets, changeset, changesets, declaration, ex, finish_builds, insert,
     is_held_in_default, objects, term, uid, write,
 };
+
+/// The declaration a predicate takes when first written undeclared: of kind either, multi-valued, no datatype, not
+/// unique, no index (the catalog specification's defaults), stated through the declaration's own constructor.
+fn default_of(predicate: &str) -> PredicateDeclaration {
+    PredicateDeclaration::new(ex(predicate))
+}
 
 fn execute(a: &TestChangesets, text: &str) -> Executed {
     a.execute(&changeset(vec![insert(text)]))
@@ -330,7 +336,16 @@ fn test_a_stale_round_writes_no_rebuild_record() {
         .unwrap();
     let before = a.quads().store().contents();
     let watermark = a.quads().lists().applied_ts();
-    assert!(a.apply_round(vec![(watermark, declared)]).is_err());
+    let refused = a.apply_round(vec![(watermark, declared)]).unwrap_err();
+    // The version is the watermark itself, not above it.
+    assert_eq!(
+        refused.0,
+        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::StaleVersion {
+            version: watermark,
+            after: watermark
+        }))
+    );
+    assert!(!a.rebuilding());
     assert_eq!(a.quads().store().contents(), before);
     assert!(a.quads().store().rebuild_records().unwrap().is_empty());
 }
@@ -393,8 +408,9 @@ fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() {
     a.apply_round(vec![(next, first), (next + 2, second)])
         .unwrap();
     let catalog = a.catalog(NS).unwrap();
-    assert!(catalog.predicate(uid(&a, "age")).is_some());
-    assert!(catalog.predicate(uid(&a, "score")).is_some());
+    // Each predicate first written holds the default declaration (the catalog specification's defaults).
+    assert_eq!(catalog.predicate(uid(&a, "age")), Some(&default_of("age")));
+    assert_eq!(catalog.predicate(uid(&a, "score")), Some(&default_of("score")));
     let snapshot = a
         .quads()
         .store()
@@ -423,8 +439,11 @@ fn test_a_catalog_change_keeps_the_default_entries_written_since_it_read() {
     a.apply_round(vec![(next, first), (next + 2, declared)])
         .unwrap();
     let catalog = a.catalog(NS).unwrap();
-    assert!(catalog.predicate(uid(&a, "age")).is_some());
-    assert!(catalog.predicate(uid(&a, "tag")).is_some());
+    assert_eq!(catalog.predicate(uid(&a, "age")), Some(&default_of("age")));
+    assert_eq!(
+        catalog.predicate(uid(&a, "tag")),
+        Some(&declaration("tag", "a property"))
+    );
     let snapshot = a
         .quads()
         .store()
@@ -451,7 +470,7 @@ fn test_an_execution_writing_no_catalog_entry_leaves_the_catalog() {
     a.apply_round(vec![(next, first), (next + 2, plain)])
         .unwrap();
     let catalog = a.catalog(NS).unwrap();
-    assert!(catalog.predicate(uid(&a, "age")).is_some());
+    assert_eq!(catalog.predicate(uid(&a, "age")), Some(&default_of("age")));
     let snapshot = a
         .quads()
         .store()

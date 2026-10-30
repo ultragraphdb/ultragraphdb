@@ -65,12 +65,9 @@ fn test_a_frame_out_of_sequence_is_refused_after_its_chunks() {
     // A frame repeated: the second copy carries 1 where 2 is due.
     let stream = [credit(1, 1), credit(1, 1), credit(3, 1)].concat();
     let mut at = 0;
-    assert!(
-        feed(&mut framer, &pool, &stream, &mut at, 1 << 20)
-            .unwrap()
-            .view()
-            .is_ok()
-    );
+    let first = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    assert_eq!(first.expected_sequence(), 1);
+    assert_eq!(first.view().unwrap().header().sequence(), 1);
     let repeated = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
     assert_eq!(
         repeated.view().unwrap_err().0,
@@ -81,7 +78,8 @@ fn test_a_frame_out_of_sequence_is_refused_after_its_chunks() {
     );
     // A frame skipping ahead: 3 where 3 is due after the repeat is read as the second's place.
     let next = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
-    assert!(next.view().is_ok());
+    assert_eq!(next.expected_sequence(), 3);
+    assert_eq!(next.view().unwrap().header().sequence(), 3);
     // A damaged chunk is named before the sequence.
     let mut damaged = ErrorReply::new(ErrorCode::Busy, "busy")
         .frame(
@@ -123,12 +121,8 @@ fn test_hello_and_welcome_take_protocol_one_and_later_frames_the_agreed_one() {
         .unwrap();
     let stream = [credit(1, 2), credit(2, 1), welcome].concat();
     let mut at = 0;
-    assert!(
-        feed(&mut framer, &pool, &stream, &mut at, 1 << 20)
-            .unwrap()
-            .view()
-            .is_ok()
-    );
+    let agreed = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    assert_eq!(agreed.view().unwrap().header().protocol(), 2);
     assert!(matches!(
         feed(&mut framer, &pool, &stream, &mut at, 1 << 20)
             .unwrap()
@@ -141,11 +135,11 @@ fn test_hello_and_welcome_take_protocol_one_and_later_frames_the_agreed_one() {
             ..
         }
     ));
-    assert!(
-        feed(&mut framer, &pool, &stream, &mut at, 1 << 20)
-            .unwrap()
-            .view()
-            .is_ok()
+    let welcome = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    let view = welcome.view().unwrap();
+    assert_eq!(
+        (view.command(), view.header().protocol()),
+        (Command::Welcome, 1)
     );
 }
 

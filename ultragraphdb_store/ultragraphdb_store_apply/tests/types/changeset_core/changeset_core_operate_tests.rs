@@ -130,7 +130,10 @@ fn test_an_insert_if_absent_creates_the_node_once_and_keeps_the_transactions_wri
     let (node, created) = results[0];
     assert!(created && node != 0);
     apply(&a, vec![operated]);
-    assert_eq!(objects_of(&a, node, "id").len(), 1);
+    let held = objects_of(&a, node, "id");
+    assert_eq!(held.len(), 1);
+    // The node created holds the value asked for.
+    assert_eq!(a.quads().term_of(NS, &held[0]).unwrap(), term("\"x\""));
     assert_eq!(objects(&a, "m", "kind"), vec![term("\"memory\"")]);
 }
 
@@ -346,10 +349,74 @@ fn test_a_counter_add_refuses_a_value_that_is_no_integer_or_would_overflow() {
         ChangesetError::OperationFailed(Some("\"five\"".to_string()))
     );
     let max = operate(&a, &txn, &[], &[add("c", "max", 1)]).unwrap_err();
-    assert!(matches!(
+    // i64::MAX + 1 overflows; `found` is the value held, in N-Triples.
+    assert_eq!(
         max.0,
-        ChangesetErrorEnum::OperationFailed { found: Some(_) }
-    ));
+        ChangesetErrorEnum::OperationFailed {
+            found: Some(
+                "\"9223372036854775807\"^^<http://www.w3.org/2001/XMLSchema#integer>".to_string()
+            )
+        }
+    );
+}
+
+/// A counter add reaching a bound of i64 is applied, and one past it is refused naming the value held: i64::MAX - 1
+/// plus 1 is i64::MAX, i64::MIN plus -1 overflows, and i64::MIN plus 0 is i64::MIN.
+#[test]
+fn test_a_counter_add_reaches_the_bounds_of_i64_and_refuses_to_pass_them() {
+    let a = changesets();
+    write(
+        &a,
+        &[
+            &format!("<c> <near> {}", i64::MAX - 1),
+            &format!("<c> <min> {}", i64::MIN),
+        ],
+    );
+    let txn = executed(&a, vec![insert("<other> <kind> \"k\"")]);
+    let below = operate(&a, &txn, &[], &[add("c", "min", -1)]).unwrap_err();
+    assert_eq!(
+        below.0,
+        ChangesetErrorEnum::OperationFailed {
+            found: Some(
+                "\"-9223372036854775808\"^^<http://www.w3.org/2001/XMLSchema#integer>".to_string()
+            )
+        }
+    );
+    let (operated, results) =
+        operate(&a, &txn, &[], &[add("c", "near", 1), add("c", "min", 0)]).unwrap();
+    assert_eq!(
+        results,
+        vec![(i64::MAX as u64, false), (i64::MIN as u64, false)]
+    );
+    apply(&a, vec![operated]);
+    assert_eq!(
+        objects(&a, "c", "near"),
+        vec![term("9223372036854775807")]
+    );
+    assert_eq!(
+        objects(&a, "c", "min"),
+        vec![term("-9223372036854775808")]
+    );
+}
+
+/// A compare-and-set on a value held among others is refused, for the subject's value is not the expected one and
+/// nothing else, naming a value held; nothing is replaced.
+#[test]
+fn test_a_compare_and_set_on_a_subject_holding_several_values_is_refused() {
+    let a = changesets();
+    write(&a, &["<a> <tag> \"x\"", "<a> <tag> \"y\""]);
+    let txn = executed(&a, vec![insert("<a> <seen> true")]);
+    let refused = operate(&a, &txn, &[], &[cas("a", "tag", "\"x\"", "\"z\"")]).unwrap_err();
+    assert!(
+        matches!(
+            &refused.0,
+            ChangesetErrorEnum::OperationFailed { found: Some(f) } if f == "\"x\"" || f == "\"y\""
+        ),
+        "{refused:?}"
+    );
+    let mut held: Vec<String> = objects(&a, "a", "tag").iter().map(Term::to_string).collect();
+    held.sort();
+    assert_eq!(held, vec!["\"x\"".to_string(), "\"y\"".to_string()]);
 }
 
 #[test]

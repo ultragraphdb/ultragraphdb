@@ -9,6 +9,7 @@
 use std::num::NonZeroU32;
 
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
+use ultragraphdb_protocol_wire::HeaderView;
 use ultragraphdb_traits_log::{OrderedLog, Position, RoundRef};
 use ultragraphdb_transactions_log::{
     CompioStorage, FaultMode, SimStorage, StorageOperation, Superblock, SuperblockRead, Wal,
@@ -19,6 +20,24 @@ use crate::utils::helpers::{
     CLUSTER, ONE_BLOCK, TWO_BLOCKS, TempDir, append, append_synced, block_on, body, config, dir,
     frame_checksum, open, run, segment, segment_in, spare, superblock,
 };
+
+/// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
+fn assert_io(error: &LogError, operation: &str) {
+    match &error.0 {
+        LogErrorEnum::Io {
+            operation: named,
+            kind,
+            ..
+        } => {
+            assert_eq!(
+                (*named, *kind),
+                (operation, std::io::ErrorKind::Other),
+                "{error:?}"
+            );
+        }
+        other => panic!("not an I/O error of {operation}: {other:?}"),
+    }
+}
 
 fn fresh() -> (SimStorage, Wal<SimStorage>) {
     let storage = SimStorage::new(1);
@@ -196,15 +215,20 @@ fn test_a_sealed_log_refuses_appends_and_reports_its_tail() {
 fn test_a_failed_write_or_sync_poisons_the_log() {
     // Each operation of a first round's sync: the segment's creation, preallocation, sync and directory sync, the
     // round's write and its sync.
+    let operations = [
+        "create",
+        "preallocate",
+        "file sync",
+        "directory sync",
+        "write",
+        "file sync",
+    ];
     for step in 0..6 {
         let (storage, mut wal) = fresh();
         append(&mut wal, 1, ONE_BLOCK).expect("staged");
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
         let error = block_on(wal.sync()).expect_err("faulted");
-        assert!(
-            matches!(error.0, LogErrorEnum::Io { .. }),
-            "step {step}: {error:?}"
-        );
+        assert_io(&error, operations[step]);
         assert_eq!(wal.committed(), Position::ZERO);
         assert_eq!(append(&mut wal, 2, ONE_BLOCK), Err(LogError::Poisoned()));
         assert_eq!(block_on(wal.sync()), Err(LogError::Poisoned()));
@@ -420,15 +444,23 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() {
 fn test_a_failed_trim_poisons_the_log() {
     // Each step of a checkpoint: the superblock's temporary created, written, synced, renamed, its directory synced,
     // then segment 0 zeroed, synced and renamed a spare, and the directory's sync.
+    let operations = [
+        "create",
+        "write",
+        "file sync",
+        "rename",
+        "directory sync",
+        "write",
+        "file sync",
+        "rename",
+        "directory sync",
+    ];
     for step in 0..9 {
         let (storage, mut wal) = fresh();
         append_synced(&mut wal, 1, 6, ONE_BLOCK);
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
         let error = block_on(wal.trim_through(Position::new(5), 0)).expect_err("faulted");
-        assert!(
-            matches!(error.0, LogErrorEnum::Io { .. }),
-            "step {step}: {error:?}"
-        );
+        assert_io(&error, operations[step]);
         assert_eq!(
             append(&mut wal, 7, ONE_BLOCK),
             Err(LogError::Poisoned()),
@@ -608,4 +640,65 @@ fn test_a_checkpoint_records_the_version_it_covers() {
     let (wal, _) = open(&storage).expect("reopened");
     assert_eq!(wal.checkpoint_version(), 40);
     assert_eq!(wal.checkpoint(), Position::new(2));
+}
+
+/// The log writes its configured release into each Round frame's header (`PROTOCOL.md` §12, point 18): the value read
+/// back by the wire crate's header view, not the default 0.
+#[test]
+fn test_each_round_names_the_release_the_log_is_configured_with() {
+    let storage = SimStorage::new(1);
+    let released = config().with_release(0x0006_0001);
+    let (mut wal, _) = block_on(Wal::open(storage.clone(), dir(), released)).expect("opened");
+    let checksums = append_synced(&mut wal, 1, 2, ONE_BLOCK);
+    let bytes = storage.stable_contents(&segment(0)).expect("segment 0");
+    for (i, block) in bytes.chunks(4_096).enumerate() {
+        let header = HeaderView::new(block).expect("a header");
+        assert_eq!(header.release(), 0x0006_0001, "round {}", i + 1);
+        // The release is inside the checksummed header: the checksum computed independently still matches.
+        assert_eq!(frame_checksum(block), checksums[i]);
+    }
+}
+
+/// A log whose tail is the last position, `u64::MAX`, has no next position: an append is refused, whatever it names,
+/// and the positions never wrap to 0. The round at `u64::MAX` itself is written and recovered.
+#[test]
+fn test_the_last_position_ends_the_log_without_wrapping() {
+    let storage = SimStorage::new(1);
+    // A checkpoint one below the last position, with checksum 0x77; no segment yet.
+    storage
+        .put_file(
+            &superblock('a'),
+            &Superblock::new(1, CLUSTER, 1, Position::new(u64::MAX - 1), 0x77, 0, 0).encode(),
+        )
+        .expect("put");
+    let (mut wal, recovery) = open(&storage).expect("opened");
+    assert_eq!(recovery.committed(), Position::new(u64::MAX - 1));
+    assert_eq!(wal.tail(), (Position::new(u64::MAX - 1), 0x77));
+    let data = body(1, ONE_BLOCK);
+    assert_eq!(
+        wal.append(RoundRef::new(Position::new(u64::MAX), 0x77, 0, 1, &data)),
+        Ok(Position::new(u64::MAX))
+    );
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
+    let tail = wal.tail();
+    let before = storage.trace().len();
+    // Position 0 is what u64::MAX + 1 would wrap to: refused, nothing written. With no next position the error's
+    // `expected` carries the sentinel u64::MAX.
+    assert_eq!(
+        wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
+        Err(LogError::PositionMismatch(u64::MAX, 0))
+    );
+    assert_eq!(wal.tail(), tail);
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(u64::MAX)));
+    assert_eq!(storage.trace().len(), before);
+    drop(wal);
+    let (mut wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(
+        (recovery.committed(), recovery.truncation()),
+        (Position::new(u64::MAX), None)
+    );
+    let rounds = block_on(wal.read(Position::new(u64::MAX), u32::MAX)).expect("read");
+    assert_eq!(rounds.len(), 1);
+    assert_eq!(rounds[0].checksum(), tail.1);
+    assert_eq!(rounds[0].body(), data.as_slice());
 }

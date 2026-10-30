@@ -44,12 +44,38 @@ fn test_every_index_is_created_fresh() {
         (ix.max_levels(), ix.ef_construction(), ix.ef_search()),
         (4, 200, 120)
     );
+    // An exponent of 4 sets 4 levels, 50 * 4 and 30 * 4 (the spec's "The exponent sets the parameters").
+    let replaced = f.create_or_replace(&keys, &o, 32).unwrap();
+    assert_eq!(replaced.keys().name(), "0-emb");
     assert_eq!(
-        f.create_or_replace(&keys, &o, 32).unwrap().keys().name(),
-        "0-emb"
+        (
+            replaced.max_levels(),
+            replaced.ef_construction(),
+            replaced.ef_search()
+        ),
+        (4, 200, 120)
     );
     assert!(f.find(&keys).unwrap().is_none());
-    assert!(f.remove(&keys).is_ok());
+    assert_eq!(f.remove(&keys), Ok(()));
+}
+
+/// The factory hands the float width through: a 32-bit index refuses 64 float bits whichever way it is made.
+#[test]
+fn test_the_factory_refuses_another_float_width() {
+    let f = HnswFactory::<f32>::new();
+    let (keys, o) = (vkeys("0-emb"), opts(&[]));
+    for e in [
+        f.create(&keys, &o, 64).unwrap_err(),
+        f.create_or_replace(&keys, &o, 64).unwrap_err(),
+    ] {
+        assert_eq!(
+            e.0,
+            HnswErrorEnum::FloatBits {
+                bits: 64,
+                expected: 32
+            }
+        );
+    }
 }
 
 #[test]

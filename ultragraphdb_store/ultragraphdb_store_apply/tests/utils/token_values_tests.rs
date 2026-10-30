@@ -252,7 +252,38 @@ fn test_geo_takes_geojson_geometries() {
         geo.as_ref(),
     );
     assert!(matches!(value(&point, "geo"), Some(Value::Geo(_))));
-    assert!(!tokens(&point, "geo").is_empty());
+    // A point's tokens (Dgraph's indexCellsForPoint and parentCoverTokens, types/s2index.go): the parents of its cell at
+    // MinCellLevel 5 to MaxCellLevel 16, each `p/` and the cell's token, then its level-16 cell as the cover, `c/`. A
+    // cell token is the id's hex with trailing zeros cut (golang/geo's CellID.ToToken); a level-L id is 3 face bits, 2L
+    // position bits, then a sentinel 1, so its token has ceil((4 + 2L) / 4) digits and its trailing zeros are 2(30 - L).
+    let cells: Vec<String> = tokens(&point, "geo")
+        .into_iter()
+        .map(|t| String::from_utf8(t).expect("a geo token is text"))
+        .collect();
+    assert_eq!(cells.len(), 13, "{cells:?}");
+    let parents: Vec<&str> = cells.iter().filter_map(|t| t.strip_prefix("p/")).collect();
+    let cover: Vec<&str> = cells.iter().filter_map(|t| t.strip_prefix("c/")).collect();
+    assert_eq!((parents.len(), cover.len()), (12, 1), "{cells:?}");
+    let id = |t: &str| u64::from_str_radix(&format!("{t:0<16}"), 16).expect("a hex token");
+    let level = |id: u64| 30 - id.trailing_zeros() / 2;
+    let levels: std::collections::BTreeSet<u32> = parents.iter().map(|t| level(id(t))).collect();
+    assert_eq!(levels, (5..=16).collect());
+    for t in &parents {
+        assert_eq!(t.len(), (4 + 2 * level(id(t)) as usize).div_ceil(4), "{t}");
+    }
+    let leaf = id(cover[0]);
+    assert_eq!(level(leaf), 16);
+    assert!(parents.contains(&cover[0]));
+    // Each parent is an ancestor of the cover's cell: its id is the cell's with the bits below its sentinel cleared and
+    // the sentinel set.
+    for t in &parents {
+        let p = id(t);
+        let sentinel = p & p.wrapping_neg();
+        assert_eq!((leaf & !(2 * sentinel - 1)) | sentinel, p, "{t}");
+    }
+    // Face 2: at 50.12° N, 8.63° E the unit vector is about (0.63, 0.10, 0.77), z the largest and positive, so the top
+    // three bits are 010.
+    assert_eq!(leaf >> 61, 2);
     assert_eq!(value(&typed("{}", geo.as_ref()), "geo"), None);
     assert_eq!(value(&typed("not json", geo.as_ref()), "geo"), None);
     assert_eq!(value(&point, "exact"), None);

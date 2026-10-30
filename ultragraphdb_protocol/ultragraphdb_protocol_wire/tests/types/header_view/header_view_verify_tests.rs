@@ -95,9 +95,14 @@ fn test_an_unknown_command_is_refused_by_number() {
             Err(ProtocolErrorEnum::UnknownCommand { command: number })
         );
     }
-    for number in [18u16, 19] {
+    // The highest numbers of section 3, Authenticate and Drop, are known.
+    for (number, command) in [(18u16, Command::Authenticate), (19, Command::Drop)] {
         let bytes = resealed(|b| put(b, 54, number.into(), 2));
-        assert!(verify(&bytes).is_ok(), "command {number}");
+        assert_eq!(
+            verify(&bytes).map(|h| h.command()),
+            Ok(command),
+            "command {number}"
+        );
     }
 }
 
@@ -245,7 +250,7 @@ fn test_size_is_at_least_a_header_and_at_most_the_announced_maximum() {
     }
     for size in [256u32, 4_096, 1_048_576] {
         let bytes = resealed(|b| put(b, 40, size.into(), 4));
-        assert!(verify(&bytes).is_ok(), "size {size}");
+        assert_eq!(verify(&bytes).map(|h| h.command()), Ok(Command::Hello), "size {size}");
     }
     for size in [1_048_577u32, 2_097_152, u32::MAX] {
         let bytes = resealed(|b| put(b, 40, size.into(), 4));

@@ -104,7 +104,9 @@ fn test_a_final_message_is_the_servers_and_alone_names_a_principal() {
         put(h, 8, 0, 8);
         put(h, 16, 0, 8);
     });
-    assert!(AuthenticateView::from_frame(&frame_of(&bytes)).is_ok());
+    let view = AuthenticateView::from_frame(&frame_of(&bytes)).unwrap();
+    assert!(view.is_final());
+    assert_eq!((view.principal(), view.expires()), (0, 0));
 }
 
 #[test]

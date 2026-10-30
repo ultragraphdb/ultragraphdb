@@ -4,7 +4,7 @@
 #
 
 [package]
-name = "ultragraphdb_server"
+name = "ultragraphdb"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -22,10 +22,6 @@ workspace = true
 ultragraphdb_server_session = { workspace = true }
 ultragraphdb_common_telemetry = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
-
-[[test]]
-name = "unit"
-path = "tests/mod.rs"
 
 [[bin]]
 name = "ultragraphdb"

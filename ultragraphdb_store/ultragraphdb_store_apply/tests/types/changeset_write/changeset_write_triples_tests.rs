@@ -9,7 +9,7 @@
 //! statements.
 
 use oxrdf::{GraphName, NamedOrBlankNode};
-use ultragraphdb_core_keys::{CountDirection, Keyspace};
+use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Change;
 use ultragraphdb_store_apply::ChangesetErrorEnum;
 use ultragraphdb_store_quads::{MAX_UID, QuadErrorEnum, UID_LEASE, lease_key};
@@ -17,8 +17,8 @@ use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
 
 use crate::utils::changesets::{
     NS, apply, changesets, changesets_over, counts_of, declare, delete, ex, exact_token,
-    index_keys_holding, indexed, insert, keys_of, objects, objects_in, predicate_list, reverse,
-    sim_store, statistics, stored_keys, term, term_token, uid,
+    index_keys_holding, indexed, insert, keys_of, objects, objects_in, postings, predicate_list,
+    reverse, sim_store, statistics, stored_keys, term, term_token, uid, write,
 };
 
 /// The keys the store holds that are not catalog keys.
@@ -387,4 +387,84 @@ fn test_a_delete_naming_a_literal_that_cannot_be_encoded_is_refused_naming_its_p
         matches!(&refused.0, ChangesetErrorEnum::Literal { predicate, .. } if predicate == ex("embedding").as_str()),
         "{refused:?}"
     );
+}
+
+/// Two subjects given one unique value in one changeset: the second is refused, for the first holds it in the write,
+/// and nothing of the changeset is held. The catalog specification's unique values, for a literal, an IRI new to the
+/// store and an IRI it holds.
+#[test]
+fn test_a_unique_value_given_to_two_subjects_in_one_changeset_is_refused() {
+    for (object, shown) in [
+        (r#""x""#, r#""x""#),
+        ("<new>", "<http://ex.org/new>"),
+        ("<held>", "<http://ex.org/held>"),
+    ] {
+        let a = changesets();
+        declare(&a, "id", "unique");
+        write(&a, &["<z> <seen> <held>"]);
+        let refused = apply(
+            &a,
+            vec![
+                insert(&format!("<a> <id> {object}")),
+                insert(&format!("<b> <id> {object}")),
+            ],
+        )
+        .unwrap_err();
+        assert_eq!(
+            refused.0,
+            ChangesetErrorEnum::Unique {
+                predicate: ex("id").as_str().to_string(),
+                value: shown.to_string(),
+                holder: "<http://ex.org/a>".to_string(),
+            },
+            "{object}"
+        );
+        assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
+        assert_eq!(a.quads().uid_of(NS, ex("b").as_str()).unwrap(), None);
+        // One subject writing the value twice in a changeset is no conflict.
+        apply(
+            &a,
+            vec![
+                insert(&format!("<a> <id> {object}")),
+                insert(&format!("<a> <id> {object}")),
+            ],
+        )
+        .unwrap();
+        assert_eq!(objects(&a, "a", "id"), vec![term(object)], "{object}");
+    }
+}
+
+/// A literal object keeps its reverse entry, as every object kind does (index maintenance, reverse edges): the reverse
+/// list of the predicate for the literal lists the subject until the statement is deleted.
+#[test]
+fn test_a_literal_object_keeps_its_reverse_entry() {
+    let a = changesets();
+    apply(
+        &a,
+        vec![insert(r#"<a> <name> "Ann""#), insert(r#"<b> <name> "Ann""#)],
+    )
+    .unwrap();
+    let literal = postings(&a, "a", "name")[0].0.clone();
+    let key = QuadKey::Reverse {
+        namespace: NS,
+        graph: DEFAULT_GRAPH,
+        predicate: uid(&a, "name"),
+        object: literal,
+    }
+    .to_bytes();
+    let subjects = |a: &crate::utils::changesets::TestChangesets| -> Vec<u64> {
+        a.quads()
+            .objects(&key, a.quads().lists().applied_ts())
+            .unwrap()
+            .iter()
+            .filter_map(|(o, _)| o.as_uid())
+            .collect()
+    };
+    let mut both = vec![uid(&a, "a"), uid(&a, "b")];
+    both.sort();
+    assert_eq!(subjects(&a), both);
+    apply(&a, vec![delete(r#"<a> <name> "Ann""#)]).unwrap();
+    assert_eq!(subjects(&a), vec![uid(&a, "b")]);
+    apply(&a, vec![delete(r#"<b> <name> "Ann""#)]).unwrap();
+    assert_eq!(subjects(&a), Vec::<u64>::new());
 }

@@ -269,3 +269,147 @@ fn test_every_command_header_byte_is_unused() {
         );
     }
 }
+
+#[test]
+fn test_each_change_kind_takes_its_arg_count() {
+    // PROTOCOL.md section 4.6 step 8, record by record of the golden Write (the changes and declarations of
+    // `golden_write`): record i's `args_len` (record offset 8) set to `len`, refused at record i before the next
+    // record's `args_start` is read: (record, len, the count the kind takes).
+    let cases: [(usize, u32, u64); 17] = [
+        // Insert and Delete take exactly 4.
+        (0, 3, 4),
+        (0, 5, 4),
+        (1, 3, 4),
+        // DeletePattern and DeleteStatement take 3.
+        (2, 2, 3),
+        (3, 2, 3),
+        (3, 4, 3),
+        // InsertEdge takes 4 and an even number more: 5 args miss the pair's value, 3 args the object.
+        (4, 5, 6),
+        (4, 3, 4),
+        // SetProperty by its ID (flag bit 0 clear) takes 3 + 2; DeleteProperty by its triple (bit 0 set) 4 + 2.
+        (5, 4, 5),
+        (5, 6, 5),
+        (6, 5, 6),
+        (6, 7, 6),
+        // The first predicate, [name, datatype, 2, term, exact, 1, Person]: six args cut its one domain.
+        (10, 6, 7),
+        // The second, [embedding, ABSENT, 0, 0, hnsw, 2, metric, euclidean, maxLevels, 3]: nine cut an option.
+        (11, 9, 10),
+        // An entity type takes 2, a relation at least 1.
+        (12, 1, 2),
+        (12, 3, 2),
+        (13, 0, 1),
+    ];
+    for (record, len, expected) in cases {
+        assert_eq!(
+            refused(0, |r| put(r, 16 * record + 8, len.into(), 4)),
+            ProtocolErrorEnum::CountMismatch {
+                command: 8,
+                field: "change args",
+                count: len.into(),
+                expected
+            },
+            "record {record} with {len} args"
+        );
+    }
+    // A relation of two names is whole: the one arg it leaves is the args section's, 65 held and 64 consumed.
+    assert_eq!(
+        refused(0, |r| put(r, 16 * 13 + 8, 2, 4)),
+        ProtocolErrorEnum::CountMismatch {
+            command: 8,
+            field: "args",
+            count: 65,
+            expected: 64
+        }
+    );
+}
+
+#[test]
+fn test_each_change_kind_checks_its_term_and_name_args() {
+    // PROTOCOL.md section 4.6 step 9 over the golden Write's 65 args (17 terms, 15 names). Record i's args start at
+    // the sum of the counts before it, 4, 4, 3, 3, 6, 5, 6, 4, 4, 4, 7, 10, 2, 3: record 5 at 20, 6 at 25, 10 at 43,
+    // 13 at 62. (arg, value, limit) for one arg set out of range, refused naming the arg's index in the args section.
+    let cases: [(usize, u32, u32); 5] = [
+        // DeleteProperty by its triple: the statement's subject is a term.
+        (26, 17, 17),
+        // SetProperty: its value is a term, never ABSENT (DeleteProperty's may be).
+        (24, u32::MAX, 17),
+        // A predicate's datatype, which may be ABSENT, is otherwise a name; so is each tokenizer.
+        (44, 15, 15),
+        (46, 15, 15),
+        // A predicate's domain, its last arg.
+        (49, 15, 15),
+    ];
+    for (at, value, limit) in cases {
+        assert_eq!(
+            refused(1, |a| put(a, 4 * at, value.into(), 4)),
+            ProtocolErrorEnum::IndexOutOfRange {
+                command: 8,
+                section: 1,
+                at,
+                index: value,
+                limit
+            },
+            "arg {at}"
+        );
+    }
+    // A predicate's args are consumed exactly: the first predicate's seven args and one more.
+    assert_eq!(
+        refused(0, |r| put(r, 16 * 10 + 8, 8, 4)),
+        ProtocolErrorEnum::CountMismatch {
+            command: 8,
+            field: "change args",
+            count: 8,
+            expected: 7
+        }
+    );
+    // The last record, the relation of 3 args at 62, claiming 4: 66 args asked of the 65 held.
+    assert_eq!(
+        refused(0, |r| put(r, 16 * 13 + 8, 4, 4)),
+        ProtocolErrorEnum::CountMismatch {
+            command: 8,
+            field: "args",
+            count: 65,
+            expected: 66
+        }
+    );
+    // The ID halves of DeleteStatement (record 3, args 11 to 13) take any value: low 0xFFFF_FFFF, high 0x8000_0000
+    // are the ID 0x8000_0000_FFFF_FFFF.
+    let bytes = with_section(&golden("write").bytes(), 6, 1, |a| {
+        put(a, 4 * 12, 0xFFFF_FFFF, 4);
+        put(a, 4 * 13, 0x8000_0000, 4);
+    });
+    assert_eq!(
+        WriteView::from_frame(&frame_of(&bytes)).unwrap().change(3),
+        Some(WriteChange::DeleteStatement {
+            graph: None,
+            id: 0x8000_0000_FFFF_FFFF
+        })
+    );
+}
+
+#[test]
+fn test_each_predicate_flag_reads_back_alone() {
+    // Flag bits 2 to 4 of a predicate declaration (single, unique, count index), each set alone, read back as that
+    // property alone: a decoder reading one bit for another fails here, where the golden predicate sets all three.
+    let base = || DeclaredPredicate::new("http://ex.org/p".to_string());
+    for declared in [
+        base().with_single(true),
+        base().with_unique(true),
+        base().with_count_index(true),
+    ] {
+        let write = Write::new(
+            TermTable::new(),
+            vec![WriteChange::Declare(Declared::Predicate(declared))],
+        );
+        let bytes = write.frame(golden("write").header()).unwrap();
+        assert_eq!(
+            WriteView::from_frame(&frame_of(&bytes))
+                .unwrap()
+                .to_body()
+                .unwrap(),
+            write
+        );
+    }
+}

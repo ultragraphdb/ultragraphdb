@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_transport::{
     ClientHandshake, ServerHandshake, TransportError, TransportErrorEnum,
 };
@@ -93,12 +93,62 @@ fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() {
     damaged[last] ^= 1;
     let (frame, outcome) = server().receive(&damaged).into_parts();
     assert_eq!(code(&frame.unwrap()), ErrorCode::Protocol);
+    // The body's last byte is in its one chunk (PROTOCOL.md section 2.5, step 11).
     assert!(matches!(
         outcome.unwrap_err().0,
         TransportErrorEnum::Protocol {
-            error: ProtocolError(_)
+            error: ProtocolError(ProtocolErrorEnum::Chunk { index: 0, .. })
         }
     ));
+    // Another cluster's Hello (step 5): the server's cluster expected, the client's found.
+    let foreign =
+        ClientHandshake::new(CLUSTER + 1, Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"))
+            .hello_frame()
+            .unwrap();
+    let (frame, outcome) = server().receive(&foreign).into_parts();
+    assert_eq!(code(&frame.unwrap()), ErrorCode::Protocol);
+    assert_eq!(
+        outcome.unwrap_err(),
+        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, CLUSTER + 1))
+    );
+}
+
+#[test]
+fn test_a_hello_breaking_its_bodys_rules_is_answered_with_a_protocol_error() {
+    // PROTOCOL.md section 5.1: `protocol_min` at least 1, `protocol_max` at least `protocol_min`, `max_frame` from
+    // 524,288 to 1,048,576.
+    for (hello, refusal) in [
+        (
+            Hello::new(0, 1, 5, MAX_FRAME_SIZE as u32, "c"),
+            ProtocolError::FieldValue(1, "protocol_min", 0),
+        ),
+        (
+            Hello::new(2, 1, 5, MAX_FRAME_SIZE as u32, "c"),
+            ProtocolError::FieldValue(1, "protocol_max", 1),
+        ),
+        (
+            Hello::new(1, 1, 5, 524_287, "c"),
+            ProtocolError::FieldValue(1, "max_frame", 524_287),
+        ),
+    ] {
+        let frame = ClientHandshake::new(CLUSTER, hello).hello_frame().unwrap();
+        let (answer, outcome) = server().receive(&frame).into_parts();
+        assert_eq!(code(&answer.unwrap()), ErrorCode::Protocol);
+        assert_eq!(outcome.unwrap_err(), TransportError::Protocol(refusal));
+    }
+    // At the floor exactly, a Hello is welcomed.
+    let floor = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 5, 524_288, "c"))
+        .hello_frame()
+        .unwrap();
+    assert_eq!(
+        server()
+            .receive(&floor)
+            .outcome()
+            .clone()
+            .unwrap()
+            .protocol(),
+        1
+    );
 }
 
 #[test]

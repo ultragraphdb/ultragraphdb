@@ -5,3 +5,7 @@
 
 #[cfg(test)]
 mod commit_error;
+#[cfg(test)]
+mod pipeline_error;
+#[cfg(test)]
+mod recovery_error;

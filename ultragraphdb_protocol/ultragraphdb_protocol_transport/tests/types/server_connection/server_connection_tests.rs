@@ -10,9 +10,9 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_wire::{
     Abort, Authenticate, AuthenticateView, Begin, BodyBuilder, BodyView, Cancel, Command, Commit,
-    Credit, ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, FrameView, Header, HeaderView, Hello,
-    MAX_FRAME_SIZE, PatternSlot, QuadPattern, Read, Register, ResultBatch, TermTable, Welcome,
-    WelcomeView, Write,
+    CommitOperation, Credit, Describe, DropCommand, ErrorCode, ErrorReply, ErrorReplyView, Execute,
+    FLAG_LAST, FrameView, Header, HeaderView, Hello, MAX_FRAME_SIZE, Operation, PatternSlot,
+    Prepare, QuadPattern, Read, Register, ResultBatch, TermTable, Welcome, WelcomeView, Write,
 };
 
 use crate::utils::mechanism::{EXPIRES, TEST, TestAuthenticator, User};
@@ -807,4 +807,433 @@ fn test_a_command_only_a_server_sends_closes_the_connection() {
             "frame {frame}"
         );
     }
+}
+
+/// A nanosecond, the finest step an `Instant` takes: a deadline is checked one tick before it.
+const TICK: Duration = Duration::from_nanos(1);
+
+#[test]
+fn test_limits_set_the_authentication_timeout_and_the_idle_limit() {
+    let now = start();
+    let mut peer = Peer::default();
+    let authentication = Duration::from_secs(10);
+    let idle = Duration::from_secs(20);
+    let mut connection = connection(&[TEST], now).with_limits(authentication, idle);
+    connection.receive(&peer.send(0, &hello()), now);
+    assert_eq!(connection.next_deadline(), Some(now + authentication));
+    assert_eq!(connection.handle_timeout(now + authentication - TICK), None);
+    assert_eq!(
+        connection.handle_timeout(now + authentication),
+        Some(Inbound::Closing {
+            code: Some(ErrorCode::Unauthenticated)
+        })
+    );
+    // Authenticated, its deadline is the idle limit given, at its boundary exactly.
+    let mut peer = Peer::default();
+    let mut authenticated = self::connection(&[TEST], now).with_limits(authentication, idle);
+    authenticated.receive(&peer.send(0, &hello()), now);
+    sent(&mut authenticated);
+    assert_eq!(
+        exchange(&mut authenticated, &mut peer, "alice", "pw", now),
+        Inbound::Authenticated { principal: 7 }
+    );
+    assert_eq!(authenticated.next_deadline(), Some(now + idle));
+    assert_eq!(authenticated.handle_timeout(now + idle - TICK), None);
+    assert_eq!(
+        authenticated.handle_timeout(now + idle),
+        Some(Inbound::Closing { code: None })
+    );
+    assert_eq!(
+        authenticated.handle_timeout(now + idle + idle),
+        None,
+        "a closing connection has no deadline left"
+    );
+}
+
+#[test]
+fn test_the_deadline_is_the_earlier_of_the_idle_limit_and_the_expiry() {
+    // Carol's credential lasts 60 s; the idle limit is 30 s.
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection =
+        connection(&[TEST], now).with_limits(AUTHENTICATION_TIMEOUT, Duration::from_secs(30));
+    connection.receive(&peer.send(0, &hello()), now);
+    sent(&mut connection);
+    exchange(&mut connection, &mut peer, "carol", "pw", now);
+    assert_eq!(
+        connection.next_deadline(),
+        Some(now + Duration::from_secs(30)),
+        "idle first"
+    );
+    // A frame 20 s in moves the idle limit to 50 s; one 40 s in to 70 s, past the expiry at 60 s.
+    connection.receive(
+        &peer.send(1, &Register::new(0)),
+        now + Duration::from_secs(20),
+    );
+    assert_eq!(
+        connection.next_deadline(),
+        Some(now + Duration::from_secs(50))
+    );
+    connection.receive(
+        &peer.send(3, &Register::new(0)),
+        now + Duration::from_secs(40),
+    );
+    assert_eq!(
+        connection.next_deadline(),
+        Some(now + Duration::from_secs(60)),
+        "the expiry first"
+    );
+    assert_eq!(
+        connection.handle_timeout(now + Duration::from_secs(60) - TICK),
+        None
+    );
+    assert_eq!(
+        connection.handle_timeout(now + Duration::from_secs(60)),
+        Some(Inbound::Closing {
+            code: Some(ErrorCode::CredentialExpired)
+        })
+    );
+}
+
+#[test]
+fn test_the_idle_limit_is_reached_at_its_boundary_exactly() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    assert_eq!(connection.handle_timeout(now + IDLE_LIMIT - TICK), None);
+    assert!(!connection.is_closing());
+    assert_eq!(
+        connection.handle_timeout(now + IDLE_LIMIT),
+        Some(Inbound::Closing { code: None })
+    );
+}
+
+#[test]
+fn test_the_authentication_timeout_runs_from_the_welcome() {
+    // PROTOCOL.md section 11.9: the authentication timeout runs from the Welcome to the final Authenticate. A Hello
+    // 30 s after the connection was accepted leaves the exchange its full 60 s.
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = connection(&[TEST], now);
+    let hello_at = now + Duration::from_secs(30);
+    assert_eq!(
+        connection.receive(&peer.send(0, &hello()), hello_at),
+        Inbound::Welcomed { protocol: 1 }
+    );
+    assert_eq!(
+        connection.next_deadline(),
+        Some(hello_at + AUTHENTICATION_TIMEOUT)
+    );
+    assert_eq!(
+        connection.handle_timeout(now + AUTHENTICATION_TIMEOUT),
+        None
+    );
+    assert_eq!(
+        connection.handle_timeout(hello_at + AUTHENTICATION_TIMEOUT - TICK),
+        None
+    );
+    assert_eq!(
+        connection.handle_timeout(hello_at + AUTHENTICATION_TIMEOUT),
+        Some(Inbound::Closing {
+            code: Some(ErrorCode::Unauthenticated)
+        })
+    );
+    // A connection that never says Hello is held to the same time from its acceptance.
+    let mut silent = self::connection(&[TEST], now);
+    assert_eq!(silent.next_deadline(), Some(now + AUTHENTICATION_TIMEOUT));
+    assert_eq!(
+        silent.handle_timeout(now + AUTHENTICATION_TIMEOUT),
+        Some(Inbound::Closing {
+            code: Some(ErrorCode::Unauthenticated)
+        })
+    );
+}
+
+#[test]
+fn test_an_authenticate_out_of_step_closes_with_a_protocol_error() {
+    let now = start();
+    // Step 2 first, where 0 is due.
+    let mut peer = Peer::default();
+    let mut connection = welcomed(&[TEST], &mut peer, now);
+    let early = Authenticate::new(2, "", b"pass=pw".to_vec());
+    assert_eq!(
+        connection.receive(&peer.send(0, &early), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    let out = sent(&mut connection);
+    assert_eq!((out[0].0, error(&out[0].3)), (0, (ErrorCode::Protocol, 0)));
+    // Step 0 again, where 2 is due.
+    let mut peer = Peer::default();
+    let mut connection = welcomed(&[TEST], &mut peer, now);
+    let first = Authenticate::new(0, TEST, b"user=alice".to_vec());
+    connection.receive(&peer.send(0, &first), now);
+    sent(&mut connection);
+    assert_eq!(
+        connection.receive(&peer.send(0, &first), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    assert_eq!(connection.principal(), None);
+    // Step 0 naming no mechanism breaks the body's rule (PROTOCOL.md section 5.3).
+    let mut peer = Peer::default();
+    let mut connection = welcomed(&[TEST], &mut peer, now);
+    let unnamed = Authenticate::new(0, "", b"user=alice".to_vec());
+    assert_eq!(
+        connection.receive(&peer.send(0, &unnamed), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+}
+
+#[test]
+fn test_a_credit_of_no_frames_is_refused_on_its_stream() {
+    // PROTOCOL.md section 9.2: `frames` at least 1; a body's rule refuses the request on its stream (section 2.6).
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    connection.receive(&peer.send(1, &Begin::new(0, 0, false)), now);
+    connection.receive(&peer.send(2, &read(1)), now);
+    assert_eq!(
+        connection.receive(&peer.send(2, &Credit::new(0)), now),
+        Inbound::Refused {
+            stream: 2,
+            code: ErrorCode::Protocol
+        }
+    );
+    assert_eq!(connection.outbound().credit(2), Some(2), "nothing granted");
+    let out = sent(&mut connection);
+    let refusal = out.iter().find(|f| f.0 == 2).unwrap();
+    assert_eq!((refusal.1, refusal.2), (Command::Error.number(), FLAG_LAST));
+    assert_eq!(error(&refusal.3), (ErrorCode::Protocol, 0));
+    assert!(
+        !connection.outbound().is_open(2),
+        "the refusal ended the read"
+    );
+    assert!(connection.outbound().is_transaction(1));
+    assert!(!connection.is_closing());
+}
+
+#[test]
+fn test_a_read_breaking_its_bodys_rule_on_a_new_stream_is_refused_on_it() {
+    let now = start();
+    let mut peer = Peer::default();
+    // The Hello, the two Authenticate messages and the Begin take sequences 1 to 4.
+    let mut connection = serving(&mut peer, now);
+    connection.receive(&peer.send(1, &Begin::new(0, 0, false)), now);
+    let mut bad = read(1)
+        .frame(Header::new(CLUSTER, Command::Read).with_stream(3))
+        .unwrap();
+    // flags bit 1 of a Read's command header, which only bit 0 may set.
+    bad[128 + 12] = 2;
+    peer.skip();
+    Header::stamp_sequence(&mut bad, 5).unwrap();
+    assert_eq!(
+        connection.receive(&peer.raw(bad), now),
+        Inbound::Refused {
+            stream: 3,
+            code: ErrorCode::Protocol
+        }
+    );
+    assert!(!connection.outbound().is_open(3));
+    assert!(!connection.is_closing());
+}
+
+#[test]
+fn test_an_execute_runs_on_its_own_stream_naming_an_open_transaction() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    connection.receive(&peer.send(1, &Begin::new(0, 0, true)), now);
+    let execute =
+        |transaction| Execute::new(1, transaction, 0, TermTable::new(), Vec::new(), Vec::new());
+    assert_eq!(
+        connection.receive(&peer.send(2, &execute(1)), now),
+        Inbound::Request {
+            stream: 2,
+            command: Command::Execute
+        }
+    );
+    assert_eq!(connection.outbound().credit(2), Some(2));
+    assert_eq!(
+        connection.receive(&peer.send(3, &execute(7)), now),
+        Inbound::Refused {
+            stream: 3,
+            code: ErrorCode::Protocol
+        }
+    );
+    // An Execute on the transaction's own stream, already open, closes the connection.
+    assert_eq!(
+        connection.receive(&peer.send(1, &execute(1)), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+}
+
+#[test]
+fn test_requests_of_one_reply_each_open_a_stream_of_their_own() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    let mut terms = TermTable::new();
+    let name = terms.iri("http://ex.org/name");
+    let prepare = Prepare::new(
+        0,
+        0,
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::DefaultGraph,
+            PatternSlot::Unbound,
+            PatternSlot::Bound(name),
+            PatternSlot::Unbound,
+        ),
+        Vec::new(),
+        Vec::new(),
+    );
+    assert_eq!(
+        connection.receive(&peer.send(1, &prepare), now),
+        Inbound::Request {
+            stream: 1,
+            command: Command::Prepare
+        }
+    );
+    assert_eq!(
+        connection.receive(&peer.send(2, &Describe::request(0)), now),
+        Inbound::Request {
+            stream: 2,
+            command: Command::Describe
+        }
+    );
+    assert_eq!(
+        connection.receive(&peer.send(3, &DropCommand::all()), now),
+        Inbound::Request {
+            stream: 3,
+            command: Command::Drop
+        }
+    );
+    assert_eq!(connection.outbound().open_streams(), 3);
+    assert!(!connection.outbound().is_transaction(1));
+    assert!(!connection.outbound().is_transaction(3));
+}
+
+#[test]
+fn test_a_transactions_stream_takes_its_operations_and_its_commit() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    connection.receive(&peer.send(1, &Begin::new(0, 0, false)), now);
+    let mut terms = TermTable::new();
+    let (subject, predicate) = (terms.iri("http://ex.org/c"), terms.iri("http://ex.org/n"));
+    let operation = Operation::new(
+        terms,
+        CommitOperation::CounterAdd {
+            graph: None,
+            subject,
+            predicate,
+            delta: 1,
+        },
+    );
+    assert_eq!(
+        connection.receive(&peer.send(1, &operation), now),
+        Inbound::Request {
+            stream: 1,
+            command: Command::Operation
+        }
+    );
+    // An Operation or an Abort on a stream holding no transaction is refused on it.
+    assert_eq!(
+        connection.receive(&peer.send(2, &operation), now),
+        Inbound::Refused {
+            stream: 2,
+            code: ErrorCode::Protocol
+        }
+    );
+    assert_eq!(
+        connection.receive(&peer.send(4, &Abort), now),
+        Inbound::Refused {
+            stream: 4,
+            code: ErrorCode::Protocol
+        }
+    );
+    assert_eq!(
+        connection.receive(&peer.send(1, &Commit::new(9, 1, 0, Vec::new())), now),
+        Inbound::Request {
+            stream: 1,
+            command: Command::Commit
+        }
+    );
+    assert!(
+        connection.outbound().is_transaction(1),
+        "the stream stays its transaction's until the reply leaves"
+    );
+    // A Commit on an open stream holding no transaction is a new request on an open stream: a connection error.
+    connection.receive(&peer.send(5, &Register::new(0)), now);
+    assert_eq!(
+        connection.receive(&peer.send(5, &Commit::new(9, 2, 0, Vec::new())), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+}
+
+#[test]
+fn test_a_refusal_of_a_stream_not_open_leaves_with_the_connections_frames() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    connection.refuse(9, &ErrorReply::new(ErrorCode::Busy, "busy"));
+    let out = sent(&mut connection);
+    assert_eq!(out.len(), 1);
+    assert_eq!(
+        (out[0].0, out[0].1, out[0].2),
+        (9, Command::Error.number(), FLAG_LAST)
+    );
+    assert_eq!(error(&out[0].3), (ErrorCode::Busy, 0));
+    assert!(!connection.outbound().is_open(9));
+}
+
+#[test]
+fn test_renewing_with_a_credential_that_never_expires_clears_the_expiry() {
+    // Dave is carol's principal, 9, with a credential that never expires.
+    let dave = User {
+        name: "dave",
+        password: "pw",
+        principal: 9,
+        valid_for: None,
+    };
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = ServerConnection::new(
+        CLUSTER,
+        server(&[TEST]),
+        TestAuthenticator::new(vec![CAROL, dave]),
+        now,
+    );
+    connection.receive(&peer.send(0, &hello()), now);
+    sent(&mut connection);
+    exchange(&mut connection, &mut peer, "carol", "pw", now);
+    assert_eq!(
+        connection.next_deadline(),
+        Some(now + Duration::from_secs(60))
+    );
+    sent(&mut connection);
+    let later = now + Duration::from_secs(10);
+    assert_eq!(
+        exchange(&mut connection, &mut peer, "dave", "pw", later),
+        Inbound::Authenticated { principal: 9 }
+    );
+    let out = sent(&mut connection);
+    let view = FrameView::validate(&out[0].3, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    assert_eq!(AuthenticateView::from_frame(&view).unwrap().expires(), 0);
+    assert_eq!(connection.next_deadline(), Some(later + IDLE_LIMIT));
+    assert_eq!(
+        connection.handle_timeout(now + Duration::from_secs(61)),
+        None,
+        "the old expiry no longer applies"
+    );
 }

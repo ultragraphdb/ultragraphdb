@@ -201,3 +201,45 @@ fn test_a_list_delta_is_never_a_removal() {
         1
     );
 }
+
+#[test]
+fn test_a_conflict_statement_and_a_conflict_range_hold_a_value() {
+    // PROTOCOL.md section 12.2: every conflict statement's and conflict range's value is present. One entry whose
+    // value_len is ABSENT (a removal): key_len 2, value_len ABSENT, the key, zeros to 16 bytes.
+    let removal = [
+        &2u32.to_le_bytes()[..],
+        &u32::MAX.to_le_bytes(),
+        b"\x10k",
+        &[0u8; 6],
+    ]
+    .concat();
+    for (section, field) in [(7, "conflict statement"), (8, "conflict range")] {
+        let mut secs = vec![Vec::new(); 11];
+        secs[section] = removal.clone();
+        let bytes = join_sections(&[0u8; 40], &secs);
+        assert_eq!(
+            WriteSetRecordView::new(&bytes).unwrap_err().0,
+            ProtocolErrorEnum::FieldValue {
+                command: 17,
+                field,
+                value: u64::from(u32::MAX)
+            },
+            "section {section}"
+        );
+        // The same entry with an empty value present is held.
+        let mut present = removal.clone();
+        present[4..8].copy_from_slice(&0u32.to_le_bytes());
+        secs[section] = present;
+        let view_bytes = join_sections(&[0u8; 40], &secs);
+        let view = WriteSetRecordView::new(&view_bytes).unwrap();
+        let entries = if section == 7 {
+            view.conflict_statements()
+        } else {
+            view.conflict_ranges()
+        };
+        assert_eq!(
+            entries.iter().collect::<Vec<_>>(),
+            vec![RecordEntry::new(b"\x10k", Some(b""))]
+        );
+    }
+}

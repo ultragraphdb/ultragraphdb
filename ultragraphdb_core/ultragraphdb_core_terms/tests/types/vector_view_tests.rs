@@ -18,5 +18,11 @@ fn test_a_view_reads_the_elements_in_place() {
     };
     assert_eq!((view.len(), view.is_empty()), (3, false));
     assert_eq!(view.iter().collect::<Vec<_>>(), vec![1.0, -2.5, 3.0]);
-    assert_eq!(view.as_bytes(), &term.as_bytes()[3..]);
+    // IEEE 754 binary32, little-endian (PROTOCOL.md section 10.1): 1 is 0x3F800000, -2.5 0xC0200000, 3 0x40400000.
+    assert_eq!(
+        view.as_bytes(),
+        &[
+            0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x20, 0xC0, 0x00, 0x00, 0x40, 0x40
+        ]
+    );
 }

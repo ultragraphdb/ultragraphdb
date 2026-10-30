@@ -8,6 +8,7 @@ use std::time::Duration;
 use oxrdf::{Literal, Term};
 use ultragraphdb_core_mapping::{Change, Changeset, Declaration, PredicateDeclaration};
 use ultragraphdb_protocol_wire::WriteSetRecordView;
+use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_sim::Fault;
 use ultragraphdb_transactions_txn::{
     Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
@@ -279,8 +280,13 @@ fn test_a_refused_changeset_ends_the_transaction() {
     let mut txn = begin(&applier, Mode::ReadWrite);
     let refused = txn.write(&changeset(vec![insert_literal("a", "age", "old")]), 0);
     assert!(
-        matches!(refused, Err(TxnError(TxnErrorEnum::Changeset(_)))),
-        "{refused:?}"
+        matches!(
+            refused,
+            Err(TxnError(TxnErrorEnum::Changeset(ChangesetError(
+                ChangesetErrorEnum::Catalog(_)
+            ))))
+        ),
+        "the catalog's refusal: {refused:?}"
     );
     assert!(!refused.unwrap_err().is_retryable());
     assert!(txn.is_ended());
@@ -299,10 +305,13 @@ fn test_a_read_write_transaction_lives_exactly_its_limit() {
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 10 * SECOND)
         .unwrap();
     objects(&mut txn, "a", "knows", 10 * SECOND).unwrap();
-    assert!(matches!(
-        txn.commit(1, 1, &[], 10 * SECOND),
-        Ok(Commit::ReadWrite(_))
-    ));
+    let prepared = prepared(txn.commit(1, 1, &[], 10 * SECOND));
+    // The positive control of "nothing it wrote is held" below: a commit within the limit hands the commit step an
+    // execution that, applied, is held.
+    let (executed, _) = prepared.into_parts();
+    let version = applier.quads().lists().next_version();
+    applier.apply_round(vec![(version, executed)]).unwrap();
+    assert_eq!(held(&applier, "a", "knows"), vec![Term::from(ex("b"))]);
 }
 
 #[test]
@@ -433,31 +442,56 @@ fn test_an_aborted_transaction_writes_nothing_and_returns_its_buffers() {
 fn test_a_read_set_past_its_limit_refuses_the_commit() {
     let applier = applier();
     commit(&applier, vec![insert("a", "knows", "b")]);
-    // The catalog range alone takes 34 bytes; a whole-list read of a 25-byte forward key needs 33 more.
+    // The catalog range alone takes 34 bytes (two 9-byte keys and their spans); a whole-list read of the 33-byte
+    // forward key (the keyspace byte, then namespace, graph, predicate and subject as u64s, QuadKey's layout) takes 41
+    // more, its key and its 8-byte span: 75 in all.
     let limits = TxnLimits::default().with_max_read_set(40);
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits);
     objects(&mut txn, "a", "knows", 0).unwrap();
     let error = txn.commit(1, 1, &[], 0).unwrap_err();
-    assert!(
-        matches!(error.0, TxnErrorEnum::ReadSetTooLarge { limit: 40, .. }),
-        "{error:?}"
-    );
+    assert_eq!(error, TxnError::ReadSetTooLarge(75, 40));
     assert!(!error.is_retryable());
+    // The read set's bound exactly and one below it.
+    let read = |max: usize| {
+        let mut txn = begin_with(
+            &applier,
+            Mode::ReadWrite,
+            TxnLimits::default().with_max_read_set(max),
+        );
+        objects(&mut txn, "a", "knows", 0).unwrap();
+        txn.commit(1, 1, &[], 0).map(|_| ())
+    };
+    assert_eq!(read(75), Ok(()));
+    assert_eq!(read(74), Err(TxnError::ReadSetTooLarge(75, 74)));
 }
 
 #[test]
 fn test_a_write_set_past_its_limit_refuses_the_commit() {
     let applier = applier();
-    let limits = TxnLimits::default().with_max_write_set(200);
-    let mut txn = begin_with(&applier, Mode::ReadWrite, limits);
-    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
-        .unwrap();
-    let error = txn.commit(1, 1, &[], 0).unwrap_err();
-    assert!(
-        matches!(error.0, TxnErrorEnum::WriteSetTooLarge { size, limit: 200 } if size > 200),
-        "{error:?}"
-    );
+    // The record the same transaction writes with the default bound: its length is the size a smaller bound refuses.
+    let write = |max: usize| {
+        let mut txn = begin_with(
+            &applier,
+            Mode::ReadWrite,
+            TxnLimits::default().with_max_write_set(max),
+        );
+        txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
+            .unwrap();
+        txn.commit(1, 1, &[], 0)
+    };
+    let size = prepared(write(TxnLimits::default().max_write_set()))
+        .record()
+        .len();
+    assert!(size > 200, "{size}");
+    let error = write(200).unwrap_err();
+    assert_eq!(error, TxnError::WriteSetTooLarge(size, 200));
     assert!(!error.is_retryable());
+    // The bound exactly and one below it.
+    assert_eq!(prepared(write(size)).record().len(), size);
+    assert_eq!(
+        write(size - 1).unwrap_err(),
+        TxnError::WriteSetTooLarge(size, size - 1)
+    );
     assert!(held(&applier, "a", "knows").is_empty());
 }
 
@@ -553,4 +587,38 @@ fn test_the_buffers_are_reused_from_transaction_to_transaction() {
         (buffers.read_set_capacity(), buffers.record_capacity()),
         (read, record)
     );
+}
+
+/// A limit whose microseconds pass `u64::MAX` is longer than any clock reading can show: 18,446,744,073,710 s is
+/// 18,446,744,073,710,000,000 µs, 448,384 µs past 2^64 = 18,446,744,073,709,551,616, so a limit cut to u64 would end a
+/// transaction after 0.45 s. A request and a commit 1 s after the begin are within it, in either mode, and so is the
+/// largest clock reading with `Duration::MAX`.
+#[test]
+fn test_a_limit_past_u64_microseconds_is_not_cut_short() {
+    let applier = applier();
+    commit(&applier, vec![insert("a", "knows", "b")]);
+    for limit in [Duration::from_secs(18_446_744_073_710), Duration::MAX] {
+        let limits = TxnLimits::default()
+            .with_read_write(limit)
+            .with_read_only(limit);
+        let mut txn = begin_with(&applier, Mode::ReadWrite, limits);
+        assert_eq!(
+            objects(&mut txn, "a", "knows", SECOND),
+            Ok(vec![Term::from(ex("b"))]),
+            "{limit:?}"
+        );
+        txn.write(&changeset(vec![insert("a", "knows", "c")]), SECOND)
+            .unwrap();
+        prepared(txn.commit(1, 1, &[], SECOND));
+        let mut read_only = begin_with(&applier, Mode::ReadOnly, limits);
+        assert_eq!(
+            objects(&mut read_only, "a", "knows", u64::MAX),
+            Ok(vec![Term::from(ex("b"))]),
+            "{limit:?}"
+        );
+        assert!(matches!(
+            read_only.commit(0, 0, &[], u64::MAX),
+            Ok(Commit::ReadOnly(_))
+        ));
+    }
 }

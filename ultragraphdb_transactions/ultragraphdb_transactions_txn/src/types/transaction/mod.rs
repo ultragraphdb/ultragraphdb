@@ -202,7 +202,7 @@ where
         let Some(execution) = self.execution else {
             return Err(TxnError::Ended());
         };
-        if now_us.saturating_sub(self.began_us) > limit.as_micros() as u64 {
+        if past(now_us.saturating_sub(self.began_us), limit) {
             return Err(TxnError::PastLimit(limit.as_millis() as u64));
         }
         if self.mode == Mode::ReadOnly {
@@ -253,9 +253,7 @@ where
     /// The execution of a transaction neither ended nor past its limit at `now_us`; one past it is ended.
     fn live(&mut self, now_us: u64) -> Result<&mut Execution<'a, S, C>, TxnError> {
         let limit = self.limit();
-        if self.execution.is_some()
-            && now_us.saturating_sub(self.began_us) > limit.as_micros() as u64
-        {
+        if self.execution.is_some() && past(now_us.saturating_sub(self.began_us), limit) {
             self.execution = None;
             return Err(TxnError::PastLimit(limit.as_millis() as u64));
         }
@@ -266,4 +264,10 @@ where
     pub fn abort(self) -> TxnBuffers {
         self.buffers
     }
+}
+
+/// Whether `elapsed_us` microseconds are past `limit`, compared in u128: a limit's microseconds may exceed `u64::MAX`,
+/// and cut to u64 they would wrap to a far shorter limit.
+fn past(elapsed_us: u64, limit: std::time::Duration) -> bool {
+    u128::from(elapsed_us) > limit.as_micros()
 }

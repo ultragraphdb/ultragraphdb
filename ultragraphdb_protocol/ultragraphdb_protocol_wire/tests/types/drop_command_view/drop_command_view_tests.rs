@@ -143,3 +143,53 @@ fn test_a_predicate_and_a_graph_name_one_iri_and_the_others_none() {
         );
     }
 }
+
+/// The golden graph drop with its term table replaced by one holding `term` alone.
+fn drop_naming(term: ultragraphdb_protocol_wire::RequestTerm) -> Vec<u8> {
+    use crate::utils::golden_bodies::{body_data, join_sections, reframe, split_sections};
+    let mut terms = ultragraphdb_protocol_wire::TermTable::new();
+    terms.intern(term).unwrap();
+    let write = ultragraphdb_protocol_wire::Write::new(terms, Vec::new())
+        .frame(golden("drop").header())
+        .unwrap();
+    // The Write's sections 2 and 3 hold the table; a Drop's are 0 and 1.
+    let secs = split_sections(body_data(&write), 0, 6);
+    reframe(&golden("drop").bytes(), &join_sections(&[], &secs[2..4]))
+}
+
+#[test]
+fn test_a_drop_target_of_any_kind_but_an_iri_is_refused_naming_its_kind() {
+    use ultragraphdb_protocol_wire::{Direction, RequestTerm};
+    // PROTOCOL.md section 6.5: the entry is an IRI (`FieldValue` `"drop term"`, the entry's kind: 2 a blank node,
+    // 4 a language-tagged literal, section 4.4). A triple term cannot be the table's one entry: it names three
+    // entries before its own, so such a table is refused by its count first.
+    let cases = [
+        (RequestTerm::BlankNode("g".into()), 2u64),
+        (
+            RequestTerm::LanguageLiteral {
+                lexical: "g".into(),
+                language: "en".into(),
+                direction: Some(Direction::Ltr),
+            },
+            4,
+        ),
+    ];
+    for (term, kind) in cases {
+        assert_eq!(
+            DropCommandView::from_frame(&frame_of(&drop_naming(term)))
+                .unwrap_err()
+                .0,
+            ProtocolErrorEnum::FieldValue {
+                command: 19,
+                field: "drop term",
+                value: kind
+            }
+        );
+    }
+    // An IRI is taken.
+    let iri = drop_naming(RequestTerm::Iri("http://ex.org/h".into()));
+    assert_eq!(
+        DropCommandView::from_frame(&frame_of(&iri)).unwrap().target(),
+        Some("http://ex.org/h")
+    );
+}

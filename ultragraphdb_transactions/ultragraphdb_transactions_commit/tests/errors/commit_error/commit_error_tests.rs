@@ -159,3 +159,37 @@ fn test_the_operation_refusals_carry_their_codes_and_what_was_found() {
     assert!(refused.source().is_none());
     assert_eq!(CommitError::Unavailable().found(), None);
 }
+
+/// Every reason against `PROTOCOL.md` §9's table, written out by hand: its code's number, its `detail` and whether a
+/// client retries it. The table is the independent source; `ErrorCode::retryable` is checked against the same column so
+/// the commit step and the wire cannot disagree on what a client may retry.
+#[test]
+fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
+    // (reason, code number, detail, retryable), each row from §9: Conflict 2 with the kind's number (Statement is 2),
+    // TooOld 3, Busy 5, TooLarge 6 with the limit, Refused 7, OperationFailed 8, SessionEvicted 12 with the session,
+    // RequestOutOfOrder 13 with the request expected, SessionBusy 14 with the session, retryable after a delay,
+    // Unavailable 17, NotCommitted 18 with the request, PermissionDenied 21 with the action, write being 2; a malformed
+    // or unsealed hand-over is a Protocol error, code 1.
+    let rows: Vec<(CommitError, u16, u64, bool)> = vec![
+        (CommitError::Conflict(ConflictKind::Statement), 2, 2, true),
+        (CommitError::TooOld(4, 10), 3, 0, true),
+        (CommitError::Busy(64), 5, 0, true),
+        (CommitError::TooLarge(2_000_000, 1_048_576), 6, 1_048_576, false),
+        (CommitError::Refused("no".to_string()), 7, 0, false),
+        (CommitError::OperationFailed(None), 8, 0, false),
+        (CommitError::SessionEvicted(41), 12, 41, false),
+        (CommitError::RequestOutOfOrder(9), 13, 9, false),
+        (CommitError::SessionBusy(43), 14, 43, true),
+        (CommitError::Unavailable(), 17, 0, false),
+        (CommitError::NotCommitted(8), 18, 8, true),
+        (CommitError::PermissionDenied(45), 21, 2, false),
+        (malformed(), 1, 0, false),
+        (CommitError::Unsealed(), 1, 0, false),
+    ];
+    for (reason, number, detail, retryable) in rows {
+        assert_eq!(reason.code().number(), number, "{reason:?}");
+        assert_eq!(reason.detail(), detail, "{reason:?}");
+        assert_eq!(reason.is_retryable(), retryable, "{reason:?}");
+        assert_eq!(reason.code().retryable(), retryable, "{reason:?}: the wire's code");
+    }
+}

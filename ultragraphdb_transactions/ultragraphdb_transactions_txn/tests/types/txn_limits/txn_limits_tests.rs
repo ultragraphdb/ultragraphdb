@@ -47,3 +47,50 @@ fn test_byte_bounds_above_u32_are_capped() {
     assert_eq!(limits.max_write_set(), u32::MAX as usize);
     assert_eq!(limits.max_read_set(), u32::MAX as usize);
 }
+
+/// Each setter applied alone to the defaults changes its own setting and no other, so a setter writing a neighbouring
+/// setting is caught even where a later setter in a chain would overwrite it.
+#[test]
+fn test_each_setter_alone_leaves_the_other_settings_at_their_defaults() {
+    // (read-write, read-only, max write set, max read set, objects per list).
+    let settings = |l: TxnLimits| {
+        (
+            l.read_write(),
+            l.read_only(),
+            l.max_write_set(),
+            l.max_read_set(),
+            l.objects_per_list(),
+        )
+    };
+    // The defaults of TxnLimits' table: 10 s, 16 s, 1,040,384 bytes, 1 MiB, 64 objects.
+    let defaults = (
+        Duration::from_secs(10),
+        Duration::from_secs(16),
+        1_040_384,
+        1_048_576,
+        64,
+    );
+    let base = TxnLimits::default();
+    assert_eq!(settings(base), defaults);
+    let mut expected = defaults;
+    expected.0 = Duration::from_millis(1_500);
+    assert_eq!(
+        settings(base.with_read_write(Duration::from_millis(1_500))),
+        expected
+    );
+    let mut expected = defaults;
+    expected.1 = Duration::from_secs(3);
+    assert_eq!(
+        settings(base.with_read_only(Duration::from_secs(3))),
+        expected
+    );
+    let mut expected = defaults;
+    expected.2 = 4_096;
+    assert_eq!(settings(base.with_max_write_set(4_096)), expected);
+    let mut expected = defaults;
+    expected.3 = 512;
+    assert_eq!(settings(base.with_max_read_set(512)), expected);
+    let mut expected = defaults;
+    expected.4 = 2;
+    assert_eq!(settings(base.with_objects_per_list(2)), expected);
+}

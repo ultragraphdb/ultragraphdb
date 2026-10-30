@@ -140,7 +140,7 @@ into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and
 - [x] 9c.11 The transport's state machines audited as phase 3 audits a suite: defects planted in a throwaway copy, each found by the suite or the suite strengthened
 - [x] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
 
-## 10. The server → `ultragraphdb_server_session`, `ultragraphdb_server`
+## 10. The server → `ultragraphdb_server_session`, `ultragraphdb`
 
 - [ ] 10.1 Scenarios: server-node, all requirements; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the watermark is refused", at the session); and the two scenarios group 2 left to the server: "A refused request keeps the connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the connection
 - [ ] 10.2 Phases 1–3: the session layer's dispatch, the node's configuration and lifecycle; the session converts Write, Describe and Operation bodies and request terms to `Changeset`, declarations and oxrdf types (the wire's own layouts, decided 2026-10-27), the conversion of triple terms iterative or bounded by the wire's maximum nesting depth, never recursing past it

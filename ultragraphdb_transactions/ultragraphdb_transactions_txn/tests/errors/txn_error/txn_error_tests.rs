@@ -104,14 +104,31 @@ fn test_each_text_names_what_was_refused() {
         "a changeset of namespace 3 in a transaction of namespace 0"
     );
     assert_eq!(TxnError::Ended().to_string(), "the transaction has ended");
+    // A changeset's refusal keeps the applier's own text, Dgraph's retry text for a declaration during a build.
     assert_eq!(
         TxnError::Changeset(changeset_error()).to_string(),
-        changeset_error().to_string()
+        "An index is being built, so <http://ex.org/p> cannot be declared now. Please retry"
     );
 }
 
 #[test]
 fn test_a_changesets_error_is_the_source() {
-    assert!(TxnError::Changeset(changeset_error()).source().is_some());
-    assert!(TxnError::Ended().source().is_none());
+    let error = TxnError::Changeset(changeset_error());
+    let source = error.source().expect("a source");
+    assert_eq!(
+        source.downcast_ref::<ChangesetError>(),
+        Some(&changeset_error()),
+        "the source is the changeset's error itself"
+    );
+    for refused in [
+        TxnError::ReadAboveWatermark(12, 10),
+        TxnError::PastLimit(10_000),
+        TxnError::WriteSetTooLarge(5, 4),
+        TxnError::ReadSetTooLarge(7, 6),
+        TxnError::ReadOnly(),
+        TxnError::Namespace(0, 3),
+        TxnError::Ended(),
+    ] {
+        assert!(refused.source().is_none(), "{refused:?}");
+    }
 }

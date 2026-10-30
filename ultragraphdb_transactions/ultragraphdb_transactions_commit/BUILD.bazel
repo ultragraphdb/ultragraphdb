@@ -7,7 +7,7 @@ load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
-load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc")
 
 rust_library(
     name = "ultragraphdb_transactions_commit",
@@ -24,13 +24,6 @@ rust_doc(
     name = "doc",
     crate = ":ultragraphdb_transactions_commit",
     tags = ["doc"],
-    visibility = ["//visibility:public"],
-)
-
-rust_doc_test(
-    name = "doc_test",
-    crate = ":ultragraphdb_transactions_commit",
-    tags = ["doc-test"],
     visibility = ["//visibility:public"],
 )
 

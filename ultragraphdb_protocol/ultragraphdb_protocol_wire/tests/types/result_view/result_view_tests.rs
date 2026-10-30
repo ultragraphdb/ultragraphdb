@@ -68,10 +68,16 @@ fn test_cells_are_counted_and_index_the_table() {
         put(h, 0, u32::MAX.into(), 4);
         put(h, 4, u32::MAX.into(), 4);
     });
-    assert!(matches!(
+    // (2^32 - 1)^2 = 2^64 - 2^33 + 1 = 18,446,744,065,119,617,025 cells expected; the golden six held.
+    assert_eq!(
         ResultView::from_frame(&frame_of(&huge)).unwrap_err().0,
-        ProtocolErrorEnum::CountMismatch { field: "cells", .. }
-    ));
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "cells",
+            count: 6,
+            expected: 18_446_744_065_119_617_025
+        }
+    );
 }
 
 #[test]
@@ -278,28 +284,33 @@ fn test_each_term_is_one_whole_encoding() {
     assert_eq!(one_term(&[0x20, 2, 0xC3, 0xA9]), Ok(()));
     // The term table's bytes: a blank node's tag with a UID's nine bytes is whole, eight are not.
     let blank = golden("result").bytes();
-    assert!(ResultView::from_frame(&frame_of(&blank)).is_ok());
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&blank))
+            .map(|view| view.term(3).map(|term| term.is_blank_node()))
+            .map_err(|e| e.0),
+        Ok(Some(true))
+    );
     let short = with_section(&blank, 8, 2, |e| {
         e.pop();
     });
-    assert!(matches!(
+    assert_eq!(
         ResultView::from_frame(&frame_of(&short)).unwrap_err().0,
         ProtocolErrorEnum::BadTerm {
+            command: 13,
             section: 2,
-            at: 3,
-            ..
+            at: 3
         }
-    ));
+    );
     // A tag the store never writes, 0x03, is no encoding.
     let unknown = with_section(&blank, 8, 2, |e| e[30] = 0x03);
-    assert!(matches!(
+    assert_eq!(
         ResultView::from_frame(&frame_of(&unknown)).unwrap_err().0,
         ProtocolErrorEnum::BadTerm {
+            command: 13,
             section: 2,
-            at: 3,
-            ..
+            at: 3
         }
-    ));
+    );
 }
 
 #[test]
@@ -317,4 +328,35 @@ fn test_a_read_matching_nothing_is_one_batch_of_no_rows() {
     assert!(!view.has_statement_ids());
     assert!(view.resume().is_empty());
     assert_eq!(view.to_body().unwrap(), batch);
+}
+
+#[test]
+fn test_a_batch_of_no_terms_holds_no_encodings() {
+    // PROTOCOL.md section 9.1: with no terms, section 2 is empty (`CountMismatch` `"term encodings"`). The golden
+    // batch with its offsets (1) and texts (3) emptied and every cell (0) unbound: its encodings (2) remain.
+    let bytes = golden("result").bytes();
+    let encodings = crate::utils::golden_bodies::split_sections(
+        crate::utils::golden_bodies::body_data(&bytes),
+        0,
+        8,
+    )[2]
+    .len();
+    assert!(encodings > 0);
+    let none = with_section(&bytes, 8, 1, |offsets| offsets.clear());
+    let none = with_section(&none, 8, 3, |texts| texts.clear());
+    let none = with_section(&none, 8, 0, |cells| cells.fill(0xFF));
+    assert_eq!(
+        ResultView::from_frame(&frame_of(&none)).unwrap_err().0,
+        ProtocolErrorEnum::CountMismatch {
+            command: 13,
+            field: "term encodings",
+            count: encodings as u64,
+            expected: 0
+        }
+    );
+    // With the encodings emptied as well, the batch reads: its six cells unbound.
+    let empty = with_section(&none, 8, 2, |e| e.clear());
+    let view = ResultView::from_frame(&frame_of(&empty)).unwrap();
+    assert_eq!(view.term_count(), 0);
+    assert_eq!(view.cell(1, 2), Some(ABSENT));
 }
