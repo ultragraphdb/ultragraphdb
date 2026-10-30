@@ -584,3 +584,43 @@ connection's; TCP keepalive is the server's socket, group 10's. Done here:
 
 After 9c.6 and 9c.7, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
 the protocol, client and log targets, 20 of 20, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.
+
+## 9c.8 Phase 4, terms and results
+
+Every point is the wire's or `ultragraphdb_core_terms`', implemented in 9c.6's wire slice and kept from its audited
+suite, and section 1, 9.1 and 10 state each: point 11, a timezone of −00:01 kept under tag `0x30` or `0x31`; point 12,
+section 10.5's forms the protocol's own, held by the 114 vectors `generate_by_value.py` computes from the section alone;
+point 13, `EncodedTerm::check` refusing non-UTF-8 inline text and a known-datatype code outside section 10.4, which the
+batch's view applies to each term; point 49, a value its payload does not hold exactly (an integer past i64, a decimal
+of 19 fraction digits) kept by its lexical form; point 50, a boolean of 2 or more refused; point 51, the OperationFailed
+value a one-entry request term table; point 52, the cell count computed in 64 bits; point 54, section 1's byte-order
+row; tag `0x02` (B1) and the statement IDs of section 7 (B4). Setting `0x02` from the dictionary's skolem flag, and
+refusing a request IRI under the genid base the dictionary does not hold, are the server's (10.2).
+
+## 9c.9 Phase 4, requests, errors and sessions
+
+Points 21, 22, 29, 33, 36, 38, 40 and 48, the session's owner, the Drop command with operations 4 to 7 and their
+replay (B2) and the write-set bound (B5) are the wire's, the commit crate's and the client's, implemented in 9c.6 and
+kept from its audited suites. Points 4, 5, 9, 14, 20, 35, 37, 39, 46 and 47 are stated in sections 4.4, 4.7, 6.3, 8.3,
+9.1 and 11.4 to 11.8. Found and done here:
+
+- Point 9: no test held a read that matches nothing, and `TestServer::with_results(0)` sent no frame, so such a read
+  never ended. It answers one batch of no rows flagged `LAST` now, which a client test reads to its end, and a wire test
+  builds and views that batch.
+- Point 35: `TestServer` kept its statements across connections and `Statement` named its id "in the session". A new
+  connection clears them, and a client test executes a statement of the previous connection, refused with code 10, then
+  prepares again from id 1.
+- Point 8: section 11.9's 256 statements per connection were in no code; `StatementCache::DEFAULT_CAPACITY` holds them,
+  as `Sessions::DEFAULT_CAPACITY` holds the 4,096 sessions. The Welcome's defaults are the wire's constants.
+- Point 14: the triage row reads "record order, from 0", but its recommendation is to state the code's rule, and the
+  catalog numbers from 1 in UID order (`Catalog::preorder`), which section 8.3 states. Point 4's order is the same:
+  `DataDictionary::describe` lists each kind's declarations by UID.
+
+Each new test failed before its change: the empty read and the statement of the previous connection ran out of steps,
+the default did not build; and a default of 255 is rejected. The client commits only through a session it registered,
+which section 6.3's session 0 permits and does not require. The server's halves (point 5's term rules, point 9's empty
+answer, point 46's abort of a closed connection's transactions, point 47's resume keys, the configured limits of point
+8) are the session layer's, group 10.
+
+After 9c.8 and 9c.9, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
+the protocol and client targets, 17 of 17, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.

@@ -9,8 +9,9 @@ use ultragraphdb_client_core::{
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_transport::{Anonymous, NetworkFaults};
 use ultragraphdb_protocol_wire::{
-    ABSENT, BodyView, ColumnType, Command, CreditView, Execute, FrameView, Header, HeaderView,
-    MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read, ReadView, TermTable, Welcome,
+    ABSENT, BodyView, ColumnType, Command, CreditView, ErrorCode, Execute, FrameView, Header,
+    HeaderView, MAX_FRAME_SIZE, PatternSlot, Prepare, QuadPattern, Read, ReadView, TermTable,
+    Welcome,
 };
 
 use crate::utils::harness::{CLUSTER, Harness, RELEASE, config, server};
@@ -260,6 +261,66 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
     assert_eq!(drain(&mut h, &stream).len(), 1);
 }
 
+/// Point 35: a statement belongs to the connection that prepared it, so the next connection holds none of its
+/// predecessor's, and its ids start at 1 again.
+#[test]
+fn test_a_statement_does_not_outlive_its_connection() {
+    let mut h = Harness::ready(server().with_results(1));
+    let mut terms = TermTable::new();
+    let name = terms.iri("http://ex.org/name");
+    let prepare = Prepare::new(
+        0,
+        0,
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::DefaultGraph,
+            PatternSlot::Unbound,
+            PatternSlot::Bound(name),
+            PatternSlot::Unbound,
+        ),
+        Vec::new(),
+        Vec::new(),
+    );
+    let p = h.core.prepare(&prepare, h.now).unwrap();
+    let Ok(Reply::Prepared(statement)) = h.settle(p) else {
+        panic!("a statement")
+    };
+    h.connect();
+    h.until(|h| h.core.is_ready());
+    let tx = begin(&mut h);
+    let execute = Execute::new(
+        statement.id(),
+        tx.stream(),
+        0,
+        TermTable::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let stream = h.core.execute(&tx, &execute, h.now).unwrap();
+    let mut refused = None;
+    h.until(|h| {
+        refused = h.core.next_batch(&stream, h.now, |_| ()).err();
+        refused.is_some()
+    });
+    assert!(
+        matches!(
+            refused.map(|e| e.0),
+            Some(ClientErrorEnum::Refused {
+                code: ErrorCode::UnknownStatement,
+                detail: 1,
+                ..
+            })
+        ),
+        "the new connection holds no statement"
+    );
+    let p = h.core.prepare(&prepare, h.now).unwrap();
+    let Ok(Reply::Prepared(again)) = h.settle(p) else {
+        panic!("a statement")
+    };
+    assert_eq!(again.id(), 1, "ids start again on the new connection");
+}
+
 /// The server's Result frame on `stream`, numbered as the connection's next.
 fn forged(h: &mut Harness, stream: u64, resume: u8, flags: u8) -> Vec<u8> {
     use ultragraphdb_protocol_wire::{BodyBuilder, ResultBatch};
@@ -497,4 +558,17 @@ fn test_a_transactions_end_leaves_another_transactions_read() {
     assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
     assert!(h.core.next_batch(&mine, h.now, |_| ()).is_err());
     assert_eq!(drain(&mut h, &theirs).len(), 3);
+}
+
+#[test]
+fn test_a_read_matching_nothing_ends_after_one_empty_batch() {
+    // Point 9: a read that matches nothing is answered with one batch flagged LAST and no rows.
+    let mut h = Harness::ready(server().with_results(0));
+    let tx = begin(&mut h);
+    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    assert_eq!(drain(&mut h, &stream), vec![Vec::<String>::new()]);
+    assert!(matches!(
+        h.core.next_batch(&stream, h.now, |_| ()),
+        Ok(BatchPoll::Done)
+    ));
 }

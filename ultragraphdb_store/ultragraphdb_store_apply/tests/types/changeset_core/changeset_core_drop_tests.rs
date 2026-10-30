@@ -420,7 +420,11 @@ fn dropped_in_a_round(request: ultragraphdb_store_apply::DropRequest<'_>) -> Vec
 }
 
 /// A drop's name, its request decided in a round, and its immediate drop, the oracle.
-type DropCase<'a> = (&'a str, ultragraphdb_store_apply::DropRequest<'a>, fn(&TestChangesets));
+type DropCase<'a> = (
+    &'a str,
+    ultragraphdb_store_apply::DropRequest<'a>,
+    fn(&TestChangesets),
+);
 
 /// Each kind of drop decided in a round leaves the keys its immediate drop leaves: a graph, a namespace's data, the
 /// namespace, every namespace (`PROTOCOL.md` §6.5, §12.2 operations 4 to 7).

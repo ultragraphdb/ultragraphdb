@@ -301,3 +301,20 @@ fn test_each_term_is_one_whole_encoding() {
         }
     ));
 }
+
+#[test]
+fn test_a_read_matching_nothing_is_one_batch_of_no_rows() {
+    // Point 9: one batch flagged LAST, `rows` 0, `columns` the unbound slots, no term and no statement ID.
+    use ultragraphdb_protocol_wire::{BodyBuilder, FLAG_LAST, HeaderView};
+    let batch = ResultBatch::new(3);
+    let header = golden("result").header().with_flags(FLAG_LAST);
+    let bytes = batch.frame(header).unwrap();
+    let frame = frame_of(&bytes);
+    assert_eq!(HeaderView::new(&bytes).unwrap().flags(), FLAG_LAST);
+    let view = ResultView::from_frame(&frame).unwrap();
+    assert_eq!((view.columns(), view.rows(), view.term_count()), (3, 0, 0));
+    assert_eq!(view.cell(0, 0), None);
+    assert!(!view.has_statement_ids());
+    assert!(view.resume().is_empty());
+    assert_eq!(view.to_body().unwrap(), batch);
+}

@@ -5,9 +5,9 @@
 
 use ultragraphdb_protocol_wire::ColumnType;
 
-/// A prepared statement: its id in the session, its namespace, the schema id of the catalog it was prepared against,
-/// and its parameter and result column types. Once its namespace's schema id is another, an execution is refused as
-/// stale and the statement is prepared again.
+/// A prepared statement: its id on the connection that prepared it, its namespace, the schema id of the catalog it was
+/// prepared against, and its parameter and result column types. Once its namespace's schema id is another, an
+/// execution is refused as stale and the statement is prepared again; on another connection it is unknown.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Statement {
     id: u64,

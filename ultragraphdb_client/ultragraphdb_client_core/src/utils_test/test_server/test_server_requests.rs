@@ -136,10 +136,14 @@ impl TestServer {
         }
     }
 
-    /// The server's Result frames on `stream`: one column, two rows naming the same IRI, the last frame flagged.
+    /// The server's Result frames on `stream`: one column, two rows naming the same IRI, the last frame flagged; with
+    /// no frames configured, one flagged batch of no rows, a read that matches nothing.
     fn results(&mut self, stream: u64) {
         let term = ResultTerm::new(EncodedTerm::uid(42)).with_text("http://ex.org/same");
         let results = self.results;
+        if results == 0 {
+            return self.reply(stream, &ResultBatch::new(1), FLAG_LAST);
+        }
         for i in 0..results {
             let mut batch = ResultBatch::new(1).with_resume(vec![i as u8]);
             let _ = batch.push_row(&[Some(&term)]);

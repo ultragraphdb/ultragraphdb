@@ -31,8 +31,8 @@ use crate::utils_test::test_authenticator::TestAuthenticator;
 /// a statement for Prepare, and a commit from its session table, which answers a retry from its record.
 ///
 /// A test injects a fault by name before the request it hits: [`TestServer::drop_after_next_commit`],
-/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::evict`]. Sessions,
-/// statements and the commits applied outlive a connection; transactions do not.
+/// [`TestServer::lose_next_commit`], [`TestServer::answer_busy_retries`], [`TestServer::evict`]. Sessions and the
+/// commits applied outlive a connection; transactions and statements, which belong to it, do not.
 #[derive(Debug)]
 pub struct TestServer {
     cluster: u64,
@@ -85,7 +85,8 @@ impl TestServer {
         }
     }
 
-    /// The server answering each read and execute with `results` Result frames, the last flagged.
+    /// The server answering each read and execute with `results` Result frames, the last flagged; with 0, one flagged
+    /// batch of no rows, as a read that matches nothing is answered.
     pub fn with_results(mut self, results: u32) -> Self {
         self.results = results;
         self
@@ -98,7 +99,7 @@ impl TestServer {
     }
 
     /// A new connection at `now`, when the server's wall clock reads `unix_micros`: the handshake again, no
-    /// transaction or queued frame kept.
+    /// transaction, statement or queued frame kept.
     pub fn connection(&mut self, now: Instant, unix_micros: u64) {
         self.dropped = false;
         self.origin = Some((now, unix_micros));
@@ -112,6 +113,7 @@ impl TestServer {
             now,
         ));
         self.transactions.clear();
+        self.statements.clear();
     }
 
     /// The next commit in a transaction, or the next Drop, is applied, and the connection dropped before its reply: a

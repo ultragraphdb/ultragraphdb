@@ -36,6 +36,9 @@ pub struct StatementCache {
 }
 
 impl StatementCache {
+    /// The default bound on statements a connection holds (`PROTOCOL.md` §11.9).
+    pub const DEFAULT_CAPACITY: usize = 256;
+
     /// A cache of at most `capacity` statements, at least one.
     pub fn new(capacity: usize) -> Self {
         Self {

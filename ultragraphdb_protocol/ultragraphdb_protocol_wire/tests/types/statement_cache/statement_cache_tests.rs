@@ -412,3 +412,19 @@ fn test_a_wrong_parameter_count_is_named_before_a_literal() {
         Err(StatementError::Parameters(id, 1, 2))
     );
 }
+
+#[test]
+fn test_the_default_cache_holds_256_statements() {
+    // Point 8: section 11.9's default, the statements a connection holds.
+    assert_eq!(StatementCache::DEFAULT_CAPACITY, 256);
+    let mut cache = StatementCache::new(StatementCache::DEFAULT_CAPACITY);
+    for _ in 0..=StatementCache::DEFAULT_CAPACITY {
+        prepare(&mut cache, SCHEMA).unwrap();
+    }
+    assert_eq!(cache.len(), 256);
+    assert_eq!(
+        execute(&cache, 1, &["a"], SCHEMA),
+        Err(StatementError::Unknown(1))
+    );
+    assert!(execute(&cache, 2, &["a"], SCHEMA).is_ok());
+}
