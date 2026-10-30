@@ -46,7 +46,10 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() {
         .expect("operated");
     assert!(operator.has_overlay());
     // The counter's new value, 0 + 5, created 0 as a counter add's always is (PROTOCOL.md §6.3).
-    assert_eq!(results, vec![ultragraphdb_protocol_wire::OperationResult::new(5, false)]);
+    assert_eq!(
+        results,
+        vec![ultragraphdb_protocol_wire::OperationResult::new(5, false)]
+    );
     operator.adopt(&mut five, staged);
     // A counter of "zero" is no integer: refused with the value found.
     let mut refused = begin(&applier);

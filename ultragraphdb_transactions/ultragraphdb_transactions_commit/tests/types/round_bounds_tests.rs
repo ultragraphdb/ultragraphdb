@@ -44,13 +44,16 @@ fn test_the_largest_write_set_is_what_a_lone_round_holds_on_either_drive() {
 }
 
 #[test]
-fn test_the_largest_write_set_follows_the_builder_at_chunk_boundaries_and_is_zero_below_any_round() {
+fn test_the_largest_write_set_follows_the_builder_at_chunk_boundaries_and_is_zero_below_any_round()
+{
     use crate::utils::frames::largest_record;
     // An empty record's lone round is 304 bytes (256 + 48): below it no record fits.
     assert_eq!(RoundBounds::new(0, 1).max_write_set(), 0);
     assert_eq!(RoundBounds::new(303, 1).max_write_set(), 0);
     // Around the first chunk's end (3,840 bytes of data, frames of 4,096) and the second's, where a table appears.
-    for bytes in [304u32, 305, 4_095, 4_096, 4_097, 4_111, 4_112, 4_113, 8_200, 8_208, 100_000] {
+    for bytes in [
+        304u32, 305, 4_095, 4_096, 4_097, 4_111, 4_112, 4_113, 8_200, 8_208, 100_000,
+    ] {
         assert_eq!(
             RoundBounds::new(bytes, 1).max_write_set(),
             largest_record(bytes as usize),

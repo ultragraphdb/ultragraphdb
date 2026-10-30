@@ -389,14 +389,8 @@ fn test_a_counter_add_reaches_the_bounds_of_i64_and_refuses_to_pass_them() {
         vec![(i64::MAX as u64, false), (i64::MIN as u64, false)]
     );
     apply(&a, vec![operated]);
-    assert_eq!(
-        objects(&a, "c", "near"),
-        vec![term("9223372036854775807")]
-    );
-    assert_eq!(
-        objects(&a, "c", "min"),
-        vec![term("-9223372036854775808")]
-    );
+    assert_eq!(objects(&a, "c", "near"), vec![term("9223372036854775807")]);
+    assert_eq!(objects(&a, "c", "min"), vec![term("-9223372036854775808")]);
 }
 
 /// A compare-and-set on a value held among others is refused, for the subject's value is not the expected one and
@@ -414,7 +408,10 @@ fn test_a_compare_and_set_on_a_subject_holding_several_values_is_refused() {
         ),
         "{refused:?}"
     );
-    let mut held: Vec<String> = objects(&a, "a", "tag").iter().map(Term::to_string).collect();
+    let mut held: Vec<String> = objects(&a, "a", "tag")
+        .iter()
+        .map(Term::to_string)
+        .collect();
     held.sort();
     assert_eq!(held, vec!["\"x\"".to_string(), "\"y\"".to_string()]);
 }
@@ -449,7 +446,11 @@ const INTEGER_TYPES: [(&str, Option<i128>, Option<i128>); 13] = [
     ("integer", None, None),
     ("nonPositiveInteger", None, Some(0)),
     ("negativeInteger", None, Some(-1)),
-    ("long", Some(-9_223_372_036_854_775_808), Some(9_223_372_036_854_775_807)),
+    (
+        "long",
+        Some(-9_223_372_036_854_775_808),
+        Some(9_223_372_036_854_775_807),
+    ),
     ("int", Some(-2_147_483_648), Some(2_147_483_647)),
     ("short", Some(-32_768), Some(32_767)),
     ("byte", Some(-128), Some(127)),
@@ -608,7 +609,11 @@ fn test_a_counter_add_refuses_an_ill_typed_integer_and_every_non_integer_datatyp
     let txn = executed(&a, vec![insert("<other> <kind> \"k\"")]);
     for (i, (text, nt)) in cases.iter().enumerate() {
         let refused = operate(&a, &txn, &[], &[add("c", &format!("n{i}"), 1)]).unwrap_err();
-        assert_eq!(refused, ChangesetError::OperationFailed(Some(nt.clone())), "{text}");
+        assert_eq!(
+            refused,
+            ChangesetError::OperationFailed(Some(nt.clone())),
+            "{text}"
+        );
     }
 }
 

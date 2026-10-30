@@ -199,7 +199,10 @@ fn test_a_clients_frame_is_validated_with_the_clients_header_rules() {
     // Past the header the client's frame takes the same steps: the length, then the chunks.
     assert_eq!(
         validate_client(&golden[..300]).err(),
-        Some(ProtocolErrorEnum::LengthMismatch { size: 356, len: 300 })
+        Some(ProtocolErrorEnum::LengthMismatch {
+            size: 356,
+            len: 300
+        })
     );
     let mut flipped = golden.clone();
     flipped[300] ^= 1;

@@ -174,7 +174,12 @@ fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
         (CommitError::Conflict(ConflictKind::Statement), 2, 2, true),
         (CommitError::TooOld(4, 10), 3, 0, true),
         (CommitError::Busy(64), 5, 0, true),
-        (CommitError::TooLarge(2_000_000, 1_048_576), 6, 1_048_576, false),
+        (
+            CommitError::TooLarge(2_000_000, 1_048_576),
+            6,
+            1_048_576,
+            false,
+        ),
         (CommitError::Refused("no".to_string()), 7, 0, false),
         (CommitError::OperationFailed(None), 8, 0, false),
         (CommitError::SessionEvicted(41), 12, 41, false),
@@ -190,6 +195,10 @@ fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
         assert_eq!(reason.code().number(), number, "{reason:?}");
         assert_eq!(reason.detail(), detail, "{reason:?}");
         assert_eq!(reason.is_retryable(), retryable, "{reason:?}");
-        assert_eq!(reason.code().retryable(), retryable, "{reason:?}: the wire's code");
+        assert_eq!(
+            reason.code().retryable(),
+            retryable,
+            "{reason:?}: the wire's code"
+        );
     }
 }

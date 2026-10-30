@@ -189,7 +189,9 @@ fn test_a_drop_target_of_any_kind_but_an_iri_is_refused_naming_its_kind() {
     // An IRI is taken.
     let iri = drop_naming(RequestTerm::Iri("http://ex.org/h".into()));
     assert_eq!(
-        DropCommandView::from_frame(&frame_of(&iri)).unwrap().target(),
+        DropCommandView::from_frame(&frame_of(&iri))
+            .unwrap()
+            .target(),
         Some("http://ex.org/h")
     );
 }

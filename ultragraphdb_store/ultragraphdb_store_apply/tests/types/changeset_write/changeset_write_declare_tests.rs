@@ -218,10 +218,7 @@ fn test_vector_options_their_factory_refuses_are_refused() {
     let refused = apply(&a, vec![Change::Declare(Declaration::Predicate(unknown))]).unwrap_err();
     assert_eq!(
         refused.0,
-        ChangesetErrorEnum::Catalog(CatalogError::UnknownVectorIndex(
-            ex("emb").as_str(),
-            "nope"
-        ))
+        ChangesetErrorEnum::Catalog(CatalogError::UnknownVectorIndex(ex("emb").as_str(), "nope"))
     );
     assert_eq!(
         refused.to_string(),

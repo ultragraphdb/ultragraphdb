@@ -10,8 +10,8 @@
 use ultragraphdb_protocol_wire::{ConflictKind, OperationResult, WriteSetRecord};
 use ultragraphdb_traits_store::VersionlessEntry;
 use ultragraphdb_transactions_commit::{
-    CommitError, CommitRequest, CommitStep, Input, NoOperations, Operator,
-    Proposal, Reply, RoundBounds, SessionEntry, StepOutput,
+    CommitError, CommitRequest, CommitStep, Input, NoOperations, Operator, Proposal, Reply,
+    RoundBounds, SessionEntry, StepOutput,
 };
 use ultragraphdb_transactions_txn::ReadSet;
 
@@ -449,7 +449,11 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
         .iter()
         .map(|(t, p)| (*t, p.inner.record.clone()))
         .collect();
-    assert_eq!(released, vec![(1, original)], "released with its own record");
+    assert_eq!(
+        released,
+        vec![(1, original)],
+        "released with its own record"
+    );
     commit(
         &mut step,
         &mut out,
@@ -474,7 +478,8 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     assert_eq!(script.seen.len(), 1, "decided once");
     assert_eq!(script.admitted, 1, "the plain commit alone");
     assert_eq!(
-        step.resolver().check(&read_set(0, 0, &Reads::list(b"node"))),
+        step.resolver()
+            .check(&read_set(0, 0, &Reads::list(b"node"))),
         Ok(()),
         "nothing of the operation in the history"
     );
@@ -483,7 +488,8 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
 /// The largest operation record a fresh round holds waits for one when the round it is decided in is too full, then
 /// commits there; one more byte and no round holds it, so it is refused instead of waiting.
 #[test]
-fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_byte_more_is_refused() {
+fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_byte_more_is_refused()
+{
     use crate::utils::frames::{largest_record, round_frame};
     // The largest padding whose record a round of 4,096 bytes holds alone, by the wire's builder.
     let fits = |padding: usize| {
@@ -494,7 +500,10 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
         })])
         .is_some_and(|f| f <= 4_096)
     };
-    let padding = (0..4_096).rev().find(|p| fits(*p)).expect("some record fits");
+    let padding = (0..4_096)
+        .rev()
+        .find(|p| fits(*p))
+        .expect("some record fits");
     assert!(!fits(padding + 1));
     let small = || plain(0, &Reads::default(), &Writes::point(b"a"));
     let run = |padding: usize| {
@@ -510,7 +519,13 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
         commit(&mut step, &mut out, 1, small(), &mut script);
         rounds.extend(out.append().map(|(r, _)| r));
         commit(&mut step, &mut out, 2, small(), &mut script);
-        commit(&mut step, &mut out, 3, asking(&Writes::point(b"b")), &mut script);
+        commit(
+            &mut step,
+            &mut out,
+            3,
+            asking(&Writes::point(b"b")),
+            &mut script,
+        );
         for _ in 0..3 {
             sync(&mut step, &mut out, &mut script);
             replies.extend(out.replies().iter().cloned());

@@ -410,7 +410,10 @@ fn test_a_round_keeps_the_default_entries_of_the_executions_before_it() {
     let catalog = a.catalog(NS).unwrap();
     // Each predicate first written holds the default declaration (the catalog specification's defaults).
     assert_eq!(catalog.predicate(uid(&a, "age")), Some(&default_of("age")));
-    assert_eq!(catalog.predicate(uid(&a, "score")), Some(&default_of("score")));
+    assert_eq!(
+        catalog.predicate(uid(&a, "score")),
+        Some(&default_of("score"))
+    );
     let snapshot = a
         .quads()
         .store()

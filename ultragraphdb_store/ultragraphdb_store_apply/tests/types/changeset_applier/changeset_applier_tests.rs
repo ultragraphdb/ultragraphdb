@@ -359,9 +359,9 @@ fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() {
     // The posting lists' commit writes the batch, so the store's error reaches the changeset through theirs.
     assert_eq!(
         refused.0,
-        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError::WriteFailed(
-            "simulated failure during the batch's persist".into()
-        )))),
+        ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(
+            StoreError::WriteFailed("simulated failure during the batch's persist".into())
+        ))),
         "{refused:?}"
     );
     assert_eq!(a.quads().lists().applied_ts(), watermark);
@@ -450,7 +450,10 @@ fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_e
         )
     };
     // A query of the index's dimension finds the nearer first: [1, 0] is at 0 from `a`, at sqrt(2) from `b`.
-    assert_eq!(search(&[1.0, 0.0]).unwrap(), vec![uid(&a, "a"), uid(&a, "b")]);
+    assert_eq!(
+        search(&[1.0, 0.0]).unwrap(),
+        vec![uid(&a, "a"), uid(&a, "b")]
+    );
     let refused = search(&[1.0, 0.0, 0.0]).unwrap_err();
     assert_eq!(
         refused.0,

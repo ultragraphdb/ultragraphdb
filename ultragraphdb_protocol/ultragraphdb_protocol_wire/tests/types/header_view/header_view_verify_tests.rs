@@ -250,7 +250,11 @@ fn test_size_is_at_least_a_header_and_at_most_the_announced_maximum() {
     }
     for size in [256u32, 4_096, 1_048_576] {
         let bytes = resealed(|b| put(b, 40, size.into(), 4));
-        assert_eq!(verify(&bytes).map(|h| h.command()), Ok(Command::Hello), "size {size}");
+        assert_eq!(
+            verify(&bytes).map(|h| h.command()),
+            Ok(Command::Hello),
+            "size {size}"
+        );
     }
     for size in [1_048_577u32, 2_097_152, u32::MAX] {
         let bytes = resealed(|b| put(b, 40, size.into(), 4));

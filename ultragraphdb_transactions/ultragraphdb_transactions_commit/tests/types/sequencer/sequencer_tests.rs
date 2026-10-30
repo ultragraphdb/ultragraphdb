@@ -112,5 +112,9 @@ fn test_the_largest_clock_whose_double_fits_still_gives_a_version() {
     let mut sequencer = Sequencer::new(0);
     assert_eq!(sequencer.open_round(u64::MAX / 2), Some(u64::MAX - 1));
     assert_eq!(sequencer.take(), Some(u64::MAX - 1));
-    assert_eq!(sequencer.take(), None, "nothing follows the largest even version");
+    assert_eq!(
+        sequencer.take(),
+        None,
+        "nothing follows the largest even version"
+    );
 }

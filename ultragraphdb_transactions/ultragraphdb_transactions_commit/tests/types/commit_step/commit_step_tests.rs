@@ -682,12 +682,17 @@ fn sized(len: usize) -> TestProposal {
     let base = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), 0).len();
     let mut p = blind(b"k");
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), len - base);
-    assert_eq!(p.record.len(), len, "a commit record of a multiple of 8 pads byte for byte");
+    assert_eq!(
+        p.record.len(),
+        len,
+        "a commit record of a multiple of 8 pads byte for byte"
+    );
     p
 }
 
 #[test]
-fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_byte_more_is_refused() {
+fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_byte_more_is_refused()
+ {
     // The power-loss-protected drive's round of 262,144 bytes holds a record of 261,328 alone (RoundBounds' test).
     let config = WalConfig::new(0, true);
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());

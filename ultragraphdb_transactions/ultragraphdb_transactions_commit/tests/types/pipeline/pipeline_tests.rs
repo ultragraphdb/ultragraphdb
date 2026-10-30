@@ -405,7 +405,9 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() {
     let applier = applier();
     write_index(&applier, vec![1; 9]);
     let (_, log) = wal();
-    let refused = Pipeline::new(&applier, log, unbounded()).map(|_| ()).unwrap_err();
+    let refused = Pipeline::new(&applier, log, unbounded())
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(
         refused,
         PipelineError::Sessions(StoreError::Corrupted(
@@ -420,7 +422,9 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() {
         .store()
         .inject(ultragraphdb_store_sim::Fault::FailNextRead);
     let (_, log) = wal();
-    let refused = Pipeline::new(&applier, log, unbounded()).map(|_| ()).unwrap_err();
+    let refused = Pipeline::new(&applier, log, unbounded())
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(
         refused,
         PipelineError::Sessions(StoreError::ReadFailed(

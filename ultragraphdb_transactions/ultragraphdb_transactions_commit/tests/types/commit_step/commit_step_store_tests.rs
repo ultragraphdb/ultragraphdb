@@ -162,8 +162,14 @@ fn test_an_aborted_transaction_gives_its_buffers_back() {
     driver.submit(3, prepare(next));
     driver.sync();
     // 1 at base + 2; 2 aborted and took none; 3 alone in the next round.
-    assert_eq!(driver.reply(1).map(|r| r.outcome().clone()), Some(Ok(base + 2)));
-    assert_eq!(driver.reply(3).map(|r| r.outcome().clone()), Some(Ok(base + 4)));
+    assert_eq!(
+        driver.reply(1).map(|r| r.outcome().clone()),
+        Some(Ok(base + 2))
+    );
+    assert_eq!(
+        driver.reply(3).map(|r| r.outcome().clone()),
+        Some(Ok(base + 4))
+    );
     assert!(held(&applier, "l", "knows").is_empty());
 }
 

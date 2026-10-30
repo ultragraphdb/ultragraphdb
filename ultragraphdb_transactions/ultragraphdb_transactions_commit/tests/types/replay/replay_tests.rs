@@ -82,7 +82,11 @@ fn test_rounds_the_store_lost_are_replayed() {
     let lost = applier.quads().lists().applied_ts();
     // One commit a round from an empty store with the clock at 0: round i at 2i, so 14 synced to the store after round
     // 7 and the log's tail at 20.
-    assert_eq!((lost, tail), (14, 20), "rounds 8 to 10 were never synced to the store");
+    assert_eq!(
+        (lost, tail),
+        (14, 20),
+        "rounds 8 to 10 were never synced to the store"
+    );
     let (mut log, _) = reopen_wal(&storage);
     let replayed = replay(&applier, &mut log, 1).unwrap();
     assert_eq!(applier.quads().lists().applied_ts(), tail);

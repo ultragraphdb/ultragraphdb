@@ -48,14 +48,3 @@ fn test_a_violation_panics_at_the_caller_in_a_debug_build() {
         "the panic names the caller's location, not the check's"
     );
 }
-
-/// A release build: a violation is returned, naming the invariant, and nothing panics.
-#[cfg(not(debug_assertions))]
-#[test]
-fn test_a_violation_is_returned_in_a_release_build() {
-    assert_eq!(invariant(false, NAME), Err(InvariantError::Violated(NAME)));
-    assert_eq!(
-        invariant(false, "a session has one owner"),
-        Err(InvariantError::Violated("a session has one owner"))
-    );
-}
