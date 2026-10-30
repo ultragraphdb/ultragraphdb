@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod anonymous;
 pub mod buffer_pool;
 pub mod client_authentication;
 pub mod client_handshake;

@@ -151,8 +151,12 @@ impl<A: Authenticator> ServerConnection<A> {
         &mut self.outbound
     }
 
-    /// The next frame to send, from [`Outbound::next_frame`].
+    /// The next frame to send, from [`Outbound::next_frame`]; once the connection closes, only its own frames, so
+    /// its closing Error is the last frame it sends and no reply queued on a stream follows it.
     pub fn next_frame(&mut self) -> Option<(u64, Vec<u8>)> {
+        if self.phase == Phase::Closing {
+            return self.outbound.next_connection_frame();
+        }
         self.outbound.next_frame()
     }
 

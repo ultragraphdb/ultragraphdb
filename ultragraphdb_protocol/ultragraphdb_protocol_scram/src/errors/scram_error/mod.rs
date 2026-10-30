@@ -29,6 +29,8 @@ pub enum ScramErrorEnum {
     Server { reason: String },
     /// A message arrived where the exchange expected none, or another.
     OutOfStep,
+    /// The operating system's random source failed, `reason` its error: no nonce was drawn.
+    Random { reason: String },
 }
 
 /// Why a SCRAM message or password was refused; `.0` classifies it.
@@ -81,5 +83,12 @@ impl ScramError {
     #[allow(non_snake_case)]
     pub fn OutOfStep() -> Self {
         Self(ScramErrorEnum::OutOfStep)
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Random(reason: impl Into<String>) -> Self {
+        Self(ScramErrorEnum::Random {
+            reason: reason.into(),
+        })
     }
 }

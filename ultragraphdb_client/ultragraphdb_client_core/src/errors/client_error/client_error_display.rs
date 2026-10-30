@@ -47,6 +47,10 @@ impl fmt::Display for ClientError {
                 f,
                 "commit {request} of session {session} unanswered after {attempts} attempts: in doubt"
             ),
+            ClientErrorEnum::OutcomeUnknown { session, request } => write!(
+                f,
+                "commit {request} of session {session}: the session was evicted, its outcome is unknown"
+            ),
             ClientErrorEnum::InDoubt { session, request } => {
                 write!(f, "session {session} has commit {request} in doubt")
             }
@@ -70,6 +74,10 @@ impl fmt::Display for ClientError {
                     "the connection holds {limit} streams, as many as allowed"
                 )
             }
+            ClientErrorEnum::TransactionMismatch { stream, named } => write!(
+                f,
+                "a request names the transaction of stream {named}, asked of stream {stream}'s"
+            ),
         }
     }
 }

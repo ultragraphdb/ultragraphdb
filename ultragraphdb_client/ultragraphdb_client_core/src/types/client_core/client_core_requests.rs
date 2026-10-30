@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{
     Abort, Begin, BodyBuilder, Commit, Describe, Execute, Operation, Prepare, Read, Register, Write,
 };
@@ -18,10 +19,10 @@ use crate::types::session::Session;
 use crate::types::stream_state::StreamState;
 use crate::types::transaction::Transaction;
 
-impl ClientCore {
+impl<L: Login> ClientCore<L> {
     /// The open stream of `transaction`, free for its next request: refused as [`ClientError::StreamFinished`] when
-    /// it is gone, with the refusal it ended with when it was refused, as [`ClientError::StreamBusy`] while a reply or
-    /// a result is awaited on it, and as [`ClientError::ReadOnly`] for a write of a read-only transaction.
+    /// it is gone, with the refusal it ended with when it was refused, as [`ClientError::StreamBusy`] while a reply is
+    /// awaited on it, and as [`ClientError::ReadOnly`] for a write of a read-only transaction.
     fn transaction_stream(
         &mut self,
         transaction: &Transaction,
@@ -44,7 +45,7 @@ impl ClientCore {
         if state.transaction.is_none() {
             return Err(ClientError::StreamFinished(stream));
         }
-        if state.pending.is_some() || state.results {
+        if state.pending.is_some() {
             return Err(ClientError::StreamBusy(stream));
         }
         if writes && state.transaction == Some(true) {
@@ -127,51 +128,69 @@ impl ClientCore {
         self.send_on(transaction, operation, true)
     }
 
-    /// Aborts `transaction`; no reply, its stream ends.
+    /// Aborts `transaction`; no reply, its stream ends, and its reads end with it.
     pub fn abort(&mut self, transaction: Transaction) -> Result<(), ClientError> {
         self.send_on(&transaction, &Abort, false)?;
         self.streams.remove(&transaction.stream());
+        self.end_reads(transaction.stream());
         Ok(())
     }
 
-    /// A result stream of `body` on `transaction`'s stream, with the Welcome's initial credit.
+    /// A result stream of `body`, naming the transaction of stream `named`, on a stream of its own beside
+    /// `transaction`'s, with the Welcome's initial credit.
     fn results<B: BodyBuilder>(
         &mut self,
         transaction: &Transaction,
         body: &B,
+        named: u64,
         now: Instant,
     ) -> Result<ResultStream, ClientError> {
+        if named != transaction.stream() {
+            return Err(ClientError::TransactionMismatch(
+                transaction.stream(),
+                named,
+            ));
+        }
         self.transaction_stream(transaction, false)?;
-        let frame = self.frame(body, transaction.stream())?;
+        let stream = self.open_stream()?;
+        let frame = match self.frame(body, stream) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.streams.remove(&stream);
+                return Err(error);
+            }
+        };
         let credit = self.welcome().map_or(0, |w| w.initial_credit());
-        if let Some(state) = self.streams.get_mut(&transaction.stream()) {
+        if let Some(state) = self.streams.get_mut(&stream) {
             state.results = true;
             state.credit = credit;
+            state.of = Some(transaction.stream());
         }
         self.outbox.push_back(frame);
         self.last_progress = Some(now);
-        Ok(ResultStream::new(transaction.stream(), self.generation))
+        Ok(ResultStream::new(stream, self.generation))
     }
 
-    /// Reads `read`'s quad pattern in `transaction`: a result stream.
+    /// Reads `read`'s quad pattern in `transaction`: a result stream of its own, naming the transaction, with the
+    /// Welcome's initial credit; refused as [`ClientError::TransactionMismatch`] when `read` names another.
     pub fn read(
         &mut self,
         transaction: &Transaction,
         read: &Read,
         now: Instant,
     ) -> Result<ResultStream, ClientError> {
-        self.results(transaction, read, now)
+        self.results(transaction, read, read.transaction(), now)
     }
 
-    /// Executes a prepared statement in `transaction`: a result stream, refused as stale once its namespace's
-    /// catalog changed ([`ClientError::is_stale`]).
+    /// Executes a prepared statement in `transaction`: a result stream of its own, as [`ClientCore::read`]'s,
+    /// refused as stale once its namespace's catalog changed ([`ClientError::is_stale`]).
     pub fn execute(
         &mut self,
         transaction: &Transaction,
         execute: &Execute,
         now: Instant,
     ) -> Result<ResultStream, ClientError> {
-        self.results(transaction, execute, now)
+        self.results(transaction, execute, execute.transaction(), now)
     }
 
     /// Commits `transaction` through `session`, with the session's next request number, answered

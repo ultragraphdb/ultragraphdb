@@ -31,4 +31,6 @@ pub use crate::types::session::Session;
 pub use crate::types::statement::Statement;
 pub use crate::types::transaction::Transaction;
 #[cfg(feature = "test-utils")]
-pub use crate::utils_test::scripted_server::{ScriptedServer, ServerScript};
+pub use crate::utils_test::test_principals::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};
+#[cfg(feature = "test-utils")]
+pub use crate::utils_test::test_server::TestServer;

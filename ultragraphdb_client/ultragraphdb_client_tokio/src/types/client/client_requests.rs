@@ -6,6 +6,7 @@
 use ultragraphdb_client_core::{
     BatchPoll, ClientError, Committed, Reply, ResultStream, Session, Statement, Transaction,
 };
+use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{Describe, Execute, Operation, Prepare, Read, ResultView, Write};
 
 use crate::traits::connect::Connect;
@@ -16,7 +17,7 @@ fn mismatch() -> ClientError {
     ClientError::ReplyMismatch("reply", 0, 0)
 }
 
-impl<C: Connect> Client<C> {
+impl<C: Connect, L: Login> Client<C, L> {
     /// Registers a session (D9), through which commits are sent and retried.
     pub async fn register(&mut self) -> Result<Session, ClientError> {
         self.ready().await?;
@@ -161,7 +162,7 @@ impl<C: Connect> Client<C> {
         outcome.unwrap_or(Ok(None))
     }
 
-    /// Cancels `stream`, and with it its transaction.
+    /// Cancels `stream`, a read; its transaction goes on.
     pub async fn cancel(&mut self, stream: ResultStream) {
         self.core.cancel(stream);
         self.flush().await;

@@ -6,3 +6,4 @@
 pub mod constants;
 pub mod crypto;
 pub mod message;
+pub mod nonce;

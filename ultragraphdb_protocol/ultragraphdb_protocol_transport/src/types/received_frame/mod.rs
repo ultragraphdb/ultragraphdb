@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{Command, FrameView, PROTOCOL_VERSION};
+use ultragraphdb_protocol_wire::{Command, FrameView, HeaderView, PROTOCOL_VERSION};
 
 use crate::types::pooled_buffer::PooledBuffer;
 
@@ -57,16 +57,27 @@ impl ReceivedFrame {
         } else {
             FrameView::validate(bytes, self.cluster, self.max_frame)
         }?;
-        let header = view.header();
+        self.check_order()?;
+        Ok(view)
+    }
+
+    /// The frame's place on the connection checked from its header alone, which the framer verified (§2.5 steps 1
+    /// to 8): its sequence, the one the connection expected ([`ProtocolError::SequenceOrder`]), then its protocol
+    /// ([`ProtocolError::FieldValue`] `"protocol"`). A receiver that keeps a frame to view later checks its order on
+    /// arrival and its chunks when it views it, so a frame is checksummed once; [`ReceivedFrame::view`] checks both.
+    pub fn check_order(&self) -> Result<(), ProtocolError> {
+        let header = HeaderView::new(self.buffer.as_slice())?;
         if header.sequence() != self.sequence {
             return Err(ProtocolError::SequenceOrder(
                 self.sequence,
                 header.sequence(),
             ));
         }
-        let protocol = match view.command() {
-            Command::Hello | Command::Welcome => PROTOCOL_VERSION,
-            _ => self.protocol,
+        let hello_or_welcome = [Command::Hello.number(), Command::Welcome.number()];
+        let protocol = if hello_or_welcome.contains(&header.command()) {
+            PROTOCOL_VERSION
+        } else {
+            self.protocol
         };
         if header.protocol() != protocol {
             return Err(ProtocolError::FieldValue(
@@ -75,7 +86,7 @@ impl ReceivedFrame {
                 header.protocol().into(),
             ));
         }
-        Ok(view)
+        Ok(())
     }
 
     /// The sequence the connection expected this frame at.

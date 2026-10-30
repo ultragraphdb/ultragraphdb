@@ -5,10 +5,10 @@
 
 mod client_requests;
 
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use ultragraphdb_client_core::{ClientConfig, ClientCore, ClientError, Pending, Reply};
-use ultragraphdb_protocol_transport::{BufferPool, Framer, TransportError};
+use ultragraphdb_protocol_transport::{BufferPool, Framer, Login, TransportError};
 use ultragraphdb_protocol_transport_compio::Connection;
 use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
@@ -20,26 +20,35 @@ fn now() -> Instant {
     Instant::now()
 }
 
+/// The wall clock, microseconds of Unix time, as the core is told it once per connection; 0 before 1970.
+#[allow(clippy::disallowed_methods)]
+fn unix_micros() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64)
+}
+
 /// The Rust client on compio: the I/O shell of [`ClientCore`]. It connects through its [`Connect`]or when a request
 /// needs a connection, and again whenever the core asks to retry a commit, writes every frame the core queues, reads
 /// frames through the transport's compio [`Connection`] into a pool of frame buffers reused across connections, and
-/// gives the core the time and its timeouts. Every operation of the protocol is the core's.
+/// gives the core the time and its timeouts. It authenticates through its [`Login`]. Every operation of the protocol
+/// is the core's.
 #[derive(Debug)]
-pub struct Client<C: Connect> {
+pub struct Client<C: Connect, L: Login> {
     connector: C,
-    core: ClientCore,
+    core: ClientCore<L>,
     pool: BufferPool,
     connection: Option<Connection<C::Stream>>,
     failure: Option<ClientError>,
 }
 
-impl<C: Connect> Client<C> {
-    /// A client configured by `config`, connecting through `connector` when first asked; its pool holds
-    /// `buffers` frame buffers of 1 MiB, the most frames it holds at once.
-    pub fn new(connector: C, config: ClientConfig, buffers: usize) -> Self {
+impl<C: Connect, L: Login> Client<C, L> {
+    /// A client configured by `config`, authenticating through `login`, connecting through `connector` when first
+    /// asked; its pool holds `buffers` frame buffers of 1 MiB, the most frames it holds at once.
+    pub fn new(connector: C, config: ClientConfig, login: L, buffers: usize) -> Self {
         Self {
             connector,
-            core: ClientCore::new(config),
+            core: ClientCore::new(config, login),
             pool: BufferPool::new(buffers.max(2), MAX_FRAME_SIZE),
             connection: None,
             failure: None,
@@ -47,7 +56,7 @@ impl<C: Connect> Client<C> {
     }
 
     /// The core, for what the shell does not wrap.
-    pub fn core(&self) -> &ClientCore {
+    pub fn core(&self) -> &ClientCore<L> {
         &self.core
     }
 
@@ -85,7 +94,7 @@ impl<C: Connect> Client<C> {
             stream,
             Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE),
         ));
-        self.core.connect(now())
+        self.core.connect(now(), unix_micros())
     }
 
     /// Shuts the connection down, if any.
@@ -113,7 +122,7 @@ impl<C: Connect> Client<C> {
     /// retry asks for. Refused when `done` cannot come: nothing is awaited and no commit waits for a connection.
     async fn drive(
         &mut self,
-        mut done: impl FnMut(&mut ClientCore) -> bool,
+        mut done: impl FnMut(&mut ClientCore<L>) -> bool,
     ) -> Result<(), ClientError> {
         loop {
             if done(&mut self.core) {
@@ -149,6 +158,11 @@ impl<C: Connect> Client<C> {
                 Ok(Ok(frame)) => {
                     if let Err(error) = self.core.receive(frame, now()) {
                         self.failure = Some(error);
+                    }
+                    if let (Some(welcome), Some(connection)) =
+                        (self.core.welcome(), self.connection.as_mut())
+                    {
+                        connection.framer_mut().set_protocol(welcome.protocol());
                     }
                 }
                 Ok(Err(error)) => {

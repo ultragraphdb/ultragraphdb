@@ -5,4 +5,5 @@
 
 pub mod authenticator;
 pub mod client_mechanism;
+pub mod login;
 pub mod server_mechanism;

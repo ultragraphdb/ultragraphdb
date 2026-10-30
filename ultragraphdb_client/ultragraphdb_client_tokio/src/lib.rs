@@ -20,3 +20,4 @@ pub use ultragraphdb_client_core::{
     BatchPoll, ClientConfig, ClientError, ClientErrorEnum, Committed, Reply, ResultStream, Session,
     Statement, Transaction,
 };
+pub use ultragraphdb_protocol_transport::{Anonymous, Login};

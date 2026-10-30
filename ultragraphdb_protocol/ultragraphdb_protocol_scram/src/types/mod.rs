@@ -6,5 +6,6 @@
 pub mod scram_authenticator;
 pub mod scram_client;
 pub mod scram_exchange;
+pub mod scram_login;
 pub mod scram_server;
 pub mod scram_verifier;

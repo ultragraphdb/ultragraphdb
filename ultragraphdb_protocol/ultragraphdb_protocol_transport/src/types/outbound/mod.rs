@@ -175,13 +175,20 @@ impl Outbound {
         self.close(stream)
     }
 
+    /// The next frame of the connection's own queue, stream 0's and the refusals of streams never opened, stamped
+    /// with the connection's next sequence; `None` when that queue is empty, whatever the streams hold.
+    pub fn next_connection_frame(&mut self) -> Option<(u64, Vec<u8>)> {
+        let frame = self.connection.pop_front()?;
+        let stream = HeaderView::new(&frame).map_or(0, |h| h.stream());
+        Some((stream, self.stamped(frame)))
+    }
+
     /// The next frame to send and its stream, 0 for the connection's own, stamped with the connection's next sequence;
     /// the connection's frames first, then the streams taking turns in order of their ids; `None` when no frame may
     /// be sent.
     pub fn next_frame(&mut self) -> Option<(u64, Vec<u8>)> {
-        if let Some(frame) = self.connection.pop_front() {
-            let stream = HeaderView::new(&frame).map_or(0, |h| h.stream());
-            return Some((stream, self.stamped(frame)));
+        if let Some(next) = self.next_connection_frame() {
+            return Some(next);
         }
         let sendable = |state: &StreamState| {
             state

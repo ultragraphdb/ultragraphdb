@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use tokio::net::TcpListener;
 use tokio::task::LocalSet;
-use ultragraphdb_client_core::{ScriptedServer, ServerScript};
-use ultragraphdb_client_tokio::{Client, ClientErrorEnum, Connect, TcpConnector};
+use ultragraphdb_client_core::TestServer;
+use ultragraphdb_client_tokio::{Anonymous, Client, ClientErrorEnum, Connect, TcpConnector};
 use ultragraphdb_protocol_transport::{NetworkFaults, SimNetwork};
 use ultragraphdb_protocol_wire::{
     ColumnType, CommitOperation, Execute, Operation, PatternSlot, Prepare, QuadPattern, Read,
@@ -39,11 +39,12 @@ fn counter() -> Operation {
     )
 }
 
-fn read() -> Read {
+/// A read of `tx`, naming it.
+fn read(tx: &ultragraphdb_client_tokio::Transaction) -> Read {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
     Read::new(
-        0,
+        tx.stream(),
         0,
         terms,
         QuadPattern::new(
@@ -58,7 +59,10 @@ fn read() -> Read {
 
 /// A whole conversation: a session, a transaction with an operation committed, a read streamed under credit, a
 /// statement prepared, executed, refused as stale and prepared again, a description, an abort.
-async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<ScriptedServer>) {
+async fn conversation<C: Connect>(
+    client: &mut Client<C, Anonymous>,
+    scripted: &RefCell<TestServer>,
+) {
     let session = client.register().await.expect("a session");
     let tx = client.begin(0, false).await.expect("a transaction");
     client
@@ -69,7 +73,7 @@ async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scr
     let committed = client.commit(tx, session).await.expect("committed");
     assert_eq!((committed.request(), committed.results().len()), (1, 1));
     let reader = client.begin(0, true).await.unwrap();
-    let stream = client.read(&reader, &read()).await.unwrap();
+    let stream = client.read(&reader, &read(&reader)).await.unwrap();
     let mut rows = Vec::new();
     while let Some(texts) = client
         .next_batch(&stream, |v| {
@@ -107,17 +111,25 @@ async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scr
     let execute = |id| {
         let mut terms = TermTable::new();
         let a = terms.iri("http://ex.org/a");
-        Execute::new(id, 0, 0, terms, vec![a], Vec::new())
+        move |tx: &ultragraphdb_client_tokio::Transaction| {
+            Execute::new(id, tx.stream(), 0, terms.clone(), vec![a], Vec::new())
+        }
     };
     scripted.borrow_mut().set_schema(7);
     let tx = client.begin(0, true).await.unwrap();
-    let stale = client.execute(&tx, &execute(statement.id())).await.unwrap();
+    let stale = client
+        .execute(&tx, &execute(statement.id())(&tx))
+        .await
+        .unwrap();
     let refused = client.next_batch(&stale, |_| ()).await.unwrap_err();
     assert!(refused.is_stale(), "{refused:?}");
     let again = client.prepare(&prepare).await.unwrap();
     assert_eq!(again.schema(), 7);
     let tx = client.begin(0, true).await.unwrap();
-    let stream = client.execute(&tx, &execute(again.id())).await.unwrap();
+    let stream = client
+        .execute(&tx, &execute(again.id())(&tx))
+        .await
+        .unwrap();
     assert!(
         client
             .next_batch(&stream, |v| v.rows())
@@ -133,7 +145,7 @@ async fn conversation<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scr
 }
 
 /// The Rust client: a lost reply retried through its session, applied once.
-async fn retried<C: Connect>(client: &mut Client<C>, scripted: &RefCell<ScriptedServer>) {
+async fn retried<C: Connect>(client: &mut Client<C, Anonymous>, scripted: &RefCell<TestServer>) {
     let session = client.register().await.unwrap();
     let tx = client.begin(0, false).await.unwrap();
     let first = tx;
@@ -155,13 +167,13 @@ async fn retried<C: Connect>(client: &mut Client<C>, scripted: &RefCell<Scripted
 /// A transaction of a client whose connection is closed: a handle for the Send check.
 fn unreachable_transaction() -> ultragraphdb_client_tokio::Transaction {
     let rt = runtime();
-    let scripted = server(ServerScript::default());
+    let scripted = server();
     let network = SimNetwork::new(5, NetworkFaults::none());
     let connector = SimConnect::new(network);
     let accepted = Rc::clone(&connector.accepted);
     LocalSet::new().block_on(&rt, async move {
         tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
-        let mut other = Client::new(connector, config(), 8);
+        let mut other = Client::new(connector, config(), Anonymous, 8);
         let tx = other.begin(0, false).await.unwrap();
         other.close().await;
         tx
@@ -177,12 +189,12 @@ fn test_a_conversation_over_the_simulated_network() {
             .with_split(500_000)
             .with_delay(300_000, 3),
     ] {
-        let scripted = server(ServerScript::default());
+        let scripted = server();
         let connector = SimConnect::new(SimNetwork::new(3, faults));
         let accepted = Rc::clone(&connector.accepted);
         LocalSet::new().block_on(&rt, async {
             tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
-            let mut client = Client::new(connector, config(), 16);
+            let mut client = Client::new(connector, config(), Anonymous, 16);
             conversation(&mut client, &scripted).await;
             client.close().await;
         });
@@ -192,16 +204,14 @@ fn test_a_conversation_over_the_simulated_network() {
 #[test]
 fn test_a_lost_reply_is_retried_through_the_session_over_the_simulated_network() {
     let rt = runtime();
-    let scripted = server(ServerScript {
-        drop_commits: 1,
-        busy_retries: 1,
-        ..ServerScript::default()
-    });
+    let scripted = server();
+    scripted.borrow_mut().drop_after_next_commit();
+    scripted.borrow_mut().answer_busy_retries(1);
     let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
     let accepted = Rc::clone(&connector.accepted);
     LocalSet::new().block_on(&rt, async {
         tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
-        let mut client = Client::new(connector, config(), 16);
+        let mut client = Client::new(connector, config(), Anonymous, 16);
         retried(&mut client, &scripted).await;
     });
 }
@@ -210,17 +220,11 @@ fn test_a_lost_reply_is_retried_through_the_session_over_the_simulated_network()
 #[test]
 fn test_the_client_runs_over_tcp_loopback() {
     let rt = runtime();
-    for (script, run_retry) in [
-        (ServerScript::default(), false),
-        (
-            ServerScript {
-                drop_commits: 1,
-                ..ServerScript::default()
-            },
-            true,
-        ),
-    ] {
-        let scripted = server(script);
+    for run_retry in [false, true] {
+        let scripted = server();
+        if run_retry {
+            scripted.borrow_mut().drop_after_next_commit();
+        }
         LocalSet::new().block_on(&rt, async {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
@@ -232,7 +236,7 @@ fn test_the_client_runs_over_tcp_loopback() {
                     serve(&serving, stream).await;
                 }
             });
-            let mut client = Client::new(TcpConnector::new(address), config(), 16);
+            let mut client = Client::new(TcpConnector::new(address), config(), Anonymous, 16);
             if run_retry {
                 retried(&mut client, &scripted).await;
             } else {
@@ -250,6 +254,7 @@ fn test_the_tcp_clients_futures_are_send() {
     let mut client = Client::new(
         TcpConnector::new("127.0.0.1:9".parse().unwrap()),
         config(),
+        Anonymous,
         2,
     );
     let tx = unreachable_transaction();
@@ -262,13 +267,48 @@ fn test_the_tcp_clients_futures_are_send() {
 /// A result stream of another client: a handle for the Send check.
 fn result_stream() -> ultragraphdb_client_tokio::ResultStream {
     let rt = runtime();
-    let scripted = server(ServerScript::default());
+    let scripted = server();
     let connector = SimConnect::new(SimNetwork::new(5, NetworkFaults::none()));
     let accepted = Rc::clone(&connector.accepted);
     LocalSet::new().block_on(&rt, async move {
         tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
-        let mut other = Client::new(connector, config(), 8);
+        let mut other = Client::new(connector, config(), Anonymous, 8);
         let tx = other.begin(0, true).await.unwrap();
-        other.read(&tx, &read()).await.unwrap()
+        other.read(&tx, &read(&tx)).await.unwrap()
     })
+}
+
+/// The shell tells the core the wall clock at each connect, so a credential's renewal falls due its margin before the
+/// expiry the server states.
+#[test]
+#[allow(clippy::disallowed_methods)]
+fn test_a_renewal_is_due_before_the_credentials_expiry() {
+    use std::time::Duration;
+    use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};
+    use ultragraphdb_protocol_scram::{MECHANISM, ScramLogin, system_nonce};
+    let rt = runtime();
+    let life = Duration::from_secs(600);
+    let scripted = Rc::new(RefCell::new(
+        TestServer::new(
+            crate::utils::serve::CLUSTER,
+            crate::utils::serve::welcome().with_mechanisms([MECHANISM]),
+        )
+        .with_credential_life(life),
+    ));
+    let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
+    let accepted = Rc::clone(&connector.accepted);
+    LocalSet::new().block_on(&rt, async {
+        tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let login = ScramLogin::new(TEST_NAME, TEST_PASSWORD, system_nonce).unwrap();
+        let mut client = Client::new(connector, config(), login, 8);
+        let before = tokio::time::Instant::now().into_std();
+        client.connect().await.unwrap();
+        let after = tokio::time::Instant::now().into_std();
+        assert_eq!(client.core().principal(), Some(TEST_PRINCIPAL));
+        let due = client.core().next_deadline().expect("the renewal");
+        assert!(
+            due >= before + Duration::from_secs(530) && due <= after + Duration::from_secs(540),
+            "60 s before the expiry"
+        );
+    });
 }

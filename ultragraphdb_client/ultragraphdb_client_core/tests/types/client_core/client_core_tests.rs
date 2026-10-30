@@ -5,16 +5,16 @@
 
 use std::time::Duration;
 
-use ultragraphdb_client_core::{ClientCore, ClientErrorEnum, Reply, ServerScript};
+use ultragraphdb_client_core::{ClientCore, ClientErrorEnum, Reply, TestServer};
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_transport::{BufferPool, ClientHandshake, NetworkFaults};
+use ultragraphdb_protocol_transport::{Anonymous, BufferPool, ClientHandshake, NetworkFaults};
 use ultragraphdb_protocol_wire::{
     BodyBuilder, ColumnType, Command, CommitOperation, ErrorCode, ErrorReply, FrameView, Header,
     HeaderView, MAX_FRAME_SIZE, Operation, PatternSlot, Prepare, QuadPattern, TermTable, Welcome,
     Write,
 };
 
-use crate::utils::harness::{CLUSTER, Harness, RELEASE, config, received, welcome};
+use crate::utils::harness::{CLUSTER, Harness, RELEASE, UNIX, config, received, server, welcome};
 
 pub fn counter(terms: &mut TermTable) -> Operation {
     let (subject, predicate) = (terms.iri("http://ex.org/c"), terms.iri("http://ex.org/n"));
@@ -31,10 +31,10 @@ pub fn counter(terms: &mut TermTable) -> Operation {
 
 #[test]
 fn test_connect_sends_the_hello_and_a_welcome_makes_it_ready() {
-    let mut core = ClientCore::new(config());
+    let mut core = ClientCore::new(config(), Anonymous);
     assert!(!core.is_ready());
     assert_eq!(core.transmit(), None);
-    core.connect(crate::utils::harness::start()).unwrap();
+    core.connect(crate::utils::harness::start(), UNIX).unwrap();
     let hello = core.transmit().unwrap();
     assert_eq!(
         hello,
@@ -43,23 +43,23 @@ fn test_connect_sends_the_hello_and_a_welcome_makes_it_ready() {
             .unwrap()
     );
     assert_eq!(HeaderView::new(&hello).unwrap().release(), RELEASE);
-    let h = Harness::ready(ServerScript::default());
+    let h = Harness::ready(server());
     assert_eq!(h.core.welcome(), Some(&welcome()));
     assert_eq!(h.core.next_deadline(), None, "nothing is awaited");
 }
 
 #[test]
 fn test_a_welcome_outside_the_range_closes_the_connection() {
-    let mut core = ClientCore::new(config());
+    let mut core = ClientCore::new(config(), Anonymous);
     let now = crate::utils::harness::start();
-    core.connect(now).unwrap();
+    core.connect(now, UNIX).unwrap();
     let _ = core.transmit();
     let pool = BufferPool::new(2, 1 << 20);
     let other = Welcome::new(2, 0, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(1)
         .with_initial_credit(1)
-        .frame(Header::new(CLUSTER, Command::Welcome))
+        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))
         .unwrap();
     let refused = core
         .receive(received(&pool, &other).unwrap(), now)
@@ -73,13 +73,13 @@ fn test_a_welcome_outside_the_range_closes_the_connection() {
 
 #[test]
 fn test_requests_before_the_welcome_are_refused_as_not_connected() {
-    let mut core = ClientCore::new(config());
+    let mut core = ClientCore::new(config(), Anonymous);
     let now = crate::utils::harness::start();
     assert_eq!(
         core.register(now).unwrap_err().0,
         ClientErrorEnum::NotConnected
     );
-    core.connect(now).unwrap();
+    core.connect(now, UNIX).unwrap();
     assert_eq!(
         core.begin(0, false, now).unwrap_err().0,
         ClientErrorEnum::NotConnected
@@ -88,7 +88,7 @@ fn test_requests_before_the_welcome_are_refused_as_not_connected() {
 
 #[test]
 fn test_register_and_begin_answer_a_session_and_a_snapshot() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let p = h.core.register(h.now).unwrap();
     let Ok(Reply::Registered(session)) = h.settle(p) else {
         panic!("a session")
@@ -108,7 +108,7 @@ fn test_register_and_begin_answer_a_session_and_a_snapshot() {
 
 #[test]
 fn test_a_read_only_transaction_neither_writes_nor_commits() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let p = h.core.register(h.now).unwrap();
     let Ok(Reply::Registered(session)) = h.settle(p) else {
         panic!()
@@ -151,7 +151,7 @@ fn test_a_read_only_transaction_neither_writes_nor_commits() {
 
 #[test]
 fn test_prepare_describe_and_a_stale_statement() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let mut terms = TermTable::new();
     let name = terms.iri("http://ex.org/name");
     let pattern = QuadPattern::new(
@@ -180,7 +180,7 @@ fn test_prepare_describe_and_a_stale_statement() {
 
 #[test]
 fn test_a_malformed_reply_closes_the_connection_and_loses_its_requests() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let p = h.core.describe(0, h.now).unwrap();
     while h.core.transmit().is_some() {}
     let mut frame = ultragraphdb_protocol_wire::Describe::new(0, 5)
@@ -188,7 +188,8 @@ fn test_a_malformed_reply_closes_the_connection_and_loses_its_requests() {
         .unwrap();
     let last = frame.len() - 1;
     frame[last] ^= 4;
-    let refused = h.core.receive(received(&h.pool, &frame).unwrap(), h.now);
+    let frame = h.numbered(&frame);
+    let refused = h.deliver(&frame);
     let Err(error) = refused else {
         panic!("refused")
     };
@@ -205,14 +206,12 @@ fn test_a_malformed_reply_closes_the_connection_and_loses_its_requests() {
 
 #[test]
 fn test_an_error_on_stream_zero_closes_the_connection() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let frame = ErrorReply::new(ErrorCode::Protocol, "bad frame")
         .frame(Header::new(CLUSTER, Command::Error))
         .unwrap();
-    let error = h
-        .core
-        .receive(received(&h.pool, &frame).unwrap(), h.now)
-        .unwrap_err();
+    let frame = h.numbered(&frame);
+    let error = h.deliver(&frame).unwrap_err();
     assert_eq!(
         error.0,
         ClientErrorEnum::Closed {
@@ -225,7 +224,7 @@ fn test_an_error_on_stream_zero_closes_the_connection() {
 
 #[test]
 fn test_an_unanswered_request_times_out_and_closes_the_connection() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     h.blackhole = true;
     let p = h.core.register(h.now).unwrap();
     while h.step() {}
@@ -246,13 +245,16 @@ fn test_an_unanswered_request_times_out_and_closes_the_connection() {
 fn test_streams_beyond_the_welcomes_limit_are_refused() {
     let mut h = Harness::with(
         config(),
-        Welcome::new(1, RELEASE, "s")
-            .with_max_frame(1 << 20)
-            .with_max_streams(1)
-            .with_initial_credit(4),
-        ServerScript::default(),
+        TestServer::new(
+            CLUSTER,
+            Welcome::new(1, RELEASE, "s")
+                .with_max_frame(1 << 20)
+                .with_max_streams(1)
+                .with_initial_credit(4),
+        ),
         NetworkFaults::none(),
         1,
+        Anonymous,
     );
     h.connect();
     h.until(|h| h.core.is_ready());
@@ -270,13 +272,16 @@ fn test_streams_beyond_the_welcomes_limit_are_refused() {
 fn test_a_request_past_the_welcomes_frame_is_refused_before_it_is_sent() {
     let mut h = Harness::with(
         config(),
-        Welcome::new(1, RELEASE, "s")
-            .with_max_frame(524_288)
-            .with_max_streams(8)
-            .with_initial_credit(4),
-        ServerScript::default(),
+        TestServer::new(
+            CLUSTER,
+            Welcome::new(1, RELEASE, "s")
+                .with_max_frame(524_288)
+                .with_max_streams(8)
+                .with_initial_credit(4),
+        ),
         NetworkFaults::none(),
         1,
+        Anonymous,
     );
     h.connect();
     h.until(|h| h.core.is_ready());
@@ -297,25 +302,28 @@ fn test_a_request_past_the_welcomes_frame_is_refused_before_it_is_sent() {
     );
 }
 
+/// Frames are numbered: a reply repeated is out of sequence, and the connection is given up after its first copy
+/// was taken.
 #[test]
-fn test_a_duplicated_reply_is_taken_once() {
-    let mut h = Harness::ready(ServerScript::default());
+fn test_a_repeated_reply_is_refused_after_its_first_is_taken() {
+    let mut h = Harness::ready(server());
     let p = h.core.register(h.now).unwrap();
     while h.core.transmit().is_some() {}
     let frame = ultragraphdb_protocol_wire::Register::new(77)
         .frame(Header::new(CLUSTER, Command::Register).with_stream(1))
         .unwrap();
-    h.core
-        .receive(received(&h.pool, &frame).unwrap(), h.now)
-        .unwrap();
-    h.core
-        .receive(received(&h.pool, &frame).unwrap(), h.now)
-        .unwrap();
+    let frame = h.numbered(&frame);
+    h.deliver(&frame).unwrap();
+    let refused = h.deliver(&frame).unwrap_err();
+    assert!(
+        matches!(&refused.0, ClientErrorEnum::Protocol { error } if matches!(error.0, ProtocolErrorEnum::SequenceOrder { .. })),
+        "{refused:?}"
+    );
     let Some(Ok(Reply::Registered(session))) = h.core.take_reply(p) else {
         panic!()
     };
     assert_eq!(session.number(), 77);
-    assert!(h.core.is_ready());
+    assert!(!h.core.is_ready());
     assert_eq!(
         FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
             .unwrap()
@@ -327,7 +335,7 @@ fn test_a_duplicated_reply_is_taken_once() {
 /// A commit reply naming another request than the one sent is no answer of it.
 #[test]
 fn test_a_commit_reply_of_another_request_is_a_mismatch() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let p = h.core.register(h.now).unwrap();
     let Ok(Reply::Registered(session)) = h.settle(p) else {
         panic!()
@@ -346,9 +354,8 @@ fn test_a_commit_reply_of_another_request_is_a_mismatch() {
         let frame = reply
             .frame(Header::new(CLUSTER, Command::Commit).with_stream(tx.stream()))
             .unwrap();
-        h.core
-            .receive(received(&h.pool, &frame).unwrap(), h.now)
-            .unwrap();
+        let frame = h.numbered(&frame);
+        h.deliver(&frame).unwrap();
         assert_eq!(
             h.core.take_reply(p).unwrap().unwrap_err().0,
             ClientErrorEnum::ReplyMismatch {
@@ -368,7 +375,7 @@ fn test_a_commit_reply_of_another_request_is_a_mismatch() {
 /// A Write has no reply: its refusal ends the transaction, and is the answer of the transaction's next request.
 #[test]
 fn test_a_refused_write_is_the_answer_of_the_next_request() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let p = h.core.begin(0, false, h.now).unwrap();
     let Ok(Reply::Begun(tx)) = h.settle(p) else {
         panic!()
@@ -384,9 +391,8 @@ fn test_a_refused_write_is_the_answer_of_the_next_request() {
                 .with_flags(ultragraphdb_protocol_wire::FLAG_LAST),
         )
         .unwrap();
-    h.core
-        .receive(received(&h.pool, &frame).unwrap(), h.now)
-        .unwrap();
+    let frame = h.numbered(&frame);
+    h.deliver(&frame).unwrap();
     let refused = h
         .core
         .write(&tx, &Write::new(TermTable::new(), Vec::new()))

@@ -19,18 +19,20 @@ autotests = false
 workspace = true
 
 [features]
-# The scripted server the shells' tests and this crate's tests drive the client against.
-test-utils = ["dep:ultragraphdb_core_terms"]
+# The test server the shells' tests and this crate's tests drive the client against, authenticating by SCRAM.
+test-utils = ["dep:ultragraphdb_core_terms", "dep:ultragraphdb_protocol_scram"]
 
 [dependencies]
 ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 ultragraphdb_core_terms = { workspace = true, optional = true }
+ultragraphdb_protocol_scram = { workspace = true, optional = true }
 
 [dev-dependencies]
 ultragraphdb_client_core = { workspace = true, features = ["test-utils"] }
 ultragraphdb_core_terms = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

@@ -10,8 +10,8 @@ use ultragraphdb_protocol_transport::ReceivedFrame;
 use crate::errors::client_error::ClientError;
 
 /// One open stream of the connection: the request waiting on it for its one reply, the transaction it carries, the
-/// result being read on it with its frames arrived and its credit, the refusal it ended with, and the checksum of its
-/// last frame, by which a duplicate is known.
+/// result being read on it with its frames arrived and its credit, the transaction a read's stream runs in, and the
+/// refusal it ended with.
 #[derive(Debug, Default)]
 pub(crate) struct StreamState {
     pub pending: Option<u64>,
@@ -19,6 +19,6 @@ pub(crate) struct StreamState {
     pub results: bool,
     pub inbox: VecDeque<ReceivedFrame>,
     pub credit: u32,
+    pub of: Option<u64>,
     pub failed: Option<ClientError>,
-    pub last: Option<u64>,
 }

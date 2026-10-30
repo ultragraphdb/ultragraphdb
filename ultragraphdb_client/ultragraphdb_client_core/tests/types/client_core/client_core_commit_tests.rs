@@ -3,13 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_client_core::{ClientErrorEnum, Reply, ServerScript, Session, Transaction};
+use ultragraphdb_client_core::{ClientErrorEnum, Reply, Session, Transaction};
+use ultragraphdb_protocol_transport::Anonymous;
 use ultragraphdb_protocol_wire::{
     BodyView, CommitView, ErrorCode, FrameView, MAX_FRAME_SIZE, TermTable,
 };
 
 use crate::types::client_core::client_core_tests::counter;
-use crate::utils::harness::{CLUSTER, Harness, config, welcome};
+use crate::utils::harness::{CLUSTER, Harness, config, server};
 
 fn session(h: &mut Harness) -> Session {
     let p = h.core.register(h.now).unwrap();
@@ -46,7 +47,7 @@ fn commits(h: &Harness) -> Vec<(u64, u64)> {
 
 #[test]
 fn test_a_commit_answers_its_version_and_results_and_advances_the_session() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let s = session(&mut h);
     let tx = begin(&mut h);
     h.core
@@ -83,12 +84,10 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() {
 /// The Rust client: the client retries a lost reply through its session.
 #[test]
 fn test_a_lost_reply_is_retried_through_the_session_and_applied_once() {
-    let mut h = Harness::ready(ServerScript {
-        drop_commits: 1,
-        ..ServerScript::default()
-    });
+    let mut h = Harness::ready(server());
     let s = session(&mut h);
     let tx = begin(&mut h);
+    h.server.drop_after_next_commit();
     let p = h.core.commit(tx, s, h.now).unwrap();
     let Ok(Reply::Committed(c)) = h.settle(p) else {
         panic!("committed")
@@ -115,12 +114,10 @@ fn test_a_lost_reply_is_retried_through_the_session_and_applied_once() {
 
 #[test]
 fn test_a_busy_session_is_asked_again_until_the_commit_is_answered() {
-    let mut h = Harness::ready(ServerScript {
-        drop_commits: 1,
-        busy_retries: 2,
-        ..ServerScript::default()
-    });
+    let mut h = Harness::ready(server());
     let s = session(&mut h);
+    h.server.drop_after_next_commit();
+    h.server.answer_busy_retries(2);
     let p = {
         let t = begin(&mut h);
         h.core.commit(t, s, h.now)
@@ -142,10 +139,10 @@ fn test_a_busy_session_is_asked_again_until_the_commit_is_answered() {
 fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
     let mut h = Harness::with(
         config().with_commit_attempts(3),
-        welcome(),
-        ServerScript::default(),
+        server(),
         Default::default(),
         1,
+        Anonymous,
     );
     h.connect();
     h.until(|h| h.core.is_ready());
@@ -196,7 +193,7 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
 
 #[test]
 fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() {
-    let mut h = Harness::ready(ServerScript::default());
+    let mut h = Harness::ready(server());
     let _ = session(&mut h);
     let resumed = h.core.resume_session(9, 5);
     let p = {
@@ -233,4 +230,97 @@ fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() {
         }
     ));
     assert_eq!(h.core.next_request(resumed), Some(5));
+}
+
+/// The Rust client: a retry of a commit that never arrived runs the transaction again.
+#[test]
+fn test_a_retry_refused_as_not_committed_keeps_the_request_and_the_rerun_commits_once() {
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    h.server.lose_next_commit();
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    let error = h.settle(p).unwrap_err();
+    assert!(
+        matches!(
+            error.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::NotCommitted,
+                detail: 1,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(
+        error.retryable(),
+        "the application runs its transaction again"
+    );
+    assert_eq!(h.server.applied(), 0);
+    assert_eq!(
+        h.core.next_request(s),
+        Some(1),
+        "a refusal keeps the number"
+    );
+    let tx = begin(&mut h);
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    let Ok(Reply::Committed(c)) = h.settle(p) else {
+        panic!("the rerun commits")
+    };
+    assert_eq!(c.request(), 1);
+    assert_eq!(h.server.applied(), 1, "committed once");
+    assert_eq!(
+        commits(&h),
+        vec![(9, 1); 3],
+        "the lost send, the refused retry, the rerun"
+    );
+}
+
+/// The Rust client: a retry of an evicted session reports an unknown outcome.
+#[test]
+fn test_a_retry_refused_as_evicted_reports_an_unknown_outcome_and_is_not_retried() {
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    h.server.drop_after_next_commit();
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    h.until(|h| h.connections == 2);
+    h.server.evict(s.number());
+    let error = h.settle(p).unwrap_err();
+    assert_eq!(
+        error.0,
+        ClientErrorEnum::OutcomeUnknown {
+            session: 9,
+            request: 1
+        }
+    );
+    assert!(!error.retryable());
+    assert_eq!(commits(&h), vec![(9, 1); 2], "one retry, not repeated");
+    assert_eq!(
+        h.core.next_request(s),
+        None,
+        "the session is gone from the client"
+    );
+    let tx = begin(&mut h);
+    assert_eq!(
+        h.core.commit(tx, s, h.now).unwrap_err().0,
+        ClientErrorEnum::UnknownSession { session: 9 }
+    );
+}
+
+#[test]
+fn test_a_first_commit_refused_as_evicted_is_refused_and_forgets_the_session() {
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    h.server.evict(s.number());
+    let tx = begin(&mut h);
+    let p = h.core.commit(tx, s, h.now).unwrap();
+    assert!(matches!(
+        h.settle(p).unwrap_err().0,
+        ClientErrorEnum::Refused {
+            code: ErrorCode::SessionEvicted,
+            ..
+        }
+    ));
+    assert_eq!(h.core.next_request(s), None);
 }

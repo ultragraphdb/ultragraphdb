@@ -714,3 +714,33 @@ fn test_every_frame_on_stream_zero_but_hello_and_authenticate_closes_the_connect
         );
     }
 }
+
+#[test]
+fn test_a_closing_connection_sends_nothing_after_its_error() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    connection.receive(&peer.send(1, &Begin::new(0, 0, false)), now);
+    connection
+        .outbound()
+        .push(1, {
+            Commit::new(1, 1, 2, Vec::new())
+                .frame(
+                    Header::new(CLUSTER, Command::Commit)
+                        .with_stream(1)
+                        .with_flags(FLAG_LAST),
+                )
+                .unwrap()
+        })
+        .unwrap();
+    assert_eq!(
+        connection.receive(&peer.send(0, &Begin::new(0, 0, false)), now),
+        Inbound::Closing {
+            code: Some(ErrorCode::Protocol)
+        }
+    );
+    let out = sent(&mut connection);
+    assert_eq!(out.len(), 1, "the Begin's reply and the Commit stay unsent");
+    assert_eq!((out[0].0, error(&out[0].3).0), (0, ErrorCode::Protocol));
+    assert_eq!(connection.next_frame(), None);
+}

@@ -217,6 +217,7 @@ Every external crate is pinned once in `[workspace.dependencies]` and referenced
 | `compio` | 0.19.2, no default features; `runtime`, `io-uring`, `fs`, `net`, `time` | `ultragraphdb_protocol_transport_compio`, `ultragraphdb_client_compio`, `ultragraphdb_transactions_log` | The completion-based runtime of the workers, the write-ahead log, the transport's compio shell and the compio client, io_uring on Linux; the stable release Apache Iggy builds on. Pure Rust on every shipped target: `cc` enters only through `loom` under `cfg(loom)` |
 | `xxhash-rust` | 0.8.19, `xxh3` | `ultragraphdb_protocol_wire` and the formats checksummed with it | XXH3-64, as xxHash's `doc/xxhash_spec.md` specifies it, for frame, chunk, WAL and posting-list checksums; pure Rust |
 | `sha2`, `hmac`, `pbkdf2`, `subtle`, `base64`, `stringprep` | 0.11 / 0.13 / 0.13, `hmac` / 2.6 / 0.22 / 0.1 | `ultragraphdb_protocol_scram` | SCRAM-SHA-256 (RFC 5802, RFC 7677) of the Authenticate exchange: SHA-256, HMAC, PBKDF2 and the constant-time comparison of a proof, from RustCrypto, beside the workspace's `blake2`; the base64 of SCRAM's messages; SASLprep (RFC 4013) of names and passwords. Cryptography is not hand-written here, as no other crate's is. Pure Rust |
+| `getrandom` | 0.3 | `ultragraphdb_protocol_scram` | The operating system's random source, for SCRAM's client and server nonces (`system_nonce`); already in the lockfile beneath other crates. Pure Rust: system calls through `libc`'s bindings |
 | `rustix` | `=1.1.6`, no default features; `fs` | `ultragraphdb_transactions_log`, on Linux only | `fallocate(2)` with `FALLOC_FL_KEEP_SIZE`, which reserves a new WAL segment's blocks without writing zeros; compio has no such call and the workspace forbids `unsafe`. Pinned exactly, at the release compio already resolves. Pure Rust: its Linux backend makes raw system calls with `linux-raw-sys`'s generated constants, which builds nothing, and its build script only probes `rustc`; macOS does not depend on it |
 | `arbitrary` | 1.5.0, `derive` | the fuzz workspace in `fuzz/` only | Structure-aware inputs for the `cargo-fuzz` targets run by `scripts/fuzz.sh`; no shipped crate depends on it |
 
@@ -284,9 +285,11 @@ declared as `[[test]] unit` under `autotests = false` and run by one `rust_test`
 `ultragraphdb_client_core` adds `tests/bdd.rs`, the wire protocol's client-side scenarios, its own
 `bdd` target with the harness included by path.
 `ultragraphdb_client_core` is tested synchronously, with no runtime: `tests/utils/harness.rs` drives
-the core against the scripted server over the simulated network, under drop, delay, duplicate and
-split, moving time itself. The scripted server is `src/utils_test/`, behind the `test-utils`
-feature, so the shells' tests serve the same script; the core's `BUILD.bazel` sets
+the core against `TestServer` over the simulated network, under drop, delay, duplicate and split,
+moving time itself. `TestServer` is the minimal server covering the core: the transport's
+`ServerConnection` for the connection's rules, one fixed answer per request, the session table, and
+faults a test names; it grows with the node in task group 10. It is `src/utils_test/`, behind the
+`test-utils` feature, so the shells' tests serve the same server; the core's `BUILD.bazel` sets
 `crate_features = ["test-utils"]`, and its own dev-dependency on itself turns it on under Cargo.
 `ultragraphdb_client_tokio` and `ultragraphdb_client_compio` run the same conversations through
 their shells, over the simulated network and a TCP loopback, with the server served from

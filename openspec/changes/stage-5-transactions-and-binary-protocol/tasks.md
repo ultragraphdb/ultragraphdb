@@ -88,10 +88,10 @@ benchmark recorded in the group's notes, and nothing traded for clarity or safet
 
 ## 8. The vector indexer → `ultragraphdb_store_hnsw`, `ultragraphdb_store_apply`, `ultragraphdb_core_mapping`
 
-- [ ] 8.1 Scenarios: vector-index (the modified and added requirements)
-- [ ] 8.2 Phases 1–3: the dimension in `VectorIndexSpec` and its check against the declaration; the indexer's surface; the level draw as a function of the node
-- [ ] 8.3 Phase 4: transactions write vectors without touching HNSW lists; the indexer in commit order with its indexed version; searches dropping nodes not visible at their snapshot
-- [ ] 8.4 Phase 5: mutants
+- [x] 8.1 Scenarios: vector-index (the modified and added requirements)
+- [x] 8.2 Phases 1–3: the dimension in `VectorIndexSpec` and its check against the declaration; the indexer's surface; the level draw as a function of the node
+- [x] 8.3 Phase 4: transactions write vectors without touching HNSW lists; the indexer in commit order with its indexed version; searches dropping nodes not visible at their snapshot
+- [x] 8.4 Phase 5: mutants (deferred to 11.8, the stage's one run of `scripts/mutants.sh`, decided 2026-10-27)
 
 ## 9. Bodies, the bus and the conformance suite → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_bus`
 

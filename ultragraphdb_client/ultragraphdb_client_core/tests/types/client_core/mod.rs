@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod client_core_authentication_tests;
+#[cfg(test)]
 mod client_core_commit_tests;
 #[cfg(test)]
 mod client_core_conformance_tests;

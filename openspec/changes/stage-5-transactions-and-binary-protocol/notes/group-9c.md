@@ -379,3 +379,108 @@ After it, `bazel test`: the wire 255 unit tests and 23 scenarios, the transport 
 18 scenarios; every non-integration target of the repository, 118, passing on macOS. The compio, transport and SCRAM
 targets, with the compio client's, passing on Linux 7.2 (arm64) in an OrbStack machine with io_uring enabled, where
 compio runs its io_uring driver, 9 of 9.
+
+## 9c.6 The client
+
+### Phase 1: the surface
+
+Decided by the user before the surface (2026-10-30): the client authenticates through a generic `Login` that gives a
+fresh mechanism for each exchange; the core is told the wall clock once per connection and maps the credential's
+expiry onto its own time; the shells draw SCRAM's nonce from the operating system through `getrandom`.
+
+- `ultragraphdb_protocol_transport`: the `Login` trait and `Anonymous`, the login of a client without credentials;
+  `ReceivedFrame::check_order`, the frame's sequence and protocol from its header alone, so a frame a receiver keeps
+  to view later is checksummed once; `Outbound::next_connection_frame`, the connection's own queue alone.
+- `ultragraphdb_protocol_scram`: `ScramLogin`, the client's `Login`, a fresh `ScramClient` with the next nonce for
+  each exchange; `system_nonce` and `NONCE_BYTES`, 18 bytes of the operating system's randomness in base64;
+  `ScramError::Random`. `getrandom` 0.3 pinned in the workspace, already in the lockfile beneath other crates.
+- `ultragraphdb_client_core`: `ClientCore<L: Login>`, `new(config, login)`; `connect(now, unix_micros)`;
+  `principal`, `expires`; `welcome` from the Welcome on, through the exchange; frames numbered as they leave
+  (`transmit`) and the server's taken only in their order (`receive`), the checksum dedupe gone; the exchange and its
+  renewal, a margin before the expiry (`ClientConfig::with_renewal_margin`, 60 s, at most half the remaining life),
+  through `next_deadline` and `handle_timeout`; reads and executes on streams of their own naming their transaction
+  (`ClientError::TransactionMismatch`), ended with it by its Commit's reply, its Abort or an Error on its stream;
+  `cancel` of a read alone; a retry refused as evicted is `ClientError::OutcomeUnknown` and forgets the session.
+- The shells: `Client<C, L: Login>`, `new(connector, config, login, buffers)`; a framer for each connection, set to
+  the Welcome's protocol; the wall clock read at each connect; `Anonymous` and `Login` re-exported.
+
+Found in the work and fixed: a closing `ServerConnection` sent the replies queued on its streams after its closing
+Error, so the Error was not its last frame, as section 2.6 has it; while closing it now sends its own queue alone.
+
+The scripted server is replaced by `TestServer` (user's decision, 2026-10-30), the minimal server covering the core,
+which grows with the node in group 10: the transport's `ServerConnection` holds the connection's rules (handshake,
+SCRAM and its renewal, the frames' order, the stream rules, credit, cancel), each request takes one fixed answer, the
+session table answers a retry from its record (code 18 for a request with no transaction open, code 12 for an
+unknown session), and a test names its fault: `drop_after_next_commit`, `lose_next_commit`, `answer_busy_retries`,
+`evict`. `ServerScript` and the withheld-commit coupling are gone.
+
+Client drops (`DropCommand` sent and retried through a session) are left to the commit and store slice.
+
+### Phase 2: the failing run
+
+The suites written against the surface: the harness on `TestServer` with one framer a connection and the wall clock
+following the harness's time; the core's tests of authentication (SCRAM, a wrong password, no mechanism spoken,
+requests waiting for the final message, renewal while a read streams, a short credential, a new connection), the
+retry rules (NotCommitted keeps the request number and the rerun commits once; an evicted session's retry is an
+unknown outcome, not retried; a first commit refused as evicted), reads on streams of their own (two at once, a
+cancelled read, a transaction's end ending its reads, a read naming another transaction), the frames' numbering, a
+repeated frame of the server; the conformance tests with the golden reads in the transaction of stream 5 and every
+golden reply numbered as the connection's next; the transport's tests of `check_order`, the connection's own queue,
+a closing connection and `Anonymous`; SCRAM's of `ScramLogin`, `system_nonce` and the `Random` error; 8 of 9c.5's
+scenarios bound in the client's feature: NotCommitted, evicted, a repeated frame, the three of reads on their own
+streams, SCRAM authentication and renewal. The shells' tests on `TestServer`.
+
+2026-10-30 17:01, `bazel test` against the surface:
+
+| Target | Result |
+|---|---|
+| `ultragraphdb_protocol_transport` unit | 81: 67 passed, 14 failed |
+| `ultragraphdb_protocol_scram` unit | 26: 20 passed, 6 failed |
+| `ultragraphdb_protocol_transport_compio` unit | 13 passed |
+| `ultragraphdb_protocol_transport_compio` bdd | 18: 12 passed, 6 failed |
+| `ultragraphdb_client_core` unit | 48: 4 passed, 44 failed |
+| `ultragraphdb_client_core` bdd | 13 scenarios failed |
+| `ultragraphdb_client_tokio` unit | 4 failed |
+| `ultragraphdb_client_compio` unit | 3 failed |
+
+Every failure an `unimplemented!()` panic of the surface but one, the transport test's own: it damaged a Credit,
+which has no body, so the flip broke the header; it damages an Error's chunk now. The compio conversations' 6 are the
+closing connection's own queue.
+
+### Phase 3: the audit
+
+Script in the session's scratchpad (`audit_client9c.py`), each defect planted in place, run by `bazel test` over the
+transport's, the compio transport's, SCRAM's, the client core's and both shells' targets, restored in a `finally`,
+the three source trees hashed before and compared after (equal). 59 defects:
+
+| Area | Defects |
+|---|---|
+| Transport | the order's sequence, its protocol, the Welcome's exemption unchecked; a view skipping the order; the connection's own queue taking the streams; a closing connection sending its streams; `Anonymous` speaking a mechanism |
+| SCRAM | the offer ignored, any offer taken; one nonce reused; the login unchecked; a nonce of zeros, half drawn |
+| Numbering | frames unnumbered; numbering not reset on a new connection; the server's order unchecked; a late frame refused |
+| Authentication | an exchange where none is asked; up with no mechanism spoken; the first message, an answer unsent; up before the final message; the principal unrecorded; a renewal as another principal taken; stream 0's Error ignored; an exchange's error ignored; commits not resent after the exchange; the expiry kept at 0; renewal at the expiry; the margin uncapped; the wall clock ignored; a renewal never due, never started, repeated; the Welcome hidden while authenticating; requests while authenticating; the principal kept across connections |
+| Reads | a read on its transaction's stream; the transaction unnamed; a read not tied to it; a read without its initial credit; a commit, an abort, a refused transaction keeping the reads; every transaction's reads ended; the last batch keeping its stream; a done read finished; a kept frame not viewed; a cancel unsent; a cancelled read kept |
+| Retries | an evicted retry retried; the evicted session kept; every evicted commit unknown; a retry unmarked; NotCommitted advancing the request |
+| Shells | the tokio framer kept across connections; the tokio wall clock 0; the compio protocol unset |
+
+The first run rejected 45; 14 survived. The suite was strengthened for ten: every byte of a system nonce drawn; a
+late frame of a cancelled read dropped, the connection kept; a renewal ending as another principal, and a server that
+does not prove itself, giving the connection up (a test mechanism and frames of the test's own); a commit lost with
+its connection retried once the next connection authenticated; the second renewal scheduled from the wall clock at
+the first's end; no grant before a read's initial credit is spent; a refused transaction ending its reads; another
+transaction's read going on when one transaction ends; the shells' renewal due before the expiry. Re-run, all ten
+rejected. Four stand:
+
+- A renewal repeated: clearing the renewal's deadline when it starts was dead, since the deadline is guarded while an
+  exchange runs and replaced when it ends. The line is removed.
+- Requests while authenticating, equivalent: every caller of the core's request framing is gated on the connection
+  being up before it reaches it.
+- A kept frame not viewed, equivalent: its order is checked on arrival, and its chunks are checked either way.
+- The compio protocol unset, equivalent while protocol 1 is the only one: a framer left at 1 reads every frame.
+
+The implementation that passed the audited suite is kept (phase 4 of this slice).
+
+After it, `bazel test`: the transport 81 unit tests, SCRAM 27, the compio transport 13 and 18 scenarios, the client
+core 56 and 13 scenarios, the tokio shell 5, the compio shell 4; every non-integration target of the repository, 118,
+passing on macOS with group 8 beside it. The transport, compio, SCRAM and client targets passing on Linux 7.2 (arm64)
+in the OrbStack machine with io_uring, 14 of 14.

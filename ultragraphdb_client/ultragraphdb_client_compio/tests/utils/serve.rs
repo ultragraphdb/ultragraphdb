@@ -12,11 +12,11 @@ use std::future::poll_fn;
 use std::io;
 use std::rc::Rc;
 use std::task::Poll;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use compio::io::{AsyncRead, AsyncWrite};
 use ultragraphdb_client_compio::Connect;
-use ultragraphdb_client_core::{ClientConfig, ScriptedServer, ServerScript};
+use ultragraphdb_client_core::{ClientConfig, TestServer};
 use ultragraphdb_protocol_transport::{BufferPool, Framer, SimNetwork, SimStream};
 use ultragraphdb_protocol_transport_compio::{CompioSimStream, Connection};
 use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, Welcome};
@@ -30,20 +30,30 @@ pub fn config() -> ClientConfig {
         .with_credit(2)
 }
 
-pub fn server(script: ServerScript) -> Rc<RefCell<ScriptedServer>> {
-    Rc::new(RefCell::new(ScriptedServer::new(
-        CLUSTER,
-        Welcome::new(1, 0, "scripted")
-            .with_max_frame(1 << 20)
-            .with_max_streams(64)
-            .with_initial_credit(1),
-        script,
-    )))
+pub fn welcome() -> Welcome {
+    Welcome::new(1, 0, "test")
+        .with_max_frame(1 << 20)
+        .with_max_streams(64)
+        .with_initial_credit(1)
 }
 
-/// One connection served through the transport's compio connection, until the client closes or the script drops it.
-pub async fn serve<S: AsyncRead + AsyncWrite>(server: &RefCell<ScriptedServer>, stream: S) {
-    server.borrow_mut().connection();
+pub fn server() -> Rc<RefCell<TestServer>> {
+    Rc::new(RefCell::new(TestServer::new(CLUSTER, welcome())))
+}
+
+/// The time and the wall clock the test server is told: the tests' server reads the clock itself, as the node will.
+#[allow(clippy::disallowed_methods)]
+fn clocks() -> (Instant, u64) {
+    let unix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64);
+    (Instant::now(), unix)
+}
+
+/// One connection served through the transport's compio connection, until the client closes or the server drops or closes it.
+pub async fn serve<S: AsyncRead + AsyncWrite>(server: &RefCell<TestServer>, stream: S) {
+    let (now, unix) = clocks();
+    server.borrow_mut().connection(now, unix);
     let pool = BufferPool::new(4, 1 << 20);
     let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     loop {
@@ -53,14 +63,14 @@ pub async fn serve<S: AsyncRead + AsyncWrite>(server: &RefCell<ScriptedServer>, 
                 return;
             }
         }
-        if server.borrow().dropped() {
+        if server.borrow().dropped() || server.borrow().is_closing() {
             connection.shutdown().await;
             return;
         }
         let Ok(frame) = connection.read_frame(&pool).await else {
             return;
         };
-        server.borrow_mut().receive(frame.bytes());
+        server.borrow_mut().receive(frame.bytes(), clocks().0);
     }
 }
 
@@ -106,7 +116,7 @@ impl Connect for SimConnect {
 
 /// Serves every connection `connect` makes, one after another, for as long as the task lives.
 pub async fn serve_sim(
-    server: Rc<RefCell<ScriptedServer>>,
+    server: Rc<RefCell<TestServer>>,
     accepted: Rc<RefCell<VecDeque<SimStream>>>,
 ) {
     loop {

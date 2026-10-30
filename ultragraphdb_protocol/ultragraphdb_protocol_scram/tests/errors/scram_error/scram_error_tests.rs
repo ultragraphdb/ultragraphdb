@@ -57,6 +57,13 @@ fn test_each_constructor_builds_its_variant_and_names_it() {
             ScramErrorEnum::OutOfStep,
             "a SCRAM message out of step",
         ),
+        (
+            ScramError::Random("no entropy"),
+            ScramErrorEnum::Random {
+                reason: "no entropy".to_string(),
+            },
+            "the random source failed: no entropy",
+        ),
     ];
     for (error, variant, text) in cases {
         assert_eq!(error.0, variant);

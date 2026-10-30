@@ -148,3 +148,49 @@ fn test_hello_and_welcome_take_protocol_one_and_later_frames_the_agreed_one() {
             .is_ok()
     );
 }
+
+#[test]
+fn test_a_frames_order_is_checked_from_its_header_without_its_chunks() {
+    let pool = BufferPool::new(4, 1 << 20);
+    let mut framer = Framer::new(7, MAX_FRAME_SIZE);
+    // A Credit has no body, so the damaged frame is an Error's, its chunk broken and its header sound.
+    let mut damaged = ErrorReply::new(ErrorCode::Busy, "busy")
+        .frame(
+            Header::new(7, Command::Error)
+                .with_sequence(1)
+                .with_stream(2),
+        )
+        .unwrap();
+    let last = damaged.len() - 1;
+    damaged[last] ^= 1;
+    let stream = [damaged, credit(1, 1), credit(3, 2)].concat();
+    let mut at = 0;
+    let first = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    assert_eq!(
+        first.check_order(),
+        Ok(()),
+        "its chunks are left to its view"
+    );
+    assert!(matches!(
+        first.view().unwrap_err().0,
+        ProtocolErrorEnum::Chunk { .. }
+    ));
+    let repeated = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    assert_eq!(
+        repeated.check_order().unwrap_err().0,
+        ProtocolErrorEnum::SequenceOrder {
+            expected: 2,
+            found: 1
+        }
+    );
+    let other = feed(&mut framer, &pool, &stream, &mut at, 1 << 20).unwrap();
+    assert_eq!(
+        other.check_order().unwrap_err().0,
+        ProtocolErrorEnum::FieldValue {
+            command: 14,
+            field: "protocol",
+            value: 2
+        },
+        "its sequence is due, its protocol is not"
+    );
+}

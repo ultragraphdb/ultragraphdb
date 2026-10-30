@@ -15,7 +15,8 @@
 //! their stream holds credit, and a cancelled stream sends nothing more. [`ServerConnection`] is a server's whole
 //! connection: the handshake, the Authenticate exchange through an [`Authenticator`], re-authentication, the
 //! deadlines, and the stream rules, handing requests to the server's session as [`Inbound`];
-//! [`ClientAuthentication`] is a client's side of the exchange through a [`ClientMechanism`]. The [`SimNetwork`] carries messages between [`SimStream`]s, dropping,
+//! [`ClientAuthentication`] is a client's side of the exchange through a [`ClientMechanism`], which a client's
+//! [`Login`] gives afresh for each exchange. The [`SimNetwork`] carries messages between [`SimStream`]s, dropping,
 //! delaying, duplicating and splitting them from a seed, so a conversation replays.
 
 mod errors;
@@ -26,7 +27,9 @@ mod utils;
 pub use crate::errors::transport_error::{TransportError, TransportErrorEnum};
 pub use crate::traits::authenticator::Authenticator;
 pub use crate::traits::client_mechanism::ClientMechanism;
+pub use crate::traits::login::Login;
 pub use crate::traits::server_mechanism::ServerMechanism;
+pub use crate::types::anonymous::Anonymous;
 pub use crate::types::buffer_pool::BufferPool;
 pub use crate::types::client_authentication::{AuthenticationStep, ClientAuthentication};
 pub use crate::types::client_handshake::ClientHandshake;

@@ -5,12 +5,12 @@
 
 mod client_requests;
 
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use ultragraphdb_client_core::{ClientConfig, ClientCore, ClientError, Pending, Reply};
 use ultragraphdb_protocol_transport::{
-    BufferPool, FrameStep, Framer, ReceivedFrame, TransportError,
+    BufferPool, FrameStep, Framer, Login, ReceivedFrame, TransportError,
 };
 use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
@@ -19,6 +19,14 @@ use crate::traits::connect::Connect;
 /// The time, as the core is told it: tokio's clock, so a paused runtime moves it.
 fn now() -> Instant {
     tokio::time::Instant::now().into_std()
+}
+
+/// The wall clock, microseconds of Unix time, as the core is told it once per connection; 0 before 1970.
+#[allow(clippy::disallowed_methods)]
+fn unix_micros() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_micros() as u64)
 }
 
 /// The next frame of `stream`, read as `framer` asks into a buffer of `pool`: `read_buf` fills the buffer's spare
@@ -64,25 +72,26 @@ async fn read_frame<S: AsyncRead + Unpin>(
 /// The Rust client on tokio: the I/O shell of [`ClientCore`]. It connects through its [`Connect`]or when a request
 /// needs a connection, and again whenever the core asks to retry a commit, writes every frame the core queues, reads
 /// frames as the transport's framer asks into a pool of frame buffers reused across connections, and gives the core
-/// the time and its timeouts. Every operation of the protocol is the core's.
+/// the time and its timeouts. It authenticates through its [`Login`]; a framer is made afresh for each connection,
+/// whose frames are numbered from 1. Every operation of the protocol is the core's.
 #[derive(Debug)]
-pub struct Client<C: Connect> {
+pub struct Client<C: Connect, L: Login> {
     connector: C,
-    core: ClientCore,
+    core: ClientCore<L>,
     pool: BufferPool,
     framer: Framer,
     stream: Option<C::Stream>,
     failure: Option<ClientError>,
 }
 
-impl<C: Connect> Client<C> {
-    /// A client configured by `config`, connecting through `connector` when first asked; its pool holds
-    /// `buffers` frame buffers of 1 MiB, the most frames it holds at once.
-    pub fn new(connector: C, config: ClientConfig, buffers: usize) -> Self {
+impl<C: Connect, L: Login> Client<C, L> {
+    /// A client configured by `config`, authenticating through `login`, connecting through `connector` when first
+    /// asked; its pool holds `buffers` frame buffers of 1 MiB, the most frames it holds at once.
+    pub fn new(connector: C, config: ClientConfig, login: L, buffers: usize) -> Self {
         let framer = Framer::new(config.cluster(), MAX_FRAME_SIZE);
         Self {
             connector,
-            core: ClientCore::new(config),
+            core: ClientCore::new(config, login),
             pool: BufferPool::new(buffers.max(2), MAX_FRAME_SIZE),
             framer,
             stream: None,
@@ -91,7 +100,7 @@ impl<C: Connect> Client<C> {
     }
 
     /// The core, for what the shell does not wrap.
-    pub fn core(&self) -> &ClientCore {
+    pub fn core(&self) -> &ClientCore<L> {
         &self.core
     }
 
@@ -126,7 +135,8 @@ impl<C: Connect> Client<C> {
             Err(_) => return Err(ClientError::TimedOut()),
         };
         self.stream = Some(stream);
-        self.core.connect(now())
+        self.framer = Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE);
+        self.core.connect(now(), unix_micros())
     }
 
     /// Shuts the connection down, if any.
@@ -158,7 +168,7 @@ impl<C: Connect> Client<C> {
     /// retry asks for. Refused when `done` cannot come: nothing is awaited and no commit waits for a connection.
     async fn drive(
         &mut self,
-        mut done: impl FnMut(&mut ClientCore) -> bool,
+        mut done: impl FnMut(&mut ClientCore<L>) -> bool,
     ) -> Result<(), ClientError> {
         loop {
             if done(&mut self.core) {
@@ -194,6 +204,9 @@ impl<C: Connect> Client<C> {
                 Ok(Ok(frame)) => {
                     if let Err(error) = self.core.receive(frame, now()) {
                         self.failure = Some(error);
+                    }
+                    if let Some(welcome) = self.core.welcome() {
+                        self.framer.set_protocol(welcome.protocol());
                     }
                 }
                 Ok(Err(error)) => {

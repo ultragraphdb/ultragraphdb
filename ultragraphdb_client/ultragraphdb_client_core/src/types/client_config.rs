@@ -8,8 +8,8 @@ use std::time::Duration;
 use ultragraphdb_protocol_wire::{Hello, MAX_FRAME_SIZE, PROTOCOL_VERSION};
 
 /// What a client is: the cluster it connects to, its name and release, the protocols it speaks, how long it waits
-/// for an answer, how often it retries a commit through its session, how far apart, and the credit it grants a
-/// result stream at a time.
+/// for an answer, how often it retries a commit through its session, how far apart, the credit it grants a result
+/// stream at a time, and how long before its credential expires it authenticates again.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfig {
     cluster: u64,
@@ -21,11 +21,12 @@ pub struct ClientConfig {
     commit_attempts: u32,
     retry_delay: Duration,
     credit: u32,
+    renewal_margin: Duration,
 }
 
 impl ClientConfig {
     /// A client of `cluster`: release 0, protocols 1 to this crate's, a 10 s timeout, a commit tried at most 8
-    /// times 50 ms apart, credit of 4 frames.
+    /// times 50 ms apart, credit of 4 frames, re-authentication 60 s before the credential expires.
     pub fn new(cluster: u64, name: impl Into<String>) -> Self {
         Self {
             cluster,
@@ -37,6 +38,7 @@ impl ClientConfig {
             commit_attempts: 8,
             retry_delay: Duration::from_millis(50),
             credit: 4,
+            renewal_margin: Duration::from_secs(60),
         }
     }
 
@@ -75,6 +77,13 @@ impl ClientConfig {
         self
     }
 
+    /// How long before its credential expires the client authenticates again; at most half the credential's
+    /// remaining life, so a short-lived credential is renewed in time.
+    pub fn with_renewal_margin(mut self, margin: Duration) -> Self {
+        self.renewal_margin = margin;
+        self
+    }
+
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
@@ -101,6 +110,10 @@ impl ClientConfig {
 
     pub fn credit(&self) -> u32 {
         self.credit
+    }
+
+    pub fn renewal_margin(&self) -> Duration {
+        self.renewal_margin
     }
 
     /// The Hello this client opens a connection with.

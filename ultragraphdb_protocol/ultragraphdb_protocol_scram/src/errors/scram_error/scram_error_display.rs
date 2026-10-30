@@ -26,6 +26,9 @@ impl fmt::Display for ScramError {
             ScramErrorEnum::ServerSignature => write!(f, "the server's signature does not verify"),
             ScramErrorEnum::Server { reason } => write!(f, "the server refused: {reason}"),
             ScramErrorEnum::OutOfStep => write!(f, "a SCRAM message out of step"),
+            ScramErrorEnum::Random { reason } => {
+                write!(f, "the random source failed: {reason}")
+            }
         }
     }
 }

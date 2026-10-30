@@ -300,3 +300,22 @@ fn test_a_transactions_end_ends_its_reads() {
     assert!(!outbound.is_open(2) && !outbound.is_open(3));
     assert!(outbound.is_open(6) && outbound.is_transaction(5));
 }
+
+#[test]
+fn test_the_connections_own_frames_are_taken_apart_from_the_streams() {
+    let mut outbound = Outbound::new(4, 4);
+    outbound.open(1).unwrap();
+    outbound.push(1, reply(1, true)).unwrap();
+    outbound.push_connection(reply(0, false)).unwrap();
+    let (stream, frame) = outbound.next_connection_frame().unwrap();
+    assert_eq!((stream, sequence(&frame)), (0, 1));
+    assert_eq!(unstamped((stream, frame)), (0, reply(0, false)));
+    assert_eq!(
+        outbound.next_connection_frame(),
+        None,
+        "a stream's reply is not the connection's"
+    );
+    assert!(outbound.is_open(1));
+    let (stream, frame) = outbound.next_frame().unwrap();
+    assert_eq!((stream, sequence(&frame)), (1, 2), "numbered after it");
+}

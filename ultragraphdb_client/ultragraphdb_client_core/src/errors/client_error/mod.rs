@@ -47,6 +47,9 @@ pub enum ClientErrorEnum {
         request: u64,
         attempts: u32,
     },
+    /// The retry of request `request` of session `session` was refused as evicted (code 12): whether the commit was
+    /// applied is unknown, and it is not retried. The session is gone from the client as from the server.
+    OutcomeUnknown { session: u64, request: u64 },
     /// Session `session` has the commit of `request` in doubt; it is resolved before it commits again.
     InDoubt { session: u64, request: u64 },
     /// Session `session` has no commit in doubt to resolve.
@@ -63,6 +66,8 @@ pub enum ClientErrorEnum {
     StreamBusy { stream: u64 },
     /// The connection holds `limit` streams, as many as Welcome allows.
     StreamLimit { limit: u32 },
+    /// A read or execute names the transaction of stream `named`, and was asked of the transaction of `stream`.
+    TransactionMismatch { stream: u64, named: u64 },
 }
 
 /// Why a client operation failed; `.0` classifies it.
@@ -142,6 +147,11 @@ impl ClientError {
     }
 
     #[allow(non_snake_case)]
+    pub fn OutcomeUnknown(session: u64, request: u64) -> Self {
+        Self(ClientErrorEnum::OutcomeUnknown { session, request })
+    }
+
+    #[allow(non_snake_case)]
     pub fn InDoubt(session: u64, request: u64) -> Self {
         Self(ClientErrorEnum::InDoubt { session, request })
     }
@@ -179,6 +189,11 @@ impl ClientError {
     #[allow(non_snake_case)]
     pub fn StreamLimit(limit: u32) -> Self {
         Self(ClientErrorEnum::StreamLimit { limit })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn TransactionMismatch(stream: u64, named: u64) -> Self {
+        Self(ClientErrorEnum::TransactionMismatch { stream, named })
     }
 
     /// Whether the application retries the operation, exactly where the wire says so: a refusal whose code is

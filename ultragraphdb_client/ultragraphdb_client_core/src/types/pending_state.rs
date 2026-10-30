@@ -19,7 +19,8 @@ pub(crate) enum Expect {
 }
 
 /// A request in flight: its stream, `None` while a commit waits to be sent again; what it waits for; its answer once
-/// arrived; for a commit, the times it was lost or answered busy, and when it is sent again after a busy answer.
+/// arrived; for a commit, the times it was lost or answered busy, when it is sent again after a busy answer, and
+/// whether it was sent again, on a stream of its own, through its session.
 #[derive(Debug)]
 pub(crate) struct PendingState {
     pub stream: Option<u64>,
@@ -27,6 +28,7 @@ pub(crate) struct PendingState {
     pub outcome: Option<Result<Reply, ClientError>>,
     pub tries: u32,
     pub resend_at: Option<Instant>,
+    pub retried: bool,
 }
 
 impl PendingState {
@@ -37,6 +39,7 @@ impl PendingState {
             outcome: None,
             tries: 0,
             resend_at: None,
+            retried: false,
         }
     }
 

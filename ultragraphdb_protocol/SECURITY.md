@@ -252,7 +252,7 @@ changes are also in the write-ahead log, as every write is.
 
 | Stage | What |
 |---|---|
-| Stage 5, the protocol block | The bytes above in the wire, the transport and the Rust client: Authenticate and re-authentication, the error codes, `principal` in the write-set record and the session entry, a session's owner; `SCRAM-SHA-256` in the client and the scripted server |
+| Stage 5, the protocol block | The bytes above in the wire, the transport and the Rust client: Authenticate and re-authentication, the error codes, `principal` in the write-set record and the session entry, a session's owner; `SCRAM-SHA-256` in the client and the client's test server |
 | Stage 5, the server | The server's exchange with `SCRAM-SHA-256`, the password rules, throttling, the authentication timeout and the audit of authentication; running without authentication on loopback only; the bootstrap administrator; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
 | Stage 7 | The security catalog: principals, external identities, roles, grants, trusted issuers and group mappings, the epoch; enforcement through the access value; Describe filtered; the administration commands and their audit |
 | With TLS | TLS 1.3; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates |

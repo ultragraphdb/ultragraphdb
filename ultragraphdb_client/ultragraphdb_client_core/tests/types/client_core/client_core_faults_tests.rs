@@ -3,26 +3,17 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_client_core::{ClientErrorEnum, Reply, ServerScript};
-use ultragraphdb_protocol_transport::NetworkFaults;
+use ultragraphdb_client_core::{ClientErrorEnum, Reply};
+use ultragraphdb_protocol_transport::{Anonymous, NetworkFaults};
 use ultragraphdb_protocol_wire::TermTable;
 
 use crate::types::client_core::client_core_tests::counter;
-use crate::utils::harness::{Harness, config, welcome};
+use crate::utils::harness::{Harness, config, server};
 
 /// Transactions until `commits` are acknowledged, each retried by the application on whatever failed but an
 /// acknowledged commit: every acknowledged commit is applied once, whatever the network did.
 fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
-    let mut h = Harness::with(
-        config(),
-        welcome(),
-        ServerScript {
-            results: 2,
-            ..ServerScript::default()
-        },
-        faults,
-        seed,
-    );
+    let mut h = Harness::with(config(), server().with_results(2), faults, seed, Anonymous);
     let mut acknowledged = Vec::new();
     let mut session = None;
     for _ in 0..200 {
