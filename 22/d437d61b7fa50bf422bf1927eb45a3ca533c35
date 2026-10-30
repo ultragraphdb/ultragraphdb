@@ -1,0 +1,46 @@
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/chunked_body/chunked_body_tests.rs
+  h_080fb89ca1f0c4 168-171
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/drop_command_view/drop_command_view_tests.rs
+  h_080fb89ca1f0c4 192-194
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/frame_view/frame_view_tests.rs
+  h_080fb89ca1f0c4 202-205
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/header_view/header_view_verify_tests.rs
+  h_080fb89ca1f0c4 253-257
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_applier/changeset_applier_tests.rs
+  h_080fb89ca1f0c4 362-364,453-456
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_operate_tests.rs
+  h_080fb89ca1f0c4 392-393,411-414,449-453,612-616
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_tests.rs
+  h_080fb89ca1f0c4 413-416
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_declare_tests.rs
+  h_080fb89ca1f0c4 221
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/errors/commit_error/commit_error_tests.rs
+  h_080fb89ca1f0c4 177-182,198-202
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/applier_operator/applier_operator_tests.rs
+  h_080fb89ca1f0c4 49-52
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_operations_tests.rs
+  h_080fb89ca1f0c4 13-14,452-456,481-482,491-492,503-506,522-528
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_store_tests.rs
+  h_080fb89ca1f0c4 165-172
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_tests.rs
+  h_080fb89ca1f0c4 685-689,694-695
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/pipeline/pipeline_tests.rs
+  h_080fb89ca1f0c4 408-410,425-427
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/replay/replay_tests.rs
+  h_080fb89ca1f0c4 85-89
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/round_bounds_tests.rs
+  h_080fb89ca1f0c4 47-48,54-56
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/sequencer/sequencer_tests.rs
+  h_080fb89ca1f0c4 115-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22d437d61b7fa50bf422bf1927eb45a3ca533c35",
+  "prompts": {},
+  "humans": {
+    "h_080fb89ca1f0c4": {
+      "author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
