@@ -1,0 +1,175 @@
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/replay/mod.rs
+  s_e7d9aa044e41ea::t_7d7365d7d6b376 135
+  s_e7d9aa044e41ea::t_c538378d4d5283 11,46-47,66-69,140,148-159
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_drop.rs
+  s_e7d9aa044e41ea::t_258dbdf3f6b500 237-243,290-291,293-303,311-316,322,326,336-341
+  s_e7d9aa044e41ea::t_d48e0d89570c97 25-26,141-147,150,155-169,171-182,190,194-236,344,353-358,361,384-407
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  s_e7d9aa044e41ea::t_829b4f6eba53c6 487-586
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_e7d9aa044e41ea::t_93c4d4176541a3 135-136
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/client_core_receive.rs
+  s_e7d9aa044e41ea::t_0f80525e80ebc1 13-14,240,320,381-402
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/client_core_requests.rs
+  s_e7d9aa044e41ea::t_97870eafc6ac89 10-11,238-283
+ultragraphdb_client/ultragraphdb_client_core/src/types/pending_state.rs
+  s_e7d9aa044e41ea::t_5edb3794716399 8-9,19,26,35,47,51,54-56
+ultragraphdb_client/ultragraphdb_client_core/src/types/reply.rs
+  s_e7d9aa044e41ea::t_20885f4d715f97 22-23
+ultragraphdb_client/ultragraphdb_client_core/src/utils_test/test_server/mod.rs
+  s_e7d9aa044e41ea::t_a8dcc0cfe10ff8 117-118
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_commit_tests.rs
+  s_e7d9aa044e41ea::t_d0e30466773321 327-435
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_server/mod.rs
+  s_e7d9aa044e41ea::t_0071027193252c 22,107
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_connection/server_connection_tests.rs
+  s_e7d9aa044e41ea::t_6d03c46655e312 747-775
+ultragraphdb_store/ultragraphdb_store_apply/src/lib.rs
+  s_e7d9aa044e41ea::t_64e1242d382252 58-59
+ultragraphdb_store/ultragraphdb_store_apply/src/types/drop_request.rs
+  s_e7d9aa044e41ea::t_a9433f32af66f2 1-17
+ultragraphdb_store/ultragraphdb_store_apply/src/types/drop_target.rs
+  s_e7d9aa044e41ea::t_da1c69d186d0ae 1-20
+ultragraphdb_store/ultragraphdb_store_apply/src/types/mod.rs
+  s_e7d9aa044e41ea::t_ba17ef917a42f9 12-13
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_drop_tests.rs
+  s_e7d9aa044e41ea::t_c40cff52296184 309-314,320-325,359-364,388-661
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_operate_tests.rs
+  s_e7d9aa044e41ea::t_9b1d8ad14aec9b 327-328
+ultragraphdb_traits/ultragraphdb_traits_log/src/traits/ordered_log.rs
+  s_e7d9aa044e41ea::t_dd62756ebcbc4c 54-63
+ultragraphdb_transactions/ultragraphdb_transactions_commit/features/transactions/transactions.feature
+  s_e7d9aa044e41ea::t_c3de52e478aa72 40-43,54-61,68-70
+ultragraphdb_transactions/ultragraphdb_transactions_commit/features/wire-protocol/drops.feature
+  s_e7d9aa044e41ea::t_71e26ee024586e 1-28
+ultragraphdb_transactions/ultragraphdb_transactions_commit/features/write-ahead-log/recovery.feature
+  s_e7d9aa044e41ea::t_53d78c0c5a9215 17-20
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/errors/recovery_error/mod.rs
+  s_e7d9aa044e41ea::t_2b5c35d1f2f93b 37-39,72-79
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/errors/recovery_error/recovery_error_display.rs
+  s_e7d9aa044e41ea::t_f65edb7cd3bcb9 36-43
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/errors/recovery_error/recovery_error_error.rs
+  s_e7d9aa044e41ea::t_4855a9dd49d3f4 15-17
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/commit_step/commit_step_round.rs
+  s_e7d9aa044e41ea::t_fcf6472d9a0892 39-42,47,67,104,158,165-167,201
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/input.rs
+  s_e7d9aa044e41ea::t_5c2e5774ce26a1 13-16
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/pipeline/mod.rs
+  s_e7d9aa044e41ea::t_44be03128ab60d 6,13,129-130,135-156
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/session_entry/mod.rs
+  s_e7d9aa044e41ea::t_ee059578f0496c 9-10,16-17,21-22,27,38,42,63-67,81,102,105-107,113,143
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/pipeline/pipeline_tests.rs
+  s_e7d9aa044e41ea::t_f49bdc9b0fc5b6 297
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/replay/replay_tests.rs
+  s_e7d9aa044e41ea::t_b4a3bebbeedd6e 192,215-224,260-407
+ultragraphdb_transactions/ultragraphdb_transactions_log/BUILD.bazel
+  s_e7d9aa044e41ea::t_037176ef68909c 45
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/wal/wal_open.rs
+  s_e7d9aa044e41ea::t_fd0d766b416543 75
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/wal/wal_recovery.rs
+  s_e7d9aa044e41ea::t_1d88ac9000b8f6 210
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/wal_config/mod.rs
+  s_e7d9aa044e41ea::t_58bcb78d938f97 43,63,67-72,143-147
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/utils/frame.rs
+  s_e7d9aa044e41ea::t_54231b5510558f 14-17,21,34-35
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/utils/scan.rs
+  s_e7d9aa044e41ea::t_50ea77d2d292e3 59-62
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/bdd.rs
+  s_e7d9aa044e41ea::t_b9a73949dc94ec 172,188,295,330
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/wal/wal_tests.rs
+  s_e7d9aa044e41ea::t_9bd82f2075e28d 56,89,109,145,489,511-512,516-520,531,552,605,670,679,704,768,782-786,1018,1034
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils/scan_tests.rs
+  s_e7d9aa044e41ea::t_9f5fce1d516901 54,224,534-544
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/lib.rs
+  s_e7d9aa044e41ea::t_0831e6592d23c5 26
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/types/prepared/mod.rs
+  s_e7d9aa044e41ea::t_18d4b7e8af8e96 6,22,58-61,66-67,70-73,81,85-87,189
+ultragraphdb_transactions/ultragraphdb_transactions_txn/tests/types/prepared/prepared_tests.rs
+  s_e7d9aa044e41ea::t_3b1225e2656b60 60-61,146-219
+ultragraphdb_transactions/ultragraphdb_transactions_txn/tests/types/txn_limits/txn_limits_tests.rs
+  s_e7d9aa044e41ea::t_f69a7ddf840198 8,12-13,18-19,38
+Cargo.lock
+  s_e7d9aa044e41ea::t_e41e5817a2e5bc 2985-2986
+Cargo.toml
+  s_e7d9aa044e41ea::t_a28147443d6b1a 117,119
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/mod.rs
+  s_e7d9aa044e41ea::t_ad6ee205dfd177 429,431-435
+ultragraphdb_client/ultragraphdb_client_core/src/utils_test/test_server/test_server_commit.rs
+  s_e7d9aa044e41ea::t_1556c0a64c21ad 6,64-101
+ultragraphdb_client/ultragraphdb_client_core/src/utils_test/test_server/test_server_requests.rs
+  s_e7d9aa044e41ea::t_f851e94397f59f 9-11,112-116
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_applier/mod.rs
+  s_e7d9aa044e41ea::t_e9f0ec2ad776d3 20-21,118-119,127,129,334-337,342,345,347
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_replay.rs
+  s_e7d9aa044e41ea::t_d8a44c690a96ce 24,112,116,124
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/mod.rs
+  s_e7d9aa044e41ea::t_a2819d0d0f2853 28,267,269,314-315
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_write/changeset_write_operation.rs
+  s_e7d9aa044e41ea::t_f5edd56ed7e7b3 86,199,206,234-236
+ultragraphdb_store/ultragraphdb_store_apply/src/types/executed/mod.rs
+  s_e7d9aa044e41ea::t_d9fde38b9d97f0 14,39-41,85,90,126-128
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_rebuild_tests.rs
+  s_e7d9aa044e41ea::t_64354f90bd8f9d 564-569,598-603
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_replay_tests.rs
+  s_e7d9aa044e41ea::t_882a1605ca9ed3 185-188,191-193,328-333
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/errors/commit_error/commit_error_display.rs
+  s_e7d9aa044e41ea::t_f9fa2ced0b6c7e 47-55
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/errors/commit_error/mod.rs
+  s_e7d9aa044e41ea::t_6103353fe4ee93 10,42-47,110-119,151-152,158-159,167-168,173,180
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/commit_step/mod.rs
+  s_e7d9aa044e41ea::t_85df97250e1d47 26,30,44-47,193-195,248,258-259,278-279,305-321
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/sessions/mod.rs
+  s_e7d9aa044e41ea::t_67fe26d8eef5ae 15-16,24,27-28,77-79,83-85,90,98-100,114-133,157,163-165,171-172,212,222-223,230
+ultragraphdb_transactions/ultragraphdb_transactions_commit/src/types/sessions/sessions_store.rs
+  s_e7d9aa044e41ea::t_7283d75589279f 58,64,92
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/bdd.rs
+  s_e7d9aa044e41ea::t_c49d4166d2a202 518,521-524,696,1486-1942
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_operations_tests.rs
+  s_e7d9aa044e41ea::t_a95aa29db3718c 361-369,381,402
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_session_tests.rs
+  s_e7d9aa044e41ea::t_d5fe2e479d0d6e 36-43,67-74,198-205,212-219,254-261,275-282
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/commit_step/commit_step_store_tests.rs
+  s_e7d9aa044e41ea::t_d427ce7251bd33 258,261-264
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/session_entry/session_entry_tests.rs
+  s_e7d9aa044e41ea::t_ae79c6926176d8 6-7,17,38,42,52-55,57-62,82,88,91,94,97,100,103-104,108
+ultragraphdb_transactions/ultragraphdb_transactions_commit/tests/types/sessions/sessions_tests.rs
+  s_e7d9aa044e41ea::t_9958b8ce6b35ad 13,17-20,28,33,36,41,47-52,54,58,62-64,93-94,98-99,108,112,116,122-123,127,161,172,187,230-233,246-309
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/superblock/mod.rs
+  s_e7d9aa044e41ea::t_1e610e4622fd74 15,18,26,33-35,46,52,60,69,74,85,98-99,121,150-154
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/wal/wal_ordered_log.rs
+  s_e7d9aa044e41ea::t_f2f015c854825f 96-101,188-192,203,208-212
+ultragraphdb_transactions/ultragraphdb_transactions_log/src/types/wal/wal_write.rs
+  s_e7d9aa044e41ea::t_64b1c305015748 39-46,71
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/superblock/superblock_io_tests.rs
+  s_e7d9aa044e41ea::t_59d8a7ec1fdb77 24
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/superblock/superblock_tests.rs
+  s_e7d9aa044e41ea::t_73a1dc92a501f5 16,21,23-31,47,60,66,73,77,79,88,91,111,115-120,126-127,129-130,137
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/wal/wal_ordered_log_tests.rs
+  s_e7d9aa044e41ea::t_c7c281e9d1028f 178,216,359,383,386,427,438,448,450-452,461,532,560,591-611
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils/frame_tests.rs
+  s_e7d9aa044e41ea::t_822e2251db04e7 21,59,70,81,88-94,108-110,114-178
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/types/transaction/mod.rs
+  s_e7d9aa044e41ea::t_42bcf6d2ae51f1 50,95,99-108,221,227
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/types/txn_limits/mod.rs
+  s_e7d9aa044e41ea::t_11667cad33f228 8,11-14,23,42
+ultragraphdb_transactions/ultragraphdb_transactions_txn/src/types/write_set_builder/mod.rs
+  s_e7d9aa044e41ea::t_4fdcf70076174a 8,30-31,45,56,70-74,140,147-152,307
+ultragraphdb_transactions/ultragraphdb_transactions_txn/tests/types/write_set_builder/write_set_builder_tests.rs
+  s_e7d9aa044e41ea::t_c409def518dc91 148-151,444-499
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6adb2591d30d29d0ed42b67f6ffc81e0129319ee",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
