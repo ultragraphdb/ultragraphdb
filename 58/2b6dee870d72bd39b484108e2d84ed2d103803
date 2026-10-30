@@ -1,0 +1,35 @@
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  s_e7d9aa044e41ea::t_af44661020a504 627-675
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_e7d9aa044e41ea::t_0d27da8a93af61 139-140
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/client_handshake/mod.rs
+  s_e7d9aa044e41ea::t_bba795c0f6e408 40-43,47-52
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/server_handshake/mod.rs
+  s_e7d9aa044e41ea::t_e60e9422927540 43-44,57-61
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/client_handshake/client_handshake_tests.rs
+  s_e7d9aa044e41ea::t_fbd8ed38d429a5 15,17-20,25,70,77,102-116
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/outbound/outbound_tests.rs
+  s_e7d9aa044e41ea::t_9f949fec4949da 322-334
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_connection/server_connection_tests.rs
+  s_e7d9aa044e41ea::t_d481837eca4453 776-810
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/server_handshake/server_handshake_tests.rs
+  s_e7d9aa044e41ea::t_694b4cc4bdae8c 11-12,79-83,103-139
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/types/connection/connection_tests.rs
+  s_e7d9aa044e41ea::t_e33a195de05bc2 50-55,265,287,304,354-420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "582b6dee870d72bd39b484108e2d84ed2d103803",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
