@@ -182,10 +182,15 @@ fn test_a_replayed_drop_drops_its_predicate_at_its_version() {
     let p = uid(&original, "p");
     let version = next_version(&original);
     let drop = original
-        .prepare_drop_predicate(NS, ex("p").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
+        )
         .unwrap();
     original.apply_round(vec![(version, drop)]).unwrap();
-    let replayed = replica.prepare_replayed_drop(NS, p).unwrap();
+    let replayed = replica
+        .prepare_replayed_drop(NS, ultragraphdb_store_apply::DropTarget::Predicate(p))
+        .unwrap();
     assert!(replayed.is_drop());
     replica.apply_round(vec![(version, replayed)]).unwrap();
     replica.forget_catalogs();
@@ -320,7 +325,12 @@ fn test_an_end_whose_predicate_is_gone_is_not_restored() {
     let end = a.take_build_end().unwrap();
     let entry = a.prepare_build_end(end).unwrap().writes().entries()[0].clone();
     let version = next_version(&a);
-    let dropping = a.prepare_drop_predicate(NS, ex("name").as_ref()).unwrap();
+    let dropping = a
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("name").as_ref()),
+        )
+        .unwrap();
     a.apply_round(vec![(version, dropping)]).unwrap();
     let store = a.quads().store().clone();
     drop(a);

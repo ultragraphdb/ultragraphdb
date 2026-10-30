@@ -3,12 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_apply::{ChangesetApplier, Executed};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_log::{OrderedLog, Position};
 use ultragraphdb_traits_store::{Executor, ListCache, Store};
 use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
 
+use crate::errors::commit_error::CommitError;
 use crate::errors::pipeline_error::PipelineError;
 use crate::types::applier_operator::ApplierOperator;
 use crate::types::commit_request::CommitRequest;
@@ -124,14 +126,34 @@ where
         self.run(Input::Commit(CommitRequest::new(ticket, prepared)), now_us)
     }
 
-    /// Hands a session registration to the commit step under `ticket` at `now_us`; it is answered with the session's
-    /// number once its round is applied.
+    /// Hands a session registration for `principal`, its owner, to the commit step under `ticket` at `now_us`; it is
+    /// answered with the session's number once its round is applied.
     ///
     /// # Errors
     ///
     /// [`PipelineError::Log`] when the log refuses the round, which stops the pipeline.
-    pub fn register(&mut self, ticket: u64, now_us: u64) -> Result<(), PipelineError> {
-        self.run(Input::Register(ticket), now_us)
+    pub fn register(
+        &mut self,
+        ticket: u64,
+        principal: u64,
+        now_us: u64,
+    ) -> Result<(), PipelineError> {
+        self.run(Input::Register { ticket, principal }, now_us)
+    }
+
+    /// A retry of `request` of `session` by `principal` with no transaction open for it, answered from the session
+    /// table ([`CommitStep::retry`]): the stored commit version and results.
+    ///
+    /// # Errors
+    ///
+    /// As [`Sessions::retry`] refuses.
+    pub fn retry(
+        &self,
+        session: u64,
+        request: u64,
+        principal: u64,
+    ) -> Result<(u64, Vec<OperationResult>), CommitError> {
+        self.step().retry(session, request, principal)
     }
 
     /// Syncs the round appended and not yet synced, if any, at `now_us`: once durable, it is applied and its replies

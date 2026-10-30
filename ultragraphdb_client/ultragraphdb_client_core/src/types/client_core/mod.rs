@@ -426,9 +426,13 @@ impl<L: Login> ClientCore<L> {
         let Some((session, request)) = self.pending.get(&id).and_then(PendingState::commit) else {
             return;
         };
+        let drop = self.pending.get(&id).and_then(|p| p.drop.clone());
         let sent = self.open_stream().and_then(|stream| {
-            self.frame(&Commit::new(session, request, 0, Vec::new()), stream)
-                .map(|frame| (stream, frame))
+            match &drop {
+                Some(command) => self.frame(command, stream),
+                None => self.frame(&Commit::new(session, request, 0, Vec::new()), stream),
+            }
+            .map(|frame| (stream, frame))
         });
         let Some(pending) = self.pending.get_mut(&id) else {
             return;

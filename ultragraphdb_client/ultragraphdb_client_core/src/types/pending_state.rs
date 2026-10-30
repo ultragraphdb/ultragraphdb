@@ -5,6 +5,8 @@
 
 use std::time::Instant;
 
+use ultragraphdb_protocol_wire::DropCommand;
+
 use crate::errors::client_error::ClientError;
 use crate::types::reply::Reply;
 
@@ -14,13 +16,14 @@ pub(crate) enum Expect {
     Register,
     Begin,
     Commit { session: u64, request: u64 },
+    Drop { session: u64, request: u64 },
     Prepare,
     Describe,
 }
 
 /// A request in flight: its stream, `None` while a commit waits to be sent again; what it waits for; its answer once
 /// arrived; for a commit, the times it was lost or answered busy, when it is sent again after a busy answer, and
-/// whether it was sent again, on a stream of its own, through its session.
+/// whether it was sent again, on a stream of its own, through its session; for a drop, the Drop it sends again.
 #[derive(Debug)]
 pub(crate) struct PendingState {
     pub stream: Option<u64>,
@@ -29,6 +32,7 @@ pub(crate) struct PendingState {
     pub tries: u32,
     pub resend_at: Option<Instant>,
     pub retried: bool,
+    pub drop: Option<DropCommand>,
 }
 
 impl PendingState {
@@ -40,13 +44,16 @@ impl PendingState {
             tries: 0,
             resend_at: None,
             retried: false,
+            drop: None,
         }
     }
 
-    /// The session and request of a commit.
+    /// The session and request of a commit or a drop, each retried through its session.
     pub(crate) fn commit(&self) -> Option<(u64, u64)> {
         match self.expect {
-            Expect::Commit { session, request } => Some((session, request)),
+            Expect::Commit { session, request } | Expect::Drop { session, request } => {
+                Some((session, request))
+            }
             _ => None,
         }
     }

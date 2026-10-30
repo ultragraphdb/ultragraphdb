@@ -175,7 +175,7 @@ fn test_an_append_past_the_capacity_is_busy_until_a_checkpoint_trims() {
     let before = storage.trace().len();
     assert_eq!(append(&mut wal, 9, ONE_BLOCK), Err(LogError::Busy(2)));
     assert_eq!(storage.trace().len(), before);
-    block_on(wal.trim_through(Position::new(4))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(4), 0)).expect("trimmed");
     assert_eq!(append(&mut wal, 9, ONE_BLOCK), Ok(Position::new(9)));
     assert_eq!(block_on(wal.sync()), Ok(Position::new(9)));
 }
@@ -213,7 +213,7 @@ fn test_a_failed_write_or_sync_poisons_the_log() {
             Err(LogError::Poisoned())
         );
         assert_eq!(
-            block_on(wal.trim_through(Position::ZERO)),
+            block_on(wal.trim_through(Position::ZERO, 0)),
             Err(LogError::Poisoned())
         );
         assert_eq!(wal.seal(), Err(LogError::Poisoned()));
@@ -356,6 +356,7 @@ fn test_read_refuses_a_valid_frame_that_is_not_the_round_logged_there() {
     let other = body(99, ONE_BLOCK);
     let (frame, _) = encode_round(
         CLUSTER,
+        0,
         1,
         &RoundRef::new(Position::new(2), checksums[0], 4, 1, &other),
     )
@@ -379,10 +380,10 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() {
     let (storage, mut wal) = fresh();
     let checksums = append_synced(&mut wal, 1, 10, ONE_BLOCK);
     assert_eq!(
-        block_on(wal.trim_through(Position::new(11))),
+        block_on(wal.trim_through(Position::new(11), 0)),
         Err(LogError::PositionMismatch(10, 11))
     );
-    block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
     assert_eq!(wal.checkpoint(), Position::new(8));
     // Segments 0 and 1 hold rounds 1 to 8; segment 2 holds 9 and 10.
     assert_eq!(storage.contents(&segment(0)), None);
@@ -423,7 +424,7 @@ fn test_a_failed_trim_poisons_the_log() {
         let (storage, mut wal) = fresh();
         append_synced(&mut wal, 1, 6, ONE_BLOCK);
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
-        let error = block_on(wal.trim_through(Position::new(5))).expect_err("faulted");
+        let error = block_on(wal.trim_through(Position::new(5), 0)).expect_err("faulted");
         assert!(
             matches!(error.0, LogErrorEnum::Io { .. }),
             "step {step}: {error:?}"
@@ -434,7 +435,7 @@ fn test_a_failed_trim_poisons_the_log() {
             "step {step}"
         );
         assert_eq!(
-            block_on(wal.trim_through(Position::new(6))),
+            block_on(wal.trim_through(Position::new(6), 0)),
             Err(LogError::Poisoned())
         );
     }
@@ -444,11 +445,11 @@ fn test_a_failed_trim_poisons_the_log() {
 fn test_trim_through_at_or_below_the_checkpoint_changes_nothing() {
     let (storage, mut wal) = fresh();
     append_synced(&mut wal, 1, 6, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(5))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(5), 0)).expect("trimmed");
     let before = storage.trace().len();
-    block_on(wal.trim_through(Position::new(5))).expect("no change");
-    block_on(wal.trim_through(Position::new(2))).expect("no change");
-    block_on(wal.trim_through(Position::ZERO)).expect("no change");
+    block_on(wal.trim_through(Position::new(5), 0)).expect("no change");
+    block_on(wal.trim_through(Position::new(2), 0)).expect("no change");
+    block_on(wal.trim_through(Position::ZERO, 0)).expect("no change");
     assert_eq!(storage.trace().len(), before);
     assert_eq!(wal.checkpoint(), Position::new(5));
 }
@@ -457,7 +458,7 @@ fn test_trim_through_at_or_below_the_checkpoint_changes_nothing() {
 fn test_trim_through_keeps_the_segment_the_next_round_goes_to() {
     let (storage, mut wal) = fresh();
     append_synced(&mut wal, 1, 4, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(4))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(4), 0)).expect("trimmed");
     assert!(storage.contents(&segment(0)).is_some());
     append_synced(&mut wal, 5, 5, ONE_BLOCK);
     assert_eq!(wal.committed(), Position::new(5));
@@ -528,7 +529,7 @@ fn test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares() {
     append_synced(&mut wal, 1, 12, ONE_BLOCK);
     let before = storage.trace().len();
     // Rounds 1 to 8 fill segments 0 and 1; the checkpoint at 8 trims both.
-    block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
     // After the superblock's five steps: each segment zeroed whole, synced, renamed; then the directory synced.
     assert_eq!(
         storage.trace()[before + 5..],
@@ -556,7 +557,7 @@ fn test_a_checkpoint_zeroes_its_trimmed_segments_and_renames_them_spares() {
 fn test_a_new_segment_takes_a_spare_and_allocates_nothing() {
     let (storage, mut wal) = fresh();
     append_synced(&mut wal, 1, 12, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
     let before = storage.trace().len();
     append_synced(&mut wal, 13, 13, ONE_BLOCK);
     // The lowest spare renamed as segment 3 and its entry made durable before the round's one write and one sync;
@@ -586,4 +587,25 @@ fn test_a_new_segment_takes_a_spare_and_allocates_nothing() {
         storage.trace()[before..].contains(&(StorageOperation::Create, segment(5))),
         "no spare is left"
     );
+}
+
+/// A checkpoint records the last commit version it covers beside its position, durably: the log reopened reads it
+/// back, and a trim at or below the checkpoint changes neither.
+#[test]
+fn test_a_checkpoint_records_the_version_it_covers() {
+    let (storage, mut wal) = fresh();
+    assert_eq!(wal.checkpoint_version(), 0, "before the first checkpoint");
+    append_synced(&mut wal, 1, 3, ONE_BLOCK);
+    block_on(wal.trim_through(Position::new(2), 40)).expect("trimmed");
+    assert_eq!(wal.checkpoint_version(), 40);
+    block_on(wal.trim_through(Position::new(1), 99)).expect("no change");
+    assert_eq!(
+        wal.checkpoint_version(),
+        40,
+        "a trim below the checkpoint changes nothing"
+    );
+    drop(wal);
+    let (wal, _) = open(&storage).expect("reopened");
+    assert_eq!(wal.checkpoint_version(), 40);
+    assert_eq!(wal.checkpoint(), Position::new(2));
 }

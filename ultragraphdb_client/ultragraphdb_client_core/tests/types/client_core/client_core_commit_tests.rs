@@ -324,3 +324,112 @@ fn test_a_first_commit_refused_as_evicted_is_refused_and_forgets_the_session() {
     ));
     assert_eq!(h.core.next_request(s), None);
 }
+
+/// A drop through a session is answered with its commit version, and the session's next request is one higher.
+#[test]
+fn test_a_drop_through_a_session_is_answered_with_its_commit_version() {
+    use ultragraphdb_protocol_wire::DropCommand;
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    let p = h
+        .core
+        .drop_command(DropCommand::graph(0, "http://ex.org/g"), s, h.now)
+        .unwrap();
+    let Ok(Reply::Dropped(dropped)) = h.settle(p) else {
+        panic!("dropped")
+    };
+    assert_eq!((dropped.version(), dropped.request()), (1_000, 1));
+    assert!(dropped.results().is_empty());
+    assert_eq!(h.core.next_request(s), Some(2));
+    assert_eq!(h.server.applied(), 1);
+}
+
+/// A Drop whose reply is lost is sent again through its session, the same Drop with the same request, on the next
+/// connection, and applied once (`PROTOCOL.md` §11.5).
+#[test]
+fn test_a_lost_drop_reply_is_retried_through_the_session_and_applied_once() {
+    use ultragraphdb_protocol_wire::{BodyView, DropCommandView};
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    h.server.drop_after_next_commit();
+    let p = h
+        .core
+        .drop_command(
+            ultragraphdb_protocol_wire::DropCommand::namespace_data(3),
+            s,
+            h.now,
+        )
+        .unwrap();
+    let Ok(Reply::Dropped(dropped)) = h.settle(p) else {
+        panic!("dropped through the retry")
+    };
+    assert_eq!(dropped.request(), 1);
+    assert_eq!(h.server.applied(), 1, "applied once");
+    assert_eq!(h.connections, 2);
+    let drops: Vec<(u64, u64, u64)> = h
+        .server
+        .received()
+        .iter()
+        .filter_map(|f| {
+            let view = FrameView::validate_client(f, CLUSTER, MAX_FRAME_SIZE).ok()?;
+            let drop = DropCommandView::from_frame(&view).ok()?;
+            Some((drop.namespace(), drop.session(), drop.request()))
+        })
+        .collect();
+    assert_eq!(drops, vec![(3, 9, 1), (3, 9, 1)], "the same Drop, retried");
+}
+
+/// A drop is its session's commit in flight: the session takes no other until it is answered.
+#[test]
+fn test_a_drop_in_flight_keeps_its_session_busy() {
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    let tx = begin(&mut h);
+    let p = h
+        .core
+        .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
+        .unwrap();
+    assert_eq!(
+        h.core.commit(tx, s, h.now).unwrap_err().0,
+        ClientErrorEnum::SessionBusy { session: 9 }
+    );
+    assert_eq!(
+        h.core
+            .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
+            .unwrap_err()
+            .0,
+        ClientErrorEnum::SessionBusy { session: 9 }
+    );
+    assert!(matches!(h.settle(p), Ok(Reply::Dropped(_))));
+}
+
+/// A Drop's reply naming another request than the one sent is no answer of it.
+#[test]
+fn test_a_drop_reply_of_another_request_is_a_mismatch() {
+    use ultragraphdb_protocol_wire::{BodyBuilder, Command, DropCommand, FLAG_LAST, Header};
+    let mut h = Harness::ready(server());
+    let s = session(&mut h);
+    let p = h.core.drop_command(DropCommand::all(), s, h.now).unwrap();
+    while h.core.transmit().is_some() {}
+    // The session's registration took stream 1; the drop takes stream 2.
+    let stream = 2;
+    let reply = DropCommand::all()
+        .with_session(9, 2)
+        .with_commit_version(77)
+        .frame(
+            Header::new(CLUSTER, Command::Drop)
+                .with_stream(stream)
+                .with_flags(FLAG_LAST),
+        )
+        .unwrap();
+    let reply = h.numbered(&reply);
+    h.deliver(&reply).unwrap();
+    assert_eq!(
+        h.core.take_reply(p).unwrap().unwrap_err().0,
+        ClientErrorEnum::ReplyMismatch {
+            field: "request",
+            expected: 1,
+            found: 2
+        }
+    );
+}

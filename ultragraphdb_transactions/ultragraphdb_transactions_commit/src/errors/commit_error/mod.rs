@@ -7,7 +7,7 @@ mod commit_error_display;
 mod commit_error_error;
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode};
+use ultragraphdb_protocol_wire::{Action, ConflictKind, ErrorCode};
 
 /// Why the commit step did not commit a transaction: the reason its reply names and its Round decision records.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +39,12 @@ pub enum CommitErrorEnum {
     RequestOutOfOrder { expected: u64 },
     /// The session already has a commit in flight; its reply comes first.
     SessionBusy { session: u64 },
+    /// A retry of `request`, with no transaction open for it, that the session table does not hold: the request was not
+    /// committed, and the client runs its transaction again. Retryable.
+    NotCommitted { request: u64 },
+    /// Session `session` belongs to another principal: only the principal that registered it commits through it or
+    /// reads its stored reply.
+    PermissionDenied { session: u64 },
     /// A commit-time compare-and-set whose expected value was not held, or a counter add that could not add: the whole
     /// transaction is refused and wrote nothing; `found` is the value held, an N-Triples term, `None` when none is.
     OperationFailed { found: Option<String> },
@@ -102,6 +108,16 @@ impl CommitError {
     }
 
     #[allow(non_snake_case)]
+    pub fn NotCommitted(request: u64) -> Self {
+        Self(CommitErrorEnum::NotCommitted { request })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn PermissionDenied(session: u64) -> Self {
+        Self(CommitErrorEnum::PermissionDenied { session })
+    }
+
+    #[allow(non_snake_case)]
     pub fn OperationFailed(found: Option<String>) -> Self {
         Self(CommitErrorEnum::OperationFailed { found })
     }
@@ -132,13 +148,15 @@ impl CommitError {
             CommitErrorEnum::SessionEvicted { .. } => ErrorCode::SessionEvicted,
             CommitErrorEnum::RequestOutOfOrder { .. } => ErrorCode::RequestOutOfOrder,
             CommitErrorEnum::SessionBusy { .. } => ErrorCode::SessionBusy,
+            CommitErrorEnum::NotCommitted { .. } => ErrorCode::NotCommitted,
+            CommitErrorEnum::PermissionDenied { .. } => ErrorCode::PermissionDenied,
             CommitErrorEnum::OperationFailed { .. } => ErrorCode::OperationFailed,
             CommitErrorEnum::Refused { .. } => ErrorCode::Refused,
         }
     }
 
-    /// The code's detail: the conflict's kind, the too-large limit in bytes, the session evicted or busy, or the
-    /// request number expected; zero otherwise.
+    /// The code's detail: the conflict's kind, the too-large limit in bytes, the session evicted or busy, the request
+    /// number expected or not committed, the action denied, write; zero otherwise.
     pub fn detail(&self) -> u64 {
         match self.0 {
             CommitErrorEnum::Conflict { kind } => kind.number(),
@@ -146,17 +164,20 @@ impl CommitError {
             CommitErrorEnum::SessionEvicted { session }
             | CommitErrorEnum::SessionBusy { session } => session,
             CommitErrorEnum::RequestOutOfOrder { expected } => expected,
+            CommitErrorEnum::NotCommitted { request } => request,
+            CommitErrorEnum::PermissionDenied { .. } => Action::Write.number(),
             _ => 0,
         }
     }
 
-    /// Whether a retry of the transaction may commit: a conflict, too old and busy are.
+    /// Whether a retry of the transaction may commit: a conflict, too old, busy and not committed are.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self.0,
             CommitErrorEnum::Conflict { .. }
                 | CommitErrorEnum::TooOld { .. }
                 | CommitErrorEnum::Busy { .. }
+                | CommitErrorEnum::NotCommitted { .. }
         )
     }
 }

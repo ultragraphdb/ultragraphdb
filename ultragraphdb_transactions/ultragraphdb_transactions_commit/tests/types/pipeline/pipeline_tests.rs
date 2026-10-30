@@ -294,7 +294,7 @@ fn test_the_session_table_survives_a_restart_with_the_store() {
     setup(&applier, vec![insert("a", "knows", "b")]);
     let (_, log) = wal();
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
-    pipe.register(1, 0).unwrap();
+    pipe.register(1, 0, 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
     assert_eq!(

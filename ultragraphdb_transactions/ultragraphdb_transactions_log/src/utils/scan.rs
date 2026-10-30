@@ -56,6 +56,10 @@ fn frame_at(bytes: &[u8], offset: usize, cluster: u64) -> Found {
     match verified {
         Ok((view, header)) if header.command() == Command::Round => {
             let fields = RoundHeader::decode(view.command_header());
+            // A Round frame is numbered by its round's position: a header saying otherwise is no round of the log.
+            if header.sequence() != u128::from(fields.position()) {
+                return Found::NotARound;
+            }
             Found::Frame {
                 round: ScannedRound::new(
                     Position::new(fields.position()),

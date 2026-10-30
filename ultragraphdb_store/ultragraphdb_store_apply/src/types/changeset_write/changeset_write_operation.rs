@@ -83,7 +83,7 @@ where
                 delta,
             } => self
                 .counter_add(graph.as_ref(), subject.as_ref(), predicate.as_ref(), *delta)
-                .map(|()| (0, false)),
+                .map(|value| (value as u64, false)),
         }
     }
 
@@ -196,14 +196,14 @@ where
         }
     }
 
-    /// `delta` added to `subject`'s integer value of `predicate`, 0 when it holds none.
+    /// `delta` added to `subject`'s integer value of `predicate`, 0 when it holds none: the counter's new value.
     fn counter_add(
         &mut self,
         graph: GraphNameRef<'_>,
         subject: NamedOrBlankNodeRef<'_>,
         predicate: NamedNodeRef<'_>,
         delta: i64,
-    ) -> Result<(), ChangesetError> {
+    ) -> Result<i64, ChangesetError> {
         let (g, s, p) = (
             self.graph(graph)?,
             self.node(subject)?,
@@ -231,8 +231,9 @@ where
             let declaration = self.behaviour(p, predicate);
             self.remove(g, s, p, &declaration, object)?;
         }
-        let sum = Literal::from(sum);
-        self.insert(graph, subject, predicate, sum.as_ref().into())
+        let held = Literal::from(sum);
+        self.insert(graph, subject, predicate, held.as_ref().into())?;
+        Ok(sum)
     }
 }
 

@@ -169,7 +169,7 @@ fn reused_segment(w: &mut Steps) {
         for position in 1..=count {
             let data = body(position + incarnation * 100, ONE_BLOCK);
             let round = RoundRef::new(Position::new(position), parent, 2 * position, 1, &data);
-            let (frame, checksum) = encode_round(CLUSTER, incarnation, &round).expect("encoded");
+            let (frame, checksum) = encode_round(CLUSTER, 0, incarnation, &round).expect("encoded");
             bytes.extend_from_slice(frame.as_slice());
             parent = checksum;
         }
@@ -185,7 +185,7 @@ fn reused_segment(w: &mut Steps) {
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(3, CLUSTER, 2, Position::ZERO, 0, 0).encode(),
+            &Superblock::new(3, CLUSTER, 2, Position::ZERO, 0, 0, 0).encode(),
         )
         .expect("put");
     let (mut wal, recovery) = open(&storage).expect("opened");
@@ -292,7 +292,7 @@ fn corrupt_copy(w: &mut Steps) {
     let storage = SimStorage::new(1);
     let (mut wal, _) = open(&storage).expect("opened");
     append_synced(&mut wal, 1, 6, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(2))).expect("both copies written");
+    block_on(wal.trim_through(Position::new(2), 0)).expect("both copies written");
     drop(wal);
     storage
         .corrupt(&superblock('a'), 30, 0x01)
@@ -327,7 +327,7 @@ fn four_segments_checkpoint(w: &mut Steps) {
     let (mut wal, _) = open(&storage).expect("opened");
     // Four one-block rounds fill a segment: rounds 1 to 16 fill segments 0 to 3, round 12 ends the third.
     append_synced(&mut wal, 1, 16, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(12))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(12), 0)).expect("trimmed");
     drop(wal);
     let (mut wal, recovery) = open(&storage).expect("recovered");
     w.recoveries = vec![recovery];

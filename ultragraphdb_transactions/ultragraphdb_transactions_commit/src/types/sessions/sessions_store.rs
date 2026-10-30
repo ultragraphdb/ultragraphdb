@@ -55,12 +55,13 @@ impl Sessions {
                 ));
             }
             let session_entry = if entry.request() == 0 {
-                Session::registered(session)
+                Session::registered(session, entry.owner())
             } else {
                 Session {
                     last_request: entry.request(),
                     last_version: entry.version(),
                     touched: entry.version(),
+                    owner: entry.owner(),
                     results: entry.into_results(),
                     pending: false,
                 }
@@ -88,6 +89,7 @@ impl Sessions {
                 let value = SessionEntry::new(
                     entry.last_request,
                     entry.last_version,
+                    entry.owner,
                     entry.results.clone(),
                 );
                 out.push(VersionlessEntry::put(

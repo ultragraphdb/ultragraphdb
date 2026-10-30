@@ -53,7 +53,7 @@ fn test_a_fresh_log_writes_its_superblock_durably() {
     storage.power_loss();
     assert_eq!(
         block_on(Superblock::read(&storage, &dir())).expect("read"),
-        SuperblockRead::Present(Superblock::new(1, CLUSTER, 1, Position::ZERO, 0, 0))
+        SuperblockRead::Present(Superblock::new(1, CLUSTER, 1, Position::ZERO, 0, 0, 0))
     );
     // Opened again, the log is the same log: no second superblock is written.
     let before = storage.trace().len();
@@ -86,7 +86,7 @@ fn test_a_corrupt_superblock_copy_refuses_the_start_and_writes_nothing() {
         let storage = SimStorage::new(1);
         let (mut wal, _) = open(&storage).expect("opened");
         append_synced(&mut wal, 1, 6, ONE_BLOCK);
-        block_on(wal.trim_through(Position::new(2))).expect("copy b written");
+        block_on(wal.trim_through(Position::new(2), 0)).expect("copy b written");
         drop(wal);
         storage
             .corrupt(&superblock(copy), 20, 0x04)
@@ -106,7 +106,7 @@ fn test_a_superblock_of_another_cluster_diverges() {
     storage
         .put_file(
             &superblock('a'),
-            &Superblock::new(1, CLUSTER ^ 1, 1, Position::ZERO, 0, 0).encode(),
+            &Superblock::new(1, CLUSTER ^ 1, 1, Position::ZERO, 0, 0, 0).encode(),
         )
         .expect("put");
     assert_eq!(
@@ -142,7 +142,7 @@ fn test_open_finishes_an_interrupted_trim_and_sweeps_temporaries() {
     storage
         .put_file(
             &superblock('b'),
-            &Superblock::new(2, CLUSTER, 1, Position::new(8), checksums[7], 2).encode(),
+            &Superblock::new(2, CLUSTER, 1, Position::new(8), checksums[7], 0, 2).encode(),
         )
         .expect("put");
     storage
@@ -486,7 +486,7 @@ fn test_the_checkpoint_must_match_the_rounds() {
     storage
         .put_file(
             &superblock('b'),
-            &Superblock::new(2, CLUSTER, 1, Position::new(5), 0xBAD, 0).encode(),
+            &Superblock::new(2, CLUSTER, 1, Position::new(5), 0xBAD, 0, 0).encode(),
         )
         .expect("put");
     assert_eq!(
@@ -508,11 +508,16 @@ fn test_a_torn_round_below_the_checkpoint_leaves_the_log_at_the_checkpoint() {
     storage.fail_at(storage.trace().len() + 4, FaultMode::SilentTornWrite);
     assert_eq!(block_on(wal.sync()), Ok(Position::new(5)));
     checksums.push(wal.tail().1);
-    // The store synced through 5 and the checkpoint recorded it.
-    block_on(wal.trim_through(Position::new(5))).expect("trimmed");
+    // The store synced through 5 and the checkpoint recorded it, with the last commit version it covers.
+    block_on(wal.trim_through(Position::new(5), 50)).expect("trimmed");
     drop(wal);
     storage.power_loss();
     let (mut wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(
+        wal.checkpoint_version(),
+        50,
+        "the restart at the checkpoint keeps its version"
+    );
     assert_eq!(
         recovery.truncation().map(|t| t.position()),
         Some(Position::new(5))
@@ -523,6 +528,7 @@ fn test_a_torn_round_below_the_checkpoint_leaves_the_log_at_the_checkpoint() {
     append_synced(&mut wal, 6, 7, ONE_BLOCK);
     drop(wal);
     let (mut wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(wal.checkpoint_version(), 50);
     assert_eq!(recovery.truncation(), None);
     assert_eq!(recovery.committed(), Position::new(7));
     assert_eq!(
@@ -543,7 +549,7 @@ fn test_a_torn_round_at_the_checkpoint_after_rounds_below_it_leaves_the_log_at_t
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     assert_eq!(block_on(wal.sync()), Ok(Position::new(4)));
     let four = wal.tail().1;
-    block_on(wal.trim_through(Position::new(4))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(4), 0)).expect("trimmed");
     drop(wal);
     storage.power_loss();
     let (mut wal, recovery) = open(&storage).expect("reopened");
@@ -596,7 +602,7 @@ fn test_a_clean_restart_with_the_tail_in_a_recycled_segment_reports_no_truncatio
     let (mut wal, _) = open(&storage).expect("opened");
     // Two-block rounds, two to a segment: 1 and 2 in segment 0, 3 and 4 in 1, 5 and 6 in 2.
     append_synced(&mut wal, 1, 6, TWO_BLOCKS);
-    block_on(wal.trim_through(Position::new(4))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(4), 0)).expect("trimmed");
     // Round 7 takes segment 0's spare as segment 3: its second block held the middle of round 1's body.
     let checksums = append_synced(&mut wal, 7, 7, ONE_BLOCK);
     assert_eq!(storage.stable_contents(&spare(0)), None);
@@ -661,7 +667,7 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
     let steps = {
         let (storage, mut wal, _) = twelve();
         let before = storage.trace().len();
-        block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+        block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
         storage.trace().len() - before
     };
     // The superblock's five steps, then segments 0 and 1 each zeroed, synced and renamed, then the directory synced.
@@ -670,7 +676,7 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
             storage.fail_at(storage.trace().len() + step, FaultMode::After);
-            block_on(wal.trim_through(Position::new(8)))
+            block_on(wal.trim_through(Position::new(8), 0))
                 .expect_err("the step fails after its effect");
             drop(wal);
             if power {
@@ -695,7 +701,7 @@ fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
     for step in 0..5 {
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
-            block_on(wal.trim_through(Position::new(8))).expect("trimmed");
+            block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
             assert!(
                 storage.stable_contents(&spare(0)).is_some(),
                 "a spare to take"
@@ -759,7 +765,7 @@ fn test_a_torn_checkpoint_round_after_rounds_below_it_recycles_their_segment_at_
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
     assert_eq!(block_on(wal.sync()), Ok(Position::new(3)));
     let three = wal.tail().1;
-    block_on(wal.trim_through(Position::new(3))).expect("trimmed");
+    block_on(wal.trim_through(Position::new(3), 30)).expect("trimmed");
     assert!(
         storage.contents(&segment(0)).is_some(),
         "the next round's segment is kept"
@@ -773,6 +779,11 @@ fn test_a_torn_checkpoint_round_after_rounds_below_it_recycles_their_segment_at_
         Some(Position::new(3))
     );
     assert_eq!(wal.tail(), (Position::new(3), three));
+    assert_eq!(
+        wal.checkpoint_version(),
+        30,
+        "the restart at the checkpoint keeps its version"
+    );
     assert_eq!(storage.stable_contents(&segment(0)), None);
     assert_eq!(storage.stable_contents(&spare(0)), Some(vec![0u8; 16_384]));
     append_synced(&mut wal, 4, 4, ONE_BLOCK);
@@ -1004,7 +1015,7 @@ fn run_seed(seed: u64) -> (usize, usize) {
         match draws.next(10) {
             0 => {
                 let committed = log.committed();
-                if block_on(log.trim_through(committed)).is_err() {
+                if block_on(log.trim_through(committed, 0)).is_err() {
                     wal = None;
                 }
             }
@@ -1020,7 +1031,7 @@ fn run_seed(seed: u64) -> (usize, usize) {
                     Ok(_) => {}
                     Err(LogError(LogErrorEnum::Busy { .. })) => {
                         let committed = log.committed();
-                        if block_on(log.trim_through(committed)).is_err() {
+                        if block_on(log.trim_through(committed, 0)).is_err() {
                             wal = None;
                         }
                         storage.fail_randomly(0);

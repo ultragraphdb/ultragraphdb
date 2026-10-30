@@ -25,6 +25,7 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::build_end::BuildEnd;
 use crate::types::changeset_write::ChangesetWrite;
+use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
 use crate::types::predicate_prefix::PredicatePrefix;
@@ -263,9 +264,9 @@ where
             .filter(|(_, e)| e.dropped.is_none() && e.build_end.is_none())
             .map(|(v, e)| (*v, &e.writes))
             .collect();
-        let drops: Vec<(u64, u64, u64)> = round
+        let drops: Vec<(u64, u64, DropTarget)> = round
             .iter()
-            .filter_map(|(v, e)| e.dropped.map(|uid| (*v, e.namespace, uid)))
+            .filter_map(|(v, e)| e.dropped.map(|target| (*v, e.namespace, target)))
             .collect();
         // A build's end writes at its version once the batch is written, as a drop does.
         let ends: Vec<(u64, BuildEnd)> = round
@@ -310,8 +311,8 @@ where
             ));
         }
         self.drop_removed(&removals)?;
-        for &(version, namespace, uid) in &drops {
-            self.drop_predicate_uid(namespace, uid, Some(version))?;
+        for &(version, namespace, target) in &drops {
+            self.drop_at(namespace, target, version)?;
         }
         for &(version, end) in &ends {
             self.end_build(end, version)?;

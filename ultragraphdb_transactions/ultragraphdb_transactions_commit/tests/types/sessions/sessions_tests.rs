@@ -10,14 +10,14 @@ use ultragraphdb_traits_store::{PersistMode, Store, VersionlessEntry, WriteBatch
 use ultragraphdb_transactions_commit::{CommitError, SessionEntry, Sessions};
 
 #[test]
-fn test_a_table_holds_at_least_one_session_and_accounts_40_bytes_each() {
+fn test_a_table_holds_at_least_one_session_and_accounts_48_bytes_each() {
     let mut table = Sessions::new(0);
     assert_eq!(table.capacity(), 1);
     assert!(table.is_empty());
-    assert_eq!(table.register(10), None);
-    assert_eq!(table.bytes(), 40);
-    assert_eq!(table.register(12), Some(10));
-    assert_eq!((table.len(), table.bytes()), (1, 40));
+    assert_eq!(table.register(10, 0), None);
+    assert_eq!(table.bytes(), 48);
+    assert_eq!(table.register(12, 0), Some(10));
+    assert_eq!((table.len(), table.bytes()), (1, 48));
     assert_eq!(Sessions::new(Sessions::DEFAULT_CAPACITY).capacity(), 4_096);
 }
 
@@ -25,43 +25,43 @@ fn test_a_table_holds_at_least_one_session_and_accounts_40_bytes_each() {
 fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_flight_first() {
     let mut table = Sessions::new(3);
     for s in [10, 12, 14] {
-        table.register(s);
+        table.register(s, 0);
     }
     // 10 commits at 20, 14 at 22: 12 is the oldest.
     table.committed(10, 1, 20, Vec::new());
     table.committed(14, 1, 22, Vec::new());
-    assert_eq!(table.register(30), Some(12));
+    assert_eq!(table.register(30, 0), Some(12));
     // 10 is now the oldest, but has a commit in flight: 14 goes instead.
     table.begin(10);
-    assert_eq!(table.register(32), Some(14));
+    assert_eq!(table.register(32, 0), Some(14));
     assert_eq!(table.last(10), Some((1, 20)));
     // Every session in flight: the oldest goes.
     table.begin(30);
     table.begin(32);
-    assert_eq!(table.register(34), Some(10));
+    assert_eq!(table.register(34, 0), Some(10));
 }
 
 #[test]
 fn test_a_check_follows_the_lean_models_order() {
     let mut table = Sessions::new(4);
-    assert_eq!(table.check(0, 99), Ok(None), "no session");
-    assert_eq!(table.check(5, 1), Err(CommitError::SessionEvicted(5)));
-    table.register(5);
-    assert_eq!(table.check(5, 0), Err(CommitError::RequestOutOfOrder(1)));
-    assert_eq!(table.check(5, 1), Ok(None));
-    assert_eq!(table.check(5, 2), Err(CommitError::RequestOutOfOrder(1)));
+    assert_eq!(table.check(0, 99, 0), Ok(None), "no session");
+    assert_eq!(table.check(5, 1, 0), Err(CommitError::SessionEvicted(5)));
+    table.register(5, 0);
+    assert_eq!(table.check(5, 0, 0), Err(CommitError::RequestOutOfOrder(1)));
+    assert_eq!(table.check(5, 1, 0), Ok(None));
+    assert_eq!(table.check(5, 2, 0), Err(CommitError::RequestOutOfOrder(1)));
     table.begin(5);
-    assert_eq!(table.check(5, 1), Err(CommitError::SessionBusy(5)));
+    assert_eq!(table.check(5, 1, 0), Err(CommitError::SessionBusy(5)));
     let results = vec![OperationResult::new(9, true)];
     table.committed(5, 1, 40, results.clone());
     assert_eq!(
-        table.check(5, 1),
+        table.check(5, 1, 0),
         Ok(Some((40, results.as_slice()))),
         "the stored reply, its results with it"
     );
-    assert_eq!(table.bytes(), 56, "16 bytes a result");
-    assert_eq!(table.check(5, 2), Ok(None));
-    assert_eq!(table.check(5, 3), Err(CommitError::RequestOutOfOrder(2)));
+    assert_eq!(table.bytes(), 64, "16 bytes a result");
+    assert_eq!(table.check(5, 2, 0), Ok(None));
+    assert_eq!(table.check(5, 3, 0), Err(CommitError::RequestOutOfOrder(2)));
     // Unknown sessions take no state.
     table.begin(77);
     table.committed(77, 1, 50, Vec::new());
@@ -90,13 +90,13 @@ fn index(sessions: &[u64]) -> VersionlessEntry {
 fn test_the_table_hands_out_each_change_once_as_store_entries() {
     let mut table = Sessions::new(2);
     assert!(drained(&mut table).is_empty(), "nothing changed");
-    table.register(12);
-    table.register(10);
+    table.register(12, 0);
+    table.register(10, 0);
     assert_eq!(
         drained(&mut table),
         vec![
-            put(10, SessionEntry::new(0, 0, Vec::new())),
-            put(12, SessionEntry::new(0, 0, Vec::new())),
+            put(10, SessionEntry::new(0, 0, 0, Vec::new())),
+            put(12, SessionEntry::new(0, 0, 0, Vec::new())),
             index(&[10, 12]),
         ],
         "each session's entry in order, then the index"
@@ -105,26 +105,26 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
     table.committed(10, 1, 20, results.clone());
     assert_eq!(
         drained(&mut table),
-        vec![put(10, SessionEntry::new(1, 20, results.clone()))],
+        vec![put(10, SessionEntry::new(1, 20, 0, results.clone()))],
         "a commit leaves the index alone"
     );
     // 12 is the oldest: evicted, its entry removed.
-    assert_eq!(table.register(14), Some(12));
+    assert_eq!(table.register(14, 0), Some(12));
     assert_eq!(
         drained(&mut table),
         vec![
-            put(14, SessionEntry::new(0, 0, Vec::new())),
+            put(14, SessionEntry::new(0, 0, 0, Vec::new())),
             VersionlessEntry::removal(SessionEntry::key(12)),
             index(&[10, 14]),
         ]
     );
     // 16 registered and evicted before the entries are drained: removed only, never written.
-    assert_eq!(table.register(16), Some(14));
-    assert_eq!(table.register(18), Some(16));
+    assert_eq!(table.register(16, 0), Some(14));
+    assert_eq!(table.register(18, 0), Some(16));
     assert_eq!(
         drained(&mut table),
         vec![
-            put(18, SessionEntry::new(0, 0, Vec::new())),
+            put(18, SessionEntry::new(0, 0, 0, Vec::new())),
             VersionlessEntry::removal(SessionEntry::key(14)),
             VersionlessEntry::removal(SessionEntry::key(16)),
             index(&[10, 18]),
@@ -158,7 +158,7 @@ fn test_a_table_loads_as_its_entries_left_it() {
     let store = store();
     let mut table = Sessions::new(8);
     for s in [10, 12, 14] {
-        table.register(s);
+        table.register(s, 0);
     }
     let results = vec![
         OperationResult::new(5, true),
@@ -169,7 +169,7 @@ fn test_a_table_loads_as_its_entries_left_it() {
     write(&store, &drained(&mut table));
     let mut loaded = Sessions::load(&store).expect("the table loads");
     assert_eq!(loaded.len(), 3);
-    assert_eq!(loaded.check(10, 3), Ok(Some((30, results.as_slice()))));
+    assert_eq!(loaded.check(10, 3, 0), Ok(Some((30, results.as_slice()))));
     assert_eq!(loaded.last(12), Some((0, 0)));
     assert_eq!(loaded.last(14), Some((1, 22)));
     assert!(drained(&mut loaded).is_empty(), "loading changes nothing");
@@ -184,7 +184,7 @@ fn test_a_table_loads_as_its_entries_left_it() {
             index(&[10, 14])
         ]
     );
-    assert_eq!(bounded.register(40), Some(14));
+    assert_eq!(bounded.register(40, 0), Some(14));
 }
 
 /// The reason `store` is refused with, and the key it names.
@@ -227,7 +227,10 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
     let early = store();
     write(
         &early,
-        &[index(&[10]), put(10, SessionEntry::new(1, 10, Vec::new()))],
+        &[
+            index(&[10]),
+            put(10, SessionEntry::new(1, 10, 0, Vec::new())),
+        ],
     );
     assert!(refusal(&early).1.contains("registration"));
     let bad = store();
@@ -239,4 +242,68 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
         ],
     );
     assert_eq!(refusal(&bad).0, SessionEntry::key(10));
+}
+
+/// A session belongs to the principal that registered it: another's commit, or its retry, is refused before anything
+/// else is checked, and the owner's next request is served (`PROTOCOL.md` §11.5).
+#[test]
+fn test_a_session_serves_its_owner_alone() {
+    let mut table = Sessions::new(4);
+    table.register(5, 7);
+    assert_eq!(table.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
+    assert_eq!(table.retry(5, 1, 8), Err(CommitError::PermissionDenied(5)));
+    assert_eq!(table.check(5, 1, 7), Ok(None));
+    table.begin(5);
+    assert_eq!(
+        table.check(5, 1, 8),
+        Err(CommitError::PermissionDenied(5)),
+        "the owner is checked before the request in flight"
+    );
+    table.committed(5, 1, 30, Vec::new());
+    assert_eq!(
+        table.check(5, 1, 8),
+        Err(CommitError::PermissionDenied(5)),
+        "nor its stored reply"
+    );
+    assert_eq!(table.check(5, 2, 7), Ok(None));
+}
+
+/// A retry sent with no transaction open for it: the last committed request's stored reply, the next one not
+/// committed, any other out of order, busy while a request is in flight, evicted when the table holds no session.
+#[test]
+fn test_a_retry_is_answered_from_the_table() {
+    let results = vec![OperationResult::new(3, true)];
+    let mut table = Sessions::new(4);
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::SessionEvicted(5)));
+    table.register(5, 7);
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::NotCommitted(1)));
+    assert_eq!(table.retry(5, 0, 7), Err(CommitError::RequestOutOfOrder(1)));
+    table.begin(5);
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::SessionBusy(5)));
+    table.committed(5, 1, 30, results.clone());
+    assert_eq!(table.retry(5, 1, 7), Ok((30, results.as_slice())));
+    assert_eq!(table.retry(5, 2, 7), Err(CommitError::NotCommitted(2)));
+    assert_eq!(table.retry(5, 3, 7), Err(CommitError::RequestOutOfOrder(2)));
+    assert!(CommitError::NotCommitted(2).is_retryable());
+    assert_eq!(CommitError::NotCommitted(2).detail(), 2);
+    assert_eq!(
+        CommitError::PermissionDenied(5).detail(),
+        2,
+        "the action, write"
+    );
+    assert!(!CommitError::PermissionDenied(5).is_retryable());
+}
+
+/// The owner is durable: the entries drained carry it, and the table loaded back refuses another principal.
+#[test]
+fn test_the_owner_survives_a_reload() {
+    let store = store();
+    let mut table = Sessions::new(4);
+    table.register(5, 7);
+    let mut entries = Vec::new();
+    table.drain_entries(&mut entries);
+    write(&store, &entries);
+    let loaded = Sessions::load(&store).unwrap();
+    assert_eq!(loaded.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
+    assert_eq!(loaded.check(5, 1, 7), Ok(None));
 }

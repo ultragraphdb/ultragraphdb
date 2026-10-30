@@ -114,7 +114,8 @@ impl TestServer {
         self.transactions.clear();
     }
 
-    /// The next commit in a transaction is applied, and the connection dropped before its reply: a lost reply.
+    /// The next commit in a transaction, or the next Drop, is applied, and the connection dropped before its reply: a
+    /// lost reply.
     pub fn drop_after_next_commit(&mut self) {
         self.drop_after_commit = true;
     }

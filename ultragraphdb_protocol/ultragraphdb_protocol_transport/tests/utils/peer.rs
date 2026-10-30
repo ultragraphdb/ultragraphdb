@@ -50,10 +50,6 @@ impl Peer {
     pub fn skip(&mut self) {
         self.sequence += 1;
     }
-
-    pub fn framer_mut(&mut self) -> &mut Framer {
-        &mut self.framer
-    }
 }
 
 /// A point in time to start from. The connection never reads a clock; the tests move this value on themselves, so the

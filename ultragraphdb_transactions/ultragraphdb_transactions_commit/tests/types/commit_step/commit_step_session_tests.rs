@@ -33,7 +33,14 @@ fn sync(step: &mut Step, out: &mut Out) {
 fn registered() -> (Step, Out, u64) {
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
-    step.step(Input::Register(9), 0, &mut out);
+    step.step(
+        Input::Register {
+            ticket: 9,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
     assert!(out.replies().is_empty(), "answered once applied");
     assert_eq!(step.sessions().last(102), None, "held once applied");
     sync(&mut step, &mut out);
@@ -57,7 +64,14 @@ fn test_a_registration_takes_a_version_which_numbers_the_session_and_its_record_
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
     commit(&mut step, &mut out, 1, blind(0, 0, b"a"));
-    step.step(Input::Register(2), 0, &mut out);
+    step.step(
+        Input::Register {
+            ticket: 2,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
     commit(&mut step, &mut out, 3, blind(0, 0, b"b"));
     sync(&mut step, &mut out);
     let (record, body) = out.append().expect("the second round");
@@ -181,14 +195,28 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     let mut step = Step::new(unbounded(), 100).with_sessions(2);
     let mut out = Out::new();
     for ticket in 1..=2 {
-        step.step(Input::Register(ticket), 0, &mut out);
+        step.step(
+            Input::Register {
+                ticket,
+                principal: 0,
+            },
+            0,
+            &mut out,
+        );
         sync(&mut step, &mut out);
     }
     let (first, second) = (102, 104);
     // The first commits after the second registered, so the second is the oldest.
     commit(&mut step, &mut out, 3, blind(first, 1, b"a"));
     sync(&mut step, &mut out);
-    step.step(Input::Register(4), 0, &mut out);
+    step.step(
+        Input::Register {
+            ticket: 4,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(4, Ok(108))]);
     assert_eq!(step.sessions().len(), 2);
@@ -223,7 +251,14 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
     commit(&mut step, &mut out, 1, blind(0, 0, b"x"));
-    step.step(Input::Register(2), 0, &mut out);
+    step.step(
+        Input::Register {
+            ticket: 2,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
     commit(&mut step, &mut out, 3, blind(0, 0, b"y"));
     sync(&mut step, &mut out);
     step.step(Input::SyncFailed, 0, &mut out);
@@ -237,7 +272,14 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
     assert_eq!(released, vec![3]);
     assert!(step.sessions().is_empty());
-    step.step(Input::Register(4), 0, &mut out);
+    step.step(
+        Input::Register {
+            ticket: 4,
+            principal: 0,
+        },
+        0,
+        &mut out,
+    );
     assert_eq!(
         out.replies(),
         &[Reply::new(4, Err(CommitError::Unavailable()))]

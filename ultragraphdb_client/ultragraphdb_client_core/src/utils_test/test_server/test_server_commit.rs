@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_wire::{Commit, ErrorCode, FLAG_LAST, OperationResult};
+use ultragraphdb_protocol_wire::{Commit, DropCommand, ErrorCode, FLAG_LAST, OperationResult};
 
 use crate::utils_test::session_record::SessionRecord;
 use crate::utils_test::test_server::TestServer;
@@ -59,6 +59,44 @@ impl TestServer {
         }
         let reply = Commit::new(session, request, record.version, record.results);
         self.reply(stream, &reply, FLAG_LAST);
+    }
+
+    /// `command`, a Drop, on `stream`, answered from the session table as a commit is and applied as one, though it
+    /// needs no transaction: its reply the drop with its commit version. The drop removes nothing here: the server
+    /// holds no data.
+    pub(super) fn drop(&mut self, stream: u64, command: DropCommand) {
+        let (session, request) = (command.session(), command.request());
+        let Some(record) = self.sessions.get(&session).cloned() else {
+            return self.error(
+                stream,
+                ErrorCode::SessionEvicted,
+                session,
+                "no such session",
+            );
+        };
+        if request == record.last && request > 0 {
+            let reply = command.with_commit_version(record.version);
+            return self.reply(stream, &reply, FLAG_LAST);
+        }
+        if request != record.last + 1 {
+            return self.error(
+                stream,
+                ErrorCode::RequestOutOfOrder,
+                record.last + 1,
+                "out of order",
+            );
+        }
+        let record = self.apply(session, request, 0);
+        if self.drop_after_commit {
+            self.drop_after_commit = false;
+            self.dropped = true;
+            return;
+        }
+        self.reply(
+            stream,
+            &command.with_commit_version(record.version),
+            FLAG_LAST,
+        );
     }
 
     /// Request `request` of `session` applied with its `operations`, each answered with a UID it created.

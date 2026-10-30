@@ -40,6 +40,7 @@ pub struct WalConfig {
     round_bytes: u32,
     round_transactions: u32,
     checkpoint_bytes: u64,
+    release: u32,
 }
 
 impl WalConfig {
@@ -59,7 +60,14 @@ impl WalConfig {
             round_bytes,
             round_transactions,
             checkpoint_bytes,
+            release: 0,
         }
+    }
+
+    /// The log writing its rounds as `release` of the node, which each Round frame's header names: opaque, logged and
+    /// never compared (point 18).
+    pub fn with_release(self, release: u32) -> Self {
+        Self { release, ..self }
     }
 
     /// Segments of `blocks` blocks of 4,096 bytes; a round fits in one segment or is refused.
@@ -130,6 +138,11 @@ impl WalConfig {
 
     pub fn round_transactions(&self) -> u32 {
         self.round_transactions
+    }
+
+    /// The release each Round frame's header names; 0 by default.
+    pub fn release(&self) -> u32 {
+        self.release
     }
 
     pub fn checkpoint_bytes(&self) -> u64 {

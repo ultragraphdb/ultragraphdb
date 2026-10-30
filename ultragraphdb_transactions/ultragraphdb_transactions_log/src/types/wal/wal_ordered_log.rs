@@ -93,8 +93,12 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
                 round.parent(),
             ));
         }
-        let (frame, checksum) =
-            encode_round(self.config.cluster(), self.superblock.incarnation(), &round)?;
+        let (frame, checksum) = encode_round(
+            self.config.cluster(),
+            self.config.release(),
+            self.superblock.incarnation(),
+            &round,
+        )?;
         let size = self.config.segment_size();
         let padded_len = frame.len() as u64;
         if padded_len > size {
@@ -181,11 +185,11 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         Ok(rounds)
     }
 
-    /// Records `position` and its round's checksum as the checkpoint in the superblock, then removes every segment
-    /// whose rounds all lie at or below it, short of the segment the next round is written to. A position at or
-    /// below the checkpoint changes nothing; one past the committed position is [`LogError::PositionMismatch`]. A
-    /// failure poisons the log.
-    async fn trim_through(&mut self, position: Position) -> Result<(), LogError> {
+    /// Records `position`, its round's checksum and `version`, the last commit version it covers, as the checkpoint in
+    /// the superblock, then removes every segment whose rounds all lie at or below it, short of the segment the next
+    /// round is written to. A position at or below the checkpoint changes nothing; one past the committed position is
+    /// [`LogError::PositionMismatch`]. A failure poisons the log.
+    async fn trim_through(&mut self, position: Position, version: u64) -> Result<(), LogError> {
         self.refuse_if_poisoned()?;
         if position > self.committed.0 {
             return Err(LogError::PositionMismatch(
@@ -196,9 +200,14 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         if position <= self.checkpoint() {
             return Ok(());
         }
-        let result = self.checkpoint_at(position).await;
+        let result = self.checkpoint_at(position, version).await;
         self.poisoned = result.is_err();
         result
+    }
+
+    /// The checkpoint's last commit version, from the superblock.
+    fn checkpoint_version(&self) -> u64 {
+        self.superblock.checkpoint_version()
     }
 
     fn seal(&mut self) -> Result<Position, LogError> {

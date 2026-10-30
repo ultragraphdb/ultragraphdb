@@ -306,13 +306,23 @@ fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version()
     let a = crate::utils::changesets::changesets();
     crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
     let unknown = a
-        .prepare_drop_predicate(NS, crate::utils::changesets::ex("none").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(
+                crate::utils::changesets::ex("none").as_ref(),
+            ),
+        )
         .unwrap();
     assert!(!unknown.is_drop());
     assert!(unknown.drop_ranges().is_empty());
     let p = crate::utils::changesets::uid(&a, "p");
     let drop = a
-        .prepare_drop_predicate(NS, crate::utils::changesets::ex("p").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(
+                crate::utils::changesets::ex("p").as_ref(),
+            ),
+        )
         .unwrap();
     assert!(drop.is_drop());
     assert!(!drop.starts_build());
@@ -346,7 +356,12 @@ fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
         )]))
         .unwrap();
     let drop = a
-        .prepare_drop_predicate(NS, crate::utils::changesets::ex("p").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(
+                crate::utils::changesets::ex("p").as_ref(),
+            ),
+        )
         .unwrap();
     let system = [VersionlessEntry::put(
         b"\xffsession".to_vec(),
@@ -369,4 +384,281 @@ fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
     a.apply_round_with(Vec::new(), &system, before + 8).unwrap();
     assert_eq!(a.quads().lists().applied_ts(), before + 8);
     assert!(a.apply_round_with(Vec::new(), &system, before + 4).is_err());
+}
+
+/// The store a drop of each kind is tried on: statements in the default graph, in `g1` and in another namespace, and a
+/// declaration, so every kind leaves something and takes something.
+fn dropping_store() -> TestChangesets {
+    let a = changesets();
+    declare(&a, "name", "a property with `term`");
+    write(
+        &a,
+        &[
+            "<a> <name> \"big apple\"",
+            "<a> <friend> <b>",
+            "<a> <name> \"pear\" <g1>",
+            "<a> <friend> <c> <g1>",
+            // `rdf:type` has a UID, so a namespace dropped writes its initial catalog again.
+            "<a> rdf:type <Fruit>",
+        ],
+    );
+    a.apply(&ultragraphdb_core_mapping::Changeset::new(7).with(insert("<x> <friend> <y>")))
+        .unwrap();
+    a
+}
+
+/// What a drop of `request` decided in a round leaves: the store's keys, after the drop prepared for the commit step
+/// and applied at the round's next version.
+fn dropped_in_a_round(request: ultragraphdb_store_apply::DropRequest<'_>) -> Vec<Vec<u8>> {
+    let a = dropping_store();
+    let drop = a.prepare_drop(NS, request).unwrap();
+    assert!(drop.is_drop());
+    let version = a.quads().lists().applied_ts() + 2;
+    a.apply_round(vec![(version, drop)]).unwrap();
+    assert_eq!(a.quads().lists().applied_ts(), version);
+    stored_keys(&a)
+}
+
+/// A drop's name, its request decided in a round, and its immediate drop, the oracle.
+type DropCase<'a> = (&'a str, ultragraphdb_store_apply::DropRequest<'a>, fn(&TestChangesets));
+
+/// Each kind of drop decided in a round leaves the keys its immediate drop leaves: a graph, a namespace's data, the
+/// namespace, every namespace (`PROTOCOL.md` §6.5, §12.2 operations 4 to 7).
+#[test]
+fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does() {
+    use ultragraphdb_store_apply::DropRequest;
+    let g1 = ex("g1");
+    let cases: [DropCase<'_>; 5] = [
+        (
+            "graph",
+            DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
+            |a| {
+                a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())
+                    .unwrap();
+            },
+        ),
+        (
+            "default graph",
+            DropRequest::Graph(GraphNameRef::DefaultGraph),
+            |a| {
+                a.drop_graph(NS, GraphNameRef::DefaultGraph).unwrap();
+            },
+        ),
+        ("data", DropRequest::Data, |a| {
+            a.drop_data(NS).unwrap();
+        }),
+        ("namespace", DropRequest::Namespace, |a| {
+            a.drop_namespace(NS).unwrap();
+        }),
+        ("all", DropRequest::All, |a| {
+            a.drop_all().unwrap();
+        }),
+    ];
+    for (name, request, immediate) in cases {
+        let oracle = dropping_store();
+        immediate(&oracle);
+        let before = dropping_store();
+        let in_a_round = dropped_in_a_round(request);
+        assert_eq!(in_a_round, stored_keys(&oracle), "{name}");
+        assert_ne!(
+            in_a_round,
+            stored_keys(&before),
+            "{name}: something dropped"
+        );
+    }
+}
+
+/// A drop prepared for a round names what it drops and writes the key ranges of it: a graph's in every quad keyspace,
+/// a namespace's data without its catalog, a namespace with it, every namespace's every keyspace.
+#[test]
+fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
+    use ultragraphdb_core_keys::key_prefix;
+    use ultragraphdb_store_apply::{DropRequest, DropTarget};
+    let a = dropping_store();
+    let g1 = uid(&a, "g1");
+    let graph = a
+        .prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))
+        .unwrap();
+    assert_eq!(graph.dropped(), Some(DropTarget::Graph(g1)));
+    let forward = key_prefix(Keyspace::Forward, false, NS, Some(g1), None);
+    assert!(
+        graph
+            .drop_ranges()
+            .iter()
+            .any(|(start, _)| start == &forward)
+    );
+    assert!(graph.drop_ranges().iter().all(|(s, e)| s < e));
+    let data = a.prepare_drop(NS, DropRequest::Data).unwrap();
+    assert_eq!(data.dropped(), Some(DropTarget::Data));
+    let catalog = key_prefix(Keyspace::Catalog, false, NS, None, None);
+    assert!(
+        !data
+            .drop_ranges()
+            .iter()
+            .any(|(start, _)| start == &catalog),
+        "the catalog is kept"
+    );
+    let namespace = a.prepare_drop(NS, DropRequest::Namespace).unwrap();
+    assert_eq!(namespace.dropped(), Some(DropTarget::Namespace));
+    assert!(
+        namespace
+            .drop_ranges()
+            .iter()
+            .any(|(start, _)| start == &catalog)
+    );
+    assert!(namespace.drop_ranges().len() > data.drop_ranges().len());
+    let all = a.prepare_drop(NS, DropRequest::All).unwrap();
+    assert_eq!(all.dropped(), Some(DropTarget::All));
+    assert!(
+        all.drop_ranges()
+            .iter()
+            .any(|(start, _)| start == &[Keyspace::Catalog.byte()])
+    );
+    for drop in [&graph, &data, &namespace, &all] {
+        assert!(drop.writes().deltas().is_empty());
+    }
+}
+
+/// A graph the store does not know, and a blank-node graph, are dropped as nothing: no drop.
+#[test]
+fn test_a_drop_of_a_graph_the_store_does_not_hold_is_no_drop() {
+    use ultragraphdb_store_apply::DropRequest;
+    let a = dropping_store();
+    let never = a
+        .prepare_drop(
+            NS,
+            DropRequest::Graph(GraphName::from(ex("never")).as_ref()),
+        )
+        .unwrap();
+    let blank = BlankNode::new_unchecked("g");
+    let blank = a
+        .prepare_drop(
+            NS,
+            DropRequest::Graph(GraphNameRef::BlankNode(blank.as_ref())),
+        )
+        .unwrap();
+    for drop in [never, blank] {
+        assert!(!drop.is_drop());
+        assert_eq!(drop.dropped(), None);
+        assert!(drop.drop_ranges().is_empty());
+    }
+}
+
+/// A drop replayed from its record drops what the drop decided in the round did.
+#[test]
+fn test_each_kind_of_drop_replayed_drops_what_it_dropped() {
+    use ultragraphdb_store_apply::{DropRequest, DropTarget};
+    let g1 = ex("g1");
+    let g1_uid = uid(&dropping_store(), "g1");
+    for (request, target) in [
+        (
+            DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
+            DropTarget::Graph(g1_uid),
+        ),
+        (
+            DropRequest::Graph(GraphNameRef::DefaultGraph),
+            DropTarget::Graph(ultragraphdb_core_keys::DEFAULT_GRAPH),
+        ),
+        (DropRequest::Data, DropTarget::Data),
+        (DropRequest::Namespace, DropTarget::Namespace),
+        (DropRequest::All, DropTarget::All),
+    ] {
+        let decided = dropped_in_a_round(request);
+        let a = dropping_store();
+        let replayed = a.prepare_replayed_drop(NS, target).unwrap();
+        assert_eq!(replayed.dropped(), Some(target));
+        let version = a.quads().lists().applied_ts() + 2;
+        a.apply_round(vec![(version, replayed)]).unwrap();
+        assert_eq!(stored_keys(&a), decided, "{target:?}");
+    }
+}
+
+/// A graph whose lists split is dropped whole in a round: no key of the graph remains, its lists' split parts with them.
+#[test]
+fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() {
+    use ultragraphdb_store_apply::DropRequest;
+    use ultragraphdb_store_posting::{Lists, ListsConfig};
+    use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
+    use ultragraphdb_traits_store::PersistMode;
+    // A list size of 256 bytes, so a subject holding 2,000 predicates in `g1` splits.
+    let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
+    let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
+    let lists = Lists::new(
+        crate::utils::changesets::sim_store(),
+        cache,
+        ListsConfig::new(PersistMode::Buffer, 256),
+    );
+    let a = TestChangesets::new(lists, executor, 1).unwrap();
+    let changes = (0..2_000)
+        .map(|i| insert(&format!("<a> <p{i}> <o> <g1>")))
+        .collect();
+    apply(&a, changes).unwrap();
+    let g1 = uid(&a, "g1");
+    let key = QuadKey::SubjectPredicates {
+        namespace: NS,
+        graph: g1,
+        subject: uid(&a, "a"),
+    }
+    .to_bytes();
+    a.quads().lists().rollup_key(&key).unwrap();
+    let in_g1 = |a: &TestChangesets| -> usize {
+        stored_keys(a)
+            .into_iter()
+            .filter(|k| QuadKey::parse(k).is_ok_and(|(q, _)| q.graph() == Some(g1)))
+            .count()
+    };
+    let mut parts = key.clone();
+    parts[0] |= ultragraphdb_core_keys::SPLIT_FLAG;
+    assert!(
+        stored_keys(&a).iter().any(|k| k.starts_with(&parts)),
+        "the list is split"
+    );
+    let drop = a
+        .prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))
+        .unwrap();
+    let version = a.quads().lists().applied_ts() + 2;
+    a.apply_round(vec![(version, drop)]).unwrap();
+    assert_eq!(in_g1(&a), 0);
+    assert!(
+        !stored_keys(&a).iter().any(|k| k.starts_with(&parts)),
+        "its split parts too"
+    );
+}
+
+/// A namespace dropped, at once or in a round, writes its initial catalog again: `rdf:type` declared as a new
+/// namespace's catalog declares it, and the predicates declared before the drop are gone.
+#[test]
+fn test_a_namespace_dropped_keeps_its_initial_catalog() {
+    use ultragraphdb_core_catalog::Catalog;
+    use ultragraphdb_store_apply::DropRequest;
+    let rdf_type = |a: &TestChangesets| {
+        a.quads()
+            .uid_of(NS, oxrdf::vocab::rdf::TYPE.as_str())
+            .unwrap()
+            .expect("rdf:type has a UID")
+    };
+    let initial = |a: &TestChangesets| {
+        Catalog::initial(NS, rdf_type(a))
+            .predicate(rdf_type(a))
+            .cloned()
+    };
+    let at_once = dropping_store();
+    at_once.drop_namespace(NS).unwrap();
+    let in_a_round = dropping_store();
+    let drop = in_a_round.prepare_drop(NS, DropRequest::Namespace).unwrap();
+    let version = in_a_round.quads().lists().applied_ts() + 2;
+    in_a_round.apply_round(vec![(version, drop)]).unwrap();
+    for a in [&at_once, &in_a_round] {
+        let catalog = a.catalog(NS).unwrap();
+        assert!(
+            initial(a).is_some(),
+            "the initial catalog declares rdf:type"
+        );
+        assert_eq!(catalog.predicate(rdf_type(a)).cloned(), initial(a));
+        assert_eq!(
+            catalog.predicate(uid(a, "name")),
+            None,
+            "the declaration of `name` is gone"
+        );
+    }
 }

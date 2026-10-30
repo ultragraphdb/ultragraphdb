@@ -19,6 +19,8 @@ pub enum Reply {
     Begun(Transaction),
     /// A Commit's answer.
     Committed(Committed),
+    /// A Drop's answer: the drop's commit version and request, as a Commit's, with no results.
+    Dropped(Committed),
     /// A Prepare's statement.
     Prepared(Statement),
     /// A Describe's answer.

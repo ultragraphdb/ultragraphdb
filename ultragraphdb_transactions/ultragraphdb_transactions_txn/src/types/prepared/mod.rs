@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, Executed, Operation};
+use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, DropRequest, Executed, Operation};
 use ultragraphdb_store_posting::{Batch, CachedList};
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
@@ -19,6 +19,7 @@ use crate::types::write_set_builder::WriteSetBuilder;
 pub(crate) struct Rewrite {
     pub session: u64,
     pub request: u64,
+    pub principal: u64,
     pub commit_record: Vec<u8>,
     pub objects_per_list: usize,
     pub max_write_set: usize,
@@ -54,17 +55,22 @@ impl Prepared {
         }
     }
 
-    /// The drop of `predicate` of `namespace` on `applier` as a proposal of the commit step, on `buffers` (7.7): a write
-    /// of the predicate's key ranges at the watermark, which aborts every transaction that read or wrote in them below
-    /// its version and commits after it, and which the round's apply drops; its round closes after it.
+    /// The drop `drop` asks in `namespace` on `applier` as a proposal of the commit step, on `buffers` (7.7): request
+    /// `request` of session `session`, for `principal`, as a Commit is, so a retry is answered from the session table;
+    /// a write of the dropped key ranges at the watermark, which aborts every transaction that read or wrote in them
+    /// below its version and commits after it, and which the round's apply drops; its round closes after it.
     ///
     /// # Errors
     ///
     /// [`TxnError::Changeset`] for the store's error.
-    pub fn drop_predicate<S, C, E>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn drop<S, C, E>(
         applier: &ChangesetApplier<S, C, E>,
         namespace: u64,
-        predicate: oxrdf::NamedNodeRef<'_>,
+        drop: DropRequest<'_>,
+        session: u64,
+        request: u64,
+        principal: u64,
         buffers: TxnBuffers,
     ) -> Result<Self, TxnError>
     where
@@ -72,11 +78,13 @@ impl Prepared {
         C: ListCache<Value = CachedList> + Send + Sync + 'static,
         E: Executor,
     {
-        let executed = applier.prepare_drop_predicate(namespace, predicate)?;
+        let executed = applier.prepare_drop(namespace, drop)?;
         let (mut read_set, mut record) = buffers.into_parts();
         read_set.reset(namespace, executed.read_ts(), usize::MAX);
         read_set.seal();
-        WriteSetBuilder::new(&executed, 0, 0, &[]).write_into(&mut record, usize::MAX)?;
+        WriteSetBuilder::new(&executed, session, request, &[])
+            .with_principal(principal)
+            .write_into(&mut record, usize::MAX)?;
         Ok(Self::new(
             executed,
             read_set,
@@ -178,6 +186,7 @@ impl Prepared {
             self.rewrite.request,
             &self.rewrite.commit_record,
         )
+        .with_principal(self.rewrite.principal)
         .with_objects_per_list(self.rewrite.objects_per_list)
         .with_results(results)
         .write_into(&mut record, self.rewrite.max_write_set)?;

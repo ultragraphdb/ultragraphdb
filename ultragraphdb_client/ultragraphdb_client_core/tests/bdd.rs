@@ -22,6 +22,8 @@ use ultragraphdb_protocol_wire::{
 };
 
 mod utils {
+    // The unit tests' harness, shared by path: each target uses a part of it.
+    #[allow(dead_code)]
     #[path = "harness.rs"]
     pub mod harness;
 }

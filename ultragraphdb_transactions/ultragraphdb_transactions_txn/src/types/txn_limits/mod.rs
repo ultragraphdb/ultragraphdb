@@ -5,8 +5,12 @@
 
 use std::time::Duration;
 
-/// The maximum frame, 1 MiB: the default bound of a write-set record and of a read set.
+/// The maximum frame, 1 MiB: the default bound of a read set.
 pub const MAX_FRAME: usize = 1 << 20;
+
+/// The largest write-set record by default, 1,040,384 bytes: what one Round frame holds beside its header and its
+/// decisions, the Welcome's `max_write_set` (`PROTOCOL.md` §11.9).
+pub const MAX_WRITE_SET: usize = 1_040_384;
 
 /// A transaction's limits, each a setting: how long a read-write and a read-only transaction live, the largest
 /// write-set record and read set it may hold, and how many objects of one list its write set names one by one before
@@ -16,7 +20,7 @@ pub const MAX_FRAME: usize = 1 << 20;
 /// |---|---|
 /// | `read_write` | 10 s |
 /// | `read_only` | 16 s |
-/// | `max_write_set` | 1 MiB, the maximum frame |
+/// | `max_write_set` | 1,040,384 bytes, the Welcome's default bound |
 /// | `max_read_set` | 1 MiB |
 /// | `objects_per_list` | 64 |
 ///
@@ -35,7 +39,7 @@ impl Default for TxnLimits {
         Self {
             read_write: Duration::from_secs(10),
             read_only: Duration::from_secs(16),
-            max_write_set: MAX_FRAME,
+            max_write_set: MAX_WRITE_SET,
             max_read_set: MAX_FRAME,
             objects_per_list: 64,
         }

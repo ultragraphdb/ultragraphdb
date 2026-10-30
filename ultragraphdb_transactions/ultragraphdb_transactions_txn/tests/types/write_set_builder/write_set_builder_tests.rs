@@ -145,7 +145,10 @@ fn test_a_drop_and_a_builds_end_name_their_operation_in_section_ten() {
     let bytes = written(&WriteSetBuilder::new(&plain, 1, 1, &[]));
     assert_eq!(WriteSetRecordView::new(&bytes).unwrap().operation(), None);
     let drop = applier
-        .prepare_drop_predicate(NS, ex("knows").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("knows").as_ref()),
+        )
         .unwrap();
     let builder = WriteSetBuilder::new(&drop, 0, 0, &[]);
     let bytes = written(&builder);
@@ -436,5 +439,61 @@ fn test_the_written_size_reserves_once() {
         out.capacity(),
         builder.len(),
         "one reservation of the exact size"
+    );
+}
+
+/// The drops of a graph, a namespace's data, a namespace and every namespace name their operation, codes 4 to 7, a
+/// graph's with its UID, and write their key ranges as conflict ranges (`PROTOCOL.md` §12.2).
+#[test]
+fn test_each_drop_names_its_operation_and_writes_its_ranges() {
+    use ultragraphdb_store_apply::DropRequest;
+    let applier = known();
+    let graph = ex("g");
+    commit(
+        &applier,
+        vec![Change::Insert {
+            graph: GraphName::from(graph.clone()),
+            subject: ex("a").into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+        }],
+    );
+    for (request, operation) in [
+        (
+            DropRequest::Graph(GraphName::from(graph.clone()).as_ref()),
+            RecordOperation::DropGraph(uid(&applier, "g")),
+        ),
+        (DropRequest::Data, RecordOperation::DropNamespaceData),
+        (DropRequest::Namespace, RecordOperation::DropNamespace),
+        (DropRequest::All, RecordOperation::DropAll),
+    ] {
+        let drop = applier.prepare_drop(NS, request).unwrap();
+        let builder = WriteSetBuilder::new(&drop, 9, 3, &[]);
+        let bytes = written(&builder);
+        assert_eq!(bytes.len(), builder.len());
+        let view = WriteSetRecordView::new(&bytes).unwrap();
+        assert_eq!(view.operation(), Some(operation));
+        assert_eq!((view.session(), view.request()), (9, 3));
+        let ranges: Vec<(Vec<u8>, Vec<u8>)> = view
+            .conflict_ranges()
+            .iter()
+            .map(|e| (e.key().to_vec(), e.value().unwrap_or_default().to_vec()))
+            .collect();
+        assert_eq!(ranges, drop.drop_ranges().to_vec(), "{operation:?}");
+    }
+}
+
+/// The record names the principal the transaction acted for in its fixed part; 0 without one.
+#[test]
+fn test_the_record_names_its_principal() {
+    let applier = known();
+    let executed = executed(&applier, vec![insert("a", "knows", "b")]);
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]));
+    assert_eq!(WriteSetRecordView::new(&bytes).unwrap().principal(), 0);
+    let bytes = written(&WriteSetBuilder::new(&executed, 1, 1, &[]).with_principal(7));
+    let view = WriteSetRecordView::new(&bytes).unwrap();
+    assert_eq!(
+        (view.principal(), view.session(), view.request()),
+        (7, 1, 1)
     );
 }

@@ -21,6 +21,7 @@ use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::ChangesetCore;
+use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
@@ -108,12 +109,11 @@ where
         ))
     }
 
-    /// The drop of predicate `predicate` of `namespace` replayed, as [`crate::ChangesetApplier::prepare_replayed_drop`]
-    /// makes it.
+    /// The drop of `target` in `namespace` replayed, as [`crate::ChangesetApplier::prepare_replayed_drop`] makes it.
     pub fn prepare_replayed_drop(
         &self,
         namespace: u64,
-        predicate: u64,
+        target: DropTarget,
     ) -> Result<Executed, ChangesetError> {
         let read_ts = self.quads.lists().applied_ts();
         let catalog = (*self.catalog(namespace)?).clone();
@@ -121,7 +121,7 @@ where
             namespace,
             read_ts,
             catalog,
-            Some(predicate),
+            Some(target),
             Vec::new(),
         ))
     }

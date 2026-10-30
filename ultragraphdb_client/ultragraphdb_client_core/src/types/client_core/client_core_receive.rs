@@ -10,8 +10,8 @@ use ultragraphdb_protocol_transport::{
     AuthenticationStep, ClientAuthentication, Login, ReceivedFrame, TransportError,
 };
 use ultragraphdb_protocol_wire::{
-    AuthenticateView, BeginView, BodyView, Command, CommitView, DescribeView, ErrorCode,
-    ErrorReplyView, FrameView, PrepareView, RegisterView, Welcome,
+    AuthenticateView, BeginView, BodyView, Command, CommitView, DescribeView, DropCommandView,
+    ErrorCode, ErrorReplyView, FrameView, PrepareView, RegisterView, Welcome,
 };
 
 use crate::errors::client_error::{ClientError, ClientErrorEnum};
@@ -237,7 +237,7 @@ impl<L: Login> ClientCore<L> {
             self.streams.remove(&stream);
             self.end_reads(stream);
         }
-        if let Expect::Commit { session, request } = expect {
+        if let Expect::Commit { session, request } | Expect::Drop { session, request } = expect {
             return {
                 self.settle_commit(id, session, request, outcome, now);
                 Ok(())
@@ -317,6 +317,7 @@ impl<L: Login> ClientCore<L> {
             Expect::Register => Command::Register,
             Expect::Begin => Command::Begin,
             Expect::Commit { .. } => Command::Commit,
+            Expect::Drop { .. } => Command::Drop,
             Expect::Prepare => Command::Prepare,
             Expect::Describe => Command::Describe,
         };
@@ -374,6 +375,28 @@ impl<L: Login> ClientCore<L> {
                         commit.commit_version(),
                         request,
                         results,
+                    )))
+                }
+            }
+            Expect::Drop { session, request } => {
+                let drop = DropCommandView::from_frame(view).map_err(ClientError::Protocol)?;
+                if drop.session() != session {
+                    Err(ClientError::ReplyMismatch(
+                        "session",
+                        session,
+                        drop.session(),
+                    ))
+                } else if drop.request() != request {
+                    Err(ClientError::ReplyMismatch(
+                        "request",
+                        request,
+                        drop.request(),
+                    ))
+                } else {
+                    Ok(Reply::Dropped(Committed::new(
+                        drop.commit_version(),
+                        request,
+                        Vec::new(),
                     )))
                 }
             }

@@ -57,7 +57,8 @@ fn test_operations_run_on_top_of_the_transaction_and_its_record_is_written_again
     let operated = prepared
         .operated(&applier, &overlay, &[], &mut results)
         .unwrap();
-    assert_eq!(results, vec![(0, false)]);
+    // A counter add's result is the counter's new value: 4 added to a counter holding nothing (point 33).
+    assert_eq!(results, vec![(4, false)]);
     assert_eq!(
         prepared.record(),
         &before[..],
@@ -141,4 +142,78 @@ fn test_a_builds_end_is_a_proposal_naming_its_operation() {
     let record = WriteSetRecordView::new(prepared.record()).unwrap();
     assert_eq!(record.operation(), Some(RecordOperation::SwapBuild(8)));
     assert_eq!((record.session(), record.request()), (0, 0));
+}
+
+/// A transaction acting for a principal names it in its record, and in its record written again with its operations'
+/// results.
+#[test]
+fn test_a_transaction_names_its_principal_in_its_record() {
+    let applier = applier();
+    let txn = begin(&applier, Mode::ReadWrite).with_principal(7);
+    assert_eq!(txn.principal(), 7);
+    let mut txn = txn;
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
+        .unwrap();
+    let Ok(Commit::ReadWrite(prepared)) = txn.commit(1, 2, &[], 0) else {
+        panic!("a read-write commit");
+    };
+    assert_eq!(
+        WriteSetRecordView::new(prepared.record())
+            .unwrap()
+            .principal(),
+        7
+    );
+}
+
+/// A drop through a session is a proposal naming its session, request and principal, its operation and its ranges, and
+/// closes its round.
+#[test]
+fn test_a_drop_names_its_session_request_and_principal() {
+    use ultragraphdb_protocol_wire::RecordOperation;
+    use ultragraphdb_store_apply::DropRequest;
+    use ultragraphdb_transactions_txn::{Prepared, TxnBuffers};
+    let applier = applier();
+    let mut txn = begin(&applier, Mode::ReadWrite);
+    txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
+        .unwrap();
+    let Ok(Commit::ReadWrite(prepared)) = txn.commit(0, 0, &[], 0) else {
+        panic!("a read-write commit");
+    };
+    let (executed, _) = prepared.into_parts();
+    let version = applier.quads().lists().next_version();
+    applier.apply_round(vec![(version, executed)]).unwrap();
+    let drop =
+        Prepared::drop(&applier, NS, DropRequest::Data, 11, 4, 7, TxnBuffers::new()).unwrap();
+    assert!(drop.is_drop());
+    assert!(drop.read_set().is_sealed());
+    let view = WriteSetRecordView::new(drop.record()).unwrap();
+    assert_eq!(
+        (view.session(), view.request(), view.principal()),
+        (11, 4, 7)
+    );
+    assert_eq!(view.operation(), Some(RecordOperation::DropNamespaceData));
+    assert_eq!(
+        view.conflict_ranges().len(),
+        drop.executed().drop_ranges().len()
+    );
+}
+
+/// A transaction's record written again with its operations' results keeps the principal it acted for.
+#[test]
+fn test_a_record_written_again_keeps_its_principal() {
+    let applier = applier();
+    let mut txn = begin(&applier, Mode::ReadWrite).with_principal(7);
+    txn.operate(counter(4), 0).unwrap();
+    let Ok(Commit::ReadWrite(prepared)) = txn.commit(3, 9, b"note", 0) else {
+        panic!("a read-write commit");
+    };
+    let overlay = applier.quads().lists().batch();
+    let mut results = Vec::new();
+    let operated = prepared
+        .operated(&applier, &overlay, &[], &mut results)
+        .unwrap();
+    let mut prepared = prepared;
+    prepared.adopt(operated);
+    let view = WriteSetRecordView::new(prepared.record()).unwrap();
+    assert_eq!((view.principal(), view.result_count()), (7, 1));
 }

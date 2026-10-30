@@ -19,7 +19,7 @@ enum ServerState {
         server_first: String,
         nonce: String,
         principal: Option<u64>,
-        verifier: ScramVerifier,
+        verifier: Box<ScramVerifier>,
     },
     Done,
 }
@@ -104,7 +104,7 @@ impl ScramServer {
             server_first: server_first.clone(),
             nonce,
             principal,
-            verifier,
+            verifier: Box::new(verifier),
         };
         Ok(server_first.into_bytes())
     }

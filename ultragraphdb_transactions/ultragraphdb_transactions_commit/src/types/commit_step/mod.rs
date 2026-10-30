@@ -23,11 +23,11 @@ use crate::types::sequencer::Sequencer;
 use crate::types::sessions::Sessions;
 use crate::types::step_output::StepOutput;
 
-/// A request waiting for a round: a commit, or a session registration under its ticket.
+/// A request waiting for a round: a commit, or a session registration under its ticket for its owner.
 #[derive(Debug)]
 enum Waiting<P> {
     Commit(CommitRequest<P>),
-    Register(u64),
+    Register { ticket: u64, principal: u64 },
 }
 
 /// Where a committed decision's record comes from: the round's admitted proposal or registration of that index.
@@ -41,7 +41,10 @@ enum Source {
 /// version with its operations' results.
 #[derive(Debug, Clone)]
 enum Update {
-    Registered(u64),
+    Registered {
+        session: u64,
+        principal: u64,
+    },
     Committed {
         session: u64,
         request: u64,
@@ -187,7 +190,9 @@ impl<P: Proposal> CommitStep<P> {
         out.clear();
         match input {
             Input::Commit(request) => self.arrive(request, now_us, out, operator),
-            Input::Register(ticket) => self.register(ticket, now_us, out, operator),
+            Input::Register { ticket, principal } => {
+                self.register(ticket, principal, now_us, out, operator)
+            }
             Input::Synced => self.synced(now_us, out, operator),
             Input::SyncFailed => self.stop(out),
             // No open transaction reads above the watermark.
@@ -240,6 +245,7 @@ impl<P: Proposal> CommitStep<P> {
     fn register<O: Operator<P>>(
         &mut self,
         ticket: u64,
+        principal: u64,
         now_us: u64,
         out: &mut StepOutput<P>,
         operator: &mut O,
@@ -249,7 +255,8 @@ impl<P: Proposal> CommitStep<P> {
                 .push(Reply::new(ticket, Err(CommitError::Unavailable())));
             return;
         }
-        self.waiting.push_back(Waiting::Register(ticket));
+        self.waiting
+            .push_back(Waiting::Register { ticket, principal });
         if self.in_flight.is_none() {
             self.close(now_us, out, operator);
         }
@@ -268,8 +275,8 @@ impl<P: Proposal> CommitStep<P> {
         }
         for update in self.updates.drain(..) {
             match update {
-                Update::Registered(session) => {
-                    self.sessions.register(session);
+                Update::Registered { session, principal } => {
+                    self.sessions.register(session, principal);
                 }
                 Update::Committed {
                     session,
@@ -293,6 +300,23 @@ impl<P: Proposal> CommitStep<P> {
         if !self.waiting.is_empty() {
             self.close(now_us, out, operator);
         }
+    }
+
+    /// A retry of `request` of `session` by `principal`, sent with no transaction open for it: answered from the
+    /// session table, as [`Sessions::retry`] answers it, without a round.
+    ///
+    /// # Errors
+    ///
+    /// As [`Sessions::retry`] refuses.
+    pub fn retry(
+        &self,
+        session: u64,
+        request: u64,
+        principal: u64,
+    ) -> Result<(u64, Vec<OperationResult>), CommitError> {
+        self.sessions
+            .retry(session, request, principal)
+            .map(|(version, results)| (version, results.to_vec()))
     }
 
     /// The newest version handed over to apply: the visibility watermark once the caller has applied it.

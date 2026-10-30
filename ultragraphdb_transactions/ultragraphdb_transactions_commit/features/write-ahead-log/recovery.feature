@@ -14,6 +14,10 @@ Feature: Recovery replays the log above the store
     When the store's applied version belongs to no round in the log
     Then the node refuses to start, naming the version
 
+  Scenario: A store behind its checkpoint refuses to start
+    When a checkpoint covering version 40 has trimmed the log, and the store reopened holds version 30
+    Then the node refuses to start, naming 30 and 40, and replays nothing
+
   Scenario: A round never reaches the store before the log
     When the node loses power at any step of a round
     Then the store after recovery holds no write of a round the log does not hold

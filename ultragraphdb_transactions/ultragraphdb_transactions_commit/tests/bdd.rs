@@ -515,10 +515,13 @@ fn write_into_drop(w: &mut Steps) {
     let mut driver = Driver::new(&applier, unbounded());
     let mut txn = begin(&applier);
     write(&mut txn, vec![insert("a", "p", "b")]);
-    let drop = ultragraphdb_transactions_txn::Prepared::drop_predicate(
+    let drop = ultragraphdb_transactions_txn::Prepared::drop(
         &applier,
         NS,
-        ex("p").as_ref(),
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
+        0,
+        0,
+        0,
         ultragraphdb_transactions_txn::TxnBuffers::new(),
     )
     .expect("the drop prepares");
@@ -690,7 +693,7 @@ fn in_the_built_index(w: &mut Steps) {
 
 /// Registers a session through `pipe` under `ticket`: its number.
 async fn register(pipe: &mut Pipe<'_>, ticket: u64) -> u64 {
-    pipe.register(ticket, 0).expect("appended");
+    pipe.register(ticket, 0, 0).expect("appended");
     pipe.sync(0).await.expect("synced");
     let reply = pipe.replies_mut().pop().expect("answered");
     assert_eq!(reply.ticket(), ticket);
@@ -1478,6 +1481,463 @@ async fn reported_faults(w: &mut Steps) {
 #[then("after recovery every acknowledged round is present")]
 fn acknowledged_present(w: &mut Steps) {
     assert_eq!(w.checks, [true, true]);
+}
+
+// The counter's new value (point 33), the session table's answers (points 29, 38) and owner, the write-set bound (B5).
+
+/// A counter add of 1 to `<counters> <next-id>`, its transaction prepared.
+fn add_one(applier: &Applier) -> ultragraphdb_transactions_txn::Prepared {
+    let mut txn = begin(applier);
+    txn.operate(
+        Operation::CounterAdd {
+            graph: GraphName::DefaultGraph,
+            subject: ex("counters").into(),
+            predicate: ex("next-id"),
+            delta: 1,
+        },
+        0,
+    )
+    .expect("asked");
+    prepare(txn)
+}
+
+#[when("the counter `next-id` holds 5, and two transactions each add 1 to it")]
+async fn two_adds(w: &mut Steps) {
+    let applier = applier();
+    setup(
+        &applier,
+        vec![Change::Insert {
+            graph: GraphName::DefaultGraph,
+            subject: ex("counters").into(),
+            predicate: ex("next-id"),
+            object: Literal::from(5i64).into(),
+        }],
+    );
+    w.replies = commit_concurrently(&applier, vec![add_one(&applier), add_one(&applier)]).await;
+    w.terms = vec![held(&applier, "counters", "next-id")];
+}
+
+#[then("both commit, the one committed first receives 6 and the other 7, and `next-id` holds 7")]
+fn six_then_seven(w: &mut Steps) {
+    let mut answered: Vec<(u64, i64)> = w
+        .replies
+        .iter()
+        .map(|r| {
+            let version = *r.outcome().as_ref().expect("committed");
+            (version, r.results()[0].uid() as i64)
+        })
+        .collect();
+    answered.sort();
+    assert_eq!(
+        answered.iter().map(|(_, value)| *value).collect::<Vec<_>>(),
+        vec![6, 7],
+        "in commit order"
+    );
+    assert_eq!(w.terms, vec![vec![Term::from(Literal::from(7i64))]]);
+}
+
+/// Registers a session for `principal` through `pipe` under `ticket`: its number.
+async fn register_as(pipe: &mut Pipe<'_>, ticket: u64, principal: u64) -> u64 {
+    pipe.register(ticket, principal, 0).expect("appended");
+    pipe.sync(0).await.expect("synced");
+    let reply = pipe.replies_mut().pop().expect("answered");
+    reply.outcome().clone().expect("registered")
+}
+
+#[when(
+    "a client sends request 8 of its session again, with no transaction open for it, and the session's last committed request is 7"
+)]
+async fn never_committed(w: &mut Steps) {
+    let applier = applier();
+    setup(&applier, vec![insert("a", "knows", "b")]);
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let session = register(&mut pipe, 100).await;
+    for request in 1..=7u64 {
+        let mut txn = begin(&applier);
+        write(&mut txn, vec![insert(&format!("s{request}"), "knows", "b")]);
+        pipe.commit(request, prepare_in(txn, session, request), 0)
+            .expect("appended");
+        pipe.sync(0).await.expect("synced");
+    }
+    let applied = applier.quads().lists().applied_ts();
+    w.refusal = None;
+    w.replies = vec![Reply::new(
+        8,
+        pipe.retry(session, 8, 0).map(|(version, _)| version),
+    )];
+    w.versions = vec![applied, applier.quads().lists().applied_ts()];
+}
+
+#[then("the request is refused as not committed, `detail` 8, and nothing is committed")]
+fn not_committed(w: &mut Steps) {
+    let Err(error) = w.replies[0].outcome() else {
+        panic!("answered: {:?}", w.replies);
+    };
+    assert_eq!(error, &CommitError::NotCommitted(8));
+    assert_eq!(error.detail(), 8);
+    assert!(error.is_retryable());
+    assert_eq!(w.versions[0], w.versions[1], "nothing committed");
+}
+
+#[when(
+    "principal `alice` registers a session, and a connection authenticated as `bob` commits through it"
+)]
+async fn bobs_commit(w: &mut Steps) {
+    const ALICE: u64 = 7;
+    const BOB: u64 = 8;
+    let applier = applier();
+    setup(&applier, vec![insert("a", "knows", "b")]);
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let session = register_as(&mut pipe, 1, ALICE).await;
+    let mut txn = begin(&applier).with_principal(BOB);
+    write(&mut txn, vec![insert("bob", "knows", "b")]);
+    pipe.commit(2, prepare_in(txn, session, 1), 0)
+        .expect("answered");
+    pipe.sync(0).await.expect("synced");
+    w.replies = std::mem::take(pipe.replies_mut());
+    w.held = held(&applier, "bob", "knows");
+    let mut txn = begin(&applier).with_principal(ALICE);
+    write(&mut txn, vec![insert("alice", "knows", "b")]);
+    pipe.commit(3, prepare_in(txn, session, 1), 0)
+        .expect("appended");
+    pipe.sync(0).await.expect("synced");
+    w.replies.append(pipe.replies_mut());
+    w.terms = vec![held(&applier, "alice", "knows")];
+}
+
+#[then(
+    "the commit is refused with code 21, `detail` 2, nothing is committed, and `alice`'s next request through the session is served"
+)]
+fn bob_refused(w: &mut Steps) {
+    let Err(error) = w.replies[0].outcome() else {
+        panic!("committed: {:?}", w.replies);
+    };
+    assert_eq!(
+        error.code(),
+        ultragraphdb_protocol_wire::ErrorCode::PermissionDenied
+    );
+    assert_eq!(error.code().number(), 21);
+    assert_eq!(error.detail(), 2);
+    assert!(w.held.is_empty(), "nothing committed");
+    assert!(w.replies[1].outcome().is_ok(), "{:?}", w.replies);
+    assert_eq!(w.terms[0].len(), 1);
+}
+
+#[when("a transaction's write set grows past the Welcome's `max_write_set` and it commits")]
+fn past_the_bound(w: &mut Steps) {
+    let applier = applier();
+    setup(&applier, vec![insert("a", "knows", "b")]);
+    let mut txn = begin(&applier);
+    write(
+        &mut txn,
+        vec![insert_literal(
+            "big",
+            "note",
+            &"x".repeat(ultragraphdb_transactions_txn::MAX_WRITE_SET),
+        )],
+    );
+    w.refusal = txn.commit(0, 0, &[], 0).err();
+    w.held = held(&applier, "big", "note");
+}
+
+#[then(
+    "the commit fails with a too-large error that is not marked retryable, its `detail` the bound, and nothing it wrote is held"
+)]
+fn past_the_bound_refused(w: &mut Steps) {
+    let Some(error) = &w.refusal else {
+        panic!("the transaction prepared");
+    };
+    assert!(
+        matches!(
+            error.0,
+            TxnErrorEnum::WriteSetTooLarge {
+                limit: ultragraphdb_transactions_txn::MAX_WRITE_SET,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(
+        ultragraphdb_transactions_txn::MAX_WRITE_SET,
+        1_040_384,
+        "the Welcome's default bound"
+    );
+    assert!(!error.is_retryable());
+    assert!(w.held.is_empty());
+}
+
+#[when(
+    "a checkpoint covering version 40 has trimmed the log, and the store reopened holds version 30"
+)]
+async fn behind_the_checkpoint(w: &mut Steps) {
+    let store = sim_store();
+    let applier = applier_over(store.clone());
+    let storage = ultragraphdb_transactions_log::SimStorage::new(1);
+    let (log, _) = reopen(&storage).await;
+    let mut pipe: RecoveryPipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    for round in 1..=3 {
+        append_round(&mut pipe, &applier, round);
+        pipe.sync(0).await.expect("synced and applied");
+        if round == 1 {
+            applier.quads().store().sync().expect("the store syncs");
+        }
+    }
+    let covered = applier.quads().lists().applied_ts();
+    let mut log = pipe.into_log();
+    let position = log.committed();
+    log.trim_through(position, covered)
+        .await
+        .expect("the checkpoint is written");
+    drop(log);
+    drop(applier);
+    let (applier, replayed) = restart(&storage, &store).await;
+    w.recovery = replayed.err();
+    w.versions = vec![applier.quads().lists().applied_ts(), covered];
+    w.checks = (1..=3).map(|round| holds_round(&applier, round)).collect();
+}
+
+#[then("the node refuses to start, naming 30 and 40, and replays nothing")]
+fn refuses_naming_both(w: &mut Steps) {
+    let (applied, covered) = (w.versions[0], w.versions[1]);
+    assert!(applied < covered);
+    let refused = w.recovery.clone().expect("refused");
+    assert_eq!(
+        refused.0,
+        ultragraphdb_transactions_commit::RecoveryErrorEnum::BehindCheckpoint {
+            applied,
+            checkpoint: covered
+        }
+    );
+    let text = refused.to_string();
+    assert!(
+        text.contains(&applied.to_string()) && text.contains(&covered.to_string()),
+        "{text}"
+    );
+    // The store held what it held at the power loss, which the refusal names, and the last round, which a replay
+    // would have written, is not held.
+    assert!(!w.checks[2], "replays nothing");
+}
+
+// Drops are commands: a drop decided in a round through a session (the wire-protocol delta, B2).
+
+/// The store a drop is tried on: `<a> <knows> <b>` in graph `g`, `<c> <knows> <d>` in graph `h`, `<e> <name> "x"` in
+/// the default graph after `name` is declared a property.
+fn graphs() -> Applier {
+    let applier = applier();
+    let quad = |s: &str, o: &str, g: &str| Change::Insert {
+        graph: GraphName::from(ex(g)),
+        subject: ex(s).into(),
+        predicate: ex("knows"),
+        object: ex(o).into(),
+    };
+    setup(
+        &applier,
+        vec![Change::Declare(Declaration::Predicate(
+            PredicateDeclaration::new(ex("name"))
+                .with_kind(ultragraphdb_core_mapping::PredicateKind::Property),
+        ))],
+    );
+    setup(
+        &applier,
+        vec![
+            quad("a", "b", "g"),
+            quad("c", "d", "h"),
+            insert_literal("e", "name", "x"),
+        ],
+    );
+    applier
+}
+
+/// The objects of `<subject> <knows>` in graph `<graph>`.
+fn held_in(applier: &Applier, graph: &str, subject: &str) -> Vec<Term> {
+    let mut out = Vec::new();
+    let mut txn = begin(applier);
+    let (g, s, p) = (GraphName::from(ex(graph)), ex(subject), ex("knows"));
+    txn.objects_into(g.as_ref(), s.as_ref().into(), p.as_ref(), 0, &mut out)
+        .expect("the read runs");
+    out
+}
+
+/// A drop of `request` through `session`, request `number`, as the commit step's proposal.
+fn drop_of(
+    applier: &Applier,
+    request: ultragraphdb_store_apply::DropRequest<'_>,
+    session: u64,
+    number: u64,
+) -> ultragraphdb_transactions_txn::Prepared {
+    ultragraphdb_transactions_txn::Prepared::drop(
+        applier,
+        NS,
+        request,
+        session,
+        number,
+        0,
+        ultragraphdb_transactions_txn::TxnBuffers::new(),
+    )
+    .expect("the drop prepares")
+}
+
+#[when("a client drops graph `g` of a namespace holding statements in `g` and in `h`")]
+async fn drop_graph_g(w: &mut Steps) {
+    let applier = graphs();
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let session = register(&mut pipe, 1).await;
+    let g = ex("g");
+    let drop = drop_of(
+        &applier,
+        ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(g.as_ref())),
+        session,
+        1,
+    );
+    pipe.commit(2, drop, 0).expect("appended");
+    pipe.sync(0).await.expect("synced");
+    w.replies = std::mem::take(pipe.replies_mut());
+    w.version = applier.quads().lists().applied_ts();
+    w.terms = vec![held_in(&applier, "g", "a"), held_in(&applier, "h", "c")];
+}
+
+#[then(
+    "the reply carries the drop's commit version, no statement of `g` remains, and every statement of `h` remains"
+)]
+fn graph_dropped(w: &mut Steps) {
+    assert_eq!(w.replies.len(), 1);
+    assert_eq!(
+        w.replies[0].outcome(),
+        &Ok(w.version),
+        "the drop's commit version"
+    );
+    assert!(w.terms[0].is_empty(), "nothing of g");
+    assert_eq!(w.terms[1].len(), 1, "h kept");
+}
+
+#[when("a client drops a namespace's data after declaring `name` a property")]
+async fn drop_data(w: &mut Steps) {
+    let applier = graphs();
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let session = register(&mut pipe, 1).await;
+    let drop = drop_of(
+        &applier,
+        ultragraphdb_store_apply::DropRequest::Data,
+        session,
+        1,
+    );
+    pipe.commit(2, drop, 0).expect("appended");
+    pipe.sync(0).await.expect("synced");
+    w.replies = std::mem::take(pipe.replies_mut());
+    w.terms = vec![
+        held_in(&applier, "g", "a"),
+        held_in(&applier, "h", "c"),
+        held(&applier, "e", "name"),
+    ];
+    let catalog = applier.catalog(NS).expect("the catalog reads");
+    w.checks = vec![catalog.predicate(uid_of(&applier, "name")).is_some()];
+}
+
+#[then("no statement of the namespace remains, and Describe still lists `name`")]
+fn data_dropped(w: &mut Steps) {
+    assert!(w.replies[0].outcome().is_ok(), "{:?}", w.replies);
+    assert!(w.terms.iter().all(Vec::is_empty), "{:?}", w.terms);
+    assert_eq!(w.checks, vec![true], "the declaration of `name` is kept");
+}
+
+#[when(
+    "a Drop's reply is lost, and the client sends it again with the same session and request number"
+)]
+async fn drop_retried(w: &mut Steps) {
+    let applier = graphs();
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let session = register(&mut pipe, 1).await;
+    let g = ex("g");
+    let request =
+        ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(g.as_ref()));
+    pipe.commit(2, drop_of(&applier, request, session, 1), 0)
+        .expect("appended");
+    pipe.sync(0).await.expect("synced");
+    let first = pipe.replies_mut().pop().expect("the reply, lost");
+    let applied = applier.quads().lists().applied_ts();
+    pipe.commit(3, drop_of(&applier, request, session, 1), 0)
+        .expect("answered");
+    pipe.sync(0).await.expect("synced");
+    w.replies = vec![first];
+    w.replies.append(pipe.replies_mut());
+    w.replies.push(Reply::new(
+        4,
+        pipe.retry(session, 1, 0).map(|(version, _)| version),
+    ));
+    w.versions = vec![applied, applier.quads().lists().applied_ts()];
+}
+
+#[then("the second answer is the stored reply, and the drop is applied once")]
+fn drop_once(w: &mut Steps) {
+    assert_eq!(w.replies.len(), 3, "{:?}", w.replies);
+    assert!(w.replies[0].outcome().is_ok());
+    assert_eq!(
+        w.replies[0].outcome(),
+        w.replies[1].outcome(),
+        "the stored reply"
+    );
+    assert_eq!(
+        w.replies[0].outcome(),
+        w.replies[2].outcome(),
+        "and on a stream of its own"
+    );
+    assert_eq!(w.versions[0], w.versions[1], "applied once");
+}
+
+#[when("a transaction reads before a drop of graph `g` commits and then writes into `g`")]
+async fn write_into_dropped_graph(w: &mut Steps) {
+    let applier = graphs();
+    let (_storage, log) = open_wal().await;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    let mut txn = begin(&applier);
+    let _ = held_in(&applier, "g", "a");
+    let g = ex("g");
+    pipe.commit(
+        1,
+        drop_of(
+            &applier,
+            ultragraphdb_store_apply::DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(
+                g.as_ref(),
+            )),
+            0,
+            0,
+        ),
+        0,
+    )
+    .expect("appended");
+    pipe.sync(0).await.expect("synced");
+    write(
+        &mut txn,
+        vec![Change::Insert {
+            graph: GraphName::from(ex("g")),
+            subject: ex("late").into(),
+            predicate: ex("knows"),
+            object: ex("b").into(),
+        }],
+    );
+    pipe.commit(2, prepare(txn), 0).expect("appended");
+    pipe.sync(0).await.expect("synced");
+    w.replies = std::mem::take(pipe.replies_mut());
+}
+
+#[then("its commit is refused with a conflict of kind Drop")]
+fn drop_conflict(w: &mut Steps) {
+    let late = w
+        .replies
+        .iter()
+        .find(|r| r.ticket() == 2)
+        .expect("answered");
+    assert_eq!(
+        late.outcome(),
+        &Err(CommitError::Conflict(ConflictKind::Drop)),
+        "{:?}",
+        w.replies
+    );
 }
 
 fn main() {

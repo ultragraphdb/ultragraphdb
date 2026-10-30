@@ -36,9 +36,14 @@ impl<S: DurableStorage> Wal<S> {
         file.sync().await.map_err(io_error("file sync"))
     }
 
-    /// Records `position`, a committed round above the checkpoint, as the checkpoint, then removes the segments whose
-    /// rounds all lie at or below it, short of the segment the next round is written to.
-    pub(crate) async fn checkpoint_at(&mut self, position: Position) -> Result<(), LogError> {
+    /// Records `position`, a committed round above the checkpoint, and `version`, the last commit version it covers, as
+    /// the checkpoint, then removes the segments whose rounds all lie at or below it, short of the segment the next
+    /// round is written to.
+    pub(crate) async fn checkpoint_at(
+        &mut self,
+        position: Position,
+        version: u64,
+    ) -> Result<(), LogError> {
         let Some(checksum) = self
             .index
             .iter()
@@ -63,6 +68,7 @@ impl<S: DurableStorage> Wal<S> {
             self.superblock.incarnation(),
             position,
             checksum,
+            version,
             keep,
         );
         record.write(&self.storage, &self.dir).await?;

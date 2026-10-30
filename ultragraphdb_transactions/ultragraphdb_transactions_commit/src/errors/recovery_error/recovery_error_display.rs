@@ -33,6 +33,14 @@ impl fmt::Display for RecoveryError {
                 "the store is empty and the log was trimmed through position {checkpoint}: the rounds it covered \
                  are lost"
             ),
+            RecoveryErrorEnum::BehindCheckpoint {
+                applied,
+                checkpoint,
+            } => write!(
+                f,
+                "the store's applied version {applied} is below version {checkpoint}, which the log's checkpoint \
+                 covers: the rounds between them are no longer in the log"
+            ),
         }
     }
 }

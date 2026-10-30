@@ -6,9 +6,9 @@
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
-    Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, Describe, ErrorCode, ErrorReply,
-    ExecuteView, FLAG_LAST, Header, PatternSlot, Prepare, PrepareView, QuadPattern, Register,
-    ResultBatch, ResultTerm, Welcome,
+    Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, Describe, DropCommandView,
+    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, Header, PatternSlot, Prepare, PrepareView,
+    QuadPattern, Register, ResultBatch, ResultTerm, Welcome,
 };
 
 use crate::utils_test::session_record::SessionRecord;
@@ -107,6 +107,11 @@ impl TestServer {
             Command::Commit => {
                 if let Ok(commit) = CommitView::from_frame(&view) {
                     self.commit(stream, commit.session(), commit.request());
+                }
+            }
+            Command::Drop => {
+                if let Ok(drop) = DropCommandView::from_frame(&view).and_then(|d| d.to_body()) {
+                    self.drop(stream, drop);
                 }
             }
             Command::Abort => {

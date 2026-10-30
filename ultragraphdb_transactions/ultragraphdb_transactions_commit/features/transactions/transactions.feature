@@ -37,6 +37,10 @@ Feature: Transactions decided by the commit step
     When a hundred transactions concurrently add 1 to the counter `next-id`
     Then all commit and `next-id` has grown by 100
 
+  Scenario: A counter add returns the counter's new value
+    When the counter `next-id` holds 5, and two transactions each add 1 to it
+    Then both commit, the one committed first receives 6 and the other 7, and `next-id` holds 7
+
   # Requirement: Exactly-once commits through sessions
 
   Scenario: A retried commit commits once
@@ -47,12 +51,20 @@ Feature: Transactions decided by the commit step
     When a session is evicted from the full table and its client sends its next request
     Then the request is refused with an error saying the session was evicted
 
+  Scenario: A retry of a request never committed is told so
+    When a client sends request 8 of its session again, with no transaction open for it, and the session's last committed request is 7
+    Then the request is refused as not committed, `detail` 8, and nothing is committed
+
+  Scenario: A session belongs to its principal
+    When principal `alice` registers a session, and a connection authenticated as `bob` commits through it
+    Then the commit is refused with code 21, `detail` 2, nothing is committed, and `alice`'s next request through the session is served
+
   # Requirement: Aborts name their reason
 
   Scenario: A full commit queue answers busy
     When the commit queue is full and a transaction commits
     Then the commit fails with a retryable busy error, and nothing it wrote is held
 
-  Scenario: A write set over the maximum frame is refused
-    When a transaction's write set grows past 1 MiB and it commits
-    Then the commit fails with a too-large error that is not marked retryable, and nothing it wrote is held
+  Scenario: A write set over the Welcome's bound is refused
+    When a transaction's write set grows past the Welcome's `max_write_set` and it commits
+    Then the commit fails with a too-large error that is not marked retryable, its `detail` the bound, and nothing it wrote is held

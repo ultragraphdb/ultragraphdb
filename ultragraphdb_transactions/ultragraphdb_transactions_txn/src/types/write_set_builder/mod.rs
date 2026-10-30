@@ -5,7 +5,7 @@
 
 use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::Keyspace;
-use ultragraphdb_store_apply::{BuildEnd, Executed};
+use ultragraphdb_store_apply::{BuildEnd, DropTarget, Executed};
 use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI, posting_object};
 
 use crate::errors::txn_error::TxnError;
@@ -27,8 +27,8 @@ const TAG_AT: usize = 8;
 /// Writes an executed transaction's write-set record straight into a buffer, in `ultragraphdb_protocol_wire`'s
 /// [`WriteSetRecord`](ultragraphdb_protocol_wire::WriteSetRecord) layout, which a
 /// [`WriteSetRecordView`](ultragraphdb_protocol_wire::WriteSetRecordView) reads in place: the fixed part (namespace,
-/// read version, session, request, and the principal, 0 here), the section table, then the sections, in one pass with no copy of the writes in
-/// between.
+/// read version, session, request, and the principal the transaction acted for), the section table, then the
+/// sections, in one pass with no copy of the writes in between.
 ///
 /// | Section | What the transaction's writes put there |
 /// |---|---|
@@ -42,7 +42,7 @@ const TAG_AT: usize = 8;
 /// | 7 | conflict statements: a list key and an object it changed, for each list changed by no more than the bound's objects and not cleared whole |
 /// | 8 | conflict ranges: a drop's key ranges, each its first key and the key past its last; none for any other execution (7.7) |
 /// | 9 | the commit-time operations' results, 16 bytes each, as the commit step writes them; empty for a worker's record (decided 2026-10-28) |
-/// | 10 | the record's operation: a drop's predicate (code 1), a build's swap (2) or undo (3) with its record number; empty for any other execution (decided 2026-10-28) |
+/// | 10 | the record's operation: a drop of a predicate (code 1) or a graph (4) with its UID, of a namespace's data (5), a namespace (6) or every namespace (7), a build's swap (2) or undo (3) with its record number; empty for any other execution (decided 2026-10-28) |
 ///
 /// Only a forward list is named object by object, since only a forward list's statements are tested by a read; a list
 /// of any other keyspace, a forward list changed by more objects than the bound, or one holding a posting that names
@@ -53,6 +53,7 @@ pub struct WriteSetBuilder<'e> {
     executed: &'e Executed,
     session: u64,
     request: u64,
+    principal: u64,
     commit_record: &'e [u8],
     objects_per_list: usize,
     results: &'e [(u64, bool)],
@@ -66,7 +67,11 @@ const OPERATION_SIZE: usize = 16;
 /// The operation `executed` is, as section 10 names it: its code and argument.
 fn operation_of(executed: &Executed) -> Option<(u16, u64)> {
     match (executed.dropped(), executed.build_end()) {
-        (Some(uid), _) => Some((1, uid)),
+        (Some(DropTarget::Predicate(uid)), _) => Some((1, uid)),
+        (Some(DropTarget::Graph(uid)), _) => Some((4, uid)),
+        (Some(DropTarget::Data), _) => Some((5, 0)),
+        (Some(DropTarget::Namespace), _) => Some((6, 0)),
+        (Some(DropTarget::All), _) => Some((7, 0)),
         (None, Some(BuildEnd::Swap(record))) => Some((2, record)),
         (None, Some(BuildEnd::Undo(record))) => Some((3, record)),
         (None, None) => None,
@@ -132,10 +137,17 @@ impl<'e> WriteSetBuilder<'e> {
             executed,
             session,
             request,
+            principal: 0,
             commit_record,
             objects_per_list: TxnLimits::default().objects_per_list(),
             results: &[],
         }
+    }
+
+    /// The builder writing `principal`, the principal the transaction acted for, into the fixed part; 0, without
+    /// authentication, by default.
+    pub fn with_principal(self, principal: u64) -> Self {
+        Self { principal, ..self }
     }
 
     /// The builder writing `results`, the commit-time operations' UIDs and whether each created its node, in the
@@ -292,6 +304,7 @@ impl<'e> WriteSetBuilder<'e> {
             self.executed.read_ts(),
             self.session,
             self.request,
+            self.principal,
         ];
         fixed
             .iter()

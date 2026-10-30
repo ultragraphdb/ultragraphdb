@@ -189,7 +189,7 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
         1,
         vec![insert_literal("a", "name", "big apple")],
     );
-    pipe.register(2, 0).unwrap();
+    pipe.register(2, 0, 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
     let mut txn = begin(&original);
@@ -212,8 +212,16 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
     );
     commit(&mut pipe, &original, 6, vec![term_index("label")]);
     original.executor().run_until_idle();
-    let drop =
-        Prepared::drop_predicate(&original, NS, ex("label").as_ref(), Default::default()).unwrap();
+    let drop = Prepared::drop(
+        &original,
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("label").as_ref()),
+        0,
+        0,
+        0,
+        Default::default(),
+    )
+    .unwrap();
     pipe.commit(7, drop, 0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     pipe.poll_builds(0).unwrap();
@@ -248,4 +256,152 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
     let table = Sessions::load(replica.quads().store()).unwrap();
     assert_eq!(table.last(session), Some((1, committed)));
     let _: Option<Term> = None;
+}
+
+/// The keys `applier`'s store holds, every keyspace's, versions apart: what two stores compare by.
+fn keys(applier: &Applier) -> Vec<Vec<u8>> {
+    applier
+        .quads()
+        .store()
+        .contents()
+        .keys()
+        .keys()
+        .cloned()
+        .collect()
+}
+
+/// The drops of a graph, a namespace's data, a namespace and every namespace, each decided in a round through a
+/// session and replayed into an empty store, leave what they left the original; a session's owner replays with it
+/// (`PROTOCOL.md` §12.2 operations 4 to 7).
+#[test]
+fn test_every_kind_of_drop_and_a_sessions_owner_replay() {
+    use ultragraphdb_store_apply::DropRequest;
+    use ultragraphdb_transactions_commit::CommitError;
+    let graph = ex("g");
+    let requests = [
+        DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(graph.as_ref())),
+        DropRequest::Data,
+        DropRequest::Namespace,
+        DropRequest::All,
+    ];
+    for (k, request) in requests.into_iter().enumerate() {
+        let original = applier();
+        let (_storage, log) = wal();
+        let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded()).unwrap();
+        commit(
+            &mut pipe,
+            &original,
+            1,
+            vec![
+                insert("a", "knows", "b"),
+                Change::Insert {
+                    graph: oxrdf::GraphName::from(graph.clone()),
+                    subject: ex("c").into(),
+                    predicate: ex("knows"),
+                    object: ex("d").into(),
+                },
+            ],
+        );
+        // A statement of another namespace, through the log too: only a drop of every namespace removes it.
+        let mut other = ultragraphdb_transactions_txn::Transaction::begin(
+            &original,
+            NS + 1,
+            ultragraphdb_transactions_txn::Mode::ReadWrite,
+            0,
+            0,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        other
+            .write(
+                &ultragraphdb_core_mapping::Changeset::new(NS + 1).with(insert("x", "knows", "y")),
+                0,
+            )
+            .unwrap();
+        pipe.commit(9, prepare(other), 0).unwrap();
+        block_on(pipe.sync(0)).unwrap();
+        pipe.replies_mut().clear();
+        pipe.register(2, 7, 0).unwrap();
+        block_on(pipe.sync(0)).unwrap();
+        let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
+        let drop =
+            Prepared::drop(&original, NS, request, session, 1, 7, Default::default()).unwrap();
+        pipe.commit(3, drop, 0).unwrap();
+        block_on(pipe.sync(0)).unwrap();
+        let version = pipe
+            .replies_mut()
+            .pop()
+            .unwrap()
+            .outcome()
+            .clone()
+            .expect("dropped");
+        let mut log = pipe.into_log();
+        let replica = applier_over(sim_store());
+        replay(&replica, &mut log, 1).unwrap();
+        assert_eq!(replica.quads().lists().applied_ts(), version, "drop {k}");
+        assert_eq!(keys(&replica), keys(&original), "drop {k}");
+        let table = Sessions::load(replica.quads().store()).unwrap();
+        assert_eq!(
+            table.last(session),
+            Some((1, version)),
+            "drop {k}: its reply"
+        );
+        assert_eq!(
+            table.check(session, 2, 8),
+            Err(CommitError::PermissionDenied(session)),
+            "drop {k}: the session's owner replayed"
+        );
+        assert_eq!(
+            table.check(session, 2, 7),
+            Ok(None),
+            "drop {k}: and its owner served"
+        );
+    }
+}
+
+/// A store below the last commit version the log's checkpoint covers refuses to start, naming both versions, and
+/// replays nothing.
+#[test]
+fn test_a_store_behind_its_checkpoint_refuses_to_start() {
+    use ultragraphdb_traits_log::OrderedLog;
+    let store = sim_store();
+    let applier = applier_over(store.clone());
+    let (storage, log) = wal();
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).unwrap();
+    commit(&mut pipe, &applier, 1, vec![insert("a", "knows", "b")]);
+    let behind = applier.quads().lists().applied_ts();
+    applier.quads().store().sync().unwrap();
+    commit(&mut pipe, &applier, 2, vec![insert("c", "knows", "b")]);
+    let covered = applier.quads().lists().applied_ts();
+    let mut log = pipe.into_log();
+    let position = log.committed();
+    block_on(log.trim_through(position, covered)).unwrap();
+    assert_eq!(log.checkpoint_version(), covered);
+    drop(log);
+    drop(applier);
+    store.power_loss();
+    store.recover();
+    let applier = applier_over(store);
+    assert_eq!(applier.quads().lists().applied_ts(), behind);
+    let (mut log, _) = reopen_wal(&storage);
+    assert_eq!(log.checkpoint_version(), covered, "the version is durable");
+    let refused = replay(&applier, &mut log, position.get() + 1).unwrap_err();
+    assert_eq!(
+        refused.0,
+        RecoveryErrorEnum::BehindCheckpoint {
+            applied: behind,
+            checkpoint: covered
+        }
+    );
+    let text = refused.to_string();
+    assert!(
+        text.contains(&behind.to_string()) && text.contains(&covered.to_string()),
+        "{text}"
+    );
+    assert_eq!(
+        applier.quads().lists().applied_ts(),
+        behind,
+        "nothing replayed"
+    );
 }

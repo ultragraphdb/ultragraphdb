@@ -561,7 +561,12 @@ fn test_a_sequenced_build_a_drop_cancels_ends_with_an_undo() {
     write(&a, &["<a> <name> \"big apple\""]);
     declare(&a, "name", "with `term`");
     let drop = a
-        .prepare_drop_predicate(NS, crate::utils::changesets::ex("name").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(
+                crate::utils::changesets::ex("name").as_ref(),
+            ),
+        )
         .unwrap();
     let version = next_version(&a);
     a.apply_round(vec![(version, drop)]).unwrap();
@@ -590,7 +595,12 @@ fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() {
     finish_builds(&a);
     let swap = a.prepare_build_end(a.take_build_end().unwrap()).unwrap();
     let drop = a
-        .prepare_drop_predicate(NS, crate::utils::changesets::ex("name").as_ref())
+        .prepare_drop(
+            NS,
+            ultragraphdb_store_apply::DropRequest::Predicate(
+                crate::utils::changesets::ex("name").as_ref(),
+            ),
+        )
         .unwrap();
     let version = next_version(&a);
     a.apply_round(vec![(version, drop)]).unwrap();

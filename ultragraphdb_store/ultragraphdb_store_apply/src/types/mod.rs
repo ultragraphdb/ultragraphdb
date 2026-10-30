@@ -9,6 +9,8 @@ pub(crate) mod build_end;
 pub(crate) mod changeset_applier;
 pub(crate) mod changeset_core;
 pub(crate) mod changeset_write;
+pub(crate) mod drop_request;
+pub(crate) mod drop_target;
 pub(crate) mod executed;
 pub(crate) mod execution;
 pub(crate) mod index_plan;

@@ -4,7 +4,6 @@
  */
 
 use ultragraphdb_core_mapping::VectorIndexSpec;
-use ultragraphdb_core_terms::{EncodedTerm, TermView};
 use ultragraphdb_core_tok::get_index_factory;
 use ultragraphdb_store_hnsw::{PersistentHnsw, VectorKeys};
 use ultragraphdb_traits_index::Options;
@@ -29,12 +28,4 @@ pub(crate) fn hnsw(
         options.set_opt(name.clone(), parsed);
     }
     PersistentHnsw::new(keys, &options, factory.float_bits()).map_err(|e| refused(e.to_string()))
-}
-
-/// The elements of the vector `term` encodes; `None` for another term.
-pub(crate) fn vector_of(term: &EncodedTerm) -> Option<Vec<f32>> {
-    match term.view().ok()? {
-        TermView::Vector(v) => Some(v.iter().collect()),
-        _ => None,
-    }
 }

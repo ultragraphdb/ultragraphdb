@@ -34,6 +34,9 @@ pub enum RecoveryErrorEnum {
     StoreNotInLog { version: u64 },
     /// The store is empty and the log was trimmed through `checkpoint`: the rounds the checkpoint covers are lost.
     Gap { checkpoint: u64 },
+    /// The store's applied version, `applied`, is below `checkpoint`, the last commit version the log's checkpoint
+    /// covers: rounds the store lost are no longer in the log, and nothing is replayed.
+    BehindCheckpoint { applied: u64, checkpoint: u64 },
 }
 
 impl RecoveryError {
@@ -65,5 +68,13 @@ impl RecoveryError {
     #[allow(non_snake_case)]
     pub fn Gap(checkpoint: u64) -> Self {
         Self(RecoveryErrorEnum::Gap { checkpoint })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn BehindCheckpoint(applied: u64, checkpoint: u64) -> Self {
+        Self(RecoveryErrorEnum::BehindCheckpoint {
+            applied,
+            checkpoint,
+        })
     }
 }

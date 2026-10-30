@@ -12,8 +12,8 @@ use ultragraphdb_protocol_wire::OperationResult;
 use crate::errors::commit_error::CommitError;
 
 /// One session's entry: its last committed request and that commit's whole reply, its version and its operations'
-/// results; the version it was last registered or committed at, which orders eviction; and whether a request of it is
-/// decided and not yet applied.
+/// results; the version it was last registered or committed at, which orders eviction; whether a request of it is
+/// decided and not yet applied; and its owner, the principal that registered it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Session {
     last_request: u64,
@@ -21,10 +21,11 @@ struct Session {
     results: Vec<OperationResult>,
     touched: u64,
     pending: bool,
+    owner: u64,
 }
 
-/// The bytes one entry accounts for: its key and its four fields, and 16 for each result.
-const ENTRY_BYTES: usize = 40;
+/// The bytes one entry accounts for: its key and its five fields, and 16 for each result.
+const ENTRY_BYTES: usize = 48;
 const RESULT_BYTES: usize = 16;
 
 /// The session table (D9, after TigerBeetle's client sessions): each registered session's last committed request and
@@ -73,19 +74,20 @@ impl Sessions {
         self
     }
 
-    /// What a commit of `session` numbered `request` is, in the order the Lean model checks it: `Ok(None)` a new
-    /// request to decide, `Ok(Some((version, results)))` a retry of the session's last committed request, answered
-    /// with its stored reply and not committed again. Session 0 is no session and is always new.
+    /// What a commit of `session` numbered `request` by `principal` is, in the order the Lean model checks it:
+    /// `Ok(None)` a new request to decide, `Ok(Some((version, results)))` a retry of the session's last committed
+    /// request, answered with its stored reply and not committed again. Session 0 is no session and is always new.
     ///
     /// # Errors
     ///
-    /// [`CommitError::SessionEvicted`] for a session the table does not hold; [`CommitError::SessionBusy`] while a
-    /// request of it is decided and not yet applied; [`CommitError::RequestOutOfOrder`] for a number neither the last
-    /// nor one above it.
+    /// [`CommitError::SessionEvicted`] for a session the table does not hold; [`CommitError::PermissionDenied`] for a
+    /// session another principal registered; [`CommitError::SessionBusy`] while a request of it is decided and not
+    /// yet applied; [`CommitError::RequestOutOfOrder`] for a number neither the last nor one above it.
     pub fn check(
         &self,
         session: u64,
         request: u64,
+        principal: u64,
     ) -> Result<Option<(u64, &[OperationResult])>, CommitError> {
         if session == 0 {
             return Ok(None);
@@ -93,6 +95,9 @@ impl Sessions {
         let Some(entry) = self.table.get(&session) else {
             return Err(CommitError::SessionEvicted(session));
         };
+        if entry.owner != principal {
+            return Err(CommitError::PermissionDenied(session));
+        }
         if entry.pending {
             return Err(CommitError::SessionBusy(session));
         }
@@ -104,6 +109,26 @@ impl Sessions {
             return Err(CommitError::RequestOutOfOrder(expected));
         }
         Ok(None)
+    }
+
+    /// A retry of `request` of `session` by `principal` with no transaction open for it, as a client sends one on a new
+    /// stream after its connection was lost: the stored reply, the commit version and results, when it is the
+    /// session's last committed request.
+    ///
+    /// # Errors
+    ///
+    /// As [`Sessions::check`] refuses, and [`CommitError::NotCommitted`] for the request after the last: it was not
+    /// committed, and the client runs its transaction again.
+    pub fn retry(
+        &self,
+        session: u64,
+        request: u64,
+        principal: u64,
+    ) -> Result<(u64, &[OperationResult]), CommitError> {
+        match self.check(session, request, principal)? {
+            Some(reply) => Ok(reply),
+            None => Err(CommitError::NotCommitted(request)),
+        }
     }
 
     /// Marks a request of `session` decided and not yet applied.
@@ -129,20 +154,22 @@ impl Sessions {
                 results,
                 touched: version,
                 pending: false,
+                owner: entry.owner,
             };
             self.changed.push(session);
         }
     }
 
-    /// Registers session `session`, numbered by its registration's version, evicting the session touched longest
-    /// ago when the table is full, one with no request in flight first: the session evicted.
-    pub fn register(&mut self, session: u64) -> Option<u64> {
+    /// Registers session `session` for `principal`, its owner, numbered by its registration's version, evicting the
+    /// session touched longest ago when the table is full, one with no request in flight first: the session evicted.
+    pub fn register(&mut self, session: u64, principal: u64) -> Option<u64> {
         let evicted = if self.table.len() >= self.capacity {
             self.evict_oldest()
         } else {
             None
         };
-        self.table.insert(session, Session::registered(session));
+        self.table
+            .insert(session, Session::registered(session, principal));
         self.changed.push(session);
         self.index_changed = true;
         evicted
@@ -182,7 +209,7 @@ impl Sessions {
         self.capacity
     }
 
-    /// The bytes the entries account for, 40 each and 16 for each result.
+    /// The bytes the entries account for, 48 each and 16 for each result.
     pub fn bytes(&self) -> usize {
         self.table
             .values()
@@ -192,14 +219,15 @@ impl Sessions {
 }
 
 impl Session {
-    /// The entry of a session registered at version `session` and not yet committed.
-    fn registered(session: u64) -> Self {
+    /// The entry of a session registered at version `session` for `owner` and not yet committed.
+    fn registered(session: u64, owner: u64) -> Self {
         Self {
             last_request: 0,
             last_version: 0,
             results: Vec::new(),
             touched: session,
             pending: false,
+            owner,
         }
     }
 }

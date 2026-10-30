@@ -744,3 +744,32 @@ fn test_a_closing_connection_sends_nothing_after_its_error() {
     assert_eq!((out[0].0, error(&out[0].3).0), (0, ErrorCode::Protocol));
     assert_eq!(connection.next_frame(), None);
 }
+
+/// A Hello whose lowest protocol is above the server's highest is answered with code 16 on stream 0, `detail` the
+/// server's highest, and the connection closes: nothing more is read or sent (point 7).
+#[test]
+fn test_a_hello_above_the_servers_protocols_closes_with_code_16() {
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = connection(&[], now);
+    assert_eq!(
+        connection.receive(
+            &peer.send(0, &Hello::new(2, 3, 0, MAX_FRAME_SIZE as u32, "client")),
+            now
+        ),
+        Inbound::Closing {
+            code: Some(ErrorCode::ProtocolVersion)
+        }
+    );
+    assert!(connection.is_closing());
+    let out = sent(&mut connection);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].0, 0);
+    assert_eq!(error(&out[0].3), (ErrorCode::ProtocolVersion, 1));
+    assert_eq!(
+        connection.receive(&peer.send(1, &Register::new(0)), now),
+        Inbound::Closing { code: None },
+        "a closing connection reads nothing"
+    );
+    assert_eq!(connection.next_frame(), None);
+}

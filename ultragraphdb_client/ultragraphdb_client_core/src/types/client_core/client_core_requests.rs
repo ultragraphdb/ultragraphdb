@@ -7,7 +7,8 @@ use std::time::Instant;
 
 use ultragraphdb_protocol_transport::Login;
 use ultragraphdb_protocol_wire::{
-    Abort, Begin, BodyBuilder, Commit, Describe, Execute, Operation, Prepare, Read, Register, Write,
+    Abort, Begin, BodyBuilder, Commit, Describe, DropCommand, Execute, Operation, Prepare, Read,
+    Register, Write,
 };
 
 use crate::errors::client_error::ClientError;
@@ -232,6 +233,52 @@ impl<L: Login> ClientCore<L> {
             PendingState::new(Some(transaction.stream()), expect),
             now,
         ))
+    }
+
+    /// Drops what `command` names through `session`, with the session's next request number, on a stream of its own,
+    /// answered [`crate::Reply::Dropped`] with the drop's commit version. Lost with its connection, it is sent again
+    /// through the session as a commit is, with the same session and request number, so the server applies it once.
+    pub fn drop_command(
+        &mut self,
+        command: DropCommand,
+        session: Session,
+        now: Instant,
+    ) -> Result<Pending, ClientError> {
+        let state = *self
+            .sessions
+            .get(&session.number())
+            .ok_or(ClientError::UnknownSession(session.number()))?;
+        if let Some(request) = state.in_doubt {
+            return Err(ClientError::InDoubt(session.number(), request));
+        }
+        if state.in_flight {
+            return Err(ClientError::SessionBusy(session.number()));
+        }
+        if !self.is_ready() {
+            return Err(ClientError::NotConnected());
+        }
+        let request = state.next_request;
+        let command = command.with_session(session.number(), request);
+        let stream = self.open_stream()?;
+        let frame = match self.frame(&command, stream) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.streams.remove(&stream);
+                return Err(error);
+            }
+        };
+        if let Some(state) = self.sessions.get_mut(&session.number()) {
+            state.in_flight = true;
+        }
+        let mut pending = PendingState::new(
+            Some(stream),
+            Expect::Drop {
+                session: session.number(),
+                request,
+            },
+        );
+        pending.drop = Some(command);
+        Ok(self.send_request(stream, frame, pending, now))
     }
 
     /// Resolves `session`'s commit in doubt: its request sent again through the session, answered from the server's

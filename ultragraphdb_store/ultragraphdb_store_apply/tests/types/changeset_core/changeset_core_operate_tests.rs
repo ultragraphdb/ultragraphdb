@@ -324,7 +324,8 @@ fn test_a_counter_add_adds_to_the_value_held_or_to_zero() {
     let txn = executed(&a, vec![insert("<other> <kind> \"k\"")]);
     let (operated, results) =
         operate(&a, &txn, &[], &[add("c", "n", 3), add("c", "fresh", -2)]).unwrap();
-    assert_eq!(results, vec![(0, false), (0, false)]);
+    // Each result is the counter's new value, an i64 in two's complement (point 33).
+    assert_eq!(results, vec![(8, false), ((-2i64) as u64, false)]);
     apply(&a, vec![operated]);
     // 5 + 3, and 0 − 2 for a counter holding nothing.
     assert_eq!(objects(&a, "c", "n"), vec![term("8")]);

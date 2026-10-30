@@ -36,13 +36,15 @@ pub(crate) fn frame_len(decisions: usize, committed: usize, records: usize) -> u
 }
 
 /// The record a registration of `session` logs: a write-set record of that session, request 0 and no writes.
-pub(crate) fn registration_record(session: u64) -> Vec<u8> {
-    WriteSetRecord::new(0, 0, session, 0).encode()
+pub(crate) fn registration_record(session: u64, principal: u64) -> Vec<u8> {
+    let mut record = WriteSetRecord::new(0, 0, session, 0);
+    record.set_principal(principal);
+    record.encode()
 }
 
 /// The length of every registration's record.
 fn registration_len() -> usize {
-    registration_record(0).len()
+    registration_record(0, 0).len()
 }
 
 /// How the round decided one transaction.
@@ -62,7 +64,7 @@ impl<P> Waiting<P> {
     fn ticket(&self) -> u64 {
         match self {
             Waiting::Commit(request) => request.ticket(),
-            Waiting::Register(ticket) => *ticket,
+            Waiting::Register { ticket, .. } => *ticket,
         }
     }
 }
@@ -99,7 +101,7 @@ impl<P: Proposal> CommitStep<P> {
                 // A build's end is a round of its own.
                 Waiting::Commit(request) if request.proposal().ends_build() && count > 0 => break,
                 Waiting::Commit(request) => request.proposal().record().len(),
-                Waiting::Register(_) => registration_len(),
+                Waiting::Register { .. } => registration_len(),
             };
             let limit = self.bounds.bytes() as usize;
             if count == self.bounds.transactions() as usize
@@ -153,15 +155,16 @@ impl<P: Proposal> CommitStep<P> {
                         }
                     }
                 }
-                Some(Waiting::Register(ticket)) => {
+                Some(Waiting::Register { ticket, principal }) => {
                     count += 1;
                     padded += align8(len);
                     match self.sequencer.take() {
                         Some(session) => {
                             self.sources
                                 .push(Source::Registration(self.registrations.len()));
-                            self.registrations.push(registration_record(session));
-                            self.updates.push(Update::Registered(session));
+                            self.registrations
+                                .push(registration_record(session, principal));
+                            self.updates.push(Update::Registered { session, principal });
                             self.decided.push((ticket, Ok(session)));
                         }
                         None => {
@@ -195,7 +198,7 @@ impl<P: Proposal> CommitStep<P> {
             Err(cause) => return Decided::Refused(CommitError::Malformed(cause)),
         };
         let (session, request) = (record.session(), record.request());
-        match self.sessions.check(session, request) {
+        match self.sessions.check(session, request, record.principal()) {
             Ok(Some((version, results))) => return Decided::Retry(version, results.to_vec()),
             Ok(None) => {}
             Err(refusal) => return Decided::Refused(refusal),

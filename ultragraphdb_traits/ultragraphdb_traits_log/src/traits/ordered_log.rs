@@ -51,9 +51,16 @@ pub trait OrderedLog {
         max_bytes: u32,
     ) -> impl Future<Output = Result<Vec<Round>, LogError>>;
 
-    /// Records that the positions through `position` are covered by a durable checkpoint, and removes what holds
-    /// only them. Never removes a round past the committed position.
-    fn trim_through(&mut self, position: Position) -> impl Future<Output = Result<(), LogError>>;
+    /// Records that the positions through `position` are covered by a durable checkpoint, the store holding every
+    /// commit through `version`, and removes what holds only them. Never removes a round past the committed position.
+    fn trim_through(
+        &mut self,
+        position: Position,
+        version: u64,
+    ) -> impl Future<Output = Result<(), LogError>>;
+
+    /// The last commit version the last checkpoint covers, 0 before the first: recovery refuses a store below it.
+    fn checkpoint_version(&self) -> u64;
 
     /// Refuses every later append and returns the final tail.
     fn seal(&mut self) -> Result<Position, LogError>;

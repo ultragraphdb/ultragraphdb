@@ -47,6 +47,7 @@ pub struct Transaction<'a, S, C> {
     limits: TxnLimits,
     buffers: TxnBuffers,
     operations: Vec<Operation>,
+    principal: u64,
 }
 
 impl<'a, S, C> Transaction<'a, S, C>
@@ -91,7 +92,18 @@ where
             limits,
             buffers,
             operations: Vec::new(),
+            principal: 0,
         })
+    }
+
+    /// The transaction acting for `principal`, which its write-set record names; 0, without authentication, by default.
+    pub fn with_principal(self, principal: u64) -> Self {
+        Self { principal, ..self }
+    }
+
+    /// The principal the transaction acts for.
+    pub fn principal(&self) -> u64 {
+        self.principal
     }
 
     pub fn namespace(&self) -> u64 {
@@ -206,11 +218,13 @@ where
         read_set.gather(executed.reads())?;
         read_set.seal();
         WriteSetBuilder::new(&executed, session, request, commit_record)
+            .with_principal(self.principal)
             .with_objects_per_list(self.limits.objects_per_list())
             .write_into(&mut record, self.limits.max_write_set())?;
         let rewrite = Rewrite {
             session,
             request,
+            principal: self.principal,
             commit_record: if self.operations.is_empty() {
                 Vec::new()
             } else {

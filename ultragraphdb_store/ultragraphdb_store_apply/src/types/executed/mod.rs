@@ -11,6 +11,7 @@ use ultragraphdb_store_posting::Writes;
 use ultragraphdb_store_quads::WriteTerms;
 
 use crate::types::build_end::BuildEnd;
+use crate::types::drop_target::DropTarget;
 use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
@@ -35,9 +36,9 @@ pub struct Executed {
     pub(crate) pending: Option<Rebuild>,
     pub(crate) touched: BTreeSet<(u64, u64)>,
     pub(crate) removals: Vec<PredicatePrefix>,
-    /// The predicate a drop decided in a round drops, and the key ranges it writes, each from its start to the key past
-    /// its last (7.7).
-    pub(crate) dropped: Option<u64>,
+    /// What a drop decided in a round drops, and the key ranges it writes, each from its start to the key past its last
+    /// (7.7).
+    pub(crate) dropped: Option<DropTarget>,
     pub(crate) drop_ranges: Vec<(Vec<u8>, Vec<u8>)>,
     /// The end of a build sequenced through the commit step this execution is: it writes nothing itself, and its
     /// round writes it at its version.
@@ -81,12 +82,12 @@ impl Executed {
         }
     }
 
-    /// A drop of predicate `dropped` of `namespace` read at `read_ts`, writing `ranges`.
+    /// A drop of `dropped` in `namespace` read at `read_ts`, writing `ranges`.
     pub(crate) fn dropping(
         namespace: u64,
         read_ts: u64,
         catalog: Catalog,
-        dropped: Option<u64>,
+        dropped: Option<DropTarget>,
         ranges: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Self {
         Self {
@@ -122,9 +123,9 @@ impl Executed {
         self.build_end
     }
 
-    /// The predicate a drop decided in a round drops, `None` for any other execution and for a drop of a predicate the
-    /// store does not know.
-    pub fn dropped(&self) -> Option<u64> {
+    /// What a drop decided in a round drops, `None` for any other execution and for a drop of a predicate or a graph
+    /// the store does not know.
+    pub fn dropped(&self) -> Option<DropTarget> {
         self.dropped
     }
 

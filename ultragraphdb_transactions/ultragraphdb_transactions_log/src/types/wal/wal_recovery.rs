@@ -207,6 +207,7 @@ impl<S: DurableStorage> Wal<S> {
             self.superblock.incarnation(),
             self.checkpoint(),
             self.superblock.checkpoint_checksum(),
+            self.superblock.checkpoint_version(),
             first,
         );
         record.write(&self.storage, &self.dir).await?;

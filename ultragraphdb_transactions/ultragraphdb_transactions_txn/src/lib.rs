@@ -23,5 +23,5 @@ pub use crate::types::prepared::Prepared;
 pub use crate::types::read_set::ReadSet;
 pub use crate::types::transaction::{Commit, Transaction};
 pub use crate::types::txn_buffers::TxnBuffers;
-pub use crate::types::txn_limits::{MAX_FRAME, TxnLimits};
+pub use crate::types::txn_limits::{MAX_FRAME, MAX_WRITE_SET, TxnLimits};
 pub use crate::types::write_set_builder::WriteSetBuilder;

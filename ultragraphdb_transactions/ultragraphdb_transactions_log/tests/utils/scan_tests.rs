@@ -51,7 +51,7 @@ fn frame_of(spec: Spec) -> Vec<u8> {
         1,
         &data,
     );
-    encode_round(CLUSTER, spec.incarnation, &round)
+    encode_round(CLUSTER, 0, spec.incarnation, &round)
         .expect("encoded")
         .0
         .as_slice()
@@ -221,7 +221,7 @@ fn test_rounds_of_an_older_incarnation_after_the_current_are_a_clean_end() {
 fn test_a_valid_round_of_another_cluster_is_damage() {
     let data = body(1, 10);
     let round = RoundRef::new(Position::new(1), 0, 2, 1, &data);
-    let foreign = encode_round(CLUSTER ^ 1, 1, &round).expect("encoded").0;
+    let foreign = encode_round(CLUSTER ^ 1, 0, 1, &round).expect("encoded").0;
     let scan = scan(&segment(4, &[foreign.as_slice().to_vec()]));
     assert!(scan.rounds().is_empty());
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
@@ -530,4 +530,15 @@ fn test_the_round_at_the_last_position_ends_the_scan() {
     let scan = scan_segment(&bytes, &start).expect("scanned");
     assert_eq!(positions(&scan), [u64::MAX]);
     assert_eq!((scan.end(), scan.damage()), (4_096, None));
+}
+
+/// A Round frame is numbered by its round's position (`PROTOCOL.md` §12): one whose header says another, its checksum
+/// sound, is no round of the log and stops the scan as damage.
+#[test]
+fn test_a_round_numbered_other_than_its_position_is_damage() {
+    let mut frames = chain(1, 1, 3, 0, ONE_BLOCK);
+    ultragraphdb_protocol_wire::Header::stamp_sequence(&mut frames[1], 7).expect("a header");
+    let scan = scan(&segment(8, &frames));
+    assert_eq!(positions(&scan), [1]);
+    assert_eq!(scan.damage(), Some(Damage::Header));
 }

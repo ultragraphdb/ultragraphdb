@@ -4,11 +4,10 @@
  */
 
 use ultragraphdb_core_keys::QuadKey;
-use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    Command, RecordEntry, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
+    RecordEntry, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
 };
-use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, Executed, RecordWrites};
+use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, DropTarget, Executed, RecordWrites};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_log::{OrderedLog, Position, Round};
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
@@ -43,7 +42,8 @@ impl Replay {
     ///
     /// [`RecoveryError::StoreNotInLog`] when the store's applied version is neither 0 nor a held round's last version,
     /// unless it lies below the first round held after a checkpoint, which the checkpoint covers;
-    /// [`RecoveryError::Gap`] for an empty store and a trimmed log; and the log's, a round's, the session table's and
+    /// [`RecoveryError::Gap`] for an empty store and a trimmed log; [`RecoveryError::BehindCheckpoint`] for a store
+    /// below the last commit version the log's checkpoint covers; and the log's, a round's, the session table's and
     /// the store's errors.
     pub async fn run<L, S, C, E>(
         applier: &ChangesetApplier<S, C, E>,
@@ -61,6 +61,10 @@ impl Replay {
         let trimmed = from.get() > 1;
         if applied == 0 && trimmed {
             return Err(RecoveryError::Gap(from.get() - 1));
+        }
+        let checkpoint = log.checkpoint_version();
+        if applied < checkpoint {
+            return Err(RecoveryError::BehindCheckpoint(applied, checkpoint));
         }
         let mut sessions = Sessions::load(applier.quads().store())
             .map_err(RecoveryError::Sessions)?
@@ -127,12 +131,12 @@ impl Replay {
             let (namespace, session, request) =
                 (record.namespace(), record.session(), record.request());
             if session != 0 && request == 0 {
-                sessions.register(session);
+                sessions.register(session, record.principal());
                 continue;
             }
             let executed = match record.operation() {
                 Some(RecordOperation::DropPredicate(uid)) => applier
-                    .prepare_replayed_drop(namespace, uid)
+                    .prepare_replayed_drop(namespace, DropTarget::Predicate(uid))
                     .map_err(apply)?,
                 Some(RecordOperation::SwapBuild(id)) => {
                     end_build(applier, record, BuildEnd::Swap(id)).map_err(apply)?
@@ -140,23 +144,18 @@ impl Replay {
                 Some(RecordOperation::UndoBuild(id)) => {
                     end_build(applier, record, BuildEnd::Undo(id)).map_err(apply)?
                 }
-                // The drops of a graph, a namespace's data, a namespace and every namespace: no commit step of this
-                // release proposes one, so a round holding one is a round this release does not read.
-                Some(
-                    operation @ (RecordOperation::DropGraph(_)
-                    | RecordOperation::DropNamespaceData
-                    | RecordOperation::DropNamespace
-                    | RecordOperation::DropAll),
-                ) => {
-                    return Err(RecoveryError::Round(
-                        position,
-                        ProtocolError::FieldValue(
-                            Command::Round.number(),
-                            "operation",
-                            operation.code().into(),
-                        ),
-                    ));
-                }
+                Some(RecordOperation::DropGraph(uid)) => applier
+                    .prepare_replayed_drop(namespace, DropTarget::Graph(uid))
+                    .map_err(apply)?,
+                Some(RecordOperation::DropNamespaceData) => applier
+                    .prepare_replayed_drop(namespace, DropTarget::Data)
+                    .map_err(apply)?,
+                Some(RecordOperation::DropNamespace) => applier
+                    .prepare_replayed_drop(namespace, DropTarget::Namespace)
+                    .map_err(apply)?,
+                Some(RecordOperation::DropAll) => applier
+                    .prepare_replayed_drop(namespace, DropTarget::All)
+                    .map_err(apply)?,
                 None => applier
                     .prepare_replay(namespace, record_writes(record))
                     .map_err(apply)?,

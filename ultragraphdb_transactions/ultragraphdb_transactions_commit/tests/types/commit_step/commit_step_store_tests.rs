@@ -255,10 +255,13 @@ fn test_a_round_closes_after_a_drop() {
     let mut first = begin(&applier);
     write(&mut first, vec![insert("x", "knows", "y")]);
     driver.submit(1, prepare(first));
-    let drop = ultragraphdb_transactions_txn::Prepared::drop_predicate(
+    let drop = ultragraphdb_transactions_txn::Prepared::drop(
         &applier,
         crate::utils::fixture::NS,
-        crate::utils::fixture::ex("p").as_ref(),
+        ultragraphdb_store_apply::DropRequest::Predicate(crate::utils::fixture::ex("p").as_ref()),
+        0,
+        0,
+        0,
         TxnBuffers::new(),
     )
     .expect("the drop prepares");

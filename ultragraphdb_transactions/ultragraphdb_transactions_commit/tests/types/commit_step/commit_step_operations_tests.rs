@@ -358,7 +358,15 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
         uid: 77,
         ..Script::default()
     };
-    step.step_with(Input::Register(9), 0, &mut out, &mut script);
+    step.step_with(
+        Input::Register {
+            ticket: 9,
+            principal: 0,
+        },
+        0,
+        &mut out,
+        &mut script,
+    );
     step.step_with(Input::Synced, 0, &mut out, &mut script);
     assert_eq!(out.replies(), &[Reply::new(9, Ok(2))]);
     let index = VersionlessEntry::put(
@@ -370,7 +378,7 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
         &[
             VersionlessEntry::put(
                 SessionEntry::key(2),
-                SessionEntry::new(0, 0, Vec::new()).encode()
+                SessionEntry::new(0, 0, 0, Vec::new()).encode()
             ),
             index,
         ]
@@ -391,7 +399,7 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
         out.system(),
         &[VersionlessEntry::put(
             SessionEntry::key(2),
-            SessionEntry::new(1, 4, results.clone()).encode()
+            SessionEntry::new(1, 4, 0, results.clone()).encode()
         )]
     );
     let operations = script.seen.len();

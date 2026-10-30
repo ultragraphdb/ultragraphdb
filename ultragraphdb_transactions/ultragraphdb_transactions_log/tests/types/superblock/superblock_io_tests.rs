@@ -21,6 +21,7 @@ fn record(sequence: u64) -> Superblock {
         1,
         Position::new(sequence * 10),
         sequence * 100,
+        0,
         sequence,
     )
 }

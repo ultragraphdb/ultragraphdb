@@ -17,6 +17,8 @@ use crate::errors::changeset_error::ChangesetError;
 use crate::types::applied::Applied;
 use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::ChangesetCore;
+use crate::types::drop_request::DropRequest;
+use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
 use crate::types::operation::Operation;
@@ -113,8 +115,8 @@ where
         self.core.prepare_replay(namespace, record)
     }
 
-    /// The drop of predicate `predicate` of `namespace`, a logged record's operation, for recovery to apply at the
-    /// record's commit version (7.9).
+    /// The drop of `target` in `namespace`, a logged record's operation, for recovery to apply at the record's commit
+    /// version (7.9).
     ///
     /// # Errors
     ///
@@ -122,9 +124,9 @@ where
     pub fn prepare_replayed_drop(
         &self,
         namespace: u64,
-        predicate: u64,
+        target: DropTarget,
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_replayed_drop(namespace, predicate)
+        self.core.prepare_replayed_drop(namespace, target)
     }
 
     /// Restores the build `end` ends, for recovery (7.9): from the catalog entry `key` and `value` the end's record
@@ -329,19 +331,20 @@ where
         self.core.drop_predicate(namespace, predicate)
     }
 
-    /// The drop of `predicate` of `namespace` as a proposal of the commit step (7.7): an execution writing the
-    /// predicate's key ranges and nothing else, which [`ChangesetApplier::apply_round`] drops at the version the step
-    /// gives it, once its round's batch is written; a round closes after a drop.
+    /// The drop `request` asks in `namespace` as a proposal of the commit step (7.7): an execution writing the key
+    /// ranges of what it drops and nothing else, which [`ChangesetApplier::apply_round`] drops at the version the step
+    /// gives it, once its round's batch is written; a round closes after a drop. A predicate or a graph the store does
+    /// not know, or a blank-node graph, is dropped as nothing.
     ///
     /// # Errors
     ///
     /// The store's error reading the catalog or the predicate's graphs.
-    pub fn prepare_drop_predicate(
+    pub fn prepare_drop(
         &self,
         namespace: u64,
-        predicate: NamedNodeRef<'_>,
+        request: DropRequest<'_>,
     ) -> Result<Executed, ChangesetError> {
-        self.core.prepare_drop_predicate(namespace, predicate)
+        self.core.prepare_drop(namespace, request)
     }
 
     /// Drops every key of `graph` in `namespace`: the drop's timestamp.

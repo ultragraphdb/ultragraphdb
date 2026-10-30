@@ -484,3 +484,103 @@ After it, `bazel test`: the transport 81 unit tests, SCRAM 27, the compio transp
 core 56 and 13 scenarios, the tokio shell 5, the compio shell 4; every non-integration target of the repository, 118,
 passing on macOS with group 8 beside it. The transport, compio, SCRAM and client targets passing on Linux 7.2 (arm64)
 in the OrbStack machine with io_uring, 14 of 14.
+
+## 9c.6 The commit, the store and the log
+
+### Phase 1: the surface
+
+- `ultragraphdb_store_apply`: `DropTarget`, what a drop decided in a round removes by UID (a predicate, a graph, a
+  namespace's data, a namespace, every namespace), held by `Executed::dropped` in place of the predicate's UID;
+  `DropRequest`, what a Drop command names; `prepare_drop(namespace, DropRequest)` in place of
+  `prepare_drop_predicate`, each kind's key ranges written, applied by the round at its version
+  (`ChangesetCore::drop_at`); `prepare_replayed_drop(namespace, DropTarget)`; a counter add answers its new value,
+  an i64 in two's complement (point 33).
+- `ultragraphdb_transactions_txn`: `Prepared::drop(applier, namespace, DropRequest, session, request, principal,
+  buffers)` in place of `drop_predicate`, a drop through a session; `WriteSetBuilder::with_principal` and
+  `Transaction::with_principal`, the record's `principal`; operations 4 to 7 named in section 10; `MAX_WRITE_SET`,
+  1,040,384 bytes, the default bound of a write set, the Welcome's (B5), in place of the 1 MiB frame.
+- `ultragraphdb_transactions_commit`: a session's owner, the principal that registered it, kept in its entry (the
+  entry's fixed part 32 bytes, the owner after the version) and checked before anything else, `PermissionDenied`
+  (code 21, `detail` 2, write) for another principal; `Sessions::retry` and `Pipeline::retry`, a retried Commit with
+  no transaction open answered from the table or refused as `NotCommitted` (code 18, `detail` the request,
+  retryable); `Input::Register { ticket, principal }`, `Pipeline::register(ticket, principal, now)`, a registration's
+  record naming its owner; replay redoing drops 4 to 7 and registering each session for its owner;
+  `RecoveryError::BehindCheckpoint`, a store below the version the log's checkpoint covers, naming both.
+- `ultragraphdb_traits_log`: `OrderedLog::trim_through(position, version)`, the checkpoint's last commit version
+  with it, and `checkpoint_version`; `ultragraphdb_transactions_log`: the superblock's format 2, 72 bytes, the
+  version at offset 48 (point 34).
+- `ultragraphdb_client_core`: `ClientCore::drop_command(DropCommand, session, now)`, a drop through a session, retried
+  as a commit is; `Reply::Dropped`. `TestServer` answers a Drop from its session table as a commit.
+
+### Phase 2: the failing run
+
+The suites written against the surface: the store's tests of every kind of drop decided in a round against its
+immediate drop, the oracle, of their targets and ranges, of a graph the store does not hold, and of every kind
+replayed; the counter's new value; the txn tests of each drop's operation and ranges in the record, of the
+principal in the record and in a transaction's, and of a drop through a session; the session table's owner, its
+retry answers and the owner surviving a reload; the entry's layout with its owner; replay of every kind of drop
+through a session with its owner, and of a store behind its checkpoint; the checkpoint's version in the superblock and
+across a reopen; the client's drop and its retry through the session. 9 of 9c.5's scenarios bound in the commit
+crate's features: the counter's new value, a retry never committed, a session's principal, the write-set bound
+(the scenario "A write set over the maximum frame is refused" renamed as the spec has it), a store behind its
+checkpoint, and the four of drops in `features/wire-protocol/drops.feature`.
+
+2026-10-30 18:03, `bazel test` against the surface:
+
+| Target | Result |
+|---|---|
+| `ultragraphdb_store_apply` unit | 181: 170 passed, 11 failed |
+| `ultragraphdb_transactions_txn` unit | 72: 68 passed, 4 failed |
+| `ultragraphdb_transactions_commit` unit | 144: 134 passed, 10 failed |
+| `ultragraphdb_transactions_commit` bdd | 37 scenarios: 24 passed, 13 failed |
+| `ultragraphdb_transactions_log` unit | 160: 159 passed, 1 failed |
+| `ultragraphdb_client_core` unit | 58: 56 passed, 2 failed |
+
+Every failure an `unimplemented!()` panic of the surface but three, tests asserting the values the slice changes on
+purpose, updated: the default write-set bound, and a session's 48 bytes in the table's account.
+
+### Phase 3: the audit
+
+Script in the session's scratchpad (`audit_commit9c.py`), each defect planted in place, run by `bazel test` over the
+store's unit target, every transaction crate's targets and the client core's, restored in a `finally`, the three
+source trees hashed before and compared after (equal). 57 defects:
+
+| Area | Defects |
+|---|---|
+| Store drops | a graph drop of another graph, without its split parts; a data drop taking the catalog, a namespace drop keeping it; every prefix without the catalog; an unknown graph a drop; a blank graph the default; a graph target naming no graph; a drop at its version of a graph, the namespace or every namespace dropping another target; a drop at the next version; a namespace drop writing no initial catalog; ranges ending at their start; a replayed drop of nothing |
+| Counter | its delta answered; a negative value answered as 0 |
+| Record | a graph drop, a data drop, an every-namespace drop named by another code; the principal unwritten, a drop's dropped, a drop through no session; the rewrite losing the principal; a transaction's principal unwritten; the write set bounded by the frame |
+| Sessions | the owner unchecked, checked after busy, lost by a commit, registered for nobody, not drained, not loaded, unwritten in the entry, read from the version; a retry of the next request taken as committed; NotCommitted not retryable; the two codes' details |
+| Step and replay | decided as principal 0; a registration's record and table naming nobody; replayed graph, namespace and every-namespace drops of another target; replay registering nobody; the checkpoint unchecked, naming the store twice |
+| Log | the checkpoint's version unwritten, read from the next field, lost by a restart at the checkpoint, read as 0; a version 1 superblock taken; a trim recording none |
+| Client | a drop through no session; a drop leaving its session free; a drop retried as a commit; a drop's reply of another request taken; a drop answered as a commit |
+
+The first run rejected 45; one plant did not build and was corrected; 11 survived, and the suite was strengthened
+for ten: a graph whose lists split dropped in a round, its parts with it; the store a drop is tried on holding
+`rdf:type`, and a namespace's initial catalog checked after either drop, which share one helper, so the oracle
+comparing them could not tell; a record written again keeping its principal; the replayed session's owner served, not
+only another refused, and a statement of another namespace through the log, which only a drop of every namespace
+removes; the restart at the checkpoint, reached by the torn checkpoint round, keeping its version; a drop keeping its
+session busy; a drop's reply of another request a mismatch. Re-run, all rejected. One stands, equivalent: a drop
+decided in a round applied at the store's next version instead of its own leaves the same store, the drop being
+physical and the round's last batch setting the watermark; only a read between the two could tell.
+
+The implementation that passed the audited suite is kept (phase 4 of this slice).
+
+## 9c.7 Phase 4, the frame and the connection
+
+Points 2, 3, 17, 19 and 45, 32 and 44, the handshake with authentication, reads on their own streams with credit per
+request (B3, points 1, 30) and the golden frames regenerated are the wire's, the transport's and the client's slices
+of 9c.6, whose implementations passed their audited suites and are kept. Point 55's idle limit is the server
+connection's; TCP keepalive is the server's socket, group 10's. Done here:
+
+- Point 16, found in the work: the log wrote a Round frame's header with sequence 0 and no release, where `PROTOCOL.md`
+  §12 numbers it by its round's position and names the release of the node that wrote it. `encode_round` takes the
+  release (`WalConfig::with_release`, 0 by default) and numbers the header by the position; a scan refuses a round
+  whose header names another sequence as damage. A round the log writes is now the golden `round.frame` byte for
+  byte, which a test checks, so stage 10's replication carries frames a receiver checks as every other frame.
+- Point 7 through the server connection: a Hello above the server's protocols is answered with code 16 on stream 0,
+  `detail` the server's highest, and the connection closes.
+
+After 9c.6 and 9c.7, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
+the protocol, client and log targets, 20 of 20, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.

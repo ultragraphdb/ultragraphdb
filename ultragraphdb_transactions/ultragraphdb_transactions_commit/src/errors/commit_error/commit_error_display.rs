@@ -44,6 +44,15 @@ impl fmt::Display for CommitError {
             CommitErrorEnum::SessionBusy { session } => {
                 write!(f, "session {session} already has a commit in flight")
             }
+            CommitErrorEnum::NotCommitted { request } => {
+                write!(
+                    f,
+                    "request {request} was not committed: run its transaction again"
+                )
+            }
+            CommitErrorEnum::PermissionDenied { session } => {
+                write!(f, "session {session} belongs to another principal")
+            }
             CommitErrorEnum::OperationFailed { found: Some(found) } => {
                 write!(f, "the compare-and-set did not hold: {found} is held")
             }
