@@ -1,0 +1,109 @@
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_vectors_tests.rs
+  s_e7d9aa044e41ea::t_67ee88f572505c 1-157,161-358
+  s_e7d9aa044e41ea::t_db2d167d346277 158-160
+  s_e7d9aa044e41ea::t_6ac12b2413a8a2 359-361
+  s_e7d9aa044e41ea::t_54c8bc08a01d6f 362-649
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_write/changeset_write_vector.rs
+  s_e7d9aa044e41ea::t_ca7d92cdfe57dc 13,25-26,28,32,35,38-39
+  s_e7d9aa044e41ea::t_fc3f12e437c89a 12
+  s_e7d9aa044e41ea::t_00834ed03952d2 6-9,42-46,49-51,57-58
+ultragraphdb_core/ultragraphdb_core_mapping/src/types/vector_index_spec.rs
+  s_e7d9aa044e41ea::t_49e3eb40253930 6-10,14,19,23,28-35,40-41,44
+  s_e7d9aa044e41ea::t_6fa47825ad16b6 42-43
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_vector_tests.rs
+  s_e7d9aa044e41ea::t_5ff30db1862773 6-8,10,13-15,18,20-25,31,42-61,66,75-109
+  s_e7d9aa044e41ea::t_97f5d4ba064b09 110
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_write/changeset_write_declare.rs
+  s_e7d9aa044e41ea::t_b4e70d841798f6 59-61
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-8.md
+  s_e7d9aa044e41ea::t_edfb9f504bb8a4 1-139
+  s_e7d9aa044e41ea::t_a40575318eeb07 140-255
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_vectors.rs
+  s_e7d9aa044e41ea::t_7b4874d6f4d26a 1-259
+  s_e7d9aa044e41ea::t_292708509cca60 260-262
+  s_e7d9aa044e41ea::t_a6bd4f2cb12115 263-316
+openspec/notes/security.md
+  s_e7d9aa044e41ea::t_144a4046bf67e0 299
+ultragraphdb_core/ultragraphdb_core_mapping/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_0d65d293293685 12-13
+ultragraphdb_store/ultragraphdb_store_apply/features/vector-index/vector_index.feature
+  s_e7d9aa044e41ea::t_b3494166c2aa4d 7-9,24,26-33
+ultragraphdb_store/ultragraphdb_store_apply/features/vector-index/vector_indexer.feature
+  s_e7d9aa044e41ea::t_f5bfd552f13e03 1-23
+ultragraphdb_store/ultragraphdb_store_apply/features/vector-index/vector_lists.feature
+  s_e7d9aa044e41ea::t_bd3c368a061642 8-9,12
+ultragraphdb_store/ultragraphdb_store_apply/src/errors/changeset_error/changeset_error_display.rs
+  s_e7d9aa044e41ea::t_ddef2f2213b39c 51,55,57-63
+ultragraphdb_store/ultragraphdb_store_apply/src/errors/changeset_error/mod.rs
+  s_e7d9aa044e41ea::t_bc608eecdab561 61,64,67-74,145,148,152-165
+ultragraphdb_store/ultragraphdb_store_apply/src/lib.rs
+  s_e7d9aa044e41ea::t_8ee3d47daffbc4 11-19
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_applier/mod.rs
+  s_e7d9aa044e41ea::t_35454a511e73b2 13,259-313
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_operate.rs
+  s_e7d9aa044e41ea::t_fc827a0c7f1864 42
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_write/changeset_write_triples.rs
+  s_e7d9aa044e41ea::t_fba6b183d19faf 165,218
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_write/mod.rs
+  s_e7d9aa044e41ea::t_bb58634b9829a0 67
+ultragraphdb_store/ultragraphdb_store_apply/src/types/mod.rs
+  s_e7d9aa044e41ea::t_ab1b6509f6286d 23
+ultragraphdb_store/ultragraphdb_store_apply/src/types/vector_queue.rs
+  s_e7d9aa044e41ea::t_e6fb79462a6a84 1-12
+ultragraphdb_store/ultragraphdb_store_apply/tests/errors/changeset_error/changeset_error_tests.rs
+  s_e7d9aa044e41ea::t_24e554361e477a 65,69-80,121-128
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/mod.rs
+  s_e7d9aa044e41ea::t_a2dbaf0750311d 18-19
+ultragraphdb_store/ultragraphdb_store_apply/tests/utils/changesets.rs
+  s_e7d9aa044e41ea::t_e367a08d2a7fc8 196-197,216-221,276-289
+ultragraphdb_store/ultragraphdb_store_hnsw/features/vector-index/vector_index.feature
+  s_e7d9aa044e41ea::t_0b94006a7ea805 8-9
+ultragraphdb_store/ultragraphdb_store_hnsw/tests/bdd.rs
+  s_e7d9aa044e41ea::t_26ef9d509448ba 12,25
+ultragraphdb_core/ultragraphdb_core_catalog/src/utils/catalog_codec.rs
+  s_18680b5acb8f6e::t_6d51a88c67bd1b 6-7,18-19,57-58,127,131-135,218,220-224
+ultragraphdb_core/ultragraphdb_core_catalog/tests/utils/catalog_codec_tests.rs
+  s_e7d9aa044e41ea::t_47b46066c482b0 6-7,31-34,37-40,74-112
+ultragraphdb_core/ultragraphdb_core_mapping/tests/types/vector_index_spec_tests.rs
+  s_e7d9aa044e41ea::t_404b9bf0239fcd 1-44
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/changeset_core_rebuild.rs
+  s_e7d9aa044e41ea::t_f1c0aa4c26b975 41,338-340
+ultragraphdb_store/ultragraphdb_store_apply/src/types/changeset_core/mod.rs
+  s_e7d9aa044e41ea::t_14987238163978 11,18,33,47-48,57-58,78-79,190,220-222,287,335-368
+ultragraphdb_store/ultragraphdb_store_apply/src/types/level_draw.rs
+  s_e7d9aa044e41ea::t_1eecb98039a155 7-9,20-30,33-37,42
+ultragraphdb_store/ultragraphdb_store_apply/tests/catalog_change_steps.rs
+  s_e7d9aa044e41ea::t_61d780e06b75f0 319-323
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_core/changeset_core_rebuild_tests.rs
+  s_e7d9aa044e41ea::t_ca05f7dc6b8e93 86-90,244-248,259-262,363-367,379-385,433-437
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/changeset_write/changeset_write_declare_tests.rs
+  s_e7d9aa044e41ea::t_8b7af308a56665 8-11,24,120-124,132,140-184,189-191
+ultragraphdb_store/ultragraphdb_store_apply/tests/types/level_draw_tests.rs
+  s_e7d9aa044e41ea::t_66e0304e1effd5 38-101
+ultragraphdb_store/ultragraphdb_store_apply/tests/vector_steps.rs
+  s_e7d9aa044e41ea::t_69b04adb76e32a 7-11,14,19-20,25,30-31,85,92,94-104,110,114,116-117,119,149,170-174,176,191,219-220,268,270,276,291,293,317,319,325-326,336,343,348-351,370-376,378-664
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "931f41e79b94c82c4c08ef58d0d76adb5177fbb6",
+  "prompts": {},
+  "sessions": {
+    "s_18680b5acb8f6e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ad6db2e20c6b66f12",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
