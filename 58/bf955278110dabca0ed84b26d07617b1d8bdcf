@@ -1,0 +1,79 @@
+AGENTS.md
+  s_e7d9aa044e41ea::t_ea6a71dabfd52b 219
+Cargo.toml
+  s_e7d9aa044e41ea::t_5686cf0dcf3a2d 62,113-118
+MODULE.bazel.lock
+  s_e7d9aa044e41ea::t_52f9fd4143348b 592,595,682,794,893,910,970,974
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  s_e7d9aa044e41ea::t_60dddce51a5045 296-381
+ultragraphdb_client/ultragraphdb_client_compio/src/types/client/mod.rs
+  s_e7d9aa044e41ea::t_a2af45dc82a5be 11,84-87
+ultragraphdb_client/ultragraphdb_client_compio/tests/utils/serve.rs
+  s_e7d9aa044e41ea::t_10a40ff1db1c1c 20,22,48
+ultragraphdb_client/ultragraphdb_client_core/tests/utils/harness.rs
+  s_e7d9aa044e41ea::t_52ecaabbe4969a 21,61
+ultragraphdb_client/ultragraphdb_client_tokio/src/types/client/mod.rs
+  s_e7d9aa044e41ea::t_82eba91e0f5564 82
+ultragraphdb_client/ultragraphdb_client_tokio/tests/utils/serve.rs
+  s_e7d9aa044e41ea::t_d2e192e527a2fd 19,49
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/errors/transport_error/mod.rs
+  s_e7d9aa044e41ea::t_1a64871aecdded 42-43,111-117
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/errors/transport_error/transport_error_display.rs
+  s_e7d9aa044e41ea::t_f29d1642463a77 40-42
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/lib.rs
+  s_e7d9aa044e41ea::t_7236bb93ee73f7 14-18,22,27-29,31,33,37-38,44
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/mod.rs
+  s_e7d9aa044e41ea::t_e9a7bc1ac6c882 7,9,13-14,20
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/server_handshake/mod.rs
+  s_e7d9aa044e41ea::t_a2c854afef4f40 29,31-33
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/framer/framer_tests.rs
+  s_e7d9aa044e41ea::t_d1deb6493b229a 40,76,85,109,113,137,144,154,168,177,187-233
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/mod.rs
+  s_e7d9aa044e41ea::t_dc867d751717c8 9-10,13-14,29-30
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/outbound/outbound_tests.rs
+  s_e7d9aa044e41ea::t_c9aee8dbdbc7d9 9-10,36-45,47-51,99,136,171,187-291
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/pooled_buffer/pooled_buffer_tests.rs
+  s_e7d9aa044e41ea::t_d0a26e75744937 7,22
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/types/received_frame/received_frame_tests.rs
+  s_e7d9aa044e41ea::t_c33c9ff6a0486e 8,18,25,30,43-114
+ultragraphdb_protocol/ultragraphdb_protocol_transport/tests/utils/mod.rs
+  s_e7d9aa044e41ea::t_0ba9870fdb9476 8-11
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/Cargo.toml
+  s_e7d9aa044e41ea::t_781448628c3e0e 28
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/features/wire-protocol/conversations.feature
+  s_e7d9aa044e41ea::t_338fa3a4e288f1 6-11,32-91
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/connection/mod.rs
+  s_e7d9aa044e41ea::t_9e2ac350fc2486 52-60,137-139
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/bdd.rs
+  s_e7d9aa044e41ea::t_5ba53836815573 7-10,13-18,21-24,39-41,53-92,95-132,138,140-141,145-146,150-151,153-154,156-169,172-176,179-184,187-197,199-211,214,217,220,229-230,232,235-272,277-297,305-339,341-342,346-347,350-351,386-388,393-400,421-422,456-461,471,473,483-958
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/tests/types/connection/connection_tests.rs
+  s_e7d9aa044e41ea::t_e55c728636ae56 9,30-31,69-77,147-148,318-319
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/types/header/header_encode.rs
+  s_e7d9aa044e41ea::t_ccbc126864f959 42-58
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/types/header/header_encode_tests.rs
+  s_e7d9aa044e41ea::t_bdd9b33abe3a4d 111-130
+Cargo.lock
+  s_e7d9aa044e41ea::t_6a66c60402b182 527-532,542-550,784,1120-1128,1790-1799,2206-2216,2301-2311,2978-2990,3007,3321-3326,3342-3347
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/framer/mod.rs
+  s_e7d9aa044e41ea::t_2fae354559e89e 7,17-20,24-25,27-28,32-34,37-38,40-41,45-58,73,84-89,122-123,126-135
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/outbound/mod.rs
+  s_e7d9aa044e41ea::t_4e92f130e0f808 8,22-31,34,39-44,50,52,63,65-108,110-123,129-132,145,172-173,175,178-180,182-185,204,207
+ultragraphdb_protocol/ultragraphdb_protocol_transport/src/types/received_frame/mod.rs
+  s_e7d9aa044e41ea::t_96253f3f068ec2 7,11-12,17-20,24-41,49-52,54-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "58bf955278110dabca0ed84b26d07617b1d8bdcf",
+  "prompts": {},
+  "sessions": {
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
