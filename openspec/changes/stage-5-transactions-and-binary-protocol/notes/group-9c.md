@@ -673,3 +673,51 @@ holds writes until a flush. Re-run with two plants removing the new checks, all 
 
 After 9c.10 and 9c.11, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
 the protocol and client targets, 17 of 17, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.
+
+## 9c.12 Phase 5, the fuzz targets
+
+9c.6 changed the header (the sequence), every body it touched, the write-set record (the principal), the session entry
+(the owner), the superblock (format 2) and the Round frame (its sequence its position), and the fuzz workspace no longer
+compiled: four of its six packages failed against the new API, and every seed of a changed decoder held the old
+encoding. Each target is brought to the current API and its properties to the current rules, two packages are new, and
+every seed is regenerated from the golden frames and values the suite holds. Each built with
+`cargo +nightly fuzz build --fuzz-dir fuzz/<crate>`, Cargo for the fuzz workspace alone, which Bazel never builds (the
+user's decision, 2026-10-30); none run (11.7).
+
+| Package | Target | Change | Seeds |
+|---|---|---|---|
+| `fuzz/ultragraphdb_protocol_wire` | `body` | Authenticate and Drop through their views; the sequence kept on a rebuilt frame; a Commit's and a Prepare's request and reply rules (point 21) | the 29 golden frames, `fuzz_seeds/body/` |
+| | `body_fields` | the current builders: Hello's and Welcome's `max_frame` from the floor, Welcome's mechanisms and limits, Read's and Execute's transaction and statement-ID flag, Write without its namespace, an OperationFailed value as a request term; new: Authenticate (a client's, a server's, a final one), Drop of every kind through a session, Result rows of blank nodes and statement IDs | the golden frames, `fuzz_seeds/body_fields/` |
+| | `frame`, `frame_fields` | the receiver's `max_frame`; any sequence; reserved bytes 66 to 127 only; flag bits 1 to 7 refused in the protocol's order (step 6) | the C generator's six frames, `fuzz_seeds/frame/` |
+| | `chunk_table` | none | each of those frames' bodies behind its `checksum_body` |
+| | `round`, `write_set_record` | the receiver's `max_frame` | the golden round's body behind its transaction count (3), its two records with the principal |
+| | `quad_pattern`, `term_table` | the receiver's `max_frame`; Execute's transaction | a golden Prepare and Prepare reply, each with the golden Execute |
+| `fuzz/ultragraphdb_protocol_transport` | `framing` | the stream read twice, by a client's framer and by a server's (`Framer::from_client`), each with the largest frame | every golden frame numbered 1 onward, the golden Hello, the golden Round cut at 3,000 bytes |
+| | `server_connection` (new) | a client's frames, each numbered as its next with any damage to its header checksum kept, through `ServerConnection` with and without SCRAM-SHA-256 (RFC 7677's user and server nonce, so the golden exchange completes); the session refuses every standalone request and answers every read: requests only on open streams, the principal known once serving, every frame sent valid and numbered in order, nothing after the closing Error, a connection past its deadlines closed | the golden Hello and a session's requests, alone and after the golden Authenticate exchange; the Hello alone |
+| `fuzz/ultragraphdb_client_core` | `reply` | `ClientCore<Anonymous>`, the wall clock at connect, one framer for the connection, every frame numbered as its next with checksum damage kept; reads on streams of their own naming their transaction; a Drop through a second session | the golden replies, each moved onto the stream the client waits on |
+| `fuzz/ultragraphdb_core_terms` (new) | `encoded_term` | any bytes as a result term's encoding: the whole-encoding check (points 13, 50); an encoding it accepts holds the length rules, is its bytes, opens without the dictionary and turns into a literal or is refused as a UID; the store's parse of a key takes no more bytes than it holds | the 114 by-value vectors, an IRI, a vector, a string and a language-tagged string |
+| `fuzz/ultragraphdb_protocol_scram` (new) | `scram_server` | a client's two messages to a server holding RFC 7677's user: out of step refused, the client's nonce extended by the server's, only the user's proof authenticating, as its principal | RFC 7677's exchange; the same of a name the server does not hold |
+| | `scram_client` | a server's two messages to RFC 7677's client: out of step refused, a client-final message carrying the server's nonce and a proof | RFC 7677's exchange |
+| `fuzz/ultragraphdb_transactions_commit` | `session_entry` | the owner in the entry; a committed request has its version | a registered entry and a committed one with two results, owner 7 |
+| `fuzz/ultragraphdb_transactions_log` | `scan` | the receiver's `max_frame`; an accepted round's sequence its position (point 16) | the five segments, each round numbered by its position, re-chained and resealed |
+| | `superblock` | none | the three copies in format 2, their checkpoint versions 0, 2,000 and the largest |
+| `fuzz/ultragraphdb_core_codec` | `posting_list_decode` | none | unchanged |
+
+The seeds are written by a script in the session's scratchpad (`seeds9c12/make_seeds.py`), which runs the golden
+generator and checks its output equal to the committed golden frames.
+
+Found in the work: a SCRAM client took any iteration count from 4,096 up and derived its key with that many rounds of
+PBKDF2, so a server, or anyone between client and server while the transport is not encrypted, held a client for hours
+with `i=4294967295`. RFC 5802 sets no upper bound. Decided by the user (2026-10-30): a ceiling, `MAX_ITERATIONS`,
+10,000,000, 16 times the 600,000 default so the OWASP figure can rise, seconds of work at most. `SECURITY.md` and the
+security note state it first; the client refuses a count above it before deriving a key, and `ScramVerifier::derive`
+refuses one, so no verifier is made that no client would run; `ScramError::Iterations` names either bound. Tests: the
+client refusing 10,000,001 and 2^32 − 1, the verifier refusing 10,000,001; each check widened back to 2^32 − 1 in turn
+is rejected by the suite. The bound itself, a count of exactly 10,000,000 taken, is not tested: it runs ten million
+rounds of PBKDF2.
+
+After 9c.12, `bazel build //...` and every non-integration target of the repository but one passing on macOS, 117 of
+118: `ultragraphdb_core_types`' tests do not build with the staged edit of `tests/utils/value_tests.rs`, which drops the
+`as [f32; 0]` of two empty arrays that `serde_json`'s `PartialEq<Value>` for `f32` makes ambiguous; the edit is the
+user's, outside this task. The protocol, client, term and log targets, 23 of 23, pass on Linux 7.2 (arm64) in the
+OrbStack machine with io_uring.

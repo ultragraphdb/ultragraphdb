@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Structure-aware: bodies of every kind, their term tables included, built from arbitrary fields, which must validate
-//! and read back to what was built; then arbitrary mutations of the body, the frame rebuilt around it so the body's checks are reached, which
+//! Structure-aware: bodies of every kind, their term tables included, built from arbitrary fields within each
+//! builder's rules, which must validate and read back to what was built; then arbitrary mutations of the body, the frame rebuilt around it so the body's checks are reached, which
 //! never panic.
 
 #![no_main]
@@ -13,12 +13,13 @@ use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, ColumnType, Command, Commit, CommitOperation, CommitView, Credit,
-    CreditView, Direction, ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView,
-    Header, Hello, HelloView, Link, Operation, OperationResult, OperationView, PatternSlot,
-    Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultBatch, ResultTerm,
-    ResultView, RoundBody, RoundView, TermTable, Welcome, WelcomeView, Write, WriteChange,
-    WriteSetRecord, WriteView,
+    Authenticate, AuthenticateView, BodyBuilder, BodyView, ColumnType, Command, Commit,
+    CommitOperation, CommitView, Credit, CreditView, Direction, DropCommand, DropCommandView,
+    ErrorCode, ErrorReply, ErrorReplyView, Execute, ExecuteView, FrameView, Header, Hello,
+    HelloView, Link, MAX_FRAME_FLOOR, MAX_FRAME_SIZE, Operation, OperationResult, OperationView,
+    PatternSlot, Prepare, PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultBatch,
+    ResultTerm, ResultView, RoundBody, RoundView, TermTable, Welcome, WelcomeView, Write,
+    WriteChange, WriteSetRecord, WriteView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -46,6 +47,7 @@ enum Body {
         min: u16,
         extra: u8,
         release: u32,
+        max_frame: u32,
         name: String,
     },
     Welcome {
@@ -53,7 +55,24 @@ enum Body {
         max_frame: u32,
         streams: u32,
         credit: u32,
+        write_set: u32,
+        transaction_ms: u32,
         name: String,
+        mechanisms: Vec<String>,
+    },
+    Authenticate {
+        step: u16,
+        mechanism: String,
+        message: Vec<u8>,
+        last: Option<(u64, u64)>,
+    },
+    Drop {
+        kind: u8,
+        namespace: u64,
+        target: String,
+        session: u64,
+        request: u64,
+        version: u64,
     },
     Commit {
         session: u64,
@@ -71,10 +90,11 @@ enum Body {
         value: Option<String>,
     },
     Read {
-        namespace: u64,
+        transaction: u64,
         limit: u32,
         slots: [Slot; 4],
         resume: Vec<u8>,
+        statement_ids: bool,
     },
     Prepare {
         slots: [Slot; 4],
@@ -82,11 +102,12 @@ enum Body {
     },
     Execute {
         statement: u64,
+        transaction: u64,
         parameters: Vec<u16>,
         resume: Vec<u8>,
+        statement_ids: bool,
     },
     Write {
-        namespace: u64,
         changes: Vec<(u8, u16, u16, u16)>,
     },
     Operation {
@@ -95,9 +116,11 @@ enum Body {
         delta: i64,
         links: Vec<(u16, bool)>,
     },
+    /// A cell's odd value names a blank node, an even one an IRI; with statement IDs, each row's is its index.
     Result {
         columns: u8,
         rows: Vec<Vec<Option<u16>>>,
+        statement_ids: bool,
     },
     Round {
         decisions: Vec<Option<(u8, u64)>>,
@@ -178,13 +201,16 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             min,
             extra,
             release,
+            max_frame,
             name,
         } => {
             let min = (*min).max(1);
+            let floor = MAX_FRAME_FLOOR as u32;
             let hello = Hello::new(
                 min,
                 min.saturating_add(u16::from(*extra)),
                 *release,
+                floor + max_frame % (MAX_FRAME_SIZE as u32 - floor + 1),
                 name.clone(),
             );
             let frame = hello.frame(header).ok()?;
@@ -200,17 +226,19 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             max_frame,
             streams,
             credit,
+            write_set,
+            transaction_ms,
             name,
+            mechanisms,
         } => {
-            let max_frame = 4_096 + max_frame % (1_048_576 - 4_096 + 1);
-            let welcome = Welcome::new(
-                (*protocol).max(1),
-                0,
-                max_frame,
-                (*streams).max(1),
-                *credit,
-                name.clone(),
-            );
+            let floor = MAX_FRAME_FLOOR as u32;
+            let welcome = Welcome::new((*protocol).max(1), 0, name.clone())
+                .with_max_frame(floor + max_frame % (MAX_FRAME_SIZE as u32 - floor + 1))
+                .with_max_streams((*streams).max(1))
+                .with_initial_credit(*credit)
+                .with_max_write_set(*write_set)
+                .with_transaction_ms(*transaction_ms)
+                .with_mechanisms(mechanisms.iter().filter(|m| !m.is_empty()).cloned());
             let frame = welcome.frame(header).ok()?;
             (
                 frame,
@@ -265,8 +293,8 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         } => {
             let code = ErrorCode::ALL[usize::from(*code) % ErrorCode::ALL.len()];
             let mut reply = ErrorReply::new(code, message.clone()).with_detail(*detail);
-            if let Some(value) = value.as_ref().filter(|v| !v.is_empty()) {
-                reply = reply.with_value(value.clone());
+            if let Some(value) = value {
+                reply = reply.with_value(RequestTerm::Iri(value.clone()));
             }
             let frame = reply.frame(header).ok()?;
             (
@@ -280,23 +308,27 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
             )
         }
         Body::Read {
-            namespace,
+            transaction,
             limit,
             slots,
             resume,
+            statement_ids,
         } => {
             let mut parameters = 0;
             let s: Vec<_> = slots.iter().map(|s| slot(s, &mut parameters, n)).collect();
             if parameters > 0 {
                 return None;
             }
-            let read = Read::new(
-                *namespace,
+            let mut read = Read::new(
+                *transaction,
                 *limit,
                 terms,
                 QuadPattern::new(s[0], s[1], s[2], s[3]),
                 resume.clone(),
             );
+            if *statement_ids {
+                read = read.with_statement_ids();
+            }
             let frame = read.frame(header).ok()?;
             (
                 frame,
@@ -338,11 +370,23 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
         }
         Body::Execute {
             statement,
+            transaction,
             parameters,
             resume,
+            statement_ids,
         } => {
             let parameters = parameters.iter().map(|p| t(*p)).collect();
-            let execute = Execute::new(*statement, 0, terms, parameters, resume.clone());
+            let mut execute = Execute::new(
+                *statement,
+                *transaction,
+                0,
+                terms,
+                parameters,
+                resume.clone(),
+            );
+            if *statement_ids {
+                execute = execute.with_statement_ids();
+            }
             let frame = execute.frame(header).ok()?;
             (
                 frame,
@@ -354,7 +398,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
-        Body::Write { namespace, changes } => {
+        Body::Write { changes } => {
             let changes = changes
                 .iter()
                 .map(|(kind, s, p, o)| {
@@ -380,7 +424,7 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                     }
                 })
                 .collect();
-            let write = Write::new(*namespace, terms, changes);
+            let write = Write::new(terms, changes);
             let frame = write.frame(header).ok()?;
             (
                 frame,
@@ -441,26 +485,108 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }),
             )
         }
-        Body::Result { columns, rows } => {
+        Body::Result {
+            columns,
+            rows,
+            statement_ids,
+        } => {
             let columns = u32::from(columns % 8);
-            let mut batch = ResultBatch::new(columns);
-            for row in rows {
+            let mut batch = if *statement_ids {
+                ResultBatch::with_statement_ids(columns)
+            } else {
+                ResultBatch::new(columns)
+            };
+            for (i, row) in rows.iter().enumerate() {
                 let cells: Vec<Option<ResultTerm>> = (0..columns as usize)
                     .map(|c| {
                         row.get(c).copied().flatten().map(|n| {
-                            ResultTerm::new(EncodedTerm::uid(u64::from(n)))
-                                .with_text(format!("http://ex.org/{n}"))
+                            let uid = u64::from(n);
+                            if n % 2 == 1 {
+                                ResultTerm::blank_node(
+                                    uid,
+                                    format!("http://ex.org/.well-known/genid/{n}"),
+                                )
+                            } else {
+                                ResultTerm::new(EncodedTerm::uid(uid))
+                                    .with_text(format!("http://ex.org/{n}"))
+                            }
                         })
                     })
                     .collect();
                 let refs: Vec<Option<&ResultTerm>> = cells.iter().map(Option::as_ref).collect();
-                batch.push_row(&refs).ok()?;
+                if *statement_ids {
+                    batch.push_row_with_id(&refs, i as u64).ok()?;
+                } else {
+                    batch.push_row(&refs).ok()?;
+                }
             }
             let frame = batch.frame(header).ok()?;
             (
                 frame,
                 Box::new(move |f| {
                     assert_eq!(ResultView::from_frame(f).unwrap().to_body().unwrap(), batch)
+                }),
+            )
+        }
+        Body::Authenticate {
+            step,
+            mechanism,
+            message,
+            last,
+        } => {
+            // A client's message is even and alone names the mechanism, at step 0; a server's is odd and may be final.
+            let step = u32::from(*step);
+            let mut authenticate = match last {
+                Some(_) => Authenticate::new(step | 1, "", message.clone()),
+                None if step == 0 => {
+                    let name = if mechanism.is_empty() {
+                        "SCRAM-SHA-256"
+                    } else {
+                        mechanism
+                    };
+                    Authenticate::new(0, name, message.clone())
+                }
+                None => Authenticate::new(step, "", message.clone()),
+            };
+            if let Some((principal, expires)) = last {
+                authenticate = authenticate.with_final(*principal, *expires);
+            }
+            let frame = authenticate.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        AuthenticateView::from_frame(f).unwrap().to_body().unwrap(),
+                        authenticate
+                    )
+                }),
+            )
+        }
+        Body::Drop {
+            kind,
+            namespace,
+            target,
+            session,
+            request,
+            version,
+        } => {
+            let command = match kind % 5 {
+                0 => DropCommand::predicate(*namespace, target.clone()),
+                1 => DropCommand::graph(*namespace, target.clone()),
+                2 => DropCommand::namespace_data(*namespace),
+                3 => DropCommand::whole_namespace(*namespace),
+                _ => DropCommand::all(),
+            }
+            .with_session(*session, *request)
+            .with_commit_version(*version);
+            let frame = command.frame(header).ok()?;
+            (
+                frame,
+                Box::new(move |f| {
+                    assert_eq!(
+                        DropCommandView::from_frame(f).unwrap().to_body().unwrap(),
+                        command
+                    )
                 }),
             )
         }
@@ -498,7 +624,8 @@ fuzz_target!(|input: Input| {
     let Some((frame, check)) = build(&input.body, table(&input.terms), header) else {
         return;
     };
-    let view = FrameView::validate(&frame, CLUSTER).expect("a built frame validates");
+    let view =
+        FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     check(&view);
     let command = view.command();
     let mut body = view.body().to_vec();
@@ -524,7 +651,8 @@ fuzz_target!(|input: Input| {
     else {
         return;
     };
-    let frame = FrameView::validate(&mutated, CLUSTER).expect("a rebuilt frame validates");
+    let frame =
+        FrameView::validate(&mutated, CLUSTER, MAX_FRAME_SIZE).expect("a rebuilt frame validates");
     // The mutated body is read or refused by its view; neither panics.
     let _ = match command {
         Command::Hello => HelloView::from_frame(&frame)
@@ -561,6 +689,12 @@ fuzz_target!(|input: Input| {
             .and_then(|v| v.to_body())
             .map(drop),
         Command::Round => RoundView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(drop),
+        Command::Authenticate => AuthenticateView::from_frame(&frame)
+            .and_then(|v| v.to_body())
+            .map(drop),
+        Command::Drop => DropCommandView::from_frame(&frame)
             .and_then(|v| v.to_body())
             .map(drop),
         _ => Ok(()),

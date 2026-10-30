@@ -10,8 +10,8 @@
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_protocol_wire::{
-    BodyView, Command, ExecuteView, FrameView, Header, PatternSlot, PrepareView, StatementCache,
-    StatementError, StatementErrorEnum,
+    BodyView, Command, ExecuteView, FrameView, Header, MAX_FRAME_SIZE, PatternSlot, PrepareView,
+    StatementCache, StatementError, StatementErrorEnum,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -26,7 +26,8 @@ fuzz_target!(|data: &[u8]| {
     let Ok(prepare) = Header::new(CLUSTER, Command::Prepare).encode_frame(prepare) else {
         return;
     };
-    let frame = FrameView::validate(&prepare, CLUSTER).expect("a built frame validates");
+    let frame =
+        FrameView::validate(&prepare, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     let Ok(request) = PrepareView::from_frame(&frame) else {
         return;
     };
@@ -41,7 +42,8 @@ fuzz_target!(|data: &[u8]| {
     let Ok(execute) = Header::new(CLUSTER, Command::Execute).encode_frame(execute) else {
         return;
     };
-    let frame = FrameView::validate(&execute, CLUSTER).expect("a built frame validates");
+    let frame =
+        FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     let Ok(view) = ExecuteView::from_frame(&frame) else {
         return;
     };

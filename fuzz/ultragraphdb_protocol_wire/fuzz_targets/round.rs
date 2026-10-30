@@ -11,8 +11,8 @@
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Decision, FrameView, Header, RoundHeader, RoundView,
-    WriteSetRecordView,
+    BodyBuilder, BodyView, Command, Decision, FrameView, Header, MAX_FRAME_SIZE, RoundHeader,
+    RoundView, WriteSetRecordView,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -30,7 +30,8 @@ fuzz_target!(|data: &[u8]| {
     let Ok(frame) = header.clone().encode_frame(body) else {
         return;
     };
-    let view = FrameView::validate(&frame, CLUSTER).expect("a built frame validates");
+    let view =
+        FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     let Ok(round) = RoundView::from_frame(&view) else {
         return;
     };

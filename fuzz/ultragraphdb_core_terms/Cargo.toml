@@ -1,0 +1,32 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_core_terms, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public API only.
+
+[package]
+name = "ultragraphdb_core_terms_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_core_terms = { workspace = true }
+
+# Any bytes as a result term's encoding from a peer: the whole-encoding check, and every reader of an encoding it
+# accepts.
+[[bin]]
+name = "encoded_term"
+path = "fuzz_targets/encoded_term.rs"
+test = false
+doc = false
+bench = false

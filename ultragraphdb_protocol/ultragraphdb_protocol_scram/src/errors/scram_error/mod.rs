@@ -17,7 +17,8 @@ pub enum ScramErrorEnum {
     /// A password or name SASLprep (RFC 4013) refuses: a prohibited or unassigned character, or bidirectional text
     /// mixed.
     Prepare,
-    /// The server's iteration count, `iterations`, is below [`crate::MIN_ITERATIONS`].
+    /// The iteration count, `iterations`, is outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`]: a
+    /// server's, which the client refuses to run, or a verifier's, which is never derived.
     Iterations { iterations: u32 },
     /// The server's nonce does not extend the client's.
     Nonce,

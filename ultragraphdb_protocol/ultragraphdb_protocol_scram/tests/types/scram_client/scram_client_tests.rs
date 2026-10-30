@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_scram::{ScramClient, ScramError};
+use ultragraphdb_protocol_scram::{MAX_ITERATIONS, ScramClient, ScramError};
 use ultragraphdb_protocol_transport::ClientMechanism;
 
 use crate::utils::rfc7677::{
@@ -125,4 +125,21 @@ fn test_messages_out_of_step_are_refused() {
     client.first_message().unwrap();
     assert_eq!(client.first_message(), Err(ScramError::OutOfStep()));
     assert_eq!(client.verify(SERVER_FINAL), Err(ScramError::OutOfStep()));
+}
+
+#[test]
+fn test_more_iterations_than_the_most_are_refused_before_any_is_run() {
+    // A server naming 2^32 - 1 would hold the client for hours (SECURITY.md); the count is refused before the key is
+    // derived, so neither refusal takes a moment.
+    assert_eq!(MAX_ITERATIONS, 10_000_000);
+    for count in [MAX_ITERATIONS + 1, u32::MAX] {
+        let mut client = client();
+        client.first_message().unwrap();
+        let server_first =
+            format!("r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i={count}");
+        assert_eq!(
+            client.final_message(server_first.as_bytes()),
+            Err(ScramError::Iterations(count))
+        );
+    }
 }

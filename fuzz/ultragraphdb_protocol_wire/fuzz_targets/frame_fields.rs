@@ -5,14 +5,15 @@
 
 //! Structure-aware: a valid frame built from arbitrary fields and body, which must validate and read back; then header
 //! rules broken on purpose and the header resealed, so the rules after the checksum are reached and the refusal is
-//! the first rule broken in the protocol's order; then arbitrary byte mutations, which never panic.
+//! the first rule broken in the protocol's order (PROTOCOL.md section 2.5, steps 3 to 9); then arbitrary byte
+//! mutations, which never panic. The sequence is any: a connection's receiver checks it, not the frame's validation.
 
 #![no_main]
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
-use ultragraphdb_protocol_wire::{Command, FrameView, Header, MAX_FRAME_SIZE, xxh3_64};
+use ultragraphdb_protocol_wire::{Command, FLAG_LAST, FrameView, Header, MAX_FRAME_SIZE, xxh3_64};
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -28,6 +29,7 @@ enum Mutation {
 #[derive(Debug, Arbitrary)]
 struct Input {
     command: u8,
+    sequence: u128,
     view: u32,
     release: u32,
     protocol: u16,
@@ -38,10 +40,12 @@ struct Input {
     body: Vec<u8>,
     /// A command number written over the valid one.
     command_number: Option<u16>,
-    /// A reserved byte, `offset % 78` into 16..32 and 66..128, set to a value.
+    /// A reserved byte, `offset % 62` into 66..128, set to a value.
     reserved: Option<(u8, u8)>,
     /// Another cluster written over the frame's.
     cluster: Option<u64>,
+    /// Flags written over the frame's, bit 0 alone allowed.
+    flags_written: Option<u8>,
     /// Another size written over the frame's.
     size: Option<u32>,
     mutations: Vec<Mutation>,
@@ -65,20 +69,25 @@ fn put(frame: &mut [u8], at: usize, bytes: &[u8]) {
 fuzz_target!(|input: Input| {
     let command = Command::ALL[usize::from(input.command) % Command::ALL.len()];
     let header = Header::new(CLUSTER, command)
+        .with_sequence(input.sequence)
         .with_view(input.view)
         .with_release(input.release)
         .with_protocol(input.protocol)
         .with_stream(input.stream)
         .with_replica(input.replica)
-        .with_flags(input.flags)
+        .with_flags(input.flags & FLAG_LAST)
         .with_command_header(input.command_header);
     let Ok(valid) = header.encode_frame(&input.body) else {
         assert!(input.body.len() > MAX_FRAME_SIZE - 256 - 2_048);
         return;
     };
-    let frame = FrameView::validate(&valid, CLUSTER).expect("a built frame validates");
+    let frame =
+        FrameView::validate(&valid, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     assert_eq!(frame.body(), &input.body[..]);
-    assert_eq!(frame.header().verify(CLUSTER).as_ref(), Ok(&header));
+    assert_eq!(
+        frame.header().verify(CLUSTER, MAX_FRAME_SIZE).as_ref(),
+        Ok(&header)
+    );
 
     // Break header rules, reseal, and predict the first rule broken.
     let mut broken = valid.clone();
@@ -93,12 +102,7 @@ fuzz_target!(|input: Input| {
         }
     }
     if let Some((offset, value)) = input.reserved {
-        let offset = usize::from(offset) % 78;
-        let at = if offset < 16 {
-            16 + offset
-        } else {
-            66 + offset - 16
-        };
+        let at = 66 + usize::from(offset) % 62;
         put(&mut broken, at, &[value]);
         if value != 0 {
             predict(ProtocolErrorEnum::ReservedNotZero { offset: at });
@@ -110,6 +114,17 @@ fuzz_target!(|input: Input| {
             predict(ProtocolErrorEnum::WrongCluster {
                 expected: CLUSTER,
                 found: cluster,
+            });
+        }
+    }
+    if let Some(flags) = input.flags_written {
+        put(&mut broken, 65, &[flags]);
+        if flags & !FLAG_LAST != 0 {
+            let number = u16::from_le_bytes([broken[54], broken[55]]);
+            predict(ProtocolErrorEnum::FieldValue {
+                command: number,
+                field: "flags",
+                value: flags.into(),
             });
         }
     }
@@ -128,7 +143,10 @@ fuzz_target!(|input: Input| {
         }
     }
     reseal(&mut broken);
-    match (FrameView::validate(&broken, CLUSTER), predicted) {
+    match (
+        FrameView::validate(&broken, CLUSTER, MAX_FRAME_SIZE),
+        predicted,
+    ) {
         (Ok(_), None) => {}
         (Err(e), Some(want)) => assert_eq!(e.0, want),
         (got, want) => panic!("validated as {got:?}, predicted {want:?}"),
@@ -161,7 +179,7 @@ fuzz_target!(|input: Input| {
             Mutation::Reseal => reseal(&mut mutated),
         }
     }
-    let outcome = FrameView::validate(&mutated, CLUSTER);
+    let outcome = FrameView::validate(&mutated, CLUSTER, MAX_FRAME_SIZE);
     if mutated == valid {
         assert!(outcome.is_ok());
     }

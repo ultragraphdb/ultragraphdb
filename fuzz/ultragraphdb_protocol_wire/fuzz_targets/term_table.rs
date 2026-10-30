@@ -15,8 +15,8 @@ use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Execute, ExecuteView, FrameView, Header, MAX_TERM_DEPTH,
-    RequestTerm, RequestTermView, TermTable,
+    BodyBuilder, BodyView, Command, Execute, ExecuteView, FrameView, Header, MAX_FRAME_SIZE,
+    MAX_TERM_DEPTH, RequestTerm, RequestTermView, TermTable,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -86,11 +86,12 @@ fuzz_target!(|input: Input| {
         }
     }
     let parameters = vec![deepest];
-    let execute = Execute::new(1, 0, table.clone(), parameters, Vec::new());
+    let execute = Execute::new(1, 3, 0, table.clone(), parameters, Vec::new());
     let Ok(frame) = execute.frame(Header::new(CLUSTER, Command::Execute)) else {
         return;
     };
-    let view = FrameView::validate(&frame, CLUSTER).expect("a built frame validates");
+    let view =
+        FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE).expect("a built frame validates");
     let read = ExecuteView::from_frame(&view).expect("a built table reads");
     assert_eq!(read.terms().to_table(), table);
     for (i, term) in table.terms().iter().enumerate() {
@@ -109,7 +110,8 @@ fuzz_target!(|input: Input| {
     let Ok(mutated) = Header::new(CLUSTER, Command::Execute).encode_frame(&body) else {
         return;
     };
-    let view = FrameView::validate(&mutated, CLUSTER).expect("a rebuilt frame validates");
+    let view =
+        FrameView::validate(&mutated, CLUSTER, MAX_FRAME_SIZE).expect("a rebuilt frame validates");
     if let Ok(read) = ExecuteView::from_frame(&view) {
         let terms = read.terms();
         let mut depths: Vec<usize> = Vec::new();

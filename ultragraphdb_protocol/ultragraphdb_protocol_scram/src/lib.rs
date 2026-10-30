@@ -29,5 +29,7 @@ pub use crate::types::scram_exchange::ScramExchange;
 pub use crate::types::scram_login::ScramLogin;
 pub use crate::types::scram_server::ScramServer;
 pub use crate::types::scram_verifier::ScramVerifier;
-pub use crate::utils::constants::{DEFAULT_ITERATIONS, MECHANISM, MIN_ITERATIONS, SALT_SIZE};
+pub use crate::utils::constants::{
+    DEFAULT_ITERATIONS, MAX_ITERATIONS, MECHANISM, MIN_ITERATIONS, SALT_SIZE,
+};
 pub use crate::utils::nonce::{NONCE_BYTES, system_nonce};

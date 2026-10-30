@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_protocol_scram::{ScramError, ScramVerifier};
+use ultragraphdb_protocol_scram::{MAX_ITERATIONS, ScramError, ScramVerifier};
 
 use crate::utils::rfc7677::{ITERATIONS, PASSWORD, SALT, SERVER_KEY, STORED_KEY, hex, verifier};
 
@@ -56,4 +56,13 @@ fn test_fewer_iterations_than_the_least_are_refused() {
         Err(ScramError::Iterations(4_095))
     );
     assert!(ScramVerifier::derive(PASSWORD, &SALT, 4_096).is_ok());
+}
+
+#[test]
+fn test_more_iterations_than_a_client_runs_are_refused() {
+    // A verifier no client would authenticate against is never made.
+    assert_eq!(
+        ScramVerifier::derive(PASSWORD, &SALT, MAX_ITERATIONS + 1),
+        Err(ScramError::Iterations(MAX_ITERATIONS + 1))
+    );
 }

@@ -5,14 +5,14 @@
 
 //! Any bytes as a segment, scanned as the first segment kept of a log with its checkpoint at 0 and, from the same
 //! bytes, at a checkpoint the input chooses. The scan never panics; every round it accepts is a frame that validates
-//! on its own, at a block boundary, inside the segment, of this cluster and incarnation, and chained to the round
-//! before it; it stops at a block boundary less than a block past the bytes, inside the last round's padding when the
+//! on its own, at a block boundary, inside the segment, of this cluster and incarnation, numbered by its position, and
+//! chained to the round before it; it stops at a block boundary less than a block past the bytes, inside the last round's padding when the
 //! bytes end there; and the probe finds every accepted round complete.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ultragraphdb_protocol_wire::{FrameView, RoundHeader};
+use ultragraphdb_protocol_wire::{FrameView, MAX_FRAME_SIZE, RoundHeader};
 use ultragraphdb_traits_log::Position;
 use ultragraphdb_transactions_log::{ScanStart, find_complete_round, scan_segment};
 
@@ -36,10 +36,16 @@ fn check(bytes: &[u8], start: &ScanStart) {
         );
         let at = round.offset() as usize;
         let frame = &bytes[at..at + round.size() as usize];
-        let view = FrameView::validate(frame, CLUSTER).expect("an accepted round's checksums hold");
+        let view = FrameView::validate(frame, CLUSTER, MAX_FRAME_SIZE)
+            .expect("an accepted round's checksums hold");
         let header = RoundHeader::decode(view.header().command_header());
         assert_eq!(header.incarnation(), INCARNATION);
         assert_eq!(header.position(), round.position().get());
+        assert_eq!(
+            view.header().sequence(),
+            u128::from(round.position().get()),
+            "a round's sequence is its position"
+        );
         assert_eq!(view.header().checksum(), round.checksum());
         if let Some((position, checksum)) = previous {
             assert_eq!(

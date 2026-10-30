@@ -124,12 +124,12 @@ pub(crate) fn align8(n: usize) -> usize {
 
 /// The `unit`-byte records of section `section`, refused as [`ProtocolError::SectionLength`] when its length is not a
 /// multiple of `unit`.
-pub(crate) fn records<'a>(
+pub(crate) fn records(
     command: u16,
     section: usize,
-    bytes: &'a [u8],
+    bytes: &[u8],
     unit: usize,
-) -> Result<std::slice::ChunksExact<'a, u8>, ProtocolError> {
+) -> Result<std::slice::ChunksExact<'_, u8>, ProtocolError> {
     if unit == 0 || !bytes.len().is_multiple_of(unit) {
         return Err(ProtocolError::SectionLength(
             command,

@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Any bytes as a session's entry in the keyspace without versions: decoded or refused without a panic, and an
-//! accepted entry has one encoding.
+//! Any bytes as a session's entry in the keyspace without versions, its owner among them: decoded or refused without a
+//! panic, and an accepted entry has one encoding.
 
 #![no_main]
 
@@ -18,6 +18,8 @@ fuzz_target!(|data: &[u8]| {
             data,
             "an accepted entry has one encoding"
         );
+        // Request 0 is a session registered, with no version and no results; a committed request has its version.
         assert!(entry.request() != 0 || (entry.version() == 0 && entry.results().is_empty()));
+        assert!(entry.request() == 0 || entry.version() != 0);
     }
 });

@@ -19,7 +19,7 @@ impl fmt::Display for ScramError {
             ScramErrorEnum::Prepare => write!(f, "SASLprep refuses the text"),
             ScramErrorEnum::Iterations { iterations } => write!(
                 f,
-                "the server's iteration count {iterations} is below the least taken"
+                "the iteration count {iterations} is outside 4,096 to 10,000,000"
             ),
             ScramErrorEnum::Nonce => write!(f, "the server's nonce does not extend the client's"),
             ScramErrorEnum::Proof => write!(f, "the client's proof does not verify"),

@@ -230,7 +230,10 @@ fn unknown_command(w: &mut Steps) {
     let mut bytes = CREDIT.bytes();
     put(&mut bytes, 54, 20, 2);
     reseal(&mut bytes);
-    assert!(HeaderView::new(&bytes).unwrap().checksum() == xxh3_64(&bytes[8..256]));
+    assert_eq!(
+        HeaderView::new(&bytes).unwrap().checksum(),
+        xxh3_64(&bytes[8..256])
+    );
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()

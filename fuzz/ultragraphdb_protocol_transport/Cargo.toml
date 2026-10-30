@@ -20,6 +20,8 @@ workspace = true
 
 [dependencies]
 libfuzzer-sys = { workspace = true }
+ultragraphdb_error_protocol = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_protocol_transport = { workspace = true }
 ultragraphdb_protocol_wire = { workspace = true }
 
@@ -27,6 +29,15 @@ ultragraphdb_protocol_wire = { workspace = true }
 [[bin]]
 name = "framing"
 path = "fuzz_targets/framing.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a client's frames on one connection, taken by the server's connection machine with and without
+# authentication: requests only on open streams, frames sent in order, nothing after the closing Error, never a panic.
+[[bin]]
+name = "server_connection"
+path = "fuzz_targets/server_connection.rs"
 test = false
 doc = false
 bench = false

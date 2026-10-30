@@ -5,16 +5,18 @@
 
 //! Any bytes as a frame, read through its command's body view: validation never panics; a body its view accepts reads
 //! back to an owned body that builds the same frame, byte for byte, or, for the bodies whose strings and terms a
-//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again.
+//! builder lays out canonically (Write, Describe, Result), a frame that builds itself again. A Commit's and a
+//! Prepare's request and reply rules, which a view of a body sent both ways cannot hold alone, never panic.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{
-    AbortView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView, CreditView,
-    DescribeView, ErrorReplyView, ExecuteView, FrameView, Header, HelloView, OperationView,
-    PrepareView, ReadView, RegisterView, ResultView, RoundView, WelcomeView, WriteView,
+    AbortView, AuthenticateView, BeginView, BodyBuilder, BodyView, CancelView, Command, CommitView,
+    CreditView, DescribeView, DropCommandView, ErrorReplyView, ExecuteView, FrameView, Header,
+    HelloView, MAX_FRAME_SIZE, OperationView, PrepareView, ReadView, RegisterView, ResultView,
+    RoundView, WelcomeView, WriteView,
 };
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/body/` pass the cluster rule.
@@ -24,6 +26,7 @@ fn through<'a, V: BodyView<'a>>(frame: &FrameView<'a>) -> Result<Vec<u8>, Protoc
     let body = V::from_frame(frame)?.to_body()?;
     let h = frame.header();
     let header = Header::new(h.cluster(), Command::Abort)
+        .with_sequence(h.sequence())
         .with_view(h.view())
         .with_release(h.release())
         .with_protocol(h.protocol())
@@ -34,7 +37,7 @@ fn through<'a, V: BodyView<'a>>(frame: &FrameView<'a>) -> Result<Vec<u8>, Protoc
 }
 
 fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
-    let frame = FrameView::validate(bytes, CLUSTER)?;
+    let frame = FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?;
     let rebuilt = match frame.command() {
         Command::Hello => through::<HelloView>(&frame),
         Command::Welcome => through::<WelcomeView>(&frame),
@@ -53,7 +56,18 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
         Command::Cancel => through::<CancelView>(&frame),
         Command::Error => through::<ErrorReplyView>(&frame),
         Command::Round => through::<RoundView>(&frame),
+        Command::Authenticate => through::<AuthenticateView>(&frame),
+        Command::Drop => through::<DropCommandView>(&frame),
     }?;
+    match frame.command() {
+        Command::Commit => {
+            let _ = CommitView::from_frame(&frame).map(|v| v.check_request());
+        }
+        Command::Prepare => {
+            let _ = PrepareView::from_frame(&frame).map(|v| (v.check_request(), v.check_reply()));
+        }
+        _ => {}
+    }
     Ok((frame.command(), rebuilt))
 }
 

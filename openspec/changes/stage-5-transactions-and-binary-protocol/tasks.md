@@ -138,7 +138,7 @@ into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and
 - [x] 9c.9 Phase 4, requests, errors and sessions: points 4, 5, 8, 9, 14, 20, 21, 22, 29, 33, 35–40, 46–48; the session's owner; the Drop command with its proposals and operation codes, recovery redoing them (B2); the write-set bound (B5)
 - [x] 9c.10 Phase 4, the log: `principal` in the write-set record; the checkpoint's version and recovery's refusal of a store behind it (point 34); point 15 stated
 - [x] 9c.11 The transport's state machines audited as phase 3 audits a suite: defects planted in a throwaway copy, each found by the suite or the suite strengthened
-- [ ] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
+- [x] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
 
 ## 10. The server → `ultragraphdb_server_session`, `ultragraphdb_server`
 

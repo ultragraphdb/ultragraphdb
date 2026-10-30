@@ -6,7 +6,7 @@
 mod scram_client_mechanism;
 
 use crate::errors::scram_error::ScramError;
-use crate::utils::constants::MIN_ITERATIONS;
+use crate::utils::constants::{MAX_ITERATIONS, MIN_ITERATIONS};
 use crate::utils::crypto::{hmac, prepare, salted, same, sha256};
 use crate::utils::message::{attribute, decode, encode, escape, server_error, valid_nonce};
 
@@ -63,7 +63,8 @@ impl ScramClient {
 
     /// The client-final-message answering `server_first`: the channel binding `biws`, the server's nonce, and the
     /// proof. Refused as [`ScramError::Malformed`], [`ScramError::Nonce`] when the server's nonce does not extend the
-    /// client's, [`ScramError::Iterations`] below [`crate::MIN_ITERATIONS`], or [`ScramError::OutOfStep`].
+    /// client's, [`ScramError::Iterations`] outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], refused
+    /// before a key is derived, or [`ScramError::OutOfStep`].
     pub fn final_message(&mut self, server_first: &[u8]) -> Result<Vec<u8>, ScramError> {
         let ClientState::First { client_first_bare } = &self.state else {
             return Err(ScramError::OutOfStep());
@@ -85,7 +86,7 @@ impl ScramClient {
         let iterations: u32 = attribute(parts.next(), 'i')
             .and_then(|i| i.parse().ok())
             .ok_or(ScramError::Malformed("iteration count"))?;
-        if iterations < MIN_ITERATIONS {
+        if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&iterations) {
             return Err(ScramError::Iterations(iterations));
         }
         let salted = salted(&self.password, &salt, iterations);

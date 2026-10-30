@@ -4,7 +4,7 @@
  */
 
 use crate::errors::scram_error::ScramError;
-use crate::utils::constants::MIN_ITERATIONS;
+use crate::utils::constants::{MAX_ITERATIONS, MIN_ITERATIONS};
 use crate::utils::crypto::{hmac, prepare, salted, sha256};
 
 /// What a server stores of a password (RFC 5802 §3): the salt, the iteration count, `StoredKey`, the SHA-256 of the
@@ -29,10 +29,10 @@ impl ScramVerifier {
     }
 
     /// The verifier of `password`, prepared with SASLprep, salted with `salt` over `iterations` of PBKDF2-HMAC-SHA256;
-    /// refused as [`ScramError::Prepare`] for a password SASLprep refuses and [`ScramError::Iterations`] below
-    /// [`crate::MIN_ITERATIONS`].
+    /// refused as [`ScramError::Prepare`] for a password SASLprep refuses and [`ScramError::Iterations`] outside
+    /// [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], a count no client would run.
     pub fn derive(password: &str, salt: &[u8], iterations: u32) -> Result<Self, ScramError> {
-        if iterations < MIN_ITERATIONS {
+        if !(MIN_ITERATIONS..=u32::MAX).contains(&iterations) {
             return Err(ScramError::Iterations(iterations));
         }
         let salted = salted(&prepare(password)?, salt, iterations);

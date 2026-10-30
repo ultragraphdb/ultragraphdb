@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_protocol_scram, run by scripts/fuzz.sh; a member of the fuzz workspace in
+# fuzz/. Its targets call the crate's public API only.
+
+[package]
+name = "ultragraphdb_protocol_scram_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
+
+# Any bytes as a client's two messages, answered by a server holding RFC 7677's user: refused, or a server-first and
+# server-final message that only the user's proof earns.
+[[bin]]
+name = "scram_server"
+path = "fuzz_targets/scram_server.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a server's two messages, read by RFC 7677's client: refused, or a client-final message answering the
+# server's nonce.
+[[bin]]
+name = "scram_client"
+path = "fuzz_targets/scram_client.rs"
+test = false
+doc = false
+bench = false

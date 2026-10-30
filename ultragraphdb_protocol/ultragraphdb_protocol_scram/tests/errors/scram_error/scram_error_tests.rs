@@ -28,7 +28,7 @@ fn test_each_constructor_builds_its_variant_and_names_it() {
         (
             ScramError::Iterations(9),
             ScramErrorEnum::Iterations { iterations: 9 },
-            "the server's iteration count 9 is below the least taken",
+            "the iteration count 9 is outside 4,096 to 10,000,000",
         ),
         (
             ScramError::Nonce(),

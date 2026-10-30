@@ -74,8 +74,11 @@ A further mechanism, Kerberos's `GSSAPI` among them, is a new SASL name and need
   the operator's list of common or breached passwords is refused. It is prepared with SASLprep before its key is
   derived, as RFC 5802 requires, so a client in any language derives the same key from the same password.
 - The server stores SCRAM-SHA-256's verifier, PBKDF2-HMAC-SHA256 at 600,000 iterations by default (the OWASP Password
-  Storage Cheat Sheet) and never fewer than 4,096 (RFC 7677). The client runs the iterations, and may keep the derived
-  keys for a password and salt it has seen, so the count costs the server nothing at login.
+  Storage Cheat Sheet), from 4,096 (RFC 7677) to 10,000,000. The client runs the iterations, and may keep the derived
+  keys for a password and salt it has seen, so the count costs the server nothing at login. A client refuses a count
+  outside that range: below it, as RFC 7677 requires; above it, because the server names the count and a count no
+  password needs, up to 2^32 − 1, would hold the client for hours. The ceiling is 16 times the default, room for the
+  OWASP figure to rise, and seconds of work at most.
 - Changing a password, disabling a principal or removing a mechanism ends the principal's open connections at once,
   with code 22.
 

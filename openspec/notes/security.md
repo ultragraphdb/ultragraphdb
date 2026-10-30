@@ -60,7 +60,9 @@ authentication and given no bootstrap credential refuses to create the cluster (
   64; no composition rules; a password on the operator's list of common or breached passwords is refused. Dgraph
   requires 6 (`types/password.go:14`).
 - Stored as SCRAM-SHA-256's verifier, PBKDF2-HMAC-SHA256 over the password, at 600,000 iterations by default, as the
-  OWASP Password Storage Cheat Sheet gives for PBKDF2-HMAC-SHA256; never below the 4,096 RFC 7677 requires. SCRAM
+  OWASP Password Storage Cheat Sheet gives for PBKDF2-HMAC-SHA256; never below the 4,096 RFC 7677 requires, nor above
+  10,000,000, the most a client runs: RFC 5802 sets no ceiling, and a server naming 2^32 − 1 would hold a client for
+  hours (decided 2026-10-30). SCRAM
   runs the iterations on the client, which may keep the derived keys for a password and salt it has seen (RFC 5802), so
   the count costs the server nothing at login. PostgreSQL defaults to 4,096; this design follows OWASP.
 - Changing a password, disabling a principal or removing a mechanism ends its open connections at their next request.

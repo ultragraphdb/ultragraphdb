@@ -9,15 +9,15 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use ultragraphdb_protocol_wire::{FrameView, HeaderView};
+use ultragraphdb_protocol_wire::{FrameView, HeaderView, MAX_FRAME_SIZE};
 
 /// The golden frames' cluster, so seeds from `testdata/fuzz_seeds/frame/` pass the cluster rule.
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
 fuzz_target!(|data: &[u8]| {
-    let validated = FrameView::validate(data, CLUSTER);
+    let validated = FrameView::validate(data, CLUSTER, MAX_FRAME_SIZE);
     // A refusal by the header's rules is the same refusal through the view.
-    let header = HeaderView::new(data).and_then(|view| view.verify(CLUSTER));
+    let header = HeaderView::new(data).and_then(|view| view.verify(CLUSTER, MAX_FRAME_SIZE));
     match (&validated, &header) {
         (Ok(frame), Ok(header)) => {
             assert_eq!(frame.command(), header.command());
