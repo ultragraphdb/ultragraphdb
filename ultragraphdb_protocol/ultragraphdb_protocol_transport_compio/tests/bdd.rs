@@ -18,10 +18,9 @@ use ultragraphdb_protocol_transport::{
 };
 use ultragraphdb_protocol_transport_compio::{CompioSimStream, Connection};
 use ultragraphdb_protocol_wire::{
-    Authenticate, AuthenticateView, Begin, BodyBuilder, BodyView, Cancel, Command, Commit, Credit,
+    Begin, BodyBuilder, BodyView, Cancel, Command, Commit, Credit,
     ErrorCode, ErrorReply, ErrorReplyView, FLAG_LAST, FrameView, Header, Hello, MAX_FRAME_SIZE,
-    PatternSlot, QuadPattern, Read, Register, RequestTerm, ResultBatch, TermTable, Welcome,
-    WelcomeView, Write, WriteView,
+    PatternSlot, QuadPattern, Read, Register, RequestTerm, ResultBatch, TermTable, Welcome, Write, WriteView,
 };
 
 // The bounded executor of the unit tests, shared by path.

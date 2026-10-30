@@ -50,7 +50,7 @@ pub(crate) fn unescape(name: &str) -> Result<String, ScramError> {
 }
 
 /// The value of attribute `key` in `part`, `key=value`; `None` for another.
-pub(crate) fn attribute<'a>(part: Option<&'a str>, key: char) -> Option<&'a str> {
+pub(crate) fn attribute(part: Option<&str>, key: char) -> Option<&str> {
     let part = part?;
     let mut chars = part.chars();
     (chars.next() == Some(key) && chars.next() == Some('=')).then(|| &part[2..])
