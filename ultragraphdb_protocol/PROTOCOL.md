@@ -829,7 +829,7 @@ Order: unused bytes 2–7 and 16–127 zero; `code`; sections; the term table (1
 | 17 | Unavailable | no | 0 | The node refuses writes after a failed log sync, until it restarts |
 | 18 | NotCommitted | yes | the request | A retried commit the session table does not hold, with no transaction open: the request was not committed, and the client runs its transaction again (section 11.5) |
 | 19 | AuthenticationFailed | no | 0 | The authentication exchange failed; the server closes the connection. The message says nothing of what failed |
-| 20 | Unauthenticated | no | 0 | A request before the connection authenticated; the server closes the connection |
+| 20 | Unauthenticated | no | 0 | A request before the connection authenticated, or an authentication not complete within its timeout; the server closes the connection |
 | 21 | PermissionDenied | no | the action below | The connection's principal may not do what the request asks; the request is refused, and a transaction's request ends the transaction |
 | 22 | CredentialExpired | no | 0 | The connection's credential expired before a new authentication; the server closes the connection |
 
@@ -1034,8 +1034,9 @@ The forms are the protocol's own, independent of any library's formatting, and g
 6. With `auth` 1, the client authenticates: an Authenticate exchange on stream 0 (section 5.3) by a mechanism the
    Welcome listed. The server's final Authenticate names the principal the connection acts for and when its credential
    expires. A refusal is an Error of code 19 (AuthenticationFailed) on stream 0, and the server closes the connection.
-   A request on any stream before the final Authenticate is refused with an Error of code 20 (Unauthenticated) on
-   stream 0, and the server closes the connection. With `auth` 0, nothing is exchanged, and the connection acts for
+   A request on any stream before the final Authenticate, or an exchange not complete within the authentication
+   timeout (section 11.9), is refused with an Error of code 20 (Unauthenticated) on stream 0, and the server closes
+   the connection. With `auth` 0, nothing is exchanged, and the connection acts for
    the anonymous principal, which a server offers only on its loopback interface (`SECURITY.md`).
 
 Every later frame carries in its header the cluster, the sender's `release`, `protocol` equal to the Welcome's
@@ -1180,6 +1181,8 @@ code 4 (PastLimit) otherwise. A load larger than one transaction is many transac
 | Sessions in the table | 4,096 |
 | Statements per connection | 256 |
 | Idle limit, a connection sending no frame | 600 s |
+| Authentication timeout, from Welcome to the final Authenticate | 60 s |
+| Refusal interval after 100 consecutive failed authentications of a principal | 15 minutes |
 
 ### 11.10 Authorization
 

@@ -347,6 +347,27 @@ Answered 2026-10-30: the phases as the table gives them; a read of data the prin
 privileges only allow; one cluster-wide security epoch; the reserved nonce becomes the frame sequence; an identity a
 trusted issuer asserts and no principal holds is refused until an administrator creates its principal.
 
+## Refined in review
+
+A review of `ultragraphdb_protocol/SECURITY.md` (2026-10-30) refined the design, and the architecture states each:
+
+- The bootstrap secret file is read once, at the cluster's creation; the server keeps only the verifier derived from
+  it, and the operator removes the file.
+- A password is prepared with SASLprep before its key is derived, so every client derives the same key.
+- A principal's open connections end at once when its credential changes or it is disabled.
+- After 100 consecutive failures, a principal's authentications are refused for an interval, 15 minutes by default,
+  that ends on its own: no attacker locks an administrator out for good.
+- An authentication not complete within 60 seconds, as PostgreSQL's `authentication_timeout`, closes the connection
+  with code 20; before it authenticates, a connection holds no stream.
+- `admin` at a namespace covers its roles, their grants and the group mappings onto them; principals and trusted
+  issuers are the cluster's `admin`.
+- Begin and Prepare need any privilege in the namespace, so a write-only principal can write.
+- A read-only transaction keeps the access its Begin resolved until it ends.
+- Audit events go to an audit log apart from the diagnostic log.
+- The server's clock is a trust boundary of the token checks.
+- A server running without authentication refuses to start on an address other than loopback, rather than binding
+  loopback in its place: a setting it cannot honour stops the start, as every invalid setting does (9c.5).
+
 ## Sources
 
 - RFC 4422 (SASL), RFC 5802 (SCRAM), RFC 7677 (SCRAM-SHA-256), RFC 9266 (TLS 1.3 channel bindings), RFC 7519 (JWT),

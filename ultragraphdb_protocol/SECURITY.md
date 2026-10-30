@@ -15,7 +15,7 @@ reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`
 | Current state | Authorization uses the grants as they stand; a revocation holds from its commit version on |
 | Least privilege | Administering the cluster grants no access to a namespace's data |
 | Standard mechanisms | SASL, SCRAM, OAuth bearer tokens, OpenID Connect and TLS 1.3; no cryptography of the protocol's own |
-| No secrets at rest in the clear, none in logs | Credentials are stored as verifiers; no password, token or authentication message reaches a log or an error |
+| Credentials as verifiers, secrets out of logs | The store keeps a password only as its SCRAM verifier; no password, token or authentication message reaches a log or an error |
 
 ## Trust boundaries
 
@@ -25,6 +25,7 @@ reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`
 | The network, with TLS | Untrusted | TLS 1.3 protects every frame; channel binding ties SCRAM to the connection |
 | The server's disk and configuration | Trusted | Verifiers, keys and the bootstrap credential are kept there; encryption at rest is outside this architecture |
 | An identity provider | Trusted for the identities it asserts, by its public keys | Its groups grant roles only through mappings an administrator writes |
+| The server's clock | Synchronised, within a token check's minute of leeway | A clock off by more refuses valid tokens or accepts expired ones |
 
 ## Principals
 
@@ -41,9 +42,10 @@ A principal is an identity the server authenticates: a person, or a service.
 
 Principals are cluster-wide. A tenant is a namespace, and a tenant's principals hold grants in their namespace only.
 
-The **bootstrap administrator** is created with the cluster from a credential the operator supplies in a secret file
-the configuration names, and holds `cluster_admin`. The server has no default credential: without the secret file, a
-server requiring authentication creates no cluster.
+The **bootstrap administrator** is created with the cluster from a password the operator supplies in a secret file the
+configuration names, and holds `cluster_admin`. The server reads the file once, when it creates the cluster, and keeps
+only the verifier derived from it; the operator then removes the file. The server has no default credential: without
+the secret file, a server requiring authentication creates no cluster.
 
 ## Authentication
 
@@ -69,12 +71,13 @@ A further mechanism, Kerberos's `GSSAPI` among them, is a new SASL name and need
 ### Passwords
 
 - A password is at least 15 characters (NIST SP 800-63B-4) and may be at least 64; it has no composition rules; one on
-  the operator's list of common or breached passwords is refused.
+  the operator's list of common or breached passwords is refused. It is prepared with SASLprep before its key is
+  derived, as RFC 5802 requires, so a client in any language derives the same key from the same password.
 - The server stores SCRAM-SHA-256's verifier, PBKDF2-HMAC-SHA256 at 600,000 iterations by default (the OWASP Password
   Storage Cheat Sheet) and never fewer than 4,096 (RFC 7677). The client runs the iterations, and may keep the derived
   keys for a password and salt it has seen, so the count costs the server nothing at login.
-- Changing a password, disabling a principal or removing a mechanism ends the principal's connections at their next
-  request, with code 22.
+- Changing a password, disabling a principal or removing a mechanism ends the principal's open connections at once,
+  with code 22.
 
 ### Tokens and single sign-on
 
@@ -100,8 +103,8 @@ groups grant roles only through the issuer's mappings, so no issuer confers a ro
 token from the provider, by its own login or the device authorization grant (RFC 8628); on a refusal, the server's
 `OAUTHBEARER` reply names the issuer's discovery document and the scope to ask for.
 
-The server mints no tokens: a connection renews its credential on the open connection, and a reconnecting client
-authenticates again. There is no access token to steal from a client and no refresh token to revoke.
+The server issues no tokens: a connection renews its credential on the open connection, and a reconnecting client
+authenticates again. The server hands out no token a client could leak, and keeps none it would have to revoke.
 
 ### Re-authentication
 
@@ -114,15 +117,20 @@ connection with code 22: its open transactions abort, and its sessions carry ove
 
 - A failed authentication says nothing of what failed, and takes as long for an unknown principal as for a known one:
   the server answers an unknown name with a verifier derived from a server secret.
-- Failed attempts are throttled per principal and per source address, with a growing delay. A principal takes at most
-  100 consecutive failures (NIST SP 800-63B-4) before it waits for an administrator or a configured interval.
+- Failed attempts are throttled per principal and per source address, with a growing delay. After 100 consecutive
+  failures (NIST SP 800-63B-4), a principal's authentications are refused from every source for a configured interval,
+  15 minutes by default, and a success resets the count. The interval ends on its own, so an attacker cannot lock an
+  administrator out for good.
+- A connection that has not completed its authentication within a configured time, 60 seconds by default as
+  PostgreSQL's `authentication_timeout`, is refused with code 20 and closed. Before it authenticates, a connection
+  holds no stream and no transaction.
 - No password, token, SCRAM message or proof is written to a log or into an error message.
 
 ### Running without authentication
 
 A server configured to run without authentication says so in its Welcome (`auth` 0), listens on the loopback interface
-only, logs that it runs without authentication at every start, and acts for the anonymous principal, which holds every
-privilege. Tests, the simulator and development run this way.
+only and refuses to start on any other address, logs that it runs without authentication at every start, and acts for
+the anonymous principal, which holds every privilege. Tests, the simulator and development run this way.
 
 ## Authorization
 
@@ -141,7 +149,7 @@ A privilege is an action on a scope. The action's number is the `detail` of a re
 | `write` | 2 | Write, Operation and Commit of statements |
 | `declare` | 3 | declarations: predicates, entity types, relations, indexes |
 | `drop` | 4 | the Drop command |
-| `admin` | 5 | creating and changing principals, roles, grants and trusted issuers within the scope |
+| `admin` | 5 | at a namespace: its roles, their grants to principals, and the group mappings onto its roles; at the cluster: also principals and trusted issuers |
 | `operate` | 6 | cluster operations: creating and removing namespaces, backup, restore, export |
 
 | Scope | Covers |
@@ -168,11 +176,12 @@ write of the store. A request's namespace authorizes nothing; the grants do.
 
 | Request | Check |
 |---|---|
-| Begin | `read` somewhere in the namespace |
+| Begin, Prepare | any privilege in the namespace |
 | Read, Execute | a statement the principal may not read is absent: a pattern naming a predicate or graph it may not read matches nothing, and one leaving it unbound returns no row of it. Refusing would tell the principal the data exists |
 | Describe | only the declarations the principal may read; the schema id hashes what the principal sees |
 | Write, Operation | `write` on each predicate and graph written; refused with code 21, ending the transaction |
 | Write's declarations | `declare` |
+| Commit | the transaction's writes, already checked; the security epoch (below) |
 | Drop | `drop` on the scope dropped |
 | Register | an authenticated principal; the session belongs to it |
 | Commit through a session | the session's principal |
@@ -193,7 +202,8 @@ recovery and replicated as every write is.
 Every transaction reads the catalog's **security epoch**, and every security change writes it. A change therefore
 aborts every transaction that began before it and commits after it: from the change's commit version on, nothing
 commits under a revoked privilege. A change to a group mapping applies at the next Begin; a group an identity provider
-removes applies at the connection's next re-authentication, within its token's lifetime.
+removes applies at the connection's next re-authentication, within its token's lifetime. A read-only transaction,
+which commits nothing, keeps the access its Begin resolved until it ends; a revocation reaches its next Begin.
 
 ## Sessions, statements and the log
 
@@ -208,7 +218,8 @@ removes applies at the connection's next re-authentication, within its token's l
 
 Authentication events, authorization refusals and security changes are audit events: structured records with the
 principal, its issuer and subject when a token named it, the source address, the action or mechanism, and the outcome,
-never a credential. Security changes are also in the log, as every write is.
+never a credential. The server writes them to an audit log of their own, apart from its diagnostic log. Security
+changes are also in the write-ahead log, as every write is.
 
 ## Encryption
 
@@ -230,6 +241,8 @@ never a credential. Security changes are also in the log, as every write is.
 | Authentication, re-authentication and their refusals | §11.1 |
 | Error codes 19 AuthenticationFailed, 20 Unauthenticated, 21 PermissionDenied with its action, 22 CredentialExpired | §9.4 |
 | A session's owner | §6.1, §11.5 |
+| The Drop command and its privilege | §6.5 |
+| The authentication timeout | §11.1, §11.9 |
 | Absent reads and refusals | §11.10 |
 | Statements per connection, schema ids per principal | §8.1, §8.3, §11.7 |
 | `principal` in the write-set record | §12.2 |
@@ -240,7 +253,7 @@ never a credential. Security changes are also in the log, as every write is.
 | Stage | What |
 |---|---|
 | Stage 5, the protocol block | The bytes above in the wire, the transport and the Rust client: Authenticate and re-authentication, the error codes, `principal` in the write-set record and the session entry, a session's owner; `SCRAM-SHA-256` in the client and the scripted server |
-| Stage 5, the server | The server's exchange with `SCRAM-SHA-256`, the password rules, throttling and the audit of authentication; running without authentication on loopback only; the bootstrap administrator; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
+| Stage 5, the server | The server's exchange with `SCRAM-SHA-256`, the password rules, throttling, the authentication timeout and the audit of authentication; running without authentication on loopback only; the bootstrap administrator; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
 | Stage 7 | The security catalog: principals, external identities, roles, grants, trusted issuers and group mappings, the epoch; enforcement through the access value; Describe filtered; the administration commands and their audit |
 | With TLS | TLS 1.3; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates |
 

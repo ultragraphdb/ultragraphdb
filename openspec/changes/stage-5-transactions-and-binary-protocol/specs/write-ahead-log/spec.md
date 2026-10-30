@@ -39,8 +39,10 @@ the next round of this incarnation.
 
 ### Requirement: Recovery replays the log above the store
 On start, recovery SHALL read the store's applied version, find the round holding it, and apply every later round in
-order; applying a round SHALL be idempotent. Recovery SHALL refuse to start when the store holds a version the log does
-not, or when the log has a gap between the store's version and its tail.
+order; applying a round SHALL be idempotent. A checkpoint SHALL record, beside its position, the last commit version
+it covers. Recovery SHALL refuse to start, naming both versions, when the store's applied version is below the
+checkpoint's; naming the version, when the store holds a version that is neither the checkpoint's nor a held round's
+last, nor 0 on a log never trimmed; and when the log has a gap between the store's version and its tail.
 
 #### Scenario: Rounds lost from the store are replayed
 - **WHEN** rounds 1 to 10 are synced in the log, the store had applied up to round 7, and power is lost
@@ -49,6 +51,10 @@ not, or when the log has a gap between the store's version and its tail.
 #### Scenario: A store ahead of the log refuses to start
 - **WHEN** the store's applied version belongs to no round in the log
 - **THEN** the node refuses to start, naming the version
+
+#### Scenario: A store behind its checkpoint refuses to start
+- **WHEN** a checkpoint covering version 40 has trimmed the log, and the store reopened holds version 30
+- **THEN** the node refuses to start, naming 30 and 40, and replays nothing
 
 ### Requirement: Corruption is detected and never read as absence
 A scan SHALL bound a round's size before allocating for it, then check the header checksum, the parent chain, the

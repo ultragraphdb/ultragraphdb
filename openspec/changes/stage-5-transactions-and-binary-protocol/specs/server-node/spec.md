@@ -23,8 +23,8 @@ busy rather than queued.
 - **THEN** further commits are refused as busy until the queue drains
 
 ### Requirement: Configuration
-The server binary SHALL read its configuration once at start: the listen address, the data directory, the transaction
-limits, the power-loss-protection flag, and overrides of the round bounds and the checkpoint interval. The cluster
+The server binary SHALL read its configuration once at start: the listen address, the data directory, whether
+connections authenticate and the bootstrap secret file, the transaction limits, the power-loss-protection flag, and overrides of the round bounds and the checkpoint interval. The cluster
 identity SHALL be drawn at random when the data directory is created and kept in the superblock, not configured.
 Library crates SHALL take their settings as values and read no environment.
 
@@ -44,3 +44,42 @@ log and the store, and exit. Telemetry SHALL be installed once, through `ultragr
 #### Scenario: A shutdown loses no acknowledged commit
 - **WHEN** the server is shut down while commits are in flight and then restarted
 - **THEN** each commit in flight was either acknowledged and is present, or aborted and is absent
+
+### Requirement: The server authenticates its connections
+A server requiring authentication SHALL hold the bootstrap administrator from the secret file its configuration names,
+read once when it creates the cluster and kept as its SCRAM-SHA-256 verifier alone, and SHALL create no cluster without
+that file. It SHALL refuse a password shorter than 15 characters or on the operator's list of common or breached
+passwords. Failed authentications SHALL be throttled per principal and per source address with a growing delay, and
+after 100 consecutive failures of a principal its authentications SHALL be refused from every source for the refusal
+interval, 15 minutes by default, after which they are accepted again; a success SHALL reset the count. A server
+configured without authentication SHALL listen on the loopback interface only, and SHALL refuse to start on any other
+address. Each authentication, its outcome and the principal it named SHALL be written to the audit log, and no password,
+proof or token SHALL be written to any log (`ultragraphdb_protocol/SECURITY.md`).
+
+#### Scenario: No bootstrap secret, no cluster
+- **WHEN** a server requiring authentication starts on an empty data directory without the bootstrap secret file
+- **THEN** it exits with an error naming the missing file, and creates no cluster
+
+#### Scenario: A short bootstrap password creates no cluster
+- **WHEN** a server requiring authentication starts on an empty data directory with a bootstrap secret file holding a
+  password of 14 characters
+- **THEN** it exits with an error naming the password rule and not the password, and creates no cluster
+
+#### Scenario: The bootstrap administrator authenticates
+- **WHEN** a server requiring authentication creates its cluster from a bootstrap secret file, and a client
+  authenticates as the bootstrap administrator with the file's password
+- **THEN** the exchange succeeds, and the data directory holds the password's verifier and not the password
+
+#### Scenario: Repeated failures refuse a principal for the interval
+- **WHEN** a principal's authentication fails 100 times in a row, and the principal then authenticates with its
+  password at once and again after the refusal interval
+- **THEN** the first is refused with code 19 and the second succeeds
+
+#### Scenario: A server without authentication listens on loopback only
+- **WHEN** a server configured without authentication is given a listen address that is not loopback
+- **THEN** it exits with an error naming the setting, before opening the store
+
+#### Scenario: No secret reaches a log
+- **WHEN** a client authenticates once with a wrong password and once with the right one
+- **THEN** the audit log holds both attempts with their outcomes and the principal named, and no log holds the
+  password, a proof or a SCRAM message

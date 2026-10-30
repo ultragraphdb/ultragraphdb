@@ -105,9 +105,10 @@ expected value is not held SHALL refuse its whole transaction, writing nothing, 
 operation's result is known only at commit and is returned in the reply, with whether the node was created: the
 transaction's other writes SHALL not name it, and the links an upsert-and-link carries are the way to connect it.
 The round's log SHALL record the transaction's writes with its operations' resulting writes, so a replay applies them
-and never runs an operation again; a counter add's result in the reply is zero, as a compare-and-set's is, and a
-counter holding a value that is no integer, or that the add would overflow, refuses its transaction as a failed
-compare-and-set does (decided 2026-10-28).
+and never runs an operation again. A counter add's result in the reply SHALL be the counter's new value, computed in
+commit order, and a compare-and-set's SHALL be zero; a counter holding a value that is no integer, or that the add
+would overflow, refuses its transaction as a failed compare-and-set does (decided 2026-10-28, the new value amended
+2026-10-30).
 
 #### Scenario: Concurrent insert-if-absent yields one node
 - **WHEN** eight transactions concurrently insert-if-absent a node with `epi.id` `"x"`, declared unique
@@ -139,11 +140,18 @@ compare-and-set does (decided 2026-10-28).
 - **WHEN** a hundred transactions concurrently add 1 to the counter `next-id`
 - **THEN** all commit and `next-id` has grown by 100
 
+#### Scenario: A counter add returns the counter's new value
+- **WHEN** the counter `next-id` holds 5, and two transactions each add 1 to it
+- **THEN** both commit, the one committed first receives 6 and the other 7, and `next-id` holds 7
+
 ### Requirement: Exactly-once commits through sessions
 A client SHALL register a session, which the log records, and SHALL send each commit with its session and a request
-number one above the session's last. A retry of the last committed request SHALL return its stored reply without
-committing again; a request number out of order SHALL be refused; a session SHALL have at most one commit in flight.
-The session table SHALL be bounded, and a request of an evicted session SHALL be refused with an error saying so.
+number one above the session's last. A session SHALL belong to the principal that registered it, and only that
+principal SHALL commit through it or read its stored reply. A retry of the last committed request SHALL return its
+stored reply without committing again; a retry of a request the table does not hold, with no transaction open for it,
+SHALL be refused as not committed; a request number out of order SHALL be refused; a session SHALL have at most one
+commit in flight. The session table SHALL be bounded, and a request of an evicted session SHALL be refused with an
+error saying so.
 
 #### Scenario: A retried commit commits once
 - **WHEN** a client commits request 7 of its session, loses the reply, and sends request 7 again
@@ -153,17 +161,29 @@ The session table SHALL be bounded, and a request of an evicted session SHALL be
 - **WHEN** a session is evicted from the full table and its client sends its next request
 - **THEN** the request is refused with an error saying the session was evicted
 
+#### Scenario: A retry of a request never committed is told so
+- **WHEN** a client sends request 8 of its session again, with no transaction open for it, and the session's last
+  committed request is 7
+- **THEN** the request is refused as not committed, `detail` 8, and nothing is committed
+
+#### Scenario: A session belongs to its principal
+- **WHEN** principal `alice` registers a session, and a connection authenticated as `bob` commits through it
+- **THEN** the commit is refused with code 21, `detail` 2, nothing is committed, and `alice`'s next request through the
+  session is served
+
 ### Requirement: Aborts name their reason
 An abort SHALL carry one of: conflict, with the kind of read that conflicted; too old, when the transaction's read
 version is below what validation still holds; past its limit; busy, when the commit queue is full; too large, when its
-write set exceeds the maximum frame; refused, when the catalog refuses a write; operation failed, when a
-compare-and-set did not hold, with the value found. Conflict, too old, past its limit and busy SHALL be marked
-retryable; too large, refused and operation failed SHALL not.
+write set exceeds the Welcome's largest write set; refused, when the catalog refuses a write or a term breaks the
+server's rules; operation failed, when a compare-and-set did not hold, with the value found; permission denied, when
+its principal may not do what a request asks. Conflict, too old, past its limit and busy SHALL be marked retryable;
+too large, refused, operation failed and permission denied SHALL not.
 
 #### Scenario: A full commit queue answers busy
 - **WHEN** the commit queue is full and a transaction commits
 - **THEN** the commit fails with a retryable busy error, and nothing it wrote is held
 
-#### Scenario: A write set over the maximum frame is refused
-- **WHEN** a transaction's write set grows past 1 MiB and it commits
-- **THEN** the commit fails with a too-large error that is not marked retryable, and nothing it wrote is held
+#### Scenario: A write set over the Welcome's bound is refused
+- **WHEN** a transaction's write set grows past the Welcome's `max_write_set` and it commits
+- **THEN** the commit fails with a too-large error that is not marked retryable, its `detail` the bound, and nothing it
+  wrote is held
