@@ -37,7 +37,7 @@ fn credit() -> Vec<u8> {
 fn test_the_framer_asks_for_the_header_then_the_frames_size() {
     let pool = BufferPool::new(1, 4_096);
     let frame = hello();
-    let mut framer = Framer::new(CLUSTER);
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
     assert_eq!(framer.want(), HEADER_SIZE);
     assert!(framer.between_frames());
     let mut buffer = pool.acquire().unwrap();
@@ -73,7 +73,14 @@ fn test_a_frame_of_a_header_alone_is_whole_at_its_header() {
     let pool = BufferPool::new(1, 4_096);
     let frame = credit();
     assert_eq!(frame.len(), HEADER_SIZE);
-    let received = feed(&mut Framer::new(CLUSTER), &pool, &frame, &mut 0, 1).unwrap();
+    let received = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &frame,
+        &mut 0,
+        1,
+    )
+    .unwrap();
     assert_eq!(received.bytes(), &frame[..]);
 }
 
@@ -82,7 +89,7 @@ fn test_frames_back_to_back_are_read_in_order_whatever_the_reads() {
     let pool = BufferPool::new(4, 4_096);
     let stream = [hello(), credit(), hello()].concat();
     for step in [1, 3, 256, 4_096] {
-        let (mut framer, mut at) = (Framer::new(CLUSTER), 0);
+        let (mut framer, mut at) = (Framer::new(CLUSTER, MAX_FRAME_SIZE), 0);
         let sizes: Vec<usize> = (0..3)
             .map(|_| {
                 feed(&mut framer, &pool, &stream, &mut at, step)
@@ -106,11 +113,18 @@ fn test_a_header_is_refused_before_its_body_is_read() {
     let mut frame = hello();
     frame[60] ^= 1;
     let mut at = 0;
-    let refused = feed(&mut Framer::new(CLUSTER), &pool, &frame, &mut at, 1 << 20).unwrap_err();
+    let refused = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &frame,
+        &mut at,
+        1 << 20,
+    )
+    .unwrap_err();
     assert!(matches!(refused.0, TransportErrorEnum::Protocol { .. }));
     assert_eq!(at, HEADER_SIZE, "no byte of the body was asked for");
     let other = feed(
-        &mut Framer::new(CLUSTER + 1),
+        &mut Framer::new(CLUSTER + 1, MAX_FRAME_SIZE),
         &pool,
         &hello(),
         &mut 0,
@@ -134,14 +148,28 @@ fn test_a_frame_larger_than_the_buffer_is_refused_naming_its_capacity() {
     let frame = ErrorReply::new(ErrorCode::Busy, "x".repeat(100))
         .frame(Header::new(CLUSTER, Command::Error).with_stream(1))
         .unwrap();
-    let refused = feed(&mut Framer::new(CLUSTER), &pool, &frame, &mut 0, 1 << 20).unwrap_err();
+    let refused = feed(
+        &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+        &pool,
+        &frame,
+        &mut 0,
+        1 << 20,
+    )
+    .unwrap_err();
     assert_eq!(
         refused,
         TransportError::Protocol(ProtocolError::FrameTooLarge(frame.len(), 300))
     );
     let fits = BufferPool::new(1, frame.len());
     assert!(
-        feed(&mut Framer::new(CLUSTER), &fits, &frame, &mut 0, 1 << 20).is_ok(),
+        feed(
+            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            &fits,
+            &frame,
+            &mut 0,
+            1 << 20
+        )
+        .is_ok(),
         "a frame of the capacity fits"
     );
 }
@@ -150,8 +178,16 @@ fn test_a_frame_larger_than_the_buffer_is_refused_naming_its_capacity() {
 fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() {
     let pool = BufferPool::new(1, 4_096);
     let frame = hello();
-    let closed =
-        |bytes: &[u8]| feed(&mut Framer::new(CLUSTER), &pool, bytes, &mut 0, 1 << 20).unwrap_err();
+    let closed = |bytes: &[u8]| {
+        feed(
+            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            &pool,
+            bytes,
+            &mut 0,
+            1 << 20,
+        )
+        .unwrap_err()
+    };
     assert_eq!(closed(&[]), TransportError::Closed());
     assert_eq!(
         closed(&frame[..3]),
@@ -165,7 +201,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() {
         closed(&frame[..frame.len() - 1]),
         TransportError::Truncated(frame.len() - 1, frame.len())
     );
-    let mut framer = Framer::new(CLUSTER);
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
     let _ = feed(&mut framer, &pool, &frame[..HEADER_SIZE], &mut 0, 1 << 20);
     assert!(framer.between_frames(), "a close resets the framer");
 }
@@ -174,7 +210,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() {
 fn test_a_reset_forgets_a_frame_in_progress() {
     let pool = BufferPool::new(1, 4_096);
     let frame = hello();
-    let mut framer = Framer::new(CLUSTER);
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
     let mut buffer = pool.acquire().unwrap();
     let mut bytes = buffer.take();
     bytes.extend_from_slice(&frame[..HEADER_SIZE]);
@@ -183,4 +219,92 @@ fn test_a_reset_forgets_a_frame_in_progress() {
     framer.reset();
     assert_eq!(framer.want(), HEADER_SIZE);
     assert_eq!(framer.cluster(), CLUSTER);
+}
+
+#[test]
+fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() {
+    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    // A Write of 600,000 bytes of text: past a framer that announced 524,288 bytes.
+    let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(600_000))
+        .frame(Header::new(CLUSTER, Command::Error).with_stream(3))
+        .unwrap();
+    let refused = feed(
+        &mut Framer::new(CLUSTER, 524_288),
+        &pool,
+        &big,
+        &mut 0,
+        1 << 20,
+    )
+    .unwrap_err();
+    assert_eq!(
+        refused,
+        TransportError::Protocol(ProtocolError::FrameTooLarge(big.len(), 524_288))
+    );
+    assert!(
+        feed(
+            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            &pool,
+            &big,
+            &mut 0,
+            1 << 20
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn test_a_servers_framer_holds_a_clients_header_to_its_rules() {
+    let pool = BufferPool::new(2, MAX_FRAME_SIZE);
+    // A frame with view 3: a server's frame may carry it, a client's may not.
+    let viewed = Credit::new(1)
+        .frame(
+            Header::new(CLUSTER, Command::Credit)
+                .with_stream(3)
+                .with_view(3),
+        )
+        .unwrap();
+    assert!(
+        feed(
+            &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            &pool,
+            &viewed,
+            &mut 0,
+            1 << 20
+        )
+        .is_ok()
+    );
+    assert!(matches!(
+        feed(
+            &mut Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
+            &pool,
+            &viewed,
+            &mut 0,
+            1 << 20
+        )
+        .unwrap_err()
+        .0,
+        TransportErrorEnum::Protocol {
+            error: ProtocolError(ProtocolErrorEnum::FieldValue {
+                field: "view",
+                value: 3,
+                ..
+            })
+        }
+    ));
+}
+
+#[test]
+fn test_each_frame_finished_expects_the_sequence_after_the_last() {
+    let pool = BufferPool::new(4, MAX_FRAME_SIZE);
+    let mut framer = Framer::from_client(CLUSTER, MAX_FRAME_SIZE);
+    let stream = [credit(), credit(), credit()].concat();
+    let mut at = 0;
+    let expected: Vec<u128> = (0..3)
+        .map(|_| {
+            feed(&mut framer, &pool, &stream, &mut at, 1 << 20)
+                .unwrap()
+                .expected_sequence()
+        })
+        .collect();
+    assert_eq!(expected, vec![1, 2, 3]);
 }

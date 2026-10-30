@@ -25,6 +25,7 @@ compio = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_error_protocol = { workspace = true }
+ultragraphdb_protocol_scram = { workspace = true }
 ultragraphdb_tool_bdd = { workspace = true }
 cucumber = { workspace = true }
 futures = { workspace = true }

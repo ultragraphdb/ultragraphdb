@@ -5,3 +5,7 @@
 
 #[cfg(test)]
 pub mod feed;
+#[cfg(test)]
+pub mod mechanism;
+#[cfg(test)]
+pub mod peer;

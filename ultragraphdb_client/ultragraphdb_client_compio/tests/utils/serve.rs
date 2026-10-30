@@ -17,9 +17,9 @@ use std::time::Duration;
 use compio::io::{AsyncRead, AsyncWrite};
 use ultragraphdb_client_compio::Connect;
 use ultragraphdb_client_core::{ClientConfig, ScriptedServer, ServerScript};
-use ultragraphdb_protocol_transport::{BufferPool, SimNetwork, SimStream};
+use ultragraphdb_protocol_transport::{BufferPool, Framer, SimNetwork, SimStream};
 use ultragraphdb_protocol_transport_compio::{CompioSimStream, Connection};
-use ultragraphdb_protocol_wire::Welcome;
+use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, Welcome};
 
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -45,7 +45,7 @@ pub fn server(script: ServerScript) -> Rc<RefCell<ScriptedServer>> {
 pub async fn serve<S: AsyncRead + AsyncWrite>(server: &RefCell<ScriptedServer>, stream: S) {
     server.borrow_mut().connection();
     let pool = BufferPool::new(4, 1 << 20);
-    let mut connection = Connection::new(stream, CLUSTER);
+    let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     loop {
         let frames: Vec<Vec<u8>> = std::iter::from_fn(|| server.borrow_mut().transmit()).collect();
         for frame in frames {

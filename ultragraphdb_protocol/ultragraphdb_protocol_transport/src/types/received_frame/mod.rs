@@ -4,21 +4,41 @@
  */
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_wire::{FrameView, MAX_FRAME_SIZE};
+use ultragraphdb_protocol_wire::{Command, FrameView, PROTOCOL_VERSION};
 
 use crate::types::pooled_buffer::PooledBuffer;
 
-/// A frame read whole into a pooled buffer, its header verified for the connection's cluster; its chunks and body are
-/// checked when it is viewed.
+/// A frame read whole into a pooled buffer, its header verified for the connection's cluster and largest frame; its
+/// chunks, its sequence and protocol, and its body are checked when it is viewed.
 #[derive(Debug)]
 pub struct ReceivedFrame {
     buffer: PooledBuffer,
     cluster: u64,
+    max_frame: usize,
+    client: bool,
+    sequence: u128,
+    protocol: u16,
 }
 
 impl ReceivedFrame {
-    pub(crate) fn new(buffer: PooledBuffer, cluster: u64) -> Self {
-        Self { buffer, cluster }
+    /// The frame in `buffer` of a connection of `cluster` taking frames of at most `max_frame` bytes, sent by a client
+    /// when `client`, expected at `sequence` and, but for Hello and Welcome, at `protocol`.
+    pub(crate) fn new(
+        buffer: PooledBuffer,
+        cluster: u64,
+        max_frame: usize,
+        client: bool,
+        sequence: u128,
+        protocol: u16,
+    ) -> Self {
+        Self {
+            buffer,
+            cluster,
+            max_frame,
+            client,
+            sequence,
+            protocol,
+        }
     }
 
     /// The frame's bytes, header and body.
@@ -26,9 +46,41 @@ impl ReceivedFrame {
         self.buffer.as_slice()
     }
 
-    /// The frame validated in place ([`FrameView::validate`]) for the connection's cluster.
+    /// The frame validated in place for the connection, in `PROTOCOL.md` §2.5's order: the header and chunks
+    /// ([`FrameView::validate`], or [`FrameView::validate_client`] for a client's frame), then its sequence, the one
+    /// the connection expected ([`ProtocolError::SequenceOrder`]), then its protocol, 1 in Hello and Welcome and the
+    /// connection's after them ([`ProtocolError::FieldValue`] `"protocol"`).
     pub fn view(&self) -> Result<FrameView<'_>, ProtocolError> {
-        FrameView::validate(self.buffer.as_slice(), self.cluster, MAX_FRAME_SIZE)
+        let bytes = self.buffer.as_slice();
+        let view = if self.client {
+            FrameView::validate_client(bytes, self.cluster, self.max_frame)
+        } else {
+            FrameView::validate(bytes, self.cluster, self.max_frame)
+        }?;
+        let header = view.header();
+        if header.sequence() != self.sequence {
+            return Err(ProtocolError::SequenceOrder(
+                self.sequence,
+                header.sequence(),
+            ));
+        }
+        let protocol = match view.command() {
+            Command::Hello | Command::Welcome => PROTOCOL_VERSION,
+            _ => self.protocol,
+        };
+        if header.protocol() != protocol {
+            return Err(ProtocolError::FieldValue(
+                header.command(),
+                "protocol",
+                header.protocol().into(),
+            ));
+        }
+        Ok(view)
+    }
+
+    /// The sequence the connection expected this frame at.
+    pub fn expected_sequence(&self) -> u128 {
+        self.sequence
     }
 
     /// The header's `command` number.

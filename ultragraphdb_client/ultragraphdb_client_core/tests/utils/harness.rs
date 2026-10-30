@@ -18,7 +18,7 @@ use ultragraphdb_protocol_transport::{
     BufferPool, FrameStep, Framer, NetworkFaults, ReceivedFrame, SimNetwork, SimStream,
     TransportError,
 };
-use ultragraphdb_protocol_wire::{HEADER_SIZE, HeaderView, Welcome};
+use ultragraphdb_protocol_wire::{HEADER_SIZE, HeaderView, MAX_FRAME_SIZE, Welcome};
 
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 pub const RELEASE: u32 = 0x0005_0000;
@@ -58,7 +58,7 @@ impl Bytes {
 
 /// A frame's bytes as the client's shell hands them over: through the framer, into a pooled buffer.
 pub fn received(pool: &BufferPool, bytes: &[u8]) -> Result<ReceivedFrame, TransportError> {
-    let mut framer = Framer::new(CLUSTER);
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
     let mut buffer = pool.acquire()?;
     loop {
         let mut data = buffer.take();

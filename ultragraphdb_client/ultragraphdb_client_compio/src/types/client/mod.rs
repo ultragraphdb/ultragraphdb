@@ -8,7 +8,7 @@ mod client_requests;
 use std::time::Instant;
 
 use ultragraphdb_client_core::{ClientConfig, ClientCore, ClientError, Pending, Reply};
-use ultragraphdb_protocol_transport::{BufferPool, TransportError};
+use ultragraphdb_protocol_transport::{BufferPool, Framer, TransportError};
 use ultragraphdb_protocol_transport_compio::Connection;
 use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 
@@ -81,7 +81,10 @@ impl<C: Connect> Client<C> {
             Ok(Err(error)) => return Err(ClientError::Transport(TransportError::Io(&error))),
             Err(_) => return Err(ClientError::TimedOut()),
         };
-        self.connection = Some(Connection::new(stream, self.core.config().cluster()));
+        self.connection = Some(Connection::new(
+            stream,
+            Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE),
+        ));
         self.core.connect(now())
     }
 

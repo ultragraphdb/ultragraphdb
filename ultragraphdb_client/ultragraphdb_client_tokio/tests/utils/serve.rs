@@ -16,7 +16,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use ultragraphdb_client_core::{ClientConfig, ScriptedServer, ServerScript};
 use ultragraphdb_client_tokio::{Connect, TokioSimStream};
 use ultragraphdb_protocol_transport::{BufferPool, FrameStep, Framer, SimNetwork, SimStream};
-use ultragraphdb_protocol_wire::Welcome;
+use ultragraphdb_protocol_wire::{MAX_FRAME_SIZE, Welcome};
 
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -46,7 +46,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
 ) {
     server.borrow_mut().connection();
     let pool = BufferPool::new(4, 1 << 20);
-    let mut framer = Framer::new(CLUSTER);
+    let mut framer = Framer::from_client(CLUSTER, MAX_FRAME_SIZE);
     loop {
         let frames: Vec<Vec<u8>> = std::iter::from_fn(|| server.borrow_mut().transmit()).collect();
         for frame in frames {

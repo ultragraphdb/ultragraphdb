@@ -59,6 +59,7 @@ ultragraphdb_error_options = { path = "ultragraphdb_error/ultragraphdb_error_opt
 ultragraphdb_error_protocol = { path = "ultragraphdb_error/ultragraphdb_error_protocol" }
 ultragraphdb_error_store = { path = "ultragraphdb_error/ultragraphdb_error_store" }
 ## Protocol: the binary protocol client and server share
+ultragraphdb_protocol_scram = { path = "ultragraphdb_protocol/ultragraphdb_protocol_scram" }
 ultragraphdb_protocol_transport = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport" }
 ultragraphdb_protocol_transport_compio = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport_compio" }
 ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
@@ -109,6 +110,12 @@ opentelemetry-otlp = { version = "0.33", default-features = false, features = ["
 tracing-opentelemetry = { version = "0.34", default-features = false }
 fjall = "3.1"
 moka = { version = "0.12", features = ["sync"] }
+sha2 = "0.11"
+hmac = "0.13"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+subtle = "2.6"
+base64 = "0.22"
+stringprep = "0.1"
 futures = "0.3"
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }

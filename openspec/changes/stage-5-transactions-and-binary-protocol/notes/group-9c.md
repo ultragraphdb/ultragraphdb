@@ -293,3 +293,89 @@ before and compared after (equal). 45 defects planted one at a time in the imple
 The throwaway implementation that passed the audited suite is kept as the implementation (phase 4 of these two
 crates), as the protocol allows. After it: `ultragraphdb_protocol_wire` 254 unit tests and 23 scenarios,
 `ultragraphdb_core_terms` 27 unit tests and 6 scenarios, all passing under Cargo.
+
+## 9c.6 The transport and SCRAM-SHA-256
+
+### Phase 1: the surface
+
+- Wire: `Header::stamp_sequence`, a frame numbered as it leaves, after it was built.
+- `ultragraphdb_protocol_transport`: `Framer::new(cluster, max_frame)` for a server's frames and `Framer::from_client`
+  for a client's, `set_protocol`; `ReceivedFrame::view` checks the sequence and the protocol after the chunks (§2.5
+  steps 13, 14); `Outbound` sends every frame of the connection and numbers it as it leaves (`push_connection` for
+  stream 0 and the refusals of streams never opened, `sent`), and ties reads to their transaction (`open_transaction`,
+  `open_read`, `is_transaction`), a transaction's end ending them. New: the SASL traits `ClientMechanism`,
+  `ServerMechanism` and `Authenticator`; `Credential`, `MechanismStep`; `ClientAuthentication` with
+  `AuthenticationStep`; `ServerConnection`, a server's connection as one sans-I/O machine (the handshake, the exchange
+  and re-authentication, `AUTHENTICATION_TIMEOUT`, the credential's expiry, `IDLE_LIMIT`, §11.2's stream rules),
+  handing requests to the session as `Inbound`; `TransportError::Authentication`.
+- `ultragraphdb_protocol_scram` (new): `ScramVerifier`, `ScramClient` (the transport's `ClientMechanism`),
+  `ScramServer`, `ScramExchange` and `ScramAuthenticator` (its `Authenticator`) over a `Credentials` store,
+  `ScramError`. Dependencies, pure Rust, pinned in the workspace: `sha2` 0.11, `hmac` 0.13, `pbkdf2` 0.13 (its `hmac`
+  feature), `subtle` 2.6, `base64` 0.22, `stringprep` 0.1. The lockfile resolved with `cargo metadata`, nothing built.
+- `ultragraphdb_protocol_transport_compio`: `Connection::new(stream, framer)`, the caller's side chosen by its framer;
+  `framer_mut`.
+
+A client learns from the final Authenticate its principal and expiry alone, so `AuthenticationStep::Done` carries those
+two, while a server's `Credential` adds how long it lasts, which the authenticator, reading the wall clock, gives. An
+idle connection closes with no frame (§11.4 names none): `Inbound::Closing`'s code is optional.
+
+### Phase 2: the failing run
+
+The suites written against the surface: the transport's tests of numbering, the connection's queue, reads and their
+transaction, the framer's limit and client rules, the sequence and protocol checks, the client's exchange, and the
+server connection (21 tests over a two-round test mechanism); SCRAM's tests over RFC 7677's exchange, its stored and
+server keys computed by Python's `hashlib` and `hmac`, which reproduce the RFC's proof and signature; the
+conversations rebuilt on `ServerConnection` with 13 of 9c.5's scenarios. "An expired credential closes the
+connection" ends with the transaction aborting and the principal's sessions serving its next connection, the server
+session's work: it is bound with 10.1, against the node.
+
+2026-10-30 15:50, `bazel test //ultragraphdb_protocol/...` against the surface:
+
+| Target | Result |
+|---|---|
+| `ultragraphdb_protocol_wire` unit | 255: 254 passed, 1 failed |
+| `ultragraphdb_protocol_wire` bdd | 23 passed |
+| `ultragraphdb_protocol_transport` unit | 73: 25 passed, 48 failed |
+| `ultragraphdb_protocol_scram` unit | 20: 2 passed, 18 failed |
+| `ultragraphdb_protocol_transport_compio` unit | 13: 3 passed, 10 failed |
+| `ultragraphdb_protocol_transport_compio` bdd | 18 scenarios failed |
+
+Every failure an `unimplemented!()` panic of the surface; the passing ones are data (errors, constants, credentials)
+and the tests the surface leaves unchanged.
+
+### Phase 3: the audit
+
+Script in the session's scratchpad (`audit_transport.py`), each defect planted in place, run by `bazel test` over the
+transport's, the compio shell's and SCRAM's targets (test failures, exit 3, are rejections; a build failure is
+reported apart), restored in a `finally`, the two crates' source trees hashed before and compared after (equal). 45
+defects:
+
+| Area | Defects |
+|---|---|
+| Framer, frame checks | a client's rules unchecked; the announced maximum ignored; the expected sequence not advanced; the sequence unchecked; the protocol unchecked; Hello and Welcome not exempt |
+| Outbound | the connection's frames sent last; frames unnumbered; numbering from 0; reads outliving their transaction; a read of no transaction; a read without its credit |
+| Client exchange | the step unchecked; answering at the wrong step; the server's final unchecked |
+| Server connection | requests before authentication; renewal as another principal; an unknown mechanism taken; the expiry, the idle limit, the authentication timeout ignored; stream 0 taking requests; a new request on an open stream; the stream limit closing; a read opened plain; a Write without its transaction; an Abort keeping its stream; a transaction's cancel unnamed; a refusal not last; a closing connection reading on; a refusal saying why; a final message unflagged |
+| SCRAM | the password unprepared; a verifier below the floor; the server's nonce, its signature, its count below the floor unchecked; the name unescaped; channel binding and an authorization identity taken; the proof unchecked; the final nonce unchecked; one salt for every unknown name; an unknown name authenticated; any mechanism taken |
+
+The first run rejected 41. One plant did not build and was corrected; three survived, and the suite was strengthened
+for two:
+
+- A new request on an open stream: the helper that opens a stream closes on `StreamOpen` too, so the explicit rule
+  differs only for a request whose body breaks a rule, which it must close before reading (§2.6's order). Added: a
+  malformed Read on an open stream closes the connection.
+- A refusal saying why: both failures the suite compared failed alike. Added: a wrong password and a message out of
+  step give the same frame.
+- Stream 0 taking requests, the corrected plant, survived next: Begin on stream 0 is refused by the open helper as
+  well. Added: Credit, Cancel and Write on stream 0 each close the connection.
+
+Re-run, all three rejected. One survivor stands, equivalent: an unknown name authenticated needs a proof verifying
+against the stand-in verifier, whose stored key is an HMAC of the server's secret, so a client would need a SHA-256
+preimage of it. The check stays as defence in depth.
+
+The implementation that passed the audited suite is kept (phase 4 of this slice).
+
+After it, `bazel test`: the wire 255 unit tests and 23 scenarios, the transport 76, SCRAM 20, the compio shell 13 and
+18 scenarios; every non-integration target of the repository, 118, passing on macOS. The compio, transport and SCRAM
+targets, with the compio client's, passing on Linux 7.2 (arm64) in an OrbStack machine with io_uring enabled, where
+compio runs its io_uring driver, 9 of 9.

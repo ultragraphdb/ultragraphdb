@@ -108,3 +108,27 @@ fn test_a_frame_past_one_mebibyte_is_refused_naming_the_limit() {
         })
     );
 }
+
+#[test]
+fn test_a_sequence_stamped_onto_a_built_frame_keeps_it_sound() {
+    for golden in GOLDEN {
+        let mut frame = golden.bytes();
+        Header::stamp_sequence(&mut frame, 0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10).unwrap();
+        let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+            .expect("the stamped frame validates");
+        assert_eq!(
+            view.header().sequence(),
+            0x0102_0304_0506_0708_090A_0B0C_0D0E_0F10
+        );
+        // Every byte but the sequence and the checksum is the frame's.
+        assert_eq!(&frame[8..16], &golden.bytes()[8..16], "{}", golden.name);
+        assert_eq!(&frame[32..], &golden.bytes()[32..], "{}", golden.name);
+        // Stamped back, it is the golden frame again.
+        Header::stamp_sequence(&mut frame, golden.sequence).unwrap();
+        assert_eq!(frame, golden.bytes(), "{}", golden.name);
+    }
+    assert_eq!(
+        Header::stamp_sequence(&mut [0u8; 255], 1),
+        Err(ProtocolError(ProtocolErrorEnum::ShortHeader { len: 255 }))
+    );
+}

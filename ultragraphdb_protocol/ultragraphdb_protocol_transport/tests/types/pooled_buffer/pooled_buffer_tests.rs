@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_protocol_transport::{BufferPool, Framer};
-use ultragraphdb_protocol_wire::{BodyBuilder, Command, Credit, Header};
+use ultragraphdb_protocol_wire::{BodyBuilder, Command, Credit, Header, MAX_FRAME_SIZE};
 
 use crate::utils::feed::feed;
 
@@ -19,7 +19,14 @@ fn test_a_buffer_holds_the_frame_read_into_it_and_returns_empty() {
     let frame = Credit::new(3)
         .frame(Header::new(7, Command::Credit).with_stream(1))
         .unwrap();
-    let received = feed(&mut Framer::new(7), &pool, &frame, &mut 0, 7).unwrap();
+    let received = feed(
+        &mut Framer::new(7, MAX_FRAME_SIZE),
+        &pool,
+        &frame,
+        &mut 0,
+        7,
+    )
+    .unwrap();
     assert_eq!(received.bytes(), &frame[..]);
     drop(received);
     let again = pool.acquire().unwrap();

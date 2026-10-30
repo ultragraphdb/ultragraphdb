@@ -49,12 +49,15 @@ pub struct Connection<S> {
 }
 
 impl<S: AsyncRead + AsyncWrite> Connection<S> {
-    /// A connection over `stream` to or from a node of `cluster`.
-    pub fn new(stream: S, cluster: u64) -> Self {
-        Self {
-            stream,
-            framer: Framer::new(cluster),
-        }
+    /// A connection over `stream`, its frames read by `framer`: a client's ([`Framer::new`]) or a server's
+    /// ([`Framer::from_client`]), each with the cluster and the largest frame its side announced.
+    pub fn new(stream: S, framer: Framer) -> Self {
+        Self { stream, framer }
+    }
+
+    /// The connection's framer, for the protocol its handshake agreed.
+    pub fn framer_mut(&mut self) -> &mut Framer {
+        &mut self.framer
     }
 
     pub fn cluster(&self) -> u64 {
@@ -131,7 +134,9 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         let handshake = ClientHandshake::new(self.cluster(), hello.clone());
         self.write_frame(handshake.hello_frame()?).await?;
         let answer = self.read_frame(pool).await?;
-        handshake.receive(answer.bytes())
+        let welcome = handshake.receive(answer.bytes())?;
+        self.framer.set_protocol(welcome.protocol());
+        Ok(welcome)
     }
 
     /// The server's handshake, run through [`ServerHandshake`]: reads the client's Hello and sends the answer the

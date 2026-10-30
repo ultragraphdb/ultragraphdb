@@ -79,7 +79,7 @@ impl<C: Connect> Client<C> {
     /// A client configured by `config`, connecting through `connector` when first asked; its pool holds
     /// `buffers` frame buffers of 1 MiB, the most frames it holds at once.
     pub fn new(connector: C, config: ClientConfig, buffers: usize) -> Self {
-        let framer = Framer::new(config.cluster());
+        let framer = Framer::new(config.cluster(), MAX_FRAME_SIZE);
         Self {
             connector,
             core: ClientCore::new(config),

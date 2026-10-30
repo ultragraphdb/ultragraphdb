@@ -37,6 +37,9 @@ impl fmt::Display for TransportError {
                 f,
                 "command {found} arrived where command {expected} was due"
             ),
+            TransportErrorEnum::Authentication { reason } => {
+                write!(f, "the server's authentication was refused: {reason}")
+            }
         }
     }
 }

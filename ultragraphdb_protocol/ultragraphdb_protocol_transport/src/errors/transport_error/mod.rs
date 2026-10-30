@@ -39,6 +39,8 @@ pub enum TransportErrorEnum {
     Refused { code: ErrorCode, message: String },
     /// A frame of command `found` arrived where `expected` was due.
     UnexpectedCommand { expected: u16, found: u16 },
+    /// The client's mechanism refused the server's message: `reason` says why, for the client.
+    Authentication { reason: String },
 }
 
 /// Why a connection or a stream operation failed; `.0` classifies it.
@@ -105,5 +107,12 @@ impl TransportError {
     #[allow(non_snake_case)]
     pub fn UnexpectedCommand(expected: u16, found: u16) -> Self {
         Self(TransportErrorEnum::UnexpectedCommand { expected, found })
+    }
+
+    #[allow(non_snake_case)]
+    pub fn Authentication(reason: impl Into<String>) -> Self {
+        Self(TransportErrorEnum::Authentication {
+            reason: reason.into(),
+        })
     }
 }

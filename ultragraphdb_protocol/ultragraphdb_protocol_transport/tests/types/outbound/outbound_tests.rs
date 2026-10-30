@@ -6,7 +6,8 @@
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Outbound, TransportError};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Commit, ErrorCode, ErrorReply, FLAG_LAST, Header, ResultBatch,
+    BodyBuilder, Command, Commit, ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, HeaderView,
+    MAX_FRAME_SIZE, ResultBatch,
 };
 
 const CLUSTER: u64 = 1;
@@ -32,8 +33,22 @@ fn reply(stream: u64, last: bool) -> Vec<u8> {
         .unwrap()
 }
 
+/// `frame` with its sequence cleared, as it was pushed: the tests of scheduling compare frames apart from numbering.
+fn unstamped((stream, mut frame): (u64, Vec<u8>)) -> (u64, Vec<u8>) {
+    Header::stamp_sequence(&mut frame, 0).unwrap();
+    (stream, frame)
+}
+
+fn next(outbound: &mut Outbound) -> Option<(u64, Vec<u8>)> {
+    outbound.next_frame().map(unstamped)
+}
+
 fn drain(outbound: &mut Outbound) -> Vec<(u64, Vec<u8>)> {
-    std::iter::from_fn(|| outbound.next_frame()).collect()
+    std::iter::from_fn(|| next(outbound)).collect()
+}
+
+fn sequence(frame: &[u8]) -> u128 {
+    HeaderView::new(frame).unwrap().sequence()
 }
 
 #[test]
@@ -81,7 +96,7 @@ fn test_result_frames_leave_only_while_their_stream_holds_credit() {
     }
     assert_eq!(outbound.queued(5), 3);
     assert_eq!(outbound.credit(5), Some(0));
-    assert_eq!(outbound.next_frame(), None);
+    assert_eq!(next(&mut outbound), None);
     outbound.grant(5, 2);
     assert_eq!(
         drain(&mut outbound),
@@ -118,7 +133,7 @@ fn test_replies_need_no_credit_but_wait_behind_their_streams_results() {
     outbound.push(1, result(1, 0, false)).unwrap();
     outbound.push(1, reply(1, true)).unwrap();
     assert_eq!(
-        outbound.next_frame(),
+        next(&mut outbound),
         None,
         "the reply keeps its place behind the result"
     );
@@ -153,7 +168,7 @@ fn test_a_cancelled_stream_sends_nothing_more() {
         outbound.push(1, result(1, tag, tag == 2)).unwrap();
         outbound.push(2, result(2, tag, tag == 2)).unwrap();
     }
-    assert_eq!(outbound.next_frame(), Some((1, result(1, 0, false))));
+    assert_eq!(next(&mut outbound), Some((1, result(1, 0, false))));
     assert!(outbound.cancel(1));
     assert!(!outbound.cancel(1));
     assert!(!outbound.is_open(1));
@@ -168,4 +183,120 @@ fn test_a_cancelled_stream_sends_nothing_more() {
         vec![2, 2, 2]
     );
     let _ = ErrorReply::new(ErrorCode::Busy, "");
+}
+
+#[test]
+fn test_every_frame_leaves_numbered_from_one_in_the_order_it_leaves() {
+    let mut outbound = Outbound::new(4, 4);
+    assert_eq!(outbound.sent(), 0);
+    outbound.open(2).unwrap();
+    outbound.open(1).unwrap();
+    outbound.push(2, reply(2, true)).unwrap();
+    outbound.push(1, reply(1, true)).unwrap();
+    outbound.push_connection(reply(0, false)).unwrap();
+    let sent: Vec<(u64, u128)> = std::iter::from_fn(|| outbound.next_frame())
+        .map(|(stream, frame)| {
+            // Each frame is whole and sound under its new sequence: the checksum follows it.
+            FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)
+                .expect("a stamped frame validates");
+            (stream, sequence(&frame))
+        })
+        .collect();
+    assert_eq!(sent, vec![(0, 1), (1, 2), (2, 3)]);
+    assert_eq!(outbound.sent(), 3);
+}
+
+#[test]
+fn test_the_connections_frames_go_first_in_the_order_pushed() {
+    let mut outbound = Outbound::new(4, 4);
+    outbound.open(1).unwrap();
+    outbound.push(1, result(1, 0, false)).unwrap();
+    outbound.push_connection(reply(0, false)).unwrap();
+    // A refusal of stream 9, never opened, leaves among the connection's frames.
+    outbound.push_connection(reply(9, true)).unwrap();
+    assert_eq!(
+        drain(&mut outbound),
+        vec![
+            (0, reply(0, false)),
+            (9, reply(9, true)),
+            (1, result(1, 0, false))
+        ]
+    );
+    assert!(!outbound.is_open(9));
+    assert_eq!(
+        outbound.push_connection(vec![0; 8]).unwrap_err(),
+        TransportError::Protocol(ProtocolError::ShortHeader(8))
+    );
+}
+
+#[test]
+fn test_a_read_opens_on_an_open_transaction_with_its_own_credit() {
+    let mut outbound = Outbound::new(8, 2);
+    assert_eq!(
+        outbound.open_read(3, 1).unwrap_err(),
+        TransportError::UnknownStream(1),
+        "no transaction on stream 1"
+    );
+    outbound.open(1).unwrap();
+    assert!(!outbound.is_transaction(1));
+    assert_eq!(
+        outbound.open_read(3, 1).unwrap_err(),
+        TransportError::UnknownStream(1),
+        "stream 1 holds a request, not a transaction"
+    );
+    outbound.open_transaction(5).unwrap();
+    assert!(outbound.is_transaction(5));
+    assert_eq!(
+        outbound.open_transaction(5).unwrap_err(),
+        TransportError::StreamOpen(5)
+    );
+    outbound.open_read(3, 5).unwrap();
+    outbound.open_read(4, 5).unwrap();
+    assert!(!outbound.is_transaction(3));
+    assert_eq!((outbound.credit(3), outbound.credit(4)), (Some(2), Some(2)));
+    assert_eq!(
+        outbound.open_read(4, 5).unwrap_err(),
+        TransportError::StreamOpen(4)
+    );
+    assert_eq!(
+        outbound.open_read(0, 5).unwrap_err(),
+        TransportError::StreamZero()
+    );
+}
+
+#[test]
+fn test_cancelling_a_read_keeps_its_transaction() {
+    let mut outbound = Outbound::new(8, 4);
+    outbound.open_transaction(1).unwrap();
+    outbound.open_read(2, 1).unwrap();
+    outbound.open_read(3, 1).unwrap();
+    outbound.push(2, result(2, 0, false)).unwrap();
+    assert!(outbound.cancel(2));
+    assert!(outbound.is_transaction(1));
+    assert!(outbound.is_open(3));
+    assert_eq!(outbound.queued(2), 0);
+}
+
+#[test]
+fn test_a_transactions_end_ends_its_reads() {
+    // By its last frame leaving, the Commit's reply, which takes the first turn: the read's queued frames go with it.
+    let mut outbound = Outbound::new(8, 4);
+    outbound.open_transaction(1).unwrap();
+    outbound.open_read(2, 1).unwrap();
+    outbound.push(2, result(2, 0, false)).unwrap();
+    outbound.push(2, result(2, 1, true)).unwrap();
+    outbound.push(1, reply(1, true)).unwrap();
+    assert_eq!(drain(&mut outbound), vec![(1, reply(1, true))]);
+    assert!(!outbound.is_open(1));
+    assert!(!outbound.is_open(2), "the read ended with its transaction");
+    // By a cancel of the transaction: every read ends, a read of another transaction stays.
+    let mut outbound = Outbound::new(8, 4);
+    outbound.open_transaction(1).unwrap();
+    outbound.open_transaction(5).unwrap();
+    outbound.open_read(2, 1).unwrap();
+    outbound.open_read(3, 1).unwrap();
+    outbound.open_read(6, 5).unwrap();
+    assert!(outbound.cancel(1));
+    assert!(!outbound.is_open(2) && !outbound.is_open(3));
+    assert!(outbound.is_open(6) && outbound.is_transaction(5));
 }

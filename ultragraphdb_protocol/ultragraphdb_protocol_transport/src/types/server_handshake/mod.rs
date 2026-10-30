@@ -26,8 +26,11 @@ impl ServerHandshake {
         Self { cluster, server }
     }
 
+    /// The header of the server's answer, its first frame on the connection: sequence 1.
     fn header(&self) -> Header {
-        Header::new(self.cluster, Command::Welcome).with_release(self.server.release())
+        Header::new(self.cluster, Command::Welcome)
+            .with_sequence(1)
+            .with_release(self.server.release())
     }
 
     /// The protocol Error frame of `refusal`, answered before the connection closes; none when it cannot be built.

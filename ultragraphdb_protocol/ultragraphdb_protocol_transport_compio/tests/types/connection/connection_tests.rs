@@ -6,7 +6,9 @@
 use crate::utils::ready::ready;
 use compio::io::AsyncWrite;
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_transport::{BufferPool, NetworkFaults, SimNetwork, TransportError};
+use ultragraphdb_protocol_transport::{
+    BufferPool, Framer, NetworkFaults, SimNetwork, TransportError,
+};
 use ultragraphdb_protocol_transport_compio::{CompioSimStream, Connection};
 
 use crate::utils::sim::connect;
@@ -27,8 +29,8 @@ fn pair(
     let (client, server) = connect(&network);
     (
         network,
-        Connection::new(client, CLUSTER),
-        Connection::new(server, CLUSTER),
+        Connection::new(client, Framer::new(CLUSTER, MAX_FRAME_SIZE)),
+        Connection::new(server, Framer::from_client(CLUSTER, MAX_FRAME_SIZE)),
     )
 }
 
@@ -66,6 +68,15 @@ fn test_frames_split_in_flight_are_read_whole() {
             .frame(Header::new(CLUSTER, Command::Hello))
             .unwrap(),
     ];
+    // Numbered as a client numbers them, from 1, so each view holds the connection's sequence.
+    let frames: Vec<Vec<u8>> = frames
+        .into_iter()
+        .zip(1u128..)
+        .map(|(mut frame, sequence)| {
+            Header::stamp_sequence(&mut frame, sequence).unwrap();
+            frame
+        })
+        .collect();
     for frame in &frames {
         ready(client.write_frame(frame.clone())).unwrap();
     }
@@ -135,8 +146,8 @@ fn test_the_body_of_a_refused_header_stays_unread() {
     let network = SimNetwork::new(3, NetworkFaults::none());
     let (client, server) = connect(&network);
     let probe = server.clone();
-    let mut client = Connection::new(client, CLUSTER);
-    let mut server = Connection::new(server, CLUSTER);
+    let mut client = Connection::new(client, Framer::new(CLUSTER, MAX_FRAME_SIZE));
+    let mut server = Connection::new(server, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     let other = ErrorReply::new(ErrorCode::Busy, "b".repeat(100))
         .frame(Header::new(7, Command::Error))
         .unwrap();
@@ -306,8 +317,11 @@ fn test_a_connection_runs_over_compio_tcp() {
         let address = listener.local_addr().unwrap();
         let (accepted, connected) =
             futures::future::join(listener.accept(), TcpStream::connect(address)).await;
-        let mut server = Connection::new(accepted.unwrap().0, CLUSTER);
-        let mut client = Connection::new(connected.unwrap(), CLUSTER);
+        let mut server = Connection::new(
+            accepted.unwrap().0,
+            Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
+        );
+        let mut client = Connection::new(connected.unwrap(), Framer::new(CLUSTER, MAX_FRAME_SIZE));
         let pool = BufferPool::new(4, MAX_FRAME_SIZE);
         let welcome = Welcome::new(1, 0, "s")
             .with_max_frame(1 << 20)

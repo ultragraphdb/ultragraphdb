@@ -6,7 +6,11 @@
 #[cfg(test)]
 mod buffer_pool;
 #[cfg(test)]
+mod client_authentication;
+#[cfg(test)]
 mod client_handshake;
+#[cfg(test)]
+mod credential;
 #[cfg(test)]
 mod framer;
 #[cfg(test)]
@@ -21,6 +25,8 @@ mod outbound;
 mod pooled_buffer;
 #[cfg(test)]
 mod received_frame;
+#[cfg(test)]
+mod server_connection;
 #[cfg(test)]
 mod server_handshake;
 #[cfg(test)]

@@ -39,6 +39,23 @@ impl Header {
         header
     }
 
+    /// Writes `sequence` into the header of `frame`, a whole frame, and recomputes its `checksum`: a sender numbers a
+    /// frame as it leaves, after the frame was built. Refused as [`ProtocolError::ShortHeader`] for fewer than 256
+    /// bytes.
+    pub fn stamp_sequence(frame: &mut [u8], sequence: u128) -> Result<(), ProtocolError> {
+        let len = frame.len();
+        let header = frame
+            .get_mut(..HEADER_SIZE)
+            .ok_or(ProtocolError::ShortHeader(len))?;
+        let (checksum, tail) = header.split_at_mut(8);
+        tail.iter_mut()
+            .skip(8)
+            .zip(sequence.to_le_bytes())
+            .for_each(|(out, byte)| *out = byte);
+        checksum.copy_from_slice(&xxh3_64(tail).to_le_bytes());
+        Ok(())
+    }
+
     /// The frame of this header and `body`: the header, the body, and the body's chunk table when it has more than
     /// one chunk, with `size`, `checksum_body` and `checksum` filled in. Refused as
     /// [`ProtocolError::FrameTooLarge`] when the frame would exceed [`crate::MAX_FRAME_SIZE`].
