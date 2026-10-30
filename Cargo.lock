@@ -2863,7 +2863,6 @@ dependencies = [
  "cucumber",
  "futures",
  "serde",
- "serde_json",
  "ultragraphdb_error_store",
  "ultragraphdb_tool_bdd",
  "xxhash-rust",
@@ -2909,7 +2908,6 @@ name = "ultragraphdb_core_text"
 version = "0.1.0"
 dependencies = [
  "serde",
- "serde_json",
  "ultragraphdb_common_utils",
  "ultragraphdb_tool_bdd",
 ]
@@ -3307,7 +3305,6 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
- "ultragraphdb_core_catalog",
  "ultragraphdb_core_codec",
  "ultragraphdb_core_keys",
  "ultragraphdb_core_mapping",

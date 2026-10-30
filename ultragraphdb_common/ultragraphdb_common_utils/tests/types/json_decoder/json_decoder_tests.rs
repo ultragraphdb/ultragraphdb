@@ -235,11 +235,11 @@ fn test_unmarshal_decoder_errors() {
         ("[2, 3", Want::UnexpectedEof),
         (
             r#"{"F3": -}"#,
-            Want::Syntax("invalid character '}' in numeric literal", 9),
+            Syntax("invalid character '}' in numeric literal", 9),
         ),
         (
             r#"{"X":12x}"#,
-            Want::Syntax("invalid character 'x' after object key:value pair", 8),
+            Syntax("invalid character 'x' after object key:value pair", 8),
         ),
     ] {
         let got = JsonDecoder::new(input.as_bytes()).decode();

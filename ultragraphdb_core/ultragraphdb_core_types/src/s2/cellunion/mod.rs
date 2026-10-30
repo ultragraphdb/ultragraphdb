@@ -264,7 +264,7 @@ fn are_siblings(a: CellId, b: CellId, c: CellId, d: CellId) -> bool {
     // "id" with respect to its parent, then check that the other three
     // children all agree with "mask".
     let mut mask = d.lsb() << 1;
-    mask = !(mask.wrapping_add(mask << 1));
+    mask = !mask.wrapping_add(mask << 1);
     let id_masked = d.0 & mask;
     (a.0 & mask) == id_masked
         && (b.0 & mask) == id_masked

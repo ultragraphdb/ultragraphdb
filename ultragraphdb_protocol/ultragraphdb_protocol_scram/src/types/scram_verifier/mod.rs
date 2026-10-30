@@ -32,7 +32,7 @@ impl ScramVerifier {
     /// refused as [`ScramError::Prepare`] for a password SASLprep refuses and [`ScramError::Iterations`] outside
     /// [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], a count no client would run.
     pub fn derive(password: &str, salt: &[u8], iterations: u32) -> Result<Self, ScramError> {
-        if !(MIN_ITERATIONS..=u32::MAX).contains(&iterations) {
+        if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&iterations) {
             return Err(ScramError::Iterations(iterations));
         }
         let salted = salted(&prepare(password)?, salt, iterations);

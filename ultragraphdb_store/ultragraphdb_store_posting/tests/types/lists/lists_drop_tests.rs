@@ -216,18 +216,13 @@ fn test_a_drop_at_a_given_version_drops_its_keys_and_moves_the_watermark_there()
 #[test]
 fn test_cleanups_at_the_watermark_take_no_version() {
     use ultragraphdb_traits_store::{RebuildRecord, Store};
-    let lists = crate::utils::helpers::new_lists();
-    let ts = crate::utils::helpers::commit_edges_at(
-        &lists,
-        &crate::utils::helpers::key("gone", 1),
-        &[crate::utils::helpers::set_uid(1)],
-        6,
-    );
+    let lists = new_lists();
+    let ts = crate::utils::helpers::commit_edges_at(&lists, &key("gone", 1), &[set_uid(1)], 6);
     lists
         .store()
         .write_rebuild_record(&RebuildRecord::new(4, vec![b"p".to_vec()]))
         .unwrap();
-    let prefix = crate::utils::helpers::key("gone", 1);
+    let prefix = key("gone", 1);
     lists
         .drop_prefixes_at_watermark(std::slice::from_ref(&prefix))
         .unwrap();

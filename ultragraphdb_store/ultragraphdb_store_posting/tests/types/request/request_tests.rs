@@ -120,10 +120,7 @@ fn test_a_fork_reads_as_its_request_and_is_absorbed_back() {
     let read_ts = fork.read_ts();
     assert_eq!(uids(fork.get(&a).unwrap(), read_ts, 0), vec![1]);
     fork.get(&a).unwrap().add_posting(set_uid(2).clone(), false);
-    fork.add_entry(ultragraphdb_traits_store::Entry::deletion(
-        key("fork", 3),
-        1,
-    ));
+    fork.add_entry(Entry::deletion(key("fork", 3), 1));
     request.absorb(fork);
     assert_eq!(request.lists().count(), 2);
     assert_eq!(uids(request.get(&a).unwrap(), read_ts, 0), vec![1, 2]);

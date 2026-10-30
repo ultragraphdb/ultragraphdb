@@ -537,7 +537,7 @@ fn test_the_round_at_the_last_position_ends_the_scan() {
 #[test]
 fn test_a_round_numbered_other_than_its_position_is_damage() {
     let mut frames = chain(1, 1, 3, 0, ONE_BLOCK);
-    ultragraphdb_protocol_wire::Header::stamp_sequence(&mut frames[1], 7).expect("a header");
+    Header::stamp_sequence(&mut frames[1], 7).expect("a header");
     let scan = scan(&segment(8, &frames));
     assert_eq!(positions(&scan), [1]);
     assert_eq!(scan.damage(), Some(Damage::Header));

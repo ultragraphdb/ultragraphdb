@@ -337,7 +337,7 @@ fn test_a_key_the_build_produces_nothing_for_is_deleted_at_the_build_s_timestamp
     .unwrap();
     assert!(a.rebuilding());
     finish_builds(&a);
-    let key = ultragraphdb_core_keys::QuadKey::ValueIndex {
+    let key = QuadKey::ValueIndex {
         namespace: NS,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
         predicate: uid(&a, "name"),

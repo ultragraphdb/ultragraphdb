@@ -170,7 +170,7 @@ impl RectBounder {
             // distance (in latitude) from A or B to the min or max latitude
             // attained along the edge AB.
             let lat_budget =
-                2.0 * gomath::asin(0.5 * (self.a.0.sub(b.0)).norm() * gomath::sin(max_lat));
+                2.0 * gomath::asin(0.5 * self.a.0.sub(b.0).norm() * gomath::sin(max_lat));
             let max_delta = 0.5 * (lat_budget - lat_ab.length()) + MACHINE_EPSILON;
 
             // Test whether AB passes through the point of maximum latitude or

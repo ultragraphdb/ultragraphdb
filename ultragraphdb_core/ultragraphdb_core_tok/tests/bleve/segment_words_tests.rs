@@ -63,7 +63,7 @@ fn test_adhoc_segments_with_type() {
 fn test_word_segment_long_input() {
     let text = format!("{} cat", "abcdefghijklmnop".repeat(26));
     let (segs, err) = word_segments(&text);
-    assert_eq!(err, Option::None);
+    assert_eq!(err, None);
     assert_eq!(
         segs,
         vec![

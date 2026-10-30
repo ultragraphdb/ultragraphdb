@@ -303,25 +303,21 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
 #[test]
 fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version() {
     use ultragraphdb_core_catalog::Catalog;
-    let a = crate::utils::changesets::changesets();
+    let a = changesets();
     crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
     let unknown = a
         .prepare_drop(
             NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(
-                crate::utils::changesets::ex("none").as_ref(),
-            ),
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("none").as_ref()),
         )
         .unwrap();
     assert!(!unknown.is_drop());
     assert!(unknown.drop_ranges().is_empty());
-    let p = crate::utils::changesets::uid(&a, "p");
+    let p = uid(&a, "p");
     let drop = a
         .prepare_drop(
             NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(
-                crate::utils::changesets::ex("p").as_ref(),
-            ),
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
         )
         .unwrap();
     assert!(drop.is_drop());
@@ -347,7 +343,7 @@ fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version()
 #[test]
 fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
     use ultragraphdb_traits_store::VersionlessEntry;
-    let a = crate::utils::changesets::changesets();
+    let a = changesets();
     crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
     let before = a.quads().lists().applied_ts();
     let write = a
@@ -358,9 +354,7 @@ fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
     let drop = a
         .prepare_drop(
             NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(
-                crate::utils::changesets::ex("p").as_ref(),
-            ),
+            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
         )
         .unwrap();
     let system = [VersionlessEntry::put(

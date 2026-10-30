@@ -12,10 +12,10 @@ fn test_vector_index_options() {
     let d = VectorIndexOptions::<f32>::default();
     assert_eq!(d.ef_override(), 0);
     assert_eq!(d.distance_threshold(), None);
-    assert!((d.filter())(&[1.0], &[2.0], 7));
+    assert!(d.filter()(&[1.0], &[2.0], 7));
     let o = VectorIndexOptions::<f32>::new(10, Some(0.5), accept_none::<f32>);
     assert_eq!((o.ef_override(), o.distance_threshold()), (10, Some(0.5)));
-    assert!(!(o.filter())(&[1.0], &[2.0], 7));
+    assert!(!o.filter()(&[1.0], &[2.0], 7));
     assert!(accept_all::<f64>(&[], &[], 0));
 }
 

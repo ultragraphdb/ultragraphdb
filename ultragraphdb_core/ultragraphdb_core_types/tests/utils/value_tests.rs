@@ -91,8 +91,8 @@ fn test_type_for_value_values() {
 fn test_bytes_as_float_array_ignores_trailing_bytes() {
     // Go's BytesAsFloatArray converts four bytes at a time and drops the rest.
     assert_eq!(bytes_as_float_array(&[0, 0, 0x80, 0x3f, 9]), [1.0]);
-    assert_eq!(bytes_as_float_array(&[1, 2, 3]), []);
-    assert_eq!(bytes_as_float_array(&[]), []);
+    assert_eq!(bytes_as_float_array(&[1, 2, 3]), [] as [f32; 0]);
+    assert_eq!(bytes_as_float_array(&[]), [] as [f32; 0]);
     assert_eq!(
         float_array_as_bytes(&[1.0, -2.0]),
         [0, 0, 0x80, 0x3f, 0, 0, 0, 0xc0]
