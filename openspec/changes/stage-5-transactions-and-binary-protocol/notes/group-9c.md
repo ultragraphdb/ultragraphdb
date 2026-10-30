@@ -624,3 +624,52 @@ answer, point 46's abort of a closed connection's transactions, point 47's resum
 
 After 9c.8 and 9c.9, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
 the protocol and client targets, 17 of 17, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.
+
+## 9c.10 Phase 4, the log
+
+Implemented in 9c.6's commit, store and log slice and kept from its audited suite: the write-set record's `principal`
+at offset 32 of its 40-byte fixed part (section 12.2), written by `WriteSetBuilder::with_principal` and kept when a
+record is written again, which replay reads to register each session for its owner; the checkpoint's last commit
+version passed to `OrderedLog::trim_through` and kept in the superblock's format 2 at offset 48, read back by
+`checkpoint_version` across a reopen and a restart at the checkpoint; recovery refusing a store whose applied version
+is below it, `RecoveryError::BehindCheckpoint` naming both (point 34). Section 12.2 states point 15: the keys' and
+values' contents, the posting format of list deltas and the commit record are the store's, versioned by its mapping
+contract, and the file states their framing.
+
+## 9c.11 The transport's state machines audited
+
+Script in the session's scratchpad (`audit_9c11.py`), each defect planted in place, alone, run by `bazel test` over
+the transport's, the compio transport's, SCRAM's and every client target, restored in a `finally`, the two transport
+source trees hashed before and compared after (equal). The 63 defects are new: none repeats 9c.6's plants, which
+covered the checks; these take the machines' transitions and boundaries.
+
+| Machine | Defects |
+|---|---|
+| `Framer` | the body read one byte short; a frame of the buffer's capacity refused, one past it taken; a short buffer looked at; a close inside a header reported clean, one between frames truncated; a close or a finished frame keeping the frame's want; the sequence expected from 0; a client's frame viewed as a server's |
+| Handshakes | Hello, Welcome at sequence 0; the Welcome's protocol unchecked; the handshake's refusal unread; a first frame refused, a Hello refused, silently; a first frame read as a server's |
+| `BufferPool` | a buffer never given back, given back full; one buffer fewer |
+| `Outbound` | credit never spent, spent by every frame; a last frame keeping its stream; the lowest stream always first; the turn never moving; a grant replacing the credit; a cancel keeping the stream; one stream past the limit; the connection's frames last in, first out |
+| `ServerConnection` | credit ignored; a cancel of no stream reported, a cancel reported keeping the stream; a frame not counted as activity; an exchange starting at step 1, forgotten between steps; a credential's life from the connection's start; an expiry closed as unauthenticated, an authentication timeout as expired; an idle close sending an Error; the deadline ignoring the expiry; no principal without authentication; the Welcome unrecorded; an authenticating connection serving; a refused Hello reading on; a client's Result taken; a read of no transaction closing the connection; the stream limit's refusal without its limit; a refusal of a stream never opened lost; Authenticate on stream 1 |
+| `ClientAuthentication` | step 0 expected back; the final principal, the final expiry lost; the server's refusal read as a rule broken |
+| `ReceivedFrame` | a client's frame validated as a server's; the Welcome not exempt from the protocol; the command, the flags read at the wrong offset |
+| The compio `Connection` | an interrupted read failing; a close inside a frame reported clean; a frame written unflushed; a refused Hello's answer unsent; the framer not reset before a frame; a read past the frame |
+
+The first run rejected 53; 10 survived. One was a defect of the shell, found by the audit: the compio `Connection`
+hands its handshake frames to `ClientHandshake` and `ServerHandshake` as bytes, past the order check the client core
+and `ServerConnection` make, so a compio client took a Welcome of any sequence, and a compio server a Hello. Section
+2.5's step 13 makes each side's first frame its sequence 1, a rule of the handshake, so both machines check it now,
+`SequenceOrder(1, found)`, and every shell has it; the tests' handshake frames are numbered 1. The suite was
+strengthened for six more: the Welcome the server's first frame, numbered 1; a Hello naming a view or a replica
+refused by `ServerHandshake` itself; a reply spending none of its stream's credit; a Cancel of a stream not open
+handled with nothing sent; a command only a server sends (Result, Welcome, Error) closing the connection; an
+interrupted read retried, and a frame written flushed, over a stream of the tests' own that is interrupted once and
+holds writes until a flush. Re-run with two plants removing the new checks, all rejected. Three stand, equivalent:
+
+- A client's frame viewed, or validated, as a server's: a `ReceivedFrame` comes from `Framer::finish` alone, whose
+  header the framer verified by the client's rules, and the two validations differ only in those rules.
+- The framer not reset before a frame: every way out of `read_frame` leaves the framer waiting for a header
+  (`finish`, `closed`, the two refusals), so the reset differs only after a read dropped inside a frame, which loses
+  the connection's place in the stream either way.
+
+After 9c.10 and 9c.11, `bazel build //...` and every non-integration target of the repository, 118, passing on macOS;
+the protocol and client targets, 17 of 17, on Linux 7.2 (arm64) in the OrbStack machine with io_uring.

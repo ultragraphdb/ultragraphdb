@@ -319,3 +319,16 @@ fn test_the_connections_own_frames_are_taken_apart_from_the_streams() {
     let (stream, frame) = outbound.next_frame().unwrap();
     assert_eq!((stream, sequence(&frame)), (1, 2), "numbered after it");
 }
+
+#[test]
+fn test_a_reply_spends_none_of_its_streams_credit() {
+    // Credit meters Result frames alone (PROTOCOL.md section 11.3): a reply ahead of a result leaves it the credit.
+    let mut outbound = Outbound::new(4, 1);
+    outbound.open(1).unwrap();
+    outbound.push(1, reply(1, false)).unwrap();
+    outbound.push(1, result(1, 0, true)).unwrap();
+    assert_eq!(
+        drain(&mut outbound),
+        vec![(1, reply(1, false)), (1, result(1, 0, true))]
+    );
+}

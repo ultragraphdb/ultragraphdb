@@ -40,8 +40,8 @@ impl ServerHandshake {
 
     /// The answer to the client's first frame, the bytes of a whole frame: a Hello within the server's protocols is
     /// answered with its Welcome; one outside them with its Error frame and refused as [`TransportError::Refused`];
-    /// another command as [`TransportError::UnexpectedCommand`] and a frame breaking a rule as
-    /// [`TransportError::Protocol`], both answered with a protocol Error frame.
+    /// another command as [`TransportError::UnexpectedCommand`] and a frame breaking a rule, or not the client's
+    /// sequence 1, as [`TransportError::Protocol`], both answered with a protocol Error frame.
     pub fn receive(&self, frame: &[u8]) -> HandshakeAnswer {
         let refuse = |refusal: ProtocolError, error: TransportError| {
             HandshakeAnswer::new(
@@ -54,6 +54,11 @@ impl ServerHandshake {
             Ok(view) => view,
             Err(refusal) => return refuse(refusal.clone(), TransportError::Protocol(refusal)),
         };
+        let sequence = view.header().sequence();
+        if sequence != 1 {
+            let refusal = ProtocolError::SequenceOrder(1, sequence);
+            return refuse(refusal.clone(), TransportError::Protocol(refusal));
+        }
         if view.command() != Command::Hello {
             let found = view.command().number();
             return refuse(

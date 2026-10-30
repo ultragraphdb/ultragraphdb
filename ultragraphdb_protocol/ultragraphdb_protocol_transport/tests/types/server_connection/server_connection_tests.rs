@@ -773,3 +773,38 @@ fn test_a_hello_above_the_servers_protocols_closes_with_code_16() {
     );
     assert_eq!(connection.next_frame(), None);
 }
+
+#[test]
+fn test_a_cancel_of_a_stream_not_open_is_handled_and_answered_with_nothing() {
+    // A Cancel of a stream the connection holds no longer, or never held, changes nothing (PROTOCOL.md section 11.4).
+    let now = start();
+    let mut peer = Peer::default();
+    let mut connection = serving(&mut peer, now);
+    assert_eq!(
+        connection.receive(&peer.send(5, &Cancel), now),
+        Inbound::Handled
+    );
+    assert!(sent(&mut connection).is_empty());
+    assert!(!connection.is_closing());
+}
+
+#[test]
+fn test_a_command_only_a_server_sends_closes_the_connection() {
+    let now = start();
+    for frame in [0, 1, 2] {
+        let mut peer = Peer::default();
+        let mut connection = serving(&mut peer, now);
+        let received = match frame {
+            0 => peer.send(1, &ResultBatch::new(1)),
+            1 => peer.send(1, &server(&[])),
+            _ => peer.send(1, &ErrorReply::new(ErrorCode::Refused, "no")),
+        };
+        assert_eq!(
+            connection.receive(&received, now),
+            Inbound::Closing {
+                code: Some(ErrorCode::Protocol)
+            },
+            "frame {frame}"
+        );
+    }
+}

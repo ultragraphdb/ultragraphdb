@@ -47,6 +47,12 @@ fn large() -> Vec<u8> {
         .unwrap()
 }
 
+/// `frame` numbered as its sender's first, sequence 1, as a handshake's frame is.
+fn first(mut frame: Vec<u8>) -> Vec<u8> {
+    Header::stamp_sequence(&mut frame, 1).unwrap();
+    frame
+}
+
 fn raw(connection: &mut Connection<CompioSimStream>, bytes: &[u8]) {
     let compio::BufResult(written, _) = ready(connection.stream_mut().write(bytes.to_vec()));
     written.unwrap();
@@ -256,7 +262,7 @@ fn test_a_handshake_of_another_command_is_refused() {
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
     // The client opens with Credit: the server refuses and answers with a protocol error.
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    ready(client.write_frame(credit(1))).unwrap();
+    ready(client.write_frame(first(credit(1)))).unwrap();
     assert_eq!(
         ready(
             server.welcome(
@@ -278,7 +284,7 @@ fn test_a_handshake_of_another_command_is_refused() {
         client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
         async {
             let _hello = server.read_frame(&pool).await.unwrap();
-            server.write_frame(credit(0)).await
+            server.write_frame(first(credit(0))).await
         },
     ));
     assert_eq!(
@@ -295,7 +301,7 @@ fn test_a_handshake_of_another_command_is_refused() {
                 .with_max_frame(1 << 20)
                 .with_max_streams(1)
                 .with_initial_credit(1)
-                .frame(Header::new(CLUSTER, Command::Welcome))
+                .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))
                 .unwrap();
             server.write_frame(welcome).await
         },
@@ -344,4 +350,71 @@ fn test_a_connection_runs_over_compio_tcp() {
             TransportError::Closed()
         );
     });
+}
+
+/// A stream of the tests' own: its first read is interrupted, as a signal interrupts a system call, then it serves
+/// `incoming`; what is written is held until a flush hands it on to `flushed`.
+#[derive(Debug, Default)]
+struct Interrupting {
+    interrupted: bool,
+    incoming: Vec<u8>,
+    at: usize,
+    held: Vec<u8>,
+    flushed: Vec<u8>,
+}
+
+impl compio::io::AsyncRead for Interrupting {
+    async fn read<B: compio::buf::IoBufMut>(&mut self, buf: B) -> compio::BufResult<usize, B> {
+        if !self.interrupted {
+            self.interrupted = true;
+            return compio::BufResult(Err(std::io::ErrorKind::Interrupted.into()), buf);
+        }
+        let mut source: &[u8] = &self.incoming[self.at..];
+        let compio::BufResult(read, buf) = source.read(buf).await;
+        if let Ok(n) = read {
+            self.at += n;
+        }
+        compio::BufResult(read, buf)
+    }
+}
+
+impl AsyncWrite for Interrupting {
+    async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::BufResult<usize, T> {
+        self.held.extend_from_slice(buf.as_init());
+        compio::BufResult(Ok(buf.as_init().len()), buf)
+    }
+
+    async fn flush(&mut self) -> std::io::Result<()> {
+        self.flushed.append(&mut self.held);
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_an_interrupted_read_is_retried() {
+    let stream = Interrupting {
+        incoming: credit(4),
+        ..Interrupting::default()
+    };
+    let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
+    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    let frame = ready(connection.read_frame(&pool)).unwrap();
+    assert_eq!(frame.stream(), 4);
+    assert!(connection.stream_mut().interrupted);
+}
+
+#[test]
+fn test_a_frame_written_is_flushed() {
+    let mut connection = Connection::new(
+        Interrupting::default(),
+        Framer::new(CLUSTER, MAX_FRAME_SIZE),
+    );
+    ready(connection.write_frame(credit(1))).unwrap();
+    let stream = connection.into_inner();
+    assert_eq!(stream.flushed, credit(1));
+    assert!(stream.held.is_empty());
 }

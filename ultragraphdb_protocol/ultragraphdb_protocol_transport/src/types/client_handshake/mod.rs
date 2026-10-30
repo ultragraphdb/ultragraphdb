@@ -37,12 +37,19 @@ impl ClientHandshake {
         self.hello.frame(header).map_err(TransportError::Protocol)
     }
 
-    /// The server's answer, the bytes of a whole frame: its Welcome; refused as [`TransportError::Refused`] for an
-    /// Error frame, [`TransportError::UnexpectedCommand`] for another command, and [`TransportError::Protocol`] when
-    /// the frame or the Welcome breaks a rule or the Welcome chose a protocol outside the Hello's range.
+    /// The server's answer, the bytes of a whole frame, the server's first: its Welcome; refused as
+    /// [`TransportError::Refused`] for an Error frame, [`TransportError::UnexpectedCommand`] for another command, and
+    /// [`TransportError::Protocol`] when the frame or the Welcome breaks a rule, the frame is not the server's
+    /// sequence 1, or the Welcome chose a protocol outside the Hello's range.
     pub fn receive(&self, frame: &[u8]) -> Result<Welcome, TransportError> {
         let view = FrameView::validate(frame, self.cluster, MAX_FRAME_SIZE)
             .map_err(TransportError::Protocol)?;
+        let sequence = view.header().sequence();
+        if sequence != 1 {
+            return Err(TransportError::Protocol(ProtocolError::SequenceOrder(
+                1, sequence,
+            )));
+        }
         match view.command() {
             Command::Welcome => {
                 let welcome = WelcomeView::from_frame(&view)

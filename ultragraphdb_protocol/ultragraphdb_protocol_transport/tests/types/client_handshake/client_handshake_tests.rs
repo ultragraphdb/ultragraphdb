@@ -12,12 +12,17 @@ use ultragraphdb_protocol_wire::{
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
+/// A Welcome at `protocol`, the server's first frame: sequence 1.
 fn welcome(protocol: u16) -> Vec<u8> {
+    welcome_numbered(protocol, 1)
+}
+
+fn welcome_numbered(protocol: u16, sequence: u128) -> Vec<u8> {
     Welcome::new(protocol, 9, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(16)
         .with_initial_credit(4)
-        .frame(Header::new(CLUSTER, Command::Welcome))
+        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(sequence))
         .unwrap()
 }
 
@@ -62,14 +67,14 @@ fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() {
     let handshake = ClientHandshake::new(CLUSTER, Hello::new(3, 4, 0, MAX_FRAME_SIZE as u32, "c"));
     let error = ErrorReply::new(ErrorCode::ProtocolVersion, "above 2")
         .with_detail(2)
-        .frame(Header::new(CLUSTER, Command::Error))
+        .frame(Header::new(CLUSTER, Command::Error).with_sequence(1))
         .unwrap();
     assert_eq!(
         handshake.receive(&error).unwrap_err(),
         TransportError::Refused(ErrorCode::ProtocolVersion, "above 2")
     );
     let credit = Credit::new(1)
-        .frame(Header::new(CLUSTER, Command::Credit))
+        .frame(Header::new(CLUSTER, Command::Credit).with_sequence(1))
         .unwrap();
     assert_eq!(
         handshake.receive(&credit).unwrap_err(),
@@ -93,4 +98,19 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() {
         foreign.receive(&welcome(1)).unwrap_err().0,
         TransportErrorEnum::Protocol { .. }
     ));
+}
+
+#[test]
+fn test_an_answer_not_numbered_one_is_out_of_sequence() {
+    // PROTOCOL.md section 2.5, step 13: the server's first frame is its sequence 1.
+    let handshake = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
+    for sequence in [0, 2] {
+        assert_eq!(
+            handshake
+                .receive(&welcome_numbered(1, sequence))
+                .unwrap_err(),
+            TransportError::Protocol(ProtocolError::SequenceOrder(1, sequence))
+        );
+    }
+    assert!(handshake.receive(&welcome(1)).is_ok());
 }

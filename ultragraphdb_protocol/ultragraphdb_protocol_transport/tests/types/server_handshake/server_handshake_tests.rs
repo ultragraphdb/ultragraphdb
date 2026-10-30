@@ -8,8 +8,8 @@ use ultragraphdb_protocol_transport::{
     ClientHandshake, ServerHandshake, TransportError, TransportErrorEnum,
 };
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, BodyView, Command, Credit, ErrorCode, ErrorReplyView, FrameView, Header, Hello,
-    MAX_FRAME_SIZE, Welcome,
+    BodyBuilder, BodyView, Command, Credit, ErrorCode, ErrorReplyView, FrameView, Header,
+    HeaderView, Hello, MAX_FRAME_SIZE, Welcome,
 };
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -76,7 +76,11 @@ fn test_a_hello_above_the_server_is_answered_with_its_error_and_refused() {
 #[test]
 fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() {
     let credit = Credit::new(1)
-        .frame(Header::new(CLUSTER, Command::Credit).with_stream(1))
+        .frame(
+            Header::new(CLUSTER, Command::Credit)
+                .with_stream(1)
+                .with_sequence(1),
+        )
         .unwrap();
     let (frame, outcome) = server().receive(&credit).into_parts();
     assert_eq!(code(&frame.unwrap()), ErrorCode::Protocol);
@@ -95,4 +99,41 @@ fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() {
             error: ProtocolError(_)
         }
     ));
+}
+
+#[test]
+fn test_the_welcome_is_the_servers_first_frame() {
+    let answer = server().receive(&hello(1, 1));
+    let header = HeaderView::new(answer.frame().unwrap()).unwrap();
+    assert_eq!((header.sequence(), header.stream()), (1, 0));
+}
+
+#[test]
+fn test_a_first_frame_not_numbered_one_or_naming_a_view_or_replica_is_refused() {
+    // PROTOCOL.md section 2.5: a client's frame names no view or replica (step 6), and its first is sequence 1
+    // (step 13).
+    let hello_with = |header: Header| {
+        Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c")
+            .frame(header)
+            .unwrap()
+    };
+    let first = Header::new(CLUSTER, Command::Hello).with_sequence(1);
+    for (frame, refusal) in [
+        (
+            hello_with(Header::new(CLUSTER, Command::Hello).with_sequence(2)),
+            ProtocolError::SequenceOrder(1, 2),
+        ),
+        (
+            hello_with(first.clone().with_view(3)),
+            ProtocolError::FieldValue(1, "view", 3),
+        ),
+        (
+            hello_with(first.with_replica(1)),
+            ProtocolError::FieldValue(1, "replica", 1),
+        ),
+    ] {
+        let (answer, outcome) = server().receive(&frame).into_parts();
+        assert_eq!(code(&answer.unwrap()), ErrorCode::Protocol);
+        assert_eq!(outcome.unwrap_err(), TransportError::Protocol(refusal));
+    }
 }
