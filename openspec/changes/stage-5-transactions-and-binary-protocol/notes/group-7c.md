@@ -184,6 +184,30 @@ while a build ran was refused at apply the same way.
   watermark tests, the step's three build tests and the pipeline's swap test. The posting lists' cleanup test was
   written with its code, not before; the audit covers it.
 
+## 7.9 Recovery
+
+- **Protocol first.** A build's end names the declaration it writes in its record's section 3, the swap's new one,
+  the undo's old one, so a replay can restore a build no node holds after a restart; an undo removes every index key of
+  the predicate the restored declaration does not name, which equals what it removed before and needs no knowledge of
+  the declaration the build was making. `PROTOCOL.md` §12.2 states the replay and its refusals.
+- **The store's side** (`store_apply`): `prepare_replay` writes a record's sections 0 to 4 at its version, each entry
+  with the metadata its keyspace gives every entry of it (a catalog entry its meta and the discard flag, a statement
+  record none, a statistics delta the delta bit), and is tested entry for entry, versions and metadata, against the
+  first apply; `prepare_replayed_drop`; `restore_build` from the end's declaration and the store's interim one, refused
+  (`false`) when the store no longer declares the predicate. `Catalog::stored_entry`, `Writes::replayed`.
+- **The wire:** `RoundView::from_body`, a round from its body and header, as the log hands one back.
+- **`Replay::run`** (commit): reads the log from the position after its checkpoint; finds the round whose last version
+  is the store's applied version (0, or below the first round after a checkpoint, also start); replays every later
+  round as one store round at its versions, with the session table's entries from its registrations and committed
+  requests; refuses `StoreNotInLog` and `Gap`. A cancelled build's end is discarded by the catalog check alone: a
+  logged-drop check was written and removed, unreachable, since no record between a drop and the end can declare the
+  predicate again (`PROTOCOL.md` §12.2).
+- **Scenarios** bound against the real store in `features/write-ahead-log/recovery.feature`, verbatim: "Rounds lost
+  from the store are replayed", "A store ahead of the log refuses to start", "A round never reaches the store before
+  the log", "A reported fault loses no acknowledged round".
+- Tests written before the code: `store_apply`'s five replay tests, the wire's `from_body` test and the commit crate's
+  four replay tests; the scenarios after it.
+
 ## Phase 3: the audit
 
 34 defects over 7.5 and 7.7, each planted alone in the tree and restored in a `finally`, the five crates' `src/` hashed
@@ -200,36 +224,18 @@ audit's original hash, and closed the survivors.
 
 ## Open questions for the user
 
-- **A build across rounds stops the pipeline.** Decision 2 keeps two builds out of one round, but (a) a second
-  declaration starting a build while the first still runs is refused by `apply_round` (`Rebuilding`, one build at a
-  time) after its round is durable, stopping the pipeline; and (b) a build's swap commits through `Lists::commit` at a
-  version of its own (`changeset_core_rebuild.rs:363`), outside the sequencer, so the next round's first version can be
-  at or below it and `apply_round` refuses it (`StaleVersion`), stopping the pipeline. Found writing
-  `test_a_round_holds_at_most_one_index_build`, which stops before the second build's apply for that reason. The direct
-  drops (`drop_graph`, `drop_data`, `drop_namespace`, `drop_all`) and `ChangesetApplier::apply` take versions the same
-  way. Should the swap be a proposal of the commit step, as the predicate drop now is, and a build-starting declaration
-  wait in the step while a build runs (the pipeline knows `applier.rebuilding()`), or be refused at execution?
-- **A retried operation transaction's results.** The session table stores a committed request's version, so a retry
-  of an operation transaction is answered with its version and no results. Store the results in the table (bounded,
-  16 bytes each), or have the client read them back?
-- **A counter's new value in the reply** needs a field in the wire's `OperationResult` (group 9's layout); the brief
-  asked for it, the wire has none.
-- **Dictionary strings in the overlay.** A long literal's string entry an unapplied round writes is not read by an
-  operation (no layer holds versionless entries), so a compare-and-set or counter add on such a value is refused rather
-  than read. Rare (only strings stored out of line, written in the last two rounds); a versionless layer in the
-  overlay would close it.
+Answered 2026-10-28: a build across rounds goes through the step ("Every write through the step"); a retried
+operation transaction's results are stored in the session table (7.8); a counter's new value moves to the protocol
+block; the operations' overlay holds the dictionary.
+
+- **A store behind its checkpoint.** The superblock keeps the checkpoint's position and checksum, not the version of
+  its round, so recovery takes a store below the first round held after a checkpoint as the checkpoint's and cannot
+  tell one that lost rounds the checkpoint trimmed. Should a checkpoint record its last version, in the superblock or
+  in `OrderedLog::trim_through`, so recovery refuses that store naming both versions?
 
 ## What remains
 
-- **7.9, recovery**, not started. The step opens at the store's applied version; the log's rounds above it are read in
-  order and their committed records applied through a store path (`apply_records`: the records' sections as one batch
-  at their versions, leases moved past the UIDs and statement IDs they name, catalogs reloaded, drops performed, a
-  build's record left to `finish_records`), and the session entries rebuilt from the records (session, request,
-  version, section 9's results; registrations from request-0 records). A store ahead of the log's tail, or a round
-  missing between them, is refused naming the version. Its scenarios in `write-ahead-log` ("Rounds lost from the store
-  are replayed", "A store ahead of the log refuses to start", "A round never reaches the store before the log", "A
-  reported fault loses no acknowledged round") are not bound yet.
-- The two build questions above.
+- Nothing of 7.8 and 7.9; the gate, then the commit.
 
 ## What groups 8 and 10 should expect
 

@@ -19,6 +19,7 @@ use crate::types::changeset_core::ChangesetCore;
 use crate::types::executed::Executed;
 use crate::types::execution::Execution;
 use crate::types::operation::Operation;
+use crate::types::record_writes::RecordWrites;
 
 /// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
 /// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
@@ -94,6 +95,53 @@ where
     /// to undo. Each build ends once.
     pub fn take_build_end(&self) -> Option<BuildEnd> {
         self.core.take_build_end()
+    }
+
+    /// The execution writing a logged record's writes, `record`, in `namespace`, for recovery to apply at the record's
+    /// commit version (7.9): at the watermark, reading nothing, each entry with the metadata its keyspace gives it, so
+    /// the round writes what the record's first apply wrote.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, and a list delta that is no posting list.
+    pub fn prepare_replay(
+        &self,
+        namespace: u64,
+        record: RecordWrites<'_>,
+    ) -> Result<Executed, ChangesetError> {
+        self.core.prepare_replay(namespace, record)
+    }
+
+    /// The drop of predicate `predicate` of `namespace`, a logged record's operation, for recovery to apply at the
+    /// record's commit version (7.9).
+    ///
+    /// # Errors
+    ///
+    /// The store's error loading the namespace's catalog.
+    pub fn prepare_replayed_drop(
+        &self,
+        namespace: u64,
+        predicate: u64,
+    ) -> Result<Executed, ChangesetError> {
+        self.core.prepare_replayed_drop(namespace, predicate)
+    }
+
+    /// Restores the build `end` ends, for recovery (7.9): from the catalog entry `key` and `value` the end's record
+    /// names, the declaration it writes, and the predicate's declaration the store holds, its interim one, so the
+    /// round of `end`'s proposal ([`ChangesetApplier::prepare_build_end`]) builds it again and swaps it in, or undoes
+    /// it. Not restored, `false`, when the store no longer declares the predicate: a drop cancelled the build.
+    ///
+    /// # Errors
+    ///
+    /// The store's error, and an entry that is no declaration.
+    pub fn restore_build(
+        &self,
+        namespace: u64,
+        end: BuildEnd,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<bool, ChangesetError> {
+        self.core.restore_build(namespace, end, key, value)
     }
 
     /// The proposal of `end` for the commit step: an execution at the watermark that writes nothing itself, whose

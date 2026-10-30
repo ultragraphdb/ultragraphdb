@@ -37,6 +37,12 @@ impl Catalog {
         .with_discard()
     }
 
+    /// The entry writing a declaration's stored bytes `value` under its catalog key `key` at `version`, with the
+    /// discard flag, as [`Catalog::entry`] writes it: what a replay of a logged catalog entry writes (7.9).
+    pub fn stored_entry(key: Vec<u8>, value: Vec<u8>, version: u64) -> Entry {
+        Entry::put(key, version, CATALOG_META, value).with_discard()
+    }
+
     /// The key of predicate `uid`'s declaration.
     pub fn predicate_key(namespace: u64, uid: u64) -> Vec<u8> {
         Self::key(namespace, PREDICATE, uid)

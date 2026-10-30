@@ -14,6 +14,8 @@ mod conflict_history;
 #[cfg(test)]
 mod pipeline;
 #[cfg(test)]
+mod replay;
+#[cfg(test)]
 mod reply_tests;
 #[cfg(test)]
 mod resolver;

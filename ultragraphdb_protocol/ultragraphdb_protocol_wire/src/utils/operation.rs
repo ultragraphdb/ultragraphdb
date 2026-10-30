@@ -22,8 +22,16 @@ pub(crate) fn read_operation(
     if bytes.is_empty() {
         return Ok(None);
     }
-    let Some(operation) = bytes.first_chunk::<OPERATION_SIZE>().filter(|_| bytes.len() == OPERATION_SIZE) else {
-        return Err(ProtocolError::SectionLength(command, section, bytes.len(), OPERATION_SIZE));
+    let Some(operation) = bytes
+        .first_chunk::<OPERATION_SIZE>()
+        .filter(|_| bytes.len() == OPERATION_SIZE)
+    else {
+        return Err(ProtocolError::SectionLength(
+            command,
+            section,
+            bytes.len(),
+            OPERATION_SIZE,
+        ));
     };
     let code = u16::from_le_bytes([operation[0], operation[1]]);
     let mut argument = [0; 8];

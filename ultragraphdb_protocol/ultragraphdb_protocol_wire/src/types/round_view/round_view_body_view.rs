@@ -27,11 +27,47 @@ impl<'a> BodyView<'a> for RoundView<'a> {
     type Body = RoundBody;
 
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError> {
-        let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 36)])?;
-        let round = RoundHeader::decode(header.0);
-        let sections = Sections::<3>::read(command, frame.body(), 0)?;
+        Self::from_body(RoundHeader::decode(header.0), frame.body())
+    }
+
+    fn to_body(&self) -> Result<RoundBody, ProtocolError> {
+        let mut round = RoundBody::new(
+            self.header.position(),
+            self.header.parent(),
+            self.header.incarnation(),
+            self.header.first_version(),
+        );
+        let mut records = self.records.iter();
+        for decision in &self.decisions {
+            match decision {
+                Decision::Committed => {
+                    let record = records.next().ok_or(ProtocolError::CountMismatch(
+                        Self::COMMAND.number(),
+                        "records",
+                        self.records.len() as u64,
+                        self.decisions.len() as u64,
+                    ))?;
+                    round.commit(record.bytes().to_vec());
+                }
+                Decision::Aborted { code, detail } => round.abort(*code, *detail),
+            }
+        }
+        Ok(round)
+    }
+}
+
+impl<'a> RoundView<'a> {
+    /// The round `body` holds under `round`, its command header: the body's bytes before its chunk table, checked as
+    /// [`BodyView::from_frame`] checks a frame's, as the log hands a round back without its frame (7.9).
+    ///
+    /// # Errors
+    ///
+    /// As [`BodyView::from_frame`]'s, after its header's.
+    pub fn from_body(round: RoundHeader, body: &'a [u8]) -> Result<Self, ProtocolError> {
+        let command = Command::Round.number();
+        let sections = Sections::<3>::read(command, body, 0)?;
         let decision_bytes = records(command, 0, sections.get(0), DECISION_SIZE)?;
         if decision_bytes.len() as u64 != u64::from(round.transactions()) {
             return Err(ProtocolError::CountMismatch(
@@ -134,30 +170,5 @@ impl<'a> BodyView<'a> for RoundView<'a> {
             decisions,
             records: views,
         })
-    }
-
-    fn to_body(&self) -> Result<RoundBody, ProtocolError> {
-        let mut round = RoundBody::new(
-            self.header.position(),
-            self.header.parent(),
-            self.header.incarnation(),
-            self.header.first_version(),
-        );
-        let mut records = self.records.iter();
-        for decision in &self.decisions {
-            match decision {
-                Decision::Committed => {
-                    let record = records.next().ok_or(ProtocolError::CountMismatch(
-                        Self::COMMAND.number(),
-                        "records",
-                        self.records.len() as u64,
-                        self.decisions.len() as u64,
-                    ))?;
-                    round.commit(record.bytes().to_vec());
-                }
-                Decision::Aborted { code, detail } => round.abort(*code, *detail),
-            }
-        }
-        Ok(round)
     }
 }

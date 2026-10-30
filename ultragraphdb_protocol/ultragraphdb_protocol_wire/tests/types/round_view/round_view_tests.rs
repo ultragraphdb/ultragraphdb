@@ -195,3 +195,18 @@ fn test_a_bad_record_is_named_by_its_index() {
         ProtocolErrorEnum::ReservedNotZero { offset: 128 + 36 }
     );
 }
+
+/// A round read from its body and header alone, as the log hands one back, is the round its frame holds; a damaged
+/// body is refused as the frame's is (7.9).
+#[test]
+fn test_a_round_read_from_its_body_is_its_frames() {
+    let bytes = golden("round").bytes();
+    let frame = frame_of(&bytes);
+    let view = RoundView::from_frame(&frame).unwrap();
+    let data = body_data(&bytes).to_vec();
+    let from_body = RoundView::from_body(*view.header(), &data).unwrap();
+    assert_eq!(from_body, view);
+    let mut short = data.clone();
+    short.truncate(16);
+    assert!(RoundView::from_body(*view.header(), &short).is_err());
+}

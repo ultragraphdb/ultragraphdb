@@ -196,7 +196,15 @@ As the note's "The WAL, after Apache Iggy's": segment files of a fixed size, pre
 padded to 4,096-byte blocks, with one aligned write and one `fdatasync`; records self-identifying by position, parent
 checksum, cluster and incarnation; Iggy's ping-pong superblock with its three outcomes; Iggy's `DurableStorage` seam and
 its simulated storage model, written here without `unsafe` (the commit step owns the files; methods take `&mut self`).
-Recovery reads the store's applied version, finds its round, and replays the rounds after it.
+Recovery reads the store's applied version, finds its round, and replays the rounds after it (`Replay::run` in
+`ultragraphdb_transactions_commit`, 7.9): each committed record's sections 0 to 4 written at its commit version, each
+entry with the metadata its keyspace gives every entry of it, so a replayed round writes what its first apply wrote;
+its operation, a drop or a build's end, the build restored from the declaration its record's section 3 names; and the
+session table's entries, from the registrations and the committed requests with their results. The node calls it
+before `Pipeline::new`, with the session capacity it runs with, so evictions replay as they ran. A store ahead of the
+log, or written outside it, is refused naming its version; an empty store below a trimmed log, naming the checkpoint.
+A store below the first round after a checkpoint is taken as the checkpoint's: the superblock keeps no version, so a
+store behind its checkpoint is not detected.
 
 Segment allocation (task 3.9; recycling decided 2026-10-27, option (a)): a segment that has never existed is reserved
 with `fallocate(2)` and `FALLOC_FL_KEEP_SIZE` through `rustix` on Linux, not written with zeros, and is as long as its

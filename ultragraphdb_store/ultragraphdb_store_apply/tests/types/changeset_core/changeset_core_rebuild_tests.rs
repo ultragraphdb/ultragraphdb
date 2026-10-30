@@ -453,9 +453,14 @@ fn next_version(a: &crate::utils::changesets::TestChangesets) -> u64 {
 }
 
 /// A round of `changes` executed at the watermark and applied at the next version.
-fn round_of(a: &crate::utils::changesets::TestChangesets, changes: Vec<ultragraphdb_core_mapping::Change>) -> u64 {
+fn round_of(
+    a: &crate::utils::changesets::TestChangesets,
+    changes: Vec<ultragraphdb_core_mapping::Change>,
+) -> u64 {
     let version = next_version(a);
-    let executed = a.execute(&crate::utils::changesets::changeset(changes)).unwrap();
+    let executed = a
+        .execute(&crate::utils::changesets::changeset(changes))
+        .unwrap();
     a.apply_round(vec![(version, executed)]).unwrap();
     version
 }
@@ -472,11 +477,23 @@ fn test_removing_an_index_takes_no_version_of_its_own() {
     assert!(!indexed(&a, "name", &term_token("apple")).is_empty());
     let version = round_of(
         &a,
-        vec![Change::Declare(Declaration::Predicate(declaration("name", "")))],
+        vec![Change::Declare(Declaration::Predicate(declaration(
+            "name", "",
+        )))],
     );
-    assert_eq!(a.quads().lists().applied_ts(), version, "the round's version, no other");
-    assert!(indexed(&a, "name", &term_token("apple")).is_empty(), "dropped");
-    assert!(a.quads().store().rebuild_records().unwrap().is_empty(), "removed");
+    assert_eq!(
+        a.quads().lists().applied_ts(),
+        version,
+        "the round's version, no other"
+    );
+    assert!(
+        indexed(&a, "name", &term_token("apple")).is_empty(),
+        "dropped"
+    );
+    assert!(
+        a.quads().store().rebuild_records().unwrap().is_empty(),
+        "removed"
+    );
     // The next round takes the next version.
     round_of(&a, vec![insert("<b> <name> \"pear\"")]);
 }
@@ -505,7 +522,10 @@ fn test_a_sequenced_build_ends_with_a_swap_written_at_its_rounds_version() {
     a.apply_round(vec![(version, swap)]).unwrap();
     assert_eq!(a.quads().lists().applied_ts(), version);
     assert!(!a.rebuilding());
-    assert_eq!(indexed(&a, "name", &term_token("apple")), vec![uid(&a, "a")]);
+    assert_eq!(
+        indexed(&a, "name", &term_token("apple")),
+        vec![uid(&a, "a")]
+    );
     assert!(a.quads().store().rebuild_records().unwrap().is_empty());
 }
 
@@ -527,7 +547,10 @@ fn test_a_sequenced_build_a_drop_cancels_ends_with_an_undo() {
     finish_builds(&a);
     let end = a.take_build_end().expect("the job ended");
     assert!(matches!(end, BuildEnd::Undo(_)), "{end:?}");
-    assert!(!a.quads().store().rebuild_records().unwrap().is_empty(), "kept until the undo");
+    assert!(
+        !a.quads().store().rebuild_records().unwrap().is_empty(),
+        "kept until the undo"
+    );
     let undo = a.prepare_build_end(end).unwrap();
     let version = next_version(&a);
     a.apply_round(vec![(version, undo)]).unwrap();
@@ -552,5 +575,8 @@ fn test_a_swap_after_a_drop_cancelled_its_build_is_discarded() {
     a.apply_round(vec![(version + 2, swap)]).unwrap();
     assert_eq!(a.quads().lists().applied_ts(), version + 2);
     assert!(a.quads().store().rebuild_records().unwrap().is_empty());
-    assert!(a.catalog(NS).unwrap().predicate(uid(&a, "name")).is_none() || indexed(&a, "name", &term_token("apple")).is_empty());
+    assert!(
+        a.catalog(NS).unwrap().predicate(uid(&a, "name")).is_none()
+            || indexed(&a, "name", &term_token("apple")).is_empty()
+    );
 }

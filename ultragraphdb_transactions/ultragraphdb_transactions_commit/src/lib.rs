@@ -22,6 +22,7 @@ mod types;
 
 pub use crate::errors::commit_error::{CommitError, CommitErrorEnum};
 pub use crate::errors::pipeline_error::{PipelineError, PipelineErrorEnum};
+pub use crate::errors::recovery_error::{RecoveryError, RecoveryErrorEnum};
 pub use crate::traits::operator::Operator;
 pub use crate::traits::proposal::Proposal;
 pub use crate::types::applier_operator::ApplierOperator;
@@ -31,6 +32,7 @@ pub use crate::types::conflict_history::ConflictHistory;
 pub use crate::types::input::Input;
 pub use crate::types::no_operations::NoOperations;
 pub use crate::types::pipeline::Pipeline;
+pub use crate::types::replay::Replay;
 pub use crate::types::reply::Reply;
 pub use crate::types::resolver::Resolver;
 pub use crate::types::round_bounds::RoundBounds;

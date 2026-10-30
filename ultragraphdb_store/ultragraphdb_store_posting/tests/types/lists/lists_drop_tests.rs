@@ -228,7 +228,9 @@ fn test_cleanups_at_the_watermark_take_no_version() {
         .write_rebuild_record(&RebuildRecord::new(4, vec![b"p".to_vec()]))
         .unwrap();
     let prefix = crate::utils::helpers::key("gone", 1);
-    lists.drop_prefixes_at_watermark(std::slice::from_ref(&prefix)).unwrap();
+    lists
+        .drop_prefixes_at_watermark(std::slice::from_ref(&prefix))
+        .unwrap();
     lists.remove_rebuild_record(4).unwrap();
     assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (ts, ts));
     assert!(lists.store().get_at(&prefix, ts).unwrap().is_none());

@@ -83,7 +83,7 @@ benchmark recorded in the group's notes, and nothing traded for clarity or safet
 - [x] 7.6 Phase 4: the pipeline: log append and sync, apply, watermark, replies; a failed sync stops every later write
 - [x] 7.7 Phase 4: catalog changes, drops and index builds' touched nodes in rounds; the scenario "A write after a build's start in the same round aborts" tested against the resolver, not assumed (decided 2026-10-27)
 - [x] 7.8 Phase 4: sessions registered through a round, kept in the keyspace without versions, bounded, retries answered from the table
-- [ ] 7.9 Phase 4: recovery: replay above the store's applied version, refusal of a store ahead of the log or a gap
+- [x] 7.9 Phase 4: recovery: replay above the store's applied version, refusal of a store ahead of the log or a gap
 - [x] 7.10 Phase 5: mutants (deferred to 11.8, the stage's one run of `scripts/mutants.sh`, decided 2026-10-27)
 
 ## 8. The vector indexer → `ultragraphdb_store_hnsw`, `ultragraphdb_store_apply`, `ultragraphdb_core_mapping`

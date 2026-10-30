@@ -15,6 +15,7 @@ use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_store_apply::{Operation, OperationLink};
+use ultragraphdb_traits_log::OrderedLog;
 use ultragraphdb_traits_store::Store;
 use ultragraphdb_transactions_commit::{
     CommitError, CommitErrorEnum, CommitRequest, CommitStep, Input, Pipeline, Reply, RoundBounds,
@@ -32,8 +33,9 @@ mod utils {
 }
 
 use crate::utils::fixture::{
-    Applier, Driver, Log, NS, applier, begin, changeset, delete_literal, ex, held, insert,
-    insert_literal, open_wal, prepare, prepare_in, read, setup, uid_of, write,
+    Applier, Driver, Log, NS, applier, applier_over, begin, changeset, delete_literal, ex, held,
+    insert, insert_literal, open_wal, prepare, prepare_in, read, reopen, setup, sim_store, uid_of,
+    write,
 };
 use crate::utils::proposal_double::{Reads, TestProposal, Writes, proposal};
 use ultragraphdb_transactions_log::FaultMode;
@@ -57,6 +59,10 @@ struct Steps {
     /// Encoded objects read back, by list.
     objects: Vec<Vec<EncodedTerm>>,
     terms: Vec<Vec<Term>>,
+    /// Each case's check, of a scenario run over several.
+    checks: Vec<bool>,
+    recovery: Option<ultragraphdb_transactions_commit::RecoveryError>,
+    version: u64,
 }
 
 fn unbounded() -> RoundBounds {
@@ -1277,6 +1283,201 @@ fn grown_by_100(w: &mut Steps) {
     );
     // 5 at the start, plus 100 adds of 1.
     assert_eq!(w.terms, vec![vec![Term::from(Literal::from(105i64))]]);
+}
+
+// Recovery replays the log above the store (7.9).
+
+type RecoveryPipe<'a> = Pipeline<
+    'a,
+    Log,
+    ultragraphdb_store_sim::SimStore,
+    ultragraphdb_store_sim::SimListCache<ultragraphdb_store_posting::CachedList>,
+    ultragraphdb_store_sim::SteppedExecutor,
+>;
+
+/// Commits `<s{round}> <knows> <b>` through `pipe` under ticket `round`, appended and not yet synced.
+fn append_round(pipe: &mut RecoveryPipe<'_>, applier: &Applier, round: u64) {
+    let mut txn = begin(applier);
+    write(&mut txn, vec![insert(&format!("s{round}"), "knows", "b")]);
+    pipe.commit(round, prepare(txn), 0).expect("appended");
+}
+
+/// Replays the log on `storage` into `store`, both reopened after a power loss: the applier, or recovery's refusal.
+async fn restart(
+    storage: &ultragraphdb_transactions_log::SimStorage,
+    store: &ultragraphdb_store_sim::SimStore,
+) -> (
+    Applier,
+    Result<
+        ultragraphdb_transactions_commit::Replay,
+        ultragraphdb_transactions_commit::RecoveryError,
+    >,
+) {
+    storage.power_loss();
+    store.power_loss();
+    store.recover();
+    let applier = applier_over(store.clone());
+    let (mut log, found) = reopen(storage).await;
+    let from = ultragraphdb_traits_log::Position::new(found.checkpoint().get() + 1);
+    let replayed = ultragraphdb_transactions_commit::Replay::run(
+        &applier,
+        &mut log,
+        from,
+        ultragraphdb_transactions_commit::Sessions::DEFAULT_CAPACITY,
+    )
+    .await;
+    (applier, replayed)
+}
+
+/// Whether `applier`'s store holds the subject of round `round`.
+fn holds_round(applier: &Applier, round: u64) -> bool {
+    !held(applier, &format!("s{round}"), "knows").is_empty()
+}
+
+#[when(
+    "rounds 1 to 10 are synced in the log, the store had applied up to round 7, and power is lost"
+)]
+async fn ten_rounds_seven_applied(w: &mut Steps) {
+    let store = sim_store();
+    let applier = applier_over(store.clone());
+    let storage = ultragraphdb_transactions_log::SimStorage::new(1);
+    let (log, _) = reopen(&storage).await;
+    let mut pipe: RecoveryPipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    for round in 1..=10 {
+        append_round(&mut pipe, &applier, round);
+        pipe.sync(0).await.expect("synced and applied");
+        if round == 7 {
+            applier.quads().store().sync().expect("the store syncs");
+        }
+    }
+    drop(pipe);
+    drop(applier);
+    let (applier, replayed) = restart(&storage, &store).await;
+    replayed.expect("recovered");
+    w.checks = (1..=10).map(|round| holds_round(&applier, round)).collect();
+}
+
+#[then("after recovery the store holds rounds 1 to 10")]
+fn holds_ten(w: &mut Steps) {
+    assert_eq!(w.checks, vec![true; 10]);
+}
+
+#[when("the store's applied version belongs to no round in the log")]
+async fn store_ahead(w: &mut Steps) {
+    let applier = applier();
+    let (_storage, log) = open_wal().await;
+    let mut pipe: RecoveryPipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
+    append_round(&mut pipe, &applier, 1);
+    pipe.sync(0).await.expect("synced and applied");
+    drop(pipe);
+    w.version = applier.quads().lists().applied_ts();
+    // Another log: none of its rounds is the store's.
+    let (_other, mut log) = open_wal().await;
+    let refused = ultragraphdb_transactions_commit::Replay::run(
+        &applier,
+        &mut log,
+        ultragraphdb_traits_log::Position::new(1),
+        ultragraphdb_transactions_commit::Sessions::DEFAULT_CAPACITY,
+    )
+    .await;
+    w.recovery = refused.err();
+}
+
+#[then("the node refuses to start, naming the version")]
+fn refuses_naming_version(w: &mut Steps) {
+    let refused = w.recovery.clone().expect("refused");
+    assert_eq!(
+        refused.0,
+        ultragraphdb_transactions_commit::RecoveryErrorEnum::StoreNotInLog { version: w.version }
+    );
+    assert!(
+        refused.to_string().contains(&w.version.to_string()),
+        "{refused}"
+    );
+}
+
+#[when("the node loses power at any step of a round")]
+async fn power_at_any_step(w: &mut Steps) {
+    // Round 5's steps on the log are its write and its sync; the power is cut at each, the step failing before or after
+    // its effect, then the store's power too. A round reaches the store only once the log reports it synced.
+    for step in 0..2 {
+        for mode in [FaultMode::Before, FaultMode::After] {
+            let store = sim_store();
+            let applier = applier_over(store.clone());
+            let storage = ultragraphdb_transactions_log::SimStorage::new(step as u64);
+            let (log, _) = reopen(&storage).await;
+            let mut pipe: RecoveryPipe<'_> =
+                Pipeline::new(&applier, log, unbounded()).expect("it opens");
+            for round in 1..=4 {
+                append_round(&mut pipe, &applier, round);
+                pipe.sync(0).await.expect("synced and applied");
+            }
+            storage.fail_at(storage.trace().len() + step, mode);
+            append_round(&mut pipe, &applier, 5);
+            let _ = pipe.sync(0).await;
+            drop(pipe);
+            drop(applier);
+            let (applier, replayed) = restart(&storage, &store).await;
+            replayed.expect("recovered");
+            let (mut log, _) = reopen(&storage).await;
+            let logged = log
+                .read(ultragraphdb_traits_log::Position::new(1), u32::MAX)
+                .await
+                .expect("read")
+                .len();
+            // Every round the store holds the log holds, and recovery has given the store every round the log holds.
+            let held: Vec<bool> = (1..=5).map(|round| holds_round(&applier, round)).collect();
+            w.checks
+                .push(held.iter().enumerate().all(|(i, h)| *h == (i < logged)));
+        }
+    }
+}
+
+#[then("the store after recovery holds no write of a round the log does not hold")]
+fn store_within_the_log(w: &mut Steps) {
+    assert_eq!(w.checks.len(), 4);
+    assert!(w.checks.iter().all(|held| *held), "{:?}", w.checks);
+}
+
+#[when(
+    "the simulated storage fails a round's sync with an error, or loses power after a round was acknowledged"
+)]
+async fn reported_faults(w: &mut Steps) {
+    for (seed, fault) in [(1, true), (2, false)] {
+        let store = sim_store();
+        let applier = applier_over(store.clone());
+        let storage = ultragraphdb_transactions_log::SimStorage::new(seed);
+        let (log, _) = reopen(&storage).await;
+        let mut pipe: RecoveryPipe<'_> =
+            Pipeline::new(&applier, log, unbounded()).expect("it opens");
+        let mut acknowledged = Vec::new();
+        for round in 1..=7 {
+            if round == 7 && fault {
+                // The write succeeds, its sync fails: never acknowledged.
+                storage.fail_at(storage.trace().len() + 1, FaultMode::Before);
+            }
+            append_round(&mut pipe, &applier, round);
+            if pipe.sync(0).await.is_ok() && !pipe.replies_mut().is_empty() {
+                acknowledged.push(round);
+            }
+            pipe.replies_mut().clear();
+        }
+        assert_eq!(acknowledged.len(), if fault { 6 } else { 7 });
+        drop(pipe);
+        drop(applier);
+        let (applier, replayed) = restart(&storage, &store).await;
+        replayed.expect("recovered");
+        w.checks.push(
+            acknowledged
+                .iter()
+                .all(|round| holds_round(&applier, *round)),
+        );
+    }
+}
+
+#[then("after recovery every acknowledged round is present")]
+fn acknowledged_present(w: &mut Steps) {
+    assert_eq!(w.checks, [true, true]);
 }
 
 fn main() {

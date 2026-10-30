@@ -76,6 +76,34 @@ pub(crate) fn declared_prefixes(
     prefixes
 }
 
+/// The keys of every index of `predicate` that `declaration` does not name: each value-index identifier but its
+/// tokenizers', and the count and vector indexes it does not declare. What an undone build removes, whatever the
+/// build was making (7.9).
+pub(crate) fn undeclared_prefixes(
+    namespace: u64,
+    predicate: u64,
+    declaration: &PredicateDeclaration,
+) -> Vec<PredicatePrefix> {
+    let declared: Vec<u8> = declaration
+        .tokenizers()
+        .iter()
+        .flat_map(|t| tokenizer_ids(t))
+        .collect();
+    let mut prefixes: Vec<PredicatePrefix> = (0..=u8::MAX)
+        .filter(|id| !declared.contains(id))
+        .flat_map(|id| {
+            PredicatePrefix::with_parts(Keyspace::ValueIndex, namespace, predicate, vec![id])
+        })
+        .collect();
+    if !declaration.count_index() {
+        prefixes.extend(count_prefixes(namespace, predicate));
+    }
+    if declaration.vector_index().is_none() {
+        prefixes.extend(vector_prefixes(namespace, predicate));
+    }
+    prefixes
+}
+
 /// The keys of `predicate` in every keyspace whose keys name it.
 pub(crate) fn predicate_prefixes(namespace: u64, predicate: u64) -> Vec<PredicatePrefix> {
     [

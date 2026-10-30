@@ -20,6 +20,7 @@ workspace = true
 
 [dependencies]
 ultragraphdb_transactions_txn = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_traits_log = { workspace = true }
 ultragraphdb_error_log = { workspace = true }
 ultragraphdb_error_protocol = { workspace = true }
@@ -32,7 +33,6 @@ ultragraphdb_traits_store = { workspace = true }
 [dev-dependencies]
 oxrdf = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
-ultragraphdb_core_keys = { workspace = true }
 ultragraphdb_core_mapping = { workspace = true }
 ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_store_sim = { workspace = true }

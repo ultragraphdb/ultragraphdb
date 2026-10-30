@@ -10,6 +10,7 @@ pub mod conflict_history;
 pub mod input;
 pub mod no_operations;
 pub mod pipeline;
+pub mod replay;
 pub mod reply;
 pub mod resolver;
 pub mod round_bounds;

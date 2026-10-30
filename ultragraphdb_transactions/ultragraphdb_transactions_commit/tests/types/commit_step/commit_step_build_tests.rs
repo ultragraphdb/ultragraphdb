@@ -82,12 +82,20 @@ fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_it
     commit(&mut step, &mut out, 3, of(b"c", false, false));
     assert_eq!(round_size(&out), Some(1));
     sync(&mut step, &mut out);
-    assert_eq!(out.replies(), &[Reply::new(3, Ok(4))], "a round deciding nothing takes no version");
+    assert_eq!(
+        out.replies(),
+        &[Reply::new(3, Ok(4))],
+        "a round deciding nothing takes no version"
+    );
     // The build's end: its round alone; the proposal set aside is decided in the next.
     commit(&mut step, &mut out, 4, of(b"end", false, true));
     assert_eq!(round_size(&out), Some(1));
     assert!(!step.is_building());
-    assert_eq!((step.waiting(), step.deferred()), (1, 0), "back in the queue");
+    assert_eq!(
+        (step.waiting(), step.deferred()),
+        (1, 0),
+        "back in the queue"
+    );
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(4, Ok(6))]);
     assert_eq!(round_size(&out), Some(1), "the next round decides it");
@@ -127,6 +135,10 @@ fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() {
     assert_eq!(step.deferred(), 1);
     step.step(Input::SyncFailed, 0, &mut out);
     assert_eq!(step.deferred(), 0);
-    assert!(out.replies().iter().any(|r| r.ticket() == 2 && r.outcome().is_err()));
+    assert!(
+        out.replies()
+            .iter()
+            .any(|r| r.ticket() == 2 && r.outcome().is_err())
+    );
     assert!(out.released().iter().any(|(t, _)| *t == 2));
 }

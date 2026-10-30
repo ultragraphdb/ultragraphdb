@@ -1060,10 +1060,11 @@ the record carries:
   predicate's key ranges in section 8, so a transaction writing into them after its read version conflicts; it is the
   last record of its round.
 - **Swap a build in** writes the lists the build made, complete at the version of the round that started it, and its
-  new declaration. **Undo a build** writes the build's old declaration back, after the build failed. Each is a round of
-  its own and holds nothing in its other sections.
-- Recovery performs a record's operation again at the record's version: a swap whose build is no longer held builds
-  again first.
+  new declaration. **Undo a build** writes the build's old declaration back, after the build failed or a drop
+  cancelled it, and removes every index key of the predicate that declaration does not name. Each is a round of its
+  own. Its record's section 3 holds the catalog entry of the declaration it writes, and its other sections nothing; a
+  build no longer held when its end was proposed has an empty section 3, and its end writes nothing.
+- The build's record number is the first version of the round whose declaration started it.
 
 A key-value section is entries back to back, each 8-aligned within the section:
 
@@ -1081,8 +1082,18 @@ Order: the fixed part and table (section 4.1); sections 0–4 and 6–8 in turn,
 statement"`, `"conflict range"`); section 9 a whole number of 16-byte results (`SectionLength`), each with
 `created ≤ 1` (`FieldValue` `"created"`) and bytes 9–15 zero (`PaddingNotZero`); section 10 empty or one operation
 (`SectionLength`), its `operation` 1, 2 or 3 (`FieldValue` `"operation"`) and bytes 2–7 zero (`PaddingNotZero`). The
-keys' and values' contents are the store's. Recovery restores a session's stored reply from the record: its commit version from the round, its results
-from section 9.
+keys' and values' contents are the store's.
+
+Recovery replays the log's rounds above the store's applied version, which is the last commit version of a round the
+log holds, or 0. Each committed record is written at its commit version: sections 0 to 4 as its writes, a session's
+registration (request 0) or committed request with its stored reply (its commit version, its results from section 9),
+and its operation. A swap rebuilds the build at the version before its own, from the declaration in its section 3,
+then swaps it in; a swap or undo writes nothing when the store's catalog no longer declares the predicate, as its
+first apply found its build cancelled by a drop. No record between the drop and the end declares the predicate again:
+a write executed before the drop conflicts with its ranges, a declaration during the build is refused, and the server
+proposes a build done before the drop at the drop's own sync, before any later write is decided. Recovery refuses to start, naming the version, when the store's applied version is
+neither 0 nor a held round's last version, except below the first round held after a checkpoint, which the
+checkpoint covers; and when the store is empty and the log was trimmed, naming the checkpoint.
 
 ## 13. Open points
 

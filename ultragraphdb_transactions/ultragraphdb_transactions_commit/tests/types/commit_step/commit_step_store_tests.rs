@@ -222,8 +222,15 @@ fn test_a_second_build_waits_for_the_first_builds_end() {
     assert!(applier.rebuilding(), "the first build runs");
     applier.executor().run_until_idle();
     let end = applier.take_build_end().expect("the first build is done");
-    driver.submit(4, Prepared::end_build(&applier, end, TxnBuffers::new()).unwrap());
-    assert_eq!(driver.step.deferred(), 0, "back in the queue once the end is admitted");
+    driver.submit(
+        4,
+        Prepared::end_build(&applier, end, TxnBuffers::new()).unwrap(),
+    );
+    assert_eq!(
+        driver.step.deferred(),
+        0,
+        "back in the queue once the end is admitted"
+    );
     driver.sync();
     driver.sync();
     assert!(applier.rebuilding(), "the second build runs");

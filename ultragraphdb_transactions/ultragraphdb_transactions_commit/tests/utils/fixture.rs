@@ -27,9 +27,18 @@ pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
 /// The namespace the tests write.
 pub const NS: u64 = 0;
 
+/// A fault-free simulated store.
+pub fn sim_store() -> SimStore {
+    SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
+}
+
 /// A changeset applier over a fault-free simulated store.
 pub fn applier() -> Applier {
-    let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
+    applier_over(sim_store())
+}
+
+/// A changeset applier over `store`, as a restarted node opens it.
+pub fn applier_over(store: SimStore) -> Applier {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     ChangesetApplier::new(
@@ -43,6 +52,18 @@ pub fn applier() -> Applier {
 /// A fresh write-ahead log over simulated storage, and the storage, to inject its faults.
 pub fn wal() -> (SimStorage, Log) {
     futures::executor::block_on(open_wal())
+}
+
+/// The write-ahead log over `storage` opened again, as a restarted node opens it, and what its open found.
+pub fn reopen_wal(storage: &SimStorage) -> (Log, ultragraphdb_transactions_log::Recovery) {
+    futures::executor::block_on(reopen(storage))
+}
+
+/// The same, awaited: for a caller already on an executor.
+pub async fn reopen(storage: &SimStorage) -> (Log, ultragraphdb_transactions_log::Recovery) {
+    Wal::open(storage.clone(), "/wal", WalConfig::new(1, true))
+        .await
+        .expect("the log opens again")
 }
 
 /// The same, awaited: for a caller already on an executor.

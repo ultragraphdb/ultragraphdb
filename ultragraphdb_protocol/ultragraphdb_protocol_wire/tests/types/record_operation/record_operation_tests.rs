@@ -43,7 +43,11 @@ fn test_an_operation_is_sixteen_bytes_in_section_ten() {
     assert_eq!(&bytes[offset..offset + 16], expected.as_slice());
     let view = WriteSetRecordView::new(&bytes).unwrap();
     assert_eq!(view.operation(), Some(RecordOperation::SwapBuild(0x0102)));
-    assert_eq!(view.to_record().encode(), bytes, "the view gives the record back");
+    assert_eq!(
+        view.to_record().encode(),
+        bytes,
+        "the view gives the record back"
+    );
     // A transaction's record has none.
     let plain = WriteSetRecord::new(5, 0, 0, 0).encode();
     assert_eq!(section(&plain, 32, 10).1, 0);

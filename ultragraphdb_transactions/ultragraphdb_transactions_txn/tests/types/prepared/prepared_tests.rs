@@ -134,7 +134,10 @@ fn test_a_builds_end_is_a_proposal_naming_its_operation() {
     assert_eq!(prepared.build_end(), Some(BuildEnd::Swap(8)));
     assert!(!prepared.starts_build() && !prepared.is_drop() && !prepared.has_operations());
     assert!(prepared.read_set().is_sealed());
-    assert_eq!(prepared.read_set().read_version(), applier.quads().lists().applied_ts());
+    assert_eq!(
+        prepared.read_set().read_version(),
+        applier.quads().lists().applied_ts()
+    );
     let record = WriteSetRecordView::new(prepared.record()).unwrap();
     assert_eq!(record.operation(), Some(RecordOperation::SwapBuild(8)));
     assert_eq!((record.session(), record.request()), (0, 0));

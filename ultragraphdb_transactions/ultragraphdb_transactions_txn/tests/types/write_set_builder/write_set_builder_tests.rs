@@ -154,14 +154,23 @@ fn test_a_drop_and_a_builds_end_name_their_operation_in_section_ten() {
         Some(RecordOperation::DropPredicate(uid(&applier, "knows")))
     );
     for (end, operation) in [
-        (ultragraphdb_store_apply::BuildEnd::Swap(12), RecordOperation::SwapBuild(12)),
-        (ultragraphdb_store_apply::BuildEnd::Undo(14), RecordOperation::UndoBuild(14)),
+        (
+            ultragraphdb_store_apply::BuildEnd::Swap(12),
+            RecordOperation::SwapBuild(12),
+        ),
+        (
+            ultragraphdb_store_apply::BuildEnd::Undo(14),
+            RecordOperation::UndoBuild(14),
+        ),
     ] {
         let ending = applier.prepare_build_end(end).unwrap();
         let builder = WriteSetBuilder::new(&ending, 0, 0, &[]);
         let bytes = written(&builder);
         assert_eq!(bytes.len(), builder.len());
-        assert_eq!(WriteSetRecordView::new(&bytes).unwrap().operation(), Some(operation));
+        assert_eq!(
+            WriteSetRecordView::new(&bytes).unwrap().operation(),
+            Some(operation)
+        );
     }
 }
 

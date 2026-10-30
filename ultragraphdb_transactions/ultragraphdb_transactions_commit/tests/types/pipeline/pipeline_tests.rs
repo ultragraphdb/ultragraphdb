@@ -351,7 +351,11 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
     block_on(pipe.sync(0)).unwrap();
     assert!(!applier.rebuilding(), "swapped in");
     let swapped = pipe.watermark();
-    assert_eq!(swapped, pipe.step().previous_version(), "at the step's version");
+    assert_eq!(
+        swapped,
+        pipe.step().previous_version(),
+        "at the step's version"
+    );
     let mut txn = begin(&applier);
     write(&mut txn, vec![insert("b", "knows", "c")]);
     pipe.commit(2, prepare(txn), 0).unwrap();

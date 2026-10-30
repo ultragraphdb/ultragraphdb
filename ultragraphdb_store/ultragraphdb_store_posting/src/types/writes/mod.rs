@@ -39,6 +39,24 @@ impl Writes {
         }
     }
 
+    /// The writes of a logged record replayed (7.9): its deltas by key, in key order, its entries written at its
+    /// version, its entries without versions, and whether its commit advances the cache's epoch.
+    pub fn replayed(
+        deltas: Vec<(Vec<u8>, PostingList)>,
+        entries: Vec<Entry>,
+        versionless: Vec<VersionlessEntry>,
+        advance_epoch: bool,
+    ) -> Self {
+        Self::new(
+            deltas,
+            entries,
+            Vec::new(),
+            versionless,
+            advance_epoch,
+            Vec::new(),
+        )
+    }
+
     /// The deltas, by key, in key order: every list whose scratch layer held postings.
     pub fn deltas(&self) -> &[(Vec<u8>, PostingList)] {
         &self.deltas

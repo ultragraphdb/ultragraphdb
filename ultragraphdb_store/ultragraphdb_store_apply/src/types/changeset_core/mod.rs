@@ -7,6 +7,7 @@ mod changeset_core_drop;
 mod changeset_core_operate;
 mod changeset_core_rebuild;
 mod changeset_core_record;
+mod changeset_core_replay;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,18 +107,34 @@ where
     }
 
     /// The proposal of `end`, as [`crate::ChangesetApplier::prepare_build_end`] makes it: at the watermark, in the
-    /// build's namespace while it is held, else namespace 0.
+    /// build's namespace while it is held, else namespace 0, writing the catalog entry of the declaration the end
+    /// writes, none when the build is no longer held.
     pub fn prepare_build_end(&self, end: BuildEnd) -> Result<Executed, ChangesetError> {
         let record = match end {
             BuildEnd::Swap(r) | BuildEnd::Undo(r) => r,
         };
-        let namespace = lock(&self.rebuild)
-            .as_ref()
-            .filter(|r| r.record == record)
-            .map_or(0, |r| r.namespace);
-        let read_ts = self.quads.lists().applied_ts();
+        let held = lock(&self.rebuild).clone().filter(|r| r.record == record);
+        let namespace = held.as_ref().map_or(0, |r| r.namespace);
+        let lists = self.quads.lists();
+        let read_ts = lists.applied_ts();
         let catalog = (*self.catalog(namespace)?).clone();
-        Ok(Executed::ending(namespace, read_ts, catalog, end))
+        // The record names the declaration the end writes, so a replay can restore the build from it (7.9).
+        let mut request = lists.request(read_ts);
+        if let Some(r) = &held {
+            let written = match end {
+                BuildEnd::Swap(_) => r.new.clone(),
+                BuildEnd::Undo(_) => r.old.clone(),
+            };
+            request.add_entry(Catalog::entry(
+                r.namespace,
+                r.predicate,
+                &ultragraphdb_core_mapping::Declaration::Predicate(written),
+                0,
+            ));
+        }
+        let mut ending = Executed::ending(namespace, read_ts, catalog, end);
+        ending.writes = request.into_writes();
+        Ok(ending)
     }
 
     pub fn quads(&self) -> &QuadStore<S, C> {

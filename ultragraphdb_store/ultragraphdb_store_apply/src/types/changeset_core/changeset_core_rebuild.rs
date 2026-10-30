@@ -43,9 +43,10 @@ use crate::types::predicate_prefix::PredicatePrefix;
 use crate::types::rebuild::Rebuild;
 use crate::utils::literal_tokens::literal_tokens;
 use crate::utils::lock::lock;
-use crate::utils::quad_prefixes::{count_prefixes, tokenizer_prefixes, vector_prefixes};
+use crate::utils::quad_prefixes::{
+    count_prefixes, tokenizer_prefixes, undeclared_prefixes, vector_prefixes,
+};
 use crate::utils::vector_index::hnsw;
-
 
 impl<S, C> ChangesetCore<S, C>
 where
@@ -439,22 +440,14 @@ where
 
     /// Undoes the change of record `record` after its build failed, under the apply lock the caller holds: writes the
     /// old declaration back, at version `at` when the commit step gave it one, else at the store's next, then drops the
-    /// keys of the indexes the build made, which it does not name, and removes the record. A build a drop cancelled
-    /// only has its record removed.
+    /// keys of every index of the predicate it does not name, the build's and those the writes during it maintained,
+    /// and removes the record. A build a drop cancelled only has its record removed.
     fn undo(&self, record: u64, at: Option<u64>) -> Result<(), ChangesetError> {
         let Some(rebuild) = self.cancel(|r| r.record == record) else {
             return self.remove_record(record);
         };
         let (ns, predicate) = (rebuild.namespace, rebuild.predicate);
-        let plan = &rebuild.plan;
-        let mut built: Vec<PredicatePrefix> = plan
-            .build_tokenizers
-            .iter()
-            .flat_map(|t| tokenizer_prefixes(ns, predicate, t))
-            .collect();
-        if plan.build_count {
-            built.extend(count_prefixes(ns, predicate));
-        }
+        let built = undeclared_prefixes(ns, predicate, &rebuild.old);
         let lists = self.quads.lists();
         let mut request = lists.request(lists.applied_ts());
         let declaration = Declaration::Predicate(rebuild.old.clone());
