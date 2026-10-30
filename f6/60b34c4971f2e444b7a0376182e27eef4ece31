@@ -1,0 +1,217 @@
+openspec/changes/stage-5-transactions-and-binary-protocol/notes/group-9c.md
+  s_e7d9aa044e41ea::t_62960f4eba46f1 689
+  s_e7d9aa044e41ea::t_d45f17f874a0f9 676-688,690-723
+fuzz/ultragraphdb_protocol_transport/fuzz_targets/server_connection.rs
+  s_e7d9aa044e41ea::t_6ea6384cfd091a 1-198
+  s_e7d9aa044e41ea::t_29375733e08723 199-232
+ultragraphdb_protocol/ultragraphdb_protocol_wire/src/utils/sections.rs
+  s_3b6601ee7f08bd::t_55ee9e959719fb 127,130,132
+fuzz/ultragraphdb_client_core/fuzz_targets/reply.rs
+  s_e7d9aa044e41ea::t_daf821eb7fefc0 6-10,18,20-21,27-77,80,82,111-112,114,117,121,138,145-150,153
+fuzz/Cargo.lock
+  s_e7d9aa044e41ea::t_a67c6ab69001aa 306-320,394,534-542,746-755,951-961,1023-1033,1276-1283,1344-1365,1379-1380,1502,1562-1567,1583-1588
+fuzz/Cargo.toml
+  s_e7d9aa044e41ea::t_0f7bedabbffbe1 30
+fuzz/ultragraphdb_core_terms/Cargo.toml
+  s_e7d9aa044e41ea::t_68d9d6f118a203 1-32
+fuzz/ultragraphdb_core_terms/fuzz_targets/encoded_term.rs
+  s_e7d9aa044e41ea::t_2dc8c032964456 1-33
+fuzz/ultragraphdb_protocol_scram/Cargo.toml
+  s_e7d9aa044e41ea::t_c8cbd0012a0acf 1-41
+fuzz/ultragraphdb_protocol_scram/fuzz_targets/scram_client.rs
+  s_e7d9aa044e41ea::t_140fbaa4eb572e 1-47
+fuzz/ultragraphdb_protocol_scram/fuzz_targets/scram_server.rs
+  s_e7d9aa044e41ea::t_e47ef61a366161 1-74
+fuzz/ultragraphdb_protocol_transport/Cargo.toml
+  s_e7d9aa044e41ea::t_6a51e03983e197 23-24,35-43
+fuzz/ultragraphdb_protocol_transport/fuzz_targets/framing.rs
+  s_e7d9aa044e41ea::t_5ba5c86b3b0ab6 6-9,55-57,93-101
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body.rs
+  s_e7d9aa044e41ea::t_431048ffca4b1f 8-9,16-19,29,40,59-60,62-70
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/body_fields.rs
+  s_e7d9aa044e41ea::t_d10e5632af073f 6-7,16-22,50,58-59,61-75,93,97,105,108,119,123,204,208,213,229-230,232,234-241,296-297,311,315,322-323,329-331,373,376,379-389,401,427,488-492,494-499,503-512,517-521,531-592,627-628,654-655,694-699
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/frame.rs
+  s_e7d9aa044e41ea::t_8f6cf2004860e8 12,18,20
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/frame_fields.rs
+  s_e7d9aa044e41ea::t_302f40f328862d 8-9,16,32,43,47-48,72,78,84-85,87-90,105,120-130,146-149,182
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/quad_pattern.rs
+  s_e7d9aa044e41ea::t_9fd4182490a86b 13-14,29-30,45-46
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/round.rs
+  s_e7d9aa044e41ea::t_cb8f5b0ca0c5b6 14-15,33-34
+fuzz/ultragraphdb_protocol_wire/fuzz_targets/term_table.rs
+  s_e7d9aa044e41ea::t_62449c2240ef7e 18-19,89,93-94,113-114
+fuzz/ultragraphdb_transactions_commit/fuzz_targets/session_entry.rs
+  s_e7d9aa044e41ea::t_b01e04f7011a7e 6-7,21,23
+fuzz/ultragraphdb_transactions_log/fuzz_targets/scan.rs
+  s_e7d9aa044e41ea::t_d6c5180cd6086d 8-9,15,39-40,44-48
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_e7d9aa044e41ea::t_998fc0b2e5b015 141
+openspec/notes/security.md
+  s_e7d9aa044e41ea::t_109d9a675f7f2e 63-65
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_000
+  s_e7d9aa044e41ea::t_9055fa93e082bb 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_002
+  s_e7d9aa044e41ea::t_10f84518e572a1 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_003
+  s_e7d9aa044e41ea::t_33aa21a43e8272 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_004
+  s_e7d9aa044e41ea::t_585842fac4cb52 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_007
+  s_e7d9aa044e41ea::t_f6b2a10c3d0427 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_008
+  s_e7d9aa044e41ea::t_f15cfddfbb5f35 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_010
+  s_e7d9aa044e41ea::t_94ff351b1dd4b8 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_011
+  s_e7d9aa044e41ea::t_575ae7c2f91669 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_012
+  s_e7d9aa044e41ea::t_b5f0aa5c08348c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_013
+  s_e7d9aa044e41ea::t_bbe2590972c0e1 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_014
+  s_e7d9aa044e41ea::t_84d62f4e272a53 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_021
+  s_e7d9aa044e41ea::t_b323cd0251ec98 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_022
+  s_e7d9aa044e41ea::t_d1758b00ca9681 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_023
+  s_e7d9aa044e41ea::t_26267465755178 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_024
+  s_e7d9aa044e41ea::t_c82c1f86456976 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_025
+  s_e7d9aa044e41ea::t_3ff09e3dd33bae 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_026
+  s_e7d9aa044e41ea::t_98bfb43875ede2 1-2
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_031
+  s_e7d9aa044e41ea::t_df9e65e67f42d4 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_032
+  s_e7d9aa044e41ea::t_77ae9f2a204a79 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_036
+  s_e7d9aa044e41ea::t_d7993c0bacbb9c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_037
+  s_e7d9aa044e41ea::t_90823a2ecb5b24 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_038
+  s_e7d9aa044e41ea::t_0bf6234e6c06f6 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_039
+  s_e7d9aa044e41ea::t_439bb69f5d7d75 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_040
+  s_e7d9aa044e41ea::t_70006753603576 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_044
+  s_e7d9aa044e41ea::t_f94673a06cbbf9 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_047
+  s_e7d9aa044e41ea::t_7f74b18b610e7c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_048
+  s_e7d9aa044e41ea::t_a4847a90c70976 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_055
+  s_e7d9aa044e41ea::t_f96a53e6c14e41 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_056
+  s_e7d9aa044e41ea::t_d0a97e5c4ae76b 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_057
+  s_e7d9aa044e41ea::t_0a8913ded362dd 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_058
+  s_e7d9aa044e41ea::t_b86360bb8bd0ae 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_062
+  s_e7d9aa044e41ea::t_7752483afb4f08 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_063
+  s_e7d9aa044e41ea::t_f493d759905537 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_064
+  s_e7d9aa044e41ea::t_5681ae00555eb0 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_065
+  s_e7d9aa044e41ea::t_c845c8ad529d3a 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_069
+  s_e7d9aa044e41ea::t_82511fd421b604 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_070
+  s_e7d9aa044e41ea::t_5770c9606be739 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_073
+  s_e7d9aa044e41ea::t_9e1c906f393e3e 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_074
+  s_e7d9aa044e41ea::t_28afbcef74f835 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_078
+  s_e7d9aa044e41ea::t_221c8c1f7274ce 1-3
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_079
+  s_e7d9aa044e41ea::t_8d1193da34bf6f 1-3
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_082
+  s_e7d9aa044e41ea::t_5d9df4406f8c39 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_083
+  s_e7d9aa044e41ea::t_0dda3ad21e089d 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_086
+  s_e7d9aa044e41ea::t_8d7033509c1a5d 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_087
+  s_e7d9aa044e41ea::t_14a91ad272ba3c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_090
+  s_e7d9aa044e41ea::t_df4ce8e7c190d6 1-2
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_091
+  s_e7d9aa044e41ea::t_5b10a2d5799cb5 1-2
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_098
+  s_e7d9aa044e41ea::t_69cc0c22c8dad7 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_099
+  s_e7d9aa044e41ea::t_de5ccf7cc835ae 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_100
+  s_e7d9aa044e41ea::t_6a4f4173b26c83 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_101
+  s_e7d9aa044e41ea::t_3f97b675f03bc9 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_104
+  s_e7d9aa044e41ea::t_7755551dfe9fff 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_105
+  s_e7d9aa044e41ea::t_0dae1f6088d99c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_106
+  s_e7d9aa044e41ea::t_3e6429235b7d26 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_111
+  s_e7d9aa044e41ea::t_7d8bb1fdc70475 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_112
+  s_e7d9aa044e41ea::t_ca5aa13139c56c 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/by_value_113
+  s_e7d9aa044e41ea::t_698782164e4919 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/language
+  s_e7d9aa044e41ea::t_34483bace707b2 1
+ultragraphdb_core/ultragraphdb_core_terms/testdata/fuzz_seeds/encoded_term/string
+  s_e7d9aa044e41ea::t_b8d936d687dd8e 1
+ultragraphdb_core/ultragraphdb_core_types/tests/utils/value_tests.rs
+  s_3b6601ee7f08bd::t_e6f3eeed0ec214 94-95
+ultragraphdb_protocol/SECURITY.md
+  s_e7d9aa044e41ea::t_4e1f356a7d083b 77-81
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/scram_error/mod.rs
+  s_e7d9aa044e41ea::t_7c16001a00c5cc 20-21
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/errors/scram_error/scram_error_display.rs
+  s_e7d9aa044e41ea::t_1dcf15bc50f4d2 22
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/lib.rs
+  s_e7d9aa044e41ea::t_d78ba88f8c0e57 32-34
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_client/mod.rs
+  s_e7d9aa044e41ea::t_16a31dfee16aa9 9,66-67,89
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/types/scram_verifier/mod.rs
+  s_e7d9aa044e41ea::t_ae38ca2c06451c 7,32-33,35
+ultragraphdb_protocol/ultragraphdb_protocol_scram/src/utils/constants.rs
+  s_e7d9aa044e41ea::t_c140d50ab31c0c 12-16
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/errors/scram_error/scram_error_tests.rs
+  s_e7d9aa044e41ea::t_a73f857414fc9f 31
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_client/scram_client_tests.rs
+  s_e7d9aa044e41ea::t_f68b32d6874b15 6,129-145
+ultragraphdb_protocol/ultragraphdb_protocol_scram/tests/types/scram_verifier/scram_verifier_tests.rs
+  s_e7d9aa044e41ea::t_7971cff7698040 6,60-68
+ultragraphdb_protocol/ultragraphdb_protocol_wire/tests/bdd.rs
+  s_3b6601ee7f08bd::t_375586f9781408 233-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f660b34c4971f2e444b7a0376182e27eef4ece31",
+  "prompts": {},
+  "sessions": {
+    "s_3b6601ee7f08bd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7c93ea79-792d-434b-8e64-1e25cf1db06f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_e7d9aa044e41ea": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8004f108-584f-4630-9940-66b141e91cbf",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
