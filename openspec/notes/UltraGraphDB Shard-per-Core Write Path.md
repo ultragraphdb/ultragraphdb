@@ -124,18 +124,19 @@ the replica placement.
 
 ### Large nodes
 
-Estimates for a three-node cluster, extrapolated from the 12-vCPU measurements; nothing here was measured on a large
-machine. A node runs a partition core per core less one per eight, rounded up (P4); each core hosts three replicas, so
+Estimates for a three-node cluster, extrapolated from the 12-vCPU measurements at full efficiency, since the
+development VM is no production target; nothing here was measured on a large machine, and the 1–3 µs per store
+operation comes from one workload. A node runs a partition core per core less one per eight, rounded up (P4); each core hosts three replicas, so
 the cluster runs three partitions per partition core of a node. A leader costs a partition core what one pipeline
-costs, about 38,000 relations per second; a follower with today's physical log only logs and applies, assumed 45% of
-that, so a core leading one partition and following two carries about 20,000 relations per second per partition.
+costs, about 38,000 relations per second; a follower with today's physical log only logs and applies, assumed (not
+measured) to cost 45% of that, so a core leading one partition and following two carries about 20,000 relations per second per partition.
 
-| Cores per node | Partition cores | Partitions | Cluster ceiling | At the VM's efficiency (55%) |
-| --- | --- | --- | --- | --- |
-| 12 | 10 | 30 | 0.6M relations/s | 0.3M |
-| 48 | 42 | 126 | 2.5M | 1.4M |
-| 64 | 56 | 168 | 3.4M | 1.8M |
-| 128 | 112 | 336 | 6.7M | 3.7M |
+| Cores per node | Partition cores | Partitions | Cluster ceiling |
+| --- | --- | --- | --- |
+| 12 | 10 | 30 | 0.6M relations/s |
+| 48 | 42 | 126 | 2.5M |
+| 64 | 56 | 168 | 3.4M |
+| 128 | 112 | 336 | 6.7M |
 
 One partition per core index, its leader on one node and its followers idle half the time on the others, would reach
 about 4.3M on 128-core nodes; spreading leadership is worth about half again.
@@ -150,15 +151,35 @@ What each node then writes and sends, at the ceiling:
 | 128 | 12.7 GB/s | 6.4 GB/s | 39 Gbit/s | 5.4 Gbit/s |
 
 Every node holds a replica of every partition in a three-node cluster, so each writes at the cluster's rate. LSM
-compaction multiplies the store's share, about 0.8 KB per relation, by a further 5–10×. At 48 cores and above, the
+compaction multiplies the store's share, about 0.8 KB per relation, by a further 5–10×, assumed until measured. At 48 cores and above, the
 disk's bandwidth and its flush rate bind before the cores, then the network; the logical log halves the first and
 divides the second by seven.
+
+### Reads
+
+Reads take no commit step and write nothing, so they scale with every replica, not with leaders alone. Query
+classification (UGS note) decides which replicas answer and how long a read waits; it does not change a read's CPU.
+
+| Read level | Answered by | Wait |
+| --- | --- | --- |
+| Latest state of one partition (key lookups, colocated trees) | The leader, or a replica caught up to its latest commit | None |
+| Monotonic-fast (monotonic queries) | Any replica | None |
+| Snapshot (non-monotonic, across partitions) | Any replica that has closed the epoch | Up to one epoch |
+
+Every partition core leads one partition (P8), so reads of a partition's latest state still spread over every core.
+Estimates for 25 nodes of 48 cores (1,050 partitions), unmeasured: about 35–70 million point lookups a second while the
+data sits in memtables and caches, and 10–25 million once reads go to SSD; about 1.5–2 million reads a second of an
+entity's 100 neighbours with one property each, which reach about 95 partitions unless `@colocate` keeps them together.
+A read of a versioned key from the store's tables costs a seek per level until prefix filters exist (P19), so the
+figures above hold for cached data. Whole-graph analytics are bound by the network between partitions rather than by
+read speed; the tile stage's two-dimensional partitioning is the structural answer, and compute-heavy algorithms
+(graph neural networks, embeddings) belong on GPUs in the compute role.
 
 ## Decisions for stage 5.5
 
 Twelve decisions the partitioned model needs before stage 5.5 specifies identity, the log and the metadata group.
 P1–P6 follow from the model, P7–P12 from scaling it to large nodes. Each states the trade-off, a recommendation and its
-consequences; all twelve await the user's decision.
+consequences. The user adopted all twelve on 2026-11-01, as refined by P13–P20.
 
 ### P1. Where an entity's bucket comes from
 
@@ -179,7 +200,7 @@ partition until the bucket moves.
 **Recommendation.**
 
 - A keyed entity's bucket is XXH3-64 (the repository's cross-language hash) of its key's canonical encoding, reduced
-  to the bucket's 24 bits (P7). Keys are immutable in UGS, so the bucket never follows a key change.
+  to the bucket's 24 bits (P7); P15 and P16 say what the hash covers. Keys are immutable in UGS, so the bucket never follows a key change.
 - An entity or relation instance under `@colocate` takes the bucket of the participant it is colocated with.
 - An entity without a key takes the bucket of the entity it is created with, and otherwise a bucket of the partition
   creating it.
@@ -243,11 +264,15 @@ partition until the bucket moves.
   - a cardinality constraint on the stored end;
   - everything inside a `@colocate(root)` tree.
 - **Cross partition (sequenced):**
-  - a transaction writing root entities in more than one partition;
+  - a transaction writing root entities in more than one partition whose writes include a check that can fail (a new
+    key's uniqueness, a constraint) or whose reads must be validated (P14);
   - a secondary `@unique` value, whose index is partitioned by the value's hash;
   - a cardinality constraint on both ends of a relation;
   - a `restrict` delete across partitions;
   - an `@acyclic` edge between trees.
+- **Across partitions without the sequencer:** a transaction of blind, coordination-free writes (no reads, no check that
+  can fail) applies its share in every partition stamped with one epoch, and the epoch closes only once every share is
+  durable, so a snapshot at that epoch sees all of it or none, as in Bailis's read-atomic multi-partition transactions.
 - A relation without `@colocate` is stored with its first role's participant, replacing UGS's default of placing it
   by predicate.
 - Bulk loads take their own path, specified in stage 5.5 as a requirement: the loader partitions its input by bucket
@@ -393,6 +418,8 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
   on their peer nodes.
 - Each partition has a preferred leader, spread so that every core leads one; leadership returns to it after a
   failure heals.
+- The replication factor is a setting: three in a cluster, one in the development container, where the alignment across
+  nodes does not apply.
 - Storage nodes in one cluster have the same number of partition cores; a node that differs forwards between cores,
   as a fallback, not a design point.
 
@@ -421,7 +448,7 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 - The log records resolved quads with their IDs, the round's new dictionary entries and its order of application;
   each replica derives the keys deterministically, with the derivation's version in the record.
 - fjall runs without its journal: the store records the log position it has applied, and recovery replays the log
-  from there.
+  from there. P18 revises this: fjall 3.1.13 has no journal-less mode.
 
 **Consequences.**
 
@@ -452,6 +479,8 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 
 - Shared-nothing holds everywhere except one atomic counter and one flusher per device.
 - Recovery reads each device's segments once and hands every partition its stream.
+- A shared segment is truncated only once every partition writing it has passed it, so a lagging partition holds the
+  device's segments; the flusher reports which partition holds them.
 
 ### P11. The node's budget for the store
 
@@ -475,6 +504,7 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 
 - A 128-core node runs 112 instances, not 336.
 - The dictionary cache's 64 MiB becomes a share of the node's budget, per core.
+- A replica catches up from a checkpoint of its own keyspace, which the shared instance provides per keyspace.
 
 ### P12. How partitions meet the sequencer
 
@@ -490,9 +520,244 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 - One epoch agent per node closes an epoch for all its partitions in one message, and receives the sequencer's
   boundaries once.
 - The sequencer delivers cross-partition work to each partition as one batch per epoch, never per transaction.
+- Change streams between partitions travel the same way: one batch per pair of nodes per epoch, never per pair of
+  partitions, which at 25 nodes of 48 cores would be over a million pairs.
 
 **Consequences.**
 
 - The sequencer's load grows with nodes, not cores.
 - An epoch closes on a node once its slowest partition has applied up to it, so one lagging partition delays the
   node's close; the agent reports which.
+
+## Decisions from the review before drafting
+
+A critical review of this note, `perf-optimization.md` and `review-stages-5.5-and-6.md` against the repository found
+eight more questions stage 5.5 has to answer before its specifications are drafted. P13–P20 state them in the format of
+P1–P12; they refine P1, P3 and P9 where they say so. The user adopted all eight on 2026-11-01. The ninth, musl or
+glibc, is D7 in the review note, adopted the same day.
+
+### P13. What a version means across partitions
+
+**Trade-off.**
+
+- Stage 5 numbers commits per commit step: `max(previous + 2, 2 × clock µs)`, even and increasing. With a commit step
+  per partition, every partition runs its own version clock, and the stored key carries that version.
+- *Clock versions per partition* keep stage 5's sequencer. A snapshot at epoch `e` then needs each partition's version
+  at the close of `e`: every partition keeps a table from epoch to version, and every read at an epoch looks it up.
+- *Versions built from the epoch*, the epoch in the high bits and a sequence within it in the low bits, make a
+  snapshot at epoch `e` one bound on the version in every partition, with no table. A partition must know the current
+  epoch when it commits, which the distribution note already requires (every commit is stamped with an epoch), and the
+  sequence must not run out while an epoch stays open, as it may while the sequencer changes view.
+
+**Recommendation.**
+
+- A version is 64 bits: a 42-bit epoch and a 22-bit sequence within it, even as stage 5 keeps versions. At epochs of
+  1 ms and longer, 42 bits last over a century; 22 bits allow two million commits per partition per epoch.
+- A partition stamps its commits with the highest epoch it has seen, as the propagation rule states. A partition whose
+  sequence runs out in an open epoch advances its epoch on its own, as a logical clock may; the sequencer only closes
+  epochs.
+- `as of time t` maps to an epoch by the wall-clock time recorded at its close, as the distribution note states.
+
+**Consequences.**
+
+- Stage 5's clock-following sequencer gives way to epoch-based versions; reads of a partition's latest state use its
+  latest version, with no epoch wait.
+- Rollups write below deltas as before, at any free version below them.
+- The `transactions` and `commit-rounds` specs are restated with these versions in stage 5.5.
+
+### P14. Interactive transactions across partitions
+
+**Trade-off.**
+
+- UQL makes transactions within one group interactive and transactions across groups submitted whole. With hashed
+  buckets nearly every transaction naming several entities spans partitions, so interactive transactions would remain
+  only for one entity or one colocated tree; the stage-5 protocol and the Rust client offer begin, read, write and
+  commit for every transaction.
+- *Refusing* them is honest and simple, but pushes every multi-entity application onto `@colocate` or onto
+  transactions submitted whole.
+- *Two-phase commit* at a coordinator is ruled out by the architecture: no two-phase commit, no distributed deadlocks.
+- *Optimistic commit through the sequencer*: the transaction reads at a closed epoch and buffers its writes; its commit
+  carries its read set, each key with the version it read, and its writes to the sequencer. Every partition it reaches
+  validates its own reads deterministically, the partitions exchange their outcomes as Calvin's participants exchange
+  reads, and all commit or all abort. It costs an epoch and one exchange, and aborts and retries under contention.
+
+**Recommendation.**
+
+- Interactive transactions within one partition commit through its commit step, strictly serializable, as today.
+- Interactive transactions across partitions commit optimistically through the sequencer, serializable at their epoch
+  (D3), within the 10-second limit on read-write transactions.
+- A transaction with an empty read set whose writes are all coordination-free (P3's blind writes) skips the validation
+  exchange.
+
+**Consequences.**
+
+- UQL's rule reads: interactive everywhere, optimistic across partitions; the UGS note changes with it.
+- The binary protocol keeps one transaction shape; the response names an abort's conflicting key.
+
+### P15. What the bucket hash covers (refines P1)
+
+**Trade-off.**
+
+- A key is unique across its declaring type and every subtype, so the hash must give a subtype's instances the
+  bucket of the type that declares the key, or the uniqueness check spans partitions.
+- The IRI template `{namespace}{Type}/{key}` leaves open whether `Type` is the declaring or the concrete type, and an
+  `@iri` template need not let the key be read back from an IRI, so a node holding only an IRI could not find its
+  bucket.
+- Stage 5.5 comes before UGS keys (stage 6). Whatever it hashes in the meantime fixes buckets in stored IDs; with no
+  outside users a change in stage 6 rewrites data, but avoiding it costs nothing.
+
+**Recommendation.**
+
+- The bucket hashes the type prefix of the type that declares the key, then the key's canonical encoding (P16 adds the
+  namespace).
+- IRIs are minted from the declaring type, `{namespace}{DeclaringType}/{key}`, and the compiler refuses an `@iri`
+  template from which the key cannot be read back.
+- Data without a key, in stage 5.5 and in `@open` types after it, takes its IRI as the key of a built-in `Resource`
+  type, so stage 6 adds keyed types without moving existing data.
+
+**Consequences.**
+
+- Any node finds an entity's bucket from its IRI and the catalog.
+- The UGS note's instance-IRI rule names the declaring type.
+
+### P16. Namespaces in the bucket
+
+**Trade-off.**
+
+- IDs carry no namespace, and hashing across all 16.7 million buckets spreads every namespace over every partition:
+  a small tenant's queries scatter over the cluster, dropping a namespace touches every partition, and tenants share
+  every partition's load.
+- Confining a namespace to fewer partitions gives locality and isolation, and must still let a large namespace spread
+  as it grows, without changing an ID.
+
+**Recommendation.**
+
+- A bucket's 24 bits are 8 bits hashed from the namespace and 16 bits hashed from the key (P15): each namespace owns an
+  aligned run of 65,536 contiguous buckets, shared with the namespaces whose hash it shares.
+- The placement map assigns runs to partitions like any range (P2): a small namespace starts on one partition, and a
+  growing one is spread by splitting its run, up to 65,536 partitions, with no ID changing.
+- Initial placement spreads the runs of the namespaces that exist, so a single-tenant cluster spreads its one namespace
+  over every partition.
+
+**Consequences.**
+
+- A namespace's queries reach only its partitions; a namespace drop reaches only them.
+- The rebalancer watches load per run as well as per partition.
+
+### P17. Reverse entries of heavily referenced nodes
+
+**Trade-off.**
+
+- Under bucket placement every reverse entry pointing at a node goes to that node's partition. UGS's shared time and
+  space nodes (days, cells) and widely used concepts receive edges from the whole cluster, so one partition would
+  absorb the cluster's ingest for them.
+- *Reverse entries with the object* keep inbound reads in one partition, at the price of that hotspot.
+- *Reverse entries with the subject*, as an index by object in the subject's partition, keep every write local, but an
+  inbound read then asks every partition: over a thousand messages per read.
+- *Splitting a hot node's reverse list* across a few partitions by the source's bucket, as PowerGraph cuts high-degree
+  vertices, spreads the ingest and keeps inbound reads to a few partitions.
+- D2's type prefixes already make `rdf:type` a range of IDs, so type membership needs no reverse list; the key format
+  already has split parts.
+
+**Recommendation.**
+
+- Reverse entries live with the object, maintained by change stream.
+- A node whose type the schema declares shared, or whose reverse list passes a size threshold, has its reverse list
+  split into `k` parts by source-bucket range, each in a different partition; the placement map records the split
+  nodes and their `k`, and inbound reads ask those `k` partitions.
+- `rdf:type` is answered from type-prefix ranges and never stored as a reverse list.
+
+**Consequences.**
+
+- The 128-bit key format gives reverse keys a source-bucket-range part, using the split parts it already has.
+- The tile stage generalises the split to every list.
+
+### P18. The log as the only synced stream (refines P9)
+
+**Trade-off.**
+
+- P9 has fjall run without its journal. fjall 3.1.13 offers no such mode, only `manual_journal_persist`, which still
+  writes the journal but leaves syncing it to the caller; the archived stage-5 design names a fork as the only way to
+  drop it.
+- *A fork* removes the journal's bytes, about 0.8 KB per relation, and costs maintaining the fork against fjall, which
+  is pinned already because `Store::compact` calls its hidden functions.
+- *Manual persistence* keeps the journal's bytes in the page cache and on disk, but never syncs it: the log is the only
+  synced stream. After a crash fjall recovers a prefix of its batches, and the store's applied position, written in the
+  same batch as its data, says where log replay resumes.
+
+**Recommendation.**
+
+- fjall runs with `manual_journal_persist`, its journal never synced; the log is the only stream synced, and recovery
+  replays the log from the store's applied position.
+- A fork is taken only if P5's benchmark shows the journal's bandwidth binding on large nodes.
+- A log record carries the resolved quads with their IDs, the round's new dictionary entries, its version (P13), the
+  catalog version it was validated against and the derivation version.
+- Rollups stay local to each replica and out of the log: replicas agree on contents, not on bytes, so a replica catches
+  up from a checkpoint, never by comparing files.
+
+**Consequences.**
+
+- P9's gain becomes one synced stream instead of two at once, and half the disk bytes only with the fork.
+- The rolling-upgrade rules check the derivation version and the catalog version on replay.
+
+### P19. Reads of versioned keys (carries `perf-optimization.md` forward)
+
+**Trade-off.**
+
+- lsm-tree's bloom filters hash the whole stored key and serve point gets only. A read of a versioned key is a range
+  read, which consults no filter and seeks into every table whose key range covers it: one seek per level for a key
+  held in one level, and all of them for an absent key.
+- `perf-optimization.md` measured absent keys at 34% of stage 2's apply thread. The stage-5 pipeline avoids them for
+  new IDs, whose lists it never reads (`wal_bench` counted none), but reads of existing keys outside the cache, and
+  every query, pay the seeks.
+- *Existence markers* (that note's option A) prove absence with a point get, at one more key per list.
+- *Prefix filters* in lsm-tree (option B) need a release that offers them, or a fork.
+- *Absence by index*: the subject-predicates and object-predicates lists, written already, say which lists a node
+  has, so a reader consults them before reading a list that may not exist.
+
+**Recommendation.**
+
+- Absence is proven by index: readers consult a node's predicate lists before its other lists, and new IDs skip list
+  reads as today. No existence markers.
+- The 128-bit key format keeps the version as a fixed 8-byte suffix after the encoded key and its end code, so a
+  prefix filter needs only "all but the last 8 bytes" once lsm-tree offers one.
+- Stage 7 measures seeks per read; a fork for prefix filters is taken only if they bind.
+
+**Consequences.**
+
+- The read estimates of this note's discussion assume memtable and cache costs; reads from tables cost a seek per
+  level until filters exist.
+- `perf-optimization.md` becomes a read-path note; its options P1–P4 are renamed R1–R4 so they no longer collide with
+  this note's.
+
+### P20. What stage 5.5 builds and what it only decides
+
+**Trade-off.**
+
+- P1–P19 mix formats that every later stage stores (IDs, versions, keys, the log record) with runtime choices that
+  only matter once replication and the sequencer run.
+- Building the cross-partition machinery (sequencer, Calvin commits, change streams) in stage 5.5 lets stages 6 and 7
+  run on several partitions, but makes 5.5 most of stage 8.
+- Deciding everything in 5.5 and building the formats only keeps 5.5 bounded; stages 6 and 7 then run with one
+  partition, a configuration of the same code, not a separate path.
+
+**Recommendation.**
+
+- **Stage 5.5 decides and builds** the formats and the seams:
+  - identity: the 128-bit ID (D1 with P7), type prefixes (D2), the bucket (P15, P16);
+  - versions (P13) and the 128-bit key format, filter-ready, with split reverse parts (P17, P19);
+  - the log record and the log interface with durability tickets (P18, P10's interface), files per partition behind
+    it;
+  - the metadata group with one replica, holding the catalog, ID blocks and the placement map (D4, P2, P7);
+  - the partition runtime, partition-generic, run with one partition for stages 6 and 7 and with N in `wal_bench`
+    (P5 step 1);
+  - the crates divided into the three roles with the in-process carrier (review §4.4).
+- **Stage 5.5 decides and stage 8 builds**: cross-partition commits and their semantics (P3, P14), change streams and
+  their aggregation per node, replication and replica placement (P8), node budgets (P4, P11), the epoch agent (P12),
+  flush sharing behind the log interface (P10).
+
+**Consequences.**
+
+- Stage 5.5's change carries the specifications of what it builds; the decisions it does not build are recorded in
+  this note and specified in stage 8's change.
+- The development container's two storage groups of one replica (single-container note) arrive with stage 8.

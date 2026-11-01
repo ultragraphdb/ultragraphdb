@@ -25,7 +25,7 @@ llvm = use_extension("@llvm//extensions:llvm.bzl", "llvm")
 
 # Matches the LLVM that rustc RUST_DEFAULT_VERSION below is built on. Confirmed with
 # `rustc --version --verbose`, which reports "LLVM version: 22.1.6". Keep the two in sync.
-llvm.version(llvm_version = "22.1.8")
+llvm.version(llvm_version = "23.1.0")
 use_repo(llvm, "llvm-project")
 
 # The macOS sysroot. The web.archive entry is a fallback in case the Apple URL returns 503.
@@ -57,7 +57,7 @@ register_toolchains("@llvm//toolchain:all")
 rules_rs_rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
 use_repo(rules_rs_rules_rust, "rules_rust")
 
-RUST_DEFAULT_VERSION = "1.98.1"
+RUST_DEFAULT_VERSION = "1.99.1"
 
 RUST_EDITION = "2024"
 
@@ -116,3 +116,22 @@ pull(
     repository = "mirror/scratch",
     tag = "scratch-1.99.0",
 )
+
+###############################################################################
+# rules_apko: https://github.com/chainguard-dev/rules_apko
+# The glibc runtime base of the server image (D7), built from Wolfi packages and pinned by
+# //bazel/oci_images/glibc_base:apko.lock.json; `bazel run //bazel/oci_images/glibc_base:lock` refreshes it.
+###############################################################################
+bazel_dep(name = "rules_apko", version = "1.5.56")
+
+apko = use_extension("@rules_apko//apko:extensions.bzl", "apko")
+apko.toolchain(apko_version = "v1.1.12")
+use_repo(apko, "apko_toolchains")
+
+register_toolchains("@apko_toolchains//:all")
+
+apko.translate_lock(
+    name = "glibc_base_lock",
+    lock = "//bazel/oci_images/glibc_base:apko.lock.json",
+)
+use_repo(apko, "glibc_base_lock")

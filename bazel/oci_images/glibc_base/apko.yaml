@@ -1,0 +1,27 @@
+# The glibc runtime base of the server image: glibc, its loader, libgcc for unwinding, the CA bundle and an
+# unprivileged user, no shell and no package manager. The packages of Chainguard's glibc-dynamic, built from Wolfi.
+contents:
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  repositories:
+    - https://packages.wolfi.dev/os
+  packages:
+    - wolfi-baselayout
+    - glibc
+    - ld-linux
+    - libgcc
+    - ca-certificates-bundle
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+  run-as: "65532"
+
+archs:
+  - x86_64
+  - aarch64

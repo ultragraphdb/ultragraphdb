@@ -1,4 +1,4 @@
-"""Multi-arch scratch images for statically linked binaries."""
+"""Multi-arch images: scratch for statically linked binaries, the glibc base for the server."""
 
 load("@rules_img//img:image.bzl", "image_index", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer")
@@ -6,6 +6,15 @@ load("@rules_img//img:layer.bzl", "image_layer")
 # Scratch plus CA certificates: a static binary carries no trust store, and TLS without one fails
 # at the first connection. Pinned by index digest in MODULE.bazel.
 SCRATCH_BASE = "@rust_scratch"
+
+# glibc, its loader, libgcc and CA certificates from Wolfi, built by rules_apko from a lock file (D7).
+GLIBC_BASE = "//bazel/oci_images/glibc_base:glibc_base_index"
+
+# The glibc triples the server image is built for. Must also be in RUST_PLATFORMS.
+GNU_PLATFORMS = [
+    "@rules_rs//rs/platforms:x86_64-unknown-linux-gnu",
+    "@rules_rs//rs/platforms:aarch64-unknown-linux-gnu",
+]
 
 # musl, because those are the triples that link statically. Must also be in RUST_PLATFORMS.
 MUSL_PLATFORMS = [
@@ -47,6 +56,41 @@ def scratch_multiarch_img(name, binary, **kwargs):
         name = name,
         manifests = [name + "_manifest"],
         platforms = MUSL_PLATFORMS,
+        **kwargs
+    )
+
+def glibc_multiarch_img(name, binary, **kwargs):
+    """A multi-arch image of one dynamically linked glibc binary on the glibc base.
+
+    As `scratch_multiarch_img`, with the binary built for the gnu triples and run as the base's
+    unprivileged user. Build with `-c opt`.
+
+    Args:
+        name: The image index target.
+        binary: The binary to package, transitioned per platform by `image_index`.
+        **kwargs: Forwarded to the index target.
+    """
+    entrypoint_path = "/" + binary.split(":")[-1].split("/")[-1]
+
+    image_layer(
+        name = name + "_layer",
+        srcs = {entrypoint_path: binary},
+    )
+
+    # Manual: the base holds Linux images only, so the manifest builds through the index's platform
+    # transition, never on its own for the host.
+    image_manifest(
+        name = name + "_manifest",
+        base = GLIBC_BASE,
+        entrypoint = [entrypoint_path],
+        layers = [name + "_layer"],
+        tags = ["manual"],
+    )
+
+    image_index(
+        name = name,
+        manifests = [name + "_manifest"],
+        platforms = GNU_PLATFORMS,
         **kwargs
     )
 

@@ -209,7 +209,8 @@ This review's own frame: it reads for what blocks implementation, so it under-we
 
 ## 4. Implications for stage 5.5
 
-What the refactor has to settle, as questions. None is decided here.
+What the refactor has to settle, as questions. §7 and `UltraGraphDB Shard-per-Core Write Path.md` answer them: 4.1 by
+D1 as revised (P7, P15, P16), 4.2 by P1–P3 and P17, 4.3 by P13 and P14, 4.4 by P20, 4.5 by D4.
 
 ### 4.1 The system ID
 
@@ -352,8 +353,9 @@ decisions, each with its trade-off, a recommendation and the consequences.
 #### D1. The system ID: 64 or 128 bits
 
 - **Status: adopted (2026-11-01).** Recorded in the schema note, the distribution note and backlog item 10.
-- **Revision proposed (2026-11-01), pending decision:** a 24-bit bucket and sequences unique per type, leased per
-  (type, partition), for partitions per core on large nodes (`UltraGraphDB Shard-per-Core Write Path.md`, P7).
+- **Revised and adopted (2026-11-01):** a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the
+  key), a 64-bit sequence unique per type, leased per (type, partition), and 8 reserved bits, for partitions per core on
+  large nodes (`UltraGraphDB Shard-per-Core Write Path.md`, P7, P15, P16).
 
 - **Trade-off.** 64 bits keep every format stages 1 to 5 built: Dgraph's key encoding, `UidPack`, the posting format,
   the term encodings, the set operations, and the Go golden vectors that pin them. But a type prefix, a replica-group
@@ -465,7 +467,9 @@ decisions, each with its trade-off, a recommendation and the consequences.
 
 #### D7. musl or glibc
 
-- **Status: pending (2026-11-01).** The investigation, on the aarch64 Linux machine (12 cores, kernel 7.2, OrbStack):
+- **Status: adopted (2026-11-01):** glibc with mimalloc for the server, on a glibc base built from Wolfi packages by
+  `rules_apko` in `bazel/oci_images/glibc_base`; musl static on scratch for tools. The investigation, on the aarch64
+  Linux machine (12 cores, kernel 7.2, OrbStack):
   - **Which role binary builds for musl:** all three. The roles are one binary with role flags, so the question is the
     dependency graph, and its shipped part compiles no C: the two crates flagged are `io-uring` (pure Rust, pre-generated
     bindings; `bindgen` only behind an unused feature) and `linux-raw-sys` (pure Rust). The one C build in the graph is
@@ -474,7 +478,8 @@ decisions, each with its trade-off, a recommendation and the consequences.
   - **Proof:** `wal_bench` and `store_bench` (fjall, compio and io_uring, the log and the commit pipeline: the storage
     path) build for `x86_64-` and `aarch64-unknown-linux-musl` with `-c opt` as static ELF files, and the aarch64 build
     ran on Linux: 9,994 of 9,994 commits at 2,000 per second, no aborts.
-  - **Performance,** `wal_bench` at an offered 50,000 commits per second of 50 relations, 10 s per run:
+  - **Performance,** `wal_bench` at an offered 50,000 commits per second of 50 relations, 10 s per run, in the VM's
+    `/tmp`, a RAM-backed tmpfs (re-measured on disk below):
 
     | Build | Commits/s | Round p99 (µs) |
     |---|---|---|
@@ -491,15 +496,55 @@ decisions, each with its trade-off, a recommendation and the consequences.
     binaries set it as their global allocator, and `static_binary` and `scratch_multiarch_img` (taken from scrith)
     build them; `wal_bench_multiarch` is the first image.
 
-- **Trade-off.** A static musl binary fits a scratch image and a minimal microVM kernel, as the distribution note
-  plans. A decision of 2026-10-25 chose glibc for the store and declined musl and mimalloc tuning: musl's allocator
-  contends under threads (scrith pays for mimalloc to avoid it), and glibc's is fast as it comes. With microVMs no
-  longer a target (S3), the scratch-image argument weakens.
-- **Recommendation.** glibc, on a minimal base image (distroless `cc`) built by `rules_oci`. The distribution note's
-  "static musl binary" changes accordingly.
+  - **Re-measured on the VM disk (`/var/tmp`) after the zero-run stored key and the dictionary cache**, both builds
+    with mimalloc, relations per second, three runs each:
+
+    | Relations per commit | glibc with mimalloc | musl with mimalloc | musl against glibc |
+    |---|---|---|---|
+    | 1 | 15,828, 17,695, 16,116 | 16,212, 16,588, 16,251 | level (the fsync per commit bounds both) |
+    | 10 | 41,479, 40,581, 42,015 | 36,225, 29,586, 36,980 | −17% (−12% on the medians) |
+    | 50 | 42,708, 41,341, 41,258 | 34,724, 33,663, 33,739 | −18.5% |
+
+    The gap survives the allocator and the shorter keys: wherever the CPU bounds the path, musl's byte-wise `memcmp`,
+    which the profile found under fjall's memtable comparisons, costs about a sixth of a core's throughput. Under
+    shard-per-core the CPU bounds the path, so the gap is hardware: about 20% more cores for the same writes.
+
+- **Trade-off.**
+  - *musl, static, on scratch* (scrith's `static_binary` and `scratch_multiarch_img`, adopted 2026-11-01): one file,
+    no base image to patch, the smallest attack surface, the same image rules as scrith, MIT-licensed. It costs about
+    18% of every partition core's write throughput.
+  - *glibc, dynamically linked, on a minimal glibc base*: the vectorised string routines, so the full throughput, at the
+    cost of a base whose glibc needs patching. The candidates:
+    - Google's distroless `cc`: free, but its updates arrive on Google's schedule and its build is not ours.
+    - Chainguard's `glibc-dynamic`: the same contents from Wolfi packages, but only its `latest` tag is free, and
+      Chainguard's registry terms are less favourable.
+    - Echo's images: subscription only, no public registry, no published minimal glibc base, and no public terms on
+      redistributing images built from them.
+    - The same contents built here from Wolfi packages with `rules_apko`, Chainguard's own Bazel rules: Wolfi is free
+      and open source, so the image is ours under the packages' own licences (glibc LGPL, dynamically linked; libgcc
+      GPL with the runtime exception; the CA bundle MPL and MIT), and Bazel pins every package by checksum.
+  - *glibc, statically linked, on scratch*: glibc's name-service and `dlopen` paths break when static, and statically
+    linking the LGPL glibc obliges shipping what lets a user relink against another glibc.
+  - The roles are one binary, so the choice covers the frontend and compute roles too, both CPU-bound on queries.
+- **Recommendation (adopted).**
+  - The server binary ships against glibc with mimalloc, dynamically linked, on the Wolfi glibc base:
+    `bazel/oci_images/glibc_base` holds its `apko.yaml` (`wolfi-baselayout`, `glibc`, `ld-linux`, `libgcc`,
+    `ca-certificates-bundle`, user 65532, no shell, no package manager) and `apko.lock.json`, which pins every package
+    by version and checksum for both architectures.
+  - Updating the base is `bazel run //bazel/oci_images/glibc_base:lock`, which re-resolves the packages and rewrites the
+    lock; the commit of the new lock is the update, and every image built on the base follows it.
+  - `glibc_multiarch_img` in `//bazel/container:img.bzl` builds on the base through `rules_img`; musl stays the target
+    for client tools and benchmarks through `static_binary` and `scratch_multiarch_img`.
+  - Re-measure on bare metal in stage 8; a musl with vectorised string routines would reopen the choice.
+- **Proof (2026-11-01).** The base builds for amd64 and arm64 (one layer of 2.7 MB per architecture, glibc 2.44,
+  libgcc 16.2). `wal_bench_glibc_multiarch`, the glibc `wal_bench` on that base, loads into Docker with
+  `wal_bench_glibc_load` (16.6 MB), has no shell, runs as user 65532, and commits 41,340 relations/s at 50 per commit,
+  the VM's own glibc figure. Docker's default seccomp profile refuses io_uring, so the run needed
+  `--security-opt seccomp=unconfined`: the server's deployment ships a seccomp profile allowing `io_uring_setup`,
+  `io_uring_enter` and `io_uring_register`, beside the io_uring restrictions the distribution note plans.
 - **Consequences.**
-  - Images are a few megabytes larger than scratch.
-  - The "io_uring without libc" decision becomes moot.
+  - Two image rules: scratch for musl tools, the Wolfi base for the server; `rules_apko` joins `rules_img`.
+  - The distribution note's "static musl binary" and the "io_uring without libc" decision change accordingly.
   - The minimal-kernel plan stays tracked under musl in case microVMs return.
 
 #### D8. Where the DeepBrain MVP runs, and where Bolt goes

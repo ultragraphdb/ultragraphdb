@@ -1,0 +1,31 @@
+load("@rules_apko//apko:defs.bzl", "apko_image", "apko_lock")
+load("@rules_img//img:convert.bzl", "image_index_from_oci_layout")
+load("@rules_img//img:media_types.bzl", "GZIP_LAYER")
+
+# Resolves apko.yaml's packages to exact versions and checksums in apko.lock.json: run it to update the base.
+apko_lock(
+    name = "lock",
+    config = "apko.yaml",
+    lockfile_name = "apko.lock.json",
+)
+
+# The base image itself, for both architectures, from the locked packages alone.
+apko_image(
+    name = "glibc_base",
+    config = "apko.yaml",
+    contents = "@glibc_base_lock//:contents",
+    tag = "glibc-base:latest",
+    visibility = ["//visibility:public"],
+)
+
+# The apko image as a rules_img index, the base `glibc_multiarch_img` builds on.
+image_index_from_oci_layout(
+    name = "glibc_base_index",
+    src = ":glibc_base",
+    layers = [GZIP_LAYER],
+    manifests = [
+        "linux/amd64",
+        "linux/arm64",
+    ],
+    visibility = ["//visibility:public"],
+)

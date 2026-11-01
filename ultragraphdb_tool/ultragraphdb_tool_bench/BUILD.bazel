@@ -7,8 +7,9 @@ load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc")
+load("@rules_img//img:load.bzl", "image_load")
 load("//bazel:binary.bzl", "static_binary")
-load("//bazel/container:img.bzl", "scratch_multiarch_img", "sha256_tag")
+load("//bazel/container:img.bzl", "glibc_multiarch_img", "scratch_multiarch_img", "sha256_tag")
 
 rust_library(
     name = "ultragraphdb_tool_bench",
@@ -68,6 +69,21 @@ scratch_multiarch_img(
     name = "wal_bench_multiarch",
     binary = ":wal_bench",
     visibility = ["//visibility:public"],
+)
+
+# The same benchmark on the glibc base the server ships on (D7): measures the server's libc and image on a Linux
+# host. Build with `-c opt`.
+glibc_multiarch_img(
+    name = "wal_bench_glibc_multiarch",
+    binary = ":wal_bench",
+    visibility = ["//visibility:public"],
+)
+
+# Loads the glibc image into the local Docker daemon: `bazel run -c opt :wal_bench_glibc_load`.
+image_load(
+    name = "wal_bench_glibc_load",
+    image = ":wal_bench_glibc_multiarch",
+    tag = "ultragraphdb/wal_bench:glibc",
 )
 
 # A tag naming the image by its own content.

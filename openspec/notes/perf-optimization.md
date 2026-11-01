@@ -1,12 +1,15 @@
-# Performance of the apply path
+# Reading versioned keys
 
-The apply thread is the port's write ceiling: in OrbStack's Linux VM it saturates near 22–23k relations/s, at 40–45 µs
-of CPU per relation, whatever the relations per commit (`archive/dgraph-port-overview.md`, "Measured, stage 2"). Dgraph applies
-a group's proposals one at a time on one goroutine too (`worker/draft.go:863`, `processApplyCh`), splitting a
-mutation's edges across goroutines only from 512 edges (`draft.go:561`, `x.DivideAndRule`), and one group reached about
-79k relations/s at 50 per commit (`dgraph-bench.md` in scrith): at most about 12.7 µs per relation. The port spends
-about three times as much per relation. This note sets out where that time goes and the options for each part; the
-work is its own change set.
+This note covers what a read of a versioned key costs in the store: proving a key absent and seeking its versions. It
+began as the profile of stage 2's apply thread, which saturated near 22–23k relations/s at 40–45 µs of CPU per
+relation in `store_bench` (`archive/dgraph-port-overview.md`, "Measured, stage 2"). Dgraph applies a group's proposals
+one at a time on one goroutine too (`worker/draft.go:863`, `processApplyCh`), splitting a mutation's edges across
+goroutines only from 512 edges (`draft.go:561`, `x.DivideAndRule`), and one group reached about 79k relations/s at 50
+per commit (`dgraph-bench.md` in scrith): at most about 12.7 µs per relation. The stage-5 pipeline now carries about
+38–41k relations/s at about 25 µs per relation on the VM disk (`UltraGraphDB Shard-per-Core Write Path.md`), about
+twice Dgraph's cost, and never reads the lists of IDs it creates, so the absence proofs below no longer arise on its
+write path. They remain for existing keys outside the cache and for every query; the Shard-per-Core note's P19 decides
+how they are met.
 
 ## Where the time goes
 
@@ -23,10 +26,11 @@ A stack sample of the apply thread at saturation (macOS, 50 relations per commit
 Inclusive, 49 % of the apply thread is inside fjall and lsm-tree, allocation and comparisons included: 34 % in seeking
 a key's versions on a list read, 7.7 % in the commit's write.
 
-Counters on the read path of the same workload settle what those reads are. At 50 relations per commit: 1,300,000
-list reads, every one a cache miss, 1,299,999 of them of a key with no version at all; at one relation per commit:
-1,000,000 reads, all misses, 999,999 of keys never written. About 1.9 list reads per relation, each a new subject's
-key: the cache never sees these keys before they are written, so no cache serves them. The cost is proving a key absent.
+Counters on the read path of the same workload settle what those reads are. At 50 relations per commit: 1,300,000 list
+reads, every one a cache miss, 1,299,999 of them of a key with no version at all; at one relation per commit:
+1,000,000 reads, all misses, 999,999 of keys never written (stage 2's path; the stage-5 pipeline skips them). About
+1.9 list reads per relation, each a new subject's key: the cache never sees these keys before they are written, so no
+cache serves them. The cost is proving a key absent.
 
 The allocation trims on the commit and cache-miss paths (no delta copied to collect written keys, the commit borrowing
 each request's deltas, a miss keeping one copy of its key and moving its lists) gained about 1 %: the port's own
@@ -50,7 +54,8 @@ supplies, Zero's commit timestamp, and one key holds many versions at once:
 fjall versions its writes with sequence numbers it assigns itself, increasing and local to one process. Dgraph's
 versions are chosen outside the store and must agree across replicas from stage 6, and a rollup writes a version older
 than versions already stored. So the version is part of the stored key: the user key with each run of zero bytes as
-`0x00` and a code, ending in an end code, then the complement of the version in big-endian order (`kv-store` spec). A key's versions are then
+`0x00` and a code, ending in an end code, then the complement of the version in big-endian order (`kv-store` spec).
+A key's versions are then
 contiguous, newest first, and "the newest version at or below `t`" is one seek, through a merging iterator, because a
 rollup can write a version below versions in higher levels (stage-2 design, "The store").
 
@@ -79,26 +84,30 @@ simulator's shadow model takes the invariant as a rule after every step and ever
 keyspace of their own, so that their bloom filters hold no versioned keys, and a drop removes the markers under its
 prefixes there as it removes the versions in the data keyspace.
 
-**B** removes the extra keys but depends on lsm-tree, which is pinned at 3.1.10 with fjall 3.1.12 because
-`Store::compact` calls fjall's `#[doc(hidden)]` functions.
+**B** removes the extra keys but depends on lsm-tree 3.1.10, which fjall 3.1.13 uses; fjall stays on 3.1 because
+`Store::compact` calls its `#[doc(hidden)]` functions.
+
+The Shard-per-Core note's P19 proves absence by index instead: the subject-predicates and object-predicates lists,
+written already, say which lists a node has, so a reader consults them first; no existence markers are written, and
+the key format keeps the version a fixed 8-byte suffix so that B needs only a prefix extractor.
 
 ## Parallel options
 
-The port applies as Dgraph does: the requests of a batch in order, each reading what earlier ones wrote through the
-stacked layers, and a request's edges in forks per predicate only when Dgraph would run more than one goroutine. The
-store write takes 7–13 % of a batch; the rest is the apply thread's.
+These options are named R1–R4, apart from the Shard-per-Core note's P1–P20. The port applies as Dgraph does: the
+requests of a batch in order, each reading what earlier ones wrote through the stacked layers, and a request's edges
+in forks per predicate only when Dgraph would run more than one goroutine. The store write takes 7–13 % of a batch;
+the rest is the apply thread's.
 
 | Option | What it is | Gain | What it must keep |
 |---|---|---|---|
-| P1. Read-ahead | The lists a batch's requests will read, known from their edges (data, reverse, index and count keys), read on executor threads at each request's read timestamp before the request runs | Overlaps the absence proofs and list decoding, about half the thread, with apply | The reads stay snapshot reads; the apply order is unchanged; a key read ahead and then written by an earlier request in the batch is read again through the stacked layers |
-| P2. Independent requests in parallel | Requests of a batch whose key sets are disjoint applied concurrently, then committed in order | Scales with cores while requests are independent | Key sets known before the request runs: upsert blocks and conditional requests read keys their query finds, so they run in order; a refused request still refuses its dependents |
-| P3. Smaller splits within a request | Forks per predicate below Dgraph's 512 edges | Uses cores for a mutation across several predicates | A fork is a request of its own, absorbed back after it runs, so a small mutation may lose; measured before any threshold is chosen |
-| P4. Pipelined batches | Batch n+1 applied while batch n is written to fjall | Up to the 7–13 % write share | The cache and the applied timestamp update after the write, as now; batch n+1 reads batch n's lists through the stacked layers, not the store |
+| R1. Read-ahead | The lists a batch's requests will read, known from their edges (data, reverse, index and count keys), read on executor threads at each request's read timestamp before the request runs | Overlaps the absence proofs and list decoding, about half the thread, with apply | The reads stay snapshot reads; the apply order is unchanged; a key read ahead and then written by an earlier request in the batch is read again through the stacked layers |
+| R2. Independent requests in parallel | Requests of a batch whose key sets are disjoint applied concurrently, then committed in order | Scales with cores while requests are independent | Key sets known before the request runs: upsert blocks and conditional requests read keys their query finds, so they run in order; a refused request still refuses its dependents |
+| R3. Smaller splits within a request | Forks per predicate below Dgraph's 512 edges | Uses cores for a mutation across several predicates | A fork is a request of its own, absorbed back after it runs, so a small mutation may lose; measured before any threshold is chosen |
+| R4. Pipelined batches | Batch n+1 applied while batch n is written to fjall | Up to the 7–13 % write share | The cache and the applied timestamp update after the write, as now; batch n+1 reads batch n's lists through the stacked layers, not the store |
 
-All four keep one writer: the store batch is still one atomic batch per apply step, in commit order, which is where the
-roadmap's single-writer idea (`ROADMAP.md`, "Improvements, single node") puts the writer. The simulator runs every option
-under `SteppedExecutor`, so a seed still replays a run; P1 and P2 move work onto the executor, which the simulator
-already schedules.
+All four keep one writer per partition: the store batch is still one atomic batch per apply step, in commit order.
+The simulator runs every option under `SteppedExecutor`, so a seed still replays a run; R1 and R2 move work onto the
+executor, which the simulator already schedules.
 
 ## Allocation still on the path
 
@@ -110,19 +119,18 @@ already schedules.
 - A cache hit clones its list whole (`lists_read.rs`, `cached`); the measured workload has no hits, a read-heavy one
   does.
 
-The sample was taken on macOS, whose allocator differs from glibc's; the store ships against glibc, so allocation is
-measured again in OrbStack before any of it is tuned.
+The sample was taken on macOS, whose allocator differs from the server's, glibc with mimalloc (D7), so allocation is
+measured again on Linux before any of it is tuned.
 
 ## Measuring
 
-`store_bench apply --dir <dir> --rate 50000 --relations 50 --seconds 30` in OrbStack, as in the overview, with the
+`store_bench apply --dir <dir> --rate 50000 --relations 50 --seconds 30` in OrbStack, on the VM disk (`/var/tmp`), not
+its RAM-backed `/tmp`, as in the overview, with the
 same store, cache and batch settings; three runs per row. A change to the read path reports the list reads per
 relation, the cache hits and the reads that found nothing, beside the commit rate.
 
 ## Open questions
 
 - Does a release of lsm-tree after 3.1.10 offer prefix filters, and at what cost to fjall's pin?
-- Does the existence marker pay for itself on a workload that mostly reads existing keys, where it adds a point get to
-  every miss?
-- Which of P1 and P2 belongs in the single-node change's apply thread (task 7.2 of `port-stage-5-single-node`), and
-  which in this change set?
+- Which of R1 and R2 does a partition's apply step take, given that every replica applies on its own core
+  (Shard-per-Core note, P6)?

@@ -26,7 +26,7 @@ The schema, not the developer, decides which writes need cross-group coordinatio
 
 - **Within a replica group, VSR is cheap.** A commit waits for a majority, one round trip, and batching amortizes it across thousands of operations.
 - **Crossing groups is expensive.** Transactions touching several predicates, constraints such as unique keys, cardinalities and acyclicity, and consistent snapshots across groups all need agreement between groups. A naive design turns these into two-phase commit on top of consensus.
-- **Current stage: predicate sharding.** The Dgraph-derived KV store shards by predicate, so an edge's forward and reverse entries share a group and a plain edge insert stays single-group. The price is that a hub predicate lives in one group.
+- **Current stage: bucket placement, one partition per core.** A storage node gives its cores to partitions, each a replica group owning ranges of buckets, and an entity's facts live in its bucket's partition (`UltraGraphDB Shard-per-Core Write Path.md`, decided 2026-11-01). An edge's reverse entry follows by change stream to its object's partition, and a heavily referenced node's reverse list is split across a few partitions. Predicate sharding, Dgraph's layout, would bound a hot predicate to one core.
 - **Later stage: 2D tiling.** Tiles fix hubs but separate forward and reverse entries, so reverse tiles will then be maintained through change streams. The mechanisms below are designed for both stages.
 
 ### Principle: coordinate only where an invariant could break
@@ -102,7 +102,7 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 - **Placement:** predicate-to-group assignment now, GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
 - **Sequencing:** the Calvin-style log that orders multi-group transactions.
 - **Snapshots:** consistent cross-group snapshot points (see below).
-- **ID ranges:** assigning buckets to groups and handing out sequence ranges per (type, bucket). A system ID is 128 bits: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence and 32 reserved bits (decided 2026-11-01).
+- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: a 16-bit type prefix, a 24-bit bucket (8 bits hashed from the namespace, 16 from the key), a 64-bit sequence unique per type and 8 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16).
 - **Versions:** schema catalog, the write and query classification derived from it, the RDF/LPG mapping contract, and the finalized feature level.
 
 **Its home from stage 5.5 (decided 2026-11-01).** The metadata group's state machine is built in stage 5.5, log-backed like the commit step and with one replica, holding catalog versions, ID ranges and the placement map, with catalog contents opaque to it. UGS (stage 6) is built on it; stage 8 adds its replication.
@@ -111,7 +111,7 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 
 - **Sequencer epochs** for snapshots instead of per-transaction timestamps, so no commit waits on the metadata group.
 - **Deterministic placement** derived from predicate or GSL coordinates, so lookups need no metadata and consensus is only needed when the mapping changes.
-- **Per-bucket ID ranges** instead of central ID leasing; a bucket moves between groups without changing an ID.
+- **Sequences leased in blocks per (type, partition)** instead of an ID per round trip; a bucket moves between partitions without changing an ID.
 
 With these, only membership, the placement map and the schema, classification and feature versions need consensus.
 
@@ -177,7 +177,7 @@ S3 mode also works on premises with S3-compatible stores such as MinIO or Ceph.
 
 ## Tile storage and query execution (later stage)
 
-Tile storage is postponed; the current stage uses the Dgraph-derived KV store with predicate sharding, which is adequate for now. When tiles arrive, graph topology becomes a hierarchically tiled sparse matrix: the tiling decides where data lives, how supernodes are split and how much each hop costs, and it moves reverse adjacency onto change streams. The multi-hop principles below apply to both stages.
+Tile storage is postponed; the current stage uses the Dgraph-derived KV store with bucket placement, which is adequate for now. When tiles arrive, graph topology becomes a hierarchically tiled sparse matrix: the tiling decides where data lives, how supernodes are split and how much each hop costs, and it moves reverse adjacency onto change streams. The multi-hop principles below apply to both stages.
 
 ### Tile layout
 
@@ -217,15 +217,15 @@ The cost of hop k is roughly the number of edges touched from the current fronti
 
 ## Node runtime and hardening
 
-Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_oci`. The microVM runtime and minimal kernel described below are tracked options, not current targets.
+Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built from Wolfi packages by `rules_apko` (D7). The microVM runtime and minimal kernel described below are tracked options, not current targets.
 
-Every node runs the same static musl binary; only storage nodes boot their own minimal kernel.
+Every node runs the same binary, linked against glibc with mimalloc, on the Wolfi glibc base of `bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
 
 | Node type | Runtime |
 | --- | --- |
-| Storage / log | Static musl binary on a minimal custom Linux kernel in a dedicated microVM (Firecracker or Cloud Hypervisor); one signed unified kernel image |
-| Frontend | Static musl binary in a scratch OCI container; the hardened microVM image is an option for high-assurance deployments, since frontends hold the metadata group |
-| Compute | Static musl binary in a scratch OCI container, elastic under an orchestrator |
+| Storage / log | The binary in an OCI container on the glibc base, with a seccomp profile allowing io_uring; a static musl variant on a minimal custom Linux kernel in a dedicated microVM (Firecracker or Cloud Hypervisor) stays a tracked option |
+| Frontend | The binary in an OCI container on the glibc base; the hardened microVM image is an option for high-assurance deployments, since frontends hold the metadata group |
+| Compute | The binary in an OCI container on the glibc base, elastic under an orchestrator |
 
 ### Minimal kernel for storage nodes
 
@@ -240,11 +240,11 @@ The approach follows Lupine Linux (EuroSys 2020): a standard Linux kernel specia
 
 ### libc and system calls
 
-- **Static musl, no dynamic loader,** which removes loader-level exploits such as Looney Tunables.
+- **glibc, dynamically linked,** for its vectorised string routines; the loader stays current through the base's lock, updated by `bazel run //bazel/oci_images/glibc_base:lock`. Client tools ship static musl binaries on scratch.
 - **mimalloc as the global allocator,** in secure mode subject to benchmarks.
-- **Pure-Rust, no\_std DNS resolver,** fuzzed continuously; the libc resolver is never linked.
+- **Pure-Rust, no\_std DNS resolver,** fuzzed continuously; the libc resolver is never called.
 - **rustix with the linux\_raw backend** for direct system calls, including vDSO time reads.
-- **io\_uring without libc:** the io-uring crate's direct-syscall feature now; port compio's backend to rustix's io\_uring module upstream later.
+- **io\_uring through direct system calls:** the io-uring crate's direct-syscall feature now; port compio's backend to rustix's io\_uring module upstream later. Container runtimes refuse io\_uring under their default seccomp profiles, so the images ship a profile allowing `io_uring_setup`, `io_uring_enter` and `io_uring_register`.
 - **Symbol allowlist in CI:** the release binary may link only an approved set of libc symbols; anything else fails the build.
 
 ### Unikernel options (tracked, not default)

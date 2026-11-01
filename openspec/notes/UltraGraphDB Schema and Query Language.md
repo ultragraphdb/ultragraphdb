@@ -104,7 +104,7 @@ entity Aircraft : Asset { tail_number: String @unique }
 ```
 
 - **Inheritance is single.** A subtype inherits all attributes and roles of its supertype and may add constraints to inherited attributes (for example make an optional attribute required), but never remove them. `abstract` types have no direct instances. Multiple inheritance is not supported, not even for abstract types used only as interfaces, because a type test would then no longer be a check of its type's prefix ranges.
-- **System identity.** Every entity and relation instance receives a 128-bit system ID: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence number and 32 reserved bits (decided 2026-11-01). A bucket is a virtual partition that the placement map assigns to a replica group, so rebalancing moves buckets and never changes an ID. IDs are generated per (type, bucket) without coordination and never reused, and they never leave the database: no query, result, IRI or cursor reveals them. How entities without a key, and relation instances, are named from outside (an **opaque handle**) is postponed beyond the first version, as personal data is.
+- **System identity.** Every entity and relation instance receives a 128-bit system ID: a 16-bit type prefix, a 24-bit bucket, a 64-bit sequence number and 8 reserved bits (decided 2026-11-01). The bucket takes 8 bits from a hash of the namespace and 16 from a hash of the declaring type's prefix and the key, so creation and the key's uniqueness check meet in one group; data without a key hashes its IRI. A bucket is a virtual partition that the placement map assigns to a replica group, so rebalancing moves buckets and never changes an ID. Sequences are unique per type, leased to groups in blocks without a round trip per ID, and never reused. IDs never leave the database: no query, result, IRI or cursor reveals them. How entities without a key, and relation instances, are named from outside (an **opaque handle**) is postponed beyond the first version, as personal data is.
 - **Type prefixes.** A type's prefix is allocated when the type is first declared, in declaration order, and never changes. A supertype covers the prefixes of its descendants: one range when they are declared together, a few once later versions or modules add subtypes. A type test checks those ranges (decided 2026-11-01).
 - **Business identity.** `@key` (on one attribute, or at entity level for a composite key such as `@key(country, registration)`) defines the external identity. Keys are required and immutable, are unique across the type and all its subtypes, and are used to mint IRIs.
 - **Types are fixed for life.** Because the type is part of the ID, an entity cannot change type. A change of type is a delete and a create, which the schema makes explicit rather than silent.
@@ -288,8 +288,8 @@ The compiler rejects `orphan` on a required role, and warns when `restrict` will
 
 Placement decides which replica group stores what, and therefore which constraints can be checked in one group.
 
-- **Default.** In the current KV stage, each attribute and relation is placed by predicate, as in Dgraph. In the later tile stage, placement follows the GSL grid.
-- **`@colocate(role)`** partitions a relation by the group of the participant in that role instead of by predicate, so constraints on that participant are checked locally. The relation's other navigation names then read across the groups of their participants; the coordination report lists those scatter reads. Example: `asset: Asset -> owner?` with `@colocate(asset)` puts each ownership instance in its asset's group.
+- **Default.** In the current KV stage, an entity's attributes live in its bucket's group, and a relation instance with its first role's participant; a reverse entry follows by change stream to the other participant's group, and a heavily referenced node's reverse list is split across a few groups (Shard-per-Core note, P3, P17). In the later tile stage, placement follows the GSL grid.
+- **`@colocate(role)`** partitions a relation by the group of the participant in that role instead of its first role's participant, so constraints on that participant are checked locally. The relation's other navigation names then read across the groups of their participants; the coordination report lists those scatter reads. Example: `asset: Asset -> owner?` with `@colocate(asset)` puts each ownership instance in its asset's group.
 - **`@colocate(root)`** applies to `@acyclic` hierarchies: each tree lives in its root's group. Moving a subtree to a different root is a coordinated move.
 - **Automatic placement.** For every segmented constraint without an explicit annotation, the compiler chooses the colocation that makes it local and reports the choice. When two constraints demand conflicting placements, it keeps one local, routes the other through coordination and warns.
 - **Unique indexes** are always partitioned by key hash, so each key has exactly one owning group.
@@ -308,7 +308,7 @@ Indexes are derived data: maintained through change streams, coordination-free, 
 ## Namespaces and IRIs
 
 - **Vocabulary terms.** `namespace av = "https://example.org/aviation#"` sets the base for schema terms: types (`av:Aircraft`), attributes (`av:serial`), navigation names (`av:assets`, with `owl:inverseOf` pairing both directions) and n-ary roles (`av:Supply_buyer`).
-- **Instance IRIs.** Entities with a key get `{namespace}{Type}/{key}`; entities without a key get `{namespace}{Type}/{handle}` and relation instances a reifier IRI `{namespace}rel/{handle}`, the handle's scheme postponed (System identity). `@iri("template")` overrides the pattern per type. System IDs never appear in IRIs.
+- **Instance IRIs.** Entities with a key get `{namespace}{Type}/{key}`, `Type` being the type that declares the key, so a subtype's instances share their supertype's IRI space and the key can be read back from the IRI; entities without a key get `{namespace}{Type}/{handle}` and relation instances a reifier IRI `{namespace}rel/{handle}`, the handle's scheme postponed (System identity). `@iri("template")` overrides the pattern per type; the compiler refuses a template from which the key cannot be read back. System IDs never appear in IRIs.
 - **External vocabularies.** `import "https://schema.org/" as schema` and `@maps_to(schema:name)` align a UGS term with an external one (exported as `owl:equivalentProperty` or `owl:equivalentClass`), so existing ontologies and SPARQL clients can use familiar terms.
 
 ## Graphs and shared graphs
@@ -1331,9 +1331,9 @@ insert Aircraft {
 ## Transactions
 
 - **Every statement is atomic.** `transaction { ... }` groups several statements into one atomic unit.
-- **Multi-group transactions are submitted whole.** A transaction that touches more than one group is sent as one request, not opened interactively with client logic between statements. This is the price of Calvin-style ordering, and it is what removes two-phase commit and deadlock aborts.
+- **Multi-group transactions commit optimistically.** A transaction that touches more than one group reads at a closed epoch and buffers its writes; its commit carries its read set to the sequencer, every group it reaches validates its own reads, and all commit or all abort, with no two-phase commit and no deadlock aborts. A transaction of blind, coordination-free writes skips the validation, and one submitted whole avoids an abort and a retry.
 
-  **Single-group transactions may be interactive.** Where every statement stays in one group, Calvin ordering is not needed, so a client may open a transaction, run statements with its own logic in between, and commit. Reads see the group's state at the start of the transaction; writes are validated at commit and the transaction is retried or aborted on conflict. If a statement would reach a second group, it is rejected with a hint to submit the transaction whole.
+  **Single-group transactions may be interactive.** Where every statement stays in one group, Calvin ordering is not needed, so a client may open a transaction, run statements with its own logic in between, and commit. Reads see the group's state at the start of the transaction; writes are validated at commit and the transaction is retried or aborted on conflict. If a statement reaches a second group, the transaction continues and commits optimistically, as above.
 - **One path per transaction.** The classifier takes the most demanding path among its statements: all single-group in the same group commits in that group; anything else is sequenced.
 - **Dependent reads.** When a write depends on data read in the same transaction, the engine first performs a reconnaissance read, then sequences the transaction with a check that the read set has not changed, as Calvin does; if it has, the transaction is retried automatically.
 - **Cost before execution.** `explain` shows the path of every statement before it runs, for example `insert Supply: segmented (escrow share of buyer, group 2)`.
@@ -1593,7 +1593,7 @@ explain     = "explain" ( query | mutation | pipeline | transaction ) ;
 | `try` and `or` in explicit patterns | Yes |
 | Pipelines from reads into writes | Yes, as one read stage feeding one write stage; multi-stage pipelines are not adopted |
 | UQL standard library (string, numeric, vector functions) | Next version; temporal, geometry and unit operations are core in version 1 |
-| Interactive transactions | Yes, for single-group transactions; multi-group transactions are submitted whole |
+| Interactive transactions | Yes; multi-group transactions commit optimistically through the sequencer |
 
 # Sources
 

@@ -52,17 +52,16 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 (`openspec/notes/review-stages-5.5-and-6.md`, D1, D2, D4), to be written as a decision record and specified in stage
 5.5's change before anything builds on them.
 
-- The system ID is 128 bits: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence and 32 reserved bits. A bucket
-  is a virtual partition the placement map assigns to a replica group, so rebalancing never changes an ID.
-  Proposed revision, pending decision: a 24-bit bucket and 8 reserved bits, with sequences unique per type and
-  leased per (type, partition), so the bucket outlasts large clusters of large nodes and leases stay few (Shard-per-Core
-  note, P7).
+- The system ID is 128 bits: a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the declaring
+  type and key), a 64-bit sequence unique per type and leased per (type, partition), and 8 reserved bits (D1 as
+  revised 2026-11-01; Shard-per-Core note, P7, P15, P16). A bucket is a virtual partition the placement map assigns to
+  a replica group, so rebalancing never changes an ID.
 - Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix
   ranges.
 - The metadata group's state machine is built in stage 5.5 with one replica, holding catalog versions, ID ranges and
   the placement map, catalog contents opaque to it; UGS builds on it in stage 6, and stage 8 replicates it.
 - What changes: the key encoding, the posting and packed-UID formats (new version bytes), the set operations, the term
-  dictionary's allocation (per (type, bucket) counters), the wire protocol's internal term encodings, HNSW's node IDs;
+  dictionary's allocation (sequence blocks per (type, partition)), the wire protocol's internal term encodings, HNSW's node IDs;
   the `uid-lists` and `key-encoding` specs stop matching Dgraph byte for byte, so their Go golden vectors are retired
   or regenerated; the `catalog`, `schema-storage` and `schema-changes` specs move to the metadata group.
 
@@ -70,8 +69,8 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 
 A storage node gives its cores to partitions, each a shared-nothing replica group with its own log, commit step and
 buckets, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
-measurements, the model, estimates for nodes of 48 to 128 cores and twelve decisions (P1–P12), each with a
-recommendation awaiting the user's choice, are in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`.
+measurements, the model, estimates for nodes of 48 to 128 cores and twenty decisions (P1–P20), adopted by the
+user on 2026-11-01; P20 divides them between what stage 5.5 builds and what stage 8 builds, are in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`.
 
 - One commit thread carries about 38,000 relations per second at 10 or more relations per commit, about 16,700
   commits/s at one: 35–60 µs per commit plus 20–25 µs per relation, the cost of about seven memtable skiplist
@@ -81,6 +80,8 @@ recommendation awaiting the user's choice, are in `openspec/notes/UltraGraphDB S
 - Independent pipelines side by side reach 6.4–7.1× at 12 on 12 vCPUs; each loses 41–47% to the machine at every
   commit size.
 - On nodes of 48 cores and more, the disk's bandwidth and flush rate bind before the cores, then the network.
+- The server ships against glibc with mimalloc on a Wolfi glibc base that `rules_apko` builds from
+  `bazel/oci_images/glibc_base` (D7); its images need a seccomp profile allowing io_uring.
 
 To specify, in order:
 

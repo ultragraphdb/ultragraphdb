@@ -8,7 +8,7 @@
 | 3. Website and public repository | ✅ |
 | 4. Data model and quad storage | ✅ |
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
-| 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | `open` |
+| 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | `in progress` |
 | 6. UGS: the full data definition and its implementation | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 8. Basic three-role clustering in a single container, the base of the DeepBrain MVP | `open` |
