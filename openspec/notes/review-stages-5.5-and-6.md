@@ -330,7 +330,7 @@ decisions, each with its trade-off, a recommendation and the consequences.
 |---|---|---|---|
 | S1 | "3 node clustering" had two readings | Three roles: frontend, compute, storage (user, 2026-11-01) | `ROADMAP.md` stages 5.5 and 8; backlog item 1 |
 | S2 | TLA+ or Lean | Lean (user) | Distribution note, verification strategy; backlog item 8 |
-| S3 | Deployment targets; who builds and signs images | Kubernetes and Docker, bare metal later; CI builds, signs and publishes OCI images with Bazel's `rules_oci`; the microVM runtime and minimal kernel become tracked options (user) | Distribution note, node runtime; backlog item 1 |
+| S3 | Deployment targets; who builds and signs images | Kubernetes and Docker, bare metal later; CI builds, signs and publishes OCI images with Bazel's `rules_img` (the server's base by `rules_apko`, D7); the microVM runtime and minimal kernel become tracked options (user) | Distribution note, node runtime; backlog item 1 |
 | S4 | ROADMAP prose and clustering items predate the table | Renumbered; VSR, the storage/compute separation and Aeron's stream position at stage 8; n−1 workers removed; typo fixed | `ROADMAP.md` (the MVP sentence waits for D8) |
 | S5 | The plan's stage table predates the renumbering | A pointer to ROADMAP's table above it; the rows kept as source material | Dual Query Engine Plan, *Stages* |
 | S6 | `today()`, `now()`, `as of time` need a wall time per epoch | Each closed epoch records the sequencer's wall-clock time at its close, never below the previous epoch's; ordering never reads the clock | Distribution note, sequencer epochs |
@@ -525,7 +525,8 @@ decisions, each with its trade-off, a recommendation and the consequences.
       GPL with the runtime exception; the CA bundle MPL and MIT), and Bazel pins every package by checksum.
   - *glibc, statically linked, on scratch*: glibc's name-service and `dlopen` paths break when static, and statically
     linking the LGPL glibc obliges shipping what lets a user relink against another glibc.
-  - The roles are one binary, so the choice covers the frontend and compute roles too, both CPU-bound on queries.
+  - The three role binaries share the base, so the choice covers the frontend and compute roles too, both CPU-bound on
+    queries.
 - **Recommendation (adopted).**
   - The server binary ships against glibc with mimalloc, dynamically linked, on the Wolfi glibc base:
     `bazel/oci_images/glibc_base` holds its `apko.yaml` (`wolfi-baselayout`, `glibc`, `ld-linux`, `libgcc`,

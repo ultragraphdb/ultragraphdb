@@ -15,10 +15,10 @@ decision.
 
 ### 1. The roles and their process
 
-The three roles (frontend, compute, storage) from one binary with role flags; each role's threads and runtimes; the
-profiles (`dev`, `dev-ha`, `dev-net`, one role per process) and their configuration; the data layout per role and
-replica; start, readiness, the shutdown order; health and metrics; bounds; exit codes; the acceptance batteries against
-the built binary.
+The three roles (frontend, compute, storage), each its own binary and OCI image under `ultragraphdb_bin`, built in
+stage 5.5 (Shard-per-Core note, P22); each role's threads and runtimes; the profiles (`dev`, `dev-ha`, `dev-net`, one
+role per process) and their configuration; the data layout per role and replica; start, readiness, the shutdown order;
+health and metrics; bounds; exit codes; the acceptance batteries against the built binary.
 
 - Architecture: *Cluster architecture*, *Replication and runtime model*, *Node runtime and hardening*; the
   single-container note throughout.
@@ -27,7 +27,8 @@ the built binary.
 - Open: where the Welcome's `max_write_set` and `TxnLimits` take their bound from the log's round size once a role
   builds the Welcome (`RoundBounds::max_write_set`, stage 5's commit step).
 - Decided 2026-11-01: the three roles are what "3 node clustering" means; the deployment targets are Kubernetes and
-  Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_oci`.
+  Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built
+  from Wolfi packages by `rules_apko` (D7).
 - Operator requirements the roles' specification states (from `openspec/notes/review-stages-5.5-and-6.md`):
   - signals per role, exported through OTLP: the age of the latest closed epoch and its close latency, watermark lag
     per group and per incoming change stream, the share of writes on the coordinated path, escrow-share exhaustion and
@@ -69,8 +70,9 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 
 A storage node gives its cores to partitions, each a shared-nothing replica group with its own log, commit step and
 buckets, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
-measurements, the model, estimates for nodes of 48 to 128 cores and twenty decisions (P1–P20), adopted by the
-user on 2026-11-01; P20 divides them between what stage 5.5 builds and what stage 8 builds, are in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`.
+measurements, the model, estimates for nodes of 48 to 128 cores and twenty-three decisions (P1–P23), adopted by the
+user on 2026-11-01; P20 divides them between what stage 5.5 builds and what stage 8 builds, P21 builds the sequencer
+in stage 5.5, P22 gives each role its own binary and image, and P23 retires the Go vectors of the 64-bit formats, are in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`.
 
 - One commit thread carries about 38,000 relations per second at 10 or more relations per commit, about 16,700
   commits/s at one: 35–60 µs per commit plus 20–25 µs per relation, the cost of about seven memtable skiplist

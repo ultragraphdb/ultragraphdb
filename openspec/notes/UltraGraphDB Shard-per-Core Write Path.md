@@ -749,15 +749,50 @@ glibc, is D7 in the review note, adopted the same day.
   - the log record and the log interface with durability tickets (P18, P10's interface), files per partition behind
     it;
   - the metadata group with one replica, holding the catalog, ID blocks and the placement map (D4, P2, P7);
+  - the sequencer with one replica, closing epochs and ordering multi-partition transactions (P21);
   - the partition runtime, partition-generic, run with one partition for stages 6 and 7 and with N in `wal_bench`
     (P5 step 1);
-  - the crates divided into the three roles with the in-process carrier (review §4.4).
-- **Stage 5.5 decides and stage 8 builds**: cross-partition commits and their semantics (P3, P14), change streams and
-  their aggregation per node, replication and replica placement (P8), node budgets (P4, P11), the epoch agent (P12),
-  flush sharing behind the log interface (P10).
+  - the crates divided into the three roles, each role its own binary and OCI image under `ultragraphdb_bin` (P22).
+- **Stage 5.5 decides and stage 8 builds**: the execution of cross-partition commits on the sequencer's order (P3,
+  P14), change streams and their aggregation per node, replication and replica placement (P8), node budgets (P4, P11),
+  the epoch agent (P12), flush sharing behind the log interface (P10).
 
 **Consequences.**
 
 - Stage 5.5's change carries the specifications of what it builds; the decisions it does not build are recorded in
   this note and specified in stage 8's change.
 - The development container's two storage groups of one replica (single-container note) arrive with stage 8.
+
+## Decisions taken before drafting
+
+The user took three more decisions on 2026-11-01, closing the last questions before stage 5.5's specifications.
+
+### P21. The sequencer arrives in stage 5.5
+
+Every commit carries an epoch (P13), so something must advance epochs from the first stage that stamps them. The
+sequencer is built in stage 5.5, before anything uses an epoch, as a log-backed state machine with one replica like
+the metadata group (D4): it closes epochs at the sequencer's wall-clock time, records each close, and keeps the ordered
+log of multi-partition transactions. Partitions stamp their commits with the latest epoch it has closed. Stage 8
+replicates it and executes cross-partition commits in its order (P3, P14); the distribution note's open questions on
+epoch length and on placing the sequencer beside the metadata group stay with stage 8's measurements.
+
+### P22. Three binaries, three images
+
+Each role is its own binary under `ultragraphdb_bin`: frontend (the endpoint, the metadata group, the sequencer),
+compute (query execution) and storage (transactions, the commit step, the log, the store). Each ships as its own OCI
+image on the Wolfi glibc base through `glibc_multiarch_img` (D7). A binary carries only its role's code and
+dependencies, so each image is the smallest that role allows and a role updates on its own; the roles share the
+libraries beneath them. Stage 5.5 builds the three binaries and their images and runs them together for stages 6 and 7.
+
+The single-container note folds the roles into one process with an in-process carrier; with three binaries, the
+development container runs three processes, and how they meet in it is the single-container note's to settle.
+
+### P23. The Go golden vectors of the 64-bit formats are retired
+
+The 128-bit ID ends byte-for-byte compatibility with Dgraph's packed-UID format, so stage 5.5 removes the Go golden
+vectors of the `uid-lists` spec entirely: `codec_uidpack` and `codec_seek` (`tools/golden/codec.go`,
+`ultragraphdb_core_codec/testdata/golden`) and the tests and scenarios reading them. The `key-encoding` spec has no
+generated vectors; its scenarios citing Dgraph's bytes are rewritten for the 128-bit layout. The new formats take
+vectors generated from their own specifications. The other generators stay; `algo_setops` and the HNSW graph vectors
+also carry 64-bit IDs, and stage 5.5 retires whichever of them its formats invalidate.
+

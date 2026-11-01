@@ -6,7 +6,7 @@ UltraGraphDB is a distributed graph database with three node types (frontend, co
 
 ## Cluster architecture
 
-Three node types, built from one binary with role flags. The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
+Three node types, each its own binary and OCI image under `ultragraphdb_bin` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
 
 &#91;embedded content: Cluster architecture · frontend, compute and two storage modes\]
 
@@ -219,13 +219,13 @@ The cost of hop k is roughly the number of edges touched from the current fronti
 
 Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built from Wolfi packages by `rules_apko` (D7). The microVM runtime and minimal kernel described below are tracked options, not current targets.
 
-Every node runs the same binary, linked against glibc with mimalloc, on the Wolfi glibc base of `bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
+Each role runs its own binary, linked against glibc with mimalloc, on the Wolfi glibc base of `bazel/oci_images/glibc_base` (D7, decided 2026-11-01): musl with mimalloc measured about 18% slower per core. The tracked microVM option builds a static musl variant for its kernel.
 
 | Node type | Runtime |
 | --- | --- |
-| Storage / log | The binary in an OCI container on the glibc base, with a seccomp profile allowing io_uring; a static musl variant on a minimal custom Linux kernel in a dedicated microVM (Firecracker or Cloud Hypervisor) stays a tracked option |
-| Frontend | The binary in an OCI container on the glibc base; the hardened microVM image is an option for high-assurance deployments, since frontends hold the metadata group |
-| Compute | The binary in an OCI container on the glibc base, elastic under an orchestrator |
+| Storage / log | The storage binary in an OCI container on the glibc base, with a seccomp profile allowing io_uring; a static musl variant on a minimal custom Linux kernel in a dedicated microVM (Firecracker or Cloud Hypervisor) stays a tracked option |
+| Frontend | The frontend binary, holding the metadata group and the sequencer, in an OCI container on the glibc base; the hardened microVM image is an option for high-assurance deployments, since frontends hold the metadata group |
+| Compute | The compute binary in an OCI container on the glibc base, elastic under an orchestrator |
 
 ### Minimal kernel for storage nodes
 
