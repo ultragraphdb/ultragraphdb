@@ -63,6 +63,34 @@ The system ID, type prefixes and the state machine that hands both out, decided 
   the `uid-lists` and `key-encoding` specs stop matching Dgraph byte for byte, so their Go golden vectors are retired
   or regenerated; the `catalog`, `schema-storage` and `schema-changes` specs move to the metadata group.
 
+### 11. Write-path throughput: one partition per core (stage 5.5)
+
+A storage node runs one partition per core, each a shared-nothing replica group with its own log, commit step and
+store, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
+measurements, the model and its consequences for the clustering architecture are in
+`openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`; its open questions are this item's to answer.
+
+- One commit thread carries about 38,000 relations per second at 10 or more relations per commit, about 16,700
+  commits/s at one: 35–60 µs per commit plus 20–25 µs per relation, the cost of about seven memtable skiplist
+  operations per relation at 1–3 µs each (VM disk; the VM's tmpfs `/tmp` overstates every figure).
+- The zero-run stored key and the dictionary cache, in `ultragraphdb_store_kv` since 2026-11-01, gain 11–21% per core
+  and cut the fjall journal by 23% per relation. The key's width costs little; the operations per relation cost.
+- Independent pipelines side by side reach 6.4–7.1× at 12 on 12 vCPUs; each loses 41–47% to the machine at every
+  commit size.
+
+To specify, in order:
+
+1. The bucket as placement: derived from a hash of the IRI or `@key`, so that creation and the dictionary's uniqueness
+   check stay in one partition; buckets per partition; the placement map in the metadata group (item 10, D1, D4).
+2. The writes that stay single-partition under bucket placement and those that cross, with reverse entries and other
+   derived indexes by change stream and watermark (stage 8).
+3. The partition's runtime: one compio runtime per core running its commit step, execution beside it, the apply on
+   the same core or pipelined on a second; the cores a node reserves for fjall's workers, the frontend and the network.
+4. One LSM instance per partition, and the node's budget for fjall's workers, memtables and caches.
+5. `wal_bench` measuring N partitions in one process with a chosen share of cross-partition commits.
+6. The bytes per relation: a logical log record (the quad) in place of physical key deltas, and the design's option C,
+   fjall without its own journal, once the CPU no longer bounds the path.
+
 ### 2. The client endpoint
 
 The binary-protocol endpoint the frontend serves: a connection's requests turned into the operations of the groups they

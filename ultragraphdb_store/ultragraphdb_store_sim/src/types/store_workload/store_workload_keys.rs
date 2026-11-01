@@ -20,7 +20,7 @@ const NAMESPACES: [u64; 3] = [0, 1, 5];
 const GRAPHS: [u64; 2] = [0, 3];
 /// The predicates `name` and `friend`, by UID.
 pub const PREDICATES: [u64; 2] = [7, 9];
-/// Index tokens, one a byte prefix of another and one holding a zero byte, which the stored key escapes.
+/// Index tokens, one a byte prefix of another and one holding a zero byte, which the stored key writes as a run code.
 const TOKENS: [&[u8]; 4] = [b"ab", b"abc", b"a\x00b", b"b"];
 
 /// The keys the store workload draws: forward lists, value index keys and catalog entries of a few namespaces,

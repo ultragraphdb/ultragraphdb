@@ -150,8 +150,8 @@ pub fn raw_drop_state(dir: &Path) -> (bool, usize) {
         .expect("meta");
     let snapshot = db.snapshot();
     let record = snapshot.get(&meta, b"drop").expect("readable").is_some();
-    // The stored prefix: the user key's zero bytes escaped.
-    let left = snapshot.prefix(&data, b"\x00\xffdropme").count();
+    // The stored prefix: the user key's zero byte written as a run of one followed by a non-zero byte.
+    let left = snapshot.prefix(&data, b"\x00\xfedropme").count();
     (record, left)
 }
 

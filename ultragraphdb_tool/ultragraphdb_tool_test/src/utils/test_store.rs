@@ -106,13 +106,27 @@ pub fn write_raw_in(dir: &TestDir, keyspace: &str, key: &[u8], value: &[u8]) {
     db.persist(fjall::PersistMode::SyncAll).unwrap();
 }
 
-/// The stored key as the specification states it: zero bytes escaped, terminated, the complemented version.
+/// The stored key as the specification states it: every run of zero bytes as `0x00` and a code (`0xFF - k` for `k`
+/// bytes before a non-zero byte, `0x80` for 126 bytes before more, `0x01 + j` for `j` bytes ending the key), the
+/// complemented version after the end code.
 pub fn stored(key: &[u8], version: u64) -> Vec<u8> {
-    let mut out: Vec<u8> = key
-        .iter()
-        .flat_map(|&b| if b == 0 { vec![0, 0xFF] } else { vec![b] })
-        .collect();
-    out.extend_from_slice(&[0x00, 0x01]);
+    let mut out = Vec::new();
+    let mut run = 0u8;
+    for &b in key {
+        match (b, run) {
+            (0, 126) => {
+                out.extend_from_slice(&[0x00, 0x80]);
+                run = 1;
+            }
+            (0, _) => run += 1,
+            (_, 0) => out.push(b),
+            _ => {
+                out.extend_from_slice(&[0x00, 0xFF - run, b]);
+                run = 0;
+            }
+        }
+    }
+    out.extend_from_slice(&[0x00, 0x01 + run]);
     out.extend_from_slice(&(!version).to_be_bytes());
     out
 }

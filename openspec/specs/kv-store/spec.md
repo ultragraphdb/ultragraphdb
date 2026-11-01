@@ -6,9 +6,12 @@ timestamp, snapshot scans, atomic write batches, prefix drops and banned namespa
 discard timestamp.
 ## Requirements
 ### Requirement: Versions are part of the key
-The store SHALL keep every version of a key, storing a version as the user key with every `0x00` byte written as
-`0x00 0xFF`, then the terminator `0x00 0x01`, then the bitwise complement of the version in big-endian order, so that
-fjall's byte order is Badger's: keys in order, each key's versions contiguous and newest first. Each version SHALL carry
+The store SHALL keep every version of a key, storing a version as the user key with every run of `0x00` bytes written
+as `0x00` and a code, then the bitwise complement of the version in big-endian order, so that fjall's byte order is
+Badger's: keys in order, each key's versions contiguous and newest first. A run of `k` zero bytes (1 to 126) before a
+non-zero byte SHALL take the code `0xFF - k`, a run of `j` zero bytes (0 to 126) ending the key the code `0x01 + j`, and
+each 126 zero bytes a longer run begins with the code `0x80`; the codes order as the bytes they stand for, and a key's
+zero runs take two bytes each however long, Dgraph's keys being mostly zero bytes. Each version SHALL carry
 a meta byte (schema `0x01`, delta `0x04`, complete `0x08`, empty `0x10`), a discard flag and a tombstone flag. A write
 whose user key exceeds 65,000 bytes, as Badger refuses it, or whose stored key exceeds 65,535 bytes, fjall's limit,
 SHALL be refused with Badger's text `Key with size <n> exceeded <limit> limit`, and its batch SHALL write nothing.
@@ -35,8 +38,8 @@ SHALL be refused with Badger's text `Key with size <n> exceeded <limit> limit`, 
   found
 
 #### Scenario: A stored key over fjall's limit is refused
-- **WHEN** a batch writes a key whose user key is 40,000 zero bytes, 80,010 bytes once escaped and versioned
-- **THEN** the batch fails with an error beginning `Key with size 80010 exceeded 65535 limit`, and none of its keys is
+- **WHEN** a batch writes a key whose user key is 44,000 bytes of 0x00 0x01, 66,010 bytes once encoded and versioned
+- **THEN** the batch fails with an error beginning `Key with size 66010 exceeded 65535 limit`, and none of its keys is
   found
 
 ### Requirement: Reads at a timestamp
@@ -179,7 +182,9 @@ filter collects SHALL stay collected across a restart.
 The store SHALL provide a keyspace whose keys carry no version: a point read returns the key's one value, a lookup of an
 absent key is answered by fjall's bloom filters, and a write replaces the value. Writes to it SHALL be entries of the
 same atomic write batch as versioned writes, so a batch is visible whole or not at all across both, and drops of
-everything SHALL clear it. Reads of it SHALL not be bounded by the discard timestamp.
+everything SHALL clear it. Reads of it SHALL not be bounded by the discard timestamp. The values its point reads find
+SHALL be cached, bounded at 64 MiB of keys and values, and a committed write or a drop of everything SHALL invalidate
+what it changed, so that no read returns a value a commit replaced or removed.
 
 #### Scenario: A versionless write is atomic with versioned writes
 - **WHEN** a batch writes a versioned key and a key without a version, and the process crashes during the batch
@@ -192,4 +197,8 @@ everything SHALL clear it. Reads of it SHALL not be bounded by the discard times
 #### Scenario: Dropping everything clears it
 - **WHEN** keys without versions are written and everything is dropped
 - **THEN** none of them is found
+
+#### Scenario: A cached value gives way to the write that replaces it
+- **WHEN** a key without a version is read, then rewritten with another value, then removed
+- **THEN** the read after the rewrite returns the new value and the read after the removal returns nothing
 

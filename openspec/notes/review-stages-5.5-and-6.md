@@ -482,7 +482,8 @@ decisions, each with its trade-off, a recommendation and the consequences.
     | glibc with mimalloc | 833, 869, 842 | about 22,600 |
 
     mimalloc brings musl level with glibc's default build; glibc with mimalloc is about 32% faster again. The remaining
-    gap is not the allocator, and glibc's tuned `memcpy` is the likely cause (not verified). One benchmark, on a VM's
+    gap is not the allocator but `memcmp`: a profile puts 18.5% of all time in libc, almost all `memcmp` from fjall's
+    memtable skiplist comparing keys; glibc's `memcmp` is vectorised and musl's is a byte loop (backlog item 11). One benchmark, on a VM's
     virtual storage, aarch64 only.
   - **Mimalloc adopted for musl (user, 2026-11-01):** the workspace pins `mimalloc` with `local_dynamic_tls`, the bench
     binaries set it as their global allocator, and `static_binary` and `scratch_multiarch_img` (taken from scrith)

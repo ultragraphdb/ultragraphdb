@@ -11,7 +11,7 @@ use fjall::Slice;
 use fjall::compaction::filter::Verdict;
 
 use crate::types::gc_settings::GcSettings;
-use crate::utils::stored_key::escaped_part;
+use crate::utils::stored_key::encoded_part;
 use crate::utils::stored_value::decode_value;
 
 /// The compaction filter of the data keyspace: Badger's rule for versions (`badger/levels.go:815-835`) over the
@@ -28,7 +28,7 @@ use crate::utils::stored_value::decode_value;
 pub struct GcFilter {
     discard_ts: u64,
     last_level: bool,
-    /// The escaped user key of the key being read.
+    /// The encoded user key of the key being read.
     key: Vec<u8>,
     /// Whether a version of that key at or below the discard timestamp is discard-flagged or a deletion.
     cut: bool,
@@ -89,12 +89,12 @@ impl GcFilter {
     }
 
     fn decide(&mut self, stored: &[u8], value: &[u8]) -> bool {
-        let (Some(escaped), Ok(decoded)) = (escaped_part(stored), decode_value(value)) else {
+        let (Some(encoded), Ok(decoded)) = (encoded_part(stored), decode_value(value)) else {
             self.undecodable += 1;
             return false;
         };
-        if escaped != self.key.as_slice() {
-            self.key = escaped.to_vec();
+        if encoded != self.key.as_slice() {
+            self.key = encoded.to_vec();
             self.cut = false;
         }
         let mut version = [0u8; 8];

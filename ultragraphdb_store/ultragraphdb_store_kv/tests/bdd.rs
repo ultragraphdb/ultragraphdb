@@ -205,10 +205,10 @@ fn user_key_too_long(w: &mut Steps) {
 }
 
 #[when(
-    "a batch writes a key whose user key is 40,000 zero bytes, 80,010 bytes once escaped and versioned"
+    "a batch writes a key whose user key is 44,000 bytes of 0x00 0x01, 66,010 bytes once encoded and versioned"
 )]
 fn stored_key_too_long(w: &mut Steps) {
-    oversized(w, vec![0; 40_000]);
+    oversized(w, (0..44_000).map(|i| (i % 2) as u8).collect());
 }
 
 #[then(
@@ -497,6 +497,35 @@ fn none_found(w: &mut Steps) {
     assert_eq!(store.get_versionless(b"t1").expect("read"), None);
     assert_eq!(store.get_versionless(b"t2").expect("read"), None);
     assert!(store.dump_versionless().expect("dumps").is_empty());
+}
+
+#[when("a key without a version is read, then rewritten with another value, then removed")]
+fn versionless_rewritten(w: &mut Steps) {
+    let write = |w: &mut Steps, value: Option<&[u8]>| {
+        let mut batch = WriteBatch::new();
+        match value {
+            Some(v) => batch.put_versionless(b"t".to_vec(), v.to_vec()),
+            None => batch.remove_versionless(b"t".to_vec()),
+        }
+        w.open().apply(batch, PersistMode::Buffer).expect("written");
+    };
+    write(w, Some(b"old"));
+    let first = w.open().get_versionless(b"t").expect("read");
+    write(w, Some(b"new"));
+    let rewritten = w.open().get_versionless(b"t").expect("read");
+    write(w, None);
+    let removed = w.open().get_versionless(b"t").expect("read");
+    w.versionless = vec![first, rewritten, removed];
+}
+
+#[then(
+    "the read after the rewrite returns the new value and the read after the removal returns nothing"
+)]
+fn versionless_gave_way(w: &mut Steps) {
+    assert_eq!(
+        w.versionless,
+        vec![Some(b"old".to_vec()), Some(b"new".to_vec()), None]
+    );
 }
 
 #[when("one batch writes key a at version 12 and key b at version 13")]

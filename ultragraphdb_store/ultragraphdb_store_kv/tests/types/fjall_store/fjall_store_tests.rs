@@ -37,7 +37,7 @@ fn test_versions_are_part_of_the_stored_key_and_the_metadata_a_value_prefix() {
         .map(|g| g.into_inner().unwrap())
         .map(|(k, v)| (k.to_vec(), v.to_vec()))
         .collect();
-    let mut five = b"a\x00\xffb\x00\x01".to_vec();
+    let mut five = b"a\x00\xfeb\x00\x01".to_vec();
     five.extend_from_slice(&(!5u64).to_be_bytes());
     assert_eq!(
         raw,

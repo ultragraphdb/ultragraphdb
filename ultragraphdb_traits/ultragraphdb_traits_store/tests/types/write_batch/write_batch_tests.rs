@@ -8,6 +8,16 @@ use ultragraphdb_traits_store::{
     Entry, MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, VersionlessEntry, WriteBatch,
 };
 
+/// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
+fn alternating(len: usize) -> Vec<u8> {
+    (0..len).map(|i| (i % 2) as u8).collect()
+}
+
+/// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.
+fn dense_head() -> Vec<u8> {
+    [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect()
+}
+
 #[test]
 fn test_a_new_batch_is_empty() {
     let batch = WriteBatch::new();
@@ -51,21 +61,17 @@ fn test_check_key_sizes_covers_versionless_keys() {
         put.check_key_sizes(),
         Err(StoreError::KeyTooLarge(65_001, 65_000, vec![7; 1024]))
     );
-    // A removal names its key as a put does: 40,000 zero bytes are 80,010 stored (40,000 escapes, 2 + 8).
+    // A removal names its key as a put does: 44,000 bytes of `0x00 0x01` are 66,010 stored (a code per zero byte).
     let mut removal = WriteBatch::new();
-    removal.remove_versionless(vec![0; 40_000]);
+    removal.remove_versionless(alternating(44_000));
     assert_eq!(
         removal.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(
-            80_010,
-            65_535,
-            [0x00, 0xFF].repeat(512)
-        ))
+        Err(StoreError::KeyTooLarge(66_010, 65_535, dense_head()))
     );
     // Versionless keys at both limits are accepted.
     let mut within = WriteBatch::new();
     within.put_versionless(vec![7; MAX_USER_KEY_SIZE], vec![]);
-    within.remove_versionless([vec![0; 32_762], vec![1]].concat());
+    within.remove_versionless([alternating(43_682), vec![1, 1]].concat());
     assert_eq!(within.check_key_sizes(), Ok(()));
 }
 
@@ -75,14 +81,10 @@ fn test_check_key_sizes_reports_an_entry_before_a_versionless_key() {
     // reports the same key whatever order the caller built its batch in.
     let mut batch = WriteBatch::new();
     batch.put_versionless(vec![9; MAX_USER_KEY_SIZE + 1], vec![]);
-    batch.push(Entry::deletion(vec![0; 40_000], 1));
+    batch.push(Entry::deletion(alternating(44_000), 1));
     assert_eq!(
         batch.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(
-            80_010,
-            65_535,
-            [0x00, 0xFF].repeat(512)
-        ))
+        Err(StoreError::KeyTooLarge(66_010, 65_535, dense_head()))
     );
 }
 
@@ -149,13 +151,13 @@ fn test_check_key_sizes_refuses_the_first_oversized_key() {
     batch.push(Entry::put(vec![7; MAX_USER_KEY_SIZE], 1, 0, vec![]));
     assert_eq!(batch.check_key_sizes(), Ok(()));
     // A stored-size refusal first, then a larger user-size one: the first is reported.
-    batch.push(Entry::put(vec![0; 40_000], 1, 0, vec![]));
+    batch.push(Entry::put(alternating(44_000), 1, 0, vec![]));
     batch.push(Entry::deletion(vec![1; MAX_USER_KEY_SIZE + 1], 1));
     let err = batch.check_key_sizes().unwrap_err();
     match err.0 {
         StoreErrorEnum::KeyTooLarge { size, limit, head } => {
-            assert_eq!((size, limit), (80_010, MAX_STORED_KEY_SIZE));
-            assert_eq!(head, [0x00, 0xFF].repeat(512));
+            assert_eq!((size, limit), (66_010, MAX_STORED_KEY_SIZE));
+            assert_eq!(head, dense_head());
         }
         other => panic!("expected KeyTooLarge, got {other:?}"),
     }

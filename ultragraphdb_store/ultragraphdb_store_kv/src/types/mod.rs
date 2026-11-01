@@ -14,4 +14,5 @@ pub mod gc_filter_factory;
 pub mod gc_settings;
 pub mod moka_list_cache;
 pub mod syncer;
+pub mod term_cache;
 pub mod thread_executor;

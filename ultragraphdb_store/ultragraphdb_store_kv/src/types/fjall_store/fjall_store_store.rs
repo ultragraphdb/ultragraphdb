@@ -47,7 +47,7 @@ impl Store for FjallStore {
             fb.remove(&s.meta, rebuild_key(*id));
         }
         let (entries, versionless) = batch.into_parts();
-        for e in versionless {
+        for e in &versionless {
             match e.value() {
                 Some(value) => fb.insert(&s.terms, e.key(), value),
                 None => fb.remove(&s.terms, e.key()),
@@ -67,19 +67,31 @@ impl Store for FjallStore {
             fb.insert(&s.meta, APPLIED_KEY, ts.to_be_bytes().to_vec());
         }
         s.commit(fb)?;
+        s.term_cache
+            .invalidate(versionless.iter().map(|e| e.key()));
         if let Some(ts) = applied {
             s.applied_ts.store(ts, Ordering::Release);
         }
         Ok(())
     }
 
-    /// One point get, through the keyspace's bloom filters.
+    /// One lookup of the cache, then one point get through the keyspace's bloom filters, whose value fills it.
     fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
-        self.shared
+        let cache = &self.shared.term_cache;
+        if let Some(value) = cache.get(key) {
+            return Ok(Some(value));
+        }
+        let generation = cache.generation();
+        let found = self
+            .shared
             .terms
             .get(key)
             .map(|v| v.map(|v| v.to_vec()))
-            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))
+            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))?;
+        if let Some(value) = &found {
+            cache.fill(key, value.clone(), generation);
+        }
+        Ok(found)
     }
 
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {

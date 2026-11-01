@@ -49,8 +49,8 @@ supplies, Zero's commit timestamp, and one key holds many versions at once:
 
 fjall versions its writes with sequence numbers it assigns itself, increasing and local to one process. Dgraph's
 versions are chosen outside the store and must agree across replicas from stage 6, and a rollup writes a version older
-than versions already stored. So the version is part of the stored key: the user key escaped (`0x00` as `0x00 0xFF`),
-the terminator `0x00 0x01`, then the complement of the version in big-endian order. A key's versions are then
+than versions already stored. So the version is part of the stored key: the user key with each run of zero bytes as
+`0x00` and a code, ending in an end code, then the complement of the version in big-endian order (`kv-store` spec). A key's versions are then
 contiguous, newest first, and "the newest version at or below `t`" is one seek, through a merging iterator, because a
 rollup can write a version below versions in higher levels (stage-2 design, "The store").
 

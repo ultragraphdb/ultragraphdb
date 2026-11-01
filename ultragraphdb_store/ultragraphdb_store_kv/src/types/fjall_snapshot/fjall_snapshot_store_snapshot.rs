@@ -11,7 +11,7 @@ use ultragraphdb_traits_store::{Direction, Item, Scan, StoreSnapshot};
 
 use crate::types::fjall_scan::FjallScan;
 use crate::types::fjall_snapshot::FjallSnapshot;
-use crate::utils::stored_key::{escape, key_end, stored_key};
+use crate::utils::stored_key::{key_end, key_start, stored_key};
 use crate::utils::stored_value::decode_value;
 
 impl StoreSnapshot for FjallSnapshot {
@@ -28,7 +28,7 @@ impl StoreSnapshot for FjallSnapshot {
             return Ok(None);
         }
         let lower = stored_key(key, self.read_ts);
-        // Every stored key in the range begins with the escaped key and its terminator; one of the lower bound's
+        // Every stored key in the range begins with the encoded key and its end code; one of the lower bound's
         // length ends in the eight bytes of a version, and any other is corrupted.
         let stored_len = lower.len();
         let range = (Bound::Included(lower), Bound::Excluded(key_end(key)));
@@ -73,10 +73,10 @@ impl StoreSnapshot for FjallSnapshot {
     }
 
     fn scan(&self, scan: &Scan) -> Self::Scan {
-        let mut lower = escape(scan.start());
-        let mut upper = scan.end().map(escape);
+        let mut lower = key_start(scan.start());
+        let mut upper = scan.end().map(key_start);
         match (scan.seek_key(), scan.direction()) {
-            (Some(seek), Direction::Forward) => lower = lower.max(escape(seek)),
+            (Some(seek), Direction::Forward) => lower = lower.max(key_start(seek)),
             (Some(seek), Direction::Reverse) => {
                 let end = key_end(seek);
                 upper = Some(upper.map_or(end.clone(), |u| u.min(end)));

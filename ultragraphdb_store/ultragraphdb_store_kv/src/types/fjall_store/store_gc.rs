@@ -9,7 +9,7 @@ use ultragraphdb_traits_store::PersistMode;
 
 use crate::types::fjall_store::Shared;
 use crate::utils::lock::lock;
-use crate::utils::stored_key::escaped_part;
+use crate::utils::stored_key::encoded_part;
 use crate::utils::stored_value::decode_value;
 
 impl Shared {
@@ -63,16 +63,16 @@ impl Shared {
         let mut oldest: Option<(Vec<u8>, fjall::Slice, bool)> = None;
         for guard in snapshot.iter(&self.data) {
             let (stored, bytes) = guard.into_inner().map_err(|e| self.failed(e))?;
-            let escaped = escaped_part(&stored).map(<[u8]>::to_vec);
-            let sweepable = escaped.is_some()
+            let encoded = encoded_part(&stored).map(<[u8]>::to_vec);
+            let sweepable = encoded.is_some()
                 && decode_value(&bytes).is_ok_and(|v| v.deletion)
                 && version_of(&stored) <= horizon;
-            let same_key = matches!((&oldest, &escaped), (Some((k, _, _)), Some(e)) if k == e);
+            let same_key = matches!((&oldest, &encoded), (Some((k, _, _)), Some(e)) if k == e);
             if !same_key && let Some((_, key, true)) = oldest.take() {
                 batch.remove(&self.data, key);
                 swept += 1;
             }
-            oldest = escaped.map(|e| (e, stored, sweepable));
+            oldest = encoded.map(|e| (e, stored, sweepable));
         }
         if let Some((_, key, true)) = oldest {
             batch.remove(&self.data, key);

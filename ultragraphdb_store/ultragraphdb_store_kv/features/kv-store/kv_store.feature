@@ -28,8 +28,8 @@ Feature: The versioned store over fjall
     Then the batch fails with an error beginning "Key with size 65001 exceeded 65000 limit", and none of its keys is found
 
   Scenario: A stored key over fjall's limit is refused
-    When a batch writes a key whose user key is 40,000 zero bytes, 80,010 bytes once escaped and versioned
-    Then the batch fails with an error beginning "Key with size 80010 exceeded 65535 limit", and none of its keys is found
+    When a batch writes a key whose user key is 44,000 bytes of 0x00 0x01, 66,010 bytes once encoded and versioned
+    Then the batch fails with an error beginning "Key with size 66010 exceeded 65535 limit", and none of its keys is found
 
   Scenario: A read takes the newest version at or below its timestamp
     When a key holds versions 3 and 7 and is read at 5
@@ -134,3 +134,7 @@ Feature: The versioned store over fjall
   Scenario: Dropping everything clears it
     When keys without versions are written and everything is dropped
     Then none of them is found
+
+  Scenario: A cached value gives way to the write that replaces it
+    When a key without a version is read, then rewritten with another value, then removed
+    Then the read after the rewrite returns the new value and the read after the removal returns nothing

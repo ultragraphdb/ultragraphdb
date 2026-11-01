@@ -7,10 +7,20 @@
 //! tests, run on fjall, with a crash as a close and a reopen.
 
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_kv::TERMS_KEYSPACE;
+use ultragraphdb_store_kv::{FjallStore, TERMS_KEYSPACE};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 use ultragraphdb_tool_test::{TestDir, ns_key, put, scanned, versions, write};
+
+/// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
+fn alternating(len: usize) -> Vec<u8> {
+    (0..len).map(|i| (i % 2) as u8).collect()
+}
+
+/// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.
+fn dense_head() -> Vec<u8> {
+    [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect()
+}
 
 #[test]
 fn test_a_keys_versions_iterate_newest_first_with_their_meta() {
@@ -119,14 +129,14 @@ fn test_an_oversized_key_refuses_its_whole_batch() {
 
     let mut batch = WriteBatch::new();
     batch.push(put(b"fine", 1, b""));
-    batch.push(put(&vec![0; 40_000], 1, b""));
+    batch.push(put(&alternating(44_000), 1, b""));
     let err = s.apply(batch, PersistMode::Buffer).unwrap_err();
-    // 40,000 zero bytes escaped to 80,000, the terminator's 2 and the version's 8; the head dumps the escaped bytes.
-    let escaped_head: Vec<u8> = [0x00, 0xFF].repeat(512);
-    assert_eq!(err, StoreError::KeyTooLarge(80_010, 65_535, escaped_head));
+    // 22,000 zero bytes, each a run of one before a one, encode to 66,000 bytes, the end code's 2 and the version's 8;
+    // the head dumps the encoded bytes.
+    assert_eq!(err, StoreError::KeyTooLarge(66_010, 65_535, dense_head()));
     assert!(
         err.to_string()
-            .starts_with("Key with size 80010 exceeded 65535 limit. Key:\n00000000  00 ff 00 ff"),
+            .starts_with("Key with size 66010 exceeded 65535 limit. Key:\n00000000  00 fe 01 00"),
         "{err}"
     );
     assert_eq!(s.get_at(b"fine", 1).unwrap(), None);
@@ -135,11 +145,10 @@ fn test_an_oversized_key_refuses_its_whole_batch() {
         "a refused batch does not poison the store"
     );
 
-    // The longest user key, and the longest stored key fjall's journal can hold, survive a reopen intact: 32,762 zero
-    // bytes escaped to 65,524, one more byte, the terminator's 2 and the version's 8 make 65,535.
+    // The longest user key, and the longest stored key fjall's journal can hold, survive a reopen intact: 21,841 zero
+    // bytes each before a one encode to 65,523, two more ones, the end code's 2 and the version's 8 make 65,535.
     let longest = vec![7u8; 65_000];
-    let mut zeros = vec![0u8; 32_762];
-    zeros.push(7);
+    let zeros = [alternating(43_682), vec![1, 1]].concat();
     write(
         &s,
         vec![
@@ -660,7 +669,7 @@ fn test_a_read_at_a_versions_timestamp_and_one_either_side() {
 }
 
 #[test]
-fn test_empty_keys_and_keys_of_the_escape_bytes_keep_byte_order() {
+fn test_empty_keys_and_keys_of_zero_and_code_bytes_keep_byte_order() {
     // Badger orders user keys bytewise (`y.CompareKeys`); the order below is the bytewise one, written by hand.
     let ordered: [&[u8]; 8] = [
         b"",
@@ -672,7 +681,7 @@ fn test_empty_keys_and_keys_of_the_escape_bytes_keep_byte_order() {
         b"\xff\x00",
         b"\xff\xff",
     ];
-    let dir = TestDir::new("escape-order");
+    let dir = TestDir::new("code-order");
     let s = dir.open();
     // Written in reverse order, so that the store's order is not the order of the batch.
     for v in [1, 2] {
@@ -755,7 +764,7 @@ fn test_empty_keys_and_keys_of_the_escape_bytes_keep_byte_order() {
 }
 
 #[test]
-fn test_versionless_keys_of_the_escape_bytes_and_empty_values_are_stored_raw() {
+fn test_versionless_keys_of_zero_and_code_bytes_and_empty_values_are_stored_raw() {
     let dir = TestDir::new("versionless-raw");
     let s = dir.open();
     let writes: [(&[u8], &[u8]); 4] = [
@@ -845,16 +854,16 @@ fn test_an_oversized_key_refuses_the_versionless_writes_with_the_batch() {
     );
     assert_eq!(s.get_versionless(b"t").unwrap(), None);
     // An oversized versionless key refuses the batch's versioned entries, by the user key's limit and by the stored
-    // key's, which counts a versionless key as a versioned one: 40,000 zero bytes are 80,010 once escaped and
-    // versioned.
+    // key's, which counts a versionless key as a versioned one: 44,000 bytes of `0x00 0x01` are 66,010 once encoded
+    // and versioned.
     for (key, error) in [
         (
             vec![2u8; 65_001],
             StoreError::KeyTooLarge(65_001, 65_000, vec![2; 1024]),
         ),
         (
-            vec![0u8; 40_000],
-            StoreError::KeyTooLarge(80_010, 65_535, [0x00, 0xFF].repeat(512)),
+            alternating(44_000),
+            StoreError::KeyTooLarge(66_010, 65_535, dense_head()),
         ),
     ] {
         let mut batch = WriteBatch::new();
@@ -867,11 +876,10 @@ fn test_an_oversized_key_refuses_the_versionless_writes_with_the_batch() {
     }
     assert!(s.dump_versionless().unwrap().is_empty());
     assert!(!s.is_poisoned());
-    // The longest versionless keys are written: 65,000 bytes, and 32,762 zero bytes and one more, 65,535 escaped and
+    // The longest versionless keys are written: 65,000 bytes, and the densest key of 65,535 bytes once encoded and
     // versioned.
     let longest = vec![3u8; 65_000];
-    let mut zeros = vec![0u8; 32_762];
-    zeros.push(3);
+    let zeros = [alternating(43_682), vec![1, 1]].concat();
     let mut batch = WriteBatch::new();
     batch.put_versionless(longest.clone(), b"long".to_vec());
     batch.put_versionless(zeros.clone(), b"zeros".to_vec());
@@ -1020,4 +1028,84 @@ fn test_an_empty_versionless_key_refuses_its_batch_put_or_removed() {
         ),
         (Vec::new(), 0, 0)
     );
+}
+
+#[test]
+fn test_a_cached_versionless_value_gives_way_to_writes_and_a_drop_of_everything() {
+    let dir = TestDir::new("versionless-cache");
+    let s = dir.open();
+    let versionless = |s: &FjallStore, key: &[u8], value: Option<&[u8]>| {
+        let mut batch = WriteBatch::new();
+        match value {
+            Some(v) => batch.put_versionless(key.to_vec(), v.to_vec()),
+            None => batch.remove_versionless(key.to_vec()),
+        }
+        s.apply(batch, PersistMode::Buffer).unwrap();
+    };
+    versionless(&s, b"t", Some(b"1"));
+    // The first read fills the cache, the second is answered by it.
+    assert_eq!(s.get_versionless(b"t").unwrap(), Some(b"1".to_vec()));
+    assert_eq!(s.get_versionless(b"t").unwrap(), Some(b"1".to_vec()));
+    versionless(&s, b"t", Some(b"2"));
+    assert_eq!(s.get_versionless(b"t").unwrap(), Some(b"2".to_vec()));
+    versionless(&s, b"t", None);
+    assert_eq!(s.get_versionless(b"t").unwrap(), None);
+    // A versioned batch beside a versionless write invalidates it too; a drop of everything clears every cached value,
+    // in the open store as after a reopen.
+    versionless(&s, b"u", Some(b"3"));
+    assert_eq!(s.get_versionless(b"u").unwrap(), Some(b"3".to_vec()));
+    let mut batch = WriteBatch::new();
+    batch.push(put(b"k", 1, b""));
+    batch.put_versionless(b"u".to_vec(), b"4".to_vec());
+    s.apply(batch, PersistMode::Buffer).unwrap();
+    assert_eq!(s.get_versionless(b"u").unwrap(), Some(b"4".to_vec()));
+    s.drop_all(Vec::new()).unwrap();
+    assert_eq!(s.get_versionless(b"u").unwrap(), None);
+}
+
+#[test]
+fn test_keys_with_zero_runs_about_the_code_boundaries_keep_byte_order() {
+    // Runs of 1, 125, 126, 127, 252 and 253 zero bytes, each ending a key, before a one and before 0xFF, behind a one:
+    // the lengths where one code gives way to two and two to three. Badger's order is bytewise.
+    let mut keys: Vec<Vec<u8>> = [1usize, 125, 126, 127, 252, 253]
+        .iter()
+        .flat_map(|&n| {
+            let run = [vec![1u8], vec![0; n]].concat();
+            [
+                run.clone(),
+                [run.clone(), vec![1]].concat(),
+                [run, vec![0xFF]].concat(),
+            ]
+        })
+        .collect();
+    keys.extend([vec![1], vec![1, 1], vec![1, 0xFF], vec![0; 300]]);
+    let dir = TestDir::new("run-order");
+    let s = dir.open();
+    for v in [1, 2] {
+        write(&s, keys.iter().map(|k| put(k, v, b"")).collect());
+    }
+    keys.sort();
+    let all: Vec<(Vec<u8>, u64)> = keys
+        .iter()
+        .flat_map(|k| [(k.clone(), 2), (k.clone(), 1)])
+        .collect();
+    assert_eq!(
+        scanned(&s, &Scan::prefix(Vec::new()).all_versions(), 2),
+        all
+    );
+    // A prefix ending in zero bytes selects exactly the keys beginning with it, and a drop of it removes only them.
+    let prefix = [vec![1u8], vec![0; 126]].concat();
+    let under: Vec<Vec<u8>> = keys.iter().filter(|k| k.starts_with(&prefix)).cloned().collect();
+    let selected: Vec<Vec<u8>> = scanned(&s, &Scan::prefix(prefix.clone()), 2)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    assert_eq!(selected, under);
+    s.drop_prefixes(3, &[prefix.clone()], Vec::new()).unwrap();
+    let left: Vec<Vec<u8>> = scanned(&s, &Scan::prefix(Vec::new()), 3)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
+    let kept: Vec<Vec<u8>> = keys.into_iter().filter(|k| !k.starts_with(&prefix)).collect();
+    assert_eq!(left, kept);
 }

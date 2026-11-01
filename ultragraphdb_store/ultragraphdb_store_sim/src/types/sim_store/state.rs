@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ultragraphdb_traits_store::{Entry, Scan};
 
-/// A stored key: the user key, then the version, newest first, which is the order fjall gives the escaped,
+/// A stored key: the user key, then the version, newest first, which is the order fjall gives the encoded,
 /// terminated and complemented keys of `ultragraphdb_store_kv`.
 pub type StoredKey = (Vec<u8>, Reverse<u64>);
 

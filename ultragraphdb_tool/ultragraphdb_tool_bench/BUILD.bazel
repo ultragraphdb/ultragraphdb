@@ -44,6 +44,24 @@ static_binary(
     deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
 )
 
+# `wal_bench` for a profiler: the release optimisation with its symbols, line tables and frame pointers kept, so
+# `perf record -g` resolves its stacks (backlog item 11). Build with `-c opt`.
+static_binary(
+    name = "wal_bench_profile",
+    srcs = ["src/bin/wal_bench.rs"],
+    main = "src/bin/wal_bench.rs",
+    release_flags = [
+        "-Copt-level=3",
+        "-Ccodegen-units=1",
+        "-Cdebuginfo=line-tables-only",
+        "-Cforce-frame-pointers=yes",
+        "-Cpanic=unwind",
+    ],
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
+)
+
 # The log's benchmark as a multi-arch scratch image, so it runs on a Linux host's own drives (the sync cost on drives
 # with and without power-loss protection, backlog item 7). Build with `-c opt`.
 scratch_multiarch_img(

@@ -17,7 +17,7 @@ use crate::types::fjall_store::store_meta::{
     APPLIED_KEY, BANNED_PREFIX, DISCARD_KEY, DROP_KEY, HORIZON_KEY, REBUILD_PREFIX,
 };
 use crate::utils::lock::lock;
-use crate::utils::stored_key::{escape, stored_key};
+use crate::utils::stored_key::{prefix_range, stored_key};
 use crate::utils::stored_value::encode_value;
 
 /// The removals one fjall batch of a drop holds; a drop removes its data in as many batches as it needs.
@@ -65,6 +65,7 @@ impl Shared {
             None => {
                 self.data.clear().map_err(|e| self.failed(e))?;
                 self.terms.clear().map_err(|e| self.failed(e))?;
+                self.term_cache.clear();
                 self.reset_meta()?;
                 // A clear leaves no removed version a compaction could still read.
                 false
@@ -104,7 +105,12 @@ impl Shared {
         let mut batch = self.batch(PersistMode::Buffer);
         let mut held = 0;
         for prefix in prefixes {
-            for guard in snapshot.prefix(&self.data, escape(prefix)) {
+            let (lower, upper) = prefix_range(prefix);
+            let range = (
+                std::ops::Bound::Included(lower),
+                upper.map_or(std::ops::Bound::Unbounded, std::ops::Bound::Excluded),
+            );
+            for guard in snapshot.range(&self.data, range) {
                 let key = guard.key().map_err(|e| self.failed(e))?;
                 batch.remove(&self.data, key);
                 held += 1;

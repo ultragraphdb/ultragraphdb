@@ -143,10 +143,30 @@ fn test_a_failed_read_is_the_last_item_in_either_direction() {
 
 #[test]
 fn test_an_undecodable_stored_key_is_refused_as_corrupted() {
-    // A zero byte of the user key not followed by the escape byte.
-    let dir = TestDir::new("scan-unescaped");
+    // A zero byte of the user key followed by `0x00`, which is no run code.
+    refused_raw(
+        "scan-no-run-code",
+        b"x\x00\x00y",
+        "stored key holds a zero byte without a run code",
+    );
+}
+
+#[test]
+fn test_a_stored_key_running_past_its_end_code_is_refused_as_corrupted() {
+    // `0x00 0x05` ends a key after four zero bytes, yet `y` follows it.
+    refused_raw(
+        "scan-past-end",
+        b"x\x00\x05y",
+        "stored key continues past its end code",
+    );
+}
+
+/// Writes `prefix` followed by the stored suffix of an empty key at version 1 raw into the data keyspace, and checks
+/// that a scan and a dump refuse it as corrupted with `reason`.
+fn refused_raw(name: &str, prefix: &[u8], reason: &str) {
+    let dir = TestDir::new(name);
     drop(dir.open());
-    let mut raw = b"x\x00y".to_vec();
+    let mut raw = prefix.to_vec();
     raw.extend_from_slice(&stored(b"", 1));
     write_raw_in(&dir, DATA_KEYSPACE, &raw, &[0x04, 0x00]);
     let s = dir.open();
@@ -157,16 +177,10 @@ fn test_an_undecodable_stored_key_is_refused_as_corrupted() {
         .collect();
     assert_eq!(
         got,
-        vec![Err(StoreError::Corrupted(
-            raw.clone(),
-            "stored key holds an unescaped zero byte".to_string()
-        ))]
+        vec![Err(StoreError::Corrupted(raw.clone(), reason.to_string()))]
     );
     assert_eq!(
         s.dump(),
-        Err(StoreError::Corrupted(
-            raw,
-            "stored key holds an unescaped zero byte".to_string()
-        ))
+        Err(StoreError::Corrupted(raw, reason.to_string()))
     );
 }

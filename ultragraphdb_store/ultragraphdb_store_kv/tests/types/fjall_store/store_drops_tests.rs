@@ -207,16 +207,18 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() {
         "{err}"
     );
     assert_eq!(held(&s, b"\x00a1"), vec![(3, false)]);
+    let alternating: Vec<u8> = (0..44_000).map(|i| (i % 2) as u8).collect();
     let err = s
-        .drop_all(vec![Entry::deletion(vec![0; 40_000], 1)])
+        .drop_all(vec![Entry::deletion(alternating, 1)])
         .unwrap_err();
-    // 40,000 zero bytes escaped to 80,000, the terminator's 2 and the version's 8; the head dumps the escaped bytes.
+    // 22,000 zero bytes, each a run of one before a one, encode to 66,000 bytes, the end code's 2 and the version's 8;
+    // the head dumps the encoded bytes.
     assert_eq!(
         err.0,
         StoreErrorEnum::KeyTooLarge {
-            size: 80_010,
+            size: 66_010,
             limit: 65_535,
-            head: [0x00, 0xFF].repeat(512),
+            head: [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect(),
         }
     );
     assert_eq!(held(&s, b"\x00a1"), vec![(3, false)]);

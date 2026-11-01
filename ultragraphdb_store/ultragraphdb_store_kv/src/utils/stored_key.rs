@@ -3,77 +3,122 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The stored key: the user key with every `0x00` byte written as `0x00 0xFF`, then the terminator `0x00 0x01`, then
-//! the bitwise complement of the version in big-endian order. fjall orders raw bytes, and Dgraph's keys are not
-//! prefix-free, so this form is what keeps Badger's order (`y.CompareKeys`: key first, then newest version first),
-//! keeps a key's versions contiguous and maps a user-key prefix to a stored-key prefix.
+//! The stored key: the user key with every run of `0x00` bytes written as `0x00` and one code byte, ending in a code
+//! that marks the key's end, then the bitwise complement of the version in big-endian order. fjall orders raw bytes,
+//! and Dgraph's keys are not prefix-free and mostly zero bytes, so this form keeps Badger's order (`y.CompareKeys`: key
+//! first, then newest version first), keeps a key's versions contiguous and writes a key's zero runs in two bytes.
+//!
+//! A run of `k` zero bytes (`1 ≤ k ≤ RUN`) followed by a non-zero byte is `0x00, MORE - k`, the non-zero byte written
+//! after it; a run of `j` zero bytes (`0 ≤ j ≤ RUN`) ending the key is `0x00, END + j`; a run longer than `RUN`
+//! writes `0x00, LONG` for each `RUN` bytes it starts with. The codes order as the bytes they stand for: a key ending
+//! sorts below every key it begins, a longer run below a shorter one followed by a non-zero byte.
 
-/// The byte that follows an escaped `0x00` of the user key.
-const ESCAPE: u8 = 0xFF;
-/// The byte that follows the `0x00` ending the user key.
-const TERMINATOR: u8 = 0x01;
-/// The terminator and the version's eight bytes.
-const SUFFIX: usize = 2 + 8;
-
-/// `user_key` with every `0x00` byte written as `0x00 0xFF`: the stored prefix of every key beginning with it.
-pub fn escape(user_key: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(user_key.len() + SUFFIX);
-    push_escaped(&mut out, user_key);
-    out
-}
-
-fn push_escaped(out: &mut Vec<u8>, user_key: &[u8]) {
-    for &b in user_key {
-        out.push(b);
-        if b == 0 {
-            out.push(ESCAPE);
-        }
-    }
-}
+/// The longest run one code stands for.
+const RUN: usize = 126;
+/// The code of a key ending after a run of `j` zero bytes is `END + j`.
+const END: u8 = 0x01;
+/// The code of `RUN` zero bytes followed by more zero bytes.
+const LONG: u8 = END + RUN as u8 + 1;
+/// The code of a run of `k` zero bytes followed by a non-zero byte is `MORE - k`.
+const MORE: u8 = 0xFF;
+/// The version's eight bytes.
+const VERSION: usize = 8;
 
 /// The stored key of version `version` of `user_key`.
 pub fn stored_key(user_key: &[u8], version: u64) -> Vec<u8> {
-    let mut out = Vec::with_capacity(user_key.len() + SUFFIX + 4);
-    push_escaped(&mut out, user_key);
-    out.extend_from_slice(&[0x00, TERMINATOR]);
+    let mut out = encoded(user_key);
     out.extend_from_slice(&(!version).to_be_bytes());
     out
 }
 
-/// The first stored key above every stored version of `user_key` and below every key that follows it: the escaped
-/// key, then `0x00 0x02`. A longer key continuing with `0x00` continues with `0x00 0xFF`, and one continuing with any
-/// other byte is above the escaped key followed by `0x00`.
+/// The first stored key of `user_key`: its encoding and end code, below every stored version of it, which continue
+/// with a version, and above every stored version of each key below it.
+pub fn key_start(user_key: &[u8]) -> Vec<u8> {
+    encoded(user_key)
+}
+
+/// The first stored key above every stored version of `user_key` and below every key that follows it: its encoding
+/// with the end code one higher, which is the end code or the long-run code of a key continuing with a zero byte.
 pub fn key_end(user_key: &[u8]) -> Vec<u8> {
-    let mut out = escape(user_key);
-    out.extend_from_slice(&[0x00, TERMINATOR + 1]);
+    let mut out = encoded(user_key);
+    if let Some(code) = out.last_mut() {
+        *code += 1;
+    }
     out
 }
 
-/// The escaped user key of a stored key, without its terminator and version; `None` when `stored` is too short to
-/// end in them.
-pub fn escaped_part(stored: &[u8]) -> Option<&[u8]> {
-    let split = stored.len().checked_sub(SUFFIX)?;
-    let (escaped, suffix) = stored.split_at(split);
-    (suffix[..2] == [0x00, TERMINATOR]).then_some(escaped)
+/// `user_key` with its zero runs written as codes, then its end code.
+fn encoded(user_key: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(user_key.len() + 2 + VERSION);
+    let mut run = 0usize;
+    for &b in user_key {
+        if b == 0 {
+            run += 1;
+            if run > RUN {
+                out.extend_from_slice(&[0x00, LONG]);
+                run = 1;
+            }
+            continue;
+        }
+        if run > 0 {
+            out.extend_from_slice(&[0x00, MORE - run as u8]);
+            run = 0;
+        }
+        out.push(b);
+    }
+    out.extend_from_slice(&[0x00, END + run as u8]);
+    out
+}
+
+/// The stored range of every version of every key beginning with `prefix`: from the prefix's first stored key to the
+/// first stored key of the least key above all of them, unbounded when there is none.
+pub fn prefix_range(prefix: &[u8]) -> (Vec<u8>, Option<Vec<u8>>) {
+    let above = prefix
+        .iter()
+        .rposition(|b| *b != 0xFF)
+        .map(|at| [&prefix[..at], &[prefix[at] + 1]].concat());
+    (key_start(prefix), above.map(|a| key_start(&a)))
+}
+
+/// The encoded user key of a stored key, its end code included and its version left out; `None` when `stored` is too
+/// short to end in them.
+pub fn encoded_part(stored: &[u8]) -> Option<&[u8]> {
+    let split = stored.len().checked_sub(VERSION)?;
+    let encoded = &stored[..split];
+    let code = split.checked_sub(2).map(|at| &encoded[at..])?;
+    (code[0] == 0x00 && (END..LONG).contains(&code[1])).then_some(encoded)
 }
 
 /// The user key and version a stored key encodes, or why it does not encode one.
 pub fn decode_stored_key(stored: &[u8]) -> Result<(Vec<u8>, u64), String> {
-    let escaped = escaped_part(stored).ok_or_else(|| {
+    let encoded = encoded_part(stored).ok_or_else(|| {
         format!(
             "stored key of {} bytes does not end in a terminated version",
             stored.len()
         )
     })?;
-    let mut user_key = Vec::with_capacity(escaped.len());
-    let mut bytes = escaped.iter();
+    let mut user_key = Vec::with_capacity(encoded.len());
+    let mut bytes = encoded.iter();
     while let Some(&b) = bytes.next() {
-        user_key.push(b);
-        if b == 0 && bytes.next() != Some(&ESCAPE) {
-            return Err("stored key holds an unescaped zero byte".to_string());
+        if b != 0 {
+            user_key.push(b);
+            continue;
         }
+        let run = match bytes.next() {
+            Some(&c) if (END..LONG).contains(&c) => {
+                user_key.resize(user_key.len() + usize::from(c - END), 0);
+                if bytes.next().is_some() {
+                    return Err("stored key continues past its end code".to_string());
+                }
+                break;
+            }
+            Some(&LONG) => RUN,
+            Some(&c) if c > LONG && c < MORE => usize::from(MORE - c),
+            _ => return Err("stored key holds a zero byte without a run code".to_string()),
+        };
+        user_key.resize(user_key.len() + run, 0);
     }
     let mut version = [0u8; 8];
-    version.copy_from_slice(&stored[stored.len() - 8..]);
+    version.copy_from_slice(&stored[stored.len() - VERSION..]);
     Ok((user_key, !u64::from_be_bytes(version)))
 }

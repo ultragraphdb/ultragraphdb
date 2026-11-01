@@ -22,21 +22,31 @@ fn test_the_limits_are_badgers_and_fjalls() {
     assert_eq!((MAX_USER_KEY_SIZE, MAX_STORED_KEY_SIZE), (65_000, 65_535));
 }
 
+/// `len` bytes of `0x00 0x01` repeated: every zero byte a run of one, the densest the stored key's codes get.
+fn alternating(len: usize) -> Vec<u8> {
+    (0..len).map(|i| (i % 2) as u8).collect()
+}
+
 #[test]
-fn test_the_stored_size_counts_escapes_terminator_and_version() {
-    // (user key, its length escaped plus the terminator's two bytes and the version's eight)
+fn test_the_stored_size_counts_runs_end_code_and_version() {
+    // (user key, its non-zero bytes, two bytes per code of each zero run, the end code's two and the version's eight)
     let cases: &[(&[u8], usize)] = &[
         (b"", 10),
         (b"abc", 13),
-        (&[0], 12),
-        (&[0, 1, 0], 15),
+        (&[0], 10),
+        (&[0, 1, 0], 13),
         (&[0xFF], 11),
         (&[0xFF, 0x00, 0xFF], 14),
-        (&[0; 5], 20),
+        (&[0; 5], 10),
+        (&[0; 126], 10),
+        (&[0; 127], 12),
+        (&[0, 0, 1], 13),
     ];
     for &(key, expected) in cases {
         assert_eq!(stored_key_size(key), expected, "key {key:?}");
     }
+    let long_run_then_one = [vec![0; 127], vec![1]].concat();
+    assert_eq!(stored_key_size(&long_run_then_one), 15);
 }
 
 #[test]
@@ -46,6 +56,7 @@ fn test_a_key_within_both_limits_is_accepted() {
         vec![7],
         vec![7; MAX_USER_KEY_SIZE],
         vec![0xFF; MAX_USER_KEY_SIZE],
+        vec![0; MAX_USER_KEY_SIZE],
     ] {
         assert_eq!(check_key_size(&key), Ok(()), "key of {} bytes", key.len());
     }
@@ -98,53 +109,53 @@ fn test_a_user_key_over_badgers_limit_is_refused_with_badgers_text() {
 
 #[test]
 fn test_the_user_limit_is_checked_before_the_stored_one() {
-    // 65,001 zero bytes are over both limits; the user key's refusal is Badger's and names the user length.
-    let err = check_key_size(&vec![0; MAX_USER_KEY_SIZE + 1]).unwrap_err();
-    let (size, limit, head) = too_large(&err);
-    assert_eq!((size, limit), (65_001, 65_000));
-    assert_eq!(head, &[0; 1024][..]);
-}
-
-#[test]
-fn test_a_stored_key_over_fjalls_limit_is_refused_with_its_escaped_head() {
-    let err = check_key_size(&vec![0; 40_000]).unwrap_err();
-    let (size, limit, head) = too_large(&err);
-    assert_eq!((size, limit), (80_010, MAX_STORED_KEY_SIZE));
-    assert_eq!(head.len(), 1024);
-    assert!(head.chunks(2).all(|pair| pair == [0x00, 0xFF]));
-    assert!(err.to_string().starts_with(
-        "Key with size 80010 exceeded 65535 limit. Key:\n\
-             00000000  00 ff 00 ff 00 ff 00 ff  00 ff 00 ff 00 ff 00 ff  |................|\n"
-    ));
-}
-
-#[test]
-fn test_the_escaped_head_interleaves_escapes_with_the_other_bytes() {
-    // 0x00 0x01 repeated: 43,684 bytes hold 21,842 zeros, so 65,526 escaped bytes and 65,536 stored.
-    let key: Vec<u8> = (0..43_684).map(|i| (i % 2) as u8).collect();
+    // 65,001 bytes of `0x00 0x01` are over both limits; the user key's refusal is Badger's and names the user length.
+    let key = alternating(MAX_USER_KEY_SIZE + 1);
     let err = check_key_size(&key).unwrap_err();
     let (size, limit, head) = too_large(&err);
-    assert_eq!((size, limit), (65_536, MAX_STORED_KEY_SIZE));
-    let expected: Vec<u8> = [0x00, 0xFF, 0x01]
+    assert_eq!((size, limit), (65_001, 65_000));
+    assert_eq!(head, &key[..1024]);
+}
+
+#[test]
+fn test_a_stored_key_over_fjalls_limit_is_refused_with_its_encoded_head() {
+    // 22,000 zero bytes each a run of one, `0x00 0xFE`, between 22,000 ones: 66,000 bytes, the end code's 2 and the
+    // version's 8.
+    let err = check_key_size(&alternating(44_000)).unwrap_err();
+    let (size, limit, head) = too_large(&err);
+    assert_eq!((size, limit), (66_010, MAX_STORED_KEY_SIZE));
+    let expected: Vec<u8> = [0x00, 0xFE, 0x01]
         .iter()
         .copied()
         .cycle()
         .take(1024)
         .collect();
     assert_eq!(head, expected.as_slice());
-    // One byte fewer drops a one, which is not escaped: exactly 65,535 stored, accepted.
-    assert_eq!(stored_key_size(&key[..43_683]), MAX_STORED_KEY_SIZE);
-    assert_eq!(check_key_size(&key[..43_683]), Ok(()));
+    assert!(err.to_string().starts_with(
+        "Key with size 66010 exceeded 65535 limit. Key:\n\
+             00000000  00 fe 01 00 fe 01 00 fe  01 00 fe 01 00 fe 01 00  |................|\n"
+    ));
+}
+
+#[test]
+fn test_the_encoded_head_writes_a_long_run_as_its_codes() {
+    // 300 zero bytes before a one: two codes of 126 (`0x00 0x80`), then the last 48 before a non-zero byte
+    // (`0x00 0xCF`), then the one, then the dense part.
+    let key = [vec![0; 300], vec![1], alternating(44_000)].concat();
+    let err = check_key_size(&key).unwrap_err();
+    let (size, _, head) = too_large(&err);
+    assert_eq!(size, 2 + 2 + 2 + 1 + 66_000 + 2 + 8);
+    assert_eq!(head[..10], [0x00, 0x80, 0x00, 0x80, 0x00, 0xCF, 0x01, 0x00, 0xFE, 0x01]);
 }
 
 #[test]
 fn test_the_stored_limit_is_inclusive() {
-    // 32,762 zero bytes and a one are 65,535 bytes stored; one zero byte more escapes past the limit.
-    let mut key = vec![0; 32_762];
-    key.push(1);
-    assert_eq!(stored_key_size(&key), MAX_STORED_KEY_SIZE);
-    assert_eq!(check_key_size(&key), Ok(()));
-    let err = check_key_size(&vec![0; 32_763]).unwrap_err();
+    // 21,841 runs of one between ones and two more ones are 65,535 bytes stored; one more zero byte between them
+    // takes one more code and is over the limit.
+    let at_limit = [alternating(43_682), vec![1, 1]].concat();
+    assert_eq!(stored_key_size(&at_limit), MAX_STORED_KEY_SIZE);
+    assert_eq!(check_key_size(&at_limit), Ok(()));
+    let err = check_key_size(&alternating(43_684)).unwrap_err();
     let (size, limit, _) = too_large(&err);
     assert_eq!((size, limit), (65_536, MAX_STORED_KEY_SIZE));
 }

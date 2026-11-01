@@ -28,6 +28,7 @@ use crate::types::durability::Durability;
 use crate::types::gc_filter_factory::GcFilterFactory;
 use crate::types::gc_settings::GcSettings;
 use crate::types::syncer::Syncer;
+use crate::types::term_cache::TermCache;
 use crate::utils::lock::lock;
 use crate::utils::stored_key::decode_stored_key;
 use crate::utils::stored_value::decode_value;
@@ -42,16 +43,18 @@ pub const META_KEYSPACE: &str = "meta";
 pub const TERMS_KEYSPACE: &str = "terms";
 /// The name of every temporary keyspace begins with this, its number after it; opening the store drops each.
 pub const TEMPORARY_KEYSPACE_PREFIX: &str = "tmp-";
+/// The bytes of keys and values the cache of the keyspace without versions holds.
+const TERM_CACHE_BYTES: u64 = 64 << 20;
 
 /// The [`ultragraphdb_traits_store::Store`] over fjall: the managed-mode Badger surface Dgraph uses, in one fjall
 /// `Database` of three keyspaces, data, metadata and the keyspace without versions, beside which a rebuild creates
 /// temporary keyspaces.
 ///
-/// A version is a stored key of its own (the user key escaped and terminated, then the complement of the version),
-/// so fjall's byte order is Badger's, and its value carries the meta byte, the discard flag and the tombstone flag in
-/// a prefix. A key without a version is stored as it is, its value raw. Every read goes through one
-/// `Database::snapshot()` covering every keyspace. Writes are serialised by one
-/// writer lock and each is one fjall batch. Garbage collection is a compaction filter under the discard timestamp,
+/// A version is a stored key of its own (the user key with its zero runs encoded and its end marked, then the
+/// complement of the version), so fjall's byte order is Badger's, and its value carries the meta byte, the discard flag
+/// and the tombstone flag in a prefix. A key without a version is stored as it is, its value raw, and the values point
+/// lookups find there are cached. Every read goes through one `Database::snapshot()` covering every keyspace. Writes
+/// are serialised by one writer lock and each is one fjall batch. Garbage collection is a compaction filter under the discard timestamp,
 /// and [`ultragraphdb_traits_store::Store::compact`] flushes the memtables and compacts everything into the last
 /// level.
 ///
@@ -85,6 +88,8 @@ pub(crate) struct Shared {
     /// The temporary keyspaces by number, and the next number.
     pub temporaries: Mutex<BTreeMap<u64, Keyspace>>,
     pub next_temporary: AtomicU64,
+    /// The dictionary entries found in the keyspace without versions.
+    pub term_cache: TermCache,
 }
 
 /// What a snapshot is opened against, changed under its lock.
@@ -158,6 +163,7 @@ impl FjallStore {
             gc,
             temporaries: Mutex::new(BTreeMap::new()),
             next_temporary: AtomicU64::new(1),
+            term_cache: TermCache::new(TERM_CACHE_BYTES),
         });
         shared.load_meta()?;
         if let Some(record) = shared.drop_record()? {
