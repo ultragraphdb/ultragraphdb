@@ -702,6 +702,68 @@ The plan's exit row, with:
 - abort rates on the Zipf deduplication workload at 8 writers, with match-then-insert and with insert-if-absent;
 - the indexer's lag behind commits on a vector-heavy workload.
 
+**Measured, stage 5 (2026-11-01).** Tasks 12.1 and 12.5; the runs, their commands and their JSON lines are in
+`notes/group-12.md`. Machine and drive: MacBook Pro (Mac15,8), Apple M3 Max, 16 cores, 128 GiB, macOS 27.2; the
+internal APPLE SSD AP8192Z (8 TB, APFS), whose power-loss protection Apple does not document. The binaries are built by
+Bazel with `-c opt` for `aarch64-apple-darwin` and run natively, not in OrbStack as stages 2 and 4 ran. Every run shared
+the 16 cores with the stage's mutation and fuzzing runs, at 1-minute load averages of 96 to 197, so the rates below
+are CPU-starved and do not compare with stage 4's; the bytes per relation do not depend on the load. The workload is
+stage 4's (`store_bench apply`'s commits, 1,000 hubs, 10 relation types), 30 s per run, a 128 MB cache; two runs a
+row, one a row with power-loss protection on, each cell the range over them.
+
+Two syncs differ on this machine, and each number below names the one it paid. `store_bench`'s
+`Durability::Filesystem` syncs each commit's fjall batch with `File::sync_all`, which Rust's standard library makes
+`fcntl(F_FULLFSYNC)` on macOS: the drive's cache is flushed. The write-ahead log syncs each round with compio's
+`sync_data`, which on macOS is `fsync` (through rustix): the data reaches the drive and stays in its cache,
+unflushed, so a power loss can lose it; `F_FULLFSYNC` would flush it. On this drive, under the same load, a 4 KiB
+append synced with `fsync` took 40–46 µs at the median (148–363 µs p99) and with `F_FULLFSYNC` 8.2–11.7 ms
+(33.5–33.8 ms p99), 200 of each.
+
+The baseline (12.1), the apply path of stage 4 with every commit its own store batch:
+
+| Durability | Offered | Relations per commit | Commits/s | Relations/s | Batch apply p50 / p99 | fjall write share | Write stalls | On disk per relation |
+|---|---|---|---|---|---|---|---|---|
+| Filesystem, `F_FULLFSYNC` per commit | 14,500 | 1 | 37 | 37 | 2.4–4.8 s / 6.4–7.0 s | 43–47 % | 0 | 2,802–2,834 |
+| Filesystem, `F_FULLFSYNC` per commit | 50,000 | 1 | 32–33 | 32–33 | 6.9–7.4 s / 9.5–10.2 s | 43–44 % | 0 | 3,088–3,104 |
+| Filesystem, `F_FULLFSYNC` per commit | 14,500 | 50 | 18–19 | 894–932 | 12.9–13.9 s / 14.1–14.8 s | 32–38 % | 0 | 1,075–1,085 |
+| Filesystem, `F_FULLFSYNC` per commit | 50,000 | 50 | 17–23 | 844–1,172 | 9.6–14.6 s / 15.2–16.0 s | 37–47 % | 0 | 1,071–1,086 |
+| Process, synced once a minute | 14,500 | 1 | 1,718–2,297 | 1,718–2,297 | 66–78 ms / 317–402 ms | 36–37 % | 0 | 3,014–3,446 |
+| Process, synced once a minute | 50,000 | 1 | 1,669–2,223 | 1,669–2,223 | 64–84 ms / 345–348 ms | 37–38 % | 0 | 3,096–3,502 |
+| Process, synced once a minute | 14,500 | 50 | 112–113 | 5,610–5,651 | 1.95–2.10 s / 2.69–2.92 s | 31–32 % | 0 | 1,907–1,940 |
+| Process, synced once a minute | 50,000 | 50 | 101–117 | 5,036–5,847 | 1.84–2.31 s / 3.39–3.48 s | 31–32 % | 0 | 1,906–1,989 |
+
+Stage 5's log (12.5): `wal_bench` runs each commit as a read-write transaction through the `Pipeline`, each round
+appended to the write-ahead log on `CompioStorage` and synced with `fsync` (unflushed, above), then applied to fjall
+as one batch, unsynced (`Durability::Process`); no checkpoint runs, so the log keeps every round and its segments'
+length is its write volume. The journal's volume is its bytes up to the last one written, net of the declarations' and
+the hubs', since fjall creates a journal at 64 MiB; every journal of a run was still present at its end.
+
+| Power-loss protection | Offered | Relations per commit | Commits/s | Relations/s | Aborts | Commits per round | Round sync and apply p50 / p99 | Log bytes per relation | Journal bytes per relation | Log / journal |
+|---|---|---|---|---|---|---|---|---|---|---|
+| off | 14,500 | 1 | 3,753–4,085 | 3,753–4,085 | 0 | 83.7–84.3 | 6.6–7.2 ms / 137–139 ms | 2,008–2,010 | 1,780 | 1.13 |
+| off | 50,000 | 1 | 2,982–3,832 | 2,982–3,832 | 0 | 83.2–83.3 | 5.6–6.9 ms / 147–209 ms | 2,003–2,008 | 1,780 | 1.13 |
+| off | 14,500 | 50 | 117–124 | 5,843–6,207 | 0 | 18.9 | 85–86 ms / 330–343 ms | 1,100 | 1,035 | 1.06 |
+| off | 50,000 | 50 | 104–153 | 5,209–7,641 | 0 | 18.8 | 72–80 ms / 263–278 ms | 1,100 | 1,035 | 1.06 |
+| on | 14,500 | 1 | 4,257 | 4,257 | 0 | 84.3 | 7.0 ms / 137 ms | 2,004 | 1,780 | 1.13 |
+| on | 50,000 | 1 | 4,411 | 4,411 | 0 | 84.5 | 6.4 ms / 145 ms | 2,002 | 1,780 | 1.13 |
+| on | 14,500 | 50 | 112 | 5,581 | 0 | 4.0 | 11.7 ms / 199 ms | 1,106 | 1,036 | 1.07 |
+| on | 50,000 | 50 | 92 | 4,602 | 0 | 4.0 | 19.7 ms / 189 ms | 1,106 | 1,036 | 1.07 |
+
+- **Every round is written twice, as D1 expects:** the log writes 1.13 times the journal's bytes at one relation per
+  commit and 1.06–1.07 times at 50, so a commit's write volume is 2.06–2.13 times the journal's alone. The log
+  writes a round as its frame, the write-set records under a header and a chunk table, padded to 4,096-byte blocks;
+  the journal holds the store's entries of the same commits.
+- **Round sizes:** at 50 relations per commit a round closes on its byte bound, about 55 KB a commit: 18.8–18.9
+  commits in a round of 1 MiB without power-loss protection, 4.0 in one of 256 KiB with it. At one relation per
+  commit a round held 83–85 commits whatever the flag, within both bounds (1,024 or 256 transactions): the bench
+  keeps at most 256 commits in flight, Dgraph's pending-proposal limit, as stage 4's apply run does. A round's padding
+  is then at most 2.4 % of it; a round of one commit pads a 1-relation record to 4,096 bytes, about twice its size.
+- **The log syncs once a round, the baseline once a commit:** under the unflushed `fsync` the pipeline commits 3.0–4.4k
+  one-relation commits a second where the apply path, unsynced, commits 1.7–2.3k, one store batch a round against one
+  a commit. Under `F_FULLFSYNC` per commit the baseline commits 32–37 a second; the log's rounds under `F_FULLFSYNC`
+  were not measured, as the log's storage calls `fsync` on macOS.
+- **No aborts:** each commit writes new nodes and reads no list another commit writes.
+
 ## Where this departs from the plan
 
 | The plan | Here | Why |

@@ -1,0 +1,237 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# cargo-mutants configuration, read by scripts/mutants.sh (approved as an exception to Bazel-only for mutation testing).
+#
+# Each entry is a REGULAR EXPRESSION matched against a mutant's description (`<file>:<line>:<col>: replace ...`), so
+# `+`, `*`, `|`, `(`, `)`, `[`, `]`, `?`, `.` and `^` are escaped (`\\+` and so on): a bare `+` matches nothing and a
+# bare `||` matches every mutant. Each entry excludes an equivalent mutant and carries the argument or measurement
+# that settles it. After adding or moving one, check what the file excludes:
+#
+#     printf 'exclude_re = []\n' > /tmp/none.toml
+#     cargo mutants --list -p <crate> --config /tmp/none.toml | sort > /tmp/all.txt
+#     cargo mutants --list -p <crate> --config .cargo/mutants.toml | sort > /tmp/kept.txt
+#     comm -23 /tmp/all.txt /tmp/kept.txt
+#
+# The last command prints exactly the excluded mutants: an entry on no line of it does nothing, and an entry pulling
+# in more than it argues for hides caught mutants. Entries anchored by line say so; the check shows them matching
+# nothing once their file moves.
+
+exclude_re = [
+    # ===========================================================================================
+    # Core: terms and the UID algorithms
+    # ===========================================================================================
+    # Each entry names its file and column but not its line, so it survives an edit above it, and matches exactly the
+    # mutants it argues for; each was confirmed with the comm check.
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_core_terms
+    # ---------------------------------------------------------------------------------------------
+
+    # `bytes.get(at + 1..at + 1 + n)` versus `at * 1..` in `EncodedTerm::check`'s `inline_utf8`: the slice then starts
+    # one byte early, at the inline part's length byte. That byte is at most 15 (`encoded_len` refuses a longer part
+    # before `check` reads it), so it is one ASCII scalar value, and an ASCII byte ahead of any byte sequence leaves
+    # `str::from_utf8`'s verdict on the rest unchanged: it is a complete character and no continuation byte can follow
+    # it as part of it. The verdict is the only use of the slice.
+    "ultragraphdb_core_terms/src/types/encoded_term/mod\\.rs:\\d+:25: replace \\+ with \\* in EncodedTerm::check",
+
+    # `at(1)? | at(2)? << 8` versus `^` in `encoded_len`, a vector's little-endian u16 dimension: `at` returns a byte
+    # widened to usize (0..=255), and the high byte shifted left by 8 has no bit below 8, so the two operands share no
+    # set bit and `|` and `^` agree on every input.
+    "ultragraphdb_core_terms/src/types/encoded_term/mod\\.rs:\\d+:36: replace \\| with \\^ in encoded_len",
+
+    # `VectorView::is_empty` versus `false`: no reachable view is empty. `VectorView::new` is `pub(crate)` and its one
+    # caller, `EncodedTerm::view`, builds it over a vector encoding's elements. A vector encoding comes from
+    # `EncodedTerm::read`, where `encoded_len` refuses dimension 0 ("an empty vector"), or from
+    # `EncodedTerm::literal`, where `parse_vector` refuses `[]` ("empty"); so every view holds at least one element and
+    # `is_empty` is false for each. (`with true` is caught.)
+    "ultragraphdb_core_terms/src/types/vector_view\\.rs:\\d+:\\d+: replace VectorView<'a>::is_empty -> bool with false",
+
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_core_algo
+    # ---------------------------------------------------------------------------------------------
+
+    # The first step of a skip loop. In `intersect_with_lin`, `intersect_with_jump`, `difference` and
+    # `intersect_with_lin_packed`, a branch taken because one side's current UID is smaller steps that side once and
+    # then loops `while idx < len && list[idx] < other { idx += 1 }`. Replacing the step's `+=` with `*=` leaves the index
+    # where it is, and the loop's first iteration then makes the step: the index is in range (the outer loop checked
+    # it) and its UID is the smaller one (the branch condition). Replacing the loop's `idx < len` with `idx > len` stops
+    # the loop at once (an index never exceeds its length), and the outer loop then makes the same steps one at a time,
+    # through the same branch, since the UID it compares against has not changed. Either way every UID is compared in
+    # the same order, the output is the same, and the loops end at the same offsets. These are line-anchored: the same
+    # columns hold the matching branch's `+= 1`, which a mutant does change.
+    "ultragraphdb_core_algo/src/uidlist\\.rs:(172|181):15: replace \\+= with \\*= in intersect_with_lin$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:(173|182):21: replace < with > in intersect_with_lin$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:(208|213):15: replace \\+= with \\*= in intersect_with_jump$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:(209|214):21: replace < with > in intersect_with_jump$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:327:15: replace \\+= with \\*= in difference$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:328:21: replace < with > in difference$",
+    "ultragraphdb_core_algo/src/packed\\.rs:(78|87):23: replace \\+= with \\*= in intersect_with_lin_packed$",
+    "ultragraphdb_core_algo/src/packed\\.rs:(79|88):29: replace < with > in intersect_with_lin_packed$",
+
+    # `uid > vid` versus `>=` in `intersect_with_jump`'s fourth branch: the first branch has taken `uid == vid`, so the
+    # two agree wherever the fourth is reached.
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:23: replace > with >= in intersect_with_jump$",
+
+    # `if n > m { swap }` versus `>=` in `intersect_with` and `intersect_compressed_with`: the extra swap exchanges two
+    # equal lengths.
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:10: replace > with >= in (intersect_compressed_with|intersect_with)$",
+
+    # `ratio < 100.0` versus `==` and `<=` in `intersect_with`: both move ratios below 100 between the linear and the
+    # jumping strategy and nothing else (ratios from 500 on still reach the binary one), and the two strategies return
+    # the same list. A jump `k += 32` happens only when `u[i] > v[k + 32]`, so the 32 elements it passes are all below
+    # `u[i]` and every later element of `u`, which the linear strategy's skip loop passes without a match too (and the
+    # same for `i`). Measured as well: Dgraph's IntersectWithLin and IntersectWithJump returned the same list on 200,000
+    # seeded pairs of sorted lists heavy with duplicates, up to 80 long so that jumps occur (Go, stage 5, 11.8), and
+    # the golden cases `strategy/*` record both strategies' results equal.
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:14: replace < with (==|<=) in intersect_with$",
+
+    # The parallel merges' thresholds and chunks, in `merge_sorted_more_mem` (`num_threads * num_threads` versus `+`)
+    # and `merge_sorted` (`lists.len() < NUM_THREADS * NUM_LIST_PER_THREAD` versus `==`, `>`, `<=` and its `*` versus
+    # `+` and `/`; `start = i * chunk_size` versus `/`; `start > lists.len()` versus `==` and `>=`). Each merge returns
+    # the sorted union of its lists without duplicates however the lists are grouped: a chunk's merge is that chunk's
+    # union, and merging the chunks' results unions them, dropping a UID repeated across chunks as the one merge drops
+    # one repeated across lists. So the threshold only picks between two ways to the same list, for any number of lists
+    # (with fewer than 10 the chunks are single lists or empty, and `start > lists.len()` returns the chunks past the
+    # end as none). `start = i / chunk_size` makes every chunk start at list 0 (chunk_size is at least 10 on this path
+    # and i at most 9) while keeping its end: the chunks overlap, the last still reaches the final list, and the
+    # duplicates they share are merged away. On this path `lists.len()` is at least 100, where `start` stays below
+    # `lists.len()` (9 * ceil(len / 10) < len for len >= 100), so `start > len`, `start == len` and `start >= len` are
+    # all false.
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:35: replace \\* with \\+ in merge_sorted_more_mem$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:20: replace < with (==|>|<=) in merge_sorted$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:34: replace \\* with (\\+|/) in merge_sorted$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:31: replace \\* with / in merge_sorted$",
+    "ultragraphdb_core_algo/src/uidlist\\.rs:\\d+:26: replace > with (==|>=) in merge_sorted$",
+
+    # `merge_sorted_packed`'s `exact_len(l) > 0` versus `>=`: the check is reached only by a list whose decoder holds a
+    # first UID, and `unpack_block` truncates a block's UIDs to its `num_uids`, so that first block counts at least one
+    # and `exact_len(l)`, the sum of the blocks' counts, is at least 1. A corrupt block counting none yields no UID and
+    # is skipped before the check (`merge_sorted_packed_skips_a_list_of_no_uids`).
+    "ultragraphdb_core_algo/src/packed\\.rs:\\d+:25: replace > with >= in merge_sorted_packed$",
+
+    # `Uint64Heap::down`'s `i > i0` versus `<`, which makes it return false always, so `fix` always calls `up` after
+    # `down`. Where `down` moved the element, `up` starts from `i0`, which now holds the child that moved up; before the
+    # change that child was at least the old element at `i0`, which was at least its parent, so `up` stops at once. Where
+    # `down` did not move it, `up` runs as it does unmutated.
+    "ultragraphdb_core_algo/src/types/uint64_heap/mod\\.rs:\\d+:11: replace > with < in Uint64Heap::down$",
+
+    # ===========================================================================================
+    # Protocol and the client shells
+    # ===========================================================================================
+    #
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_protocol_transport_compio: Connection's fill, the capacity reservation
+    # ---------------------------------------------------------------------------------------------
+    #
+    # `fill` reserves when the buffer's capacity is below the bytes the read must reach. The branch is
+    # taken only for a header read into a pool buffer smaller than the header's 256 bytes
+    # (`test_a_pool_smaller_than_a_header_refuses_the_frame_naming_its_capacity` kills `==` and `>`, and
+    # `-` to `/` divides by the zero length): a body's target is the frame's size, which the framer has
+    # already held to the pool's capacity, and a pooled Vec's capacity is at least the pool's.
+    #
+    # * `<` against `<=`: at equal capacity `reserve_exact(target - len)` asks for no more than the Vec
+    #   already holds (capacity >= len + additional), so Vec does nothing.
+    # * `-` against `+`: the branch runs only with the buffer empty (a header read starts from a buffer
+    #   the pool cleared on its return), so `target - 0` and `target + 0` reserve the same.
+    #
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_protocol_transport: expressions identical to what they replace
+    # ---------------------------------------------------------------------------------------------
+    #
+    # * `NetworkFaults::none`'s body is `Self::default()`; `Default::default()` is the same call.
+    # * `Anonymous`'s `start` and `answer` return `Ok(Vec::new())`; `Ok(vec![])` is the same empty vector.
+    #
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_protocol_transport: ServerConnection::request, a Commit on an open stream
+    # ---------------------------------------------------------------------------------------------
+    #
+    # The arm `Command::Commit if open` (line 375; the line anchor keeps the guard of the arm of new
+    # requests on an open stream, line 334, which the suite kills, in the run) closes the connection with `ErrorCode::Protocol` and the text of
+    # `TransportError::StreamOpen(stream)`. With its guard false the Commit falls to the next arm, which
+    # opens the stream through `Outbound::open`; that refuses a stream already open with
+    # `StreamOpen(stream)` before changing anything (the stream-zero check before it cannot fire: stream 0
+    # is never open), and `open` sends any refusal but a stream limit or an unknown transaction to
+    # `self.close(ErrorCode::Protocol, &error.to_string())`: the same frame and the same `Inbound`.
+    # `test_a_transactions_stream_takes_its_operations_and_its_commit` (its Register-then-Commit case) passes
+    # under both.
+    #
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_client_tokio: TokioSimStream's poll_flush
+    # ---------------------------------------------------------------------------------------------
+    #
+    # The body is `Poll::Ready(Ok(()))`; `Poll::from(Ok(()))` is `Poll::Ready(Ok(()))` (core's
+    # `impl<T> From<T> for Poll<T>`), the same value.
+    # ultragraphdb_protocol_transport_compio: fill
+    "transport_compio/src/types/connection/mod\\.rs:24:\\d+: replace < with <= in fill",
+    "transport_compio/src/types/connection/mod\\.rs:25:\\d+: replace - with \\+ in fill",
+    # ultragraphdb_protocol_transport: identical expressions
+    "network_faults\\.rs:21:\\d+: replace NetworkFaults::none -> Self with Default::default\\(\\)",
+    "anonymous_client_mechanism\\.rs:\\d+:\\d+: replace <impl ClientMechanism for Anonymous>::(start|answer) -> Result<Vec<u8>, Self::Error> with Ok\\(vec!\\[\\]\\)",
+    # ultragraphdb_protocol_transport: ServerConnection::request
+    "transport/src/types/server_connection/mod\\.rs:375:\\d+: replace match guard open with false in ServerConnection<A>::request",
+    # ultragraphdb_client_tokio: identical expression
+    "tokio_sim_stream_async_write\\.rs:\\d+:\\d+: replace <impl AsyncWrite for TokioSimStream>::poll_flush -> Poll<io::Result<\\(\\)>> with Poll::from\\(Ok\\(\\(\\)\\)\\)",
+
+    # ===========================================================================================
+    # The write-ahead log
+    # ===========================================================================================
+    # //.cargo/mutants.toml. Each is escaped and was confirmed with the comm check: the mutants listed under an empty config
+    # minus those listed under this file are exactly the ten below, and no entry matches a mutant in error_log or
+    # traits_log.
+    # `AlignedBuf::zeroed` allocates `len + (ALIGNMENT - 1)` bytes so a window of `len` bytes starting at the first
+    # 4,096-aligned address always fits. `- with +` allocates `len + 4_097` and `- with /` allocates `len + 4_096`:
+    # both are larger, so the window still fits at the same `start` (`align_offset` of the same pointer, clamped to
+    # 4_095). Every access to the vector goes through `start..start + len`: `as_slice`, `as_mut_slice`, and
+    # `compio_file_durable_file.rs`'s `bytes.slice(start..start + len)` for `read_exact_at` and `write_all_at`
+    # (`into_parts` has no other use in the crate). The extra one or two bytes are never addressed; only the allocation
+    # grows.
+    "replace - with \\+ in AlignedBuf::zeroed",
+    "replace - with / in AlignedBuf::zeroed",
+
+    # `u64::from(MAGIC) | (u64::from(VERSION) << 32)` in `Superblock::decode`, `|` versus `^`. `MAGIC` is a `u32`
+    # (`const MAGIC: u32 = 0x4C57_4755`), bits 0 to 31; `VERSION` is a `u16` shifted by 32, bits 32 to 47. The operands
+    # share no set bit, and for disjoint operands `a | b == a ^ b` bit for bit.
+    "replace \\| with \\^ in Superblock::decode",
+
+    # `if file.len() < end { file.resize(end, 0) }` in the simulated file's `write_at`, `<` versus `<=`: when the
+    # length equals `end`, `resize(end, 0)` to the length it already has changes nothing.
+    "replace < with <= in <impl DurableFile for SimFile>::write_at",
+
+    # `_ if op != StorageOperation::Write => None` in `SimState::perform`, the guard replaced by `false`: a tear mode
+    # drawn for an operation other than a write then hands that operation's action a tear. Only `write_at`'s action
+    # reads its tear argument; every other `perform` caller (open, create_directory, sync_directory, rename,
+    # remove_file, list, read, preallocate, length, truncate, sync: `sim_storage_durable_storage.rs` and
+    # `sim_file_durable_file.rs`) binds it as `_`. The fault itself, the trace and the reported error come from `mode`,
+    # which the guard does not touch.
+    "replace match guard op != StorageOperation::Write with false in SimState::perform",
+
+    # `HEADER_SIZE + round.body().len()` in `encode_round`'s fallback arm, `+` versus `-` or `*`. The arm maps any
+    # `encode_frame` refusal other than `FrameTooLarge`, and `Header::encode_frame`
+    # (ultragraphdb_protocol_wire/src/types/header/header_encode.rs) returns only `FrameTooLarge`: its one `Err` is
+    # `ProtocolError::FrameTooLarge(size, MAX_FRAME_SIZE)`. The arm never runs.
+    "replace \\+ with - in encode_round",
+    "replace \\+ with \\* in encode_round",
+
+    # `!(HEADER_SIZE..=MAX_FRAME_SIZE).contains(&size) || size > bytes.len() - offset` in `frame_at`, `||` versus `&&`
+    # and `-` versus `+`. The guard only returns `NotARound` early; every frame it lets through that it would have
+    # stopped is stopped next as `NotARound` from the same `size` field: a size past the bytes slices an empty frame,
+    # which `HeaderView::new` refuses as `ShortHeader`; a size below the header slices a frame shorter than one, refused
+    # the same way; a size above the maximum is refused by `HeaderView::check` as `FrameTooLarge` (`size > limit`,
+    # header_view_verify.rs). `find_complete_round` reads frames through `frame_at` too, so it sees the same answer.
+    # (`bytes.len() - offset` cannot underflow: the block at `offset` was read from `bytes` above.)
+    # `frame_at` holds a second `||`, `fields.position() == 0 || header.sequence() != ...`, whose `&&` mutant is not
+    # equivalent (test_a_round_claiming_position_zero_is_header_damage kills it). The two mutants have the same
+    # description, so this entry names its line and column: if scan.rs moves, the comm check shows it matching nothing.
+    "utils/scan\\.rs:49:56: replace \\|\\| with && in frame_at",
+    "replace - with \\+ in frame_at",
+
+    # `start.checkpoint() > Position::ZERO && round.position() == start.checkpoint() && ...` in `step`, `>` versus
+    # `>=`. The mutant adds only the case of a checkpoint at 0, where the second conjunct needs a round at position 0.
+    # `step` takes its round from `frame_at` alone (`match frame_at(bytes, offset, start.cluster())`), and `frame_at`
+    # returns `NotARound` for a Round frame whose position is 0 (`fields.position() == 0 || ...`, added 2026-11-01 with
+    # `test_a_round_claiming_position_zero_is_header_damage`), so no round reaching this check is at position 0 and the
+    # conjunction is false under both operators. Measured: after that change, cargo-mutants over `utils/scan.rs`
+    # catches every other mutant of the file (46 caught, 3 unviable) and misses only this one.
+    "replace > with >= in step",
+
+]

@@ -143,3 +143,28 @@ fn test_more_iterations_than_the_most_are_refused_before_any_is_run() {
         );
     }
 }
+
+#[test]
+fn test_a_server_nonce_extending_the_clients_with_a_character_outside_the_rules_is_refused() {
+    // RFC 5802 section 5.1: a nonce is printable ASCII but the comma; the space, 0x20, is outside it, so the server's
+    // nonce is refused though it extends the client's.
+    let mut client = client();
+    client.first_message().unwrap();
+    assert_eq!(
+        client.final_message(b"r=rOprNGfwEbeRWgbNEkqO h,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"),
+        Err(ScramError::Nonce())
+    );
+}
+
+#[test]
+fn test_the_mechanisms_finish_refuses_a_wrong_server_signature() {
+    // RFC 7677's exchange, but a server-final-message whose signature is all zero bytes: not the one the password's
+    // server key gives, so the transport's mechanism fails the exchange as `verify` does.
+    let mut client = client();
+    client.start().unwrap();
+    client.answer(SERVER_FIRST).unwrap();
+    assert_eq!(
+        client.finish(b"v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+        Err(ScramError::ServerSignature())
+    );
+}

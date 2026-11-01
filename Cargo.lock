@@ -2757,24 +2757,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
-name = "ultragraphdb"
-version = "0.1.0"
-dependencies = [
- "ultragraphdb_common_telemetry",
- "ultragraphdb_server_session",
- "ultragraphdb_store_kv",
-]
-
-[[package]]
 name = "ultragraphdb_client_compio"
 version = "0.1.0"
 dependencies = [
  "compio",
  "ultragraphdb_client_core",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_transport_compio",
  "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -2799,9 +2793,12 @@ version = "0.1.0"
 dependencies = [
  "tokio",
  "ultragraphdb_client_core",
+ "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_scram",
  "ultragraphdb_protocol_transport",
  "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -3044,18 +3041,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ultragraphdb_server_session"
-version = "0.1.0"
-dependencies = [
- "ultragraphdb_protocol_transport",
- "ultragraphdb_protocol_transport_compio",
- "ultragraphdb_protocol_wire",
- "ultragraphdb_transactions_commit",
- "ultragraphdb_transactions_log",
- "ultragraphdb_transactions_txn",
-]
-
-[[package]]
 name = "ultragraphdb_store_apply"
 version = "0.1.0"
 dependencies = [
@@ -3187,6 +3172,7 @@ dependencies = [
 name = "ultragraphdb_tool_bench"
 version = "0.1.0"
 dependencies = [
+ "compio",
  "oxrdf",
  "serde_json",
  "ultragraphdb_common_telemetry",
@@ -3197,7 +3183,11 @@ dependencies = [
  "ultragraphdb_store_apply",
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",
+ "ultragraphdb_traits_log",
  "ultragraphdb_traits_store",
+ "ultragraphdb_transactions_commit",
+ "ultragraphdb_transactions_log",
+ "ultragraphdb_transactions_txn",
 ]
 
 [[package]]
@@ -3289,16 +3279,6 @@ dependencies = [
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_log",
  "xxhash-rust",
-]
-
-[[package]]
-name = "ultragraphdb_transactions_sim"
-version = "0.1.0"
-dependencies = [
- "ultragraphdb_store_sim",
- "ultragraphdb_transactions_commit",
- "ultragraphdb_transactions_log",
- "ultragraphdb_transactions_txn",
 ]
 
 [[package]]

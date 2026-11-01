@@ -83,6 +83,20 @@ fn test_literals_take_one_form_each() {
             at: 5
         }
     );
+    // An empty datatype is written as the empty second text of xsd:string (PROTOCOL.md section 4.4), so it would read
+    // back as the literal without one: the fuzz target `body_fields` found a table of it.
+    let empty = RequestTerm::Literal {
+        lexical: "x".to_string(),
+        datatype: Some(String::new()),
+    };
+    assert_eq!(
+        table.intern(empty).unwrap_err().0,
+        ProtocolErrorEnum::BadTerm {
+            command: 0,
+            section: 0,
+            at: 5
+        }
+    );
     assert_eq!(table.len(), 5);
 }
 

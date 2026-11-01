@@ -27,7 +27,10 @@ compio = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_client_core = { workspace = true, features = ["test-utils"] }
+ultragraphdb_error_protocol = { workspace = true }
 ultragraphdb_protocol_scram = { workspace = true }
+ultragraphdb_tool_bdd = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [[test]]
 name = "unit"

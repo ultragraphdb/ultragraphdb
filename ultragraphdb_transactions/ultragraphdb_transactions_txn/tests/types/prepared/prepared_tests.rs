@@ -222,3 +222,31 @@ fn test_a_record_written_again_keeps_its_principal() {
     let view = WriteSetRecordView::new(prepared.record()).unwrap();
     assert_eq!((view.principal(), view.result_count()), (7, 1));
 }
+
+/// An index declared on a predicate that holds data starts a build (an index on one without data needs none, as
+/// `ultragraphdb_store_apply`'s declaration tests have it); an insert starts none.
+#[test]
+fn test_a_declaration_indexing_a_predicate_with_data_starts_a_build() {
+    use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
+    let applier = applier();
+    crate::utils::fixture::commit(
+        &applier,
+        vec![crate::utils::fixture::insert_literal("a", "name", "Ann")],
+    );
+    let declare = Change::Declare(Declaration::Predicate(
+        PredicateDeclaration::new(crate::utils::fixture::ex("name"))
+            .with_tokenizers(vec!["term".to_string()]),
+    ));
+    let prepare = |changes| {
+        let mut txn = begin(&applier, Mode::ReadWrite);
+        txn.write(&changeset(changes), 0).unwrap();
+        let Ok(Commit::ReadWrite(prepared)) = txn.commit(1, 1, &[], 0) else {
+            panic!("a read-write commit");
+        };
+        prepared
+    };
+    let declared = prepare(vec![declare]);
+    assert!(declared.starts_build());
+    assert!(!declared.is_drop());
+    assert!(!prepare(vec![insert("b", "knows", "c")]).starts_build());
+}

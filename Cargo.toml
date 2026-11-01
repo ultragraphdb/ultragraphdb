@@ -11,7 +11,6 @@ members = [
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
     "ultragraphdb_protocol/*",
-    "ultragraphdb_server/*",
     "ultragraphdb_store/*",
     "ultragraphdb_tool/*",
     "ultragraphdb_traits/*",
@@ -64,9 +63,6 @@ ultragraphdb_protocol_scram = { path = "ultragraphdb_protocol/ultragraphdb_proto
 ultragraphdb_protocol_transport = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport" }
 ultragraphdb_protocol_transport_compio = { path = "ultragraphdb_protocol/ultragraphdb_protocol_transport_compio" }
 ultragraphdb_protocol_wire = { path = "ultragraphdb_protocol/ultragraphdb_protocol_wire" }
-## Server
-ultragraphdb = { path = "ultragraphdb_server/ultragraphdb" }
-ultragraphdb_server_session = { path = "ultragraphdb_server/ultragraphdb_server_session" }
 ## Store: storage over the Store trait
 ultragraphdb_store_apply = { path = "ultragraphdb_store/ultragraphdb_store_apply" }
 ultragraphdb_store_hnsw = { path = "ultragraphdb_store/ultragraphdb_store_hnsw" }
@@ -86,7 +82,6 @@ ultragraphdb_traits_store = { path = "ultragraphdb_traits/ultragraphdb_traits_st
 ## Transactions
 ultragraphdb_transactions_commit = { path = "ultragraphdb_transactions/ultragraphdb_transactions_commit" }
 ultragraphdb_transactions_log = { path = "ultragraphdb_transactions/ultragraphdb_transactions_log" }
-ultragraphdb_transactions_sim = { path = "ultragraphdb_transactions/ultragraphdb_transactions_sim" }
 ultragraphdb_transactions_txn = { path = "ultragraphdb_transactions/ultragraphdb_transactions_txn" }
 #
 # ==============

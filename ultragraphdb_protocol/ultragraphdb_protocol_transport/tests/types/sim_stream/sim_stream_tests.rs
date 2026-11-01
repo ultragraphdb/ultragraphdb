@@ -94,3 +94,19 @@ fn test_a_waiting_read_is_woken_by_a_send_and_by_a_shutdown() {
     server.send(b"x".to_vec());
     assert_eq!(wakes.0.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn test_a_chunk_exactly_filling_a_read_leaves_nothing_behind() {
+    // Four bytes read with room for four: the chunk is taken whole, and after the peer's shutdown the next read is the
+    // end, not an empty chunk.
+    let network = SimNetwork::new(1, NetworkFaults::none());
+    let (client, server) = network.connect();
+    let mut cx = Context::from_waker(Waker::noop());
+    client.send(b"abcd".to_vec());
+    client.shutdown();
+    assert_eq!(
+        server.poll_chunk(&mut cx, 4),
+        Poll::Ready(Some(b"abcd".to_vec()))
+    );
+    assert_eq!(server.poll_chunk(&mut cx, 4), Poll::Ready(None));
+}

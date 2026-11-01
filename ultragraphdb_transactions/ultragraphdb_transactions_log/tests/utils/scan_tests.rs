@@ -279,6 +279,42 @@ fn test_a_frame_of_another_command_is_header_damage() {
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
 }
 
+/// A frame of another command is header damage though everything else about it reads as the log's first round: its
+/// sequence is the position its command header names, its parent the fresh log's 0, its body's checksums sound.
+#[test]
+fn test_a_frame_of_another_command_numbered_as_a_round_is_header_damage() {
+    let data = body(1, 10);
+    let header = Header::new(CLUSTER, Command::Commit)
+        .with_sequence(1)
+        .with_command_header(RoundHeader::new(1, 0, 1, 2, 1).encode());
+    let mut frame = header.encode_frame(&data).expect("a frame");
+    frame.resize(4_096, 0);
+    let scan = scan(&segment(4, &[frame]));
+    assert_eq!(positions(&scan), Vec::<u64>::new());
+    assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+}
+
+/// `Position::ZERO` is the place before the first round, never a round: a well-formed Round frame of this cluster and
+/// incarnation claiming position 0, numbered 0 and parented on the fresh log's 0, is header damage at a fresh log's
+/// head, as a frame numbered other than its position is.
+#[test]
+fn test_a_round_claiming_position_zero_is_header_damage() {
+    let zero = frame_of(Spec {
+        position: 0,
+        parent: 0,
+        incarnation: 1,
+        len: ONE_BLOCK,
+    });
+    let scan = scan(&segment(4, std::slice::from_ref(&zero)));
+    assert_eq!(positions(&scan), Vec::<u64>::new());
+    assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+    // Nor is it a complete round a recovery would find past damage.
+    assert_eq!(
+        find_complete_round(&segment(4, &[zero]), 0, CLUSTER, 1, Position::ZERO),
+        None
+    );
+}
+
 #[test]
 fn test_a_broken_chain_is_chain_damage_naming_the_round() {
     let frames = chain(1, 1, 3, 0, ONE_BLOCK);

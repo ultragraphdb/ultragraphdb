@@ -134,3 +134,26 @@ fn test_messages_out_of_step_are_refused() {
     server.last(CLIENT_FINAL).unwrap();
     assert_eq!(server.last(CLIENT_FINAL), Err(ScramError::OutOfStep()));
 }
+
+#[test]
+fn test_a_name_carried_escaped_is_looked_up_unescaped() {
+    // RFC 5802 section 5.1: a name's `,` travels as `=2C` and its `=` as `=3D`; the server reads them back, so the
+    // name looked up is `a,b=c`.
+    let mut looked_up = String::new();
+    let answer = server().first(b"n,,n=a=2Cb=3Dc,r=abc", |name| {
+        looked_up = name.to_string();
+        None
+    });
+    assert!(answer.is_ok());
+    assert_eq!(looked_up, "a,b=c");
+}
+
+#[test]
+fn test_a_channel_binding_flag_other_than_n_y_or_p_is_malformed() {
+    // RFC 5802 section 7: gs2-cbind-flag is `p=<name>`, `n` or `y`; any other is a malformed header, not a request for
+    // channel binding.
+    assert_eq!(
+        server().first(b"x,,n=user,r=abc", lookup),
+        Err(ScramError::Malformed("channel binding"))
+    );
+}

@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use ultragraphdb_client_core::{ClientCore, ClientErrorEnum, Reply, TestServer};
+use ultragraphdb_client_core::{ClientCore, ClientError, ClientErrorEnum, Reply, TestServer};
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_transport::{Anonymous, BufferPool, NetworkFaults, TransportError};
 use ultragraphdb_protocol_wire::{
@@ -222,8 +222,9 @@ fn test_a_malformed_reply_closes_the_connection_and_loses_its_requests() {
     );
     assert!(!h.core.is_ready());
     assert_eq!(
-        h.core.take_reply(p).unwrap().unwrap_err().0,
-        ClientErrorEnum::ConnectionLost
+        h.core.take_reply(p).unwrap().unwrap_err(),
+        ClientError::ConnectionLost(Some(error)),
+        "the rule is the loss's cause"
     );
 }
 

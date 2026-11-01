@@ -111,9 +111,11 @@ run_target() {
         -max_total_time="$SECONDS_PER_TARGET" -print_final_stats=1 2>&1 | tee "$log" | grep -E "^(INFO|==|stat::)" ; then
         :
     fi
+    # A target that fails on a seed stops before libFuzzer prints a coverage line: no match is a missing figure, not a
+    # failure, which under pipefail would end the script before the report.
     local runs cov
-    runs="$(grep -E '^stat::number_of_executed_units' "$log" | awk '{print $2}' | tail -1)"
-    cov="$(grep -oE 'cov: [0-9]+' "$log" | tail -1 | awk '{print $2}')"
+    runs="$({ grep -E '^stat::number_of_executed_units' "$log" || true; } | awk '{print $2}' | tail -1)"
+    cov="$({ grep -oE 'cov: [0-9]+' "$log" || true; } | tail -1 | awk '{print $2}')"
     if grep -qE 'SUMMARY: libFuzzer|panicked at|Test unit written to' "$log"; then
         FAILED+=("$crate:$target")
         REPORT+=("$crate $target: FAILED after ${runs:-?} executions, coverage ${cov:-?}; artifacts in $fuzz_dir/artifacts/$target/")

@@ -12,9 +12,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
 use ultragraphdb_protocol_transport::{
-    ClientAuthentication, ClientHandshake, Login, TransportError,
+    ClientAuthentication, ClientHandshake, Login, ReceivedFrame, TransportError,
 };
-use ultragraphdb_protocol_wire::{BodyBuilder, Commit, Header, Welcome};
+use ultragraphdb_protocol_wire::{BodyBuilder, Commit, FLAG_LAST, Header, HeaderView, Welcome};
 
 use crate::errors::client_error::ClientError;
 use crate::types::client_config::ClientConfig;
@@ -55,6 +55,11 @@ pub struct ClientCore<L: Login> {
     next_stream: u64,
     streams: BTreeMap<u64, StreamState>,
     done_reads: BTreeSet<u64>,
+    /// The reads cut short by a lost connection, by generation and stream, each with what its requests answered.
+    lost_reads: BTreeMap<(u64, u64), ClientError>,
+    /// The reads whose last frame had arrived when their connection was lost, by generation and stream: read on to
+    /// their end.
+    kept_reads: BTreeMap<(u64, u64), VecDeque<ReceivedFrame>>,
     pending: BTreeMap<u64, PendingState>,
     next_pending: u64,
     sessions: BTreeMap<u64, SessionState>,
@@ -79,6 +84,8 @@ impl<L: Login> ClientCore<L> {
             next_stream: 1,
             streams: BTreeMap::new(),
             done_reads: BTreeSet::new(),
+            lost_reads: BTreeMap::new(),
+            kept_reads: BTreeMap::new(),
             pending: BTreeMap::new(),
             next_pending: 1,
             sessions: BTreeMap::new(),
@@ -97,7 +104,7 @@ impl<L: Login> ClientCore<L> {
     /// [`ClientCore::disconnected`] loses it.
     pub fn connect(&mut self, now: Instant, unix_micros: u64) -> Result<(), ClientError> {
         if !matches!(self.link, Link::Down) {
-            self.lose(ClientError::ConnectionLost());
+            self.lose(ClientError::ConnectionLost(None));
         }
         let handshake = ClientHandshake::new(self.config.cluster(), self.config.hello());
         let hello = handshake.hello_frame().map_err(ClientError::Transport)?;
@@ -161,11 +168,14 @@ impl<L: Login> ClientCore<L> {
         Some(frame)
     }
 
-    /// The shell's connection failed or closed with `error`: every request waiting on it fails with
-    /// [`ClientError::Transport`], and a commit waits to be retried through its session on the next connection.
+    /// The shell's connection failed or closed with `error`: every request waiting on it, and every read cut short,
+    /// fails with [`ClientError::ConnectionLost`], its cause `error` ([`ClientError::Transport`]: the framer's refusal,
+    /// a frame cut short, an I/O failure), none for a plain close ([`TransportError::Closed`]); a commit waits to be
+    /// retried through its session on the next connection.
     pub fn disconnected(&mut self, error: TransportError, now: Instant) {
         self.last_progress = Some(now);
-        self.lose(ClientError::Transport(error));
+        let cause = (error != TransportError::Closed()).then(|| ClientError::Transport(error));
+        self.lose(ClientError::ConnectionLost(cause));
     }
 
     /// Whether the core waits for the server: a handshake, an Authenticate exchange, a request's reply, or a result's
@@ -288,11 +298,11 @@ impl<L: Login> ClientCore<L> {
         Ok(frame)
     }
 
-    /// Closes the connection on the client's side, and the shell shuts it down: requests waiting fail with
-    /// [`ClientError::ConnectionLost`], and a commit not yet answered is in doubt ([`ClientError::InDoubt`]), its
+    /// Closes the connection on the client's side, and the shell shuts it down: requests waiting and reads not yet
+    /// ended fail with [`ClientError::ConnectionLost`], no cause, and a commit not yet answered is in doubt ([`ClientError::InDoubt`]), its
     /// session resolved before it commits again.
     pub fn close(&mut self) {
-        self.lose(ClientError::ConnectionLost());
+        self.lose(ClientError::ConnectionLost(None));
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
             if let Some((session, request)) = pending.commit() {
                 pending.outcome = Some(Err(ClientError::InDoubt(session, request)));
@@ -331,14 +341,29 @@ impl<L: Login> ClientCore<L> {
     /// The connection is gone: streams and queued frames with it; each request waiting fails with `reason`, and
     /// each commit is retried on the next connection while it has attempts left, else it is in doubt. A commit uses an
     /// attempt only when its frame left on the connection lost; one still queued, or waiting for a connection or out a
-    /// busy answer's delay, keeps its attempts.
+    /// busy answer's delay, keeps its attempts. A read whose last frame had arrived is kept, to be read to its end; any
+    /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md`
+    /// §11.4), so nothing of it is retried.
     fn lose(&mut self, reason: ClientError) {
         self.link = Link::Down;
         self.renewal = None;
         self.principal = None;
         self.expires = 0;
         self.renew_at = None;
-        self.streams.clear();
+        let generation = self.generation;
+        for (id, state) in std::mem::take(&mut self.streams) {
+            if !state.results {
+                continue;
+            }
+            let ended = state.inbox.back().is_some_and(|frame| {
+                HeaderView::new(frame.bytes()).is_ok_and(|h| h.flags() & FLAG_LAST != 0)
+            });
+            if ended {
+                self.kept_reads.insert((generation, id), state.inbox);
+            } else {
+                self.lost_reads.insert((generation, id), reason.clone());
+            }
+        }
         self.outbox.clear();
         let attempts = self.config.commit_attempts();
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {

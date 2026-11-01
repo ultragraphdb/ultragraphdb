@@ -111,7 +111,7 @@ stage-5 test drive the server with. It speaks the same protocol as the server, t
 - [x] 9b.1 Scenarios: wire-protocol ("The Rust client"), and the client's side of "Handshake, streams, credit and cancellation" ("Credit stops a stream", "Cancel ends a stream"), "Data requests, prepared statements and describe" ("A stale statement is refused") and "Result batches are columnar and dictionary-encoded" ("A repeated term is sent once per batch"), against a scripted server over the simulated network; the end-to-end runs against the node are 10.1's
 - [x] 9b.2 Phases 1–3: the client's surface: connect over TCP or a simulated stream; the handshake; sessions; read-only and read-write transactions (begin, read, write, commit, abort); data requests; prepared statements, stale after a catalog change by their schema id; describe; result streams with credit and cancel, read in place; typed errors, retryable exactly where the wire says
 - [x] 9b.3 Phase 4: the implementation over the transport: request terms in the wire's term table; result batches read through their views with no copy; buffers reused per connection; a commit retried only through its session (same session and request number), with reconnects and bounded retries, so a retry is applied once
-- [ ] 9b.4 The conformance suite run against the client core and both shells: every golden frame read or built as its bytes, every malformed frame refused with the connection's rule, in the simulator under drop, delay, duplicate and split (done against the core directly; the golden frames under the simulator's faults and through the shells remain)
+- [x] 9b.4 The conformance suite run against the client core and both shells: every golden frame read or built as its bytes, every malformed frame refused with the connection's rule, in the simulator under drop, delay, duplicate and split (done against the core directly; the golden frames under the simulator's faults and through the shells remain)
 - [x] 9b.5 Phase 5: fuzz targets in `fuzz/ultragraphdb_client_core/` for everything the client decodes from a server (replies, errors, result batches, describe), seeded with the golden frames, built and not run; mutants at 11.8
 - [x] 9b.6 `AGENTS.md`: the stale `ultragraphdb_client` test-roots paragraph rewritten for the client's crates
 - [x] 9b.7 `ultragraphdb_protocol_bus` renamed `ultragraphdb_protocol_transport` (the transport that carries the wire protocol), with its fuzz package and `BusError` → `TransportError` (decided 2026-10-28)
@@ -142,28 +142,30 @@ into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and
 
 ## 10. The server
 
-Moved to `openspec/notes/backlog.md` on 2026-11-01 with tasks 11.3 to 11.6, 12.2, 12.3, 12.7 and 12.5's vector
-indexer lag: what the distribution architecture asks of them is to be specified in a later change.
+Moved to `openspec/notes/backlog.md` on 2026-11-01 with tasks 11.3 to 11.6, 12.2, 12.3, 12.4, 12.6, 12.7 and 12.5's
+vector indexer lag: what the distribution architecture asks of them is to be specified in a later change.
 
 ## 11. Verification → `lean/` (`RoundModel`)
 
-- [ ] 11.1 Scenarios: transaction-verification, all requirements
+- [x] 11.1 Scenarios: transaction-verification, all requirements: "A fuzzer finding becomes a regression test" as
+  Gherkin under Bazel, the regression cases replayed hermetically; the scenarios that run `lake` or `cargo-fuzz` bound
+  to scripted checks outside Bazel, their runs recorded in the group's notes (decided 2026-11-01)
 - [x] 11.2 The Lean model of rounds, validation, commit-time operations, watermark, sync, crash, recovery and sessions; the four properties proved, with the sync's durability stated as the model's assumption; no `sorry`
-- [ ] 11.7 Scenarios: transaction-verification ("Every decoder of untrusted or stored bytes is fuzzed"); a full `scripts/fuzz.sh` run over every target at the stage's close, its report recorded, every regression case replayed under Cargo and Bazel; and an audit of the fuzzers themselves, as phase 3 audits a suite: for each target, two or three typical decoder defects planted in a throwaway copy of the decoder (an unchecked length that panics on a slice, an off-by-one that breaks the re-encode round trip, a missing bound behind the checksum), each of which the target must find within its time budget, the time to find each recorded; a target that misses one is strengthened or replaced (decided 2026-10-27)
-- [ ] 11.8 Mutation testing at the stage's close: `scripts/mutants.sh` over every crate the stage added or changed, every surviving mutant resolved as a suite gap (a test added) or a recorded equivalence in `.cargo/mutants.toml`; the counts recorded per crate
-- [ ] 11.9 The write-ahead log's compio suite on Linux, in an OrbStack container, so the `O_DIRECT` path, which only type-checks on macOS, runs against a real Linux file system
+- [x] 11.7 Scenarios: transaction-verification ("Every decoder of untrusted or stored bytes is fuzzed"); a full `scripts/fuzz.sh` run over every target at the stage's close, its report recorded, every regression case replayed under Cargo and Bazel; and an audit of the fuzzers themselves, as phase 3 audits a suite: for each target of a format the restructure keeps (the posting format, the frame header, the chunk table, the superblock and the WAL scan; the bodies, the round and the write-set record deferred to item 8 of the backlog, scoped 2026-11-01), two or three typical decoder defects planted in a throwaway copy of the decoder (an unchecked length that panics on a slice, an off-by-one that breaks the re-encode round trip, a missing bound behind the checksum), each of which the target must find within its time budget, the time to find each recorded; a target that misses one is strengthened or replaced (decided 2026-10-27)
+- [x] 11.8 Mutation testing at the stage's close (cargo-mutants approved as an exception to Bazel-only, 2026-11-01): `scripts/mutants.sh` over the stage's code the distribution restructure keeps (scoped 2026-11-01, stopped at the close: `core_codec`'s confirmation run and `store_posting`, `store_quads` and `store_hnsw` moved to the backlog): `core_terms`, `core_mapping`, `core_algo`, the wire's header, checksums, chunk tables and frame validation, `protocol_transport` and its compio shell, `protocol_scram`, `error_protocol`, the client shells, `transactions_log`, `traits_log` and `error_log`; the rest deferred to after the restructure (`openspec/notes/backlog.md`, item 8); every surviving mutant resolved as a suite gap (a test added) or a recorded equivalence in `.cargo/mutants.toml`; the counts recorded per crate
+- [x] 11.9 The write-ahead log's compio suite on Linux, in an OrbStack container, so the `O_DIRECT` path, which only type-checks on macOS, runs against a real Linux file system
 
 ## 12. Measurements → `ultragraphdb_tool_bench`
 
-- [ ] 12.1 The stage-4 workload under `Durability::Filesystem` as the baseline
-- [ ] 12.4 The sync cost and the round sizes on a drive with power-loss protection and on one without; the flag's defaults set from them; the latency of the round that moves into a new segment (a spare's rename and directory sync) against a round within one, and of a fresh segment's first sync after `fallocate`
-- [ ] 12.5 The write volume of the log beside fjall's journal
-- [ ] 12.6 Read summaries' false-abort rates replayed offline against the log's write sets, per budget and bits per key
-- [ ] 12.8 The results in the overview's "Measured" sections, each naming its drive
+- [x] 12.1 The stage-4 workload under `Durability::Filesystem` as the baseline
+- [x] 12.5 The write volume of the log beside fjall's journal
+- [x] 12.8 The results in the overview's "Measured" sections, each naming its drive
 
 ## 13. Documentation and close
 
-- [ ] 13.1 `AGENTS.md`: the new crates, folders and dependencies, the removed proto crates, and fuzzing beside mutation testing
-- [ ] 13.4 `openspec/protocols/tdd-protocol.md`: phase 5 adds fuzzing for code that decodes bytes from a client, a peer or the disk, with `scripts/fuzz.sh` and committed regression cases
-- [ ] 13.2 `ROADMAP.md` and the plan's "The write path on n−1 cores", "What a conflict is checked on" and stage rows 5 and 5.5 from the note's decisions
-- [ ] 13.3 `make format`, `make fix` and `make test` green; Cargo and Bazel counts equal; every group's phase notes complete
+- [x] 13.1 `AGENTS.md`: the new crates, folders and dependencies, the removed proto crates, and fuzzing beside mutation testing
+- [x] 13.4 `openspec/protocols/tdd-protocol.md`: phase 5 adds fuzzing for code that decodes bytes from a client, a peer or the disk, with `scripts/fuzz.sh` and committed regression cases
+- [x] 13.2 `ROADMAP.md` and the plan's "The write path on n−1 cores", "What a conflict is checked on" and stage rows 5 and 5.5 from the note's decisions
+- [x] 13.3 `make format`, `make fix` and `make test` green, under Bazel alone (decided 2026-10-30; cargo only for
+  `scripts/mutants.sh` and the fuzz workspace): on 2026-11-01, 15 doc-test, 53 unit-test and 22 BDD targets pass;
+  `make fix` leaves style warnings in test files only; every group's phase notes complete

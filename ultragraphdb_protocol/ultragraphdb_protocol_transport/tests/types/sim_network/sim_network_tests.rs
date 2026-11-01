@@ -137,3 +137,100 @@ fn test_a_shut_down_side_reads_as_the_end_once_drained() {
     assert_eq!(read(&server, 16), Poll::Ready(Some(b"last".to_vec())));
     assert_eq!(read(&server, 16), Poll::Ready(None));
 }
+
+/// Every chunk `stream` reads until the end, its peer having shut its side down: empty chunks included.
+fn read_to_end(stream: &SimStream) -> Vec<Vec<u8>> {
+    let mut chunks = Vec::new();
+    while let Poll::Ready(Some(chunk)) = read(stream, 1 << 16) {
+        chunks.push(chunk);
+    }
+    chunks
+}
+
+#[test]
+fn test_a_delayed_message_arrives_within_one_to_max_delay_steps_and_takes_each() {
+    // Every message delayed, at most 2 steps: the message arrives after the first step or the second, never later, and
+    // over 64 seeds both happen.
+    let mut steps_taken = Vec::new();
+    for seed in 0..64 {
+        let network = SimNetwork::new(seed, NetworkFaults::none().with_delay(1_000_000, 2));
+        let (mut client, server) = network.connect();
+        send(&mut client, b"m");
+        let mut steps = 0;
+        while server.pending() == 0 {
+            network.step();
+            steps += 1;
+            assert!(steps <= 2, "seed {seed}: no arrival after 2 steps");
+        }
+        steps_taken.push(steps);
+    }
+    assert!(steps_taken.contains(&1), "{steps_taken:?}");
+    assert!(steps_taken.contains(&2), "{steps_taken:?}");
+}
+
+#[test]
+fn test_a_split_message_arrives_in_two_to_its_length_non_empty_chunks() {
+    // Every message split: a 3-byte message has two places to cut, so it arrives as 2 or 3 chunks, none empty, that
+    // join back to it; over 64 seeds both counts happen.
+    let mut counts = Vec::new();
+    for seed in 0..64 {
+        let network = SimNetwork::new(seed, NetworkFaults::none().with_split(1_000_000));
+        let (mut client, server) = network.connect();
+        send(&mut client, b"abc");
+        client.shutdown();
+        let chunks = read_to_end(&server);
+        assert!(
+            chunks.iter().all(|chunk| !chunk.is_empty()),
+            "seed {seed}: {chunks:?}"
+        );
+        assert_eq!(chunks.concat(), b"abc", "seed {seed}");
+        counts.push(chunks.len());
+    }
+    assert!(counts.iter().all(|n| (2..=3).contains(n)), "{counts:?}");
+    assert!(counts.contains(&2) && counts.contains(&3), "{counts:?}");
+}
+
+#[test]
+fn test_a_one_byte_message_is_never_split() {
+    // One byte has nowhere to cut: it arrives whole, and no split is counted.
+    let network = SimNetwork::new(1, NetworkFaults::none().with_split(1_000_000));
+    let (mut client, server) = network.connect();
+    send(&mut client, b"x");
+    client.shutdown();
+    assert_eq!(read_to_end(&server), vec![b"x".to_vec()]);
+    assert_eq!(network.stats().split(), 0);
+}
+
+#[test]
+fn test_a_seed_draws_splitmix64s_stream() {
+    // Seed 0, every message dropped at 500,000 per million: each send draws once for the drop and, kept, once each for
+    // the duplicate and the delay (rates 0 draw too); a one-byte message draws nothing to split. The messages kept are
+    // those of SplitMix64 (Vigna's splitmix64.c) computed in Python from seed 0, whose first output is the reference's
+    // 0xE220A8397B1DCDAF: a draw kept when `draw % 1_000_000 >= 500_000`.
+    let network = SimNetwork::new(0, NetworkFaults::none().with_drop(500_000));
+    let (mut client, server) = network.connect();
+    for i in 0..32u8 {
+        send(&mut client, &[i]);
+    }
+    client.shutdown();
+    let arrived: Vec<u8> = read_to_end(&server).concat();
+    assert_eq!(
+        arrived,
+        vec![
+            0, 1, 4, 6, 9, 10, 11, 12, 16, 18, 20, 21, 22, 23, 24, 25, 26
+        ]
+    );
+    assert_eq!(network.stats().dropped(), 15);
+}
+
+#[test]
+fn test_a_fault_happens_for_a_draw_below_its_rate_and_not_at_it() {
+    // Seed 0's first draw is 0xE220A8397B1DCDAF, 607,535 modulo a million (Python, as above): a drop rate of 607,535
+    // keeps the message, one of 607,536 drops it.
+    for (rate, dropped) in [(607_535, 0), (607_536, 1)] {
+        let network = SimNetwork::new(0, NetworkFaults::none().with_drop(rate));
+        let (mut client, _server) = network.connect();
+        send(&mut client, b"m");
+        assert_eq!(network.stats().dropped(), dropped, "rate {rate}");
+    }
+}

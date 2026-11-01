@@ -1,0 +1,788 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+//! The conformance suite through the compio shell: the golden frames of `ultragraphdb_protocol_wire` served over the
+//! simulated network, plain and split and delayed. Every request the shell writes arrives as its golden frame, every
+//! golden reply is read as its golden values, a reply repeated or lost is refused or timed out by the connection's
+//! rule, and every bit flip and truncation of every golden reply is refused, never read as a value. Which refusal a
+//! damaged frame earns is read off the transport's framer and the wire's validation, not off the client.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::time::Duration;
+
+use ultragraphdb_client_compio::{
+    Anonymous, Client, ClientConfig, ClientError, ClientErrorEnum, Login, ResultStream,
+};
+use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_scram::{ScramError, ScramLogin};
+use ultragraphdb_protocol_transport::{
+    BufferPool, FrameStep, Framer, NetworkFaults, SimNetwork, TransportError,
+};
+use ultragraphdb_protocol_wire::{
+    Begin, BodyBuilder, BodyView, ColumnType, Command, DescribeView, DropCommand, ErrorCode,
+    ExecuteView, FrameView, Header, MAX_FRAME_SIZE, OperationResult, OperationView, PatternSlot,
+    PrepareView, QuadPattern, Read, ReadView, RequestTerm, ResultView, TermTable, WriteView,
+};
+
+use crate::utils::golden::{Golden, Step, golden, not_last, numbered, restream, serve_golden_sim};
+use crate::utils::serve::{CLUSTER, SimConnect};
+
+/// The golden frames' release (`generate_bodies.py`'s `RELEASE`).
+const RELEASE: u32 = 0x0005_0000;
+
+fn runtime() -> compio::runtime::Runtime {
+    compio::runtime::Runtime::new().expect("a runtime")
+}
+
+/// The client of the golden frames: their cluster, release and client name (`generate_bodies.py`'s Hello), credit
+/// granted two frames at a time (the golden Credit's).
+fn config() -> ClientConfig {
+    ClientConfig::new(CLUSTER, "ultragraph-test")
+        .with_release(RELEASE)
+        .with_timeout(Duration::from_secs(2))
+        .with_retry_delay(Duration::from_millis(5))
+        .with_credit(2)
+}
+
+/// The networks the golden frames cross: plain, then split and delayed under three seeds.
+fn networks() -> Vec<SimNetwork> {
+    let faults = NetworkFaults::none()
+        .with_split(500_000)
+        .with_delay(300_000, 3);
+    let mut networks = vec![SimNetwork::new(1, NetworkFaults::none())];
+    networks.extend((1..=3).map(|seed| SimNetwork::new(seed, faults)));
+    networks
+}
+
+/// `test` run against a server of `golden` over `network`.
+fn served<F: Future<Output = ()>, L: Login>(
+    network: SimNetwork,
+    golden: &Rc<RefCell<Golden>>,
+    login: L,
+    test: impl FnOnce(Client<SimConnect, L>) -> F,
+) {
+    let rt = runtime();
+    let connector = SimConnect::new(network);
+    let accepted = Rc::clone(&connector.accepted);
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_golden_sim(Rc::clone(golden), accepted));
+        test(Client::new(connector, config(), login, 8)).await;
+    });
+}
+
+/// The body of golden frame `name`, as `read` takes it from the wire's view.
+fn decoded<T>(name: &str, read: impl FnOnce(&FrameView<'_>) -> Result<T, ProtocolError>) -> T {
+    let bytes = golden(name);
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).expect("a golden frame");
+    read(&frame).expect("a golden body")
+}
+
+/// The Begin of a transaction for writing: not a golden frame, the reply the commits and the abort need.
+fn writable() -> Vec<u8> {
+    Begin::new(0, 5, false)
+        .frame(Header::new(CLUSTER, Command::Begin))
+        .expect("a Begin")
+}
+
+/// The golden Result's values: two columns of three rows, column 0 terms 0, 0, 3, column 1 terms 1, 2 and unbound;
+/// resume key "rk" (`generate_bodies.py`'s Result).
+fn result_values(v: &ResultView<'_>) -> (u32, u32, Vec<Option<u32>>, Vec<u8>) {
+    let cells = (0..2)
+        .flat_map(|col| (0..3).map(move |row| (col, row)))
+        .map(|(col, row)| v.cell(col, row))
+        .collect();
+    (v.columns(), v.rows(), cells, v.resume().to_vec())
+}
+
+fn golden_result() -> (u32, u32, Vec<Option<u32>>, Vec<u8>) {
+    (
+        2,
+        3,
+        vec![Some(0), Some(0), Some(3), Some(1), Some(2), Some(u32::MAX)],
+        b"rk".to_vec(),
+    )
+}
+
+/// The script of the conversation, in the order the client sends its frames.
+fn conversation_script(golden_server: &mut Golden) {
+    let result = golden("result");
+    for step in [
+        Step::any().reply(golden("register")),
+        Step::expect("prepare").reply(golden("prepare_reply")),
+        Step::expect("describe").reply(golden("describe_reply")),
+        Step::any().reply(writable()),
+        Step::any().reply(golden("begin")),
+        Step::expect("read")
+            .reply(not_last(&result))
+            .reply(not_last(&result))
+            .reply(not_last(&result))
+            .reply(not_last(&result)),
+        Step::expect("credit").reply(result.clone()),
+        Step::expect("read"),
+        Step::expect("cancel"),
+        Step::expect("execute").reply(result),
+        Step::expect("write"),
+        Step::expect("operation"),
+        Step::expect("operation_counter"),
+        Step::expect("operation_deep"),
+        Step::any().reply(golden("commit")),
+        Step::any().reply(writable()),
+        Step::expect("abort"),
+        Step::any().reply(writable()),
+        Step::any().reply(golden("error")),
+        Step::any().reply(writable()),
+        Step::any().reply(golden("error_operation")),
+        Step::expect("drop").reply(golden("drop_reply")),
+    ] {
+        golden_server.push(step);
+    }
+}
+
+/// Every golden request and reply in one conversation, its values from `generate_bodies.py`'s comments.
+async fn conversation(mut client: Client<SimConnect, Anonymous>) {
+    client.connect().await.expect("connected");
+    // The golden Welcome: protocol 1, max_frame at its floor of 524,288, 64 streams, initial credit 4.
+    let w = client.core().welcome().expect("welcomed");
+    assert_eq!(
+        (
+            w.protocol(),
+            w.max_frame(),
+            w.max_streams(),
+            w.initial_credit(),
+            w.server()
+        ),
+        (1, 1 << 19, 64, 4, "ultragraph 0.1")
+    );
+    // Register: the session 0x1122_3344_5566_7788.
+    let session = client.register().await.expect("registered");
+    assert_eq!(session.number(), 0x1122_3344_5566_7788);
+    // Prepare's reply: statement 1, schema 0x5C4E_3A2B_1D0F_7E6A, one Term column.
+    let statement = client
+        .prepare(&decoded("prepare", |f| {
+            PrepareView::from_frame(f)?.to_body()
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        (statement.id(), statement.schema(), statement.result_types()),
+        (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
+    );
+    // Describe's reply: read version 42, the description the wire reads from the golden bytes.
+    let described = client.describe(0).await.unwrap();
+    assert_eq!(
+        (described.read_version(), &described),
+        (
+            42,
+            &decoded("describe_reply", |f| DescribeView::from_frame(f)?.to_body())
+        )
+    );
+    let writer = client.begin(0, false).await.unwrap();
+    // Begin: namespace 3, read version 0xAB_CDEF_0002, read-only, on stream 5, which the golden Read and Execute name.
+    let reader = client.begin(0, true).await.unwrap();
+    assert_eq!(
+        (
+            reader.namespace(),
+            reader.read_version(),
+            reader.read_only(),
+            reader.stream()
+        ),
+        (3, 0xAB_CDEF_0002, true, 5)
+    );
+    // Four Results spend the Welcome's credit of four; the client grants two more (the golden Credit), and the last
+    // Result is flagged last.
+    let stream = client
+        .read(
+            &reader,
+            &decoded("read", |f| ReadView::from_frame(f)?.to_body()),
+        )
+        .await
+        .unwrap();
+    for _ in 0..5 {
+        let batch = client.next_batch(&stream, result_values).await.unwrap();
+        assert_eq!(batch, Some(golden_result()));
+    }
+    assert_eq!(
+        client.next_batch(&stream, result_values).await.unwrap(),
+        None
+    );
+    let cancelled = client
+        .read(
+            &reader,
+            &decoded("read", |f| ReadView::from_frame(f)?.to_body()),
+        )
+        .await
+        .unwrap();
+    client.cancel(cancelled).await;
+    let executed = client
+        .execute(
+            &reader,
+            &decoded("execute", |f| ExecuteView::from_frame(f)?.to_body()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        client.next_batch(&executed, result_values).await.unwrap(),
+        Some(golden_result())
+    );
+    assert_eq!(
+        client.next_batch(&executed, result_values).await.unwrap(),
+        None
+    );
+    client
+        .write(
+            &writer,
+            &decoded("write", |f| WriteView::from_frame(f)?.to_body()),
+        )
+        .await
+        .unwrap();
+    for name in ["operation", "operation_counter", "operation_deep"] {
+        client
+            .operation(
+                &writer,
+                &decoded(name, |f| OperationView::from_frame(f)?.to_body()),
+            )
+            .await
+            .unwrap();
+    }
+    // Commit: through session 9's request 7, version 1,000, results (0x10, created) and (0x20, found).
+    let nine = client.resume_session(9, 7);
+    let committed = client.commit(writer, nine).await.unwrap();
+    assert_eq!((committed.version(), committed.request()), (1_000, 7));
+    assert_eq!(
+        committed.results(),
+        &[
+            OperationResult::new(0x10, true),
+            OperationResult::new(0x20, false)
+        ]
+    );
+    let aborted = client.begin(0, false).await.unwrap();
+    client.abort(aborted).await.unwrap();
+    // Error: a conflict on a scanned range, detail 3; and a failed compare-and-set, the value found "done".
+    let tx = client.begin(0, false).await.unwrap();
+    let session = client.resume_session(104, 1);
+    let conflict = client.commit(tx, session).await.unwrap_err();
+    assert!(
+        matches!(
+            &conflict.0,
+            ClientErrorEnum::Refused {
+                code: ErrorCode::Conflict,
+                detail: 3,
+                value: None,
+                ..
+            }
+        ),
+        "{conflict:?}"
+    );
+    assert!(conflict.retryable(), "a conflict is retryable");
+    let tx = client.begin(0, false).await.unwrap();
+    let session = client.resume_session(105, 1);
+    let failed = client.commit(tx, session).await.unwrap_err();
+    let done = RequestTerm::Literal {
+        lexical: "done".into(),
+        datatype: None,
+    };
+    assert!(
+        matches!(&failed.0, ClientErrorEnum::Refused { code: ErrorCode::OperationFailed, detail: 0, value: Some(v), .. } if *v == done),
+        "{failed:?}"
+    );
+    // Drop: graph <http://ex.org/g> of namespace 3 through session 9's request 8; its commit version 2002.
+    let dropped = client
+        .drop_command(DropCommand::graph(3, "http://ex.org/g"), nine)
+        .await
+        .unwrap();
+    assert_eq!((dropped.version(), dropped.request()), (2_002, 8));
+    client.close().await;
+}
+
+/// The requests the client writes in the conversation, golden byte for byte but for stream and sequence, in order.
+const REQUESTS: [&str; 14] = [
+    "hello",
+    "prepare",
+    "describe",
+    "read",
+    "credit",
+    "read",
+    "cancel",
+    "execute",
+    "write",
+    "operation",
+    "operation_counter",
+    "operation_deep",
+    "abort",
+    "drop",
+];
+
+#[test]
+fn test_every_golden_frame_crosses_the_shell_over_a_plain_split_and_delayed_network() {
+    for network in networks() {
+        let server = Golden::new("welcome_no_auth");
+        conversation_script(&mut server.borrow_mut());
+        served(network, &server, Anonymous, conversation);
+        let server = server.borrow();
+        assert_eq!(server.mismatches(), &[] as &[String]);
+        assert_eq!(server.matched(), &REQUESTS[..]);
+        assert_eq!((server.steps_left(), server.connections()), (0, 1));
+    }
+}
+
+/// RFC 7677 §3's client nonce, the one the golden Authenticate exchange was made with.
+fn rfc_nonce() -> Result<String, ScramError> {
+    Ok("rOprNGfwEbeRWgbNEkqO".to_string())
+}
+
+/// The golden Authenticate exchange through the shell: RFC 7677's user "user" with password "pencil" answers the golden
+/// Welcome and the server's first message with the golden frames, and acts as principal 7 until the golden expiry.
+#[test]
+fn test_the_golden_authenticate_exchange_crosses_the_shell() {
+    for network in networks() {
+        let server = Golden::new("welcome");
+        server.borrow_mut().push(
+            Step::expect("authenticate_client_first").reply(golden("authenticate_server_first")),
+        );
+        server.borrow_mut().push(
+            Step::expect("authenticate_client_final").reply(golden("authenticate_server_final")),
+        );
+        let login = ScramLogin::new(
+            "user",
+            "pencil",
+            rfc_nonce as fn() -> Result<String, ScramError>,
+        )
+        .unwrap();
+        served(network, &server, login, |mut client| async move {
+            client.connect().await.expect("authenticated");
+            // The server's final: principal 7, expiry 1,798,761,600,000,000 µs.
+            assert_eq!(client.core().principal(), Some(7));
+            assert_eq!(client.core().expires(), Some(1_798_761_600_000_000));
+            client.close().await;
+        });
+        let server = server.borrow();
+        assert_eq!(server.mismatches(), &[] as &[String]);
+        assert_eq!(
+            server.matched(),
+            &[
+                "hello",
+                "authenticate_client_first",
+                "authenticate_client_final"
+            ]
+        );
+    }
+}
+
+/// A golden reply the network repeats is read once as its values, its copy refused by the rule, which gives the
+/// connection up: the next request fails as lost, and the one after goes on a new connection. A golden reply the
+/// network loses times its request out, and the next goes on a new connection.
+#[test]
+fn test_a_repeated_or_lost_golden_reply_through_the_shell() {
+    let server = Golden::new("welcome_no_auth");
+    for step in [
+        Step::any().reply(golden("register")).copies(2),
+        Step::any().reply(golden("begin")),
+        Step::any().reply(golden("begin")),
+        Step::any().reply(golden("register")).copies(0),
+        Step::any().reply(golden("register")),
+    ] {
+        server.borrow_mut().push(step);
+    }
+    let network = SimNetwork::new(1, NetworkFaults::none());
+    served(network, &server, Anonymous, |mut client| async move {
+        let session = client.register().await.expect("the first copy");
+        assert_eq!(session.number(), 0x1122_3344_5566_7788);
+        // The copy is the Register's again, sequence 2 where 3 was due: the rule that gave the connection up.
+        assert_eq!(
+            client.begin(0, true).await.unwrap_err(),
+            ClientError::ConnectionLost(Some(ClientError::Protocol(ProtocolError::SequenceOrder(
+                3, 2
+            ))))
+        );
+        assert_eq!(
+            client.begin(0, true).await.unwrap().read_version(),
+            0xAB_CDEF_0002
+        );
+        assert_eq!(
+            client.register().await.unwrap_err(),
+            ClientError::TimedOut()
+        );
+        assert_eq!(
+            client.register().await.unwrap().number(),
+            0x1122_3344_5566_7788
+        );
+        client.close().await;
+    });
+    let server = server.borrow();
+    assert_eq!((server.steps_left(), server.connections()), (0, 3));
+}
+
+/// What the transport's framer and the wire's validation make of a damaged frame, read without the client: refused by
+/// the framer, by a rule of the frame's, or passing both.
+enum Damage {
+    Framer(TransportError),
+    Rule(ProtocolError),
+    Passes,
+}
+
+fn damage(bad: &[u8]) -> Damage {
+    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
+    let mut buffer = pool.acquire().expect("a buffer");
+    loop {
+        let mut data = buffer.take();
+        let want = framer.want().min(bad.len());
+        data.clear();
+        data.extend_from_slice(&bad[..want]);
+        let short = data.len() < framer.want();
+        let got = data.len();
+        buffer.restore(data);
+        if short {
+            return Damage::Framer(framer.closed(got));
+        }
+        match framer.advance(&buffer) {
+            Ok(FrameStep::Read(_)) => {}
+            Ok(FrameStep::Frame) => break,
+            Err(refusal) => return Damage::Framer(refusal),
+        }
+    }
+    match FrameView::validate(bad, CLUSTER, MAX_FRAME_SIZE) {
+        Err(rule) => Damage::Rule(rule),
+        Ok(_) => Damage::Passes,
+    }
+}
+
+/// The golden replies, each answering a request of one kind.
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    /// A reply the request fails without when the connection is given up.
+    Plain,
+    /// A commit's or a drop's, retried through its session; with one attempt allowed, in doubt.
+    Retried,
+    /// A result's batch.
+    Batch,
+}
+
+const REPLIES: [(&str, Kind); 9] = [
+    ("register", Kind::Plain),
+    ("begin", Kind::Plain),
+    ("prepare_reply", Kind::Plain),
+    ("describe_reply", Kind::Plain),
+    ("commit", Kind::Retried),
+    ("error", Kind::Retried),
+    ("error_operation", Kind::Retried),
+    ("drop_reply", Kind::Retried),
+    ("result", Kind::Batch),
+];
+
+/// `answer` without its value.
+fn ok<T>(answer: Result<T, ClientError>) -> Result<(), ClientError> {
+    answer.map(|_| ())
+}
+
+/// The request golden reply `name` answers, sent once the server's script holds `last`, the reply's own step; the
+/// answer, `Ok` for a value.
+async fn ask(
+    client: &mut Client<SimConnect, Anonymous>,
+    server: &RefCell<Golden>,
+    name: &str,
+    session: u64,
+    last: Step,
+) -> (Result<(), ClientError>, Option<ResultStream>) {
+    match name {
+        "register" => {
+            server.borrow_mut().push(last);
+            (ok(client.register().await), None)
+        }
+        "begin" => {
+            server.borrow_mut().push(last);
+            (ok(client.begin(0, true).await), None)
+        }
+        "prepare_reply" => {
+            server.borrow_mut().push(last);
+            (
+                ok(client
+                    .prepare(&decoded("prepare", |f| {
+                        PrepareView::from_frame(f)?.to_body()
+                    }))
+                    .await),
+                None,
+            )
+        }
+        "describe_reply" => {
+            server.borrow_mut().push(last);
+            (ok(client.describe(0).await), None)
+        }
+        "drop_reply" => {
+            server.borrow_mut().push(last);
+            let session = client.resume_session(session, 1);
+            let command = DropCommand::graph(3, "http://ex.org/g");
+            (ok(client.drop_command(command, session).await), None)
+        }
+        "result" => {
+            server.borrow_mut().push(Step::any().reply(golden("begin")));
+            server.borrow_mut().push(last);
+            let reader = match client.begin(0, true).await {
+                Ok(reader) => reader,
+                Err(error) => return (Err(error), None),
+            };
+            let mut terms = TermTable::new();
+            let a = terms.iri("http://ex.org/a");
+            let pattern = QuadPattern::new(
+                PatternSlot::Unbound,
+                PatternSlot::Bound(a),
+                PatternSlot::Unbound,
+                PatternSlot::Unbound,
+            );
+            let read = Read::new(reader.stream(), 0, terms, pattern, Vec::new());
+            let stream = client.read(&reader, &read).await.unwrap();
+            (
+                ok(client.next_batch(&stream, result_values).await),
+                Some(stream),
+            )
+        }
+        _ => {
+            server.borrow_mut().push(Step::any().reply(writable()));
+            server.borrow_mut().push(last);
+            let tx = match client.begin(0, false).await {
+                Ok(tx) => tx,
+                Err(error) => return (Err(error), None),
+            };
+            let session = client.resume_session(session, 1);
+            (ok(client.commit(tx, session).await), None)
+        }
+    }
+}
+
+/// The loss a framer's refusal gives: a close between frames is a plain loss, with nothing more to say; any other
+/// refusal is its cause.
+fn lost(refusal: TransportError) -> ClientError {
+    if refusal == TransportError::Closed() {
+        ClientError::ConnectionLost(None)
+    } else {
+        ClientError::ConnectionLost(Some(ClientError::Transport(refusal)))
+    }
+}
+
+/// Every bit flip of every byte, one bit a byte, and every truncation of every golden reply, served through the shell
+/// over a split and delayed network, the connection closed after it: never read as a value, and refused as the framer
+/// and the wire's validation say. A plain request fails as lost, its cause the framer's refusal or the frame's rule; a
+/// commit or a drop, allowed one attempt, is in doubt; a read fails with its own frame's rule, or as lost when the
+/// framer gave the connection up.
+#[test]
+fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connections_rule() {
+    let server = Golden::new("welcome_no_auth");
+    let faults = NetworkFaults::none()
+        .with_split(500_000)
+        .with_delay(300_000, 3);
+    let config = config().with_commit_attempts(1);
+    let rt = runtime();
+    let connector = SimConnect::new(SimNetwork::new(7, faults));
+    let accepted = Rc::clone(&connector.accepted);
+    let mut cases = 0;
+    let mut passing = 0;
+    rt.block_on(async {
+        let _server = compio::runtime::spawn(serve_golden_sim(Rc::clone(&server), accepted));
+        let mut client = Client::new(connector, config, Anonymous, 8);
+        for (name, kind) in REPLIES {
+            // Each case on a connection of its own, its streams from 1: the reply numbered after the Welcome, and after
+            // the Begin a commit or a read needs; on the request's stream, a read's the one after its transaction's.
+            let (sequence, on) = match (name, kind) {
+                ("drop_reply", _) | (_, Kind::Plain) => (2, 1),
+                (_, Kind::Retried) => (3, 1),
+                (_, Kind::Batch) => (3, 2),
+            };
+            let good = golden(name);
+            let len = good.len();
+            let damaged = (0..len).map(|at| (Some(at), None));
+            let cut = (0..len).map(|len| (None, Some(len)));
+            for (flip, cut) in damaged.chain(cut) {
+                cases += 1;
+                let session = 10_000 + cases;
+                let mut step = Step::any().reply(good.clone());
+                step = match (flip, cut) {
+                    (Some(at), _) => step.damaged(at),
+                    (_, Some(len)) => step.cut(len),
+                    _ => unreachable!(),
+                };
+                let (answer, stream) = ask(&mut client, &server, name, session, step).await;
+                let stream_id = stream.as_ref().map(ResultStream::stream);
+                assert!(stream_id.is_none_or(|id| id == on), "the read's stream");
+                // The frame as the server sends it, then damaged or cut.
+                let mut bad = numbered(&restream(&good, on), sequence);
+                if let Some(at) = flip {
+                    bad[at] ^= 1 << (at % 8);
+                }
+                if let Some(len) = cut {
+                    bad.truncate(len);
+                }
+                let error = answer.expect_err("a damaged frame read as a value");
+                let expected = match (damage(&bad), kind) {
+                    (Damage::Passes, _) => {
+                        passing += 1;
+                        continue;
+                    }
+                    (_, Kind::Retried) => ClientError::RetriesExhausted(session, 1, 1),
+                    (Damage::Framer(refusal), _) => lost(refusal),
+                    (Damage::Rule(rule), Kind::Plain) => {
+                        ClientError::ConnectionLost(Some(ClientError::Protocol(rule)))
+                    }
+                    (Damage::Rule(rule), Kind::Batch) => ClientError::Protocol(rule),
+                };
+                assert_eq!(error, expected, "{name}: flip {flip:?}, cut {cut:?}");
+            }
+        }
+        client.close().await;
+    });
+    let server = server.borrow();
+    assert_eq!(server.mismatches(), &[] as &[String]);
+    assert_eq!(server.steps_left(), 0);
+    // Twice the golden replies' lengths: 256 + 256 + 385 + 508 + 296 + 312 + 348 + 311 + 600 = 3,272 bytes.
+    assert_eq!(cases, 6_544);
+    assert_eq!(
+        passing, 0,
+        "every damaged frame is refused by the framer or a rule"
+    );
+}
+
+/// A read of no golden frame, its transaction begun by the golden Begin on stream 1, the read on stream 2, served by
+/// `last`.
+async fn cut_read(
+    client: &mut Client<SimConnect, Anonymous>,
+    server: &RefCell<Golden>,
+    last: Step,
+) -> ResultStream {
+    server.borrow_mut().push(Step::any().reply(golden("begin")));
+    server.borrow_mut().push(last);
+    let reader = client.begin(0, true).await.unwrap();
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    let pattern = QuadPattern::new(
+        PatternSlot::Unbound,
+        PatternSlot::Bound(a),
+        PatternSlot::Unbound,
+        PatternSlot::Unbound,
+    );
+    let read = Read::new(reader.stream(), 0, terms, pattern, Vec::new());
+    client.read(&reader, &read).await.unwrap()
+}
+
+/// A read whose connection is lost after some batches and before its last fails as lost, carrying what gave the
+/// connection up, and never finishes: the server closing after two batches, a plain loss; the framer refusing the
+/// second batch's header; the core refusing the second batch's body, the read's own frame, by its rule. A request whose
+/// reply breaks a rule fails as lost with that rule.
+#[test]
+fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() {
+    let result = golden("result");
+    let server = Golden::new("welcome_no_auth");
+    let network = SimNetwork::new(2, NetworkFaults::none().with_split(500_000));
+    let script = Rc::clone(&server);
+    served(network, &server, Anonymous, |mut client| async move {
+        let two = Step::any()
+            .reply(not_last(&result))
+            .reply(not_last(&result))
+            .close();
+        let stream = cut_read(&mut client, &script, two).await;
+        for _ in 0..2 {
+            assert_eq!(
+                client.next_batch(&stream, result_values).await.unwrap(),
+                Some(golden_result())
+            );
+        }
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap_err(),
+            ClientError::ConnectionLost(None),
+            "cut short, not finished"
+        );
+        // Byte 10 lies in the header's checksummed bytes: the framer refuses the header, as the transport says of
+        // these very bytes (numbered 4 after the Welcome, the Begin and the first batch, on the read's stream 2).
+        let header = Step::any()
+            .reply(not_last(&result))
+            .reply(not_last(&result))
+            .damaged(10);
+        let stream = cut_read(&mut client, &script, header).await;
+        let mut bad = numbered(&restream(&not_last(&result), 2), 4);
+        bad[10] ^= 1 << 2;
+        let Damage::Framer(refusal) = damage(&bad) else {
+            panic!("the framer refuses the header")
+        };
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap(),
+            Some(golden_result())
+        );
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap_err(),
+            ClientError::ConnectionLost(Some(ClientError::Transport(refusal)))
+        );
+        // Byte 400 lies in the body: the frame passes the framer and breaks a rule of its own.
+        let body = Step::any()
+            .reply(not_last(&result))
+            .reply(not_last(&result))
+            .damaged(400);
+        let stream = cut_read(&mut client, &script, body).await;
+        let mut bad = numbered(&restream(&not_last(&result), 2), 4);
+        bad[400] ^= 1;
+        let Damage::Rule(rule) = damage(&bad) else {
+            panic!("a rule refuses the body")
+        };
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap(),
+            Some(golden_result())
+        );
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap_err(),
+            ClientError::Protocol(rule),
+            "the read's own frame"
+        );
+        // A Register answered by the golden Describe reply with a body byte flipped, numbered 2 on stream 1.
+        script
+            .borrow_mut()
+            .push(Step::any().reply(golden("describe_reply")).damaged(400));
+        let mut bad = numbered(&restream(&golden("describe_reply"), 1), 2);
+        bad[400] ^= 1;
+        let Damage::Rule(rule) = damage(&bad) else {
+            panic!("a rule refuses the body")
+        };
+        assert_eq!(
+            client.register().await.unwrap_err(),
+            ClientError::ConnectionLost(Some(ClientError::Protocol(rule)))
+        );
+        client.close().await;
+    });
+    let server = server.borrow();
+    assert_eq!(server.mismatches(), &[] as &[String]);
+    assert_eq!((server.steps_left(), server.connections()), (0, 4));
+}
+
+/// A read whose transaction ended normally is finished: `StreamFinished`, not a loss.
+#[test]
+fn test_a_read_whose_transaction_ended_still_answers_stream_finished() {
+    let server = Golden::new("welcome_no_auth");
+    let network = SimNetwork::new(1, NetworkFaults::none());
+    let script = Rc::clone(&server);
+    served(network, &server, Anonymous, |mut client| async move {
+        script.borrow_mut().push(Step::any().reply(golden("begin")));
+        script.borrow_mut().push(Step::any());
+        script.borrow_mut().push(Step::expect("abort"));
+        let reader = client.begin(0, true).await.unwrap();
+        let mut terms = TermTable::new();
+        let a = terms.iri("http://ex.org/a");
+        let pattern = QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(a),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        );
+        let stream = client
+            .read(
+                &reader,
+                &Read::new(reader.stream(), 0, terms, pattern, Vec::new()),
+            )
+            .await
+            .unwrap();
+        client.abort(reader).await.unwrap();
+        assert_eq!(
+            client.next_batch(&stream, result_values).await.unwrap_err(),
+            ClientError::StreamFinished(stream.stream())
+        );
+        client.close().await;
+    });
+}

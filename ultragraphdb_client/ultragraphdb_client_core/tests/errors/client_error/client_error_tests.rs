@@ -22,7 +22,9 @@ fn every() -> Vec<ClientError> {
         ),
         ClientError::Closed(ErrorCode::Protocol, "bye"),
         ClientError::TimedOut(),
-        ClientError::ConnectionLost(),
+        ClientError::ConnectionLost(Some(ClientError::Protocol(ProtocolError::FrameTooLarge(
+            9, 8,
+        )))),
         ClientError::NotConnected(),
         ClientError::Request(ProtocolError::FrameTooLarge(9, 8)),
         ClientError::ReplyMismatch("session", 1, 2),
@@ -124,12 +126,13 @@ fn test_retryable_exactly_where_the_wire_says() {
 fn test_stale_and_closing_are_named() {
     assert!(ClientError::Refused(ErrorCode::StaleStatement, 1, "", None).is_stale());
     assert!(!ClientError::Refused(ErrorCode::UnknownStatement, 1, "", None).is_stale());
-    // Transport, Protocol, Closed and TimedOut give the connection up; nothing else does.
+    // Transport, Protocol, Closed, TimedOut and ConnectionLost give the connection up, or come of its loss; nothing
+    // else does.
     let closing: Vec<bool> = every().iter().map(ClientError::closes_connection).collect();
     assert_eq!(
         closing,
         vec![
-            true, true, false, true, true, false, false, false, false, false, false, false, false,
+            true, true, false, true, true, true, false, false, false, false, false, false, false,
             false, false, false, false, false, false, false
         ]
     );
@@ -152,7 +155,7 @@ fn test_each_names_its_values() {
             "refused (Conflict, detail 3): conflict",
             "the server closed the connection (Protocol): bye",
             "no answer within the timeout",
-            "the request's connection was lost",
+            "the request's connection was lost: the server sent a frame refused: frame of 9 bytes exceeds the 8-byte limit",
             "no connection is ready",
             "the request cannot be sent: frame of 9 bytes exceeds the 8-byte limit",
             "a reply names session 2 where 1 was asked",
@@ -170,4 +173,31 @@ fn test_each_names_its_values() {
         ]
     );
     assert!(every()[0].source().is_none());
+}
+
+/// A lost connection names what gave it up, in its text and as its source; with nothing to name, neither.
+#[test]
+fn test_a_lost_connection_names_its_cause() {
+    let cause = ClientError::Transport(TransportError::Truncated(100, 256));
+    let lost = ClientError::ConnectionLost(Some(cause.clone()));
+    assert_eq!(
+        lost.0,
+        ClientErrorEnum::ConnectionLost {
+            cause: Some(Box::new(cause.clone()))
+        }
+    );
+    assert_eq!(
+        lost.source().and_then(|s| s.downcast_ref::<ClientError>()),
+        Some(&cause)
+    );
+    assert_eq!(
+        lost.to_string(),
+        // ClientError's "connection failed: {error}" around TransportError's Truncated text.
+        "the request's connection was lost: connection failed: connection closed 100 bytes into a frame of 256"
+    );
+    let plain = ClientError::ConnectionLost(None);
+    assert_eq!(plain.0, ClientErrorEnum::ConnectionLost { cause: None });
+    assert!(plain.source().is_none());
+    assert_eq!(plain.to_string(), "the request's connection was lost");
+    assert!(plain.closes_connection());
 }

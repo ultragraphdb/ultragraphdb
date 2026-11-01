@@ -79,7 +79,10 @@ impl Command {
 }
 
 /// The flags of `rest`, each with its value, refused unless `known` lists it.
-fn flags<'a>(rest: &'a [String], known: &[&str]) -> Result<BTreeMap<&'a str, &'a str>, BenchError> {
+pub(crate) fn flags<'a>(
+    rest: &'a [String],
+    known: &[&str],
+) -> Result<BTreeMap<&'a str, &'a str>, BenchError> {
     let mut flags = BTreeMap::new();
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
@@ -94,7 +97,7 @@ fn flags<'a>(rest: &'a [String], known: &[&str]) -> Result<BTreeMap<&'a str, &'a
     Ok(flags)
 }
 
-fn dir(flags: &BTreeMap<&str, &str>) -> Result<PathBuf, BenchError> {
+pub(crate) fn dir(flags: &BTreeMap<&str, &str>) -> Result<PathBuf, BenchError> {
     flags
         .get("--dir")
         .map(PathBuf::from)
@@ -102,7 +105,7 @@ fn dir(flags: &BTreeMap<&str, &str>) -> Result<PathBuf, BenchError> {
 }
 
 /// The number `flag` gives, or `default`; required when there is none, and at least `min`.
-fn number(
+pub(crate) fn number(
     flags: &BTreeMap<&str, &str>,
     flag: &str,
     default: Option<u64>,

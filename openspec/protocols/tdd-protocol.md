@@ -10,7 +10,8 @@ Each of the four stages SHALL pass through phases 1 to 5 in order, and SHALL NOT
 The five phases are: (1) a compiling API with unimplemented bodies; (2) the full test suite, written
 against that API and observed failing; (3) an audit of the suite against deliberate defects and
 against its own input variety; (4) implementation, judged finished only by the audited suite; (5)
-mutation testing to harden what the suite still misses.
+hardening: mutation testing of what the suite still misses, and fuzzing of every decoder of bytes from
+a client, a peer or the disk.
 
 The order is the point. A test written after the code it checks tends to encode what the code does
 rather than what it should do, and a suite that has never been shown to reject a wrong implementation
@@ -231,6 +232,55 @@ confirmed with the `comm` check the file carries, and SHALL match no more than i
 #### Scenario: An equivalence entry is verified
 - **WHEN** an entry is added to `.cargo/mutants.toml`
 - **THEN** its metacharacters are escaped, the `comm` check confirms it matches what it claims, and it is confirmed to match no additional mutants
+
+### Requirement: Phase 5 fuzzes every decoder of bytes from a client, a peer or the disk
+
+Each stage SHALL write a fuzz target for every decoder it added or edited that reads bytes from a client, a peer or the disk, SHALL seed it, SHALL run it with `scripts/fuzz.sh`, and SHALL commit every failing input as a regression case that the hermetic suite replays.
+
+Fuzzing finds what mutation testing cannot. Mutation testing asks whether the suite notices a wrong
+line; a decoder of untrusted or stored bytes fails on the input no test names: a length that overruns,
+an offset past the end, a checksum over the wrong range. `cargo-fuzz` runs a target under libFuzzer,
+steered by coverage, and stops at the first input that panics or fails one of the target's
+assertions; `arbitrary` builds structure-aware inputs, a valid value from arbitrary fields that is
+then mutated, which reach the checks behind a frame's outer validation that random bytes rarely pass.
+
+Each fuzzed crate has a cargo-fuzz package at `fuzz/<crate>/`, its targets calling the crate's public
+decoders. The packages form one workspace in `fuzz/`, built with the nightly toolchain
+`scripts/fuzz.sh` names; the root workspace excludes it and Bazel never builds it, because
+`libfuzzer-sys` compiles C++ and a fuzz run is neither hermetic nor finite. Its seeds and regression
+cases live in the crate's own `testdata/`, which Bazel already declares, so every finding reaches the
+build of record as a test. `scripts/fuzz.sh [crate [target]]` is shaped as `scripts/mutants.sh`: it
+checks that `cargo-fuzz` is installed, runs each target for `FUZZ_SECONDS` (60 by default), and
+reports executions, coverage and failing inputs.
+
+A group that decodes bytes writes its targets and seeds in its phase 5 and builds them; the runs of
+`scripts/fuzz.sh`, like those of `scripts/mutants.sh`, happen once, in the stage's final
+verification.
+
+#### Scenario: A decoder of untrusted or stored bytes has a fuzz target
+- **WHEN** a stage adds or edits code that decodes bytes from a client, a peer or the disk
+- **THEN** a target in `fuzz/<crate>/` calls that decoder through the crate's public API
+- **AND** its seeds are under the crate's `testdata/fuzz_seeds/<target>/`, taken from the golden values the suite already holds
+
+#### Scenario: A target checks the decoder's properties
+- **WHEN** a target runs an input
+- **THEN** the decoder does not panic, and either accepts the input or refuses it with its typed error
+- **AND** an accepted value re-encodes to the same bytes where the format has one encoding, and a checksummed format never accepts an input whose checksums fail
+
+#### Scenario: The fuzz run is recorded
+- **WHEN** a stage's phase-5 exit is claimed
+- **THEN** `scripts/fuzz.sh` has run every target of the decoders the stage added or edited for its time budget
+- **AND** its report of executions, coverage and failing inputs is recorded in the stage's task notes
+
+#### Scenario: A failing input becomes a regression case
+- **WHEN** a target finds an input that fails
+- **THEN** the input is minimized with `cargo fuzz tmin`, the decoder is fixed, and the input is committed under the crate's `testdata/fuzz_regressions/<target>/`
+- **AND** a unit test replays every case there through `ultragraphdb_tool_bdd::fuzz_regressions` under Cargo and Bazel
+
+#### Scenario: Fuzzing stays outside the hermetic build
+- **WHEN** the fuzz packages are built
+- **THEN** they build in the `fuzz/` workspace alone, which the root workspace excludes and no Bazel target reads
+- **AND** no shipped crate depends on `libfuzzer-sys` or `arbitrary`
 
 ### Requirement: Test layout and helpers follow the repository's structure
 

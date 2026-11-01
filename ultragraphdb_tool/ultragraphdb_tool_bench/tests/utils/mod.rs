@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod apply_run_tests;
 #[cfg(test)]
+mod pipeline_run_tests;
+#[cfg(test)]
 mod proc_stats_tests;
 #[cfg(test)]
 mod rollup_run_tests;

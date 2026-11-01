@@ -14,6 +14,15 @@
 //! store_bench rollup --dir <path> [--hubs 10000] [--versions 1000] [--relations 50]
 //! ```
 //!
+//! `wal_bench`, stage 5's task 12.5, drives the same commits through stage 5's commit path: each a read-write
+//! transaction at the visibility watermark, its proposal decided by the commit pipeline in rounds, each round appended
+//! to the write-ahead log on compio and synced, then applied to fjall unsynced; it reports the rounds and the bytes the
+//! log's segments and fjall's journal took for the same commits.
+//!
+//! ```text
+//! wal_bench --dir <path> --rate <commits/s> [--relations 1] [--seconds 30] [--cache-mb 128] [--plp off|on]
+//! ```
+//!
 //! Each run prints one JSON line. The library holds what the runs are built of, so it is tested apart from the
 //! clock: the arguments, the commit shape, the rate pacer behind the [`Clock`] trait, the summaries, the readers of
 //! `/proc`, the store wrapper timing each write call, the wrappers counting list reads and the directory sizes.
@@ -32,6 +41,7 @@ pub use crate::types::counted_snapshot::{CountedScan, CountedSnapshot};
 pub use crate::types::counting_cache::CountingCache;
 pub use crate::types::dir_sizes::DirSizes;
 pub use crate::types::pacer::Pacer;
+pub use crate::types::pipeline_args::PipelineArgs;
 pub use crate::types::read_counts::ReadCounts;
 pub use crate::types::rollup_args::RollupArgs;
 pub use crate::types::size::Size;
@@ -40,5 +50,6 @@ pub use crate::types::timed_store::TimedStore;
 pub use crate::types::wall_clock::WallClock;
 pub use crate::types::write_call::WriteCall;
 pub use crate::utils::apply_run::run_apply;
+pub use crate::utils::pipeline_run::run_pipeline;
 pub use crate::utils::proc_stats::{parse_schedstat_ns, parse_stat_cpu_ticks, parse_status_kib};
 pub use crate::utils::rollup_run::run_rollup;

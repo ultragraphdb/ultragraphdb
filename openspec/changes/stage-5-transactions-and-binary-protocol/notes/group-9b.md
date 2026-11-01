@@ -164,11 +164,127 @@ new public filegroup `:golden_bodies`, a `data` of the core's unit target):
   flip, otherwise by the core with exactly the `ProtocolError` the wire's `FrameView::validate` gives, never read as a
   value; every truncation of each is `Truncated` or `Closed` at the framer.
 
-### Not done
+### Under the simulator's faults, and through both shells (2026-11-01)
 
-- The golden-by-golden suite in the simulator under drop, delay, duplicate and split, and through both shells. Under
-  every fault class the core runs the fault workload (`client_core_faults_tests`), and the shells run their
-  conversations over the simulated network with split and delay, but not the golden frames one by one.
+The expected outcome of every case comes from the connection's rule (`PROTOCOL.md` §2.5 step 13: each frame numbered one
+above the last is taken, the first that is not is refused with `SequenceOrder` and the connection given up) applied to
+the arrivals the network itself recorded (its counters read around each send), and, for a damaged frame, from the
+transport's framer and the wire's `FrameView::validate` run on the bytes: never from the client.
+
+**The core** (`client_core_conformance_faults_tests.rs`, 4 tests). Each golden reply crosses a `SimNetwork` link, a probe
+behind it (the same frame on stream 1,000, which nothing opened, so it is dropped once taken), and the client's framer
+reads what arrives as a shell does, the bytes it asks for and no more. Five fault classes: drop 35 %, duplicate 35 %,
+delay 60 % up to 4 steps, split 70 %, and the four together; eight seeds per golden frame and class (32 for the
+Welcome).
+
+- Replies: register, begin, prepare_reply, describe_reply, commit, error, error_operation, drop_reply, result. Taken at
+  its place, a reply is read as its golden values at once; a refused one leaves a plain request and a read failed as
+  `ConnectionLost`, the `SequenceOrder` rule its cause, a commit or a drop waiting for the next connection
+  (`needs_connection`); both frames lost, the request and the read time out at the deadline (`TimedOut`; the commit
+  waits again).
+- The Welcome (welcome_no_auth), and RFC 7677's Authenticate exchange (welcome, authenticate_server_first,
+  authenticate_server_final, each crossing in turn): the client answers with authenticate_client_first and
+  authenticate_client_final byte for byte (user "user", password "pencil", nonce "rOprNGfwEbeRWgbNEkqO") and ends as
+  principal 7 with the golden expiry. These and the Drop request (`test_the_drop_the_client_sends_is_its_golden_frame`)
+  were not in the suite before; the Hello is checked at every connect.
+- What happened, all classes summed per test (delivered / refused / lost): replies under drop 45 / 18 / 9, duplicate
+  72 / 0 / 0 (36 copies refused after their frame), delay 72 / 0 / 0 (54 delayed), split 72 / 0 / 0 (90 splits), all
+  four 54 / 9 / 9; the Welcome and the exchange alike (`--nocapture` prints them).
+
+**The shells** (`ultragraphdb_client_tokio` and `ultragraphdb_client_compio`: `tests/types/client/client_conformance_tests.rs`,
+4 tests each, and `tests/utils/golden.rs`, a golden server: each frame of the client's checked against the golden frame
+its step names but for stream and sequence, answered with its step's frames moved to the request's stream and numbered,
+a step's frames in one write; checksums by xxhash-rust directly).
+
+- One conversation, over a plain network and a split and delayed one under three seeds: every request the shell writes
+  is golden (hello, prepare, describe, read, credit, read, cancel, execute, write, operation, operation_counter,
+  operation_deep, abort, drop: 14), every golden reply is read as its values (welcome_no_auth, register, prepare_reply,
+  describe_reply, begin, commit, error, error_operation, drop_reply, result six times: four not flagged last spend the
+  Welcome's credit of four and bring the golden Credit).
+- The Authenticate exchange through the shell, as above.
+- A reply the server sends twice is read once, its copy refused, so the next request fails as `ConnectionLost` (its
+  cause `SequenceOrder { expected: 3, found: 2 }`) and the one after goes on a new connection; a reply never sent times its request out (`TimedOut`); three connections.
+- Every single-bit flip of every byte and every truncation of the nine golden replies, served over a split and delayed
+  network and the connection closed after (6,544 cases a shell): never a value, and exactly the answer the framer and
+  the wire predict: a plain request `ConnectionLost`, its cause the framer's refusal (`Transport`; none for a close
+  between frames) or the frame's rule (`Protocol`); a commit or a drop, allowed one attempt, `RetriesExhausted {
+  session, request 1, attempts 1 }`; a read `Protocol(the rule)` of its own frame, or `ConnectionLost` with the
+  framer's refusal. No damaged frame passed both.
+
+Written after the implementation, so not seen failing first; its teeth, 17 defects planted one at a time in a copy of
+the tree under the session's scratchpad (`plant.py`, each file restored in a `finally`, the copy's sources hashed
+before and after, equal), the conformance suites run under Bazel:
+
+| Defect | Result |
+|---|---|
+| D1 the core takes frames out of sequence (`check_order` skipped) | rejected (the three fault tests) |
+| D2 the sequence rule tolerates a gap (transport) | rejected (the three fault tests) |
+| D3 a frame of a stream never opened gives the connection up | rejected (the three fault tests) |
+| D4 a lost connection leaves a plain request waiting | rejected (replies) |
+| D5 a lost commit fails instead of waiting to be sent again | rejected (replies) |
+| D6 the timeout is exclusive | rejected (the three fault tests) |
+| D7 a read lost with its connection reads as done | rejected (replies) |
+| S1 tokio: a cut frame reads as a close between frames | rejected (damaged replies) |
+| S2 tokio: a framer refusal does not give the core's connection up | rejected (damaged replies) |
+| S3 tokio: a Drop's reply is a mismatch | rejected (conversation) |
+| S4 tokio: reads past what the framer asks | **survived** → the golden server writes a step's frames in one write; re-planted, rejected (conversation, repeated reply) |
+| S5 tokio: cancel sends nothing | rejected (conversation) |
+| S6 compio: a cut frame reads as a close between frames (transport's compio connection) | rejected (damaged replies) |
+| S7 compio: a framer refusal does not give the core's connection up | rejected (damaged replies) |
+| S8 compio: a Drop's reply is a mismatch | rejected (conversation) |
+| S9 compio: cancel sends nothing | rejected (conversation) |
+| S10 compio: reads past what the framer asks | rejected (conversation, repeated reply) |
+
+S4 survived because the simulator delivers each write as its own message and splits never merge two, so a read never
+meets a second frame's bytes; TCP coalesces writes. The golden server now sends a step's frames as one write.
+
+Outside the tests: `drop_command` added to both shells (the core's Drop had no shell method, so the golden Drop could
+not cross a shell); the shells' dev-dependencies gain `ultragraphdb_error_protocol`, `ultragraphdb_tool_bdd` and
+`xxhash-rust` (their `Cargo.lock` entries edited to match), their unit targets the wire's `:golden_bodies` as `data`;
+the conformance file's helpers (`golden`, `restream`, `numbered`, `stream_of`, `view`) are `pub` for the new file.
+
+Bazel: core unit 82 (+4), `:bdd` 13 scenarios; tokio 9 (+4); compio 8 (+4); all pass. The shells' damaged-reply tests
+take about 13 to 30 s each on a loaded machine.
+
+Open questions, as raised (1 and 2 resolved below; 3 moved to the backlog by the coordinator):
+
+1. Through a shell, a frame the core refuses by a rule reaches the caller as `ConnectionLost`; the rule stays in the
+   shell's private `failure`. The framer's refusals do reach the caller (`Transport`). Should a request's answer carry
+   the rule?
+2. A read whose connection is given up answers `StreamFinished`, as `next_batch` documents, not the connection's
+   failure, so the shell's caller cannot tell a lost read from a finished transaction's. Intended?
+3. The shells have no `grant`: Credit goes out only when a stream's credit is spent. Should they wrap `ClientCore::grant`?
+
+### Questions 1 and 2 resolved (2026-11-01, approved by the user)
+
+- `ClientErrorEnum::ConnectionLost { cause: Option<Box<ClientError>> }`, constructor `ClientError::ConnectionLost(cause)`:
+  the cause is what gave the connection up, the framer's refusal or a frame cut short or an I/O failure (`Transport`,
+  from `disconnected`), the rule a frame broke (`Protocol`), the server's closing Error (`Closed`), the handshake's
+  failure (`Transport`); `None` for a plain close (`TransportError::Closed`) and for `close()`. It is the error's
+  `source()` and follows its text (`the request's connection was lost: <cause>`). The core builds it where it gives the
+  connection up, so both shells' callers get it with no shell change. Requests waiting on a lost connection now answer
+  `ConnectionLost` where they answered `Transport(error)` before; `closes_connection` is true for `ConnectionLost`. A
+  timeout still answers `TimedOut`.
+- A read cut short by a lost connection, its last frame not arrived, answers what the connection's requests answered
+  (`ConnectionLost` with its cause, or `TimedOut`), once, even after the next connection opened; it is not retried
+  (`PROTOCOL.md` §11.4). A read whose last frame had arrived is kept and read to its end, then `Done`. `StreamFinished`
+  stays for a read whose stream or transaction ended, or whose loss was answered; `cancel` forgets a lost or kept read.
+  `next_batch`'s doc says so.
+- Tests, each seen failing first (run of 2026-11-01: core 14 failed of 94, tokio 3 of 15, compio 3 of 12, each a wrong
+  value: `Transport` or `StreamFinished` or a cause missing): `client_core_lost_tests.rs` (11: a plain loss, a framer
+  refusal, a truncation, a rule, the server's closing Error, each the cause of a waiting request's and a cut-short
+  read's loss; the loss answered after the next connection; a timeout; a read whose last frame arrived read to its end;
+  an ended and a cancelled read `StreamFinished`; the cause as `source()`), the error tests (Display pinned, `source()`,
+  the constructor, `closes_connection`), and in each shell `test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause`
+  (two batches then the server closes: `ConnectionLost(None)`; the second batch's header refused: `ConnectionLost(Transport(the
+  refusal))`; its body broken: `Protocol(the rule)` for the read itself; a Register's reply broken: `ConnectionLost(Protocol(the
+  rule))`) and `test_a_read_whose_transaction_ended_still_answers_stream_finished`; the conformance suites' expectations
+  follow.
+- Teeth, 8 defects planted in the scratch copy (`plant2.py`), all rejected: the rule dropped as the cause; the transport
+  error dropped; a cut-short read reported finished; a read whose last frame arrived dropped; the loss keyed by the
+  current connection; the text dropping the cause; the cause not the source; `ConnectionLost` not closing.
+- Bazel: core unit 94, `:bdd` 13 scenarios; tokio 15; compio 12 (counts include agent M2's tests); all pass. No target
+  outside `ultragraphdb_client` depends on the client core.
 
 ## Decisions taken here, for review
 

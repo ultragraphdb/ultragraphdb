@@ -478,3 +478,25 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
         ]
     );
 }
+
+#[test]
+fn test_the_oldest_read_prunes_the_conflict_history_up_to_the_watermark() {
+    let applier = applier();
+    let base = setup(&applier, vec![insert("a", "knows", "b")]);
+    let (_storage, mut pipe) = pipeline(&applier);
+    assert!(!pipe.is_stopped(), "a pipeline opens running");
+    // The history opens at the store's applied version.
+    assert_eq!(pipe.step().resolver().history().floor(), base);
+    commit_insert(&mut pipe, &applier, 1, "p");
+    block_on(pipe.sync(0)).expect("synced");
+    commit_insert(&mut pipe, &applier, 2, "q");
+    block_on(pipe.sync(0)).expect("synced");
+    assert!(!pipe.is_stopped(), "two commits stop nothing");
+    // One commit a round, each two above the one before.
+    assert_eq!(pipe.watermark(), base + 4);
+    pipe.oldest_read(base + 2);
+    assert_eq!(pipe.step().resolver().history().floor(), base + 2);
+    // A floor above the watermark is taken as the watermark (CommitStep's OldestRead).
+    pipe.oldest_read(base + 100);
+    assert_eq!(pipe.step().resolver().history().floor(), base + 4);
+}

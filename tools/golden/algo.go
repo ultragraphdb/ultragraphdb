@@ -217,7 +217,63 @@ func genAlgoSetOps() (any, error) {
 	}
 	cases = append(cases, indexCase("index/300", list, 10, targets))
 	cases = append(cases, indexCase("index/empty", []uint64{}, 10, []uint64{0, 5}))
+
+	// Inputs heavy with duplicates on which the strategies' results differ, each from a seed of its own: an
+	// intersection picking the wrong strategy, or a strategy taking a wrong step, returns another result or other
+	// offsets on one of them. Chosen for ultragraphdb's mutation testing (stage 5, 11.8) by a search over seeded
+	// shapes, each mutant of IntersectWith's, IntersectWithJump's, IntersectWithBin's, IntersectCompressedWith's and
+	// IntersectCompressedWithBin's choices rewritten in Go and compared with Dgraph's own on the candidates.
+	for _, s := range []struct {
+		seed      int64
+		n, m      int
+		limit     int64
+		blockSize int
+	}{
+		{157, 1000, 2, 5, 7},    // ratio 500, the longer list first: IntersectWith's swap and bands, Bin's early return
+		{10227, 93, 105, 3, 7},  // IntersectWithJump's jumps over duplicates, binIntersect's first recursion
+		{4317, 600, 3, 8, 3},    // the n = 0 guard, ratio band 200, IntersectCompressedWithBin's block check
+		{14548, 16, 20, 10, 3},  // binIntersect's second recursion
+		{950, 70, 7, 23, 2},     // IntersectCompressedWith's swap
+		{499573, 50, 5, 36, 10}, // IntersectCompressedWithBin's linear or block seek at ld = 10 * lq
+	} {
+		sr := rand.New(rand.NewSource(s.seed))
+		u := sortedList(sr, s.n, s.limit, true)
+		v := sortedList(sr, s.m, s.limit, true)
+		cases = append(cases, strategyCase(fmt.Sprintf("strategy/seed=%d/n=%d/m=%d", s.seed, s.n, s.m), u, v, s.blockSize))
+	}
+	// Dgraph's IntersectSortedPacked drops the lists after its two shortest; the fourth list here narrows the plain
+	// intersection after the third.
+	cases = append(cases, listsCase("lists/fourth-narrows", [][]uint64{{1, 2, 3}, {1, 2, 3, 4}, {2, 3, 4, 5, 6}, {3, 7, 8, 9, 10, 11}}, 5))
 	return cases, nil
+}
+
+// strategyCase records the plain intersections and the intersections of u packed with v, from the pack's start.
+func strategyCase(name string, u, v []uint64, blockSize int) algoCase {
+	c := algoCase{Name: name, BlockSize: blockSize, Lists: [][]uint64{u, v}}
+	run(&c, "intersect_with", 0, func(r *opResult) {
+		o := &pb.List{}
+		algo.IntersectWith(&pb.List{Uids: u}, &pb.List{Uids: v}, o)
+		r.Out = o.Uids
+	})
+	run(&c, "intersect_with_lin", 0, func(r *opResult) { r.I, r.K = algo.IntersectWithLin(u, v, &r.Out) })
+	run(&c, "intersect_with_jump", 0, func(r *opResult) { r.I, r.K = algo.IntersectWithJump(u, v, &r.Out) })
+	run(&c, "intersect_with_bin", 0, func(r *opResult) { r.K = algo.IntersectWithBin(u, v, &r.Out) })
+	run(&c, "intersect_compressed_with", 0, func(r *opResult) {
+		o := &pb.List{}
+		algo.IntersectCompressedWith(pack(u, blockSize), 0, &pb.List{Uids: v}, o)
+		r.Out = o.Uids
+	})
+	run(&c, "intersect_compressed_with_lin_jump", 0, func(r *opResult) {
+		dec := codec.Decoder{Pack: pack(u, blockSize)}
+		dec.Seek(0, codec.SeekStart)
+		algo.IntersectCompressedWithLinJump(&dec, v, &r.Out)
+	})
+	run(&c, "intersect_compressed_with_bin", 0, func(r *opResult) {
+		dec := codec.Decoder{Pack: pack(u, blockSize)}
+		dec.Seek(0, codec.SeekStart)
+		algo.IntersectCompressedWithBin(&dec, v, &r.Out)
+	})
+	return c
 }
 
 func init() {

@@ -31,6 +31,7 @@ rust_test(
     name = "ultragraphdb_client_compio_tests",
     srcs = glob(["tests/**/*.rs"]),
     crate_root = "tests/mod.rs",
+    data = ["//ultragraphdb_protocol/ultragraphdb_protocol_wire:golden_bodies"],
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [":ultragraphdb_client_compio"] + all_crate_deps(

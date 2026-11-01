@@ -41,3 +41,14 @@ fn a_valid_buffer_packs() {
     assert_eq!(pack.blocks()[0].num_uids(), 2);
     assert_eq!(encode_from_buffer(&[], 256), Ok(None));
 }
+
+#[test]
+fn ten_continuation_bytes_overflow_rather_than_truncate() {
+    // A u64 takes at most ten base-128 groups, and a tenth byte with the continuation bit set promises an eleventh,
+    // which starts at bit 70, so no byte that follows could complete a u64: it overflows, wherever the buffer ends.
+    let err = encode_from_buffer(&[0x80; 10], 256).expect_err("overflows");
+    assert_eq!(err, CodecError::OverflowingVarint(0));
+    // One byte fewer can still end in a valid varint, so it is truncated.
+    let err = encode_from_buffer(&[0x80; 9], 256).expect_err("truncated");
+    assert_eq!(err, CodecError::TruncatedVarint(0));
+}

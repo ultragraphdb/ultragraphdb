@@ -188,3 +188,20 @@ fn test_a_frames_order_is_checked_from_its_header_without_its_chunks() {
         "its sequence is due, its protocol is not"
     );
 }
+
+#[test]
+fn test_a_frame_without_flags_reads_flags_zero() {
+    // A header built with no flags carries 0 at byte 65.
+    let pool = BufferPool::new(1, 1 << 20);
+    let frame = credit(1, 1);
+    let mut at = 0;
+    let received = feed(
+        &mut Framer::new(7, MAX_FRAME_SIZE),
+        &pool,
+        &frame,
+        &mut at,
+        1 << 20,
+    )
+    .unwrap();
+    assert_eq!(received.flags(), 0);
+}

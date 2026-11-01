@@ -442,3 +442,81 @@ fn test_a_transaction_that_wrote_nothing_adds_no_run() {
     insert(&mut history, 6, &Writes::default());
     assert_eq!(history.runs(), 1);
 }
+
+#[test]
+fn test_two_runs_that_fill_the_cap_exactly_merge() {
+    // A merge stops only when the two runs together exceed RUN_CAP (16,384 in the source), so two runs of 8,192
+    // distinct keys, 16,384 together, merge into one.
+    let half = ConflictHistory::RUN_CAP as u64 / 2;
+    let points = |from: u64| Writes {
+        points: (from..from + half)
+            .map(|k| k.to_be_bytes().to_vec())
+            .collect(),
+        ..Writes::default()
+    };
+    let mut history = ConflictHistory::new(0);
+    insert(&mut history, 2, &points(0));
+    insert(&mut history, 4, &points(half));
+    assert_eq!(history.runs(), 1);
+    assert_eq!(history.len(), ConflictHistory::RUN_CAP);
+    assert!(!history.is_empty());
+}
+
+#[test]
+fn test_pruning_keeps_eight_emptied_runs_for_reuse_and_drops_the_ninth() {
+    // Nine runs of 9, 8, ..., 1 points: none merges, since each run is smaller than the one before it, and none is
+    // given back, so each was filled from a new buffer and the pool is empty.
+    let mut history = ConflictHistory::new(0);
+    for i in 0..9u64 {
+        let writes = Writes {
+            points: (0..9 - i).map(|k| k.to_be_bytes().to_vec()).collect(),
+            ..Writes::default()
+        };
+        insert(&mut history, 2 * (i + 1), &writes);
+    }
+    assert_eq!(history.runs(), 9);
+    let before = history.capacity();
+    // The newest run's capacity: one point filled into a new buffer, as a history of that run alone holds it.
+    let mut alone = ConflictHistory::new(0);
+    insert(&mut alone, 2, &Writes::point(&0u64.to_be_bytes()));
+    let newest = alone.capacity();
+    assert!(newest > 0);
+    // Pruning drops the runs oldest first and keeps them, emptied with their buffers, while the pool holds fewer than
+    // eight (POOL in the source): the first eight are kept and the ninth, the newest, is dropped.
+    history.prune(18);
+    assert_eq!(history.runs(), 0);
+    assert_eq!(history.bytes(), 0);
+    assert_eq!(history.capacity(), before - newest);
+}
+
+#[test]
+fn test_the_capacity_counts_the_arena_and_24_per_entry_of_each_buffers_capacity() {
+    let writes = Writes {
+        points: vec![b"abc".to_vec()],
+        statements: vec![(b"k".to_vec(), b"o".to_vec())],
+        ranges: vec![(b"a".to_vec(), Some(b"bc".to_vec()))],
+    };
+    let mut history = ConflictHistory::new(0);
+    insert(&mut history, 2, &writes);
+    // The expected capacity from std's own vectors grown by the same appends, in the order a run fills its buffers: the
+    // arena by the point's key, the statement's key and object and the range's start and end; the points by two, the
+    // point and the statement's list touched; the statements and the ranges by one each. A point and a statement are 24
+    // bytes (two u32 spans and a version, or a span and two versions), a range 32 (two spans, the end optional, and a
+    // version), all far below the size at which std grows a vector differently.
+    let mut arena: Vec<u8> = Vec::new();
+    for bytes in [&b"abc"[..], b"k", b"o", b"a", b"bc"] {
+        arena.extend_from_slice(bytes);
+    }
+    let (mut points, mut statements, mut ranges) = (Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..2 {
+        points.push([0u8; 24]);
+    }
+    for _ in 0..1 {
+        statements.push([0u8; 24]);
+        ranges.push([0u8; 32]);
+    }
+    let expected =
+        arena.capacity() + 24 * (points.capacity() + statements.capacity() + ranges.capacity());
+    assert_eq!(history.capacity(), expected);
+    assert!(history.capacity() > history.bytes());
+}

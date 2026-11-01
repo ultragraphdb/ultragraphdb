@@ -37,6 +37,7 @@ struct Steps {
     checks: Vec<bool>,
     trace_before: usize,
     trace_after: usize,
+    regressions: Vec<String>,
 }
 
 fn storage(w: &Steps) -> SimStorage {
@@ -505,6 +506,49 @@ fn silent_tear_caught(w: &mut Steps) {
     );
     assert_eq!(w.recoveries[0].committed(), Position::new(2));
     assert_eq!(&w.positions[1..], [1, 2]);
+}
+
+// A fuzzer finding becomes a regression test.
+
+#[when("a fuzz target finds an input that panics a decoder, and the decoder is fixed")]
+fn fuzz_finding_fixed(w: &mut Steps) {
+    // The scan's finding, fixed and minimized into `testdata/fuzz_regressions/scan/`: each case scanned from the fuzz
+    // target `scan`'s three starts, the whole input from a fresh log, and the input after its first eight bytes from the
+    // checkpoint those bytes choose and from a continued chain.
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan");
+    w.regressions = cases.iter().map(|(name, _)| name.clone()).collect();
+    for (_, data) in &cases {
+        let (checkpoint, rest) = data.split_at(data.len().min(8));
+        let mut first = [0u8; 8];
+        first[..checkpoint.len()].copy_from_slice(checkpoint);
+        let fresh = ScanStart::new(CLUSTER, 1, Position::ZERO, 0);
+        let at = Position::new(u64::from(first[0] % 8));
+        let starts = [
+            (data.as_slice(), fresh),
+            (
+                rest,
+                ScanStart::new(CLUSTER, 1, at, u64::from_le_bytes(first)),
+            ),
+            (rest, fresh.continuing(Position::new(1), 0)),
+        ];
+        for (bytes, start) in starts {
+            if let Ok(scan) = scan_segment(bytes, &start) {
+                // The target's rule: the scan stops at a block boundary less than a block past the bytes.
+                w.checks
+                    .push(scan.end() % 4_096 == 0 && scan.end() < bytes.len() as u64 + 4_096);
+            }
+        }
+    }
+}
+
+#[then(
+    "the minimized input is committed beside the crate's tests, and a unit test replaying it passes under Cargo and Bazel"
+)]
+fn finding_replayed(w: &mut Steps) {
+    // The case committed by task group 3, under the name it was committed with.
+    assert_eq!(w.regressions, ["end_past_the_bytes"]);
+    assert!(!w.checks.is_empty(), "a start scanned the case");
+    assert!(w.checks.iter().all(|held| *held), "{:?}", w.checks);
 }
 
 fn main() {

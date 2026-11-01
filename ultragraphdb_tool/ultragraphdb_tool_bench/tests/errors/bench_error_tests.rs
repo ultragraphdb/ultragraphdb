@@ -20,6 +20,10 @@ fn test_each_reason_says_what_failed() {
         BenchError::Io("no such dir".to_string()).to_string(),
         "i/o: no such dir"
     );
+    assert_eq!(
+        BenchError::Commit("the log is poisoned".to_string()).to_string(),
+        "commit: the log is poisoned"
+    );
     let store = BenchError::from(StoreError::TsTooOld());
     assert!(matches!(&store.0, BenchErrorEnum::Store(e) if *e == StoreError::TsTooOld()));
     assert_eq!(store.to_string(), "store: Transaction is too old");
@@ -32,6 +36,7 @@ fn test_each_reason_says_what_failed() {
 fn test_each_variant_is_built_by_its_constructor() {
     assert!(matches!(BenchError::Usage("u".into()).0, BenchErrorEnum::Usage(r) if r == "u"));
     assert!(matches!(BenchError::Io("i".into()).0, BenchErrorEnum::Io(r) if r == "i"));
+    assert!(matches!(BenchError::Commit("c".into()).0, BenchErrorEnum::Commit(r) if r == "c"));
     assert!(matches!(
         BenchError::Store(StoreError::TsTooOld()).0,
         BenchErrorEnum::Store(e) if e == StoreError::TsTooOld()

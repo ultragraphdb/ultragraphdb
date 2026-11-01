@@ -278,7 +278,7 @@ fn test_geo_takes_geojson_geometries() {
     // the sentinel set.
     for t in &parents {
         let p = id(t);
-        let sentinel = p & p.wrapping_neg();
+        let sentinel = p.isolate_lowest_one();
         assert_eq!((leaf & !(2 * sentinel - 1)) | sentinel, p, "{t}");
     }
     // Face 2: at 50.12° N, 8.63° E the unit vector is about (0.63, 0.10, 0.77), z the largest and positive, so the top

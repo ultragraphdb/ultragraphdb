@@ -41,6 +41,22 @@ reach; request terms converted; result batches built; the error table; statement
   columnar and dictionary-encoded", "Requests name terms by their text" and "Connections authenticate" is to be checked
   against the endpoint when it is specified.
 
+### 9. The Rust client against the cluster
+
+What the client library offers once it speaks to frontends: session tokens and read-your-writes across groups, the
+query consistency levels, and its own flow control.
+
+- Architecture: commits return a session token (group, operation number, epoch); the per-request consistency flag
+  (*Snapshot timestamps: sequencer epochs*, *Query consistency levels*).
+- Source material: `ultragraphdb_client_core` and its shells as stage 5 built them; `notes/group-9b.md`, 9b.4's open
+  questions.
+- Open:
+  - Do the shells expose `grant`, so a caller controls a read's credit beyond `next_batch`'s automatic grants, and does
+    it take `NonZeroU32`, since a Credit of zero frames is refused on the wire (PROTOCOL.md §9.2)? Or does the core's
+    `grant` go, if no caller needs manual flow control?
+  - What does `close()` answer for a commit in flight: `ConnectionLost` when its frame was never sent on any connection,
+    and `InDoubt` whenever it was sent, at any attempt count? Does `RetriesExhausted` fold into `InDoubt`?
+
 ### 3. Authentication and principals
 
 The authenticator over the principals' credentials, throttling, the audit events and their log; the first principal of
@@ -68,7 +84,8 @@ transaction spanning groups is.
 
 - Architecture: *Consistency and coordination avoidance*, *Write classification*, *Mechanisms*, *Snapshot timestamps:
   sequencer epochs*.
-- Source material: stage 5's archived `transactions` and `commit-rounds` specs and the commit step's code.
+- Source material: stage 5's archived `transactions` and `commit-rounds` specs and the commit step's code; task 12.6,
+  read summaries' false-abort rates (D10).
 - Open:
   - Do commit versions inside a group keep following the clock (`max(previous + 2, 2 × clock µs)`), with sequencer
     epochs only across groups, or does the group's version become clock-free too?
@@ -94,7 +111,8 @@ ordered-log interface becoming the VSR log a replica group holds.
 
 - Architecture: storage nodes hold the write log and the store (*Cluster architecture*); *Replication and runtime
   model*; the log tier of S3 mode (*Storage modes*).
-- Source material: *Checkpoints*; task 10.4.
+- Source material: *Checkpoints*; task 10.4; task 12.4, the sync cost and round sizes on drives with and without
+  power-loss protection, from which `WalConfig`'s provisional defaults are to be set.
 
 ### 8. Verification beyond stage 5
 
@@ -105,6 +123,12 @@ soundness.
 - Architecture: *Verification strategy*.
 - Source material: the requirements "The node simulator", "History checkers" and "Kill tests on the binary", with
   Elle's scenario; the Elle risk; tasks 11.3, 11.4, 11.5, 11.6 and 11.9's kill tests.
+- Deferred from stage 5's close (2026-11-01), to run once the restructure has landed: mutation testing of
+  `core_types` and `core_tok` (ported code stage 5 only removed functions from), `store_apply`, `transactions_txn`,
+  `transactions_commit`, `client_core`, the wire's bodies, round and write-set record, and the tool crates; the
+  fuzzers' audit for the bodies, the round and the write-set record (tasks 11.7 and 11.8 as scoped); and, stopped at
+  the stage's close, the confirmation run for `core_codec`'s 22 survivors (tests added, not re-run) and the runs of
+  `store_posting`, `store_quads` and `store_hnsw`.
 
 ## Source material: requirements
 
@@ -661,3 +685,5 @@ volume beside fjall's journal):
 - [ ] 12.3 Match-then-insert and insert-if-absent over a Zipf-distributed set of entities at 8 writers; D46's batch of 1,000 member moves
 - [ ] 12.5 The write volume of the log beside fjall's journal; the vector indexer's lag on a vector-heavy workload
 - [ ] 12.7 Commit latency (median and p99) and throughput at n−1 workers with the runtimes' `single_issuer` and `defer_taskrun` on and off, on Linux
+- [ ] 12.4 The sync cost and the round sizes on a drive with power-loss protection and on one without; the flag's defaults set from them; the latency of the round that moves into a new segment (a spare's rename and directory sync) against a round within one, and of a fresh segment's first sync after `fallocate`
+- [ ] 12.6 Read summaries' false-abort rates replayed offline against the log's write sets, per budget and bits per key

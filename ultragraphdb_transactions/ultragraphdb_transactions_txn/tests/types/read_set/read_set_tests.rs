@@ -357,6 +357,19 @@ fn test_with_capacity_reserves_its_buffers() {
 }
 
 #[test]
+fn test_the_capacity_is_the_arenas_and_the_sum_of_the_four_tables() {
+    let r = ReadSet::with_capacity(4_096, 32);
+    // std's own vectors reserved alike: the arena of bytes, and four tables of 32 entries each, a list's and an absent
+    // key's span (8 bytes), a statement's two (16) and a range's start and optional end (20).
+    let arena = Vec::<u8>::with_capacity(4_096).capacity();
+    let tables = Vec::<[u8; 8]>::with_capacity(32).capacity()
+        + Vec::<[u8; 16]>::with_capacity(32).capacity()
+        + Vec::<[u8; 20]>::with_capacity(32).capacity()
+        + Vec::<[u8; 8]>::with_capacity(32).capacity();
+    assert_eq!(r.capacity(), (arena, tables));
+}
+
+#[test]
 fn test_gathering_an_executions_reads_records_each_of_them() {
     let applier = applier();
     commit(&applier, vec![insert("a", "knows", "z")]);
@@ -447,7 +460,18 @@ fn test_gathering_a_declarations_scan_records_its_ranges() {
     let expected: BTreeSet<_> = reads.ranges().iter().cloned().collect();
     assert_eq!(gathered, expected);
     // A range names two keys, its end included: accounted as pushing each range does.
-    assert_eq!(r.bytes(), pushed(reads, NS, executed.read_ts()).bytes());
+    let needed = pushed(reads, NS, executed.read_ts()).bytes();
+    assert_eq!(r.bytes(), needed);
+    // The bound exactly, and one byte below it: each range's start and end are counted as their bytes.
+    let mut at = ReadSet::new();
+    at.reset(NS, executed.read_ts(), needed);
+    assert_eq!(at.gather(reads), Ok(()));
+    let mut below = ReadSet::new();
+    below.reset(NS, executed.read_ts(), needed - 1);
+    assert_eq!(
+        below.gather(reads),
+        Err(TxnError::ReadSetTooLarge(needed, needed - 1))
+    );
 }
 
 #[test]

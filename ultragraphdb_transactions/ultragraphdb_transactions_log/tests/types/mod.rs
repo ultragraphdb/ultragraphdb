@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod aligned_buf;
 #[cfg(test)]
+mod compio_storage;
+#[cfg(test)]
 mod recovery;
 #[cfg(test)]
 mod scan_start;

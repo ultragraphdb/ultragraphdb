@@ -30,6 +30,11 @@ ultragraphdb_store_apply = { workspace = true }
 ultragraphdb_store_kv = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+ultragraphdb_traits_log = { workspace = true }
+ultragraphdb_transactions_commit = { workspace = true }
+ultragraphdb_transactions_log = { workspace = true }
+ultragraphdb_transactions_txn = { workspace = true }
+compio = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
@@ -38,6 +43,12 @@ serde_json = { workspace = true }
 [[bin]]
 name = "store_bench"
 path = "src/bin/store_bench.rs"
+
+# Drives stage 5's commit pipeline, the write-ahead log and fjall, at a fixed rate and prints what it measured; never
+# run by a test.
+[[bin]]
+name = "wal_bench"
+path = "src/bin/wal_bench.rs"
 
 [[test]]
 name = "unit"

@@ -532,3 +532,54 @@ fn test_a_torn_one_byte_write_keeps_nothing() {
     write(&mut file, 0, &[0x33]).expect("reported as written");
     assert_eq!(storage.contents(&path("f")), Some(vec![0]));
 }
+
+/// The modes the storage draws are SplitMix64's (Steele, Lea and Flood, OOPSLA 2014) from its seed. Faulting every
+/// operation, each operation takes a draw for the one-in-one test, a draw modulo 4 for the mode (Before, After, a
+/// reported tear, a silent tear) and, for a reported tear, a draw modulo 2 (whole length or short). The expected modes
+/// for seed 11 are computed by an independent Python SplitMix64 (checked against the generator's published first
+/// outputs for seed 0, 0xE220A8397B1DCDAF and 0x6E789E6AA1B965F4); a listing tears nothing, so no other draw intervenes.
+/// A silent tear faults only a write, so on a listing the sixth draw's silent tear is drawn and not injected.
+#[test]
+fn test_random_fault_modes_are_splitmix64_draws_from_the_seed() {
+    use FaultMode::{After, Before, ShortTornWrite, TornWrite};
+    let storage = storage(11);
+    storage.fail_randomly(1);
+    for _ in 0..12 {
+        let _ = block_on(storage.list(Path::new("/d")));
+    }
+    let modes: Vec<FaultMode> = storage.injected().iter().map(|(_, _, m)| *m).collect();
+    assert_eq!(
+        modes,
+        [
+            After,
+            Before,
+            TornWrite,
+            TornWrite,
+            After,
+            Before,
+            Before,
+            TornWrite,
+            ShortTornWrite,
+            TornWrite,
+            After
+        ]
+    );
+}
+
+/// The kept length of a tear is the seed's first SplitMix64 draw, as the independent Python SplitMix64 above computes
+/// it: for a write past one sector, `512 * (1 + draw % ((len - 1) / 512))` whole sectors, for one of at most a sector
+/// `1 + draw % (len - 1)` bytes. A 16,384-byte write: seed 0 draws 8,704 bytes; seed 10, whose draw is 0 modulo 31,
+/// one sector; seed 13, whose draw is 31 modulo 32, six sectors. A 512-byte write, one sector, keeps 416 bytes at
+/// seed 0, never the whole sector.
+#[test]
+fn test_a_tear_keeps_the_seeds_draw_of_whole_sectors_and_never_all() {
+    assert_eq!(tear_length(0), 8_704);
+    assert_eq!(tear_length(10), 512);
+    assert_eq!(tear_length(13), 3_072);
+    let storage = storage(0);
+    let mut file = create(&storage, "f");
+    storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
+    write(&mut file, 0, &[0xAAu8; 512]).expect("reported as written");
+    let file = storage.contents(&path("f")).expect("the file");
+    assert_eq!(prefix(&file, 0xAA), 416);
+}

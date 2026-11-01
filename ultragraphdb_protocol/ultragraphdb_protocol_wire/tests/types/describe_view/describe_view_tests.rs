@@ -160,3 +160,13 @@ fn test_declarations_come_predicates_first_then_entity_types_then_relations() {
         }
     );
 }
+
+#[test]
+fn test_a_nonzero_namespace_and_read_version_read_back() {
+    // The golden answer's namespace is 0; an answer built with namespace 5 and read version 6 reads both back.
+    let bytes = Describe::new(5, 6)
+        .frame(golden("describe").header())
+        .unwrap();
+    let view = DescribeView::from_frame(&frame_of(&bytes)).unwrap();
+    assert_eq!((view.namespace(), view.read_version()), (5, 6));
+}

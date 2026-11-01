@@ -48,3 +48,15 @@ fn test_a_taken_vector_keeps_the_pools_capacity_and_comes_back() {
     drop(buffer);
     assert_eq!(pool.available(), 1);
 }
+
+#[test]
+fn test_a_buffer_holding_bytes_counts_them_and_is_not_empty() {
+    let pool = BufferPool::new(1, 4_096);
+    let mut buffer = pool.acquire().unwrap();
+    let mut bytes = buffer.take();
+    // Three bytes put back: its length is the three, and it is not empty.
+    bytes.extend_from_slice(b"abc");
+    buffer.restore(bytes);
+    assert_eq!(buffer.len(), 3);
+    assert!(!buffer.is_empty());
+}

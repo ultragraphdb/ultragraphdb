@@ -4,4 +4,10 @@
  */
 
 #[cfg(test)]
+mod client_conformance_tests;
+#[cfg(test)]
+mod client_requests_tests;
+#[cfg(test)]
+mod client_shell_tests;
+#[cfg(test)]
 mod client_tests;

@@ -183,3 +183,31 @@ fn a_sought_decoder_holds_the_target_block() {
     assert_eq!(1, dec.block_idx());
     assert_eq!(&uids[14..20], dec.uids());
 }
+
+#[test]
+fn test_seek_to_block_at_a_base_equal_to_the_held_block_stays_there() {
+    // [5 5 5 5 6 7] in blocks of 2 has two blocks of base 5. Held at the second, a seek of 5 from the start finds 5 at
+    // that block's base and stays: it searches from the held block, not from the first, as only a uid below the held
+    // block's base sends it back. Dgraph v25.5.0 Decoder.Next then SeekToBlock(5, SeekStart), run in Go: BlockIdx 1,
+    // UIDs [5 5].
+    let pack = encode(&[5, 5, 5, 5, 6, 7], 2).expect("a non-empty list packs");
+    let mut dec = Decoder::new(&pack);
+    dec.next_block();
+    assert_eq!(dec.block_idx(), 1);
+    assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 5]);
+    assert_eq!(dec.block_idx(), 1);
+}
+
+#[test]
+fn test_a_seek_to_a_base_takes_that_block_though_the_previous_block_ends_at_it() {
+    // [4 5 5 6] in blocks of 2 is [4 5] and [5 6]: 5 ends the first block and is the second's base. A seek of 5 from
+    // the start takes the block whose base it is, the second, whole. Dgraph v25.5.0 SeekToBlock(5, SeekStart) on a new
+    // decoder, and Seek(5, SeekStart), run in Go: BlockIdx 1, UIDs [5 6] for both.
+    let pack = encode(&[4, 5, 5, 6], 2).expect("a non-empty list packs");
+    let mut dec = Decoder::new(&pack);
+    assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 6]);
+    assert_eq!(dec.block_idx(), 1);
+    let mut dec = Decoder::new(&pack);
+    assert_eq!(dec.seek(5, SeekPos::Start), &[5, 6]);
+    assert_eq!(dec.block_idx(), 1);
+}

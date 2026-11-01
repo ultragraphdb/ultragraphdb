@@ -16,6 +16,8 @@ mod dir_sizes_tests;
 #[cfg(test)]
 mod pacer_tests;
 #[cfg(test)]
+mod pipeline_args_tests;
+#[cfg(test)]
 mod read_counts_tests;
 #[cfg(test)]
 mod size_tests;

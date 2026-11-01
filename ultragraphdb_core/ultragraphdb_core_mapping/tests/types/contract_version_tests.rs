@@ -11,6 +11,7 @@ use ultragraphdb_core_mapping::{
 fn test_the_version_round_trips_and_another_major_version_is_refused() {
     assert_eq!((CONTRACT_VERSION.major(), CONTRACT_VERSION.minor()), (1, 0));
     let v = ContractVersion::new(2, 7);
+    assert_eq!((v.major(), v.minor()), (2, 7));
     assert_eq!(v.to_bytes(), [0, 2, 0, 7]);
     assert_eq!(ContractVersion::from_bytes(&v.to_bytes()), Ok(v));
     assert_eq!(

@@ -589,7 +589,7 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() {
     );
     assert_eq!(
         h.core.take_reply(register).unwrap().unwrap_err().0,
-        ClientErrorEnum::ConnectionLost
+        ClientErrorEnum::ConnectionLost { cause: None }
     );
     assert_eq!(
         h.core

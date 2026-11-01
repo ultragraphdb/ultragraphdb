@@ -128,3 +128,12 @@ fn block_size_zero_packs_one_uid_per_block() {
 fn an_encoder_without_uids_returns_no_pack() {
     assert!(Encoder::new(256).done().is_none());
 }
+
+#[test]
+fn test_an_encoder_reports_the_block_size_it_was_made_with() {
+    // 256, the block size Dgraph's posting lists use, and the pack's.
+    let mut encoder = Encoder::new(256);
+    assert_eq!(256, encoder.block_size());
+    encoder.add(1);
+    assert_eq!(256, encoder.done().expect("a pack").block_size());
+}

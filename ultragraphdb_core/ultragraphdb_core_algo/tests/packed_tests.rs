@@ -342,6 +342,12 @@ const DEVIATIONS: &[(&str, &str, u32, &str)] = &[
         "intersect_sorted",
     ),
     (
+        "lists/fourth-narrows",
+        "intersect_sorted_packed",
+        1,
+        "intersect_sorted",
+    ),
+    (
         "lists/shortest-two-share",
         "intersect_sorted_packed",
         1,
@@ -635,5 +641,46 @@ fn merge_sorted_packed_skips_an_empty_block() {
     assert_eq!(
         want,
         decoded(merge_sorted_packed(&[Some(&pack), Some(&other)]))
+    );
+}
+
+#[test]
+fn merge_sorted_packed_takes_the_first_present_lists_block_size() {
+    // Dgraph v25.5.0 MergeSortedPacked over (nil, [1 2] packed by 3, [2 5] packed by 7), run in Go: BlockSize 3, UIDs
+    // [1 2 5].
+    let a = encode(&[1, 2], 3);
+    let b = encode(&[2, 5], 7);
+    let merged = merge_sorted_packed(&[None, a.as_ref(), b.as_ref()]).expect("a pack");
+    assert_eq!(merged.block_size(), 3);
+    assert_eq!(decode(&merged, 0), vec![1, 2, 5]);
+}
+
+#[test]
+fn merge_sorted_packed_skips_a_list_of_no_uids() {
+    // A corrupt pack whose one block, base 7, holds no UIDs, so its decoder holds none: it is skipped, though its block
+    // size, the first present list's, is the result's. Dgraph v25.5.0 MergeSortedPacked over (that pack with block
+    // size 4, [1 2] packed by 3), run in Go: BlockSize 4, UIDs [1 2].
+    let corrupt = UidPack::new(4, vec![UidBlock::new(7, Vec::new(), 0)]);
+    let b = encode(&[1, 2], 3);
+    let merged = merge_sorted_packed(&[Some(&corrupt), b.as_ref()]).expect("a pack");
+    assert_eq!(merged.block_size(), 4);
+    assert_eq!(decode(&merged, 0), vec![1, 2]);
+}
+
+#[test]
+fn intersect_with_lin_packed_stops_at_a_block_of_no_uids() {
+    // A corrupt block with no UIDs between [1..5] and [7..10]: its decoder holds no UIDs though it is valid, and the
+    // intersection stops there, before 8. Dgraph v25.5.0 IntersectWithLinPacked over that pack and [3 8], run in Go:
+    // [3].
+    let first = new_uid_pack(&[1, 2, 3, 4, 5]).expect("the list is not empty");
+    let last = new_uid_pack(&[7, 8, 9, 10]).expect("the list is not empty");
+    let mut blocks = first.blocks().to_vec();
+    blocks.push(UidBlock::new(6, Vec::new(), 0));
+    blocks.extend_from_slice(last.blocks());
+    let u = UidPack::new(5, blocks);
+    let v = new_uid_pack(&[3, 8]).expect("the list is not empty");
+    assert_eq!(
+        vec![3],
+        decoded(intersect_with_lin_packed(Some(&u), Some(&v)))
     );
 }

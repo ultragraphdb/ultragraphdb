@@ -33,6 +33,18 @@ rust_binary(
     deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
 )
 
+# Stage 5's measurement of the write-ahead log beside fjall's journal, task 12.5, run by hand with
+# `bazel run -c opt :wal_bench -- --dir <path> --rate <r>`; no test runs it.
+rust_binary(
+    name = "wal_bench",
+    srcs = ["src/bin/wal_bench.rs"],
+    crate_root = "src/bin/wal_bench.rs",
+    lint_config = lint_config(),
+    tags = ["bench"],
+    visibility = ["//visibility:public"],
+    deps = [":ultragraphdb_tool_bench"] + all_crate_deps(normal = True),
+)
+
 rust_doc(
     name = "doc",
     crate = ":ultragraphdb_tool_bench",

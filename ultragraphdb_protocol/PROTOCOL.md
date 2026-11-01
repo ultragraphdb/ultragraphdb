@@ -902,8 +902,9 @@ The three tags of each language-tagged row are for the base direction: the first
 `rtl`. A language tag over 15 bytes hashes the lexical form too, whatever its length.
 
 An encoding is whole when its tag is listed, each inline length is at most 15 and its text UTF-8, a boolean's byte 0
-or 1, a known datatype's code in section 10.4, a vector's dimension at least 1, and the bytes hold exactly the length
-the table gives. A Result receiver checks this per term (section 9.1).
+or 1, a date or time's timezone offset within 14 hours, a duration's months and seconds not of opposite signs, a known
+datatype's code in section 10.4, a vector's dimension at least 1, and the bytes hold exactly the length the table
+gives. A Result receiver checks this per term (section 9.1).
 
 ### 10.2 How the server chooses the encoding
 
@@ -964,8 +965,8 @@ Each multi-byte number in a by-value payload is **big-endian**. A decimal number
 | `0x12` | i128 | the decimal × 10¹⁸ |
 | `0x13` | f64, IEEE 754 binary64 | the double |
 | `0x14` | f32, IEEE 754 binary32 | the float |
-| `0x15`–`0x1C` | i128 `T`, then i16 `Z` | `T`: the value's `timeOnTimeline` in seconds × 10¹⁸ (below); `Z`: the timezone offset in minutes, or `0xFFFF` for none |
-| `0x1D` | i64 months, then i128 seconds × 10¹⁸ | the duration's year-month part and day-time part |
+| `0x15`–`0x1C` | i128 `T`, then i16 `Z` | `T`: the value's `timeOnTimeline` in seconds × 10¹⁸ (below); `Z`: the timezone offset in minutes, −840 to 840 (−14:00 to +14:00, XML Schema's range), or `0xFFFF` for none; any other offset is no whole encoding |
+| `0x1D` | i64 months, then i128 seconds × 10¹⁸ | the duration's year-month part and day-time part, of one sign where both are nonzero: a duration is negative as a whole (its lexical form below), so parts of opposite signs are no whole encoding |
 | `0x1E` | i64 | months |
 | `0x1F` | i128 | seconds × 10¹⁸ |
 

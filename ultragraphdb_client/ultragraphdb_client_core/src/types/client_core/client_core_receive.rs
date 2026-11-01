@@ -44,7 +44,8 @@ impl<L: Login> ClientCore<L> {
     /// validation rule ([`ClientError::Protocol`]), when the handshake or an exchange fails
     /// ([`ClientError::Transport`]), and when the server closes with an Error frame on stream 0
     /// ([`ClientError::Closed`]); a request waiting on the connection then fails with
-    /// [`ClientError::ConnectionLost`]. A frame of a stream no longer open is late and is dropped.
+    /// [`ClientError::ConnectionLost`], the refusal its cause. A frame of a stream no longer open is late and is
+    /// dropped.
     pub fn receive(&mut self, frame: ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         self.last_progress = Some(now);
         if matches!(self.link, Link::Down) {
@@ -197,9 +198,9 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
-    /// Gives the connection up for `error`, which the caller gets; requests waiting fail as lost.
+    /// Gives the connection up for `error`, which the caller gets; requests waiting fail as lost, `error` their cause.
     fn fatal(&mut self, error: ClientError) -> Result<(), ClientError> {
-        self.lose(ClientError::ConnectionLost());
+        self.lose(ClientError::ConnectionLost(Some(error.clone())));
         Err(error)
     }
 

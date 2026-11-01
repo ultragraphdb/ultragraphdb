@@ -94,8 +94,9 @@ impl EncodedTerm {
     }
 
     /// Whether `bytes`, received from a peer, hold exactly one whole encoding (`PROTOCOL.md` §10.1): its tag listed,
-    /// each inline length at most 15 and its text UTF-8, a boolean's byte 0 or 1, a known datatype's code one of
-    /// [`KnownDatatype`]'s, a vector's dimension at least 1, and exactly the length its tag gives.
+    /// each inline length at most 15 and its text UTF-8, a boolean's byte 0 or 1, a date or time's timezone offset
+    /// within 14 hours and a duration's months and seconds not of opposite signs (§10.5), a known datatype's code one
+    /// of [`KnownDatatype`]'s, a vector's dimension at least 1, and exactly the length its tag gives.
     /// [`EncodedTerm::from_bytes`] holds the rules of length alone, for the store's own keys.
     pub fn check(bytes: &[u8]) -> Result<(), TermError> {
         Self::from_bytes(bytes)?;
@@ -112,10 +113,39 @@ impl EncodedTerm {
                 .get(at)
                 .is_some_and(|code| KnownDatatype::from_code(*code).is_some())
         };
+        // A duration's i64 months at byte 1 and i128 seconds at byte 9, which the length rules proved present: a
+        // duration is negative as a whole, so its parts never have opposite signs.
+        let signs_differ = || {
+            let months = bytes
+                .get(1..9)
+                .and_then(|b| b.try_into().ok())
+                .map_or(0, i64::from_be_bytes);
+            let seconds = bytes
+                .get(9..25)
+                .and_then(|b| b.try_into().ok())
+                .map_or(0, i128::from_be_bytes);
+            (months < 0 && seconds > 0) || (months > 0 && seconds < 0)
+        };
+        // A date or time's i16 timezone offset in minutes at byte 17, which the length rules proved present: XML
+        // Schema's run from -14:00 to +14:00, and 0xFFFF, -1, marks none.
+        let offset_beyond = || {
+            bytes
+                .get(17..19)
+                .and_then(|b| b.try_into().ok())
+                .map_or(0, i16::from_be_bytes)
+                .unsigned_abs()
+                > 14 * 60
+        };
         let lexical_len = bytes.get(1).copied().map_or(0, usize::from);
         match bytes.first().copied().unwrap_or_default() {
             tag::BOOLEAN if bytes.get(1).is_none_or(|b| *b > 1) => {
                 malformed("a boolean other than 0 or 1")
+            }
+            tag::DATE_TIME..=tag::G_MONTH if offset_beyond() => {
+                malformed("a timezone offset beyond 14 hours")
+            }
+            tag::DURATION if signs_differ() => {
+                malformed("a duration whose months and seconds differ in sign")
             }
             tag::SMALL_STRING if !inline_utf8(1) => malformed("inline text that is not UTF-8"),
             t if tag::SMALL_LANG.contains(&t)

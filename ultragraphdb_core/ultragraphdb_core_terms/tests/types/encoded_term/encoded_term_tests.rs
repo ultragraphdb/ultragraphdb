@@ -416,3 +416,114 @@ fn test_check_takes_the_longest_inline_text_and_the_boundary_values() {
         ))
     );
 }
+
+#[test]
+fn test_check_refuses_a_duration_whose_parts_differ_in_sign() {
+    // PROTOCOL.md section 10.5: tag 0x1D holds i64 months, then i128 seconds × 10¹⁸, big-endian; a duration is negative
+    // as a whole, so months and seconds of opposite signs are no whole encoding. One month and one second either way.
+    let duration = |months: i64, seconds: i128| {
+        [&[0x1D][..], &months.to_be_bytes(), &seconds.to_be_bytes()].concat()
+    };
+    let second = 1_000_000_000_000_000_000i128;
+    for bytes in [duration(1, -second), duration(-1, second)] {
+        assert_eq!(
+            EncodedTerm::check(&bytes),
+            Err(TermError::Malformed(
+                bytes.clone(),
+                "a duration whose months and seconds differ in sign"
+            )),
+            "{bytes:02x?}"
+        );
+    }
+    // One sign, or a zero part beside either sign: each the encoding of a lexical form.
+    for bytes in [
+        duration(1, second),
+        duration(-1, -second),
+        duration(0, -second),
+        duration(0, second),
+        duration(-1, 0),
+        duration(1, 0),
+        duration(0, 0),
+    ] {
+        assert_eq!(EncodedTerm::check(&bytes), Ok(()), "{bytes:02x?}");
+    }
+    // The encoder's own encoding of a negative duration, `-P1MT1S`, passes.
+    let negative = encode(&Literal::new_typed_literal("-P1MT1S", xsd::DURATION));
+    assert_eq!(negative.as_bytes(), duration(-1, -second));
+    assert_eq!(EncodedTerm::check(negative.as_bytes()), Ok(()));
+}
+
+/// Each committed case of the fuzz target `encoded_term`, through the target's steps: the whole-encoding check, and
+/// for an encoding it accepts the reader and the literal, which return a value or an error and never panic.
+#[test]
+fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("encoded_term");
+    assert!(!cases.is_empty(), "the committed cases");
+    for (name, data) in &cases {
+        if EncodedTerm::check(data).is_ok() {
+            let term = EncodedTerm::from_bytes(data).expect(name);
+            let view = term.view().expect(name);
+            let _ = view.to_literal(
+                |uid| Err::<_, TermError>(TermError::NotALiteral(uid)),
+                |_| Ok("the text the hash names".to_string()),
+            );
+        }
+    }
+    // The first finding, a duration of one positive and one negative part, whose literal the reader cannot write: its
+    // bytes as committed, months 0x00F9FFFFFFFEFFFF and seconds 0xFFFF0000000162626262626262626262.
+    let (_, found) = cases
+        .iter()
+        .find(|(name, _)| name == "duration_parts_of_opposite_signs")
+        .expect("the duration case");
+    assert_eq!(
+        EncodedTerm::check(found),
+        Err(TermError::Malformed(
+            found.clone(),
+            "a duration whose months and seconds differ in sign"
+        ))
+    );
+    // The second, a gDay whose timezone offset is i16::MIN minutes, whose literal the reader cannot write: its bytes
+    // as committed, the offset 0x8000 in bytes 17 and 18.
+    let (_, found) = cases
+        .iter()
+        .find(|(name, _)| name == "timezone_offset_of_i16_min")
+        .expect("the timezone case");
+    assert_eq!(found.len(), 19);
+    assert_eq!(&found[17..], &[0x80, 0x00]);
+    assert_eq!(
+        EncodedTerm::check(found),
+        Err(TermError::Malformed(
+            found.clone(),
+            "a timezone offset beyond 14 hours"
+        ))
+    );
+}
+
+#[test]
+fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() {
+    // PROTOCOL.md section 10.5: tags 0x15 to 0x1C hold an i128 `T`, then an i16 `Z`, the offset in minutes or 0xFFFF
+    // for none; XML Schema's offsets run from -14:00 to +14:00, -840 to 840 minutes.
+    let temporal = |tag: u8, minutes: i16| [&[tag][..], &[0; 16], &minutes.to_be_bytes()].concat();
+    for tag in 0x15..=0x1C {
+        for minutes in [841, -841, i16::MIN, i16::MAX] {
+            let bytes = temporal(tag, minutes);
+            assert_eq!(
+                EncodedTerm::check(&bytes),
+                Err(TermError::Malformed(
+                    bytes.clone(),
+                    "a timezone offset beyond 14 hours"
+                )),
+                "{bytes:02x?}"
+            );
+        }
+        // The bounds, UTC, and 0xFFFF, which reads as -1 and marks no timezone.
+        for minutes in [840, -840, 0, -1] {
+            let bytes = temporal(tag, minutes);
+            assert_eq!(EncodedTerm::check(&bytes), Ok(()), "{bytes:02x?}");
+        }
+    }
+    // The encoder's own encoding of a date at +14:00 passes.
+    let east = encode(&Literal::new_typed_literal("2026-11-01+14:00", xsd::DATE));
+    assert_eq!(&east.as_bytes()[17..], &840i16.to_be_bytes());
+    assert_eq!(EncodedTerm::check(east.as_bytes()), Ok(()));
+}

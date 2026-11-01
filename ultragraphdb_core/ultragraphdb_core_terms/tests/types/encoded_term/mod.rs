@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod encoded_term_cmp_tests;
+#[cfg(test)]
 mod encoded_term_encode_tests;
 #[cfg(test)]
 mod encoded_term_tests;

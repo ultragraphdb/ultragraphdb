@@ -7,7 +7,9 @@ use ultragraphdb_client_core::{
     BatchPoll, ClientError, Committed, Reply, ResultStream, Session, Statement, Transaction,
 };
 use ultragraphdb_protocol_transport::Login;
-use ultragraphdb_protocol_wire::{Describe, Execute, Operation, Prepare, Read, ResultView, Write};
+use ultragraphdb_protocol_wire::{
+    Describe, DropCommand, Execute, Operation, Prepare, Read, ResultView, Write,
+};
 
 use crate::traits::connect::Connect;
 use crate::types::client::{Client, now};
@@ -86,6 +88,21 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.commit(transaction, session, now())?;
         match self.settle(pending).await? {
             Reply::Committed(committed) => Ok(committed),
+            _ => Err(mismatch()),
+        }
+    }
+
+    /// Drops what `command` names through `session`, on a stream of its own, answered with the drop's commit version;
+    /// retried only through the session, as a commit is, so the server applies it once.
+    pub async fn drop_command(
+        &mut self,
+        command: DropCommand,
+        session: Session,
+    ) -> Result<Committed, ClientError> {
+        self.ready().await?;
+        let pending = self.core.drop_command(command, session, now())?;
+        match self.settle(pending).await? {
+            Reply::Dropped(dropped) => Ok(dropped),
             _ => Err(mismatch()),
         }
     }

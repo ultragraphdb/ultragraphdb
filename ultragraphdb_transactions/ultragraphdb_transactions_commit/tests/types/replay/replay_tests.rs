@@ -410,6 +410,77 @@ fn test_a_store_behind_its_checkpoint_refuses_to_start() {
     );
 }
 
+/// A store at the version its log's checkpoint covers, below the first round the trimmed log still holds, starts:
+/// the checkpoint covers what the log no longer holds, and the rounds after it are replayed.
+#[test]
+fn test_a_store_at_its_checkpoint_below_a_trimmed_log_replays_the_rest() {
+    use ultragraphdb_traits_log::OrderedLog;
+    let original = applier();
+    let (_storage, log) = wal();
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded()).unwrap();
+    commit(&mut pipe, &original, 1, vec![insert("a", "knows", "b")]);
+    let mut log = pipe.into_log();
+    // A second store holding round 1 alone, at the version the checkpoint will cover.
+    let restored = applier_over(sim_store());
+    assert_eq!(replay(&restored, &mut log, 1).unwrap().rounds(), 1);
+    let covered = restored.quads().lists().applied_ts();
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded()).unwrap();
+    commit(&mut pipe, &original, 2, vec![insert("c", "knows", "b")]);
+    commit(&mut pipe, &original, 3, vec![insert("d", "knows", "b")]);
+    let tail = original.quads().lists().applied_ts();
+    let mut log = pipe.into_log();
+    // One commit a round from an empty store with the clock at 0: rounds at 2, 4 and 6.
+    assert_eq!((covered, tail), (2, 6));
+    // Round 1 is at position 1; the checkpoint covers it and the store's version after it.
+    block_on(log.trim_through(Position::new(1), covered)).unwrap();
+    let replayed = replay(&restored, &mut log, 2).unwrap();
+    assert_eq!(replayed.rounds(), 2, "rounds 2 and 3");
+    assert_eq!(replayed.applied(), tail);
+    assert_eq!(held(&restored, "c", "knows").len(), 1);
+    assert_eq!(held(&restored, "d", "knows").len(), 1);
+}
+
+/// A store at the first commit version of a round the trimmed log holds after its checkpoint lies inside that round,
+/// not below it: recovery refuses to start rather than apply the round over it.
+#[test]
+fn test_a_store_inside_the_first_round_after_a_checkpoint_refuses_to_start() {
+    use ultragraphdb_traits_log::OrderedLog;
+    let original = applier();
+    // The predicate and the object exist before the three transactions begin, so none finds the other's terms absent.
+    assert_eq!(setup(&original, vec![insert("a", "knows", "b")]), 2);
+    let (_storage, log) = wal();
+    let mut pipe: Pipe<'_> = Pipeline::new(&original, log, unbounded()).unwrap();
+    // Round 1 takes ticket 1; tickets 2 and 3 wait and close round 2 together once round 1 syncs.
+    for (ticket, subject) in [(1, "c"), (2, "d"), (3, "e")] {
+        let mut txn = begin(&original);
+        write(&mut txn, vec![insert(subject, "knows", "b")]);
+        pipe.commit(ticket, prepare(txn), 0).unwrap();
+    }
+    block_on(pipe.sync(0)).unwrap();
+    block_on(pipe.sync(0)).unwrap();
+    // Each commit two above the one before, the clock at 0: 4, then 6 and 8.
+    assert_eq!(
+        pipe.replies_mut().as_slice(),
+        &[
+            Reply::new(1, Ok(4)),
+            Reply::new(2, Ok(6)),
+            Reply::new(3, Ok(8))
+        ]
+    );
+    let mut log = pipe.into_log();
+    block_on(log.trim_through(Position::new(1), 4)).unwrap();
+    // A store written outside the log up to 6, round 2's first commit version: three set-ups at 2, 4 and 6.
+    let inside = applier_over(sim_store());
+    for subject in ["x", "y", "z"] {
+        setup(&inside, vec![insert(subject, "knows", "b")]);
+    }
+    assert_eq!(inside.quads().lists().applied_ts(), 6);
+    assert_eq!(
+        replay(&inside, &mut log, 2).unwrap_err().0,
+        RecoveryErrorEnum::StoreNotInLog { version: 6 }
+    );
+}
+
 /// A log holding one round, `<a> <knows> <b>` committed at 2 by a pipeline over a fresh store, and the log's storage.
 fn one_round_log() -> (ultragraphdb_transactions_log::SimStorage, Log) {
     let original = applier();

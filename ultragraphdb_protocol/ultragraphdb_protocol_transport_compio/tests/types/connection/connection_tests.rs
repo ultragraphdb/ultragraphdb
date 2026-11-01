@@ -418,3 +418,81 @@ fn test_a_frame_written_is_flushed() {
     assert_eq!(stream.flushed, credit(1));
     assert!(stream.held.is_empty());
 }
+
+/// A stream of the tests' own whose first read fails with `ConnectionReset`, then serves `incoming`: a failure that is
+/// not an interruption ends the read, so the bytes after it are never reached.
+#[derive(Debug, Default)]
+struct Resetting {
+    failed: bool,
+    incoming: Vec<u8>,
+}
+
+impl compio::io::AsyncRead for Resetting {
+    async fn read<B: compio::buf::IoBufMut>(&mut self, buf: B) -> compio::BufResult<usize, B> {
+        if !self.failed {
+            self.failed = true;
+            return compio::BufResult(Err(std::io::ErrorKind::ConnectionReset.into()), buf);
+        }
+        let mut source: &[u8] = &self.incoming;
+        source.read(buf).await
+    }
+}
+
+impl AsyncWrite for Resetting {
+    async fn write<T: compio::buf::IoBuf>(&mut self, buf: T) -> compio::BufResult<usize, T> {
+        let len = buf.as_init().len();
+        compio::BufResult(Ok(len), buf)
+    }
+
+    async fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn test_a_failed_read_is_an_io_error_and_not_retried() {
+    let stream = Resetting {
+        incoming: credit(4),
+        ..Resetting::default()
+    };
+    let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
+    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    // The error the stream raised, as `TransportError::Io` records it: its kind and its text.
+    let expected = TransportError::Io(&std::io::ErrorKind::ConnectionReset.into());
+    assert_eq!(ready(connection.read_frame(&pool)).unwrap_err(), expected);
+    assert_eq!(pool.available(), 1, "the buffer is back");
+}
+
+#[test]
+fn test_a_shutdown_closes_the_peers_reads() {
+    let pool = BufferPool::new(1, MAX_FRAME_SIZE);
+    let (_n, mut client, mut server) = pair(NetworkFaults::none());
+    ready(client.write_frame(credit(1))).unwrap();
+    ready(client.shutdown());
+    // What was sent before the shutdown is read, then the close between frames.
+    assert_eq!(ready(server.read_frame(&pool)).unwrap().stream(), 1);
+    assert_eq!(
+        ready(server.read_frame(&pool)).unwrap_err(),
+        TransportError::Closed()
+    );
+}
+
+#[test]
+fn test_a_pool_smaller_than_a_header_refuses_the_frame_naming_its_capacity() {
+    // 100 bytes is below the header's 256: the read still takes the whole header, so the header is verified and its
+    // size refused against the pool's capacity, rather than the read stopping at the buffer's end.
+    let small = BufferPool::new(1, 100);
+    let (_n, mut client, mut server) = pair(NetworkFaults::none());
+    let frame = credit(1);
+    let size = frame.len();
+    ready(client.write_frame(frame)).unwrap();
+    assert_eq!(
+        ready(server.read_frame(&small)).unwrap_err(),
+        TransportError::Protocol(ProtocolError::FrameTooLarge(size, 100))
+    );
+    assert_eq!(small.available(), 1);
+}

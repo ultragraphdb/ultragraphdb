@@ -26,7 +26,12 @@ impl fmt::Display for ClientError {
                 write!(f, "the server closed the connection ({code:?}): {message}")
             }
             ClientErrorEnum::TimedOut => write!(f, "no answer within the timeout"),
-            ClientErrorEnum::ConnectionLost => write!(f, "the request's connection was lost"),
+            ClientErrorEnum::ConnectionLost { cause: None } => {
+                write!(f, "the request's connection was lost")
+            }
+            ClientErrorEnum::ConnectionLost { cause: Some(cause) } => {
+                write!(f, "the request's connection was lost: {cause}")
+            }
             ClientErrorEnum::NotConnected => write!(f, "no connection is ready"),
             ClientErrorEnum::Request { error } => write!(f, "the request cannot be sent: {error}"),
             ClientErrorEnum::ReplyMismatch {

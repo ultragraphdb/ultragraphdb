@@ -65,7 +65,8 @@ impl TermTable {
     /// The index of `term`, appended the first time only. Refused, as a table outside any frame names command 0, with
     /// [`ProtocolError::IndexOutOfRange`] for a triple term naming an index not in the table,
     /// [`ProtocolError::TermTooDeep`] for one nested past [`crate::MAX_TERM_DEPTH`], and [`ProtocolError::BadTerm`] for
-    /// a literal stating `xsd:string` or an empty language tag.
+    /// a literal stating `xsd:string` or an empty datatype, which is written as `xsd:string`'s, or an empty language
+    /// tag.
     pub fn intern(&mut self, term: RequestTerm) -> Result<u32, ProtocolError> {
         if let Some(index) = self.index.get(&term) {
             return Ok(*index);
@@ -75,7 +76,9 @@ impl TermTable {
             RequestTerm::Literal {
                 datatype: Some(datatype),
                 ..
-            } if datatype == XSD_STRING => return Err(ProtocolError::BadTerm(0, 0, at)),
+            } if datatype == XSD_STRING || datatype.is_empty() => {
+                return Err(ProtocolError::BadTerm(0, 0, at));
+            }
             RequestTerm::LanguageLiteral { language, .. } if language.is_empty() => {
                 return Err(ProtocolError::BadTerm(0, 0, at));
             }

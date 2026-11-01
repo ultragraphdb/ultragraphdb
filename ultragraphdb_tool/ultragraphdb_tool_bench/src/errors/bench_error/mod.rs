@@ -10,7 +10,7 @@ mod bench_error_from;
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_apply::ChangesetError;
 
-/// Why a run of `store_bench` stopped.
+/// Why a run of `store_bench` or `wal_bench` stopped.
 #[derive(Debug)]
 pub struct BenchError(pub BenchErrorEnum);
 
@@ -24,6 +24,8 @@ pub enum BenchErrorEnum {
     Store(StoreError),
     /// A file of the run could not be read or written.
     Io(String),
+    /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text.
+    Commit(String),
 }
 
 #[allow(non_snake_case)]
@@ -42,5 +44,9 @@ impl BenchError {
 
     pub fn Io(reason: String) -> Self {
         Self(BenchErrorEnum::Io(reason))
+    }
+
+    pub fn Commit(reason: String) -> Self {
+        Self(BenchErrorEnum::Commit(reason))
     }
 }

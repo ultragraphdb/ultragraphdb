@@ -622,3 +622,27 @@ fn test_a_limit_past_u64_microseconds_is_not_cut_short() {
         ));
     }
 }
+
+#[test]
+fn test_a_transaction_of_another_namespace_names_it_in_its_proposal() {
+    // Namespace 7, not the fixture's 0: the transaction, its proposal, its read set and its record all name it.
+    let applier = applier();
+    let mut txn = Transaction::begin(
+        &applier,
+        7,
+        Mode::ReadWrite,
+        0,
+        0,
+        TxnLimits::default(),
+        TxnBuffers::new(),
+    )
+    .expect("it begins");
+    assert_eq!(txn.namespace(), 7);
+    txn.write(&Changeset::new(7).with(insert("a", "knows", "b")), 0)
+        .unwrap();
+    let prepared = prepared(txn.commit(1, 1, &[], 0));
+    assert_eq!(prepared.namespace(), 7);
+    assert_eq!(prepared.read_set().namespace(), 7);
+    let view = WriteSetRecordView::new(prepared.record()).unwrap();
+    assert_eq!(view.namespace(), 7);
+}

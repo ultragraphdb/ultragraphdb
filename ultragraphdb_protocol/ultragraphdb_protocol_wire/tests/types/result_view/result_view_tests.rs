@@ -360,3 +360,21 @@ fn test_a_batch_of_no_terms_holds_no_encodings() {
     assert_eq!(view.term_count(), 0);
     assert_eq!(view.cell(1, 2), Some(ABSENT));
 }
+
+#[test]
+fn test_a_batch_of_no_rows_asked_for_statement_ids_reads_back_without_them() {
+    // The statement IDs (section 7) are empty or 8 bytes per row (PROTOCOL.md section 9.1): a batch of no rows carries
+    // none on the wire whether its request asked for them or not, so both build one frame and read back without them.
+    // The fuzz target `body_fields` found a seed (a Result of six columns and no rows) asserting otherwise.
+    use ultragraphdb_protocol_wire::BodyBuilder;
+    let header = golden("result").header();
+    let asked = ResultBatch::with_statement_ids(6)
+        .frame(header.clone())
+        .unwrap();
+    let plain = ResultBatch::new(6).frame(header).unwrap();
+    assert_eq!(asked, plain);
+    let view = ResultView::from_frame(&frame_of(&asked)).unwrap();
+    assert!(!view.has_statement_ids());
+    assert_eq!(view.to_body().unwrap(), ResultBatch::new(6));
+    assert_eq!(view.to_body().unwrap().statement_ids(), None);
+}

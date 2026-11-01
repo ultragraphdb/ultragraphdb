@@ -66,7 +66,7 @@ Today:
 | `ultragraphdb_transactions_log` | `ultragraphdb_transactions/` | `ultragraphdb_traits_log`, `_wire`, `compio` | The WAL: `DurableStorage`, `DurableFile`, segments, superblock, scan, recovery; compio and simulated storage |
 | `ultragraphdb_transactions_commit` | `ultragraphdb_transactions/` | `_txn`, `ultragraphdb_traits_log`, `_wire`, `ultragraphdb_store_apply` | Sequencer, resolver, conflict history, commit-time operations, apply, watermark, sessions |
 
-- The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_server/*` and
+- The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_client/*` and
   `ultragraphdb_transactions/*`, and loses `ultragraphdb_proto/*`.
 - `compio` (pure Rust, io_uring on Linux) and `xxhash-rust` (feature `xxh3`) are added to `[workspace.dependencies]`.
   The bounded queues between workers and the commit step use `futures-channel`, part of the `futures` the workspace
@@ -286,8 +286,9 @@ drops any node whose vector is not visible at its snapshot.
 
 ## Risks / Trade-offs
 
-- [Every round is written twice, to the WAL and fjall's journal] → measured in stage 5; option C (fjall without its
-  journal) is the recourse and needs a fork.
+- [Every round is written twice, to the WAL and fjall's journal] → measured in stage 5 (the note's "Measured, stage
+  5"): for the same commits the log writes 1.06–1.13 times the journal's bytes, so a commit's write volume is 2.06–2.13
+  times the journal's alone; option C (fjall without its journal) is the recourse and needs a fork.
 - [fjall's prefix recovery after a power loss is modelled by the simulator, not injected into fjall] → recovery refuses
   a store ahead of the WAL or with a gap; kill tests on the binary are backlog item 8 (`openspec/notes/backlog.md`).
 - [The commit step becomes the ceiling] → its cost per transaction is to be measured against the execution cost of

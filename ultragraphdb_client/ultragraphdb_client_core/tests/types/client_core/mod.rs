@@ -8,9 +8,13 @@ mod client_core_authentication_tests;
 #[cfg(test)]
 mod client_core_commit_tests;
 #[cfg(test)]
+mod client_core_conformance_faults_tests;
+#[cfg(test)]
 mod client_core_conformance_tests;
 #[cfg(test)]
 mod client_core_faults_tests;
+#[cfg(test)]
+mod client_core_lost_tests;
 #[cfg(test)]
 mod client_core_results_tests;
 #[cfg(test)]

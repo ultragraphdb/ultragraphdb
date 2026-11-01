@@ -285,3 +285,30 @@ fn test_copy_uid_pack() {
     let copy = pack.clone();
     assert_eq!(decode(&pack, 0), decode(&copy, 0));
 }
+
+#[test]
+fn test_buffer_varints_are_go_uvarints_byte_for_byte() {
+    // Deltas 200 (0xC8: bit 7 set in the first group), 16384 (0x4000: three groups) and 2^64 - 1 - 16584 (ten groups,
+    // the last holding bit 63 alone). Their bytes per the base-128 varint of Go's binary.PutUvarint, least significant
+    // group first, the continuation bit on all but the last: C8 01 | 80 80 01 | B7 FE FE FF FF FF FF FF FF 01.
+    let uids = [200, 16584, u64::MAX];
+    let bytes = [
+        0xC8, 0x01, 0x80, 0x80, 0x01, 0xB7, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01,
+    ];
+    let pack = encode(&uids, 2).expect("a non-empty list packs");
+    let mut buf = Vec::new();
+    decode_to_buffer(&mut buf, &pack);
+    assert_eq!(buf, bytes);
+    let read = encode_from_buffer(&bytes, 2)
+        .expect("valid varints")
+        .expect("a non-empty buffer packs");
+    assert_eq!(decode(&read, 0), uids);
+}
+
+#[test]
+fn test_approx_len_is_block_count_times_block_size() {
+    // Eleven UIDs in blocks of 4: three blocks, the last holding three, so 3 * 4 = 12.
+    let pack = encode(&(0..11).collect::<Vec<u64>>(), 4).expect("a non-empty list packs");
+    assert_eq!(pack.blocks().len(), 3);
+    assert_eq!(approx_len(&pack), 12);
+}

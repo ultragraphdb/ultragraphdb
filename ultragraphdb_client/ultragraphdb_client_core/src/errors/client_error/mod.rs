@@ -28,8 +28,11 @@ pub enum ClientErrorEnum {
     Closed { code: ErrorCode, message: String },
     /// Nothing arrived within the client's timeout; the client closes the connection.
     TimedOut,
-    /// The request's connection was lost before it was answered; it is not retried.
-    ConnectionLost,
+    /// The request's connection was lost before it was answered; it is not retried. `cause` is what gave the connection
+    /// up: the framer's refusal of the bytes ([`ClientErrorEnum::Transport`]), the rule a frame broke
+    /// ([`ClientErrorEnum::Protocol`]), the server's closing Error ([`ClientErrorEnum::Closed`]); `None` for a
+    /// connection closed or lost with nothing more to say.
+    ConnectionLost { cause: Option<Box<ClientError>> },
     /// No connection is ready: none was made, or the handshake has not finished.
     NotConnected,
     /// A request could not be built: a term table refused, or a frame past `max_frame` bytes.
@@ -114,8 +117,10 @@ impl ClientError {
     }
 
     #[allow(non_snake_case)]
-    pub fn ConnectionLost() -> Self {
-        Self(ClientErrorEnum::ConnectionLost)
+    pub fn ConnectionLost(cause: Option<ClientError>) -> Self {
+        Self(ClientErrorEnum::ConnectionLost {
+            cause: cause.map(Box::new),
+        })
     }
 
     #[allow(non_snake_case)]
@@ -214,7 +219,7 @@ impl ClientError {
         )
     }
 
-    /// Whether the connection is gone with this error, so the next request reconnects.
+    /// Whether the connection is gone with this error, or the error came of its loss, so the next request reconnects.
     pub fn closes_connection(&self) -> bool {
         matches!(
             &self.0,
@@ -222,6 +227,7 @@ impl ClientError {
                 | ClientErrorEnum::Protocol { .. }
                 | ClientErrorEnum::Closed { .. }
                 | ClientErrorEnum::TimedOut
+                | ClientErrorEnum::ConnectionLost { .. }
         )
     }
 }

@@ -150,19 +150,20 @@ versions" (FoundationDB, SIGMOD 2021, §2.4.2).
    the visibility watermark when it starts. It buffers its writes as a changeset of posting deltas, dictionary entries
    and statement records, and records its read set: the posting-list keys it read and the key ranges it scanned, so a
    phantom in a scanned range is caught.
-2. **Order first, in epochs.** The commit step gathers the transactions that arrive within an epoch, which on one
-   node is one group commit, and gives each its commit timestamp from the in-process oracle (an atomic counter: up to
-   30 million timestamps a second, 8 million at 1,024 simulated cores; "Staring into the Abyss", VLDB 2014).
-3. **Validate after, conservatively.** Each transaction is checked against the write sets of every transaction
-   ordered after its read timestamp and before it, those that abort included, and aborts if any of them wrote what it
-   read. Counting predecessors that abort can only add aborts, and it makes every check independent of every other, so
-   validation runs on as many threads as an epoch needs and gives the same decisions every time; the form is the one
-   stage 10 runs across nodes. Blind deltas are writes without reads, so two transactions appending to one hot list do
-   not conflict. For scale, a single-threaded FoundationDB resolver handles about 280K transactions per second
-   (SIGMOD 2021, §2.4.2).
-4. **Write in groups, synced, in order.** Admitted changesets are written to fjall as one atomic batch per epoch, each
-   at its own commit timestamp, as the posting crate's batches already are, and the batch is synced to disk before
-   any of its transactions is acknowledged.
+2. **Order first, in rounds.** The commit step gathers the commit requests waiting when the previous round's sync
+   completes into a round, bounded by bytes and a count, and gives each admitted transaction its commit version,
+   `max(previous + 2, 2 × clock µs)`: even, increasing, and following the clock (stage 5, D5 and D6; "round", because
+   "epoch" names two other things).
+3. **Validate after, exactly.** Each transaction is checked once, in round order, against the conflict history: the
+   writes of every transaction admitted above its read version, the round's earlier admissions included. An aborted
+   transaction adds no writes, as FoundationDB's resolver checks a batch (`ConflictBatch::detectConflicts`), and the
+   decisions are logged, so no replica re-validates and none needs the same aborts (stage 5, D3). Blind deltas are
+   writes without reads, so two transactions appending to one hot list do not conflict. For scale, a single-threaded
+   FoundationDB resolver handles about 280K transactions per second (SIGMOD 2021, §2.4.2).
+4. **Log, sync, then apply.** A round is appended to the write-ahead log, the durability point, and synced with one
+   `fdatasync` before it is applied; its admitted changesets are then written to fjall as one batch, each at its own
+   commit version, without a sync, and fjall is synced at checkpoints (stage 5, D1). Round k+1 is decided while round
+   k syncs.
 5. **Acknowledge at visibility.** The visibility watermark advances over the contiguous prefix of written timestamps;
    a transaction is acknowledged once the watermark reaches its commit timestamp, and every new transaction reads at
    the watermark or later. That is FoundationDB's argument for strictness, unchanged.
@@ -182,7 +183,7 @@ log ("The distributed design").
 |---|---|
 | One serial apply thread (today, Dgraph, TigerBeetle) | Strictly serializable and simple, but writes stop at one core |
 | Deterministic execution: Calvin, Bohm, PWV | Read and write sets must be known before execution; a graph traversal's depend on the data, and interactive transactions are impossible |
-| Aria (deterministic batches, sets not needed in advance) | No interactive transactions, and a single transaction delayed 20 ms slows its batch by about 81 % (VLDB 2020, Fig. 5). It is kept as the fallback for bulk loads and contended one-shot streams |
+| Aria (deterministic batches, sets not needed in advance) | No interactive transactions, and a single transaction delayed 20 ms slows its batch by about 81 % (VLDB 2020, Fig. 5). Stage 5 dropped it with the per-key queue: commit-time operations take contended keys (D4) |
 | Silo, TicToc, Cicada | They scale by removing the single, central order: Silo orders within epochs it releases later, TicToc derives timestamps from the data, and Cicada keeps multiple versions under loosely synchronised per-thread clocks. The plan's strictness rests on one order and the visibility watermark, and TicToc and Cicada do not claim strictness |
 | Shard-per-core write ownership (Seastar, Redpanda) | A graph write touches forward, reverse, predicate-list and index keys on different shards, so nearly every write becomes a cross-core two-phase commit |
 | TigerGraph's model | Its current documentation claims "the read-committed isolation level" (TigerGraph 4.1, Transaction and ACID), its earlier claim of serializability withdrawn |
@@ -397,7 +398,7 @@ tests hold it to that.
 | **2. Storage** | Done, the fault simulator (1.5) included | Archived 2026-10-25 |
 | **3. Website and public repository** | Done | — |
 | **4. Data model and quad storage** | Mapping contract v1; catalog v1; the term dictionary, a keyspace without versions, in the `Store` trait, fjall and the simulator; the quad keyspaces; statement IDs; type bits in UIDs; changesets in place of `DirectedEdge`; index maintenance driven by the catalog; the data dictionary's read API, per-label shapes from a background pass; the DQL crates and Dgraph's gRPC API removed | Quads round-trip with statement IDs under the simulator's faults; `store_bench` loads quads and reports reads per relation, which fall to the dictionary lookups |
-| **5. Transactions and the binary protocol** | The commit step in its distributed shape: order, deterministic validation, apply; read summaries; epochs as group commits, each closing when the previous sync completes; acknowledgement at the watermark; the ordered-log interface with a local implementation; compute, ordering and storage as separate components in one process; n−1 compio workers with dynamic dispatch; the per-key path and the Aria fallback. The binary protocol in a crate of its own: envelope, columnar results, handshake, multiplexing, cancellation, flow control, prepared statements, its conformance suite of valid and malformed frames, the describe request over the data dictionary, and a Rust client; the single-node server process | Elle checks strict serializability; throughput at 1, 2, 4, 8 and n−1 workers, with abort rates; read summaries' false-abort rates measured against write logs on the simulator; match-then-insert over a Zipf-distributed set of entities at 8 writers, with and without the per-key path; D46's batch of 1,000 member moves; the protocol conformance suite passes |
+| **5. Transactions and the binary protocol** | The commit step: rounds closed by the previous sync, versions following the clock, exact validation against a conflict history, commit-time operations in place of a per-key path, sessions with exactly-once commits, catalog changes, drops and index builds in rounds, acknowledgement at the watermark; the write-ahead log as the durability point behind the ordered-log interface; the posting lists' own format; the vector indexer in commit order. The binary protocol in crates of its own: header, chunked checksums, bodies read in place, streams, credit, cancellation, prepared statements, describe, columnar results and authentication; its sans-I/O transport and conformance suite; the Rust client, a sans-I/O core with tokio and compio shells. A Lean model of the round protocol. Reduced on 2026-11-01 to what it built; what the distribution architecture asks beyond it is `backlog.md` | The Lean model's properties proved; every decoder fuzzed and the fuzzers audited; mutation testing over the stage's crates; the client conformance suite under the simulator's faults and through both shells; the log's suite on Linux; the stage-4 workload's baseline and the log's write volume measured |
 | **5.5. Hardening transactions with chaos testing** | Stage 5's commit step, group commit and protocol server under the simulator's faults and process kills; Elle under faults on one node; scrith's Dgraph probes Q1 and A8 re-run as tests: a read rooted on an index every write sets, and a hub's reverse edge, each checked against every commit below its read timestamp | Elle finds no anomaly under any fault class; no acknowledged commit is lost across a kill; Q1 and A8 find no missed commit |
 | **6. Query core** | What SPARQL and GQL share, as "The query core" sets out: the kernel (access patterns, operators, statistics) with binary joins planned from statistics; spargebra and the forked selene-gql as parsers; the core's register, which refuses a query outside the core naming the feature; spareval on the quad keyspaces through `QueryableDataset` as the SPARQL oracle; reads, CRUD writes through the changeset path, bounded walks, vector and text search, and catalog declarations through the binary protocol | The selected W3C SPARQL 1.1 tests and MGQL's golden results inside the core pass; no unexplained difference from spareval or MGQL there; one question asked in SPARQL and in GQL over the same data answers equally; the DeepBrain MVP's queries and scrith's catalogue reads run as scenarios |
 | **7. Single-node product** | Access control and namespaces on the catalog; backup, restore and export; the live and bulk loaders, on quads, resolving every IRI in a dictionary pass first; the commit log; administration and metrics; client libraries and their documentation, the transaction limits included | The DeepBrain MVP runs against a single-node server through the Rust client; backup and restore round-trip under the simulator's faults; the dictionary's growth under the MVP's workload measured; the mapping contract at a stable version |
@@ -574,22 +575,23 @@ The read set records what a transaction observed, at the narrowest key it read:
 | Tested one statement: existence, or the statement a delete removes | The statement (graph, predicate, subject, object) | Adds or removes that object in that list |
 | Scanned: an unbound subject, an index token range, an edge iteration | The key range scanned | Writes a key inside the range |
 | Wrote blind: inserts, reverse, predicate-list and index deltas | The write set only | Nothing; blind writes never conflict with each other |
+| Looked up a term absent from the dictionary | The dictionary key | Creates that term |
+| Wrote anything in a namespace | The namespace's catalog range, as read | Changes the catalog |
 
-- **Strictness is kept** because validation covers everything recorded, and coarsening only adds conflicts. A read
-  set past its budget is coarsened to the ranges covering it, and predecessors that abort are counted; both can only
-  add aborts.
+- **Strictness is kept** because validation covers everything recorded, and coarsening only adds conflicts: a read
+  set past its budget is coarsened to the ranges covering it, which can only add aborts.
 - **Performance is kept** because hot lists are mostly written blind: an `rdf:type` reverse list or a popular index
   token takes concurrent inserts without aborting anyone. A transaction that tested one statement in a hot list
   conflicts only with writes of that statement. A transaction that iterated the whole list conflicts with every insert
   into it; that is the phantom serializability forbids, and a read-only transaction avoids it by reading a snapshot.
 - **The write record carries objects:** a commit records its list keys and, for lists it changed by a few objects,
   the objects. Past a bound it records the list key alone.
-- **Hot read-then-write keys** (a single-valued property under contention, a uniqueness check) move to a pessimistic
-  per-key queue in the commit step once their abort rate passes a threshold. The queue serialises them, so strictness
-  holds there too.
-- **The record of recent write sets** holds every ordered transaction's writes, committed or aborted, by timestamp.
-  It is pruned at the oldest open read timestamp, which the 10 s limit bounds, and held as a version-augmented range
-  structure, as FoundationDB's resolvers hold theirs.
+- **Hot read-then-write keys** (a uniqueness check, a counter, a single-valued property under contention) are
+  commit-time operations: insert-if-absent, upsert-and-link, compare-and-set and counter add, decided by the commit
+  step after admission, in commit order, so they do not abort on each other (stage 5, D4). A pessimistic per-key
+  queue was not taken: interactive transactions would hold it across round trips.
+- **The conflict history** holds the writes of every admitted transaction by version, pruned below the oldest open
+  read version, which the 10 s limit bounds; an aborted transaction adds nothing (stage 5, D3).
 
 ### How terms are encoded
 

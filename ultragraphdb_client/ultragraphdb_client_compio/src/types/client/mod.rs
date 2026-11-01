@@ -71,7 +71,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         Err(self
             .failure
             .take()
-            .unwrap_or_else(ClientError::ConnectionLost))
+            .unwrap_or_else(|| ClientError::ConnectionLost(None)))
     }
 
     /// A connection, opened if there is none or the core gave the last up.
@@ -191,7 +191,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             answer.is_some()
         })
         .await?;
-        answer.unwrap_or_else(|| Err(ClientError::ConnectionLost()))
+        answer.unwrap_or_else(|| Err(ClientError::ConnectionLost(None)))
     }
 
     /// Closes the connection: requests waiting fail, a commit not answered is in doubt.

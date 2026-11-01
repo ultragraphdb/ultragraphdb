@@ -22,3 +22,9 @@ fn test_begin_builds_the_golden_frame() {
     assert_eq!(Begin::new(3, 0, false).command_header()[16], 0);
     assert_eq!(begin.command_header()[16], 1);
 }
+
+#[test]
+fn test_a_read_write_begin_reads_back_as_not_read_only() {
+    // Constructed read-write, the getter gives back what was given.
+    assert!(!Begin::new(3, 0, false).read_only());
+}

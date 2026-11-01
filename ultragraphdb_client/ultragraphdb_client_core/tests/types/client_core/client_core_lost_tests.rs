@@ -1,0 +1,309 @@
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ */
+
+//! A lost connection, as its requests and reads answer it: `ConnectionLost` carrying what gave the connection up (the
+//! framer's refusal, the rule a frame broke, the server's closing Error, or nothing for a plain loss), and a read cut
+//! short before its last frame never finished. `PROTOCOL.md` §11.4: a closing connection aborts its transactions, so
+//! nothing of them is retried.
+
+use std::error::Error;
+use std::time::Duration;
+
+use ultragraphdb_client_core::{
+    BatchPoll, ClientConfig, ClientCore, ClientError, Pending, Reply, ResultStream, Transaction,
+};
+use ultragraphdb_error_protocol::ProtocolError;
+use ultragraphdb_protocol_transport::{Anonymous, BufferPool, Framer, TransportError};
+use ultragraphdb_protocol_wire::{
+    Begin, BodyBuilder, Command, ErrorCode, ErrorReply, FrameView, Header, MAX_FRAME_SIZE,
+    PatternSlot, QuadPattern, Read, TermTable,
+};
+
+use crate::types::client_core::client_core_conformance_tests::{
+    golden, numbered, restream, stream_of,
+};
+use crate::utils::harness::{CLUSTER, RELEASE, UNIX, frame_through, start};
+
+/// `frame` without its last flag: bit 0 of the header's `flags`, byte 65, the checksum recomputed with xxhash-rust.
+fn not_last(frame: &[u8]) -> Vec<u8> {
+    let mut frame = frame.to_vec();
+    frame[65] &= !1;
+    let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
+    frame[..8].copy_from_slice(&checksum.to_le_bytes());
+    frame
+}
+
+/// A core welcomed by the golden Welcome, its connection's framer, and the frames the server sent.
+struct Conn {
+    core: ClientCore<Anonymous>,
+    framer: Framer,
+    pool: BufferPool,
+    sent: u128,
+}
+
+impl Conn {
+    fn new() -> Self {
+        let config = ClientConfig::new(CLUSTER, "ultragraph-test")
+            .with_release(RELEASE)
+            .with_timeout(Duration::from_secs(1));
+        let mut conn = Self {
+            core: ClientCore::new(config, Anonymous),
+            framer: Framer::new(CLUSTER, MAX_FRAME_SIZE),
+            pool: BufferPool::new(16, 1 << 20),
+            sent: 0,
+        };
+        conn.connect();
+        conn
+    }
+
+    /// A new connection, welcomed.
+    fn connect(&mut self) {
+        self.core.connect(start(), UNIX).unwrap();
+        self.framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
+        self.sent = 0;
+        while self.core.transmit().is_some() {}
+        self.deliver(&golden("welcome_no_auth")).unwrap();
+        assert!(self.core.is_ready());
+    }
+
+    /// `frame` numbered as the connection's next and received.
+    fn deliver(&mut self, frame: &[u8]) -> Result<(), ClientError> {
+        self.sent += 1;
+        let frame = numbered(frame, self.sent);
+        let received = frame_through(&mut self.framer, &self.pool, &frame).expect("a whole frame");
+        self.core.receive(received, start())
+    }
+
+    /// The stream of the last frame the core queued, every queued frame given up as sent.
+    fn stream(&mut self) -> u64 {
+        let mut stream = 0;
+        while let Some(frame) = self.core.transmit() {
+            stream = stream_of(&frame);
+        }
+        stream
+    }
+
+    fn begin(&mut self, read_only: bool) -> Transaction {
+        let p = self.core.begin(0, read_only, start()).unwrap();
+        let stream = self.stream();
+        let begun = Begin::new(0, 5, read_only)
+            .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))
+            .unwrap();
+        self.deliver(&begun).unwrap();
+        let Some(Ok(Reply::Begun(tx))) = self.core.take_reply(p) else {
+            panic!("begun")
+        };
+        tx
+    }
+
+    fn read(&mut self, tx: &Transaction) -> ResultStream {
+        let mut terms = TermTable::new();
+        let a = terms.iri("http://ex.org/a");
+        let pattern = QuadPattern::new(
+            PatternSlot::Unbound,
+            PatternSlot::Bound(a),
+            PatternSlot::Unbound,
+            PatternSlot::Unbound,
+        );
+        let stream = self
+            .core
+            .read(
+                tx,
+                &Read::new(tx.stream(), 0, terms, pattern, Vec::new()),
+                start(),
+            )
+            .unwrap();
+        let _ = self.stream();
+        stream
+    }
+
+    /// The golden Result on `stream`: flagged last, or not.
+    fn result(&mut self, stream: &ResultStream, last: bool) {
+        let frame = restream(&golden("result"), stream.stream());
+        let frame = if last { frame } else { not_last(&frame) };
+        self.deliver(&frame).unwrap();
+    }
+
+    /// The next batch's row count (the golden Result's 3 rows), or why there is none.
+    fn batch(&mut self, stream: &ResultStream) -> Result<BatchPoll<u32>, ClientError> {
+        self.core.next_batch(stream, start(), |v| v.rows())
+    }
+
+    /// A Register waiting for its reply.
+    fn register(&mut self) -> Pending {
+        let p = self.core.register(start()).unwrap();
+        let _ = self.stream();
+        p
+    }
+}
+
+/// A read with two batches arrived of a stream not yet ended, and a Register waiting.
+fn reading() -> (Conn, ResultStream, Pending) {
+    let mut c = Conn::new();
+    let tx = c.begin(true);
+    let stream = c.read(&tx);
+    c.result(&stream, false);
+    c.result(&stream, false);
+    // The golden Result's three rows (`generate_bodies.py`).
+    assert!(matches!(c.batch(&stream), Ok(BatchPoll::Batch(3))));
+    let p = c.register();
+    (c, stream, p)
+}
+
+/// The batch arrived before the loss is still read, then the read fails as lost, once: it is not finished.
+fn assert_cut_short(c: &mut Conn, stream: &ResultStream, lost: &ClientError) {
+    assert!(!c.core.is_connected());
+    assert_eq!(c.batch(stream).unwrap_err(), *lost, "the read is cut short");
+    assert_eq!(
+        c.batch(stream).unwrap_err(),
+        ClientError::StreamFinished(stream.stream()),
+        "given once, as a refusal ends a read"
+    );
+}
+
+#[test]
+fn test_a_read_cut_short_by_a_plain_loss_fails_as_lost_without_a_cause() {
+    let (mut c, stream, p) = reading();
+    c.core.disconnected(TransportError::Closed(), start());
+    let lost = ClientError::ConnectionLost(None);
+    assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
+    assert_cut_short(&mut c, &stream, &lost);
+}
+
+#[test]
+fn test_a_framer_refusal_is_the_cause_of_every_loss() {
+    let (mut c, stream, p) = reading();
+    // A header the framer refuses: of another cluster (`PROTOCOL.md` §2.5 step 2).
+    let refusal = TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, 7));
+    c.core.disconnected(refusal.clone(), start());
+    let lost = ClientError::ConnectionLost(Some(ClientError::Transport(refusal)));
+    assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
+    assert_cut_short(&mut c, &stream, &lost);
+}
+
+#[test]
+fn test_a_truncated_frame_is_the_cause_of_every_loss() {
+    let (mut c, stream, p) = reading();
+    let cut = TransportError::Truncated(100, 256);
+    c.core.disconnected(cut.clone(), start());
+    let lost = ClientError::ConnectionLost(Some(ClientError::Transport(cut)));
+    assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
+    assert_cut_short(&mut c, &stream, &lost);
+}
+
+#[test]
+fn test_the_rule_a_frame_broke_is_the_cause_of_every_loss() {
+    let (mut c, stream, p) = reading();
+    // The golden Describe reply on the Register's stream (3: the transaction's 1 and the read's 2 before it), a body
+    // byte flipped: its chunk no longer verifies, a rule of the frame's, past the framer's header checks.
+    let mut bad = numbered(&restream(&golden("describe_reply"), 3), c.sent + 1);
+    bad[400] ^= 1;
+    let rule = FrameView::validate(&bad, CLUSTER, MAX_FRAME_SIZE).expect_err("refused by a rule");
+    let refused = c.deliver(&bad[..]).expect_err("refused");
+    assert_eq!(refused, ClientError::Protocol(rule.clone()));
+    let lost = ClientError::ConnectionLost(Some(ClientError::Protocol(rule)));
+    assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
+    assert_cut_short(&mut c, &stream, &lost);
+}
+
+#[test]
+fn test_the_servers_closing_error_is_the_cause_of_every_loss() {
+    let (mut c, stream, p) = reading();
+    let closing = ErrorReply::new(ErrorCode::Protocol, "bye")
+        .frame(Header::new(CLUSTER, Command::Error).with_flags(1))
+        .unwrap();
+    assert_eq!(
+        c.deliver(&closing).unwrap_err(),
+        ClientError::Closed(ErrorCode::Protocol, "bye")
+    );
+    let lost = ClientError::ConnectionLost(Some(ClientError::Closed(ErrorCode::Protocol, "bye")));
+    assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
+    assert_cut_short(&mut c, &stream, &lost);
+}
+
+#[test]
+fn test_a_read_cut_short_answers_its_loss_after_the_next_connection_opened() {
+    let (mut c, stream, _) = reading();
+    c.core.disconnected(TransportError::Closed(), start());
+    c.connect();
+    assert_cut_short_connected(&mut c, &stream, &ClientError::ConnectionLost(None));
+}
+
+fn assert_cut_short_connected(c: &mut Conn, stream: &ResultStream, lost: &ClientError) {
+    assert_eq!(c.batch(stream).unwrap_err(), *lost);
+    assert_eq!(
+        c.batch(stream).unwrap_err(),
+        ClientError::StreamFinished(stream.stream())
+    );
+    assert!(c.core.is_ready(), "the new connection is not given up");
+}
+
+#[test]
+fn test_a_read_timed_out_answers_as_its_requests_do() {
+    let (mut c, stream, p) = reading();
+    let at = start() + Duration::from_secs(5);
+    c.core.handle_timeout(at);
+    assert_eq!(c.core.take_reply(p), Some(Err(ClientError::TimedOut())));
+    assert_cut_short(&mut c, &stream, &ClientError::TimedOut());
+}
+
+#[test]
+fn test_a_read_whose_last_frame_arrived_reads_to_its_end_after_the_loss() {
+    let mut c = Conn::new();
+    let tx = c.begin(true);
+    let stream = c.read(&tx);
+    c.result(&stream, false);
+    c.result(&stream, true);
+    c.core.disconnected(TransportError::Closed(), start());
+    assert!(matches!(c.batch(&stream), Ok(BatchPoll::Batch(3))));
+    assert!(matches!(c.batch(&stream), Ok(BatchPoll::Batch(3))));
+    assert!(matches!(c.batch(&stream), Ok(BatchPoll::Done)));
+}
+
+#[test]
+fn test_a_read_that_ended_normally_answers_stream_finished() {
+    let mut c = Conn::new();
+    let tx = c.begin(true);
+    let stream = c.read(&tx);
+    c.result(&stream, false);
+    c.core.abort(tx).unwrap();
+    assert_eq!(
+        c.batch(&stream).unwrap_err(),
+        ClientError::StreamFinished(stream.stream()),
+        "its transaction ended"
+    );
+    c.core.disconnected(TransportError::Closed(), start());
+    assert_eq!(
+        c.batch(&stream).unwrap_err(),
+        ClientError::StreamFinished(stream.stream()),
+        "ended before the loss"
+    );
+}
+
+#[test]
+fn test_a_cancelled_read_is_not_lost_with_its_connection() {
+    let mut c = Conn::new();
+    let tx = c.begin(true);
+    let stream = c.read(&tx);
+    c.core.cancel(stream);
+    c.core.disconnected(TransportError::Closed(), start());
+    assert_eq!(
+        c.batch(&stream).unwrap_err(),
+        ClientError::StreamFinished(stream.stream())
+    );
+}
+
+#[test]
+fn test_the_cause_is_the_losss_source() {
+    let (mut c, _, p) = reading();
+    let cut = TransportError::Truncated(100, 256);
+    c.core.disconnected(cut.clone(), start());
+    let lost = c.core.take_reply(p).unwrap().unwrap_err();
+    let source = lost.source().expect("a source");
+    assert_eq!(
+        source.downcast_ref::<ClientError>(),
+        Some(&ClientError::Transport(cut))
+    );
+}

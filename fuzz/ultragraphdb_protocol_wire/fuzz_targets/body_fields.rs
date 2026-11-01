@@ -521,10 +521,20 @@ fn build(body: &Body, terms: TermTable, header: Header) -> Option<(Vec<u8>, Chec
                 }
             }
             let frame = batch.frame(header).ok()?;
+            // The statement IDs are empty or 8 bytes per row (PROTOCOL.md section 9.1): a batch of no rows carries
+            // none on the wire, asked for or not, so it reads back as the batch without them.
+            let read_back = if batch.rows() == 0 {
+                ResultBatch::new(columns)
+            } else {
+                batch
+            };
             (
                 frame,
                 Box::new(move |f| {
-                    assert_eq!(ResultView::from_frame(f).unwrap().to_body().unwrap(), batch)
+                    assert_eq!(
+                        ResultView::from_frame(f).unwrap().to_body().unwrap(),
+                        read_back
+                    )
                 }),
             )
         }

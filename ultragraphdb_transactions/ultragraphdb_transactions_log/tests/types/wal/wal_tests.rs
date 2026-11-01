@@ -247,6 +247,36 @@ fn test_a_tail_torn_in_its_header_is_named_by_its_position() {
     assert_eq!(recovery.committed(), Position::new(2));
 }
 
+/// A Round frame claiming position 0 at a fresh log's head is no round of the log: header damage with nothing after it,
+/// a torn tail named as the round expected there, round 1, and the log stays empty.
+#[test]
+fn test_a_round_claiming_position_zero_at_a_fresh_logs_head_is_header_damage() {
+    use ultragraphdb_traits_log::RoundRef;
+    use ultragraphdb_transactions_log::encode_round;
+    let storage = SimStorage::new(1);
+    let (wal, _) = open(&storage).expect("opened");
+    drop(wal);
+    let data = body(0, ONE_BLOCK);
+    let (frame, _) = encode_round(
+        CLUSTER,
+        0,
+        1,
+        &RoundRef::new(Position::ZERO, 0, 2, 1, &data),
+    )
+    .expect("encoded");
+    // A fresh log has created no segment yet: segment 0 is laid down holding the frame, then zeros, four blocks long.
+    let mut bytes = frame.as_slice().to_vec();
+    bytes.resize(16_384, 0);
+    storage.put_file(&segment(0), &bytes).expect("put");
+    let (wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(
+        recovery.truncation(),
+        Some(Truncation::new(Position::new(1), 0, 0, Damage::Header))
+    );
+    assert_eq!(recovery.committed(), Position::ZERO);
+    assert_eq!(wal.tail(), (Position::ZERO, 0));
+}
+
 /// The stable contents of segment 0 with `block` after its first `len` bytes, put in its place.
 fn put_segment_0(storage: &SimStorage, len: usize, block: &[u8]) {
     let mut bytes = storage.stable_contents(&segment(0)).expect("segment 0");
@@ -1124,4 +1154,166 @@ fn test_no_acknowledged_round_is_lost_under_faults_and_power_losses() {
     // The workload reaches a short segment left by a torn extending write, and new segments taken from spares.
     assert!(short_tears > 0, "no short tear");
     assert!(spares_taken > 0, "no spare taken");
+}
+
+#[test]
+fn test_a_log_of_another_incarnation_writes_and_recovers_its_rounds_under_it() {
+    // A superblock of incarnation 2, as a log restored into a new incarnation holds it.
+    let storage = SimStorage::new(1);
+    storage
+        .put_file(
+            &superblock('a'),
+            &Superblock::new(1, CLUSTER, 2, Position::ZERO, 0, 0, 0).encode(),
+        )
+        .expect("put");
+    let (mut wal, _) = open(&storage).expect("opened");
+    assert_eq!(wal.incarnation(), 2);
+    let checksums = append_synced(&mut wal, 1, 3, ONE_BLOCK);
+    drop(wal);
+    // The scan accepts only rounds of the superblock's incarnation, so the three rounds came back only if they were
+    // written under 2.
+    let (mut wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(wal.incarnation(), 2);
+    assert_eq!(recovery.committed(), Position::new(3));
+    assert_eq!(wal.tail(), (Position::new(3), checksums[2]));
+    let rounds = block_on(wal.read(Position::new(1), u32::MAX)).expect("read");
+    assert_eq!(rounds.len(), 3);
+    assert_eq!(rounds[2].body(), body(3, ONE_BLOCK).as_slice());
+}
+
+/// A complete round at the stop itself is not past it: round 3, whole and checksummed but naming another parent than
+/// round 2, ends the chain as chain damage with nothing complete after it, so it is a torn tail, truncated and
+/// reported, and the log continues after round 2.
+#[test]
+fn test_a_complete_round_breaking_the_chain_at_the_tail_is_truncated() {
+    use ultragraphdb_traits_log::RoundRef;
+    use ultragraphdb_transactions_log::encode_round;
+    let storage = SimStorage::new(1);
+    let (mut wal, _) = open(&storage).expect("opened");
+    let checksums = append_synced(&mut wal, 1, 2, ONE_BLOCK);
+    drop(wal);
+    let data = body(3, ONE_BLOCK);
+    let (frame, _) = encode_round(
+        CLUSTER,
+        0,
+        1,
+        &RoundRef::new(Position::new(3), 0xDEAD, 6, 1, &data),
+    )
+    .expect("encoded");
+    // Rounds 1 and 2 take blocks 0 and 1; round 3 is laid in block 2.
+    put_segment_0(&storage, 8_192, frame.as_slice());
+    let (wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(
+        recovery.truncation(),
+        Some(Truncation::new(
+            Position::new(3),
+            0,
+            8_192,
+            Damage::Chain {
+                position: Position::new(3)
+            }
+        ))
+    );
+    assert_eq!(recovery.committed(), Position::new(2));
+    assert_eq!(wal.tail(), (Position::new(2), checksums[1]));
+}
+
+/// The first segment kept may start at the checkpoint: a damaged chunk table in its first round, with complete rounds
+/// after it, is interior damage named by that round's position, not by the position after the checkpoint.
+#[test]
+fn test_a_damaged_chunk_table_in_the_first_kept_round_names_that_round() {
+    let storage = SimStorage::new(1);
+    let (mut wal, _) = open(&storage).expect("opened");
+    // Two-block rounds, two to a four-block segment: rounds 1 and 2 in segment 0, 3 and 4 in 1. (A segment after it
+    // starting at round 5 would refuse the start sooner, as a first round past the one after the checkpoint.)
+    append_synced(&mut wal, 1, 4, TWO_BLOCKS);
+    // The checkpoint covers rounds 1 to 3: segment 0 holds only covered rounds and goes, segment 1 starts at round 3.
+    block_on(wal.trim_through(Position::new(3), 0)).expect("trimmed");
+    drop(wal);
+    // A 5,000-byte body is two chunks (3,840 and 1,160 bytes) and a 16-byte table after the body: frame bytes 5,256 to
+    // 5,272 of round 3, at the start of segment 1.
+    storage.corrupt(&segment(1), 5_260, 0x01).expect("flipped");
+    let before = storage.trace().len();
+    assert_eq!(open(&storage).err(), Some(LogError::Corrupt(3, 1, 0)));
+    assert_eq!(writes_in(&storage, before), 0, "nothing is truncated");
+}
+
+/// A restart at the checkpoint writes the next superblock: one above the trim's sequence, so to the other copy, with the
+/// checkpoint kept and the segment after the stop as the first kept.
+#[test]
+fn test_a_restart_at_the_checkpoint_writes_the_next_superblock() {
+    // The scenario of test_a_torn_round_at_the_checkpoint_after_rounds_below_it_leaves_the_log_at_the_checkpoint:
+    // rounds 1 to 3 and the torn round 4 share segment 0, and the checkpoint covers 4.
+    let storage = SimStorage::new(9);
+    let (mut wal, _) = open(&storage).expect("opened");
+    append_synced(&mut wal, 1, 3, ONE_BLOCK);
+    append(&mut wal, 4, FULL_BLOCK).expect("staged");
+    storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(4)));
+    let four = wal.tail().1;
+    block_on(wal.trim_through(Position::new(4), 0)).expect("trimmed");
+    drop(wal);
+    storage.power_loss();
+    let (_, recovery) = open(&storage).expect("reopened");
+    assert_eq!(recovery.committed(), Position::new(4));
+    // Sequence 1 at creation, 2 for the trim, 3 for the restart. The chain stops at round 4's block in segment 0, so
+    // the log continues in segment 1.
+    assert_eq!(
+        block_on(Superblock::read(&storage, &dir())).expect("read"),
+        SuperblockRead::Present(Superblock::new(3, CLUSTER, 1, Position::new(4), four, 0, 1))
+    );
+}
+
+/// Without fallocate, a tail segment cut short is filled with zeros at the open from the block its length lies in, so
+/// the rounds before it are left as they were and read back.
+#[test]
+fn test_without_fallocate_a_tail_segment_cut_short_is_filled_after_its_rounds() {
+    let storage = SimStorage::new(1);
+    let (mut wal, _) = open(&storage).expect("opened");
+    append_synced(&mut wal, 1, 2, ONE_BLOCK);
+    drop(wal);
+    // Rounds 1 and 2 take blocks 0 and 1; the segment is cut 100 bytes into block 2.
+    let mut bytes = storage.contents(&segment(0)).expect("segment 0");
+    bytes.truncate(8_292);
+    storage.put_file(&segment(0), &bytes).expect("put");
+    storage.refuse_preallocation();
+    let (mut wal, recovery) = open(&storage).expect("reopened");
+    assert_eq!(recovery.committed(), Position::new(2));
+    let stable = storage.stable_contents(&segment(0)).expect("segment 0");
+    assert_eq!(stable.len(), 16_384);
+    assert_eq!(stable[..8_192], bytes[..8_192], "the rounds are left");
+    assert!(stable[8_192..].iter().all(|b| *b == 0));
+    let rounds = block_on(wal.read(Position::new(1), u32::MAX)).expect("read");
+    assert_eq!(rounds.len(), 2);
+    assert_eq!(rounds[1].body(), body(2, ONE_BLOCK).as_slice());
+}
+
+/// A tail segment of its full length is not reserved again at the open: only one cut short is.
+#[test]
+fn test_a_full_tail_segment_is_not_reserved_again() {
+    // Rounds 1 to 3 and round 4, torn silently, fill segment 0's four blocks, so the chain stops inside it.
+    let storage = SimStorage::new(9);
+    let (mut wal, _) = open(&storage).expect("opened");
+    append_synced(&mut wal, 1, 3, ONE_BLOCK);
+    append(&mut wal, 4, FULL_BLOCK).expect("staged");
+    storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
+    assert_eq!(block_on(wal.sync()), Ok(Position::new(4)));
+    drop(wal);
+    storage.power_loss();
+    assert_eq!(storage.contents(&segment(0)).map(|b| b.len()), Some(16_384));
+    let before = storage.trace().len();
+    let (_, recovery) = open(&storage).expect("reopened");
+    assert_eq!(
+        recovery
+            .truncation()
+            .map(|t| (t.position(), t.segment(), t.offset())),
+        Some((Position::new(4), 0, 12_288))
+    );
+    assert!(
+        !storage.trace()[before..]
+            .iter()
+            .any(|step| *step == (StorageOperation::Preallocate, segment(0))),
+        "{:?}",
+        &storage.trace()[before..]
+    );
 }

@@ -6,7 +6,7 @@
 use std::time::Instant;
 
 use ultragraphdb_error_protocol::ProtocolError;
-use ultragraphdb_protocol_transport::Login;
+use ultragraphdb_protocol_transport::{Login, ReceivedFrame};
 use ultragraphdb_protocol_wire::{BodyView, Cancel, Command, Credit, FLAG_LAST, ResultView};
 
 use crate::errors::client_error::ClientError;
@@ -15,14 +15,45 @@ use crate::types::client_core::ClientCore;
 use crate::types::client_core::client_core_receive::refusal;
 use crate::types::result_stream::ResultStream;
 
+/// What a result stream's frame holds.
+enum Arrived<T> {
+    /// A batch, as `read` read it, and whether it is the stream's last.
+    Batch(T, bool),
+    /// The server's refusal of the read.
+    Refused(ClientError),
+    /// A rule the frame breaks.
+    Broken(ClientError),
+}
+
+/// `frame` of a result stream, read through its view: its batch given to `read`, its refusal, or the rule it breaks.
+fn arrived<T>(frame: &ReceivedFrame, read: impl FnOnce(&ResultView<'_>) -> T) -> Arrived<T> {
+    let view = match frame.view() {
+        Ok(view) => view,
+        Err(error) => return Arrived::Broken(ClientError::Protocol(error)),
+    };
+    if view.command() == Command::Error {
+        return match refusal(&view) {
+            Ok(refused) => Arrived::Refused(refused),
+            Err(error) => Arrived::Broken(error),
+        };
+    }
+    match ResultView::from_frame(&view) {
+        Ok(batch) => Arrived::Batch(read(&batch), view.header().flags() & FLAG_LAST != 0),
+        Err(error) => Arrived::Broken(ClientError::Protocol(error)),
+    }
+}
+
 impl<L: Login> ClientCore<L> {
     /// The next batch of `stream`, read in place: `read` is given the batch's [`ResultView`], borrowing the frame's
     /// pooled buffer, and its value is the batch's; nothing is copied or decoded beyond what `read` asks for.
     /// [`BatchPoll::Done`] after the last, which ends the read's stream; [`BatchPoll::Wait`] while none has arrived,
     /// granting the stream [`crate::ClientConfig::credit`] more frames when its credit is spent. A refusal on the
     /// stream is its error and ends it, keeping the connection and the transaction; a frame breaking a rule gives the
-    /// connection up ([`ClientError::Protocol`]). A read whose transaction ended is finished
-    /// ([`ClientError::StreamFinished`]).
+    /// connection up ([`ClientError::Protocol`]). A read cut short by its connection's loss, before its last frame
+    /// arrived, answers what the connection's requests answered, once: [`ClientError::ConnectionLost`] with its cause,
+    /// or [`ClientError::TimedOut`]; it is not retried, as its transaction was aborted with the connection
+    /// (`PROTOCOL.md` §11.4). A read whose last frame had arrived is read to its end. A read whose stream or
+    /// transaction ended, or whose loss was answered, is finished ([`ClientError::StreamFinished`]).
     pub fn next_batch<T>(
         &mut self,
         stream: &ResultStream,
@@ -30,6 +61,23 @@ impl<L: Login> ClientCore<L> {
         read: impl FnOnce(&ResultView<'_>) -> T,
     ) -> Result<BatchPoll<T>, ClientError> {
         let id = stream.stream();
+        let key = (stream.generation(), id);
+        if let Some(lost) = self.lost_reads.remove(&key) {
+            return Err(lost);
+        }
+        if let Some(inbox) = self.kept_reads.get_mut(&key) {
+            let Some(frame) = inbox.pop_front() else {
+                self.kept_reads.remove(&key);
+                return Ok(BatchPoll::Done);
+            };
+            return match arrived(&frame, read) {
+                Arrived::Batch(value, _) => Ok(BatchPoll::Batch(value)),
+                Arrived::Refused(error) | Arrived::Broken(error) => {
+                    self.kept_reads.remove(&key);
+                    Err(error)
+                }
+            };
+        }
         if stream.generation() != self.generation {
             return Err(ClientError::StreamFinished(id));
         }
@@ -49,37 +97,24 @@ impl<L: Login> ClientCore<L> {
             }
             return Ok(BatchPoll::Wait);
         };
-        let view = match frame.view() {
-            Ok(view) => view,
-            Err(error) => {
-                self.lose(ClientError::ConnectionLost());
-                return Err(ClientError::Protocol(error));
-            }
-        };
-        if view.command() == Command::Error {
-            let error = refusal(&view);
-            self.streams.remove(&id);
-            return match error {
-                Ok(refused) => Err(refused),
-                Err(error) => {
-                    self.lose(ClientError::ConnectionLost());
-                    Err(error)
+        match arrived(&frame, read) {
+            Arrived::Batch(value, last) => {
+                if last {
+                    self.streams.remove(&id);
+                    self.done_reads.insert(id);
                 }
-            };
-        }
-        let batch = match ResultView::from_frame(&view) {
-            Ok(batch) => batch,
-            Err(error) => {
-                self.lose(ClientError::ConnectionLost());
-                return Err(ClientError::Protocol(error));
+                Ok(BatchPoll::Batch(value))
             }
-        };
-        let value = read(&batch);
-        if view.header().flags() & FLAG_LAST != 0 {
-            self.streams.remove(&id);
-            self.done_reads.insert(id);
+            Arrived::Refused(error) => {
+                self.streams.remove(&id);
+                Err(error)
+            }
+            Arrived::Broken(error) => {
+                self.streams.remove(&id);
+                self.lose(ClientError::ConnectionLost(Some(error.clone())));
+                Err(error)
+            }
         }
-        Ok(BatchPoll::Batch(value))
     }
 
     /// Grants `stream` credit for `frames` more Result frames, beyond what [`ClientCore::next_batch`] grants; refused
@@ -106,9 +141,14 @@ impl<L: Login> ClientCore<L> {
         Ok(())
     }
 
-    /// Cancels `stream`, a read: no further frame of it is read, and its transaction goes on.
+    /// Cancels `stream`, a read: no further frame of it is read, and its transaction goes on. A read lost or kept with
+    /// its connection is forgotten.
     pub fn cancel(&mut self, stream: ResultStream) {
         let id = stream.stream();
+        let key = (stream.generation(), id);
+        if self.lost_reads.remove(&key).is_some() || self.kept_reads.remove(&key).is_some() {
+            return;
+        }
         if stream.generation() != self.generation || self.streams.remove(&id).is_none() {
             return;
         }

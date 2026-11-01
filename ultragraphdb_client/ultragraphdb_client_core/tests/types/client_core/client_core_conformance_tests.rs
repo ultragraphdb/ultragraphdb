@@ -24,7 +24,7 @@ use ultragraphdb_protocol_wire::{
 use crate::utils::harness::{CLUSTER, Harness, UNIX, frame_through, server, start};
 
 /// Golden frame `name`, read from the wire crate's `testdata/golden/bodies/`.
-fn golden(name: &str) -> Vec<u8> {
+pub fn golden(name: &str) -> Vec<u8> {
     // The repository's root, three levels above this crate's `testdata/`, taken lexically: the directory need not exist.
     let testdata = ultragraphdb_tool_bdd::testdata_dir();
     let root = testdata.ancestors().nth(3).expect("the repository's root");
@@ -35,7 +35,7 @@ fn golden(name: &str) -> Vec<u8> {
 }
 
 /// `frame` moved to `stream`: the header's stream rewritten and its checksum recomputed with xxhash-rust directly.
-fn restream(frame: &[u8], stream: u64) -> Vec<u8> {
+pub fn restream(frame: &[u8], stream: u64) -> Vec<u8> {
     let mut frame = frame.to_vec();
     frame[56..64].copy_from_slice(&stream.to_le_bytes());
     let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
@@ -54,7 +54,7 @@ fn resequence(frame: &[u8], sent: &[u8]) -> Vec<u8> {
 }
 
 /// `frame` numbered `sequence`, its checksum recomputed.
-fn numbered(frame: &[u8], sequence: u128) -> Vec<u8> {
+pub fn numbered(frame: &[u8], sequence: u128) -> Vec<u8> {
     let mut frame = frame.to_vec();
     frame[16..32].copy_from_slice(&sequence.to_le_bytes());
     let checksum = xxhash_rust::xxh3::xxh3_64(&frame[8..256]);
@@ -62,7 +62,7 @@ fn numbered(frame: &[u8], sequence: u128) -> Vec<u8> {
     frame
 }
 
-fn stream_of(frame: &[u8]) -> u64 {
+pub fn stream_of(frame: &[u8]) -> u64 {
     u64::from_le_bytes(frame[56..64].try_into().unwrap())
 }
 
@@ -71,7 +71,7 @@ fn last(h: &Harness) -> Vec<u8> {
     h.server.received().last().cloned().expect("a frame")
 }
 
-fn view<'a, V: BodyView<'a>>(frame: &'a FrameView<'a>) -> V::Body {
+pub fn view<'a, V: BodyView<'a>>(frame: &'a FrameView<'a>) -> V::Body {
     V::from_frame(frame)
         .and_then(|v| v.to_body())
         .expect("a golden body")

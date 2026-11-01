@@ -183,3 +183,14 @@ fn test_a_run_whose_keys_lie_in_another_keyspace_skips_the_catalog_range_but_a_c
         Some(ConflictKind::Catalog)
     );
 }
+
+#[test]
+fn test_a_written_range_over_the_lowest_keys_conflicts_at_them() {
+    // A range from the empty key to 0x00 0x05: the empty key and 0x00 0x01 lie inside it, 0x00 0x05 is its end.
+    let mut history = ConflictHistory::new(0);
+    insert(&mut history, 12, &Writes::range(b"", Some(b"\x00\x05")));
+    let check = |reads: &Reads| history.conflict(&read_set(0, 10, reads));
+    assert_eq!(check(&Reads::list(b"")), Some(ConflictKind::Drop));
+    assert_eq!(check(&Reads::list(b"\x00\x01")), Some(ConflictKind::Drop));
+    assert_eq!(check(&Reads::list(b"\x00\x05")), None);
+}
