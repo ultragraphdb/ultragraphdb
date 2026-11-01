@@ -1,0 +1,64 @@
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/transaction-verification/spec.md
+  s_6c9dcf457e80d9::t_d3830109b111c5 28-29
+openspec/changes/stage-5-transactions-and-binary-protocol/design.md
+  s_6c9dcf457e80d9::t_2623787ad2f132 29,31
+  s_6c9dcf457e80d9::t_28a537c7ec6cb0 414-415
+  s_6c9dcf457e80d9::t_a7da05e0e3035d 36-40
+  s_6c9dcf457e80d9::t_d846db30f8c140 293-294
+  s_6c9dcf457e80d9::t_4c3e22345dccc5 373
+  s_6c9dcf457e80d9::t_afb133050fe647 382-383
+  s_6c9dcf457e80d9::t_6ac7b8c26b2b4d 371-372
+  s_6c9dcf457e80d9::t_8d7a08ad35447b 364,366-369,406,445-448
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_6c9dcf457e80d9::t_67c25f40594a24 143,146-148,150
+  s_6c9dcf457e80d9::t_7280f8aa5ed5a2 153-156,169-171,181
+openspec/changes/stage-5-transactions-and-binary-protocol/proposal.md
+  s_6c9dcf457e80d9::t_47fbbd3ae7ae58 31-32
+  s_6c9dcf457e80d9::t_11db94880831eb 59-60
+  s_6c9dcf457e80d9::t_5c498870b9af72 78
+  s_6c9dcf457e80d9::t_7ecdba3e5ea8af 38
+openspec/changes/stage-5-transactions-and-binary-protocol/specs/transactions/spec.md
+  s_6c9dcf457e80d9::t_40ec50302fce0a 192-206
+openspec/notes/node.md
+  s_6c9dcf457e80d9::t_59de3690163084 1-10,130-309,311,313-338
+AGENTS.md
+  s_6c9dcf457e80d9::t_e52179c4419ca0 117
+openspec/changes/archive/2026-10-23-fix-ported-dgraph-defects/design.md
+  s_6c9dcf457e80d9::t_be64c828049f94 3
+openspec/changes/archive/2026-10-23-fix-ported-dgraph-defects/proposal.md
+  s_6c9dcf457e80d9::t_687c699618ae0b 4
+openspec/changes/archive/2026-10-23-port-stage-1-foundations/design.md
+  s_6c9dcf457e80d9::t_43b16c774da0e4 4,173
+openspec/changes/archive/2026-10-25-port-stage-2-storage/design.md
+  s_6c9dcf457e80d9::t_2bc1f348b3435e 13
+"openspec/changes/stage-5-transactions-and-binary-protocol/ zero-copy-binary-protocol.md"
+  s_6c9dcf457e80d9::t_89c6d82c1277f4 26,140
+"openspec/notes/UltraGraphDB Distribution Architecture.md"
+  s_6c9dcf457e80d9::t_be6783ca4c6bab 1-337
+openspec/notes/archive/dgraph-bugs-found-in-port.md
+  s_6c9dcf457e80d9::t_afff7e1be28f97 23
+openspec/notes/archive/dgraph-port-overview.md
+  s_6c9dcf457e80d9::t_93d3757fe12303 217,238,311,316-318,346,364
+openspec/notes/perf-optimization.md
+  s_6c9dcf457e80d9::t_d370e1b8e6a0ab 4
+openspec/notes/security.md
+  s_6c9dcf457e80d9::t_06813c8e182475 272,389
+"openspec/notes/UltraGraphDB Single-Container Deployment.md"
+  s_6c9dcf457e80d9::t_3dfae3a2a01fba 1-106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a1e8a4cff37c3be77405ab4facc481c32d7c220e",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
