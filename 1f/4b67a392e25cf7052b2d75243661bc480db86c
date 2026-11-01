@@ -1,0 +1,82 @@
+openspec/changes/stage-5-5-three-role-refactor/specs/uid-lists/spec.md
+  s_6c9dcf457e80d9::t_d1337ec47613d8 1-47
+  s_6c9dcf457e80d9::t_f95d92be18a0fa 48-49
+openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md
+  s_6c9dcf457e80d9::t_360b284d585c03 1-85
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md
+  s_6c9dcf457e80d9::t_180bdcf7cf6647 1-60
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_0f962734987084 1-208
+  s_6c9dcf457e80d9::t_83d06952b960e3 209-212
+openspec/changes/stage-5-5-three-role-refactor/proposal.md
+  s_6c9dcf457e80d9::t_3750639b279a66 1-104
+  s_6c9dcf457e80d9::t_f968766bb45a9b 105
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md
+  s_6c9dcf457e80d9::t_6a0348e64266fc 1-14
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_f2387f983f73e6 1-117
+openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
+  s_6c9dcf457e80d9::t_e3e58aff360c06 1-55
+openspec/changes/stage-5-5-three-role-refactor/specs/commit-rounds/spec.md
+  s_6c9dcf457e80d9::t_2778eaab7d1693 1-27
+openspec/changes/stage-5-5-three-role-refactor/specs/posting-lists/spec.md
+  s_6c9dcf457e80d9::t_4bbff94aa2ca7e 1-20
+openspec/changes/stage-5-5-three-role-refactor/specs/ultra-style/spec.md
+  s_6c9dcf457e80d9::t_39029deffd2b37 1-40
+openspec/changes/stage-5-5-three-role-refactor/specs/key-encoding/spec.md
+  s_6c9dcf457e80d9::t_1d077ae1a28f19 1-50
+openspec/changes/stage-5-5-three-role-refactor/specs/vector-index/spec.md
+  s_6c9dcf457e80d9::t_5abf34d35a8902 1-29
+openspec/changes/stage-5-5-three-role-refactor/specs/write-ahead-log/spec.md
+  s_6c9dcf457e80d9::t_694f34e81a508b 1-57
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-storage/spec.md
+  s_6c9dcf457e80d9::t_e69b09f6c38720 1-25
+openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_ba76be02cb76b3 1-98
+  s_6c9dcf457e80d9::t_f8fe61d5da38ea 99
+openspec/changes/stage-5-5-three-role-refactor/specs/metadata-group/spec.md
+  s_6c9dcf457e80d9::t_589bb505e9dd82 1-87
+openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md
+  s_6c9dcf457e80d9::t_4ce8012559ab7f 1-37
+openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md
+  s_6c9dcf457e80d9::t_19ecc53c77c166 1-70
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-storage/spec.md
+  s_6c9dcf457e80d9::t_5700100031738a 1-16
+openspec/changes/stage-5-5-three-role-refactor/specs/system-identity/spec.md
+  s_6c9dcf457e80d9::t_918971dc5c94cb 1-88
+  s_6c9dcf457e80d9::t_636e0590aa9211 89-91
+"openspec/notes/UltraGraphDB Single-Container Deployment.md"
+  s_6c9dcf457e80d9::t_6b0aa216afab3c 9,11,15,19-23,27-29,36,40,46-47,50-51,55,59,65,69-70,72,82,85,91,95,99
+openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md
+  s_6c9dcf457e80d9::t_c5047381a0ed80 1-35
+openspec/changes/stage-5-5-three-role-refactor/specs/sequencer/spec.md
+  s_6c9dcf457e80d9::t_e9208e6fc14bf7 1-74
+openspec/changes/stage-5-5-three-role-refactor/.openspec.yaml
+  s_6c9dcf457e80d9::t_0fb2214ed4b7a4 1-2
+"openspec/notes/UltraGraphDB Distribution Architecture.md"
+  s_6c9dcf457e80d9::t_e16bf6bf51c0fc 105
+"openspec/notes/UltraGraphDB Schema and Query Language.md"
+  s_6c9dcf457e80d9::t_ee5bd6ec812c97 107
+"openspec/notes/UltraGraphDB Shard-per-Core Write Path.md"
+  s_6c9dcf457e80d9::t_a65e4c36a9998d 390-391,400,787-788
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_1fcc688f734ace 57
+openspec/notes/review-stages-5.5-and-6.md
+  s_6c9dcf457e80d9::t_1bf358907b79f2 357
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1f4b67a392e25cf7052b2d75243661bc480db86c",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
