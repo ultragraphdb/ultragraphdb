@@ -54,6 +54,9 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 
 - The system ID is 128 bits: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence and 32 reserved bits. A bucket
   is a virtual partition the placement map assigns to a replica group, so rebalancing never changes an ID.
+  Proposed revision, pending decision: a 24-bit bucket and 8 reserved bits, with sequences unique per type and
+  leased per (type, partition), so the bucket outlasts large clusters of large nodes and leases stay few (Shard-per-Core
+  note, P7).
 - Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix
   ranges.
 - The metadata group's state machine is built in stage 5.5 with one replica, holding catalog versions, ID ranges and
@@ -65,10 +68,10 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 
 ### 11. Write-path throughput: one partition per core (stage 5.5)
 
-A storage node runs one partition per core, each a shared-nothing replica group with its own log, commit step and
-store, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
-measurements, the model and its consequences for the clustering architecture are in
-`openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`; its open questions are this item's to answer.
+A storage node gives its cores to partitions, each a shared-nothing replica group with its own log, commit step and
+buckets, after ScyllaDB's shard-per-core model and TigerBeetle's one core per replica (decided 2026-11-01). The
+measurements, the model, estimates for nodes of 48 to 128 cores and twelve decisions (P1–P12), each with a
+recommendation awaiting the user's choice, are in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md`.
 
 - One commit thread carries about 38,000 relations per second at 10 or more relations per commit, about 16,700
   commits/s at one: 35–60 µs per commit plus 20–25 µs per relation, the cost of about seven memtable skiplist
@@ -77,19 +80,19 @@ measurements, the model and its consequences for the clustering architecture are
   and cut the fjall journal by 23% per relation. The key's width costs little; the operations per relation cost.
 - Independent pipelines side by side reach 6.4–7.1× at 12 on 12 vCPUs; each loses 41–47% to the machine at every
   commit size.
+- On nodes of 48 cores and more, the disk's bandwidth and flush rate bind before the cores, then the network.
 
 To specify, in order:
 
-1. The bucket as placement: derived from a hash of the IRI or `@key`, so that creation and the dictionary's uniqueness
-   check stay in one partition; buckets per partition; the placement map in the metadata group (item 10, D1, D4).
-2. The writes that stay single-partition under bucket placement and those that cross, with reverse entries and other
-   derived indexes by change stream and watermark (stage 8).
-3. The partition's runtime: one compio runtime per core running its commit step, execution beside it, the apply on
-   the same core or pipelined on a second; the cores a node reserves for fjall's workers, the frontend and the network.
-4. One LSM instance per partition, and the node's budget for fjall's workers, memtables and caches.
-5. `wal_bench` measuring N partitions in one process with a chosen share of cross-partition commits.
-6. The bytes per relation: a logical log record (the quad) in place of physical key deltas, and the design's option C,
-   fjall without its own journal, once the CPU no longer bounds the path.
+1. Identity: the 24-bit bucket and per-type sequences (P7), the bucket derived from a hash of the key (P1), buckets
+   assigned to partitions as ranges (P2), the placement map and preferred leaders in the metadata group (item 10, D4).
+2. The log: resolved quads as the record, fjall without its journal (P9), per-partition streams over a shared segment
+   per device with one flusher (P10).
+3. The writes that stay single-partition and those sequenced across partitions, the bulk loader, and cross-partition
+   work delivered as one batch per partition per epoch through a node's epoch agent (P3, P12).
+4. The node's runtime: partition cores and the reserve (P4), three replicas per core with leadership spread (P8),
+   every replica applying on its core (P6), one LSM instance per core within a node budget (P11).
+5. `wal_bench` measuring partition cores in one process, then followers, then cross-partition commits (P5).
 
 ### 2. The client endpoint
 

@@ -1,9 +1,10 @@
 # UltraGraphDB Shard-per-Core Write Path
 
 Preparation for stage 5.5's specifications: what bounds a replica group's write throughput, measured on 2026-11-01,
-and the runtime model the measurements point to. A storage node runs one partition per core, each a shared-nothing
-replica group with its own log, commit step and store, after ScyllaDB's shard-per-core model and TigerBeetle's
-one core per replica. Backlog item 11 tracks what remains to specify; the distribution architecture
+and the runtime model the measurements point to. A storage node gives its cores to partitions, each a shared-nothing
+replica group with its own log, commit step and buckets; every partition core hosts three replicas, leading one, after
+ScyllaDB's shard-per-core model and TigerBeetle's one core per replica. The model is sized for nodes of 12 to 128
+cores. Backlog item 11 tracks what remains to specify; the distribution architecture
 (`UltraGraphDB Distribution Architecture.md`) is the frame it refines.
 
 ## Measurements
@@ -90,46 +91,408 @@ and shards exchange messages over per-pair queues, never shared structures. Tige
 single-threaded on one core, batching thousands of operations per request through io_uring. Both put the serial
 section of a write on one core that owns its data, and scale by adding owners.
 
-**Shape.** A storage node runs one partition per core. A partition is a replica group: its own VSR log, commit step
-and LSM instance, its members one core on each of three nodes. Each core's compio runtime owns its I/O queues, as the
-distribution note's runtime model states; with partitions, the commit step is per core too.
+**Shape.** A partition is a replica group: its own VSR log and commit step over the buckets the placement map gives
+it, with a replica on each of three nodes. Each core of a storage node hosts one replica of three partitions, leading
+one and following two, and keeps one LSM instance holding a keyspace per hosted replica (P8, P11). Each core's compio
+runtime owns its I/O queues, as the distribution note's runtime model states; with partitions, the commit step is per
+core too.
 
 **What the model changes in the clustering architecture.**
 
 1. **Placement follows the bucket.** Predicate sharding puts a hot predicate on one partition and so on one core:
-   about 40,000 relations per second for that predicate, whatever the cluster's size. Placement by the D1 bucket of
-   the subject's ID spreads a predicate across partitions. An edge's forward entry then lives with its subject and its
+   about 40,000 relations per second for that predicate, whatever the cluster's size. Placement by the bucket of the
+   subject's ID spreads a predicate across partitions. An edge's forward entry then lives with its subject and its
    reverse entry with its object, usually elsewhere; the reverse follows by change stream, the mechanism the
    distribution note plans for tiles, needed from the first partitioned stage.
 2. **The term dictionary is a partitioned unique index.** An IRI's uniqueness is checked by the partition owning its
    hash. Deriving an entity's bucket from the same hash, of its IRI or of its UGS `@key`, keeps creation and the check
-   in one partition.
-3. **Replica groups multiply**, nodes × cores ÷ replication. VSR traffic between two nodes shares one connection,
-   heartbeats coalesce and idle groups quiesce, as multi-Raft systems found necessary. The placement map grows, and
-   closed-epoch markers reach the sequencer batched per node.
+   in one partition (P1).
+3. **Replica groups multiply**: with three replicas per core, a cluster runs as many partitions as it has storage
+   cores, and replication runs core to core, one connection per core per peer node (P8). Idle groups quiesce and
+   heartbeats coalesce, as multi-Raft systems found necessary; closed epochs reach the sequencer once per node (P12).
 4. **A transaction spanning partitions on one node takes the cross-group path**, Calvin sequencing and epochs over
    shared-memory queues. The parity rule holds: stage 8's single container runs the paths a cluster runs. D3's
    guarantees apply per partition: strict serializability within one, serializability at a closed epoch across them.
-5. **Each partition has its own LSM instance.** A shared fjall journal would serialize the partitions again. fjall's
-   flush and compaction workers and the memory of memtables and caches take a budget per node, divided among the
-   partitions.
+5. **Each core has its own LSM instance**, shared by the replicas it hosts. A journal shared across cores would
+   serialize the partitions again; within a core one thread drives every replica, so sharing costs nothing. fjall's
+   workers and the memory of memtables and caches take a budget per node (P11).
 6. **Rebalancing is one mechanism**: a bucket moving between cores is the operation that moves it between nodes.
 
-The three roles stay as they are. Stage 5.5 settles the identity (D1, the bucket's meaning and derivation) and the
-metadata group (D4, more groups to place); stage 8 builds the partitions, the reverse entries by change stream and the
-VSR multiplexing.
+The three roles stay as they are. Stage 5.5 settles the identity (D1 revised by P7), the log format (P9, P10) and the
+metadata group (D4, more partitions to place); stage 8 builds the partitions, the reverse entries by change stream and
+the replica placement.
 
-## Open questions for stage 5.5
+### Large nodes
 
-- Is the bucket derived from a hash of the IRI or `@key` for every entity, and what does a keyless entity hash?
-- How many buckets per partition does the placement map start with, so that a node's partitions can be rebalanced
-  across cores without splitting a bucket?
-- Which writes stay single-partition under bucket placement: an edge insert with its reverse entry by change stream,
-  a property write, an entity creation; and which become cross-partition: unique keys of another entity,
-  cardinality on the object's side?
-- Does a node run as many partitions as cores, or reserve cores for fjall's workers, the frontend role and the network,
-  given that the side-by-side runs lost 41–47% per pipeline at 12 on 12 vCPUs?
-- How does `wal_bench` grow to measure the model in one process: N partitions on N pinned compio runtimes over one
-  shared generator, with cross-partition commits at a chosen share?
-- Does each partition's commit step keep the apply on its own core, or apply on a second core pipelined with the next
-  round, given the apply's 37%?
+Estimates for a three-node cluster, extrapolated from the 12-vCPU measurements; nothing here was measured on a large
+machine. A node runs a partition core per core less one per eight, rounded up (P4); each core hosts three replicas, so
+the cluster runs three partitions per partition core of a node. A leader costs a partition core what one pipeline
+costs, about 38,000 relations per second; a follower with today's physical log only logs and applies, assumed 45% of
+that, so a core leading one partition and following two carries about 20,000 relations per second per partition.
+
+| Cores per node | Partition cores | Partitions | Cluster ceiling | At the VM's efficiency (55%) |
+| --- | --- | --- | --- | --- |
+| 12 | 10 | 30 | 0.6M relations/s | 0.3M |
+| 48 | 42 | 126 | 2.5M | 1.4M |
+| 64 | 56 | 168 | 3.4M | 1.8M |
+| 128 | 112 | 336 | 6.7M | 3.7M |
+
+One partition per core index, its leader on one node and its followers idle half the time on the others, would reach
+about 4.3M on 128-core nodes; spreading leadership is worth about half again.
+
+What each node then writes and sends, at the ceiling:
+
+| Cores per node | Disk before compaction, physical log and fjall journal (1.9 KB per relation) | The same, logical log without fjall's journal (about 0.95 KB) | Replication out, physical (2 × 1.1 KB) | Replication out, logical (2 × about 150 B) |
+| --- | --- | --- | --- | --- |
+| 12 | 1.1 GB/s | 0.6 GB/s | 3.5 Gbit/s | 0.5 Gbit/s |
+| 48 | 4.8 GB/s | 2.4 GB/s | 15 Gbit/s | 2 Gbit/s |
+| 64 | 6.4 GB/s | 3.2 GB/s | 20 Gbit/s | 2.7 Gbit/s |
+| 128 | 12.7 GB/s | 6.4 GB/s | 39 Gbit/s | 5.4 Gbit/s |
+
+Every node holds a replica of every partition in a three-node cluster, so each writes at the cluster's rate. LSM
+compaction multiplies the store's share, about 0.8 KB per relation, by a further 5–10×. At 48 cores and above, the
+disk's bandwidth and its flush rate bind before the cores, then the network; the logical log halves the first and
+divides the second by seven.
+
+## Decisions for stage 5.5
+
+Twelve decisions the partitioned model needs before stage 5.5 specifies identity, the log and the metadata group.
+P1–P6 follow from the model, P7–P12 from scaling it to large nodes. Each states the trade-off, a recommendation and its
+consequences; all twelve await the user's decision.
+
+### P1. Where an entity's bucket comes from
+
+**Trade-off.** The bucket is part of every system ID, so it is fixed when the entity is created and decides its
+partition until the bucket moves.
+
+- *A hash of the business identity* (the canonical `@key` tuple, or the IRI of data without a schema) puts an entity
+  where its identity's uniqueness is checked. Creation and the dictionary's check share one partition, and any node
+  finds an entity's partition from its IRI alone, with no directory. The price is locality: related entities land on
+  unrelated partitions, so a transaction touching several crosses partitions, more of them the larger the cluster
+  (P12).
+- *The creating partition's own bucket* keeps every creation local and places related entities together. The
+  dictionary entry still has to live where its IRI hashes, or uniqueness cannot be checked, so every creation becomes
+  a write to two partitions.
+- *An entity without a key* has no identity whose uniqueness needs checking: its ID is unique by allocation. Hashing
+  its handle would scatter it for no gain.
+
+**Recommendation.**
+
+- A keyed entity's bucket is XXH3-64 (the repository's cross-language hash) of its key's canonical encoding, reduced
+  to the bucket's 24 bits (P7). Keys are immutable in UGS, so the bucket never follows a key change.
+- An entity or relation instance under `@colocate` takes the bucket of the participant it is colocated with.
+- An entity without a key takes the bucket of the entity it is created with, and otherwise a bucket of the partition
+  creating it.
+- Data without a schema hashes the IRI.
+- The mapping from an IRI to its ID never changes once written, since keys are immutable and IDs never reused, so any
+  partition caches another's dictionary entries without invalidation.
+
+**Consequences.**
+
+- The canonical key encoding and the hash are frozen in a specification, with a version, since every stored ID
+  depends on them.
+- The dictionary is keyed by the same hash, so a lookup of an IRI goes to one known partition, and a repeated lookup,
+  such as a hub's, is answered by the asking core's cache.
+- Locality comes from `@colocate`, which the schema already declares, not from where a write arrives.
+
+### P2. How buckets are assigned to partitions
+
+**Trade-off.**
+
+- The bucket field fixes the number of buckets for good, since IDs carry them: 16.7 million with P7's 24 bits.
+- What stays open is how they are assigned: many buckets per partition make each move small and let load even out
+  finely; few make the placement map small and a move coarse.
+- Couchbase fixes 1,024 vBuckets for the same reason: a fixed count, moved whole.
+
+**Recommendation.**
+
+- Every bucket exists from the start.
+- The placement map assigns them to partitions as contiguous ranges, split evenly at cluster creation.
+- Rebalancing moves ranges between partitions, on one node or across nodes.
+- The 30 partitions of three 12-core nodes hold about 560,000 buckets each; the 336 of three 128-core nodes about
+  50,000; a thousand 128-core nodes still about 150.
+
+**Consequences.**
+
+- The placement map is a short list of ranges, whatever the bucket count.
+- A single hot entity is bounded by its partition. Hubs remain the tile stage's problem.
+- Keys stay predicate-major for scans: a bucket's data is not one contiguous key range, so a move scans its source
+  partition and filters by bucket. That is acceptable for a rare operation; the 128-bit key format should not reorder
+  keys for it.
+
+### P3. Which writes stay in one partition
+
+**Trade-off.**
+
+- Entity-centred placement makes everything about one entity local.
+- Relationships between entities, and every transaction naming several root entities, cross partitions. With hashed
+  buckets a transaction touching `m` root entities reaches about `min(m, partitions)` of them: a 50-root commit on
+  three 12-core nodes reaches about 25 partitions, on three 128-core nodes about 46.
+- A cross-partition transaction goes through the sequencer (Calvin ordering, no two-phase commit). That costs up to an
+  epoch of latency and work in every partition it reaches.
+- The distribution note's classification already sorts invariants into coordination-free, segmented and coordinated;
+  per partition it applies unchanged, with the partition in the group's place.
+
+**Recommendation.**
+
+- **Single partition:**
+  - a keyed entity's creation;
+  - every property write on one entity;
+  - an edge or relation instance, stored with its subject's (or its `@colocate` participant's) bucket, with its
+    reverse entry and the object's indexes following by change stream;
+  - a cardinality constraint on the stored end;
+  - everything inside a `@colocate(root)` tree.
+- **Cross partition (sequenced):**
+  - a transaction writing root entities in more than one partition;
+  - a secondary `@unique` value, whose index is partitioned by the value's hash;
+  - a cardinality constraint on both ends of a relation;
+  - a `restrict` delete across partitions;
+  - an `@acyclic` edge between trees.
+- A relation without `@colocate` is stored with its first role's participant, replacing UGS's default of placing it
+  by predicate.
+- Bulk loads take their own path, specified in stage 5.5 as a requirement: the loader partitions its input by bucket
+  and each partition ingests its share as single-partition commits, with a watermark marking the load complete. The
+  benchmark's workload, 50 new root entities per commit, would otherwise reach dozens of partitions on every commit.
+- Cross-partition work reaches each partition as one batch per epoch (P12).
+
+**Consequences.**
+
+- UGS's placement rules change from predicate to participant, and the coordination report counts cross-partition
+  writes per type.
+- Snapshot reads of reverse entries wait for the change stream's watermark, as the epoch design provides.
+- The bulk loader becomes a stage-8 deliverable beside the partitions.
+
+### P4. How many cores a node gives to partitions
+
+**Trade-off.**
+
+- Every core hosting replicas maximises commit threads. Side by side, total throughput still rose from 6 pipelines to
+  12 (201,654 to 263,196 relations/s at 50 per commit).
+- But each pipeline lost 41–47% at 12, because fjall's flush and compaction threads, the network and, in the single
+  container, the frontend and compute roles compete with the commit threads.
+- ScyllaDB avoids that by running compaction inside each shard under a CPU scheduler; fjall runs its own threads,
+  outside any compio runtime.
+- Reserving cores lowers the peak and makes each partition's latency predictable.
+- Machines of 48 cores and more have several sockets or chiplets; memory touched by a thread that later moves to
+  another socket is read across the interconnect.
+- The VM runs are an upper bound on contention: the host has 4 efficiency cores and its own processes.
+
+**Recommendation.**
+
+- A node gives every core but one per eight, rounded up, to partitions (10 of 12, 42 of 48, 56 of 64, 112 of 128);
+  the reserve runs fjall's workers and the other roles' I/O.
+- Each partition core is pinned, hosts three replicas (P8) and never migrates while running, so mimalloc's per-thread
+  heaps keep its memory on its socket.
+- The count is a node setting with that default, since the single container and a dedicated storage node differ.
+- Changing it rebalances buckets through P2's mechanism.
+- Stage 8 measures the default on bare metal of 64 cores or more before it is final.
+
+**Consequences.**
+
+- The placement map tolerates partition cores joining and leaving a node.
+- fjall's worker count and the store's memory are set per node from the reserve and the budget (P11).
+
+### P5. How `wal_bench` measures the model in one process
+
+**Trade-off.**
+
+- Separate processes, as measured, are cheap and isolate partitions perfectly. But they miss what partitions share in
+  one process: the allocator, the store's worker budget, cross-partition queues, the cache hierarchy, a device's
+  flushes.
+- An in-process benchmark needs the partition runtime itself, which stage 5.5 builds.
+- One shared generator thread already produces up to about 50,000 commits/s. Twelve partitions at one relation per
+  commit would need over 100,000, so a shared generator becomes the bottleneck it is meant to measure around.
+- Cross-partition commits cannot run before the sequencer exists, nor follower load before replication.
+
+**Recommendation.** Three steps.
+
+1. In stage 5.5: N partition cores in one process, each with its own generator seeded from the run's seed and
+   producing only its own buckets' commits, on the logical log with shared device flushes (P9, P10), measured on the
+   VM disk and on a drive without power-loss protection.
+2. With replication in stage 8: each core leading one partition and following two (P8), with followers fed from the
+   leaders' logs.
+3. With the sequencer in stage 8: a chosen share of cross-partition commits, drawn by the same seeded generators.
+
+The report gives per-partition and total throughput, disk bytes and flushes per second, as the side-by-side table
+does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machine.
+
+**Consequences.**
+
+- The benchmark becomes the acceptance measure of P4's default, P10's flush sharing and P3's cross-partition cost.
+- The multi-process figures stay in this note as the baseline.
+
+### P6. Where a partition applies its rounds
+
+**Trade-off.**
+
+- Applying on a second core, pipelined with the next round, takes the apply's 37% off the commit thread: up to 1.6×
+  for that partition, using two cores.
+- Two partitions on those two cores give nearly 2× (1.97× side by side at two pipelines) for every workload that
+  spreads across buckets.
+- With three replicas per core (P8), a core already carries one leader's work and two followers' applies; a second
+  apply core per leader would break that balance.
+- Pipelining also lets the store lag the commit point, so a read after a commit waits for the apply. The log is the
+  durability point, but read-your-writes then needs that wait.
+- It pays only when one partition's load cannot be spread: a single hot bucket, which P2 cannot split.
+
+**Recommendation.**
+
+- Every replica applies on its core, the leader in the round after validation and logging, a follower as its log
+  arrives.
+- Pipelining is kept as a later option for hot partitions, taken up only if stage 8's measurements show a single
+  bucket exceeding one core.
+
+**Consequences.**
+
+- A core stays one thread, as in TigerBeetle, driving its three replicas.
+- The parallel apply by key range in backlog item 11's earlier plan gives way to more partitions.
+
+### P7. The ID's bucket width and its sequences (revises D1)
+
+**Trade-off.**
+
+- D1 gives the bucket 16 bits: 65,536 buckets. Three nodes use few of them, but 128-core nodes, 112 partitions each,
+  reach 65,536 partitions at about 585 nodes, and moves grow coarse long before. The bucket is in every ID, so
+  its width can never grow later.
+- D1 also numbers IDs per (type, bucket). With hashed buckets a type's entities touch every bucket quickly, so leasing
+  sequence ranges per (type, bucket) means a lease for nearly every bucket of every type: millions of round trips to
+  the metadata group.
+- Unique sequences per type are unique within every bucket too, and survive a bucket's move to another partition,
+  where a counter per partition could reissue an ID the old partition had issued.
+
+**Recommendation.**
+
+- The bucket takes 24 bits from the 32 reserved: a 16-bit type prefix, a 24-bit bucket, a 64-bit sequence and 8
+  reserved bits.
+- A sequence is unique per type across the cluster, leased by the metadata group to partitions in large blocks per
+  (type, partition).
+
+**Consequences.**
+
+- D1's layout and its per (type, bucket) counters are revised before stage 5.5 builds on them; the term dictionary
+  allocates from per (type, partition) blocks.
+- Leases are as many as types times partitions, each covering many creations.
+- 8 bits stay reserved; the tile coordinate D1 named as a candidate needs a field of its own if it comes.
+
+### P8. Where a partition's replicas run
+
+**Trade-off.**
+
+- Placing partition `i` on core `i` of each of three nodes keeps replication core to core, but its leader's core does
+  a leader's work while the two follower cores, logging and applying only, idle half the time.
+- Hosting several replicas on each core, with leadership spread, balances the work, as multi-Raft systems spread
+  their leaders. Each core then talks to more peers unless the placement keeps them aligned.
+- After a node fails, its led partitions elect leaders among their followers, and those cores carry more than their
+  share until the node returns.
+- Nodes with different core counts break any alignment by index.
+
+**Recommendation.**
+
+- With three replicas, core `i` of every node hosts three partitions, one led from each node, all three replicated
+  among the cores `i` of the three nodes; in larger clusters, each core's three replicas pair with the same core index
+  on their peer nodes.
+- Each partition has a preferred leader, spread so that every core leads one; leadership returns to it after a
+  failure heals.
+- Storage nodes in one cluster have the same number of partition cores; a node that differs forwards between cores,
+  as a fallback, not a design point.
+
+**Consequences.**
+
+- A cluster runs as many partitions as it has partition cores, about half again what one partition per core index
+  carries (*Large nodes*).
+- Replication needs one connection per core per peer node, and no message crosses cores on its way in.
+- The placement map records preferred leaders; the metadata group restores them.
+
+### P9. What the log records
+
+**Trade-off.**
+
+- Today's log carries physical key deltas, about 1.1 KB per relation, and fjall journals the same writes again,
+  about 0.8 KB: two write streams and two flushes per round.
+- A logical record, the resolved quads with their IDs and the dictionary entries the round creates, is about 100–200
+  bytes. Disk writes before compaction halve, replication bytes fall about sevenfold, and with the log as the only
+  journal fjall's own journal goes (the design's option C).
+- Followers and recovery then derive the index keys from the quads themselves, so a follower does part of the
+  execution as well as the apply, and the derivation must give identical keys on every replica and every version
+  that replays it.
+
+**Recommendation.**
+
+- The log records resolved quads with their IDs, the round's new dictionary entries and its order of application;
+  each replica derives the keys deterministically, with the derivation's version in the record.
+- fjall runs without its journal: the store records the log position it has applied, and recovery replays the log
+  from there.
+
+**Consequences.**
+
+- Stage 5.5 replaces stage 5's physical-delta log format.
+- A follower's work rises from about 45% of a leader's towards 55–60%, which P8's balanced leadership absorbs.
+- Mixed-version replay checks the derivation version, which the rolling-upgrade rules in the distribution note cover.
+
+### P10. How partitions sharing a device flush
+
+**Trade-off.**
+
+- Without power-loss protection, which no deployment may be assumed to have, a flush empties the drive's whole
+  volatile cache. A hundred partitions each flushing their own log every round saturate a drive's flush rate long
+  before its bandwidth.
+- One log file per device, shared by its partitions, makes one flush cover every round ready at that moment, at the
+  cost of an atomic offset reservation per append and recovery separating the partitions' streams.
+- With power-loss protection a flush is cheap, and separate files per partition are simpler.
+
+**Recommendation.**
+
+- The log interface gives each partition its own logical stream: an append returns a durability ticket, which a flush
+  completes.
+- Partitions on one device share a physical segment, appending at reserved offsets, and one flusher per device
+  completes every ticket written before its flush.
+- Separate files per partition stay the alternative; P5's benchmark chooses on a drive without power-loss protection.
+
+**Consequences.**
+
+- Shared-nothing holds everywhere except one atomic counter and one flusher per device.
+- Recovery reads each device's segments once and hands every partition its stream.
+
+### P11. The node's budget for the store
+
+**Trade-off.**
+
+- An LSM instance brings its own worker threads and memtables. One instance per replica on a 128-core node would be
+  336 instances: hundreds of threads and, at fjall's 64 MiB memtables, about 40 GB of memtables before any cache.
+- Shrinking memtables to fit costs more than it saves: 8 MiB cost 31% to flush pressure.
+- One instance per core serves that core's three replicas as keyspaces; one thread drives them all, so sharing costs
+  nothing there, and without fjall's journal (P9) no journal serializes them.
+
+**Recommendation.**
+
+- One LSM instance per partition core, a keyspace per hosted replica.
+- The node divides one budget among the instances: fjall's flush and compaction threads, capped per instance and
+  together sized to P4's reserve, and memory for memtables and caches, the dictionary cache included.
+- Before stage 8, check whether fjall can share one worker pool across instances or run its background work on the
+  partition's runtime, ScyllaDB's way; the budget applies either way.
+
+**Consequences.**
+
+- A 128-core node runs 112 instances, not 336.
+- The dictionary cache's 64 MiB becomes a share of the node's budget, per core.
+
+### P12. How partitions meet the sequencer
+
+**Trade-off.**
+
+- Hundreds of partitions closing an epoch every few milliseconds would send the sequencer tens of thousands of
+  messages a second, and a cross-partition transaction sent to each partition separately multiplies that by its
+  fan-out.
+- Aggregating per node adds one hop inside the node, a shared-memory queue.
+
+**Recommendation.**
+
+- One epoch agent per node closes an epoch for all its partitions in one message, and receives the sequencer's
+  boundaries once.
+- The sequencer delivers cross-partition work to each partition as one batch per epoch, never per transaction.
+
+**Consequences.**
+
+- The sequencer's load grows with nodes, not cores.
+- An epoch closes on a node once its slowest partition has applied up to it, so one lagging partition delays the
+  node's close; the agent reports which.

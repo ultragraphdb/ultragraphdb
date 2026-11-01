@@ -352,6 +352,8 @@ decisions, each with its trade-off, a recommendation and the consequences.
 #### D1. The system ID: 64 or 128 bits
 
 - **Status: adopted (2026-11-01).** Recorded in the schema note, the distribution note and backlog item 10.
+- **Revision proposed (2026-11-01), pending decision:** a 24-bit bucket and sequences unique per type, leased per
+  (type, partition), for partitions per core on large nodes (`UltraGraphDB Shard-per-Core Write Path.md`, P7).
 
 - **Trade-off.** 64 bits keep every format stages 1 to 5 built: Dgraph's key encoding, `UidPack`, the posting format,
   the term encodings, the set operations, and the Go golden vectors that pin them. But a type prefix, a replica-group
