@@ -1,6 +1,6 @@
 ## Context
 
-`openspec/notes/dgraph-bugs-found-in-port.md` lists 31 Dgraph defects the port found, each confirmed in the Go source
+`../../../notes/archive/dgraph-bugs-found-in-port.md` lists 31 Dgraph defects the port found, each confirmed in the Go source
 at commit `9fbf35614` (v25.5.0), most by running Go against the fork. Stage 1 reproduces them, so its crates equal Go
 byte for byte, panics included. Step 3 of the plan fixes them on the tested Rust code, and this change is that step for
 every entry. Entries 7, 8, 9 and 28 concern stages not yet built, so for them this change adds requirements and the

@@ -23,7 +23,7 @@ file or line; "unverified" marks what came from an abstract, a secondary summary
 | Validation | The hook aborts a request whose new IRI another writer created, or that read a key a refused request of its batch wrote. No read is checked against concurrent commits: execution is serial, so none can exist | `ultragraphdb_store_quads/src/types/quad_store/mod.rs:90-142` |
 | Read set | `Request::read_keys` records whole list keys the request read from the store; scans through `posting_lists()` and dictionary lookups are not recorded | `ultragraphdb_store_posting/src/types/request/mod.rs:163-168` |
 | Timestamps | One counter (`Timestamps`) gives commit and rollup timestamps alike; a read gate waits for the batch in flight | `timestamps/mod.rs`, `lists/mod.rs:133-163`, `lists/lists_rollup.rs:166-171` |
-| Durability | `Durability::Process` by default: each batch reaches the OS, the store syncs once a minute; `Filesystem` syncs each batch. The stage-4 measurements ran under `Process` | `ultragraphdb_store_kv/src/types/durability.rs`; `../../notes/dgraph-port-overview.md`, "Measured, stage 4" |
+| Durability | `Durability::Process` by default: each batch reaches the OS, the store syncs once a minute; `Filesystem` syncs each batch. The stage-4 measurements ran under `Process` | `ultragraphdb_store_kv/src/types/durability.rs`; `../../notes/archive/dgraph-port-overview.md`, "Measured, stage 4" |
 | Identifiers | UIDs and statement IDs from leased blocks of 10,000, each block's end synced before use | `ultragraphdb_store_quads/src/types/leases/mod.rs:68-79` |
 | Vector index | A vector insert reads the index's entry list through the request, so the key enters the read set; level draws come from one sequential SplitMix64 stream | `changeset_write_vector.rs:48-52`, `:126`; `ultragraphdb_store_apply/src/types/level_draw.rs` |
 | Protobuf as storage | `ultragraphdb_proto_pb`'s `PostingList`, `Posting`, `UidPack`, `UidBlock` and `List` are the posting lists' in-memory and on-disk form, encoded by prost in one place | `ultragraphdb_store_posting/src/utils/posting_codec.rs:22-96`; used in 53 source and 36 test files across `core_codec`, `core_algo`, `core_types`, `core_tok`, `store_posting`, `store_quads`, `store_apply`, `store_hnsw` |
@@ -137,7 +137,7 @@ starts from. Today it is fjall's journal: each commit batch is one fjall write b
 - **Every round is written twice:** once to the log, synced, and once to fjall's journal, unsynced. The round's bytes
   are much the same as the fjall batch's, since both are list deltas and entries, so the write volume of commits
   roughly doubles. fjall's journal held 66 % of the bytes on disk in the stage-4 bench at one relation per commit
-  (`../../notes/dgraph-port-overview.md`, "Measured, stage 4"); the log is trimmed at every checkpoint, so it adds bandwidth more than space. The stage measures both.
+  (`../../notes/archive/dgraph-port-overview.md`, "Measured, stage 4"); the log is trimmed at every checkpoint, so it adds bandwidth more than space. The stage measures both.
 - **Code moves forward:** the log, its compio storage and its simulated storage are built in stage 5 rather than with
   replication. They are the same code stage 10 needs.
 - **Recovery takes longer:** fjall's own replay, then the log's rounds since the last checkpoint. The checkpoint

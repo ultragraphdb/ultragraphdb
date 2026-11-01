@@ -25,13 +25,8 @@ of the log; and the invariants that restate the Lean model's theorems over the r
 - **THEN** every commit acknowledged before the power loss is present
 
 ### Requirement: History checkers
-Elle's list-append and read-write register workloads SHALL run through the Rust client against the server, with
-real-time edges, and SHALL find no anomaly. A white-box checker SHALL read every read's and every commit's version from
-the log and the simulator's trace and check the serialization graph with real-time edges.
-
-#### Scenario: Elle finds no anomaly
-- **WHEN** Elle's list-append workload runs at 8 concurrent clients against the server
-- **THEN** Elle reports the history strictly serializable
+A white-box checker SHALL read every read's and every commit's version from the log and the simulator's trace and check
+the serialization graph with real-time edges.
 
 ### Requirement: Every decoder of untrusted or stored bytes is fuzzed
 Every function that decodes bytes from a client, a peer or the disk SHALL have a `cargo-fuzz` target: the frame
@@ -58,13 +53,3 @@ throwaway copy, SHALL each be found by the target within its time budget, or the
 - **WHEN** `scripts/fuzz.sh ultragraphdb_protocol_wire` runs with its default budget
 - **THEN** each of the crate's targets runs for its share of the budget, and the script reports executions, coverage
   and any failing input per target
-
-### Requirement: Kill tests on the binary
-The server binary SHALL be killed during rounds, syncs and checkpoints and restarted; after each restart every
-acknowledged commit SHALL be present, and every round SHALL be present whole or absent whole. A commit killed before its
-reply MAY be present, since its round may have been synced; its client resolves it through its session.
-
-#### Scenario: A kill during a sync
-- **WHEN** the server is killed while a round's sync is in progress and restarted
-- **THEN** the round's transactions are all present or all absent, none of them was acknowledged, and each client's
-  retry through its session learns which

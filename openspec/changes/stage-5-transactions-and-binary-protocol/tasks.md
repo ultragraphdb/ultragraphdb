@@ -140,19 +140,20 @@ into `PROTOCOL.md` and then built (decided 2026-10-28). Groups 8, 10, 11, 12 and
 - [x] 9c.11 The transport's state machines audited as phase 3 audits a suite: defects planted in a throwaway copy, each found by the suite or the suite strengthened
 - [x] 9c.12 Phase 5: fuzz targets for every decoder added or changed, seeded from the regenerated golden frames, built and not run (11.7)
 
-## 10. The server → `ultragraphdb_server_session`, `ultragraphdb`, `ultragraphdb_tests`
+## 10. The server → `ultragraphdb_server_session`
 
 Written to Ultra Style (`openspec/protocols/ULTRA_STYLE.md`): each crate carries the Ultra lint set in its own `[lints]`
-table, and checks its invariants through `ultragraphdb_error_invariant`. The design is `design.md`, *The server*.
+table, and checks its invariants through `ultragraphdb_error_invariant`. The design is `design.md`, *The server*. This
+group builds the I/O boundary and everything below it; the node above it, with tasks 10.5, 10.7, 11.5, 11.6, 12.2 and
+12.7, is `openspec/notes/node.md`, to be specified later (2026-11-01).
 
-- [ ] 10.0 The design: *The server*'s proposals (`design.md`, *Open Questions* 1 to 9) confirmed or changed by the user;
+- [ ] 10.0 The design: *The server*'s proposals (`design.md`, *Open Questions* 1 to 5) confirmed or changed by the user;
   then `PROTOCOL.md` first, before any code: §4.6, change record 8's vector dimension, and §12.2, the write-set
   record's operation 8, create a principal
-- [ ] 10.1 Scenarios: server-node, all requirements, the health endpoint, the connection bound, fail-stop and reads
-  among them; wire-protocol ("The Rust client", end to end against the node), transactions ("A read above the
-  watermark is refused", at the session); the two scenarios group 2 left to the server, "A refused request keeps the
-  connection" and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and
-  closing the connection; vector-index, the dimension declared on the wire and the contradiction refused
+- [ ] 10.1 Scenarios: transactions ("Reads match quad patterns in their transaction"; "A read above the watermark is
+  refused", at the session); the two scenarios group 2 left to the server, "A refused request keeps the connection"
+  and "A large result streams", with the cluster and unknown-command scenarios rebound to answering and closing the
+  connection; vector-index, the dimension declared on the wire and the contradiction refused
 - [ ] 10.2 Phases 1–3, the session layer (`ultragraphdb_server_session`), sans-I/O: a connection's requests turned into
   transaction operations; Write, Describe and Operation bodies and request terms converted to `Changeset`, declarations
   and oxrdf types, a triple term iteratively or within the wire's nesting bound, never recursing past it (decided
@@ -165,22 +166,9 @@ table, and checks its invariants through `ultragraphdb_error_invariant`. The des
   `ultragraphdb_store_apply`, `ultragraphdb_transactions_log`): `Input::CreatePrincipal` and its replay; the vector
   indexer under the pipeline (`Pipeline::poll_vectors`, its read set, its queue taken at apply, reconciliation at open);
   checkpoints driven by the rounds' bytes (store sync, then `trim_through`)
-- [ ] 10.5 Phases 1–3, the node (`ultragraphdb`): configuration from `UGDB_*`, every value checked before the data
-  directory opens; the data directory, the superblock's three outcomes and cluster creation with the bootstrap
-  administrator (the secret file's rules); the start's order, the shutdown's and the exit codes; the health endpoint's
-  responses; the bounds; the ticket routing between workers and the commit step
-- [ ] 10.6 Phase 4: 10.2 to 10.5 implemented against their audited suites: the threads in one scope, workers pinned on
-  Linux, the commit step on its thread, the acceptor handing sockets to the least-loaded worker, bounded channels
-  answering busy, every compio runtime with `single_issuer` and `defer_taskrun` (decided 2026-10-27) and the kernel
-  checked for 6.6; the health endpoint over `std::net`; telemetry through `ultragraphdb_common_telemetry`, the audit
-  target written to its own file; signals and the shutdown's grace; fail-stop
-- [ ] 10.7 Acceptance (`ultragraphdb_tests`): the binary copied into the sandbox and started by `service_utils`, its
-  environment set per battery, `WaitForHttpHealthCheck` on `/readyz`, batteries sequenced in one `#[test]` each through
-  `ultragraphdb_client_tokio`, as scrith's `smdb_tests` run; every server scenario and the conformance suite;
-  `service_utils` pinned in the workspace and listed in `AGENTS.md`
-- [ ] 10.8 Phase 5: fuzz targets for the decoders the group adds — resume keys, the configuration's values, the health
-  endpoint's request, the bootstrap secret file, the principal entry — built and not run (11.7); mutation testing is
-  11.8's, at the stage's close
+- [ ] 10.6 Phase 4: 10.2 to 10.4 implemented against their audited suites
+- [ ] 10.8 Phase 5: fuzz targets for the decoders the group adds — resume keys and the principal entry — built and
+  not run (11.7); mutation testing is 11.8's, at the stage's close
 
 ## 11. Verification → `lean/` (`RoundModel`), `ultragraphdb_transactions_sim`
 
@@ -188,21 +176,17 @@ table, and checks its invariants through `ultragraphdb_error_invariant`. The des
 - [x] 11.2 The Lean model of rounds, validation, commit-time operations, watermark, sync, crash, recovery and sessions; the four properties proved, with the sync's durability stated as the model's assumption; no `sorry`
 - [ ] 11.3 The node simulator from a seed: workers, commit step, log over simulated storage, simulated store, network and clock faults; acknowledged commits present and the store equal to the log's replay after every step and recovery; the model's theorems restated as invariants
 - [ ] 11.4 The white-box checker over the log and the simulator's trace
-- [ ] 11.5 Elle's list-append and read-write register workloads through the client at 8 clients, with real-time edges, outside Bazel; the runs and their results recorded
-- [ ] 11.6 Kill tests on the binary during rounds, syncs and checkpoints
 - [ ] 11.7 Scenarios: transaction-verification ("Every decoder of untrusted or stored bytes is fuzzed"); a full `scripts/fuzz.sh` run over every target at the stage's close, its report recorded, every regression case replayed under Cargo and Bazel; and an audit of the fuzzers themselves, as phase 3 audits a suite: for each target, two or three typical decoder defects planted in a throwaway copy of the decoder (an unchecked length that panics on a slice, an off-by-one that breaks the re-encode round trip, a missing bound behind the checksum), each of which the target must find within its time budget, the time to find each recorded; a target that misses one is strengthened or replaced (decided 2026-10-27)
 - [ ] 11.8 Mutation testing at the stage's close: `scripts/mutants.sh` over every crate the stage added or changed, every surviving mutant resolved as a suite gap (a test added) or a recorded equivalence in `.cargo/mutants.toml`; the counts recorded per crate
-- [ ] 11.9 The write-ahead log's compio suite and kill tests on Linux, in an OrbStack container, so the `O_DIRECT` path, which only type-checks on macOS, runs against a real Linux file system
+- [ ] 11.9 The write-ahead log's compio suite on Linux, in an OrbStack container, so the `O_DIRECT` path, which only type-checks on macOS, runs against a real Linux file system
 
 ## 12. Measurements → `ultragraphdb_tool_bench`
 
 - [ ] 12.1 The stage-4 workload under `Durability::Filesystem` as the baseline
-- [ ] 12.2 Throughput at 1, 2, 4, 8 and n−1 workers with abort rates; the commit step's cost per transaction against the execution cost divided by n−1
 - [ ] 12.3 Match-then-insert and insert-if-absent over a Zipf-distributed set of entities at 8 writers; D46's batch of 1,000 member moves
 - [ ] 12.4 The sync cost and the round sizes on a drive with power-loss protection and on one without; the flag's defaults set from them; the latency of the round that moves into a new segment (a spare's rename and directory sync) against a round within one, and of a fresh segment's first sync after `fallocate`
 - [ ] 12.5 The write volume of the log beside fjall's journal; the vector indexer's lag on a vector-heavy workload
 - [ ] 12.6 Read summaries' false-abort rates replayed offline against the log's write sets, per budget and bits per key
-- [ ] 12.7 Commit latency (median and p99) and throughput at n−1 workers with the runtimes' `single_issuer` and `defer_taskrun` on and off, on Linux
 - [ ] 12.8 The results in the overview's "Measured" sections, each naming its drive
 
 ## 13. Documentation and close

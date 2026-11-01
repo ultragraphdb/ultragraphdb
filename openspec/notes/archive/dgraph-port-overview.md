@@ -214,7 +214,7 @@ where the Dgraph benchmarks ran:
 * a bulk load and a snapshot install;
 * the size of the files after each.
 
-**Measured, stage 2 (2026-10-25).** `store_bench` (`ultragraphdb_tool/ultragraphdb_tool_bench`) drives the apply thread of
+**Measured, stage 2 (2026-10-25).** `store_bench` (`../../../ultragraphdb_tool/ultragraphdb_tool_bench`) drives the apply thread of
 `ultragraphdb_store_apply`, then an `Applier` over `FjallStore` with `MokaListCache`, at a fixed offered rate, with commits
 shaped as the Dgraph runs wrote them; it measures the store alone, with no client, network, Zero or Raft. Environment as in
 `dgraph-bench.md`: MacBook Pro (Mac15,8), Apple M3 Max; OrbStack 2.2.5, Linux VM kernel 7.2.12-orbstack, arm64, 12 CPUs,
@@ -235,7 +235,7 @@ is the range over three 30 s runs (`store_bench apply --rate <r> --relations <n>
   Dgraph group reached about 79k relations/s at 50 per commit (`dgraph-bench.md`), and Dgraph applies a group's
   proposals one at a time on one goroutine (`worker/draft.go:863`, `processApplyCh`), splitting a mutation's edges only
   from 512 edges (`draft.go:561`): its apply loop takes at most about 12.7 µs per relation, the port's 40–45 µs, about
-  three times as much. The port's cost per relation is its first bottleneck; `perf-optimization.md` holds the options.
+  three times as much. The port's cost per relation is its first bottleneck; `../perf-optimization.md` holds the options.
 - A stack sample of the apply thread at saturation (macOS, 50 relations per commit): allocation 28 % of its time,
   `memcmp` and `memmove` 19 %, lsm-tree's block decoding and seeks 18.5 % and the memtable skiplist 3 %, the port's own
   posting, apply and kv code about 8 %. Every list read is a range seek through fjall's merging iterator
@@ -308,14 +308,14 @@ Dgraph has no conformance suite. The port checks itself against five sources:
 
 Stages 1 and 2 ported Dgraph's foundations and storage. From stage 4, SPARQL and GQL replace DQL, and the stages follow
 `UltraGraphDB Dual Query Engine Plan.md` ("Stages") rather than Dgraph's package graph. The roadmap has ten stages
-(`ROADMAP.md`, with 1.5 and 5.5 between them; stage 3 is the website and public repository), each engineering stage an
+(`../../../ROADMAP.md`, with 1.5 and 5.5 between them; stage 3 is the website and public repository), each engineering stage an
 OpenSpec change under `openspec/changes/`:
 
 | Stage | Change | Contents | Checked by |
 |---|---|---|---|
-| 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `openspec/specs/` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
-| 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `openspec/specs/` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
-| 4. Data model and quad storage | `stage-4-data-model-and-quad-storage`, archived 2026-10-26; its specs are in `openspec/specs/` | Mapping contract and catalog; the term dictionary; the quad keyspaces; statement IDs; type bits in UIDs; changesets; DQL and Dgraph's gRPC API removed | Quads round-tripped under the simulator's faults; reads per relation in `store_bench` |
+| 1. Foundations | `port-stage-1-foundations`, archived 2026-10-23; its specs are in `../../specs` | `x` (keys), `protos/pb`, `codec`, `algo`, `types`, `lex`, `dql`, `tok`, `schema` (parsing), `chunker` (parsers); the BDD and TDD harness | Dgraph's unit tests; golden vectors from the Go source |
+| 2. Storage | `port-stage-2-storage`, archived 2026-10-25; its specs are in `../../specs` | fjall and moka under `posting`; rollups, splits, the single-batch commit, index maintenance, rebuilds, drops; `tok/hnsw` | Dgraph's posting tests; crash and concurrency tests |
+| 4. Data model and quad storage | `stage-4-data-model-and-quad-storage`, archived 2026-10-26; its specs are in `../../specs` | Mapping contract and catalog; the term dictionary; the quad keyspaces; statement IDs; type bits in UIDs; changesets; DQL and Dgraph's gRPC API removed | Quads round-tripped under the simulator's faults; reads per relation in `store_bench` |
 | 5. Transactions and the binary protocol | Not yet written | The commit step on n−1 cores in its distributed shape (order, deterministic validation, apply; read summaries; epochs); the binary protocol crate, its conformance suite and client; the single-node server | Elle (strict serializability); scaling at 1 to n−1 workers; read summaries' false-abort rates; the protocol conformance suite |
 | 5.5. Hardening transactions with chaos testing | Not yet written | Stage 5's commit step and server under the simulator's faults and process kills; scrith's Dgraph probes Q1 and A8 as tests | Elle under faults; no acknowledged commit lost across a kill |
 | 6. Query core | Not yet written | What SPARQL and GQL share: the kernel, both parsers, CRUD, pattern matching, filters, ordering, aggregates, bounded walks, vector and text search; spareval as the SPARQL oracle | Selected W3C tests and MGQL's golden results inside the core; SPARQL against GQL on the same questions; the DeepBrain MVP's queries |
@@ -343,7 +343,7 @@ checked for valid UTF-8 before writing; restore loads only such backups, into st
 
 **Testing.** Every spec scenario is a Gherkin scenario run by `cucumber`, written and seen failing before its code;
 every ported Go file's tests are ported first; byte-exact formats are checked against golden vectors generated
-from the Go source (`AGENTS.md`, §TDD and BDD).
+from the Go source (`../../../AGENTS.md`, §TDD and BDD).
 
 ## Re-architecture candidates
 
@@ -361,7 +361,7 @@ Measured on Dgraph v25.5.0 in scrith (`dgraph-investigation.md`), single-relatio
 
 Dgraph is licensed under Apache-2.0 and carries no NOTICE file. A ported file keeps the copyright line of
 its Dgraph source (`SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.`), names its Dgraph source
-path, and states that it was changed (Apache-2.0 §4(b), §4(c)). `AGENTS.md` holds the rule.
+path, and states that it was changed (Apache-2.0 §4(b), §4(c)). `../../../AGENTS.md` holds the rule.
 
 ## Open questions
 

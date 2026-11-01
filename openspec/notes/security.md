@@ -269,7 +269,7 @@ in the log, as every write is. Dgraph records access decisions only as annotatio
 ## Encryption
 
 - **TLS 1.3** through rustls, the one cryptographic dependency the port already documents as its exception to pure
-  Rust (`dgraph-port-overview.md`), for client connections and, in stage 10, between replicas.
+  Rust (`archive/dgraph-port-overview.md`), for client connections and, in stage 10, between replicas.
 - **From the first byte.** A server configured for TLS speaks only TLS on its port; nothing upgrades a clear-text
   connection, as STARTTLS does, so nothing can strip the upgrade. The ALPN name is `ultragraphdb/1` — *proposed*.
 - **Certificates** authenticate the server to the client, and with `EXTERNAL` a client to the server; replicas
@@ -386,4 +386,4 @@ A review of `ultragraphdb_protocol/SECURITY.md` (2026-10-30) refined the design,
   `edgraph/predicate_acl.go`, `edgraph/server.go`, `edgraph/namespace.go`, `types/password.go`, `x/jwt_helper.go`,
   `x/principal.go`, `x/vault.go`, `x/x.go`
 - `openspec/changes/stage-5-transactions-and-binary-protocol/ zero-copy-binary-protocol.md`, "Encryption" and the
-  header; `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, the requirements table; `dgraph-port-overview.md`
+  header; `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, the requirements table; `archive/dgraph-port-overview.md`

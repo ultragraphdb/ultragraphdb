@@ -10,7 +10,7 @@ Dgraph runs Badger in managed mode (`worker/server_state.go:80-126`): versions a
 the caller, no conflict detection, every version kept until compaction drops what a discard timestamp allows.
 Above it, Dgraph keeps a second, in-memory version layer (`posting.Txn`, `LocalCache`, the oracle's pending
 transactions and waiters), and the stale reads measured in scrith come from that layer and from the cache, not
-from Badger (`openspec/notes/dgraph-port-overview.md`, §Storage).
+from Badger (`../../../notes/archive/dgraph-port-overview.md`, §Storage).
 
 ## Goals / Non-Goals
 

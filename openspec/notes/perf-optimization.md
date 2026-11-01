@@ -1,7 +1,7 @@
 # Performance of the apply path
 
 The apply thread is the port's write ceiling: in OrbStack's Linux VM it saturates near 22–23k relations/s, at 40–45 µs
-of CPU per relation, whatever the relations per commit (`dgraph-port-overview.md`, "Measured, stage 2"). Dgraph applies
+of CPU per relation, whatever the relations per commit (`archive/dgraph-port-overview.md`, "Measured, stage 2"). Dgraph applies
 a group's proposals one at a time on one goroutine too (`worker/draft.go:863`, `processApplyCh`), splitting a
 mutation's edges across goroutines only from 512 edges (`draft.go:561`, `x.DivideAndRule`), and one group reached about
 79k relations/s at 50 per commit (`dgraph-bench.md` in scrith): at most about 12.7 µs per relation. The port spends

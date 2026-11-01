@@ -114,7 +114,7 @@ ultragraphdb is a distributed graph database in Rust, ported from Dgraph (Apache
 `github.com/dgraph-io/dgraph`). SPARQL and GQL replace Dgraph's DQL, and its GraphQL layer is left out.
 Storage is fjall, the cache is moka, and replication and partitioning are part of the database. A
 transaction is one request, `commit_now`, checked by its read set or by an upsert block's conditions; see
-`openspec/notes/dgraph-port-overview.md` §Transactions.
+`openspec/notes/archive/dgraph-port-overview.md` §Transactions.
 
 ### Ported code and attribution
 

@@ -1,7 +1,7 @@
 ## Why
 
 The port reproduces Dgraph's behaviour, defects included, and records each defect it finds in
-`openspec/notes/dgraph-bugs-found-in-port.md`. That ledger now holds 31 entries with evidence. Among them: a client
+`../../../notes/archive/dgraph-bugs-found-in-port.md`. That ledger now holds 31 entries with evidence. Among them: a client
 query can end a Dgraph server (3), two packed set operations return wrong UIDs (1, 2, 25, 26), the term index cannot
 find `İstanbul` (16), ngram indexing ignores the language its queries use (14), and the JSON mutation parser keeps the
 last of several documents (22). Each entry now has a remedy: a type that makes the defect impossible to write, or a

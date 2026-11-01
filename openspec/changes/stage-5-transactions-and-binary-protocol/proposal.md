@@ -28,13 +28,14 @@ that a receiver reads in place, before stage 6's query core writes through it. T
   XXH3-64 checksums with a chunked body checksum under one root; 1 MiB frames; bodies read in place; streams,
   credit-based flow control and in-band cancellation; prepared statements over quad patterns; the describe request;
   columnar, dictionary-encoded result batches; a conformance suite of valid and malformed frames; a Rust client and the
-  single-node server binary.
+  server's sans-I/O session layer. The node above that I/O boundary is `openspec/notes/node.md`, to be specified later
+  (2026-11-01).
 - **The vector index** is maintained by an indexer in commit order, outside the transaction; level draws are a function
   of the node; a vector index declaration states its dimension.
 - **Posting lists in the project's own format:** `PostingList`, `Posting`, `UidPack`, `UidBlock` and `List` become the
   repository's types in `ultragraphdb_core_codec`, with a versioned, checksummed byte format.
 - **Verification:** a Lean 4 model of the round protocol with its properties proved; a node simulator with storage,
-  network and clock faults; Elle through the client and a white-box checker over the log; kill tests on the binary.
+  network and clock faults; a white-box checker over the log.
 - **BREAKING:** `ultragraphdb_proto_dgraph` and `ultragraphdb_proto_pb` are removed with the `ultragraphdb_proto/`
   folder, the prost toolchain in Bazel and the workspace pins of `prost`, `tonic`, `tonic-prost` and
   `tonic-prost-build`. The OTLP exporter keeps gRPC through tonic, as a dependency of `opentelemetry-otlp`.
@@ -55,10 +56,8 @@ that a receiver reads in place, before stage 6's query core writes through it. T
   corruption rules, checkpoints, the power-loss-protection flag, and its simulated storage.
 - `wire-protocol`: the header, checksums, validation, bodies, streams, credit, cancellation, prepared statements,
   describe, result batches, the conformance suite and the Rust client.
-- `server-node`: the single-node server process: workers, dispatch, bounded queues, configuration, startup with
-  recovery, and shutdown.
-- `transaction-verification`: the Lean model of the round protocol, the node simulator, the history checkers and the
-  kill tests.
+- `transaction-verification`: the Lean model of the round protocol, the node simulator and the white-box history
+  checker.
 
 ### Modified Capabilities
 
@@ -76,7 +75,7 @@ that a receiver reads in place, before stage 6's query core writes through it. T
 - **New group folders and crates:**
   - `ultragraphdb_protocol/`: `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`;
   - `ultragraphdb_client/`: `ultragraphdb_client`, the Rust client;
-  - `ultragraphdb_server/`: `ultragraphdb_server_session`, `ultragraphdb_server` (the binary);
+  - `ultragraphdb_server/`: `ultragraphdb_server_session`;
   - `ultragraphdb_transactions/`: `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`,
     `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_sim`;
   - `ultragraphdb_traits_log`, `ultragraphdb_error_log`, `ultragraphdb_error_protocol`.

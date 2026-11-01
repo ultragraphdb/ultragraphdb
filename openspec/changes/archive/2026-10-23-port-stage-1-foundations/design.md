@@ -1,7 +1,7 @@
 ## Context
 
 ultragraphdb ports Dgraph v25.5.0 (the fork at `../../fork/dgraph`, commit `9fbf35614`) to Rust. The plan is in
-`openspec/notes/dgraph-port-overview.md`. The port runs in five stages, each one change set, ordered by Dgraph's
+`../../../notes/archive/dgraph-port-overview.md`. The port runs in five stages, each one change set, ordered by Dgraph's
 package import graph (`go list` over the fork, GraphQL, test harnesses and tools excluded):
 
 | Stage | Change | Go packages | Production lines |
@@ -170,7 +170,7 @@ ports the registry entry with the option set; the index itself is stage 2.
 - [Go's arithmetic differs between architectures] → Go on arm64 fuses multiply-adds and saturates out-of-range
   float-to-int conversions, amd64 does neither fusing nor saturation. The port computes without fusing and saturates;
   golden vectors are generated with fusing off. Both are Dgraph portability bugs, recorded in
-  `openspec/notes/dgraph-bugs-found-in-port.md`.
+  `../../../notes/archive/dgraph-bugs-found-in-port.md`.
 - [Word-break tables generated from Unicode 8.0.0 diverge from current Unicode] → That is the point: they split as
   bleve does. The golden corpus includes text from every script bleve's tests cover.
 - [Dgraph's error texts are part of the contract] → Clients and tests match on them. Error texts are copied,
