@@ -387,8 +387,8 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 
 **Recommendation.**
 
-- The bucket takes 24 bits from the 32 reserved: a 16-bit type prefix, a 24-bit bucket, a 64-bit sequence and 8
-  reserved bits.
+- The bucket grows to 24 bits by taking 8 of the 32 reserved: a 16-bit type prefix, a 24-bit bucket, a 64-bit
+  sequence and 24 reserved bits.
 - A sequence is unique per type across the cluster, leased by the metadata group to partitions in large blocks per
   (type, partition).
 
@@ -397,7 +397,7 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 - D1's layout and its per (type, bucket) counters are revised before stage 5.5 builds on them; the term dictionary
   allocates from per (type, partition) blocks.
 - Leases are as many as types times partitions, each covering many creations.
-- 8 bits stay reserved; the tile coordinate D1 named as a candidate needs a field of its own if it comes.
+- 24 bits stay reserved, room for the tile coordinate D1 named as a candidate.
 
 ### P8. Where a partition's replicas run
 
@@ -784,8 +784,8 @@ image on the Wolfi glibc base through `glibc_multiarch_img` (D7). A binary carri
 dependencies, so each image is the smallest that role allows and a role updates on its own; the roles share the
 libraries beneath them. Stage 5.5 builds the three binaries and their images and runs them together for stages 6 and 7.
 
-The single-container note folds the roles into one process with an in-process carrier; with three binaries, the
-development container runs three processes, and how they meet in it is the single-container note's to settle.
+The development container runs the three binaries as three processes under a supervisor binary, joined by the
+transport over Unix-domain sockets; the in-process carrier is dropped (single-container note, approved 2026-11-01).
 
 ### P23. The Go golden vectors of the 64-bit formats are retired
 

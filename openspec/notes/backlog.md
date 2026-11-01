@@ -54,7 +54,7 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 5.5's change before anything builds on them.
 
 - The system ID is 128 bits: a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the declaring
-  type and key), a 64-bit sequence unique per type and leased per (type, partition), and 8 reserved bits (D1 as
+  type and key), a 64-bit sequence unique per type and leased per (type, partition), and 24 reserved bits (D1 as
   revised 2026-11-01; Shard-per-Core note, P7, P15, P16). A bucket is a virtual partition the placement map assigns to
   a replica group, so rebalancing never changes an ID.
 - Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix

@@ -354,7 +354,7 @@ decisions, each with its trade-off, a recommendation and the consequences.
 
 - **Status: adopted (2026-11-01).** Recorded in the schema note, the distribution note and backlog item 10.
 - **Revised and adopted (2026-11-01):** a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the
-  key), a 64-bit sequence unique per type, leased per (type, partition), and 8 reserved bits, for partitions per core on
+  key), a 64-bit sequence unique per type, leased per (type, partition), and 24 reserved bits, for partitions per core on
   large nodes (`UltraGraphDB Shard-per-Core Write Path.md`, P7, P15, P16).
 
 - **Trade-off.** 64 bits keep every format stages 1 to 5 built: Dgraph's key encoding, `UidPack`, the posting format,

@@ -1,0 +1,91 @@
+## ADDED Requirements
+
+### Requirement: A system ID is 128 bits of type, bucket, sequence and reserved bits
+Every entity and every statement SHALL be named inside the database by a 128-bit system ID: from the most significant
+bit, a 16-bit type prefix, a 24-bit bucket, a 64-bit sequence and 24 reserved bits, which SHALL be zero. The ID SHALL
+be stored and compared as an unsigned 128-bit big-endian value, so IDs of one type sort together and, within a type,
+by bucket then sequence. An ID whose reserved bits are not zero, whose type prefix is 0 or whose sequence is 0 SHALL be
+refused as invalid wherever it is decoded.
+
+#### Scenario: The fields pack and unpack
+- **WHEN** an ID is built from type prefix 3, bucket 0xAB_CDEF and sequence 42
+- **THEN** its 16 big-endian bytes are `00 03`, `AB CD EF`, `00 00 00 00 00 00 00 2A` and `00 00 00`, and unpacking
+  returns type 3, bucket 0xAB_CDEF and sequence 42
+
+#### Scenario: Nonzero reserved bits are refused
+- **WHEN** 16 bytes whose last byte is 0x01 are decoded as an ID
+- **THEN** decoding fails with an invalid-ID error naming the reserved bits
+
+#### Scenario: A zero type prefix or sequence is refused
+- **WHEN** an ID with type prefix 0, and another with sequence 0, are decoded
+- **THEN** each fails with an invalid-ID error naming the field
+
+#### Scenario: IDs of one type sort together
+- **WHEN** the IDs (type 2, bucket 9, sequence 1), (type 1, bucket 900, sequence 7) and (type 1, bucket 3, sequence 99)
+  are sorted by their bytes
+- **THEN** the order is (1, 3, 99), (1, 900, 7), (2, 9, 1)
+
+### Requirement: The bucket comes from the namespace and the key
+An entity's bucket SHALL be fixed when the entity is created and SHALL be computed, never chosen: its top 8 bits SHALL
+be the top 8 bits of XXH3-64 (seed 0) of the namespace as 8 big-endian bytes, and its low 16 bits SHALL be the top 16
+bits of XXH3-64 (seed 0) of the declaring type's prefix as 2 big-endian bytes followed by the key's canonical encoding.
+A statement SHALL take the bucket of its subject. The same namespace, type and key SHALL always give the same bucket on
+every node and in every version that reads it.
+
+#### Scenario: The bucket matches the XXH3 reference
+- **WHEN** the bucket of the IRI `http://ex.org/a` in namespace 0 is computed
+- **THEN** its top 8 bits equal the top byte of the xxHash reference implementation's XXH3-64 of eight zero bytes, and
+  its low 16 bits equal the top two bytes of the reference XXH3-64 of the `Resource` prefix's 2 bytes followed by the
+  IRI's canonical encoding, both values committed as golden values with their source
+
+#### Scenario: A statement shares its subject's bucket
+- **WHEN** a statement with subject `http://ex.org/a` receives a system ID
+- **THEN** the statement's bucket equals the bucket of `http://ex.org/a`
+
+#### Scenario: Two namespaces separate one key
+- **WHEN** the IRI `http://ex.org/a` is bucketed in namespaces 0 and 1
+- **THEN** the two buckets' low 16 bits are equal, and their top 8 bits are the reference values for each namespace
+
+### Requirement: Until UGS keys exist, an IRI is the key of the Resource type
+In this stage every IRI-named entity SHALL be of the built-in type `Resource`, whose key is the IRI, and every statement
+SHALL be of the built-in type `Statement`; their prefixes SHALL be reserved before any declared type: prefix 0 invalid,
+1 `Resource`, 2 `Statement`. The canonical encoding of an IRI key SHALL be its UTF-8 bytes as RDF 1.2 writes the IRI,
+without surrounding angle brackets, prefixed by its length as a 4-byte big-endian count.
+
+#### Scenario: The canonical encoding of an IRI
+- **WHEN** the IRI `http://ex.org/a` is canonically encoded
+- **THEN** the bytes are `00 00 00 0F` followed by the 15 UTF-8 bytes of `http://ex.org/a`
+
+#### Scenario: The reserved prefixes
+- **WHEN** a new IRI and a new statement receive IDs
+- **THEN** the IRI's type prefix is 1 and the statement's is 2
+
+### Requirement: Sequences are unique per type and leased in blocks per partition
+A sequence SHALL be unique within its type across the cluster and SHALL never be reused. A partition SHALL draw
+sequences from blocks the metadata group leases to it per (type, partition), each block a half-open range of at least
+one sequence; a partition SHALL lease its next block before its current one runs out and SHALL allocate no sequence
+outside a block it holds. A block leased and not used SHALL never be leased again.
+
+#### Scenario: Two partitions never collide
+- **WHEN** partitions 1 and 2 each lease a block of the `Resource` type and allocate every sequence in it
+- **THEN** no sequence is allocated twice, and the two blocks do not overlap
+
+#### Scenario: A restarted partition does not reuse a sequence
+- **WHEN** a partition allocates sequences 1 to 10 of a block 1..1000, crashes, and restarts
+- **THEN** it allocates no sequence it allocated before the crash, and resumes from a sequence above 10 or a new block
+
+#### Scenario: A sequence outside a held block is refused
+- **WHEN** a partition holding the block 1000..2000 is asked to allocate after allocating sequence 1999
+- **THEN** it allocates from its next leased block, or refuses with an error naming the type when it holds none
+
+### Requirement: System IDs never leave the database
+No reply, result batch, error, cursor, resume key or IRI sent to a client SHALL contain a system ID. Entities SHALL be
+named to clients by their IRIs, and resume keys SHALL be opaque, checksummed tokens the server alone decodes.
+
+#### Scenario: A result names an IRI by its text
+- **WHEN** a client reads the subject of a statement whose subject is `http://ex.org/a`
+- **THEN** the result batch names `http://ex.org/a` by its text, and its bytes contain no system ID
+
+#### Scenario: A tampered resume key is refused
+- **WHEN** a client changes one byte of a resume key and continues its read with it
+- **THEN** the read is refused with an error naming the resume key as malformed
