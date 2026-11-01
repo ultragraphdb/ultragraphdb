@@ -1,0 +1,56 @@
+openspec/notes/review-stages-5.5-and-6.md
+  s_6c9dcf457e80d9::t_5d411f1dd4aee6 1-146,172-334
+  s_6c9dcf457e80d9::t_f5c471bad96596 335-346
+  s_6c9dcf457e80d9::t_3218f99a8c7a0b 147-171
+  s_6c9dcf457e80d9::t_e90e991bec5628 347-515
+"openspec/notes/UltraGraphDB Dual Query Engine Plan.md"
+  s_6c9dcf457e80d9::t_3a4662ba5479e8 395-399
+Cargo.lock
+  s_6c9dcf457e80d9::t_1778901323d1f8 1449-1457,1559-1567,3194
+Cargo.toml
+  s_6c9dcf457e80d9::t_6bd33bbb3f3dad 118-122
+MODULE.bazel
+  s_6c9dcf457e80d9::t_59dd100897f45d 19,102-118
+MODULE.bazel.lock
+  s_6c9dcf457e80d9::t_7f52be55b58928 46,83-84,99-100,163-164,215-216,228-229,752,768
+ROADMAP.md
+  s_6c9dcf457e80d9::t_1f291a3f1b957b 3,5-8,10-43,50,52-55,60,62-63,87
+"openspec/notes/UltraGraphDB Distribution Architecture.md"
+  s_6c9dcf457e80d9::t_f797be1c13972c 67-68,105,108-109,114,124,220-221,297
+"openspec/notes/UltraGraphDB Schema and Query Language.md"
+  s_6c9dcf457e80d9::t_24e9decb09c6a9 24,28-29,60,77-78,106-108,197,231-232,250,292,311,314-567,569-696,892,895,898-906,924-928,930-931,933,935,940-950,954-958,960,1002,1165-1167,1170-1176,1180-1186,1222-1284,1363-1399,1529-1530,1558,1560-1581,1588-1590,1595,1609-1610
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_f2ad8a5c45cbd3 29-64,130-132,134-138,167-169
+ultragraphdb_tool/ultragraphdb_tool_bench/BUILD.bazel
+  s_6c9dcf457e80d9::t_8896dbc9ecec67 10-11,28,31,38,41,47-60
+ultragraphdb_tool/ultragraphdb_tool_bench/Cargo.toml
+  s_6c9dcf457e80d9::t_2a1cbb86ced4ca 38
+ultragraphdb_tool/ultragraphdb_tool_bench/src/bin/store_bench.rs
+  s_6c9dcf457e80d9::t_cc7fef4e94cc19 13-16
+ultragraphdb_tool/ultragraphdb_tool_bench/src/bin/wal_bench.rs
+  s_6c9dcf457e80d9::t_96475c7912c51e 14-17
+bazel/BUILD.bazel
+  s_6c9dcf457e80d9::t_5fd77320174a82 1
+bazel/binary.bzl
+  s_6c9dcf457e80d9::t_cc91b901916e1f 1-121
+bazel/container/BUILD.bazel
+  s_6c9dcf457e80d9::t_c72e0c6a4f9ecf 1
+bazel/container/img.bzl
+  s_6c9dcf457e80d9::t_dfa6d2bbddbff9 1-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4991798cb699e51956e663eb5402d9022cd72cf0",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
