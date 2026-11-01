@@ -1,0 +1,28 @@
+openspec/changes/stage-5-transactions-and-binary-protocol/design.md
+  s_6c9dcf457e80d9::t_27305ea1a479b0 36
+  s_6c9dcf457e80d9::t_00f2ff564ccf48 29,31
+  s_6c9dcf457e80d9::t_3dbcb4ce3670b1 37-41
+  s_6c9dcf457e80d9::t_5f521c05977087 292-298,301-302,320
+openspec/changes/stage-5-transactions-and-binary-protocol/proposal.md
+  s_6c9dcf457e80d9::t_bc04700731939b 11-15,35,40-41,62,81
+openspec/changes/stage-5-transactions-and-binary-protocol/tasks.md
+  s_6c9dcf457e80d9::t_68d4b329dc1763 143-148,160
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_98579beda0675c 1,3-12,14-111,231-267,278,280,282-284,286,288-338,342-343,346-354,357,361-402,444-446,451-462,522-525,549-574,577-578,584-585,587,591,593-596,600,602,604-610,612-613,615-617,623-634,651-656,659,661-662
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8879551312eef4ab56e5f1dc24c28a6408947a3e",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
