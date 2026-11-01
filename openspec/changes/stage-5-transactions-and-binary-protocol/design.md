@@ -26,18 +26,19 @@ Today:
 - Every acknowledged commit durable on any drive, through a write-ahead log of the project's own.
 - The ordered-log interface, the round format and the commit step shaped so stage 10 changes transport and replication,
   not semantics.
-- The binary protocol, its conformance suite, the Rust client and the server's session layer.
+- The binary protocol, its conformance suite and the Rust client.
 - No protobuf and no gRPC of the repository's own.
-- The properties proved in Lean, checked by the simulator and a white-box checker.
+- The properties proved in Lean; every decoder of untrusted or stored bytes fuzzed.
 
 **Non-Goals:**
 - SPARQL and GQL (stage 6): stage 5's statements are quad patterns.
 - RBAC enforcement, the security catalog and namespaces as tenants (stage 7), and TLS (later): `openspec/notes/security.md`
-  designs them now, and stage 5 builds the protocol's part and authentication (group 9c, 10.2).
-- The node, everything above the I/O boundary: its process, threads and runtimes, configuration, data directory, start
-  and shutdown, health endpoint and acceptance tests, Elle and the kill tests on the binary, and the measurements that
-  need its workers. `openspec/notes/node.md` holds what this change specified of it, to be specified later
-  (2026-11-01).
+  designs them now, and stage 5 builds the protocol's part and authentication (group 9c).
+- Everything the distribution architecture (`openspec/notes/UltraGraphDB Distribution Architecture.md`) asks beyond
+  the components built here: the roles and their process, the client endpoint, principals, reads, transactions across
+  replica groups, derived indexes through change streams, the log as a replica group's log, and verification beyond
+  this stage. This change was reduced on 2026-11-01 to what it built; `openspec/notes/backlog.md` tracks what is to be
+  specified, with the single-server draft this change held as its source material.
 - The commit-log feed API (stage 7): the write-set record reserves its section, and no read API is built.
 - Backups and loaders (stage 7); Bolt (stage 9).
 - VSR, the ordering service across nodes, tiles (stage 10).
@@ -64,8 +65,6 @@ Today:
 | `ultragraphdb_transactions_txn` | `ultragraphdb_transactions/` | `_wire`, `ultragraphdb_store_apply` | `Transaction` on a worker: snapshot, `ReadSet`, write-set builder, limits |
 | `ultragraphdb_transactions_log` | `ultragraphdb_transactions/` | `ultragraphdb_traits_log`, `_wire`, `compio` | The WAL: `DurableStorage`, `DurableFile`, segments, superblock, scan, recovery; compio and simulated storage |
 | `ultragraphdb_transactions_commit` | `ultragraphdb_transactions/` | `_txn`, `ultragraphdb_traits_log`, `_wire`, `ultragraphdb_store_apply` | Sequencer, resolver, conflict history, commit-time operations, apply, watermark, sessions |
-| `ultragraphdb_transactions_sim` | `ultragraphdb_transactions/` | the above, `ultragraphdb_store_sim` | The node simulator, the white-box history checker |
-| `ultragraphdb_server_session` | `ultragraphdb_server/` | `_wire`, `_transport`, `_transport_compio`, `ultragraphdb_transactions_*` | Handshake, sessions, dispatch to workers, describe |
 
 - The root `Cargo.toml` gains the globs `ultragraphdb_protocol/*`, `ultragraphdb_server/*` and
   `ultragraphdb_transactions/*`, and loses `ultragraphdb_proto/*`.
@@ -285,142 +284,22 @@ A worker task per predicate with a vector index reads committed rounds in order 
 of applied versions), inserts their vectors and records the version it has indexed. A search reads the HNSW lists, then
 drops any node whose vector is not visible at its snapshot.
 
-### The server
-
-Drafted 2026-10-30 for review (task 10.0), after the review of group 10 found the server under-specified. Where an
-earlier decision settles a point it is cited; every other choice below is a proposal, listed under *Open Questions*
-until the user confirms it. The code follows Ultra Style (`openspec/protocols/ULTRA_STYLE.md`), which applies from
-this group on. This section covers the I/O boundary and what lies below it; the node above it is
-`openspec/notes/node.md`, to be specified later (2026-11-01).
-
-#### Crates
-
-| Crate | Holds |
-|---|---|
-| `ultragraphdb_server_session` | The connection's session layer, sans-I/O: the transport's `ServerConnection` per connection, the requests it hands over turned into transaction operations, the conversions of Write, Describe and Operation bodies and request terms (10.2's), result batches built from rows, the authenticator, throttling and the audit events. A step function over a connection's frames, the time and the commit step's replies, so the node simulator (11.3) drives it without a runtime |
-
-The pattern engine (*Reads*) lives in `ultragraphdb_transactions_txn`, beside the transaction whose reads it records.
-Each group-10 crate carries the Ultra lint set in its own `[lints]` table: Cargo lets a crate inherit the workspace's
-table or state its own, not both.
-
-#### Reads
-
-A Read or an Execute is a quad pattern matched in its transaction: `Transaction::match_into(pattern, resume, limit,
-now_us, rows)`, which fills `rows` with each match's terms in slot order (store encodings) and statement IDs and returns
-the resume key when `limit` stopped it. A read-write transaction's matches are recorded in its read set (the lists read,
-the ranges scanned, the dictionary absences), so a conflicting commit aborts it; it reads its own writes. A read-only
-transaction reads its snapshot and records nothing.
-
-Bound terms are resolved through the dictionary first (`QuadStore::uid_of`); a bound IRI or literal the dictionary
-does not hold matches nothing, recorded as an absent term. Then one access path per binding of subject (S), predicate
-(P) and object (O), in each graph the graph slot names:
-
-| Bound | Path | Rows in the order of |
-|---|---|---|
-| S P O | the forward list (G, P, S), tested for O | — |
-| S P | the forward list (G, P, S) | its postings |
-| P O | the reverse list (G, P, O) | its postings |
-| P | the forward lists of the range (G, P) | subject, then postings |
-| S | the subject's predicates (`0x12`, G, S), then each forward list (G, P, S) | predicate, then postings |
-| O | the object's predicates (`0x13`, G, O), then each reverse list (G, P, O) | predicate, then postings |
-| S O | as S, each list tested for O | predicate |
-| none | the forward keyspace of G | predicate, subject, postings |
-
-A bound graph or the default graph names one graph; an unbound graph slot skip-scans the namespace's graphs, as the
-stage-4 drops do (one seek per graph). A vector is never a bound object: the reverse keyspace holds none (stage 4), so
-a pattern binding one is refused with code 7.
-
-**Resume keys.** A resume key is the key of the list being read when the limit was reached, followed by the `uid`
-field (u64 big-endian) of the last posting returned; the next request starts after it. The server refuses a key outside
-the pattern's access path, or one it cannot parse, with Error 1 on the request's stream (`PROTOCOL.md` §11.8, point 47).
-
-**Result batches.** The session layer turns rows into `ResultBatch`es: a UID's text and its skolem flag from
-`QuadStore::iri_of` (tag `0x02` for a skolem), a hash's text from `string_of`, a custom datatype's IRI as the
-annotation, each looked up once per batch, which holds each distinct term once. A batch closes before a row would take
-its frame past the smaller of the client's and the server's `max_frame`, or at 4,096 rows; it streams while the stream
-holds credit (`Outbound`). The last batch of a read carries `LAST`, and the resume key when the limit was reached. A
-read matching nothing answers one empty batch flagged `LAST` (point 9).
-
-#### Bounds
-
-| Bound | Default | Past it |
-|---|---|---|
-| Rows per result batch | 4,096, within `max_frame` | the next batch |
-| Source addresses tracked by throttling | 65,536 | the address least recently seen is forgotten |
-| Streams, credit, sessions, statements | `PROTOCOL.md` §11.9 | its codes |
-
-#### The error table
-
-| Raised | Answered |
-|---|---|
-| `TxnError::ReadAboveWatermark` | Error 7 on the stream, `detail` the watermark, the message naming both versions; the worker serves on |
-| `TxnError::PastLimit` | Error 4, the transaction ended |
-| `TxnError::WriteSetTooLarge`, `ReadSetTooLarge` | Error 6, `detail` the limit |
-| A catalog's or a term's refusal | Error 7, `detail` the term's index where one is at fault |
-| `CommitError` | its own `code()` |
-| A body breaking a rule | Error 1 on the stream; a frame breaking one, Error 1 on stream 0 and the connection closes (§2.6) |
-| A store or log I/O failure, a corruption, an `InvariantError` | fail-stop: Error 17 to every request from then on, the event logged at error, the node shuts down and exits 1 |
-
-#### Creating a principal
-
-`Input::CreatePrincipal { name, verifier }` is numbered by its commit version as a session is: its round writes
-the principal's entry under `\xffultragraphdb/security/principal/` without versions, the security catalog's first
-entry and its format's first version, and its write-set record names it with operation 8, create a principal
-(`PROTOCOL.md` §12.2, to be added), so replay restores it.
-
-#### Checkpoints
-
-The commit-step thread checkpoints when the rounds since the last checkpoint pass
-`UGDB_CHECKPOINT_BYTES`: it syncs the store (`FjallStore::sync`), then trims the log through the last applied round with
-its version (`OrderedLog::trim_through`), between rounds.
-
-#### Throttling and the audit
-
-Each failed authentication delays its Error 19 by `min(100 ms × 2^(n−1), 10 s)`, n the consecutive failures of the
-principal or of the source address, whichever is more; the connection holds the reply until its deadline, so no worker
-waits. After 100 consecutive failures of a principal its authentications are refused from every source for
-`UGDB_REFUSAL_INTERVAL_S`; a success resets both counts (`openspec/notes/node.md`, *The server authenticates its
-connections*).
-
-The audit log is JSON lines: one object per authentication with `time` (RFC 3339, UTC, microseconds), `event`,
-`outcome`, `name` claimed, `principal` (or null), `mechanism`, `source` and `connection`, never a password, proof or
-SCRAM message. Events go to the `ultragraphdb::audit` tracing target, which `ultragraphdb_common_telemetry` writes to
-the audit file alone.
-
-#### The vector indexer under the pipeline (group 8's open questions)
-
-- **The pipeline drives the indexer**, in the form builds take: `prepare_index_vectors` making a pass an `Executed`,
-  `Prepared::index_vectors`, and `Pipeline::poll_vectors` proposing each predicate with work under
-  `Pipeline::SYSTEM_TICKET`, one pass in flight per predicate. A pass reads the predicate's catalog entry and its
-  vector-index range, so a drop, a declaration or a build decided meanwhile aborts it; its queue entries are taken when
-  it is applied.
-- **After a restart** the indexer reconciles each vector predicate at open: its forward lists against its neighbour
-  lists, re-queueing the vectors the lists do not hold. It writes nothing per vector; it scans once per restart.
-- **The dimension travels on the wire**: change record 8 (declare a predicate) gains a u32 argument, the vector
-  dimension, 0 for none, matching the catalog (`PROTOCOL.md` §4.6, to be added before 10.2).
-- **A declaration over vectors of another dimension** is refused as `Contradicted`, as every other contradiction a
-  predicate's data makes of a declaration is.
-
-#### Tests
-
-- **Unit and BDD**, in each crate: the session layer and the pattern engine as step functions, without a runtime.
-- **Simulation**: the node simulator (11.3) drives the session layer, the workers' logic and the commit step as step
-  functions, the threads replaced by its schedule.
-
 ## Risks / Trade-offs
 
 - [Every round is written twice, to the WAL and fjall's journal] → measured in stage 5; option C (fjall without its
   journal) is the recourse and needs a fork.
 - [fjall's prefix recovery after a power loss is modelled by the simulator, not injected into fjall] → recovery refuses
-  a store ahead of the WAL or with a gap; kill tests on the binary come with the node (`openspec/notes/node.md`).
-- [The commit step becomes the ceiling] → its cost per transaction is measured against the execution cost divided by
-  n−1; history checks move to the workers first.
-- [Contention under optimistic execution] → commit-time operations; the Zipf workload at 8 writers measures both forms.
-- [A search misses vectors committed but not yet indexed] → the indexer's lag is measured and reported.
+  a store ahead of the WAL or with a gap; kill tests on the binary are backlog item 8 (`openspec/notes/backlog.md`).
+- [The commit step becomes the ceiling] → its cost per transaction is to be measured against the execution cost of
+  the workers (backlog item 1); history checks move to the workers first.
+- [Contention under optimistic execution] → commit-time operations; the Zipf workload measuring both forms waits for
+  reads (backlog item 4).
+- [A search misses vectors committed but not yet indexed] → the indexer's lag is to be measured with derived indexes
+  (backlog item 6).
 - [Removing `StackedLayers` from transactions changes `local-commit`'s scenarios] → the delta spec rewrites them; the
   scenarios that a request reads its own writes stay.
-- [The Lean model and the Rust code drift apart] → the simulator's invariants restate the model's theorems, and each
-  model change names the code it covers.
+- [The Lean model and the Rust code drift apart] → each model change names the code it covers; a simulator's
+  invariants restating the model's theorems are backlog item 8.
 - [Clock-based versions skew on a runaway clock] → `previous + 2` absorbs steps back; stage 10 bounds the clock.
 - [A drive that tears the last round while reporting its sync complete loses that round on one node] → the scan detects
   it by its checksums and reports the truncation by name; from stage 10 a replica repairs it from a peer.
@@ -438,12 +317,4 @@ missing WAL superblock. Data enters again through stage 7's loaders or is regene
 
 ## Open Questions
 
-Every decision of the note was taken on 2026-10-27. *The server* (task 10.0, drafted 2026-10-30) proposes the rest of
-the server's design; each proposal stands until the user confirms or changes it:
-
-1. Reads: the access paths, the resume key's form, 4,096 rows per batch, and a bound vector object refused.
-2. The error table, a read above the watermark answered with code 7, and fail-stop on a store or log failure.
-3. The bootstrap principal through the commit step, `Input::CreatePrincipal` and the log's operation 8.
-4. Throttling's delay, `min(100 ms × 2^(n−1), 10 s)`, and the audit log's JSON lines.
-5. The vector indexer: the pipeline's proposals, reconciliation at open, the dimension on the wire, the refused
-   contradiction.
+Every decision of the note was taken on 2026-10-27.

@@ -8,6 +8,11 @@ that a receiver reads in place, before stage 6's query core writes through it. T
 ` zero-copy-binary-protocol.md` in this change's folder, approved on 2026-10-27; it refines stage 5 of
 `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
 
+Reduced on 2026-11-01: the distribution architecture (`openspec/notes/UltraGraphDB Distribution Architecture.md`)
+supersedes the single-server design this change drafted. The change closes with the components it built and their
+verification; `openspec/notes/backlog.md` tracks what the next change sets must specify, with the single-server draft
+as its source material.
+
 ## What Changes
 
 - **Transactions on n−1 cores:** read-write transactions execute on worker cores against a snapshot at the visibility
@@ -27,15 +32,13 @@ that a receiver reads in place, before stage 6's query core writes through it. T
 - **The binary protocol:** one 256-byte little-endian header for client traffic, log records and later replica traffic;
   XXH3-64 checksums with a chunked body checksum under one root; 1 MiB frames; bodies read in place; streams,
   credit-based flow control and in-band cancellation; prepared statements over quad patterns; the describe request;
-  columnar, dictionary-encoded result batches; a conformance suite of valid and malformed frames; a Rust client and the
-  server's sans-I/O session layer. The node above that I/O boundary is `openspec/notes/node.md`, to be specified later
-  (2026-11-01).
+  columnar, dictionary-encoded result batches; a conformance suite of valid and malformed frames; a Rust client.
 - **The vector index** is maintained by an indexer in commit order, outside the transaction; level draws are a function
   of the node; a vector index declaration states its dimension.
 - **Posting lists in the project's own format:** `PostingList`, `Posting`, `UidPack`, `UidBlock` and `List` become the
   repository's types in `ultragraphdb_core_codec`, with a versioned, checksummed byte format.
-- **Verification:** a Lean 4 model of the round protocol with its properties proved; a node simulator with storage,
-  network and clock faults; a white-box checker over the log.
+- **Verification:** a Lean 4 model of the round protocol with its properties proved; every decoder of untrusted or
+  stored bytes fuzzed.
 - **BREAKING:** `ultragraphdb_proto_dgraph` and `ultragraphdb_proto_pb` are removed with the `ultragraphdb_proto/`
   folder, the prost toolchain in Bazel and the workspace pins of `prost`, `tonic`, `tonic-prost` and
   `tonic-prost-build`. The OTLP exporter keeps gRPC through tonic, as a dependency of `opentelemetry-otlp`.
@@ -56,8 +59,7 @@ that a receiver reads in place, before stage 6's query core writes through it. T
   corruption rules, checkpoints, the power-loss-protection flag, and its simulated storage.
 - `wire-protocol`: the header, checksums, validation, bodies, streams, credit, cancellation, prepared statements,
   describe, result batches, the conformance suite and the Rust client.
-- `transaction-verification`: the Lean model of the round protocol, the node simulator and the white-box history
-  checker.
+- `transaction-verification`: the Lean model of the round protocol and the fuzzing of every decoder.
 
 ### Modified Capabilities
 
@@ -75,9 +77,8 @@ that a receiver reads in place, before stage 6's query core writes through it. T
 - **New group folders and crates:**
   - `ultragraphdb_protocol/`: `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`;
   - `ultragraphdb_client/`: `ultragraphdb_client`, the Rust client;
-  - `ultragraphdb_server/`: `ultragraphdb_server_session`;
   - `ultragraphdb_transactions/`: `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`,
-    `ultragraphdb_transactions_txn`, `ultragraphdb_transactions_sim`;
+    `ultragraphdb_transactions_txn`;
   - `ultragraphdb_traits_log`, `ultragraphdb_error_log`, `ultragraphdb_error_protocol`.
 - **Changed crates:** `ultragraphdb_core_codec` (the posting types and format), `ultragraphdb_core_algo`,
   `ultragraphdb_core_types`, `ultragraphdb_core_tok`, `ultragraphdb_core_mapping` (the vector dimension),

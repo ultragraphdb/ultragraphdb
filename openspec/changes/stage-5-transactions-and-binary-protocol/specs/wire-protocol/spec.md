@@ -62,10 +62,6 @@ an error reply on the request's stream, and the connection SHALL stay open. No i
 - **WHEN** a frame with a valid checksum names an unknown command
 - **THEN** the connection is closed with an error naming the command, and the server keeps serving other connections
 
-#### Scenario: A refused request keeps the connection
-- **WHEN** a client executes a stale statement on one stream while another stream reads
-- **THEN** the first stream receives an error reply, and the connection and the other stream continue
-
 #### Scenario: A malformed body keeps the connection
 - **WHEN** a Write whose term table repeats an entry arrives on a transaction's stream while another stream reads
 - **THEN** the transaction's stream receives an error of code 1 naming the rule, its transaction ends, and the
@@ -82,10 +78,6 @@ flagged. A transaction's write set SHALL be at most the Welcome's `max_write_set
 with an error naming the limit. The Welcome's `max_write_set` SHALL never exceed the largest record a round of the
 server's log holds on its own, its framing counted, so a write set the server takes when it arrives always fits a
 round (amended 2026-10-30).
-
-#### Scenario: A large result streams
-- **WHEN** a read returns 5 MiB of results
-- **THEN** it arrives as several frames on its stream, the last one flagged last
 
 #### Scenario: A frame past the receiver's announced maximum is refused
 - **WHEN** a client sends a frame larger than the Welcome's `max_frame`
@@ -160,17 +152,9 @@ from the data dictionary, as far as the connection's principal may read it.
 - **WHEN** `name` is declared a property with a `term` index and a client sends Describe for the namespace
 - **THEN** the answer lists `name` as a property with its `term` index, as the data dictionary reports it
 
-#### Scenario: A statement belongs to its connection
-- **WHEN** a statement prepared on one connection is executed on another
-- **THEN** the execution is refused with code 10, UnknownStatement
-
 #### Scenario: A literal at a node slot is refused
 - **WHEN** a statement's subject parameter is bound to a literal
 - **THEN** the execution is refused with code 11, `detail` the statement
-
-#### Scenario: A statement ID names the statement a read returned
-- **WHEN** a read asks for statement IDs, and a Write deletes by the ID of one row it returned
-- **THEN** that row's statement is removed, and every other statement remains
 
 ### Requirement: Result batches are columnar and dictionary-encoded
 A result batch SHALL hold, per column, a u32 cell per row indexing the batch's term table, `u32::MAX` for unbound; the
@@ -182,14 +166,6 @@ its payload holds the value exactly. A read that matches nothing SHALL answer on
 #### Scenario: A repeated term is sent once per batch
 - **WHEN** a batch of 1,000 rows names the same IRI in every row
 - **THEN** its term table holds that IRI once
-
-#### Scenario: A blank node is told from an IRI and named again
-- **WHEN** a read returns a blank node, and a later request names the term's text as an IRI
-- **THEN** the term carries tag `0x02` and its skolem IRI, and the later request reads the same node
-
-#### Scenario: A read matching nothing answers one empty batch
-- **WHEN** a read's pattern matches no statement
-- **THEN** one batch arrives, flagged last, with no rows and a column per unbound slot
 
 #### Scenario: A decimal the payload cannot hold is kept by its lexical form
 - **WHEN** a literal `"0.1234567890123456789"^^xsd:decimal`, of 19 fraction digits, is written and read back
@@ -228,15 +204,6 @@ after its own, and a triple term nested deeper than 32. A client names a term on
 #### Scenario: A forward index is refused
 - **WHEN** a triple term's entry names an entry at or after its own index
 - **THEN** the frame is refused with an error naming the entry and the index
-
-#### Scenario: A relative IRI is refused
-- **WHEN** a Write names the IRI `people/alice`
-- **THEN** the Write is refused with code 7, `detail` the term's index in its term table
-
-#### Scenario: A skolem IRI no blank node holds is refused
-- **WHEN** a request names an IRI under the namespace's `.well-known/genid/` base that the dictionary does not hold as a
-  blank node's skolem IRI
-- **THEN** the request is refused with code 7, `detail` the term's index
 
 #### Scenario: A triple term nested deeper than the maximum is refused
 - **WHEN** a request's term table holds a triple term nested 33 deep
@@ -280,11 +247,6 @@ anonymous principal without an exchange (`ultragraphdb_protocol/SECURITY.md`).
 #### Scenario: Renewing as another principal is refused
 - **WHEN** a connection's new exchange ends as another principal
 - **THEN** the server answers code 19 on stream 0 and closes the connection
-
-#### Scenario: An expired credential closes the connection
-- **WHEN** a connection's credential expires before a new exchange completes, with a transaction open
-- **THEN** the server answers code 22 on stream 0 and closes the connection, the transaction aborts, and the
-  principal's sessions serve its next connection
 
 #### Scenario: A server without authentication says so
 - **WHEN** a client connects to a server configured without authentication

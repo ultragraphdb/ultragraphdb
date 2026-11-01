@@ -13,21 +13,6 @@ proofs, as the library `RoundModel`; it SHALL be built with `lake` outside Bazel
 - **WHEN** `lake build` runs in `lean/`
 - **THEN** it succeeds, and no proof in it uses `sorry`
 
-### Requirement: The node simulator
-A deterministic simulator SHALL run workers, the commit step, the log over simulated storage, the simulated store, a
-network that drops, delays, duplicates and splits frames, and a stepped clock, from a seed; a seed SHALL replay its run.
-After every step and every recovery it SHALL check that every acknowledged commit is present, except one in a round
-the storage tore while reporting success, which recovery must have reported by name; that the store equals the replay
-of the log; and the invariants that restate the Lean model's theorems over the run's trace.
-
-#### Scenario: A power loss mid-round loses no acknowledged commit
-- **WHEN** a seed injects a power loss while a round is being synced and the node recovers
-- **THEN** every commit acknowledged before the power loss is present
-
-### Requirement: History checkers
-A white-box checker SHALL read every read's and every commit's version from the log and the simulator's trace and check
-the serialization graph with real-time edges.
-
 ### Requirement: Every decoder of untrusted or stored bytes is fuzzed
 Every function that decodes bytes from a client, a peer or the disk SHALL have a `cargo-fuzz` target: the frame
 header and its validation, the chunk table, every body's view, the round and write-set record, the posting format,

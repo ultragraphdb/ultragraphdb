@@ -189,18 +189,3 @@ too large, refused, operation failed and permission denied SHALL not.
 - **WHEN** a transaction's write set grows past the Welcome's `max_write_set` and it commits
 - **THEN** the commit fails with a too-large error that is not marked retryable, its `detail` the bound, and nothing it
   wrote is held
-
-### Requirement: Reads match quad patterns in their transaction
-A Read or an Execute SHALL return every statement of its transaction's snapshot that its pattern matches, in the order
-of its access path, with a read-write transaction's own writes and with its reads recorded for validation; an unbound
-graph slot SHALL match in every graph of the namespace. A limit SHALL end the read with a resume key that continues it
-without repeating or skipping a row.
-
-#### Scenario: A resumed read neither repeats nor skips
-- **WHEN** a read of a predicate holding ten statements is made with limit 4, and resumed twice with its resume keys
-- **THEN** the three reads return 4, 4 and 2 rows, the ten statements once each, in the order one unlimited read returns
-
-#### Scenario: A pattern over every graph
-- **WHEN** a predicate holds a statement in the default graph and one in the graph `<g>`, and a read leaves the graph
-  slot unbound
-- **THEN** it returns both statements, each with its graph
