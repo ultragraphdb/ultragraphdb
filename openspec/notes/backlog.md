@@ -26,6 +26,42 @@ the built binary.
   and the cluster*, *Start and shutdown*, *Health*, *Tests*; tasks 10.5, 10.6, 10.7, 12.2 and 12.7.
 - Open: where the Welcome's `max_write_set` and `TxnLimits` take their bound from the log's round size once a role
   builds the Welcome (`RoundBounds::max_write_set`, stage 5's commit step).
+- Decided 2026-11-01: the three roles are what "3 node clustering" means; the deployment targets are Kubernetes and
+  Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_oci`.
+- Operator requirements the roles' specification states (from `openspec/notes/review-stages-5.5-and-6.md`):
+  - signals per role, exported through OTLP: the age of the latest closed epoch and its close latency, watermark lag
+    per group and per incoming change stream, the share of writes on the coordinated path, escrow-share exhaustion and
+    renegotiation, VSR view changes, the background verifier's repairs, the sequencer's queue depth;
+  - runbooks for losing a group's majority, losing the metadata group, and a group that cannot close an epoch;
+  - a cluster backup as a snapshot of every group at one closed epoch with the metadata group's catalog at that epoch,
+    addressed by keys so it restores under any placement;
+  - a schema version is never rolled back in place: a later version restores earlier definitions (roll forward), and
+    a destructive change after finalize is one-way; a tightening's validation scan reports its progress and does not
+    block writes to unaffected types;
+  - the coordination report also states how much data a placement change moves and how the move is throttled;
+  - storage growth: `@append_only` and `@bitemporal` data is kept until a legal purge, so capacity signals include
+    their growth rate;
+  - secrets through a typical KMS (AWS KMS, Google Cloud KMS, HashiCorp Vault): TLS keys and certificates per tier,
+    and the opaque handle's keys, each rotatable without a restart;
+  - the settings an operator tunes (epoch length bounds, round sizes, the MVCC retention window, escrow share sizes)
+    listed apart from developer settings.
+
+### 10. Identity and the metadata group (stage 5.5)
+
+The system ID, type prefixes and the state machine that hands both out, decided on 2026-11-01
+(`openspec/notes/review-stages-5.5-and-6.md`, D1, D2, D4), to be written as a decision record and specified in stage
+5.5's change before anything builds on them.
+
+- The system ID is 128 bits: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence and 32 reserved bits. A bucket
+  is a virtual partition the placement map assigns to a replica group, so rebalancing never changes an ID.
+- Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix
+  ranges.
+- The metadata group's state machine is built in stage 5.5 with one replica, holding catalog versions, ID ranges and
+  the placement map, catalog contents opaque to it; UGS builds on it in stage 6, and stage 8 replicates it.
+- What changes: the key encoding, the posting and packed-UID formats (new version bytes), the set operations, the term
+  dictionary's allocation (per (type, bucket) counters), the wire protocol's internal term encodings, HNSW's node IDs;
+  the `uid-lists` and `key-encoding` specs stop matching Dgraph byte for byte, so their Go golden vectors are retired
+  or regenerated; the `catalog`, `schema-storage` and `schema-changes` specs move to the metadata group.
 
 ### 2. The client endpoint
 
@@ -91,8 +127,15 @@ transaction spanning groups is.
     epochs only across groups, or does the group's version become clock-free too?
   - Do interactive transactions, validated optimistically against their read sets, stay within one group, given that
     Calvin-style ordering needs a transaction's read and write sets before it is sequenced?
-  - Is strict serializability a property of each group with epochs across groups, or of the whole database?
+  - Answered (D3, 2026-11-01): strictly serializable within a group; serializable at a closed epoch across groups,
+    with session tokens for read-your-writes and a per-request option that closes the epoch for a strict read. The
+    archived `transactions` and `commit-rounds` specs are restated accordingly in stage 5.5's change.
   - What becomes of the goal of read-write transactions on n−1 worker cores under thread-per-core roles?
+  - Answered by UGS (2026-11-01): single-group transactions may be interactive; multi-group transactions are
+    submitted whole and ordered Calvin-style.
+- To specify with the cross-group protocol: the escrow protocol behind `@limit` (shares, renegotiation, a group that
+  fails holding a share) and the rank structure behind `@acyclic` with `@colocate(root)` (maintenance under subtree
+  moves, the materialized height for `max_depth`).
 
 ### 6. Derived indexes
 
@@ -121,6 +164,9 @@ binary (on Linux as well), the formal model of epochs, change streams, watermark
 soundness.
 
 - Architecture: *Verification strategy*.
+- Mixed-version clusters: how long a cluster may run two binary versions, and the simulator runs that test the "one
+  version back" negotiation before a rollout (the distribution architecture's verification strategy).
+- Formal models are in Lean (decided 2026-11-01), beside stage 5's round model in `lean/`.
 - Source material: the requirements "The node simulator", "History checkers" and "Kill tests on the binary", with
   Elle's scenario; the Elle risk; tasks 11.3, 11.4, 11.5, 11.6 and 11.9's kill tests.
 - Deferred from stage 5's close (2026-11-01), to run once the restructure has landed: mutation testing of

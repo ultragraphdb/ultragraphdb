@@ -392,6 +392,11 @@ tests hold it to that.
 
 ## Stages
 
+`ROADMAP.md`'s table holds the stage numbering, renumbered on 2026-11-01 for the distributed-first architecture
+(`UltraGraphDB Distribution Architecture.md`): 5.5 refactor for the three-role cluster, 6 UGS, 7 query core, 8 basic
+three-role cluster in one container, 9 conformance, 10 full distribution and tiles. The rows below are the contents
+and exits planned under the earlier numbering, kept as the source for those stages' changes.
+
 | Stage | Contents | Exit |
 |---|---|---|
 | **1. Foundations** | Done | Archived 2026-10-23 |

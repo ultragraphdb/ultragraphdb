@@ -35,6 +35,7 @@ ultragraphdb_transactions_commit = { workspace = true }
 ultragraphdb_transactions_log = { workspace = true }
 ultragraphdb_transactions_txn = { workspace = true }
 compio = { workspace = true }
+mimalloc = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

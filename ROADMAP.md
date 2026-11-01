@@ -1,49 +1,66 @@
 # Roadmap: UltraGraphDB
 
-
-| Stage | Status | 
+| Stage | Status |
 |---|---|
-| 1. Foundations + shared types | ✅ |
-| 1.5. Fault simulator | ✅ | 
-| 2. Storage core |  ✅ | 
-| 3. Website + Public Repo |  ✅ |
+| 1. Foundations and shared types | ✅ |
+| 1.5. Fault simulator | ✅ |
+| 2. Storage core | ✅ |
+| 3. Website and public repository | ✅ |
 | 4. Data model and quad storage | ✅ |
-| 5. Transactions, WAL, and the zero copy binary protocol | ✅ |
-| 5.5. Hardening Transactions with chaos testing | `open` |
-| 6. Query core: SPARQL and GQL where they overlap | `open` |
-| 7. Single-node server, the base of the DeepBrain MVP | `open` |
-| 8. Full SPARQL and GQL conformance | `open` |
-| 9. Bolt | `open` |
-| 10. Distributed tiles: sharding, replication, storage/compute separation | `open` |
+| 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
+| 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | `open` |
+| 6. UGS: the full data definition and its implementation | `open` |
+| 7. Query core: SPARQL and GQL where they overlap | `open` |
+| 8. Basic three-role clustering in a single container, the base of the DeepBrain MVP | `open` |
+| 9. Full SPARQL and GQL conformance | `open` |
+| 9.5. Bolt | `open` |
+| 10. Full distributed clustering and tiles: sharding, replication, storage/compute separation | `open` |
 
-Stages 4 to 10 replace DQL with SPARQL and GQL; the plan is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`.
-UltraQL follows stage 10.
+UltraGraphDB is distributed from the start: three roles, frontend, compute and storage, from one binary, replicated
+with VSR (`openspec/notes/UltraGraphDB Distribution Architecture.md`). A single machine runs the same topology folded
+into one container (`openspec/notes/UltraGraphDB Single-Container Deployment.md`). Stages 4 to 10 replace DQL with
+SPARQL and GQL; UltraQL follows stage 10. What the next stages must specify is tracked in `openspec/notes/backlog.md`.
 
-The DeepBrain MVP runs on the single node of stage 7. Stage 6 builds only what SPARQL and GQL share: CRUD, pattern
-matching, filters, ordering, aggregates, bounded walks over one relation, and vector and text search. Where the two
-languages diverge, and full conformance testing, follow in stage 8; Bolt follows in stage 9.
+- **5.5 Refactor for the three-role cluster.** The seams the cluster needs before UGS and clustering build on them: the
+  128-bit system ID with its type prefix and bucket; the placement function; the commit step as one replica group's
+  state machine, its rounds stamped with epochs; the metadata group's state machine with one replica, the catalog's
+  home; the stage-5 crates sorted into the roles; the transport's in-process carrier.
+- **6 UGS.** The schema language (`openspec/notes/UltraGraphDB Schema and Query Language.md`), specified first as
+  openspec capabilities. Stage 6 builds the modelling core, local constraints and the RDF view; it parses and validates
+  the time, bitemporal, geometry, unit, fold, function and module constructs; what needs groups or change streams
+  waits for stage 8.
+- **7 Query core.** Only what SPARQL and GQL share: CRUD, pattern matching, filters, ordering, aggregates, bounded walks
+  over one relation, and vector and text search. Where the two languages diverge, and full conformance testing, follow
+  in stage 9. The design is `openspec/notes/UltraGraphDB Dual Query Engine Plan.md`, "The query core".
+- **8 Basic three-role clustering in a single container.** Frontend, compute and storage, the metadata group and the
+  sequencer in one container, two storage groups by default; epochs, change streams, Calvin ordering for multi-group
+  transactions, write classification from the schema. The DeepBrain MVP runs here, on the single container: the first
+  stage whose topology it can run on, since no role runs alone.
+- **9 Full conformance.** Everything outside the core, the W3C suites, the openCypher TCK and the GQL feature register.
+- **9.5 Bolt.** The Bolt adapter and Neo4j's schema procedures; Neo4j drivers run the TCK through it.
+- **10 Full distribution and tiles.** Clustering at scale, Jepsen, tiles and storage/compute separation across nodes.
 
-Fuzzing in stage 6 centres on the query core, where it pays most: the SPARQL and GQL parsers and the planner take text
+Fuzzing in stage 7 centres on the query core, where it pays most: the SPARQL and GQL parsers and the planner take text
 from any client, and a query language's grammar nests without limit. Each parser gets a structure-aware fuzzer that
 builds queries from the grammar, seeded with the conformance suites' queries, so runs reach the planner rather than
 stopping at a syntax error; every nesting is bounded by a stated depth, and unbounded recursion is a finding. Where the
 two languages overlap, a query and its translation into the other language must return the same rows, which turns
 fuzzing into a differential test of both engines.
 
-Improvements, single node:
+Improvements, done:
 
-1. Add a fault-injecting simulator to stress test and harden the storage engine! (done, stage 2)
-2. Replace proto / gRPC with a proper, zero copy, binary protocol in a dedicated crate with conformance protocol! (stage 5)
-   - Re-implent client and single node against the binary protocol (stage 5)
-3. Explore a thread-per-core architecture to speed up read queries per second (QPS) and route mutateion queries to a single writer thread (Tigerbeetle) (stage 5: n−1 worker cores and one commit step)
+1. A fault-injecting simulator to stress test and harden the storage engine (stage 2)
+2. A zero-copy binary protocol in crates of its own, with a conformance suite, replacing protobuf and gRPC; the client
+   re-implemented against it (stage 5)
+3. One commit step per log, after TigerBeetle's single writer (stage 5); the threads follow the roles, thread per core
 
 --
 
 Improvements, clustering:
-1) Replace Raft with the more efficient VSR protocol (stage 10; Raft is not built, stage 5 defines the log interface)
+1) Replace Raft with the more efficient VSR protocol (stage 8 for the basic cluster, stage 10 at full scale; Raft is not built, stage 5 defines the log interface)
 2) Add Jepsen test suite to harden clustering (stage 10)
-3) Replace the Zero/Alpha seperation with a proper storage/compute seperation (target decided now, built in stage 10; Zero/Alpha is not built)
-4) Adopt Aeron's stream position for the replicated log (stage 10). Aeron locates every frame by its byte offset in the
+3) Replace the Zero/Alpha separation with a proper storage/compute separation (built in stage 8 as the three roles, scaled out in stage 10; Zero/Alpha is not built)
+4) Adopt Aeron's stream position for the replicated log (stage 8, with VSR). Aeron locates every frame by its byte offset in the
    stream, so a receiver writes each frame at its offset in whatever order it arrives: a duplicate rewrites the same
    bytes, a gap is a hole below the highest position seen and is repaired by a NAK naming the range, and the same
    number drives flow control. A replica catching up then seeks into the log by position, with no index. The client
@@ -67,7 +84,7 @@ Improvements, clustering:
    - How do Aeron Archive and Aeron Cluster define their recording and log positions? Their documentation is unread so
      far; the transport, flow-control and data-structure wiki pages are the source of the above.
 
-storage/compute seperation
+storage/compute separation
 https://github.com/starrocks/starrocks
 
 --

@@ -21,9 +21,11 @@ The two languages serve different purposes, and it helps to separate them.
 | Consistency and path safety | Requested through session options outside the query grammar | Checked against the query: `at monotonic` on an aggregate and unbounded paths over cyclic relations are compile errors |
 | Text, vector and graph retrieval | Extension functions | Built-in operators with defined semantics |
 
-**Who gains most.** AI agents gain the most: their typical failure is a plausible query that silently returns nothing, and UQL turns that into a compile error with a fix they can act on, while tree-shaped results fit directly into context with no redundant rows.
+**Who gains most.** Application code gains typed, nested results and build-time breakage instead of runtime surprises. AI agents gain the most: their typical failure is a plausible query that silently returns nothing, and UQL turns that into a compile error with a fix they can act on, while tree-shaped results fit directly into context with no redundant rows.
 
 **What the standard languages keep.** GQL and SPARQL remain the right choice for portability, existing tools and drivers, standards conformance and teams that already know them. That is why both stay first-class and UQL is an addition, not a replacement.
+
+**Purpose-built, not general-purpose.** UltraGraphDB is built for DeepBrain: massive, multi-domain, deeply interconnected knowledge that must be actionable for counterfactual reasoning and agentic systems. That is why the schema is executable. One set of declarations decides the types queries are checked against, the commit path of every write, the guarantees reads can offer, the placement of data and the standard views, so correctness and cost are known before anything runs. Workloads that do not depend on a shared ontology are not design targets.
 
 # Part 1: UltraGraph Schema (UGS)
 
@@ -55,7 +57,7 @@ GQL graph types and SHACL each cover part of what the engine needs, but neither 
 
 - **Source** is UTF-8. Comments are `//` and `/* */`; documentation comments `///` become `rdfs:comment` in RDF and descriptions in the catalog.
 - **Identifiers:** types and relations in `UpperCamelCase`, attributes, roles and navigation names in `lower_snake_case`. The convention is enforced by the linter, not the grammar.
-- **Reserved words:** `schema`, `version`, `namespace`, `import`, `attribute`, `abstract`, `entity`, `relation`, `derive`, `graph`, `enum`, `record`, `fn`, `as`, `true`, `false`.
+- **Reserved words:** `schema`, `module`, `version`, `extends`, `namespace`, `import`, `attribute`, `abstract`, `statement`, `entity`, `relation`, `derive`, `graph`, `enum`, `record`, `quantity`, `unit`, `fn`, `as`, `Optional`, `exists`, `order`, `by`, `true`, `false`.
 - **Literals:** integers with `_` separators, decimals, strings in double quotes, dates (`2026-11-01`), date-times with offsets, ISO 8601 durations (`P30D`) and IRIs in angle brackets.
 
 ## Type system
@@ -72,8 +74,8 @@ GQL graph types and SHACL each cover part of what the engine needs, but neither 
 | `Date`, `Time`, `DateTime`, `LocalDateTime`, `Duration` | Temporal values; `DateTime` carries an offset | `DATE`, `ZONED TIME`, `ZONED DATETIME`, `LOCAL DATETIME`, `DURATION` | `xsd:date`, `xsd:time`, `xsd:dateTime`, `xsd:dateTime`, `xsd:duration` |
 | `Iri` | An IRI value | `STRING` | IRI term |
 | `enum Name { a, b }` | Closed set of named values | `STRING` with a value check | One IRI per member |
-| `List<T>`, `Set<T>` | Ordered list; unordered set without duplicates | `LIST<T>` | `rdf:JSON` literal; one triple per member |
-| `Interval<T>` | Closed-open interval over an ordered type | `RECORD` | `rdf:JSON` literal |
+| `List<T>`, `Set<T>` | Ordered list; unordered set without duplicates | `LIST<T>` | `List`: an `rdf:JSON` literal; `Set`: one triple per member |
+| `Interval<T>` | Closed-open interval over an ordered type; the end may be open (see Time) | `RECORD` with `start` and `end` | Two literals, `{attribute}_start` and `{attribute}_end`, so SPARQL can compare them |
 | `record Name { ... }` | Named structured value | `RECORD` | `rdf:JSON` literal |
 | `Vector<BF16, n>`, `Vector<F32, n>` | Embedding of fixed dimension | `LIST<FLOAT32>` | Custom datatype literal |
 
@@ -101,8 +103,9 @@ abstract entity Asset @key(serial) {
 entity Aircraft : Asset { tail_number: String @unique }
 ```
 
-- **Inheritance is single.** A subtype inherits all attributes and roles of its supertype and may add constraints to inherited attributes (for example make an optional attribute required), but never remove them. `abstract` types have no direct instances. Multiple inheritance is not supported, not even for abstract types used only as interfaces, because it would break contiguous type ID ranges.
-- **System identity.** Every entity receives a system ID made of its type prefix, its replica group and a sequence number. IDs are dense, generated without coordination and never reused, and they never leave the database: no query, result, IRI or cursor reveals them. Entities without a key are addressed from outside by an **opaque handle**, a keyed encryption of the system ID that is stable for the entity's lifetime but reveals nothing about its type, group or insertion order.
+- **Inheritance is single.** A subtype inherits all attributes and roles of its supertype and may add constraints to inherited attributes (for example make an optional attribute required), but never remove them. `abstract` types have no direct instances. Multiple inheritance is not supported, not even for abstract types used only as interfaces, because a type test would then no longer be a check of its type's prefix ranges.
+- **System identity.** Every entity and relation instance receives a 128-bit system ID: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence number and 32 reserved bits (decided 2026-11-01). A bucket is a virtual partition that the placement map assigns to a replica group, so rebalancing moves buckets and never changes an ID. IDs are generated per (type, bucket) without coordination and never reused, and they never leave the database: no query, result, IRI or cursor reveals them. How entities without a key, and relation instances, are named from outside (an **opaque handle**) is postponed beyond the first version, as personal data is.
+- **Type prefixes.** A type's prefix is allocated when the type is first declared, in declaration order, and never changes. A supertype covers the prefixes of its descendants: one range when they are declared together, a few once later versions or modules add subtypes. A type test checks those ranges (decided 2026-11-01).
 - **Business identity.** `@key` (on one attribute, or at entity level for a composite key such as `@key(country, registration)`) defines the external identity. Keys are required and immutable, are unique across the type and all its subtypes, and are used to mint IRIs.
 - **Types are fixed for life.** Because the type is part of the ID, an entity cannot change type. A change of type is a delete and a create, which the schema makes explicit rather than silent.
 
@@ -191,7 +194,7 @@ relation Lease : Agreement {
 | Deletes | A subtype may tighten `cascade` to `restrict`, never the reverse |
 | `@acyclic` on a supertype | Applies across all subtypes together |
 | Placement | Inherited, so constraints over the family stay checkable in one group |
-| Identity | Relation types get type-prefixed statement IDs in hierarchy order, so a supertype is one contiguous ID range |
+| Identity | Relation types get type-prefixed statement IDs; a supertype covers its descendants' prefix ranges (see Type prefixes) |
 
 **Acyclicity across relation kinds.** Declaring `@acyclic` on an abstract supertype makes a hierarchy built from several relation kinds acyclic as a whole, which no single-relation constraint can express:
 
@@ -225,6 +228,8 @@ derive Supply.certified    = certification exists         // filtered boolean
 - **Maintained incrementally** through change streams, which makes their maintenance coordination-free. Derived updates are stamped with the epoch of the write that caused them, so a snapshot sees base data and derived data at the same point.
 - **Materialization.** `@materialized` (the default for closures over `@acyclic` relations) stores the result; `@virtual` (the default otherwise) expands it at query time. Closures over relations that may contain cycles use set semantics, so they always terminate.
 
+**Folds.** A derive may also fold over a navigation to compute state from history: `last`, `first`, `count`, `sum`, `min` and `max`, with optional filters and an ordering, for example `derive Parameter.current: Float64 = last(changes order by day.date).value`. Folds are materialized and maintained incrementally, like closures; reading them is non-monotonic, because the folded value can change as occasions arrive.
+
 ## Functions
 
 Functions are named, parameterized queries stored in the schema.
@@ -242,7 +247,7 @@ fn certified_suppliers() -> Company* = Company(some sales(exists certification))
 - **Classified like their bodies.** A call is monotonic exactly when its body is.
 - **Versioned with the schema.** UQL can also define query-local functions with a `with` preamble (Part 2).
 
-User-defined functions are separate from the built-in standard library (temporal, string, numeric and vector functions), which is planned for the next version.
+User-defined functions are separate from the built-in standard library (string, numeric and vector functions), which is planned for the next version. Temporal types and operations are part of the core language in version 1 (see Time).
 
 ## Constraints
 
@@ -284,7 +289,7 @@ The compiler rejects `orphan` on a required role, and warns when `restrict` will
 Placement decides which replica group stores what, and therefore which constraints can be checked in one group.
 
 - **Default.** In the current KV stage, each attribute and relation is placed by predicate, as in Dgraph. In the later tile stage, placement follows the GSL grid.
-- **`@colocate(role)`** partitions a relation by the group of the participant in that role instead of by predicate, so constraints on that participant are checked locally. Example: `asset: Asset -> owner?` with `@colocate(asset)` puts each ownership instance in its asset's group.
+- **`@colocate(role)`** partitions a relation by the group of the participant in that role instead of by predicate, so constraints on that participant are checked locally. The relation's other navigation names then read across the groups of their participants; the coordination report lists those scatter reads. Example: `asset: Asset -> owner?` with `@colocate(asset)` puts each ownership instance in its asset's group.
 - **`@colocate(root)`** applies to `@acyclic` hierarchies: each tree lives in its root's group. Moving a subtree to a different root is a coordinated move.
 - **Automatic placement.** For every segmented constraint without an explicit annotation, the compiler chooses the colocation that makes it local and reports the choice. When two constraints demand conflicting placements, it keeps one local, routes the other through coordination and warns.
 - **Unique indexes** are always partitioned by key hash, so each key has exactly one owning group.
@@ -303,15 +308,392 @@ Indexes are derived data: maintained through change streams, coordination-free, 
 ## Namespaces and IRIs
 
 - **Vocabulary terms.** `namespace av = "https://example.org/aviation#"` sets the base for schema terms: types (`av:Aircraft`), attributes (`av:serial`), navigation names (`av:assets`, with `owl:inverseOf` pairing both directions) and n-ary roles (`av:Supply_buyer`).
-- **Instance IRIs.** Entities with a key get `{namespace}{Type}/{key}`; entities without a key get `{namespace}{Type}/{opaque handle}`; relation instances get a reifier IRI `{namespace}rel/{opaque handle}`. `@iri("template")` overrides the pattern per type. System IDs never appear in IRIs.
+- **Instance IRIs.** Entities with a key get `{namespace}{Type}/{key}`; entities without a key get `{namespace}{Type}/{handle}` and relation instances a reifier IRI `{namespace}rel/{handle}`, the handle's scheme postponed (System identity). `@iri("template")` overrides the pattern per type. System IDs never appear in IRIs.
 - **External vocabularies.** `import "https://schema.org/" as schema` and `@maps_to(schema:name)` align a UGS term with an external one (exported as `owl:equivalentProperty` or `owl:equivalentClass`), so existing ontologies and SPARQL clients can use familiar terms.
 
-## Graphs
+## Graphs and shared graphs
 
-- `graph production : aviation` creates a graph instance of a schema. One schema can have several graphs, for example per tenant or per security domain.
-- Each graph is a GQL graph in the catalog and a named graph in RDF.
-- Relations stay within one graph; references across graphs are by IRI.
-- A graph is also the natural unit for access control at retrieval time and for placement policies such as pinning a graph to specific groups.
+Multi-domain knowledge is organized as several **domain graphs** whose nodes are disjoint by design, connected only through a few **shared graphs** such as an ontology, space and time. Connections between domains are therefore always explicit and always typed: a domain never links directly to another domain, only to a shared graph that both reference.
+
+```
+graph ontology  : ontology @shared @replicated
+graph time      : temporal @shared @anchor(leaf: Day)
+graph space     : spatial  @shared @anchor(leaf: Cell)
+
+graph cfd       : cfd
+graph causality : deepcausality
+```
+
+| Rule | Meaning |
+| --- | --- |
+| Disjoint domain graphs | Every entity belongs to exactly one graph. A relation between two domain graphs is a compile error |
+| Bridge relations | A relation in a domain graph may have roles whose participant types belong to a shared graph's schema (imported with `import schema`). Such relations are stored in the domain graph |
+| `@shared` | Marks a connection graph that domain graphs may reference |
+| `@anchor(leaf: Type)` | Bridges into this shared graph may target only the named leaf type; coarser levels (week, month, region) are reached through the shared graph's own hierarchy |
+| `@replicated` | A small, read-mostly shared graph (typically the ontology) is copied to every group, so traversals and checks against it are always local; its rare changes are coordinated |
+| Partitioned shared graphs | Large shared graphs (time, space) are partitioned by leaf ID range like any other data |
+
+**Avoiding supernodes.** Shared graphs are where supernodes form: every occasion on a given day points at that day. Three rules keep them bounded:
+
+1. **Leaf anchoring.** Bridges attach to the finest level only (a day, not a year; a cell, not a continent), which spreads the references over many nodes. Aggregate levels are reached through the shared graph's hierarchy, typically a materialized `derive` closure, not through stored edges.
+2. **Reverse adjacency partitioned by domain.** The inverse of a bridge (`Day.parameter_changes`) is stored with the referencing domain's data, not on the shared node. A busy day has one bounded slice per domain group, never one global list.
+3. **Tiles later.** In the tile stage, remaining hot shared nodes are split across the 2D tile grid like any other high-degree node.
+
+**Coordination.** Shared graphs for time and space are append-only: days and cells are created, never deleted. The existence of an append-only node is a monotonic fact, so once seen it can never be invalidated. Inserting a bridge to an existing shared node is therefore coordination-free, even when the shared node lives in another group. Only changes to a replicated ontology are coordinated, and they are rare by nature.
+
+**Standard views.** In RDF each graph is a named graph; bridge triples live in the domain's named graph and reference IRIs in the shared graphs, so SPARQL queries span them naturally. In GQL, where an edge belongs to one graph, each domain graph is exposed together with the shared graphs it references as one GQL graph.
+
+## Modelling occasion-primary knowledge
+
+In an occasion-primary model, what happened is primary and state is derived from it. UGS expresses this directly: occasions are append-only relations anchored in shared time, and state is a fold over occasions that the engine maintains.
+
+```
+schema cfd version 1
+import schema temporal
+import schema ontology
+
+entity Simulation @key(run_id) { run_id: String }
+entity Parameter  @key(name)   { name: String }
+
+/// An occasion: a parameter changed in a simulation, on a day, under a concept.
+relation ParameterChange @multi @append_only @colocate(parameter) {
+  parameter:  Parameter        -> changes*
+  simulation: Simulation       -> parameter_changes*
+  day:        temporal.Day     -> parameter_changes*
+  concept:    ontology.Concept -> parameter_changes*
+  value:      Float64
+  reason:     Text Optional
+}
+
+/// State is a fold over occasions, maintained by the engine.
+derive Parameter.current: Float64 = last(changes order by day.date).value
+
+/// State at any valid time.
+fn Parameter.value_at(d: Date) -> Float64 Optional =
+  last(changes(day.date <= d) order by day.date).value
+```
+
+| Property | Consequence |
+| --- | --- |
+| Occasions are `@append_only` | Writes are coordination-free; history read monotonic-fast never contains a false fact; history is never rewritten |
+| State is a `derive` fold | Maintained incrementally through change streams; always consistent with the occasions at the same snapshot epoch |
+| Two clocks | Valid time comes from the occasion's anchor in shared time (`day`); transaction time is the epoch. `value_at(d)` asks what was true on day `d`; `as of epoch e` asks what the database knew at epoch `e`. Together they give bitemporal queries |
+| History is monotonic, state is not | Queries over occasions can run monotonic-fast; queries over current state run at a snapshot epoch |
+
+Shared time also joins domains without any direct link between them:
+
+```
+temporal.Day(date between $from and $to) {
+  date
+  parameter_changes { parameter { name }  value  reason }   // cfd graph
+  releases { version  summary }                             // causality graph
+}
+```
+
+## Time
+
+Time is central to occasion-primary knowledge, so temporal types, constraints and operators are part of the core language in version 1, not the deferred standard library.
+
+### Temporal types
+
+| Type | Values | Notes |
+| --- | --- | --- |
+| `Date` | A calendar day |  |
+| `DateTime` | An instant with a UTC offset | Compared in UTC |
+| `LocalDateTime` | Wall-clock time without an offset | Not comparable with `DateTime`; mixing them is a compile error |
+| `Time` | A time of day |  |
+| `Duration` | ISO 8601, with a calendar part (`P1M`) and an exact part (`PT36H`) | Months and years use calendar arithmetic |
+| `Interval<T>` | Closed-open `[start, end)` over `Date`, `DateTime` or a numeric type | The end may be open, meaning "until further notice" |
+
+Mixing granularities, such as comparing a `Date` with a `DateTime`, requires an explicit conversion (`date(t)`, `start_of_day(d, zone)`), so granularity mistakes are compile errors rather than silent truncations.
+
+### Declaring valid time
+
+```
+/// Which value a simulation used for a parameter, and when.
+relation ValueUse @valid(usage) @no_overlap(per: [simulation, parameter])
+                  @colocate(simulation) {
+  simulation: Simulation     -> value_uses*
+  parameter:  Parameter      -> uses_of*
+  value:      ParameterValue -> uses*
+  usage:      Interval<Date> @index(interval)
+}
+```
+
+| Annotation | Meaning | Write path |
+| --- | --- | --- |
+| `@valid(attr)` | Names the interval attribute holding the valid time of an entity or relation, which enables `valid at` and `valid during` in UQL | No effect |
+| `@no_overlap(per: [roles])` | For each combination of participants in the named roles, valid intervals never overlap (here: a simulation uses one value per parameter at any time) | Segmented, like a cardinality constraint: instances colocated with those participants |
+| `@index(interval)` | Interval index for overlap and containment queries | Derived data; coordination-free |
+
+`today()` and `now()` are not allowed in `@check` or `derive`, because they are not deterministic. In queries they return the time of the snapshot epoch, which keeps every query replayable under `as of`.
+
+### Three time axes
+
+Value provenance in multi-physics simulation needs three separate time axes: when a value was **used**, when a status change was **recorded**, and the interval over which that change is **effective**, which may begin before it was recorded (a retroactive invalidation). All three are ordinary declarations:
+
+```
+enum StatusKind { valid, invalidated, superseded, convention_change }
+
+/// A change in a value's status, recorded on a day, effective over an interval.
+relation StatusChange @multi @append_only @colocate(value) {
+  value:     ParameterValue          -> status_changes*
+  recorded:  temporal.Day            -> status_changes*
+  successor: ParameterValue Optional -> predecessor?
+  effective: Interval<Date>
+  kind:      StatusKind
+}
+
+/// Status of a value on valid date t, as known on date k.
+fn ParameterValue.status_at(t: Date, k: Date) -> StatusKind Optional =
+  last(status_changes(t in effective, recorded.date <= k) order by recorded.date).kind
+```
+
+The domain's own knowledge time (`recorded`) is separate from the database's transaction time (the epoch), so `as of epoch e` can still reconstruct what the database held, independently of what the domain had recorded.
+
+### Standard views
+
+`Interval<T>` maps to a `RECORD` with `start` and `end` in GQL, and to two literals, `{attribute}_start` and `{attribute}_end`, in RDF. Interval operators in UQL translate to comparisons on those bounds, so the same temporal questions can be asked in GQL and SPARQL.
+
+### Precision and certainty
+
+Temporal knowledge is often stated to a precision: a membership may begin on a known day and end in a known year. `Interval<T>` over a temporal type therefore carries a precision per bound (millennium, century, decade, year, month, day, hour, minute, second, millisecond, microsecond, nanosecond). A bound stated to a precision stands for the whole unit it names: `2026-09` is the month of September 2026. At the end of a closed-open interval, a bound stated to a precision ends within its unit: in
+`2026-09-14 .. 2027` the outer extent ends at the end of 2027 and the inner extent at its start.
+
+```
+2026-09-14 .. 2027              // starts on a known day, ends in a known year
+2026-09                         // an instant known to the month: the whole month
+2026-09 ..                      // open end
+```
+
+An imprecise interval has an outer extent (earliest possible start to latest possible end) and an inner extent (latest possible start to earliest possible end). Every interval operator therefore comes in two forms:
+
+| Form | Holds when |
+| --- | --- |
+| `a possibly R b` | `R` holds for at least one completion of the imprecise bounds |
+| `a certainly R b` | `R` holds for every completion |
+| `a R b` | Same as `possibly` |
+
+```
+Asserted(valid certainly contains 2026-09-28T14:00:00Z)
+Event(valid possibly overlaps 2026-07-01 .. 2026-10-01)
+```
+
+`@index(interval)` stores both extents, so both forms are range scans. Offsets are kept on the value and compared in UTC. `@no_overlap` refuses intervals that certainly overlap; `@no_overlap(strict)` also refuses intervals that possibly overlap.
+
+## Statements: one root for entities and relations
+
+Many relations accept "any node or relation" at one end (assumptions, verification, supersession, citation, derivation), and every node and relation carries the same envelope. A third kind of declaration, `statement`, provides one root for both:
+
+```
+abstract statement Statement @key(id) {
+  id:          String
+  uncertainty: Uncertainty Optional
+}
+abstract entity   Node     : Statement { }
+abstract relation Relation : Statement @multi {
+  subject: Statement -> out*
+  object:  Statement -> in*
+}
+```
+
+- A statement type is always abstract, has attributes and constraints, and has no roles. It may extend another statement type; an entity type or a relation type may extend a statement type. Inheritance remains single throughout.
+- A role may name a statement type, so it accepts both entities and relation instances below it. A navigation name declared on a statement type is gained by every entity and relation type below it.
+- Entity and relation types share one type-prefix space; a statement type covers its descendants' prefix ranges.
+- **GQL view:** a statement type is a label on nodes and relation nodes alike. A relation type that can fill a role (directly or through a statement supertype) is exposed as a relation node, never as an edge, because GQL edges cannot be edge endpoints.
+- **RDF view:** an `rdfs:Class` whose instances are entities and reifiers.
+- **Classification:** unchanged; a constraint on a statement type applies to all its entity and relation subtypes.
+
+## Union-typed roles
+
+Some roles accept several types that no single-inheritance tree can cover, because the sets overlap:
+
+```
+relation Governs : Relation {
+  governor: Rule | Teloid | Mandate as subject -> governs*
+  governed: Statement               as object  -> governed_by*
+}
+```
+
+- Each member type gains the navigation name; navigating to the role yields a tagged union, as `on` blocks do.
+- A type test against a union is a check against a few ID ranges.
+- In a specialized role, each union member must be the super role's type or a subtype of it.
+- **Views:** a GQL label expression (`:Rule|Teloid|Mandate`) and SHACL `sh:or`.
+- **Classification:** unchanged; the participant check is per instance.
+
+Union roles keep inheritance single while covering overlapping participant sets, which is why UGS has them instead of multiple inheritance.
+
+## Bitemporal statements
+
+Knowledge needs two clocks: **valid time**, when something held in the world, and **transaction time**, when the graph began and stopped asserting it. A correction never deletes; the old statement is retracted and stays readable for "what did the graph believe on date D" and for lineage through it.
+
+The engine already has a transaction-time clock, the epoch, so bitemporality is an engine feature, not data that every writer maintains:
+
+```
+abstract statement Asserted : Statement @bitemporal(valid: valid) {
+  valid: Interval<DateTime> Optional @index(interval)
+}
+```
+
+1. **Transaction time is maintained by the engine.** Each instance gains a read-only `asserted: Interval<DateTime>`, opened at the commit that inserts it and closed by `retract`.
+2. **Content is immutable.** `update` is refused on bitemporal types; a correction is a retraction plus a new statement.
+3. **Retraction, not deletion.** `retract X(...)` closes `asserted` at the commit; the instance is never physically deleted, except by a legal purge.
+4. **Reads see live instances by default.** Three filter items widen or narrow that: `believed at $t` reads the transaction-time slice at an instant, retracted instances included; `with retracted` reads every instance; `open` keeps live instances whose valid interval has no end.
+5. **Constraints count live instances:** keys, `@unique`, `@set`, cardinality, `@limit`, `@no_overlap` and `@acyclic`. `@no_overlap` on a bitemporal type compares the declared valid time.
+6. **`@on_retract(role: restrict | restrict open | cascade)`** replaces `@on_delete` for bitemporal types: `restrict` refuses a retraction while live instances name the participant, `restrict open` while open ones do. An insert that names a retracted participant is refused.
+7. **`@retracts(role)`** on a relation type: inserting an instance retracts its participant in that role in the same commit, so a supersession is one statement.
+
+```
+relation Holds : Relation @no_overlap(per: post) {
+  holder: Person as subject -> holds*
+  post:   Post   as object  -> holders*
+}
+relation Supersedes : Relation @retracts(old) {
+  new: Statement as subject -> supersedes*
+  old: Statement as object  -> superseded_by?
+}
+```
+
+**A third mutability class.** Bitemporal types sit between mutable and append-only types:
+
+| Class | Content | Removal | Monotonic reads |
+| --- | --- | --- | --- |
+| Mutable (default) | Updatable | Delete | None guaranteed |
+| `@bitemporal` | Immutable | Retraction closes `asserted` | `believed at` a past instant is immutable; `with retracted` reads that do not read `asserted` only grow |
+| `@append_only` | Immutable | Never | All reads of the type |
+
+Reading the live slice of a bitemporal type is non-monotonic, because a retraction removes a result.
+
+**Classification.** A retraction updates one instance's `asserted` period: coordination-free unless a constraint or `@on_retract(restrict)` reads it, then segmented where the participants are colocated, as a `restrict` delete is. `@retracts(old)` across groups is an atomic write to two groups and takes the coordinated path, unless the relation is colocated with `old`.
+
+**History retention.** Instances of `@bitemporal` and `@append_only` types are never physically discarded (except by a legal purge), so `believed at`, `as of epoch` and `as of time` replay are guaranteed for them at any point in the past. Other types keep their MVCC history for a configurable retention window; `as of` beyond that window is refused with an error that names the window.
+
+## Filtered and per-type constraints
+
+`@limit` gains grouping by concrete type, a filter condition and lower bounds:
+
+```
+@limit(aggregate op n per (roles... [, type]) [where condition])
+```
+
+```
+abstract relation Relation : Asserted @multi { ... }
+  @limit(count() <= 1 per (subject, type) where rank = preferred)
+
+relation ActedOnBehalfOf : Relation { ... }
+  @limit(count() >= 1 per subject where subject is Software, open)
+```
+
+- `op` is `<=`, `>=` or `=`; aggregates remain `count` and `sum` in the first version.
+- The condition may read the instance's own values, its participants' types and `open`; it may not read other instances.
+- `type` groups per concrete subtype, so a bound declared on a supertype applies separately to each relation kind below it.
+- **Lower bounds are checked at commit.** Creating a Software agent and its first delegation must happen in one transaction or one nested insert; a retraction or window close that would break the bound is refused.
+- Cardinality markers remain shorthand for unfiltered bounds.
+- **Classification:** segmented on the grouped participant, as `@limit` is.
+
+## Depth-bounded hierarchies
+
+`@acyclic(open, max_depth: 32)` refuses cycles and any path longer than 32 through live instances whose valid interval is open, so a tree's closed history never creates a false cycle. Without `open`, the bound covers every live instance. A materialized subtree height in the tree's group lets the existing rank check also verify the new parent's depth plus the moved subtree's height. Segmented with `@colocate(root)`; a move between trees is coordinated, as for `@acyclic`.
+
+## Catalog types as participants
+
+Some statements are about a kind of thing, not a thing: an absence ("this subject has no relation of kind K"), a rule that prescribes a kind of event, a role that applies to things of a type. A role may therefore name catalog types:
+
+```
+relation Absence : Asserted @set {
+  subject: Statement                     -> absences*
+  kind:    schema.RelationType<Relation> -> absences_of*
+}
+```
+
+- `schema.EntityType<T>` accepts entity types at or below `T`; `schema.RelationType<T>` relation types at or below `T`.
+- A reference holds the type across schema versions. Dropping a referenced type follows the deprecate-then-drop path and is refused while live statements name it.
+- Catalog types are also values for parameters, so `is $kind` works in queries and functions.
+- **Views:** a type-name value in GQL; the class IRI used as an individual in RDF, as OWL 2 punning allows.
+- **Classification:** coordination-free; catalog entries change only through schema versions, at epoch boundaries.
+
+## Geometry
+
+```
+where:             Geo Optional @index(geo) @uncertainty(where_uncertainty)
+where_uncertainty: Measure<Length, m> Optional
+```
+
+- `Geo` is a GeoJSON geometry (point, line or polygon) in WGS 84. `@index(geo)` is a spatial index built on S2 cell coverings.
+- `@uncertainty(attr)` names a length attribute that widens a point to a cap.
+- Operators `within`, `intersects` and `near`, each in a `certainly` and a `possibly` form; `near` orders by distance. `s2_cell(id)` gives a cell's polygon, so a read by cell is a read by area.
+- **Views:** GeoSPARQL 1.1 GeoJSON literals and `geo:hasMetricSpatialAccuracy` in RDF; a GeoJSON `STRING` in GQL.
+- **Staging:** the type, index and operators are part of the version 1 language; the implementation follows the engine plan's geo stage.
+- **Classification:** indexes are derived data; coordination-free.
+
+Whether a schema anchors places in a shared space graph, derives cells from geometry, or both, is a modelling choice the language leaves open.
+
+## Quantities and units
+
+A number never appears without its unit. Quantity kinds and units are schema declarations, so the compiler and the write path enforce unit discipline:
+
+```
+quantity Length { dimension: "L", scale: ratio, canonical: m } @maps_to(qudt:Length)
+unit ft_i       { quantities: [Length, Altitude], ucum: "[ft_i]", symbol: "ft", multiplier: 0.3048 }
+unit dBm        { quantities: [PowerRatio], ucum: "dB[mW]", affine: false }
+```
+
+| Type | Values |
+| --- | --- |
+| `Measure<K, u>` | A number of quantity kind `K` in unit `u`, fixed by the schema |
+| `Measure<K>` | A number of kind `K` in any declared unit of `K`; value and unit stored together |
+| `Measure` | A number in any declared unit; its kind is its unit's |
+| `Unit`, `QuantityKind` | A declared unit or quantity kind, as a value |
+
+- The compiler and the write path refuse undeclared units and units of the wrong kind.
+- Values of one kind compare, order and index by their value in the kind's canonical unit, so no canonical twin is stored. A non-affine unit (such as dBm) compares only within itself.
+- `convert(q, unit)` is a core function; it refuses a non-affine conversion unless the engine supplies the function for it.
+- **Arithmetic in version 1:** addition and subtraction within one kind (converting as needed) and scaling by a number. Dimension algebra (multiplying lengths into areas) comes later.
+- `schema.quantities` and `schema.units` are introspectable, with their conversions. Nominal and ordinal kinds have no unit.
+- **Views:** QUDT in RDF; a `RECORD` of value and unit in GQL.
+- **Classification:** unit checks read only the catalog; coordination-free.
+
+## Filtered derived relations
+
+Derive steps take filters, including the bitemporal read clauses, so maintenance queues can be stated declaratively:
+
+```
+derive Asserted.stale =
+  grounded_in(with retracted, not live or valid has_end or rank = deprecated) exists
+  @materialized @index(range)
+```
+
+The result is derived data, maintained through change streams; coordination-free.
+
+## Schema modules
+
+A knowledge domain's schema is a module that extends the core schema:
+
+```
+module sr version 3 extends deep_brain >= 5
+namespace sr = "https://example.org/sr#"
+```
+
+- A module may declare types beneath any type it extends, relation types, `quantity` and `unit` declarations, and members of enums the core marks `@open`.
+- The core's constraints apply to the module's subtypes; a module may tighten them, never loosen them.
+- Two modules may not declare one name. A deployment's own module may reserve names that no extension can take.
+- A namespace's catalog records each installed module and its version. Installing is an additive schema change; an upgrade is a schema version like any other, committed through the metadata group at an epoch boundary.
+- `@open` enums are still closed within each catalog version, so misspelt members remain compile errors.
+
+## Language clarifications
+
+| Question | Rule |
+| --- | --- |
+| Attribute identity | An attribute is one predicate per declaring type (`Person.name`). Only a named attribute type (`attribute Tag = ...`) is shared across types |
+| Parameters in path bounds and type tests | Allowed: `nav{1, $depth}`, `is $kind`. Plans are cached per parameter shape, not per value |
+| Participant types in `@check` | Allowed. A relation instance's participants never change, so reading them, and their own immutable roles, is a monotonic read that needs no coordination |
+| A role without an inverse navigation | `-> _` declares no inverse and builds no reverse index, for hub participants such as an activity with millions of readings. `restrict` and cardinality on that side are compile errors, since nothing could check them |
+| Defaults | `rank: Rank = normal`: constant defaults only, so writes stay deterministic |
+| A role's cardinality | Always written (`?`, `*`, `+`, `{m, n}`); a role without one is a compile error, since invariants are declared, never inferred |
+| `@valid` and `@bitemporal` | `@bitemporal(valid: attr)` implies `@valid(attr)`; declaring both on one type is refused |
+| Unsigned integers | Stop at `UInt64`; wider integers are signed (`Int128`) |
+| Writes through GQL and SPARQL | Edges and triples written in one transaction assemble into instances, and every instance is validated whole at commit: an n-ary instance missing a required role, or a reifier without its triple, aborts the transaction, naming the instance and the rule |
+| `min` and `max` folds over mutable data | Recomputed from the remaining instances when one is updated or deleted; over append-only data they are maintained incrementally, as `last`, `count` and `sum` are |
 
 ## Complete example
 
@@ -507,10 +889,20 @@ In the example, "assets this company bought" reads only `Supply`, which is appen
 | Relation over a relation | Edge to the relation's node | Property pointing to the reifier or relation node |
 | Cardinality | Enforced by the engine | `sh:minCount`, `sh:maxCount` |
 | `@key`, `@unique` | Enforced by the engine | Enforced by the engine; exported as a SHACL-SPARQL constraint |
-| `derive` | Read-only edge type | Read-only, materialized property |
+| `derive` (closure or fold) | Read-only edge type or property | Read-only, materialized property |
 | `fn` | Not exposed in the first version | Not exposed in the first version |
 | `graph` | GQL graph of the generated graph type | Named graph |
+| Shared graph and bridge relations | Each domain graph exposed together with the shared graphs it references as one GQL graph | Bridge triples in the domain's named graph, referencing IRIs in the shared named graphs |
 | `///` documentation | Catalog description | `rdfs:comment` |
+
+| Extension | GQL view | RDF and SPARQL view |
+| --- | --- | --- |
+| `statement` type | Label on nodes and relation nodes; relation types that can fill a role are relation nodes, not edges | `rdfs:Class` whose instances are entities and reifiers |
+| Union role | Label expression | `sh:or` |
+| `@bitemporal` | `asserted` and valid time as `RECORD` properties | `asserted` and valid bounds as literals on the instance or its reifier |
+| Catalog type reference | Type-name value | Class IRI used as an individual (OWL 2 punning) |
+| `Geo` | GeoJSON `STRING` | GeoSPARQL 1.1 GeoJSON literal |
+| `Measure` | `RECORD` of value and unit | QUDT quantity value |
 
 The mapping follows the RDF/LPG mapping contract, so a fact written through any of GQL, SPARQL or UQL is visible through the other two.
 
@@ -529,31 +921,43 @@ Every schema version is committed through the metadata group and takes effect at
 ## UGS grammar
 
 ```
-schema      = header { import | namespace } { decl } ;
-header      = "schema" ident "version" int ;
-import      = "import" string "as" ident ;
+source      = schema | module ;
+schema      = "schema" ident "version" int { import | namespace } { decl } ;
+module      = "module" ident "version" int "extends" ident ">=" int
+              { import | namespace } { decl } ;
+import      = "import" ( string "as" ident | "schema" ident ) ;
 namespace   = "namespace" ident "=" string ;
-decl        = attribute | enum | record | entity | relation | derive | function | graph ;
+decl        = attribute | enum | record | statement | entity | relation | derive
+            | function | quantity | unit | graph ;
 attribute   = "attribute" ident "=" type { annot } ;
-enum        = "enum" ident "{" ident { "," ident } "}" ;
+enum        = "enum" ident { annot } "{" ident { "," ident } "}" ;   (* @open *)
 record      = "record" ident "{" { field } "}" ;
+statement   = "abstract" "statement" ident [ ":" ident ] { annot } "{" { field } "}" ;
 entity      = [ "abstract" ] "entity" ident [ ":" ident ] { annot }
               "{" { field } "}" ;
 relation    = [ "abstract" ] "relation" ident [ ":" ident ] { annot }
               "{" { role | field } "}" { annot } ;      (* two or more roles, own or inherited *)
-role        = ident ":" participant [ "as" ident ] "->" ident card ;
-participant = ident [ "Optional" ] | "[" ident "]" ;
-field       = ident ":" type [ "Optional" ] { annot } ;
-derive      = "derive" ident "." ident "=" pathexpr { annot } ;
+role        = ident ":" participant [ "as" ident ] "->" ( ident card | "_" ) ;
+participant = union [ "Optional" ] | "[" union "]" ;
+union       = ptype { "|" ptype } ;
+ptype       = qident | "schema" "." ( "EntityType" | "RelationType" ) "<" qident ">" ;
+qident      = [ ident "." ] ident ;                  (* schema-qualified, e.g. temporal.Day *)
+field       = ident ":" type [ "Optional" ] [ "=" literal ] { annot } ;
+derive      = "derive" ident "." ident [ ":" type ] "=" ( pathexpr | fold ) { annot } ;
+fold        = ( "last" | "first" | "count" | "sum" | "min" | "max" )
+              "(" path [ filters ] [ "order" "by" path ] ")" [ "." ident ] ;
+pathexpr    = step { "." step } ;
+step        = ident [ filters ] [ "+" | "{" bound "," bound "}" ] [ "exists" ] ;
 function    = "fn" [ ident "." ] ident "(" [ param { "," param } ] ")"
               "->" type card "=" uql_expr ;
 param       = ident ":" type ;
-pathexpr    = step { "." step } ;
-step        = ident [ "+" | "{" int "," int "}" ] [ "exists" ] ;
-graph       = "graph" ident ":" ident ;
-type        = ident [ "<" typearg { "," typearg } ">" ]
+quantity    = "quantity" ident "{" qfield { "," qfield } "}" { annot } ;
+unit        = "unit" ident "{" qfield { "," qfield } "}" { annot } ;
+qfield      = ident ":" ( literal | ident | "[" ident { "," ident } "]" ) ;
+graph       = "graph" ident ":" ident { annot } ;    (* @shared, @replicated, @anchor *)
+type        = qident [ "<" typearg { "," typearg } ">" ]
               [ "(" int { "," int } ")" ] ;
-card        = [ "?" | "*" | "+" | "{" int "," int "}" ] ;  (* cardinality, not optionality *)
+card        = "?" | "*" | "+" | "{" int "," int "}" ;    (* cardinality, not optionality; always written *)
 annot       = "@" ident [ "(" arg { "," arg } ")" ] ;
 ```
 
@@ -595,7 +999,7 @@ A query has a **root selector** (a type with an optional filter list) and a **pr
 | Relation attributes (binary) | `owner { name  edge.since }` | Attributes of the relation instance traversed |
 | Computed field | `age: years(today() - commissioned)` | Expression over fields |
 
-There is no field for the internal system ID. Keys and IRIs are the only external identities, and keyless entities appear through their opaque handle inside `iri`.
+There is no field for the internal system ID. Keys and IRIs are the only external identities; how keyless entities appear inside `iri` follows the handle scheme, postponed beyond the first version.
 
 ## Navigation
 
@@ -758,22 +1162,28 @@ Company {
 
 Query-local functions are visible only in their request and cannot shadow names defined in the schema.
 
-## Retrieval: vectors, text and graph in one query
+## Retrieval: graph, text and vectors in one query
+
+Retrieval operators select by relevance, at the root of a query or on any navigation, so the graph can scope the search before anything is ranked:
 
 ```
-Asset ~ hybrid(nearest(embedding, $vec), search(notes, $text), k: 50)
-      (status = active) {
-  serial
-  score
-  owner { name }
-  all_parts(is Avionics) { serial  firmware }
+Aircraft(tail_number = $tail) {
+  engines {
+    evidence: documents(readers contains Principal(name = $user))
+              .chunks ~ hybrid(nearest(embedding, $q_vec), search(text, $q_text), k: 8) {
+      text  score  document { title  iri }
+    }
+  }
 }
 ```
 
-- `~ nearest(attr, $vec, k: n)` selects by vector similarity, using the approximate index and BF16 rescoring.
-- `~ search(attr, $text, k: n)` selects by BM25 full-text relevance.
-- `~ hybrid(..., ..., k: n)` combines both by reciprocal rank fusion.
-- `score` is the retrieval score; filters and graph expansion apply in the same plan.
+| Operator | Selects by |
+| --- | --- |
+| `~ nearest(attr, $vec, k: n)` | Vector similarity, using the approximate index or exact BF16 scoring |
+| `~ search(attr, $text, k: n)` | BM25 full-text relevance |
+| `~ hybrid(..., ..., k: n)` | Both, fused by reciprocal rank fusion, or by weighted scores with `weights: [...]` |
+
+`score` is the retrieval score. Filters, access-control relations and graph expansion apply in the same plan and at the same snapshot. The full design, covering scoped vector search, access control, context shaping, projection functions and agent write-back, is in [Agentic Context Projection](https://claude.ai/artifact/YZU8HTxzfYtKCcL4RMwLHk).
 
 ## Schema introspection
 
@@ -808,6 +1218,69 @@ as of time 2026-10-01T00:00:00Z  Company { spend: sum(purchases.value) }
 | `as of time t` | Point-in-time read at the last epoch closed before `t` |
 
 Every response carries the epoch it was read at and, for monotonic-fast reads over mutable data, the staleness flag.
+
+## Temporal operations
+
+**Literals and accessors.** `2026-01-01 .. 2026-07-01` is a closed-open interval; `2026-01-01 ..` has an open end. Durations use ISO 8601: `P30D`, `P1M`, `PT12H`. An interval has `start`, `end` (an `Option`, absent when open) and `duration` (absent when open).
+
+**Arithmetic.** `date + P1M`, `t2 - t1` (a `Duration`), `period.start + P7D`.
+
+**Points and intervals.** `t in i` holds when `i.start <= t < i.end`; points compare with `<`, `<=`, `=`, `>=` and `>`.
+
+**Interval relations.** UQL provides Allen's thirteen interval relations as operators. For closed-open intervals `a` and `b`, with an open end treated as unbounded:
+
+| Operator | Holds when | Inverse |
+| --- | --- | --- |
+| `a before b` | `a.end < b.start` | `after` |
+| `a meets b` | `a.end = b.start` | `met_by` |
+| `a overlaps b` | `a.start < b.start < a.end < b.end` | `overlapped_by` |
+| `a starts b` | `a.start = b.start` and `a.end < b.end` | `started_by` |
+| `a during b` | `b.start < a.start` and `a.end < b.end` | `contains` |
+| `a finishes b` | `a.end = b.end` and `b.start < a.start` | `finished_by` |
+| `a equals b` | Same start and same end | `equals` |
+
+Three shorthands cover the most common questions:
+
+| Operator | Holds when |
+| --- | --- |
+| `a intersects b` | The intervals share at least one point: `a.start < b.end` and `b.start < a.end` |
+| `a disjoint b` | They share no point |
+| `a within b` | `a` lies inside `b`: `during`, `starts`, `finishes` or `equals` |
+
+**Core temporal functions.** `intersection(a, b)` (an optional interval), `span(a, b)`, `date(t)`, `start_of_day(d, zone)`, `today()` and `now()` (the time of the snapshot epoch). `distinct(a, b)` compares two optional values and treats absence as a value, so a status that appears where there was none counts as a change.
+
+**Valid-time shorthand.** For types with `@valid`, `ValueUse(valid at $t)` means `$t in usage`, and `ValueUse(valid during $i)` means `usage intersects $i`.
+
+**Example: a parameterized feasibility query.** Which simulations used, during a campaign, a value whose status on date `$t` changed between what was known last month and what is known today?
+
+```
+Simulation {
+  run_id
+  some value_uses(valid during $campaign) {
+    usage
+    some value(distinct(status_at($t, $last_month), status_at($t, today()))) {
+      name
+      previous: status_at($t, $last_month)
+      current:  status_at($t, today())
+    }
+  }
+}
+```
+
+**Execution.** Interval operators on attributes with `@index(interval)` become range scans on the indexed bounds; ranges over shared time (`temporal.Day(date in $i)`) become key-range scans. Temporal predicates are pure comparisons, so they do not affect monotonicity; `today()` and `now()` are pinned to the epoch being read, so a monotonic-fast read uses its replica's epoch time.
+
+**Grammar additions.**
+
+```
+interval    = expr ".." [ expr ] ;
+temporal    = expr "in" expr
+            | expr allen expr ;
+allen       = "before" | "after" | "meets" | "met_by" | "overlaps"
+            | "overlapped_by" | "starts" | "started_by" | "during"
+            | "contains" | "finishes" | "finished_by" | "equals"
+            | "intersects" | "disjoint" | "within" ;
+validity    = "valid" ( "at" expr | "during" expr ) ;   (* inside filters *)
+```
 
 ## Mutations
 
@@ -886,6 +1359,43 @@ returning { contract { iri  value } }
 - **Multi-group pipelines** are dependent transactions. The engine performs a reconnaissance run of the read stage, sequences the pipeline, then re-executes the read stage at its sequenced position. Because execution is deterministic, every replica computes the same writes. If the re-executed read differs from the reconnaissance run (for example, another client certified one of the contracts in between), the pipeline retries automatically.
 - **Bounded fan-out.** A pipeline whose write count exceeds the request limit (configurable) aborts before commit. Large backfills run as batches with `limit` and `after $cursor`.
 - **Excluded:** a write stage feeding another stage, and a read stage that observes writes of the same pipeline.
+
+## Bitemporal reads and retraction
+
+```
+retract Holds(holder: Person(id = $p), post: Post(id = $post))
+
+Asserted(believed at 2026-06-01T00:00:00Z, valid certainly contains $t) { ... }
+Person(id = $p) { holds(with retracted) { post { id }  valid  asserted } }
+Post(id = $post) { holders(open) { holder { id } } }
+```
+
+`retract` closes the asserted period of matching instances of a `@bitemporal` type; `update` is refused on such types. The filter items `believed at`, `with retracted` and `open` follow the rules in Part 1 (Bitemporal statements).
+
+## Subscriptions
+
+Agents and downstream systems follow changes through the commit log:
+
+```
+subscribe Organization(id = $org) { all_units { id } }
+resume after $cursor
+insert InContext { ... } with record $r request $request_id
+```
+
+- `subscribe <query>` returns the answer at an epoch, with a cursor, then every commit record after that epoch. Epochs give an exact cut, so there is neither a gap nor an overlap between the answer and the records.
+- Records are commit records filtered to the types the query reads, not re-evaluated answers; incremental maintenance of arbitrary queries is a different feature.
+- `resume after $cursor` continues from a cursor. A cursor older than the log's retention is refused as unknown.
+- `with record $r request $id` attaches a client record to a write; a retry with the same request ID is deduplicated through the replication layer's client sessions.
+
+**Grammar additions.**
+
+```
+mutation    = ... | "retract" qident filters [ returning ] ;
+fitem       = ... | "believed" "at" expr | "with" "retracted" | "open" ;
+request     = ... | "subscribe" query | "resume" "after" param ;
+mutation    = mutation [ "with" "record" param "request" param ] ;
+allen       = [ "certainly" | "possibly" ] allen_op ;
+```
 
 ## Typing and results
 
@@ -1016,7 +1526,8 @@ filters     = "(" fitem { "," fitem } ")" ;
 fitem       = expr | ident ":" expr ;                 (* filter or role binding *)
 modifier    = "order" "by" ordering | "limit" int | "after" param ;
 shape       = "{" { field } "}" ;
-field       = [ ident ":" ] path [ "(" [ args ] ")" ] [ filters ] { modifier } [ shape ]
+field       = [ ident ":" ] path [ "(" [ args ] ")" ] [ filters ] [ "~" call ]
+              { modifier } [ shape ]
             | [ ident ":" ] expr
             | ( "some" | "no" ) path [ filters ] [ shape ]
             | "on" ident shape
@@ -1044,20 +1555,44 @@ explain     = "explain" ( query | mutation | pipeline | transaction ) ;
 
 | Question | Decision |
 | --- | --- |
-| Multiple inheritance for interface-only abstract types | No; inheritance stays single |
+| Multiple inheritance for interface-only abstract types | No; inheritance stays single. Overlapping participant sets use union roles |
 | Relation inheritance | Yes: single inheritance with role specialization (`as`); `@acyclic` on a supertype spans all subtypes |
+| Statement root | Yes: `abstract statement` types as one root for entities and relations, sharing one type-prefix space |
+| Union-typed roles | Yes: `role: A \| B \| C` |
+| Bitemporal statements | Yes: `@bitemporal`, with transaction time maintained by the engine from commit epochs; content immutable, retraction instead of deletion, `@on_retract`, `@retracts` |
+| One spelling per constraint | `@no_overlap` and `@limit(... where ...)` express overlap and open-window bounds; no separate qualifiers on navigation cardinalities |
+| History retention | Replay guaranteed for `@bitemporal` and `@append_only` types; other types within a configurable MVCC retention window |
+| Filtered and per-type constraints | Yes: `@limit` with `type` grouping, `where` conditions and lower bounds; lower bounds checked at commit |
+| Depth bound on hierarchies | Yes: `@acyclic(open, max_depth: n)` |
+| Catalog types as participants | Yes: `schema.EntityType<T>` and `schema.RelationType<T>` |
+| Multi-domain structure | Disjoint domain graphs connected only through `@shared` graphs, via bridge relations |
+| Supernodes in shared graphs | Leaf anchoring (`@anchor`), reverse adjacency partitioned by domain, tiles later; small shared graphs `@replicated`; roles without inverse navigation (`-> _`) for hubs |
+| Occasion-primary modelling | Occasions as `@append_only` relations anchored in shared time; state as materialized `derive` folds |
+| Temporal types and operations | Core language in version 1: interval literals, Allen's relations, `@valid`, `@no_overlap`, interval indexes |
+| Temporal precision | Merged into `Interval<T>`: precision per bound, `certainly` and `possibly` operator forms, plain form meaning `possibly` |
+| Geometry | Yes: `Geo` with `@index(geo)` and `@uncertainty` in the version 1 language; implementation follows the engine's geo stage |
+| Quantities and units | Yes: `quantity` and `unit` declarations and `Measure` types; version 1 arithmetic within one kind plus scaling |
+| Filtered derived relations | Yes |
+| Schema modules | Yes: `module ... extends ...`, tighten-only, names unique across modules |
+| Commit-log subscriptions | Yes: `subscribe`, `resume`, records with request IDs; commit records, not re-evaluated answers |
+| Attribute identity, parameters in bounds and type tests, participant types in `@check`, defaults | As in Language clarifications |
+| Personal data and erasure (`@personal`, crypto-shredding) | Postponed beyond the first version |
+| Counterfactual scenarios | Out of scope: counterfactual reasoning belongs to DeepCausality, not UltraGraphDB |
+| Ontology refinement and system-captured provenance | Deferred until the DeepBrain schema is redesigned for UGS |
 | Aggregates supported by `@limit` in the first version | `count` and `sum` |
 | Standalone schema-compiler CLI | No; schemas are compiled by the server (in CI, the development container) |
 | Naming of n-ary role predicates in the RDF view | `av:Supply_buyer` |
 | User-defined functions | Yes: schema functions and query-local `with` functions; pure, inlined, non-recursive |
 | `@independent` and `@values` | Yes |
 | Schema introspection | Yes; documentation from `///` comments |
-| Internal IDs | Never exposed: no ID field in queries or results, and none in IRIs or cursors; keyless entities use opaque handles |
+| Internal IDs | Never exposed: no ID field in queries or results, and none in IRIs or cursors. 128 bits: type prefix 16, bucket 16, sequence 64, reserved 32 (2026-11-01) |
+| Type prefixes | Allocated in declaration order, never renumbered; a supertype covers its descendants' prefix ranges (2026-11-01) |
+| Opaque handles for keyless entities and relation instances | Postponed beyond the first version, as personal data is; no key encryption (2026-11-01) |
 | Edge-attribute accessor in UQL | `edge.since` |
 | `group by` in the first UQL version | No; grouping by nesting only |
 | `try` and `or` in explicit patterns | Yes |
 | Pipelines from reads into writes | Yes, as one read stage feeding one write stage; multi-stage pipelines are not adopted |
-| UQL standard library (temporal, string, numeric, vector functions) | Next version |
+| UQL standard library (string, numeric, vector functions) | Next version; temporal, geometry and unit operations are core in version 1 |
 | Interactive transactions | Yes, for single-group transactions; multi-group transactions are submitted whole |
 
 # Sources
@@ -1071,3 +1606,5 @@ explain     = "explain" ( query | mutation | pipeline | transaction ) ;
 
 * [TypeQL keyword glossary (TypeDB 3)](https://typedb.com/docs/typeql-reference/keywords/)
 * [TypeQL language guide](https://development.typedb.com/docs/typeql)
+
+- [Neo4j: Vector search with filters](https://neo4j.com/blog/developer/vector-search-with-filters-in-neo4j-v2026-01-preview/)

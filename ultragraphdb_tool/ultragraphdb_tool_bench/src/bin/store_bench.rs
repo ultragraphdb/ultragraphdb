@@ -10,6 +10,10 @@ use std::process::ExitCode;
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, init};
 use ultragraphdb_tool_bench::{Command, run_apply, run_rollup};
 
+// musl's allocator contends under threads; mimalloc is every shipped binary's allocator (the workspace's `mimalloc` pin).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> ExitCode {
     let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "warn".to_string());
     let _telemetry = match init(&TelemetryConfig::new(filter, LogFormat::Plain)) {

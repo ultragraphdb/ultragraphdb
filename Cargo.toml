@@ -115,6 +115,11 @@ stringprep = "0.1"
 getrandom = "0.4"
 futures = "0.3"
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
+# The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
+# measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). libmimalloc-sys compiles every unix
+# target with `-ftls-model=initial-exec` unless `local_dynamic_tls` is on, while upstream mimalloc uses local-dynamic for
+# a static musl build (issue #644); the wrong TLS model is invisible in a build on a Mac. Taken from scrith.
+mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs"] }
 ## Dev dependencies

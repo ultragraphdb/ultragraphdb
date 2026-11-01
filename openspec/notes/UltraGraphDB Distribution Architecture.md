@@ -64,6 +64,8 @@ The classification is computed at schema compile time as a conflict graph over w
 
 ### Query consistency levels
 
+**The guarantee (decided 2026-11-01).** Transactions are strictly serializable within a replica group. Across groups they are serializable at a closed epoch, the default, with session tokens for read-your-writes; a per-request option closes the current epoch first, for a strict cross-group read.
+
 Queries are classified too, following *Keep CALM and CRDT On* (VLDB 2023), which showed that coordination-free updates still leave reads unsafe unless queries are analyzed.
 
 | Level | Applies to | Guarantee |
@@ -100,14 +102,16 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 - **Placement:** predicate-to-group assignment now, GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
 - **Sequencing:** the Calvin-style log that orders multi-group transactions.
 - **Snapshots:** consistent cross-group snapshot points (see below).
-- **ID ranges:** handing out per-group ID ranges, including the type-prefixed ranges.
+- **ID ranges:** assigning buckets to groups and handing out sequence ranges per (type, bucket). A system ID is 128 bits: a 16-bit type prefix, a 16-bit bucket, a 64-bit sequence and 32 reserved bits (decided 2026-11-01).
 - **Versions:** schema catalog, the write and query classification derived from it, the RDF/LPG mapping contract, and the finalized feature level.
+
+**Its home from stage 5.5 (decided 2026-11-01).** The metadata group's state machine is built in stage 5.5, log-backed like the commit step and with one replica, holding catalog versions, ID ranges and the placement map, with catalog contents opaque to it. UGS (stage 6) is built on it; stage 8 adds its replication.
 
 **Keeping it small**
 
 - **Sequencer epochs** for snapshots instead of per-transaction timestamps, so no commit waits on the metadata group.
 - **Deterministic placement** derived from predicate or GSL coordinates, so lookups need no metadata and consensus is only needed when the mapping changes.
-- **Per-group ID ranges** instead of central ID leasing.
+- **Per-bucket ID ranges** instead of central ID leasing; a bucket moves between groups without changing an ID.
 
 With these, only membership, the placement map and the schema, classification and feature versions need consensus.
 
@@ -117,7 +121,7 @@ Cross-group snapshots are defined by **sequencer epochs**. This was chosen over 
 
 **How it works**
 
-1. The sequencer, its own VSR group on the frontend nodes, closes an epoch every few milliseconds and broadcasts the boundary. The same log orders Calvin-style multi-group transactions.
+1. The sequencer, its own VSR group on the frontend nodes, closes an epoch every few milliseconds and broadcasts the boundary. The same log orders Calvin-style multi-group transactions. Each closed epoch records the sequencer's wall-clock time at its close, never below the previous epoch's, so `as of time t`, `now()` and transaction time resolve to an epoch; ordering never reads the clock.
 2. Every commit is stamped with an epoch: single-group commits with the group's current epoch, multi-group transactions with the epoch the sequencer placed them in. Change-stream entries carry their epoch.
 3. A group **closes** epoch *e* once it has applied all its own commits and all incoming stream entries stamped up to *e*, and records the operation number at that boundary.
 4. A cross-group snapshot is an epoch: the query reads epoch *e* in every group it touches once each has closed it. Watermarks are simply closed-epoch markers.
@@ -213,6 +217,8 @@ The cost of hop k is roughly the number of edges touched from the current fronti
 
 ## Node runtime and hardening
 
+Deployment targets (decided 2026-11-01): Kubernetes and Docker, bare metal later. CI builds, signs and publishes the OCI images with Bazel's `rules_oci`. The microVM runtime and minimal kernel described below are tracked options, not current targets.
+
 Every node runs the same static musl binary; only storage nodes boot their own minimal kernel.
 
 | Node type | Runtime |
@@ -288,7 +294,7 @@ Storage goes first because it holds durable formats; frontends go last so the pl
 
 Coordination avoidance moves correctness from runtime coordination into analysis and protocol design, so verification carries more weight than usual.
 
-- **Formal model first.** A TLA+ specification of the epoch, change-stream, watermark and delete protocol (including the epoch propagation rule), and of the state-machine version switch, checked before implementation. Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
+- **Formal model first.** A Lean model of the epoch, change-stream, watermark and delete protocol (including the epoch propagation rule), and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
 - **Classification soundness.** Property tests check, for every constraint the schema can express, that any write classified coordination-free or segmented preserves the invariant under all interleavings the simulator can generate.
 - **Deterministic simulation.** Fault injection, crash recovery, network partitions and mixed-version clusters, with results compared against a single-version, single-group reference run.
 - **Background verifier in production.** Continuous comparison of reverse entries against forward edges and of derived indexes against base data, with repair and alerting.
