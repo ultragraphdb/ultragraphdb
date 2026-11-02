@@ -1,0 +1,1108 @@
+ultragraphdb_tool/ultragraphdb_tool_toml/features/settings_toml/settings_toml.feature
+  s_6c9dcf457e80d9::t_4373d961143aed 1-50
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/bdd.rs
+  s_6c9dcf457e80d9::t_ac6b9e6f4477bd 6-323
+  s_6c9dcf457e80d9::t_8bd493736c58fb 1-5,324-330
+ultragraphdb_tool/ultragraphdb_tool_toml/BUILD.bazel
+  s_6c9dcf457e80d9::t_e742eed1e9a4f0 47-48
+  s_6c9dcf457e80d9::t_e3996b48d4d7ec 51-55
+  s_6c9dcf457e80d9::t_94192fd8a93848 1-46,49-50,56-67
+openspec/changes/stage-5-5-three-role-refactor/notes/group-10b.md
+  s_6c9dcf457e80d9::t_d6837878397aad 41-42
+  s_6c9dcf457e80d9::t_618d3b3b9a2b44 1-40,43-210
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/SOURCE.txt
+  s_6c9dcf457e80d9::t_33afb0b0ab4a66 23-24
+  s_6c9dcf457e80d9::t_369e64f3a44624 1-22,25-27
+Cargo.lock
+  s_6c9dcf457e80d9::t_08a0ea883303bf 2891-2901,3248-3257
+fuzz/Cargo.lock
+  s_6c9dcf457e80d9::t_c1ff5e65ff1a75 1528-1542,1611-1614,1713,1768-1779
+fuzz/ultragraphdb_tool_toml/Cargo.toml
+  s_6c9dcf457e80d9::t_c72702fe902042 1-32
+fuzz/ultragraphdb_tool_toml/fuzz_targets/document.rs
+  s_6c9dcf457e80d9::t_be662619e631f5 1-89
+ultragraphdb_tool/ultragraphdb_tool_toml/Cargo.toml
+  s_6c9dcf457e80d9::t_8cedd2819e18c8 1-36
+ultragraphdb_tool/ultragraphdb_tool_toml/src/errors/mod.rs
+  s_6c9dcf457e80d9::t_c83d242b1d45c4 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/src/errors/toml_error/mod.rs
+  s_6c9dcf457e80d9::t_f581cfcda57a47 1-128
+ultragraphdb_tool/ultragraphdb_tool_toml/src/errors/toml_error/toml_error_display.rs
+  s_6c9dcf457e80d9::t_ffc248bc0e4d09 1-56
+ultragraphdb_tool/ultragraphdb_tool_toml/src/errors/toml_error/toml_error_error.rs
+  s_6c9dcf457e80d9::t_857c2a60a5f30a 1-8
+ultragraphdb_tool/ultragraphdb_tool_toml/src/lib.rs
+  s_6c9dcf457e80d9::t_ab64ec46d1437c 1-30
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/mod.rs
+  s_6c9dcf457e80d9::t_7f6786e9846de6 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_document/mod.rs
+  s_6c9dcf457e80d9::t_9132056e84c984 1-53
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_document/toml_document_read.rs
+  s_6c9dcf457e80d9::t_96e380514a9b31 1-86
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_entry/mod.rs
+  s_6c9dcf457e80d9::t_80e95a39541623 1-47
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_feature/mod.rs
+  s_6c9dcf457e80d9::t_76f2e7f007e69b 1-38
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_feature/toml_feature_display.rs
+  s_6c9dcf457e80d9::t_32de1ceab07024 1-29
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_invalid/mod.rs
+  s_6c9dcf457e80d9::t_a85ffbf50242ac 1-41
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_invalid/toml_invalid_display.rs
+  s_6c9dcf457e80d9::t_b774b78ff03390 1-31
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_kind/mod.rs
+  s_6c9dcf457e80d9::t_e6f094730f7656 1-17
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_kind/toml_kind_display.rs
+  s_6c9dcf457e80d9::t_55ae86d99b7c3c 1-19
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_limit/mod.rs
+  s_6c9dcf457e80d9::t_e37222204d45f4 1-19
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_limit/toml_limit_display.rs
+  s_6c9dcf457e80d9::t_3064076814ba84 1-20
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_parser/mod.rs
+  s_6c9dcf457e80d9::t_27b1df30f9a10e 1-123
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_parser/toml_parser_line.rs
+  s_6c9dcf457e80d9::t_fd6c20c865c06c 1-79
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_table/mod.rs
+  s_6c9dcf457e80d9::t_d7e10e7ca2aee7 1-47
+ultragraphdb_tool/ultragraphdb_tool_toml/src/types/toml_value/mod.rs
+  s_6c9dcf457e80d9::t_db2c8986741ac4 1-29
+ultragraphdb_tool/ultragraphdb_tool_toml/src/utils/chars.rs
+  s_6c9dcf457e80d9::t_ec9ea844b87716 1-61
+ultragraphdb_tool/ultragraphdb_tool_toml/src/utils/mod.rs
+  s_6c9dcf457e80d9::t_7911ded76df148 1-10
+ultragraphdb_tool/ultragraphdb_tool_toml/src/utils/string.rs
+  s_6c9dcf457e80d9::t_d36e853065b365 1-69
+ultragraphdb_tool/ultragraphdb_tool_toml/src/utils/value.rs
+  s_6c9dcf457e80d9::t_e35510ed01b402 1-131
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-bool-bool.toml
+  s_6c9dcf457e80d9::t_1ff6b89008ec74 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-comment-at-eof.toml
+  s_6c9dcf457e80d9::t_795c8194546198 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-comment-at-eof2.toml
+  s_6c9dcf457e80d9::t_efd641ccd2db50 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-comment-noeol.toml
+  s_6c9dcf457e80d9::t_96a02f41c456bd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-comment-nonascii.toml
+  s_6c9dcf457e80d9::t_19c27181bb2e25 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-integer-float64-max.toml
+  s_6c9dcf457e80d9::t_dfc1eb5ec358d7 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-integer-integer.toml
+  s_6c9dcf457e80d9::t_e49d6fd5b2eb27 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-integer-long.toml
+  s_6c9dcf457e80d9::t_90062ccde16db3 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-integer-underscore.toml
+  s_6c9dcf457e80d9::t_1263317dae8630 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-key-alphanum.toml
+  s_6c9dcf457e80d9::t_f454030ae7ba55 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-key-equals-nospace.toml
+  s_6c9dcf457e80d9::t_9713e9ecc97125 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-key-numeric.toml
+  s_6c9dcf457e80d9::t_7e946e4ae0a28a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-key-special-word.toml
+  s_6c9dcf457e80d9::t_ee3aa73f393833 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-key-zero.toml
+  s_6c9dcf457e80d9::t_be90fdb293f2ae 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-newline-crlf.toml
+  s_6c9dcf457e80d9::t_130bcbd9cd8d1e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-newline-lf.toml
+  s_6c9dcf457e80d9::t_914bac46abf698 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-boolean-0.toml
+  s_6c9dcf457e80d9::t_1e03de15feac32 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-comment-0.toml
+  s_6c9dcf457e80d9::t_a25a8b289c1d4b 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-integer-0.toml
+  s_6c9dcf457e80d9::t_9018b1ee55e35d 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-integer-1.toml
+  s_6c9dcf457e80d9::t_3beaae49709759 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-key-value-pair-0.toml
+  s_6c9dcf457e80d9::t_bfa6fe21a83632 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-keys-0.toml
+  s_6c9dcf457e80d9::t_38ce8852fd47a1 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-string-0.toml
+  s_6c9dcf457e80d9::t_216cab2a67d005 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-string-2.toml
+  s_6c9dcf457e80d9::t_74d9c050952b11 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-table-0.toml
+  s_6c9dcf457e80d9::t_b1b88a05a58596 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-spec-table-1.toml
+  s_6c9dcf457e80d9::t_57660d9a2e8ea9 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-double-quote-escape.toml
+  s_6c9dcf457e80d9::t_57f590c37c19c9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-empty.toml
+  s_6c9dcf457e80d9::t_70d33a9e2410a2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-escaped-escape.toml
+  s_6c9dcf457e80d9::t_8aca35b9b66fe1 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-escapes.toml
+  s_6c9dcf457e80d9::t_ba06934778fc10 1-15
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-simple.toml
+  s_6c9dcf457e80d9::t_29613363650479 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-unicode-literal.toml
+  s_6c9dcf457e80d9::t_f9a56d1d5be667 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-string-with-pound.toml
+  s_6c9dcf457e80d9::t_df3184903a9465 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-table-empty.toml
+  s_6c9dcf457e80d9::t_47c8881b02f6ec 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-table-keyword-with-values.toml
+  s_6c9dcf457e80d9::t_6ba80deefab578 1-11
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-table-keyword.toml
+  s_6c9dcf457e80d9::t_2283271b2f3456 1-9
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/fuzz_seeds/document/valid-table-no-eol.toml
+  s_6c9dcf457e80d9::t_76b628a2c950d0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/COPYING
+  s_6c9dcf457e80d9::t_bbfc23384e883d 1-21
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/double-comma-1.toml
+  s_6c9dcf457e80d9::t_6d270092237da4 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/double-comma-2.toml
+  s_6c9dcf457e80d9::t_794872d1c21e6c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/extend-defined-aot.toml
+  s_6c9dcf457e80d9::t_d8a586e2abf03c 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/extending-table.toml
+  s_6c9dcf457e80d9::t_1d40ba9d61196e 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/missing-separator-1.toml
+  s_6c9dcf457e80d9::t_1d69f4eb94b6f0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/missing-separator-2.toml
+  s_6c9dcf457e80d9::t_b06209ac187ef8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-1.toml
+  s_6c9dcf457e80d9::t_7cb7ee2b289e91 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-2.toml
+  s_6c9dcf457e80d9::t_00b41495296bae 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-3.toml
+  s_6c9dcf457e80d9::t_1409ab1516e2d0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-4.toml
+  s_6c9dcf457e80d9::t_17ca30ab5c0b0d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-5.toml
+  s_6c9dcf457e80d9::t_6b1f3d2615185d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-6.toml
+  s_6c9dcf457e80d9::t_b95e29bf91599d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-7.toml
+  s_6c9dcf457e80d9::t_86d81eec74a81a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-8.toml
+  s_6c9dcf457e80d9::t_c3ad64c29122cb 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-table-1.toml
+  s_6c9dcf457e80d9::t_e195f4d3a0ba2c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-close-table-2.toml
+  s_6c9dcf457e80d9::t_e06575bd719278 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-comma-1.toml
+  s_6c9dcf457e80d9::t_6c20829b1ab0e3 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-comma-2.toml
+  s_6c9dcf457e80d9::t_cb660151152fbf 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/no-comma-3.toml
+  s_6c9dcf457e80d9::t_427ae19f9f0ead 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/only-comma-1.toml
+  s_6c9dcf457e80d9::t_934c2316429d3f 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/only-comma-2.toml
+  s_6c9dcf457e80d9::t_6acce23d558ab2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/tables-1.toml
+  s_6c9dcf457e80d9::t_92cfd0c7fae4c4 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/tables-2.toml
+  s_6c9dcf457e80d9::t_0da9e447b1c91c 1-10
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/text-after-array-entries.toml
+  s_6c9dcf457e80d9::t_59a2f9ee044978 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/text-before-array-separator.toml
+  s_6c9dcf457e80d9::t_8667bfe7823102 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/array/text-in-array.toml
+  s_6c9dcf457e80d9::t_e91da66b8da651 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/almost-false-with-extra.toml
+  s_6c9dcf457e80d9::t_67c60dd2ba0dd0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/almost-false.toml
+  s_6c9dcf457e80d9::t_8958cc73da3055 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/almost-true-with-extra.toml
+  s_6c9dcf457e80d9::t_f23e4f725f2c72 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/almost-true.toml
+  s_6c9dcf457e80d9::t_2526553ce5c03d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/capitalized-false.toml
+  s_6c9dcf457e80d9::t_7edfe5a2401319 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/capitalized-true.toml
+  s_6c9dcf457e80d9::t_423de41b450405 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/just-f.toml
+  s_6c9dcf457e80d9::t_b1296db82e9c7a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/just-t.toml
+  s_6c9dcf457e80d9::t_7e5b9156396c97 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/mixed-case-false.toml
+  s_6c9dcf457e80d9::t_389175444b7543 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/mixed-case-true.toml
+  s_6c9dcf457e80d9::t_a02ad7d26b5865 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/mixed-case.toml
+  s_6c9dcf457e80d9::t_84c1583d169906 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/starting-same-false.toml
+  s_6c9dcf457e80d9::t_e72d171ace2976 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/starting-same-true.toml
+  s_6c9dcf457e80d9::t_e123d9075c827b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/wrong-case-false.toml
+  s_6c9dcf457e80d9::t_801db75eb2f0dc 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/bool/wrong-case-true.toml
+  s_6c9dcf457e80d9::t_548a90042e5f73 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/bare-cr.toml
+  s_6c9dcf457e80d9::t_442f8574828ba9 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/bare-formfeed.toml
+  s_6c9dcf457e80d9::t_fe283bf0a273f7 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/bare-vertical-tab.toml
+  s_6c9dcf457e80d9::t_c47e0f707fc6f0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/comment-cr.toml
+  s_6c9dcf457e80d9::t_77c28ea502fa1c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/comment-del.toml
+  s_6c9dcf457e80d9::t_e1611acb509143 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/comment-ff.toml
+  s_6c9dcf457e80d9::t_979b875426aff0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/comment-lf.toml
+  s_6c9dcf457e80d9::t_97a0fa722aa53e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/comment-us.toml
+  s_6c9dcf457e80d9::t_4c305e96e12452 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/multi-cr.toml
+  s_6c9dcf457e80d9::t_7c6cc9dde9e8d9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/multi-del.toml
+  s_6c9dcf457e80d9::t_8b28828befa86c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/multi-lf.toml
+  s_6c9dcf457e80d9::t_77e93d473d36d3 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/multi-us.toml
+  s_6c9dcf457e80d9::t_6576dcf2840ba0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawmulti-cr.toml
+  s_6c9dcf457e80d9::t_bee5cad71f35e3 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawmulti-del.toml
+  s_6c9dcf457e80d9::t_8ed531bf782c4d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawmulti-lf.toml
+  s_6c9dcf457e80d9::t_5a3d20de0daf4c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawmulti-us.toml
+  s_6c9dcf457e80d9::t_f4f5b071e2ba19 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawstring-cr.toml
+  s_6c9dcf457e80d9::t_a3d52404168efa 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawstring-del.toml
+  s_6c9dcf457e80d9::t_351457b3001e67 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawstring-lf.toml
+  s_6c9dcf457e80d9::t_9e8da614ffc9b0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/rawstring-us.toml
+  s_6c9dcf457e80d9::t_99553762e337e4 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/string-bs.toml
+  s_6c9dcf457e80d9::t_08a41237d5baf9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/string-cr.toml
+  s_6c9dcf457e80d9::t_e99c134a959b11 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/string-del.toml
+  s_6c9dcf457e80d9::t_cae3ea84b25fa2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/string-lf.toml
+  s_6c9dcf457e80d9::t_3df86e71bbdeaf 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/control/string-us.toml
+  s_6c9dcf457e80d9::t_a650b777c0c6f8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/feb-29.toml
+  s_6c9dcf457e80d9::t_d4d288a7ab3f74 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/feb-30.toml
+  s_6c9dcf457e80d9::t_bf2fd6c2d5dd77 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/hour-over.toml
+  s_6c9dcf457e80d9::t_2ca1c0e982a5ba 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/mday-over.toml
+  s_6c9dcf457e80d9::t_4d18f360a48f6a 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/mday-under.toml
+  s_6c9dcf457e80d9::t_cff61580b9e64c 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/minute-over.toml
+  s_6c9dcf457e80d9::t_27bbc764426bf6 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/month-over.toml
+  s_6c9dcf457e80d9::t_f3559b7742b681 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/month-under.toml
+  s_6c9dcf457e80d9::t_e7552f8d86bb09 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/no-leads-month.toml
+  s_6c9dcf457e80d9::t_70e117f311ed4b 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/no-leads-with-milli.toml
+  s_6c9dcf457e80d9::t_707264022a91e5 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/no-leads.toml
+  s_6c9dcf457e80d9::t_226fdfb8429a6c 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/no-secs.toml
+  s_6c9dcf457e80d9::t_c00159e0eaf9f2 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/no-t.toml
+  s_6c9dcf457e80d9::t_ba716998828e9d 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/offset-overflow-hour.toml
+  s_6c9dcf457e80d9::t_f72192f8dd3b96 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/offset-overflow-minute.toml
+  s_6c9dcf457e80d9::t_5840040bc16366 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/second-over.toml
+  s_6c9dcf457e80d9::t_19c8f03eb1fe5b 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/time-no-leads.toml
+  s_6c9dcf457e80d9::t_898241cff22db5 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/datetime/y10k.toml
+  s_6c9dcf457e80d9::t_c0f57cf31d66b9 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-codepoint.toml
+  s_6c9dcf457e80d9::t_96fd8413865e1d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-at-end.toml
+  s_6c9dcf457e80d9::t_1a4e3aa2beb6a3 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-in-comment.toml
+  s_6c9dcf457e80d9::t_f22689a8903698 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-in-multiline-literal.toml
+  s_6c9dcf457e80d9::t_44a11d6ba90272 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-in-multiline.toml
+  s_6c9dcf457e80d9::t_76770a57231f08 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-in-string-literal.toml
+  s_6c9dcf457e80d9::t_20286584dbe30b 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bad-utf8-in-string.toml
+  s_6c9dcf457e80d9::t_fc0cb6e8f96440 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bom-not-at-start-1.toml
+  s_6c9dcf457e80d9::t_dca11ed12e7dfa 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/encoding/bom-not-at-start-2.toml
+  s_6c9dcf457e80d9::t_9fdbdf8ebcf435 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/double-point-1.toml
+  s_6c9dcf457e80d9::t_143a1da7244092 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/double-point-2.toml
+  s_6c9dcf457e80d9::t_71a97ef3770959 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-double-e-1.toml
+  s_6c9dcf457e80d9::t_e07a45bbdc3c38 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-double-e-2.toml
+  s_6c9dcf457e80d9::t_23fb6f4b9f1bbd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-double-us.toml
+  s_6c9dcf457e80d9::t_b0b15522261026 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-leading-us.toml
+  s_6c9dcf457e80d9::t_eb82eea3d5d21a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-point-1.toml
+  s_6c9dcf457e80d9::t_7fa74e3ddbc986 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-point-2.toml
+  s_6c9dcf457e80d9::t_05f449e4bf845c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-point-3.toml
+  s_6c9dcf457e80d9::t_02964396bddc61 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-trailing-us-1.toml
+  s_6c9dcf457e80d9::t_1aca65529481e0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-trailing-us-2.toml
+  s_6c9dcf457e80d9::t_2637c772f033b9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/exp-trailing-us.toml
+  s_6c9dcf457e80d9::t_afada8f9c6ad01 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/inf-capital.toml
+  s_6c9dcf457e80d9::t_2106fba442cfc6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/inf-incomplete-1.toml
+  s_6c9dcf457e80d9::t_9615906bd97378 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/inf-incomplete-2.toml
+  s_6c9dcf457e80d9::t_404b42097f1d16 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/inf-incomplete-3.toml
+  s_6c9dcf457e80d9::t_e805116e4c1af8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/inf_underscore.toml
+  s_6c9dcf457e80d9::t_11e3f64bd8833c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-point-neg.toml
+  s_6c9dcf457e80d9::t_3a92ef5f392af6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-point-plus.toml
+  s_6c9dcf457e80d9::t_95d4edf4402f1b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-point.toml
+  s_6c9dcf457e80d9::t_57425971d9959d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-us.toml
+  s_6c9dcf457e80d9::t_8c1cd3b70614d1 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-zero-neg.toml
+  s_6c9dcf457e80d9::t_279224f776ea79 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-zero-plus.toml
+  s_6c9dcf457e80d9::t_538fe5bbfb2dc9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/leading-zero.toml
+  s_6c9dcf457e80d9::t_cf67c42714ceed 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/nan-capital.toml
+  s_6c9dcf457e80d9::t_ffd46776234f61 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/nan-incomplete-1.toml
+  s_6c9dcf457e80d9::t_ffafa224bd61e7 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/nan-incomplete-2.toml
+  s_6c9dcf457e80d9::t_d9dcfce0d0a65c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/nan-incomplete-3.toml
+  s_6c9dcf457e80d9::t_1cd43e097a9013 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/nan_underscore.toml
+  s_6c9dcf457e80d9::t_f67213e4985d58 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-point-min.toml
+  s_6c9dcf457e80d9::t_572466b2ddd5d2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-point-plus.toml
+  s_6c9dcf457e80d9::t_25972c9e8247f6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-point.toml
+  s_6c9dcf457e80d9::t_0c9ecd48eadcfa 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-us-exp-1.toml
+  s_6c9dcf457e80d9::t_268850c8588f99 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-us-exp-2.toml
+  s_6c9dcf457e80d9::t_988995f14f65e6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/trailing-us.toml
+  s_6c9dcf457e80d9::t_771c9c43903cb0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/us-after-point.toml
+  s_6c9dcf457e80d9::t_afa42bf21bcb3e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/float/us-before-point.toml
+  s_6c9dcf457e80d9::t_4ad563257dc299 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/bad-key-syntax.toml
+  s_6c9dcf457e80d9::t_bf2a4ef0a3c3c7 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/double-comma.toml
+  s_6c9dcf457e80d9::t_c3fbe9a177dbdd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/duplicate-key-1.toml
+  s_6c9dcf457e80d9::t_d2147323b74ba9 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/duplicate-key-2.toml
+  s_6c9dcf457e80d9::t_276c1eaa2c235d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/duplicate-key-3.toml
+  s_6c9dcf457e80d9::t_8e3052c9d16116 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/duplicate-key-4.toml
+  s_6c9dcf457e80d9::t_17fc64d4d2273d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/empty-1.toml
+  s_6c9dcf457e80d9::t_6db3f00f94d37e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/empty-2.toml
+  s_6c9dcf457e80d9::t_cb65f20d9948db 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/empty-3.toml
+  s_6c9dcf457e80d9::t_de971dad71f4e5 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/linebreak-1.toml
+  s_6c9dcf457e80d9::t_4cdefeefbba07a 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/linebreak-2.toml
+  s_6c9dcf457e80d9::t_da2477008846ba 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/linebreak-3.toml
+  s_6c9dcf457e80d9::t_dcd9849ec38f2a 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/linebreak-4.toml
+  s_6c9dcf457e80d9::t_a2232a6d30c129 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/no-close-1.toml
+  s_6c9dcf457e80d9::t_4a5e3c7c78a2ec 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/no-close-2.toml
+  s_6c9dcf457e80d9::t_41ad00c6767868 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/no-comma-1.toml
+  s_6c9dcf457e80d9::t_9de124b1fa6475 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/no-comma-2.toml
+  s_6c9dcf457e80d9::t_39dcf29c2f8bdd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-01.toml
+  s_6c9dcf457e80d9::t_6e35a9fd41067f 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-02.toml
+  s_6c9dcf457e80d9::t_cdd3c32c8f79d6 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-03.toml
+  s_6c9dcf457e80d9::t_0052976108ab52 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-04.toml
+  s_6c9dcf457e80d9::t_dce882236e08bd 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-05.toml
+  s_6c9dcf457e80d9::t_50b28f0b038890 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-06.toml
+  s_6c9dcf457e80d9::t_e2dd98f2233deb 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-07.toml
+  s_6c9dcf457e80d9::t_6bf54da00a1c8b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-08.toml
+  s_6c9dcf457e80d9::t_49f606b69d9c78 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-09.toml
+  s_6c9dcf457e80d9::t_5e1ddbdd9beb64 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/overwrite-10.toml
+  s_6c9dcf457e80d9::t_6a8ff48f795ddf 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/inline-table/trailing-comma.toml
+  s_6c9dcf457e80d9::t_e8d12ebc449aaa 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/capital-bin.toml
+  s_6c9dcf457e80d9::t_6c64bee913f409 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/capital-hex.toml
+  s_6c9dcf457e80d9::t_a8219df0a55052 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/capital-oct.toml
+  s_6c9dcf457e80d9::t_be5b405cbf7d5a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/double-sign-nex.toml
+  s_6c9dcf457e80d9::t_b47f4005e73c79 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/double-sign-plus.toml
+  s_6c9dcf457e80d9::t_a39ab1c72b9806 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/double-us.toml
+  s_6c9dcf457e80d9::t_e2efbec2036f5b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/incomplete-bin.toml
+  s_6c9dcf457e80d9::t_44e98b8efecab1 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/incomplete-hex.toml
+  s_6c9dcf457e80d9::t_7f7eb61365ec59 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/incomplete-oct.toml
+  s_6c9dcf457e80d9::t_469b100f2a3afc 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/invalid-bin.toml
+  s_6c9dcf457e80d9::t_17f9d4e6d8a0ac 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/invalid-hex-1.toml
+  s_6c9dcf457e80d9::t_65ee4ff6710e15 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/invalid-hex-2.toml
+  s_6c9dcf457e80d9::t_e48e460f1d453f 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/invalid-hex.toml
+  s_6c9dcf457e80d9::t_0fb2c7510b1773 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/invalid-oct.toml
+  s_6c9dcf457e80d9::t_39baafe1ec6270 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-us-bin.toml
+  s_6c9dcf457e80d9::t_f5ef9a4f446b98 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-us-hex.toml
+  s_6c9dcf457e80d9::t_26db8fc72b7168 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-us-oct.toml
+  s_6c9dcf457e80d9::t_892bebbf4426bf 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-us.toml
+  s_6c9dcf457e80d9::t_c85b80a9c2b6a2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-1.toml
+  s_6c9dcf457e80d9::t_205d6b45521874 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-2.toml
+  s_6c9dcf457e80d9::t_1b7066ed6d82c7 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-3.toml
+  s_6c9dcf457e80d9::t_b453a50cb1f189 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-sign-1.toml
+  s_6c9dcf457e80d9::t_f7320502584a9c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-sign-2.toml
+  s_6c9dcf457e80d9::t_462ff7fe62d8ca 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/leading-zero-sign-3.toml
+  s_6c9dcf457e80d9::t_1be16a6b11a9ee 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/negative-bin.toml
+  s_6c9dcf457e80d9::t_1cf000c7c80eab 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/negative-hex.toml
+  s_6c9dcf457e80d9::t_866a6e716e60c8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/negative-oct.toml
+  s_6c9dcf457e80d9::t_5d8d11ff7cf512 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/positive-bin.toml
+  s_6c9dcf457e80d9::t_388fd28049c5b5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/positive-hex.toml
+  s_6c9dcf457e80d9::t_923cf708f7549a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/positive-oct.toml
+  s_6c9dcf457e80d9::t_ff150afe236a07 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/text-after-integer.toml
+  s_6c9dcf457e80d9::t_0a3cdaabb7bfa8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/trailing-us-bin.toml
+  s_6c9dcf457e80d9::t_40f9e3b88cf668 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/trailing-us-hex.toml
+  s_6c9dcf457e80d9::t_378b9e25a6e6dc 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/trailing-us-oct.toml
+  s_6c9dcf457e80d9::t_314b08eae4dc7c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/trailing-us.toml
+  s_6c9dcf457e80d9::t_6b5f4cf51f8994 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/us-after-bin.toml
+  s_6c9dcf457e80d9::t_d88b6e354a26ad 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/us-after-hex.toml
+  s_6c9dcf457e80d9::t_4a27023a072364 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/integer/us-after-oct.toml
+  s_6c9dcf457e80d9::t_d8f2b999d28cde 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/after-array.toml
+  s_6c9dcf457e80d9::t_7275fbedbfb5e3 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/after-table.toml
+  s_6c9dcf457e80d9::t_b021e54ac4bddd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/after-value.toml
+  s_6c9dcf457e80d9::t_13c1d548c2196e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/bare-invalid-character.toml
+  s_6c9dcf457e80d9::t_360425edf902fc 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/dotted-redefine-table-1.toml
+  s_6c9dcf457e80d9::t_74a971747dfc28 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/dotted-redefine-table-2.toml
+  s_6c9dcf457e80d9::t_c063a4fc860406 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/duplicate-keys-1.toml
+  s_6c9dcf457e80d9::t_9800ef70208645 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/duplicate-keys-2.toml
+  s_6c9dcf457e80d9::t_beb1df3e611520 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/duplicate-keys-3.toml
+  s_6c9dcf457e80d9::t_4efb1dff71e318 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/duplicate-keys-4.toml
+  s_6c9dcf457e80d9::t_c08680b3e3c1de 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/empty.toml
+  s_6c9dcf457e80d9::t_ca223f8e5efc18 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/end-in-escape.toml
+  s_6c9dcf457e80d9::t_4af5a4b600a4ce 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/escape.toml
+  s_6c9dcf457e80d9::t_52f7155d9e472a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/hash.toml
+  s_6c9dcf457e80d9::t_d7f00028b49720 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/newline-1.toml
+  s_6c9dcf457e80d9::t_0a852f633d2ce4 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/newline-2.toml
+  s_6c9dcf457e80d9::t_2a567935c8080e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/newline-3.toml
+  s_6c9dcf457e80d9::t_e997dead0108d1 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/newline-4.toml
+  s_6c9dcf457e80d9::t_edefae2f02bb5e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/newline-5.toml
+  s_6c9dcf457e80d9::t_d7d987b9435e4c 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/no-eol.toml
+  s_6c9dcf457e80d9::t_a2a1e9c4b7a0ac 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/open-bracket.toml
+  s_6c9dcf457e80d9::t_f97039648fb887 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/partial-quoted.toml
+  s_6c9dcf457e80d9::t_a57e175ec97685 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/quoted-unclosed-1.toml
+  s_6c9dcf457e80d9::t_fac3d13f4089f4 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/quoted-unclosed-2.toml
+  s_6c9dcf457e80d9::t_19006d68487f91 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/single-open-bracket.toml
+  s_6c9dcf457e80d9::t_c2cd7bced8df2c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/space.toml
+  s_6c9dcf457e80d9::t_7e59a154c18fd4 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/special-character.toml
+  s_6c9dcf457e80d9::t_2621d90cd4cad5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/start-bracket.toml
+  s_6c9dcf457e80d9::t_6e3f4e446c6643 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/start-dot.toml
+  s_6c9dcf457e80d9::t_fa0c109702c3ad 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/two-equals-1.toml
+  s_6c9dcf457e80d9::t_8e76e18226375c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/two-equals-2.toml
+  s_6c9dcf457e80d9::t_44b382edcffab5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/two-equals-3.toml
+  s_6c9dcf457e80d9::t_d4419d016c6929 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-1.toml
+  s_6c9dcf457e80d9::t_3f8071cdc42c45 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-2.toml
+  s_6c9dcf457e80d9::t_19025c3f5b2299 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-3.toml
+  s_6c9dcf457e80d9::t_47e9f53e556a1a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-4.toml
+  s_6c9dcf457e80d9::t_3121c541b613ae 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-5.toml
+  s_6c9dcf457e80d9::t_bb68bf9abf0538 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-6.toml
+  s_6c9dcf457e80d9::t_85b8122dfc82d5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/key/without-value-7.toml
+  s_6c9dcf457e80d9::t_6e43fc96d7f0c6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/feb-29.toml
+  s_6c9dcf457e80d9::t_cc6a4e7815ca47 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/feb-30.toml
+  s_6c9dcf457e80d9::t_162ace45e8dc42 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/mday-over.toml
+  s_6c9dcf457e80d9::t_61d83275764b35 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/mday-under.toml
+  s_6c9dcf457e80d9::t_18e3912e924ff1 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/month-over.toml
+  s_6c9dcf457e80d9::t_bbb31252b63843 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/month-under.toml
+  s_6c9dcf457e80d9::t_c13c904600db97 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/no-leads-with-milli.toml
+  s_6c9dcf457e80d9::t_035f4c7f857e0e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/no-leads.toml
+  s_6c9dcf457e80d9::t_7a0a23959763aa 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/trailing-t.toml
+  s_6c9dcf457e80d9::t_dee28b1141fa54 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-date/y10k.toml
+  s_6c9dcf457e80d9::t_6b877524898791 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/feb-29.toml
+  s_6c9dcf457e80d9::t_f9097953c476d0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/feb-30.toml
+  s_6c9dcf457e80d9::t_80cdca7690b5b0 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/hour-over.toml
+  s_6c9dcf457e80d9::t_8aafc5c372d7aa 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/mday-over.toml
+  s_6c9dcf457e80d9::t_658209a7ad811b 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/mday-under.toml
+  s_6c9dcf457e80d9::t_28db8828c8c941 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/minute-over.toml
+  s_6c9dcf457e80d9::t_efce04374defbd 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/month-over.toml
+  s_6c9dcf457e80d9::t_a0239e1a23d60a 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/month-under.toml
+  s_6c9dcf457e80d9::t_fa63236045777a 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/no-leads-with-milli.toml
+  s_6c9dcf457e80d9::t_2e8255b17e1fdd 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/no-leads.toml
+  s_6c9dcf457e80d9::t_31bdbbaed71e88 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/no-secs.toml
+  s_6c9dcf457e80d9::t_3e3a60bc81c4c9 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/no-t.toml
+  s_6c9dcf457e80d9::t_6e461f090ddb29 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/second-over.toml
+  s_6c9dcf457e80d9::t_20ee071dd3cf3f 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/time-no-leads.toml
+  s_6c9dcf457e80d9::t_9df31c398e2050 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-datetime/y10k.toml
+  s_6c9dcf457e80d9::t_0f1c3322951c96 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/hour-over.toml
+  s_6c9dcf457e80d9::t_55c7836372d792 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/minute-over.toml
+  s_6c9dcf457e80d9::t_d6368a60cc9d3a 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/no-secs.toml
+  s_6c9dcf457e80d9::t_5224353e957d5d 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/second-over.toml
+  s_6c9dcf457e80d9::t_d9f1d4ad514b02 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/time-no-leads-2.toml
+  s_6c9dcf457e80d9::t_7799dbb74a6706 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/local-time/time-no-leads.toml
+  s_6c9dcf457e80d9::t_a1864671af6109 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/inline-table-2-0.toml
+  s_6c9dcf457e80d9::t_abe89de87c4522 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/inline-table-3-0.toml
+  s_6c9dcf457e80d9::t_4e1b28f8729b42 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/key-value-pair-1.toml
+  s_6c9dcf457e80d9::t_221b8bf65c61a2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/keys-2.toml
+  s_6c9dcf457e80d9::t_e5af0501d6b863 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/string-4-0.toml
+  s_6c9dcf457e80d9::t_80b758b9974f43 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/string-7-0.toml
+  s_6c9dcf457e80d9::t_f941ceb218360f 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/table-9-0.toml
+  s_6c9dcf457e80d9::t_2ab1c3b797b036 1-9
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/spec/table-9-1.toml
+  s_6c9dcf457e80d9::t_576d3e532f72c4 1-9
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-byte-escape.toml
+  s_6c9dcf457e80d9::t_83bd93aca1c440 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-concat.toml
+  s_6c9dcf457e80d9::t_d19b7438dafa33 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-escape-1.toml
+  s_6c9dcf457e80d9::t_b76a8a7ce13e5f 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-escape-2.toml
+  s_6c9dcf457e80d9::t_5f2341da4a8a8c 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-escape-3.toml
+  s_6c9dcf457e80d9::t_c245be2b22bd31 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-hex-esc-1.toml
+  s_6c9dcf457e80d9::t_4ee4eea60b6426 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-hex-esc-2.toml
+  s_6c9dcf457e80d9::t_2eb64587463a1d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-hex-esc-3.toml
+  s_6c9dcf457e80d9::t_3a21256d8590db 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-hex-esc-4.toml
+  s_6c9dcf457e80d9::t_68996aef801118 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-hex-esc-5.toml
+  s_6c9dcf457e80d9::t_b5e596825de5a6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-multiline.toml
+  s_6c9dcf457e80d9::t_6c28d458aa265e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-slash-escape.toml
+  s_6c9dcf457e80d9::t_de144410c69a8b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-1.toml
+  s_6c9dcf457e80d9::t_4428c487f5b1d4 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-2.toml
+  s_6c9dcf457e80d9::t_67b2ade6c5880e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-3.toml
+  s_6c9dcf457e80d9::t_c7350765abe104 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-4.toml
+  s_6c9dcf457e80d9::t_2a0baba5269dcc 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-5.toml
+  s_6c9dcf457e80d9::t_82c880c6ec5a5e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-6.toml
+  s_6c9dcf457e80d9::t_c5705afe4f0627 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/bad-uni-esc-7.toml
+  s_6c9dcf457e80d9::t_9a464214316137 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-byte-escapes.toml
+  s_6c9dcf457e80d9::t_db560d2f85b74a 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-multiline-out-of-range-unicode-escape-1.toml
+  s_6c9dcf457e80d9::t_14e7ee18b5a996 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-multiline-out-of-range-unicode-escape-2.toml
+  s_6c9dcf457e80d9::t_c76e0b21c9c159 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-multiline-quotes.toml
+  s_6c9dcf457e80d9::t_1912232f73f982 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-multiline-unknown-escape.toml
+  s_6c9dcf457e80d9::t_856104809e4e7c 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-out-of-range-unicode-escape-1.toml
+  s_6c9dcf457e80d9::t_c55bb78ec1b103 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-out-of-range-unicode-escape-2.toml
+  s_6c9dcf457e80d9::t_c6ee772567f0e8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/basic-unknown-escape.toml
+  s_6c9dcf457e80d9::t_d6a41838b522a8 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/literal-multiline-quotes-1.toml
+  s_6c9dcf457e80d9::t_001a1e7b86704f 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/literal-multiline-quotes-2.toml
+  s_6c9dcf457e80d9::t_af51fde2a27ce2 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/missing-quotes.toml
+  s_6c9dcf457e80d9::t_f8129494667a4d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-bad-escape-1.toml
+  s_6c9dcf457e80d9::t_71bb23395be9b4 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-bad-escape-2.toml
+  s_6c9dcf457e80d9::t_3ff2539724c81c 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-bad-escape-3.toml
+  s_6c9dcf457e80d9::t_8e2ab8f3938d2a 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-bad-escape-4.toml
+  s_6c9dcf457e80d9::t_0474b82f926813 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-escape-space-1.toml
+  s_6c9dcf457e80d9::t_f87f3afde8d92d 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-escape-space-2.toml
+  s_6c9dcf457e80d9::t_48ad94243e3c58 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-lit-no-close-1.toml
+  s_6c9dcf457e80d9::t_b728c9a5e9481e 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-lit-no-close-2.toml
+  s_6c9dcf457e80d9::t_01e0450dadd7df 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-lit-no-close-3.toml
+  s_6c9dcf457e80d9::t_238276d0a3907f 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-lit-no-close-4.toml
+  s_6c9dcf457e80d9::t_21e9d79ad185f0 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-no-close-1.toml
+  s_6c9dcf457e80d9::t_2c7d92ccd58e58 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-no-close-2.toml
+  s_6c9dcf457e80d9::t_0f0b4bff6a4834 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-no-close-3.toml
+  s_6c9dcf457e80d9::t_344170406a3f4e 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-no-close-4.toml
+  s_6c9dcf457e80d9::t_4d70bceb8f20db 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-no-close-5.toml
+  s_6c9dcf457e80d9::t_ea4b219643854c 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/multiline-quotes-1.toml
+  s_6c9dcf457e80d9::t_2de3b74f343edf 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/no-close-1.toml
+  s_6c9dcf457e80d9::t_2ac4fa8cd58607 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/no-close-2.toml
+  s_6c9dcf457e80d9::t_87002f32e0e038 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/no-close-3.toml
+  s_6c9dcf457e80d9::t_4592dc04cedf4e 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/no-close-4.toml
+  s_6c9dcf457e80d9::t_32a12fe2b7dd28 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/text-after-string.toml
+  s_6c9dcf457e80d9::t_226737380eea64 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/string/wrong-close.toml
+  s_6c9dcf457e80d9::t_a28b94f33ee8e6 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/append-to-array-with-dotted-keys.toml
+  s_6c9dcf457e80d9::t_3c86750bef5fc3 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/append-with-dotted-keys-1.toml
+  s_6c9dcf457e80d9::t_90899a0d3899c3 1-17
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/append-with-dotted-keys-2.toml
+  s_6c9dcf457e80d9::t_6c69df8fbfad6b 1-8
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/array-empty.toml
+  s_6c9dcf457e80d9::t_89521d0dafd175 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/array-implicit.toml
+  s_6c9dcf457e80d9::t_ac0472141092d0 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/array-no-close-1.toml
+  s_6c9dcf457e80d9::t_d6d874f8ae86d3 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/array-no-close-2.toml
+  s_6c9dcf457e80d9::t_5253d7b56f52e3 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-key-dotted-array.toml
+  s_6c9dcf457e80d9::t_f81f69f8aabd33 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-key-dotted-table.toml
+  s_6c9dcf457e80d9::t_92e98c1d7a8fd5 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-key-dotted-table2.toml
+  s_6c9dcf457e80d9::t_a464854c4bf5d4 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-key-table.toml
+  s_6c9dcf457e80d9::t_cd16b76d2fdcba 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-table-array.toml
+  s_6c9dcf457e80d9::t_661e41fe74f5a1 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate-table-array2.toml
+  s_6c9dcf457e80d9::t_ce5751e326d112 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/duplicate.toml
+  s_6c9dcf457e80d9::t_f40b2afe7b2b08 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/empty-implicit-table.toml
+  s_6c9dcf457e80d9::t_f76646da2eaf95 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/empty.toml
+  s_6c9dcf457e80d9::t_2c3aede07f75d5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/equals-sign.toml
+  s_6c9dcf457e80d9::t_9fa8fce194e31b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/llbrace.toml
+  s_6c9dcf457e80d9::t_f33459f14508be 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/nested-brackets-close.toml
+  s_6c9dcf457e80d9::t_5f28a2f6e31d8c 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/nested-brackets-open.toml
+  s_6c9dcf457e80d9::t_f9f427d01ffab4 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/no-close-1.toml
+  s_6c9dcf457e80d9::t_41d72d80bb5625 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/no-close-2.toml
+  s_6c9dcf457e80d9::t_f3e2cc14c06258 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/no-close-3.toml
+  s_6c9dcf457e80d9::t_ea9fa62c5106fc 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/no-close-4.toml
+  s_6c9dcf457e80d9::t_e42b7922ecb2b9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/no-close-5.toml
+  s_6c9dcf457e80d9::t_1d8c29ccf51867 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/overwrite-array-in-parent.toml
+  s_6c9dcf457e80d9::t_9344466e1c6518 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/overwrite-bool-with-array.toml
+  s_6c9dcf457e80d9::t_e0b97ec44c0515 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/overwrite-with-deep-table.toml
+  s_6c9dcf457e80d9::t_435094a03aeb15 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/redefine-1.toml
+  s_6c9dcf457e80d9::t_8e47fa5e52ded1 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/redefine-2.toml
+  s_6c9dcf457e80d9::t_8fa285964f6773 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/redefine-3.toml
+  s_6c9dcf457e80d9::t_e02c587f1709a7 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/rrbrace.toml
+  s_6c9dcf457e80d9::t_ebe42124858a2d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/super-twice.toml
+  s_6c9dcf457e80d9::t_a91bd4c51a1256 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/text-after-table.toml
+  s_6c9dcf457e80d9::t_3d879a76f250dd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/whitespace.toml
+  s_6c9dcf457e80d9::t_ffb7678e0ab950 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/invalid/table/with-pound.toml
+  s_6c9dcf457e80d9::t_230b4298e194e6 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/bool/bool.json
+  s_6c9dcf457e80d9::t_37eb7813bb0016 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/bool/bool.toml
+  s_6c9dcf457e80d9::t_6661691f93d3d5 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/at-eof.json
+  s_6c9dcf457e80d9::t_8283b58b90926c 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/at-eof.toml
+  s_6c9dcf457e80d9::t_56c69e38765c91 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/at-eof2.json
+  s_6c9dcf457e80d9::t_ea0ad3c205f9f8 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/at-eof2.toml
+  s_6c9dcf457e80d9::t_92ffa4c209363a 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/noeol.json
+  s_6c9dcf457e80d9::t_6c0d7d3931d7c9 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/noeol.toml
+  s_6c9dcf457e80d9::t_e10c4a97e97492 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/nonascii.json
+  s_6c9dcf457e80d9::t_babcff8d90f38d 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/comment/nonascii.toml
+  s_6c9dcf457e80d9::t_9cb34c12e380de 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/empty-file.json
+  s_6c9dcf457e80d9::t_cbfee2fa0f5e4b 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/float64-max.json
+  s_6c9dcf457e80d9::t_1ddc4c2b974d2b 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/float64-max.toml
+  s_6c9dcf457e80d9::t_f8aeac89acb245 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/integer.json
+  s_6c9dcf457e80d9::t_80e33e53946e9e 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/integer.toml
+  s_6c9dcf457e80d9::t_41260d7f3a71ec 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/long.json
+  s_6c9dcf457e80d9::t_3bb74199f07645 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/long.toml
+  s_6c9dcf457e80d9::t_543669c483a91c 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/underscore.json
+  s_6c9dcf457e80d9::t_b7858c8fd6303a 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/integer/underscore.toml
+  s_6c9dcf457e80d9::t_aa188aa01eb9d8 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/alphanum.json
+  s_6c9dcf457e80d9::t_82d1d0108c3f05 1-16
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/alphanum.toml
+  s_6c9dcf457e80d9::t_06e6bcc0e1408a 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/equals-nospace.json
+  s_6c9dcf457e80d9::t_9afa9199302700 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/equals-nospace.toml
+  s_6c9dcf457e80d9::t_8b0895334f8a11 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/numeric.json
+  s_6c9dcf457e80d9::t_90e414b82079ca 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/numeric.toml
+  s_6c9dcf457e80d9::t_54f5eca845deab 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/special-word.json
+  s_6c9dcf457e80d9::t_4e25a2d701c3a6 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/special-word.toml
+  s_6c9dcf457e80d9::t_a58ea2b4253d52 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/zero.json
+  s_6c9dcf457e80d9::t_66db8ec65c289c 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/key/zero.toml
+  s_6c9dcf457e80d9::t_1299ef03e54a58 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/newline-crlf.json
+  s_6c9dcf457e80d9::t_62cc7bea72d419 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/newline-crlf.toml
+  s_6c9dcf457e80d9::t_175e30e76c0ea3 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/newline-lf.json
+  s_6c9dcf457e80d9::t_a0ff345ce7ea4a 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/newline-lf.toml
+  s_6c9dcf457e80d9::t_9aa9f8af6006f9 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/boolean-0.json
+  s_6c9dcf457e80d9::t_0c50625c3b4f73 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/boolean-0.toml
+  s_6c9dcf457e80d9::t_d4db4ae8918103 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/comment-0.json
+  s_6c9dcf457e80d9::t_f7ebba6c906a48 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/comment-0.toml
+  s_6c9dcf457e80d9::t_09d577d845617f 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/integer-0.json
+  s_6c9dcf457e80d9::t_4d1204faeb903a 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/integer-0.toml
+  s_6c9dcf457e80d9::t_2ad5504e6b4e23 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/integer-1.json
+  s_6c9dcf457e80d9::t_6068e0a1f1fbe1 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/integer-1.toml
+  s_6c9dcf457e80d9::t_e20b4a2c483bf7 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/key-value-pair-0.json
+  s_6c9dcf457e80d9::t_71434ff433732a 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/key-value-pair-0.toml
+  s_6c9dcf457e80d9::t_b5642dc763705f 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/keys-0.json
+  s_6c9dcf457e80d9::t_334e8e97c68bf4 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/keys-0.toml
+  s_6c9dcf457e80d9::t_e12646fb1b36e6 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/string-0.json
+  s_6c9dcf457e80d9::t_ee29614983a516 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/string-0.toml
+  s_6c9dcf457e80d9::t_b41018df2e2b81 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/string-2.json
+  s_6c9dcf457e80d9::t_3d026c50b95cb0 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/string-2.toml
+  s_6c9dcf457e80d9::t_281502374222a7 1-5
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/table-0.json
+  s_6c9dcf457e80d9::t_a3828dd2a0cfd0 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/table-0.toml
+  s_6c9dcf457e80d9::t_d93e0c21295ed5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/table-1.json
+  s_6c9dcf457e80d9::t_98d9905698c49f 1-10
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/spec/table-1.toml
+  s_6c9dcf457e80d9::t_1e4132b95da23f 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/double-quote-escape.json
+  s_6c9dcf457e80d9::t_5252aef58e8efe 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/double-quote-escape.toml
+  s_6c9dcf457e80d9::t_ad5b5b50e1ff14 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/empty.json
+  s_6c9dcf457e80d9::t_bfd5cb33eb5ca0 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/empty.toml
+  s_6c9dcf457e80d9::t_3fa4363c8f1a42 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/escaped-escape.json
+  s_6c9dcf457e80d9::t_9af4c464a451c8 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/escaped-escape.toml
+  s_6c9dcf457e80d9::t_520011907b3507 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/escapes.json
+  s_6c9dcf457e80d9::t_c9b5058aeb99fb 1-15
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/escapes.toml
+  s_6c9dcf457e80d9::t_64d02ebd90dd02 1-15
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/simple.json
+  s_6c9dcf457e80d9::t_6509cf8f315783 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/simple.toml
+  s_6c9dcf457e80d9::t_07e2e53cbe5ef0 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/unicode-literal.json
+  s_6c9dcf457e80d9::t_a92078a9e0051a 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/unicode-literal.toml
+  s_6c9dcf457e80d9::t_f8ce1da2f932dd 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/with-pound.json
+  s_6c9dcf457e80d9::t_eb1ff3fe5c848e 1-4
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/string/with-pound.toml
+  s_6c9dcf457e80d9::t_c5e466a7423c86 1-2
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/empty.json
+  s_6c9dcf457e80d9::t_f7d2d47cada141 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/empty.toml
+  s_6c9dcf457e80d9::t_7cdc4c395a21c5 1
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/keyword-with-values.json
+  s_6c9dcf457e80d9::t_b00837808b534c 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/keyword-with-values.toml
+  s_6c9dcf457e80d9::t_3febb9791a5479 1-11
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/keyword.json
+  s_6c9dcf457e80d9::t_d4d5526843d054 1-6
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/keyword.toml
+  s_6c9dcf457e80d9::t_73dfde9f1d0e2b 1-9
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/no-eol.json
+  s_6c9dcf457e80d9::t_957900f5a02496 1-3
+ultragraphdb_tool/ultragraphdb_tool_toml/testdata/toml-test/valid/table/no-eol.toml
+  s_6c9dcf457e80d9::t_8c8ea216359a51 1
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/errors/mod.rs
+  s_6c9dcf457e80d9::t_f5af9798ee1f35 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/errors/toml_error/mod.rs
+  s_6c9dcf457e80d9::t_d1a30b35232dee 1-11
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/errors/toml_error/toml_error_display_tests.rs
+  s_6c9dcf457e80d9::t_7aca794d4bb5b2 1-79
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/errors/toml_error/toml_error_error_tests.rs
+  s_6c9dcf457e80d9::t_d9edf0da863eb8 1-18
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/errors/toml_error/toml_error_tests.rs
+  s_6c9dcf457e80d9::t_e3daaacbed6661 1-88
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/mod.rs
+  s_6c9dcf457e80d9::t_f8b9fb31327a73 1-13
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/mod.rs
+  s_6c9dcf457e80d9::t_376092997b6a58 1-21
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/mod.rs
+  s_6c9dcf457e80d9::t_40a2901f811fc9 1-19
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_invalid_tests.rs
+  s_6c9dcf457e80d9::t_56511235186e52 1-234
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_limits_tests.rs
+  s_6c9dcf457e80d9::t_13d4f65123e475 1-139
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_read_tests.rs
+  s_6c9dcf457e80d9::t_9fd8048cb9ed64 1-204
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_suite_tests.rs
+  s_6c9dcf457e80d9::t_491cd2c222045a 1-58
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_tests.rs
+  s_6c9dcf457e80d9::t_b364c14f3c29e4 1-134
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_unsupported_tests.rs
+  s_6c9dcf457e80d9::t_b07d946f5c0897 1-148
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_document/toml_document_values_tests.rs
+  s_6c9dcf457e80d9::t_a805d9358ac100 1-168
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_entry/mod.rs
+  s_6c9dcf457e80d9::t_c73eb5722a3a42 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_entry/toml_entry_tests.rs
+  s_6c9dcf457e80d9::t_cda11c1d671139 1-22
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_feature/mod.rs
+  s_6c9dcf457e80d9::t_d665b995354322 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_feature/toml_feature_display_tests.rs
+  s_6c9dcf457e80d9::t_a40e32e86588fa 1-31
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_invalid/mod.rs
+  s_6c9dcf457e80d9::t_d0ac2b1a94cf7d 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_invalid/toml_invalid_display_tests.rs
+  s_6c9dcf457e80d9::t_6920436806abca 1-47
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_kind/mod.rs
+  s_6c9dcf457e80d9::t_4c4c348ca0e508 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_kind/toml_kind_display_tests.rs
+  s_6c9dcf457e80d9::t_118c69f4f8b499 1-13
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_limit/mod.rs
+  s_6c9dcf457e80d9::t_71cfe2f4f24e77 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_limit/toml_limit_display_tests.rs
+  s_6c9dcf457e80d9::t_a64c2e1e2e4c2c 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_table/mod.rs
+  s_6c9dcf457e80d9::t_103da2761e575f 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_table/toml_table_tests.rs
+  s_6c9dcf457e80d9::t_dfe9f1f14c2ad6 1-35
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_value/mod.rs
+  s_6c9dcf457e80d9::t_5caaf02c77134b 1-7
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/types/toml_value/toml_value_tests.rs
+  s_6c9dcf457e80d9::t_e8f7a2042142fb 1-14
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/utils/document.rs
+  s_6c9dcf457e80d9::t_18f99fe7fc0494 1-70
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/utils/mod.rs
+  s_6c9dcf457e80d9::t_cb9d946939f27a 1-13
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/utils/refusal.rs
+  s_6c9dcf457e80d9::t_31592dcd731bd2 1-32
+ultragraphdb_tool/ultragraphdb_tool_toml/tests/utils/toml_test_suite.rs
+  s_6c9dcf457e80d9::t_1a7dd949a81ec8 1-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d0b2852a3a4c5dd1e19cf5d17572ab1f83c81d1",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
