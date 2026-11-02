@@ -1,0 +1,157 @@
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/tls_connector/tls_connector_tests.rs
+  s_cbffd219ee18ae::t_a97262bda7cf03 11,22,24-27,38,46,52,59,73,89,97-98,101-104,107,113
+.cargo/mutants.toml
+  s_cbffd219ee18ae::t_9d6860fdf3077a 251-258
+AGENTS.md
+  s_cbffd219ee18ae::t_19204b7aea94d3 159,177-178,414-416
+fuzz/Cargo.toml
+  s_cbffd219ee18ae::t_1da78004ce881d 25
+fuzz/ultragraphdb_common_telemetry/Cargo.toml
+  s_cbffd219ee18ae::t_bc47a261e9fd59 1-32
+fuzz/ultragraphdb_common_telemetry/fuzz_targets/http_response_decode.rs
+  s_cbffd219ee18ae::t_c8db5aa8349bd8 1-36
+openspec/changes/transport-tls/notes/phases.md
+  s_cbffd219ee18ae::t_ac4ef59471a4d2 112-128
+openspec/changes/transport-tls/proposal.md
+  s_cbffd219ee18ae::t_543498917e337d 12-14,18-20
+openspec/changes/transport-tls/tasks.md
+  s_cbffd219ee18ae::t_017056de472e66 1-2,6
+openspec/protocols/ULTRA_STYLE.md
+  s_cbffd219ee18ae::t_ecf35f8372f492 391-392,416-417
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_conformance_faults_tests.rs
+  s_cbffd219ee18ae::t_cfef5d5723ba43 143
+ultragraphdb_common/ultragraphdb_common_telemetry/src/lib.rs
+  s_cbffd219ee18ae::t_e8c7fd2e3d08cf 26,33,36,39
+ultragraphdb_common/ultragraphdb_common_telemetry/src/telemetry/init.rs
+  s_cbffd219ee18ae::t_ee42d0776d65c4 18,28-29
+ultragraphdb_common/ultragraphdb_common_telemetry/src/traits/dial.rs
+  s_cbffd219ee18ae::t_fe8cf6d1200860 1-23
+ultragraphdb_common/ultragraphdb_common_telemetry/src/traits/mod.rs
+  s_cbffd219ee18ae::t_bc1bede95cbf33 1-6
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/connection_read.rs
+  s_cbffd219ee18ae::t_af423c4f16f6a8 6,10,13
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/connection_write.rs
+  s_cbffd219ee18ae::t_e9226287d3ac62 6,10,13,20
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/mod.rs
+  s_cbffd219ee18ae::t_7485631b3c29c8 9,13,15-18,20
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/mod.rs
+  s_cbffd219ee18ae::t_702ac7c81b4104 9
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/otlp_http_client/mod.rs
+  s_cbffd219ee18ae::t_2a44a85fdb283c 12-17,21-22,28,30-42,53-58
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/otlp_http_client/otlp_http_client_http_client.rs
+  s_cbffd219ee18ae::t_3c72392f1e0fa4 10,14,16
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/tcp_dial.rs
+  s_cbffd219ee18ae::t_aa329fdaa6469d 1-34
+ultragraphdb_common/ultragraphdb_common_telemetry/src/utils/http1.rs
+  s_cbffd219ee18ae::t_6a335fd536ba88 6-8,11,16,25-28,30,44,46-47,53,90,93-95,114-122
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/chunked
+  s_cbffd219ee18ae::t_b3feb1d2a6bc3a 1-10
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/content_length
+  s_cbffd219ee18ae::t_eb9cf3752cd152 1-5
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/empty
+  s_cbffd219ee18ae::t_b6901927b81b52 1-3
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/error_status
+  s_cbffd219ee18ae::t_92c7a2dbf5e0d4 1-4
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/short_body
+  s_cbffd219ee18ae::t_604f0234452ae3 1-4
+ultragraphdb_common/ultragraphdb_common_telemetry/testdata/fuzz_seeds/http_response_decode/unframed
+  s_cbffd219ee18ae::t_8302955c03f352 1-3
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/collector.rs
+  s_cbffd219ee18ae::t_e905077b9fe2b3 2-3,6-26,29-37,40-54,57-69,72-82,85-92,95-103,105-111,113-117,120-126,129-145,148-152,155-167,170-174
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/mod.rs
+  s_cbffd219ee18ae::t_f1f31be7d08888 6-7,16-17
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/telemetry/subscriber_tests.rs
+  s_cbffd219ee18ae::t_7c03d790478fc8 16-17,21-22,293-299,305,307-310,313-315,318,330-334,341
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/test_support.rs
+  s_cbffd219ee18ae::t_26dc777a0584b3 6,8
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/types/otlp_http_client/otlp_http_client_http_client_tests.rs
+  s_cbffd219ee18ae::t_a0c95676f499b5 6-8,12,15,18,31-35,38-41,46-48,56-57,59-61,63,67-71,74-87,89-90,92,96-100,103-108,112-120,123-131,135-156,159-172,178-179,181-185,188,190,197,199-204,213-217,221-223,225,228,230,234-240,243,245,249,256-260,270-272,274-282,284-307,309
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/utils/http1_tests.rs
+  s_cbffd219ee18ae::t_237cc83519390a 1-120
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/utils/mod.rs
+  s_cbffd219ee18ae::t_f4cec0aadde774 1-7
+ultragraphdb_common/ultragraphdb_common_utils/Cargo.toml
+  s_cbffd219ee18ae::t_60c79430465208 13-14
+ultragraphdb_common/ultragraphdb_common_utils/src/lib.rs
+  s_cbffd219ee18ae::t_7deacb574d60bf 7,10,38
+ultragraphdb_core/ultragraphdb_core_mapping/tests/types/canonical_dataset/canonical_dataset_apply_tests.rs
+  s_cbffd219ee18ae::t_f01af25a09d099 186-188,208
+ultragraphdb_core/ultragraphdb_core_terms/tests/types/encoded_term/encoded_term_encode_tests.rs
+  s_cbffd219ee18ae::t_c9886781d36f5f 368-370,385
+ultragraphdb_core/ultragraphdb_core_types/src/s2/cellid/mod.rs
+  s_cbffd219ee18ae::t_e6862fac586f74 121,298,407-408
+ultragraphdb_core/ultragraphdb_core_types/src/s2/edge_clipping.rs
+  s_cbffd219ee18ae::t_836c22e4c2fe98 160-162
+ultragraphdb_core/ultragraphdb_core_types/src/s2/gomath/logb.rs
+  s_cbffd219ee18ae::t_f3eb3793bdeb59 15,18
+ultragraphdb_core/ultragraphdb_core_types/src/s2/gomath/trig_reduce.rs
+  s_cbffd219ee18ae::t_e900e6b0d77aa9 27,43,49,79
+ultragraphdb_core/ultragraphdb_core_types/src/s2/paddedcell.rs
+  s_cbffd219ee18ae::t_4c1144cf10fe01 255
+ultragraphdb_core/ultragraphdb_core_types/src/s2/stuv.rs
+  s_cbffd219ee18ae::t_f421d945e60052 23,26
+ultragraphdb_core/ultragraphdb_core_types/tests/s2/edge_crosser_tests.rs
+  s_cbffd219ee18ae::t_5ffd3f3aa602c4 68
+ultragraphdb_core/ultragraphdb_core_types/tests/s2/golden.rs
+  s_cbffd219ee18ae::t_1df42b50c45f4f 77
+ultragraphdb_core/ultragraphdb_core_types/tests/s2/loop_tests.rs
+  s_cbffd219ee18ae::t_bc286233da7c99 837-840,894-897
+ultragraphdb_store/ultragraphdb_store_apply/tests/vector_steps.rs
+  s_cbffd219ee18ae::t_21ac0b4dc0d59a 554
+ultragraphdb_store/ultragraphdb_store_kv/tests/types/fjall_store/fjall_store_store_tests.rs
+  s_cbffd219ee18ae::t_e4d527a34faa4c 1113-1114
+ultragraphdb_store/ultragraphdb_store_posting/src/types/list/mod.rs
+  s_cbffd219ee18ae::t_4ac076b30bef42 39,63
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/superblock/superblock_io_tests.rs
+  s_cbffd219ee18ae::t_12948cccbf0372 169,186
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/wal/wal_ordered_log_tests.rs
+  s_cbffd219ee18ae::t_c3b22f6186b4fc 226,231,458,463
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/types/wal/wal_tests.rs
+  s_cbffd219ee18ae::t_2b080ee28468f6 758,764,786,797
+ultragraphdb_transactions/ultragraphdb_transactions_log/tests/utils/scan_tests.rs
+  s_cbffd219ee18ae::t_22fb57c6431cc1 657-665,681
+ultragraphdb_transport/ultragraphdb_transport_tls/Cargo.toml
+  s_cbffd219ee18ae::t_d40a411ae137a3 18-19
+ultragraphdb_transport/ultragraphdb_transport_tls/src/lib.rs
+  s_cbffd219ee18ae::t_9a05fcf3a78b12 13-14,25-29
+ultragraphdb_transport/ultragraphdb_transport_tls/src/types/tls_connector/mod.rs
+  s_cbffd219ee18ae::t_dd7a025898fe21 6,16-18,21-22,56-57,64-68
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/mod.rs
+  s_cbffd219ee18ae::t_8e8cd59c2c903c 6-7
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_echo.rs
+  s_cbffd219ee18ae::t_0f55260cc5cc12 1-31
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_peer/mod.rs
+  s_cbffd219ee18ae::t_b1599e5da587e8 1-81
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_peer/test_peer_read.rs
+  s_cbffd219ee18ae::t_99915ecd8ef0d5 1-14
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_peer/test_peer_write.rs
+  s_cbffd219ee18ae::t_5452f1765b0c34 1-19
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_pki.rs
+  s_cbffd219ee18ae::t_570588a9c11e5c 6,14,18-19,83,85-86,89,91-92,96-101
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/bdd.rs
+  s_cbffd219ee18ae::t_d3e6a0d3549fe5 12-14,36,39
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/utils_test/mod.rs
+  s_cbffd219ee18ae::t_ef21415046c29d 6-7
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/utils_test/test_peer_tests.rs
+  s_cbffd219ee18ae::t_2d01edcc85e84f 1-32
+Cargo.toml
+  s_cbffd219ee18ae::t_3830053ca21f8a 135,137-177,181-184
+fuzz/Cargo.lock
+  s_cbffd219ee18ae::t_5da6abb155098d 14-19,35-45,90-95,200,232,248,278,298,426,453-461,468-478,539-549,588-603,633-641,658-668,761,785-852,896-897,899,924,927-932,951-973,1041-1054,1075-1109,1227,1383-1406,1417-1418,1425,1453-1476,1486-1489,1549-1550,1573,1729,1745,1838-1845,1873-1878,1891-1896,1906-1959,1981-1989,1999-2062
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1dd895b6df62778a762b5a4abc6e46ec6bdd9945",
+  "prompts": {},
+  "sessions": {
+    "s_cbffd219ee18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "890f65f9-c249-45a3-8923-6f7c9f809591",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
