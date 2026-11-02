@@ -106,7 +106,7 @@ at the task that removes them.
 - [ ] 10b.4 Phase 4: the single-pass parser, no recursion and no external dependency
 - [ ] 10b.5 Phase 5: a fuzz target for the parser, seeded with the vendored valid documents, checking no panic and that an accepted document's values re-read alike
 
-## 11. Binaries, supervisor and images → `ultragraphdb_error_role`, `ultragraphdb_bin/*`
+## 11. Binaries, supervisor and images → `ultragraphdb_error_role`, `ultragraphdb/*`
 
 - [ ] 11.1 Scenarios: role-binaries (all requirements)
 - [ ] 11.2 Phases 1–3: settings from a standard TOML file through `ultragraphdb_tool_toml`, every key taken or refused, overridden by `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, with every setting's bound checked; the profiles as TOML files; `/health` and `/ready` from the in-house HTTP/1.1 responder; start, readiness and the shutdown order; exit codes; the io_uring probe and fallback; the supervisor's start order, signal forwarding and exit code

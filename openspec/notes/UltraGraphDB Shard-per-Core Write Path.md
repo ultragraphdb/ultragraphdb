@@ -752,7 +752,7 @@ glibc, is D7 in the review note, adopted the same day.
   - the sequencer with one replica, closing epochs and ordering multi-partition transactions (P21);
   - the partition runtime, partition-generic, run with one partition for stages 6 and 7 and with N in `wal_bench`
     (P5 step 1);
-  - the crates divided into the three roles, each role its own binary and OCI image under `ultragraphdb_bin` (P22).
+  - the crates divided into the three roles, each role its own binary and OCI image under `ultragraphdb/` (P22).
 - **Stage 5.5 decides and stage 8 builds**: the execution of cross-partition commits on the sequencer's order (P3,
   P14), change streams and their aggregation per node, replication and replica placement (P8), node budgets (P4, P11),
   the epoch agent (P12), flush sharing behind the log interface (P10).
@@ -778,7 +778,7 @@ epoch length and on placing the sequencer beside the metadata group stay with st
 
 ### P22. Three binaries, three images
 
-Each role is its own binary under `ultragraphdb_bin`: frontend (the endpoint, the metadata group, the sequencer),
+Each role is its own binary under `ultragraphdb/`: frontend (the endpoint, the metadata group, the sequencer),
 compute (query execution) and storage (transactions, the commit step, the log, the store). Each ships as its own OCI
 image on the Wolfi glibc base through `glibc_multiarch_img` (D7). A binary carries only its role's code and
 dependencies, so each image is the smallest that role allows and a role updates on its own; the roles share the

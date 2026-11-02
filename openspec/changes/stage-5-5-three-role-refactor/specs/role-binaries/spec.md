@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Each role is its own binary and image
-The roles SHALL be three binaries under `ultragraphdb_bin`: `ultragraphdb_frontend` (the client endpoint,
+The roles SHALL be three binaries under `ultragraphdb/`: `ultragraphdb_frontend` (the client endpoint,
 authentication, the metadata group and the sequencer), `ultragraphdb_compute` (quad-pattern reads) and
 `ultragraphdb_storage` (partitions). Each SHALL link only its role's crates and SHALL ship as its own multi-arch OCI
 image for amd64 and arm64 on the Wolfi glibc base, running as user 65532 with no shell. A fourth binary,
-`ultragraphdb_dev`, SHALL be the supervisor of the development image, which holds the three role binaries and the
+`ultragraphdb_supervisor`, SHALL be the supervisor of the development image, which holds the three role binaries and the
 supervisor on the same base.
 
 #### Scenario: A role image holds its binary alone

@@ -6,7 +6,7 @@ UltraGraphDB is a distributed graph database with three node types (frontend, co
 
 ## Cluster architecture
 
-Three node types, each its own binary and OCI image under `ultragraphdb_bin` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
+Three node types, each its own binary and OCI image under `ultragraphdb/` (decided 2026-11-01, Shard-per-Core note P22). The split follows StarRocks (frontends plus executors) and matches Apache HugeGraph's independently evolved Server, PD and Store layout, with a separate compute tier because graph algorithms are heavy and should not compete with storage I/O.
 
 &#91;embedded content: Cluster architecture · frontend, compute and two storage modes\]
 

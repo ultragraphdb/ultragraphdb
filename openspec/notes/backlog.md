@@ -15,7 +15,7 @@ decision.
 
 ### 1. The roles and their process
 
-The three roles (frontend, compute, storage), each its own binary and OCI image under `ultragraphdb_bin`, built in
+The three roles (frontend, compute, storage), each its own binary and OCI image under `ultragraphdb/`, built in
 stage 5.5 (Shard-per-Core note, P22); each role's threads and runtimes; the profiles (`dev`, `dev-ha`, `dev-net`, one
 role per process) and their configuration; the data layout per role and replica; start, readiness, the shutdown order;
 health and metrics; bounds; exit codes; the acceptance batteries against the built binary.

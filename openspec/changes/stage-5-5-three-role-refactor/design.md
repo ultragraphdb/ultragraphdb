@@ -60,7 +60,7 @@ Today:
 | `ultragraphdb_roles_storage` | `ultragraphdb_roles/` | `_cluster_partition`, `ultragraphdb_protocol_*` | The partitions' host: role commands, epoch delivery, block leases |
 | `ultragraphdb_error_toml` | `ultragraphdb_error/` | — | `TomlError(pub TomlErrorEnum)`: unsupported feature, invalid document, limit, missing, wrong kind, unread key |
 | `ultragraphdb_tool_toml` | `ultragraphdb_tool/` | `_error_toml` | The TOML subset's parser, its document and typed accessors; no external dependency |
-| `ultragraphdb_frontend`, `_compute`, `_storage`, `_dev` | `ultragraphdb_bin/` | their role crate, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_dev` the supervisor |
+| `ultragraphdb_frontend`, `_compute`, `_storage`, `_supervisor` | `ultragraphdb/` | their role crate, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_supervisor` starts and stops the three roles |
 
 A role crate holds its role's logic and its I/O shell; a binary holds only `main`. The frontend's dependency graph
 holds no storage engine, which the role-binaries scenario checks. Error crates follow the repository's rule, one per

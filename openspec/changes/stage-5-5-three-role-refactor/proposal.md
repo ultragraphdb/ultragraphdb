@@ -32,7 +32,7 @@ recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23
   absence is proven by a node's predicate lists, never by a seek.
 - **Three role binaries and images (P22):** `ultragraphdb_frontend` (the endpoint, authentication, the metadata group,
   the sequencer), `ultragraphdb_compute` (quad-pattern reads) and `ultragraphdb_storage` (partitions), each its own
-  binary under `ultragraphdb_bin` and its own OCI image on the Wolfi glibc base (D7); a supervisor binary runs the three
+  binary under `ultragraphdb/` and its own OCI image on the Wolfi glibc base (D7); a supervisor binary runs the three
   in the development container, joined over Unix-domain sockets; health, readiness, start and shutdown order, exit
   codes, the seccomp profile and io_uring's fallback.
 - **The client against the cluster (backlog item 9):** commits answer a session token (partition, position, epoch);
@@ -90,8 +90,8 @@ recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23
 ## Impact
 
 - **New group folders and crates:** `ultragraphdb_cluster/` (`_placement`, `_metadata`, `_sequencer`, `_partition`),
-  `ultragraphdb_roles/` (`_frontend`, `_compute`, `_storage`), the binaries `ultragraphdb_bin/ultragraphdb_frontend`,
-  `_compute`, `_storage` and `_dev`, `ultragraphdb_core/ultragraphdb_core_ids`,
+  `ultragraphdb_roles/` (`_frontend`, `_compute`, `_storage`), the binaries `ultragraphdb/ultragraphdb_frontend`,
+  `_compute`, `_storage` and `_supervisor`, `ultragraphdb_core/ultragraphdb_core_ids`,
   `ultragraphdb_tool/ultragraphdb_tool_toml`, and the error crates `ultragraphdb_error_ids`,
   `ultragraphdb_error_cluster`, `ultragraphdb_error_role` and `ultragraphdb_error_toml`.
 - **Changed crates, each lifted into Ultra Style first:** `ultragraphdb_core_keys`, `_core_codec`, `_core_algo`,
