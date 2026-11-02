@@ -6,6 +6,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use crate::types::civil_time::CivilTime;
 use crate::types::date_time::{DateTime, Zone};
 
 const SECONDS_PER_DAY: u64 = 86400;
@@ -41,16 +42,6 @@ pub(crate) fn date_to_abs_days(year: i64, month: u32, day: i64) -> u64 {
     )
 }
 
-/// Year, month, day, hour, minute, second of a time as presented in its zone.
-pub(crate) struct Civil {
-    pub(crate) year: i64,
-    pub(crate) month: i64,
-    pub(crate) day: i64,
-    pub(crate) hour: i64,
-    pub(crate) min: i64,
-    pub(crate) sec: i64,
-}
-
 impl DateTime {
     fn abs(&self) -> u64 {
         let offset = match self.zone() {
@@ -62,8 +53,9 @@ impl DateTime {
             .wrapping_add(UNIX_TO_ABSOLUTE) as u64
     }
 
-    /// Go's `Date()` and `Clock()`.
-    pub(crate) fn civil(&self) -> Civil {
+    /// Go's `Date()`, `Clock()` and `Nanosecond()`: the civil time presented in the time's zone, every field in
+    /// range, so `DateTime::new(t.civil(), t.zone())` is `t`.
+    pub(crate) fn civil(&self) -> CivilTime {
         let abs = self.abs();
         let days = abs / SECONDS_PER_DAY;
         let d = 4u64.wrapping_mul(days).wrapping_add(3);
@@ -85,13 +77,14 @@ impl DateTime {
             + jan_feb;
         let month = amonth - jan_feb * 12;
         let s = (abs % SECONDS_PER_DAY).cast_signed();
-        Civil {
+        CivilTime {
             year,
             month,
             day,
             hour: s / 3600,
             min: s % 3600 / 60,
             sec: s % 60,
+            nsec: i64::from(self.nanosecond()),
         }
     }
 }

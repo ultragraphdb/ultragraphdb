@@ -4,7 +4,8 @@
  */
 
 /// A civil date and clock time, the fields of Go's `time.Date`: year, month, day, hour, minute, second and
-/// nanosecond as read in some zone. A field may be out of range; [`crate::DateTime::new`] normalises it as Go does.
+/// nanosecond as read in some zone. A field given to [`crate::DateTime::new`] may be out of range, and is normalised
+/// as Go does; a time's own civil time, as its formatter reads it, has every field in range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CivilTime {
     pub(crate) year: i64,

@@ -121,7 +121,6 @@ compio = { version = "0.19", default-features = false, features = ["runtime", "i
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs"] }
-# TLS with ring as its one crypto provider; ring compiles C and assembly through `cc`.
 rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }

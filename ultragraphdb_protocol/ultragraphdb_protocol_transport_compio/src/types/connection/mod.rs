@@ -79,8 +79,8 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
     /// connection's cluster so its `size` is trusted, then the rest of the frame into the same buffer. Refused as
     /// [`TransportError::closed`] when the peer closed before the frame's first byte, [`TransportError::truncated`]
     /// when it closed inside the frame, [`TransportError::protocol`] when the header breaks a rule or the frame is
-    /// larger than the pool's buffers ([`ultragraphdb_error_protocol::ProtocolError::frame_too_large`] naming their
-    /// capacity), [`TransportError::pool_exhausted`] with no buffer free, or [`TransportError::io`].
+    /// larger than the pool's buffers (`ProtocolError::frame_too_large` naming their capacity),
+    /// [`TransportError::pool_exhausted`] with no buffer free, or [`TransportError::io`].
     pub async fn read_frame(&mut self, pool: &BufferPool) -> Result<ReceivedFrame, TransportError> {
         let mut buffer = pool.acquire()?;
         self.framer.reset();
