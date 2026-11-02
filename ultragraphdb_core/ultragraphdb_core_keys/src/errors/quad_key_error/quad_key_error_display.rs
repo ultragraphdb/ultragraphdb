@@ -19,8 +19,8 @@ impl fmt::Display for QuadKeyError {
             QuadKeyErrorEnum::UnknownKeyspace { key } => {
                 write!(f, "Key {} belongs to no keyspace", hex(key))
             }
-            QuadKeyErrorEnum::ZeroUid { key, field } => {
-                write!(f, "Key {} has a {field} of 0", hex(key))
+            QuadKeyErrorEnum::InvalidId { key, field, error } => {
+                write!(f, "Key {} has an invalid {field}: {error}", hex(key))
             }
             QuadKeyErrorEnum::UnknownDirection { key } => {
                 write!(f, "Count key {} has an unknown direction", hex(key))
@@ -34,6 +34,18 @@ impl fmt::Display for QuadKeyError {
             QuadKeyErrorEnum::NotAList { key } => {
                 write!(f, "Key {} is not a list's and does not split", hex(key))
             }
+            QuadKeyErrorEnum::GroupRange { key, group } => {
+                write!(
+                    f,
+                    "Mark key {} has bucket group {group}, past 18 bits",
+                    hex(key)
+                )
+            }
+            QuadKeyErrorEnum::FingerprintStart { key } => write!(
+                f,
+                "Value-index key {} splits at an ID alone, not a fingerprint",
+                hex(key)
+            ),
         }
     }
 }

@@ -1,0 +1,26 @@
+{
+  "dgraph_commit": "none: the repository's own formats, written from their specifications, not Dgraph",
+  "generator": "ultragraphdb_core/ultragraphdb_core_codec/testdata/golden/formats.py with python-xxhash 4.0.2 over the xxHash C library 0.8.3, Python 3.12.0",
+  "cases": [
+    {
+      "name": "empty",
+      "note": "no pack, no posting, no split",
+      "bytes": "0200000000000000000000000000000000002ec8d12ef70765e2"
+    },
+    {
+      "name": "empty pack",
+      "note": "a pack of block size 0 and no blocks",
+      "bytes": "0201000000000000000001000000000000000000000000000000003292e4a78f4cc57b"
+    },
+    {
+      "name": "delete-all",
+      "note": "a delta of one delete-all: key 2^64 - 1, op 2, a reference, start timestamp 3, the value _STAR_ALL",
+      "bytes": "02000000000000000000010000000000000000000000ffffffffffffffff020000000003000000000000000000000000000000090000005f535441525f414c4c00000000000000000000000000000000845a827562fe7933"
+    },
+    {
+      "name": "full",
+      "note": "commit timestamp 0x1122334455667788; a pack of block size 4 of the IDs (type 1, bucket 0) with sequences 1 to 4 and (type 1, bucket 5, sequence 9); a reference to (type 1, bucket 0, sequence 2) with the facet since, op 1, timestamps 5 and 6; a value posting keyed 0x0123456789abcdef, op 3, timestamps 9 and 10, the value 01 61 62 63, the language en and the statement IDs (type 2, bucket 0, sequence 11) and (type 2, the largest bucket and sequence); the splits 1 and (type 1, bucket 0, sequence 3)",
+      "bytes": "0201887766554433221101040000000200000000010000000000000001000000000000040000000c00000080808008808080088080800800010000000000000009000005000000010000000000000002000000000100000000000000020000000000000100000000050000000000000006000000000000000000000000000000010000000500000073696e63650000000000000000000000000123456789abcdef030000000109000000000000000a00000000000000040000000161626302000000656e00000000020000000002000000000000000b0000000000000002ffffffffffffffffffffff000000020000000000000000000000000000000000000100010000000000000003000000000000b5b6b52cbe02f08f"
+    }
+  ]
+}

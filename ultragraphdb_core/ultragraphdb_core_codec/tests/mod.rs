@@ -3,8 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The codec's unit tests: UID packs, their decoder and the posting list's stored format, against Dgraph's golden
-//! vectors.
+//! The codec's unit tests: packed ID lists, their decoder and the posting list's stored format, against golden values
+//! written from the formats' specifications by `testdata/golden/formats.py`.
 
 #[cfg(test)]
 mod codec_tests;

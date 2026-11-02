@@ -1,140 +1,123 @@
 /*
+ * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
- * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+ *
+ * Ported from Dgraph v25.5.0, codec/codec_test.go (TestSeek, TestLinearSeek, TestDecoder). Changed for ultragraphdb:
+ * translated to Rust over system IDs; the tests of a block holding duplicate UIDs are gone with lists that hold none,
+ * and the golden-vector tests with Dgraph's format.
+ * Copyright (c) 2026. Marvin Hansen.
  */
 
-use serde::Deserialize;
-use ultragraphdb_core_codec::{Decoder, SeekPos, UidPack, decode, encode};
-use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
+use ultragraphdb_core_codec::{Decoder, SeekPos, UidBlock, UidPack, decode};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
-#[derive(Debug, Clone, Deserialize)]
-struct SeekStep {
-    op: String,
-    target: u64,
-    whence: String,
-    uids: Vec<u64>,
-    len: usize,
-}
+use crate::codec_tests::{id, packed, sequences, target};
 
-#[derive(Debug, Clone, Deserialize)]
-struct SeekCase {
-    name: String,
-    block_size: usize,
-    uids: Vec<u64>,
-    steps: Vec<SeekStep>,
-}
-
-fn golden_cases() -> TestResult<Vec<SeekCase>> {
-    let path = testdata_dir()?.join("golden/codec_seek.json");
-    let golden = load_golden::<SeekCase>(&path)?;
-    assert!(golden.cases().len() >= 6, "the golden file holds the cases");
-    Ok(golden.cases().to_vec())
-}
-
-fn whence(name: &str) -> TestResult<SeekPos> {
-    let pos = match name {
-        "start" => Some(SeekPos::Start),
-        "current" => Some(SeekPos::Current),
-        _ => None,
-    };
-    pos.ok_or_else(|| format!("unknown whence {name:?}"))
-        .context("a whence the golden file names")
-}
-
-fn pack(case: &SeekCase) -> TestResult<UidPack> {
-    encode(&case.uids, case.block_size).context("the golden lists are not empty")
-}
-
-fn steps<'a>(case: &'a SeekCase, op: &'a str, pos: &'a str) -> impl Iterator<Item = &'a SeekStep> {
-    case.steps
-        .iter()
-        .filter(move |s| s.op == op && s.whence == pos)
+/// Sequences 10 to 10,000 in steps of 10, in blocks of 10: Go's TestSeek list without its 0, which no ID takes.
+fn stepped() -> TestResult<UidPack> {
+    packed(&sequences((10..=10_000).step_by(10))?, 10)
 }
 
 #[test]
-fn decode_from_a_target_matches_golden() -> TestResult {
-    for case in golden_cases()? {
-        let pack = pack(&case)?;
-        let mut checked = 0;
-        for step in steps(&case, "decode", "") {
-            let actual = decode(&pack, step.target);
-            assert_eq!(
-                step.len,
-                actual.len(),
-                "{} decode {}",
-                case.name,
-                step.target
-            );
-            assert_eq!(
-                step.uids[..],
-                actual[..step.uids.len()],
-                "{} decode {}",
-                case.name,
-                step.target
-            );
-            let suffix: Vec<u64> = case
-                .uids
-                .iter()
-                .copied()
-                .filter(|&u| u >= step.target)
-                .collect();
-            assert_eq!(suffix, actual, "{} decode {}", case.name, step.target);
-            checked += 1;
-        }
-        assert!(checked > 0, "{}", case.name);
+fn test_seek() -> TestResult {
+    let pack = stepped()?;
+    let mut dec = Decoder::new(&pack);
+    // (target, whence, the first ID the seek returns or None). Expected by hand from the list: Start returns the
+    // first ID at or after the target, Current the first after it.
+    let cases = [
+        (0, SeekPos::Start, Some(10)),
+        (0, SeekPos::Current, Some(10)),
+        (target(100)?, SeekPos::Start, Some(100)),
+        (target(100)?, SeekPos::Current, Some(110)),
+        (target(1000)?, SeekPos::Start, Some(1000)),
+        (target(1000)?, SeekPos::Current, Some(1010)),
+        (target(1999)?, SeekPos::Start, Some(2000)),
+        (target(1999)?, SeekPos::Current, Some(2000)),
+        (target(1101)?, SeekPos::Start, Some(1110)),
+        (target(10_000)?, SeekPos::Start, Some(10_000)),
+        (target(9999)?, SeekPos::Current, Some(10_000)),
+        (target(10_001)?, SeekPos::Start, None),
+        (target(10_000)?, SeekPos::Current, None),
+        (u128::MAX, SeekPos::Start, None),
+        (u128::MAX, SeekPos::Current, None),
+    ];
+    for (t, whence, first) in cases {
+        let ids = dec.seek(t, whence);
+        let want = first.map(|s| id(1, 0, s)).transpose()?;
+        assert_eq!(ids.first().copied(), want, "seek {t:#x} {whence:?}");
     }
     Ok(())
 }
 
 #[test]
-fn seek_matches_golden() -> TestResult {
-    for case in golden_cases()? {
-        let pack = pack(&case)?;
-        let mut dec = Decoder::new(&pack);
-        for pos in ["start", "current"] {
-            for step in steps(&case, "seek", pos) {
-                let actual = dec.seek(step.target, whence(pos)?);
-                assert_eq!(
-                    step.uids, actual,
-                    "{} seek {} {pos}",
-                    case.name, step.target
-                );
-            }
-        }
+fn test_a_target_that_is_no_valid_id_seeks_by_its_value() -> TestResult {
+    let pack = stepped()?;
+    let mut dec = Decoder::new(&pack);
+    // One past an ID's value sets a reserved bit: no ID, between that ID and the next.
+    assert_eq!(
+        dec.seek(target(100)? + 1, SeekPos::Start).first(),
+        Some(&id(1, 0, 110)?)
+    );
+    // One below an ID's value: the ID itself is the first at or after it.
+    assert_eq!(
+        dec.seek(target(100)? - 1, SeekPos::Start).first(),
+        Some(&id(1, 0, 100)?)
+    );
+    // A value of type 0, below every ID.
+    assert_eq!(
+        dec.seek(1 << 100, SeekPos::Current).first(),
+        Some(&id(1, 0, 10)?)
+    );
+    Ok(())
+}
+
+#[test]
+fn test_linear_seek() -> TestResult {
+    // Go's list: the numbers 0 to 10,000 in steps of 10, 1,001 of them, standing for sequences 1 to 10,001; in blocks
+    // of 10 the last block holds the last ID alone.
+    let pack = packed(&sequences((1..=10_001).step_by(10))?, 10)?;
+    let mut dec = Decoder::new(&pack);
+    for sequence in (1..20_002).step_by(10) {
+        let ids = dec.linear_seek(target(sequence)?);
+        assert_eq!(
+            ids.contains(&id(1, 0, sequence)?),
+            sequence <= 10_001,
+            "linear seek {sequence}"
+        );
+    }
+    // The decoder is on the last block now and does not move back.
+    for sequence in (1..9991).step_by(10) {
+        assert!(
+            !dec.linear_seek(target(sequence)?)
+                .contains(&id(1, 0, sequence)?)
+        );
     }
     Ok(())
 }
 
 #[test]
-fn seek_to_block_matches_golden() -> TestResult {
-    for case in golden_cases()? {
-        let pack = pack(&case)?;
-        for pos in ["start", "current"] {
-            let mut dec = Decoder::new(&pack);
-            for step in steps(&case, "seek_to_block", pos) {
-                let actual = dec.seek_to_block(step.target, whence(pos)?);
-                assert_eq!(
-                    step.uids, actual,
-                    "{} seek_to_block {} {pos}",
-                    case.name, step.target
-                );
-            }
-        }
-    }
-    Ok(())
-}
-
-#[test]
-fn linear_seek_matches_golden() -> TestResult {
-    for case in golden_cases()? {
-        let pack = pack(&case)?;
-        let mut dec = Decoder::new(&pack);
-        for step in steps(&case, "linear_seek", "") {
-            let actual = dec.linear_seek(step.target);
+fn test_decoder() -> TestResult {
+    let expected = sequences((3..10_001).step_by(3))?;
+    let pack = packed(&expected, 10)?;
+    let mut dec = Decoder::new(&pack);
+    for (i, want) in expected.iter().enumerate() {
+        let sequence = want.sequence().get();
+        assert_eq!(
+            dec.seek(target(sequence)?, SeekPos::Start).first(),
+            Some(want)
+        );
+        assert_eq!(
+            dec.seek(target(sequence - 1)?, SeekPos::Start).first(),
+            Some(want)
+        );
+        assert_eq!(
+            dec.seek(target(sequence - 2)?, SeekPos::Start).first(),
+            Some(want)
+        );
+        if i % 97 == 0 {
             assert_eq!(
-                step.uids, actual,
-                "{} linear_seek {}",
-                case.name, step.target
+                decode(&pack, want.to_u128()),
+                expected.get(i..).context("a suffix")?
             );
         }
     }
@@ -142,84 +125,100 @@ fn linear_seek_matches_golden() -> TestResult {
 }
 
 #[test]
-fn a_new_decoder_holds_the_first_block() -> TestResult {
-    let uids: Vec<u64> = (1..=25).collect();
-    let pack = encode(&uids, 10).context("the list packs")?;
+fn test_a_new_decoder_holds_the_first_block() -> TestResult {
+    let ids = sequences(1..=25)?;
+    let pack = packed(&ids, 10)?;
     let mut dec = Decoder::new(&pack);
     assert_eq!(0, dec.block_idx());
-    assert_eq!(&uids[..10], dec.uids());
+    assert_eq!(ids.get(..10).context("block 0")?, dec.ids());
     assert_eq!(30, dec.approx_len());
-    assert_eq!(Some(11), dec.peek_next_base());
+    assert_eq!(Some(id(1, 0, 11)?), dec.peek_next_first());
     assert!(dec.valid());
-    assert_eq!(&uids[10..20], dec.next_block());
-    assert_eq!(&uids[20..], dec.next_block());
-    assert_eq!(None, dec.peek_next_base());
+    assert_eq!(ids.get(10..20).context("block 1")?, dec.next_block());
+    assert_eq!(ids.get(20..).context("block 2")?, dec.next_block());
+    assert_eq!(None, dec.peek_next_first());
     assert!(dec.valid());
     assert!(dec.next_block().is_empty());
     assert!(!dec.valid());
     assert_eq!(0, dec.approx_len());
+    assert!(dec.unpack_block().is_empty());
     assert_eq!(&pack, dec.pack());
     Ok(())
 }
 
 #[test]
-fn linear_seek_to_the_largest_uid_stays_on_the_last_block() -> TestResult {
-    // Go's LinearSeek never returns for u64::MAX, whose next base past the last block reads as u64::MAX (ledger 5);
-    // the port returns the last block, as Go's documentation states and as Go returns for u64::MAX - 1.
-    let pack = encode(&[1, 2, 3], 2).context("the list packs")?;
-    let mut dec = Decoder::new(&pack);
-    assert_eq!([3], dec.linear_seek(u64::MAX));
-    assert!(dec.valid());
-    Ok(())
-}
-
-#[test]
-fn seek_to_block_past_the_last_block_returns_nothing() -> TestResult {
-    // Dgraph's SeekToBlock indexes the current block, which a decoder past the last block does not have, and panics
-    // (ledger 3); the port searches from the last block and finds no UID after the target.
-    let pack = encode(&[1, 2, 3], 2).context("the list packs")?;
-    let mut dec = Decoder::sought(&pack, 4, SeekPos::Start);
-    assert!(dec.uids().is_empty());
-    assert!(dec.seek_to_block(5, SeekPos::Current).is_empty());
-    Ok(())
-}
-
-#[test]
-fn a_sought_decoder_holds_the_target_block() -> TestResult {
-    let uids: Vec<u64> = (1..=25).collect();
-    let pack = encode(&uids, 10).context("the list packs")?;
-    let dec = Decoder::sought(&pack, 15, SeekPos::Start);
+fn test_unpack_block_returns_the_whole_block_after_a_seek_into_it() -> TestResult {
+    let ids = sequences(1..=25)?;
+    let pack = packed(&ids, 10)?;
+    let mut dec = Decoder::sought(&pack, target(15)?, SeekPos::Start);
     assert_eq!(1, dec.block_idx());
-    assert_eq!(&uids[14..20], dec.uids());
+    assert_eq!(ids.get(14..20).context("from 15")?, dec.ids());
+    assert_eq!(ids.get(10..20).context("block 1")?, dec.unpack_block());
     Ok(())
 }
 
 #[test]
-fn test_seek_to_block_at_a_base_equal_to_the_held_block_stays_there() -> TestResult {
-    // [5 5 5 5 6 7] in blocks of 2 has two blocks of base 5. Held at the second, a seek of 5 from the start finds 5 at
-    // that block's base and stays: it searches from the held block, not from the first, as only a uid below the held
-    // block's base sends it back. Dgraph v25.5.0 Decoder.Next then SeekToBlock(5, SeekStart), run in Go: BlockIdx 1,
-    // UIDs [5 5].
-    let pack = encode(&[5, 5, 5, 5, 6, 7], 2).context("a non-empty list packs")?;
-    let mut dec = Decoder::new(&pack);
-    assert_eq!(dec.next_block(), &[5, 5]);
-    assert_eq!(dec.block_idx(), 1);
-    assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 5]);
-    assert_eq!(dec.block_idx(), 1);
+fn test_seek_to_block_past_the_last_block_returns_nothing() -> TestResult {
+    // A decoder past the last block searches from the last block and finds no ID after the target, where Dgraph's
+    // SeekToBlock indexes the block it does not have and panics (ledger 3).
+    let pack = packed(&sequences(1..=3)?, 2)?;
+    let mut dec = Decoder::sought(&pack, target(4)?, SeekPos::Start);
+    assert!(dec.ids().is_empty());
+    assert!(dec.seek_to_block(target(5)?, SeekPos::Current).is_empty());
     Ok(())
 }
 
 #[test]
-fn test_a_seek_to_a_base_takes_that_block_though_the_previous_block_ends_at_it() -> TestResult {
-    // [4 5 5 6] in blocks of 2 is [4 5] and [5 6]: 5 ends the first block and is the second's base. A seek of 5 from
-    // the start takes the block whose base it is, the second, whole. Dgraph v25.5.0 SeekToBlock(5, SeekStart) on a new
-    // decoder, and Seek(5, SeekStart), run in Go: BlockIdx 1, UIDs [5 6] for both.
-    let pack = encode(&[4, 5, 5, 6], 2).context("a non-empty list packs")?;
+fn test_seek_to_block_returns_the_target_block_whole() -> TestResult {
+    let ids = sequences(1..=40)?;
+    let pack = packed(&ids, 10)?;
     let mut dec = Decoder::new(&pack);
-    assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 6]);
-    assert_eq!(dec.block_idx(), 1);
-    let mut sought = Decoder::new(&pack);
-    assert_eq!(sought.seek(5, SeekPos::Start), &[5, 6]);
-    assert_eq!(sought.block_idx(), 1);
+    // A target inside a block, at a block's first ID, and at a block's last ID with Current: the block holding it.
+    assert_eq!(
+        dec.seek_to_block(target(15)?, SeekPos::Start),
+        ids.get(10..20).context("b1")?
+    );
+    assert_eq!(
+        dec.seek_to_block(target(21)?, SeekPos::Start),
+        ids.get(20..30).context("b2")?
+    );
+    assert_eq!(dec.block_idx(), 2);
+    assert_eq!(
+        dec.seek_to_block(target(30)?, SeekPos::Current),
+        ids.get(20..30).context("b2")?
+    );
+    // Past a block's last ID, the next block, whole.
+    assert_eq!(
+        dec.seek_to_block(target(30)? + 1, SeekPos::Start),
+        ids.get(30..).context("b3")?
+    );
+    assert_eq!(
+        dec.seek_to_block(0, SeekPos::Start),
+        ids.get(..10).context("b0")?
+    );
+    Ok(())
+}
+
+#[test]
+fn test_seeks_step_over_an_empty_block() -> TestResult {
+    let blocks = [
+        packed(&sequences(1..=2)?, 2)?.blocks().to_vec(),
+        vec![UidBlock::new(id(1, 0, 3)?, Vec::new(), 0)?],
+        packed(&sequences(4..=5)?, 2)?.blocks().to_vec(),
+    ]
+    .concat();
+    let pack = UidPack::new(2, blocks)?;
+    assert_eq!(decode(&pack, 0), sequences([1, 2, 4, 5].into_iter())?);
+    let mut dec = Decoder::new(&pack);
+    assert_eq!(dec.seek(target(3)?, SeekPos::Start), sequences(4..=5)?);
+    // A linear seek lands on the empty block, whose first ID is the target, and moves on from it.
+    let mut linear = Decoder::new(&pack);
+    assert_eq!(linear.linear_seek(target(3)?), sequences(4..=5)?);
+    assert_eq!(linear.block_idx(), 2);
+    let mut to_block = Decoder::new(&pack);
+    assert_eq!(
+        to_block.seek_to_block(target(3)?, SeekPos::Start),
+        sequences(4..=5)?
+    );
     Ok(())
 }

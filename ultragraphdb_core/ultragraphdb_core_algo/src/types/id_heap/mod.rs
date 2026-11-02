@@ -3,21 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, algo/heap.go, with the operations of Go's container/heap (Init, Push, Pop, Fix) it
- * is used through. Changed for ultragraphdb: translated to Rust.
+ * is used through. Changed for ultragraphdb: translated to Rust; elements of system IDs in place of u64 UIDs, hence
+ * the name.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use crate::types::elem::Elem;
 
-/// A min-heap of [`Elem`]s ordered by value, the one Dgraph's merges use. Elements of equal value come out in the
-/// order Go's container/heap gives them.
+/// A min-heap of [`Elem`]s ordered by ID, the one Dgraph's merges use as its `uint64Heap`. Elements of equal ID come
+/// out in the order Go's container/heap gives them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Uint64Heap {
+pub struct IdHeap {
     elems: Vec<Elem>,
 }
 
-impl Uint64Heap {
+impl IdHeap {
     /// A heap of `elems`, ordered in O(n): Go's `heap.Init`.
+    #[must_use]
     pub fn new(elems: Vec<Elem>) -> Self {
         let mut heap = Self { elems };
         let n = heap.elems.len();
@@ -28,16 +30,19 @@ impl Uint64Heap {
     }
 
     /// The number of elements.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.elems.len()
     }
 
     /// Whether the heap holds no element.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
     }
 
     /// The element at `i`; the smallest at 0.
+    #[must_use]
     pub fn get(&self, i: usize) -> Option<&Elem> {
         self.elems.get(i)
     }
@@ -92,11 +97,8 @@ impl Uint64Heap {
 
     fn down(&mut self, i0: usize, n: usize) -> bool {
         let mut i = i0;
-        loop {
-            let j1 = 2 * i + 1;
-            if j1 >= n {
-                break;
-            }
+        // i at least doubles each pass, so the loop ends within the heap's depth.
+        while let Some(j1) = Some(2 * i + 1).filter(|&j1| j1 < n) {
             let mut j = j1; // left child
             let j2 = j1 + 1;
             if j2 < n && self.less(j2, j1) {

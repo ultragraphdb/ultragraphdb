@@ -1,0 +1,32 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_core_keys, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_core_keys_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_core_keys = { workspace = true }
+
+# Any bytes as a stored key: parsed or refused with a QuadKeyError naming those bytes, never a panic; an accepted key
+# encodes back to its bytes, a split key with its start appended.
+[[bin]]
+name = "quad_key_parse"
+path = "fuzz_targets/quad_key_parse.rs"
+test = false
+doc = false
+bench = false

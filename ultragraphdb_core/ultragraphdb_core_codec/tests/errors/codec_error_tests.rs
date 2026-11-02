@@ -5,63 +5,74 @@
 
 use std::error::Error;
 
-use ultragraphdb_core_codec::{CodecError, CodecErrorEnum, encode_from_buffer};
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_core_codec::{CodecError, CodecErrorEnum};
+use ultragraphdb_core_ids::IdError;
 
 #[test]
-fn a_truncated_varint_is_refused() -> TestResult {
-    // Go's loop never ends on it: binary.Uvarint returns 0 bytes read.
-    let err = encode_from_buffer(&[0x01, 0x80], 256)
-        .err()
-        .context("truncated")?;
-    assert_eq!(err.0, CodecErrorEnum::TruncatedVarint { offset: 1 });
-    assert_eq!(err, CodecError::truncated_varint(1));
-    assert_eq!(err.to_string(), "truncated uvarint at byte 1 of the buffer");
-    assert!(err.source().is_none());
-    Ok(())
-}
-
-#[test]
-fn an_overlong_varint_is_refused() -> TestResult {
-    // Go panics slicing the buffer at the negative length binary.Uvarint returns.
-    let mut buf = vec![0xff; 9];
-    buf.push(0x02);
-    let err = encode_from_buffer(&buf, 256).err().context("overflows")?;
-    assert_eq!(err, CodecError::overflowing_varint(0));
-    assert_eq!(
-        err.to_string(),
-        "uvarint at byte 0 of the buffer overflows a u64"
-    );
-    let overlong = encode_from_buffer(&[0xff; 11], 256)
-        .err()
-        .context("overlong")?;
-    assert_eq!(overlong.0, CodecErrorEnum::OverflowingVarint { offset: 0 });
-    Ok(())
-}
-
-#[test]
-fn a_valid_buffer_packs() -> TestResult {
-    let pack = encode_from_buffer(&[0x01, 0x01], 256)
-        .context("valid varints")?
-        .context("two UIDs")?;
-    assert_eq!(pack.blocks()[0].base(), 1);
-    assert_eq!(pack.blocks()[0].num_uids(), 2);
-    assert_eq!(encode_from_buffer(&[], 256), Ok(None));
-    Ok(())
-}
-
-#[test]
-fn ten_continuation_bytes_overflow_rather_than_truncate() -> TestResult {
-    // A u64 takes at most ten base-128 groups, and a tenth byte with the continuation bit set promises an eleventh,
-    // which starts at bit 70, so no byte that follows could complete a u64: it overflows, wherever the buffer ends.
-    let err = encode_from_buffer(&[0x80; 10], 256)
-        .err()
-        .context("overflows")?;
-    assert_eq!(err, CodecError::overflowing_varint(0));
-    // One byte fewer can still end in a valid varint, so it is truncated.
-    let truncated = encode_from_buffer(&[0x80; 9], 256)
-        .err()
-        .context("truncated")?;
-    assert_eq!(truncated, CodecError::truncated_varint(0));
-    Ok(())
+fn test_each_constructor_builds_its_variant_and_names_its_place() {
+    let cases = [
+        (
+            CodecError::out_of_order(2),
+            CodecErrorEnum::OutOfOrder { position: 2 },
+            "the ID at position 2 is not greater than the one before it",
+        ),
+        (
+            CodecError::truncated_varint(1),
+            CodecErrorEnum::TruncatedVarint { offset: 1 },
+            "truncated varint at byte 1",
+        ),
+        (
+            CodecError::overflowing_varint(0),
+            CodecErrorEnum::OverflowingVarint { offset: 0 },
+            "varint at byte 0 overflows its width",
+        ),
+        (
+            CodecError::non_canonical_varint(3),
+            CodecErrorEnum::NonCanonicalVarint { offset: 3 },
+            "varint at byte 3 is not in its shortest form",
+        ),
+        (
+            CodecError::delta_overflow(4),
+            CodecErrorEnum::DeltaOverflow { position: 4 },
+            "the delta of the ID at position 4 carries it past 104 bits",
+        ),
+        (
+            CodecError::invalid_id(5, IdError::zero_sequence()),
+            CodecErrorEnum::InvalidId {
+                position: 5,
+                error: IdError::zero_sequence(),
+            },
+            "the ID at position 5 is invalid: invalid system ID: its sequence is 0",
+        ),
+        (
+            CodecError::trailing_deltas(6),
+            CodecErrorEnum::TrailingDeltas { offset: 6 },
+            "bytes after a block's last delta, at byte 6",
+        ),
+        (
+            CodecError::truncated(7),
+            CodecErrorEnum::Truncated { offset: 7 },
+            "a pack's field at byte 7 overruns its bytes",
+        ),
+        (
+            CodecError::unknown_version(9),
+            CodecErrorEnum::UnknownVersion { version: 9 },
+            "unknown packed ID list version 9",
+        ),
+        (
+            CodecError::trailing_bytes(8),
+            CodecErrorEnum::TrailingBytes { offset: 8 },
+            "bytes after a pack's last block, at byte 8",
+        ),
+        (
+            CodecError::blocks_out_of_order(10),
+            CodecErrorEnum::BlocksOutOfOrder { block: 10 },
+            "block 10 does not start above the block before it",
+        ),
+    ];
+    for (error, variant, text) in cases {
+        assert_eq!(error.0, variant);
+        assert_eq!(error.to_string(), text);
+        assert!(error.source().is_none());
+    }
 }

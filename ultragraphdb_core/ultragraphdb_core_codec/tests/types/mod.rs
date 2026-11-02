@@ -22,4 +22,4 @@ mod posting_type_tests;
 #[cfg(test)]
 mod uid_block_tests;
 #[cfg(test)]
-mod uid_pack_tests;
+mod uid_pack;

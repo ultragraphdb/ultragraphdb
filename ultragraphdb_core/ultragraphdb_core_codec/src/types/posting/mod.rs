@@ -8,15 +8,18 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 use crate::types::facet::Facet;
 use crate::types::posting_type::PostingType;
 
-/// One object of a posting list: Dgraph's `Posting`. A reference is its UID; a value posting holds its value, ordered
-/// by its UID. `op` is the write's operation, and the start and commit timestamps are those of the transaction that
-/// wrote it.
+/// One object of a posting list: Dgraph's `Posting`. A posting is ordered by its 128-bit key, its `uid`: a reference's
+/// is the referenced node's system ID as its 128-bit value, a value posting's the value's 64-bit fingerprint, which
+/// sorts below every system ID, since a system ID's type prefix is never 0. `op` is the write's operation, and the
+/// start and commit timestamps are those of the transaction that wrote it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Posting {
-    uid: u64,
+    uid: u128,
     value: Vec<u8>,
     posting_type: PostingType,
     lang_tag: Vec<u8>,
@@ -24,12 +27,13 @@ pub struct Posting {
     op: u32,
     start_ts: u64,
     commit_ts: u64,
-    statement_ids: Vec<u64>,
+    statement_ids: Vec<SystemId>,
 }
 
 impl Posting {
-    /// The posting's UID: the referenced node's, or the one a value posting is ordered by.
-    pub fn uid(&self) -> u64 {
+    /// The posting's 128-bit key: the referenced node's system ID, or the fingerprint a value posting is ordered by.
+    #[must_use]
+    pub fn uid(&self) -> u128 {
         self.uid
     }
 
@@ -69,12 +73,14 @@ impl Posting {
     }
 
     /// The IDs of the statements holding the object, for parallel edges and statements with properties.
-    pub fn statement_ids(&self) -> &[u64] {
+    #[must_use]
+    pub fn statement_ids(&self) -> &[SystemId] {
         &self.statement_ids
     }
 
-    /// The posting with `uid` as its UID.
-    pub fn with_uid(self, uid: u64) -> Self {
+    /// The posting with `uid` as its 128-bit key.
+    #[must_use]
+    pub fn with_uid(self, uid: u128) -> Self {
         Self { uid, ..self }
     }
 
@@ -117,7 +123,8 @@ impl Posting {
     }
 
     /// The posting with `statement_ids` as its statements' IDs.
-    pub fn with_statement_ids(self, statement_ids: Vec<u64>) -> Self {
+    #[must_use]
+    pub fn with_statement_ids(self, statement_ids: Vec<SystemId>) -> Self {
         Self {
             statement_ids,
             ..self

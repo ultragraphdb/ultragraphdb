@@ -33,3 +33,12 @@ path = "fuzz_targets/posting_list_decode.rs"
 test = false
 doc = false
 bench = false
+
+# Any bytes as a packed ID list: decoded or refused as a CodecError, never a panic; an accepted pack encodes back to its
+# bytes and decodes to strictly increasing IDs, as many as its blocks count.
+[[bin]]
+name = "uid_pack_decode"
+path = "fuzz_targets/uid_pack_decode.rs"
+test = false
+doc = false
+bench = false

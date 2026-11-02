@@ -12,23 +12,24 @@ mod posting_list_codec;
 use crate::types::posting::Posting;
 use crate::types::uid_pack::UidPack;
 
-/// A posting list as stored: Dgraph's `PostingList`. A complete list holds its UIDs in the pack and, beside them, the
-/// postings the pack cannot carry; a delta holds postings alone; a split list holds the start UIDs of its parts.
+/// A posting list as stored: Dgraph's `PostingList`. A complete list holds its references' system IDs in the pack and,
+/// beside them, the postings the pack cannot carry; a delta holds postings alone; a split list holds the 128-bit keys
+/// its parts start at, as its postings are keyed (see [`Posting::uid`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PostingList {
     pack: Option<UidPack>,
     postings: Vec<Posting>,
     commit_ts: u64,
-    splits: Vec<u64>,
+    splits: Vec<u128>,
 }
 
 impl PostingList {
-    /// The packed UIDs, `None` when the list has no pack.
+    /// The packed IDs, `None` when the list has no pack.
     pub fn pack(&self) -> Option<&UidPack> {
         self.pack.as_ref()
     }
 
-    /// The postings, sorted by UID in a complete list.
+    /// The postings, sorted by key in a complete list.
     pub fn postings(&self) -> &[Posting] {
         &self.postings
     }
@@ -38,12 +39,13 @@ impl PostingList {
         self.commit_ts
     }
 
-    /// The start UIDs of a split list's parts, ascending from 1; empty for a list that is not split.
-    pub fn splits(&self) -> &[u64] {
+    /// The keys a split list's parts start at, ascending; empty for a list that is not split.
+    #[must_use]
+    pub fn splits(&self) -> &[u128] {
         &self.splits
     }
 
-    /// The list with `pack` as its packed UIDs.
+    /// The list with `pack` as its packed IDs.
     pub fn with_pack(self, pack: UidPack) -> Self {
         Self {
             pack: Some(pack),
@@ -61,12 +63,13 @@ impl PostingList {
         Self { commit_ts, ..self }
     }
 
-    /// The list with `splits` as its parts' start UIDs.
-    pub fn with_splits(self, splits: Vec<u64>) -> Self {
+    /// The list with `splits` as the keys its parts start at.
+    #[must_use]
+    pub fn with_splits(self, splits: Vec<u128>) -> Self {
         Self { splits, ..self }
     }
 
-    /// Sets the packed UIDs to `pack`; `None` removes the pack.
+    /// Sets the packed IDs to `pack`; `None` removes the pack.
     pub fn set_pack(&mut self, pack: Option<UidPack>) {
         self.pack = pack;
     }
@@ -81,8 +84,8 @@ impl PostingList {
         self.commit_ts = commit_ts;
     }
 
-    /// Sets the parts' start UIDs to `splits`.
-    pub fn set_splits(&mut self, splits: Vec<u64>) {
+    /// Sets the keys its parts start at to `splits`.
+    pub fn set_splits(&mut self, splits: Vec<u128>) {
         self.splits = splits;
     }
 }

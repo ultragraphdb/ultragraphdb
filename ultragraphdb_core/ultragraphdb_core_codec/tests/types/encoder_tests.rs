@@ -3,145 +3,133 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use serde::Deserialize;
-use ultragraphdb_core_codec::{Encoder, UidBlock, UidPack, decode, encode, exact_len};
-use ultragraphdb_tool_bdd::{Context, TestResult, compare_bytes, load_golden, testdata_dir};
+use ultragraphdb_core_codec::{CodecError, Encoder, decode, encode};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
-#[derive(Debug, Clone, Deserialize)]
-struct GoldenBlock {
-    base: u64,
-    deltas: String,
-    num_uids: u32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct GoldenPack {
-    block_size: u32,
-    blocks: Vec<GoldenBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PackCase {
-    name: String,
-    block_size: usize,
-    uids: Vec<u64>,
-    pack: Option<GoldenPack>,
-}
-
-fn unhex(text: &str) -> TestResult<Vec<u8>> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).context("hex"))
-        .collect()
-}
-
-/// The golden pack as Dgraph produced it.
-fn to_pack(golden: &GoldenPack) -> TestResult<UidPack> {
-    Ok(UidPack::new(
-        golden.block_size,
-        golden
-            .blocks
-            .iter()
-            .map(|b| Ok(UidBlock::new(b.base, unhex(&b.deltas)?, b.num_uids)))
-            .collect::<TestResult<_>>()?,
-    ))
-}
-
-fn golden_cases() -> TestResult<Vec<PackCase>> {
-    let path = testdata_dir()?.join("golden/codec_uidpack.json");
-    let golden = load_golden::<PackCase>(&path)?;
-    assert!(
-        golden.cases().len() > 500,
-        "the golden file holds the cases"
-    );
-    Ok(golden.cases().to_vec())
-}
+use crate::codec_tests::{id, id_list_cases, parse_id, sequences, unhex};
 
 #[test]
-fn encoding_matches_golden_packs() -> TestResult {
-    for case in golden_cases()? {
-        let actual = encode(&case.uids, case.block_size);
-        assert_eq!(
-            case.pack.is_some(),
-            actual.is_some(),
-            "{}: Dgraph packed {:?}, the port {actual:?}",
-            case.name,
-            case.pack
-        );
-        if let (Some(want), Some(got)) = (&case.pack, actual) {
-            let want = to_pack(want)?;
-            assert_eq!(want.block_size(), got.block_size(), "{}", case.name);
-            assert_eq!(want.blocks().len(), got.blocks().len(), "{}", case.name);
-            for (i, (a, b)) in want.blocks().iter().zip(got.blocks()).enumerate() {
-                assert_eq!(a.base(), b.base(), "{} block {i}", case.name);
-                assert_eq!(a.num_uids(), b.num_uids(), "{} block {i}", case.name);
-                compare_bytes(&format!("{} block {i}", case.name), a.deltas(), b.deltas())?;
-            }
-        }
-    }
-    Ok(())
-}
-
-#[test]
-fn golden_packs_decode_to_their_lists() -> TestResult {
-    for case in golden_cases()? {
-        let Some(golden) = &case.pack else {
-            assert!(case.uids.is_empty(), "{}", case.name);
+fn test_encoding_matches_the_golden_blocks() -> TestResult {
+    let mut checked = 0;
+    for case in id_list_cases()?
+        .into_iter()
+        .filter(|c| c.out_of_order.is_none())
+    {
+        let Some(pack) = encode(&case.ids()?, case.block_size)? else {
+            assert!(
+                case.blocks.is_empty() && case.pack.is_none(),
+                "{}",
+                case.name
+            );
             continue;
         };
-        let pack = to_pack(golden)?;
-        assert_eq!(case.uids.len(), exact_len(&pack), "{}", case.name);
-        assert_eq!(case.uids, decode(&pack, 0), "{}", case.name);
+        assert_eq!(pack.blocks().len(), case.blocks.len(), "{}", case.name);
+        for (i, (got, want)) in pack.blocks().iter().zip(&case.blocks).enumerate() {
+            assert_eq!(
+                got.first(),
+                parse_id(&want.first)?,
+                "{} block {i}",
+                case.name
+            );
+            assert_eq!(got.count(), want.count, "{} block {i}", case.name);
+            assert_eq!(
+                got.deltas(),
+                unhex(&want.deltas)?,
+                "{} block {i}",
+                case.name
+            );
+        }
+        checked += 1;
     }
+    assert!(checked >= 15, "{checked} golden lists checked");
     Ok(())
 }
 
 #[test]
-fn a_one_uid_block_emits_one_empty_group() -> TestResult {
-    let pack = encode(&[7], 256).context("one UID packs")?;
-    assert_eq!(1, pack.blocks().len());
-    assert_eq!(7, pack.blocks()[0].base());
-    assert_eq!(1, pack.blocks()[0].num_uids());
-    assert_eq!(vec![0u8; 5], pack.blocks()[0].deltas());
+fn test_a_list_out_of_order_is_refused_at_its_first_position_out_of_order() -> TestResult {
+    let mut checked = 0;
+    for case in id_list_cases()? {
+        let Some(position) = case.out_of_order else {
+            continue;
+        };
+        assert_eq!(
+            encode(&case.ids()?, case.block_size),
+            Err(CodecError::out_of_order(position)),
+            "{}",
+            case.name
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 4);
     Ok(())
 }
 
 #[test]
-fn a_block_closes_where_the_upper_32_bits_change() -> TestResult {
-    let pack = encode(&[1, 2, (1 << 32) + 1], 256).context("the list packs")?;
-    let bases: Vec<u64> = pack.blocks().iter().map(UidBlock::base).collect();
-    assert_eq!(vec![1, (1 << 32) + 1], bases);
+fn test_a_refused_id_leaves_the_encoder_as_it_was() -> TestResult {
+    let mut encoder = Encoder::new(2);
+    encoder.add(id(1, 0, 5)?)?;
+    encoder.add(id(1, 0, 6)?)?;
+    assert_eq!(encoder.add(id(1, 0, 6)?), Err(CodecError::out_of_order(2)));
+    assert_eq!(encoder.add(id(1, 0, 1)?), Err(CodecError::out_of_order(2)));
+    encoder.add(id(1, 0, 7)?)?;
+    let pack = encoder.done().context("three IDs")?;
+    assert_eq!(decode(&pack, 0), sequences(5..=7)?);
     Ok(())
 }
 
 #[test]
-fn block_size_zero_packs_one_uid_per_block() -> TestResult {
+fn test_block_size_zero_packs_one_id_per_block() -> TestResult {
     let mut encoder = Encoder::new(0);
     assert_eq!(0, encoder.block_size());
-    for uid in [3, 4, 9] {
-        encoder.add(uid);
+    for sequence in [3, 4, 9] {
+        encoder.add(id(1, 0, sequence)?)?;
     }
     let pack = encoder.done().context("the list packs")?;
     assert_eq!(0, pack.block_size());
     assert_eq!(
-        vec![3, 4, 9],
-        pack.blocks().iter().map(UidBlock::base).collect::<Vec<_>>()
+        pack.blocks()
+            .iter()
+            .map(|b| (b.first(), b.count()))
+            .collect::<Vec<_>>(),
+        vec![(id(1, 0, 3)?, 1), (id(1, 0, 4)?, 1), (id(1, 0, 9)?, 1)]
     );
-    assert_eq!(vec![3, 4, 9], decode(&pack, 0));
     Ok(())
 }
 
 #[test]
-fn an_encoder_without_uids_returns_no_pack() {
+fn test_an_encoder_without_ids_returns_no_pack() {
     assert!(Encoder::new(256).done().is_none());
 }
 
 #[test]
 fn test_an_encoder_reports_the_block_size_it_was_made_with() -> TestResult {
-    // 256, the block size Dgraph's posting lists use, and the pack's.
+    // 256, the block size the posting lists use, and the pack's.
     let mut encoder = Encoder::new(256);
     assert_eq!(256, encoder.block_size());
-    encoder.add(1);
+    encoder.add(id(1, 0, 1)?)?;
     assert_eq!(256, encoder.done().context("a pack")?.block_size());
+    Ok(())
+}
+
+#[test]
+fn test_a_one_id_block_holds_no_delta() -> TestResult {
+    let pack = encode(&[id(3, 0xAB_CDEF, 42)?], 256)?.context("one ID packs")?;
+    let [block] = pack.blocks() else {
+        return Err(TestError::new("one block"));
+    };
+    assert_eq!((block.first(), block.count()), (id(3, 0xAB_CDEF, 42)?, 1));
+    assert!(block.deltas().is_empty());
+    Ok(())
+}
+
+#[test]
+fn test_a_delta_counts_the_bucket_and_sequence_below_the_reserved_bits() -> TestResult {
+    // (1, bucket 7, sequence 5) to (1, bucket 8, sequence 5): the first 104 bits differ by 1, one byte 0x01. To
+    // (1, bucket 0, sequence 6): by 2^24 - 8, 0xFFFFF8, whose LEB128 is F8 FF FF 07. By hand.
+    let pack = encode(&[id(1, 7, 5)?, id(1, 8, 5)?, id(1, 0, 6)?], 256)?.context("a pack")?;
+    let [block] = pack.blocks() else {
+        return Err(TestError::new("one block"));
+    };
+    assert_eq!(block.deltas(), [0x01, 0xF8, 0xFF, 0xFF, 0x07]);
     Ok(())
 }

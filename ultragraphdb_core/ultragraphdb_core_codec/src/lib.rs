@@ -3,12 +3,14 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Ported from Dgraph v25.5.0: `codec`: packed UID lists (UidPack) with group-varint deltas; and the posting lists'
-//! types with their stored format.
+//! Packed lists of 128-bit system IDs, after Dgraph v25.5.0's `codec`, in a format of the repository's own; and the
+//! posting lists' types with their stored format.
 //!
-//! A sorted UID list packs into [`UidPack`] blocks: a block holds at most the block size of UIDs, all sharing their
-//! upper 32 bits, stores its first UID as `base` and the others as u32 deltas in group-varint groups of four. The
-//! encoding is byte-identical to Dgraph's.
+//! A strictly increasing list of [`SystemId`](ultragraphdb_core_ids::SystemId)s packs into [`UidPack`] blocks of at
+//! most the block size: a block stores its first ID whole and each later ID as the difference of its first 104 bits
+//! (type, sequence and bucket; the reserved bits, always zero, left out) from those of the ID before it, in LEB128. A
+//! pack's bytes begin with its format version, [`UidPack::VERSION`]. A [`Decoder`] reads a pack back block by block
+//! and seeks to the block holding any 128-bit target.
 //!
 //! [`PostingList`], [`Posting`], [`UidPack`], [`UidBlock`], [`List`], [`Facet`] and [`BackupPostingList`] are the
 //! repository's own, in place of Dgraph's protobuf messages, carrying the fields the code reads. A posting list is
@@ -17,8 +19,8 @@
 
 mod codec;
 mod errors;
-mod groupvarint;
 mod types;
+mod utils;
 
 pub use crate::codec::{
     approx_len, decode, decode_to_buffer, encode, encode_from_buffer, exact_len,

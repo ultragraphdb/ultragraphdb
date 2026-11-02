@@ -7,7 +7,7 @@
 /// split list. The bytes are stored: none changes meaning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Keyspace {
-    /// A catalog entry: an entry kind, then the predicate's or type's UID.
+    /// A catalog entry: an entry kind, then the predicate's or type's ID.
     Catalog,
     /// A subject's objects of a predicate: graph, predicate, subject.
     Forward,
@@ -27,6 +27,10 @@ pub enum Keyspace {
     Statements,
     /// A predicate's statistics in a graph: graph, predicate.
     Statistics,
+    /// A referring partition's registration mark of another partition's entity, per bucket group: entity, group.
+    Marks,
+    /// An entity's referrer set, at its home: entity.
+    Referrers,
 }
 
 /// The flag on the keyspace byte of a part of a split list.
@@ -34,6 +38,7 @@ pub const SPLIT_FLAG: u8 = 0x80;
 
 impl Keyspace {
     /// The keyspace byte its keys begin with, without the split flag.
+    #[must_use]
     pub fn byte(self) -> u8 {
         match self {
             Keyspace::Catalog => 0x01,
@@ -46,10 +51,13 @@ impl Keyspace {
             Keyspace::VectorIndex => 0x16,
             Keyspace::Statements => 0x17,
             Keyspace::Statistics => 0x18,
+            Keyspace::Marks => 0x19,
+            Keyspace::Referrers => 0x1A,
         }
     }
 
     /// The keyspace of keyspace byte `byte`, the split flag cleared, and whether it was set.
+    #[must_use]
     pub fn from_byte(byte: u8) -> Option<(Self, bool)> {
         let keyspace = match byte & !SPLIT_FLAG {
             0x01 => Keyspace::Catalog,
@@ -62,12 +70,20 @@ impl Keyspace {
             0x16 => Keyspace::VectorIndex,
             0x17 => Keyspace::Statements,
             0x18 => Keyspace::Statistics,
+            0x19 => Keyspace::Marks,
+            0x1A => Keyspace::Referrers,
             _ => return None,
         };
+        debug_assert_eq!(
+            keyspace.byte(),
+            byte & !SPLIT_FLAG,
+            "a keyspace reads back from its byte"
+        );
         Some((keyspace, byte & SPLIT_FLAG != 0))
     }
 
     /// Whether the keyspace holds posting lists, whose large ones split into parts.
+    #[must_use]
     pub fn is_list(self) -> bool {
         matches!(
             self,
@@ -81,15 +97,27 @@ impl Keyspace {
         )
     }
 
-    /// Whether its lists tell postings apart by their values as well as their UIDs: every list keyspace but the vector
+    /// Whether its lists tell postings apart by their values as well as their IDs: every list keyspace but the vector
     /// index's, whose lists hold one value each, overwritten in place.
+    #[must_use]
     pub fn compares_values(self) -> bool {
         self.is_list() && self != Keyspace::VectorIndex
     }
 
+    /// Whether its keys name a graph after the namespace: every keyspace but the catalog's, the marks' and the
+    /// referrers'.
+    #[must_use]
+    pub fn has_graph(self) -> bool {
+        !matches!(
+            self,
+            Keyspace::Catalog | Keyspace::Marks | Keyspace::Referrers
+        )
+    }
+
     /// Whether its keys name a predicate after the graph.
+    #[must_use]
     pub fn has_predicate(self) -> bool {
-        matches!(
+        let has = matches!(
             self,
             Keyspace::Forward
                 | Keyspace::Reverse
@@ -97,6 +125,8 @@ impl Keyspace {
                 | Keyspace::CountIndex
                 | Keyspace::VectorIndex
                 | Keyspace::Statistics
-        )
+        );
+        debug_assert!(!has || self.has_graph(), "a predicate follows a graph");
+        has
     }
 }

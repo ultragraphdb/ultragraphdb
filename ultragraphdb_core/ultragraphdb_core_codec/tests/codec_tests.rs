@@ -1,325 +1,247 @@
 /*
- * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Ported from Dgraph v25.5.0, codec/codec_test.go. Changed for ultragraphdb: translated to Rust.
- * Copyright (c) 2026. Marvin Hansen.
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The codec's free functions, and the helpers the codec's tests share: IDs, and the golden ID lists of
+//! `testdata/golden/id_lists.json`, written by `formats.py` from the format's specification, independent of the codec.
+
+use serde::Deserialize;
 use ultragraphdb_core_codec::{
-    Decoder, Encoder, SeekPos, UidPack, approx_len, decode, decode_to_buffer, encode,
+    CodecError, CodecErrorEnum, UidPack, approx_len, decode, decode_to_buffer, encode,
     encode_from_buffer, exact_len,
 };
-use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_core_ids::{Bucket, IdError, Sequence, SystemId, TypePrefix};
+use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
 
-/// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
-struct Rng(u64);
+pub fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::new(prefix)?,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
+}
 
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    }
+/// The IDs of type 1, bucket 0 and the sequences given.
+pub fn sequences(sequences: impl Iterator<Item = u64>) -> TestResult<Vec<SystemId>> {
+    sequences.map(|s| id(1, 0, s)).collect()
+}
 
-    fn below(&mut self, n: u64) -> u64 {
-        self.next_u64() % n
-    }
+/// The 128-bit value of the ID of type 1, bucket 0 and `sequence`, as a target.
+pub fn target(sequence: u64) -> TestResult<u128> {
+    Ok(id(1, 0, sequence)?.to_u128())
+}
 
-    fn next_u32(&mut self) -> u32 {
-        (self.next_u64() >> 32) as u32
+pub fn packed(ids: &[SystemId], block_size: usize) -> TestResult<UidPack> {
+    encode(ids, block_size)?.context("a non-empty list packs")
+}
+
+pub fn unhex(text: &str) -> TestResult<Vec<u8>> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| {
+            text.get(i..i + 2)
+                .context("two hex digits")
+                .and_then(|pair| u8::from_str_radix(pair, 16).context("hex"))
+        })
+        .collect()
+}
+
+/// A golden block: its first ID and deltas in hex, and its ID count.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoldenBlock {
+    pub first: String,
+    pub count: u32,
+    pub deltas: String,
+}
+
+/// A golden case: a list and the pack's bytes and blocks, or the position at which encoding refuses it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct IdListCase {
+    pub name: String,
+    pub block_size: usize,
+    pub ids: Vec<String>,
+    #[serde(default)]
+    pub pack: Option<String>,
+    #[serde(default)]
+    pub blocks: Vec<GoldenBlock>,
+    #[serde(default)]
+    pub out_of_order: Option<usize>,
+}
+
+impl IdListCase {
+    pub fn ids(&self) -> TestResult<Vec<SystemId>> {
+        self.ids.iter().map(|text| parse_id(text)).collect()
     }
 }
 
-/// The size bound Go draws from, `rand.Intn(10e6)`.
-const MAX_SIZE: u64 = 10_000_000;
-
-fn get_uids(rng: &mut Rng, size: u64) -> Vec<u64> {
-    let mut last = rng.below(100);
-    let mut uids = vec![last];
-    for _ in 1..size {
-        last += rng.below(33);
-        uids.push(last);
-    }
-    uids
+pub fn parse_id(text: &str) -> TestResult<SystemId> {
+    Ok(SystemId::from_u128(
+        u128::from_str_radix(text, 16).context("a hex ID")?,
+    )?)
 }
 
-fn read_uvarint(buf: &[u8]) -> TestResult<(u64, usize)> {
-    let n = buf
-        .iter()
-        .position(|&b| b < 0x80)
-        .context("the varint is not truncated")?
-        + 1;
-    let x = buf[..n]
-        .iter()
-        .enumerate()
-        .fold(0u64, |x, (i, &b)| x | u64::from(b & 0x7f) << (7 * i));
-    Ok((x, n))
+pub fn id_list_cases() -> TestResult<Vec<IdListCase>> {
+    let golden = load_golden::<IdListCase>(&testdata_dir()?.join("golden/id_lists.json"))?;
+    assert!(
+        golden.cases().len() >= 20,
+        "the golden file holds the cases"
+    );
+    Ok(golden.cases().to_vec())
 }
 
 #[test]
-fn test_uid_pack() -> TestResult {
-    // Some edge case tests.
-    assert!(encode(&[], 128).is_none());
+fn test_an_empty_list_packs_to_nothing() -> TestResult {
+    assert_eq!(encode(&[], 256), Ok(None));
     assert_eq!(0, approx_len(&UidPack::default()));
-    assert_eq!(0, decode(&UidPack::default(), 0).len());
-
-    let mut rng = Rng(1);
-    for _ in 0..13 {
-        let size = rng.below(MAX_SIZE);
-        let expected = get_uids(&mut rng, size);
-        let pack = encode(&expected, 256).context("a non-empty list packs")?;
-        assert_eq!(expected.len(), exact_len(&pack));
-        let actual = decode(&pack, 0);
-        assert_eq!(expected, actual);
-    }
+    assert_eq!(0, exact_len(&UidPack::default()));
+    assert!(decode(&UidPack::default(), 0).is_empty());
     Ok(())
 }
 
 #[test]
-fn test_buffer_uid_pack() -> TestResult {
-    // Some edge case tests.
-    assert!(encode(&[], 128).is_none());
-
-    let mut buf = Vec::new();
-    decode_to_buffer(&mut buf, &UidPack::default());
-    assert_eq!(0, buf.len());
-
-    let mut rng = Rng(2);
-    for _ in 0..13 {
-        let size = rng.below(MAX_SIZE);
-        let expected = get_uids(&mut rng, size);
-
-        let pack = encode(&expected, 256).context("a non-empty list packs")?;
-        assert_eq!(expected.len(), exact_len(&pack));
-        let actual = decode(&pack, 0);
-        assert_eq!(expected, actual);
-
-        let mut actual_buffer = Vec::new();
-        decode_to_buffer(&mut actual_buffer, &pack);
-        let enc = encode_from_buffer(&actual_buffer, 256)
-            .context("decode_to_buffer writes valid varints")?
-            .context("a non-empty buffer packs")?;
-        assert_eq!(exact_len(&pack), exact_len(&enc));
-
-        let mut prev = 0u64;
-        let mut out_buf = actual_buffer.as_slice();
-        let mut uids = Vec::new();
-        // Read all uids in the outBuf
-        while !out_buf.is_empty() {
-            let (uid, n) = read_uvarint(out_buf)?;
-            out_buf = &out_buf[n..];
-
-            let next = prev + uid;
-            prev = next;
-            uids.push(next);
+fn test_every_golden_list_decodes_from_every_target_to_its_suffix() -> TestResult {
+    for case in id_list_cases()?
+        .into_iter()
+        .filter(|c| c.out_of_order.is_none())
+    {
+        let ids = case.ids()?;
+        let Some(pack) = encode(&ids, case.block_size)? else {
+            assert!(ids.is_empty(), "{}", case.name);
+            continue;
+        };
+        assert_eq!(ids.len(), exact_len(&pack), "{}", case.name);
+        assert_eq!(decode(&pack, 0), ids, "{}", case.name);
+        // From each ID, and from one past each ID's value, which no valid ID takes: its reserved bits are set.
+        for (i, from) in ids.iter().enumerate().step_by(7) {
+            let suffix = ids.get(i..).context("a suffix")?;
+            assert_eq!(decode(&pack, from.to_u128()), suffix, "{}", case.name);
+            let after = ids.get(i + 1..).context("a suffix")?;
+            assert_eq!(decode(&pack, from.to_u128() + 1), after, "{}", case.name);
         }
-        assert_eq!(actual, uids);
-    }
-    Ok(())
-}
-
-fn stepped_pack(n: u64, step: usize, block_size: usize) -> TestResult<UidPack> {
-    let mut enc = Encoder::new(block_size);
-    for i in (0..n).step_by(step) {
-        enc.add(i);
-    }
-    enc.done().context("the list is not empty")
-}
-
-#[test]
-fn test_seek() -> TestResult {
-    const N: u64 = 10001;
-    let pack = stepped_pack(N, 10, 10)?;
-    let mut dec = Decoder::new(&pack);
-
-    struct Case {
-        input: u64,
-        out: u64,
-        whence: SeekPos,
-        empty: bool,
-    }
-    let case = |input, out, whence| Case {
-        input,
-        out,
-        whence,
-        empty: false,
-    };
-    let empty = |input, whence| Case {
-        input,
-        out: 0,
-        whence,
-        empty: true,
-    };
-    let tests = [
-        case(0, 0, SeekPos::Start),
-        case(0, 0, SeekPos::Current),
-        case(100, 100, SeekPos::Start),
-        case(100, 110, SeekPos::Current),
-        case(1000, 1000, SeekPos::Start),
-        case(1000, 1010, SeekPos::Current),
-        case(1999, 2000, SeekPos::Start),
-        case(1999, 2000, SeekPos::Current),
-        case(1101, 1110, SeekPos::Start),
-        case(1101, 1110, SeekPos::Current),
-        case(10000, 10000, SeekPos::Start),
-        case(9999, 10000, SeekPos::Current),
-        empty(N, SeekPos::Start),
-        empty(N, SeekPos::Current),
-        empty(u64::MAX, SeekPos::Start),
-        empty(u64::MAX, SeekPos::Current),
-    ];
-
-    for tc in &tests {
-        let uids = dec.seek(tc.input, tc.whence);
-        if tc.empty {
-            assert!(uids.is_empty(), "seek {} returned {uids:?}", tc.input);
-        } else {
-            assert_eq!(tc.out, uids[0], "seek {} {:?}", tc.input, tc.whence);
-        }
-    }
-
-    // Go resets dec.blockIdx to 0; a new decoder starts there.
-    let mut linear = Decoder::new(&pack);
-    for i in (100..10000).step_by(100) {
-        let uids = linear.linear_seek(i);
-        assert!(uids.contains(&i), "linear seek {i} returned {uids:?}");
+        assert!(decode(&pack, u128::MAX).is_empty());
     }
     Ok(())
 }
 
 #[test]
-fn test_linear_seek() -> TestResult {
-    const N: u64 = 10001;
-    let pack = stepped_pack(N, 10, 10)?;
-    let mut dec = Decoder::new(&pack);
-
-    for i in (0..2 * N).step_by(10) {
-        let uids = dec.linear_seek(i);
-
-        if i < N {
-            assert!(uids.contains(&i), "linear seek {i} returned {uids:?}");
-        } else {
-            assert!(!uids.contains(&i), "linear seek {i} returned {uids:?}");
-        }
-    }
-
-    // blockIdx points to last block.
-    for i in (0..9990).step_by(10) {
-        let uids = dec.linear_seek(i);
-
-        assert!(!uids.contains(&i), "linear seek {i} returned {uids:?}");
-    }
-    Ok(())
-}
-
-#[test]
-fn test_decoder() -> TestResult {
-    const N: u64 = 10001;
-    let mut expected = Vec::new();
-    let mut enc = Encoder::new(10);
-    for i in (3..N).step_by(3) {
-        enc.add(i);
-        expected.push(i);
-    }
-    let pack = enc.done().context("the list is not empty")?;
-
-    let mut dec = Decoder::new(&pack);
-    for i in (3..N).step_by(3) {
-        let uids = dec.seek(i, SeekPos::Start);
-        assert_eq!(i, uids[0]);
-
-        let from_before = dec.seek(i - 1, SeekPos::Start);
-        assert_eq!(i, from_before[0]);
-
-        let from_two_before = dec.seek(i - 2, SeekPos::Start);
-        assert_eq!(i, from_two_before[0]);
-
-        let start = (i / 3 - 1) as usize;
-        let actual = decode(&pack, i);
-        assert_eq!(expected[start..], actual[..]);
-    }
-    Ok(())
-}
-
-#[test]
-fn test_encoding() {
-    let big_ints: [u64; 5] = [
-        0xf000000000000000,
-        0xf00f000000000000,
-        0x00f00f0000000000,
-        0x000f0f0000000000,
-        0x0f0f0f0f00000000,
-    ];
-
-    let lengths = [0usize, 1, 2, 3, 5, 13, 18, 100, 99, 98];
-
-    let mut rng = Rng(3);
-    for &length in &lengths {
-        let mut ints = vec![0u64; length];
-
-        for item in ints.iter_mut().take(50) {
-            *item = u64::from(rng.next_u32());
-        }
-
-        for item in ints.iter_mut().skip(50) {
-            *item = u64::from(rng.next_u32()) + big_ints[rng.below(5) as usize];
-        }
-
-        ints.sort_unstable();
-
-        let decoded_ints = encode(&ints, 256)
-            .map(|p| decode(&p, 0))
-            .unwrap_or_default();
-
-        assert_eq!(ints, decoded_ints);
-    }
-}
-
-fn new_uid_pack(data: &[u64]) -> Option<UidPack> {
-    let mut encoder = Encoder::new(10);
-    for &uid in data {
-        encoder.add(uid);
-    }
-    encoder.done()
-}
-
-#[test]
-fn test_copy_uid_pack() -> TestResult {
-    // Go's CopyUidPack is a deep copy; a UidPack's Clone is one.
-    let pack = new_uid_pack(&[1, 2, 3, 4, 5]).context("the list is not empty")?;
-    let copy = pack.clone();
-    assert_eq!(decode(&pack, 0), decode(&copy, 0));
-    Ok(())
-}
-
-#[test]
-fn test_buffer_varints_are_go_uvarints_byte_for_byte() -> TestResult {
-    // Deltas 200 (0xC8: bit 7 set in the first group), 16384 (0x4000: three groups) and 2^64 - 1 - 16584 (ten groups,
-    // the last holding bit 63 alone). Their bytes per the base-128 varint of Go's binary.PutUvarint, least significant
-    // group first, the continuation bit on all but the last: C8 01 | 80 80 01 | B7 FE FE FF FF FF FF FF FF 01.
-    let uids = [200, 16584, u64::MAX];
-    let bytes = [
-        0xC8, 0x01, 0x80, 0x80, 0x01, 0xB7, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01,
-    ];
-    let pack = encode(&uids, 2).context("a non-empty list packs")?;
-    let mut buf = Vec::new();
-    decode_to_buffer(&mut buf, &pack);
-    assert_eq!(buf, bytes);
-    let read = encode_from_buffer(&bytes, 2)
-        .context("valid varints")?
-        .context("a non-empty buffer packs")?;
-    assert_eq!(decode(&read, 0), uids);
-    Ok(())
-}
-
-#[test]
-fn test_approx_len_is_block_count_times_block_size() -> TestResult {
-    // Eleven UIDs in blocks of 4: three blocks, the last holding three, so 3 * 4 = 12.
-    let pack = encode(&(0..11).collect::<Vec<u64>>(), 4).context("a non-empty list packs")?;
+fn test_approx_len_is_the_block_count_times_the_block_size() -> TestResult {
+    // Eleven IDs in blocks of 4: three blocks, the last holding three, so 3 * 4 = 12.
+    let pack = packed(&sequences(1..=11)?, 4)?;
     assert_eq!(pack.blocks().len(), 3);
     assert_eq!(approx_len(&pack), 12);
+    assert_eq!(exact_len(&pack), 11);
+    Ok(())
+}
+
+#[test]
+fn test_buffer_deltas_are_leb128_of_the_ids_values() -> TestResult {
+    // (type 1, bucket 0, sequence 1) is 2^112 + 2^48: from 0 its delta is that value, whose LEB128 groups are zero but
+    // for bit 48 (group 6, bit 6: 0x40) and bit 112 (group 16, bit 0: 0x01), 17 bytes. The next ID, sequence 2, is
+    // 2^48 above it: groups 0 to 5 zero and 0x40 in group 6, 7 bytes. By hand from LEB128's definition.
+    let ids = sequences(1..=2)?;
+    let mut want = vec![0x80u8; 6];
+    want.push(0xC0);
+    want.extend_from_slice(&[0x80; 9]);
+    want.push(0x01);
+    want.extend_from_slice(&[0x80; 6]);
+    want.push(0x40);
+    let mut buf = Vec::new();
+    decode_to_buffer(&mut buf, &packed(&ids, 256)?);
+    assert_eq!(buf, want);
+    let read = encode_from_buffer(&want, 256)?.context("two IDs")?;
+    assert_eq!(decode(&read, 0), ids);
+    let mut empty = Vec::new();
+    decode_to_buffer(&mut empty, &UidPack::default());
+    assert!(empty.is_empty());
+    assert_eq!(encode_from_buffer(&[], 256), Ok(None));
+    Ok(())
+}
+
+#[test]
+fn test_every_golden_list_round_trips_through_a_buffer() -> TestResult {
+    for case in id_list_cases()?
+        .into_iter()
+        .filter(|c| c.out_of_order.is_none() && !c.ids.is_empty())
+    {
+        let pack = packed(&case.ids()?, case.block_size)?;
+        let mut buf = Vec::new();
+        decode_to_buffer(&mut buf, &pack);
+        let read = encode_from_buffer(&buf, case.block_size)?.context("a list")?;
+        assert_eq!(read, pack, "{}", case.name);
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_truncated_buffer_varint_is_refused() {
+    // One ID's 17 bytes cut after 16: the last byte still carries the continuation bit.
+    let mut buf = vec![0x80u8; 6];
+    buf.push(0xC0);
+    buf.extend_from_slice(&[0x80; 9]);
+    assert_eq!(
+        encode_from_buffer(&buf, 256),
+        Err(CodecError::truncated_varint(0))
+    );
+}
+
+#[test]
+fn test_a_buffer_varint_past_128_bits_is_refused() {
+    // 19 groups hold 133 bits: a 19th byte above 0x03 sets a bit past 127, and a 20th byte is past any u128.
+    let mut over = vec![0xFFu8; 18];
+    over.push(0x04);
+    assert_eq!(
+        encode_from_buffer(&over, 256),
+        Err(CodecError::overflowing_varint(0))
+    );
+    assert_eq!(
+        encode_from_buffer(&[0x80; 20], 256),
+        Err(CodecError::overflowing_varint(0))
+    );
+    // Exactly 19 bytes, the last still promising a 20th group: past any u128 wherever the buffer ends.
+    assert_eq!(
+        encode_from_buffer(&[0x80; 19], 256),
+        Err(CodecError::overflowing_varint(0))
+    );
+    // Two deltas whose sum passes 2^128: the valid ID 2^127 + 2^48 (type 0x8000, sequence 1; 19 bytes: groups 0 to 5
+    // zero, 0x40 in group 6, zero to group 17, 0x02 in group 18), then 2^127 (18 zero groups, then 0x02), which starts
+    // at byte 19.
+    let mut first = vec![0x80u8; 6];
+    first.push(0xC0);
+    first.extend_from_slice(&[0x80; 11]);
+    first.push(0x02);
+    let mut half = vec![0x80u8; 18];
+    half.push(0x02);
+    let twice = [first, half].concat();
+    assert_eq!(
+        encode_from_buffer(&twice, 256),
+        Err(CodecError::overflowing_varint(19))
+    );
+}
+
+#[test]
+fn test_a_buffer_varint_with_a_redundant_group_is_refused() {
+    // 1 written as 0x81 0x00, two bytes where 0x01 is the shortest.
+    assert_eq!(
+        encode_from_buffer(&[0x81, 0x00], 256),
+        Err(CodecError::non_canonical_varint(0))
+    );
+}
+
+#[test]
+fn test_a_buffer_value_that_is_no_valid_id_is_refused() -> TestResult {
+    // The value 1: its reserved bits are set.
+    assert_eq!(
+        encode_from_buffer(&[0x01], 256),
+        Err(CodecError::invalid_id(0, IdError::reserved_bits(1)))
+    );
+    // A valid first ID, then a delta of 0: the second ID equals the first.
+    let mut buf = Vec::new();
+    decode_to_buffer(&mut buf, &packed(&sequences(1..=1)?, 256)?);
+    buf.push(0x00);
+    assert_eq!(
+        encode_from_buffer(&buf, 256).map_err(|e| e.0),
+        Err(CodecErrorEnum::OutOfOrder { position: 1 })
+    );
     Ok(())
 }

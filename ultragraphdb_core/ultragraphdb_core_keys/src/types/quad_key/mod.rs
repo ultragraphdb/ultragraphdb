@@ -6,9 +6,11 @@
 mod quad_key_parse;
 mod quad_key_split;
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::EncodedTerm;
 
 use crate::types::count_direction::CountDirection;
+use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
 use crate::types::region::Region;
 
@@ -16,12 +18,13 @@ use crate::types::region::Region;
 pub const ROOT_NAMESPACE: u64 = 0;
 
 /// The graph a statement belongs to when it names none.
-pub const DEFAULT_GRAPH: u64 = 0;
+pub const DEFAULT_GRAPH: Graph = Graph::Default;
 
 /// A key of the quad layout, by its fields: what a key is built from and what parsing one returns. Every key is the
-/// keyspace byte, the namespace as a u64 big-endian, then the fields in the order a variant lists them; UIDs, IDs and
-/// node numbers are u64 big-endian, so a predicate's forward keys sort by subject, and an object is its encoding,
-/// which ends where its tag says. No key carries a vector.
+/// keyspace byte, the namespace as a u64 big-endian, then the fields in the order a variant lists them. Every ID is a
+/// 128-bit system ID written as its 16 big-endian bytes, so a predicate's forward keys sort by subject; the default
+/// graph is 16 zero bytes; an object is its encoding, which ends where its tag says; a mark's bucket group is 3
+/// big-endian bytes holding its 18 bits. No key carries a vector.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuadKey {
     /// A catalog entry's key.
@@ -30,28 +33,28 @@ pub enum QuadKey {
         namespace: u64,
         /// The entry kind.
         kind: u8,
-        /// The predicate's or type's UID.
-        uid: u64,
+        /// The predicate's or type's ID.
+        id: SystemId,
     },
     /// A key of a subject's objects of a predicate.
     Forward {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
         /// The subject.
-        subject: u64,
+        subject: SystemId,
     },
-    /// A key of an object's subjects of a predicate.
+    /// A key of an object's subjects of a predicate; it ends with the object.
     Reverse {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
         /// The object's encoding.
         object: EncodedTerm,
     },
@@ -60,16 +63,16 @@ pub enum QuadKey {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The subject.
-        subject: u64,
+        subject: SystemId,
     },
     /// A key of the predicates that point at an object.
     ObjectPredicates {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The object's encoding.
         object: EncodedTerm,
     },
@@ -78,9 +81,9 @@ pub enum QuadKey {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
         /// The tokenizer.
         tokenizer: u8,
         /// The token.
@@ -91,9 +94,9 @@ pub enum QuadKey {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
         /// Which end is counted.
         direction: CountDirection,
         /// The number of objects or subjects.
@@ -104,36 +107,59 @@ pub enum QuadKey {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
         /// The list kind.
         list: u8,
-        /// The node number.
-        node: u64,
+        /// The node.
+        node: SystemId,
     },
     /// A statement's record's key.
     Statement {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The statement ID.
-        statement: u64,
+        statement: SystemId,
     },
     /// A key of a predicate's statistics in a graph.
     Statistics {
         /// The namespace.
         namespace: u64,
         /// The graph.
-        graph: u64,
+        graph: Graph,
         /// The predicate.
-        predicate: u64,
+        predicate: SystemId,
+    },
+    /// The key of a referring partition's registration mark of another partition's entity, for one bucket group of
+    /// the referring subjects.
+    Mark {
+        /// The namespace.
+        namespace: u64,
+        /// The entity referred to.
+        entity: SystemId,
+        /// The bucket group of the referring subjects, the top 18 bits of their bucket, below 2^18.
+        group: u32,
+    },
+    /// The key of an entity's referrer set, at its home.
+    Referrers {
+        /// The namespace.
+        namespace: u64,
+        /// The entity.
+        entity: SystemId,
     },
 }
 
+/// The length of a key's namespace.
+const NAMESPACE_LEN: usize = 8;
+/// The largest bucket group a mark key holds, 2^18 - 1.
+pub(crate) const GROUP_MAX: u32 = (1 << 18) - 1;
+
 impl QuadKey {
     /// The keyspace the key belongs to.
+    #[must_use]
     pub fn keyspace(&self) -> Keyspace {
         match self {
             QuadKey::Catalog { .. } => Keyspace::Catalog,
@@ -146,10 +172,13 @@ impl QuadKey {
             QuadKey::VectorIndex { .. } => Keyspace::VectorIndex,
             QuadKey::Statement { .. } => Keyspace::Statements,
             QuadKey::Statistics { .. } => Keyspace::Statistics,
+            QuadKey::Mark { .. } => Keyspace::Marks,
+            QuadKey::Referrers { .. } => Keyspace::Referrers,
         }
     }
 
     /// The namespace.
+    #[must_use]
     pub fn namespace(&self) -> u64 {
         match self {
             QuadKey::Catalog { namespace, .. }
@@ -161,14 +190,18 @@ impl QuadKey {
             | QuadKey::CountIndex { namespace, .. }
             | QuadKey::VectorIndex { namespace, .. }
             | QuadKey::Statement { namespace, .. }
-            | QuadKey::Statistics { namespace, .. } => *namespace,
+            | QuadKey::Statistics { namespace, .. }
+            | QuadKey::Mark { namespace, .. }
+            | QuadKey::Referrers { namespace, .. } => *namespace,
         }
     }
 
-    /// The graph, for every keyspace but the catalog's.
-    pub fn graph(&self) -> Option<u64> {
+    /// The graph, for the keyspaces whose keys name one: every keyspace but the catalog's, the marks' and the
+    /// referrers'.
+    #[must_use]
+    pub fn graph(&self) -> Option<Graph> {
         match self {
-            QuadKey::Catalog { .. } => None,
+            QuadKey::Catalog { .. } | QuadKey::Mark { .. } | QuadKey::Referrers { .. } => None,
             QuadKey::Forward { graph, .. }
             | QuadKey::Reverse { graph, .. }
             | QuadKey::SubjectPredicates { graph, .. }
@@ -182,7 +215,8 @@ impl QuadKey {
     }
 
     /// The predicate, for the keyspaces whose keys name one.
-    pub fn predicate(&self) -> Option<u64> {
+    #[must_use]
+    pub fn predicate(&self) -> Option<SystemId> {
         match self {
             QuadKey::Forward { predicate, .. }
             | QuadKey::Reverse { predicate, .. }
@@ -193,11 +227,14 @@ impl QuadKey {
             QuadKey::Catalog { .. }
             | QuadKey::SubjectPredicates { .. }
             | QuadKey::ObjectPredicates { .. }
-            | QuadKey::Statement { .. } => None,
+            | QuadKey::Statement { .. }
+            | QuadKey::Mark { .. }
+            | QuadKey::Referrers { .. } => None,
         }
     }
 
     /// The region the key belongs to.
+    #[must_use]
     pub fn region(&self) -> Region {
         Region::new(
             self.keyspace(),
@@ -208,109 +245,94 @@ impl QuadKey {
     }
 
     /// The key's bytes. An object that is a vector is written as its encoding, which no key should carry; the store
-    /// keeps vectors out of every key that names an object.
+    /// keeps vectors out of every key that names an object. A mark's group is written as the low 24 bits of its
+    /// value, which is below 2^18 for every group.
+    #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut key = Vec::with_capacity(48);
+        let mut key = Vec::with_capacity(1 + NAMESPACE_LEN + 3 * SystemId::BYTES);
         key.push(self.keyspace().byte());
         key.extend_from_slice(&self.namespace().to_be_bytes());
-        self.push_rest(&mut key);
+        // Every keyspace naming a graph and a predicate names them first, in that order.
+        if let Some(graph) = self.graph() {
+            key.extend_from_slice(&graph.to_be_bytes());
+        }
+        if let Some(predicate) = self.predicate() {
+            key.extend_from_slice(&predicate.to_be_bytes());
+        }
+        self.push_tail(&mut key);
+        debug_assert_eq!(
+            key.first(),
+            Some(&self.keyspace().byte()),
+            "the keyspace byte leads"
+        );
         key
     }
 
-    /// Appends the key's bytes after its keyspace and namespace.
-    fn push_rest(&self, key: &mut Vec<u8>) {
+    /// Appends the key's fields after its graph and predicate.
+    fn push_tail(&self, key: &mut Vec<u8>) {
         match self {
-            QuadKey::Catalog { kind, uid, .. } => {
+            QuadKey::Catalog { kind, id, .. } => {
                 key.push(*kind);
-                u64s(key, &[*uid]);
+                key.extend_from_slice(&id.to_be_bytes());
             }
-            QuadKey::Forward {
-                graph,
-                predicate,
-                subject,
-                ..
-            } => u64s(key, &[*graph, *predicate, *subject]),
-            QuadKey::Reverse {
-                graph,
-                predicate,
-                object,
-                ..
-            } => {
-                u64s(key, &[*graph, *predicate]);
-                key.extend_from_slice(object.as_bytes());
-            }
-            QuadKey::SubjectPredicates { graph, subject, .. } => u64s(key, &[*graph, *subject]),
-            QuadKey::ObjectPredicates { graph, object, .. } => {
-                u64s(key, &[*graph]);
+            QuadKey::Forward { subject: id, .. }
+            | QuadKey::SubjectPredicates { subject: id, .. }
+            | QuadKey::Statement { statement: id, .. }
+            | QuadKey::Referrers { entity: id, .. } => key.extend_from_slice(&id.to_be_bytes()),
+            QuadKey::Reverse { object, .. } | QuadKey::ObjectPredicates { object, .. } => {
                 key.extend_from_slice(object.as_bytes());
             }
             QuadKey::ValueIndex {
-                graph,
-                predicate,
-                tokenizer,
-                token,
-                ..
+                tokenizer, token, ..
             } => {
-                u64s(key, &[*graph, *predicate]);
                 key.push(*tokenizer);
                 key.extend_from_slice(token);
             }
             QuadKey::CountIndex {
-                graph,
-                predicate,
-                direction,
-                count,
-                ..
+                direction, count, ..
             } => {
-                u64s(key, &[*graph, *predicate]);
                 key.push(direction.byte());
                 key.extend_from_slice(&count.to_be_bytes());
             }
-            QuadKey::VectorIndex {
-                graph,
-                predicate,
-                list,
-                node,
-                ..
-            } => {
-                u64s(key, &[*graph, *predicate]);
+            QuadKey::VectorIndex { list, node, .. } => {
                 key.push(*list);
-                u64s(key, &[*node]);
+                key.extend_from_slice(&node.to_be_bytes());
             }
-            QuadKey::Statement {
-                graph, statement, ..
-            } => u64s(key, &[*graph, *statement]),
-            QuadKey::Statistics {
-                graph, predicate, ..
-            } => u64s(key, &[*graph, *predicate]),
+            QuadKey::Statistics { .. } => {}
+            QuadKey::Mark { entity, group, .. } => {
+                debug_assert!(*group <= GROUP_MAX, "a bucket group holds 18 bits");
+                key.extend_from_slice(&entity.to_be_bytes());
+                let [_, high, middle, low] = group.to_be_bytes();
+                key.extend_from_slice(&[high, middle, low]);
+            }
         }
     }
 }
 
-/// Appends each of `values`, big-endian.
-fn u64s(key: &mut Vec<u8>, values: &[u64]) {
-    values
-        .iter()
-        .for_each(|v| key.extend_from_slice(&v.to_be_bytes()));
-}
-
-/// The prefix every key of `keyspace` in `namespace` begins with, narrowed to a graph and, when the keyspace's keys
-/// name one, a predicate: what a scan of a predicate's subjects or a drop of a graph reads. A split part's prefix sets
-/// the flag in the first byte.
+/// The prefix every key of `keyspace` in `namespace` begins with, narrowed to a graph when the keyspace's keys name
+/// one and, when they name one too, a predicate: what a scan of a predicate's subjects or a drop of a graph reads. A
+/// split part's prefix sets the flag in the first byte. A graph or predicate the keyspace's keys do not name is left
+/// out.
+#[must_use]
 pub fn key_prefix(
     keyspace: Keyspace,
     split: bool,
     namespace: u64,
-    graph: Option<u64>,
-    predicate: Option<u64>,
+    graph: Option<Graph>,
+    predicate: Option<SystemId>,
 ) -> Vec<u8> {
-    let mut prefix = vec![keyspace.byte() | if split { crate::SPLIT_FLAG } else { 0 }];
+    let mut prefix = Vec::with_capacity(1 + NAMESPACE_LEN + 2 * SystemId::BYTES);
+    prefix.push(keyspace.byte() | if split { crate::SPLIT_FLAG } else { 0 });
     prefix.extend_from_slice(&namespace.to_be_bytes());
-    if let Some(graph) = graph {
+    if let Some(graph) = graph.filter(|_| keyspace.has_graph()) {
         prefix.extend_from_slice(&graph.to_be_bytes());
         if let Some(predicate) = predicate.filter(|_| keyspace.has_predicate()) {
             prefix.extend_from_slice(&predicate.to_be_bytes());
         }
     }
+    debug_assert!(
+        prefix.len() <= 1 + NAMESPACE_LEN + 2 * SystemId::BYTES,
+        "a prefix is at most its three fields"
+    );
     prefix
 }

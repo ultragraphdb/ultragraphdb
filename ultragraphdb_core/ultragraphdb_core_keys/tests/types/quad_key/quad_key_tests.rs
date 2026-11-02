@@ -4,9 +4,20 @@
  */
 
 use oxrdf::Literal;
-use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+use ultragraphdb_core_keys::{
+    CountDirection, DEFAULT_GRAPH, Graph, Keyspace, QuadKey, ROOT_NAMESPACE, key_prefix,
+};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
-use ultragraphdb_tool_bdd::TestResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
+
+pub fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::new(prefix)?,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
+}
 
 pub fn literal(lexical: &str) -> TestResult<EncodedTerm> {
     Ok(
@@ -17,10 +28,17 @@ pub fn literal(lexical: &str) -> TestResult<EncodedTerm> {
     )
 }
 
-/// One key of every keyspace, its objects a UID and a hashed literal.
+/// The named graph every key of [`every_keyspace`] but the forward and statistics keys is in.
+pub fn graph() -> TestResult<Graph> {
+    Ok(Graph::Named(id(1, 3, 3)?))
+}
+
+/// One key of every keyspace in namespace 4, every ID distinct from the others, the reverse key twice: with an ID
+/// object and a hashed literal.
 pub fn every_keyspace() -> TestResult<Vec<QuadKey>> {
     let mut keys = data_keys()?;
-    keys.extend(index_keys());
+    keys.extend(index_keys()?);
+    keys.extend(placement_keys()?);
     Ok(keys)
 }
 
@@ -30,110 +48,240 @@ fn data_keys() -> TestResult<Vec<QuadKey>> {
         QuadKey::Catalog {
             namespace: 4,
             kind: 2,
-            uid: 9,
+            id: id(1, 9, 90)?,
         },
         QuadKey::Forward {
             namespace: 4,
-            graph: 0,
-            predicate: 9,
-            subject: 1 << 40,
+            graph: DEFAULT_GRAPH,
+            predicate: id(1, 9, 9)?,
+            subject: id(1, 0xAB_CDEF, 1 << 40)?,
         },
         QuadKey::Reverse {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             object: EncodedTerm::uid(7),
         },
         QuadKey::Reverse {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             object: literal("a string over fifteen bytes")?,
         },
         QuadKey::SubjectPredicates {
             namespace: 4,
-            graph: 3,
-            subject: 5,
+            graph: graph()?,
+            subject: id(1, 5, 5)?,
         },
         QuadKey::ObjectPredicates {
             namespace: 4,
-            graph: 3,
+            graph: graph()?,
             object: literal("short")?,
         },
     ])
 }
 
 /// Keys of the index, statement and statistics keyspaces.
-fn index_keys() -> Vec<QuadKey> {
-    vec![
+fn index_keys() -> TestResult<Vec<QuadKey>> {
+    Ok(vec![
         QuadKey::ValueIndex {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             tokenizer: 2,
             token: b"\x00ab\xff".to_vec(),
         },
         QuadKey::ValueIndex {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             tokenizer: 2,
             token: Vec::new(),
         },
         QuadKey::CountIndex {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             direction: CountDirection::Reverse,
             count: 70_000,
         },
         QuadKey::VectorIndex {
             namespace: 4,
-            graph: 3,
-            predicate: 9,
+            graph: graph()?,
+            predicate: id(1, 9, 9)?,
             list: 1,
-            node: 8,
+            node: id(1, 8, 8)?,
         },
         QuadKey::Statement {
             namespace: 4,
-            graph: 3,
-            statement: 11,
+            graph: graph()?,
+            statement: id(2, 5, 11)?,
         },
         QuadKey::Statistics {
             namespace: 4,
-            graph: 0,
-            predicate: 9,
+            graph: DEFAULT_GRAPH,
+            predicate: id(1, 9, 9)?,
         },
-    ]
+    ])
+}
+
+/// Keys of the marks and the referrers.
+fn placement_keys() -> TestResult<Vec<QuadKey>> {
+    Ok(vec![
+        QuadKey::Mark {
+            namespace: 4,
+            entity: id(1, 42, 9)?,
+            group: 0x2_ABCD,
+        },
+        QuadKey::Referrers {
+            namespace: 4,
+            entity: id(1, 42, 9)?,
+        },
+    ])
 }
 
 #[test]
 fn test_every_keyspace_round_trips_and_reports_its_fields() -> TestResult {
-    for key in every_keyspace()? {
+    let keys = every_keyspace()?;
+    assert_eq!(
+        keys.iter()
+            .map(QuadKey::keyspace)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        12,
+        "every keyspace is covered"
+    );
+    for key in keys {
         let bytes = key.to_bytes();
-        assert_eq!(bytes[0], key.keyspace().byte());
+        assert_eq!(bytes.first(), Some(&key.keyspace().byte()));
         assert_eq!(
-            &bytes[1..9],
-            &4u64.to_be_bytes(),
+            bytes.get(1..9),
+            Some(&4u64.to_be_bytes()[..]),
             "the namespace follows the keyspace byte"
         );
         assert_eq!(QuadKey::parse(&bytes), Ok((key.clone(), None)), "{key:?}");
         assert_eq!(key.namespace(), 4);
-        assert_eq!(key.graph().is_none(), key.keyspace() == Keyspace::Catalog);
-        assert_eq!(key.predicate().is_some(), key.keyspace().has_predicate());
+        assert_eq!(key.graph().is_some(), key.keyspace().has_graph(), "{key:?}");
+        assert_eq!(
+            key.predicate().is_some(),
+            key.keyspace().has_predicate(),
+            "{key:?}"
+        );
     }
     Ok(())
 }
 
 #[test]
-fn test_the_default_graph_is_zero_and_accepted() -> TestResult {
+fn test_a_key_reports_its_graph_and_predicate() -> TestResult {
+    let keys = every_keyspace()?;
+    let forward = keys.get(1).context("the forward key")?;
+    assert_eq!(forward.graph(), Some(Graph::Default));
+    assert_eq!(forward.predicate(), Some(id(1, 9, 9)?));
+    let subject_predicates = keys.get(4).context("the subject-predicates key")?;
+    assert_eq!(subject_predicates.graph(), Some(graph()?));
+    assert_eq!(subject_predicates.predicate(), None);
+    Ok(())
+}
+
+/// The scenario's ID (type 1, bucket 7, sequence 7) as its 16 bytes: 00 01 | 00×7 07 | 00 00 07 | 00 00 00.
+const PREDICATE_7: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 7, 0, 0, 0];
+/// The ID (type 1, bucket 42, sequence 42): 00 01 | 00×7 2A | 00 00 2A | 00 00 00.
+const SUBJECT_42: [u8; 16] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0x2A, 0, 0, 0x2A, 0, 0, 0];
+
+#[test]
+fn test_a_forward_key_is_its_hand_computed_bytes() -> TestResult {
     let key = QuadKey::Forward {
-        namespace: 0,
+        namespace: 133,
         graph: DEFAULT_GRAPH,
-        predicate: 1,
-        subject: 1,
+        predicate: id(1, 7, 7)?,
+        subject: id(1, 42, 42)?,
     };
-    assert_eq!(QuadKey::parse(&key.to_bytes())?.0.graph(), Some(0));
+    let mut want = vec![0x10, 0, 0, 0, 0, 0, 0, 0, 133];
+    want.extend_from_slice(&[0u8; 16]);
+    want.extend_from_slice(&PREDICATE_7);
+    want.extend_from_slice(&SUBJECT_42);
+    assert_eq!(key.to_bytes(), want);
+    Ok(())
+}
+
+#[test]
+fn test_mark_and_referrer_keys_are_their_hand_computed_bytes() -> TestResult {
+    let mark = QuadKey::Mark {
+        namespace: 7,
+        entity: id(1, 42, 42)?,
+        group: 0x2_ABCD,
+    };
+    let mut want = vec![0x19, 0, 0, 0, 0, 0, 0, 0, 7];
+    want.extend_from_slice(&SUBJECT_42);
+    want.extend_from_slice(&[0x02, 0xAB, 0xCD]);
+    assert_eq!(mark.to_bytes(), want);
+
+    let referrers = QuadKey::Referrers {
+        namespace: 7,
+        entity: id(1, 42, 42)?,
+    };
+    let mut want_referrers = vec![0x1A, 0, 0, 0, 0, 0, 0, 0, 7];
+    want_referrers.extend_from_slice(&SUBJECT_42);
+    assert_eq!(referrers.to_bytes(), want_referrers);
+    Ok(())
+}
+
+#[test]
+fn test_a_mark_holds_every_group_of_18_bits() -> TestResult {
+    // The smallest and the largest group, 0 and 2^18 - 1 = 0x3_FFFF, as 3 big-endian bytes.
+    for (group, bytes) in [(0u32, [0u8, 0, 0]), (0x3_FFFF, [0x03, 0xFF, 0xFF])] {
+        let key = QuadKey::Mark {
+            namespace: ROOT_NAMESPACE,
+            entity: id(1, 1, 1)?,
+            group,
+        };
+        assert!(key.to_bytes().ends_with(&bytes), "{group:#x}");
+        assert_eq!(QuadKey::parse(&key.to_bytes()), Ok((key, None)));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_ids_at_their_bounds_round_trip() -> TestResult {
+    for subject in [
+        id(1, 0, 1)?,
+        id(u16::MAX, Bucket::MAX.get(), u64::MAX)?,
+        id(2, Bucket::MAX.get(), 1)?,
+    ] {
+        let key = QuadKey::SubjectPredicates {
+            namespace: u64::MAX,
+            graph: Graph::Named(subject),
+            subject,
+        };
+        assert_eq!(QuadKey::parse(&key.to_bytes()), Ok((key, None)));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_predicates_forward_keys_sort_as_their_subjects() -> TestResult {
+    // Pairs that differ in the type, the sequence or the bucket, each lower one's other fields higher: the key order
+    // is the ID order, type then sequence then bucket.
+    let ordered = [
+        id(1, Bucket::MAX.get(), 1)?,
+        id(1, 0, 2)?,
+        id(1, 1, 2)?,
+        id(2, 0, 1)?,
+    ];
+    let predicate = id(1, 1, 1)?;
+    let keys: Vec<Vec<u8>> = ordered
+        .iter()
+        .map(|&subject| {
+            QuadKey::Forward {
+                namespace: 1,
+                graph: DEFAULT_GRAPH,
+                predicate,
+                subject,
+            }
+            .to_bytes()
+        })
+        .collect();
+    assert!(keys.is_sorted());
     Ok(())
 }
 
@@ -149,14 +297,48 @@ fn test_a_prefix_covers_exactly_its_keys() -> TestResult {
         ];
         assert!(prefixes.iter().all(|p| bytes.starts_with(p)), "{key:?}");
         assert!(!bytes.starts_with(&key_prefix(ks, false, 5, None, None)));
-        if let Some(graph) = key.graph() {
-            assert!(!bytes.starts_with(&key_prefix(ks, false, 4, Some(graph + 1), None)));
+        if key.graph().is_some() {
+            let other = Graph::Named(id(1, 3, 4)?);
+            assert!(!bytes.starts_with(&key_prefix(ks, false, 4, Some(other), None)));
         }
-        if ks.is_list() {
-            let split = key.split_bytes(3)?;
-            assert!(split.starts_with(&key_prefix(ks, true, 4, key.graph(), key.predicate())));
-            assert!(!split.starts_with(&key_prefix(ks, false, 4, None, None)));
-        }
+    }
+    Ok(())
+}
+
+#[test]
+fn test_a_prefix_is_the_keyspace_namespace_graph_and_predicate_bytes() -> TestResult {
+    let predicate = id(1, 7, 7)?;
+    let mut want = vec![0x10 | 0x80, 0, 0, 0, 0, 0, 0, 0, 133];
+    want.extend_from_slice(&[0u8; 16]);
+    want.extend_from_slice(&PREDICATE_7);
+    assert_eq!(
+        key_prefix(
+            Keyspace::Forward,
+            true,
+            133,
+            Some(DEFAULT_GRAPH),
+            Some(predicate)
+        ),
+        want
+    );
+    // A keyspace whose keys name no predicate leaves it out; one whose keys name no graph leaves both out.
+    assert_eq!(
+        key_prefix(
+            Keyspace::SubjectPredicates,
+            false,
+            133,
+            Some(DEFAULT_GRAPH),
+            Some(predicate)
+        )
+        .len(),
+        1 + 8 + 16
+    );
+    for keyspace in [Keyspace::Catalog, Keyspace::Marks, Keyspace::Referrers] {
+        assert_eq!(
+            key_prefix(keyspace, false, 133, Some(DEFAULT_GRAPH), Some(predicate)),
+            vec![keyspace.byte(), 0, 0, 0, 0, 0, 0, 0, 133],
+            "{keyspace:?}"
+        );
     }
     Ok(())
 }

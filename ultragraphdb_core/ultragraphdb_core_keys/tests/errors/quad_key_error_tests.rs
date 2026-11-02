@@ -3,8 +3,71 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_keys::QuadKeyError;
+use std::error::Error;
+
+use ultragraphdb_core_ids::IdError;
+use ultragraphdb_core_keys::{QuadKeyError, QuadKeyErrorEnum};
 use ultragraphdb_core_terms::TermError;
+
+#[test]
+fn test_each_constructor_builds_its_variant() {
+    let key = vec![0x10, 0xab];
+    let cases = [
+        (
+            QuadKeyError::truncated(&key),
+            QuadKeyErrorEnum::Truncated { key: key.clone() },
+        ),
+        (
+            QuadKeyError::trailing_bytes(&key),
+            QuadKeyErrorEnum::TrailingBytes { key: key.clone() },
+        ),
+        (
+            QuadKeyError::unknown_keyspace(&key),
+            QuadKeyErrorEnum::UnknownKeyspace { key: key.clone() },
+        ),
+        (
+            QuadKeyError::invalid_id(&key, "subject", IdError::zero_sequence()),
+            QuadKeyErrorEnum::InvalidId {
+                key: key.clone(),
+                field: "subject",
+                error: IdError::zero_sequence(),
+            },
+        ),
+        (
+            QuadKeyError::unknown_direction(&key),
+            QuadKeyErrorEnum::UnknownDirection { key: key.clone() },
+        ),
+        (
+            QuadKeyError::bad_object(&key, TermError::unknown_tag(0x7f)),
+            QuadKeyErrorEnum::BadObject {
+                key: key.clone(),
+                error: TermError::unknown_tag(0x7f),
+            },
+        ),
+        (
+            QuadKeyError::vector_object(&key),
+            QuadKeyErrorEnum::VectorObject { key: key.clone() },
+        ),
+        (
+            QuadKeyError::not_a_list(&key),
+            QuadKeyErrorEnum::NotAList { key: key.clone() },
+        ),
+        (
+            QuadKeyError::group_range(&key, 0x4_0000),
+            QuadKeyErrorEnum::GroupRange {
+                key: key.clone(),
+                group: 0x4_0000,
+            },
+        ),
+        (
+            QuadKeyError::fingerprint_start(&key),
+            QuadKeyErrorEnum::FingerprintStart { key: key.clone() },
+        ),
+    ];
+    for (error, variant) in cases {
+        assert_eq!(error.0, variant);
+    }
+}
 
 #[test]
 fn test_each_error_names_the_keys_bytes() {
@@ -23,8 +86,8 @@ fn test_each_error_names_the_keys_bytes() {
             "Key 10ab belongs to no keyspace",
         ),
         (
-            QuadKeyError::zero_uid(&key, "subject"),
-            "Key 10ab has a subject of 0",
+            QuadKeyError::invalid_id(&key, "subject", IdError::zero_sequence()),
+            "Key 10ab has an invalid subject: invalid system ID: its sequence is 0",
         ),
         (
             QuadKeyError::unknown_direction(&key),
@@ -42,8 +105,17 @@ fn test_each_error_names_the_keys_bytes() {
             QuadKeyError::not_a_list(&key),
             "Key 10ab is not a list's and does not split",
         ),
+        (
+            QuadKeyError::group_range(&key, 0x4_0000),
+            "Mark key 10ab has bucket group 262144, past 18 bits",
+        ),
+        (
+            QuadKeyError::fingerprint_start(&key),
+            "Value-index key 10ab splits at an ID alone, not a fingerprint",
+        ),
     ];
     for (error, text) in cases {
         assert_eq!(error.to_string(), text);
+        assert!(error.source().is_none());
     }
 }

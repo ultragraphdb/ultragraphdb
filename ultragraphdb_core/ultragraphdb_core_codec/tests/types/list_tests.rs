@@ -4,19 +4,26 @@
  */
 
 use ultragraphdb_core_codec::List;
+use ultragraphdb_tool_bdd::TestResult;
+
+use crate::codec_tests::sequences;
 
 #[test]
-fn a_list_holds_its_uids() {
-    let list = List::new(vec![3, 1, 2]);
-    assert_eq!(list.uids(), &[3, 1, 2]);
-    assert_eq!(list.into_uids(), vec![3, 1, 2]);
-    assert!(List::default().uids().is_empty());
+fn test_a_list_holds_its_ids() -> TestResult {
+    let ids = sequences([3, 1, 2].into_iter())?;
+    let list = List::new(ids.clone());
+    assert_eq!(list.ids(), &ids[..]);
+    assert_eq!(list.into_ids(), ids);
+    assert!(List::default().ids().is_empty());
+    Ok(())
 }
 
 #[test]
-fn a_list_is_changed_in_place() {
-    let mut list = List::new(vec![1, 2]);
-    list.uids_mut().push(9);
-    list.uids_mut().retain(|&u| u != 1);
-    assert_eq!(list, List::new(vec![2, 9]));
+fn test_a_list_is_changed_in_place() -> TestResult {
+    let mut list = List::new(sequences(1..=2)?);
+    list.ids_mut().extend(sequences(9..=9)?);
+    let one = sequences(1..=1)?;
+    list.ids_mut().retain(|id| !one.contains(id));
+    assert_eq!(list, List::new(sequences([2, 9].into_iter())?));
+    Ok(())
 }

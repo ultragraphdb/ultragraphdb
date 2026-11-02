@@ -2,92 +2,104 @@
  * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Ported from Dgraph v25.5.0, codec/codec.go. Changed for ultragraphdb: translated to Rust; blocks are allocated
- * on the heap rather than on ristretto's z.Allocator, so a pack needs no FreePack and carries no alloc_ref.
+ * Ported from Dgraph v25.5.0, codec/codec.go (Encoder). Changed for ultragraphdb: translated to Rust; system IDs in
+ * place of UIDs, refused out of order; a block closes at the block size alone and stores LEB128 deltas of the IDs'
+ * first 104 bits in place of group-varint u32 deltas.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use crate::codec::match32_msb;
-use crate::groupvarint;
+use ultragraphdb_core_ids::SystemId;
+
+use crate::errors::codec_error::CodecError;
 use crate::types::uid_block::UidBlock;
 use crate::types::uid_pack::UidPack;
+use crate::utils::deltas;
 
-/// Converts a list of UIDs, added in ascending order, into a [`UidPack`].
+/// Converts a list of system IDs, added in strictly increasing order, into a [`UidPack`].
 #[derive(Debug, Clone)]
 pub struct Encoder {
     block_size: usize,
     pack: Option<UidPack>,
-    uids: Vec<u64>,
+    ids: Vec<SystemId>,
+    added: usize,
 }
 
 impl Encoder {
-    /// An encoder closing a block at `block_size` UIDs. Dgraph's posting lists use 256; a block size of 0 packs one
-    /// UID per block, as Go's does.
+    /// An encoder closing a block at `block_size` IDs. The posting lists use 256; a block size of 0 packs one ID per
+    /// block, as Go's does.
+    #[must_use]
     pub fn new(block_size: usize) -> Self {
         Self {
             block_size,
             pack: None,
-            uids: Vec::new(),
+            ids: Vec::with_capacity(block_size.clamp(1, 256)),
+            added: 0,
         }
     }
 
-    /// The number of UIDs at which a block closes.
+    /// The number of IDs at which a block closes.
+    #[must_use]
     pub fn block_size(&self) -> usize {
         self.block_size
     }
 
-    /// Adds a UID to the list being encoded. A block closes when it holds the block size or when `uid`'s upper 32 bits
-    /// differ from the previous UID's.
-    pub fn add(&mut self, uid: u64) {
-        if self.pack.is_none() {
-            self.pack = Some(UidPack::new(self.block_size as u32, Vec::new()));
+    /// Adds an ID to the list being encoded; a block closes when it holds the block size.
+    ///
+    /// # Errors
+    ///
+    /// [`CodecError::out_of_order`] naming the ID's position among those added, from 0, when it is not greater than
+    /// the ID added before it; the encoder is unchanged.
+    pub fn add(&mut self, id: SystemId) -> Result<(), CodecError> {
+        let last = self.ids.last().copied().or_else(|| {
+            self.pack
+                .as_ref()
+                .and_then(|p| p.blocks().last())
+                .map(UidBlock::last)
+        });
+        if last.is_some_and(|last| id <= last) {
+            return Err(CodecError::out_of_order(self.added));
         }
-
-        if let Some(&last) = self.uids.last()
-            && !match32_msb(last, uid)
-        {
+        let block_size = u32::try_from(self.block_size).unwrap_or(u32::MAX);
+        let pack = self.pack.get_or_insert_with(|| UidPack::empty(block_size));
+        debug_assert_eq!(
+            pack.block_size(),
+            block_size,
+            "the pack takes the encoder's block size"
+        );
+        self.ids.push(id);
+        self.added += 1;
+        if self.ids.len() >= self.block_size {
             self.pack_block();
         }
-
-        self.uids.push(uid);
-        if self.uids.len() >= self.block_size {
-            self.pack_block();
-        }
+        Ok(())
     }
 
-    /// The encoded pack, or `None` when no UID was added, as Go's `Done` returns nil.
+    /// The encoded pack, or `None` when no ID was added, as Go's `Done` returns nil.
+    #[must_use]
     pub fn done(mut self) -> Option<UidPack> {
         self.pack_block();
+        debug_assert!(
+            self.pack.is_some() == (self.added > 0),
+            "a pack exactly when an ID was added"
+        );
         self.pack
     }
 
-    /// Closes the pending UIDs into a block: the first is the base, the rest go as deltas in groups of four, the last
-    /// group padded with zeros. A block of one UID still emits one group.
+    /// Closes the pending IDs into a block: the first whole, each later one as its LEB128 delta.
     fn pack_block(&mut self) {
-        let Some((&base, rest)) = self.uids.split_first() else {
+        let (Some(&first), Some(&last)) = (self.ids.first(), self.ids.last()) else {
             return;
         };
-
-        let mut deltas = Vec::with_capacity(rest.len().div_ceil(4).max(1) * 17);
-        let mut last = base;
-        let mut group = |chunk: &[u64]| {
-            let mut tmp = [0u32; 4];
-            for (slot, &uid) in tmp.iter_mut().zip(chunk) {
-                *slot = uid.wrapping_sub(last) as u32;
-                last = uid;
+        let mut block_deltas = Vec::with_capacity(self.ids.len().saturating_sub(1) * 4);
+        for pair in self.ids.windows(2) {
+            if let [previous, next] = pair {
+                deltas::put(&mut block_deltas, *previous, *next);
             }
-            groupvarint::encode4(&mut deltas, tmp);
-        };
-        if rest.is_empty() {
-            group(&[]);
-        } else {
-            rest.chunks(4).for_each(group);
         }
-
-        let block = UidBlock::new(base, deltas, self.uids.len() as u32);
+        let count = u32::try_from(self.ids.len()).unwrap_or(u32::MAX);
         if let Some(pack) = self.pack.as_mut() {
-            pack.push_block(block);
+            pack.push_block(UidBlock::from_encoder(first, block_deltas, count, last));
         }
-        self.uids.clear();
+        self.ids.clear();
     }
 }

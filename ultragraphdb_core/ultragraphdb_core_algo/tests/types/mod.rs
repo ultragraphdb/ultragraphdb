@@ -4,4 +4,4 @@
  */
 
 #[cfg(test)]
-mod uint64_heap_tests;
+mod id_heap_tests;

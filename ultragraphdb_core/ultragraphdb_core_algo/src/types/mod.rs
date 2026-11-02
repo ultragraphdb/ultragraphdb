@@ -4,4 +4,4 @@
  */
 
 pub mod elem;
-pub mod uint64_heap;
+pub mod id_heap;

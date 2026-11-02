@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! Ported from Dgraph v25.5.0: `algo`: sorted-set operations over UID lists and packed lists.
+//! Ported from Dgraph v25.5.0: `algo`: sorted-set operations over lists of 128-bit system IDs and packed lists.
 //!
 //! Intersection, merge, difference and index-of over sorted [`List`](ultragraphdb_core_codec::List)s and over
 //! [`UidPack`](ultragraphdb_core_codec::UidPack)s, with the heap the merges use. Where Dgraph accepts a nil pack,
@@ -18,7 +18,7 @@ pub use crate::packed::{
     intersect_with_lin_packed, merge_sorted_packed,
 };
 pub use crate::types::elem::Elem;
-pub use crate::types::uint64_heap::Uint64Heap;
+pub use crate::types::id_heap::IdHeap;
 pub use crate::uidlist::{
     apply_filter, difference, index_of, intersect_compressed_with, intersect_compressed_with_bin,
     intersect_compressed_with_lin_jump, intersect_sorted, intersect_with, intersect_with_bin,

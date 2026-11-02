@@ -34,12 +34,12 @@ checked by `lake build PlacementModel` succeeding with no `sorry` in the library
 
 ## 2. Keys and ID lists → `ultragraphdb_core_keys`, `ultragraphdb_core_codec`, `ultragraphdb_core_algo`
 
-- [ ] 2.1 Ultra Style lift of `core_keys`, `core_codec` and `core_algo`, each in its own commit
-- [ ] 2.2 Scenarios: key-encoding (all requirements, the Dgraph-byte scenarios rewritten, the referrer key included), uid-lists ("ID lists pack into the repository's own format", "Packed lists decode, seek and round-trip", "Decoders seek without panicking or hanging", "Sorted-set operations over UID lists", "Packed set operations equal the plain ones"), posting-lists ("Posting lists are stored in the repository's own format")
-- [ ] 2.3 Ask the user, then remove `tools/golden/codec.go`'s `codec_uidpack` and `codec_seek` generators, `ultragraphdb_core_codec/testdata/golden/codec_uidpack.json` and `codec_seek.json`, and the tests and feature steps reading them (approved 2026-11-01); retire `algo_setops` and the HNSW graph vectors where the 128-bit formats invalidate them, recording which
-- [ ] 2.4 Phases 1–3: `QuadKey` over `SystemId`, the reverse key ending with its object, the mark key of the marks keyspace (namespace, object ID, the bucket group as 3 big-endian bytes), the referrer key, split keys with 16-byte starts; the packed ID list with its version byte and 104-bit LEB128 deltas, golden values from an independent implementation of the spec committed with their source; the posting format's version byte 2; set operations over 128-bit IDs against a plain sorted-vector oracle
-- [ ] 2.5 Phase 4: the keys, the packed list, its decoder and seeks, the set operations, the posting format
-- [ ] 2.6 Phase 5: fuzz targets for the key parser, the packed list's decoder and the posting format v2, seeded with the golden values
+- [x] 2.1 Ultra Style lift of `core_keys`, `core_codec` and `core_algo`, each in its own commit
+- [x] 2.2 Scenarios: key-encoding (all requirements, the Dgraph-byte scenarios rewritten, the referrer key included), uid-lists ("ID lists pack into the repository's own format", "Packed lists decode, seek and round-trip", "Decoders seek without panicking or hanging", "Sorted-set operations over UID lists", "Packed set operations equal the plain ones"), posting-lists ("Posting lists are stored in the repository's own format")
+- [x] 2.3 Ask the user, then remove `tools/golden/codec.go`'s `codec_uidpack` and `codec_seek` generators, `ultragraphdb_core_codec/testdata/golden/codec_uidpack.json` and `codec_seek.json`, and the tests and feature steps reading them (approved 2026-11-01); retire `algo_setops` and the HNSW graph vectors where the 128-bit formats invalidate them, recording which
+- [x] 2.4 Phases 1–3: `QuadKey` over `SystemId`, the reverse key ending with its object, the mark key of the marks keyspace (namespace, object ID, the bucket group as 3 big-endian bytes), the referrer key, split keys with 16-byte starts; the packed ID list with its version byte and 104-bit LEB128 deltas, golden values from an independent implementation of the spec committed with their source; the posting format's version byte 2; set operations over 128-bit IDs against a plain sorted-vector oracle
+- [x] 2.5 Phase 4: the keys, the packed list, its decoder and seeks, the set operations, the posting format
+- [x] 2.6 Phase 5: fuzz targets for the key parser, the packed list's decoder and the posting format v2, seeded with the golden values
 
 ## 3. Dictionary, statements and vectors → `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_store_quads`, `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`, `ultragraphdb_traits_index`
 

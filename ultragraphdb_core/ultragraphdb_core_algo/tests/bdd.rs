@@ -3,187 +3,198 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The set operations' scenarios: intersections, merges and differences of plain and packed UID lists.
+//! The sorted-set scenarios, bound to `features/`: plain and packed lists of system IDs intersected, merged and
+//! subtracted.
 
-use std::num::ParseIntError;
-use std::str::FromStr;
+use std::collections::BTreeSet;
 
-use cucumber::{World, given, then, when};
+use cucumber::{World, then, when};
 use ultragraphdb_core_algo::{
     difference_packed, intersect_compressed_with, intersect_sorted_packed, intersect_with,
     intersect_with_lin_packed, merge_sorted, merge_sorted_packed,
 };
 use ultragraphdb_core_codec::{List, UidPack, decode, encode};
-
-/// The block size the packed lists use, small so that the lists span many blocks.
-const BLOCK_SIZE: usize = 10;
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[derive(Debug, Default, World)]
 struct Steps {
-    lists: Vec<Vec<u64>>,
-    /// Per pair of lists: the plain, the packed and the packed-with-plain intersection.
-    intersections: Vec<(String, [Vec<u64>; 3])>,
-    merged: Vec<Vec<u64>>,
-    pack: Option<UidPack>,
-    intersection: Vec<u64>,
-    /// The decoded result of a packed intersection or difference.
-    result: Vec<u64>,
+    results: Vec<Vec<SystemId>>,
+    result: Vec<SystemId>,
 }
 
-/// A UID list a step names, `1, 2, 3`.
-struct Uids(Vec<u64>);
-
-impl FromStr for Uids {
-    type Err = ParseIntError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        text.split(',')
-            .map(|s| s.trim().parse())
-            .collect::<Result<_, _>>()
-            .map(Uids)
-    }
+fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::new(prefix)?,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
 }
 
-fn decoded(pack: Option<UidPack>) -> Vec<u64> {
+/// The IDs of type 1, bucket 0 and the sequences given.
+fn sequences(sequences: impl IntoIterator<Item = u64>) -> TestResult<Vec<SystemId>> {
+    sequences.into_iter().map(|s| id(1, 0, s)).collect()
+}
+
+fn decoded(pack: Option<UidPack>) -> Vec<SystemId> {
     pack.map(|p| decode(&p, 0)).unwrap_or_default()
 }
 
-fn list(uids: &[u64]) -> List {
-    List::new(uids.to_vec())
+/// A list of `n` distinct IDs across two types and two buckets, from `seed`; every other ID is shared between the
+/// lists of seeds 1 and 2, so a pair has common IDs.
+fn spread(n: u64, seed: u64) -> TestResult<Vec<SystemId>> {
+    let mut ids = BTreeSet::new();
+    let mut state = seed;
+    for i in 0..n {
+        // SplitMix64, for a fixed spread of sequences that reproduces.
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        let sequence = if i % 2 == 0 {
+            i + 1
+        } else {
+            ((z ^ (z >> 31)) % 5000) + 1
+        };
+        let prefix = if sequence % 2 == 0 { 1 } else { 2 };
+        let bucket = if sequence % 3 == 0 { 0 } else { 7 };
+        let _new: bool = ids.insert(id(prefix, bucket, sequence)?);
+    }
+    Ok(ids.into_iter().collect())
 }
 
-#[given(
-    "sorted, duplicate-free UID lists of 0, 1, 3, 11, 100 and 1000 UIDs, each pair sharing some UIDs"
-)]
-fn pairwise_lists(w: &mut Steps) {
-    // Even and multiple-of-three offsets from just below 2^32: two lists share the multiples of six, and the longer
-    // ones cross 2^32, which closes a block early.
-    let base = (1u64 << 32) - 600;
+#[when("two lists of system IDs are intersected as plain lists and as packed lists")]
+fn intersect_pairs(w: &mut Steps) -> TestResult {
     for n in [0u64, 1, 3, 11, 100, 1000] {
-        w.lists.push((0..n).map(|i| base + 2 * i).collect());
-        w.lists.push((0..n).map(|i| base + 3 * i).collect());
+        for m in [0u64, 1, 3, 11, 100, 1000] {
+            let (u, v) = (spread(n, 1)?, spread(m, 2)?);
+            let mut plain = List::default();
+            intersect_with(&List::new(u.clone()), &List::new(v.clone()), &mut plain);
+            let (pu, pv) = (encode(&u, 10)?, encode(&v, 10)?);
+            let packed = decoded(intersect_with_lin_packed(pu.as_ref(), pv.as_ref()));
+            let mut mixed = List::default();
+            intersect_compressed_with(pu.as_ref(), 0, &List::new(v.clone()), &mut mixed);
+            w.results.push(plain.into_ids());
+            w.results.push(packed);
+            w.results.push(mixed.into_ids());
+        }
     }
+    Ok(())
+}
+
+#[then("both results are equal, sorted and free of duplicates")]
+fn results_agree(w: &mut Steps) -> TestResult {
+    assert_eq!(w.results.len(), 3 * 36);
+    let mut nonempty = 0;
+    for triple in w.results.chunks(3) {
+        let [plain, packed, mixed] = triple else {
+            return Err(TestError::new("three results a pair"));
+        };
+        assert_eq!(plain, packed);
+        assert_eq!(plain, mixed);
+        assert!(
+            plain.windows(2).all(|p| p.first() < p.get(1)),
+            "sorted, no duplicate"
+        );
+        nonempty += usize::from(!plain.is_empty());
+    }
+    assert!(nonempty > 10, "pairs share IDs");
+    Ok(())
+}
+
+#[when("the lists of type 1, bucket 0 and sequences `[1,3,5]`, `[3,4]` and `[5,6]` are merged")]
+fn merge_three(w: &mut Steps) -> TestResult {
+    let lists = [
+        sequences([1, 3, 5])?,
+        sequences([3, 4])?,
+        sequences([5, 6])?,
+    ];
+    let plain: Vec<List> = lists.iter().cloned().map(List::new).collect();
+    w.results
+        .push(merge_sorted(&plain.iter().collect::<Vec<_>>()).into_ids());
+    let packs = lists
+        .iter()
+        .map(|l| encode(l, 2))
+        .collect::<Result<Vec<_>, _>>()?;
+    w.results.push(decoded(merge_sorted_packed(
+        &packs.iter().map(Option::as_ref).collect::<Vec<_>>(),
+    )));
+    Ok(())
+}
+
+#[then("the result holds sequences `[1,3,4,5,6]` of type 1, bucket 0")]
+fn merged_result(w: &mut Steps) -> TestResult {
+    let want = sequences([1, 3, 4, 5, 6])?;
+    assert_eq!(w.results, vec![want.clone(), want]);
+    Ok(())
 }
 
 #[when(
-    "each pair is intersected as plain lists, as packed lists and as a packed list with a plain one"
+    "the IDs of type 1, bucket 0 and sequences 1 to 100, packed in blocks of 10, are intersected with sequences 1 to 11 after sequence 200"
 )]
-fn intersect_pairs(w: &mut Steps) {
-    for u in &w.lists {
-        for v in &w.lists {
-            let mut plain = List::default();
-            intersect_with(&list(u), &list(v), &mut plain);
-            let (pu, pv) = (encode(u, BLOCK_SIZE), encode(v, BLOCK_SIZE));
-            let packed = decoded(intersect_with_lin_packed(pu.as_ref(), pv.as_ref()));
-            let mut mixed = List::default();
-            intersect_compressed_with(pu.as_ref(), 0, &list(v), &mut mixed);
-            let name = format!("{} with {} UIDs", u.len(), v.len());
-            w.intersections
-                .push((name, [plain.into_uids(), packed, mixed.into_uids()]));
-        }
-    }
+fn intersect_after(w: &mut Steps) -> TestResult {
+    let pack = encode(&sequences(1..=100)?, 10)?;
+    let v = List::new(sequences(1..=11)?);
+    let after = id(1, 0, 200)?.to_u128();
+    w.result = std::panic::catch_unwind(|| {
+        let mut out = List::default();
+        intersect_compressed_with(pack.as_ref(), after, &v, &mut out);
+        out.into_ids()
+    })
+    .map_err(|_| TestError::new("the intersection never panics"))?;
+    Ok(())
 }
 
-#[then("the three results are equal, sorted and free of duplicates")]
-fn intersections_agree(w: &mut Steps) {
-    assert_eq!(w.intersections.len(), 144);
-    assert!(
-        w.intersections.iter().any(|(_, r)| r[0].len() > 100),
-        "some pairs share many UIDs"
-    );
-    for (name, [plain, packed, mixed]) in &w.intersections {
-        assert_eq!(plain, packed, "{name}: plain and packed");
-        assert_eq!(plain, mixed, "{name}: plain and packed with plain");
-        assert!(
-            plain.windows(2).all(|p| p[0] < p[1]),
-            "{name}: sorted and duplicate-free"
-        );
-    }
+#[then("the result is empty and nothing panics")]
+fn result_empty_no_panic(w: &mut Steps) {
+    assert!(w.result.is_empty(), "{:?}", w.result);
 }
 
-#[given(expr = "the UID lists {string}, {string} and {string}")]
-fn three_lists(w: &mut Steps, a: Uids, b: Uids, c: Uids) {
-    w.lists = vec![a.0, b.0, c.0];
-}
-
-#[when("they are merged as plain lists and as packed lists")]
-fn merge(w: &mut Steps) {
-    let plain: Vec<List> = w.lists.iter().map(|l| list(l)).collect();
-    w.merged
-        .push(merge_sorted(&plain.iter().collect::<Vec<_>>()).into_uids());
-    let packs: Vec<Option<UidPack>> = w.lists.iter().map(|l| encode(l, BLOCK_SIZE)).collect();
-    w.merged.push(decoded(merge_sorted_packed(
-        &packs.iter().map(Option::as_ref).collect::<Vec<_>>(),
-    )));
-}
-
-#[then(expr = "both results are {string}")]
-fn merged_are(w: &mut Steps, want: Uids) {
-    let Uids(want) = want;
-    assert_eq!(w.merged, vec![want.clone(), want]);
-}
-
-#[given(expr = "the UIDs 1 to {int} packed and the plain list of the UIDs 1 to {int}")]
-fn packed_and_plain(w: &mut Steps, packed: u64, plain: u64) {
-    w.pack = encode(&(1..=packed).collect::<Vec<_>>(), BLOCK_SIZE);
-    w.lists = vec![(1..=plain).collect()];
-}
-
-#[when(expr = "the packed list is intersected with the plain one after UID {int}")]
-fn intersect_after(w: &mut Steps, after: u64) {
-    let mut out = List::default();
-    intersect_compressed_with(w.pack.as_ref(), after, &list(&w.lists[0]), &mut out);
-    w.intersection = out.into_uids();
-}
-
-#[then("the intersection is empty")]
-fn intersection_empty(w: &mut Steps) {
-    assert!(w.intersection.is_empty(), "{:?}", w.intersection);
-}
-
-#[when("they are packed and intersected")]
-fn intersect_packed(w: &mut Steps) {
-    let packs: Vec<Option<UidPack>> = w.lists.iter().map(|l| encode(l, BLOCK_SIZE)).collect();
+#[when(
+    "the sequences `[1,2,3,9]`, `[2,3,9,10,11]` and `[9,20,21,22,23,24]` of type 1, bucket 0 are packed and intersected"
+)]
+fn intersect_packed(w: &mut Steps) -> TestResult {
+    let packs = [
+        encode(&sequences([1, 2, 3, 9])?, 2)?,
+        encode(&sequences([2, 3, 9, 10, 11])?, 2)?,
+        encode(&sequences([9, 20, 21, 22, 23, 24])?, 2)?,
+    ];
     w.result = decoded(intersect_sorted_packed(
         &packs.iter().map(Option::as_ref).collect::<Vec<_>>(),
     ));
+    Ok(())
+}
+
+#[then("the result is the ID of sequence 9")]
+fn result_nine(w: &mut Steps) -> TestResult {
+    assert_eq!(w.result, sequences([9])?);
+    Ok(())
 }
 
 #[when(
-    expr = "the UIDs {int} to {int} packed in blocks of {int} have the UIDs {string} subtracted"
+    "sequences `2..15` packed in blocks of 5 have sequence `[1]` subtracted, all of type 1, bucket 0"
 )]
-fn subtract_from_range(w: &mut Steps, first: u64, last: u64, block_size: usize, v: Uids) {
-    let Uids(v) = v;
-    let u = encode(&(first..=last).collect::<Vec<_>>(), block_size);
-    let v = encode(&v, block_size);
+fn subtract_one(w: &mut Steps) -> TestResult {
+    let u = encode(&sequences(2..=15)?, 5)?;
+    let v = encode(&sequences([1])?, 5)?;
     w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
+    Ok(())
 }
 
-#[when(expr = "the UIDs {string} have the UIDs {string} packed in blocks of {int} subtracted")]
-fn subtract_packed(w: &mut Steps, u: Uids, v: Uids, block_size: usize) {
-    let (Uids(u), Uids(v)) = (u, v);
-    let u = encode(&u, block_size);
-    let v = encode(&v, block_size);
+#[then("the result is sequences `2..15`")]
+fn result_two_to_fifteen(w: &mut Steps) -> TestResult {
+    assert_eq!(w.result, sequences(2..=15)?);
+    Ok(())
+}
+
+#[when(
+    "sequence `[642]` has sequences `[1,2,3,4,5,642]` packed in blocks of 5 subtracted, all of type 1, bucket 0"
+)]
+fn subtract_later_block(w: &mut Steps) -> TestResult {
+    let u = encode(&sequences([642])?, 5)?;
+    let v = encode(&sequences([1, 2, 3, 4, 5, 642])?, 5)?;
     w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
-}
-
-#[when(expr = "the UIDs {string} have an empty pack of block size {int} subtracted")]
-fn subtract_empty_pack(w: &mut Steps, u: Uids, block_size: u32) {
-    let Uids(u) = u;
-    let u = encode(&u, BLOCK_SIZE);
-    let v = UidPack::new(block_size, Vec::new());
-    w.result = decoded(difference_packed(u.as_ref(), Some(&v)));
-}
-
-#[then(expr = "the result is {string}")]
-fn result_is(w: &mut Steps, want: Uids) {
-    let Uids(want) = want;
-    assert_eq!(w.result, want);
-}
-
-#[then(expr = "the result is the UIDs {int} to {int}")]
-fn result_is_range(w: &mut Steps, first: u64, last: u64) {
-    assert_eq!(w.result, (first..=last).collect::<Vec<_>>());
+    Ok(())
 }
 
 #[then("the result is empty")]
@@ -191,7 +202,21 @@ fn result_empty(w: &mut Steps) {
     assert!(w.result.is_empty(), "{:?}", w.result);
 }
 
-fn main() -> ultragraphdb_tool_bdd::TestResult {
+#[when("sequences `[1,2,3]` have an empty pack of block size 5 subtracted")]
+fn subtract_empty_pack(w: &mut Steps) -> TestResult {
+    let u = encode(&sequences([1, 2, 3])?, 5)?;
+    let v = UidPack::new(5, Vec::new())?;
+    w.result = decoded(difference_packed(u.as_ref(), Some(&v)));
+    Ok(())
+}
+
+#[then("the result is sequences `[1,2,3]`")]
+fn result_one_two_three(w: &mut Steps) -> TestResult {
+    assert_eq!(w.result, sequences([1, 2, 3])?);
+    Ok(())
+}
+
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()

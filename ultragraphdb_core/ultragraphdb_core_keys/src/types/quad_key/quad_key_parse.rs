@@ -3,60 +3,77 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use ultragraphdb_core_ids::SystemId;
 use ultragraphdb_core_terms::{EncodedTerm, TermErrorEnum};
 
 use crate::errors::quad_key_error::QuadKeyError;
 use crate::types::count_direction::CountDirection;
+use crate::types::graph::Graph;
 use crate::types::keyspace::Keyspace;
-use crate::types::quad_key::QuadKey;
+use crate::types::quad_key::{GROUP_MAX, QuadKey};
+use crate::types::split_start::SplitStart;
 
-/// The fields of a key being read, front to back.
+/// The length of a fingerprint start.
+const FINGERPRINT_LEN: usize = 8;
+
+/// The fields of a key being read, front to back: `key` is the whole key, for the errors, and `fields` the part of it
+/// a key's fields are read from, of which `at` bytes are read.
 struct Reader<'a> {
     key: &'a [u8],
+    fields: &'a [u8],
     at: usize,
-    end: usize,
 }
 
 impl<'a> Reader<'a> {
-    fn u8(&mut self) -> Result<u8, QuadKeyError> {
-        let byte = *self.key[..self.end]
-            .get(self.at)
+    /// The next `N` bytes.
+    fn array<const N: usize>(&mut self) -> Result<[u8; N], QuadKeyError> {
+        let bytes = self
+            .at
+            .checked_add(N)
+            .and_then(|end| self.fields.get(self.at..end))
+            .and_then(|bytes| <[u8; N]>::try_from(bytes).ok())
             .ok_or_else(|| QuadKeyError::truncated(self.key))?;
-        self.at += 1;
+        self.at += N;
+        Ok(bytes)
+    }
+
+    fn u8(&mut self) -> Result<u8, QuadKeyError> {
+        let [byte] = self.array::<1>()?;
         Ok(byte)
     }
 
-    fn u64(&mut self) -> Result<u64, QuadKeyError> {
-        let bytes = self.key[..self.end]
-            .get(self.at..self.at + 8)
-            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
-        self.at += 8;
-        let mut raw = [0u8; 8];
-        raw.copy_from_slice(bytes);
-        Ok(u64::from_be_bytes(raw))
-    }
-
-    /// A UID that may not be 0, as `field` names it.
-    fn uid(&mut self, field: &'static str) -> Result<u64, QuadKeyError> {
-        let uid = self.u64()?;
-        if uid == 0 {
-            return Err(QuadKeyError::zero_uid(self.key, field));
-        }
-        Ok(uid)
-    }
-
     fn u32(&mut self) -> Result<u32, QuadKeyError> {
-        let bytes = self.key[..self.end]
-            .get(self.at..self.at + 4)
-            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
-        self.at += 4;
-        let mut raw = [0u8; 4];
-        raw.copy_from_slice(bytes);
-        Ok(u32::from_be_bytes(raw))
+        Ok(u32::from_be_bytes(self.array::<4>()?))
+    }
+
+    fn u64(&mut self) -> Result<u64, QuadKeyError> {
+        Ok(u64::from_be_bytes(self.array::<8>()?))
+    }
+
+    /// A system ID, as `field` names it.
+    fn id(&mut self, field: &'static str) -> Result<SystemId, QuadKeyError> {
+        let bytes = self.array::<{ SystemId::BYTES }>()?;
+        SystemId::decode(&bytes).map_err(|e| QuadKeyError::invalid_id(self.key, field, e))
+    }
+
+    /// A graph: the default graph's 16 zero bytes, or a named graph's system ID.
+    fn graph(&mut self) -> Result<Graph, QuadKeyError> {
+        let bytes = self.array::<{ SystemId::BYTES }>()?;
+        if bytes == [0; SystemId::BYTES] {
+            return Ok(Graph::Default);
+        }
+        SystemId::decode(&bytes)
+            .map(Graph::Named)
+            .map_err(|e| QuadKeyError::invalid_id(self.key, "graph", e))
+    }
+
+    /// The bytes not read yet.
+    fn remaining(&self) -> &'a [u8] {
+        self.fields.get(self.at..).unwrap_or_default()
     }
 
     fn object(&mut self) -> Result<EncodedTerm, QuadKeyError> {
-        let rest = &self.key[self.at..self.end];
+        let rest = self.remaining();
         if rest.is_empty() {
             return Err(QuadKeyError::truncated(self.key));
         }
@@ -71,91 +88,134 @@ impl<'a> Reader<'a> {
         if term.is_vector() {
             return Err(QuadKeyError::vector_object(self.key));
         }
-        if term.as_uid() == Some(0) {
-            return Err(QuadKeyError::zero_uid(self.key, "object"));
-        }
-        self.at = self.end - after.len();
+        debug_assert!(after.len() < rest.len(), "an object takes at least its tag");
+        self.at = self.fields.len() - after.len();
         Ok(term)
     }
 
-    fn rest(&mut self) -> Vec<u8> {
-        let rest = self.key[self.at..self.end].to_vec();
-        self.at = self.end;
-        rest
+    /// The token: every byte not read yet.
+    fn token(&mut self) -> Vec<u8> {
+        let token = self.remaining().to_vec();
+        self.at = self.fields.len();
+        token
+    }
+
+    fn direction(&mut self) -> Result<CountDirection, QuadKeyError> {
+        CountDirection::from_byte(self.u8()?)
+            .ok_or_else(|| QuadKeyError::unknown_direction(self.key))
+    }
+
+    /// A mark's bucket group: 3 big-endian bytes holding 18 bits.
+    fn group(&mut self) -> Result<u32, QuadKeyError> {
+        let [high, middle, low] = self.array::<3>()?;
+        let group = u32::from_be_bytes([0, high, middle, low]);
+        if group > GROUP_MAX {
+            return Err(QuadKeyError::group_range(self.key, group));
+        }
+        Ok(group)
     }
 
     /// The fields after the namespace of a key of `keyspace`.
     fn fields(&mut self, keyspace: Keyspace, namespace: u64) -> Result<QuadKey, QuadKeyError> {
-        Ok(match keyspace {
-            Keyspace::Catalog => QuadKey::Catalog {
+        match keyspace {
+            Keyspace::Catalog => Ok(QuadKey::Catalog {
                 namespace,
                 kind: self.u8()?,
-                uid: self.uid("uid")?,
-            },
-            Keyspace::Forward => QuadKey::Forward {
+                id: self.id("id")?,
+            }),
+            Keyspace::Forward => Ok(QuadKey::Forward {
                 namespace,
-                graph: self.u64()?,
-                predicate: self.uid("predicate")?,
-                subject: self.uid("subject")?,
-            },
-            Keyspace::Reverse => QuadKey::Reverse {
+                graph: self.graph()?,
+                predicate: self.id("predicate")?,
+                subject: self.id("subject")?,
+            }),
+            Keyspace::Reverse => Ok(QuadKey::Reverse {
                 namespace,
-                graph: self.u64()?,
-                predicate: self.uid("predicate")?,
+                graph: self.graph()?,
+                predicate: self.id("predicate")?,
                 object: self.object()?,
-            },
-            Keyspace::SubjectPredicates => QuadKey::SubjectPredicates {
+            }),
+            Keyspace::SubjectPredicates => Ok(QuadKey::SubjectPredicates {
                 namespace,
-                graph: self.u64()?,
-                subject: self.uid("subject")?,
-            },
-            Keyspace::ObjectPredicates => QuadKey::ObjectPredicates {
+                graph: self.graph()?,
+                subject: self.id("subject")?,
+            }),
+            Keyspace::ObjectPredicates => Ok(QuadKey::ObjectPredicates {
                 namespace,
-                graph: self.u64()?,
+                graph: self.graph()?,
                 object: self.object()?,
-            },
-            Keyspace::ValueIndex => QuadKey::ValueIndex {
+            }),
+            Keyspace::ValueIndex => self.value_index(namespace),
+            Keyspace::CountIndex => self.count_index(namespace),
+            Keyspace::VectorIndex => self.vector_index(namespace),
+            Keyspace::Statements => Ok(QuadKey::Statement {
                 namespace,
-                graph: self.u64()?,
-                predicate: self.uid("predicate")?,
-                tokenizer: self.u8()?,
-                token: self.rest(),
-            },
-            Keyspace::CountIndex => {
-                let graph = self.u64()?;
-                let predicate = self.uid("predicate")?;
-                let direction = CountDirection::from_byte(self.u8()?)
-                    .ok_or_else(|| QuadKeyError::unknown_direction(self.key))?;
-                QuadKey::CountIndex {
-                    namespace,
-                    graph,
-                    predicate,
-                    direction,
-                    count: self.u32()?,
-                }
-            }
-            Keyspace::VectorIndex => QuadKey::VectorIndex {
+                graph: self.graph()?,
+                statement: self.id("statement ID")?,
+            }),
+            Keyspace::Statistics => Ok(QuadKey::Statistics {
                 namespace,
-                graph: self.u64()?,
-                predicate: self.uid("predicate")?,
-                list: self.u8()?,
-                node: self.uid("node")?,
-            },
-            Keyspace::Statements => QuadKey::Statement {
+                graph: self.graph()?,
+                predicate: self.id("predicate")?,
+            }),
+            Keyspace::Marks => Ok(QuadKey::Mark {
                 namespace,
-                graph: self.u64()?,
-                statement: self.uid("statement ID")?,
-            },
-            Keyspace::Statistics => QuadKey::Statistics {
+                entity: self.id("entity")?,
+                group: self.group()?,
+            }),
+            Keyspace::Referrers => Ok(QuadKey::Referrers {
                 namespace,
-                graph: self.u64()?,
-                predicate: self.uid("predicate")?,
-            },
+                entity: self.id("entity")?,
+            }),
+        }
+    }
+
+    fn value_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+        Ok(QuadKey::ValueIndex {
+            namespace,
+            graph: self.graph()?,
+            predicate: self.id("predicate")?,
+            tokenizer: self.u8()?,
+            token: self.token(),
         })
     }
 
+    fn count_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+        Ok(QuadKey::CountIndex {
+            namespace,
+            graph: self.graph()?,
+            predicate: self.id("predicate")?,
+            direction: self.direction()?,
+            count: self.u32()?,
+        })
+    }
+
+    fn vector_index(&mut self, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+        Ok(QuadKey::VectorIndex {
+            namespace,
+            graph: self.graph()?,
+            predicate: self.id("predicate")?,
+            list: self.u8()?,
+            node: self.id("node")?,
+        })
+    }
+
+    /// The split start after the fields: 16 bytes an ID, 8 a fingerprint.
+    fn split_start(&mut self) -> Result<SplitStart, QuadKeyError> {
+        match self.remaining().len() {
+            SystemId::BYTES => Ok(SplitStart::Id(self.id("split start")?)),
+            FINGERPRINT_LEN => Ok(SplitStart::Fingerprint(self.u64()?)),
+            len if len > SystemId::BYTES => Err(QuadKeyError::trailing_bytes(self.key)),
+            _ => Err(QuadKeyError::truncated(self.key)),
+        }
+    }
+
     fn done(&self) -> Result<(), QuadKeyError> {
-        if self.at == self.end {
+        debug_assert!(
+            self.at <= self.fields.len(),
+            "no field is read past the end"
+        );
+        if self.at == self.fields.len() {
             Ok(())
         } else {
             Err(QuadKeyError::trailing_bytes(self.key))
@@ -164,32 +224,57 @@ impl<'a> Reader<'a> {
 }
 
 impl QuadKey {
-    /// The fields of `key`, and the start of the part when it is a split key. Refused, naming the key's bytes, when
-    /// it ends early, runs on past its fields, names a UID of 0 other than the default graph, a statement ID of 0,
-    /// or an object it cannot read; nothing it is given makes it panic.
-    pub fn parse(key: &[u8]) -> Result<(QuadKey, Option<u64>), QuadKeyError> {
+    /// The fields of `key`, and the start of the part when it is a split key: what follows a split key's fields is
+    /// its start, 16 bytes an ID and 8 a fingerprint, and a value-index key's start is the last 16 bytes. Nothing it
+    /// is given makes it panic.
+    ///
+    /// # Errors
+    ///
+    /// Each names the key's bytes: [`QuadKeyError::truncated`] when it ends early, [`QuadKeyError::trailing_bytes`]
+    /// when it runs on past its fields or a split start is neither 8 nor 16 bytes, [`QuadKeyError::unknown_keyspace`]
+    /// for an unknown keyspace byte or the split flag on a keyspace without lists, [`QuadKeyError::invalid_id`] for an
+    /// ID that is not a valid system ID (the default graph's 16 zero bytes excepted),
+    /// [`QuadKeyError::unknown_direction`], [`QuadKeyError::bad_object`] and [`QuadKeyError::vector_object`] for a
+    /// count key's direction and an object it cannot take, and [`QuadKeyError::group_range`] for a mark's group of
+    /// 2^18 or more.
+    pub fn parse(key: &[u8]) -> Result<(QuadKey, Option<SplitStart>), QuadKeyError> {
         let first = *key.first().ok_or_else(|| QuadKeyError::truncated(key))?;
         let (keyspace, split) =
             Keyspace::from_byte(first).ok_or_else(|| QuadKeyError::unknown_keyspace(key))?;
         if split && !keyspace.is_list() {
             return Err(QuadKeyError::unknown_keyspace(key));
         }
-        let (end, start) = if split {
-            let end = key
+        // A value-index key's token runs to its end, so a split one's start is its last 16 bytes, read apart.
+        let (fields, id_start) = if split && keyspace == Keyspace::ValueIndex {
+            let at = key
                 .len()
-                .checked_sub(8)
-                .filter(|end| *end >= 9)
+                .checked_sub(SystemId::BYTES)
                 .ok_or_else(|| QuadKeyError::truncated(key))?;
-            let mut raw = [0u8; 8];
-            raw.copy_from_slice(&key[end..]);
-            (end, Some(u64::from_be_bytes(raw)))
+            let (fields, start) = key
+                .split_at_checked(at)
+                .ok_or_else(|| QuadKeyError::truncated(key))?;
+            (fields, Some(start))
         } else {
-            (key.len(), None)
+            (key, None)
         };
-        let mut r = Reader { key, at: 1, end };
-        let namespace = r.u64()?;
-        let parsed = r.fields(keyspace, namespace)?;
-        r.done()?;
+        let mut reader = Reader { key, fields, at: 1 };
+        let namespace = reader.u64()?;
+        let parsed = reader.fields(keyspace, namespace)?;
+        let start = match (split, id_start) {
+            (false, _) => None,
+            (true, Some(start)) => {
+                Some(SplitStart::Id(SystemId::decode(start).map_err(|e| {
+                    QuadKeyError::invalid_id(key, "split start", e)
+                })?))
+            }
+            (true, None) => Some(reader.split_start()?),
+        };
+        reader.done()?;
+        debug_assert_eq!(
+            parsed.keyspace(),
+            keyspace,
+            "a key parses into its keyspace"
+        );
         Ok((parsed, start))
     }
 }

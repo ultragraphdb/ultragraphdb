@@ -7,26 +7,29 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use ultragraphdb_core_ids::SystemId;
+
 use crate::types::posting::Posting;
 
-/// A posting list as a backup holds it: Dgraph's `BackupPostingList`, its UIDs plain or as uvarint deltas in
-/// `uid_bytes`, beside the postings, the commit timestamp and the splits.
+/// A posting list as a backup holds it: Dgraph's `BackupPostingList`, its IDs plain or as LEB128 deltas of their
+/// 128-bit values in `uid_bytes`, beside the postings, the commit timestamp and the keys its parts start at.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BackupPostingList {
-    uids: Vec<u64>,
+    uids: Vec<SystemId>,
     postings: Vec<Posting>,
     commit_ts: u64,
-    splits: Vec<u64>,
+    splits: Vec<u128>,
     uid_bytes: Vec<u8>,
 }
 
 impl BackupPostingList {
-    /// The UIDs as a plain list; when given, `uid_bytes` is not read.
-    pub fn uids(&self) -> &[u64] {
+    /// The IDs as a plain list; when given, `uid_bytes` is not read.
+    #[must_use]
+    pub fn uids(&self) -> &[SystemId] {
         &self.uids
     }
 
-    /// The postings the UIDs cannot carry.
+    /// The postings the IDs cannot carry.
     pub fn postings(&self) -> &[Posting] {
         &self.postings
     }
@@ -36,18 +39,20 @@ impl BackupPostingList {
         self.commit_ts
     }
 
-    /// The start UIDs of a split list's parts; empty for a list that is not split.
-    pub fn splits(&self) -> &[u64] {
+    /// The keys a split list's parts start at; empty for a list that is not split.
+    #[must_use]
+    pub fn splits(&self) -> &[u128] {
         &self.splits
     }
 
-    /// The UIDs as uvarint deltas, each from the previous UID, the first from 0.
+    /// The IDs as LEB128 deltas of their 128-bit values, each from the previous ID, the first from 0.
     pub fn uid_bytes(&self) -> &[u8] {
         &self.uid_bytes
     }
 
-    /// The list with `uids` as its plain UIDs.
-    pub fn with_uids(self, uids: Vec<u64>) -> Self {
+    /// The list with `uids` as its plain IDs.
+    #[must_use]
+    pub fn with_uids(self, uids: Vec<SystemId>) -> Self {
         Self { uids, ..self }
     }
 
@@ -61,12 +66,13 @@ impl BackupPostingList {
         Self { commit_ts, ..self }
     }
 
-    /// The list with `splits` as its parts' start UIDs.
-    pub fn with_splits(self, splits: Vec<u64>) -> Self {
+    /// The list with `splits` as the keys its parts start at.
+    #[must_use]
+    pub fn with_splits(self, splits: Vec<u128>) -> Self {
         Self { splits, ..self }
     }
 
-    /// The list with `uid_bytes` as its UIDs in uvarint deltas.
+    /// The list with `uid_bytes` as its IDs in LEB128 deltas.
     pub fn with_uid_bytes(self, uid_bytes: Vec<u8>) -> Self {
         Self { uid_bytes, ..self }
     }

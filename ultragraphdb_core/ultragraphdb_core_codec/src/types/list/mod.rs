@@ -1,36 +1,37 @@
 /*
- * SPDX-FileCopyrightText: © 2017-2026 Istari Digital, Inc.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Ported from Dgraph v25.5.0, protos/pb.proto (List). Changed for ultragraphdb: a Rust type in place of the protobuf
- * message.
- * Copyright (c) 2026. Marvin Hansen.
+ * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-/// A plain UID list, sorted where the set operations need it: Dgraph's `pb.List`.
+use ultragraphdb_core_ids::SystemId;
+
+/// A plain list of system IDs, sorted where the set operations need it: Dgraph's `pb.List`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct List {
-    uids: Vec<u64>,
+    ids: Vec<SystemId>,
 }
 
 impl List {
-    /// A list of `uids`.
-    pub fn new(uids: Vec<u64>) -> Self {
-        Self { uids }
+    /// A list of `ids`.
+    #[must_use]
+    pub fn new(ids: Vec<SystemId>) -> Self {
+        Self { ids }
     }
 
-    /// The UIDs.
-    pub fn uids(&self) -> &[u64] {
-        &self.uids
+    /// The IDs.
+    #[must_use]
+    pub fn ids(&self) -> &[SystemId] {
+        &self.ids
     }
 
-    /// The UIDs, for the set operations that write their result in place.
-    pub fn uids_mut(&mut self) -> &mut Vec<u64> {
-        &mut self.uids
+    /// The IDs, for the set operations that write their result in place.
+    pub fn ids_mut(&mut self) -> &mut Vec<SystemId> {
+        &mut self.ids
     }
 
-    /// The UIDs, taken out of the list.
-    pub fn into_uids(self) -> Vec<u64> {
-        self.uids
+    /// The IDs, taken out of the list.
+    #[must_use]
+    pub fn into_ids(self) -> Vec<SystemId> {
+        self.ids
     }
 }

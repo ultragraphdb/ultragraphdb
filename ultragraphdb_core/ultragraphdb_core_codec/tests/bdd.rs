@@ -3,396 +3,357 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! The codec's scenarios: packing UID lists, seeking through packs, and storing posting lists.
+//! The codec's scenarios, bound to `features/`: packing ID lists, seeking through packs, and storing posting lists.
 
-use std::num::ParseIntError;
-use std::str::FromStr;
-
-use cucumber::{World, given, then, when};
-use serde::Deserialize;
+use cucumber::{World, then, when};
 use ultragraphdb_core_codec::{
-    Decoder, Facet, Posting, PostingList, PostingType, SeekPos, UidBlock, UidPack, decode, encode,
+    CodecError, CodecErrorEnum, Decoder, Facet, Posting, PostingList, PostingType, SeekPos,
+    UidBlock, UidPack, decode, encode,
 };
+use ultragraphdb_core_ids::{Bucket, Sequence, SystemId, TypePrefix};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_tool_bdd::{Context, TestResult};
-
-#[derive(Debug, Clone, Deserialize)]
-struct GoldenBlock {
-    base: u64,
-    deltas: String,
-    num_uids: u32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct GoldenPack {
-    block_size: u32,
-    blocks: Vec<GoldenBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct PackCase {
-    name: String,
-    block_size: usize,
-    uids: Vec<u64>,
-    pack: Option<GoldenPack>,
-}
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 #[derive(Debug, Default, World)]
 struct Steps {
-    golden: Vec<PackCase>,
-    uids: Vec<u64>,
-    lists: Vec<Vec<u64>>,
+    ids: Vec<SystemId>,
     pack: Option<UidPack>,
-    mismatches: Vec<String>,
-    seek: Option<(u64, SeekPos)>,
-    result: Vec<u64>,
+    refused: Option<CodecError>,
+    round_trips: Vec<(Vec<SystemId>, Vec<SystemId>)>,
+    decoded: Vec<SystemId>,
+    sought: Vec<SystemId>,
     plist: PostingList,
-    key: Vec<u8>,
-    stored: Vec<u8>,
-    decoded: Vec<Result<PostingList, StoreError>>,
+    reads: Vec<Result<PostingList, StoreError>>,
 }
 
-/// A UID list a step names, `1, 2, 3`.
-struct Uids(Vec<u64>);
+const KEY: &[u8] = b"\x10list-7";
 
-impl FromStr for Uids {
-    type Err = ParseIntError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        text.split(',')
-            .map(|s| s.trim().parse())
-            .collect::<Result<_, _>>()
-            .map(Uids)
-    }
+fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
+    Ok(SystemId::new(
+        TypePrefix::new(prefix)?,
+        Bucket::new(bucket)?,
+        Sequence::new(sequence)?,
+    ))
 }
 
-/// An inclusive UID range a step names, `1-10`.
-struct UidRange(Vec<u64>);
-
-impl FromStr for UidRange {
-    type Err = String;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let (from, to) = text.split_once('-').ok_or("a range")?;
-        let uid = |s: &str| s.parse::<u64>().map_err(|e| format!("a UID: {e}"));
-        Ok(UidRange((uid(from)?..=uid(to)?).collect()))
-    }
+/// The IDs of type 1, bucket 0 and the sequences given.
+fn sequences(sequences: impl Iterator<Item = u64>) -> TestResult<Vec<SystemId>> {
+    sequences.map(|s| id(1, 0, s)).collect()
 }
 
-/// Bytes a step names in hex, `0a ff`.
-struct HexBytes(Vec<u8>);
-
-impl FromStr for HexBytes {
-    type Err = ParseIntError;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        text.split_whitespace()
-            .map(|b| u8::from_str_radix(b, 16))
-            .collect::<Result<_, _>>()
-            .map(HexBytes)
-    }
+fn target(sequence: u64) -> TestResult<u128> {
+    Ok(id(1, 0, sequence)?.to_u128())
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+fn packed(ids: &[SystemId], block_size: usize) -> TestResult<UidPack> {
+    encode(ids, block_size)?.context("a non-empty list packs")
 }
 
-/// A seek position a step names, Go's `SeekStart` or `SeekCurrent`.
-#[derive(Clone, Copy)]
-struct Whence(SeekPos);
-
-impl FromStr for Whence {
-    type Err = String;
-
-    fn from_str(name: &str) -> Result<Self, Self::Err> {
-        match name {
-            "SeekStart" => Ok(Whence(SeekPos::Start)),
-            "SeekCurrent" => Ok(Whence(SeekPos::Current)),
-            other => Err(format!("unknown seek position {other}")),
-        }
-    }
-}
-
-fn pack_of(w: &Steps) -> TestResult<&UidPack> {
-    w.pack.as_ref().context("the list was packed")
-}
-
-#[given(expr = "the golden UID lists generated from Dgraph with block size {int}")]
-fn golden_lists(w: &mut Steps, block_size: usize) -> TestResult {
-    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/codec_uidpack.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<PackCase>(&path)?;
-    w.golden = golden
-        .cases()
-        .iter()
-        .filter(|c| c.block_size == block_size)
-        .cloned()
-        .collect();
-    assert!(w.golden.len() > 300, "the golden file holds the lists");
+#[when("300 increasing IDs are encoded with block size 256")]
+fn encode_300(w: &mut Steps) -> TestResult {
+    w.ids = sequences(1..=300)?;
+    w.pack = Some(packed(&w.ids, 256)?);
     Ok(())
 }
 
-#[when(expr = "each golden list is encoded with block size {int}")]
-fn encode_golden(w: &mut Steps, block_size: usize) {
-    for case in &w.golden {
-        let actual = encode(&case.uids, block_size);
-        let same = match (&case.pack, &actual) {
-            (None, None) => true,
-            (Some(want), Some(got)) => {
-                want.block_size == got.block_size()
-                    && want.blocks.len() == got.blocks().len()
-                    && want.blocks.iter().zip(got.blocks()).all(|(a, b)| {
-                        a.base == b.base()
-                            && a.num_uids == b.num_uids()
-                            && a.deltas == hex(b.deltas())
-                    })
+#[then("the encoding holds two blocks, of 256 and 44 IDs, each beginning with its first ID whole")]
+fn two_blocks(w: &mut Steps) -> TestResult {
+    let pack = w.pack.as_ref().context("the pack")?;
+    let [a, b] = pack.blocks() else {
+        return Err(TestError::new(format!(
+            "two blocks, not {}",
+            pack.blocks().len()
+        )));
+    };
+    assert_eq!((a.count(), b.count()), (256, 44));
+    assert_eq!((a.first(), b.first()), (id(1, 0, 1)?, id(1, 0, 257)?));
+    // The pack's bytes hold each first ID whole: the 16 bytes of (type 1, bucket 0, sequence 257).
+    let bytes = pack.encode();
+    let whole = id(1, 0, 257)?.to_be_bytes();
+    assert!(bytes.windows(16).any(|window| window == whole));
+    Ok(())
+}
+
+#[when("the IDs (type 1, bucket 0, sequence 1) and (type 1, bucket 0, sequence 129) are encoded")]
+fn encode_two(w: &mut Steps) -> TestResult {
+    w.pack = Some(packed(&[id(1, 0, 1)?, id(1, 0, 129)?], 256)?);
+    Ok(())
+}
+
+#[then(
+    "the second is written as the difference of their first 104 bits, 128 × 2^24 since the sequence sits above the 24-bit bucket, in LEB128 the bytes `80 80 80 80 08`"
+)]
+fn leb128_delta(w: &mut Steps) -> TestResult {
+    let pack = w.pack.as_ref().context("the pack")?;
+    let [block] = pack.blocks() else {
+        return Err(TestError::new("one block"));
+    };
+    // 128 × 2^24 = 2^31: four groups of seven zero bits, each with the continuation bit, then 2^31 >> 28 = 8.
+    assert_eq!(block.deltas(), [0x80, 0x80, 0x80, 0x80, 0x08]);
+    assert_eq!(block.count(), 2);
+    Ok(())
+}
+
+#[when("a list whose third ID is not greater than its second is encoded")]
+fn encode_out_of_order(w: &mut Steps) -> TestResult {
+    let ids = [id(1, 0, 1)?, id(1, 0, 5)?, id(1, 0, 5)?, id(1, 0, 9)?];
+    w.refused = encode(&ids, 256).err();
+    Ok(())
+}
+
+#[then("encoding fails with an error naming position 2")]
+fn names_position_2(w: &mut Steps) -> TestResult {
+    let error = w.refused.take().context("refused")?;
+    assert_eq!(error.0, CodecErrorEnum::OutOfOrder { position: 2 });
+    assert!(error.to_string().contains("position 2"), "{error}");
+    Ok(())
+}
+
+/// 400 IDs of types 1 and 2 and buckets 0 and 7, sorted: the pool the round-trip lists are taken from.
+fn pool() -> TestResult<Vec<SystemId>> {
+    let mut ids = Vec::with_capacity(400);
+    for prefix in [1u16, 2] {
+        for sequence in 1..=100u64 {
+            for bucket in [0u32, 7] {
+                ids.push(id(prefix, bucket, sequence * 3)?);
             }
-            _ => false,
-        };
-        if !same {
-            w.mismatches.push(case.name.clone());
         }
     }
+    ids.sort();
+    Ok(ids)
 }
 
-#[then("every block's base, deltas and count equal Dgraph's")]
-fn golden_equal(w: &mut Steps) {
-    assert!(
-        w.mismatches.is_empty(),
-        "packs differ from Dgraph's: {:?}",
-        w.mismatches
-    );
-}
-
-#[given(expr = "the UID list {string}")]
-fn uid_list(w: &mut Steps, uids: Uids) {
-    w.uids = uids.0;
-}
-
-#[when(expr = "the list is encoded with block size {int}")]
-fn encode_list(w: &mut Steps, block_size: usize) {
-    w.pack = encode(&w.uids, block_size);
-}
-
-#[then(expr = "the pack has {int} block(s)")]
-fn block_count(w: &mut Steps, n: usize) -> TestResult {
-    assert_eq!(pack_of(w)?.blocks().len(), n);
-    Ok(())
-}
-
-#[then(expr = "the block bases are {string}")]
-fn block_bases(w: &mut Steps, want: Uids) -> TestResult {
-    let Uids(want) = want;
-    let bases: Vec<u64> = pack_of(w)?.blocks().iter().map(UidBlock::base).collect();
-    assert_eq!(bases, want);
-    Ok(())
-}
-
-#[then(expr = "block {int} has base {int}, count {int} and deltas {string}")]
-fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: HexBytes) -> TestResult {
-    let HexBytes(want) = deltas;
-    let block = &pack_of(w)?.blocks()[index - 1];
-    assert_eq!(block.base(), base);
-    assert_eq!(block.num_uids(), count);
-    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, block.deltas())?;
-    Ok(())
-}
-
-#[given("every sorted UID list of length 0 to 100, below 2^32 and across 2^32")]
-fn every_length(w: &mut Steps) {
-    for n in 0..=100u64 {
-        // Gaps of one to four bytes below 2^32, and a list centred on 2^32, whose upper 32 bits change inside it.
-        w.lists
-            .push((0..n).map(|i| i * i * 400_000 + i * 7).collect());
-        w.lists
-            .push((0..n).map(|i| (1u64 << 32) - n * 3 / 2 + i * 3).collect());
-    }
-    assert!(
-        w.lists
-            .iter()
-            .any(|l| l.first().is_some_and(|f| f >> 32 == 0)
-                && l.last().is_some_and(|l| l >> 32 == 1))
-    );
-}
-
-#[when(expr = "each list is encoded with block size {int} and decoded")]
-fn round_trip(w: &mut Steps, block_size: usize) {
-    for list in &w.lists {
-        let decoded = encode(list, block_size)
-            .map(|p| decode(&p, 0))
-            .unwrap_or_default();
-        if &decoded != list {
-            w.mismatches
-                .push(format!("{list:?} decoded as {decoded:?}"));
+#[when(
+    "each sorted list of length 0 to 100, including lists spanning two types and two buckets, is encoded and decoded"
+)]
+fn every_length(w: &mut Steps) -> TestResult {
+    let pool = pool()?;
+    for len in 0..=100usize {
+        // Every third ID of the pool, alternating buckets, so the list spans both types once it holds more than 67.
+        let list: Vec<SystemId> = pool.iter().step_by(3).take(len).copied().collect();
+        for block_size in [10, 256] {
+            let decoded = encode(&list, block_size)?.map_or_else(Vec::new, |p| decode(&p, 0));
+            w.round_trips.push((list.clone(), decoded));
         }
     }
-}
-
-#[then("each decoded list equals its input")]
-fn round_trip_equal(w: &mut Steps) {
-    assert!(w.mismatches.is_empty(), "{:?}", w.mismatches);
-}
-
-#[given(expr = "the UIDs {int} to {int} in steps of {int}, packed with block size {int}")]
-fn stepped(w: &mut Steps, from: u64, to: u64, stride: usize, block_size: usize) {
-    w.uids = (from..=to).step_by(stride).collect();
-    w.pack = encode(&w.uids, block_size);
-}
-
-#[when(expr = "the pack is decoded from {int}")]
-fn decode_from(w: &mut Steps, target: u64) -> TestResult {
-    w.result = decode(pack_of(w)?, target);
     Ok(())
 }
 
-#[when(expr = "a decoder seeks {int} with {word}")]
-fn seek(w: &mut Steps, target: u64, whence: Whence) -> TestResult {
-    let Whence(pos) = whence;
-    w.seek = Some((target, pos));
-    w.result = Decoder::sought(pack_of(w)?, target, pos).uids().to_vec();
+#[then("the decoded list equals the input")]
+fn round_trip_equal(w: &mut Steps) -> TestResult {
+    assert_eq!(w.round_trips.len(), 202);
+    let spanning = w.round_trips.iter().any(|(list, _)| {
+        let types: std::collections::BTreeSet<_> = list.iter().map(|i| i.type_prefix()).collect();
+        let buckets: std::collections::BTreeSet<_> = list.iter().map(|i| i.bucket()).collect();
+        types.len() == 2 && buckets.len() == 2
+    });
+    assert!(spanning, "some lists span two types and two buckets");
+    for (list, decoded) in &w.round_trips {
+        assert_eq!(list, decoded);
+    }
     Ok(())
 }
 
-#[when("the decoder moves to the next block")]
-fn next_block(w: &mut Steps) -> TestResult {
-    let (target, pos) = w.seek.context("a decoder sought")?;
-    let mut decoder = Decoder::sought(pack_of(w)?, target, pos);
-    w.result = decoder.next_block().to_vec();
-    Ok(())
-}
-
-#[then(expr = "the result holds {int} UIDs from {int} to {int}")]
-fn result_holds(w: &mut Steps, n: usize, first: u64, last: u64) {
-    assert_eq!(w.result.len(), n);
-    assert_eq!(w.result.first(), Some(&first));
-    assert_eq!(w.result.last(), Some(&last));
-    let run: Vec<u64> = w
-        .uids
-        .iter()
-        .copied()
-        .filter(|&u| u >= first && u <= last)
-        .collect();
-    assert_eq!(
-        w.result, run,
-        "the result is the input's run from {first} to {last}"
-    );
-}
-
-#[when(expr = "a decoder seeks to block {int} and then to block {int} with {word}")]
-fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, whence: Whence) -> TestResult {
-    let Whence(pos) = whence;
-    let mut decoder = Decoder::new(pack_of(w)?);
-    // The decoder holds the block of the first seek, which the second seek starts from.
-    let _first_block: &[u64] = decoder.seek_to_block(first, pos);
-    w.result = decoder.seek_to_block(second, pos).to_vec();
-    Ok(())
-}
-
-#[given(expr = "a pack of the blocks {string}, an empty block of base {int}, and {string}")]
-fn pack_with_empty_block(w: &mut Steps, first: UidRange, base: u64, last: UidRange) -> TestResult {
-    let (UidRange(first), UidRange(last)) = (first, last);
-    let mut blocks = encode(&first, 10)
-        .context("the first block packs")?
-        .blocks()
-        .to_vec();
-    blocks.push(UidBlock::new(base, Vec::new(), 0));
-    blocks.extend_from_slice(encode(&last, 10).context("the last block packs")?.blocks());
-    let pack = UidPack::new(10, blocks);
-    w.uids = first.into_iter().chain(last).collect();
-    w.pack = Some(pack);
-    Ok(())
-}
-
-#[when(expr = "a decoder seeks to block {int} with {word}")]
-fn seek_to_block_once(w: &mut Steps, target: u64, whence: Whence) -> TestResult {
-    let Whence(pos) = whence;
-    w.result = Decoder::new(pack_of(w)?)
-        .seek_to_block(target, pos)
+#[when(
+    "a packed list of the 1,000 IDs of type 1, bucket 0 and sequences 10, 20, …, 10,000 is decoded from sequence 5,005 and a decoder is sought to sequence 5,005"
+)]
+fn decode_and_seek(w: &mut Steps) -> TestResult {
+    let pack = packed(&sequences((10..=10_000).step_by(10))?, 256)?;
+    w.decoded = decode(&pack, target(5005)?);
+    w.sought = Decoder::sought(&pack, target(5005)?, SeekPos::Start)
+        .ids()
         .to_vec();
     Ok(())
 }
 
-#[when(expr = "a decoder seeks linearly to {int}")]
-fn linear_seek(w: &mut Steps, target: u64) -> TestResult {
-    w.result = Decoder::new(pack_of(w)?).linear_seek(target).to_vec();
+#[then(
+    "decoding returns the 500 IDs from sequence 5,010 on, and the seek returns the rest of the target's block from sequence 5,010"
+)]
+fn decoded_and_sought(w: &mut Steps) -> TestResult {
+    assert_eq!(w.decoded, sequences((5010..=10_000).step_by(10))?);
+    assert_eq!(w.decoded.len(), 500);
+    // Blocks of 256 from sequence 10: the second block holds sequences 2,570 to 5,120.
+    assert_eq!(w.sought, sequences((5010..=5120).step_by(10))?);
     Ok(())
 }
 
-#[then(expr = "the result is {string}")]
-fn result_is(w: &mut Steps, want: Uids) {
-    let Uids(want) = want;
-    assert_eq!(w.result, want);
+#[when(
+    "a decoder over sequences 1 to 40 of type 1, bucket 0, in blocks of 10, seeks to sequence 35 and then to 5"
+)]
+fn backward_seek(w: &mut Steps) -> TestResult {
+    let pack = packed(&sequences(1..=40)?, 10)?;
+    let mut decoder = Decoder::new(&pack);
+    let first: Vec<SystemId> = decoder
+        .seek_to_block(target(35)?, SeekPos::Current)
+        .to_vec();
+    assert_eq!(first, sequences(31..=40)?);
+    w.sought = decoder.seek_to_block(target(5)?, SeekPos::Current).to_vec();
+    Ok(())
 }
 
-#[given("a list with a UID pack, value postings with statement IDs and splits")]
-fn full_list(w: &mut Steps) -> TestResult {
-    let pack = encode(&[2, 3, 5, (1 << 32) + 7], 256).context("the list packs")?;
-    w.plist = PostingList::default()
-        .with_pack(pack)
-        .with_commit_ts(9)
+#[then("the second seek returns the block of sequences 1 to 10")]
+fn backward_block(w: &mut Steps) -> TestResult {
+    assert_eq!(w.sought, sequences(1..=10)?);
+    Ok(())
+}
+
+#[when("a pack holds a block whose ID count is 0 and a seek targets it")]
+fn empty_block(w: &mut Steps) -> TestResult {
+    let first = packed(&sequences(1..=10)?, 10)?;
+    let last = packed(&sequences(21..=30)?, 10)?;
+    let blocks = [
+        first.blocks().to_vec(),
+        vec![UidBlock::new(id(1, 0, 11)?, Vec::new(), 0)?],
+        last.blocks().to_vec(),
+    ]
+    .concat();
+    let pack = UidPack::new(10, blocks)?;
+    let to_block = std::panic::catch_unwind(|| {
+        Decoder::new(&pack)
+            .seek_to_block(id(1, 0, 15).map_or(0, SystemId::to_u128), SeekPos::Start)
+            .to_vec()
+    })
+    .map_err(|_| TestError::new("a seek never panics"))?;
+    let sought = std::panic::catch_unwind(|| {
+        Decoder::sought(
+            &pack,
+            id(1, 0, 15).map_or(0, SystemId::to_u128),
+            SeekPos::Start,
+        )
+        .ids()
+        .to_vec()
+    })
+    .map_err(|_| TestError::new("a seek never panics"))?;
+    w.decoded = to_block;
+    w.sought = sought;
+    Ok(())
+}
+
+#[then("the seek moves on to the next block and nothing panics")]
+fn moves_on(w: &mut Steps) -> TestResult {
+    assert_eq!(w.decoded, sequences(21..=30)?);
+    assert_eq!(w.sought, sequences(21..=30)?);
+    Ok(())
+}
+
+#[when("a decoder over sequences 1 to 3 of type 1, bucket 0, in blocks of 2, seeks to `u128::MAX`")]
+fn seek_largest(w: &mut Steps) -> TestResult {
+    let pack = packed(&sequences(1..=3)?, 2)?;
+    let mut decoder = Decoder::new(&pack);
+    w.sought = decoder.seek(u128::MAX, SeekPos::Start).to_vec();
+    w.decoded = decoder.seek_to_block(u128::MAX, SeekPos::Start).to_vec();
+    Ok(())
+}
+
+#[then("the seek returns nothing and nothing panics")]
+fn returns_nothing(w: &mut Steps) {
+    assert!(w.sought.is_empty(), "{:?}", w.sought);
+    assert!(w.decoded.is_empty(), "{:?}", w.decoded);
+}
+
+#[when(
+    "a decoder over sequences 1 to 3 of type 1, bucket 0, in blocks of 2, is linearly sought to `u128::MAX`"
+)]
+fn linear_seek_largest(w: &mut Steps) -> TestResult {
+    let pack = packed(&sequences(1..=3)?, 2)?;
+    w.sought = Decoder::new(&pack).linear_seek(u128::MAX).to_vec();
+    Ok(())
+}
+
+#[then("it returns the block holding sequence 3")]
+fn last_block(w: &mut Steps) -> TestResult {
+    assert_eq!(w.sought, sequences(3..=3)?);
+    Ok(())
+}
+
+/// A list with every part the format holds: a pack, a reference with a facet, value postings with statement IDs, and
+/// splits.
+fn full_list() -> TestResult<PostingList> {
+    Ok(PostingList::default()
+        .with_commit_ts(42)
+        .with_pack(packed(&sequences([3, 9, 1 << 40].into_iter())?, 2)?)
         .with_postings(vec![
             Posting::default()
-                .with_uid(2)
-                .with_op(1)
+                .with_uid(id(1, 0, 3)?.to_u128())
                 .with_facets(vec![Facet::new("since")]),
             Posting::default()
-                .with_uid(5)
-                .with_op(1)
+                .with_uid(0x0123_4567_89AB_CDEF)
                 .with_posting_type(PostingType::Value)
-                .with_value(b"\x01five".to_vec())
-                .with_statement_ids(vec![40, 41]),
+                .with_value(b"\x01Ann".to_vec())
+                .with_statement_ids(vec![id(2, 0, 7)?, id(2, 0, 8)?]),
             Posting::default()
-                .with_uid((1 << 32) + 7)
-                .with_op(3)
+                .with_uid(0xFEDC_BA98_7654_3210)
                 .with_posting_type(PostingType::Value)
-                .with_value(b"\x01seven".to_vec())
-                .with_statement_ids(vec![42]),
+                .with_value(b"\x01Bob".to_vec())
+                .with_statement_ids(vec![id(2, 9, 1)?]),
         ])
-        .with_splits(vec![1, 1 << 32]);
-    Ok(())
+        .with_splits(vec![1, id(1, 0, 9)?.to_u128()]))
 }
 
-#[given(
-    expr = "a list with a UID pack, value postings with statement IDs and splits, stored under the key {string}"
+#[when(
+    "a list with a packed ID list, value postings with statement IDs and splits is encoded and decoded"
 )]
-fn stored_list(w: &mut Steps, key: String) -> TestResult {
-    full_list(w)?;
-    w.key = key.into_bytes();
-    w.stored = w.plist.encode();
+fn encode_and_decode(w: &mut Steps) -> TestResult {
+    w.plist = full_list()?;
+    w.reads.push(PostingList::decode(KEY, &w.plist.encode()));
     Ok(())
-}
-
-#[when("the list is encoded and decoded")]
-fn encode_and_decode(w: &mut Steps) {
-    let bytes = w.plist.encode();
-    w.decoded = vec![PostingList::decode(b"list", &bytes)];
 }
 
 #[then("the decoded list equals the original")]
-fn decoded_equals(w: &mut Steps) {
-    assert_eq!(w.decoded, vec![Ok(w.plist.clone())]);
+fn decoded_equals(w: &mut Steps) -> TestResult {
+    let read = w.reads.pop().context("a read")??;
+    assert_eq!(read, w.plist);
+    Ok(())
 }
 
-#[when("one byte of the stored list is flipped and the list is read, for every byte in turn")]
-fn flip_each_byte(w: &mut Steps) {
-    w.decoded = (0..w.stored.len())
-        .map(|at| {
-            let mut flipped = w.stored.clone();
-            flipped[at] ^= 0x5a;
-            PostingList::decode(&w.key, &flipped)
-        })
-        .collect();
+#[when("one byte of a stored list is flipped and the list is read")]
+fn flip_each_byte(w: &mut Steps) -> TestResult {
+    let stored = full_list()?.encode();
+    for at in 0..stored.len() {
+        let mut flipped = stored.clone();
+        if let Some(byte) = flipped.get_mut(at) {
+            *byte ^= 0xff;
+        }
+        w.reads.push(PostingList::decode(KEY, &flipped));
+    }
+    Ok(())
 }
 
-#[then(expr = "every read fails with a corruption error naming the key {string}")]
-fn every_read_corrupted(w: &mut Steps, key: String) {
-    let key = key.into_bytes();
-    assert_eq!(w.decoded.len(), w.stored.len());
-    for (at, result) in w.decoded.iter().enumerate() {
+#[then("the read fails with a corruption error naming the key")]
+fn every_read_corrupted(w: &mut Steps) {
+    assert!(
+        w.reads.len() > 100,
+        "every byte of the list is flipped in turn"
+    );
+    for read in &w.reads {
         assert!(
-            matches!(result, Err(StoreError(StoreErrorEnum::Corrupted { key: k, .. })) if *k == key),
-            "byte {at}: {result:?}"
+            matches!(read, Err(StoreError(StoreErrorEnum::Corrupted { key, .. })) if key == KEY),
+            "{read:?}"
         );
     }
+}
+
+/// Stage 5's encoding of the empty list: version 1, no flags, commit timestamp 0, no postings, no splits, and its
+/// XXH3-64 checksum (stage 5's golden value, from python-xxhash).
+const STAGE_5_EMPTY: [u8; 26] = [
+    0x01, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xd0, 0x78, 0xc3, 0xec, 0x1d, 0x4f,
+    0xad, 0x97,
+];
+
+#[when("a value written with stage 5's version byte is read")]
+fn read_stage_5(w: &mut Steps) {
+    w.reads.push(PostingList::decode(KEY, &STAGE_5_EMPTY));
+}
+
+#[then("the read fails with a corruption error naming the key and the unknown version")]
+fn unknown_version(w: &mut Steps) -> TestResult {
+    let read = w.reads.pop().context("a read")?;
+    let Err(StoreError(StoreErrorEnum::Corrupted { key, reason })) = &read else {
+        return Err(TestError::new(format!("corruption, not {read:?}")));
+    };
+    assert_eq!(key, KEY);
+    assert_eq!(reason, "unknown posting format version 1");
+    Ok(())
 }
 
 fn main() -> TestResult {
