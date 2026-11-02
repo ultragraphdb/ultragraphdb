@@ -3,14 +3,18 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! One HTTP/1.1 exchange over a `std::net` connection: the request with `Content-Length` and `Connection: close`,
-//! the response read to the connection's end and framed by `Transfer-Encoding: chunked` or `Content-Length`.
+//! One HTTP/1.1 exchange over a `std::net` connection, plain or verified TLS: the request with `Content-Length`
+//! and `Connection: close`, the response read to the connection's end and framed by `Transfer-Encoding: chunked`
+//! or `Content-Length`.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 
 use opentelemetry_http::{Bytes, HttpError, Request, Response};
+use ultragraphdb_transport_tls::TlsConnector;
+
+use crate::types::connection::Connection;
 
 /// The largest response read, as the exporter's built-in clients bound it.
 const MAX_RESPONSE: usize = 4 * 1024 * 1024;
@@ -18,24 +22,42 @@ const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 /// The request's headers this module writes itself, and so skips among the caller's.
 const FRAMING: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 
-/// Sends `request` to its `http://` URI and returns the response, all within `timeout`.
+/// Sends `request` to its `http://` URI, or its `https://` URI through `tls`, and returns the response, all within
+/// `timeout`: connecting, the TLS handshake, the request and the response's last byte.
 pub(crate) fn exchange(
     request: &Request<Bytes>,
     timeout: Duration,
+    tls: Option<&TlsConnector>,
 ) -> Result<Response<Bytes>, HttpError> {
     let deadline = now() + timeout;
     let uri = request.uri();
-    if uri.scheme_str() != Some("http") {
-        return Err(format!("plain HTTP only: {uri}").into());
-    }
+    let (connector, port_default) = match (uri.scheme_str(), tls) {
+        (Some("http"), _) => (None, 80),
+        (Some("https"), Some(connector)) => (Some(connector), 443),
+        (Some("https"), None) => return Err(format!("https needs a TLS connector: {uri}").into()),
+        _ => return Err(format!("http:// or https:// only: {uri}").into()),
+    };
     let host = uri.host().ok_or_else(|| format!("no host in {uri}"))?;
-    let port = uri.port_u16().unwrap_or(80);
+    let port = uri.port_u16().unwrap_or(port_default);
     let path = uri.path_and_query().map_or("/", |p| p.as_str());
-    let mut stream = connect(host, port, deadline)?;
-    stream.set_write_timeout(Some(left(deadline)?))?;
-    stream.write_all(&head(request, host, port, path))?;
-    stream.write_all(request.body())?;
-    parse(&read_to_end(&mut stream, deadline)?)
+    let socket = connect(host, port, deadline)?;
+    socket.set_write_timeout(Some(left(deadline)?))?;
+    socket.set_read_timeout(Some(left(deadline)?))?;
+    let mut connection = match connector {
+        Some(connector) => Connection::Tls(Box::new(connector.connect(socket, bare(host))?)),
+        None => Connection::Plain(socket),
+    };
+    connection.write_all(&head(request, host, port, port_default, path))?;
+    connection.write_all(request.body())?;
+    // TLS buffers what it writes; the flush sends it.
+    connection.flush()?;
+    parse(&read_to_end(&mut connection, deadline)?)
+}
+
+/// `host` without the brackets `Uri::host` keeps around an IPv6 literal, which neither the resolver nor a
+/// certificate's names carry.
+fn bare(host: &str) -> &str {
+    host.trim_start_matches('[').trim_end_matches(']')
 }
 
 /// The time, read where the client meets the network.
@@ -57,10 +79,8 @@ fn left(deadline: Instant) -> Result<Duration, HttpError> {
 
 /// A connection to the first address of `host` that accepts one before `deadline`.
 fn connect(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, HttpError> {
-    // `Uri::host` keeps an IPv6 literal's brackets, which the resolver does not take.
-    let name = host.trim_start_matches('[').trim_end_matches(']');
     let mut last = format!("no address for {host}");
-    for addr in (name, port).to_socket_addrs()? {
+    for addr in (bare(host), port).to_socket_addrs()? {
         match TcpStream::connect_timeout(&addr, left(deadline)?) {
             Ok(stream) => return Ok(stream),
             Err(e) => last = format!("{addr}: {e}"),
@@ -69,9 +89,10 @@ fn connect(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, HttpEr
     Err(last.into())
 }
 
-/// The request line and headers: the framing this module owns, then the caller's other headers.
-fn head(request: &Request<Bytes>, host: &str, port: u16, path: &str) -> Vec<u8> {
-    let authority = if port == 80 {
+/// The request line and headers: the framing this module owns, then the caller's other headers. The `Host` header
+/// leaves out a port that is the scheme's default.
+fn head(request: &Request<Bytes>, host: &str, port: u16, port_default: u16, path: &str) -> Vec<u8> {
+    let authority = if port == port_default {
         host.to_string()
     } else {
         format!("{host}:{port}")
@@ -97,12 +118,21 @@ fn head(request: &Request<Bytes>, host: &str, port: u16, path: &str) -> Vec<u8> 
 }
 
 /// Every byte the server sends until it closes the connection, at most [`MAX_RESPONSE`], before `deadline`.
-fn read_to_end(stream: &mut TcpStream, deadline: Instant) -> Result<Vec<u8>, HttpError> {
+///
+/// A TLS peer that closes its socket without a `close_notify` alert ends the stream too: rustls reports that as
+/// `UnexpectedEof`, and a truncated response is still refused, by [`parse`], when its framing announces more.
+fn read_to_end(connection: &mut Connection, deadline: Instant) -> Result<Vec<u8>, HttpError> {
     let mut raw = Vec::new();
     let mut buf = [0u8; 8192];
     loop {
-        stream.set_read_timeout(Some(left(deadline)?))?;
-        let n = stream.read(&mut buf)?;
+        connection
+            .socket()
+            .set_read_timeout(Some(left(deadline)?))?;
+        let n = match connection.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => 0,
+            Err(e) => return Err(e.into()),
+        };
         if n == 0 {
             return Ok(raw);
         }

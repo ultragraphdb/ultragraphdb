@@ -13,10 +13,11 @@ use opentelemetry_sdk::trace::SpanData;
 use serde_json::Value;
 use tracing::{debug, error, info, info_span, trace, warn};
 use ultragraphdb_common_telemetry::{
-    LogFormat, PlainHttpClient, TelemetryConfig, TelemetryError, TelemetryErrorEnum, subscriber,
+    LogFormat, OtlpHttpClient, TelemetryConfig, TelemetryError, TelemetryErrorEnum, subscriber,
 };
+use ultragraphdb_transport_tls::{TestPki, TlsConnector, TlsTrust};
 
-use crate::test_support::{Buffer, Kept, serve_once};
+use crate::test_support::{Buffer, Kept, serve_once, serve_once_tls};
 
 /// The events written while `f` runs under the subscriber of `filter` and `format`.
 fn logged(filter: &str, format: LogFormat, f: impl FnOnce()) -> String {
@@ -287,13 +288,30 @@ fn test_dropping_the_guard_exports_while_the_subscriber_lives_on() {
 
 #[test]
 fn test_spans_reach_a_collector_over_otlp_http_without_a_runtime() {
-    // The exporter init builds, posting protobuf through the plain client to a server standing in for a collector;
-    // the guard's drop flushes the batch on the processor's thread.
     let (url, collector) = serve_once(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    spans_reach_a_collector(&url, collector, OtlpHttpClient::new(Duration::from_secs(5)));
+}
+
+#[test]
+fn test_spans_reach_a_collector_over_otlp_https_verified_against_its_ca() {
+    let pki = TestPki::new();
+    let (url, collector) = serve_once_tls(&pki, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    let trust = TlsTrust::from_pem("test CA", pki.ca_pem().as_bytes()).expect("the CA");
+    let client = OtlpHttpClient::new(Duration::from_secs(5)).with_tls(TlsConnector::new(trust));
+    spans_reach_a_collector(&url, collector, client);
+}
+
+/// Exports one span through `client` to the stand-in collector at `url`, the exporter as init builds it, and checks
+/// the POST the collector received; the guard's drop flushes the batch on the processor's thread.
+fn spans_reach_a_collector(
+    url: &str,
+    collector: std::thread::JoinHandle<Vec<u8>>,
+    client: OtlpHttpClient,
+) {
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_endpoint(format!("{url}/v1/traces"))
-        .with_http_client(PlainHttpClient::new(Duration::from_secs(5)))
+        .with_http_client(client)
         .build()
         .expect("an exporter");
     let (subscriber, guard) = subscriber(

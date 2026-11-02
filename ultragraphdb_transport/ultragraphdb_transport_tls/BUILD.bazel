@@ -1,0 +1,78 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_doc_test")
+
+rust_library(
+    name = "ultragraphdb_transport_tls",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    aliases = aliases(),
+    crate_features = ["test-utils"],
+    crate_root = "src/lib.rs",
+    lint_config = lint_config(),
+    tags = [
+        "transport",
+        "ultragraphdb_transport_tls",
+    ],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
+
+rust_doc(
+    name = "doc",
+    crate = ":ultragraphdb_transport_tls",
+    tags = ["doc"],
+    visibility = ["//visibility:public"],
+)
+
+rust_doc_test(
+    name = "doc_test",
+    crate = ":ultragraphdb_transport_tls",
+    tags = ["doc-test"],
+    visibility = ["//visibility:public"],
+)
+
+# One rust_test, not a suite: tests/ mirrors src/, so the test files are MODULES reached
+# through tests/mod.rs. A suite would compile each as a standalone crate and every one
+# would fail on its missing parent.
+rust_test(
+    name = "ultragraphdb_transport_tls_tests",
+    srcs = glob(
+        ["tests/**/*.rs"],
+        exclude = ["tests/bdd.rs"],
+    ),
+    crate_root = "tests/mod.rs",
+    # A path no file is at: `TlsTrust::system` must read it from the environment and fail naming it
+    # (test_system_reads_ssl_cert_file_from_the_environment). scripts/mutants.sh is run with the same value.
+    env = {"SSL_CERT_FILE": "/nonexistent/ultragraphdb/from-environment.pem"},
+    tags = ["unit-test"],
+    visibility = ["//visibility:public"],
+    deps = [
+        # Crate to test
+        ":ultragraphdb_transport_tls",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# cucumber runs its own main: the libtest harness is off, and the feature files are runfiles.
+rust_test(
+    name = "bdd",
+    srcs = ["tests/bdd.rs"],
+    crate_root = "tests/bdd.rs",
+    data = glob(["features/**/*.feature"]),
+    tags = ["bdd-test"],
+    use_libtest_harness = False,
+    deps = [":ultragraphdb_transport_tls"] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)

@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use futures::executor::block_on;
 use opentelemetry_http::{Bytes, HttpClient, HttpError, Request, Response};
-use ultragraphdb_common_telemetry::PlainHttpClient;
+use ultragraphdb_common_telemetry::OtlpHttpClient;
+use ultragraphdb_transport_tls::{TestPki, TlsConnector, TlsTrust};
 
-use crate::test_support::serve_once;
+use crate::test_support::{serve_once, serve_once_tls};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -27,7 +28,7 @@ fn post(url: &str, body: &'static [u8]) -> Request<Bytes> {
 }
 
 fn send(request: Request<Bytes>) -> Result<Response<Bytes>, HttpError> {
-    block_on(PlainHttpClient::new(TIMEOUT).send_bytes(request))
+    block_on(OtlpHttpClient::new(TIMEOUT).send_bytes(request))
 }
 
 /// The response `server_response` gives a POST to `/v1/traces`.
@@ -135,12 +136,69 @@ fn test_malformed_responses_are_errors() {
     }
 }
 
+/// The client verifying `https://` against `pki`'s authority.
+fn tls_client(pki: &TestPki) -> OtlpHttpClient {
+    let trust = TlsTrust::from_pem("test CA", pki.ca_pem().as_bytes()).expect("the CA");
+    OtlpHttpClient::new(TIMEOUT).with_tls(TlsConnector::new(trust))
+}
+
 #[test]
-fn test_only_plain_http_is_sent() {
-    let error = send(post("https://127.0.0.1:4318/v1/traces", b"x")).expect_err("TLS refused");
+fn test_an_https_request_is_sent_and_answered_over_verified_tls() {
+    let pki = TestPki::new();
+    let (url, server) = serve_once_tls(&pki, b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+    let client = tls_client(&pki);
+    assert!(client.tls().is_some());
+    let response = block_on(client.send_bytes(post(&format!("{url}/v1/traces"), b"payload")))
+        .expect("a response over TLS");
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.body().as_ref(), b"ok");
+    let sent = String::from_utf8(server.join().expect("the server thread")).expect("text");
+    let authority = url.trim_start_matches("https://");
+    assert!(
+        sent.starts_with(&format!(
+            "POST /v1/traces HTTP/1.1\r\nHost: {authority}\r\n"
+        )),
+        "{sent}"
+    );
+    assert!(sent.ends_with("\r\n\r\npayload"), "{sent}");
+}
+
+#[test]
+fn test_an_https_request_to_an_untrusted_server_is_refused() {
+    let (pki, other) = (TestPki::new(), TestPki::new());
+    let (url, server) = serve_once_tls(&pki, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    let error = block_on(tls_client(&other).send_bytes(post(&format!("{url}/v1/traces"), b"x")))
+        .expect_err("another CA's certificate");
+    // rustls's text for a chain to no trusted anchor, behind the connector's handshake error.
+    assert!(
+        error
+            .to_string()
+            .starts_with("TLS handshake with \"localhost\" failed:")
+            && error.to_string().contains("UnknownIssuer"),
+        "{error}"
+    );
+    // The server's side of the refused handshake ends with or without an error of its own; only the client's matters.
+    drop(server.join());
+}
+
+#[test]
+fn test_https_without_a_connector_is_refused_before_connecting() {
+    let client = OtlpHttpClient::new(TIMEOUT);
+    assert!(client.tls().is_none());
+    let error = block_on(client.send_bytes(post("https://127.0.0.1:4318/v1/traces", b"x")))
+        .expect_err("no connector");
     assert_eq!(
         error.to_string(),
-        "plain HTTP only: https://127.0.0.1:4318/v1/traces"
+        "https needs a TLS connector: https://127.0.0.1:4318/v1/traces"
+    );
+}
+
+#[test]
+fn test_a_scheme_other_than_http_or_https_is_refused() {
+    let error = send(post("ftp://127.0.0.1:4318/v1/traces", b"x")).expect_err("not HTTP");
+    assert_eq!(
+        error.to_string(),
+        "http:// or https:// only: ftp://127.0.0.1:4318/v1/traces"
     );
 }
 
@@ -180,7 +238,7 @@ fn test_a_silent_server_times_out_within_the_clients_timeout() {
     });
     let started = Instant::now();
     let result =
-        block_on(PlainHttpClient::new(Duration::from_millis(200)).send_bytes(post(&url, b"x")));
+        block_on(OtlpHttpClient::new(Duration::from_millis(200)).send_bytes(post(&url, b"x")));
     assert!(result.is_err(), "{result:?}");
     assert!(
         started.elapsed() < Duration::from_millis(550),

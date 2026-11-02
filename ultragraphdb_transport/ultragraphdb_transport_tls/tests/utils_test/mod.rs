@@ -4,6 +4,4 @@
  */
 
 #[cfg(test)]
-mod plain_http_client_http_client_tests;
-#[cfg(test)]
-mod plain_http_client_tests;
+mod test_pki_tests;

@@ -20,6 +20,7 @@ workspace = true
 
 [dependencies]
 ultragraphdb_common_version = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true }
 async-trait = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-http = { workspace = true }
@@ -31,6 +32,7 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }
+ultragraphdb_transport_tls = { workspace = true, features = ["test-utils"] }
 cucumber = { workspace = true }
 futures = { workspace = true }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }

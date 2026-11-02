@@ -17,16 +17,28 @@ fn test_init_refuses_without_installing_then_installs_once() {
         "invalid log filter \"ultragraphdb=loud\": error parsing level filter: expected one of \"off\", \"error\", \"warn\", \"info\", \"debug\", \"trace\", or a number 0-5"
     );
 
-    for endpoint in ["https://127.0.0.1:4318/v1/traces", "127.0.0.1:4318", ""] {
-        let tls = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint(endpoint);
+    for endpoint in ["127.0.0.1:4318", "", "ftp://127.0.0.1:4318/v1/traces"] {
+        let config = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint(endpoint);
         assert_eq!(
-            init(&tls).map(drop),
+            init(&config).map(drop),
             Err(TelemetryError::Exporter(
                 endpoint.to_string(),
-                "the exporter speaks plain HTTP; TLS is the collector's".to_string()
+                "the endpoint is an http:// or https:// URL".to_string()
             ))
         );
     }
+
+    // Bazel sets SSL_CERT_FILE to a path no file is at (BUILD.bazel), so an https:// endpoint finds no trust store;
+    // the reason is the TLS crate's, around the operating system's.
+    let https = TelemetryConfig::new("info", LogFormat::Json)
+        .with_otlp_endpoint("https://127.0.0.1:4318/v1/traces");
+    assert_eq!(
+        init(&https).map(drop),
+        Err(TelemetryError::Exporter(
+            "https://127.0.0.1:4318/v1/traces".to_string(),
+            "cannot read the trust store \"/nonexistent/ultragraphdb/from-environment.pem\": No such file or directory (os error 2)".to_string()
+        ))
+    );
 
     let bad = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint("http://not a uri");
     assert_eq!(

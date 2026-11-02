@@ -234,4 +234,18 @@ exclude_re = [
     # catches every other mutant of the file (46 caught, 3 unviable) and misses only this one.
     "replace > with >= in step",
 
+    # ===========================================================================================
+    # Transport
+    # ===========================================================================================
+    # ---------------------------------------------------------------------------------------------
+    # ultragraphdb_transport_tls
+    # ---------------------------------------------------------------------------------------------
+
+    # `TlsTrust::is_empty` replaced with `false`. Every constructor of `TlsTrust` (`from_pem`, and `from_pem_file`,
+    # `system_from` and `system` through it) returns `TrustStoreEmpty` rather than an empty store, and the type has no
+    # other constructor and no mutator, so `is_empty` is false for every value that exists and the mutant computes the
+    # same result. The method is there because `clippy::len_without_is_empty` asks for it beside `len`. Measured:
+    # cargo-mutants over the crate, 25 mutants: 10 caught, 14 unviable, this one missed.
+    "ultragraphdb_transport_tls/src/types/tls_trust/mod\\.rs:\\d+:9: replace TlsTrust::is_empty -> bool with false",
+
 ]

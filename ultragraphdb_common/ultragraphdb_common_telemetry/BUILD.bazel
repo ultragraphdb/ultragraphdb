@@ -48,6 +48,9 @@ rust_test(
         exclude = ["tests/bdd.rs"],
     ),
     crate_root = "tests/mod.rs",
+    # A path no file is at: an https:// endpoint must find no trust store at init and refuse naming it
+    # (test_init_refuses_without_installing_then_installs_once).
+    env = {"SSL_CERT_FILE": "/nonexistent/ultragraphdb/from-environment.pem"},
     tags = ["unit-test"],
     visibility = ["//visibility:public"],
     deps = [

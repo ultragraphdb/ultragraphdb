@@ -22,3 +22,7 @@ disallowed-methods = [
     { path = "std::thread::scope", reason = "storage code runs on the Executor it is given, so a simulation replays" },
     { path = "std::hash::RandomState::new", reason = "storage code draws from the streams it is given, so a simulation replays" },
 ]
+
+# Ultra Style rule 4: a function fits on one screen. The lint runs only in crates that adopted the Ultra lint set.
+too-many-lines-threshold = 70
+allow-indexing-slicing-in-tests = true

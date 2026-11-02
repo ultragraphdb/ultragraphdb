@@ -3,7 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod connection;
 pub mod log_format;
-pub mod plain_http_client;
+pub mod otlp_http_client;
 pub mod telemetry_config;
 pub mod telemetry_guard;
