@@ -31,15 +31,15 @@ impl FuzzArgs {
     ///
     /// # Errors
     ///
-    /// [`FuzzArgsError::UnknownFlag`] for a first argument starting with `--` other than the flag; then the leftmost
-    /// number refused, as [`FuzzArgsError::NotANumber`] or [`FuzzArgsError::TooMany`] past the third; then
-    /// [`FuzzArgsError::NoSeeds`] for a count of 0, and [`FuzzArgsError::PastLastSeed`] for a range running past
+    /// [`FuzzArgsError::unknown_flag`] for a first argument starting with `--` other than the flag; then the leftmost
+    /// number refused, as [`FuzzArgsError::not_a_number`] or [`FuzzArgsError::too_many`] past the third; then
+    /// [`FuzzArgsError::no_seeds`] for a count of 0, and [`FuzzArgsError::past_last_seed`] for a range running past
     /// `u64::MAX`.
     pub fn parse(args: &[String], fresh_seed: u64) -> Result<Self, FuzzArgsError> {
         let (versionless_reads, args) = match args.split_first() {
             Some((flag, rest)) if flag == VERSIONLESS_READS => (true, rest),
             Some((flag, _)) if flag.starts_with("--") => {
-                return Err(FuzzArgsError::UnknownFlag(flag.clone()));
+                return Err(FuzzArgsError::unknown_flag(flag.clone()));
             }
             _ => (false, args),
         };
@@ -47,23 +47,23 @@ impl FuzzArgs {
         for (index, arg) in args.iter().enumerate() {
             let slot = numbers
                 .get_mut(index)
-                .ok_or_else(|| FuzzArgsError::TooMany(index + 1, arg.clone()))?;
+                .ok_or_else(|| FuzzArgsError::too_many(index + 1, arg.clone()))?;
             // `u64`'s parse takes a leading '+', and Go's strconv.ParseUint does not: each number has one spelling.
             *slot = Some(
                 arg.parse::<u64>()
                     .ok()
                     .filter(|_| !arg.starts_with('+'))
-                    .ok_or_else(|| FuzzArgsError::NotANumber(index + 1, arg.clone()))?,
+                    .ok_or_else(|| FuzzArgsError::not_a_number(index + 1, arg.clone()))?,
             );
         }
         let [first, seeds, steps] = numbers;
         let first = first.unwrap_or(fresh_seed);
         let seeds = seeds.unwrap_or(DEFAULT_SEEDS);
         if seeds == 0 {
-            return Err(FuzzArgsError::NoSeeds());
+            return Err(FuzzArgsError::no_seeds());
         }
         if seeds - 1 > u64::MAX - first {
-            return Err(FuzzArgsError::PastLastSeed(first, seeds));
+            return Err(FuzzArgsError::past_last_seed(first, seeds));
         }
         Ok(Self {
             first,

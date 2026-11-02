@@ -325,7 +325,7 @@ fn test_a_known_datatype_takes_no_uid() -> TestResult {
         ),
     ] {
         let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
-            Err(TermError::Malformed(Vec::new(), "no UID is needed"))
+            Err(TermError::malformed(Vec::new(), "no UID is needed"))
         })?;
         assert_eq!(encoded.term().view(), Ok(expected), "{literal}");
     }
@@ -358,7 +358,7 @@ fn test_a_failure_to_name_a_datatype_is_returned_as_the_callers_error() {
     let refused_vector = EncodedTerm::literal(vector.as_ref(), |_| Ok::<u64, Failure>(0));
     assert_eq!(
         refused_vector,
-        Err(Failure::Term(TermError::InvalidVector(
+        Err(Failure::Term(TermError::invalid_vector(
             "[]".into(),
             "empty"
         )))
@@ -557,7 +557,11 @@ fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() -> Tes
         let Err(error) = EncodedTerm::literal(vector(bad).as_ref(), other_uid) else {
             return Err(TestError::new(format!("{bad} is refused")));
         };
-        assert_eq!(error, TermError::InvalidVector(bad.into(), reason), "{bad}");
+        assert_eq!(
+            error,
+            TermError::invalid_vector(bad.into(), reason),
+            "{bad}"
+        );
     }
     Ok(())
 }

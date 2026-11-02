@@ -129,7 +129,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`StoreError::Poisoned`] when a write at or below `read_ts` failed, or when one failed and `read_ts` is above
+    /// [`StoreError::poisoned`] when a write at or below `read_ts` failed, or when one failed and `read_ts` is above
     /// the watermark, which then never reaches it.
     pub fn gate(&self, read_ts: u64) -> Result<(), PostingError> {
         let mut state = lock(&self.state);
@@ -141,7 +141,7 @@ where
 
     fn gate_of(state: &State, read_ts: u64) -> Result<Gate, PostingError> {
         if state.unapplied_from.is_some_and(|first| first <= read_ts) {
-            return Err(StoreError::Poisoned().into());
+            return Err(StoreError::poisoned().into());
         }
         let waits = if read_ts == u64::MAX {
             state.in_flight.is_some()
@@ -149,7 +149,7 @@ where
             state.applied < read_ts
         };
         if waits && state.write_failed {
-            return Err(StoreError::Poisoned().into());
+            return Err(StoreError::poisoned().into());
         }
         Ok(if waits { Gate::Wait } else { Gate::Open })
     }
@@ -181,7 +181,7 @@ where
     /// Refuses a write once one has failed.
     fn refuse_if_failed(&self) -> Result<(), PostingError> {
         if lock(&self.state).write_failed {
-            Err(StoreError::Poisoned().into())
+            Err(StoreError::poisoned().into())
         } else {
             Ok(())
         }

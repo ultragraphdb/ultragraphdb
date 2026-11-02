@@ -39,9 +39,9 @@ impl ServerHandshake {
     }
 
     /// The answer to the client's first frame, the bytes of a whole frame: a Hello within the server's protocols is
-    /// answered with its Welcome; one outside them with its Error frame and refused as [`TransportError::Refused`];
-    /// another command as [`TransportError::UnexpectedCommand`] and a frame breaking a rule, or not the client's
-    /// sequence 1, as [`TransportError::Protocol`], both answered with a protocol Error frame.
+    /// answered with its Welcome; one outside them with its Error frame and refused as [`TransportError::refused`];
+    /// another command as [`TransportError::unexpected_command`] and a frame breaking a rule, or not the client's
+    /// sequence 1, as [`TransportError::protocol`], both answered with a protocol Error frame.
     pub fn receive(&self, frame: &[u8]) -> HandshakeAnswer {
         let refuse = |refusal: ProtocolError, error: TransportError| {
             HandshakeAnswer::new(
@@ -52,32 +52,32 @@ impl ServerHandshake {
         // A client's first frame: its view and replica are 0 besides the header's other rules.
         let view = match FrameView::validate_client(frame, self.cluster, MAX_FRAME_SIZE) {
             Ok(view) => view,
-            Err(refusal) => return refuse(refusal.clone(), TransportError::Protocol(refusal)),
+            Err(refusal) => return refuse(refusal.clone(), TransportError::protocol(refusal)),
         };
         let sequence = view.header().sequence();
         if sequence != 1 {
-            let refusal = ProtocolError::SequenceOrder(1, sequence);
-            return refuse(refusal.clone(), TransportError::Protocol(refusal));
+            let refusal = ProtocolError::sequence_order(1, sequence);
+            return refuse(refusal.clone(), TransportError::protocol(refusal));
         }
         if view.command() != Command::Hello {
             let found = view.command().number();
             return refuse(
-                ProtocolError::WrongCommand(Command::Hello.number(), found),
-                TransportError::UnexpectedCommand(Command::Hello.number(), found),
+                ProtocolError::wrong_command(Command::Hello.number(), found),
+                TransportError::unexpected_command(Command::Hello.number(), found),
             );
         }
         let hello = match HelloView::from_frame(&view) {
             Ok(hello) => hello,
-            Err(refusal) => return refuse(refusal.clone(), TransportError::Protocol(refusal)),
+            Err(refusal) => return refuse(refusal.clone(), TransportError::protocol(refusal)),
         };
         match self.server.answer(&hello) {
             Ok(welcome) => match welcome.frame(self.header()) {
                 Ok(welcome_frame) => HandshakeAnswer::new(Some(welcome_frame), Ok(welcome)),
-                Err(refusal) => HandshakeAnswer::new(None, Err(TransportError::Protocol(refusal))),
+                Err(refusal) => HandshakeAnswer::new(None, Err(TransportError::protocol(refusal))),
             },
             Err(error) => HandshakeAnswer::new(
                 self.refusal_frame(&error),
-                Err(TransportError::Refused(error.code(), error.message())),
+                Err(TransportError::refused(error.code(), error.message())),
             ),
         }
     }

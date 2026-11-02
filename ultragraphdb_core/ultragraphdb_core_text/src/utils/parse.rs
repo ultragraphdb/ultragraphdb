@@ -234,7 +234,7 @@ fn parse_variants(scan: &mut Scanner, mut end: usize) -> usize {
     while scan.token_len() >= 4 {
         let Some(v) = variant_id(scan.token()) else {
             // unknown variant
-            let err = LanguageError::value(scan.token());
+            let err = LanguageError::unknown_subtag(scan.token());
             scan.gobble(Some(err));
             scan.advance();
             continue;

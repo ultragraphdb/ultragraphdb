@@ -22,7 +22,6 @@ use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot, WriteBa
 mod utils {
     #[path = "dictionary_workload.rs"]
     pub mod dictionary_workload;
-    #[allow(dead_code)]
     #[path = "helpers.rs"]
     pub mod helpers;
 }

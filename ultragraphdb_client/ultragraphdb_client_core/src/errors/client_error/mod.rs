@@ -142,20 +142,17 @@ pub struct ClientError(pub ClientErrorEnum);
 
 impl ClientError {
     /// A [`ClientErrorEnum::Transport`] failure of the connection.
-    #[allow(non_snake_case)]
-    pub fn Transport(error: TransportError) -> Self {
+    pub fn transport(error: TransportError) -> Self {
         Self(ClientErrorEnum::Transport { error })
     }
 
     /// A [`ClientErrorEnum::Protocol`] violation by a frame the server sent.
-    #[allow(non_snake_case)]
-    pub fn Protocol(error: ProtocolError) -> Self {
+    pub fn protocol(error: ProtocolError) -> Self {
         Self(ClientErrorEnum::Protocol { error })
     }
 
     /// A [`ClientErrorEnum::Refused`] request.
-    #[allow(non_snake_case)]
-    pub fn Refused(
+    pub fn refused(
         code: ErrorCode,
         detail: u64,
         message: impl Into<String>,
@@ -170,8 +167,7 @@ impl ClientError {
     }
 
     /// A [`ClientErrorEnum::Closed`] connection, closed by the server's Error frame.
-    #[allow(non_snake_case)]
-    pub fn Closed(code: ErrorCode, message: impl Into<String>) -> Self {
+    pub fn closed(code: ErrorCode, message: impl Into<String>) -> Self {
         Self(ClientErrorEnum::Closed {
             code,
             message: message.into(),
@@ -179,34 +175,29 @@ impl ClientError {
     }
 
     /// A [`ClientErrorEnum::TimedOut`] connection.
-    #[allow(non_snake_case)]
-    pub fn TimedOut() -> Self {
+    pub fn timed_out() -> Self {
         Self(ClientErrorEnum::TimedOut)
     }
 
     /// A [`ClientErrorEnum::ConnectionLost`] request, with what gave its connection up.
-    #[allow(non_snake_case)]
-    pub fn ConnectionLost(cause: Option<ClientError>) -> Self {
+    pub fn connection_lost(cause: Option<ClientError>) -> Self {
         Self(ClientErrorEnum::ConnectionLost {
             cause: cause.map(Box::new),
         })
     }
 
     /// A request refused as [`ClientErrorEnum::NotConnected`].
-    #[allow(non_snake_case)]
-    pub fn NotConnected() -> Self {
+    pub fn not_connected() -> Self {
         Self(ClientErrorEnum::NotConnected)
     }
 
     /// A [`ClientErrorEnum::Request`] that could not be built.
-    #[allow(non_snake_case)]
-    pub fn Request(error: ProtocolError) -> Self {
+    pub fn request(error: ProtocolError) -> Self {
         Self(ClientErrorEnum::Request { error })
     }
 
     /// A [`ClientErrorEnum::ReplyMismatch`] between a reply and its request.
-    #[allow(non_snake_case)]
-    pub fn ReplyMismatch(field: &'static str, expected: u64, found: u64) -> Self {
+    pub fn reply_mismatch(field: &'static str, expected: u64, found: u64) -> Self {
         Self(ClientErrorEnum::ReplyMismatch {
             field,
             expected,
@@ -215,8 +206,7 @@ impl ClientError {
     }
 
     /// A commit whose retries ran out: [`ClientErrorEnum::RetriesExhausted`].
-    #[allow(non_snake_case)]
-    pub fn RetriesExhausted(session: u64, request: u64, attempts: u32) -> Self {
+    pub fn retries_exhausted(session: u64, request: u64, attempts: u32) -> Self {
         Self(ClientErrorEnum::RetriesExhausted {
             session,
             request,
@@ -225,62 +215,52 @@ impl ClientError {
     }
 
     /// A retried commit refused as evicted: [`ClientErrorEnum::OutcomeUnknown`].
-    #[allow(non_snake_case)]
-    pub fn OutcomeUnknown(session: u64, request: u64) -> Self {
+    pub fn outcome_unknown(session: u64, request: u64) -> Self {
         Self(ClientErrorEnum::OutcomeUnknown { session, request })
     }
 
     /// A commit refused while another is [`ClientErrorEnum::InDoubt`].
-    #[allow(non_snake_case)]
-    pub fn InDoubt(session: u64, request: u64) -> Self {
+    pub fn in_doubt(session: u64, request: u64) -> Self {
         Self(ClientErrorEnum::InDoubt { session, request })
     }
 
     /// A resolve refused as [`ClientErrorEnum::NotInDoubt`].
-    #[allow(non_snake_case)]
-    pub fn NotInDoubt(session: u64) -> Self {
+    pub fn not_in_doubt(session: u64) -> Self {
         Self(ClientErrorEnum::NotInDoubt { session })
     }
 
     /// A commit refused as [`ClientErrorEnum::SessionBusy`].
-    #[allow(non_snake_case)]
-    pub fn SessionBusy(session: u64) -> Self {
+    pub fn session_busy(session: u64) -> Self {
         Self(ClientErrorEnum::SessionBusy { session })
     }
 
     /// A request through an [`ClientErrorEnum::UnknownSession`].
-    #[allow(non_snake_case)]
-    pub fn UnknownSession(session: u64) -> Self {
+    pub fn unknown_session(session: u64) -> Self {
         Self(ClientErrorEnum::UnknownSession { session })
     }
 
     /// A write refused as [`ClientErrorEnum::ReadOnly`].
-    #[allow(non_snake_case)]
-    pub fn ReadOnly(stream: u64) -> Self {
+    pub fn read_only(stream: u64) -> Self {
         Self(ClientErrorEnum::ReadOnly { stream })
     }
 
     /// A request on a stream refused as [`ClientErrorEnum::StreamFinished`].
-    #[allow(non_snake_case)]
-    pub fn StreamFinished(stream: u64) -> Self {
+    pub fn stream_finished(stream: u64) -> Self {
         Self(ClientErrorEnum::StreamFinished { stream })
     }
 
     /// A request on a stream refused as [`ClientErrorEnum::StreamBusy`].
-    #[allow(non_snake_case)]
-    pub fn StreamBusy(stream: u64) -> Self {
+    pub fn stream_busy(stream: u64) -> Self {
         Self(ClientErrorEnum::StreamBusy { stream })
     }
 
     /// A new stream refused at the [`ClientErrorEnum::StreamLimit`].
-    #[allow(non_snake_case)]
-    pub fn StreamLimit(limit: u32) -> Self {
+    pub fn stream_limit(limit: u32) -> Self {
         Self(ClientErrorEnum::StreamLimit { limit })
     }
 
     /// A read or execute refused as a [`ClientErrorEnum::TransactionMismatch`].
-    #[allow(non_snake_case)]
-    pub fn TransactionMismatch(stream: u64, named: u64) -> Self {
+    pub fn transaction_mismatch(stream: u64, named: u64) -> Self {
         Self(ClientErrorEnum::TransactionMismatch { stream, named })
     }
 

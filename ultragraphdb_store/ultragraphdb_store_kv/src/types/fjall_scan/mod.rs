@@ -73,10 +73,10 @@ impl FjallScan {
                 .unwrap_or_else(|| self.scan.start().to_vec())
         };
         Some(match guard.into_inner() {
-            Err(e) => Err(StoreError::ReadFailed(at(), e.to_string())),
+            Err(e) => Err(StoreError::read_failed(at(), e.to_string())),
             Ok((stored, bytes)) => decode_stored_key(&stored)
                 .map(|(key, version)| (key, version, bytes))
-                .map_err(|reason| StoreError::Corrupted(stored.to_vec(), reason)),
+                .map_err(|reason| StoreError::corrupted(stored.to_vec(), reason)),
         })
     }
 
@@ -94,7 +94,7 @@ impl FjallScan {
         match decode_value(bytes) {
             Err(reason) => self
                 .pending
-                .push_back(Err(StoreError::Corrupted(current, reason))),
+                .push_back(Err(StoreError::corrupted(current, reason))),
             Ok(v) if v.deletion => self.key_done = true,
             Ok(v) => {
                 self.pending.push_back(Ok(Item::new(

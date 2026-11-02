@@ -123,7 +123,7 @@ fn test_a_request_number_out_of_order_is_refused_naming_the_one_expected() -> Te
     commit(&mut step, &mut out, 2, blind(s, 2, b"b")?);
     sync(&mut step, &mut out);
     sync(&mut step, &mut out);
-    let refused = CommitError::RequestOutOfOrder(1);
+    let refused = CommitError::request_out_of_order(1);
     assert_eq!(
         out.replies(),
         &[Reply::new(2, Err(refused.clone()))],
@@ -149,7 +149,7 @@ fn test_a_request_number_out_of_order_is_refused_naming_the_one_expected() -> Te
     sync(&mut fresh_step, &mut fresh_out);
     assert_eq!(
         fresh_out.replies(),
-        &[Reply::new(2, Err(CommitError::RequestOutOfOrder(2)))]
+        &[Reply::new(2, Err(CommitError::request_out_of_order(2)))]
     );
     Ok(())
 }
@@ -166,7 +166,7 @@ fn test_a_session_has_at_most_one_commit_in_flight() -> TestResult {
     // answered with the first's version.
     commit(&mut step, &mut out, 4, blind(s, 1, b"a")?);
     sync(&mut step, &mut out);
-    let busy = CommitError::SessionBusy(s);
+    let busy = CommitError::session_busy(s);
     assert_eq!(
         out.replies(),
         &[
@@ -197,7 +197,7 @@ fn test_an_aborted_request_does_not_advance_its_session() -> TestResult {
         out.replies(),
         &[Reply::new(
             2,
-            Err(CommitError::Conflict(ConflictKind::List))
+            Err(CommitError::conflict(ConflictKind::List))
         )]
     );
     assert_eq!(step.sessions().last(s), Some((0, 0)));
@@ -241,7 +241,7 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     assert_eq!(step.sessions().last(second), None, "evicted");
     commit(&mut step, &mut out, 5, blind(second, 1, b"b")?);
     sync(&mut step, &mut out);
-    let evicted = CommitError::SessionEvicted(second);
+    let evicted = CommitError::session_evicted(second);
     assert_eq!(out.replies(), &[Reply::new(5, Err(evicted.clone()))]);
     assert_eq!(evicted.code(), ErrorCode::SessionEvicted);
     assert_eq!(evicted.detail(), second);
@@ -257,7 +257,7 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     assert_eq!(
         replies,
         vec![
-            Reply::new(6, Err(CommitError::SessionEvicted(999))),
+            Reply::new(6, Err(CommitError::session_evicted(999))),
             Reply::new(7, Ok(110))
         ]
     );
@@ -284,8 +284,8 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
     assert_eq!(
         out.replies(),
         &[
-            Reply::new(2, Err(CommitError::Unavailable())),
-            Reply::new(3, Err(CommitError::Unavailable()))
+            Reply::new(2, Err(CommitError::unavailable())),
+            Reply::new(3, Err(CommitError::unavailable()))
         ]
     );
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
@@ -301,7 +301,7 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
     );
     assert_eq!(
         out.replies(),
-        &[Reply::new(4, Err(CommitError::Unavailable()))]
+        &[Reply::new(4, Err(CommitError::unavailable()))]
     );
     Ok(())
 }
@@ -309,16 +309,16 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
 #[test]
 fn test_the_session_errors_read_as_their_reasons() -> TestResult {
     assert!(
-        CommitError::SessionBusy(5)
+        CommitError::session_busy(5)
             .to_string()
             .contains("in flight")
     );
     assert!(
-        CommitError::RequestOutOfOrder(8)
+        CommitError::request_out_of_order(8)
             .to_string()
             .contains("8 is expected")
     );
-    assert!(std::error::Error::source(&CommitError::SessionBusy(5)).is_none());
+    assert!(std::error::Error::source(&CommitError::session_busy(5)).is_none());
     Ok(())
 }
 
@@ -367,7 +367,7 @@ fn test_a_registration_no_round_holds_is_refused_too_large_and_one_that_fits_reg
         out.replies(),
         &[Reply::new(
             1,
-            Err(CommitError::TooLarge(
+            Err(CommitError::too_large(
                 record.len(),
                 largest_record(bound as usize)
             ))

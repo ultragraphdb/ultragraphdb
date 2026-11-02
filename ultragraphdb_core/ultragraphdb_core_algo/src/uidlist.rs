@@ -340,7 +340,7 @@ pub fn difference(u: &List, v: &List) -> List {
 }
 
 /// Merges sorted lists into one without duplicates, splitting more than 100 lists over 10 threads recursively.
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "Dgraph's algo merges large inputs on 10 goroutines; query code is outside the storage simulation"
 )]
@@ -415,7 +415,7 @@ const NUM_THREADS: usize = 10;
 const NUM_LIST_PER_THREAD: usize = 10;
 
 /// Merges sorted lists into one without duplicates; 100 lists or more are merged in 10 threads first.
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "Dgraph's algo merges large inputs on 10 goroutines; query code is outside the storage simulation"
 )]

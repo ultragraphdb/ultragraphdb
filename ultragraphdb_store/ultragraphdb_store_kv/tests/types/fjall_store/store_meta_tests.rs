@@ -95,7 +95,7 @@ fn test_unreadable_metadata_refuses_the_open() -> TestResult {
             FjallStore::open(dir.path(), Durability::Process)
                 .err()
                 .context("the expected error")?,
-            StoreError::Corrupted(key.clone(), reason.to_string()),
+            StoreError::corrupted(key.clone(), reason.to_string()),
             "{reason}"
         );
     }

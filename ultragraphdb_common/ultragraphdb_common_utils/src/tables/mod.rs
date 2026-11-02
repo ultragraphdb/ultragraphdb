@@ -7,9 +7,9 @@
 //! `unicode_range_tables` by `tools/golden/text_tables`. They mirror Go's tables whole, their version constants
 //! included, so not every item is read, and are kept as the generators write them.
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod unicode_range_tables;
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod unicode_tables;

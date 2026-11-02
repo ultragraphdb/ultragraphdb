@@ -430,14 +430,14 @@ fn test_a_repeated_or_lost_golden_reply_through_the_shell() -> TestResult {
         // The copy is the Register's again, sequence 2 where 3 was due: the rule that gave the connection up.
         assert_eq!(
             client.begin(0, true).await.err().context("an error")?,
-            ClientError::ConnectionLost(Some(ClientError::Protocol(ProtocolError::SequenceOrder(
-                3, 2
-            ))))
+            ClientError::connection_lost(Some(ClientError::protocol(
+                ProtocolError::sequence_order(3, 2)
+            )))
         );
         assert_eq!(client.begin(0, true).await?.read_version(), 0xAB_CDEF_0002);
         assert_eq!(
             client.register().await.err().context("an error")?,
-            ClientError::TimedOut()
+            ClientError::timed_out()
         );
         assert_eq!(client.register().await?.number(), 0x1122_3344_5566_7788);
         client.close().await;
@@ -610,10 +610,10 @@ async fn ask(
 /// The loss a framer's refusal gives: a close between frames is a plain loss, with nothing more to say; any other
 /// refusal is its cause.
 fn lost(refusal: TransportError) -> ClientError {
-    if refusal == TransportError::Closed() {
-        ClientError::ConnectionLost(None)
+    if refusal == TransportError::closed() {
+        ClientError::connection_lost(None)
     } else {
-        ClientError::ConnectionLost(Some(ClientError::Transport(refusal)))
+        ClientError::connection_lost(Some(ClientError::transport(refusal)))
     }
 }
 
@@ -689,12 +689,12 @@ fn test_every_damaged_golden_reply_through_the_shell_is_refused_with_the_connect
                         passing += 1;
                         continue;
                     }
-                    (_, Kind::Retried) => ClientError::RetriesExhausted(session, 1, 1),
+                    (_, Kind::Retried) => ClientError::retries_exhausted(session, 1, 1),
                     (Damage::Framer(refusal), _) => lost(refusal),
                     (Damage::Rule(rule), Kind::Plain) => {
-                        ClientError::ConnectionLost(Some(ClientError::Protocol(rule)))
+                        ClientError::connection_lost(Some(ClientError::protocol(rule)))
                     }
-                    (Damage::Rule(rule), Kind::Batch) => ClientError::Protocol(rule),
+                    (Damage::Rule(rule), Kind::Batch) => ClientError::protocol(rule),
                 };
                 assert_eq!(error, expected, "{name}: flip {flip:?}, cut {cut:?}");
             }
@@ -765,7 +765,7 @@ async fn cut_by_the_framer(
             .await
             .err()
             .context("an error")?,
-        ClientError::ConnectionLost(Some(ClientError::Transport(refusal)))
+        ClientError::connection_lost(Some(ClientError::transport(refusal)))
     );
     Ok(())
 }
@@ -796,7 +796,7 @@ async fn cut_by_a_rule(
             .await
             .err()
             .context("an error")?,
-        ClientError::Protocol(rule),
+        ClientError::protocol(rule),
         "the read's own frame"
     );
     Ok(())
@@ -830,7 +830,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> Tes
                 .await
                 .err()
                 .context("an error")?,
-            ClientError::ConnectionLost(None),
+            ClientError::connection_lost(None),
             "cut short, not finished"
         );
         cut_by_the_framer(&mut client, &script, &result).await?;
@@ -844,7 +844,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() -> Tes
         let rule = damage(&bad)?.rule().context("a rule refuses the body")?;
         assert_eq!(
             client.register().await.err().context("an error")?,
-            ClientError::ConnectionLost(Some(ClientError::Protocol(rule)))
+            ClientError::connection_lost(Some(ClientError::protocol(rule)))
         );
         client.close().await;
         Ok::<(), TestError>(())
@@ -889,7 +889,7 @@ fn test_a_read_whose_transaction_ended_still_answers_stream_finished() -> TestRe
                 .await
                 .err()
                 .context("an error")?,
-            ClientError::StreamFinished(stream.stream())
+            ClientError::stream_finished(stream.stream())
         );
         client.close().await;
         Ok::<(), TestError>(())

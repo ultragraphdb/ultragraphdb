@@ -46,36 +46,23 @@ pub struct Executed {
 }
 
 impl Executed {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        namespace: u64,
-        read_ts: u64,
-        writes: Writes,
-        terms: WriteTerms,
-        reads: Reads,
-        read: BTreeSet<Region>,
-        lists_read: usize,
-        catalog: Catalog,
-        defaults: (Vec<Vec<u8>>, Vec<u64>, bool),
-        pending: Option<Rebuild>,
-        touched: BTreeSet<(u64, u64)>,
-        removals: Vec<PredicatePrefix>,
-    ) -> Self {
+    /// An execution of `namespace` read at `read_ts` under `catalog` that reads and writes nothing.
+    pub(crate) fn empty(namespace: u64, read_ts: u64, catalog: Catalog) -> Self {
         Self {
             namespace,
             read_ts,
-            writes,
-            terms,
-            reads,
-            read,
-            lists_read,
+            writes: Writes::default(),
+            terms: WriteTerms::new(namespace),
+            reads: Reads::default(),
+            read: BTreeSet::new(),
+            lists_read: 0,
             catalog,
-            defaults: defaults.0,
-            default_uids: defaults.1,
-            catalog_changed: defaults.2,
-            pending,
-            touched,
-            removals,
+            defaults: Vec::new(),
+            default_uids: Vec::new(),
+            catalog_changed: false,
+            pending: None,
+            touched: BTreeSet::new(),
+            removals: Vec::new(),
             dropped: None,
             drop_ranges: Vec::new(),
             build_end: None,
@@ -93,20 +80,7 @@ impl Executed {
         Self {
             dropped,
             drop_ranges: ranges,
-            ..Self::new(
-                namespace,
-                read_ts,
-                Writes::default(),
-                WriteTerms::new(namespace),
-                Reads::default(),
-                BTreeSet::new(),
-                0,
-                catalog,
-                (Vec::new(), Vec::new(), false),
-                None,
-                BTreeSet::new(),
-                Vec::new(),
-            )
+            ..Self::empty(namespace, read_ts, catalog)
         }
     }
 

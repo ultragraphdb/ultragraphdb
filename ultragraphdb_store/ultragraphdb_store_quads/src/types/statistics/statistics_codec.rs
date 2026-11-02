@@ -65,7 +65,7 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn bad(&self) -> QuadError {
-        QuadError::Corrupted(self.key, "unreadable statistics")
+        QuadError::corrupted(self.key, "unreadable statistics")
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8], QuadError> {

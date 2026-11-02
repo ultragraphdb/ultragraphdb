@@ -39,26 +39,22 @@ pub enum TlsErrorEnum {
 
 impl TlsError {
     /// [`TlsErrorEnum::TrustStoreUnreadable`] of `path` for `reason`.
-    #[expect(non_snake_case, reason = "a constructor carries its variant's name")]
-    pub fn TrustStoreUnreadable(path: String, reason: String) -> Self {
+    pub fn trust_store_unreadable(path: String, reason: String) -> Self {
         Self(TlsErrorEnum::TrustStoreUnreadable { path, reason })
     }
 
     /// [`TlsErrorEnum::TrustStoreEmpty`] of `source`.
-    #[expect(non_snake_case, reason = "a constructor carries its variant's name")]
-    pub fn TrustStoreEmpty(source: String) -> Self {
+    pub fn trust_store_empty(source: String) -> Self {
         Self(TlsErrorEnum::TrustStoreEmpty(source))
     }
 
     /// [`TlsErrorEnum::InvalidServerName`] of `host`.
-    #[expect(non_snake_case, reason = "a constructor carries its variant's name")]
-    pub fn InvalidServerName(host: String) -> Self {
+    pub fn invalid_server_name(host: String) -> Self {
         Self(TlsErrorEnum::InvalidServerName(host))
     }
 
     /// [`TlsErrorEnum::HandshakeFailed`] with `host` for `reason`.
-    #[expect(non_snake_case, reason = "a constructor carries its variant's name")]
-    pub fn HandshakeFailed(host: String, reason: String) -> Self {
+    pub fn handshake_failed(host: String, reason: String) -> Self {
         Self(TlsErrorEnum::HandshakeFailed { host, reason })
     }
 }

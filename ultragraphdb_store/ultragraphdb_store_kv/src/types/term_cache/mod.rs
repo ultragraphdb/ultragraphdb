@@ -19,7 +19,7 @@ pub(crate) struct TermCache {
 
 impl TermCache {
     /// A cache holding keys and values up to `max_bytes` in total.
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "the cache hashes with per-process random keys against collisions chosen by clients; the simulator's \
                   store holds no cache"

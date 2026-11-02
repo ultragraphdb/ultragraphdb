@@ -32,7 +32,7 @@ use crate::errors::hnsw_error::HnswError;
 /// value through the request, its earlier writes included, and writes its neighbour lists and entry point into the
 /// request's scratch layers, which reach the store in the request's commit batch.
 ///
-/// A key holding no value, or whose value is a delete, reads as [`HnswError::NoValue`]; a failed read is the posting
+/// A key holding no value, or whose value is a delete, reads as [`HnswError::no_value`]; a failed read is the posting
 /// crate's error.
 #[derive(Debug)]
 pub struct ViTxn<'r, 'a, S, C> {
@@ -72,14 +72,14 @@ where
             })?;
             return first
                 .and_then(|v| vector_elements(&v))
-                .ok_or_else(HnswError::NoValue);
+                .ok_or_else(HnswError::no_value);
         }
         match list
             .static_value(read_ts)
             .and_then(|pl| pl.postings().first())
         {
             Some(p) if p.op() != DEL => Ok(p.value().to_vec()),
-            _ => Err(HnswError::NoValue()),
+            _ => Err(HnswError::no_value()),
         }
     }
 
@@ -112,7 +112,7 @@ where
                 return Ok(subject);
             }
         }
-        Err(HnswError::KeyNotFound())
+        Err(HnswError::key_not_found())
     }
 
     /// Dgraph's `AddMutation`: writes `t`'s value into the scratch layer of `key`'s list, as its one value.

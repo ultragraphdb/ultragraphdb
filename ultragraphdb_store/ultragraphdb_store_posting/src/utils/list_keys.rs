@@ -27,10 +27,10 @@ pub fn compares_values(key: &[u8]) -> bool {
 ///
 /// # Errors
 ///
-/// [`PostingError::NotAList`] for a key of no list keyspace.
+/// [`PostingError::not_a_list`] for a key of no list keyspace.
 pub fn split_key_of(key: &[u8], start: u64) -> Result<Vec<u8>, PostingError> {
     if !is_quad_list(key) {
-        return Err(PostingError::NotAList(key));
+        return Err(PostingError::not_a_list(key));
     }
     let mut part = key.to_vec();
     part[0] |= SPLIT_FLAG;
@@ -42,10 +42,10 @@ pub fn split_key_of(key: &[u8], start: u64) -> Result<Vec<u8>, PostingError> {
 ///
 /// # Errors
 ///
-/// [`PostingError::NotAList`] for a key of no list keyspace.
+/// [`PostingError::not_a_list`] for a key of no list keyspace.
 pub fn is_split_key(key: &[u8]) -> Result<bool, PostingError> {
     if !is_quad_list(key) {
-        return Err(PostingError::NotAList(key));
+        return Err(PostingError::not_a_list(key));
     }
     Ok(key[0] & SPLIT_FLAG != 0)
 }

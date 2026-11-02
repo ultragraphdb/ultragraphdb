@@ -55,7 +55,7 @@ fn test_a_clone_records_into_the_same_list() {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test emits on a second thread to prove the capture records its own thread alone"
 )]
@@ -149,7 +149,7 @@ fn reached_first_elsewhere() {
 /// A callsite another thread reaches first, while the capture's subscriber is the only one alive, is recorded on
 /// the capture's thread: tracing would compute its interest from the other thread's default alone and cache it.
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test reaches the callsite first on a second thread"
 )]

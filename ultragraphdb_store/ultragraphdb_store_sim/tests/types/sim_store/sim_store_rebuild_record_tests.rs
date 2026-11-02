@@ -105,7 +105,7 @@ fn after_stop(stage: RebuildStage, power_loss: bool) -> TestResult<BTreeSet<bool
             } else {
                 "process crash"
             };
-            let stopped = Err(StoreError::WriteFailed(format!(
+            let stopped = Err(StoreError::write_failed(format!(
                 "simulated {kind} during a rebuild"
             )));
             let written = s.write_rebuild_record(&record(4));
@@ -126,7 +126,7 @@ fn after_stop(stage: RebuildStage, power_loss: bool) -> TestResult<BTreeSet<bool
             }
             assert_eq!(
                 s.rebuild_records(),
-                Err(StoreError::Poisoned()),
+                Err(StoreError::poisoned()),
                 "a process that is down reads no record"
             );
             assert!(s.needs_recovery(), "{stage:?} stops the rebuild");
@@ -210,7 +210,7 @@ fn test_a_stop_at_the_removal_waits_for_the_batch_removing_its_record() -> TestR
     );
     assert_eq!(
         s.apply(swap(4, 6), PersistMode::Buffer),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash during a rebuild".into()
         ))
     );

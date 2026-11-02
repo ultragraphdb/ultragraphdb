@@ -228,7 +228,7 @@ fn test_indent_errors() -> TestResult {
         };
         assert_eq!(
             go_json::unmarshal(input.as_bytes()),
-            Err(JsonError::Syntax(msg.to_string(), i64::try_from(offset)?)),
+            Err(JsonError::syntax(msg.to_string(), i64::try_from(offset)?)),
             "{input}"
         );
     }
@@ -348,7 +348,7 @@ fn test_unmarshal_syntax() {
     ] {
         assert_eq!(
             go_json::unmarshal(input.as_bytes()),
-            Err(JsonError::Syntax(
+            Err(JsonError::syntax(
                 "unexpected end of JSON input".to_string(),
                 offset
             )),
@@ -363,7 +363,7 @@ fn test_unmarshal_syntax() {
 fn test_unmarshal_max_depth() {
     let arrays = |n: usize| format!(r#"{{"a":{}{}}}"#, "[".repeat(n), "]".repeat(n));
     let objects = |n: usize| format!(r#"{{"a":{}0{}}}"#, r#"{"a":"#.repeat(n), "}".repeat(n));
-    let too_deep = |offset| Err(JsonError::Syntax("exceeded max depth".to_string(), offset));
+    let too_deep = |offset| Err(JsonError::syntax("exceeded max depth".to_string(), offset));
     for (name, data, want) in [
         ("ArrayUnderMaxNestingDepth", arrays(10000 - 1), None),
         ("ArrayOverMaxNestingDepth", arrays(10000), Some(10005)),
@@ -386,7 +386,7 @@ fn the_depth_error_names_the_offset_after_the_bracket() {
     let data = format!("{}{}", "[".repeat(10001), "]".repeat(10001));
     assert_eq!(
         go_json::unmarshal(data.as_bytes()),
-        Err(JsonError::Syntax("exceeded max depth".to_string(), 10001))
+        Err(JsonError::syntax("exceeded max depth".to_string(), 10001))
     );
 }
 

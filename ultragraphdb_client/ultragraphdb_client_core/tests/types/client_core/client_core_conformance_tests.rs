@@ -503,9 +503,9 @@ fn truncations_are_refused(pool: &BufferPool, name: &str, good: &[u8]) -> TestRe
         // Nothing read is a close between frames; a cut header is short of its 256 bytes, a cut body of the
         // frame's size.
         let expected = match len {
-            0 => TransportError::Closed(),
-            len if len < 256 => TransportError::Truncated(len, 256),
-            len => TransportError::Truncated(len, good.len()),
+            0 => TransportError::closed(),
+            len if len < 256 => TransportError::truncated(len, 256),
+            len => TransportError::truncated(len, good.len()),
         };
         assert_eq!(
             d.frame(pool, &good[..len]).err(),

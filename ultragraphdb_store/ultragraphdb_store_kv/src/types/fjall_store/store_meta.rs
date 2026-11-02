@@ -51,9 +51,9 @@ impl Shared {
             .map(|guard| {
                 let key = guard
                     .key()
-                    .map_err(|e| StoreError::ReadFailed(BANNED_PREFIX.to_vec(), e.to_string()))?;
+                    .map_err(|e| StoreError::read_failed(BANNED_PREFIX.to_vec(), e.to_string()))?;
                 let ns: [u8; 8] = key[BANNED_PREFIX.len()..].try_into().map_err(|_| {
-                    StoreError::Corrupted(key.to_vec(), "a banned namespace is eight bytes".into())
+                    StoreError::corrupted(key.to_vec(), "a banned namespace is eight bytes".into())
                 })?;
                 Ok(u64::from_be_bytes(ns))
             })
@@ -73,11 +73,11 @@ impl Shared {
             .db
             .snapshot()
             .get(&self.meta, DROP_KEY)
-            .map_err(|e| StoreError::ReadFailed(DROP_KEY.to_vec(), e.to_string()))?;
+            .map_err(|e| StoreError::read_failed(DROP_KEY.to_vec(), e.to_string()))?;
         bytes
             .map(|b| {
                 DropRecord::decode(&b)
-                    .map_err(|reason| StoreError::Corrupted(DROP_KEY.to_vec(), reason))
+                    .map_err(|reason| StoreError::corrupted(DROP_KEY.to_vec(), reason))
             })
             .transpose()
     }
@@ -85,11 +85,11 @@ impl Shared {
     fn read_u64(&self, snapshot: &Snapshot, key: &[u8]) -> Result<Option<u64>, StoreError> {
         let bytes = snapshot
             .get(&self.meta, key)
-            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))?;
+            .map_err(|e| StoreError::read_failed(key.to_vec(), e.to_string()))?;
         bytes
             .map(|b| {
                 let raw: [u8; 8] = (*b).try_into().map_err(|_| {
-                    StoreError::Corrupted(
+                    StoreError::corrupted(
                         key.to_vec(),
                         format!("{} bytes where eight belong", b.len()),
                     )

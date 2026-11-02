@@ -60,12 +60,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     ///
     /// # Errors
     ///
-    /// [`HnswError::FloatBits`] when `float_bits` is not `T`'s width; [`HnswError::Options`] for a level or breadth
-    /// option that is not an int; [`HnswError::CannotCast`] for a metric option that is not a metric;
-    /// [`HnswError::InvalidParameter`] for a level count or breadth below 1.
+    /// [`HnswError::float_bits`] when `float_bits` is not `T`'s width; [`HnswError::options`] for a level or breadth
+    /// option that is not an int; [`HnswError::cannot_cast`] for a metric option that is not a metric;
+    /// [`HnswError::invalid_parameter`] for a level count or breadth below 1.
     pub fn new(keys: VectorKeys, o: &Options, float_bits: usize) -> Result<Self, HnswError> {
         if float_bits != T::BITS {
-            return Err(HnswError::FloatBits(float_bits, T::BITS));
+            return Err(HnswError::float_bits(float_bits, T::BITS));
         }
         let (max_levels, ef_construction, ef_search, metric) = apply_options(o)?;
         Ok(Self {
@@ -117,7 +117,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         match c.get(key) {
             Ok(data) if data.is_empty() => Ok(None),
             Ok(data) => Ok(Some(data)),
-            Err(e) if e.is_absence() => Err(HnswError::FetchingPostingList(e, label, uid)),
+            Err(e) if e.is_absence() => Err(HnswError::fetching_posting_list(e, label, uid)),
             Err(e) => Err(e),
         }
     }
@@ -140,7 +140,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     ///
     /// # Errors
     ///
-    /// [`HnswError::NilVector`] when `uid` holds none, wrapping the absence `c` reported; a failed read; the store's
+    /// [`HnswError::nil_vector`] when `uid` holds none, wrapping the absence `c` reported; a failed read; the store's
     /// corruption for a vector whose length is not a multiple of the float width.
     fn vec_from_uid<C: CacheType<Error = HnswError>>(
         &self,
@@ -149,9 +149,9 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     ) -> Result<Vec<T>, HnswError> {
         let key = self.keys.vector(uid);
         match self.get_data(&key, self.keys.name(), uid, c) {
-            Err(e) if e.is_fetching_posting_list() => Err(HnswError::NilVector(Some(e))),
+            Err(e) if e.is_fetching_posting_list() => Err(HnswError::nil_vector(Some(e))),
             Err(e) => Err(e),
-            Ok(None) => Err(HnswError::NilVector(None)),
+            Ok(None) => Err(HnswError::nil_vector(None)),
             Ok(Some(data)) => bytes_as_float_array(&data).ok_or_else(|| {
                 HnswError::corrupted(&key, format!("a vector of {} bytes", data.len()))
             }),
@@ -232,7 +232,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     ///
     /// # Errors
     ///
-    /// [`HnswError::EmptyTree`] when no node holds a vector; a failed read; corruption of a vector read.
+    /// [`HnswError::empty_tree`] when no node holds a vector; a failed read; corruption of a vector read.
     fn calculate_new_entry_vec<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
@@ -254,7 +254,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             },
         );
         let itr = match found {
-            Err(e) if e.is_absence() => return Err(HnswError::EmptyTree(Some(e))),
+            Err(e) if e.is_absence() => return Err(HnswError::empty_tree(Some(e))),
             Err(e) => return Err(e),
             Ok(itr) => itr,
         };
@@ -265,7 +265,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             ));
         }
         if itr == 0 {
-            return Err(HnswError::EmptyTree(None));
+            return Err(HnswError::empty_tree(None));
         }
         Ok((itr, start_vec.into_inner()))
     }
@@ -297,7 +297,7 @@ fn apply_options(o: &Options) -> Result<(i64, i64, i64, Metric), HnswError> {
     let metric = match o.get_interface_opt(METRIC_OPT) {
         None => Metric::Euclidean,
         Some(OptionValue::Metric(m)) => *m,
-        Some(other) => return Err(HnswError::CannotCast(other.go_type())),
+        Some(other) => return Err(HnswError::cannot_cast(other.go_type())),
     };
     Ok((max_levels, ef_construction, ef_search, metric))
 }
@@ -307,5 +307,5 @@ fn at_least_one(name: &'static str, value: i64) -> Result<usize, HnswError> {
     usize::try_from(value)
         .ok()
         .filter(|&v| v >= 1)
-        .ok_or_else(|| HnswError::InvalidParameter(name, value))
+        .ok_or_else(|| HnswError::invalid_parameter(name, value))
 }

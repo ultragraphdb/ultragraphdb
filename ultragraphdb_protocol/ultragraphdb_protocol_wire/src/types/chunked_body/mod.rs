@@ -20,29 +20,29 @@ pub struct ChunkedBody<'a> {
 
 impl<'a> ChunkedBody<'a> {
     /// `body`, table included, checked against `checksum_body`: its length split into chunks and table, refused as
-    /// [`ProtocolError::BodyLength`]; then the table against `checksum_body`, refused as
-    /// [`ProtocolError::ChunkTable`]; then each chunk in order against its leaf, the first failing refused as
-    /// [`ProtocolError::Chunk`] with its index and byte range. A body of one chunk has no table, and its chunk is
+    /// [`ProtocolError::body_length`]; then the table against `checksum_body`, refused as
+    /// [`ProtocolError::chunk_table`]; then each chunk in order against its leaf, the first failing refused as
+    /// [`ProtocolError::chunk`] with its index and byte range. A body of one chunk has no table, and its chunk is
     /// checked against `checksum_body` directly.
     pub fn verify(body: &'a [u8], checksum_body: u64) -> Result<Self, ProtocolError> {
         let layout = ChunkLayout::of_body(body.len())?;
         let (data, table) = body.split_at(layout.data_len());
         if layout.chunks() == 1 {
             if xxh3_64_with_seed(data, 0) != checksum_body {
-                return Err(ProtocolError::Chunk(0, 0, data.len()));
+                return Err(ProtocolError::chunk(0, 0, data.len()));
             }
             return Ok(Self { data, layout });
         }
         let computed = xxh3_64(table);
         if computed != checksum_body {
-            return Err(ProtocolError::ChunkTable(checksum_body, computed));
+            return Err(ProtocolError::chunk_table(checksum_body, computed));
         }
         for index in 0..layout.chunks() {
             let range = layout.chunk_range(index).unwrap_or_default();
             let stored = bytes_at(table, index * LEAF_SIZE).map(u64::from_le_bytes);
             let chunk = data.get(range.clone()).unwrap_or_default();
             if stored != Some(xxh3_64_with_seed(chunk, index as u64)) {
-                return Err(ProtocolError::Chunk(index, range.start, range.end));
+                return Err(ProtocolError::chunk(index, range.start, range.end));
             }
         }
         Ok(Self { data, layout })

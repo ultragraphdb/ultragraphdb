@@ -22,7 +22,7 @@ impl<'a> FrameView<'a> {
     /// `bytes` checked as one frame for `cluster`, in the protocol's order: the length of a header
     /// ([`HeaderView::new`]); the header's checksum, command, reserved bytes, cluster, flags and size within
     /// `max_frame` ([`HeaderView::verify`]); `size` equal to the bytes given, refused as
-    /// [`ProtocolError::LengthMismatch`]; then the body's chunk table and chunks ([`ChunkedBody::verify`]). For a frame
+    /// [`ProtocolError::length_mismatch`]; then the body's chunk table and chunks ([`ChunkedBody::verify`]). For a frame
     /// a server or the log sent. The connection's sequence and protocol are its receiver's to check, and the body's
     /// structure its command's view's.
     pub fn validate(
@@ -53,7 +53,7 @@ impl<'a> FrameView<'a> {
         command: Command,
     ) -> Result<Self, ProtocolError> {
         if header.size() as usize != bytes.len() {
-            return Err(ProtocolError::LengthMismatch(header.size(), bytes.len()));
+            return Err(ProtocolError::length_mismatch(header.size(), bytes.len()));
         }
         let body = ChunkedBody::verify(
             bytes.get(HEADER_SIZE..).unwrap_or_default(),

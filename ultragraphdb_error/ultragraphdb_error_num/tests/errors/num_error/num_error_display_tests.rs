@@ -60,7 +60,7 @@ fn test_syntax_display_is_gos_text() {
     ];
     for (func, num, want) in cases {
         assert_eq!(
-            NumError::Syntax(func, num.to_string()).to_string(),
+            NumError::syntax(func, num.to_string()).to_string(),
             want,
             "{func} {num}"
         );
@@ -98,7 +98,7 @@ fn test_range_display_is_gos_text() {
     ];
     for (func, num, want) in cases {
         assert_eq!(
-            NumError::Range(func, num.to_string()).to_string(),
+            NumError::range(func, num.to_string()).to_string(),
             want,
             "{func} {num}"
         );
@@ -130,7 +130,7 @@ fn test_base_display_is_gos_text() {
     ];
     for (func, num, base, want) in cases {
         assert_eq!(
-            NumError::Base(func, num.to_string(), base).to_string(),
+            NumError::base(func, num.to_string(), base).to_string(),
             want,
             "{func} {num} {base}"
         );
@@ -141,11 +141,11 @@ fn test_base_display_is_gos_text() {
 fn test_display_writes_num_verbatim() {
     // The input is stored already quoted; Display adds no quotes or escapes of its own.
     assert_eq!(
-        NumError::Syntax("ParseInt", String::new()).to_string(),
+        NumError::syntax("ParseInt", String::new()).to_string(),
         "strconv.ParseInt: parsing : invalid syntax"
     );
     assert_eq!(
-        NumError::Range("ParseInt", "1\n2".to_string()).to_string(),
+        NumError::range("ParseInt", "1\n2".to_string()).to_string(),
         "strconv.ParseInt: parsing 1\n2: value out of range"
     );
 }

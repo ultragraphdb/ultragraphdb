@@ -33,7 +33,7 @@ fn options(max_levels: i64, ef_search: i64, ef_construction: i64, index_type: &s
     o
 }
 
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test races builds of an index on threads of its own, as Go's goroutines do"
 )]

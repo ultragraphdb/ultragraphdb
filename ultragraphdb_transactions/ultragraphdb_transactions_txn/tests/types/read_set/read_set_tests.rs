@@ -109,10 +109,10 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
     assert_eq!(
         refusals,
         [
-            TxnError::ReadSetTooLarge(limit + 8, limit),
-            TxnError::ReadSetTooLarge(limit + 16, limit),
-            TxnError::ReadSetTooLarge(limit + 16, limit),
-            TxnError::ReadSetTooLarge(limit + 9, limit),
+            TxnError::read_set_too_large(limit + 8, limit),
+            TxnError::read_set_too_large(limit + 16, limit),
+            TxnError::read_set_too_large(limit + 16, limit),
+            TxnError::read_set_too_large(limit + 9, limit),
         ]
     );
     assert_eq!(r.bytes(), limit);
@@ -326,7 +326,7 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
             if model.bytes + cost > limit {
                 assert_eq!(
                     result,
-                    Err(TxnError::ReadSetTooLarge(model.bytes + cost, limit))
+                    Err(TxnError::read_set_too_large(model.bytes + cost, limit))
                 );
             } else {
                 assert_eq!(result, Ok(()), "seed {seed}");
@@ -433,7 +433,7 @@ fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
     below.reset(NS, executed.read_ts(), needed - 1);
     assert_eq!(
         below.gather(reads),
-        Err(TxnError::ReadSetTooLarge(needed, needed - 1))
+        Err(TxnError::read_set_too_large(needed, needed - 1))
     );
     assert_eq!(below.bytes(), CATALOG_BYTES, "nothing is added");
     Ok(())
@@ -493,7 +493,7 @@ fn test_gathering_a_declarations_scan_records_its_ranges() -> TestResult {
     below.reset(NS, executed.read_ts(), needed - 1);
     assert_eq!(
         below.gather(reads),
-        Err(TxnError::ReadSetTooLarge(needed, needed - 1))
+        Err(TxnError::read_set_too_large(needed, needed - 1))
     );
     Ok(())
 }
@@ -520,7 +520,7 @@ fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() -> TestResult {
     assert!(added > 6, "the reads take more than the 6 bytes left");
     assert_eq!(
         error,
-        TxnError::ReadSetTooLarge(CATALOG_BYTES + 14 + added, CATALOG_BYTES + 20)
+        TxnError::read_set_too_large(CATALOG_BYTES + 14 + added, CATALOG_BYTES + 20)
     );
     assert_eq!(r.bytes(), CATALOG_BYTES + 14);
     assert_eq!(lists(&r), vec![b"before".to_vec()]);

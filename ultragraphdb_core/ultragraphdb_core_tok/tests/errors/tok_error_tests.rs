@@ -107,32 +107,32 @@ fn test_tok_error_kinds_of_functions_and_factories() -> TestResult {
 fn test_tok_error_constructors() -> TestResult {
     let cases = [
         (
-            TokError::UnknownTokenizer("Invalid tokenizer t".into()),
+            TokError::unknown_tokenizer("Invalid tokenizer t"),
             TokErrorEnum::UnknownTokenizer("Invalid tokenizer t".into()),
             "Invalid tokenizer t",
         ),
         (
-            TokError::WrongValue("Exact indices only supported for string types".into()),
+            TokError::wrong_value("Exact indices only supported for string types"),
             TokErrorEnum::WrongValue("Exact indices only supported for string types".into()),
             "Exact indices only supported for string types",
         ),
         (
-            TokError::Arguments("Function requires 1 arguments, but got 0".into()),
+            TokError::arguments("Function requires 1 arguments, but got 0"),
             TokErrorEnum::Arguments("Function requires 1 arguments, but got 0".into()),
             "Function requires 1 arguments, but got 0",
         ),
         (
-            TokError::UnknownFactory("cannot find index factory named 'x'".into()),
+            TokError::unknown_factory("cannot find index factory named 'x'"),
             TokErrorEnum::UnknownFactory("cannot find index factory named 'x'".into()),
             "cannot find index factory named 'x'",
         ),
         (
-            TokError::ShortFloat(0, 64),
+            TokError::short_float(0, 64),
             TokErrorEnum::ShortFloat { len: 0, bits: 64 },
             "cannot read a 64-bit float from 0 bytes",
         ),
         (
-            TokError::UnknownTokenizer(String::new()),
+            TokError::unknown_tokenizer(String::new()),
             TokErrorEnum::UnknownTokenizer(String::new()),
             "",
         ),
@@ -155,7 +155,7 @@ fn test_tok_error_constructors() -> TestResult {
         None
     }
     .context("a geo error")?;
-    for e in [TokError::Geo(types.clone()), TokError::from(types.clone())] {
+    for e in [TokError::geo(types.clone()), TokError::from(types.clone())] {
         assert_eq!(e.0, TokErrorEnum::Geo(types.clone()));
         assert_eq!(e.to_string(), types.to_string());
     }
@@ -169,7 +169,7 @@ fn test_tok_error_constructors() -> TestResult {
     }
     .context("an options error")?;
     for e in [
-        TokError::Options(options.clone()),
+        TokError::options(options.clone()),
         TokError::from(options.clone()),
     ] {
         assert_eq!(e.0, TokErrorEnum::Options(options.clone()));

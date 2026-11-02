@@ -37,8 +37,8 @@ pub struct KeyValues<'a> {
 
 impl<'a> KeyValues<'a> {
     /// The entries of `bytes`, section `section` of a body of `command` starting at `base` within it, checked once:
-    /// each entry's lengths and bytes inside the section ([`ProtocolError::EntryOutOfBounds`]), its padding zero
-    /// ([`ProtocolError::PaddingNotZero`], at its offset from `base`).
+    /// each entry's lengths and bytes inside the section ([`ProtocolError::entry_out_of_bounds`]), its padding zero
+    /// ([`ProtocolError::padding_not_zero`], at its offset from `base`).
     pub(crate) fn read(
         command: u16,
         section: usize,
@@ -49,12 +49,12 @@ impl<'a> KeyValues<'a> {
         let mut len = 0usize;
         while at < bytes.len() {
             let (_, end, next) = entry_at(bytes, at)
-                .ok_or_else(|| ProtocolError::EntryOutOfBounds(command, section, len, at))?;
+                .ok_or_else(|| ProtocolError::entry_out_of_bounds(command, section, len, at))?;
             if let Some(i) = bytes
                 .get(end..next)
                 .and_then(|padding| padding.iter().position(|b| *b != 0))
             {
-                return Err(ProtocolError::PaddingNotZero(command, base + end + i));
+                return Err(ProtocolError::padding_not_zero(command, base + end + i));
             }
             at = next;
             len += 1;

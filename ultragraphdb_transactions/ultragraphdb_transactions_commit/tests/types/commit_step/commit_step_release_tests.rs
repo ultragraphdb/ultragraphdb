@@ -159,7 +159,7 @@ fn test_a_commit_to_a_full_queue_is_refused_busy_and_released() -> TestResult {
     commit(&mut step, &mut out, 2, p(b"b")?);
     assert!(out.replies().is_empty(), "the queue holds one");
     commit(&mut step, &mut out, 3, p(b"c")?);
-    let busy = ultragraphdb_transactions_commit::CommitError::Busy(1);
+    let busy = ultragraphdb_transactions_commit::CommitError::busy(1);
     assert_eq!(
         out.replies(),
         &[ultragraphdb_transactions_commit::Reply::new(

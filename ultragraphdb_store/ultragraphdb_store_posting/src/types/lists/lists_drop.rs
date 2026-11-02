@@ -104,7 +104,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PostingError::StaleVersion`] when `ts` is not above the applied version, writing nothing; the store's error,
+    /// [`PostingError::stale_version`] when `ts` is not above the applied version, writing nothing; the store's error,
     /// which stops writes as [`Lists::drop_prefixes_now`]'s does.
     pub fn drop_prefixes_at(
         &self,
@@ -117,7 +117,7 @@ where
         {
             let mut state = lock(&self.state);
             if ts <= state.applied {
-                return Err(PostingError::StaleVersion(ts, state.applied));
+                return Err(PostingError::stale_version(ts, state.applied));
             }
             state.in_flight = Some(ts);
         }

@@ -18,7 +18,7 @@ fn test_a_txn_cache_reads_through_its_transaction_at_its_timestamp() -> TestResu
     assert_eq!(at_start.ts(), 3);
     assert_eq!(
         at_start.get(b"k"),
-        Err(HnswError::NoValue()),
+        Err(HnswError::no_value()),
         "written at 5, read at 3"
     );
     assert_eq!(at_start.find(b"", |v| v == b"v"), Ok(0));

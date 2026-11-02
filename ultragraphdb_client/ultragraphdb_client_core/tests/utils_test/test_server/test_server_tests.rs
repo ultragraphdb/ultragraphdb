@@ -57,7 +57,7 @@ fn test_a_frame_shorter_than_its_size_closes_the_connection() -> TestResult {
     server.receive(&frame[..short], now);
     assert!(server.is_closing());
     let error = server.transmit().context("the closing Error")?;
-    let expected = ProtocolError::LengthMismatch(frame.len() as u32, short).to_string();
+    let expected = ProtocolError::length_mismatch(frame.len() as u32, short).to_string();
     assert_eq!(refusal(&error)?, (0, ErrorCode::Protocol, expected));
     assert_eq!(server.transmit(), None, "the Error is the last frame");
     Ok(())
@@ -72,7 +72,7 @@ fn test_a_frame_of_another_cluster_closes_the_connection_at_its_header() -> Test
     assert!(server.is_closing());
     let error = server.transmit().context("the closing Error")?;
     assert_eq!(HeaderView::new(&error)?.command(), Command::Error.number());
-    let expected = ProtocolError::WrongCluster(CLUSTER, CLUSTER + 1).to_string();
+    let expected = ProtocolError::wrong_cluster(CLUSTER, CLUSTER + 1).to_string();
     assert_eq!(refusal(&error)?, (0, ErrorCode::Protocol, expected));
     assert_eq!(server.principal(), None);
     Ok(())

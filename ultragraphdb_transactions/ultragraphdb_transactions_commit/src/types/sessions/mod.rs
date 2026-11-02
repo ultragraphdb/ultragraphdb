@@ -85,9 +85,9 @@ impl Sessions {
     ///
     /// # Errors
     ///
-    /// [`CommitError::SessionEvicted`] for a session the table does not hold; [`CommitError::PermissionDenied`] for a
-    /// session another principal registered; [`CommitError::SessionBusy`] while a request of it is decided and not
-    /// yet applied; [`CommitError::RequestOutOfOrder`] for a number neither the last nor one above it.
+    /// [`CommitError::session_evicted`] for a session the table does not hold; [`CommitError::permission_denied`] for a
+    /// session another principal registered; [`CommitError::session_busy`] while a request of it is decided and not
+    /// yet applied; [`CommitError::request_out_of_order`] for a number neither the last nor one above it.
     pub fn check(
         &self,
         session: u64,
@@ -98,20 +98,20 @@ impl Sessions {
             return Ok(None);
         }
         let Some(entry) = self.table.get(&session) else {
-            return Err(CommitError::SessionEvicted(session));
+            return Err(CommitError::session_evicted(session));
         };
         if entry.owner != principal {
-            return Err(CommitError::PermissionDenied(session));
+            return Err(CommitError::permission_denied(session));
         }
         if entry.pending {
-            return Err(CommitError::SessionBusy(session));
+            return Err(CommitError::session_busy(session));
         }
         if request == entry.last_request && entry.last_request != 0 {
             return Ok(Some((entry.last_version, &entry.results)));
         }
         let expected = entry.last_request.saturating_add(1);
         if request != expected {
-            return Err(CommitError::RequestOutOfOrder(expected));
+            return Err(CommitError::request_out_of_order(expected));
         }
         Ok(None)
     }
@@ -122,7 +122,7 @@ impl Sessions {
     ///
     /// # Errors
     ///
-    /// As [`Sessions::check`] refuses, and [`CommitError::NotCommitted`] for the request after the last: it was not
+    /// As [`Sessions::check`] refuses, and [`CommitError::not_committed`] for the request after the last: it was not
     /// committed, and the client runs its transaction again.
     pub fn retry(
         &self,
@@ -132,7 +132,7 @@ impl Sessions {
     ) -> Result<(u64, &[OperationResult]), CommitError> {
         match self.check(session, request, principal)? {
             Some(reply) => Ok(reply),
-            None => Err(CommitError::NotCommitted(request)),
+            None => Err(CommitError::not_committed(request)),
         }
     }
 

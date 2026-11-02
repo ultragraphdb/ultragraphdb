@@ -40,7 +40,7 @@ fn test_the_next_version_is_the_even_one_above_the_watermark() -> TestResult {
     assert_eq!(lists.next_version(), u64::MAX);
     assert_eq!(
         lists.commit_round(&[(lists.next_version(), &empty)]),
-        Err(ultragraphdb_store_posting::PostingError::StaleVersion(
+        Err(ultragraphdb_store_posting::PostingError::stale_version(
             u64::MAX,
             u64::MAX
         ))

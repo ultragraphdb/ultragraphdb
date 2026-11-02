@@ -268,92 +268,77 @@ pub struct ProtocolError(pub ProtocolErrorEnum);
 
 impl ProtocolError {
     /// A frame of `len` bytes, fewer than a header's 256.
-    #[allow(non_snake_case)]
-    pub fn ShortHeader(len: usize) -> Self {
+    pub fn short_header(len: usize) -> Self {
         Self(ProtocolErrorEnum::ShortHeader { len })
     }
 
     /// The header's checksum `stored` is not its XXH3-64, `computed`.
-    #[allow(non_snake_case)]
-    pub fn HeaderChecksum(stored: u64, computed: u64) -> Self {
+    pub fn header_checksum(stored: u64, computed: u64) -> Self {
         Self(ProtocolErrorEnum::HeaderChecksum { stored, computed })
     }
 
     /// The `command` number names no command of this protocol.
-    #[allow(non_snake_case)]
-    pub fn UnknownCommand(command: u16) -> Self {
+    pub fn unknown_command(command: u16) -> Self {
         Self(ProtocolErrorEnum::UnknownCommand { command })
     }
 
     /// The reserved header byte at `offset` is not zero.
-    #[allow(non_snake_case)]
-    pub fn ReservedNotZero(offset: usize) -> Self {
+    pub fn reserved_not_zero(offset: usize) -> Self {
         Self(ProtocolErrorEnum::ReservedNotZero { offset })
     }
 
     /// The frame's cluster is `found`, not the receiver's `expected`.
-    #[allow(non_snake_case)]
-    pub fn WrongCluster(expected: u64, found: u64) -> Self {
+    pub fn wrong_cluster(expected: u64, found: u64) -> Self {
         Self(ProtocolErrorEnum::WrongCluster { expected, found })
     }
 
     /// The header's `size` is below the 256 bytes of a header.
-    #[allow(non_snake_case)]
-    pub fn SizeBelowHeader(size: u32) -> Self {
+    pub fn size_below_header(size: u32) -> Self {
         Self(ProtocolErrorEnum::SizeBelowHeader { size })
     }
 
     /// A frame of `size` bytes is larger than `limit`.
-    #[allow(non_snake_case)]
-    pub fn FrameTooLarge(size: usize, limit: usize) -> Self {
+    pub fn frame_too_large(size: usize, limit: usize) -> Self {
         Self(ProtocolErrorEnum::FrameTooLarge { size, limit })
     }
 
     /// The frame's `size` is not the `len` bytes received.
-    #[allow(non_snake_case)]
-    pub fn LengthMismatch(size: u32, len: usize) -> Self {
+    pub fn length_mismatch(size: u32, len: usize) -> Self {
         Self(ProtocolErrorEnum::LengthMismatch { size, len })
     }
 
     /// A body of `len` bytes has no split into chunks and their table.
-    #[allow(non_snake_case)]
-    pub fn BodyLength(len: usize) -> Self {
+    pub fn body_length(len: usize) -> Self {
         Self(ProtocolErrorEnum::BodyLength { len })
     }
 
     /// The chunk table's XXH3-64, `computed`, is not the header's `stored`.
-    #[allow(non_snake_case)]
-    pub fn ChunkTable(stored: u64, computed: u64) -> Self {
+    pub fn chunk_table(stored: u64, computed: u64) -> Self {
         Self(ProtocolErrorEnum::ChunkTable { stored, computed })
     }
 
     /// Chunk `index`, body bytes `start` to `end`, does not match its leaf.
-    #[allow(non_snake_case)]
-    pub fn Chunk(index: usize, start: usize, end: usize) -> Self {
+    pub fn chunk(index: usize, start: usize, end: usize) -> Self {
         Self(ProtocolErrorEnum::Chunk { index, start, end })
     }
 
     /// A frame carries sequence `found` where `expected` was due.
-    #[allow(non_snake_case)]
-    pub fn SequenceOrder(expected: u128, found: u128) -> Self {
+    pub fn sequence_order(expected: u128, found: u128) -> Self {
         Self(ProtocolErrorEnum::SequenceOrder { expected, found })
     }
 
     /// A view of command `expected` was asked of a frame of command `found`.
-    #[allow(non_snake_case)]
-    pub fn WrongCommand(expected: u16, found: u16) -> Self {
+    pub fn wrong_command(expected: u16, found: u16) -> Self {
         Self(ProtocolErrorEnum::WrongCommand { expected, found })
     }
 
     /// A body of command `command`, `len` bytes, is shorter than the `need` bytes of its fixed part and section table.
-    #[allow(non_snake_case)]
-    pub fn BodyTooShort(command: u16, len: usize, need: usize) -> Self {
+    pub fn body_too_short(command: u16, len: usize, need: usize) -> Self {
         Self(ProtocolErrorEnum::BodyTooShort { command, len, need })
     }
 
     /// Section `section`, `len` bytes at `offset`, runs past the body's `body` bytes.
-    #[allow(non_snake_case)]
-    pub fn SectionOutOfBounds(
+    pub fn section_out_of_bounds(
         command: u16,
         section: usize,
         offset: u32,
@@ -370,8 +355,7 @@ impl ProtocolError {
     }
 
     /// Section `section` starts at `offset`, not at `expected`.
-    #[allow(non_snake_case)]
-    pub fn SectionOffset(command: u16, section: usize, offset: u32, expected: usize) -> Self {
+    pub fn section_offset(command: u16, section: usize, offset: u32, expected: usize) -> Self {
         Self(ProtocolErrorEnum::SectionOffset {
             command,
             section,
@@ -381,20 +365,17 @@ impl ProtocolError {
     }
 
     /// The padding byte at body offset `offset` is not zero.
-    #[allow(non_snake_case)]
-    pub fn PaddingNotZero(command: u16, offset: usize) -> Self {
+    pub fn padding_not_zero(command: u16, offset: usize) -> Self {
         Self(ProtocolErrorEnum::PaddingNotZero { command, offset })
     }
 
     /// The body holds `len` bytes, past the end of its last section at `end`.
-    #[allow(non_snake_case)]
-    pub fn TrailingBytes(command: u16, end: usize, len: usize) -> Self {
+    pub fn trailing_bytes(command: u16, end: usize, len: usize) -> Self {
         Self(ProtocolErrorEnum::TrailingBytes { command, end, len })
     }
 
     /// Section `section`, `len` bytes, is not a whole number of `unit`-byte records.
-    #[allow(non_snake_case)]
-    pub fn SectionLength(command: u16, section: usize, len: usize, unit: usize) -> Self {
+    pub fn section_length(command: u16, section: usize, len: usize, unit: usize) -> Self {
         Self(ProtocolErrorEnum::SectionLength {
             command,
             section,
@@ -404,8 +385,7 @@ impl ProtocolError {
     }
 
     /// Entry `entry` of section `section`, at section offset `offset`, runs past the section.
-    #[allow(non_snake_case)]
-    pub fn EntryOutOfBounds(command: u16, section: usize, entry: usize, offset: usize) -> Self {
+    pub fn entry_out_of_bounds(command: u16, section: usize, entry: usize, offset: usize) -> Self {
         Self(ProtocolErrorEnum::EntryOutOfBounds {
             command,
             section,
@@ -415,8 +395,7 @@ impl ProtocolError {
     }
 
     /// `field` counts `count` where the body holds `expected`.
-    #[allow(non_snake_case)]
-    pub fn CountMismatch(command: u16, field: &'static str, count: u64, expected: u64) -> Self {
+    pub fn count_mismatch(command: u16, field: &'static str, count: u64, expected: u64) -> Self {
         Self(ProtocolErrorEnum::CountMismatch {
             command,
             field,
@@ -426,8 +405,7 @@ impl ProtocolError {
     }
 
     /// The text of section `section` is not UTF-8 at section offset `offset`.
-    #[allow(non_snake_case)]
-    pub fn NotUtf8(command: u16, section: usize, offset: usize) -> Self {
+    pub fn not_utf8(command: u16, section: usize, offset: usize) -> Self {
         Self(ProtocolErrorEnum::NotUtf8 {
             command,
             section,
@@ -436,8 +414,7 @@ impl ProtocolError {
     }
 
     /// Entry `at` of section `section` is `index`, past the `limit` entries it indexes.
-    #[allow(non_snake_case)]
-    pub fn IndexOutOfRange(
+    pub fn index_out_of_range(
         command: u16,
         section: usize,
         at: usize,
@@ -454,8 +431,7 @@ impl ProtocolError {
     }
 
     /// Term `at` of section `section` is not a term.
-    #[allow(non_snake_case)]
-    pub fn BadTerm(command: u16, section: usize, at: usize) -> Self {
+    pub fn bad_term(command: u16, section: usize, at: usize) -> Self {
         Self(ProtocolErrorEnum::BadTerm {
             command,
             section,
@@ -464,8 +440,7 @@ impl ProtocolError {
     }
 
     /// `field` holds `value`, which the command does not define.
-    #[allow(non_snake_case)]
-    pub fn FieldValue(command: u16, field: &'static str, value: u64) -> Self {
+    pub fn field_value(command: u16, field: &'static str, value: u64) -> Self {
         Self(ProtocolErrorEnum::FieldValue {
             command,
             field,
@@ -474,8 +449,7 @@ impl ProtocolError {
     }
 
     /// Entry `at` of the term table in section `section` repeats entry `earlier`.
-    #[allow(non_snake_case)]
-    pub fn DuplicateTerm(command: u16, section: usize, at: usize, earlier: usize) -> Self {
+    pub fn duplicate_term(command: u16, section: usize, at: usize, earlier: usize) -> Self {
         Self(ProtocolErrorEnum::DuplicateTerm {
             command,
             section,
@@ -485,8 +459,7 @@ impl ProtocolError {
     }
 
     /// Entry `at` of the term table in section `section` is nested `depth` deep, past `limit`.
-    #[allow(non_snake_case)]
-    pub fn TermTooDeep(
+    pub fn term_too_deep(
         command: u16,
         section: usize,
         at: usize,
@@ -503,8 +476,7 @@ impl ProtocolError {
     }
 
     /// Record `index`'s refusal `cause`, as a Round body reports it.
-    #[allow(non_snake_case)]
-    pub fn Record(index: usize, cause: ProtocolError) -> Self {
+    pub fn record(index: usize, cause: ProtocolError) -> Self {
         Self(ProtocolErrorEnum::Record {
             index,
             cause: Box::new(cause.0),

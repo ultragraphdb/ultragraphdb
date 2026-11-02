@@ -29,7 +29,7 @@ impl TermView<'_> {
         let typed =
             |value: String, datatype: NamedNodeRef<'_>| Literal::new_typed_literal(value, datatype);
         Ok(match self {
-            TermView::Uid(uid) => return Err(TermError::NotALiteral(*uid).into()),
+            TermView::Uid(uid) => return Err(TermError::not_a_literal(*uid).into()),
             TermView::Boolean(v) => typed(v.to_string(), xsd::BOOLEAN),
             TermView::Integer(v) => typed(v.to_string(), xsd::INTEGER),
             TermView::Decimal(v) => typed(v.to_string(), xsd::DECIMAL),

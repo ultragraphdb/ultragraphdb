@@ -22,14 +22,14 @@ pub(crate) struct Sections<'a, const N: usize> {
 
 impl<'a, const N: usize> Sections<'a, N> {
     /// `body` checked as a fixed part of `fixed` bytes and `N` sections, in order: the fixed part and table present,
-    /// refused as [`ProtocolError::BodyTooShort`]; for each section, its bytes inside the body
-    /// ([`ProtocolError::SectionOutOfBounds`]), its offset the expected one ([`ProtocolError::SectionOffset`]) and the
-    /// padding before it zero ([`ProtocolError::PaddingNotZero`]); then nothing after the last section
-    /// ([`ProtocolError::TrailingBytes`]). `command` names the body in each error.
+    /// refused as [`ProtocolError::body_too_short`]; for each section, its bytes inside the body
+    /// ([`ProtocolError::section_out_of_bounds`]), its offset the expected one ([`ProtocolError::section_offset`]) and the
+    /// padding before it zero ([`ProtocolError::padding_not_zero`]); then nothing after the last section
+    /// ([`ProtocolError::trailing_bytes`]). `command` names the body in each error.
     pub(crate) fn read(command: u16, body: &'a [u8], fixed: usize) -> Result<Self, ProtocolError> {
         let need = fixed.saturating_add(8 * N);
         if body.len() < need {
-            return Err(ProtocolError::BodyTooShort(command, body.len(), need));
+            return Err(ProtocolError::body_too_short(command, body.len(), need));
         }
         let mut ranges = [(0usize, 0usize); N];
         let mut end = need;
@@ -40,7 +40,7 @@ impl<'a, const N: usize> Sections<'a, N> {
             let start = offset as usize;
             let stop = start.saturating_add(len as usize);
             if stop > body.len() {
-                return Err(ProtocolError::SectionOutOfBounds(
+                return Err(ProtocolError::section_out_of_bounds(
                     command,
                     section,
                     offset,
@@ -50,7 +50,7 @@ impl<'a, const N: usize> Sections<'a, N> {
             }
             let expected = align8(end);
             if start != expected {
-                return Err(ProtocolError::SectionOffset(
+                return Err(ProtocolError::section_offset(
                     command, section, offset, expected,
                 ));
             }
@@ -58,13 +58,13 @@ impl<'a, const N: usize> Sections<'a, N> {
                 .get(end..start)
                 .and_then(|padding| padding.iter().position(|b| *b != 0))
             {
-                return Err(ProtocolError::PaddingNotZero(command, end + i));
+                return Err(ProtocolError::padding_not_zero(command, end + i));
             }
             *range = (start, stop);
             end = stop;
         }
         if end != body.len() {
-            return Err(ProtocolError::TrailingBytes(command, end, body.len()));
+            return Err(ProtocolError::trailing_bytes(command, end, body.len()));
         }
         Ok(Self {
             body,
@@ -122,7 +122,7 @@ pub(crate) fn align8(n: usize) -> usize {
     n.div_ceil(8).saturating_mul(8)
 }
 
-/// The `unit`-byte records of section `section`, refused as [`ProtocolError::SectionLength`] when its length is not a
+/// The `unit`-byte records of section `section`, refused as [`ProtocolError::section_length`] when its length is not a
 /// multiple of `unit`.
 pub(crate) fn records(
     command: u16,
@@ -131,7 +131,7 @@ pub(crate) fn records(
     unit: usize,
 ) -> Result<std::slice::ChunksExact<'_, u8>, ProtocolError> {
     if unit == 0 || !bytes.len().is_multiple_of(unit) {
-        return Err(ProtocolError::SectionLength(
+        return Err(ProtocolError::section_length(
             command,
             section,
             bytes.len(),
@@ -146,7 +146,7 @@ pub(crate) fn u32_at(bytes: &[u8], index: usize) -> Option<u32> {
     bytes_at(bytes, index.checked_mul(4)?).map(u32::from_le_bytes)
 }
 
-/// The little-endian u32s of a section, refused as [`ProtocolError::SectionLength`] when its length is not a multiple
+/// The little-endian u32s of a section, refused as [`ProtocolError::section_length`] when its length is not a multiple
 /// of 4.
 pub(crate) fn u32s(command: u16, section: usize, bytes: &[u8]) -> Result<Vec<u32>, ProtocolError> {
     Ok(records(command, section, bytes, 4)?
@@ -164,19 +164,19 @@ pub(crate) fn as_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// The UTF-8 text of section `section`, refused as [`ProtocolError::NotUtf8`] at its first invalid byte.
+/// The UTF-8 text of section `section`, refused as [`ProtocolError::not_utf8`] at its first invalid byte.
 pub(crate) fn text(command: u16, section: usize, bytes: &[u8]) -> Result<&str, ProtocolError> {
     std::str::from_utf8(bytes)
-        .map_err(|e| ProtocolError::NotUtf8(command, section, e.valid_up_to()))
+        .map_err(|e| ProtocolError::not_utf8(command, section, e.valid_up_to()))
 }
 
-/// The command header of `frame`, refused as [`ProtocolError::WrongCommand`] when the frame is not of `command`.
+/// The command header of `frame`, refused as [`ProtocolError::wrong_command`] when the frame is not of `command`.
 pub(crate) fn expect_command<'a>(
     frame: &crate::types::frame_view::FrameView<'a>,
     command: crate::types::command::Command,
 ) -> Result<crate::utils::command_header::CommandHeader<'a>, ProtocolError> {
     if frame.command() != command {
-        return Err(ProtocolError::WrongCommand(
+        return Err(ProtocolError::wrong_command(
             command.number(),
             frame.command().number(),
         ));
@@ -187,10 +187,10 @@ pub(crate) fn expect_command<'a>(
 }
 
 /// The `flags` of a Read or an Execute: bit 0 asks for each row's statement ID, and no other bit is set, refused as
-/// [`ProtocolError::FieldValue`] (`"flags"`).
+/// [`ProtocolError::field_value`] (`"flags"`).
 pub(crate) fn statement_ids_flag(command: u16, flags: u32) -> Result<bool, ProtocolError> {
     if flags > 1 {
-        return Err(ProtocolError::FieldValue(command, "flags", flags.into()));
+        return Err(ProtocolError::field_value(command, "flags", flags.into()));
     }
     Ok(flags == 1)
 }

@@ -46,7 +46,7 @@ where
     E: SpanExporter + 'static,
 {
     let filter = EnvFilter::try_new(config.filter())
-        .map_err(|e| TelemetryError::Filter(config.filter().to_string(), e.to_string()))?;
+        .map_err(|e| TelemetryError::filter(config.filter().to_string(), e.to_string()))?;
     let (plain, json) = match config.format() {
         LogFormat::Plain => (
             Some(fmt::layer().with_ansi(false).with_writer(writer)),

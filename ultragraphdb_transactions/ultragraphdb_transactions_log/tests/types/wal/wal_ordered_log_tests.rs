@@ -51,7 +51,7 @@ fn test_an_append_out_of_order_is_refused_naming_the_next_position() -> TestResu
             .append(RoundRef::new(Position::new(position), tail.1, 0, 1, &data))
             .err()
             .context("out of order")?;
-        assert_eq!(refused, LogError::PositionMismatch(6, found));
+        assert_eq!(refused, LogError::position_mismatch(6, found));
     }
     assert_eq!(wal.tail(), tail);
     assert_eq!(block_on(wal.sync()), Ok(Position::new(5)));
@@ -70,7 +70,7 @@ fn test_an_append_with_another_parent_is_refused() -> TestResult {
         .context("not the tail's checksum")?;
     assert_eq!(
         refused,
-        LogError::ParentMismatch(3, checksums[1], checksums[0])
+        LogError::parent_mismatch(3, checksums[1], checksums[0])
     );
     // A fresh log's first round names the checkpoint's checksum, 0.
     let (_, mut fresh) = fresh()?;
@@ -78,7 +78,7 @@ fn test_an_append_with_another_parent_is_refused() -> TestResult {
         .append(RoundRef::new(Position::new(1), 1, 2, 1, &data))
         .err()
         .context("not 0")?;
-    assert_eq!(refused_first, LogError::ParentMismatch(1, 0, 1));
+    assert_eq!(refused_first, LogError::parent_mismatch(1, 0, 1));
     Ok(())
 }
 
@@ -177,14 +177,14 @@ fn test_a_round_too_large_for_a_frame_or_a_segment_is_refused() -> TestResult {
         .append(RoundRef::new(Position::new(1), 0, 2, 1, &past_frame))
         .err()
         .context("past the frame")?;
-    assert_eq!(refused, LogError::TooLarge(1_048_577, 1_048_576));
+    assert_eq!(refused, LogError::too_large(1_048_577, 1_048_576));
     // 20,000 bytes take five chunks and a 40-byte table: a 20,296-byte frame, five blocks; the segment holds four.
     let past_segment = vec![1u8; 20_000];
     let refused_segment = wal
         .append(RoundRef::new(Position::new(1), 0, 2, 1, &past_segment))
         .err()
         .context("past the segment")?;
-    assert_eq!(refused_segment, LogError::TooLarge(20_480, 16_384));
+    assert_eq!(refused_segment, LogError::too_large(20_480, 16_384));
     // A round of a whole segment fits: 16,000 bytes take four chunks and a 32-byte table, 16,288 bytes, four blocks.
     assert_eq!(wal.tail(), (Position::ZERO, 0));
     assert_eq!(storage.trace().len(), before);
@@ -203,7 +203,7 @@ fn test_an_append_past_the_capacity_is_busy_until_a_checkpoint_trims() -> TestRe
     let (mut wal, _) = block_on(Wal::open(storage.clone(), dir(), small)).context("opened")?;
     append_rounds(&mut wal, 1, 8, ONE_BLOCK)?;
     let before = storage.trace().len();
-    assert_eq!(append(&mut wal, 9, ONE_BLOCK), Err(LogError::Busy(2)));
+    assert_eq!(append(&mut wal, 9, ONE_BLOCK), Err(LogError::busy(2)));
     assert_eq!(storage.trace().len(), before);
     block_on(wal.trim_through(Position::new(4), 0)).context("trimmed")?;
     assert_eq!(append(&mut wal, 9, ONE_BLOCK), Ok(Position::new(9)));
@@ -220,7 +220,7 @@ fn test_a_sealed_log_refuses_appends_and_reports_its_tail() -> TestResult {
         Position::new(9)
     );
     assert_eq!(wal.seal(), Ok(Position::new(9)));
-    assert_eq!(append(&mut wal, 10, ONE_BLOCK), Err(LogError::Sealed(9)));
+    assert_eq!(append(&mut wal, 10, ONE_BLOCK), Err(LogError::sealed(9)));
     assert_eq!(wal.seal(), Ok(Position::new(9)));
     // Sealing stops appends, not the sync of what was staged.
     assert_eq!(block_on(wal.sync()), Ok(Position::new(9)));
@@ -249,17 +249,17 @@ fn test_a_failed_write_or_sync_poisons_the_log() -> TestResult {
         let error = block_on(wal.sync()).err().context("faulted")?;
         assert_io(&error, operation);
         assert_eq!(wal.committed(), Position::ZERO);
-        assert_eq!(append(&mut wal, 2, ONE_BLOCK), Err(LogError::Poisoned()));
-        assert_eq!(block_on(wal.sync()), Err(LogError::Poisoned()));
+        assert_eq!(append(&mut wal, 2, ONE_BLOCK), Err(LogError::poisoned()));
+        assert_eq!(block_on(wal.sync()), Err(LogError::poisoned()));
         assert_eq!(
             block_on(wal.read(Position::new(1), 1)),
-            Err(LogError::Poisoned())
+            Err(LogError::poisoned())
         );
         assert_eq!(
             block_on(wal.trim_through(Position::ZERO, 0)),
-            Err(LogError::Poisoned())
+            Err(LogError::poisoned())
         );
-        assert_eq!(wal.seal(), Err(LogError::Poisoned()));
+        assert_eq!(wal.seal(), Err(LogError::poisoned()));
     }
     Ok(())
 }
@@ -364,11 +364,11 @@ fn test_read_takes_positions_from_the_first_kept_to_the_one_after_committed() ->
     );
     assert_eq!(
         block_on(wal.read(Position::new(7), u32::MAX)),
-        Err(LogError::PositionMismatch(6, 7))
+        Err(LogError::position_mismatch(6, 7))
     );
     assert_eq!(
         block_on(wal.read(Position::ZERO, u32::MAX)),
-        Err(LogError::PositionMismatch(1, 0))
+        Err(LogError::position_mismatch(1, 0))
     );
     let (_, mut empty) = fresh()?;
     assert_eq!(
@@ -387,7 +387,7 @@ fn test_read_refuses_a_round_that_no_longer_verifies() -> TestResult {
         .context("flipped")?;
     assert_eq!(
         block_on(wal.read(Position::new(1), u32::MAX)),
-        Err(LogError::CorruptChunk(2, 0, 4_096, 0, 0, 1_000))
+        Err(LogError::corrupt_chunk(2, 0, 4_096, 0, 0, 1_000))
     );
     assert_eq!(
         block_on(wal.read(Position::new(3), u32::MAX))
@@ -400,7 +400,7 @@ fn test_read_refuses_a_round_that_no_longer_verifies() -> TestResult {
         .context("flipped")?;
     assert_eq!(
         block_on(wal.read(Position::new(3), u32::MAX)),
-        Err(LogError::Corrupt(3, 0, 8_192))
+        Err(LogError::corrupt(3, 0, 8_192))
     );
     Ok(())
 }
@@ -429,7 +429,7 @@ fn test_read_refuses_a_valid_frame_that_is_not_the_round_logged_there() -> TestR
     }
     assert_eq!(
         block_on(wal.read(Position::new(2), u32::MAX)),
-        Err(LogError::Corrupt(2, 0, 4_096))
+        Err(LogError::corrupt(2, 0, 4_096))
     );
     Ok(())
 }
@@ -440,7 +440,7 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() -> Test
     let checksums = append_synced(&mut wal, 1, 10, ONE_BLOCK)?;
     assert_eq!(
         block_on(wal.trim_through(Position::new(11), 0)),
-        Err(LogError::PositionMismatch(10, 11))
+        Err(LogError::position_mismatch(10, 11))
     );
     block_on(wal.trim_through(Position::new(8), 0)).context("trimmed")?;
     assert_eq!(wal.checkpoint(), Position::new(8));
@@ -468,7 +468,7 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() -> Test
     assert!(storage.stable_contents(&superblock('b')).is_some());
     assert_eq!(
         block_on(wal.read(Position::new(8), u32::MAX)),
-        Err(LogError::PositionMismatch(9, 8))
+        Err(LogError::position_mismatch(9, 8))
     );
     assert_eq!(
         block_on(wal.read(Position::new(9), u32::MAX))
@@ -504,12 +504,12 @@ fn test_a_failed_trim_poisons_the_log() -> TestResult {
         assert_io(&error, operation);
         assert_eq!(
             append(&mut wal, 7, ONE_BLOCK),
-            Err(LogError::Poisoned()),
+            Err(LogError::poisoned()),
             "step {step}"
         );
         assert_eq!(
             block_on(wal.trim_through(Position::new(6), 0)),
-            Err(LogError::Poisoned())
+            Err(LogError::poisoned())
         );
     }
     Ok(())
@@ -759,7 +759,7 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
                 1,
                 bytes
             )),
-            Err(LogError::Exhausted(u64::MAX)),
+            Err(LogError::exhausted(u64::MAX)),
             "position {position}"
         );
     }
@@ -770,7 +770,7 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     assert_eq!(wal.seal(), Ok(Position::new(u64::MAX)));
     assert_eq!(
         wal.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
-        Err(LogError::Sealed(u64::MAX))
+        Err(LogError::sealed(u64::MAX))
     );
     drop(wal);
     let (mut reopened, recovered) = open(&storage).context("reopened")?;
@@ -785,7 +785,7 @@ fn test_the_last_position_ends_the_log_without_wrapping() -> TestResult {
     // Reopened, the log is exhausted still.
     assert_eq!(
         reopened.append(RoundRef::new(Position::ZERO, tail.1, 0, 1, &data)),
-        Err(LogError::Exhausted(u64::MAX))
+        Err(LogError::exhausted(u64::MAX))
     );
     Ok(())
 }
@@ -825,7 +825,7 @@ fn test_a_checkpoint_at_the_last_position_reopens() -> TestResult {
     assert_eq!(reopened.checkpoint_version(), 90);
     assert_eq!(
         reopened.append(RoundRef::new(Position::ZERO, last, 0, 1, &data)),
-        Err(LogError::Exhausted(u64::MAX))
+        Err(LogError::exhausted(u64::MAX))
     );
     Ok(())
 }

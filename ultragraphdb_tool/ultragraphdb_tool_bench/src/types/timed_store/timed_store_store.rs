@@ -16,7 +16,7 @@ use crate::types::write_call::WriteCall;
 impl Store for TimedStore {
     type Snapshot = CountedSnapshot;
 
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "a benchmark times each write call by the wall clock; the store under it reads no clock"
     )]

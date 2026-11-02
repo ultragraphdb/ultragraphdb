@@ -73,14 +73,14 @@ where
     ///
     /// # Errors
     ///
-    /// [`PipelineError::Sessions`] when the store's session table cannot be read or is corrupted.
+    /// [`PipelineError::sessions`] when the store's session table cannot be read or is corrupted.
     pub fn new(
         applier: &'a ChangesetApplier<S, C, E>,
         log: L,
         bounds: RoundBounds,
     ) -> Result<Self, PipelineError> {
         let applied = applier.quads().lists().applied_ts();
-        let sessions = Sessions::load(applier.quads().store()).map_err(PipelineError::Sessions)?;
+        let sessions = Sessions::load(applier.quads().store()).map_err(PipelineError::sessions)?;
         applier.sequence_builds();
         Ok(Self {
             applier,
@@ -116,7 +116,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PipelineError::Log`] when the log refuses the round, which stops the pipeline.
+    /// [`PipelineError::log`] when the log refuses the round, which stops the pipeline.
     pub fn commit(
         &mut self,
         ticket: u64,
@@ -131,7 +131,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PipelineError::Log`] when the log refuses the round, which stops the pipeline.
+    /// [`PipelineError::log`] when the log refuses the round, which stops the pipeline.
     pub fn register(
         &mut self,
         ticket: u64,
@@ -161,7 +161,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PipelineError::Log`] when the sync fails or the next round is refused, and [`PipelineError::Apply`] when the
+    /// [`PipelineError::log`] when the sync fails or the next round is refused, and [`PipelineError::apply`] when the
     /// store refuses the synced round; each stops the pipeline.
     pub async fn sync(&mut self, now_us: u64) -> Result<(), PipelineError> {
         if !self.unsynced {
@@ -175,7 +175,7 @@ where
             }
             Err(cause) => {
                 self.stop(now_us);
-                Err(PipelineError::Log(cause))
+                Err(PipelineError::log(cause))
             }
         }
     }
@@ -185,7 +185,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PipelineError::BuildEnd`] when an end cannot be proposed, and [`PipelineError::Log`] when the log refuses its
+    /// [`PipelineError::build_end`] when an end cannot be proposed, and [`PipelineError::log`] when the log refuses its
     /// round; each stops the pipeline.
     pub fn poll_builds(&mut self, now_us: u64) -> Result<(), PipelineError> {
         while let Some(end) = self.applier.take_build_end() {
@@ -194,7 +194,7 @@ where
                 Ok(prepared) => prepared,
                 Err(cause) => {
                     self.stop(now_us);
-                    return Err(PipelineError::BuildEnd(cause));
+                    return Err(PipelineError::build_end(cause));
                 }
             };
             self.run(
@@ -229,7 +229,7 @@ where
             }
             (Some(cause), Ok(())) => {
                 self.stop(now_us);
-                Err(PipelineError::Log(cause))
+                Err(PipelineError::log(cause))
             }
             (None, Ok(())) => Ok(()),
         }
@@ -262,7 +262,7 @@ where
         self.applier
             .apply_round_with(round, &self.out.system, through)
             .map(|_| ())
-            .map_err(PipelineError::Apply)
+            .map_err(PipelineError::apply)
     }
 
     /// Keeps the buffers of the proposals the step released.

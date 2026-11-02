@@ -7,7 +7,10 @@ use ultragraphdb_error_store::StoreError;
 
 #[test]
 fn test_too_old_is_dgraphs_text() {
-    assert_eq!(StoreError::TsTooOld().to_string(), "Transaction is too old");
+    assert_eq!(
+        StoreError::ts_too_old().to_string(),
+        "Transaction is too old"
+    );
 }
 
 #[test]
@@ -35,7 +38,7 @@ fn test_key_too_large_is_badgers_text() {
         "  90 97 9e a5 ac b3 ba c1  c8 cf d6 dd e4 eb f2 f9  |................|\n",
     ];
     let key: Vec<u8> = (0..65_001usize).map(|i| (i * 7) as u8).collect();
-    let text = StoreError::KeyTooLarge(key.len(), 65_000, key[..1024].to_vec()).to_string();
+    let text = StoreError::key_too_large(key.len(), 65_000, key[..1024].to_vec()).to_string();
     let want: String =
         std::iter::once("Key with size 65001 exceeded 65000 limit. Key:\n".to_string())
             .chain((0..64).map(|k| format!("{:08x}{}", k * 16, BODY[k % 16])))
@@ -49,12 +52,12 @@ fn test_key_too_large_dumps_a_head_shorter_than_badgers() {
     // fjall's limit: a stored key of 65,536 bytes, whose head here is the three bytes the caller kept. Go's
     // hex.Dump([]byte{0x00, 0x01, 0x41}) for the dump.
     assert_eq!(
-        StoreError::KeyTooLarge(65_536, 65_535, vec![0x00, 0x01, 0x41]).to_string(),
+        StoreError::key_too_large(65_536, 65_535, vec![0x00, 0x01, 0x41]).to_string(),
         "Key with size 65536 exceeded 65535 limit. Key:\n\
          00000000  00 01 41                                          |..A|\n"
     );
     assert_eq!(
-        StoreError::KeyTooLarge(usize::MAX, 0, Vec::new()).to_string(),
+        StoreError::key_too_large(usize::MAX, 0, Vec::new()).to_string(),
         format!("Key with size {} exceeded 0 limit. Key:\n", usize::MAX)
     );
 }
@@ -62,12 +65,12 @@ fn test_key_too_large_dumps_a_head_shorter_than_badgers() {
 #[test]
 fn test_read_failures_name_their_key_in_hex() {
     assert_eq!(
-        StoreError::ReadFailed(vec![0x00, 0xab, 0x10], "block checksum mismatch".into())
+        StoreError::read_failed(vec![0x00, 0xab, 0x10], "block checksum mismatch".into())
             .to_string(),
         "Read of key 00ab10 failed: block checksum mismatch"
     );
     assert_eq!(
-        StoreError::Corrupted(vec![0x04, 0xff], "value too short".into()).to_string(),
+        StoreError::corrupted(vec![0x04, 0xff], "value too short".into()).to_string(),
         "Corrupted value of key 04ff: value too short"
     );
 }
@@ -83,11 +86,11 @@ fn test_keys_print_as_gos_percent_x() {
     ];
     for (key, want) in cases {
         assert_eq!(
-            StoreError::ReadFailed(key.to_vec(), "r".into()).to_string(),
+            StoreError::read_failed(key.to_vec(), "r".into()).to_string(),
             format!("Read of key {want} failed: r")
         );
         assert_eq!(
-            StoreError::Corrupted(key.to_vec(), "c".into()).to_string(),
+            StoreError::corrupted(key.to_vec(), "c".into()).to_string(),
             format!("Corrupted value of key {want}: c")
         );
     }
@@ -96,19 +99,19 @@ fn test_keys_print_as_gos_percent_x() {
 #[test]
 fn test_reasons_are_printed_verbatim() {
     assert_eq!(
-        StoreError::ReadFailed(vec![0x01], String::new()).to_string(),
+        StoreError::read_failed(vec![0x01], String::new()).to_string(),
         "Read of key 01 failed: "
     );
     assert_eq!(
-        StoreError::Corrupted(Vec::new(), "längd ≠ 8: {}".into()).to_string(),
+        StoreError::corrupted(Vec::new(), "längd ≠ 8: {}".into()).to_string(),
         "Corrupted value of key : längd ≠ 8: {}"
     );
     assert_eq!(
-        StoreError::WriteFailed("disk\nfull".into()).to_string(),
+        StoreError::write_failed("disk\nfull".into()).to_string(),
         "Write to the store failed: disk\nfull"
     );
     assert_eq!(
-        StoreError::OpenFailed(String::new()).to_string(),
+        StoreError::open_failed(String::new()).to_string(),
         "Opening the store failed: "
     );
 }
@@ -116,11 +119,11 @@ fn test_reasons_are_printed_verbatim() {
 #[test]
 fn test_write_failures_say_the_store_must_be_reopened() {
     assert_eq!(
-        StoreError::WriteFailed("injected".into()).to_string(),
+        StoreError::write_failed("injected".into()).to_string(),
         "Write to the store failed: injected"
     );
     assert_eq!(
-        StoreError::Poisoned().to_string(),
+        StoreError::poisoned().to_string(),
         "The store is poisoned by an earlier failed write and must be reopened"
     );
 }
@@ -128,7 +131,7 @@ fn test_write_failures_say_the_store_must_be_reopened() {
 #[test]
 fn test_open_failures_give_their_reason() {
     assert_eq!(
-        StoreError::OpenFailed("locked".into()).to_string(),
+        StoreError::open_failed("locked".into()).to_string(),
         "Opening the store failed: locked"
     );
 }
@@ -136,7 +139,7 @@ fn test_open_failures_give_their_reason() {
 #[test]
 fn test_an_unsupported_operation_names_itself() {
     assert_eq!(
-        StoreError::Unsupported("rebuild records").to_string(),
+        StoreError::unsupported("rebuild records").to_string(),
         "The store does not support rebuild records"
     );
 }
@@ -144,15 +147,15 @@ fn test_an_unsupported_operation_names_itself() {
 #[test]
 fn test_an_unknown_temporary_keyspace_names_its_number() {
     assert_eq!(
-        StoreError::UnknownTemporary(7).to_string(),
+        StoreError::unknown_temporary(7).to_string(),
         "Temporary keyspace 7 does not exist: it was dropped, or the store was reopened since it was created"
     );
     assert_eq!(
-        StoreError::UnknownTemporary(0).to_string(),
+        StoreError::unknown_temporary(0).to_string(),
         "Temporary keyspace 0 does not exist: it was dropped, or the store was reopened since it was created"
     );
     assert_eq!(
-        StoreError::UnknownTemporary(u64::MAX).to_string(),
+        StoreError::unknown_temporary(u64::MAX).to_string(),
         "Temporary keyspace 18446744073709551615 does not exist: it was dropped, or the store was reopened since \
          it was created"
     );
@@ -161,5 +164,5 @@ fn test_an_unknown_temporary_keyspace_names_its_number() {
 #[test]
 fn test_an_empty_key_is_badgers_text() {
     // Badger's ErrEmptyKey (`errors.go:40`, returned by `txn.go:360`): "Key cannot be empty".
-    assert_eq!(StoreError::EmptyKey().to_string(), "Key cannot be empty");
+    assert_eq!(StoreError::empty_key().to_string(), "Key cannot be empty");
 }

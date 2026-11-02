@@ -72,11 +72,11 @@ struct Files {
 ///
 /// # Errors
 ///
-/// [`BenchError::Usage`] when the run's directory exists; the store's, the applier's, the log's, a transaction's or
+/// [`BenchError::usage`] when the run's directory exists; the store's, the applier's, the log's, a transaction's or
 /// the pipeline's error, which ends the run.
 pub fn run_pipeline(args: &PipelineArgs) -> Result<String, BenchError> {
     if args.dir().exists() {
-        return Err(BenchError::Usage(format!(
+        return Err(BenchError::usage(format!(
             "{} exists; every run takes a fresh directory",
             args.dir().display()
         )));
@@ -122,9 +122,9 @@ async fn commit_loop(
 ) -> Result<(Counts, u64, Duration), BenchError> {
     let (wal, _) = Wal::open(CompioStorage, wal_dir, config)
         .await
-        .map_err(|e| BenchError::Commit(e.to_string()))?;
+        .map_err(|e| BenchError::commit(e.to_string()))?;
     let mut pipeline =
-        Pipeline::new(a, wal, bounds).map_err(|e| BenchError::Commit(e.to_string()))?;
+        Pipeline::new(a, wal, bounds).map_err(|e| BenchError::commit(e.to_string()))?;
     let replied = Arc::new(AtomicU64::new(0));
     let rx = spawn_source(args.rate(), args.seconds(), shape, clock, replied.clone());
     let micros = |timer: &WallClock| u64::try_from(timer.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -150,7 +150,7 @@ async fn commit_loop(
             let prepared = prepare_commit(a, &changeset, buffers, now)?;
             pipeline
                 .commit(ticket, prepared, now)
-                .map_err(|e| BenchError::Commit(e.to_string()))?;
+                .map_err(|e| BenchError::commit(e.to_string()))?;
             ticket += 1;
         }
         if pipeline.needs_sync() {
@@ -158,7 +158,7 @@ async fn commit_loop(
             pipeline
                 .sync(micros(&clock))
                 .await
-                .map_err(|e| BenchError::Commit(e.to_string()))?;
+                .map_err(|e| BenchError::commit(e.to_string()))?;
             counts
                 .round_us
                 .push(u64::try_from((clock.elapsed() - start).as_micros()).unwrap_or(u64::MAX));
@@ -202,14 +202,14 @@ fn prepare_commit(
         TxnLimits::default(),
         buffers,
     )
-    .map_err(|e| BenchError::Commit(e.to_string()))?;
+    .map_err(|e| BenchError::commit(e.to_string()))?;
     txn.write(changeset, now)
-        .map_err(|e| BenchError::Commit(e.to_string()))?;
+        .map_err(|e| BenchError::commit(e.to_string()))?;
     let Commit::ReadWrite(prepared) = txn
         .commit(0, 0, &[], now)
-        .map_err(|e| BenchError::Commit(e.to_string()))?
+        .map_err(|e| BenchError::commit(e.to_string()))?
     else {
-        return Err(BenchError::Commit(
+        return Err(BenchError::commit(
             "a read-write transaction ended read-only".to_string(),
         ));
     };
@@ -218,7 +218,7 @@ fn prepare_commit(
 
 /// The source: releases `shape`'s commits at `rate` for `seconds`, at most [`PENDING_PROPOSALS`] beyond those
 /// `replied`, then closes the channel.
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "a benchmark feeds its pipeline from a thread of its own; nothing in the storage crates runs on it"
 )]

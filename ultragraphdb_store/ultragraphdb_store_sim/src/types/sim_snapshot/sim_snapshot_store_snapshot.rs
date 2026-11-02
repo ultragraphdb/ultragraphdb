@@ -35,7 +35,7 @@ impl SimSnapshot {
             self.corrupt_read_version(inner, key, corruption);
         }
         if inner.faults.read_fails() {
-            return Err(StoreError::ReadFailed(
+            return Err(StoreError::read_failed(
                 key.to_vec(),
                 "simulated read failure".into(),
             ));
@@ -69,7 +69,7 @@ impl StoreSnapshot for SimSnapshot {
         let mut inner = lock(&self.shared);
         inner.maybe_slow();
         let result = if inner.faults.read_fails() {
-            Err(StoreError::ReadFailed(
+            Err(StoreError::read_failed(
                 key.to_vec(),
                 "simulated read failure".into(),
             ))
@@ -129,7 +129,7 @@ impl StoreSnapshot for SimSnapshot {
                 .and_then(|i| i.as_ref().ok())
                 .map_or_else(|| scan.start().to_vec(), |item| item.key().to_vec());
             items.truncate(after);
-            items.push(Err(StoreError::ReadFailed(
+            items.push(Err(StoreError::read_failed(
                 key,
                 "simulated read failure partway through a scan".into(),
             )));

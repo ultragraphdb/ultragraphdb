@@ -12,20 +12,20 @@ const USAGE: &str = "usage: store_sim_fuzz [--versionless-reads] [first seed] [s
 #[test]
 fn test_each_constructor_builds_its_variant() {
     assert_eq!(
-        FuzzArgsError::NotANumber(2, "x".to_string()).0,
+        FuzzArgsError::not_a_number(2, "x".to_string()).0,
         FuzzArgsErrorEnum::NotANumber(2, "x".to_string())
     );
     assert_eq!(
-        FuzzArgsError::TooMany(4, "9".to_string()).0,
+        FuzzArgsError::too_many(4, "9".to_string()).0,
         FuzzArgsErrorEnum::TooMany(4, "9".to_string())
     );
-    assert_eq!(FuzzArgsError::NoSeeds().0, FuzzArgsErrorEnum::NoSeeds);
+    assert_eq!(FuzzArgsError::no_seeds().0, FuzzArgsErrorEnum::NoSeeds);
     assert_eq!(
-        FuzzArgsError::PastLastSeed(7, 8).0,
+        FuzzArgsError::past_last_seed(7, 8).0,
         FuzzArgsErrorEnum::PastLastSeed(7, 8)
     );
     assert_eq!(
-        FuzzArgsError::UnknownFlag("--x".to_string()).0,
+        FuzzArgsError::unknown_flag("--x".to_string()).0,
         FuzzArgsErrorEnum::UnknownFlag("--x".to_string())
     );
 }
@@ -33,7 +33,7 @@ fn test_each_constructor_builds_its_variant() {
 #[test]
 fn test_an_unknown_flag_names_itself_and_the_one_flag() {
     assert_eq!(
-        FuzzArgsError::UnknownFlag("--versionless".to_string()).to_string(),
+        FuzzArgsError::unknown_flag("--versionless".to_string()).to_string(),
         format!(
             "argument \"--versionless\" is no flag; the one flag is --versionless-reads; {USAGE}"
         )
@@ -42,7 +42,7 @@ fn test_an_unknown_flag_names_itself_and_the_one_flag() {
 
 #[test]
 fn test_each_position_is_named() {
-    let text = |position| FuzzArgsError::NotANumber(position, "x".to_string()).to_string();
+    let text = |position| FuzzArgsError::not_a_number(position, "x".to_string()).to_string();
     assert_eq!(
         text(1),
         format!(
@@ -66,13 +66,13 @@ fn test_each_position_is_named() {
 #[test]
 fn test_a_position_outside_the_three_has_no_name() {
     assert_eq!(
-        FuzzArgsError::NotANumber(0, "x".to_string()).to_string(),
+        FuzzArgsError::not_a_number(0, "x".to_string()).to_string(),
         format!(
             "argument 0 (no position) takes a whole number from 0 to 18446744073709551615, not \"x\"; {USAGE}"
         )
     );
     assert_eq!(
-        FuzzArgsError::NotANumber(4, "x".to_string()).to_string(),
+        FuzzArgsError::not_a_number(4, "x".to_string()).to_string(),
         format!(
             "argument 4 (no position) takes a whole number from 0 to 18446744073709551615, not \"x\"; {USAGE}"
         )
@@ -82,16 +82,16 @@ fn test_a_position_outside_the_three_has_no_name() {
 #[test]
 fn test_extra_arguments_are_named_by_position_and_value() {
     assert_eq!(
-        FuzzArgsError::TooMany(4, "9".to_string()).to_string(),
+        FuzzArgsError::too_many(4, "9".to_string()).to_string(),
         format!("argument 4 (\"9\") is one past the three positions; {USAGE}")
     );
     // A value is quoted with its escapes, so an empty or control-character argument stays visible.
     assert_eq!(
-        FuzzArgsError::TooMany(4, String::new()).to_string(),
+        FuzzArgsError::too_many(4, String::new()).to_string(),
         format!("argument 4 (\"\") is one past the three positions; {USAGE}")
     );
     assert_eq!(
-        FuzzArgsError::NotANumber(1, "a\tb\u{fffd}".to_string()).to_string(),
+        FuzzArgsError::not_a_number(1, "a\tb\u{fffd}".to_string()).to_string(),
         format!(
             "argument 1 (first seed) takes a whole number from 0 to 18446744073709551615, not \"a\\tb\u{fffd}\"; {USAGE}"
         )
@@ -101,18 +101,18 @@ fn test_extra_arguments_are_named_by_position_and_value() {
 #[test]
 fn test_zero_seeds_and_a_range_past_the_last_seed_say_why() {
     assert_eq!(
-        FuzzArgsError::NoSeeds().to_string(),
+        FuzzArgsError::no_seeds().to_string(),
         format!("argument 2 (seeds) is 0, and a run takes at least 1 seed; {USAGE}")
     );
     assert_eq!(
-        FuzzArgsError::PastLastSeed(u64::MAX, 1000).to_string(),
+        FuzzArgsError::past_last_seed(u64::MAX, 1000).to_string(),
         format!(
             "1000 seeds from first seed 18446744073709551615 pass the last seed 18446744073709551615, \
              and at most 1 start there; {USAGE}"
         )
     );
     assert_eq!(
-        FuzzArgsError::PastLastSeed(2, u64::MAX).to_string(),
+        FuzzArgsError::past_last_seed(2, u64::MAX).to_string(),
         format!(
             "18446744073709551615 seeds from first seed 2 pass the last seed 18446744073709551615, \
              and at most 18446744073709551614 start there; {USAGE}"
@@ -122,9 +122,9 @@ fn test_zero_seeds_and_a_range_past_the_last_seed_say_why() {
 
 #[test]
 fn test_a_refusal_is_an_error_with_no_source() {
-    assert!(FuzzArgsError::NoSeeds().source().is_none());
+    assert!(FuzzArgsError::no_seeds().source().is_none());
     assert!(
-        FuzzArgsError::TooMany(4, "9".to_string())
+        FuzzArgsError::too_many(4, "9".to_string())
             .source()
             .is_none()
     );

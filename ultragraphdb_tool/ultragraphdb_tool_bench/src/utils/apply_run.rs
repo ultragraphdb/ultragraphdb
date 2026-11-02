@@ -57,6 +57,27 @@ struct BatchStat {
     write_calls: Vec<WriteCall>,
 }
 
+/// What a run measured beside its batches: the commits that failed, those the source released and the times it
+/// waited on the pending limit, the run's length, the CPU time of the process and of each thread, the keys rolled up
+/// and the rollups' write calls and their nanoseconds, the store's reads (cache lookups, hits, list reads, reads that
+/// found nothing), the resident set and its peak, and the store's files.
+struct RunFigures {
+    errors: u64,
+    released: u64,
+    waits: u64,
+    elapsed: Duration,
+    cpu: Option<f64>,
+    apply_cpu: Option<f64>,
+    source_cpu: Option<f64>,
+    rollup_cpu: Option<f64>,
+    rolled: usize,
+    rollup_calls: (u64, u64),
+    reads: (u64, u64, u64, u64),
+    rss: Option<u64>,
+    rss_peak: Option<u64>,
+    sizes: DirSizes,
+}
+
 /// Runs the apply measurement of `args` and returns its report, one JSON line.
 ///
 /// # Errors
@@ -93,9 +114,9 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     stop.store(true, Ordering::Release);
     let (released, waits, source_cpu) = source_result
         .recv()
-        .map_err(|e| BenchError::Io(e.to_string()))?;
+        .map_err(|e| BenchError::io(e.to_string()))?;
     let (rolled, rollup_cpu) = match rollups {
-        Some(done) => done.recv().map_err(|e| BenchError::Io(e.to_string()))??,
+        Some(done) => done.recv().map_err(|e| BenchError::io(e.to_string()))??,
         None => (0, None),
     };
     let cpu = process_cpu_secs()
@@ -117,20 +138,22 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     Ok(report(
         args,
         &stats,
-        errors,
-        released,
-        waits,
-        elapsed,
-        cpu,
-        apply_cpu,
-        source_cpu,
-        rollup_cpu,
-        rolled,
-        rollup_calls,
-        reads,
-        rss,
-        rss_peak,
-        sizes,
+        &RunFigures {
+            errors,
+            released,
+            waits,
+            elapsed,
+            cpu,
+            apply_cpu,
+            source_cpu,
+            rollup_cpu,
+            rolled,
+            rollup_calls,
+            reads,
+            rss,
+            rss_peak,
+            sizes,
+        },
     ))
 }
 
@@ -249,7 +272,6 @@ fn apply_step(
 
 /// The rollup worker beside the apply thread: one turn of Dgraph's rollup loop, then 1 ms, until `stop`. Sends the
 /// keys it rolled up and its CPU time.
-#[allow(clippy::type_complexity)]
 fn spawn_rollups(
     a: &Arc<BenchApplier>,
     clock: WallClock,
@@ -304,26 +326,9 @@ fn encoded_size(c: &Changeset) -> usize {
         .sum()
 }
 
-#[allow(clippy::too_many_arguments)]
-fn report(
-    args: &ApplyArgs,
-    stats: &[BatchStat],
-    errors: u64,
-    released: u64,
-    waits: u64,
-    elapsed: Duration,
-    cpu: Option<f64>,
-    apply_cpu: Option<f64>,
-    source_cpu: Option<f64>,
-    rollup_cpu: Option<f64>,
-    rolled: usize,
-    rollup_calls: (u64, u64),
-    reads: (u64, u64, u64, u64),
-    rss: Option<u64>,
-    rss_peak: Option<u64>,
-    sizes: DirSizes,
-) -> String {
-    let secs = elapsed.as_secs_f64();
+fn report(args: &ApplyArgs, stats: &[BatchStat], f: &RunFigures) -> String {
+    let secs = f.elapsed.as_secs_f64();
+    let reads = f.reads;
     let applied: u64 = stats.iter().map(|s| s.commits).sum();
     let relations = applied * args.relations() as u64;
     let lists_read: u64 = stats.iter().map(|s| s.lists_read).sum();
@@ -353,9 +358,9 @@ fn report(
         args.rollups(),
         opt_json(args.max_batch()),
         secs,
-        released,
+        f.released,
         applied,
-        errors,
+        f.errors,
         applied as f64 / secs,
         relations as f64 / secs,
         lists_read as f64 / relations.max(1) as f64,
@@ -364,7 +369,7 @@ fn report(
         reads.1 as f64 / reads.0.max(1) as f64,
         reads.2,
         reads.3,
-        waits,
+        f.waits,
         stats.len(),
         summary_json(Summary::of(&mut sizes_of)),
         summary_json(Summary::of(&mut us)),
@@ -372,18 +377,18 @@ fn report(
         write_nanos as f64 / batch_nanos.max(1) as f64,
         batch_nanos as f64 / 1e9 / secs,
         stall_json(stats),
-        rolled,
-        rollup_calls.0,
-        rollup_calls.1 as f64 / 1e9,
-        cpu_json(cpu),
-        opt_json(cpu.map(|c| format!("{:.2}", c / secs))),
-        cpu_json(apply_cpu),
-        cpu_json(source_cpu),
-        cpu_json(rollup_cpu),
-        opt_json(rss),
-        opt_json(rss_peak),
-        files_json(sizes),
-        sizes.total().allocated() as f64 / relations.max(1) as f64,
+        f.rolled,
+        f.rollup_calls.0,
+        f.rollup_calls.1 as f64 / 1e9,
+        cpu_json(f.cpu),
+        opt_json(f.cpu.map(|c| format!("{:.2}", c / secs))),
+        cpu_json(f.apply_cpu),
+        cpu_json(f.source_cpu),
+        cpu_json(f.rollup_cpu),
+        opt_json(f.rss),
+        opt_json(f.rss_peak),
+        files_json(f.sizes),
+        f.sizes.total().allocated() as f64 / relations.max(1) as f64,
     )
 }
 
@@ -433,7 +438,7 @@ mod tests {
     use ultragraphdb_core_mapping::{Change, Changeset};
     use ultragraphdb_store_kv::Durability;
 
-    use super::{BatchStat, encoded_size, report};
+    use super::{BatchStat, RunFigures, encoded_size, report};
     use crate::types::apply_args::ApplyArgs;
     use crate::types::dir_sizes::DirSizes;
     use crate::types::write_call::WriteCall;
@@ -491,26 +496,28 @@ mod tests {
             Durability::Process,
             true,
             128,
-            Some(4),
-        );
+        )
+        .with_max_batch(Some(4));
         let stats = three_batches();
         let line = report(
             &args,
             &stats,
-            1,
-            9,
-            3,
-            Duration::from_secs(2),
-            Some(3.0),
-            Some(0.5),
-            None,
-            Some(0.25),
-            5,
-            (6, 1_500_000_000),
-            (40, 10, 7, 2),
-            Some(1_024),
-            None,
-            DirSizes::default(),
+            &RunFigures {
+                errors: 1,
+                released: 9,
+                waits: 3,
+                elapsed: Duration::from_secs(2),
+                cpu: Some(3.0),
+                apply_cpu: Some(0.5),
+                source_cpu: None,
+                rollup_cpu: Some(0.25),
+                rolled: 5,
+                rollup_calls: (6, 1_500_000_000),
+                reads: (40, 10, 7, 2),
+                rss: Some(1_024),
+                rss_peak: None,
+                sizes: DirSizes::default(),
+            },
         );
         // By hand. 8 commits applied, 16 relations, 12 lists read, over 2 s. Batch commits 2, 4, 2: nearest ranks
         // 2 and 4, mean 8 / 3. Batch times 3,000, 5,000, 2,000 us: ranks 3,000 and 5,000, mean 10,000 / 3. Write
@@ -549,25 +556,26 @@ mod tests {
             Durability::Filesystem,
             false,
             0,
-            None,
         );
         let line = report(
             &args,
             &[],
-            0,
-            0,
-            0,
-            Duration::from_secs(1),
-            None,
-            None,
-            None,
-            None,
-            0,
-            (0, 0),
-            (0, 0, 0, 0),
-            None,
-            None,
-            DirSizes::default(),
+            &RunFigures {
+                errors: 0,
+                released: 0,
+                waits: 0,
+                elapsed: Duration::from_secs(1),
+                cpu: None,
+                apply_cpu: None,
+                source_cpu: None,
+                rollup_cpu: None,
+                rolled: 0,
+                rollup_calls: (0, 0),
+                reads: (0, 0, 0, 0),
+                rss: None,
+                rss_peak: None,
+                sizes: DirSizes::default(),
+            },
         );
         // No relations, lookups or batch time: each ratio over them is 0, not NaN.
         for field in [

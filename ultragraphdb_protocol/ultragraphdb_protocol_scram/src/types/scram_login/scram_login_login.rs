@@ -14,12 +14,12 @@ impl<N: FnMut() -> Result<String, ScramError>> Login for ScramLogin<N> {
     type Mechanism = ScramClient;
 
     /// A [`ScramClient`] with the next nonce when `offered` lists [`crate::MECHANISM`]; `Ok(None)` otherwise. A
-    /// nonce the source fails to draw, or draws malformed, is [`TransportError::Authentication`].
+    /// nonce the source fails to draw, or draws malformed, is [`TransportError::authentication`].
     fn mechanism(&mut self, offered: &[String]) -> Result<Option<ScramClient>, TransportError> {
         if !offered.iter().any(|name| name == MECHANISM) {
             return Ok(None);
         }
-        let refused = |error: ScramError| TransportError::Authentication(error.to_string());
+        let refused = |error: ScramError| TransportError::authentication(error.to_string());
         let nonce = self.next_nonce().map_err(refused)?;
         self.client(&nonce).map(Some).map_err(refused)
     }

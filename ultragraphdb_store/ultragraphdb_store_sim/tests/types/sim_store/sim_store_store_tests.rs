@@ -178,7 +178,7 @@ fn test_a_read_below_the_discard_timestamp_is_refused() -> TestResult {
     s.set_discard_ts(10)?;
     for below in [0, 5, 9] {
         let refused = s.get_at(b"k", below).err().context("an error")?;
-        assert_eq!(refused, StoreError::TsTooOld());
+        assert_eq!(refused, StoreError::ts_too_old());
         assert_eq!(refused.to_string(), "Transaction is too old");
     }
     let at = s
@@ -398,7 +398,7 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() -> TestResult {
         "Write to the store failed: simulated failure during the batch's persist"
     );
     assert!(matches!(failed.0, StoreErrorEnum::WriteFailed(_)));
-    let poisoned = Err(StoreError::Poisoned());
+    let poisoned = Err(StoreError::poisoned());
     let temporary = ultragraphdb_traits_store::Temporary::new(1);
     assert_eq!(s.apply(WriteBatch::new(), PersistMode::Buffer), poisoned);
     assert_eq!(s.sync(), poisoned);
@@ -409,7 +409,7 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() -> TestResult {
     assert_eq!(s.set_tombstone_horizon(1), poisoned);
     assert_eq!(s.drop_all(Vec::new()), poisoned);
     assert_eq!(s.drop_prefixes(1, &[], Vec::new()), poisoned);
-    assert_eq!(s.create_temporary().err(), Some(StoreError::Poisoned()));
+    assert_eq!(s.create_temporary().err(), Some(StoreError::poisoned()));
     assert_eq!(s.apply_temporary(&temporary, WriteBatch::new()), poisoned);
     assert_eq!(s.drop_temporary(temporary), poisoned);
     assert_eq!(
@@ -553,7 +553,7 @@ fn test_versionless_writes_replace_remove_and_survive_a_crash() -> TestResult {
     s.crash();
     assert_eq!(
         s.get_versionless(b"a"),
-        Err(StoreError::Poisoned()),
+        Err(StoreError::poisoned()),
         "a process that is down reads nothing"
     );
     s.recover();

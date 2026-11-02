@@ -76,7 +76,7 @@ impl<R: Read> JsonDecoder<R> {
                     JsonErrorEnum::Syntax { ref msg, .. }
                         if msg == "unexpected end of JSON input" =>
                     {
-                        JsonError::UnexpectedEof()
+                        JsonError::unexpected_eof()
                     }
                     JsonErrorEnum::Eof
                     | JsonErrorEnum::UnexpectedEof

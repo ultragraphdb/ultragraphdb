@@ -101,7 +101,6 @@ fn test_bytes_as_float_array_ignores_trailing_bytes() {
 }
 
 #[test]
-#[allow(clippy::excessive_precision)] // Go's test case, which float32 rounds
 fn test_float_array_translation() {
     let cases: [&[f32]; 4] = [&[], &[0.1], &[0.0], &[0.65433, 1.855, std::f32::consts::PI]];
     for tc in cases {

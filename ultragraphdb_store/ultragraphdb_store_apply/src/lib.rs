@@ -64,4 +64,5 @@ pub use crate::types::operation::Operation;
 pub use crate::types::operation_link::OperationLink;
 pub use crate::types::reads::Reads;
 pub use crate::types::record_writes::RecordWrites;
+pub use crate::types::vector_query::VectorQuery;
 pub use crate::utils::token_values::token_value;

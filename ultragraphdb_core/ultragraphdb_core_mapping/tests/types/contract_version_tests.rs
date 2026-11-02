@@ -17,7 +17,7 @@ fn test_the_version_round_trips_and_another_major_version_is_refused() -> TestRe
     assert_eq!(ContractVersion::from_bytes(&v.to_bytes()), Ok(v));
     assert_eq!(
         ContractVersion::from_bytes(&[1, 2, 3]),
-        Err(MappingError::BadContractVersion(&[1, 2, 3]))
+        Err(MappingError::bad_contract_version(&[1, 2, 3]))
     );
     assert_eq!(
         CONTRACT_VERSION.check_stored(ContractVersion::new(1, 9)),
@@ -81,7 +81,7 @@ fn test_an_older_major_version_is_refused_as_a_newer_one_is() {
     // The spec refuses "another major version", lower as well as higher; 0 is one below this build's 1.
     assert_eq!(
         CONTRACT_VERSION.check_stored(ContractVersion::new(0, 9)),
-        Err(MappingError::ContractVersion((0, 9), (1, 0)))
+        Err(MappingError::contract_version((0, 9), (1, 0)))
     );
     // Another minor version of the same major version, older or newer, opens.
     assert_eq!(

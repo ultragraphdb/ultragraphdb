@@ -259,7 +259,7 @@ impl TestServer {
         loop {
             let want = self.framer.want();
             if want > bytes.len() {
-                return Err(ProtocolError::LengthMismatch(want as u32, bytes.len()));
+                return Err(ProtocolError::length_mismatch(want as u32, bytes.len()));
             }
             let mut data = buffer.take();
             data.clear();
@@ -287,6 +287,6 @@ fn rule(error: ultragraphdb_protocol_transport::TransportError) -> ProtocolError
         | TransportErrorEnum::UnknownStream { .. }
         | TransportErrorEnum::Refused { .. }
         | TransportErrorEnum::UnexpectedCommand { .. }
-        | TransportErrorEnum::Authentication { .. } => ProtocolError::ShortHeader(0),
+        | TransportErrorEnum::Authentication { .. } => ProtocolError::short_header(0),
     }
 }

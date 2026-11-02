@@ -32,7 +32,7 @@ impl ChunkLayout {
     }
 
     /// The layout of a received body of `body_len` bytes, table included: the one split whose chunk count and table
-    /// add up to `body_len`, refused as [`ProtocolError::BodyLength`] when there is none.
+    /// add up to `body_len`, refused as [`ProtocolError::body_length`] when there is none.
     pub fn of_body(body_len: usize) -> Result<Self, ProtocolError> {
         if body_len <= FIRST_CHUNK_SIZE {
             return Ok(Self::of_data(body_len));
@@ -41,7 +41,7 @@ impl ChunkLayout {
         // of 8n bytes, the body is 4,104n − 4,351 to 4,104n − 256 bytes. Those ranges for successive n do not meet,
         // so the one candidate is the least n whose range reaches body_len, ⌈(body_len + 256) / 4,104⌉, and it is
         // the split when the bytes before its table take n chunks.
-        let refused = || ProtocolError::BodyLength(body_len);
+        let refused = || ProtocolError::body_length(body_len);
         let chunks = body_len
             .checked_add(CHUNK_SIZE - FIRST_CHUNK_SIZE)
             .ok_or_else(refused)?

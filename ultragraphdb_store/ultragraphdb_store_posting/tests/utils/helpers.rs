@@ -258,9 +258,8 @@ impl Probe {
     fn run(slot: &Mutex<Option<ProbeHook>>) -> Result<(), StoreError> {
         let hook = slot.lock().unwrap_or_else(PoisonError::into_inner).take();
         match hook {
-            Some(mut hook) => {
-                hook().map_err(|e| StoreError::WriteFailed(format!("the probe's hook failed: {e}")))
-            }
+            Some(mut hook) => hook()
+                .map_err(|e| StoreError::write_failed(format!("the probe's hook failed: {e}"))),
             None => Ok(()),
         }
     }

@@ -17,9 +17,9 @@ pub struct StringList<'a> {
 
 impl<'a> StringList<'a> {
     /// The list of `ends` and `text`, sections `sections.0` and `sections.1` of a body of `command`, checked in order:
-    /// `ends` whole u32s ([`ProtocolError::SectionLength`]); each end at least the one before and at most the text's
-    /// length ([`ProtocolError::IndexOutOfRange`]); the last end the text's length ([`ProtocolError::CountMismatch`]);
-    /// each string UTF-8: the text UTF-8 and every end on a character boundary ([`ProtocolError::NotUtf8`], at the
+    /// `ends` whole u32s ([`ProtocolError::section_length`]); each end at least the one before and at most the text's
+    /// length ([`ProtocolError::index_out_of_range`]); the last end the text's length ([`ProtocolError::count_mismatch`]);
+    /// each string UTF-8: the text UTF-8 and every end on a character boundary ([`ProtocolError::not_utf8`], at the
     /// first invalid byte or at the end inside a character).
     pub(crate) fn read(
         command: u16,
@@ -32,14 +32,14 @@ impl<'a> StringList<'a> {
         let mut previous = 0u32;
         for (at, end) in values.iter().enumerate() {
             if *end < previous || *end > limit {
-                return Err(ProtocolError::IndexOutOfRange(
+                return Err(ProtocolError::index_out_of_range(
                     command, sections.0, at, *end, limit,
                 ));
             }
             previous = *end;
         }
         if previous != limit {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "string text",
                 text.len() as u64,
@@ -47,12 +47,12 @@ impl<'a> StringList<'a> {
             ));
         }
         let text = std::str::from_utf8(text)
-            .map_err(|e| ProtocolError::NotUtf8(command, sections.1, e.valid_up_to()))?;
+            .map_err(|e| ProtocolError::not_utf8(command, sections.1, e.valid_up_to()))?;
         if let Some(end) = values
             .iter()
             .find(|end| !text.is_char_boundary(**end as usize))
         {
-            return Err(ProtocolError::NotUtf8(command, sections.1, *end as usize));
+            return Err(ProtocolError::not_utf8(command, sections.1, *end as usize));
         }
         Ok(Self { ends, text })
     }

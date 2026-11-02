@@ -62,8 +62,7 @@ impl Prepared {
     ///
     /// # Errors
     ///
-    /// [`TxnError::Changeset`] for the store's error.
-    #[allow(clippy::too_many_arguments)]
+    /// [`TxnError::changeset`] for the store's error.
     pub fn drop<S, C, E>(
         applier: &ChangesetApplier<S, C, E>,
         namespace: u64,
@@ -100,7 +99,7 @@ impl Prepared {
     ///
     /// # Errors
     ///
-    /// [`TxnError::Changeset`] for the store's error.
+    /// [`TxnError::changeset`] for the store's error.
     pub fn end_build<S, C, E>(
         applier: &ChangesetApplier<S, C, E>,
         end: BuildEnd,
@@ -159,8 +158,8 @@ impl Prepared {
     ///
     /// # Errors
     ///
-    /// [`TxnError::Changeset`] for an operation refused, a compare-and-set that did not hold above all, or the store's
-    /// error; [`TxnError::WriteSetTooLarge`] when the record written again is past the transaction's limit.
+    /// [`TxnError::changeset`] for an operation refused, a compare-and-set that did not hold above all, or the store's
+    /// error; [`TxnError::write_set_too_large`] when the record written again is past the transaction's limit.
     pub fn operated<S, C, E>(
         &self,
         applier: &ChangesetApplier<S, C, E>,

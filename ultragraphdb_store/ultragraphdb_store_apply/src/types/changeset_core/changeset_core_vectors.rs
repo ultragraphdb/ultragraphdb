@@ -22,12 +22,13 @@ use ultragraphdb_store_hnsw::{
     index_posting, parse_edges, uint64_to_bytes,
 };
 use ultragraphdb_store_posting::{CachedList, DEL, Request};
-use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex, VectorIndexOptions};
+use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex};
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::level_draw::LevelDraw;
+use crate::types::vector_query::VectorQuery;
 use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
 use crate::utils::vector_index::hnsw;
@@ -46,7 +47,7 @@ where
         predicate: NamedNodeRef<'_>,
     ) -> Result<u64, ChangesetError> {
         let _apply = lock(&self.apply);
-        let refused = || ChangesetError::NoVectorIndex(predicate.as_str());
+        let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
             .uid_of(namespace, predicate.as_str())?
@@ -166,18 +167,15 @@ where
     }
 
     /// The search of `predicate`'s vector index in `graph`, as [`crate::ChangesetApplier::search_vectors`] runs it.
-    #[allow(clippy::too_many_arguments)]
     pub fn search_vectors(
         &self,
         namespace: u64,
         graph: GraphNameRef<'_>,
         predicate: NamedNodeRef<'_>,
-        query: &[f32],
-        k: usize,
-        options: &VectorIndexOptions<f32>,
+        query: VectorQuery<'_>,
         read_ts: u64,
     ) -> Result<Vec<u64>, ChangesetError> {
-        let refused = || ChangesetError::NoVectorIndex(predicate.as_str());
+        let refused = || ChangesetError::no_vector_index(predicate.as_str());
         let uid = self
             .quads
             .uid_of(namespace, predicate.as_str())?
@@ -199,11 +197,15 @@ where
         let index = hnsw(spec, keys.clone())?;
         let mut request = self.quads.lists().request(read_ts);
         let txn = ViTxn::new(&mut request);
-        let found =
-            match index.search_with_options(&QueryCache::new(&txn, read_ts), query, k, options) {
-                Err(e) if e.is_empty_index() => return Ok(Vec::new()),
-                found => found?,
-            };
+        let found = match index.search_with_options(
+            &QueryCache::new(&txn, read_ts),
+            query.vector,
+            query.k,
+            query.options,
+        ) {
+            Err(e) if e.is_empty_index() => return Ok(Vec::new()),
+            found => found?,
+        };
         // Only the start of a search can lie outside the lists: a node they do not hold is dropped.
         let mut held = Vec::with_capacity(found.len());
         for node in found {

@@ -92,7 +92,7 @@ fn test_a_welcome_outside_the_range_closes_the_connection() -> TestResult {
     assert_eq!(
         refused.0,
         ClientErrorEnum::Transport {
-            error: TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", 2))
+            error: TransportError::protocol(ProtocolError::field_value(2, "protocol", 2))
         }
     );
     assert!(!core.is_ready());
@@ -229,7 +229,7 @@ fn test_a_malformed_reply_closes_the_connection_and_loses_its_requests() -> Test
             .context("an answer")?
             .err()
             .context("an error")?,
-        ClientError::ConnectionLost(Some(error)),
+        ClientError::connection_lost(Some(error)),
         "the rule is the loss's cause"
     );
     Ok(())

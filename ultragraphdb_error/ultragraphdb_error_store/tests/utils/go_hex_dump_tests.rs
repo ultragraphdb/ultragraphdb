@@ -9,7 +9,7 @@
 use ultragraphdb_error_store::{StoreError, go_hex_dump};
 
 fn dump(data: &[u8]) -> String {
-    let text = StoreError::KeyTooLarge(0, 0, data.to_vec()).to_string();
+    let text = StoreError::key_too_large(0, 0, data.to_vec()).to_string();
     text["Key with size 0 exceeded 0 limit. Key:\n".len()..].to_string()
 }
 

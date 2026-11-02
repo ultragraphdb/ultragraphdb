@@ -18,7 +18,9 @@ use ultragraphdb_transactions_txn::{
     Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnLimits,
 };
 
+/// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
 pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+/// A transaction on the tests' applier.
 pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
 
 /// The namespace the tests write.
@@ -40,6 +42,7 @@ pub fn applier() -> TestResult<Applier> {
     .context("the applier opens")
 }
 
+/// The IRI `http://ex.org/<name>`.
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
@@ -136,11 +139,13 @@ pub fn held(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec
 pub struct Rng(u64);
 
 impl Rng {
+    /// The generator seeded with `seed`.
     pub fn new(seed: u64) -> Self {
         Self(seed)
     }
 
-    pub fn next(&mut self) -> u64 {
+    /// The next number of the sequence.
+    pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -150,7 +155,7 @@ impl Rng {
 
     /// A number below `n`, which is not zero.
     pub fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
+        self.next_u64() % n
     }
 
     /// A key of 0 to `max_len` bytes over a small alphabet, so that keys repeat and share prefixes.

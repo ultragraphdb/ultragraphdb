@@ -43,7 +43,7 @@ impl<'a> BodyView<'a> for RoundView<'a> {
         for decision in &self.decisions {
             match decision {
                 Decision::Committed => {
-                    let record = records.next().ok_or(ProtocolError::CountMismatch(
+                    let record = records.next().ok_or(ProtocolError::count_mismatch(
                         Self::COMMAND.number(),
                         "records",
                         self.records.len() as u64,
@@ -87,7 +87,7 @@ fn read_decisions(
 ) -> Result<(Vec<Decision>, u32), ProtocolError> {
     let decision_bytes = records(command, 0, sections.get(0), DECISION_SIZE)?;
     if decision_bytes.len() as u64 != u64::from(transactions) {
-        return Err(ProtocolError::CountMismatch(
+        return Err(ProtocolError::count_mismatch(
             command,
             "decisions",
             decision_bytes.len() as u64,
@@ -104,28 +104,28 @@ fn read_decisions(
             .get(2..4)
             .and_then(|zeros| zeros.iter().position(|b| *b != 0))
         {
-            return Err(ProtocolError::PaddingNotZero(
+            return Err(ProtocolError::padding_not_zero(
                 command,
                 sections.offset(0) + DECISION_SIZE * i + 2 + j,
             ));
         }
         if outcome == 0 {
             if record != committed {
-                return Err(ProtocolError::FieldValue(command, "record", record.into()));
+                return Err(ProtocolError::field_value(command, "record", record.into()));
             }
             if detail != 0 {
-                return Err(ProtocolError::FieldValue(command, "detail", detail));
+                return Err(ProtocolError::field_value(command, "detail", detail));
             }
             committed += 1;
             decisions.push(Decision::Committed);
         } else {
-            let code = ErrorCode::from_number(outcome).ok_or(ProtocolError::FieldValue(
+            let code = ErrorCode::from_number(outcome).ok_or(ProtocolError::field_value(
                 command,
                 "outcome",
                 outcome.into(),
             ))?;
             if record != ABSENT {
-                return Err(ProtocolError::FieldValue(command, "record", record.into()));
+                return Err(ProtocolError::field_value(command, "record", record.into()));
             }
             decisions.push(Decision::Aborted { code, detail });
         }
@@ -142,7 +142,7 @@ fn read_records<'a>(
 ) -> Result<Vec<WriteSetRecordView<'a>>, ProtocolError> {
     let table = records(command, 1, sections.get(1), RECORD_ENTRY_SIZE)?;
     if table.len() as u64 != u64::from(committed) {
-        return Err(ProtocolError::CountMismatch(
+        return Err(ProtocolError::count_mismatch(
             command,
             "records",
             table.len() as u64,
@@ -159,7 +159,7 @@ fn read_records<'a>(
         let start = offset as usize;
         let stop = start.saturating_add(len as usize);
         if stop > data.len() {
-            return Err(ProtocolError::IndexOutOfRange(
+            return Err(ProtocolError::index_out_of_range(
                 command,
                 1,
                 index,
@@ -168,7 +168,7 @@ fn read_records<'a>(
             ));
         }
         if start != align8(end) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "record offset",
                 offset.into(),
@@ -178,15 +178,15 @@ fn read_records<'a>(
             .get(end..start)
             .and_then(|p| p.iter().position(|b| *b != 0))
         {
-            return Err(ProtocolError::PaddingNotZero(command, base + end + j));
+            return Err(ProtocolError::padding_not_zero(command, base + end + j));
         }
         let view = WriteSetRecordView::new(data.get(start..stop).unwrap_or_default())
-            .map_err(|cause| ProtocolError::Record(index, cause))?;
+            .map_err(|cause| ProtocolError::record(index, cause))?;
         views.push(view);
         end = stop;
     }
     if end != data.len() {
-        return Err(ProtocolError::TrailingBytes(
+        return Err(ProtocolError::trailing_bytes(
             command,
             base + end,
             base + data.len(),

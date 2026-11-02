@@ -9,9 +9,9 @@ use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 
 #[test]
 fn test_constructors_build_their_variant() {
-    assert_eq!(StoreError::TsTooOld().0, StoreErrorEnum::TsTooOld);
+    assert_eq!(StoreError::ts_too_old().0, StoreErrorEnum::TsTooOld);
     assert_eq!(
-        StoreError::KeyTooLarge(9, 8, vec![1]).0,
+        StoreError::key_too_large(9, 8, vec![1]).0,
         StoreErrorEnum::KeyTooLarge {
             size: 9,
             limit: 8,
@@ -19,37 +19,37 @@ fn test_constructors_build_their_variant() {
         }
     );
     assert_eq!(
-        StoreError::ReadFailed(vec![2], "r".into()).0,
+        StoreError::read_failed(vec![2], "r".into()).0,
         StoreErrorEnum::ReadFailed {
             key: vec![2],
             reason: "r".into()
         }
     );
     assert_eq!(
-        StoreError::Corrupted(vec![3], "c".into()).0,
+        StoreError::corrupted(vec![3], "c".into()).0,
         StoreErrorEnum::Corrupted {
             key: vec![3],
             reason: "c".into()
         }
     );
     assert_eq!(
-        StoreError::WriteFailed("w".into()).0,
+        StoreError::write_failed("w".into()).0,
         StoreErrorEnum::WriteFailed("w".into())
     );
-    assert_eq!(StoreError::Poisoned().0, StoreErrorEnum::Poisoned);
+    assert_eq!(StoreError::poisoned().0, StoreErrorEnum::Poisoned);
     assert_eq!(
-        StoreError::OpenFailed("o".into()).0,
+        StoreError::open_failed("o".into()).0,
         StoreErrorEnum::OpenFailed("o".into())
     );
     assert_eq!(
-        StoreError::Unsupported("temporary keyspaces").0,
+        StoreError::unsupported("temporary keyspaces").0,
         StoreErrorEnum::Unsupported("temporary keyspaces")
     );
     assert_eq!(
-        StoreError::UnknownTemporary(4).0,
+        StoreError::unknown_temporary(4).0,
         StoreErrorEnum::UnknownTemporary(4)
     );
-    assert_eq!(StoreError::EmptyKey().0, StoreErrorEnum::EmptyKey);
+    assert_eq!(StoreError::empty_key().0, StoreErrorEnum::EmptyKey);
 }
 
 #[test]
@@ -57,28 +57,28 @@ fn test_every_classification_and_every_field_tells_errors_apart() {
     // One error per variant, then each with one field changed: no two may compare equal, and a set of every error
     // twice keeps each once, so a caller branching on `.0` or deduplicating errors never merges two failures.
     let errors = [
-        StoreError::TsTooOld(),
-        StoreError::KeyTooLarge(9, 8, vec![1]),
-        StoreError::KeyTooLarge(10, 8, vec![1]),
-        StoreError::KeyTooLarge(9, 7, vec![1]),
-        StoreError::KeyTooLarge(9, 8, vec![2]),
-        StoreError::KeyTooLarge(9, 8, Vec::new()),
-        StoreError::ReadFailed(vec![2], "r".into()),
-        StoreError::ReadFailed(vec![3], "r".into()),
-        StoreError::ReadFailed(vec![2], "s".into()),
-        StoreError::Corrupted(vec![2], "r".into()),
-        StoreError::Corrupted(vec![3], "r".into()),
-        StoreError::Corrupted(vec![2], "s".into()),
-        StoreError::WriteFailed("r".into()),
-        StoreError::WriteFailed(String::new()),
-        StoreError::Poisoned(),
-        StoreError::OpenFailed("r".into()),
-        StoreError::OpenFailed(String::new()),
-        StoreError::Unsupported("r"),
-        StoreError::Unsupported("temporary keyspaces"),
-        StoreError::UnknownTemporary(0),
-        StoreError::UnknownTemporary(u64::MAX),
-        StoreError::EmptyKey(),
+        StoreError::ts_too_old(),
+        StoreError::key_too_large(9, 8, vec![1]),
+        StoreError::key_too_large(10, 8, vec![1]),
+        StoreError::key_too_large(9, 7, vec![1]),
+        StoreError::key_too_large(9, 8, vec![2]),
+        StoreError::key_too_large(9, 8, Vec::new()),
+        StoreError::read_failed(vec![2], "r".into()),
+        StoreError::read_failed(vec![3], "r".into()),
+        StoreError::read_failed(vec![2], "s".into()),
+        StoreError::corrupted(vec![2], "r".into()),
+        StoreError::corrupted(vec![3], "r".into()),
+        StoreError::corrupted(vec![2], "s".into()),
+        StoreError::write_failed("r".into()),
+        StoreError::write_failed(String::new()),
+        StoreError::poisoned(),
+        StoreError::open_failed("r".into()),
+        StoreError::open_failed(String::new()),
+        StoreError::unsupported("r"),
+        StoreError::unsupported("temporary keyspaces"),
+        StoreError::unknown_temporary(0),
+        StoreError::unknown_temporary(u64::MAX),
+        StoreError::empty_key(),
     ];
     for (i, a) in errors.iter().enumerate() {
         for (j, b) in errors.iter().enumerate() {
@@ -96,19 +96,19 @@ fn test_every_classification_and_every_field_tells_errors_apart() {
 #[test]
 fn test_debug_names_the_variant_and_its_fields() {
     assert_eq!(
-        format!("{:?}", StoreError::TsTooOld()),
+        format!("{:?}", StoreError::ts_too_old()),
         "StoreError(TsTooOld)"
     );
     assert_eq!(
-        format!("{:?}", StoreError::KeyTooLarge(9, 8, vec![1])),
+        format!("{:?}", StoreError::key_too_large(9, 8, vec![1])),
         "StoreError(KeyTooLarge { size: 9, limit: 8, head: [1] })"
     );
     assert_eq!(
-        format!("{:?}", StoreError::UnknownTemporary(4)),
+        format!("{:?}", StoreError::unknown_temporary(4)),
         "StoreError(UnknownTemporary(4))"
     );
     assert_eq!(
-        format!("{:?}", StoreError::EmptyKey()),
+        format!("{:?}", StoreError::empty_key()),
         "StoreError(EmptyKey)"
     );
 }

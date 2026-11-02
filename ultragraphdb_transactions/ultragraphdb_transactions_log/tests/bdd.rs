@@ -17,9 +17,8 @@ use ultragraphdb_transactions_log::{
     WalConfig, encode_round, scan_segment,
 };
 
-// The unit tests' helpers, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' helpers, shared by path.
+pub mod utils {
     #[path = "helpers.rs"]
     pub mod helpers;
 }
@@ -77,7 +76,7 @@ fn append_seven(w: &mut Steps) -> TestResult {
 
 #[then("the append is refused with an error naming position 6, and nothing is written")]
 fn refused_naming_six(w: &mut Steps) {
-    assert_eq!(w.refusals, vec![LogError::PositionMismatch(6, 7)]);
+    assert_eq!(w.refusals, vec![LogError::position_mismatch(6, 7)]);
     assert!(w.refusals[0].to_string().contains("expected 6"));
     assert_eq!(w.positions, vec![5]);
     assert_eq!(w.trace_after, w.trace_before);
@@ -96,7 +95,7 @@ fn seal_at_nine(w: &mut Steps) -> TestResult {
 #[then("the append fails, and `seal` reported 9")]
 fn sealed_at_nine(w: &mut Steps) {
     assert_eq!(w.positions, vec![9]);
-    assert_eq!(w.refusals, vec![LogError::Sealed(9)]);
+    assert_eq!(w.refusals, vec![LogError::sealed(9)]);
 }
 
 // A round is durable before it is applied.
@@ -323,7 +322,7 @@ fn refused_naming_chunk(w: &mut Steps) {
     // chunk's byte range in the body so they can be.
     assert_eq!(
         w.refusals,
-        vec![LogError::CorruptChunk(3, 1, 0, 1, 3_840, 5_000)]
+        vec![LogError::corrupt_chunk(3, 1, 0, 1, 3_840, 5_000)]
     );
     let text = w.refusals[0].to_string();
     assert!(text.contains("round 3") && text.contains("chunk 1") && text.contains("3840..5000"));
@@ -359,7 +358,7 @@ fn corrupt_copy(w: &mut Steps) -> TestResult {
 
 #[then("the node refuses to start with an error naming the copy, and does not create a new log")]
 fn refused_naming_copy(w: &mut Steps) {
-    assert_eq!(w.refusals, vec![LogError::SuperblockUnreadable('a')]);
+    assert_eq!(w.refusals, vec![LogError::superblock_unreadable('a')]);
     assert!(w.refusals[0].to_string().contains("copy a"));
     assert_eq!(w.checks, [true, true]);
 }
@@ -404,7 +403,7 @@ fn three_recycled(w: &mut Steps) {
     assert_eq!(w.recoveries[0].checkpoint(), Position::new(12));
     assert_eq!(w.recoveries[0].committed(), Position::new(16));
     assert_eq!(w.positions, [13, 14, 15, 16]);
-    assert_eq!(w.refusals, vec![LogError::PositionMismatch(13, 12)]);
+    assert_eq!(w.refusals, vec![LogError::position_mismatch(13, 12)]);
 }
 
 // The power-loss-protection flag.

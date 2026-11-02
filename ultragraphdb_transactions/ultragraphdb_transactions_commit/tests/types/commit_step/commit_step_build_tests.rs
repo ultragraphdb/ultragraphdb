@@ -144,7 +144,7 @@ fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() -> TestResul
         out.replies(),
         &[Reply::new(
             2,
-            Err(ultragraphdb_transactions_commit::CommitError::Unavailable())
+            Err(ultragraphdb_transactions_commit::CommitError::unavailable())
         )]
     );
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
@@ -169,7 +169,7 @@ fn test_a_proposal_set_aside_counts_against_the_commit_queue() -> TestResult {
         out.replies(),
         &[Reply::new(
             3,
-            Err(ultragraphdb_transactions_commit::CommitError::Busy(1))
+            Err(ultragraphdb_transactions_commit::CommitError::busy(1))
         )]
     );
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();

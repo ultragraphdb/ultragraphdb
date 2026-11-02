@@ -70,7 +70,7 @@ pub fn quads_to_changeset<'a>(
     let mut changeset = Changeset::new(namespace);
     for quad in quads {
         if let Term::Triple(t) = &quad.object {
-            return Err(MappingError::UnsupportedObject(t.to_string()));
+            return Err(MappingError::unsupported_object(t.to_string()));
         }
         changeset.push(Change::Insert {
             graph: quad.graph_name.clone(),

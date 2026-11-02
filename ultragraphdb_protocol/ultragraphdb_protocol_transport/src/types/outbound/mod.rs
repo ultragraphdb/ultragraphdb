@@ -67,10 +67,10 @@ impl Outbound {
     }
 
     /// Queues `frame`, a whole frame of the connection's own on stream 0, or the refusal of a stream never opened:
-    /// sent before every stream's frames, in the order pushed. Refused as [`TransportError::Protocol`] when it holds
+    /// sent before every stream's frames, in the order pushed. Refused as [`TransportError::protocol`] when it holds
     /// no header.
     pub fn push_connection(&mut self, frame: Vec<u8>) -> Result<(), TransportError> {
-        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::Protocol)?;
+        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::protocol)?;
         self.connection.push_back(frame);
         Ok(())
     }
@@ -82,11 +82,11 @@ impl Outbound {
     }
 
     /// Opens `stream` for a read of the transaction on stream `transaction`, with the initial credit; refused as
-    /// [`Outbound::open`] refuses, and as [`TransportError::UnknownStream`] naming `transaction` when no transaction
+    /// [`Outbound::open`] refuses, and as [`TransportError::unknown_stream`] naming `transaction` when no transaction
     /// is open on it.
     pub fn open_read(&mut self, stream: u64, transaction: u64) -> Result<(), TransportError> {
         if !self.is_transaction(transaction) {
-            return Err(TransportError::UnknownStream(transaction));
+            return Err(TransportError::unknown_stream(transaction));
         }
         self.open_as(stream, Role::Read(transaction))
     }
@@ -126,21 +126,21 @@ impl Outbound {
         self.sequence
     }
 
-    /// Opens `stream` for a request, refused as [`TransportError::StreamZero`], [`TransportError::StreamOpen`], or
-    /// [`TransportError::StreamLimit`] when as many streams as allowed are open.
+    /// Opens `stream` for a request, refused as [`TransportError::stream_zero`], [`TransportError::stream_open`], or
+    /// [`TransportError::stream_limit`] when as many streams as allowed are open.
     pub fn open(&mut self, stream: u64) -> Result<(), TransportError> {
         self.open_as(stream, Role::Request)
     }
 
     fn open_as(&mut self, stream: u64, role: Role) -> Result<(), TransportError> {
         if stream == 0 {
-            return Err(TransportError::StreamZero());
+            return Err(TransportError::stream_zero());
         }
         if self.streams.contains_key(&stream) {
-            return Err(TransportError::StreamOpen(stream));
+            return Err(TransportError::stream_open(stream));
         }
         if self.streams.len() as u64 >= u64::from(self.max_streams) {
-            return Err(TransportError::StreamLimit(self.max_streams));
+            return Err(TransportError::stream_limit(self.max_streams));
         }
         // contains_key refused an open stream above, so no state is replaced.
         let _replaced: Option<StreamState> = self.streams.insert(
@@ -154,14 +154,14 @@ impl Outbound {
         Ok(())
     }
 
-    /// Queues `frame`, a whole frame of `stream`, refused as [`TransportError::Protocol`] when it holds no header and
-    /// [`TransportError::UnknownStream`] when the stream is not open.
+    /// Queues `frame`, a whole frame of `stream`, refused as [`TransportError::protocol`] when it holds no header and
+    /// [`TransportError::unknown_stream`] when the stream is not open.
     pub fn push(&mut self, stream: u64, frame: Vec<u8>) -> Result<(), TransportError> {
-        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::Protocol)?;
+        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::protocol)?;
         let state = self
             .streams
             .get_mut(&stream)
-            .ok_or(TransportError::UnknownStream(stream))?;
+            .ok_or(TransportError::unknown_stream(stream))?;
         state.queue.push_back(frame);
         Ok(())
     }

@@ -690,7 +690,7 @@ impl CacheType for FailingFind {
     }
 
     fn find(&self, prefix: &[u8], _: impl Fn(&[u8]) -> bool) -> Result<u64, HnswError> {
-        Err(PostingError::Store(StoreError::ReadFailed(prefix.to_vec(), "injected".into())).into())
+        Err(PostingError::store(StoreError::read_failed(prefix.to_vec(), "injected".into())).into())
     }
 }
 
@@ -931,7 +931,7 @@ impl CacheType for EveryValue {
             .filter(|(k, _)| k.starts_with(prefix))
             .find(|(_, v)| filter(v))
             .and_then(|(k, _)| vkeys("0-a").node_of(k))
-            .ok_or_else(HnswError::KeyNotFound)
+            .ok_or_else(HnswError::key_not_found)
     }
 }
 

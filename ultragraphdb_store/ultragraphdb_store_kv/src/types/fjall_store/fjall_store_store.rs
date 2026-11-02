@@ -86,7 +86,7 @@ impl Store for FjallStore {
             .terms
             .get(key)
             .map(|v| v.map(|v| v.to_vec()))
-            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))?;
+            .map_err(|e| StoreError::read_failed(key.to_vec(), e.to_string()))?;
         if let Some(value) = &found {
             cache.fill(key, value.clone(), generation);
         }
@@ -97,7 +97,7 @@ impl Store for FjallStore {
         let s = &self.shared;
         let mut view = lock(&s.view);
         if read_ts < view.discard_in_effect() {
-            return Err(StoreError::TsTooOld());
+            return Err(StoreError::ts_too_old());
         }
         *view.readers.entry(read_ts).or_default() += 1;
         s.publish_discard(&view);

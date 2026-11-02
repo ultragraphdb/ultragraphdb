@@ -105,7 +105,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PostingError::StaleVersion`] when a version is not above the one before it, the watermark for the first,
+    /// [`PostingError::stale_version`] when a version is not above the one before it, the watermark for the first,
     /// and nothing is written; the store's error when the batch cannot be written, after which every write is refused
     /// until the store is reopened, as is every read at or above the round's first version.
     pub fn commit_round(&self, round: &[(u64, &Writes)]) -> Result<(), PostingError> {
@@ -121,7 +121,7 @@ where
     ///
     /// # Errors
     ///
-    /// As [`Lists::commit_round`], and [`PostingError::StaleVersion`] for a `through` below the watermark.
+    /// As [`Lists::commit_round`], and [`PostingError::stale_version`] for a `through` below the watermark.
     pub fn commit_round_with(
         &self,
         round: &[(u64, &Writes)],
@@ -134,12 +134,12 @@ where
         let mut after = applied;
         for (version, _) in round {
             if *version <= after {
-                return Err(PostingError::StaleVersion(*version, after));
+                return Err(PostingError::stale_version(*version, after));
             }
             after = *version;
         }
         if through != 0 && through < applied {
-            return Err(PostingError::StaleVersion(through, applied));
+            return Err(PostingError::stale_version(through, applied));
         }
         if round.is_empty() && system.is_empty() && through <= applied {
             return Ok(());

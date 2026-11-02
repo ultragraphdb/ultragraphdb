@@ -84,7 +84,7 @@ fn a_value_ten_thousand_deep_builds_and_drops() -> TestResult {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test clones on a small stack to prove the clone does not recurse"
 )]

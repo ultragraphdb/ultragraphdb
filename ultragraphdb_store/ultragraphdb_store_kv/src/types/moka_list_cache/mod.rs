@@ -22,7 +22,7 @@ pub struct MokaListCache<V> {
 impl<V: Clone + Send + Sync + 'static> MokaListCache<V> {
     /// A cache holding entries up to a total weight of `max_weight`, each weighed by `weigher` from its key and
     /// value.
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "the production cache hashes with per-process random keys against collisions chosen by clients; the \
                   simulator's deterministic map replaces it so that a run replays"

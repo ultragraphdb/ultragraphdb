@@ -82,7 +82,7 @@ impl Catalog {
         for item in snapshot.scan(&scan) {
             let item = item?;
             let Ok((QuadKey::Catalog { kind, uid, .. }, None)) = QuadKey::parse(item.key()) else {
-                return Err(CatalogError::Corrupted(item.key(), "not a catalog key"));
+                return Err(CatalogError::corrupted(item.key(), "not a catalog key"));
             };
             match (kind, decode(item.key(), item.value())?) {
                 (PREDICATE, Declaration::Predicate(p)) => {
@@ -93,7 +93,7 @@ impl Catalog {
                     let _loaded: Option<RelationDeclaration> = catalog.relations.insert(uid, r);
                 }
                 _ => {
-                    return Err(CatalogError::Corrupted(
+                    return Err(CatalogError::corrupted(
                         item.key(),
                         "the entry's kind is not its key's",
                     ));

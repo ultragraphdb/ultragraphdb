@@ -10,12 +10,12 @@ use super::HnswError;
 
 impl From<PostingError> for HnswError {
     fn from(error: PostingError) -> Self {
-        Self::Posting(error)
+        Self::posting(error)
     }
 }
 
 impl From<OptionsError> for HnswError {
     fn from(error: OptionsError) -> Self {
-        Self::Options(error)
+        Self::options(error)
     }
 }

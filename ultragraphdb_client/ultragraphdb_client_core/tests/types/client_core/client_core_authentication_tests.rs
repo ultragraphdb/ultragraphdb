@@ -119,7 +119,7 @@ fn test_a_login_speaking_no_offered_mechanism_gives_the_connection_up() -> TestR
     assert_eq!(
         refused.0,
         ClientErrorEnum::Transport {
-            error: TransportError::Authentication(
+            error: TransportError::authentication(
                 "the login speaks none of the server's mechanisms"
             )
         }
@@ -333,7 +333,7 @@ fn test_a_renewal_ending_as_another_principal_gives_the_connection_up() -> TestR
     assert_eq!(
         refused.0,
         ClientErrorEnum::Transport {
-            error: TransportError::Authentication("renewed as another principal")
+            error: TransportError::authentication("renewed as another principal")
         }
     );
     assert!(!played.core.is_connected());
@@ -364,7 +364,7 @@ fn test_a_server_that_does_not_prove_itself_gives_the_connection_up() -> TestRes
     assert_eq!(
         refused.0,
         ClientErrorEnum::Transport {
-            error: TransportError::Authentication("the server did not prove itself")
+            error: TransportError::authentication("the server did not prove itself")
         }
     );
     assert!(!fresh.core.is_connected());

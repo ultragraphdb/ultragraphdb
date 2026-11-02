@@ -26,7 +26,7 @@ impl Syncer {
     /// The period of Dgraph's `x.StoreSync`.
     pub const PERIOD: Duration = Duration::from_secs(60);
 
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "the production store syncs on a thread of its own, as Dgraph's StoreSync goroutine does; the \
                   simulated store replaces it under the simulator"
@@ -43,7 +43,7 @@ impl Syncer {
                     shared.periodic_sync();
                 }
             })
-            .map_err(|e| StoreError::OpenFailed(format!("starting the sync thread: {e}")))?;
+            .map_err(|e| StoreError::open_failed(format!("starting the sync thread: {e}")))?;
         Ok(Self {
             stop: Some(stop),
             handle: Some(handle),

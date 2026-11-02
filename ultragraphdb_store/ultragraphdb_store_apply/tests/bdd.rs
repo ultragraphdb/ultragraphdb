@@ -13,12 +13,10 @@ use std::sync::Arc;
 
 use cucumber::World;
 
-// The unit tests' helpers, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' helpers, shared by path.
+pub mod utils {
     #[path = "changesets.rs"]
     pub mod changesets;
-    #[allow(dead_code)]
     #[path = "probe.rs"]
     pub mod probe;
 }

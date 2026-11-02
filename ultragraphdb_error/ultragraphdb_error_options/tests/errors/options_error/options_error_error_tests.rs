@@ -9,5 +9,5 @@ use ultragraphdb_error_options::OptionsError;
 
 #[test]
 fn test_is_a_std_error_without_a_source() {
-    assert!(OptionsError::Parse("p".into()).source().is_none());
+    assert!(OptionsError::parse("p".into()).source().is_none());
 }

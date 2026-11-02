@@ -58,13 +58,13 @@ where
     pub(crate) fn value(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
         if let Some(v) = self.values.borrow().get(key) {
             return if v.is_empty() {
-                Err(HnswError::NoValue())
+                Err(HnswError::no_value())
             } else {
                 Ok(v.clone())
             };
         }
         if self.keys.node_of(key).is_none() {
-            return Err(HnswError::NoValue());
+            return Err(HnswError::no_value());
         }
         let list = self.quads.lists().read(key, self.read_ts)?;
         let mut first = None;
@@ -74,7 +74,7 @@ where
         })?;
         first
             .and_then(|v| elements(&v))
-            .ok_or_else(HnswError::NoValue)
+            .ok_or_else(HnswError::no_value)
     }
 
     /// The node of the first forward list under `prefix` whose vector passes `filter`, in key order.
@@ -101,7 +101,7 @@ where
                 Err(e) => return Err(e),
             }
         }
-        Err(HnswError::KeyNotFound())
+        Err(HnswError::key_not_found())
     }
 
     /// Writes `value` at `key`.

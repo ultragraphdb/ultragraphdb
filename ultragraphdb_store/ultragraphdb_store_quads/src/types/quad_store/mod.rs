@@ -42,7 +42,7 @@ where
             None => {
                 let snapshot = store.snapshot(u64::MAX)?;
                 if snapshot.scan(&Scan::prefix(Vec::new())).next().is_some() {
-                    return Err(MappingError::ContractVersion(
+                    return Err(MappingError::contract_version(
                         (0, 0),
                         (CONTRACT_VERSION.major(), CONTRACT_VERSION.minor()),
                     )
@@ -107,7 +107,7 @@ where
                 .chain(request.tested().map(|(key, _)| key))
                 .any(|k| refused_writes.contains(k));
             let checked = if read {
-                Err(QuadError::Aborted())
+                Err(QuadError::aborted())
             } else {
                 match write {
                     Some(write) => self.confirm(request, write, &mut claimed),
@@ -137,7 +137,7 @@ where
                 .is_some_and(|u| *u != uid)
                 || self.store().get_versionless(&iri_key(ns, iri))?.is_some();
             if taken {
-                return Err(QuadError::Aborted());
+                return Err(QuadError::aborted());
             }
         }
         for (iri, uid) in write.created() {

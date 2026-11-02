@@ -53,8 +53,7 @@ pub struct MappingError(pub MappingErrorEnum);
 
 impl MappingError {
     /// A [`MappingErrorEnum::ContractVersion`] for the `stored` and `implemented` versions.
-    #[allow(non_snake_case)]
-    pub fn ContractVersion(stored: (u16, u16), implemented: (u16, u16)) -> Self {
+    pub fn contract_version(stored: (u16, u16), implemented: (u16, u16)) -> Self {
         Self(MappingErrorEnum::ContractVersion {
             stored,
             implemented,
@@ -62,34 +61,29 @@ impl MappingError {
     }
 
     /// A [`MappingErrorEnum::BadContractVersion`] for `bytes`.
-    #[allow(non_snake_case)]
-    pub fn BadContractVersion(bytes: &[u8]) -> Self {
+    pub fn bad_contract_version(bytes: &[u8]) -> Self {
         Self(MappingErrorEnum::BadContractVersion {
             bytes: bytes.to_vec(),
         })
     }
 
     /// A [`MappingErrorEnum::NoSuchStatement`] for `statement`.
-    #[allow(non_snake_case)]
-    pub fn NoSuchStatement(statement: String) -> Self {
+    pub fn no_such_statement(statement: String) -> Self {
         Self(MappingErrorEnum::NoSuchStatement { statement })
     }
 
     /// A [`MappingErrorEnum::AmbiguousStatement`] for `statement`.
-    #[allow(non_snake_case)]
-    pub fn AmbiguousStatement(statement: String) -> Self {
+    pub fn ambiguous_statement(statement: String) -> Self {
         Self(MappingErrorEnum::AmbiguousStatement { statement })
     }
 
     /// A [`MappingErrorEnum::UnsupportedObject`] for `object`.
-    #[allow(non_snake_case)]
-    pub fn UnsupportedObject(object: String) -> Self {
+    pub fn unsupported_object(object: String) -> Self {
         Self(MappingErrorEnum::UnsupportedObject { object })
     }
 
     /// A [`MappingErrorEnum::InvalidBase`] for `base`, saying why.
-    #[allow(non_snake_case)]
-    pub fn InvalidBase(base: String, reason: &'static str) -> Self {
+    pub fn invalid_base(base: String, reason: &'static str) -> Self {
         Self(MappingErrorEnum::InvalidBase { base, reason })
     }
 }

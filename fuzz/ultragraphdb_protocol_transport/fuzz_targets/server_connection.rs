@@ -140,7 +140,7 @@ fn run<A: Authenticator>(
         let inbound = match read(&mut framer, &pool, &frame) {
             Ok(received) => connection.receive(&received, now),
             Err(()) => {
-                let refusal = ultragraphdb_error_protocol::ProtocolError::ShortHeader(frame.len());
+                let refusal = ultragraphdb_error_protocol::ProtocolError::short_header(frame.len());
                 connection.refuse_connection(&refusal)
             }
         };

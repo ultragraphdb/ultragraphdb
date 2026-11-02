@@ -112,7 +112,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestRe
         assert!(ready(server.read_frame(&pool)).is_ok());
         assert_eq!(
             failure(ready(server.read_frame(&pool)), "a read after the close")?,
-            TransportError::Closed()
+            TransportError::closed()
         );
     }
     // Inside the header.
@@ -122,7 +122,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestRe
         ready(client.stream_mut().shutdown())?;
         assert_eq!(
             failure(ready(server.read_frame(&pool)), "a read of a cut header")?,
-            TransportError::Truncated(100, 256)
+            TransportError::truncated(100, 256)
         );
     }
     // Inside the body.
@@ -133,7 +133,7 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestRe
         ready(client.stream_mut().shutdown())?;
         assert_eq!(
             failure(ready(server.read_frame(&pool)), "a read of a cut body")?,
-            TransportError::Truncated(4_000, frame.len())
+            TransportError::truncated(4_000, frame.len())
         );
     }
     assert_eq!(pool.available(), 4, "every buffer is back");
@@ -153,7 +153,7 @@ fn test_a_header_breaking_a_rule_is_refused_before_its_body_is_read() -> TestRes
                 ready(server.read_frame(&pool)),
                 "a read of another cluster's frame"
             )?,
-            TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, 7))
+            TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER, 7))
         );
     }
     {
@@ -197,7 +197,7 @@ fn test_no_free_buffer_or_a_frame_past_its_capacity_is_refused() -> TestResult {
         let held = ready(server.read_frame(&one))?;
         assert_eq!(
             failure(ready(server.read_frame(&one)), "a read with no buffer free")?,
-            TransportError::PoolExhausted(1)
+            TransportError::pool_exhausted(1)
         );
         drop(held);
         assert_eq!(ready(server.read_frame(&one))?.stream(), 2);
@@ -213,7 +213,7 @@ fn test_no_free_buffer_or_a_frame_past_its_capacity_is_refused() -> TestResult {
                 ready(server.read_frame(&small)),
                 "a read of a frame past the buffers"
             )?,
-            TransportError::Protocol(ProtocolError::FrameTooLarge(size, 300))
+            TransportError::protocol(ProtocolError::frame_too_large(size, 300))
         );
         assert_eq!(small.available(), 1);
     }
@@ -310,7 +310,7 @@ fn test_a_handshake_of_another_command_is_refused() -> TestResult {
                 ),
                 "the server's handshake of a Credit"
             )?,
-            TransportError::UnexpectedCommand(1, 14)
+            TransportError::unexpected_command(1, 14)
         );
         let answer = ready(client.read_frame(&pool))?;
         assert_eq!(answer.command(), 16);
@@ -327,7 +327,7 @@ fn test_a_handshake_of_another_command_is_refused() -> TestResult {
         ));
         assert_eq!(
             failure(refused, "the client's handshake answered by a Credit")?,
-            TransportError::UnexpectedCommand(2, 14)
+            TransportError::unexpected_command(2, 14)
         );
         let _answer: Vec<u8> = answered?;
     }
@@ -348,7 +348,7 @@ fn test_a_handshake_of_another_command_is_refused() -> TestResult {
         ));
         assert_eq!(
             failure(refused, "the client's handshake welcomed at protocol 5")?,
-            TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", 5))
+            TransportError::protocol(ProtocolError::field_value(2, "protocol", 5))
         );
         let _answer: Vec<u8> = answered?;
     }
@@ -388,7 +388,7 @@ fn test_a_connection_runs_over_compio_tcp() -> TestResult {
                 server.read_frame(&pool).await,
                 "a read after the client dropped"
             )?,
-            TransportError::Closed()
+            TransportError::closed()
         );
         Ok::<(), TestError>(())
     })
@@ -505,8 +505,8 @@ fn test_a_failed_read_is_an_io_error_and_not_retried() -> TestResult {
     };
     let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-    // The error the stream raised, as `TransportError::Io` records it: its kind and its text.
-    let expected = TransportError::Io(&std::io::ErrorKind::ConnectionReset.into());
+    // The error the stream raised, as `TransportError::io` records it: its kind and its text.
+    let expected = TransportError::io(&std::io::ErrorKind::ConnectionReset.into());
     assert_eq!(
         failure(
             ready(connection.read_frame(&pool)),
@@ -528,7 +528,7 @@ fn test_a_shutdown_closes_the_peers_reads() -> TestResult {
     assert_eq!(ready(server.read_frame(&pool))?.stream(), 1);
     assert_eq!(
         failure(ready(server.read_frame(&pool)), "a read after the shutdown")?,
-        TransportError::Closed()
+        TransportError::closed()
     );
     Ok(())
 }
@@ -547,7 +547,7 @@ fn test_a_pool_smaller_than_a_header_refuses_the_frame_naming_its_capacity() -> 
             ready(server.read_frame(&small)),
             "a read into a buffer below a header"
         )?,
-        TransportError::Protocol(ProtocolError::FrameTooLarge(size, 100))
+        TransportError::protocol(ProtocolError::frame_too_large(size, 100))
     );
     assert_eq!(small.available(), 1);
     Ok(())

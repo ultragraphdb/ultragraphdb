@@ -146,7 +146,10 @@ fn test_an_oversized_key_refuses_its_whole_batch() -> TestResult {
         .err()
         .context("the expected error")?;
     // Badger's exceedsSize dumps the first 1 << 10 bytes of the user key.
-    assert_eq!(err, StoreError::KeyTooLarge(65_001, 65_000, vec![1; 1024]));
+    assert_eq!(
+        err,
+        StoreError::key_too_large(65_001, 65_000, vec![1; 1024])
+    );
     assert!(
         err.to_string()
             .starts_with("Key with size 65001 exceeded 65000 limit. Key:\n00000000  01 01 01 01"),
@@ -165,7 +168,7 @@ fn test_an_oversized_key_refuses_its_whole_batch() -> TestResult {
     // the head dumps the encoded bytes.
     assert_eq!(
         dense_err,
-        StoreError::KeyTooLarge(66_010, 65_535, dense_head())
+        StoreError::key_too_large(66_010, 65_535, dense_head())
     );
     assert!(
         dense_err
@@ -256,9 +259,9 @@ fn test_a_read_below_the_discard_timestamp_is_refused() -> TestResult {
             .to_string(),
         "Transaction is too old"
     );
-    assert_eq!(s.get_at(b"k", 9), Err(StoreError::TsTooOld()));
-    assert_eq!(s.snapshot(9).err(), Some(StoreError::TsTooOld()));
-    assert_eq!(s.snapshot(0).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.get_at(b"k", 9), Err(StoreError::ts_too_old()));
+    assert_eq!(s.snapshot(9).err(), Some(StoreError::ts_too_old()));
+    assert_eq!(s.snapshot(0).err(), Some(StoreError::ts_too_old()));
     assert_eq!(
         s.get_at(b"k", 10)?.map(|i| i.version()),
         Some(3),
@@ -630,7 +633,7 @@ fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() -> TestResult {
     // Below the discard timestamp a snapshot is refused; the store's own read is bounded by none.
     s.set_discard_ts(2)?;
     drop(snapshot);
-    assert_eq!(s.snapshot(1).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(1).err(), Some(StoreError::ts_too_old()));
     assert_eq!(s.get_versionless(b"b")?, Some(b"3".to_vec()));
     Ok(())
 }
@@ -923,7 +926,7 @@ fn test_an_oversized_key_refuses_the_versionless_writes_with_the_batch() -> Test
     batch.push(put(&vec![1; 65_001], 1, b""));
     assert_eq!(
         s.apply(batch, PersistMode::Buffer),
-        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![1; 1024]))
+        Err(StoreError::key_too_large(65_001, 65_000, vec![1; 1024]))
     );
     assert_eq!(s.get_versionless(b"t")?, None);
     // An oversized versionless key refuses the batch's versioned entries, by the user key's limit and by the stored
@@ -932,11 +935,11 @@ fn test_an_oversized_key_refuses_the_versionless_writes_with_the_batch() -> Test
     for (key, error) in [
         (
             vec![2u8; 65_001],
-            StoreError::KeyTooLarge(65_001, 65_000, vec![2; 1024]),
+            StoreError::key_too_large(65_001, 65_000, vec![2; 1024]),
         ),
         (
             alternating(44_000),
-            StoreError::KeyTooLarge(66_010, 65_535, dense_head()),
+            StoreError::key_too_large(66_010, 65_535, dense_head()),
         ),
     ] {
         let mut refused_batch = WriteBatch::new();
@@ -999,7 +1002,7 @@ fn test_a_snapshot_reads_versionless_keys_whatever_its_read_timestamp() -> TestR
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the readers run on threads beside the writer, as the production store's readers do"
 )]
@@ -1089,7 +1092,7 @@ fn test_an_empty_versionless_key_refuses_its_batch_put_or_removed() -> TestResul
     };
     for remove in [false, true] {
         let refused = s.apply(empty_key_batch(remove), PersistMode::Buffer);
-        assert_eq!(refused, Err(StoreError::EmptyKey()), "removal: {remove}");
+        assert_eq!(refused, Err(StoreError::empty_key()), "removal: {remove}");
         assert_eq!(
             refused.err().context("the expected error")?.to_string(),
             "Key cannot be empty"
@@ -1098,7 +1101,7 @@ fn test_an_empty_versionless_key_refuses_its_batch_put_or_removed() -> TestResul
     let temporary = s.create_temporary()?;
     assert_eq!(
         s.apply_temporary(&temporary, empty_key_batch(false)),
-        Err(StoreError::EmptyKey())
+        Err(StoreError::empty_key())
     );
     assert!(!s.is_poisoned());
     assert_eq!(s.temporary_snapshot(&temporary)?.get(b"k")?, None);

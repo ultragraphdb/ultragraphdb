@@ -211,13 +211,8 @@ fn cell_contains_point() -> TestResult {
 // Ported from golang/geo s2/cell_test.go, TestCellContainsPointConsistentWithS2CellIDFromPointExample1
 // and TestCellContainsPointContainsAmbiguousPoint.
 #[test]
-#[allow(clippy::excessive_precision)]
 fn cell_contains_point_of_its_own_id() {
-    let p = Point::from_coords(
-        0.38203141040035632,
-        0.030196609707941954,
-        0.9236558700239289,
-    );
+    let p = Point::from_coords(0.3820314104003563, 0.030196609707941954, 0.9236558700239289);
     assert!(Cell::from_point(p).contains_point(p));
     // x is ~6.1e-17 rather than 0, so s rounds to 0.5 and the cell id picks a neighbouring cell;
     // the expanded bound still contains the point.

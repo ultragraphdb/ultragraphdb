@@ -88,32 +88,27 @@ pub enum HnswErrorEnum {
 
 impl HnswError {
     /// A read of the posting lists that failed with `error`.
-    #[allow(non_snake_case)]
-    pub fn Posting(error: PostingError) -> Self {
+    pub fn posting(error: PostingError) -> Self {
         Self(HnswErrorEnum::Posting(error))
     }
 
     /// An option whose value is of another type, as `error` states.
-    #[allow(non_snake_case)]
-    pub fn Options(error: OptionsError) -> Self {
+    pub fn options(error: OptionsError) -> Self {
         Self(HnswErrorEnum::Options(error))
     }
 
     /// A key that holds no value.
-    #[allow(non_snake_case)]
-    pub fn NoValue() -> Self {
+    pub fn no_value() -> Self {
         Self(HnswErrorEnum::NoValue)
     }
 
     /// No key under a prefix that passes the filter.
-    #[allow(non_snake_case)]
-    pub fn KeyNotFound() -> Self {
+    pub fn key_not_found() -> Self {
         Self(HnswErrorEnum::KeyNotFound)
     }
 
     /// A read of the key of `pred` and `uid` that found nothing, wrapping the absence `cause`.
-    #[allow(non_snake_case)]
-    pub fn FetchingPostingList(cause: HnswError, pred: impl Into<String>, uid: u64) -> Self {
+    pub fn fetching_posting_list(cause: HnswError, pred: impl Into<String>, uid: u64) -> Self {
         Self(HnswErrorEnum::FetchingPostingList {
             cause: Box::new(cause),
             pred: pred.into(),
@@ -122,62 +117,53 @@ impl HnswError {
     }
 
     /// A uid that holds no vector, wrapping the absence `cause` when a read reported one.
-    #[allow(non_snake_case)]
-    pub fn NilVector(cause: Option<HnswError>) -> Self {
+    pub fn nil_vector(cause: Option<HnswError>) -> Self {
         Self(HnswErrorEnum::NilVector(cause.map(Box::new)))
     }
 
     /// An index with no vector to start from, wrapping the absence `cause` when `find` reported one.
-    #[allow(non_snake_case)]
-    pub fn EmptyTree(cause: Option<HnswError>) -> Self {
+    pub fn empty_tree(cause: Option<HnswError>) -> Self {
         Self(HnswErrorEnum::EmptyTree(cause.map(Box::new)))
     }
 
     /// A distance `func_name` between vectors of different lengths.
-    #[allow(non_snake_case)]
-    pub fn DifferentLengths(func_name: &'static str) -> Self {
+    pub fn different_lengths(func_name: &'static str) -> Self {
         Self(HnswErrorEnum::DifferentLengths(func_name))
     }
 
     /// A metric option that holds a value of another type than `go_type`.
-    #[allow(non_snake_case)]
-    pub fn CannotCast(go_type: &'static str) -> Self {
+    pub fn cannot_cast(go_type: &'static str) -> Self {
         Self(HnswErrorEnum::CannotCast(go_type))
     }
 
     /// A dead list `s` that does not parse.
-    #[allow(non_snake_case)]
-    pub fn UintSlice(s: impl Into<String>) -> Self {
+    pub fn uint_slice(s: impl Into<String>) -> Self {
         Self(HnswErrorEnum::UintSlice(s.into()))
     }
 
     /// An index of float width `bits` whose vectors' type is `expected` bits wide.
-    #[allow(non_snake_case)]
-    pub fn FloatBits(bits: usize, expected: usize) -> Self {
+    pub fn float_bits(bits: usize, expected: usize) -> Self {
         Self(HnswErrorEnum::FloatBits { bits, expected })
     }
 
     /// The option `name` holding `value`, below 1.
-    #[allow(non_snake_case)]
-    pub fn InvalidParameter(name: &'static str, value: i64) -> Self {
+    pub fn invalid_parameter(name: &'static str, value: i64) -> Self {
         Self(HnswErrorEnum::InvalidParameter { name, value })
     }
 
     /// The lists of node `uid`, holding `levels` levels, without the level `level` read.
-    #[allow(non_snake_case)]
-    pub fn LevelMissing(uid: u64, level: usize, levels: usize) -> Self {
+    pub fn level_missing(uid: u64, level: usize, levels: usize) -> Self {
         Self(HnswErrorEnum::LevelMissing { uid, level, levels })
     }
 
     /// A layer search that kept no neighbour.
-    #[allow(non_snake_case)]
-    pub fn NoNeighbour() -> Self {
+    pub fn no_neighbour() -> Self {
         Self(HnswErrorEnum::NoNeighbour)
     }
 
     /// A stored value of `key` the index cannot decode, as the store's `Corrupted`.
     pub fn corrupted(key: &[u8], reason: impl Into<String>) -> Self {
-        Self::Posting(PostingError::corrupted(key, reason))
+        Self::posting(PostingError::corrupted(key, reason))
     }
 
     /// Whether a cache reported absence: no value under a key, or no key under a prefix.

@@ -25,7 +25,7 @@ impl<'a> BodyView<'a> for CreditView<'a> {
         header.unused_zero(&[(0, 4)])?;
         let frames = header.u32_at(0);
         if frames == 0 {
-            return Err(ProtocolError::FieldValue(command, "frames", 0));
+            return Err(ProtocolError::field_value(command, "frames", 0));
         }
         let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {

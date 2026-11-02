@@ -105,10 +105,10 @@ impl<L: Login> ClientCore<L> {
     /// [`ClientCore::disconnected`] loses it.
     pub fn connect(&mut self, now: Instant, unix_micros: u64) -> Result<(), ClientError> {
         if !matches!(self.link, Link::Down) {
-            self.lose(&ClientError::ConnectionLost(None));
+            self.lose(&ClientError::connection_lost(None));
         }
         let handshake = ClientHandshake::new(self.config.cluster(), self.config.hello());
-        let hello = handshake.hello_frame().map_err(ClientError::Transport)?;
+        let hello = handshake.hello_frame().map_err(ClientError::transport)?;
         self.generation += 1;
         self.next_stream = 1;
         self.sent = 0;
@@ -170,13 +170,13 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The shell's connection failed or closed with `error`: every request waiting on it, and every read cut short,
-    /// fails with [`ClientError::ConnectionLost`], its cause `error` ([`ClientError::Transport`]: the framer's refusal,
-    /// a frame cut short, an I/O failure), none for a plain close ([`TransportError::Closed`]); a commit waits to be
+    /// fails with [`ClientError::connection_lost`], its cause `error` ([`ClientError::transport`]: the framer's refusal,
+    /// a frame cut short, an I/O failure), none for a plain close ([`TransportError::closed`]); a commit waits to be
     /// retried through its session on the next connection.
     pub fn disconnected(&mut self, error: TransportError, now: Instant) {
         self.last_progress = Some(now);
-        let cause = (error != TransportError::Closed()).then(|| ClientError::Transport(error));
-        self.lose(&ClientError::ConnectionLost(cause));
+        let cause = (error != TransportError::closed()).then(|| ClientError::transport(error));
+        self.lose(&ClientError::connection_lost(cause));
     }
 
     /// Whether the core waits for the server: a handshake, an Authenticate exchange, a request's reply, or a result's
@@ -214,7 +214,7 @@ impl<L: Login> ClientCore<L> {
 
     /// The time is `now`: a busy commit due is sent again, a credential due for renewal is renewed by a new exchange
     /// on stream 0 while the other streams go on, and a connection that answered nothing awaited within the timeout
-    /// is given up, its requests failing with [`ClientError::TimedOut`].
+    /// is given up, its requests failing with [`ClientError::timed_out`].
     pub fn handle_timeout(&mut self, now: Instant) {
         if self.is_ready() {
             let due: Vec<u64> = self
@@ -235,7 +235,7 @@ impl<L: Login> ClientCore<L> {
                 .last_progress
                 .is_some_and(|at| now >= at + self.config.timeout())
         {
-            self.lose(&ClientError::TimedOut());
+            self.lose(&ClientError::timed_out());
         }
     }
 
@@ -287,10 +287,10 @@ impl<L: Login> ClientCore<L> {
         let header = Header::new(self.config.cluster(), B::COMMAND)
             .with_release(self.config.release())
             .with_protocol(welcome.protocol());
-        let frame = body.frame(header).map_err(ClientError::Request)?;
+        let frame = body.frame(header).map_err(ClientError::request)?;
         if frame.len() > welcome.max_frame() as usize {
-            return Err(ClientError::Request(
-                ultragraphdb_error_protocol::ProtocolError::FrameTooLarge(
+            return Err(ClientError::request(
+                ultragraphdb_error_protocol::ProtocolError::frame_too_large(
                     frame.len(),
                     welcome.max_frame() as usize,
                 ),
@@ -300,13 +300,13 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// Closes the connection on the client's side, and the shell shuts it down: requests waiting and reads not yet
-    /// ended fail with [`ClientError::ConnectionLost`], no cause, and a commit not yet answered is in doubt ([`ClientError::InDoubt`]), its
+    /// ended fail with [`ClientError::connection_lost`], no cause, and a commit not yet answered is in doubt ([`ClientError::in_doubt`]), its
     /// session resolved before it commits again.
     pub fn close(&mut self) {
-        self.lose(&ClientError::ConnectionLost(None));
+        self.lose(&ClientError::connection_lost(None));
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
             if let Some((session, request)) = pending.commit() {
-                pending.outcome = Some(Err(ClientError::InDoubt(session, request)));
+                pending.outcome = Some(Err(ClientError::in_doubt(session, request)));
                 if let Some(state) = self.sessions.get_mut(&session) {
                     state.in_flight = false;
                     state.in_doubt = Some(request);
@@ -396,7 +396,7 @@ impl<L: Login> ClientCore<L> {
                     }
                     pending.tries += 1;
                     if pending.tries >= attempts {
-                        pending.outcome = Some(Err(ClientError::RetriesExhausted(
+                        pending.outcome = Some(Err(ClientError::retries_exhausted(
                             session,
                             request,
                             pending.tries,
@@ -414,16 +414,16 @@ impl<L: Login> ClientCore<L> {
     /// The header of a request of `B` on `stream`, and its frame, refused when larger than the Welcome allows.
     fn frame<B: BodyBuilder>(&self, body: &B, stream: u64) -> Result<Vec<u8>, ClientError> {
         let Link::Up(welcome) = &self.link else {
-            return Err(ClientError::NotConnected());
+            return Err(ClientError::not_connected());
         };
         let header = Header::new(self.config.cluster(), B::COMMAND)
             .with_release(self.config.release())
             .with_protocol(welcome.protocol())
             .with_stream(stream);
-        let frame = body.frame(header).map_err(ClientError::Request)?;
+        let frame = body.frame(header).map_err(ClientError::request)?;
         if frame.len() > welcome.max_frame() as usize {
-            return Err(ClientError::Request(
-                ultragraphdb_error_protocol::ProtocolError::FrameTooLarge(
+            return Err(ClientError::request(
+                ultragraphdb_error_protocol::ProtocolError::frame_too_large(
                     frame.len(),
                     welcome.max_frame() as usize,
                 ),
@@ -435,10 +435,10 @@ impl<L: Login> ClientCore<L> {
     /// A new stream, refused when the connection holds as many as the Welcome allows.
     fn open_stream(&mut self) -> Result<u64, ClientError> {
         let Link::Up(welcome) = &self.link else {
-            return Err(ClientError::NotConnected());
+            return Err(ClientError::not_connected());
         };
         if self.streams.len() as u64 >= u64::from(welcome.max_streams()) {
-            return Err(ClientError::StreamLimit(welcome.max_streams()));
+            return Err(ClientError::stream_limit(welcome.max_streams()));
         }
         let stream = self.next_stream;
         self.next_stream += 1;

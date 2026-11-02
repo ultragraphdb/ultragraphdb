@@ -99,7 +99,7 @@ fn test_read_stops_where_the_tag_says_and_returns_the_rest() -> TestResult {
         assert_eq!((&read, rest), (&term, &b"rest"[..]));
         assert_eq!(
             EncodedTerm::from_bytes(&bytes),
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bytes.clone(),
                 "bytes follow the encoding"
             )),
@@ -116,7 +116,7 @@ fn test_every_proper_prefix_of_every_kind_is_refused_without_a_panic() -> TestRe
         for end in 0..bytes.len() {
             assert_eq!(
                 EncodedTerm::read(&bytes[..end]).map(|_| ()),
-                Err(TermError::Truncated(bytes[..end].to_vec())),
+                Err(TermError::truncated(bytes[..end].to_vec())),
                 "{term:?} cut at {end}"
             );
         }
@@ -128,28 +128,28 @@ fn test_every_proper_prefix_of_every_kind_is_refused_without_a_panic() -> TestRe
 fn test_unknown_tags_codes_and_overlong_parts_are_refused() -> TestResult {
     assert_eq!(
         EncodedTerm::read(&[0x7f]).err(),
-        Some(TermError::UnknownTag(0x7f))
+        Some(TermError::unknown_tag(0x7f))
     );
     assert_eq!(
         EncodedTerm::read(&[0x20, 16]).map(|_| ()),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             vec![0x20, 16],
             "an inline part longer than 15 bytes"
         ))
     );
     let unknown_code = EncodedTerm::from_bytes(&[0x30, 200, 1, b'x'])?;
-    assert_eq!(unknown_code.view(), Err(TermError::UnknownDatatype(200)));
+    assert_eq!(unknown_code.view(), Err(TermError::unknown_datatype(200)));
     let not_utf8 = EncodedTerm::from_bytes(&[0x20, 1, 0xff])?;
     assert_eq!(
         not_utf8.view(),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             vec![0x20, 1, 0xff],
             "an inline part is not UTF-8"
         ))
     );
     assert_eq!(
         EncodedTerm::read(&[0x40, 0, 0]).map(|_| ()),
-        Err(TermError::Malformed(vec![0x40, 0, 0], "an empty vector"))
+        Err(TermError::malformed(vec![0x40, 0, 0], "an empty vector"))
     );
     Ok(())
 }
@@ -167,7 +167,7 @@ fn test_every_inline_length_is_read_where_its_tag_puts_it() {
     for bytes in [lexical_16, language_16, big_lang_16, known_16, typed_16] {
         assert_eq!(
             EncodedTerm::read(&bytes).map(|_| ()),
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bytes.clone(),
                 "an inline part longer than 15 bytes"
             )),
@@ -225,7 +225,7 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() -> TestResu
         let term = EncodedTerm::from_bytes(&bytes)?;
         assert_eq!(
             term.view(),
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bytes.clone(),
                 "an inline part is not UTF-8"
             )),
@@ -235,7 +235,7 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() -> TestResu
     let hashed_unknown = [&[0x31, 0][..], &[0; 16]].concat();
     assert_eq!(
         EncodedTerm::from_bytes(&hashed_unknown)?.view(),
-        Err(TermError::UnknownDatatype(0))
+        Err(TermError::unknown_datatype(0))
     );
     Ok(())
 }
@@ -311,14 +311,14 @@ fn test_check_takes_every_whole_encoding() -> TestResult {
 #[test]
 fn test_check_refuses_what_a_peer_may_not_send() {
     // PROTOCOL.md section 10.1: each rule of a whole encoding broken once, refused with the rule it breaks.
-    let malformed = |bytes: &[u8], reason| Err(TermError::Malformed(bytes.to_vec(), reason));
+    let malformed = |bytes: &[u8], reason| Err(TermError::malformed(bytes.to_vec(), reason));
     let not_utf8 = "inline text that is not UTF-8";
     let cases: Vec<(Vec<u8>, Result<(), TermError>)> = vec![
         // An unknown tag, and the result-only blank-node tag the store never holds.
-        (vec![0x7F], Err(TermError::UnknownTag(0x7F))),
+        (vec![0x7F], Err(TermError::unknown_tag(0x7F))),
         (
             vec![0x02, 0, 0, 0, 0, 0, 0, 0, 6],
-            Err(TermError::UnknownTag(0x02)),
+            Err(TermError::unknown_tag(0x02)),
         ),
         // A boolean other than 0 or 1 (point 50).
         (
@@ -354,11 +354,14 @@ fn test_check_refuses_what_a_peer_may_not_send() {
         ),
         // A known datatype's code outside section 10.4 (point 13): 0 and 34 are one below and one above codes 1 to
         // 33, 200 far outside, under the hashed tag.
-        (vec![0x30, 0, 1, b'x'], Err(TermError::UnknownDatatype(0))),
-        (vec![0x30, 34, 1, b'x'], Err(TermError::UnknownDatatype(34))),
+        (vec![0x30, 0, 1, b'x'], Err(TermError::unknown_datatype(0))),
+        (
+            vec![0x30, 34, 1, b'x'],
+            Err(TermError::unknown_datatype(34)),
+        ),
         (
             [&[0x31, 200][..], &[0; 16]].concat(),
-            Err(TermError::UnknownDatatype(200)),
+            Err(TermError::unknown_datatype(200)),
         ),
         // An inline part longer than 15 bytes, a vector of no dimension.
         (
@@ -372,13 +375,13 @@ fn test_check_refuses_what_a_peer_may_not_send() {
         // Truncated, and with a byte past the encoding.
         (
             vec![0x11, 0, 0],
-            Err(TermError::Truncated(vec![0x11, 0, 0])),
+            Err(TermError::truncated(vec![0x11, 0, 0])),
         ),
         (
             vec![0x10, 1, 0],
             malformed(&[0x10, 1, 0], "bytes follow the encoding"),
         ),
-        (vec![], Err(TermError::Truncated(vec![]))),
+        (vec![], Err(TermError::truncated(vec![]))),
     ];
     for (bytes, expected) in cases {
         assert_eq!(EncodedTerm::check(&bytes), expected, "{bytes:02x?}");
@@ -392,7 +395,7 @@ fn test_check_refuses_a_hashed_lexical_forms_tag_that_is_not_utf8_in_each_direct
         let bad = [&[tag][..], &[0; 16], &[2, b'e', 0xFF]].concat();
         assert_eq!(
             EncodedTerm::check(&bad),
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bad.clone(),
                 "inline text that is not UTF-8"
             )),
@@ -411,7 +414,7 @@ fn test_check_takes_the_longest_inline_text_and_the_boundary_values() {
     let cut = [&[0x20, 1][..], &"é".as_bytes()[..1]].concat();
     assert_eq!(
         EncodedTerm::check(&cut),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             cut.clone(),
             "inline text that is not UTF-8"
         ))
@@ -419,7 +422,7 @@ fn test_check_takes_the_longest_inline_text_and_the_boundary_values() {
     let sixteen = [&[0x20, 16][..], &[b'a'; 16]].concat();
     assert_eq!(
         EncodedTerm::check(&sixteen),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             sixteen.clone(),
             "an inline part longer than 15 bytes"
         ))
@@ -437,7 +440,7 @@ fn test_check_refuses_a_duration_whose_parts_differ_in_sign() -> TestResult {
     for bytes in [duration(1, -second), duration(-1, second)] {
         assert_eq!(
             EncodedTerm::check(&bytes),
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bytes.clone(),
                 "a duration whose months and seconds differ in sign"
             )),
@@ -475,7 +478,7 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult
             let view = term.view().context(name)?;
             // A literal or an error, either of which passes: the replay asks only that nothing panics.
             let _literal: Result<Literal, TermError> = view.to_literal(
-                |uid| Err::<_, TermError>(TermError::NotALiteral(uid)),
+                |uid| Err::<_, TermError>(TermError::not_a_literal(uid)),
                 |_| Ok("the text the hash names".to_string()),
             );
         }
@@ -488,7 +491,7 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult
         .context("the duration case")?;
     assert_eq!(
         EncodedTerm::check(duration),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             duration.clone(),
             "a duration whose months and seconds differ in sign"
         ))
@@ -503,7 +506,7 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult
     assert_eq!(&timezone[17..], &[0x80, 0x00]);
     assert_eq!(
         EncodedTerm::check(timezone),
-        Err(TermError::Malformed(
+        Err(TermError::malformed(
             timezone.clone(),
             "a timezone offset beyond 14 hours"
         ))
@@ -521,7 +524,7 @@ fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() -> TestResult {
             let bytes = temporal(tag, minutes);
             assert_eq!(
                 EncodedTerm::check(&bytes),
-                Err(TermError::Malformed(
+                Err(TermError::malformed(
                     bytes.clone(),
                     "a timezone offset beyond 14 hours"
                 )),

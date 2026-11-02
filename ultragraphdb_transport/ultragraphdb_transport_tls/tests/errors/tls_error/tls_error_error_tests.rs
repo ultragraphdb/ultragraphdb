@@ -9,5 +9,5 @@ use ultragraphdb_transport_tls::TlsError;
 
 #[test]
 fn test_is_a_std_error_without_a_source() {
-    assert!(TlsError::TrustStoreEmpty("/p".into()).source().is_none());
+    assert!(TlsError::trust_store_empty("/p".into()).source().is_none());
 }

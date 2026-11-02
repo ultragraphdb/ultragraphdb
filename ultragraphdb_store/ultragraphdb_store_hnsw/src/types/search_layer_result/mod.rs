@@ -57,7 +57,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
     ///
     /// # Errors
     ///
-    /// [`HnswError::NoNeighbour`] when `max_results` and the filtered count are 0 and nothing is kept, where Dgraph
+    /// [`HnswError::no_neighbour`] when `max_results` and the filtered count are 0 and nothing is kept, where Dgraph
     /// panics.
     pub fn add_path_node(
         &mut self,
@@ -70,7 +70,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
             self.filtered += 1;
         }
         self.neighbors.truncate(max_results + self.filtered);
-        let first = self.neighbors.first().ok_or_else(HnswError::NoNeighbour)?;
+        let first = self.neighbors.first().ok_or_else(HnswError::no_neighbour)?;
         if first.index() == n.index() {
             self.path.push(first.index());
         }
@@ -98,7 +98,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
         self.neighbors
             .last()
             .map(|n| n.value())
-            .ok_or_else(HnswError::NoNeighbour)
+            .ok_or_else(HnswError::no_neighbour)
     }
 
     /// The best neighbour: Dgraph's `bestNeighbor`.
@@ -106,7 +106,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
         self.neighbors
             .first()
             .copied()
-            .ok_or_else(HnswError::NoNeighbour)
+            .ok_or_else(HnswError::no_neighbour)
     }
 
     pub fn index_visited(&self, n: u64) -> bool {

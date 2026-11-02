@@ -9,9 +9,8 @@
 //! routine. It does not measure the cache's epoch above the store, a drop of everything, or the compactions that
 //! later reclaim the removed versions.
 
-// Each bench uses part of what the benches share.
-#[allow(dead_code)]
-mod bench_dir;
+/// What the benches share; each bench uses a part of it.
+pub mod bench_dir;
 
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main,

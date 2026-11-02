@@ -21,6 +21,7 @@ use ultragraphdb_traits_index::{KeyValue, Txn, accept_all};
 
 use crate::errors::hnsw_error::{HnswError, HnswErrorEnum};
 use crate::traits::hnsw_float::HnswFloat;
+use crate::types::layer_entry::LayerEntry;
 use crate::types::persistent_hnsw::PersistentHnsw;
 use crate::types::txn_cache::TxnCache;
 use crate::utils::helper::{
@@ -74,10 +75,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             let layer = self.search_persistent_layer(
                 tc,
                 level,
-                entry,
-                &start_vec,
+                LayerEntry {
+                    uid: entry,
+                    vector: &start_vec,
+                    filtered_out: false,
+                },
                 in_vec,
-                false,
                 self.ef_search,
                 accept_all::<T>,
             )?;
@@ -93,10 +96,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             let layer = self.search_persistent_layer(
                 tc,
                 level,
-                entry,
-                &start_vec,
+                LayerEntry {
+                    uid: entry,
+                    vector: &start_vec,
+                    filtered_out: false,
+                },
                 in_vec,
-                false,
                 self.ef_construction,
                 accept_all::<T>,
             )?;
@@ -248,11 +253,11 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         for level in 0..self.max_levels {
             let row = all_layer_edges
                 .get_mut(level)
-                .ok_or_else(|| HnswError::LevelMissing(uuid, level, levels))?;
+                .ok_or_else(|| HnswError::level_missing(uuid, level, levels))?;
             *row = self.remove_dead_nodes(std::mem::take(row), tc)?;
             let new_level = all_layer_neighbors
                 .get(level)
-                .ok_or_else(|| HnswError::LevelMissing(uuid, level, all_layer_neighbors.len()))?;
+                .ok_or_else(|| HnswError::level_missing(uuid, level, all_layer_neighbors.len()))?;
             // Only the levels gaining neighbours need work: an inbound edge changes one.
             if new_level.is_empty() {
                 continue;

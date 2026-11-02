@@ -64,26 +64,22 @@ pub enum QuadKeyErrorEnum {
 
 impl QuadKeyError {
     /// A [`QuadKeyErrorEnum::Truncated`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn Truncated(key: &[u8]) -> Self {
+    pub fn truncated(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::Truncated { key: key.to_vec() })
     }
 
     /// A [`QuadKeyErrorEnum::TrailingBytes`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn TrailingBytes(key: &[u8]) -> Self {
+    pub fn trailing_bytes(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::TrailingBytes { key: key.to_vec() })
     }
 
     /// A [`QuadKeyErrorEnum::UnknownKeyspace`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn UnknownKeyspace(key: &[u8]) -> Self {
+    pub fn unknown_keyspace(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::UnknownKeyspace { key: key.to_vec() })
     }
 
     /// A [`QuadKeyErrorEnum::ZeroUid`] for `key`, naming the zero `field`.
-    #[allow(non_snake_case)]
-    pub fn ZeroUid(key: &[u8], field: &'static str) -> Self {
+    pub fn zero_uid(key: &[u8], field: &'static str) -> Self {
         Self(QuadKeyErrorEnum::ZeroUid {
             key: key.to_vec(),
             field,
@@ -91,14 +87,12 @@ impl QuadKeyError {
     }
 
     /// A [`QuadKeyErrorEnum::UnknownDirection`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn UnknownDirection(key: &[u8]) -> Self {
+    pub fn unknown_direction(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::UnknownDirection { key: key.to_vec() })
     }
 
     /// A [`QuadKeyErrorEnum::BadObject`] for `key`, with the object's `error`.
-    #[allow(non_snake_case)]
-    pub fn BadObject(key: &[u8], error: TermError) -> Self {
+    pub fn bad_object(key: &[u8], error: TermError) -> Self {
         Self(QuadKeyErrorEnum::BadObject {
             key: key.to_vec(),
             error,
@@ -106,14 +100,12 @@ impl QuadKeyError {
     }
 
     /// A [`QuadKeyErrorEnum::VectorObject`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn VectorObject(key: &[u8]) -> Self {
+    pub fn vector_object(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::VectorObject { key: key.to_vec() })
     }
 
     /// A [`QuadKeyErrorEnum::NotAList`] for `key`.
-    #[allow(non_snake_case)]
-    pub fn NotAList(key: &[u8]) -> Self {
+    pub fn not_a_list(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::NotAList { key: key.to_vec() })
     }
 }

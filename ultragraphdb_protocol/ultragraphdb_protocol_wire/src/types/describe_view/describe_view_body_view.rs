@@ -32,7 +32,7 @@ impl<'a> BodyView<'a> for DescribeView<'a> {
         let names = |section: usize| -> Result<Vec<u32>, ProtocolError> {
             let indices = u32s(command, section, sections.get(section))?;
             match indices.iter().enumerate().find(|(_, i)| **i >= limit) {
-                Some((at, index)) => Err(ProtocolError::IndexOutOfRange(
+                Some((at, index)) => Err(ProtocolError::index_out_of_range(
                     command, section, at, *index, limit,
                 )),
                 None => Ok(indices),

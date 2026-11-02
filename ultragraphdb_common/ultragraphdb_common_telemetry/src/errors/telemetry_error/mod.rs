@@ -36,20 +36,17 @@ pub enum TelemetryErrorEnum {
 
 impl TelemetryError {
     /// [`TelemetryErrorEnum::Filter`] of `directive` for `reason`.
-    #[allow(non_snake_case)]
-    pub fn Filter(directive: String, reason: String) -> Self {
+    pub fn filter(directive: String, reason: String) -> Self {
         Self(TelemetryErrorEnum::Filter { directive, reason })
     }
 
     /// [`TelemetryErrorEnum::Exporter`] of `endpoint` for `reason`.
-    #[allow(non_snake_case)]
-    pub fn Exporter(endpoint: String, reason: String) -> Self {
+    pub fn exporter(endpoint: String, reason: String) -> Self {
         Self(TelemetryErrorEnum::Exporter { endpoint, reason })
     }
 
     /// [`TelemetryErrorEnum::Installed`] for the installer's `reason`.
-    #[allow(non_snake_case)]
-    pub fn Installed(reason: String) -> Self {
+    pub fn installed(reason: String) -> Self {
         Self(TelemetryErrorEnum::Installed(reason))
     }
 }

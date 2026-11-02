@@ -9,7 +9,7 @@ use crate::types::encoded_term::VECTOR_MAX;
 /// The elements of a vector literal's lexical form, which must be its canonical form: the elements in brackets,
 /// separated by a comma and a space, each the shortest decimal that reads back as the same 32-bit float.
 pub fn parse_vector(lexical: &str) -> Result<Vec<f32>, TermError> {
-    let refuse = |reason| TermError::InvalidVector(lexical.to_string(), reason);
+    let refuse = |reason| TermError::invalid_vector(lexical.to_string(), reason);
     let inner = lexical
         .strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))

@@ -28,23 +28,23 @@ impl<'a> BodyView<'a> for AuthenticateView<'a> {
         let principal = header.u64_at(8);
         let expires = header.u64_at(16);
         if last > 1 {
-            return Err(ProtocolError::FieldValue(command, "final", last.into()));
+            return Err(ProtocolError::field_value(command, "final", last.into()));
         }
         let last = last == 1;
         // A final message is the server's: an odd step.
         if last && step % 2 == 0 {
-            return Err(ProtocolError::FieldValue(command, "step", step.into()));
+            return Err(ProtocolError::field_value(command, "step", step.into()));
         }
         if !last && principal != 0 {
-            return Err(ProtocolError::FieldValue(command, "principal", principal));
+            return Err(ProtocolError::field_value(command, "principal", principal));
         }
         if !last && expires != 0 {
-            return Err(ProtocolError::FieldValue(command, "expires", expires));
+            return Err(ProtocolError::field_value(command, "expires", expires));
         }
         let sections = Sections::<2>::read(command, frame.body(), 0)?;
         let mechanism = text(command, 0, sections.get(0))?;
         if (step == 0) == mechanism.is_empty() {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "mechanism",
                 mechanism.len() as u64,

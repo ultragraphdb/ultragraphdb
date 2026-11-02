@@ -52,64 +52,54 @@ pub struct ScramError(pub ScramErrorEnum);
 
 impl ScramError {
     /// A [`ScramErrorEnum::Malformed`] naming `part`.
-    #[allow(non_snake_case)]
-    pub fn Malformed(part: &'static str) -> Self {
+    pub fn malformed(part: &'static str) -> Self {
         Self(ScramErrorEnum::Malformed { part })
     }
 
     /// A [`ScramErrorEnum::ChannelBinding`].
-    #[allow(non_snake_case)]
-    pub fn ChannelBinding() -> Self {
+    pub fn channel_binding() -> Self {
         Self(ScramErrorEnum::ChannelBinding)
     }
 
     /// A [`ScramErrorEnum::Prepare`].
-    #[allow(non_snake_case)]
-    pub fn Prepare() -> Self {
+    pub fn prepare() -> Self {
         Self(ScramErrorEnum::Prepare)
     }
 
     /// A [`ScramErrorEnum::Iterations`] of `iterations`.
-    #[allow(non_snake_case)]
-    pub fn Iterations(iterations: u32) -> Self {
+    pub fn iterations(iterations: u32) -> Self {
         Self(ScramErrorEnum::Iterations { iterations })
     }
 
     /// A [`ScramErrorEnum::Nonce`].
-    #[allow(non_snake_case)]
-    pub fn Nonce() -> Self {
+    pub fn nonce() -> Self {
         Self(ScramErrorEnum::Nonce)
     }
 
     /// A [`ScramErrorEnum::Proof`].
-    #[allow(non_snake_case)]
-    pub fn Proof() -> Self {
+    pub fn proof() -> Self {
         Self(ScramErrorEnum::Proof)
     }
 
     /// A [`ScramErrorEnum::ServerSignature`].
-    #[allow(non_snake_case)]
-    pub fn ServerSignature() -> Self {
+    pub fn server_signature() -> Self {
         Self(ScramErrorEnum::ServerSignature)
     }
 
     /// A [`ScramErrorEnum::Server`] for the server's `reason`.
-    #[allow(non_snake_case)]
-    pub fn Server(reason: impl Into<String>) -> Self {
+    pub fn server(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Server {
             reason: reason.into(),
         })
     }
 
     /// A [`ScramErrorEnum::OutOfStep`].
-    #[allow(non_snake_case)]
-    pub fn OutOfStep() -> Self {
+    pub fn out_of_step() -> Self {
         Self(ScramErrorEnum::OutOfStep)
     }
 
     /// A [`ScramErrorEnum::Random`] for the random source's `reason`.
-    #[allow(non_snake_case)]
-    pub fn Random(reason: impl Into<String>) -> Self {
+    pub fn random(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Random {
             reason: reason.into(),
         })

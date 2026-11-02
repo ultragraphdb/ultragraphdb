@@ -27,10 +27,10 @@ impl<'a> BodyView<'a> for HelloView<'a> {
         let protocol_min = header.u16_at(0);
         let protocol_max = header.u16_at(2);
         if protocol_min == 0 {
-            return Err(ProtocolError::FieldValue(command, "protocol_min", 0));
+            return Err(ProtocolError::field_value(command, "protocol_min", 0));
         }
         if protocol_max < protocol_min {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "protocol_max",
                 protocol_max.into(),
@@ -38,7 +38,7 @@ impl<'a> BodyView<'a> for HelloView<'a> {
         }
         let max_frame = header.u32_at(8);
         if !(MAX_FRAME_FLOOR..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "max_frame",
                 max_frame.into(),

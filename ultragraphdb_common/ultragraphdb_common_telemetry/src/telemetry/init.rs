@@ -40,7 +40,7 @@ pub fn init(config: &TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> 
     let (subscriber, guard) = subscriber(config, std::io::stderr, exporter)?;
     subscriber
         .try_init()
-        .map_err(|e| TelemetryError::Installed(e.to_string()))?;
+        .map_err(|e| TelemetryError::installed(e.to_string()))?;
     Ok(guard)
 }
 
@@ -48,7 +48,7 @@ pub fn init(config: &TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> 
 /// against the image's trust store for `https://`, which is read and configured here so a missing bundle fails at
 /// start.
 fn otlp_exporter(endpoint: &str) -> Result<opentelemetry_otlp::SpanExporter, TelemetryError> {
-    let refused = |reason: String| TelemetryError::Exporter(endpoint.to_string(), reason);
+    let refused = |reason: String| TelemetryError::exporter(endpoint.to_string(), reason);
     let scheme = endpoint
         .split_once("://")
         .map(|(scheme, _)| scheme.to_ascii_lowercase());

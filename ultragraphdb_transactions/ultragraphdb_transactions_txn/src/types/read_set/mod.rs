@@ -28,7 +28,7 @@ const SPAN_BYTES: usize = 8;
 ///
 /// The read set is bounded: [`ReadSet::bytes`] counts the arena's bytes and 8 bytes per key the tables name (a
 /// statement or a range names two, an open end included), the catalog range included, and a push past the limit is
-/// refused with [`TxnError::ReadSetTooLarge`] and adds nothing.
+/// refused with [`TxnError::read_set_too_large`] and adds nothing.
 #[derive(Debug, Clone)]
 pub struct ReadSet {
     namespace: u64,
@@ -104,7 +104,7 @@ impl ReadSet {
     fn room(&self, arena: usize, spans: usize) -> Result<(), TxnError> {
         let size = self.bytes() + arena + SPAN_BYTES * spans;
         if size > self.limit {
-            return Err(TxnError::ReadSetTooLarge(size, self.limit));
+            return Err(TxnError::read_set_too_large(size, self.limit));
         }
         Ok(())
     }
@@ -123,7 +123,7 @@ impl ReadSet {
     ///
     /// # Errors
     ///
-    /// [`TxnError::ReadSetTooLarge`] when it would take the read set past its limit; nothing is added.
+    /// [`TxnError::read_set_too_large`] when it would take the read set past its limit; nothing is added.
     pub fn push_list(&mut self, key: &[u8]) -> Result<(), TxnError> {
         self.room(key.len(), 1)?;
         let span = self.add(key);
@@ -176,7 +176,7 @@ impl ReadSet {
     ///
     /// # Errors
     ///
-    /// [`TxnError::ReadSetTooLarge`] when it would take the read set past its limit; the read set is then as it was.
+    /// [`TxnError::read_set_too_large`] when it would take the read set past its limit; the read set is then as it was.
     pub fn gather(&mut self, reads: &Reads) -> Result<(), TxnError> {
         let keys = |keys: &[Vec<u8>]| keys.iter().map(Vec::len).sum::<usize>();
         let arena = keys(reads.lists())

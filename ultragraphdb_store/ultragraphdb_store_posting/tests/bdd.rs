@@ -24,9 +24,8 @@ use ultragraphdb_store_sim::{
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, ListCache, PersistMode, Store, StoreSnapshot};
 
-// The unit tests' helpers and the posting workload, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' helpers and the posting workload, shared by path.
+pub mod utils {
     #[path = "helpers.rs"]
     pub mod helpers;
     #[path = "posting_workload.rs"]

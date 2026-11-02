@@ -175,7 +175,7 @@ impl<S: DurableStorage> Wal<S> {
                         index,
                         start,
                         end,
-                    }) => LogError::CorruptChunk(
+                    }) => LogError::corrupt_chunk(
                         position.get(),
                         stop.segment,
                         stop.offset,
@@ -184,9 +184,9 @@ impl<S: DurableStorage> Wal<S> {
                         end,
                     ),
                     Some(Damage::ChunkTable { position }) => {
-                        LogError::Corrupt(position.get(), stop.segment, stop.offset)
+                        LogError::corrupt(position.get(), stop.segment, stop.offset)
                     }
-                    _ => LogError::Corrupt(expected, stop.segment, stop.offset),
+                    _ => LogError::corrupt(expected, stop.segment, stop.offset),
                 });
             }
             from = 0;

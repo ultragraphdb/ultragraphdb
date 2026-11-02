@@ -57,37 +57,37 @@ impl ScramServer {
     }
 
     /// The server-first-message answering `client_first`, the name's verifier found by `lookup`: `r=<client nonce +
-    /// server nonce>,s=<salt>,i=<iterations>`. Refused as [`ScramError::Malformed`], [`ScramError::ChannelBinding`]
-    /// for a client asking for channel binding, [`ScramError::Prepare`], or [`ScramError::OutOfStep`].
+    /// server nonce>,s=<salt>,i=<iterations>`. Refused as [`ScramError::malformed`], [`ScramError::channel_binding`]
+    /// for a client asking for channel binding, [`ScramError::prepare`], or [`ScramError::out_of_step`].
     pub fn first(
         &mut self,
         client_first: &[u8],
         lookup: impl FnOnce(&str) -> Option<(u64, ScramVerifier)>,
     ) -> Result<Vec<u8>, ScramError> {
         if self.state != ServerState::Initial {
-            return Err(ScramError::OutOfStep());
+            return Err(ScramError::out_of_step());
         }
         let text = std::str::from_utf8(client_first)
-            .map_err(|_| ScramError::Malformed("channel binding"))?;
+            .map_err(|_| ScramError::malformed("channel binding"))?;
         let mut header = text.splitn(3, ',');
         let (flag, authorization, bare) = match (header.next(), header.next(), header.next()) {
             (Some(flag), Some(authorization), Some(bare)) => (flag, authorization, bare),
-            _ => return Err(ScramError::Malformed("channel binding")),
+            _ => return Err(ScramError::malformed("channel binding")),
         };
         match flag {
             "n" | "y" => {}
-            f if f.starts_with("p=") => return Err(ScramError::ChannelBinding()),
-            _ => return Err(ScramError::Malformed("channel binding")),
+            f if f.starts_with("p=") => return Err(ScramError::channel_binding()),
+            _ => return Err(ScramError::malformed("channel binding")),
         }
         if !authorization.is_empty() {
-            return Err(ScramError::Malformed("authorization identity"));
+            return Err(ScramError::malformed("authorization identity"));
         }
         let mut parts = bare.split(',');
-        let name = attribute(parts.next(), 'n').ok_or(ScramError::Malformed("name"))?;
+        let name = attribute(parts.next(), 'n').ok_or(ScramError::malformed("name"))?;
         let name = prepare(&unescape(name)?)?;
         let client_nonce = attribute(parts.next(), 'r')
             .filter(|n| valid_nonce(n))
-            .ok_or(ScramError::Malformed("nonce"))?;
+            .ok_or(ScramError::malformed("nonce"))?;
         let (principal, verifier) = match lookup(&name) {
             Some((principal, verifier)) => (Some(principal), verifier),
             None => (None, self.unknown(&name)),
@@ -123,8 +123,8 @@ impl ScramServer {
     }
 
     /// The server-final-message answering `client_final`, `v=<signature>`, and the principal it authenticated;
-    /// refused as [`ScramError::Proof`] for a wrong password or an unknown name alike, [`ScramError::Nonce`] for
-    /// another nonce, [`ScramError::Malformed`], or [`ScramError::OutOfStep`].
+    /// refused as [`ScramError::proof`] for a wrong password or an unknown name alike, [`ScramError::nonce`] for
+    /// another nonce, [`ScramError::malformed`], or [`ScramError::out_of_step`].
     pub fn last(&mut self, client_final: &[u8]) -> Result<(Vec<u8>, u64), ScramError> {
         let ServerState::First {
             binding,
@@ -135,28 +135,28 @@ impl ScramServer {
             verifier,
         } = &self.state
         else {
-            return Err(ScramError::OutOfStep());
+            return Err(ScramError::out_of_step());
         };
-        let text = std::str::from_utf8(client_final).map_err(|_| ScramError::Malformed("proof"))?;
+        let text = std::str::from_utf8(client_final).map_err(|_| ScramError::malformed("proof"))?;
         let (without_proof, proof) = text
             .rsplit_once(",p=")
-            .ok_or(ScramError::Malformed("proof"))?;
+            .ok_or(ScramError::malformed("proof"))?;
         let proof = decode(proof, "proof")?;
         let mut parts = without_proof.split(',');
         let channel =
-            attribute(parts.next(), 'c').ok_or(ScramError::Malformed("channel binding"))?;
+            attribute(parts.next(), 'c').ok_or(ScramError::malformed("channel binding"))?;
         if channel != binding {
-            return Err(ScramError::ChannelBinding());
+            return Err(ScramError::channel_binding());
         }
         if attribute(parts.next(), 'r') != Some(nonce.as_str()) {
-            return Err(ScramError::Nonce());
+            return Err(ScramError::nonce());
         }
         let auth_message = format!("{client_first_bare},{server_first},{without_proof}");
         let signature = hmac(verifier.stored_key(), auth_message.as_bytes());
         let client_key: Vec<u8> = proof.iter().zip(signature).map(|(p, s)| p ^ s).collect();
         let proved = proof.len() == 32 && same(&sha256(&client_key), verifier.stored_key());
         let (true, Some(principal)) = (proved, *principal) else {
-            return Err(ScramError::Proof());
+            return Err(ScramError::proof());
         };
         let server_signature = hmac(verifier.server_key(), auth_message.as_bytes());
         self.state = ServerState::Done;

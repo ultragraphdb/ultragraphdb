@@ -48,8 +48,8 @@ fn exchange(name: &str, password: &str) -> TestResult<Result<(Vec<u8>, u64), Scr
 
 #[test]
 fn test_a_wrong_password_and_an_unknown_name_fail_alike_at_the_proof() -> TestResult {
-    assert_eq!(exchange(NAME, "wrong")?, Err(ScramError::Proof()));
-    assert_eq!(exchange("nobody", "pencil")?, Err(ScramError::Proof()));
+    assert_eq!(exchange(NAME, "wrong")?, Err(ScramError::proof()));
+    assert_eq!(exchange("nobody", "pencil")?, Err(ScramError::proof()));
     Ok(())
 }
 
@@ -77,28 +77,28 @@ fn test_the_clients_first_message_is_checked() -> TestResult {
     let first = |message: &[u8]| server().first(message, lookup(&known));
     assert_eq!(
         first(b"p=tls-exporter,,n=user,r=abc"),
-        Err(ScramError::ChannelBinding())
+        Err(ScramError::channel_binding())
     );
     // A client that supports channel binding and believes the server does not: taken (RFC 5802 section 6).
     assert!(first(b"y,,n=user,r=abc").is_ok());
     assert_eq!(
         first(b"n,a=admin,n=user,r=abc"),
-        Err(ScramError::Malformed("authorization identity"))
+        Err(ScramError::malformed("authorization identity"))
     );
-    assert_eq!(first(b"n,,r=abc"), Err(ScramError::Malformed("name")));
-    assert_eq!(first(b"n,,n=user"), Err(ScramError::Malformed("nonce")));
+    assert_eq!(first(b"n,,r=abc"), Err(ScramError::malformed("name")));
+    assert_eq!(first(b"n,,n=user"), Err(ScramError::malformed("nonce")));
     assert_eq!(
         first(b"n,,n=us=2Xer,r=abc"),
-        Err(ScramError::Malformed("name"))
+        Err(ScramError::malformed("name"))
     );
     assert_eq!(
         first(b"garbage"),
-        Err(ScramError::Malformed("channel binding"))
+        Err(ScramError::malformed("channel binding"))
     );
     // A name SASLprep refuses.
     assert_eq!(
         first("n,,n=us\u{0007}er,r=abc".as_bytes()),
-        Err(ScramError::Prepare())
+        Err(ScramError::prepare())
     );
     Ok(())
 }
@@ -114,20 +114,20 @@ fn test_the_clients_final_message_is_checked() -> TestResult {
     // Another nonce than the server's answer named.
     assert_eq!(
         last(b"c=biws,r=rOprNGfwEbeRWgbNEkqOother,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=")?,
-        Err(ScramError::Nonce())
+        Err(ScramError::nonce())
     );
     // Another channel binding than the first message's header.
     assert_eq!(
         last(b"c=eSws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=")?,
-        Err(ScramError::ChannelBinding())
+        Err(ScramError::channel_binding())
     );
     assert_eq!(
         last(b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=!!")?,
-        Err(ScramError::Malformed("proof"))
+        Err(ScramError::malformed("proof"))
     );
     assert_eq!(
         last(b"c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0")?,
-        Err(ScramError::Malformed("proof"))
+        Err(ScramError::malformed("proof"))
     );
     Ok(())
 }
@@ -136,14 +136,14 @@ fn test_the_clients_final_message_is_checked() -> TestResult {
 fn test_messages_out_of_step_are_refused() -> TestResult {
     let known = verifier()?;
     let mut server = server();
-    assert_eq!(server.last(CLIENT_FINAL), Err(ScramError::OutOfStep()));
+    assert_eq!(server.last(CLIENT_FINAL), Err(ScramError::out_of_step()));
     assert_eq!(server.first(CLIENT_FIRST, lookup(&known))?, SERVER_FIRST);
     assert_eq!(
         server.first(CLIENT_FIRST, lookup(&known)),
-        Err(ScramError::OutOfStep())
+        Err(ScramError::out_of_step())
     );
     assert_eq!(server.last(CLIENT_FINAL)?, (SERVER_FINAL.to_vec(), 42));
-    assert_eq!(server.last(CLIENT_FINAL), Err(ScramError::OutOfStep()));
+    assert_eq!(server.last(CLIENT_FINAL), Err(ScramError::out_of_step()));
     Ok(())
 }
 
@@ -168,7 +168,7 @@ fn test_a_channel_binding_flag_other_than_n_y_or_p_is_malformed() -> TestResult 
     let known = verifier()?;
     assert_eq!(
         server().first(b"x,,n=user,r=abc", lookup(&known)),
-        Err(ScramError::Malformed("channel binding"))
+        Err(ScramError::malformed("channel binding"))
     );
     Ok(())
 }

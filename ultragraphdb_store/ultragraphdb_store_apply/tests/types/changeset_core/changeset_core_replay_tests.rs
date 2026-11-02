@@ -365,7 +365,7 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
         .context("the error of a.prepare_replay(NS, record)")?;
     assert_eq!(
         refused.0,
-        ChangesetErrorEnum::Store(StoreError::Corrupted(
+        ChangesetErrorEnum::Store(StoreError::corrupted(
             key.clone(),
             "unknown posting format version 255".to_string()
         ))
@@ -387,7 +387,7 @@ fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() ->
         .context("the error of a.restore_build(..)")?;
     assert_eq!(
         refused.0,
-        ChangesetErrorEnum::Catalog(ultragraphdb_core_catalog::CatalogError::Corrupted(
+        ChangesetErrorEnum::Catalog(ultragraphdb_core_catalog::CatalogError::corrupted(
             &key,
             "unknown format 255".to_string()
         ))

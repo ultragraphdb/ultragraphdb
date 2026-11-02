@@ -15,25 +15,39 @@ pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
 /// One golden frame's fields, as `generate_frames.c` wrote them and printed its checksums.
 pub struct GoldenFrame {
+    /// The frame's name, the stem of its file under `testdata/golden/`.
     pub name: &'static str,
+    /// The frame's size in bytes: the header, the body and its chunk table.
     pub size: u32,
+    /// The header's checksum: XXH3-64 of the header after its first 8 bytes.
     pub checksum: u64,
+    /// The body's checksum: XXH3-64 of the body when it is one chunk, of its chunk table otherwise.
     pub checksum_body: u64,
+    /// The header's sequence.
     pub sequence: u128,
+    /// The header's view.
     pub view: u32,
+    /// The header's release.
     pub release: u32,
+    /// The header's protocol.
     pub protocol: u16,
+    /// The header's command code.
     pub command: u16,
+    /// The header's stream.
     pub stream: u64,
+    /// The header's replica.
     pub replica: u8,
+    /// The header's flags.
     pub flags: u8,
     /// Command header byte i is `(i * 7 + 3) ^ command_header_xor`.
     pub command_header_xor: u8,
+    /// The body's length in bytes, without its chunk table.
     pub data_len: usize,
     /// The chunk table's leaves; empty for a body of one chunk.
     pub leaves: &'static [u64],
 }
 
+/// A Hello, the client's first frame on a connection: sequence 1, a body of one chunk.
 pub const HELLO: GoldenFrame = GoldenFrame {
     name: "hello",
     size: 356,
@@ -52,6 +66,8 @@ pub const HELLO: GoldenFrame = GoldenFrame {
     leaves: &[],
 };
 
+/// A Read on a stream with every header field distinct and nonzero, the sequence using all 128 bits: a body of six
+/// chunks and their table.
 pub const READ: GoldenFrame = GoldenFrame {
     name: "read",
     size: 20_736,
@@ -77,6 +93,7 @@ pub const READ: GoldenFrame = GoldenFrame {
     ],
 };
 
+/// A Credit with an empty body: one empty chunk and no table.
 pub const CREDIT: GoldenFrame = GoldenFrame {
     name: "credit",
     size: 256,
@@ -96,6 +113,7 @@ pub const CREDIT: GoldenFrame = GoldenFrame {
     leaves: &[],
 };
 
+/// A Result whose body fills the first chunk exactly: no table.
 pub const ONE_CHUNK: GoldenFrame = GoldenFrame {
     name: "one_chunk",
     size: 4_096,
@@ -114,6 +132,7 @@ pub const ONE_CHUNK: GoldenFrame = GoldenFrame {
     leaves: &[],
 };
 
+/// A Result one byte past the first chunk: two chunks, the second of one byte, and their table.
 pub const TWO_CHUNKS: GoldenFrame = GoldenFrame {
     name: "two_chunks",
     size: 4_113,
@@ -132,6 +151,7 @@ pub const TWO_CHUNKS: GoldenFrame = GoldenFrame {
     leaves: &[0xF58B_6858_34EC_C49D, 0xB543_05B2_405A_3A2E],
 };
 
+/// A Round of two full chunks and their table, its sequence the round's position.
 pub const ROUND: GoldenFrame = GoldenFrame {
     name: "round",
     size: 8_208,
@@ -150,6 +170,7 @@ pub const ROUND: GoldenFrame = GoldenFrame {
     leaves: &[0xA821_56A2_7AF6_3792, 0x9B92_ABAA_4208_A46D],
 };
 
+/// Every golden frame, in the order the generator writes them.
 pub const GOLDEN: [GoldenFrame; 6] = [HELLO, READ, CREDIT, ONE_CHUNK, TWO_CHUNKS, ROUND];
 
 impl GoldenFrame {

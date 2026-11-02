@@ -25,12 +25,12 @@ use crate::types::write_batch::WriteBatch;
 /// **Durability.** A batch handed to [`Store::apply`] survives a crash of the process; it survives a power loss
 /// once a sync has covered it, by [`PersistMode::Sync`] or [`Store::sync`]. After a power loss the surviving batches
 /// are a prefix of batch order, each whole. A failed write poisons the store: every later write returns
-/// [`StoreError::Poisoned`] until the store is reopened, and after reopening the failed batch is present whole or
+/// [`StoreError::poisoned`] until the store is reopened, and after reopening the failed batch is present whole or
 /// absent whole. Drops, bans, the discard timestamp and the tombstone horizon are durable when their call returns.
 ///
 /// **Garbage collection.** Below the discard timestamp `D`, compaction removes every version of a key older than
 /// its newest discard-flagged version or deletion at or below `D`, and never a deletion; a read below `D` is refused
-/// with [`StoreError::TsTooOld`]. The sweep removes a deletion at or below the tombstone horizon that has no version
+/// with [`StoreError::ts_too_old`]. The sweep removes a deletion at or below the tombstone horizon that has no version
 /// of its key below it.
 ///
 /// **The keyspace without versions.** Beside the versioned keys, a store holds non-empty keys with one value each,
@@ -45,20 +45,20 @@ use crate::types::write_batch::WriteBatch;
 /// keyspace a crash left. Before it builds, it writes a rebuild record ([`Store::write_rebuild_record`]), which its
 /// swap batch or failure batch removes ([`WriteBatch::remove_rebuild_record`]); the records a store holds when it is
 /// opened ([`Store::rebuild_records`]) name the rebuilds a crash or a power loss stopped. A store that keeps neither
-/// refuses them with [`StoreError::Unsupported`], the default.
+/// refuses them with [`StoreError::unsupported`], the default.
 pub trait Store {
     /// A consistent view of the store at one read timestamp.
     type Snapshot: StoreSnapshot;
 
     /// Writes `batch` atomically: it becomes visible whole or not at all, to point reads and scans alike, and has no
     /// size limit that splits it. A batch whose user key exceeds [`crate::MAX_USER_KEY_SIZE`] or whose stored key
-    /// exceeds [`crate::MAX_STORED_KEY_SIZE`] is refused with [`StoreError::KeyTooLarge`] and writes nothing, as is a
-    /// batch with an empty versionless key, refused with [`StoreError::EmptyKey`] ([`WriteBatch::check_key_sizes`]).
+    /// exceeds [`crate::MAX_STORED_KEY_SIZE`] is refused with [`StoreError::key_too_large`] and writes nothing, as is a
+    /// batch with an empty versionless key, refused with [`StoreError::empty_key`] ([`WriteBatch::check_key_sizes`]).
     /// An entry addressed to a banned namespace is dropped and the rest is written. The batch's applied timestamp, if
     /// it has one, is written in the same batch, as are its versionless writes, which no ban drops.
     fn apply(&self, batch: WriteBatch, mode: PersistMode) -> Result<(), StoreError>;
 
-    /// Opens a snapshot reading at `read_ts`, refused with [`StoreError::TsTooOld`] below the discard timestamp.
+    /// Opens a snapshot reading at `read_ts`, refused with [`StoreError::ts_too_old`] below the discard timestamp.
     /// While it is open, the discard timestamp stays at or below `read_ts`.
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError>;
 
@@ -118,7 +118,7 @@ pub trait Store {
 
     /// Creates an empty temporary keyspace. It survives no reopening of the store, and a write to it needs no sync.
     fn create_temporary(&self) -> Result<Temporary, StoreError> {
-        Err(StoreError::Unsupported("temporary keyspaces"))
+        Err(StoreError::unsupported("temporary keyspaces"))
     }
 
     /// Writes `batch` to `temporary` atomically, as [`Store::apply`] writes to the data: refused whole when any key
@@ -127,20 +127,20 @@ pub trait Store {
     /// entry is dropped for a banned namespace. A failed write poisons the store as a failed batch does.
     fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
         let _unsupported: (&Temporary, WriteBatch) = (temporary, batch);
-        Err(StoreError::Unsupported("temporary keyspaces"))
+        Err(StoreError::unsupported("temporary keyspaces"))
     }
 
     /// A snapshot of `temporary` reading every version it holds, as a snapshot of the data at `u64::MAX` reads; it
     /// holds no discard timestamp back.
     fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
         let _unsupported: &Temporary = temporary;
-        Err(StoreError::Unsupported("temporary keyspaces"))
+        Err(StoreError::unsupported("temporary keyspaces"))
     }
 
     /// Drops `temporary` and everything it holds.
     fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
         let _unsupported: Temporary = temporary;
-        Err(StoreError::Unsupported("temporary keyspaces"))
+        Err(StoreError::unsupported("temporary keyspaces"))
     }
 
     /// Writes `record` and syncs it, so it survives a power loss once this returns; a record of the same number is
@@ -148,7 +148,7 @@ pub trait Store {
     /// record.
     fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
         let _unsupported: &RebuildRecord = record;
-        Err(StoreError::Unsupported("rebuild records"))
+        Err(StoreError::unsupported("rebuild records"))
     }
 
     /// The rebuild records the store holds, by number: none for a store that keeps none.

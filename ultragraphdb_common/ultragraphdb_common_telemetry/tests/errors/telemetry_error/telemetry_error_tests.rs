@@ -8,21 +8,21 @@ use ultragraphdb_common_telemetry::{TelemetryError, TelemetryErrorEnum};
 #[test]
 fn test_constructors_build_their_variant() {
     assert_eq!(
-        TelemetryError::Filter("x=loud".into(), "bad".into()).0,
+        TelemetryError::filter("x=loud".into(), "bad".into()).0,
         TelemetryErrorEnum::Filter {
             directive: "x=loud".into(),
             reason: "bad".into()
         }
     );
     assert_eq!(
-        TelemetryError::Exporter("e".into(), "bad".into()).0,
+        TelemetryError::exporter("e".into(), "bad".into()).0,
         TelemetryErrorEnum::Exporter {
             endpoint: "e".into(),
             reason: "bad".into()
         }
     );
     assert_eq!(
-        TelemetryError::Installed("set".into()).0,
+        TelemetryError::installed("set".into()).0,
         TelemetryErrorEnum::Installed("set".into())
     );
 }

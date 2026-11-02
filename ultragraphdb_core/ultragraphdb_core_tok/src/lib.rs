@@ -15,7 +15,7 @@
 //! use ultragraphdb_core_types::Value;
 //!
 //! # fn main() -> Result<(), TokError> {
-//! let fulltext = get_tokenizer("fulltext").ok_or(TokError::UnknownTokenizer("fulltext".into()))?;
+//! let fulltext = get_tokenizer("fulltext").ok_or(TokError::unknown_tokenizer("fulltext"))?;
 //! let fulltext = get_tokenizer_for_lang(&fulltext, "en");
 //! let tokens = build_tokens(&Value::str("Stemming works!"), &fulltext)?;
 //! assert_eq!(tokens, vec![b"\x08stem".to_vec(), b"\x08work".to_vec()]);

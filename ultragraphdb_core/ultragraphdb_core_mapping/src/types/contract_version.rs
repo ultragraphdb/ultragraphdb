@@ -43,14 +43,14 @@ impl ContractVersion {
     ///
     /// # Errors
     ///
-    /// [`MappingError::BadContractVersion`] when `bytes` are not four bytes long.
+    /// [`MappingError::bad_contract_version`] when `bytes` are not four bytes long.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, MappingError> {
         match bytes {
             [a, b, c, d] => Ok(Self::new(
                 u16::from_be_bytes([*a, *b]),
                 u16::from_be_bytes([*c, *d]),
             )),
-            _ => Err(MappingError::BadContractVersion(bytes)),
+            _ => Err(MappingError::bad_contract_version(bytes)),
         }
     }
 
@@ -59,7 +59,7 @@ impl ContractVersion {
         if stored.major == self.major {
             Ok(())
         } else {
-            Err(MappingError::ContractVersion(
+            Err(MappingError::contract_version(
                 (stored.major, stored.minor),
                 (self.major, self.minor),
             ))

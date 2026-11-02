@@ -56,7 +56,7 @@ fn main() -> ExitCode {
 }
 
 /// A seed no earlier run is likely to have used.
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the fuzz binary draws fresh seeds from the wall clock and prints each, so every run replays"
 )]

@@ -124,7 +124,7 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
 /// use ultragraphdb_core_types::Value;
 ///
 /// # fn main() -> Result<(), TokError> {
-/// let term = get_tokenizer("term").ok_or(TokError::UnknownTokenizer("term".into()))?;
+/// let term = get_tokenizer("term").ok_or(TokError::unknown_tokenizer("term"))?;
 /// let tokens = build_tokens(&Value::str("Tokenizer works works!"), &term)?;
 /// assert_eq!(tokens, vec![b"\x01tokenizer".to_vec(), b"\x01works".to_vec()]);
 /// # Ok(())

@@ -100,11 +100,11 @@ impl SessionEntry {
     ///
     /// # Errors
     ///
-    /// [`StoreError::Corrupted`] naming `key` for bytes shorter than the fixed part, results not filling the rest
+    /// [`StoreError::corrupted`] naming `key` for bytes shorter than the fixed part, results not filling the rest
     /// exactly, a padding byte not zero, a `created` above 1, a request 0 with a version or results, or a committed
     /// request without a version.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Self, StoreError> {
-        let corrupted = |reason: &str| StoreError::Corrupted(key.to_vec(), reason.to_string());
+        let corrupted = |reason: &str| StoreError::corrupted(key.to_vec(), reason.to_string());
         let (Some(request), Some(version), Some(owner), Some(count), Some(padding)) = (
             bytes.get(..8),
             bytes.get(8..16),

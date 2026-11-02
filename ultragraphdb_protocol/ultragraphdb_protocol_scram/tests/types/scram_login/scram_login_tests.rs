@@ -65,7 +65,7 @@ fn test_a_name_or_password_saslprep_refuses_is_refused_at_once() -> TestResult {
 
 #[test]
 fn test_a_nonce_the_source_fails_or_draws_malformed_is_an_authentication_error() -> TestResult {
-    let mut failing = ScramLogin::new("user", "pencil", || Err(ScramError::Random("none")))?;
+    let mut failing = ScramLogin::new("user", "pencil", || Err(ScramError::random("none")))?;
     let Err(error) = failing.mechanism(&offered()) else {
         return Err(TestError::new(
             "a failing nonce source refuses the mechanism",

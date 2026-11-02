@@ -28,8 +28,8 @@ use crate::types::transaction::Transaction;
 
 /// A refusal read from an Error frame.
 pub(crate) fn refusal(view: &FrameView<'_>) -> Result<ClientError, ClientError> {
-    let error = ErrorReplyView::from_frame(view).map_err(ClientError::Protocol)?;
-    Ok(ClientError::Refused(
+    let error = ErrorReplyView::from_frame(view).map_err(ClientError::protocol)?;
+    Ok(ClientError::refused(
         error.code(),
         error.detail(),
         error.message(),
@@ -42,10 +42,10 @@ impl<L: Login> ClientCore<L> {
     /// 13 and 14), then routed to its stream and read in place through its view; a result's frame waits in its
     /// stream's inbox, its chunks checked when it is read. Stream 0 carries the Welcome, the Authenticate exchange and
     /// its renewals, and the server's closing Error. Refused, and the connection given up, when it breaks a
-    /// validation rule ([`ClientError::Protocol`]), when the handshake or an exchange fails
-    /// ([`ClientError::Transport`]), and when the server closes with an Error frame on stream 0
-    /// ([`ClientError::Closed`]); a request waiting on the connection then fails with
-    /// [`ClientError::ConnectionLost`], the refusal its cause. A frame of a stream no longer open is late and is
+    /// validation rule ([`ClientError::protocol`]), when the handshake or an exchange fails
+    /// ([`ClientError::transport`]), and when the server closes with an Error frame on stream 0
+    /// ([`ClientError::closed`]); a request waiting on the connection then fails with
+    /// [`ClientError::connection_lost`], the refusal its cause. A frame of a stream no longer open is late and is
     /// dropped.
     pub fn receive(&mut self, frame: ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         self.last_progress = Some(now);
@@ -53,12 +53,12 @@ impl<L: Login> ClientCore<L> {
             return Ok(());
         }
         if let Err(rule) = frame.check_order() {
-            return self.fatal(ClientError::Protocol(rule));
+            return self.fatal(ClientError::protocol(rule));
         }
         if let Link::Handshake(handshake) = &self.link {
             return match handshake.receive(frame.bytes()) {
                 Ok(welcome) => self.welcomed(welcome, now),
-                Err(error) => self.fatal(ClientError::Transport(error)),
+                Err(error) => self.fatal(ClientError::transport(error)),
             };
         }
         let stream = frame.stream();
@@ -81,7 +81,7 @@ impl<L: Login> ClientCore<L> {
         if frame.command() == Command::Error.number() {
             let view = match frame.view() {
                 Ok(view) => view,
-                Err(error) => return self.fatal(ClientError::Protocol(error)),
+                Err(error) => return self.fatal(ClientError::protocol(error)),
             };
             match refusal(&view) {
                 Ok(error) => {
@@ -121,14 +121,14 @@ impl<L: Login> ClientCore<L> {
         let mechanism = self
             .login
             .mechanism(welcome.mechanisms())
-            .map_err(ClientError::Transport)?
+            .map_err(ClientError::transport)?
             .ok_or_else(|| {
-                ClientError::Transport(TransportError::Authentication(
+                ClientError::transport(TransportError::authentication(
                     "the login speaks none of the server's mechanisms".to_string(),
                 ))
             })?;
         let mut exchange = ClientAuthentication::new(mechanism);
-        let first = exchange.start().map_err(ClientError::Transport)?;
+        let first = exchange.start().map_err(ClientError::transport)?;
         let frame = self.connection_request(&first, welcome)?;
         self.outbox.push_back(frame);
         Ok(exchange)
@@ -138,15 +138,15 @@ impl<L: Login> ClientCore<L> {
     fn connection_frame(&mut self, frame: &ReceivedFrame, now: Instant) -> Result<(), ClientError> {
         let view = match frame.view() {
             Ok(view) => view,
-            Err(error) => return self.fatal(ClientError::Protocol(error)),
+            Err(error) => return self.fatal(ClientError::protocol(error)),
         };
         match view.command() {
             Command::Error => {
                 let closed = ErrorReplyView::from_frame(&view)
-                    .map(|e| ClientError::Closed(e.code(), e.message()));
+                    .map(|e| ClientError::closed(e.code(), e.message()));
                 match closed {
                     Ok(error) => self.fatal(error),
-                    Err(error) => self.fatal(ClientError::Protocol(error)),
+                    Err(error) => self.fatal(ClientError::protocol(error)),
                 }
             }
             Command::Authenticate => self.authenticate(&view, now),
@@ -184,7 +184,7 @@ impl<L: Login> ClientCore<L> {
             _ => {
                 // An Authenticate with no exchange running is out of step, as one of the wrong step is.
                 let step = AuthenticateView::from_frame(view).map_or(0, |a| a.step());
-                return self.fatal(ClientError::Protocol(ProtocolError::FieldValue(
+                return self.fatal(ClientError::protocol(ProtocolError::field_value(
                     Command::Authenticate.number(),
                     "step",
                     step.into(),
@@ -199,7 +199,7 @@ impl<L: Login> ClientCore<L> {
             }
             Ok(AuthenticationStep::Done { principal, expires }) => {
                 if self.renewal.take().is_some() && self.principal != Some(principal) {
-                    return self.fatal(ClientError::Transport(TransportError::Authentication(
+                    return self.fatal(ClientError::transport(TransportError::authentication(
                         "renewed as another principal".to_string(),
                     )));
                 }
@@ -211,13 +211,13 @@ impl<L: Login> ClientCore<L> {
                 }
                 Ok(())
             }
-            Err(error) => self.fatal(ClientError::Transport(error)),
+            Err(error) => self.fatal(ClientError::transport(error)),
         }
     }
 
     /// Gives the connection up for `error`, which the caller gets; requests waiting fail as lost, `error` their cause.
     fn fatal(&mut self, error: ClientError) -> Result<(), ClientError> {
-        self.lose(&ClientError::ConnectionLost(Some(error.clone())));
+        self.lose(&ClientError::connection_lost(Some(error.clone())));
         Err(error)
     }
 
@@ -234,7 +234,7 @@ impl<L: Login> ClientCore<L> {
         };
         let view = match frame.view() {
             Ok(view) => view,
-            Err(error) => return self.fatal(ClientError::Protocol(error)),
+            Err(error) => return self.fatal(ClientError::protocol(error)),
         };
         let outcome = if view.command() == Command::Error {
             match refusal(&view) {
@@ -293,7 +293,7 @@ impl<L: Login> ClientCore<L> {
                 pending.resend_at = Some(now + self.config.retry_delay());
                 return;
             }
-            pending.outcome = Some(Err(ClientError::RetriesExhausted(
+            pending.outcome = Some(Err(ClientError::retries_exhausted(
                 session,
                 request,
                 pending.tries,
@@ -306,7 +306,7 @@ impl<L: Login> ClientCore<L> {
         }
         if code == Some(ErrorCode::SessionEvicted) {
             pending.outcome = Some(if pending.retried {
-                Err(ClientError::OutcomeUnknown(session, request))
+                Err(ClientError::outcome_unknown(session, request))
             } else {
                 outcome
             });
@@ -323,7 +323,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// The reply `view` decoded for what its request expects; a reply of another command or naming another commit
-    /// is [`ClientError::ReplyMismatch`], an answer of the request, and a reply breaking a rule is the caller's error.
+    /// is [`ClientError::reply_mismatch`], an answer of the request, and a reply breaking a rule is the caller's error.
     fn decode(
         &mut self,
         expect: Expect,
@@ -340,7 +340,7 @@ impl<L: Login> ClientCore<L> {
             Expect::Describe => Command::Describe,
         };
         if command != wanted {
-            return Ok(Err(ClientError::ReplyMismatch(
+            return Ok(Err(ClientError::reply_mismatch(
                 "command",
                 wanted.number().into(),
                 command.number().into(),
@@ -349,7 +349,7 @@ impl<L: Login> ClientCore<L> {
         Ok(match expect {
             Expect::Register => {
                 let number = RegisterView::from_frame(view)
-                    .map_err(ClientError::Protocol)?
+                    .map_err(ClientError::protocol)?
                     .session();
                 let _registered: &mut SessionState =
                     self.sessions.entry(number).or_insert(SessionState {
@@ -360,7 +360,7 @@ impl<L: Login> ClientCore<L> {
                 Ok(Reply::Registered(Session::new(number)))
             }
             Expect::Begin => {
-                let begin = BeginView::from_frame(view).map_err(ClientError::Protocol)?;
+                let begin = BeginView::from_frame(view).map_err(ClientError::protocol)?;
                 if let Some(state) = self.streams.get_mut(&stream) {
                     state.transaction = Some(begin.read_only());
                 }
@@ -375,7 +375,7 @@ impl<L: Login> ClientCore<L> {
             Expect::Commit { session, request } => committed(view, session, request)?,
             Expect::Drop { session, request } => dropped(view, session, request)?,
             Expect::Prepare => {
-                let prepare = PrepareView::from_frame(view).map_err(ClientError::Protocol)?;
+                let prepare = PrepareView::from_frame(view).map_err(ClientError::protocol)?;
                 Ok(Reply::Prepared(Statement::new(
                     prepare.statement(),
                     prepare.namespace(),
@@ -387,7 +387,7 @@ impl<L: Login> ClientCore<L> {
             Expect::Describe => {
                 let describe = DescribeView::from_frame(view)
                     .and_then(|d| d.to_body())
-                    .map_err(ClientError::Protocol)?;
+                    .map_err(ClientError::protocol)?;
                 Ok(Reply::Described(describe))
             }
         })
@@ -395,21 +395,21 @@ impl<L: Login> ClientCore<L> {
 }
 
 /// A Commit's reply `view` to commit `request` of `session`; one naming another commit is
-/// [`ClientError::ReplyMismatch`], and one breaking a rule the caller's error.
+/// [`ClientError::reply_mismatch`], and one breaking a rule the caller's error.
 fn committed(
     view: &FrameView<'_>,
     session: u64,
     request: u64,
 ) -> Result<Result<Reply, ClientError>, ClientError> {
-    let commit = CommitView::from_frame(view).map_err(ClientError::Protocol)?;
+    let commit = CommitView::from_frame(view).map_err(ClientError::protocol)?;
     Ok(if commit.session() != session {
-        Err(ClientError::ReplyMismatch(
+        Err(ClientError::reply_mismatch(
             "session",
             session,
             commit.session(),
         ))
     } else if commit.request() != request {
-        Err(ClientError::ReplyMismatch(
+        Err(ClientError::reply_mismatch(
             "request",
             request,
             commit.request(),
@@ -426,22 +426,22 @@ fn committed(
     })
 }
 
-/// A Drop's reply `view` to drop `request` of `session`; one naming another drop is [`ClientError::ReplyMismatch`],
+/// A Drop's reply `view` to drop `request` of `session`; one naming another drop is [`ClientError::reply_mismatch`],
 /// and one breaking a rule the caller's error.
 fn dropped(
     view: &FrameView<'_>,
     session: u64,
     request: u64,
 ) -> Result<Result<Reply, ClientError>, ClientError> {
-    let drop = DropCommandView::from_frame(view).map_err(ClientError::Protocol)?;
+    let drop = DropCommandView::from_frame(view).map_err(ClientError::protocol)?;
     Ok(if drop.session() != session {
-        Err(ClientError::ReplyMismatch(
+        Err(ClientError::reply_mismatch(
             "session",
             session,
             drop.session(),
         ))
     } else if drop.request() != request {
-        Err(ClientError::ReplyMismatch(
+        Err(ClientError::reply_mismatch(
             "request",
             request,
             drop.request(),

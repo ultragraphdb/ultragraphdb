@@ -147,7 +147,7 @@ exclude_re = [
     #
     # The arm `Command::Commit if open` (line 375; the line anchor keeps the guard of the arm of new
     # requests on an open stream, line 334, which the suite kills, in the run) closes the connection with `ErrorCode::Protocol` and the text of
-    # `TransportError::StreamOpen(stream)`. With its guard false the Commit falls to the next arm, which
+    # `TransportError::stream_open(stream)`. With its guard false the Commit falls to the next arm, which
     # opens the stream through `Outbound::open`; that refuses a stream already open with
     # `StreamOpen(stream)` before changing anything (the stream-zero check before it cannot fire: stream 0
     # is never open), and `open` sends any refusal but a stream limit or an unknown transaction to
@@ -208,7 +208,7 @@ exclude_re = [
     # `HEADER_SIZE + round.body().len()` in `encode_round`'s fallback arm, `+` versus `-` or `*`. The arm maps any
     # `encode_frame` refusal other than `FrameTooLarge`, and `Header::encode_frame`
     # (ultragraphdb_protocol_wire/src/types/header/header_encode.rs) returns only `FrameTooLarge`: its one `Err` is
-    # `ProtocolError::FrameTooLarge(size, MAX_FRAME_SIZE)`. The arm never runs.
+    # `ProtocolError::frame_too_large(size, MAX_FRAME_SIZE)`. The arm never runs.
     "replace \\+ with - in encode_round",
     "replace \\+ with \\* in encode_round",
 

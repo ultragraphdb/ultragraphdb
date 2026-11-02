@@ -22,7 +22,10 @@ fn now() -> Instant {
 }
 
 /// The wall clock, microseconds of Unix time, as the core is told it once per connection; 0 before 1970.
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the shell reads the wall clock once per connection and tells the core, which reads none"
+)]
 fn unix_micros() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -53,7 +56,7 @@ async fn read_frame<S: AsyncRead + Unpin>(
                 Err(error) => {
                     buffer.restore(bytes);
                     framer.reset();
-                    return Err(TransportError::Io(&error));
+                    return Err(TransportError::io(&error));
                 }
             }
         }
@@ -115,7 +118,7 @@ impl<C: Connect, L: Login> Client<C, L> {
         Err(self
             .failure
             .take()
-            .unwrap_or_else(|| ClientError::ConnectionLost(None)))
+            .unwrap_or_else(|| ClientError::connection_lost(None)))
     }
 
     /// A connection, opened if there is none or the core gave the last up.
@@ -131,8 +134,8 @@ impl<C: Connect, L: Login> Client<C, L> {
         let timeout = self.core.config().timeout();
         let stream = match tokio::time::timeout(timeout, self.connector.connect()).await {
             Ok(Ok(stream)) => stream,
-            Ok(Err(error)) => return Err(ClientError::Transport(TransportError::Io(&error))),
-            Err(_) => return Err(ClientError::TimedOut()),
+            Ok(Err(error)) => return Err(ClientError::transport(TransportError::io(&error))),
+            Err(_) => return Err(ClientError::timed_out()),
         };
         self.stream = Some(stream);
         self.framer = Framer::new(self.core.config().cluster(), MAX_FRAME_SIZE);
@@ -158,7 +161,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                 Err(error) => Err(error),
             };
             if let Err(error) = written {
-                self.core.disconnected(TransportError::Io(&error), now());
+                self.core.disconnected(TransportError::io(&error), now());
                 self.stream = None;
                 return;
             }
@@ -178,7 +181,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             }
             if self.core.needs_connection() {
                 if let Err(error) = self.open().await {
-                    self.core.disconnected(TransportError::Closed(), now());
+                    self.core.disconnected(TransportError::closed(), now());
                     self.failure = Some(error);
                 }
                 continue;
@@ -194,7 +197,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                 return Err(self
                     .failure
                     .take()
-                    .unwrap_or_else(ClientError::NotConnected));
+                    .unwrap_or_else(ClientError::not_connected));
             };
             let Some(stream) = self.stream.as_mut() else {
                 self.core.handle_timeout(deadline);
@@ -212,7 +215,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                 }
                 Ok(Err(error)) => {
                     self.core.disconnected(error.clone(), now());
-                    self.failure = Some(ClientError::Transport(error));
+                    self.failure = Some(ClientError::transport(error));
                     self.stream = None;
                 }
                 Err(_) => {
@@ -220,7 +223,7 @@ impl<C: Connect, L: Login> Client<C, L> {
                     // connection the core still holds is given up, and a commit waiting is retried on the next.
                     self.core.handle_timeout(now());
                     if self.core.is_connected() {
-                        self.core.disconnected(TransportError::Closed(), now());
+                        self.core.disconnected(TransportError::closed(), now());
                     }
                     self.shut().await;
                 }
@@ -236,7 +239,7 @@ impl<C: Connect, L: Login> Client<C, L> {
             answer.is_some()
         })
         .await?;
-        answer.unwrap_or_else(|| Err(ClientError::ConnectionLost(None)))
+        answer.unwrap_or_else(|| Err(ClientError::connection_lost(None)))
     }
 
     /// Closes the connection: requests waiting fail, a commit not answered is in doubt.

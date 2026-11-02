@@ -49,20 +49,17 @@ pub enum NumErrorEnum {
 
 impl NumError {
     /// The input `num` is not a number of the syntax `func` takes.
-    #[allow(non_snake_case)]
-    pub fn Syntax(func: &'static str, num: String) -> Self {
+    pub fn syntax(func: &'static str, num: String) -> Self {
         Self(NumErrorEnum::Syntax { func, num })
     }
 
     /// The input `num` is a number out of the range of `func`'s type.
-    #[allow(non_snake_case)]
-    pub fn Range(func: &'static str, num: String) -> Self {
+    pub fn range(func: &'static str, num: String) -> Self {
         Self(NumErrorEnum::Range { func, num })
     }
 
     /// The base `base` given to `func` is neither 0 nor 2 to 36.
-    #[allow(non_snake_case)]
-    pub fn Base(func: &'static str, num: String, base: u32) -> Self {
+    pub fn base(func: &'static str, num: String, base: u32) -> Self {
         Self(NumErrorEnum::Base { func, num, base })
     }
 }

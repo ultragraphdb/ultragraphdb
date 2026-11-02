@@ -39,7 +39,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             bytes
                 .iter()
                 .map(|b| {
-                    ColumnType::from_number(*b).ok_or(ProtocolError::FieldValue(
+                    ColumnType::from_number(*b).ok_or(ProtocolError::field_value(
                         command,
                         "column type",
                         (*b).into(),
@@ -50,7 +50,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
         let parameter_types = types(sections.get(3))?;
         let result_types = types(sections.get(4))?;
         if parameter_types.len() != pattern.parameters() {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "parameter types",
                 parameter_types.len() as u64,
@@ -63,7 +63,7 @@ impl<'a> BodyView<'a> for PrepareView<'a> {
             .filter(|slot| matches!(slot, PatternSlot::Unbound))
             .count();
         if !result_types.is_empty() && result_types.len() != unbound {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "result types",
                 result_types.len() as u64,

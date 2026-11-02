@@ -28,7 +28,10 @@ impl StoreSnapshot for OneItemSnapshot {
 
     fn get(&self, key: &[u8]) -> Result<Option<Item>, StoreError> {
         if key == b"bad" {
-            return Err(StoreError::ReadFailed(key.to_vec(), "checksum".to_string()));
+            return Err(StoreError::read_failed(
+                key.to_vec(),
+                "checksum".to_string(),
+            ));
         }
         Ok((key == b"k" && self.0 >= 3)
             .then(|| Item::new(key.to_vec(), 3, 0x08, false, b"v".to_vec())))
@@ -61,7 +64,7 @@ impl Store for OneItem {
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         self.opened_at.set(Some(read_ts));
         if read_ts < 2 {
-            return Err(StoreError::TsTooOld());
+            return Err(StoreError::ts_too_old());
         }
         Ok(OneItemSnapshot(read_ts))
     }
@@ -135,7 +138,7 @@ fn test_get_at_passes_on_the_snapshots_refusal() -> TestResult {
             .get_at(b"k", read_ts)
             .err()
             .context("the error of store.get_at(b\"k\", read_ts)")?;
-        assert_eq!(err, StoreError::TsTooOld());
+        assert_eq!(err, StoreError::ts_too_old());
         assert_eq!(err.to_string(), "Transaction is too old");
         assert_eq!(store.opened_at.get(), Some(read_ts));
     }
@@ -147,7 +150,7 @@ fn test_get_at_passes_on_the_reads_failure() {
     let store = OneItem::default();
     assert_eq!(
         store.get_at(b"bad", 5),
-        Err(StoreError::ReadFailed(
+        Err(StoreError::read_failed(
             b"bad".to_vec(),
             "checksum".to_string()
         ))
@@ -159,8 +162,8 @@ fn test_get_at_passes_on_the_reads_failure() {
 #[test]
 fn test_a_store_without_temporary_keyspaces_or_records_refuses_them() {
     let store = OneItem::default();
-    let temporaries = StoreError::Unsupported("temporary keyspaces");
-    let records = StoreError::Unsupported("rebuild records");
+    let temporaries = StoreError::unsupported("temporary keyspaces");
+    let records = StoreError::unsupported("rebuild records");
     assert_eq!(
         temporaries.to_string(),
         "The store does not support temporary keyspaces"

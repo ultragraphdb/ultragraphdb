@@ -32,7 +32,7 @@ fn test_each_argument_count_takes_its_positions_and_defaults_the_rest() -> TestR
     assert_eq!(parsed(&["5", "3", "10"])?, (5, 3, 10, 7));
     assert_eq!(
         refused(&["5", "3", "10", "9"])?,
-        FuzzArgsError::TooMany(4, "9".to_string())
+        FuzzArgsError::too_many(4, "9".to_string())
     );
     Ok(())
 }
@@ -41,11 +41,11 @@ fn test_each_argument_count_takes_its_positions_and_defaults_the_rest() -> TestR
 fn test_the_first_extra_argument_is_the_one_named() -> TestResult {
     assert_eq!(
         refused(&["5", "3", "10", "9", "8"])?,
-        FuzzArgsError::TooMany(4, "9".to_string())
+        FuzzArgsError::too_many(4, "9".to_string())
     );
     assert_eq!(
         refused(&["5", "3", "10", "x"])?,
-        FuzzArgsError::TooMany(4, "x".to_string())
+        FuzzArgsError::too_many(4, "x".to_string())
     );
     Ok(())
 }
@@ -66,20 +66,20 @@ fn test_a_non_numeric_argument_is_refused_at_its_position() -> TestResult {
     // The case that used to shift: `x 2 100` ran first seed 2 over 100 seeds.
     assert_eq!(
         refused(&["x", "2", "100"])?,
-        FuzzArgsError::NotANumber(1, "x".to_string())
+        FuzzArgsError::not_a_number(1, "x".to_string())
     );
     assert_eq!(
         refused(&["5", "x", "100"])?,
-        FuzzArgsError::NotANumber(2, "x".to_string())
+        FuzzArgsError::not_a_number(2, "x".to_string())
     );
     assert_eq!(
         refused(&["5", "2", "x"])?,
-        FuzzArgsError::NotANumber(3, "x".to_string())
+        FuzzArgsError::not_a_number(3, "x".to_string())
     );
     // The leftmost bad argument is the one named.
     assert_eq!(
         refused(&["x", "y", "z", "w"])?,
-        FuzzArgsError::NotANumber(1, "x".to_string())
+        FuzzArgsError::not_a_number(1, "x".to_string())
     );
     Ok(())
 }
@@ -104,7 +104,7 @@ fn test_negative_empty_and_malformed_numbers_are_refused() -> TestResult {
     for (list, position, value) in cases {
         assert_eq!(
             refused(list)?,
-            FuzzArgsError::NotANumber(position, value.to_string()),
+            FuzzArgsError::not_a_number(position, value.to_string()),
             "{list:?}"
         );
     }
@@ -139,7 +139,7 @@ fn test_a_leading_plus_is_refused_at_every_position() -> TestResult {
     for (list, position, value) in cases {
         assert_eq!(
             refused(list)?,
-            FuzzArgsError::NotANumber(position, value.to_string()),
+            FuzzArgsError::not_a_number(position, value.to_string()),
             "{list:?}"
         );
     }
@@ -151,15 +151,15 @@ fn test_numbers_past_u64_are_refused_and_u64_max_is_taken() -> TestResult {
     let past = "18446744073709551616";
     assert_eq!(
         refused(&[past])?,
-        FuzzArgsError::NotANumber(1, past.to_string())
+        FuzzArgsError::not_a_number(1, past.to_string())
     );
     assert_eq!(
         refused(&["0", past])?,
-        FuzzArgsError::NotANumber(2, past.to_string())
+        FuzzArgsError::not_a_number(2, past.to_string())
     );
     assert_eq!(
         refused(&["0", "1", past])?,
-        FuzzArgsError::NotANumber(3, past.to_string())
+        FuzzArgsError::not_a_number(3, past.to_string())
     );
     assert_eq!(parsed(&["0", "1", "18446744073709551615"])?, (0, 1, MAX, 0));
     assert_eq!(
@@ -169,7 +169,7 @@ fn test_numbers_past_u64_are_refused_and_u64_max_is_taken() -> TestResult {
     assert_eq!(parsed(&["1", "18446744073709551615"])?, (1, MAX, 2000, MAX));
     assert_eq!(
         refused(&["2", "18446744073709551615"])?,
-        FuzzArgsError::PastLastSeed(2, MAX)
+        FuzzArgsError::past_last_seed(2, MAX)
     );
     Ok(())
 }
@@ -182,7 +182,7 @@ fn test_seeds_reaching_the_last_seed_are_taken_and_one_more_is_refused() -> Test
     );
     assert_eq!(
         refused(&["18446744073709551606", "11"])?,
-        FuzzArgsError::PastLastSeed(MAX - 9, 11)
+        FuzzArgsError::past_last_seed(MAX - 9, 11)
     );
     // The default seed count applies to an explicit first seed too.
     assert_eq!(
@@ -191,11 +191,11 @@ fn test_seeds_reaching_the_last_seed_are_taken_and_one_more_is_refused() -> Test
     );
     assert_eq!(
         refused(&["18446744073709550617"])?,
-        FuzzArgsError::PastLastSeed(MAX - 998, 1000)
+        FuzzArgsError::past_last_seed(MAX - 998, 1000)
     );
     assert_eq!(
         refused(&["18446744073709551615"])?,
-        FuzzArgsError::PastLastSeed(MAX, 1000)
+        FuzzArgsError::past_last_seed(MAX, 1000)
     );
     Ok(())
 }
@@ -206,7 +206,7 @@ fn test_a_fresh_seed_is_held_to_the_same_bound() -> TestResult {
     assert_eq!((a.first(), a.last()), (MAX - 999, MAX));
     assert_eq!(
         FuzzArgs::parse(&[], MAX).err().context("an error")?,
-        FuzzArgsError::PastLastSeed(MAX, 1000)
+        FuzzArgsError::past_last_seed(MAX, 1000)
     );
     assert_eq!(FuzzArgs::parse(&[], 0)?.first(), 0);
     Ok(())
@@ -214,8 +214,8 @@ fn test_a_fresh_seed_is_held_to_the_same_bound() -> TestResult {
 
 #[test]
 fn test_zero_seeds_are_refused_and_zero_steps_taken() -> TestResult {
-    assert_eq!(refused(&["5", "0"])?, FuzzArgsError::NoSeeds());
-    assert_eq!(refused(&["5", "0", "10"])?, FuzzArgsError::NoSeeds());
+    assert_eq!(refused(&["5", "0"])?, FuzzArgsError::no_seeds());
+    assert_eq!(refused(&["5", "0", "10"])?, FuzzArgsError::no_seeds());
     assert_eq!(parsed(&["5", "1", "0"])?, (5, 1, 0, 5));
     Ok(())
 }
@@ -289,20 +289,20 @@ fn test_the_versionless_reads_flag_comes_first_and_keeps_the_positions() -> Test
     assert_eq!(parsed(&[FLAG, "5", "3", "10"])?, (5, 3, 10, 7));
     assert_eq!(
         refused(&[FLAG, "5", "3", "10", "9"])?,
-        FuzzArgsError::TooMany(4, "9".to_string())
+        FuzzArgsError::too_many(4, "9".to_string())
     );
     assert_eq!(
         refused(&[FLAG, "x"])?,
-        FuzzArgsError::NotANumber(1, "x".to_string())
+        FuzzArgsError::not_a_number(1, "x".to_string())
     );
     // Past the first argument the flag is no number at its position, and given twice its second is one.
     assert_eq!(
         refused(&["5", FLAG])?,
-        FuzzArgsError::NotANumber(2, FLAG.to_string())
+        FuzzArgsError::not_a_number(2, FLAG.to_string())
     );
     assert_eq!(
         refused(&[FLAG, FLAG])?,
-        FuzzArgsError::NotANumber(1, FLAG.to_string())
+        FuzzArgsError::not_a_number(1, FLAG.to_string())
     );
     Ok(())
 }
@@ -319,12 +319,12 @@ fn test_an_unknown_flag_is_refused() -> TestResult {
     ] {
         assert_eq!(
             refused(&[flag, "x"])?,
-            FuzzArgsError::UnknownFlag(flag.to_string())
+            FuzzArgsError::unknown_flag(flag.to_string())
         );
     }
     assert_eq!(
         refused(&["-5"])?,
-        FuzzArgsError::NotANumber(1, "-5".to_string())
+        FuzzArgsError::not_a_number(1, "-5".to_string())
     );
     Ok(())
 }

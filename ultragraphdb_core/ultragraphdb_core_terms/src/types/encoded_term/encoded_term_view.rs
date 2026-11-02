@@ -28,7 +28,7 @@ impl EncodedTerm {
         let hash = |at: usize| hash_at(body, at);
         let u64_at = |at: usize| u64::from_be_bytes(fixed::<8>(&body[at..]));
         let known =
-            |code: u8| KnownDatatype::from_code(code).ok_or(TermError::UnknownDatatype(code));
+            |code: u8| KnownDatatype::from_code(code).ok_or(TermError::unknown_datatype(code));
         Ok(match bytes[0] {
             tag::UID => TermView::Uid(u64_at(0)),
             tag::BOOLEAN => TermView::Boolean(Boolean::from(body[0] != 0)),
@@ -113,7 +113,7 @@ fn lang_string(bytes: &[u8]) -> Result<TermView<'_>, TermError> {
             direction: direction(set),
         })
     } else {
-        Err(TermError::UnknownTag(bytes[0]))
+        Err(TermError::unknown_tag(bytes[0]))
     }
 }
 
@@ -129,6 +129,6 @@ fn inline(bytes: &[u8], at: usize) -> Result<(&str, usize), TermError> {
     let body = &bytes[1..];
     let n = usize::from(body[at]);
     let text = std::str::from_utf8(&body[at + 1..at + 1 + n])
-        .map_err(|_| TermError::Malformed(bytes.to_vec(), "an inline part is not UTF-8"))?;
+        .map_err(|_| TermError::malformed(bytes.to_vec(), "an inline part is not UTF-8"))?;
     Ok((text, at + 1 + n))
 }

@@ -183,7 +183,7 @@ fn test_postings_stop_where_the_callback_breaks_and_pass_its_error() -> TestResu
     let error = l
         .postings(
             &ListOptions::at(2),
-            |_| -> Result<ControlFlow<()>, PostingError> { Err(PostingError::TsTooOld()) },
+            |_| -> Result<ControlFlow<()>, PostingError> { Err(PostingError::ts_too_old()) },
         )
         .failure("the callback's refusal")?;
     assert_eq!(error.0, PostingErrorEnum::TsTooOld);

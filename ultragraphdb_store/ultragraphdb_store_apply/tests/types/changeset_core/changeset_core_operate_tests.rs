@@ -260,7 +260,7 @@ fn test_an_insert_if_absent_on_a_predicate_not_unique_is_refused() -> TestResult
     let refused = operate(&a, &txn, &[], &[insert_if_absent("x")])
         .err()
         .context("the error of operate(..)")?;
-    assert_eq!(refused, ChangesetError::NotUnique("http://ex.org/id"));
+    assert_eq!(refused, ChangesetError::not_unique("http://ex.org/id"));
     Ok(())
 }
 
@@ -327,7 +327,7 @@ fn test_a_compare_and_set_replaces_the_value_it_expects_and_refuses_another() ->
     .context("the error of operate(..)")?;
     assert_eq!(
         refused,
-        ChangesetError::OperationFailed(Some("\"closed\"".to_string()))
+        ChangesetError::operation_failed(Some("\"closed\"".to_string()))
     );
     let none = operate(&a, &txn, &[], &[cas("a", "missing", "\"open\"", "\"x\"")?])
         .err()
@@ -364,7 +364,7 @@ fn test_a_counter_add_refuses_a_value_that_is_no_integer_or_would_overflow() -> 
         .context("the error of operate(..)")?;
     assert_eq!(
         word,
-        ChangesetError::OperationFailed(Some("\"five\"".to_string()))
+        ChangesetError::operation_failed(Some("\"five\"".to_string()))
     );
     let max = operate(&a, &txn, &[], &[add("c", "max", 1)])
         .err()
@@ -596,7 +596,7 @@ fn test_a_counter_add_beyond_64_bits_is_refused_for_every_integer_datatype() -> 
             .context("the error of operate(..)")?;
         assert_eq!(
             refused,
-            ChangesetError::OperationFailed(Some(typed_nt(held, local))),
+            ChangesetError::operation_failed(Some(typed_nt(held, local))),
             "{held}^^xsd:{local} + {delta}"
         );
     }
@@ -651,7 +651,7 @@ fn test_a_counter_add_refuses_an_ill_typed_integer_and_every_non_integer_datatyp
             .context("the error of operate(..)")?;
         assert_eq!(
             refused,
-            ChangesetError::OperationFailed(Some(nt.clone())),
+            ChangesetError::operation_failed(Some(nt.clone())),
             "{text}"
         );
     }

@@ -54,7 +54,7 @@ impl List {
     ///
     /// # Errors
     ///
-    /// [`PostingError::ReadBelowMinTs`] when `read_ts` is below the list's complete version, a missing part, or
+    /// [`PostingError::read_below_min_ts`] when `read_ts` is below the list's complete version, a missing part, or
     /// the error `f` returns.
     pub fn iterate<E, F>(&self, read_ts: u64, after_uid: u64, mut f: F) -> Result<(), E>
     where
@@ -64,7 +64,7 @@ impl List {
         let (delete_below_ts, mposts) = self.pick_postings(read_ts);
         if read_ts < self.min_ts {
             return Err(
-                PostingError::ReadBelowMinTs(read_ts, self.min_ts, self.key.clone()).into(),
+                PostingError::read_below_min_ts(read_ts, self.min_ts, self.key.clone()).into(),
             );
         }
         let mut midx = if after_uid > 0 {

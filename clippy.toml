@@ -5,8 +5,8 @@
 
 # Storage code takes its clock, its randomness and its threads from what it is given, so that a simulation run is a
 # function of its seed (stage 2 design, "The store boundary and the storage simulator"). The production
-# implementations in ultragraphdb_store_kv and the few other uses carry #[allow(clippy::disallowed_methods)] with
-# their reason; `make check` denies any other use.
+# implementations in ultragraphdb_store_kv and the few other uses carry #[expect(clippy::disallowed_methods)]
+# with their reason; `make check` denies any other use.
 #
 # A fused multiply-add rounds once where Go on Dgraph's default amd64 builds rounds twice, which changes the last bit
 # of S2 vertices and can change geo index tokens between nodes (ledger 11). The golden vectors are generated unfused

@@ -29,15 +29,15 @@ impl Shared {
             .map(|guard| {
                 let (key, value) = guard
                     .into_inner()
-                    .map_err(|e| StoreError::ReadFailed(REBUILD_PREFIX.to_vec(), e.to_string()))?;
+                    .map_err(|e| StoreError::read_failed(REBUILD_PREFIX.to_vec(), e.to_string()))?;
                 let id: [u8; 8] = key[REBUILD_PREFIX.len()..].try_into().map_err(|_| {
-                    StoreError::Corrupted(
+                    StoreError::corrupted(
                         key.to_vec(),
                         "a rebuild record's number is eight bytes".into(),
                     )
                 })?;
                 let prefixes =
-                    decode(&value).map_err(|reason| StoreError::Corrupted(key.to_vec(), reason))?;
+                    decode(&value).map_err(|reason| StoreError::corrupted(key.to_vec(), reason))?;
                 Ok(RebuildRecord::new(u64::from_be_bytes(id), prefixes))
             })
             .collect()

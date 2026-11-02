@@ -121,7 +121,7 @@ impl PostingList {
     /// overrun them, with unknown flags or posting types, a facet key that is not UTF-8, or bytes after the splits:
     /// nothing is decoded in part.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<PostingList, StoreError> {
-        let corrupted = |reason: String| StoreError::Corrupted(key.to_vec(), reason);
+        let corrupted = |reason: String| StoreError::corrupted(key.to_vec(), reason);
         if let Some(&version) = bytes.first()
             && version != VERSION
         {
@@ -213,7 +213,7 @@ impl Reader<'_> {
             .checked_add(n)
             .and_then(|end| self.bytes.get(self.at..end))
             .ok_or_else(|| {
-                StoreError::Corrupted(
+                StoreError::corrupted(
                     self.key.to_vec(),
                     format!("a field at byte {} overruns the value", self.at),
                 )
@@ -249,7 +249,7 @@ impl Reader<'_> {
         let type_at = self.at;
         let byte = self.u8()?;
         let posting_type = PostingType::from_byte(byte).ok_or_else(|| {
-            StoreError::Corrupted(
+            StoreError::corrupted(
                 self.key.to_vec(),
                 format!("unknown posting type {byte} at byte {type_at}"),
             )
@@ -264,7 +264,7 @@ impl Reader<'_> {
                 String::from_utf8(self.bytes()?)
                     .map(Facet::new)
                     .map_err(|_| {
-                        StoreError::Corrupted(
+                        StoreError::corrupted(
                             self.key.to_vec(),
                             format!("the facet key at byte {key_at} is not UTF-8"),
                         )

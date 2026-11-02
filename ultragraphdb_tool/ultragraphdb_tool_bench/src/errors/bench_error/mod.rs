@@ -29,30 +29,29 @@ pub enum BenchErrorEnum {
     Commit(String),
 }
 
-#[allow(non_snake_case)]
 impl BenchError {
     /// The arguments name no run it can make, for `reason`.
-    pub fn Usage(reason: String) -> Self {
+    pub fn usage(reason: String) -> Self {
         Self(BenchErrorEnum::Usage(reason))
     }
 
     /// The applier refused an operation with `error`.
-    pub fn Apply(error: ChangesetError) -> Self {
+    pub fn apply(error: ChangesetError) -> Self {
         Self(BenchErrorEnum::Apply(error))
     }
 
     /// The store refused an operation with `error`.
-    pub fn Store(error: StoreError) -> Self {
+    pub fn store(error: StoreError) -> Self {
         Self(BenchErrorEnum::Store(error))
     }
 
     /// A file of the run could not be read or written, for `reason`.
-    pub fn Io(reason: String) -> Self {
+    pub fn io(reason: String) -> Self {
         Self(BenchErrorEnum::Io(reason))
     }
 
     /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text `reason`.
-    pub fn Commit(reason: String) -> Self {
+    pub fn commit(reason: String) -> Self {
         Self(BenchErrorEnum::Commit(reason))
     }
 }

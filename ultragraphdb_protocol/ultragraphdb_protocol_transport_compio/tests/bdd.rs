@@ -139,7 +139,10 @@ impl Authenticator for Server {
 
 /// A point in time to start from. The connection never reads a clock; the conversations move this value on
 /// themselves, so the clock is read once, here, for an origin only.
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an `Instant` is made only by reading the clock, so the conversations' origin reads it once"
+)]
 fn start() -> Instant {
     Instant::now()
 }

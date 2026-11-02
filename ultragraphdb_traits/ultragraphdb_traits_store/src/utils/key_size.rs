@@ -68,7 +68,7 @@ fn stored_head(user_key: &[u8], limit: usize) -> Vec<u8> {
 pub fn check_key_size(user_key: &[u8]) -> Result<(), StoreError> {
     if user_key.len() > MAX_USER_KEY_SIZE {
         let head = user_key[..DUMPED_BYTES].to_vec();
-        return Err(StoreError::KeyTooLarge(
+        return Err(StoreError::key_too_large(
             user_key.len(),
             MAX_USER_KEY_SIZE,
             head,
@@ -78,7 +78,7 @@ pub fn check_key_size(user_key: &[u8]) -> Result<(), StoreError> {
     if stored > MAX_STORED_KEY_SIZE {
         // The stored key is longer than 1,024 bytes, so its head is encoded user-key bytes.
         let head = stored_head(user_key, DUMPED_BYTES);
-        return Err(StoreError::KeyTooLarge(stored, MAX_STORED_KEY_SIZE, head));
+        return Err(StoreError::key_too_large(stored, MAX_STORED_KEY_SIZE, head));
     }
     Ok(())
 }

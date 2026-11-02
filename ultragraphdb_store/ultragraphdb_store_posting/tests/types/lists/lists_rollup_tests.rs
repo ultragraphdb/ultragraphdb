@@ -410,7 +410,7 @@ fn test_the_worker_stops_at_a_failed_write_and_skips_a_key_it_cannot_roll_up() -
         ));
         assert_eq!(
             commit_edges_result(&lists, &k),
-            Err(PostingError::Store(StoreError::Poisoned())),
+            Err(PostingError::store(StoreError::poisoned())),
             "a failed rollup stops every later write"
         );
         Ok(())
@@ -436,7 +436,7 @@ fn test_the_worker_stops_once_a_commit_failed() -> TestResult {
     assert!(commit_edges_result(&lists, &k).is_err());
     assert_eq!(
         lists.run_rollups(100),
-        Err(PostingError::Store(StoreError::Poisoned()))
+        Err(PostingError::store(StoreError::poisoned()))
     );
     Ok(())
 }

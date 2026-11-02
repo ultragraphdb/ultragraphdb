@@ -9,9 +9,8 @@
 //! what it collected are written. Throughput is in versions compacted. The store is built outside the timed routine.
 //! It does not measure fjall's background compactions, the deletion sweep, or a store larger than memory.
 
-// Each bench uses part of what the benches share.
-#[allow(dead_code)]
-mod bench_dir;
+/// What the benches share; each bench uses a part of it.
+pub mod bench_dir;
 
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main,

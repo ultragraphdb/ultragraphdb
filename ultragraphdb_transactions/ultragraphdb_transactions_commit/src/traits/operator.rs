@@ -24,7 +24,7 @@ pub trait Operator<P> {
     ///
     /// # Errors
     ///
-    /// [`CommitError::OperationFailed`] for a compare-and-set that did not hold; [`CommitError::Refused`] for an
+    /// [`CommitError::operation_failed`] for a compare-and-set that did not hold; [`CommitError::refused`] for an
     /// operation the catalog or the store refused.
     fn operate<'p, I>(
         &mut self,

@@ -121,7 +121,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`PostingError::HighPriorityOp`] while rollups are paused, the store's errors, and the list's.
+    /// [`PostingError::high_priority_op`] while rollups are paused, the store's errors, and the list's.
     pub fn rollup_key(&self, key: &[u8]) -> Result<bool, PostingError> {
         let (read_ts, epoch) = self.rollup_start()?;
         let list = {
@@ -141,7 +141,7 @@ where
         {
             let state = lock(&self.state);
             if state.paused > 0 {
-                return Err(PostingError::HighPriorityOp());
+                return Err(PostingError::high_priority_op());
             }
             if state.epoch != epoch {
                 tracing::info!(key = %hex(key), rollup_ts = read_ts, "rollup discarded: a drop or schema change came after its read");
@@ -167,7 +167,7 @@ where
     fn rollup_start(&self) -> Result<(u64, u64), PostingError> {
         let state = lock(&self.state);
         if state.paused > 0 {
-            return Err(PostingError::HighPriorityOp());
+            return Err(PostingError::high_priority_op());
         }
         Ok((state.applied, state.epoch))
     }

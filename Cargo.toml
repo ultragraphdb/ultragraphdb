@@ -148,7 +148,7 @@ unwrap_used = "deny"
 expect_used = "deny"
 panic = "deny"
 todo = "deny"
-unimplemented = "deny"
+unimplemented = "warn"  # unimplemented is used during TDD so warn simplifies the impl stage w/o blocking compilation.
 #indexing_slicing = "deny"                  # 1018
 #arithmetic_side_effects = "deny"           # 1778; Ultra asks it in decoders and parsers
 let_underscore_must_use = "deny"
@@ -166,9 +166,9 @@ needless_pass_by_value = "deny"
 rc_buffer = "deny"
 mutex_atomic = "deny"
 # Rule 10.
-#allow_attributes = "deny"                  # 326
-#allow_attributes_without_reason = "deny"   # 299
-too_many_lines = "deny"                     # Rule 4, with too-many-lines-threshold = 70 in clippy.toml.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+too_many_lines = "deny"   # too-many-lines-threshold = 70 in clippy.toml.
 # Concurrency.
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"
@@ -177,9 +177,10 @@ disallowed_methods = "deny"
 [workspace.lints.rust]
 unsafe_code = "forbid"
 deprecated_safe = { level = "warn", priority = -1 }
-# Rule 7 and documentation.
+# Rule 7.
 unused_must_use = "deny"
 unused_results = "deny"
+# Documentation
 missing_docs = "deny"
 
 [profile.release]

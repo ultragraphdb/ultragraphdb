@@ -35,6 +35,7 @@ pub const FULL_TWO_BLOCKS: usize = 7_920;
 /// A body of 5,000 bytes takes two chunks and a 16-byte table: a 5,272-byte frame, two blocks.
 pub const TWO_BLOCKS: usize = 5_000;
 
+/// [`DIR`] as a path.
 pub fn dir() -> PathBuf {
     PathBuf::from(DIR)
 }
@@ -164,6 +165,7 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 pub struct TempDir(PathBuf);
 
 impl TempDir {
+    /// A fresh, empty directory whose name carries `name`, the process and a counter, so no two tests share one.
     pub fn new(name: &str) -> TestResult<Self> {
         let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -174,6 +176,7 @@ impl TempDir {
         Ok(Self(dir))
     }
 
+    /// The directory's path.
     pub fn path(&self) -> &Path {
         &self.0
     }

@@ -19,7 +19,7 @@ fn test_a_pool_lends_its_buffers_and_takes_them_back() -> TestResult {
     assert_eq!(pool.available(), 0);
     assert_eq!(
         pool.acquire().err().context("the refusal")?,
-        TransportError::PoolExhausted(2)
+        TransportError::pool_exhausted(2)
     );
     drop(a);
     assert_eq!(pool.available(), 1);
@@ -42,7 +42,7 @@ fn test_a_pool_of_no_buffers_is_always_exhausted() -> TestResult {
     let pool = BufferPool::new(0, 64);
     assert_eq!(
         pool.acquire().err().context("the refusal")?,
-        TransportError::PoolExhausted(0)
+        TransportError::pool_exhausted(0)
     );
     Ok(())
 }

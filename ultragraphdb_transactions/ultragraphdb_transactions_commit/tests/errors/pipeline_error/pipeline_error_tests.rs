@@ -16,19 +16,19 @@ use ultragraphdb_transactions_txn::TxnError;
 /// the cause as its source.
 #[test]
 fn test_each_reason_carries_and_displays_its_cause() -> TestResult {
-    let log = LogError::Poisoned();
-    let apply = ChangesetError::Rebuilding("p");
-    let sessions = StoreError::Corrupted(b"k".to_vec(), "bad".to_string());
-    let build = TxnError::Ended();
+    let log = LogError::poisoned();
+    let apply = ChangesetError::rebuilding("p");
+    let sessions = StoreError::corrupted(b"k".to_vec(), "bad".to_string());
+    let build = TxnError::ended();
     let cases = [
         (
-            PipelineError::Log(log.clone()),
+            PipelineError::log(log.clone()),
             PipelineErrorEnum::Log { cause: log.clone() },
             format!("the log refused or failed a round: {log}"),
             log.to_string(),
         ),
         (
-            PipelineError::Apply(apply.clone()),
+            PipelineError::apply(apply.clone()),
             PipelineErrorEnum::Apply {
                 cause: apply.clone(),
             },
@@ -36,7 +36,7 @@ fn test_each_reason_carries_and_displays_its_cause() -> TestResult {
             apply.to_string(),
         ),
         (
-            PipelineError::Sessions(sessions.clone()),
+            PipelineError::sessions(sessions.clone()),
             PipelineErrorEnum::Sessions {
                 cause: sessions.clone(),
             },
@@ -44,7 +44,7 @@ fn test_each_reason_carries_and_displays_its_cause() -> TestResult {
             sessions.to_string(),
         ),
         (
-            PipelineError::BuildEnd(build.clone()),
+            PipelineError::build_end(build.clone()),
             PipelineErrorEnum::BuildEnd {
                 cause: build.clone(),
             },

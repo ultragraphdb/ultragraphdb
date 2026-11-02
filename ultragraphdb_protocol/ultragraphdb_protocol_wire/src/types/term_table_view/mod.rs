@@ -43,14 +43,14 @@ impl Entry {
         let term_kind = record.first().copied().unwrap_or(0);
         let direction = record.get(1).copied().unwrap_or(0);
         if !(kind::IRI..=kind::TRIPLE).contains(&term_kind) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "term kind",
                 term_kind.into(),
             ));
         }
         if direction > 2 || (direction != 0 && term_kind != kind::LANGUAGE_LITERAL) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "direction",
                 direction.into(),
@@ -60,7 +60,7 @@ impl Entry {
             .get(2..8)
             .and_then(|zeros| zeros.iter().position(|b| *b != 0))
         {
-            return Err(ProtocolError::PaddingNotZero(
+            return Err(ProtocolError::padding_not_zero(
                 command,
                 base + TERM_RECORD_SIZE * self.at + 2 + j,
             ));
@@ -80,7 +80,7 @@ impl Entry {
         for part in [first, first_len, second] {
             let depth = depths
                 .get(part as usize)
-                .ok_or(ProtocolError::IndexOutOfRange(
+                .ok_or(ProtocolError::index_out_of_range(
                     self.command,
                     self.record_section,
                     self.at,
@@ -90,14 +90,14 @@ impl Entry {
             deepest = deepest.max(*depth);
         }
         if second_len != 0 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "triple term",
                 second_len.into(),
             ));
         }
         if deepest + 1 > MAX_TERM_DEPTH {
-            return Err(ProtocolError::TermTooDeep(
+            return Err(ProtocolError::term_too_deep(
                 self.command,
                 self.record_section,
                 self.at,
@@ -124,7 +124,7 @@ impl Entry {
             let start = start as usize;
             let end = start.saturating_add(len as usize);
             if end > limit {
-                return Err(ProtocolError::IndexOutOfRange(
+                return Err(ProtocolError::index_out_of_range(
                     self.command,
                     self.text_section,
                     self.at,
@@ -135,7 +135,7 @@ impl Entry {
             Ok((start, end))
         };
         if first as usize != position {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "term text offset",
                 first.into(),
@@ -143,7 +143,7 @@ impl Entry {
         }
         let (a, a_end) = span(first, first_len)?;
         if second as usize != a_end {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "term text offset",
                 second.into(),
@@ -157,7 +157,7 @@ impl Entry {
             _ => second_len == 0,
         };
         if second_wrong {
-            return Err(ProtocolError::BadTerm(
+            return Err(ProtocolError::bad_term(
                 self.command,
                 self.record_section,
                 self.at,
@@ -181,16 +181,16 @@ pub struct TermTableView<'a> {
 impl<'a> TermTableView<'a> {
     /// The table of `records` and `text`, sections `sections.0` and `sections.1` of a body of `command` whose records
     /// start at body offset `base`, checked once, entry by entry in order: whole records
-    /// ([`ProtocolError::SectionLength`]); the kind known ([`ProtocolError::FieldValue`]); the direction only on a
-    /// language-tagged literal ([`ProtocolError::FieldValue`]); the reserved bytes zero
-    /// ([`ProtocolError::PaddingNotZero`]); a text term's texts where the texts before end
-    /// ([`ProtocolError::FieldValue`]) and inside the text section ([`ProtocolError::IndexOutOfRange`]); the second text
+    /// ([`ProtocolError::section_length`]); the kind known ([`ProtocolError::field_value`]); the direction only on a
+    /// language-tagged literal ([`ProtocolError::field_value`]); the reserved bytes zero
+    /// ([`ProtocolError::padding_not_zero`]); a text term's texts where the texts before end
+    /// ([`ProtocolError::field_value`]) and inside the text section ([`ProtocolError::index_out_of_range`]); the second text
     /// as the kind takes it, none for an IRI or a blank node, never `xsd:string`, a language tag never empty
-    /// ([`ProtocolError::BadTerm`]); a triple term's indices earlier than its own ([`ProtocolError::IndexOutOfRange`])
+    /// ([`ProtocolError::bad_term`]); a triple term's indices earlier than its own ([`ProtocolError::index_out_of_range`])
     /// and its unused field zero, and its depth, computed in the same pass, at most [`crate::MAX_TERM_DEPTH`]
-    /// ([`ProtocolError::TermTooDeep`]); no entry equal to an earlier one ([`ProtocolError::DuplicateTerm`]); then the texts
-    /// filling the section ([`ProtocolError::CountMismatch`]); the section UTF-8, checked once, and every text boundary
-    /// on a character boundary ([`ProtocolError::NotUtf8`]).
+    /// ([`ProtocolError::term_too_deep`]); no entry equal to an earlier one ([`ProtocolError::duplicate_term`]); then the texts
+    /// filling the section ([`ProtocolError::count_mismatch`]); the section UTF-8, checked once, and every text boundary
+    /// on a character boundary ([`ProtocolError::not_utf8`]).
     pub(crate) fn read(
         command: u16,
         sections: (usize, usize),
@@ -224,7 +224,7 @@ impl<'a> TermTableView<'a> {
                 (key, 0)
             };
             if let Some(earlier) = seen.get(&key) {
-                return Err(ProtocolError::DuplicateTerm(
+                return Err(ProtocolError::duplicate_term(
                     command,
                     record_section,
                     at,
@@ -235,7 +235,7 @@ impl<'a> TermTableView<'a> {
             depths.push(depth);
         }
         if position != limit {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "term text",
                 limit as u64,
@@ -243,9 +243,9 @@ impl<'a> TermTableView<'a> {
             ));
         }
         let text = std::str::from_utf8(text)
-            .map_err(|e| ProtocolError::NotUtf8(command, text_section, e.valid_up_to()))?;
+            .map_err(|e| ProtocolError::not_utf8(command, text_section, e.valid_up_to()))?;
         if let Some(boundary) = boundaries.iter().find(|b| !text.is_char_boundary(**b)) {
-            return Err(ProtocolError::NotUtf8(command, text_section, *boundary));
+            return Err(ProtocolError::not_utf8(command, text_section, *boundary));
         }
         Ok(Self { records, text })
     }

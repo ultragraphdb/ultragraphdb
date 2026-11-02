@@ -173,7 +173,7 @@ where
         match statement {
             StatementRef::Id { graph, id } => {
                 let missing =
-                    || MappingError::NoSuchStatement(format!("{} in {graph}", id.value()));
+                    || MappingError::no_such_statement(format!("{} in {graph}", id.value()));
                 let uid = self.find_graph(graph.as_ref())?.ok_or_else(missing)?;
                 let record = self.record(uid, id.value())?.ok_or_else(missing)?;
                 Ok((uid, Some(id.value()), record))
@@ -198,13 +198,13 @@ where
                         predicate.as_ref(),
                         object.as_ref(),
                     )?
-                    .ok_or_else(|| MappingError::NoSuchStatement(text.clone()))?;
+                    .ok_or_else(|| MappingError::no_such_statement(text.clone()))?;
                 let held = self.write.objects(r.graph, r.subject, r.predicate)?;
                 let ids = held
                     .into_iter()
                     .find(|(o, _)| *o == r.object)
                     .map(|(_, ids)| ids)
-                    .ok_or_else(|| MappingError::NoSuchStatement(text.clone()))?;
+                    .ok_or_else(|| MappingError::no_such_statement(text.clone()))?;
                 match ids.as_slice() {
                     [] => Ok((
                         r.graph,
@@ -214,10 +214,10 @@ where
                     [id] => {
                         let record = self
                             .record(r.graph, *id)?
-                            .ok_or_else(|| MappingError::NoSuchStatement(text.clone()))?;
+                            .ok_or_else(|| MappingError::no_such_statement(text.clone()))?;
                         Ok((r.graph, Some(*id), record))
                     }
-                    _ => Err(MappingError::AmbiguousStatement(text).into()),
+                    _ => Err(MappingError::ambiguous_statement(text).into()),
                 }
             }
         }

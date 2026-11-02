@@ -30,14 +30,12 @@ pub enum CodecErrorEnum {
 
 impl CodecError {
     /// A [`CodecErrorEnum::TruncatedVarint`] for the varint starting at `offset`.
-    #[allow(non_snake_case)]
-    pub fn TruncatedVarint(offset: usize) -> Self {
+    pub fn truncated_varint(offset: usize) -> Self {
         Self(CodecErrorEnum::TruncatedVarint { offset })
     }
 
     /// A [`CodecErrorEnum::OverflowingVarint`] for the varint starting at `offset`.
-    #[allow(non_snake_case)]
-    pub fn OverflowingVarint(offset: usize) -> Self {
+    pub fn overflowing_varint(offset: usize) -> Self {
         Self(CodecErrorEnum::OverflowingVarint { offset })
     }
 }

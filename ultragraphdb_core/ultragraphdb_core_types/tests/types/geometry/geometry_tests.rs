@@ -349,7 +349,7 @@ fn nested_wkb(depth: usize) -> Vec<u8> {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test decodes on a small stack to prove the decoder does not recurse"
 )]

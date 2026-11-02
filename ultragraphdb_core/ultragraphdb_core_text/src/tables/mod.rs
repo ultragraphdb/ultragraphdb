@@ -7,15 +7,15 @@
 //! mirror Go's tables whole, its named identifiers and version constants included, so not every item is read, and
 //! are kept as the generator writes them.
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod collate_tables;
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod compact_tables;
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod language_tables;
-#[allow(dead_code)]
+#[expect(dead_code, reason = "the generator mirrors Go's tables whole, so not every item is read")]
 #[rustfmt::skip]
 pub(crate) mod norm_tables;

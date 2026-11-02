@@ -15,7 +15,7 @@ fn test_a_query_cache_reads_through_its_local_cache() {
     let early = InMemLocalCache::new(&dbs, 3);
     assert_eq!(
         QueryCache::new(&early, 3).get(b"k"),
-        Err(HnswError::NoValue())
+        Err(HnswError::no_value())
     );
     assert_eq!(QueryCache::new(&early, 3).ts(), 3);
     let late = InMemLocalCache::new(&dbs, 4);

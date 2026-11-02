@@ -26,7 +26,7 @@ pub(crate) fn read_operation(
         .first_chunk::<OPERATION_SIZE>()
         .filter(|_| bytes.len() == OPERATION_SIZE)
     else {
-        return Err(ProtocolError::SectionLength(
+        return Err(ProtocolError::section_length(
             command,
             section,
             bytes.len(),
@@ -38,15 +38,19 @@ pub(crate) fn read_operation(
     argument.copy_from_slice(&operation[8..]);
     let argument = u64::from_le_bytes(argument);
     if !(1..=7).contains(&code) {
-        return Err(ProtocolError::FieldValue(command, "operation", code.into()));
+        return Err(ProtocolError::field_value(
+            command,
+            "operation",
+            code.into(),
+        ));
     }
     if let Some(j) = operation[2..8].iter().position(|b| *b != 0) {
-        return Err(ProtocolError::PaddingNotZero(command, offset + 2 + j));
+        return Err(ProtocolError::padding_not_zero(command, offset + 2 + j));
     }
     // Every code from 1 to 7 is an operation; an argument where the operation takes none is the remaining refusal.
     RecordOperation::from_parts(code, argument)
         .map(Some)
-        .ok_or(ProtocolError::FieldValue(command, "argument", argument))
+        .ok_or(ProtocolError::field_value(command, "argument", argument))
 }
 
 /// The bytes of `operation`, empty for none.

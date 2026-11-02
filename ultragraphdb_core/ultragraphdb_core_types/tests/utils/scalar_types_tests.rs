@@ -9,14 +9,13 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    BIG_FLOAT_PRECISION, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone, good_time_zone,
-    parse_time, value_for_type,
+    BIG_FLOAT_PRECISION, CivilTime, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone,
+    good_time_zone, parse_time, value_for_type,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-#[allow(clippy::too_many_arguments)]
-fn fixed(y: i64, mo: i64, d: i64, h: i64, mi: i64, s: i64, ns: i64, offset: i32) -> DateTime {
-    DateTime::new(y, mo, d, h, mi, s, ns, Zone::Fixed(offset))
+fn fixed(civil: CivilTime, offset: i32) -> DateTime {
+    DateTime::new(civil, Zone::Fixed(offset))
 }
 
 /// Go's test expects UTC for `-00:00` only because it sets `time.Local = time.UTC`; Dgraph never does, and then
@@ -29,7 +28,7 @@ fn dates_with_tz() -> Vec<(&'static str, DateTime)> {
         ),
         (
             "2018-10-28T04:00:10-00:00",
-            fixed(2018, 10, 28, 4, 0, 10, 0, 0),
+            fixed(CivilTime::new(2018, 10, 28, 4, 0, 10, 0), 0),
         ),
         (
             "2018-05-30T09:30:10.5Z",
@@ -37,23 +36,29 @@ fn dates_with_tz() -> Vec<(&'static str, DateTime)> {
         ),
         (
             "2018-05-30T09:30:10.5-00:00",
-            fixed(2018, 5, 30, 9, 30, 10, 500000000, 0),
+            fixed(CivilTime::new(2018, 5, 30, 9, 30, 10, 500000000), 0),
         ),
         (
             "2018-05-30T09:30:10-06:00",
-            fixed(2018, 5, 30, 9, 30, 10, 0, -6 * 3600),
+            fixed(CivilTime::new(2018, 5, 30, 9, 30, 10, 0), -6 * 3600),
         ),
         (
             "2018-05-28T14:41:57+23:00",
-            fixed(2018, 5, 28, 14, 41, 57, 0, 23 * 3600),
+            fixed(CivilTime::new(2018, 5, 28, 14, 41, 57, 0), 23 * 3600),
         ),
         (
             "2018-05-28T14:41:57-23:40",
-            fixed(2018, 5, 28, 14, 41, 57, 0, -23 * 3600 - 40 * 60),
+            fixed(
+                CivilTime::new(2018, 5, 28, 14, 41, 57, 0),
+                -23 * 3600 - 40 * 60,
+            ),
         ),
         (
             "2018-05-28T14:41:57+23:59",
-            fixed(2018, 5, 28, 14, 41, 57, 0, 23 * 3600 + 59 * 60),
+            fixed(
+                CivilTime::new(2018, 5, 28, 14, 41, 57, 0),
+                23 * 3600 + 59 * 60,
+            ),
         ),
     ]
 }

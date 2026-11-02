@@ -37,9 +37,9 @@ impl StoreSnapshot for FjallSnapshot {
         };
         let (stored, bytes) = guard
             .into_inner()
-            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))?;
+            .map_err(|e| StoreError::read_failed(key.to_vec(), e.to_string()))?;
         if stored.len() != stored_len {
-            return Err(StoreError::Corrupted(
+            return Err(StoreError::corrupted(
                 stored.to_vec(),
                 format!(
                     "stored key of {} bytes does not end in a terminated version",
@@ -51,7 +51,7 @@ impl StoreSnapshot for FjallSnapshot {
         raw.copy_from_slice(&stored[stored_len - 8..]);
         let version = !u64::from_be_bytes(raw);
         let v =
-            decode_value(&bytes).map_err(|reason| StoreError::Corrupted(key.to_vec(), reason))?;
+            decode_value(&bytes).map_err(|reason| StoreError::corrupted(key.to_vec(), reason))?;
         Ok((!v.deletion)
             .then(|| Item::new(key.to_vec(), version, v.meta, v.discard, v.value.to_vec())))
     }
@@ -65,7 +65,7 @@ impl StoreSnapshot for FjallSnapshot {
         self.snapshot
             .get(&self.shared.terms, key)
             .map(|v| v.map(|v| v.to_vec()))
-            .map_err(|e| StoreError::ReadFailed(key.to_vec(), e.to_string()))
+            .map_err(|e| StoreError::read_failed(key.to_vec(), e.to_string()))
     }
 
     fn get_many<K: AsRef<[u8]>>(&self, keys: &[K]) -> Result<Vec<Option<Item>>, StoreError> {

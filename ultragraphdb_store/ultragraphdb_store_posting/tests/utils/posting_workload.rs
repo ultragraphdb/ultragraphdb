@@ -214,6 +214,8 @@ impl PostingWorkload {
             .clone()
     }
 
+    /// One event of the simulation: after a recovery, new lists over the reopened store; the apply loop's step a
+    /// write; any other step a read.
     pub fn step(&mut self, ctx: &mut SimContext, event: Event) -> Result<(), Violation> {
         match event {
             Event::Recovered => {

@@ -251,7 +251,7 @@ fn refused_stale(w: &mut Steps) -> TestResult {
         .context("a refusal")?;
     assert_eq!(
         refusal,
-        StatementError::Stale(w.statements[0], w.schemas[0], w.schemas[1])
+        StatementError::stale(w.statements[0], w.schemas[0], w.schemas[1])
     );
     assert_eq!(refusal.code(), ErrorCode::StaleStatement);
     assert_eq!(refusal.reply().code(), ErrorCode::StaleStatement);
@@ -713,7 +713,7 @@ fn decimal_past_its_payload(w: &mut Steps) -> TestResult {
     let lexical = "0.1234567890123456789";
     let literal = oxrdf::Literal::new_typed_literal(lexical, oxrdf::vocab::xsd::DECIMAL);
     let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
-        Err(ultragraphdb_core_terms::TermError::Malformed(
+        Err(ultragraphdb_core_terms::TermError::malformed(
             Vec::new(),
             "a known datatype takes no UID",
         ))

@@ -9,8 +9,8 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    DateTime, Geometry, Layout, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal,
-    verify_password,
+    CivilTime, DateTime, Geometry, Layout, TypeId, Val, Value, Zone, convert, float_array_as_bytes,
+    marshal, verify_password,
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
@@ -42,7 +42,6 @@ fn ok(tid: TypeId, v: Value) -> Result<Val, String> {
     Ok(Val::new(tid, v))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn date(y: i64, mo: i64, d: i64, h: i64, mi: i64, se: i64, ns: i64) -> DateTime {
     DateTime::utc(y, mo, d, h, mi, se, ns)
 }
@@ -1023,7 +1022,10 @@ fn test_convert_to_string() -> TestResult {
 
 #[test]
 fn test_fixed_zone_round_trip() -> TestResult {
-    let t = DateTime::new(2018, 5, 30, 9, 30, 10, 0, Zone::Fixed(-6 * 3600));
+    let t = DateTime::new(
+        CivilTime::new(2018, 5, 30, 9, 30, 10, 0),
+        Zone::Fixed(-6 * 3600),
+    );
     let back = conv(TypeId::BINARY, bs_time(t)?, TypeId::DATETIME)
         .context("conv(TypeId::BINARY, bs_time(t), TypeId::DATETIME)")?;
     assert_eq!(back.value(), Some(&Value::DateTime(t)));
@@ -2644,13 +2646,7 @@ fn zone_and_string_texts() -> Vec<TextCase> {
             Val::new(
                 TypeId::DATETIME,
                 Value::DateTime(DateTime::new(
-                    2018,
-                    5,
-                    30,
-                    9,
-                    30,
-                    10,
-                    500_000_000,
+                    CivilTime::new(2018, 5, 30, 9, 30, 10, 500_000_000),
                     Zone::Fixed(-6 * 3600),
                 )),
             ),
@@ -2670,13 +2666,7 @@ fn zone_and_string_texts() -> Vec<TextCase> {
             Val::new(
                 TypeId::DATETIME,
                 Value::DateTime(DateTime::new(
-                    2018,
-                    1,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
+                    CivilTime::new(2018, 1, 1, 0, 0, 0, 0),
                     Zone::Fixed(25 * 3600),
                 )),
             ),
@@ -2687,7 +2677,10 @@ fn zone_and_string_texts() -> Vec<TextCase> {
         (
             Val::new(
                 TypeId::DATETIME,
-                Value::DateTime(DateTime::new(2018, 1, 1, 0, 0, 0, 0, Zone::Fixed(30))),
+                Value::DateTime(DateTime::new(
+                    CivilTime::new(2018, 1, 1, 0, 0, 0, 0),
+                    Zone::Fixed(30),
+                )),
             ),
             Ok(r#""2018-01-01T00:00:00+00:00""#),
         ),

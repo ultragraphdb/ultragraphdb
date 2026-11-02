@@ -22,15 +22,15 @@ use ultragraphdb_error_num::{NumError, NumErrorEnum};
 pub use crate::utils::isprint::is_print;
 
 fn syntax_error(func: &'static str, s: &[u8]) -> NumError {
-    NumError::Syntax(func, quote(s))
+    NumError::syntax(func, quote(s))
 }
 
 fn range_error(func: &'static str, s: &[u8]) -> NumError {
-    NumError::Range(func, quote(s))
+    NumError::range(func, quote(s))
 }
 
 fn base_error(func: &'static str, s: &[u8], base: u32) -> NumError {
-    NumError::Base(func, quote(s), base)
+    NumError::base(func, quote(s), base)
 }
 
 fn lower(c: u8) -> u8 {

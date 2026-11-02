@@ -231,7 +231,10 @@ fn test_vector_options_their_factory_refuses_are_refused() -> TestResult {
         .context("the error of apply(..)")?;
     assert_eq!(
         unknown_refused.0,
-        ChangesetErrorEnum::Catalog(CatalogError::UnknownVectorIndex(ex("emb").as_str(), "nope"))
+        ChangesetErrorEnum::Catalog(CatalogError::unknown_vector_index(
+            ex("emb").as_str(),
+            "nope"
+        ))
     );
     assert_eq!(
         unknown_refused.to_string(),

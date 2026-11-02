@@ -44,13 +44,13 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
         }
     }
 
-    /// The client's first Authenticate, step 0, naming the mechanism; refused as [`TransportError::Authentication`]
+    /// The client's first Authenticate, step 0, naming the mechanism; refused as [`TransportError::authentication`]
     /// when the mechanism cannot start.
     pub fn start(&mut self) -> Result<Authenticate, TransportError> {
         let message = self
             .mechanism
             .start()
-            .map_err(|e| TransportError::Authentication(e.to_string()))?;
+            .map_err(|e| TransportError::authentication(e.to_string()))?;
         self.due = Some(1);
         Ok(Authenticate::new(
             0,
@@ -60,25 +60,25 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
     }
 
     /// The server's frame on stream 0 read: its next Authenticate answered, its final one checked, its Error refused
-    /// as [`TransportError::Refused`]; a message out of step as [`TransportError::Protocol`], another command as
-    /// [`TransportError::UnexpectedCommand`], and the mechanism's refusal as [`TransportError::Authentication`].
+    /// as [`TransportError::refused`]; a message out of step as [`TransportError::protocol`], another command as
+    /// [`TransportError::unexpected_command`], and the mechanism's refusal as [`TransportError::authentication`].
     pub fn receive(&mut self, frame: &FrameView<'_>) -> Result<AuthenticationStep, TransportError> {
         match frame.command() {
             Command::Error => {
-                let error = ErrorReplyView::from_frame(frame).map_err(TransportError::Protocol)?;
-                Err(TransportError::Refused(error.code(), error.message()))
+                let error = ErrorReplyView::from_frame(frame).map_err(TransportError::protocol)?;
+                Err(TransportError::refused(error.code(), error.message()))
             }
             Command::Authenticate => {
                 let message =
-                    AuthenticateView::from_frame(frame).map_err(TransportError::Protocol)?;
+                    AuthenticateView::from_frame(frame).map_err(TransportError::protocol)?;
                 if self.due != Some(message.step()) {
-                    return Err(TransportError::Protocol(ProtocolError::FieldValue(
+                    return Err(TransportError::protocol(ProtocolError::field_value(
                         Command::Authenticate.number(),
                         "step",
                         message.step().into(),
                     )));
                 }
-                let refused = |e: M::Error| TransportError::Authentication(e.to_string());
+                let refused = |e: M::Error| TransportError::authentication(e.to_string());
                 if message.is_final() {
                     self.due = None;
                     self.mechanism.finish(message.message()).map_err(refused)?;
@@ -110,7 +110,7 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
             | Command::Credit
             | Command::Cancel
             | Command::Round
-            | Command::Drop) => Err(TransportError::UnexpectedCommand(
+            | Command::Drop) => Err(TransportError::unexpected_command(
                 Command::Authenticate.number(),
                 other.number(),
             )),

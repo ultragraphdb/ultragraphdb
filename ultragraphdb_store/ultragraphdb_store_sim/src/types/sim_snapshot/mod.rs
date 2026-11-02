@@ -102,7 +102,7 @@ impl SimSnapshot {
             return Ok(None);
         };
         let decoded = decode(&self.bytes(inner, key, version, stored))
-            .map_err(|reason| StoreError::Corrupted(key.to_vec(), reason))?;
+            .map_err(|reason| StoreError::corrupted(key.to_vec(), reason))?;
         Ok((!decoded.deletion).then(|| {
             Item::new(
                 key.to_vec(),
@@ -135,7 +135,7 @@ impl SimSnapshot {
             };
             match decode(&self.bytes(inner, key, *version, stored)) {
                 Err(reason) => {
-                    items.push(Err(StoreError::Corrupted(key.clone(), reason)));
+                    items.push(Err(StoreError::corrupted(key.clone(), reason)));
                     done = true;
                 }
                 Ok(d) if d.deletion => done = true,

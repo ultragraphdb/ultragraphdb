@@ -31,7 +31,7 @@ enum Arrived<T> {
 fn arrived<T>(frame: &ReceivedFrame, read: impl FnOnce(&ResultView<'_>) -> T) -> Arrived<T> {
     let view = match frame.view() {
         Ok(view) => view,
-        Err(error) => return Arrived::Broken(ClientError::Protocol(error)),
+        Err(error) => return Arrived::Broken(ClientError::protocol(error)),
     };
     if view.command() == Command::Error {
         return match refusal(&view) {
@@ -41,7 +41,7 @@ fn arrived<T>(frame: &ReceivedFrame, read: impl FnOnce(&ResultView<'_>) -> T) ->
     }
     match ResultView::from_frame(&view) {
         Ok(batch) => Arrived::Batch(read(&batch), view.header().flags() & FLAG_LAST != 0),
-        Err(error) => Arrived::Broken(ClientError::Protocol(error)),
+        Err(error) => Arrived::Broken(ClientError::protocol(error)),
     }
 }
 
@@ -51,11 +51,11 @@ impl<L: Login> ClientCore<L> {
     /// [`BatchPoll::Done`] after the last, which ends the read's stream; [`BatchPoll::Wait`] while none has arrived,
     /// granting the stream [`crate::ClientConfig::credit`] more frames when its credit is spent. A refusal on the
     /// stream is its error and ends it, keeping the connection and the transaction; a frame breaking a rule gives the
-    /// connection up ([`ClientError::Protocol`]). A read cut short by its connection's loss, before its last frame
-    /// arrived, answers what the connection's requests answered, once: [`ClientError::ConnectionLost`] with its cause,
-    /// or [`ClientError::TimedOut`]; it is not retried, as its transaction was aborted with the connection
+    /// connection up ([`ClientError::protocol`]). A read cut short by its connection's loss, before its last frame
+    /// arrived, answers what the connection's requests answered, once: [`ClientError::connection_lost`] with its cause,
+    /// or [`ClientError::timed_out`]; it is not retried, as its transaction was aborted with the connection
     /// (`PROTOCOL.md` §11.4). A read whose last frame had arrived is read to its end. A read whose stream or
-    /// transaction ended, or whose loss was answered, is finished ([`ClientError::StreamFinished`]).
+    /// transaction ended, or whose loss was answered, is finished ([`ClientError::stream_finished`]).
     pub fn next_batch<T>(
         &mut self,
         stream: &ResultStream,
@@ -81,13 +81,13 @@ impl<L: Login> ClientCore<L> {
             };
         }
         if stream.generation() != self.generation {
-            return Err(ClientError::StreamFinished(id));
+            return Err(ClientError::stream_finished(id));
         }
         let Some(state) = self.streams.get_mut(&id) else {
             if self.done_reads.contains(&id) {
                 return Ok(BatchPoll::Done);
             }
-            return Err(ClientError::StreamFinished(id));
+            return Err(ClientError::stream_finished(id));
         };
         let Some(frame) = state.inbox.pop_front() else {
             if state.credit == 0 {
@@ -113,23 +113,23 @@ impl<L: Login> ClientCore<L> {
             }
             Arrived::Broken(error) => {
                 let _ended: Option<StreamState> = self.streams.remove(&id);
-                self.lose(&ClientError::ConnectionLost(Some(error.clone())));
+                self.lose(&ClientError::connection_lost(Some(error.clone())));
                 Err(error)
             }
         }
     }
 
     /// Grants `stream` credit for `frames` more Result frames, beyond what [`ClientCore::next_batch`] grants; refused
-    /// as [`ClientError::Request`] for no frames, which a Credit cannot carry (`PROTOCOL.md` §9.2).
+    /// as [`ClientError::request`] for no frames, which a Credit cannot carry (`PROTOCOL.md` §9.2).
     pub fn grant(&mut self, stream: &ResultStream, frames: u32) -> Result<(), ClientError> {
         let id = stream.stream();
         let open = stream.generation() == self.generation
             && self.streams.get(&id).is_some_and(|s| s.results);
         if !open {
-            return Err(ClientError::StreamFinished(id));
+            return Err(ClientError::stream_finished(id));
         }
         if frames == 0 {
-            return Err(ClientError::Request(ProtocolError::FieldValue(
+            return Err(ClientError::request(ProtocolError::field_value(
                 Command::Credit.number(),
                 "frames",
                 0,

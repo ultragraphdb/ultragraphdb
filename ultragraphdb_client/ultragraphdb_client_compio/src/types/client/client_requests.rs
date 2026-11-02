@@ -16,7 +16,7 @@ use crate::types::client::{Client, now};
 
 /// A reply of another kind than its request's: the core answers each request with its own kind.
 fn mismatch() -> ClientError {
-    ClientError::ReplyMismatch("reply", 0, 0)
+    ClientError::reply_mismatch("reply", 0, 0)
 }
 
 impl<C: Connect, L: Login> Client<C, L> {

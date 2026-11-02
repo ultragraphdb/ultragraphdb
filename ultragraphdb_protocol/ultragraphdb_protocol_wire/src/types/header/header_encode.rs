@@ -40,13 +40,13 @@ impl Header {
     }
 
     /// Writes `sequence` into the header of `frame`, a whole frame, and recomputes its `checksum`: a sender numbers a
-    /// frame as it leaves, after the frame was built. Refused as [`ProtocolError::ShortHeader`] for fewer than 256
+    /// frame as it leaves, after the frame was built. Refused as [`ProtocolError::short_header`] for fewer than 256
     /// bytes.
     pub fn stamp_sequence(frame: &mut [u8], sequence: u128) -> Result<(), ProtocolError> {
         let len = frame.len();
         let header = frame
             .get_mut(..HEADER_SIZE)
-            .ok_or(ProtocolError::ShortHeader(len))?;
+            .ok_or(ProtocolError::short_header(len))?;
         let (checksum, tail) = header.split_at_mut(8);
         tail.iter_mut()
             .skip(8)
@@ -58,11 +58,11 @@ impl Header {
 
     /// The frame of this header and `body`: the header, the body, and the body's chunk table when it has more than
     /// one chunk, with `size`, `checksum_body` and `checksum` filled in. Refused as
-    /// [`ProtocolError::FrameTooLarge`] when the frame would exceed [`crate::MAX_FRAME_SIZE`].
+    /// [`ProtocolError::frame_too_large`] when the frame would exceed [`crate::MAX_FRAME_SIZE`].
     pub fn encode_frame(&self, body: &[u8]) -> Result<Vec<u8>, ProtocolError> {
         let size = HEADER_SIZE + ChunkLayout::of_data(body.len()).body_len();
         if size > MAX_FRAME_SIZE {
-            return Err(ProtocolError::FrameTooLarge(size, MAX_FRAME_SIZE));
+            return Err(ProtocolError::frame_too_large(size, MAX_FRAME_SIZE));
         }
         let mut chunked = Vec::with_capacity(size - HEADER_SIZE);
         let checksum_body = ChunkedBody::encode(body, &mut chunked);

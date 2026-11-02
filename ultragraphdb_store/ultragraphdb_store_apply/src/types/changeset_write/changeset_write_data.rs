@@ -120,7 +120,7 @@ where
             };
             if let Some(reason) = fault {
                 let subject = self.decode(&EncodedTerm::uid(subject))?.to_string();
-                return Err(ChangesetError::Contradicted(iri, subject, reason));
+                return Err(ChangesetError::contradicted(iri, subject, reason));
             }
         }
         Ok(())

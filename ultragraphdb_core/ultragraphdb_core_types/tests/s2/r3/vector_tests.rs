@@ -26,12 +26,7 @@ fn approx(a: R3Vector, b: R3Vector) -> bool {
 }
 
 /// A vector whose squared norm underflows to zero.
-#[allow(clippy::excessive_precision)]
-const TINY: R3Vector = R3Vector::new(
-    -0.0,
-    4.3145006366056343748277397783556100978621924913975e-196,
-    4.3145006366056343748277397783556100978621924913975e-196,
-);
+const TINY: R3Vector = R3Vector::new(-0.0, 4.314500636605634e-196, 4.314500636605634e-196);
 
 // Ported from golang/geo r3/vector_test.go, TestVectorNorm and TestVectorNorm2.
 #[test]

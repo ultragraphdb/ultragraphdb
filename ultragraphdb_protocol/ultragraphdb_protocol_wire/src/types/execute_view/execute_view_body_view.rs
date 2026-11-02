@@ -36,7 +36,7 @@ impl<'a> BodyView<'a> for ExecuteView<'a> {
         let parameters = u32s(command, 2, sections.get(2))?;
         let limit = as_u32(terms.len());
         if let Some((at, index)) = parameters.iter().enumerate().find(|(_, i)| **i >= limit) {
-            return Err(ProtocolError::IndexOutOfRange(
+            return Err(ProtocolError::index_out_of_range(
                 command, 2, at, *index, limit,
             ));
         }

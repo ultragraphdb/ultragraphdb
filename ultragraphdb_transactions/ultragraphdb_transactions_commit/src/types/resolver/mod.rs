@@ -37,17 +37,17 @@ impl Resolver {
     ///
     /// # Errors
     ///
-    /// [`CommitError::Unsealed`], [`CommitError::TooOld`] and [`CommitError::Conflict`], in that order.
+    /// [`CommitError::unsealed`], [`CommitError::too_old`] and [`CommitError::conflict`], in that order.
     pub fn check(&self, read_set: &ReadSet) -> Result<(), CommitError> {
         if !read_set.is_sealed() {
-            return Err(CommitError::Unsealed());
+            return Err(CommitError::unsealed());
         }
         let floor = self.history.floor();
         if read_set.read_version() < floor {
-            return Err(CommitError::TooOld(read_set.read_version(), floor));
+            return Err(CommitError::too_old(read_set.read_version(), floor));
         }
         match self.history.conflict(read_set) {
-            Some(kind) => Err(CommitError::Conflict(kind)),
+            Some(kind) => Err(CommitError::conflict(kind)),
             None => Ok(()),
         }
     }
@@ -57,7 +57,7 @@ impl Resolver {
     ///
     /// # Errors
     ///
-    /// [`CommitError::Conflict`] of kind [`ConflictKind::Drop`].
+    /// [`CommitError::conflict`] of kind [`ConflictKind::Drop`].
     pub fn check_writes(
         &self,
         read_version: u64,
@@ -72,7 +72,7 @@ impl Resolver {
                 .chain(statements.iter().map(|e| e.key()))
         };
         if self.history.written_into_range(read_version, written) {
-            return Err(CommitError::Conflict(ConflictKind::Drop));
+            return Err(CommitError::conflict(ConflictKind::Drop));
         }
         Ok(())
     }

@@ -61,7 +61,7 @@ impl TlsTrust {
     /// read, and [`TrustStoreEmpty`](crate::TlsErrorEnum::TrustStoreEmpty) when it holds no usable certificate.
     pub fn from_pem_file(path: &str) -> Result<Self, TlsError> {
         let pem = std::fs::read(path)
-            .map_err(|e| TlsError::TrustStoreUnreadable(path.to_string(), e.to_string()))?;
+            .map_err(|e| TlsError::trust_store_unreadable(path.to_string(), e.to_string()))?;
         Self::from_pem(path, &pem)
     }
 
@@ -90,7 +90,7 @@ impl TlsTrust {
         }
         debug_assert!(roots.len() <= added);
         if roots.is_empty() {
-            return Err(TlsError::TrustStoreEmpty(source.to_string()));
+            return Err(TlsError::trust_store_empty(source.to_string()));
         }
         Ok(Self {
             roots: Arc::new(roots),

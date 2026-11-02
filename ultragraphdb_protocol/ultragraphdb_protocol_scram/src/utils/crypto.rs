@@ -54,9 +54,9 @@ pub(crate) fn same(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
 
-/// `text` prepared with SASLprep (RFC 4013), refused as [`ScramError::Prepare`].
+/// `text` prepared with SASLprep (RFC 4013), refused as [`ScramError::prepare`].
 pub(crate) fn prepare(text: &str) -> Result<String, ScramError> {
     stringprep::saslprep(text)
         .map(|prepared| prepared.into_owned())
-        .map_err(|_| ScramError::Prepare())
+        .map_err(|_| ScramError::prepare())
 }

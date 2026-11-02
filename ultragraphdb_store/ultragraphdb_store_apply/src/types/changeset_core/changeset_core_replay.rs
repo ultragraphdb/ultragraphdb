@@ -8,14 +8,11 @@
 //! entry of it; a logged drop drops its predicate at its version; a logged build's end has its build restored from the
 //! declaration its record names, so the round's apply builds it again and swaps it in, or undoes it.
 
-use std::collections::BTreeSet;
-
 use ultragraphdb_core_catalog::{Catalog, decode_declaration};
 use ultragraphdb_core_codec::PostingList;
 use ultragraphdb_core_keys::{Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Declaration;
 use ultragraphdb_store_posting::{BIT_DELTA_POSTING, CachedList, Writes};
-use ultragraphdb_store_quads::WriteTerms;
 use ultragraphdb_traits_store::{Entry, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -23,7 +20,6 @@ use crate::types::build_end::BuildEnd;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
-use crate::types::reads::Reads;
 use crate::types::rebuild::Rebuild;
 use crate::types::record_writes::RecordWrites;
 
@@ -93,20 +89,10 @@ where
             .collect();
         let writes = Writes::replayed(deltas, entries, versionless, advance_epoch);
         let catalog = (*self.catalog(namespace)?).clone();
-        Ok(Executed::new(
-            namespace,
-            read_ts,
+        Ok(Executed {
             writes,
-            WriteTerms::new(namespace),
-            Reads::default(),
-            BTreeSet::new(),
-            0,
-            catalog,
-            (Vec::new(), Vec::new(), false),
-            None,
-            BTreeSet::new(),
-            Vec::new(),
-        ))
+            ..Executed::empty(namespace, read_ts, catalog)
+        })
     }
 
     /// The drop of `target` in `namespace` replayed, as [`crate::ChangesetApplier::prepare_replayed_drop`] makes it.

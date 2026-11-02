@@ -99,9 +99,9 @@ impl QuadPattern {
     }
 
     /// The pattern of `slots`, section `section` of a body of `command` whose term table holds `terms` entries,
-    /// checked: 32 bytes ([`ProtocolError::CountMismatch`]); each kind known, the default graph only at the graph, a
+    /// checked: 32 bytes ([`ProtocolError::count_mismatch`]); each kind known, the default graph only at the graph, a
     /// parameter only where `parameters` allows it, numbered in order of appearance, and an unused value zero
-    /// ([`ProtocolError::FieldValue`]); each bound term's index in the table ([`ProtocolError::IndexOutOfRange`]).
+    /// ([`ProtocolError::field_value`]); each bound term's index in the table ([`ProtocolError::index_out_of_range`]).
     pub(crate) fn read(
         command: u16,
         section: usize,
@@ -110,7 +110,7 @@ impl QuadPattern {
         parameters: bool,
     ) -> Result<Self, ProtocolError> {
         if slots.len() != PATTERN_SIZE {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "pattern",
                 slots.len() as u64,
@@ -124,7 +124,7 @@ impl QuadPattern {
             let value = bytes_at(slots, 8 * i + 4).map_or(0, u32::from_le_bytes);
             *out = match kind {
                 0 | 1 if value != 0 => {
-                    return Err(ProtocolError::FieldValue(
+                    return Err(ProtocolError::field_value(
                         command,
                         "slot value",
                         value.into(),
@@ -132,7 +132,7 @@ impl QuadPattern {
                 }
                 0 => PatternSlot::Unbound,
                 1 if i != 0 => {
-                    return Err(ProtocolError::FieldValue(
+                    return Err(ProtocolError::field_value(
                         command,
                         "default graph",
                         i as u64,
@@ -140,7 +140,7 @@ impl QuadPattern {
                 }
                 1 => PatternSlot::DefaultGraph,
                 2 if value as usize >= terms => {
-                    return Err(ProtocolError::IndexOutOfRange(
+                    return Err(ProtocolError::index_out_of_range(
                         command,
                         section,
                         i,
@@ -150,7 +150,7 @@ impl QuadPattern {
                 }
                 2 => PatternSlot::Bound(value),
                 3 if !parameters => {
-                    return Err(ProtocolError::FieldValue(
+                    return Err(ProtocolError::field_value(
                         command,
                         "parameter slot",
                         i as u64,
@@ -158,7 +158,7 @@ impl QuadPattern {
                 }
                 3 => {
                     if value != parameters_seen {
-                        return Err(ProtocolError::FieldValue(
+                        return Err(ProtocolError::field_value(
                             command,
                             "parameter",
                             value.into(),
@@ -168,7 +168,7 @@ impl QuadPattern {
                     PatternSlot::Parameter(value)
                 }
                 other => {
-                    return Err(ProtocolError::FieldValue(
+                    return Err(ProtocolError::field_value(
                         command,
                         "slot kind",
                         other.into(),

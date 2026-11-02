@@ -32,12 +32,12 @@ impl Inner {
     /// dropped every one.
     pub fn temporary(&self, temporary: &Temporary) -> Result<Arc<State>, StoreError> {
         if matches!(self.status, Status::Down { .. }) {
-            return Err(StoreError::Poisoned());
+            return Err(StoreError::poisoned());
         }
         self.temporaries
             .get(&temporary.id())
             .cloned()
-            .ok_or_else(|| StoreError::UnknownTemporary(temporary.id()))
+            .ok_or_else(|| StoreError::unknown_temporary(temporary.id()))
     }
 
     /// Writes `batch` to `temporary` under the batch faults: a failed write poisons the store, a crash takes the
@@ -75,7 +75,7 @@ impl Inner {
                     batch,
                     crashed: false,
                 });
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated failure during a temporary batch's persist".into(),
                 ))
             }
@@ -89,7 +89,7 @@ impl Inner {
                     batch,
                     crashed: true,
                 });
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated process crash while a temporary batch was written".into(),
                 ))
             }
@@ -123,7 +123,7 @@ impl Inner {
         let _dropped: Arc<State> = self
             .temporaries
             .remove(&id)
-            .ok_or(StoreError::UnknownTemporary(id))?;
+            .ok_or(StoreError::unknown_temporary(id))?;
         self.log.push(OpRecord::TemporaryDropped { temporary: id });
         Ok(())
     }

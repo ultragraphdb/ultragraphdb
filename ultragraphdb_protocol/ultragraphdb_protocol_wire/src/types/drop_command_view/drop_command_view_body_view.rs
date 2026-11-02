@@ -27,14 +27,14 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 1), (8, 40)])?;
         let number = header.u8_at(0);
-        let drop_kind = DropKind::from_number(number).ok_or(ProtocolError::FieldValue(
+        let drop_kind = DropKind::from_number(number).ok_or(ProtocolError::field_value(
             command,
             "kind",
             number.into(),
         ))?;
         let namespace = header.u64_at(8);
         if drop_kind == DropKind::All && namespace != 0 {
-            return Err(ProtocolError::FieldValue(command, "namespace", namespace));
+            return Err(ProtocolError::field_value(command, "namespace", namespace));
         }
         let sections = Sections::<2>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
@@ -46,7 +46,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
         )?;
         let expected = usize::from(drop_kind.names_target());
         if terms.len() != expected {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "drop terms",
                 terms.len() as u64,
@@ -64,7 +64,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
                     RequestTermView::LanguageLiteral { .. } => kind::LANGUAGE_LITERAL,
                     RequestTermView::Triple { .. } => kind::TRIPLE,
                 };
-                return Err(ProtocolError::FieldValue(
+                return Err(ProtocolError::field_value(
                     command,
                     "drop term",
                     found.into(),
@@ -90,7 +90,7 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
             (DropKind::All, _) => DropCommand::all(),
             // The view's check gives a predicate and a graph their target.
             (DropKind::Predicate | DropKind::Graph, None) => {
-                return Err(ProtocolError::CountMismatch(
+                return Err(ProtocolError::count_mismatch(
                     Self::COMMAND.number(),
                     "drop terms",
                     0,

@@ -9,9 +9,8 @@
 //! not measure the posting-list cache, multi-key reads through one snapshot, a cold block cache, or reads while
 //! writes or compactions run.
 
-// Each bench uses part of what the benches share.
-#[allow(dead_code)]
-mod bench_dir;
+/// What the benches share; each bench uses a part of it.
+pub mod bench_dir;
 
 use std::cell::Cell;
 

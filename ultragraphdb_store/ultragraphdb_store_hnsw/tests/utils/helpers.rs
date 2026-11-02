@@ -385,6 +385,7 @@ impl<'d> InMemList<'d> {
         Ok(())
     }
 
+    /// The start timestamp of the transaction writing the list.
     pub fn start_ts(&self) -> u64 {
         self.start_ts
     }
@@ -399,6 +400,7 @@ pub struct InMemTxn<'d> {
 }
 
 impl<'d> InMemTxn<'d> {
+    /// A transaction over `dbs`, reading at `start_ts` and writing from `commit_ts` on.
     pub fn new(dbs: &'d TsDbs, start_ts: u64, commit_ts: u64) -> Self {
         Self {
             dbs,
@@ -418,7 +420,7 @@ impl Txn for InMemTxn<'_> {
     fn get(&self, key: &[u8]) -> Result<Vec<u8>, Self::Error> {
         self.dbs
             .get(self.start_ts, key)
-            .ok_or_else(HnswError::NoValue)
+            .ok_or_else(HnswError::no_value)
     }
 
     fn get_with_lock_held(&self, key: &[u8]) -> Result<Vec<u8>, Self::Error> {
@@ -452,6 +454,7 @@ pub struct InMemLocalCache<'d> {
 }
 
 impl<'d> InMemLocalCache<'d> {
+    /// A cache over `dbs`, reading at `read_ts`.
     pub fn new(dbs: &'d TsDbs, read_ts: u64) -> Self {
         Self { dbs, read_ts }
     }
@@ -463,7 +466,7 @@ impl LocalCache for InMemLocalCache<'_> {
     fn get(&self, key: &[u8]) -> Result<Vec<u8>, Self::Error> {
         self.dbs
             .get(self.read_ts, key)
-            .ok_or_else(HnswError::NoValue)
+            .ok_or_else(HnswError::no_value)
     }
 
     fn get_with_lock_held(&self, key: &[u8]) -> Result<Vec<u8>, Self::Error> {
@@ -478,6 +481,7 @@ impl LocalCache for InMemLocalCache<'_> {
 /// `ef_recall_test.go`'s `memoryCache`: an absent key reads as no bytes and no error, and `find` finds nothing.
 #[derive(Debug, Default)]
 pub struct MemoryCache {
+    /// The values by key.
     pub data: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
@@ -502,6 +506,7 @@ impl CacheType for MemoryCache {
 /// reports `KeyNotFound`. A node's vector is held raw, as Go's golden transaction holds it.
 #[derive(Debug, Default)]
 pub struct MapTxn {
+    /// The values by key, each node's vector held raw.
     pub db: RefCell<BTreeMap<Vec<u8>, Vec<u8>>>,
 }
 
@@ -519,7 +524,7 @@ impl MapTxn {
     fn read(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
         match self.db.borrow().get(key) {
             Some(v) if !v.is_empty() => Ok(v.clone()),
-            _ => Err(HnswError::NoValue()),
+            _ => Err(HnswError::no_value()),
         }
     }
 
@@ -537,11 +542,11 @@ impl MapTxn {
                     Ok((ultragraphdb_core_keys::QuadKey::Forward { subject, .. }, _)) => {
                         Ok(subject)
                     }
-                    _ => Err(HnswError::KeyNotFound()),
+                    _ => Err(HnswError::key_not_found()),
                 };
             }
         }
-        Err(HnswError::KeyNotFound())
+        Err(HnswError::key_not_found())
     }
 }
 

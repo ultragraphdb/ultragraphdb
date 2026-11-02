@@ -71,7 +71,7 @@ impl Operator<OpProposal> for Script {
     {
         self.seen.push(unapplied.count());
         if self.refuse {
-            return Err(CommitError::OperationFailed(Some("\"done\"".to_string())));
+            return Err(CommitError::operation_failed(Some("\"done\"".to_string())));
         }
         results.push(OperationResult::new(self.uid, true));
         let mut record = WriteSetRecord::new(0, 0, 0, 0);
@@ -166,7 +166,7 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() -
     };
     assert_eq!(
         reply(2)?.outcome(),
-        &Err(CommitError::OperationFailed(Some("\"done\"".to_string())))
+        &Err(CommitError::operation_failed(Some("\"done\"".to_string())))
     );
     assert!(reply(2)?.results().is_empty());
     assert_eq!(reply(3)?.outcome(), &Ok(4));
@@ -235,7 +235,7 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
     sync(&mut step, &mut out, &mut script);
     assert_eq!(
         out.replies()[0].outcome(),
-        &Err(CommitError::Conflict(ConflictKind::List))
+        &Err(CommitError::conflict(ConflictKind::List))
     );
     Ok(())
 }
@@ -350,7 +350,7 @@ fn test_a_step_without_an_operator_refuses_operations() -> TestResult {
         out.replies(),
         &[Reply::new(
             1,
-            Err(CommitError::Refused(
+            Err(CommitError::refused(
                 "the commit step runs no commit-time operations".to_string()
             ))
         )]
@@ -481,7 +481,7 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
         out.replies(),
         &[Reply::new(
             1,
-            Err(CommitError::TooLarge(size, largest_record(4_096)))
+            Err(CommitError::too_large(size, largest_record(4_096)))
         )]
     );
     assert_eq!(
@@ -538,7 +538,7 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
         vec![
             Reply::new(1, Ok(2)),
             Reply::new(2, Ok(4)),
-            Reply::new(3, Err(CommitError::TooLarge(size, largest_record(4_096))))
+            Reply::new(3, Err(CommitError::too_large(size, largest_record(4_096))))
         ]
     );
     Ok(())

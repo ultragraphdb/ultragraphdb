@@ -53,61 +53,38 @@ impl TokError {
         Self(kind)
     }
 
-    pub(crate) fn unknown_tokenizer(msg: impl Into<String>) -> Self {
-        Self::new(TokErrorEnum::UnknownTokenizer(msg.into()))
-    }
-
-    pub(crate) fn wrong_value(msg: impl Into<String>) -> Self {
-        Self::new(TokErrorEnum::WrongValue(msg.into()))
-    }
-
-    pub(crate) fn arguments(msg: impl Into<String>) -> Self {
-        Self::new(TokErrorEnum::Arguments(msg.into()))
-    }
-
-    pub(crate) fn unknown_factory(msg: impl Into<String>) -> Self {
-        Self::new(TokErrorEnum::UnknownFactory(msg.into()))
-    }
-
     /// A [`TokErrorEnum::UnknownTokenizer`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn UnknownTokenizer(msg: String) -> Self {
-        Self(TokErrorEnum::UnknownTokenizer(msg))
+    pub fn unknown_tokenizer(msg: impl Into<String>) -> Self {
+        Self(TokErrorEnum::UnknownTokenizer(msg.into()))
     }
 
     /// A [`TokErrorEnum::WrongValue`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn WrongValue(msg: String) -> Self {
-        Self(TokErrorEnum::WrongValue(msg))
+    pub fn wrong_value(msg: impl Into<String>) -> Self {
+        Self(TokErrorEnum::WrongValue(msg.into()))
     }
 
     /// A [`TokErrorEnum::Geo`] error wrapping the geo index's refusal.
-    #[allow(non_snake_case)]
-    pub fn Geo(value: TypesError) -> Self {
+    pub fn geo(value: TypesError) -> Self {
         Self(TokErrorEnum::Geo(value))
     }
 
     /// A [`TokErrorEnum::Arguments`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Arguments(msg: String) -> Self {
-        Self(TokErrorEnum::Arguments(msg))
+    pub fn arguments(msg: impl Into<String>) -> Self {
+        Self(TokErrorEnum::Arguments(msg.into()))
     }
 
     /// A [`TokErrorEnum::UnknownFactory`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn UnknownFactory(msg: String) -> Self {
-        Self(TokErrorEnum::UnknownFactory(msg))
+    pub fn unknown_factory(msg: impl Into<String>) -> Self {
+        Self(TokErrorEnum::UnknownFactory(msg.into()))
     }
 
     /// A [`TokErrorEnum::Options`] error wrapping the refused option.
-    #[allow(non_snake_case)]
-    pub fn Options(value: OptionsError) -> Self {
+    pub fn options(value: OptionsError) -> Self {
         Self(TokErrorEnum::Options(value))
     }
 
     /// A [`TokErrorEnum::ShortFloat`] error: `len` bytes given for a float of `bits` bits.
-    #[allow(non_snake_case)]
-    pub fn ShortFloat(len: usize, bits: usize) -> Self {
+    pub fn short_float(len: usize, bits: usize) -> Self {
         Self(TokErrorEnum::ShortFloat { len, bits })
     }
 }

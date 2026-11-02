@@ -22,6 +22,7 @@ pub use crate::s2::{
 };
 pub use crate::types::area::Area;
 pub use crate::types::big_float::BigFloat;
+pub use crate::types::civil_time::CivilTime;
 pub use crate::types::date_time::{DateTime, Zone};
 pub use crate::types::geo_query_data::GeoQueryData;
 pub use crate::types::geometry::Geometry;

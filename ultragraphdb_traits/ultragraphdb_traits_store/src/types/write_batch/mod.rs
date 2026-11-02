@@ -97,7 +97,7 @@ impl WriteBatch {
     }
 
     /// The refusal of the first key, the entries' before the versionless writes', that is over a size limit, as
-    /// [`crate::check_key_size`] gives it, or, of a versionless write, empty: [`StoreError::EmptyKey`], Badger's
+    /// [`crate::check_key_size`] gives it, or, of a versionless write, empty: [`StoreError::empty_key`], Badger's
     /// `ErrEmptyKey`. An entry's key may be empty.
     pub fn check_key_sizes(&self) -> Result<(), StoreError> {
         self.entries
@@ -105,7 +105,7 @@ impl WriteBatch {
             .map(Entry::key)
             .try_for_each(check_key_size)?;
         self.versionless.iter().try_for_each(|e| match e.key() {
-            [] => Err(StoreError::EmptyKey()),
+            [] => Err(StoreError::empty_key()),
             key => check_key_size(key),
         })
     }

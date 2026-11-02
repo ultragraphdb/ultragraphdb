@@ -6,7 +6,7 @@
 //! Go's `time.Time` as Dgraph's datetimes use it. The expected values are Go 1.27's: `time.Date`, `Unix`,
 //! `UnixNano`, `MarshalBinary`, `UnmarshalBinary` and `MarshalText`, printed by a Go program over the same inputs.
 
-use ultragraphdb_core_types::{DateTime, Zone};
+use ultragraphdb_core_types::{CivilTime, DateTime, Zone};
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const UTC: Option<i32> = None;
@@ -122,7 +122,7 @@ const DATES: [DateCase; 36] = [
 fn test_dates_as_go_computes_and_encodes_them() -> TestResult {
     for c in &DATES {
         let [y, mo, d, h, mi, s, ns] = c.date;
-        let t = DateTime::new(y, mo, d, h, mi, s, ns, zone(c.offset));
+        let t = DateTime::new(CivilTime::new(y, mo, d, h, mi, s, ns), zone(c.offset));
         let at = format!("{:?} {:?}", c.date, c.offset);
         assert_eq!(
             (t.unix(), t.unix_nano(), t.nanosecond()),
@@ -363,16 +363,16 @@ fn test_new_with_extreme_fields_wraps_as_go_does() {
     ];
     for (v, want_of_v) in [i64::MIN, i64::MAX].into_iter().zip(want) {
         let got = [
-            DateTime::new(2006, v, 2, 15, 4, 5, 0, Zone::Utc),
-            DateTime::new(2006, 1, v, 15, 4, 5, 0, Zone::Utc),
-            DateTime::new(v, 1, 2, v, v, v, v, Zone::Utc),
+            DateTime::new(CivilTime::new(2006, v, 2, 15, 4, 5, 0), Zone::Utc),
+            DateTime::new(CivilTime::new(2006, 1, v, 15, 4, 5, 0), Zone::Utc),
+            DateTime::new(CivilTime::new(v, 1, 2, v, v, v, v), Zone::Utc),
             DateTime::utc(2006, 1, 2, 15, 4, v, v),
         ]
         .map(|t| (t.unix(), t.nanosecond()));
         assert_eq!(got, want_of_v, "{v}");
     }
     assert_eq!(
-        DateTime::new(2006, 13, 2, 15, 4, 5, 0, Zone::Utc),
-        DateTime::new(2007, 1, 2, 15, 4, 5, 0, Zone::Utc)
+        DateTime::new(CivilTime::new(2006, 13, 2, 15, 4, 5, 0), Zone::Utc),
+        DateTime::new(CivilTime::new(2007, 1, 2, 15, 4, 5, 0), Zone::Utc)
     );
 }

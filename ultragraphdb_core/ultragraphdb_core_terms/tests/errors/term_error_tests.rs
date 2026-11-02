@@ -9,24 +9,24 @@ use ultragraphdb_core_terms::{TermError, TermErrorEnum};
 fn test_each_error_names_what_it_refused() {
     let cases = [
         (
-            TermError::Truncated(vec![0x20, 3]),
+            TermError::truncated(vec![0x20, 3]),
             "Encoded term 2003 ends before its tag says it does",
         ),
-        (TermError::UnknownTag(0x7f), "Unknown term tag 0x7f"),
+        (TermError::unknown_tag(0x7f), "Unknown term tag 0x7f"),
         (
-            TermError::UnknownDatatype(200),
+            TermError::unknown_datatype(200),
             "Unknown datatype code 0xc8",
         ),
         (
-            TermError::Malformed(vec![0xff], "not UTF-8"),
+            TermError::malformed(vec![0xff], "not UTF-8"),
             "Malformed encoded term ff: not UTF-8",
         ),
         (
-            TermError::InvalidVector("[]".into(), "empty"),
+            TermError::invalid_vector("[]".into(), "empty"),
             "Invalid vector literal \"[]\": empty",
         ),
         (
-            TermError::NotALiteral(7),
+            TermError::not_a_literal(7),
             "Encoded term names UID 7, not a literal",
         ),
     ];
@@ -34,9 +34,9 @@ fn test_each_error_names_what_it_refused() {
         assert_eq!(error.to_string(), text);
     }
     assert!(matches!(
-        TermError::UnknownTag(1).0,
+        TermError::unknown_tag(1).0,
         TermErrorEnum::UnknownTag { tag: 1 }
     ));
-    let boxed: Box<dyn std::error::Error> = Box::new(TermError::UnknownTag(1));
+    let boxed: Box<dyn std::error::Error> = Box::new(TermError::unknown_tag(1));
     assert!(boxed.source().is_none());
 }

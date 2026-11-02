@@ -35,12 +35,12 @@ pub struct ScramClient {
 
 impl ScramClient {
     /// The exchange of `name` with `password`, both prepared with SASLprep, and the client's `nonce`; refused as
-    /// [`ScramError::Prepare`] for a name or password SASLprep refuses and [`ScramError::Malformed`] for a nonce
+    /// [`ScramError::prepare`] for a name or password SASLprep refuses and [`ScramError::malformed`] for a nonce
     /// that is empty or not printable ASCII without a comma.
     pub fn new(name: &str, password: &str, nonce: &str) -> Result<Self, ScramError> {
         let (name, password) = (prepare(name)?, prepare(password)?);
         if !valid_nonce(nonce) {
-            return Err(ScramError::Malformed("nonce"));
+            return Err(ScramError::malformed("nonce"));
         }
         Ok(Self {
             name,
@@ -53,7 +53,7 @@ impl ScramClient {
     /// The client-first-message: `n,,n=<name>,r=<nonce>`, the name's `=` and `,` escaped.
     pub fn first_message(&mut self) -> Result<Vec<u8>, ScramError> {
         if self.state != ClientState::Initial {
-            return Err(ScramError::OutOfStep());
+            return Err(ScramError::out_of_step());
         }
         let client_first_bare = format!("n={},r={}", escape(&self.name), self.nonce);
         let message = format!("{GS2_HEADER}{client_first_bare}").into_bytes();
@@ -62,32 +62,32 @@ impl ScramClient {
     }
 
     /// The client-final-message answering `server_first`: the channel binding `biws`, the server's nonce, and the
-    /// proof. Refused as [`ScramError::Malformed`], [`ScramError::Nonce`] when the server's nonce does not extend the
-    /// client's, [`ScramError::Iterations`] outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], refused
-    /// before a key is derived, or [`ScramError::OutOfStep`].
+    /// proof. Refused as [`ScramError::malformed`], [`ScramError::nonce`] when the server's nonce does not extend the
+    /// client's, [`ScramError::iterations`] outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], refused
+    /// before a key is derived, or [`ScramError::out_of_step`].
     pub fn final_message(&mut self, server_first: &[u8]) -> Result<Vec<u8>, ScramError> {
         let ClientState::First { client_first_bare } = &self.state else {
-            return Err(ScramError::OutOfStep());
+            return Err(ScramError::out_of_step());
         };
-        let text = std::str::from_utf8(server_first).map_err(|_| ScramError::Malformed("nonce"))?;
+        let text = std::str::from_utf8(server_first).map_err(|_| ScramError::malformed("nonce"))?;
         if let Some(error) = server_error(text) {
             return Err(error);
         }
         let mut parts = text.split(',');
-        let nonce = attribute(parts.next(), 'r').ok_or(ScramError::Malformed("nonce"))?;
+        let nonce = attribute(parts.next(), 'r').ok_or(ScramError::malformed("nonce"))?;
         if nonce.len() <= self.nonce.len() || !nonce.starts_with(&self.nonce) || !valid_nonce(nonce)
         {
-            return Err(ScramError::Nonce());
+            return Err(ScramError::nonce());
         }
         let salt = decode(
-            attribute(parts.next(), 's').ok_or(ScramError::Malformed("salt"))?,
+            attribute(parts.next(), 's').ok_or(ScramError::malformed("salt"))?,
             "salt",
         )?;
         let iterations: u32 = attribute(parts.next(), 'i')
             .and_then(|i| i.parse().ok())
-            .ok_or(ScramError::Malformed("iteration count"))?;
+            .ok_or(ScramError::malformed("iteration count"))?;
         if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&iterations) {
-            return Err(ScramError::Iterations(iterations));
+            return Err(ScramError::iterations(iterations));
         }
         let salted = salted(&self.password, &salt, iterations);
         let client_key = hmac(&salted, b"Client Key");
@@ -105,23 +105,23 @@ impl ScramClient {
     }
 
     /// The server-final-message checked: its signature the one the password's server key gives, compared in constant
-    /// time; refused as [`ScramError::ServerSignature`], [`ScramError::Server`] for its `e=`, or
-    /// [`ScramError::OutOfStep`].
+    /// time; refused as [`ScramError::server_signature`], [`ScramError::server`] for its `e=`, or
+    /// [`ScramError::out_of_step`].
     pub fn verify(&mut self, server_final: &[u8]) -> Result<(), ScramError> {
         let ClientState::Final { server_signature } = &self.state else {
-            return Err(ScramError::OutOfStep());
+            return Err(ScramError::out_of_step());
         };
         let text =
-            std::str::from_utf8(server_final).map_err(|_| ScramError::Malformed("verifier"))?;
+            std::str::from_utf8(server_final).map_err(|_| ScramError::malformed("verifier"))?;
         if let Some(error) = server_error(text) {
             return Err(error);
         }
         let signature = decode(
-            attribute(Some(text), 'v').ok_or(ScramError::Malformed("verifier"))?,
+            attribute(Some(text), 'v').ok_or(ScramError::malformed("verifier"))?,
             "verifier",
         )?;
         if !same(&signature, server_signature) {
-            return Err(ScramError::ServerSignature());
+            return Err(ScramError::server_signature());
         }
         self.state = ClientState::Done;
         Ok(())

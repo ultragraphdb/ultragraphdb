@@ -111,7 +111,7 @@ fn test_a_corrupt_superblock_copy_refuses_the_start_and_writes_nothing() -> Test
         let before = storage.trace().len();
         assert_eq!(
             open(&storage).err(),
-            Some(LogError::SuperblockUnreadable(copy))
+            Some(LogError::superblock_unreadable(copy))
         );
         assert_eq!(writes_in(&storage, before), 0, "copy {copy}");
     }
@@ -129,7 +129,7 @@ fn test_a_superblock_of_another_cluster_diverges() -> TestResult {
         .context("put")?;
     assert_eq!(
         open(&storage).err(),
-        Some(LogError::Diverged("the cluster", CLUSTER, CLUSTER ^ 1))
+        Some(LogError::diverged("the cluster", CLUSTER, CLUSTER ^ 1))
     );
     Ok(())
 }
@@ -147,7 +147,7 @@ fn test_segments_without_a_superblock_are_refused_not_overwritten() -> TestResul
     let before = storage.trace().len();
     assert_eq!(
         open(&storage).err(),
-        Some(LogError::Diverged("segments without a superblock", 0, 2))
+        Some(LogError::diverged("segments without a superblock", 0, 2))
     );
     assert_eq!(writes_in(&storage, before), 0);
     Ok(())
@@ -518,10 +518,10 @@ fn test_interior_damage_refuses_the_start_naming_the_round() -> TestResult {
         // A body byte of round 2: chunk 0, body bytes 0 to 1,000.
         (
             4_096 + 256 + 500,
-            LogError::CorruptChunk(2, 0, 4_096, 0, 0, 1_000),
+            LogError::corrupt_chunk(2, 0, 4_096, 0, 0, 1_000),
         ),
         // A header byte of round 2.
-        (4_096 + 50, LogError::Corrupt(2, 0, 4_096)),
+        (4_096 + 50, LogError::corrupt(2, 0, 4_096)),
     ];
     for (offset, expected) in cases {
         let storage = SimStorage::new(1);
@@ -551,7 +551,7 @@ fn test_a_chunk_damaged_in_a_later_segment_is_named_with_its_segment() -> TestRe
         .context("flipped")?;
     assert_eq!(
         open(&storage).err(),
-        Some(LogError::CorruptChunk(5, 1, 8_192, 1, 3_840, 5_000))
+        Some(LogError::corrupt_chunk(5, 1, 8_192, 1, 3_840, 5_000))
     );
     Ok(())
 }
@@ -563,7 +563,7 @@ fn test_a_missing_segment_with_rounds_after_it_refuses_the_start() -> TestResult
     append_rounds(&mut wal, 1, 12, ONE_BLOCK)?;
     drop(wal);
     block_on(storage.remove_file(&segment(1))).context("removed")?;
-    assert_eq!(open(&storage).err(), Some(LogError::Corrupt(5, 1, 0)));
+    assert_eq!(open(&storage).err(), Some(LogError::corrupt(5, 1, 0)));
     Ok(())
 }
 
@@ -598,7 +598,7 @@ fn test_the_checkpoint_must_match_the_rounds() -> TestResult {
         .context("put")?;
     assert_eq!(
         open(&storage).err(),
-        Some(LogError::Diverged(
+        Some(LogError::diverged(
             "the checkpoint's checksum",
             0xBAD,
             checksums[4]
@@ -1361,7 +1361,7 @@ fn test_a_damaged_chunk_table_in_the_first_kept_round_names_that_round() -> Test
         .corrupt(&segment(1), 5_260, 0x01)
         .context("flipped")?;
     let before = storage.trace().len();
-    assert_eq!(open(&storage).err(), Some(LogError::Corrupt(3, 1, 0)));
+    assert_eq!(open(&storage).err(), Some(LogError::corrupt(3, 1, 0)));
     assert_eq!(writes_in(&storage, before), 0, "nothing is truncated");
     Ok(())
 }

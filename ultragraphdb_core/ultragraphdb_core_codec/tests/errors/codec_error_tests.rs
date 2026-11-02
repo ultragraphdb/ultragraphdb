@@ -15,7 +15,7 @@ fn a_truncated_varint_is_refused() -> TestResult {
         .err()
         .context("truncated")?;
     assert_eq!(err.0, CodecErrorEnum::TruncatedVarint { offset: 1 });
-    assert_eq!(err, CodecError::TruncatedVarint(1));
+    assert_eq!(err, CodecError::truncated_varint(1));
     assert_eq!(err.to_string(), "truncated uvarint at byte 1 of the buffer");
     assert!(err.source().is_none());
     Ok(())
@@ -27,7 +27,7 @@ fn an_overlong_varint_is_refused() -> TestResult {
     let mut buf = vec![0xff; 9];
     buf.push(0x02);
     let err = encode_from_buffer(&buf, 256).err().context("overflows")?;
-    assert_eq!(err, CodecError::OverflowingVarint(0));
+    assert_eq!(err, CodecError::overflowing_varint(0));
     assert_eq!(
         err.to_string(),
         "uvarint at byte 0 of the buffer overflows a u64"
@@ -57,11 +57,11 @@ fn ten_continuation_bytes_overflow_rather_than_truncate() -> TestResult {
     let err = encode_from_buffer(&[0x80; 10], 256)
         .err()
         .context("overflows")?;
-    assert_eq!(err, CodecError::OverflowingVarint(0));
+    assert_eq!(err, CodecError::overflowing_varint(0));
     // One byte fewer can still end in a valid varint, so it is truncated.
     let truncated = encode_from_buffer(&[0x80; 9], 256)
         .err()
         .context("truncated")?;
-    assert_eq!(truncated, CodecError::TruncatedVarint(0));
+    assert_eq!(truncated, CodecError::truncated_varint(0));
     Ok(())
 }

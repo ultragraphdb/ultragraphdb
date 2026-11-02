@@ -19,7 +19,8 @@ use ultragraphdb_error_json::JsonError;
 
 /// Go's `UnmarshalTypeError` of a value at the root of what it is decoded into, its text.
 fn type_error(value: &str, go_type: &str) -> String {
-    JsonError::UnmarshalType(value.into(), go_type.into(), String::new(), String::new()).to_string()
+    JsonError::unmarshal_type(value.into(), go_type.into(), String::new(), String::new())
+        .to_string()
 }
 
 /// go-geom's `geojson.Geometry`: the type and the raw coordinates or member geometries (`None` when absent or
@@ -66,7 +67,7 @@ impl Decoder {
         } else {
             (self.root, self.path.join("."))
         };
-        let e = JsonError::UnmarshalType(value.into(), go_type.into(), root.into(), field);
+        let e = JsonError::unmarshal_type(value.into(), go_type.into(), root.into(), field);
         self.first = Some(e.to_string());
     }
 

@@ -155,7 +155,7 @@ fn test_a_build_interrupted_at_any_stage_is_finished_at_open() -> TestResult {
             Some(e) => assert!(
                 refused_round
                     && e.0
-                        == ChangesetErrorEnum::Store(StoreError::WriteFailed(
+                        == ChangesetErrorEnum::Store(StoreError::write_failed(
                             "simulated process crash during a rebuild".into()
                         )),
                 "{stage:?}: {e:?}"

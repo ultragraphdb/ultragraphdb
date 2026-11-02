@@ -237,7 +237,7 @@ fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_
     )?;
     assert_eq!(
         error,
-        MappingError::NoSuchStatement("2 in <http://ex.org/other>".into())
+        MappingError::no_such_statement("2 in <http://ex.org/other>".into())
     );
     Ok(())
 }
@@ -504,7 +504,7 @@ fn held_twice() -> TestResult<CanonicalDataset> {
 /// A triple term is refused, as an insert's object and as an edge's, named as oxrdf writes the triple.
 fn assert_triple_terms_refused(d: &mut CanonicalDataset) -> TestResult {
     let triple = Triple::new(node("a"), iri("p"), iri("b"));
-    let refused = MappingError::UnsupportedObject(triple.to_string());
+    let refused = MappingError::unsupported_object(triple.to_string());
     let insert_error = refusal(
         d,
         vec![insert("a", "says", Term::Triple(Box::new(triple.clone())))],
@@ -550,7 +550,7 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() -> TestResult {
     )?;
     assert_eq!(
         ambiguous_error,
-        MappingError::AmbiguousStatement(
+        MappingError::ambiguous_statement(
             "<http://ex.org/a> <http://ex.org/knows> <http://ex.org/b>".into()
         )
     );
@@ -569,7 +569,7 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() -> TestResult {
     )?;
     assert_eq!(
         missing_error,
-        MappingError::NoSuchStatement("99 in DEFAULT".into())
+        MappingError::no_such_statement("99 in DEFAULT".into())
     );
     assert_eq!(d, before);
     let unheld = StatementRef::Triple {
@@ -591,7 +591,7 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() -> TestResult {
     )?;
     assert_eq!(
         unheld_error,
-        MappingError::NoSuchStatement(
+        MappingError::no_such_statement(
             "<http://ex.org/a> <http://ex.org/knows> <http://ex.org/z>".into()
         )
     );

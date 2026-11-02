@@ -13,9 +13,8 @@ use ultragraphdb_store_hnsw::{HnswError, bytes_to_uint64, decode_uint64_matrix, 
 use ultragraphdb_store_sim::SimRng;
 use ultragraphdb_traits_index::{KeyValue, Metric, VectorIndexOptions, accept_all};
 
-// The unit tests' helpers, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' helpers, shared by path.
+pub mod utils {
     #[path = "helpers.rs"]
     pub mod helpers;
 }

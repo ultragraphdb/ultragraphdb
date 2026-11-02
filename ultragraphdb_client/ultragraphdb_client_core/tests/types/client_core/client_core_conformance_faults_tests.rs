@@ -146,7 +146,7 @@ fn arrive(
 fn rule(first: u128, arrivals: &[u128]) -> (usize, Option<ProtocolError>) {
     for (taken, (&found, expected)) in arrivals.iter().zip(first..).enumerate() {
         if found != expected {
-            return (taken, Some(ProtocolError::SequenceOrder(expected, found)));
+            return (taken, Some(ProtocolError::sequence_order(expected, found)));
         }
     }
     (arrivals.len(), None)
@@ -283,7 +283,7 @@ impl<L: Login> Peer<L> {
                 }
             } else {
                 let rule = refusal.clone().context("the refusal")?;
-                assert_eq!(outcome, Err(ClientError::Protocol(rule)), "{arrivals:?}");
+                assert_eq!(outcome, Err(ClientError::protocol(rule)), "{arrivals:?}");
                 assert!(!self.core.is_connected(), "the connection is given up");
                 break;
             }
@@ -303,13 +303,13 @@ impl<L: Login> Peer<L> {
             tally.delivered += 1;
         } else if refusal.is_some() {
             tally.refused += 1;
-            let rule = ClientError::Protocol(refusal.context("the refusal")?);
-            self.lost(wait, ClientError::ConnectionLost(Some(rule)))?;
+            let rule = ClientError::protocol(refusal.context("the refusal")?);
+            self.lost(wait, ClientError::connection_lost(Some(rule)))?;
         } else {
             tally.lost += 1;
             self.now += config().timeout();
             self.core.handle_timeout(self.now);
-            self.lost(wait, ClientError::TimedOut())?;
+            self.lost(wait, ClientError::timed_out())?;
         }
         Ok(())
     }

@@ -103,23 +103,19 @@ where
         for (key, value) in outcome.terms.entries() {
             request.add_versionless(key, value);
         }
-        Executed::new(
-            self.namespace,
-            self.read_ts,
-            request.into_writes(),
-            outcome.terms,
+        Executed {
+            writes: request.into_writes(),
+            terms: outcome.terms,
             reads,
             read,
             lists_read,
-            outcome.catalog,
-            (
-                outcome.defaults,
-                outcome.default_uids,
-                outcome.catalog_changed,
-            ),
-            outcome.pending,
-            outcome.touched,
-            outcome.removals,
-        )
+            defaults: outcome.defaults,
+            default_uids: outcome.default_uids,
+            catalog_changed: outcome.catalog_changed,
+            pending: outcome.pending,
+            touched: outcome.touched,
+            removals: outcome.removals,
+            ..Executed::empty(self.namespace, self.read_ts, outcome.catalog)
+        }
     }
 }

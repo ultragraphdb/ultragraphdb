@@ -96,13 +96,13 @@ fn reverse_object_decodes(w: &mut Steps) -> TestResult {
     // The literal is inline: neither lookup may be asked.
     let literal = object.view()?.to_literal(
         |_| {
-            Err(ultragraphdb_core_terms::TermError::Malformed(
+            Err(ultragraphdb_core_terms::TermError::malformed(
                 Vec::new(),
                 "no UID lookup",
             ))
         },
         |_| {
-            Err(ultragraphdb_core_terms::TermError::Malformed(
+            Err(ultragraphdb_core_terms::TermError::malformed(
                 Vec::new(),
                 "no hash lookup",
             ))

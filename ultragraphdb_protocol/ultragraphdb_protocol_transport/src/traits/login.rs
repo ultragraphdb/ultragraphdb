@@ -13,6 +13,6 @@ pub trait Login {
     type Mechanism: ClientMechanism;
 
     /// A mechanism for one exchange, one of `offered`, the Welcome's; `Ok(None)` when the login speaks none of them,
-    /// and [`TransportError::Authentication`] when it cannot start one.
+    /// and [`TransportError::authentication`] when it cannot start one.
     fn mechanism(&mut self, offered: &[String]) -> Result<Option<Self::Mechanism>, TransportError>;
 }

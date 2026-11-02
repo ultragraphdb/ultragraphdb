@@ -88,7 +88,7 @@ fn test_any_other_form_is_refused_with_its_reason() {
     for (lexical, reason) in cases {
         assert_eq!(
             parse_vector(lexical),
-            Err(TermError::InvalidVector(lexical.to_string(), reason)),
+            Err(TermError::invalid_vector(lexical.to_string(), reason)),
             "{lexical:?}"
         );
     }

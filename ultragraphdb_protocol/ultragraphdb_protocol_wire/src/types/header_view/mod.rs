@@ -32,10 +32,10 @@ pub struct HeaderView<'a> {
 }
 
 impl<'a> HeaderView<'a> {
-    /// The header at the start of `bytes`, refused as [`ProtocolError::ShortHeader`] when `bytes` holds fewer than
+    /// The header at the start of `bytes`, refused as [`ProtocolError::short_header`] when `bytes` holds fewer than
     /// 256 bytes. Bytes past the header are not read.
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
-        let short = || ProtocolError::ShortHeader(bytes.len());
+        let short = || ProtocolError::short_header(bytes.len());
         Ok(Self {
             tail: bytes.get(8..HEADER_SIZE).ok_or_else(short)?,
             reserved: bytes.get(66..128).ok_or_else(short)?,

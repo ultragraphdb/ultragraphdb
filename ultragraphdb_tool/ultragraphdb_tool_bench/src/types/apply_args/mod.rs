@@ -23,9 +23,8 @@ pub struct ApplyArgs {
 }
 
 impl ApplyArgs {
-    /// An apply run of the given directory, rate, records per commit, length, durability, rollups, cache share and
-    /// cap on an apply step's commits.
-    #[allow(clippy::too_many_arguments)]
+    /// An apply run of the given directory, rate, records per commit, length, durability, rollups and cache share,
+    /// its apply steps uncapped.
     pub fn new(
         dir: PathBuf,
         rate: u64,
@@ -34,7 +33,6 @@ impl ApplyArgs {
         durability: Durability,
         rollups: bool,
         cache_mb: u64,
-        max_batch: Option<usize>,
     ) -> Self {
         Self {
             dir,
@@ -44,8 +42,13 @@ impl ApplyArgs {
             durability,
             rollups,
             cache_mb,
-            max_batch,
+            max_batch: None,
         }
+    }
+
+    /// The run with its apply steps capped at `max_batch` commits, or uncapped for `None`.
+    pub fn with_max_batch(self, max_batch: Option<usize>) -> Self {
+        Self { max_batch, ..self }
     }
 
     /// The store's directory.

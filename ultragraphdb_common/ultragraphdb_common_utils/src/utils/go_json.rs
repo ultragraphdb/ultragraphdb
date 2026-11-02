@@ -26,7 +26,7 @@ fn check_valid(data: &[u8]) -> Result<(usize, usize), JsonError> {
     let mut d = JsonDecoder::of_bytes(data);
     let range = d.read_value().map_err(|e| match e.0 {
         // Nothing but whitespace: the input ended where a value should start.
-        JsonErrorEnum::Eof => JsonError::Syntax(
+        JsonErrorEnum::Eof => JsonError::syntax(
             "unexpected end of JSON input".to_string(),
             // A slice's length is below isize::MAX, so it converts; saturating keeps it from wrapping.
             i64::try_from(data.len()).unwrap_or(i64::MAX),

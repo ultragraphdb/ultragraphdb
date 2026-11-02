@@ -54,7 +54,7 @@ impl<'a> PIterator<'a> {
         // A rollup is stored at a commit timestamp plus one, so a transaction starting there can delete all at the
         // list's own minTs.
         if delete_below_ts > 0 && delete_below_ts < list.min_ts() {
-            return Err(PostingError::DeleteBelowMinTs(
+            return Err(PostingError::delete_below_min_ts(
                 delete_below_ts,
                 list.min_ts(),
             ));
@@ -62,7 +62,7 @@ impl<'a> PIterator<'a> {
         let splits = list.plist().splits();
         if list.parts().len() < splits.len() {
             let missing = splits[list.parts().len()];
-            return Err(PostingError::MissingPart(split_key_of(
+            return Err(PostingError::missing_part(split_key_of(
                 list.key(),
                 missing,
             )?));

@@ -102,7 +102,7 @@ impl Command {
         }
     }
 
-    /// The command numbered `number`, refused as [`ProtocolError::UnknownCommand`] when no command of this protocol
+    /// The command numbered `number`, refused as [`ProtocolError::unknown_command`] when no command of this protocol
     /// has it: never assigned, retired, or reserved for the replica commands.
     pub fn from_number(number: u16) -> Result<Command, ProtocolError> {
         match number {
@@ -125,7 +125,7 @@ impl Command {
             17 => Ok(Command::Round),
             18 => Ok(Command::Authenticate),
             19 => Ok(Command::Drop),
-            _ => Err(ProtocolError::UnknownCommand(number)),
+            _ => Err(ProtocolError::unknown_command(number)),
         }
     }
 }

@@ -181,7 +181,7 @@ fn test_decode_in_stream_errors() -> TestResult {
         let mut dec = JsonDecoder::new(input.as_bytes());
         assert_eq!(
             dec.decode(),
-            Err(JsonError::Syntax(msg.to_string(), i64::try_from(offset)?)),
+            Err(JsonError::syntax(msg.to_string(), i64::try_from(offset)?)),
             "{input}"
         );
     }
@@ -225,7 +225,7 @@ fn test_unmarshal_error_after_multiple_json() -> TestResult {
         };
         assert_eq!(
             err,
-            JsonError::Syntax(msg.to_string(), i64::try_from(upto.len())?),
+            JsonError::syntax(msg.to_string(), i64::try_from(upto.len())?),
             "{input}"
         );
     }
@@ -292,7 +292,7 @@ fn check_eof_refuses_anything_but_whitespace_after_the_value() -> TestResult {
         let _value: JsonValue = dec.decode()?;
         assert_eq!(
             dec.check_eof(),
-            Err(JsonError::Syntax(msg.to_string(), offset)),
+            Err(JsonError::syntax(msg.to_string(), offset)),
             "{input}"
         );
     }
@@ -308,13 +308,13 @@ fn check_eof_names_a_character_the_buffer_cut_whole() -> TestResult {
         let mut dec = JsonDecoder::new(input);
         let _value: JsonValue = dec.decode()?;
         let want = if input.len() > 4 {
-            JsonError::Syntax(
+            JsonError::syntax(
                 "invalid character 'é' after top-level value".to_string(),
                 65,
             )
         } else {
             // A byte no continuation follows is named alone.
-            JsonError::Syntax(
+            JsonError::syntax(
                 "invalid character '\\xc3' after top-level value".to_string(),
                 4,
             )
@@ -331,6 +331,6 @@ fn a_long_value_spans_several_reads() -> TestResult {
     let v = dec.decode()?;
     assert_eq!(v.marshal(), long);
     assert_eq!(dec.input_offset(), i64::try_from(long.len())?);
-    assert_eq!(dec.decode(), Err(JsonError::Eof()));
+    assert_eq!(dec.decode(), Err(JsonError::eof()));
     Ok(())
 }

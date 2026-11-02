@@ -15,7 +15,7 @@ use crate::utils::block::padded;
 /// round's position and naming `release`, the release of the node writing it (`PROTOCOL.md` §12), its command header
 /// the round's position, parent, `incarnation`, first version and transaction count, its body the round's body,
 /// padded with zeros to whole 4,096-byte blocks. The checksum is the frame's header `checksum`, the round's identity.
-/// Refused as [`LogError::TooLarge`] when the frame would exceed the 1 MiB maximum.
+/// Refused as [`LogError::too_large`] when the frame would exceed the 1 MiB maximum.
 pub fn encode_round(
     cluster: u64,
     release: u32,
@@ -36,7 +36,7 @@ pub fn encode_round(
         .with_command_header(command_header)
         .encode_frame(round.body())
         .map_err(|refusal| match refusal.0 {
-            ProtocolErrorEnum::FrameTooLarge { size, limit } => LogError::TooLarge(size, limit),
+            ProtocolErrorEnum::FrameTooLarge { size, limit } => LogError::too_large(size, limit),
             // encode_frame refuses a frame for its size alone.
             ProtocolErrorEnum::ShortHeader { .. }
             | ProtocolErrorEnum::HeaderChecksum { .. }
@@ -65,7 +65,7 @@ pub fn encode_round(
             | ProtocolErrorEnum::DuplicateTerm { .. }
             | ProtocolErrorEnum::TermTooDeep { .. }
             | ProtocolErrorEnum::Record { .. } => {
-                LogError::TooLarge(HEADER_SIZE + round.body().len(), 0)
+                LogError::too_large(HEADER_SIZE + round.body().len(), 0)
             }
         })?;
     let mut bytes = AlignedBuf::zeroed(padded(frame.len() as u64) as usize);

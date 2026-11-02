@@ -43,13 +43,13 @@ fn test_kind_and_message() -> TestResult {
 fn test_every_constructor_builds_its_variant_and_displays_its_message() {
     type Case = (fn(String) -> TypesError, fn(String) -> TypesErrorEnum);
     let cases: [Case; 7] = [
-        (TypesError::Conversion, TypesErrorEnum::Conversion),
-        (TypesError::Number, TypesErrorEnum::Number),
-        (TypesError::Time, TypesErrorEnum::Time),
-        (TypesError::BigFloat, TypesErrorEnum::BigFloat),
-        (TypesError::Geo, TypesErrorEnum::Geo),
-        (TypesError::Password, TypesErrorEnum::Password),
-        (TypesError::Compare, TypesErrorEnum::Compare),
+        (TypesError::conversion, TypesErrorEnum::Conversion),
+        (TypesError::number, TypesErrorEnum::Number),
+        (TypesError::time, TypesErrorEnum::Time),
+        (TypesError::big_float, TypesErrorEnum::BigFloat),
+        (TypesError::geo, TypesErrorEnum::Geo),
+        (TypesError::password, TypesErrorEnum::Password),
+        (TypesError::compare, TypesErrorEnum::Compare),
     ];
     for (i, (build, variant)) in cases.iter().enumerate() {
         for msg in ["", "a message", "ünïcode: 日本", "line\nbreak"] {
@@ -61,22 +61,22 @@ fn test_every_constructor_builds_its_variant_and_displays_its_message() {
         }
     }
     // The classification tells apart errors of one text.
-    assert_ne!(TypesError::Geo("x".into()), TypesError::Compare("x".into()));
+    assert_ne!(TypesError::geo("x"), TypesError::compare("x"));
 }
 
 #[test]
 fn test_a_num_error_is_a_number_error_with_gos_text() {
     let cases = [
         (
-            NumError::Syntax("ParseInt", r#""x""#.into()),
+            NumError::syntax("ParseInt", r#""x""#.into()),
             r#"strconv.ParseInt: parsing "x": invalid syntax"#,
         ),
         (
-            NumError::Range("ParseFloat", r#""1e400""#.into()),
+            NumError::range("ParseFloat", r#""1e400""#.into()),
             r#"strconv.ParseFloat: parsing "1e400": value out of range"#,
         ),
         (
-            NumError::Base("ParseInt", r#""1""#.into(), 1),
+            NumError::base("ParseInt", r#""1""#.into(), 1),
             r#"strconv.ParseInt: parsing "1": invalid base 1"#,
         ),
     ];

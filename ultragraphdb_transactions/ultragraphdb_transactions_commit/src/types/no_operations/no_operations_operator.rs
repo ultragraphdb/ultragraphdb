@@ -24,7 +24,7 @@ impl<P> Operator<P> for NoOperations {
         I: Iterator<Item = &'p P>,
         P: 'p,
     {
-        Err(CommitError::Refused(
+        Err(CommitError::refused(
             "the commit step runs no commit-time operations".to_string(),
         ))
     }

@@ -112,19 +112,19 @@ fn test_a_dropped_temporary_keyspace_is_gone() -> TestResult {
     s.drop_temporary(t)?;
     assert_eq!(
         s.apply_temporary(&again, batch(&[(b"\x00k", 1)])),
-        Err(StoreError::UnknownTemporary(id))
+        Err(StoreError::unknown_temporary(id))
     );
     assert_eq!(
         s.temporary_snapshot(&again).err(),
-        Some(StoreError::UnknownTemporary(id))
+        Some(StoreError::unknown_temporary(id))
     );
     assert_eq!(
         s.drop_temporary(ultragraphdb_traits_store::Temporary::new(id)),
-        Err(StoreError::UnknownTemporary(id))
+        Err(StoreError::unknown_temporary(id))
     );
     assert_eq!(
         s.drop_temporary(ultragraphdb_traits_store::Temporary::new(99)),
-        Err(StoreError::UnknownTemporary(99)),
+        Err(StoreError::unknown_temporary(99)),
         "a number never handed out is unknown"
     );
     assert_eq!(s.create_temporary()?.id(), id + 1, "a number is not reused");
@@ -148,7 +148,7 @@ fn test_a_failed_temporary_write_is_a_failed_batch() -> TestResult {
     s.inject(Fault::FailNextBatch);
     assert_eq!(
         s.apply_temporary(&t, batch(&[(b"\x00k", 1)])),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated failure during a temporary batch's persist".into()
         ))
     );
@@ -160,13 +160,13 @@ fn test_a_failed_temporary_write_is_a_failed_batch() -> TestResult {
     );
     assert_eq!(
         s.apply(batch(&[(b"\x00a", 1)]), PersistMode::Buffer),
-        Err(StoreError::Poisoned())
+        Err(StoreError::poisoned())
     );
-    assert_eq!(s.create_temporary().err(), Some(StoreError::Poisoned()));
+    assert_eq!(s.create_temporary().err(), Some(StoreError::poisoned()));
     s.recover();
     assert_eq!(
         s.temporary_snapshot(&t).err(),
-        Some(StoreError::UnknownTemporary(t.id())),
+        Some(StoreError::unknown_temporary(t.id())),
         "recovery drops every temporary keyspace"
     );
     Ok(())
@@ -180,11 +180,11 @@ fn test_a_crash_during_a_temporary_write_takes_the_process_down() -> TestResult 
     s.inject(Fault::CrashDuringNextBatch);
     assert_eq!(
         s.apply_temporary(&t, batch(&[(b"\x00k", 1)])),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash while a temporary batch was written".into()
         ))
     );
-    assert_eq!(s.temporary_snapshot(&t).err(), Some(StoreError::Poisoned()));
+    assert_eq!(s.temporary_snapshot(&t).err(), Some(StoreError::poisoned()));
     assert!(s.take_log().contains(&OpRecord::TemporaryFailed {
         temporary: t.id(),
         batch: batch(&[(b"\x00k", 1)]),
@@ -211,11 +211,11 @@ fn test_a_crash_or_a_power_loss_takes_every_temporary_keyspace() -> TestResult {
         } else {
             s.crash();
         }
-        assert_eq!(s.temporary_snapshot(&t).err(), Some(StoreError::Poisoned()));
+        assert_eq!(s.temporary_snapshot(&t).err(), Some(StoreError::poisoned()));
         s.recover();
         assert_eq!(
             s.apply_temporary(&t, batch(&[(b"\x00k", 2)])),
-            Err(StoreError::UnknownTemporary(t.id()))
+            Err(StoreError::unknown_temporary(t.id()))
         );
     }
     Ok(())
@@ -230,7 +230,7 @@ fn test_reads_of_a_temporary_keyspace_fail_as_forced() -> TestResult {
     s.inject(Fault::FailNextRead);
     assert_eq!(
         snapshot.get(b"\x00k"),
-        Err(StoreError::ReadFailed(
+        Err(StoreError::read_failed(
             b"\x00k".to_vec(),
             "simulated read failure".into()
         ))
@@ -239,7 +239,7 @@ fn test_reads_of_a_temporary_keyspace_fail_as_forced() -> TestResult {
     let items: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new())).collect();
     assert_eq!(
         items,
-        [Err(StoreError::ReadFailed(
+        [Err(StoreError::read_failed(
             b"\x00k".to_vec(),
             "simulated read failure partway through a scan".into()
         ))]

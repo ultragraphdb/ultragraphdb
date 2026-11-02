@@ -23,12 +23,10 @@ use ultragraphdb_transactions_commit::{
     RoundBounds, RoundRecord, StepOutput,
 };
 
-// The unit tests' fixture and doubles, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' fixture and doubles, shared by path.
+pub mod utils {
     #[path = "fixture.rs"]
     pub mod fixture;
-    #[allow(dead_code)]
     #[path = "proposal_double.rs"]
     pub mod proposal_double;
 }
@@ -248,7 +246,7 @@ fn t2_commits(w: &mut Steps) -> TestResult {
     assert_eq!(reply(0)?.outcome(), &Ok(w.version + 4));
     assert_eq!(
         reply(1)?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::List))
+        &Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(reply(2)?.outcome(), &Ok(w.version + 6));
     assert_eq!(w.held, vec![Term::from(Literal::new_simple_literal("Z2"))]);
@@ -302,7 +300,7 @@ fn alike(w: &mut Steps) -> TestResult {
     for t in 1..=12u64 {
         expected.push(match admitted.iter().find(|(a, _)| *a == t) {
             Some((_, version)) => Reply::new(t, Ok(*version)),
-            None => Reply::new(t, Err(CommitError::Conflict(ConflictKind::List))),
+            None => Reply::new(t, Err(CommitError::conflict(ConflictKind::List))),
         });
     }
     assert_eq!(w.decisions[0], expected);
@@ -350,7 +348,7 @@ fn too_old(w: &mut Steps) -> TestResult {
         .ok_or_else(|| format!("the old transaction commits: {reply:?}"))
         .context("refused")?;
     // It read at the set-up's version; two commits moved the watermark, and the floor with it, 4 above.
-    assert_eq!(error, &CommitError::TooOld(w.version, w.version + 4));
+    assert_eq!(error, &CommitError::too_old(w.version, w.version + 4));
     assert!(error.is_retryable());
     assert!(w.held.is_empty());
     Ok(())
@@ -414,7 +412,7 @@ fn one_commits(w: &mut Steps) -> TestResult {
         w.replies,
         vec![
             Reply::new(1, Ok(w.version + 2)),
-            Reply::new(2, Err(CommitError::Conflict(ConflictKind::List)))
+            Reply::new(2, Err(CommitError::conflict(ConflictKind::List)))
         ]
     );
     Ok(())
@@ -546,7 +544,7 @@ async fn sync_fails(w: &mut Steps) -> TestResult {
 )]
 fn none_acknowledged(w: &mut Steps) -> TestResult {
     let unavailable: Vec<Reply> = (1..=3)
-        .map(|t| Reply::new(t, Err(CommitError::Unavailable())))
+        .map(|t| Reply::new(t, Err(CommitError::unavailable())))
         .collect();
     assert_eq!(w.replies, unavailable);
     assert!(w.held.is_empty());
@@ -593,7 +591,7 @@ fn dropped_nothing_held(w: &mut Steps) -> TestResult {
     assert_eq!(reply(1)?.outcome(), &Ok(w.version + 2), "the drop alone");
     assert_eq!(
         reply(2)?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::Drop))
+        &Err(CommitError::conflict(ConflictKind::Drop))
     );
     assert!(w.held.is_empty(), "{:?}", w.held);
     assert_eq!(w.statements, vec![0, 1], "p dropped, q kept");
@@ -670,7 +668,7 @@ fn later_aborts(w: &mut Steps) -> TestResult {
     assert!(reply(1)?.outcome().is_ok(), "{:?}", reply(1)?);
     assert_eq!(
         reply(2)?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::Catalog))
+        &Err(CommitError::conflict(ConflictKind::Catalog))
     );
     assert!(reply(3)?.outcome().is_ok(), "{:?}", reply(3)?);
     assert_eq!(w.indexed, vec![w.subject]);
@@ -718,7 +716,7 @@ fn stale_aborts(w: &mut Steps) -> TestResult {
     assert!(reply(1)?.outcome().is_ok(), "{:?}", reply(1)?);
     assert_eq!(
         reply(2)?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::Catalog))
+        &Err(CommitError::conflict(ConflictKind::Catalog))
     );
     assert!(w.retry_refused, "a string is no integer");
     Ok(())
@@ -851,7 +849,7 @@ fn told_evicted(w: &mut Steps) -> TestResult {
         .ok_or_else(|| format!("committed: {:?}", w.replies))
         .context("refused")?;
     // The oldest, registered first at base + 2, evicted by the second at base + 4 from a table of one.
-    assert_eq!(error, &CommitError::SessionEvicted(w.version + 2));
+    assert_eq!(error, &CommitError::session_evicted(w.version + 2));
     assert!(error.to_string().contains("evicted"));
     assert!(w.held.is_empty());
     Ok(())
@@ -881,8 +879,8 @@ async fn queue_full(w: &mut Steps) -> TestResult {
 
 #[then("the commit fails with a retryable busy error, and nothing it wrote is held")]
 fn busy(w: &mut Steps) {
-    assert_eq!(w.replies, vec![Reply::new(4, Err(CommitError::Busy(2)))]);
-    assert!(CommitError::Busy(2).is_retryable());
+    assert_eq!(w.replies, vec![Reply::new(4, Err(CommitError::busy(2)))]);
+    assert!(CommitError::busy(2).is_retryable());
     assert!(w.held.is_empty());
 }
 
@@ -1290,7 +1288,7 @@ fn nothing_upserted(w: &mut Steps) -> TestResult {
     assert!(w.replies[0].outcome().is_ok(), "{:?}", w.replies);
     assert_eq!(
         w.replies[1].outcome(),
-        &Err(CommitError::Conflict(ConflictKind::List))
+        &Err(CommitError::conflict(ConflictKind::List))
     );
     assert!(w.replies[1].results().is_empty());
     assert_eq!(w.statements, vec![0, 0]);
@@ -1341,7 +1339,7 @@ fn cas_refused(w: &mut Steps) -> TestResult {
         .context("refused")?;
     assert_eq!(
         error,
-        &CommitError::OperationFailed(Some("\"done\"".to_string()))
+        &CommitError::operation_failed(Some("\"done\"".to_string()))
     );
     assert_eq!(error.found(), Some("\"done\""));
     assert!(!error.is_retryable());
@@ -1710,7 +1708,7 @@ fn not_committed(w: &mut Steps) -> TestResult {
         .err()
         .ok_or_else(|| format!("answered: {:?}", w.replies))
         .context("refused")?;
-    assert_eq!(error, &CommitError::NotCommitted(8));
+    assert_eq!(error, &CommitError::not_committed(8));
     assert_eq!(error.detail(), 8);
     assert!(error.is_retryable());
     assert_eq!(w.versions[0], w.versions[1], "nothing committed");
@@ -1762,7 +1760,7 @@ fn bob_refused(w: &mut Steps) -> TestResult {
     assert_eq!(error.code().number(), 21);
     assert_eq!(error.detail(), 2);
     // Alice's session is numbered by its registration's version, base + 2; bob's commit takes none, alice's the next.
-    assert_eq!(error, &CommitError::PermissionDenied(w.version + 2));
+    assert_eq!(error, &CommitError::permission_denied(w.version + 2));
     assert!(w.held.is_empty(), "nothing committed");
     assert_eq!(w.replies[1], Reply::new(3, Ok(w.version + 4)));
     assert_eq!(w.terms[0].len(), 1);
@@ -2094,7 +2092,7 @@ fn drop_conflict(w: &mut Steps) -> TestResult {
         .context("answered")?;
     assert_eq!(
         late.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::Drop)),
+        &Err(CommitError::conflict(ConflictKind::Drop)),
         "{:?}",
         w.replies
     );

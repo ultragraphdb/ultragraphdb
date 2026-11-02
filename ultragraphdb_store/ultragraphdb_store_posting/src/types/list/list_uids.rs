@@ -25,7 +25,7 @@ impl List {
     ///
     /// # Errors
     ///
-    /// [`PostingError::TsTooOld`] for an intersection read below the list's complete version, and the errors of
+    /// [`PostingError::ts_too_old`] for an intersection read below the list's complete version, and the errors of
     /// [`List::iterate`].
     pub fn uids(&self, opt: &ListOptions) -> Result<UidList, PostingError> {
         let requested = opt.first_count();
@@ -43,7 +43,7 @@ impl List {
             && self.plist.splits().is_empty()
         {
             if opt.read_ts() < self.min_ts {
-                return Err(PostingError::TsTooOld());
+                return Err(PostingError::ts_too_old());
             }
             intersect_compressed_with(self.plist.pack(), opt.after_uid(), with, &mut out);
             let postings = self.plist.postings();

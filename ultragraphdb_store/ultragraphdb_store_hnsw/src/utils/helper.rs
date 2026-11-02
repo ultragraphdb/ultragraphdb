@@ -26,14 +26,14 @@ pub const NOT_A_UID: u64 = 0;
 ///
 /// # Errors
 ///
-/// [`HnswError::UintSlice`] for text that is neither, naming the text without its outer spaces.
+/// [`HnswError::uint_slice`] for text that is neither, naming the text without its outer spaces.
 pub fn parse_edges(s: &str) -> Result<Vec<u64>, HnswError> {
     let s = s.replace(['\n', '\t'], " ");
     let s = s.trim();
     if s.is_empty() {
         return Ok(Vec::new());
     }
-    let refuse = || HnswError::UintSlice(s);
+    let refuse = || HnswError::uint_slice(s);
     let trimmed_pre = s.strip_prefix('[').ok_or_else(refuse)?;
     let trimmed = trimmed_pre.trim_end_matches(']');
     if trimmed.len() == trimmed_pre.len() {
@@ -59,7 +59,7 @@ pub fn parse_edges(s: &str) -> Result<Vec<u64>, HnswError> {
 ///
 /// # Errors
 ///
-/// [`HnswError::UintSlice`] when `existing` does not parse.
+/// [`HnswError::uint_slice`] when `existing` does not parse.
 pub fn add_dead_node(existing: Option<&[u8]>, uid: u64) -> Result<Vec<u8>, HnswError> {
     let mut dead = match existing {
         Some(value) => parse_edges(&String::from_utf8_lossy(value))?,

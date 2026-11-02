@@ -669,7 +669,7 @@ fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() -> TestResult {
     assert_eq!(
         h.core.grant(&stream, 0).err().context("an error")?.0,
         ClientErrorEnum::Request {
-            error: ultragraphdb_error_protocol::ProtocolError::FieldValue(14, "frames", 0)
+            error: ultragraphdb_error_protocol::ProtocolError::field_value(14, "frames", 0)
         }
     );
     assert_eq!(h.core.transmit(), None, "no Credit queued");

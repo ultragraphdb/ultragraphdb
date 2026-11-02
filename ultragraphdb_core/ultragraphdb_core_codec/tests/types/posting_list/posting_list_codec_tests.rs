@@ -105,7 +105,7 @@ fn body(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn corrupted(reason: &str) -> Result<PostingList, StoreError> {
-    Err(StoreError::Corrupted(KEY.to_vec(), reason.to_string()))
+    Err(StoreError::corrupted(KEY.to_vec(), reason.to_string()))
 }
 
 fn names_the_key(result: &Result<PostingList, StoreError>, key: &[u8]) -> bool {

@@ -107,15 +107,15 @@ fn uvarint(buf: &[u8], offset: usize) -> Result<(u64, usize), CodecError> {
     for (i, &b) in buf.iter().enumerate().take(10) {
         if b < 0x80 {
             if i == 9 && b > 1 {
-                return Err(CodecError::OverflowingVarint(offset));
+                return Err(CodecError::overflowing_varint(offset));
             }
             return Ok((x | u64::from(b) << (7 * i), i + 1));
         }
         x |= u64::from(b & 0x7f) << (7 * i);
     }
     if buf.len() < 10 {
-        Err(CodecError::TruncatedVarint(offset))
+        Err(CodecError::truncated_varint(offset))
     } else {
-        Err(CodecError::OverflowingVarint(offset))
+        Err(CodecError::overflowing_varint(offset))
     }
 }

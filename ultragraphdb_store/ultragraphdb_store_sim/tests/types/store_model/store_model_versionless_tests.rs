@@ -45,7 +45,7 @@ fn read(id: Option<u64>, key: &[u8], result: Result<Option<Vec<u8>>, StoreError>
 }
 
 fn failed(key: &[u8]) -> StoreError {
-    StoreError::ReadFailed(key.to_vec(), "x".into())
+    StoreError::read_failed(key.to_vec(), "x".into())
 }
 
 /// The contents of a fresh store after `batches` are applied, each buffered.
@@ -140,14 +140,14 @@ fn wrong_versionless_reads() -> [(OpRecord, &'static str); 7] {
             "a versionless read of key 6b returned Ok(Some([50])) where None was expected",
         ),
         (
-            read(None, b"k", Err(StoreError::Poisoned())),
+            read(None, b"k", Err(StoreError::poisoned())),
             "a versionless read of key 6b returned Err(StoreError(Poisoned)) where Some([50]) was expected",
         ),
         (
             read(
                 Some(0),
                 b"k",
-                Err(StoreError::Corrupted(b"k".to_vec(), "x".into())),
+                Err(StoreError::corrupted(b"k".to_vec(), "x".into())),
             ),
             "a versionless read of key 6b returned Err(StoreError(Corrupted { key: [107], reason: \"x\" })) \
          where Some([49]) was expected",
@@ -225,7 +225,7 @@ fn test_a_versionless_read_on_a_failed_store_answers_as_its_process() -> TestRes
     model.observe(&[OpRecord::Crashed])?;
     model
         .observe(&[
-            read(None, b"k", Err(StoreError::Poisoned())),
+            read(None, b"k", Err(StoreError::poisoned())),
             read(Some(0), b"k", Ok(Some(b"1".to_vec()))),
         ])
         .context("the store refuses, the snapshot reads its state")?;

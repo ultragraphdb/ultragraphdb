@@ -25,7 +25,7 @@ impl Catalog {
             declaration.parent(),
         ) && held != new
         {
-            return Err(CatalogError::SecondParent(
+            return Err(CatalogError::second_parent(
                 name,
                 held.as_str(),
                 new.as_str(),
@@ -36,7 +36,7 @@ impl Catalog {
             while let Some(ancestor) = at {
                 if ancestor == uid {
                     let parent_name = declaration.parent().map_or("", |p| p.as_str());
-                    return Err(CatalogError::ParentCycle(name, parent_name));
+                    return Err(CatalogError::parent_cycle(name, parent_name));
                 }
                 at = self.parent_uid(ancestor);
             }

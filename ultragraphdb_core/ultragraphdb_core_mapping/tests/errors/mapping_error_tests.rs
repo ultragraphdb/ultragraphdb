@@ -9,23 +9,23 @@ use ultragraphdb_core_mapping::MappingError;
 fn test_each_error_says_what_was_refused() {
     let cases = [
         (
-            MappingError::BadContractVersion(&[1]),
+            MappingError::bad_contract_version(&[1]),
             "Unreadable mapping contract version [01]",
         ),
         (
-            MappingError::NoSuchStatement("5".into()),
+            MappingError::no_such_statement("5".into()),
             "No statement 5 is held",
         ),
         (
-            MappingError::AmbiguousStatement("t".into()),
+            MappingError::ambiguous_statement("t".into()),
             "t is held by several statements; name one by its statement ID",
         ),
         (
-            MappingError::UnsupportedObject("<< >>".into()),
+            MappingError::unsupported_object("<< >>".into()),
             "The object << >> is a triple term, which no write stores",
         ),
         (
-            MappingError::InvalidBase("ex.org/".into(), "not an absolute IRI"),
+            MappingError::invalid_base("ex.org/".into(), "not an absolute IRI"),
             "Invalid base IRI \"ex.org/\": not an absolute IRI",
         ),
     ];

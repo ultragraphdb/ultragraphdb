@@ -65,44 +65,37 @@ pub enum RecoveryErrorEnum {
 
 impl RecoveryError {
     /// The [`RecoveryErrorEnum::Log`] reason.
-    #[allow(non_snake_case)]
-    pub fn Log(cause: LogError) -> Self {
+    pub fn log(cause: LogError) -> Self {
         Self(RecoveryErrorEnum::Log { cause })
     }
 
     /// The [`RecoveryErrorEnum::Round`] reason.
-    #[allow(non_snake_case)]
-    pub fn Round(position: u64, cause: ProtocolError) -> Self {
+    pub fn round(position: u64, cause: ProtocolError) -> Self {
         Self(RecoveryErrorEnum::Round { position, cause })
     }
 
     /// The [`RecoveryErrorEnum::Apply`] reason.
-    #[allow(non_snake_case)]
-    pub fn Apply(position: u64, cause: ChangesetError) -> Self {
+    pub fn apply(position: u64, cause: ChangesetError) -> Self {
         Self(RecoveryErrorEnum::Apply { position, cause })
     }
 
     /// The [`RecoveryErrorEnum::Sessions`] reason.
-    #[allow(non_snake_case)]
-    pub fn Sessions(cause: StoreError) -> Self {
+    pub fn sessions(cause: StoreError) -> Self {
         Self(RecoveryErrorEnum::Sessions { cause })
     }
 
     /// The [`RecoveryErrorEnum::StoreNotInLog`] reason.
-    #[allow(non_snake_case)]
-    pub fn StoreNotInLog(version: u64) -> Self {
+    pub fn store_not_in_log(version: u64) -> Self {
         Self(RecoveryErrorEnum::StoreNotInLog { version })
     }
 
     /// The [`RecoveryErrorEnum::Gap`] reason.
-    #[allow(non_snake_case)]
-    pub fn Gap(checkpoint: u64) -> Self {
+    pub fn gap(checkpoint: u64) -> Self {
         Self(RecoveryErrorEnum::Gap { checkpoint })
     }
 
     /// The [`RecoveryErrorEnum::BehindCheckpoint`] reason.
-    #[allow(non_snake_case)]
-    pub fn BehindCheckpoint(applied: u64, checkpoint: u64) -> Self {
+    pub fn behind_checkpoint(applied: u64, checkpoint: u64) -> Self {
         Self(RecoveryErrorEnum::BehindCheckpoint {
             applied,
             checkpoint,

@@ -8,9 +8,8 @@
 //! snapshot is opened inside the timed routine. It does not measure scans of all versions, scans that stop early,
 //! the posting-list decoding above the store, or scans over versions the compaction filter has yet to collect.
 
-// Each bench uses part of what the benches share.
-#[allow(dead_code)]
-mod bench_dir;
+/// What the benches share; each bench uses a part of it.
+pub mod bench_dir;
 
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,

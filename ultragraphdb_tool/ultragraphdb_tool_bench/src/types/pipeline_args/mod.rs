@@ -56,17 +56,17 @@ impl PipelineArgs {
     ///
     /// # Errors
     ///
-    /// [`BenchError::Usage`] naming what cannot run.
+    /// [`BenchError::usage`] naming what cannot run.
     pub fn parse(args: &[String]) -> Result<Self, BenchError> {
         if args.is_empty() {
-            return Err(BenchError::Usage(USAGE.to_string()));
+            return Err(BenchError::usage(USAGE.to_string()));
         }
         let flags = flags(args, &FLAGS)?;
         let plp = match flags.get("--plp").copied().unwrap_or("off") {
             "on" => true,
             "off" => false,
             other => {
-                return Err(BenchError::Usage(format!(
+                return Err(BenchError::usage(format!(
                     "--plp is on or off, not {other}"
                 )));
             }

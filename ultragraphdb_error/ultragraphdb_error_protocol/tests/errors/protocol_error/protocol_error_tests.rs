@@ -9,55 +9,55 @@ use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 10] {
     [
         (
-            ProtocolError::ShortHeader(255),
+            ProtocolError::short_header(255),
             ProtocolErrorEnum::ShortHeader { len: 255 },
         ),
         (
-            ProtocolError::HeaderChecksum(1, 2),
+            ProtocolError::header_checksum(1, 2),
             ProtocolErrorEnum::HeaderChecksum {
                 stored: 1,
                 computed: 2,
             },
         ),
         (
-            ProtocolError::UnknownCommand(18),
+            ProtocolError::unknown_command(18),
             ProtocolErrorEnum::UnknownCommand { command: 18 },
         ),
         (
-            ProtocolError::ReservedNotZero(66),
+            ProtocolError::reserved_not_zero(66),
             ProtocolErrorEnum::ReservedNotZero { offset: 66 },
         ),
         (
-            ProtocolError::WrongCluster(3, 4),
+            ProtocolError::wrong_cluster(3, 4),
             ProtocolErrorEnum::WrongCluster {
                 expected: 3,
                 found: 4,
             },
         ),
         (
-            ProtocolError::SizeBelowHeader(255),
+            ProtocolError::size_below_header(255),
             ProtocolErrorEnum::SizeBelowHeader { size: 255 },
         ),
         (
-            ProtocolError::FrameTooLarge(1_048_577, 1_048_576),
+            ProtocolError::frame_too_large(1_048_577, 1_048_576),
             ProtocolErrorEnum::FrameTooLarge {
                 size: 1_048_577,
                 limit: 1_048_576,
             },
         ),
         (
-            ProtocolError::LengthMismatch(356, 355),
+            ProtocolError::length_mismatch(356, 355),
             ProtocolErrorEnum::LengthMismatch {
                 size: 356,
                 len: 355,
             },
         ),
         (
-            ProtocolError::BodyLength(3_841),
+            ProtocolError::body_length(3_841),
             ProtocolErrorEnum::BodyLength { len: 3_841 },
         ),
         (
-            ProtocolError::ChunkTable(5, 6),
+            ProtocolError::chunk_table(5, 6),
             ProtocolErrorEnum::ChunkTable {
                 stored: 5,
                 computed: 6,
@@ -70,7 +70,7 @@ fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 10] {
 fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
     [
         (
-            ProtocolError::Chunk(3, 12_032, 16_128),
+            ProtocolError::chunk(3, 12_032, 16_128),
             ProtocolErrorEnum::Chunk {
                 index: 3,
                 start: 12_032,
@@ -78,21 +78,21 @@ fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
             },
         ),
         (
-            ProtocolError::SequenceOrder(2, 4),
+            ProtocolError::sequence_order(2, 4),
             ProtocolErrorEnum::SequenceOrder {
                 expected: 2,
                 found: 4,
             },
         ),
         (
-            ProtocolError::WrongCommand(1, 2),
+            ProtocolError::wrong_command(1, 2),
             ProtocolErrorEnum::WrongCommand {
                 expected: 1,
                 found: 2,
             },
         ),
         (
-            ProtocolError::BodyTooShort(7, 3, 32),
+            ProtocolError::body_too_short(7, 3, 32),
             ProtocolErrorEnum::BodyTooShort {
                 command: 7,
                 len: 3,
@@ -100,7 +100,7 @@ fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
             },
         ),
         (
-            ProtocolError::SectionOutOfBounds(7, 2, 64, 8, 60),
+            ProtocolError::section_out_of_bounds(7, 2, 64, 8, 60),
             ProtocolErrorEnum::SectionOutOfBounds {
                 command: 7,
                 section: 2,
@@ -110,7 +110,7 @@ fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
             },
         ),
         (
-            ProtocolError::SectionOffset(7, 1, 33, 40),
+            ProtocolError::section_offset(7, 1, 33, 40),
             ProtocolErrorEnum::SectionOffset {
                 command: 7,
                 section: 1,
@@ -119,7 +119,7 @@ fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
             },
         ),
         (
-            ProtocolError::PaddingNotZero(5, 41),
+            ProtocolError::padding_not_zero(5, 41),
             ProtocolErrorEnum::PaddingNotZero {
                 command: 5,
                 offset: 41,
@@ -132,7 +132,7 @@ fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
 fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
     [
         (
-            ProtocolError::TrailingBytes(5, 40, 41),
+            ProtocolError::trailing_bytes(5, 40, 41),
             ProtocolErrorEnum::TrailingBytes {
                 command: 5,
                 end: 40,
@@ -140,7 +140,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
             },
         ),
         (
-            ProtocolError::SectionLength(5, 0, 31, 16),
+            ProtocolError::section_length(5, 0, 31, 16),
             ProtocolErrorEnum::SectionLength {
                 command: 5,
                 section: 0,
@@ -149,7 +149,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
             },
         ),
         (
-            ProtocolError::EntryOutOfBounds(17, 1, 2, 32),
+            ProtocolError::entry_out_of_bounds(17, 1, 2, 32),
             ProtocolErrorEnum::EntryOutOfBounds {
                 command: 17,
                 section: 1,
@@ -158,7 +158,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
             },
         ),
         (
-            ProtocolError::CountMismatch(13, "cells", 5, 6),
+            ProtocolError::count_mismatch(13, "cells", 5, 6),
             ProtocolErrorEnum::CountMismatch {
                 command: 13,
                 field: "cells",
@@ -167,7 +167,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
             },
         ),
         (
-            ProtocolError::NotUtf8(1, 0, 3),
+            ProtocolError::not_utf8(1, 0, 3),
             ProtocolErrorEnum::NotUtf8 {
                 command: 1,
                 section: 0,
@@ -175,7 +175,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
             },
         ),
         (
-            ProtocolError::IndexOutOfRange(13, 0, 2, 4, 3),
+            ProtocolError::index_out_of_range(13, 0, 2, 4, 3),
             ProtocolErrorEnum::IndexOutOfRange {
                 command: 13,
                 section: 0,
@@ -191,7 +191,7 @@ fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
 fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
     [
         (
-            ProtocolError::BadTerm(8, 3, 9),
+            ProtocolError::bad_term(8, 3, 9),
             ProtocolErrorEnum::BadTerm {
                 command: 8,
                 section: 3,
@@ -199,7 +199,7 @@ fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
             },
         ),
         (
-            ProtocolError::FieldValue(4, "mode", 2),
+            ProtocolError::field_value(4, "mode", 2),
             ProtocolErrorEnum::FieldValue {
                 command: 4,
                 field: "mode",
@@ -207,7 +207,7 @@ fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
             },
         ),
         (
-            ProtocolError::DuplicateTerm(8, 2, 5, 3),
+            ProtocolError::duplicate_term(8, 2, 5, 3),
             ProtocolErrorEnum::DuplicateTerm {
                 command: 8,
                 section: 2,
@@ -216,7 +216,7 @@ fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
             },
         ),
         (
-            ProtocolError::TermTooDeep(11, 0, 33, 33, 32),
+            ProtocolError::term_too_deep(11, 0, 33, 33, 32),
             ProtocolErrorEnum::TermTooDeep {
                 command: 11,
                 section: 0,
@@ -226,7 +226,7 @@ fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
             },
         ),
         (
-            ProtocolError::Record(1, ProtocolError::PaddingNotZero(17, 9)),
+            ProtocolError::record(1, ProtocolError::padding_not_zero(17, 9)),
             ProtocolErrorEnum::Record {
                 index: 1,
                 cause: Box::new(ProtocolErrorEnum::PaddingNotZero {
@@ -254,81 +254,81 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
 fn test_argument_order_is_kept_where_two_values_share_a_type() {
     // Distinct values in each position, so a constructor swapping its arguments fails.
     assert_ne!(
-        ProtocolError::HeaderChecksum(1, 2),
-        ProtocolError::HeaderChecksum(2, 1)
+        ProtocolError::header_checksum(1, 2),
+        ProtocolError::header_checksum(2, 1)
     );
     assert_ne!(
-        ProtocolError::WrongCluster(1, 2),
-        ProtocolError::WrongCluster(2, 1)
+        ProtocolError::wrong_cluster(1, 2),
+        ProtocolError::wrong_cluster(2, 1)
     );
     assert_ne!(
-        ProtocolError::ChunkTable(1, 2),
-        ProtocolError::ChunkTable(2, 1)
+        ProtocolError::chunk_table(1, 2),
+        ProtocolError::chunk_table(2, 1)
     );
     assert_ne!(
-        ProtocolError::FrameTooLarge(1, 2),
-        ProtocolError::FrameTooLarge(2, 1)
+        ProtocolError::frame_too_large(1, 2),
+        ProtocolError::frame_too_large(2, 1)
     );
-    assert_ne!(ProtocolError::Chunk(1, 2, 3), ProtocolError::Chunk(1, 3, 2));
+    assert_ne!(ProtocolError::chunk(1, 2, 3), ProtocolError::chunk(1, 3, 2));
     assert_ne!(
-        ProtocolError::SequenceOrder(1, 2),
-        ProtocolError::SequenceOrder(2, 1)
-    );
-    assert_ne!(
-        ProtocolError::WrongCommand(1, 2),
-        ProtocolError::WrongCommand(2, 1)
+        ProtocolError::sequence_order(1, 2),
+        ProtocolError::sequence_order(2, 1)
     );
     assert_ne!(
-        ProtocolError::BodyTooShort(1, 2, 3),
-        ProtocolError::BodyTooShort(1, 3, 2)
+        ProtocolError::wrong_command(1, 2),
+        ProtocolError::wrong_command(2, 1)
     );
     assert_ne!(
-        ProtocolError::SectionOutOfBounds(1, 2, 3, 4, 5),
-        ProtocolError::SectionOutOfBounds(1, 2, 4, 3, 5)
+        ProtocolError::body_too_short(1, 2, 3),
+        ProtocolError::body_too_short(1, 3, 2)
     );
     assert_ne!(
-        ProtocolError::SectionOffset(1, 2, 3, 4),
-        ProtocolError::SectionOffset(1, 2, 4, 3)
+        ProtocolError::section_out_of_bounds(1, 2, 3, 4, 5),
+        ProtocolError::section_out_of_bounds(1, 2, 4, 3, 5)
     );
     assert_ne!(
-        ProtocolError::TrailingBytes(1, 2, 3),
-        ProtocolError::TrailingBytes(1, 3, 2)
+        ProtocolError::section_offset(1, 2, 3, 4),
+        ProtocolError::section_offset(1, 2, 4, 3)
     );
     assert_ne!(
-        ProtocolError::SectionLength(1, 2, 3, 4),
-        ProtocolError::SectionLength(1, 2, 4, 3)
+        ProtocolError::trailing_bytes(1, 2, 3),
+        ProtocolError::trailing_bytes(1, 3, 2)
     );
     assert_ne!(
-        ProtocolError::EntryOutOfBounds(1, 2, 3, 4),
-        ProtocolError::EntryOutOfBounds(1, 2, 4, 3)
+        ProtocolError::section_length(1, 2, 3, 4),
+        ProtocolError::section_length(1, 2, 4, 3)
     );
     assert_ne!(
-        ProtocolError::CountMismatch(1, "f", 2, 3),
-        ProtocolError::CountMismatch(1, "f", 3, 2)
+        ProtocolError::entry_out_of_bounds(1, 2, 3, 4),
+        ProtocolError::entry_out_of_bounds(1, 2, 4, 3)
     );
     assert_ne!(
-        ProtocolError::NotUtf8(1, 2, 3),
-        ProtocolError::NotUtf8(1, 3, 2)
+        ProtocolError::count_mismatch(1, "f", 2, 3),
+        ProtocolError::count_mismatch(1, "f", 3, 2)
     );
     assert_ne!(
-        ProtocolError::IndexOutOfRange(1, 2, 3, 4, 5),
-        ProtocolError::IndexOutOfRange(1, 2, 3, 5, 4)
+        ProtocolError::not_utf8(1, 2, 3),
+        ProtocolError::not_utf8(1, 3, 2)
     );
     assert_ne!(
-        ProtocolError::BadTerm(1, 2, 3),
-        ProtocolError::BadTerm(1, 3, 2)
+        ProtocolError::index_out_of_range(1, 2, 3, 4, 5),
+        ProtocolError::index_out_of_range(1, 2, 3, 5, 4)
     );
     assert_ne!(
-        ProtocolError::FieldValue(1, "f", 2),
-        ProtocolError::FieldValue(2, "f", 1)
+        ProtocolError::bad_term(1, 2, 3),
+        ProtocolError::bad_term(1, 3, 2)
+    );
+    assert_ne!(
+        ProtocolError::field_value(1, "f", 2),
+        ProtocolError::field_value(2, "f", 1)
     );
 }
 
 #[test]
 fn test_errors_compare_clone_and_hash_by_value() {
     use std::collections::HashSet;
-    let a = ProtocolError::Chunk(0, 0, 100);
-    let set: HashSet<ProtocolError> = [a.clone(), ProtocolError::Chunk(0, 0, 100)].into();
+    let a = ProtocolError::chunk(0, 0, 100);
+    let set: HashSet<ProtocolError> = [a.clone(), ProtocolError::chunk(0, 0, 100)].into();
     assert_eq!(set.len(), 1);
     assert_eq!(a.clone(), a);
 }

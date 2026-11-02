@@ -146,7 +146,7 @@ fn test_a_header_is_refused_before_its_body_is_read() -> TestResult {
     // Step 5: the framer's cluster expected, the frame's found.
     assert_eq!(
         other,
-        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER + 1, CLUSTER))
+        TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER + 1, CLUSTER))
     );
     Ok(())
 }
@@ -167,7 +167,7 @@ fn test_a_frame_larger_than_the_buffer_is_refused_naming_its_capacity() -> TestR
     .context("the refusal")?;
     assert_eq!(
         refused,
-        TransportError::Protocol(ProtocolError::FrameTooLarge(frame.len(), 300))
+        TransportError::protocol(ProtocolError::frame_too_large(frame.len(), 300))
     );
     // One byte short of the frame: refused, naming the capacity.
     let short = BufferPool::new(1, frame.len() - 1);
@@ -181,7 +181,7 @@ fn test_a_frame_larger_than_the_buffer_is_refused_naming_its_capacity() -> TestR
         )
         .err()
         .context("the refusal")?,
-        TransportError::Protocol(ProtocolError::FrameTooLarge(frame.len(), frame.len() - 1))
+        TransportError::protocol(ProtocolError::frame_too_large(frame.len(), frame.len() - 1))
     );
     let fits = BufferPool::new(1, frame.len());
     let received = feed(
@@ -211,25 +211,25 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestRe
         .err()
         .context("the refusal")
     };
-    assert_eq!(closed(&[])?, TransportError::Closed());
+    assert_eq!(closed(&[])?, TransportError::closed());
     assert_eq!(
         closed(&frame[..3])?,
-        TransportError::Truncated(3, HEADER_SIZE)
+        TransportError::truncated(3, HEADER_SIZE)
     );
     assert_eq!(
         closed(&frame[..HEADER_SIZE])?,
-        TransportError::Truncated(HEADER_SIZE, frame.len())
+        TransportError::truncated(HEADER_SIZE, frame.len())
     );
     assert_eq!(
         closed(&frame[..frame.len() - 1])?,
-        TransportError::Truncated(frame.len() - 1, frame.len())
+        TransportError::truncated(frame.len() - 1, frame.len())
     );
     let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
     assert_eq!(
         feed(&mut framer, &pool, &frame[..HEADER_SIZE], &mut 0, 1 << 20)
             .err()
             .context("the refusal")?,
-        TransportError::Truncated(HEADER_SIZE, frame.len())
+        TransportError::truncated(HEADER_SIZE, frame.len())
     );
     assert!(framer.between_frames(), "a close resets the framer");
     Ok(())
@@ -264,12 +264,12 @@ fn test_a_close_with_nothing_of_the_body_read_is_truncated_at_the_frames_size() 
     bytes.extend_from_slice(&frame[..HEADER_SIZE]);
     buffer.restore(bytes);
     assert_eq!(framer.advance(&buffer), Ok(FrameStep::Read(frame.len())));
-    assert_eq!(framer.closed(0), TransportError::Truncated(0, frame.len()));
+    assert_eq!(framer.closed(0), TransportError::truncated(0, frame.len()));
     assert!(
         framer.between_frames(),
         "the framer waits for a header again"
     );
-    assert_eq!(framer.closed(0), TransportError::Closed());
+    assert_eq!(framer.closed(0), TransportError::closed());
     Ok(())
 }
 
@@ -290,7 +290,7 @@ fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() -> TestRe
     .context("the refusal")?;
     assert_eq!(
         refused,
-        TransportError::Protocol(ProtocolError::FrameTooLarge(big.len(), 524_288))
+        TransportError::protocol(ProtocolError::frame_too_large(big.len(), 524_288))
     );
     let read = feed(
         &mut Framer::new(CLUSTER, MAX_FRAME_SIZE),
@@ -321,7 +321,7 @@ fn test_a_header_past_the_announced_maximum_is_refused_at_the_header() -> TestRe
         )
         .err()
         .context("the refusal")?,
-        TransportError::Protocol(ProtocolError::FrameTooLarge(big.len(), big.len() - 1))
+        TransportError::protocol(ProtocolError::frame_too_large(big.len(), big.len() - 1))
     );
     Ok(())
 }
@@ -388,7 +388,7 @@ fn test_a_servers_framer_holds_a_clients_header_to_its_rules() -> TestResult {
         )
         .err()
         .context("the refusal")?,
-        TransportError::Protocol(ProtocolError::FieldValue(14, "replica", 1))
+        TransportError::protocol(ProtocolError::field_value(14, "replica", 1))
     );
     Ok(())
 }

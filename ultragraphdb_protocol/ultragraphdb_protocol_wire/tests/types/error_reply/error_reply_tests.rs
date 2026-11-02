@@ -47,7 +47,7 @@ fn test_error_replies_build_the_golden_frames() -> TestResult {
 
 #[test]
 fn test_a_protocol_error_is_answered_with_its_text() {
-    let reply = ErrorReply::protocol(&ProtocolError::UnknownCommand(20));
+    let reply = ErrorReply::protocol(&ProtocolError::unknown_command(20));
     assert_eq!(reply.code(), ErrorCode::Protocol);
     assert_eq!(reply.message(), "unknown command 20");
     assert_eq!(reply.detail(), 0);

@@ -24,10 +24,10 @@ impl<S: DurableStorage> Wal<S> {
     /// recovers it: the segments are scanned from the first kept, a torn tail is cut off and reported, and the log
     /// is ready to append after the last durable round.
     ///
-    /// Refused as [`LogError::SuperblockUnreadable`] when a copy does not verify; as [`LogError::Diverged`] when the
+    /// Refused as [`LogError::superblock_unreadable`] when a copy does not verify; as [`LogError::diverged`] when the
     /// superblock names another cluster, when segments exist without a superblock, or when the rounds contradict the
-    /// checkpoint; as [`LogError::Corrupt`] or [`LogError::CorruptChunk`] when damage has a complete round after it;
-    /// as [`LogError::Io`] when the storage fails. Nothing is written before the superblock is read and accepted.
+    /// checkpoint; as [`LogError::corrupt`] or [`LogError::corrupt_chunk`] when damage has a complete round after it;
+    /// as [`LogError::io`] when the storage fails. Nothing is written before the superblock is read and accepted.
     pub async fn open(
         storage: S,
         dir: impl Into<PathBuf>,
@@ -54,10 +54,10 @@ impl<S: DurableStorage> Wal<S> {
             .collect();
         let superblock = match Superblock::read(&storage, &dir).await? {
             SuperblockRead::Unreadable { copy } => {
-                return Err(LogError::SuperblockUnreadable(copy));
+                return Err(LogError::superblock_unreadable(copy));
             }
             SuperblockRead::Present(record) if record.cluster() != config.cluster() => {
-                return Err(LogError::Diverged(
+                return Err(LogError::diverged(
                     "the cluster",
                     config.cluster(),
                     record.cluster(),
@@ -65,7 +65,7 @@ impl<S: DurableStorage> Wal<S> {
             }
             SuperblockRead::Present(record) => record,
             SuperblockRead::Empty if !segments.is_empty() => {
-                return Err(LogError::Diverged(
+                return Err(LogError::diverged(
                     "segments without a superblock",
                     0,
                     segments.len() as u64,

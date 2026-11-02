@@ -34,5 +34,5 @@ pub fn posting_object(key: &[u8], p: &Posting) -> Result<EncodedTerm, QuadError>
         return Ok(EncodedTerm::uid(p.uid()));
     }
     EncodedTerm::from_bytes(p.value())
-        .map_err(|e| QuadError::Corrupted(key, format!("a literal posting holds no encoding: {e}")))
+        .map_err(|e| QuadError::corrupted(key, format!("a literal posting holds no encoding: {e}")))
 }

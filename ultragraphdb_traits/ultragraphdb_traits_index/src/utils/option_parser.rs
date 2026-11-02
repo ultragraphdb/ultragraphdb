@@ -14,7 +14,7 @@ use crate::types::option_value::OptionValue;
 
 /// The option's text did not parse, with Go's `strconv` message.
 fn parse_error(e: &impl ToString) -> OptionsError {
-    OptionsError::Parse(e.to_string())
+    OptionsError::parse(e.to_string())
 }
 
 /// Dgraph's `IntOptParser`: Go's `strconv.Atoi`.

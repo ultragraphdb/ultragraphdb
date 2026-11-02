@@ -114,7 +114,7 @@ fn test_a_parameter_type_its_slot_does_not_take_is_refused() -> TestResult {
         .context("a refusal")?;
     assert_eq!(
         refused,
-        StatementError::ParameterType(0, ColumnType::Term, ColumnType::Node)
+        StatementError::parameter_type(0, ColumnType::Term, ColumnType::Node)
     );
     assert!(cache.is_empty());
     let mut object_terms = TermTable::new();
@@ -217,7 +217,7 @@ fn test_a_stale_statement_is_refused_and_prepares_again() -> TestResult {
     assert_eq!(prepare(&mut cache, SCHEMA)??.statement(), 1);
     assert_eq!(
         execute(&cache, 1, &["a"], SCHEMA + 1)?,
-        Err(StatementError::Stale(1, SCHEMA, SCHEMA + 1))
+        Err(StatementError::stale(1, SCHEMA, SCHEMA + 1))
     );
     let again = prepare(&mut cache, SCHEMA + 1)??;
     assert_eq!((again.statement(), again.schema()), (2, SCHEMA + 1));
@@ -227,7 +227,7 @@ fn test_a_stale_statement_is_refused_and_prepares_again() -> TestResult {
         Ok(PatternSlot::Bound(1))
     );
     assert_eq!(
-        StatementError::Stale(1, SCHEMA, SCHEMA + 1).code(),
+        StatementError::stale(1, SCHEMA, SCHEMA + 1).code(),
         ErrorCode::StaleStatement
     );
     Ok(())
@@ -239,23 +239,23 @@ fn test_unknown_statements_and_wrong_parameter_counts_are_refused_in_that_order(
     assert_eq!(prepare(&mut cache, SCHEMA)??.statement(), 1);
     assert_eq!(
         execute(&cache, 9, &["a"], SCHEMA)?,
-        Err(StatementError::Unknown(9))
+        Err(StatementError::unknown(9))
     );
     assert_eq!(
         execute(&cache, 0, &[], SCHEMA)?,
-        Err(StatementError::Unknown(0))
+        Err(StatementError::unknown(0))
     );
     assert_eq!(
         execute(&cache, 1, &[], SCHEMA)?,
-        Err(StatementError::Parameters(1, 1, 0))
+        Err(StatementError::parameters(1, 1, 0))
     );
     assert_eq!(
         execute(&cache, 1, &["a", "b"], SCHEMA)?,
-        Err(StatementError::Parameters(1, 1, 2))
+        Err(StatementError::parameters(1, 1, 2))
     );
     assert_eq!(
         execute(&cache, 1, &[], SCHEMA + 1)?,
-        Err(StatementError::Stale(1, SCHEMA, SCHEMA + 1))
+        Err(StatementError::stale(1, SCHEMA, SCHEMA + 1))
     );
     Ok(())
 }
@@ -269,7 +269,7 @@ fn test_past_its_capacity_the_oldest_statement_is_evicted() -> TestResult {
     assert_eq!(cache.len(), 2);
     assert_eq!(
         execute(&cache, 1, &["a"], SCHEMA)?,
-        Err(StatementError::Unknown(1))
+        Err(StatementError::unknown(1))
     );
     for statement in [2, 3] {
         assert_eq!(
@@ -304,7 +304,7 @@ fn test_a_statement_without_parameters_executes_with_none() -> TestResult {
     assert_eq!(execute(&cache, id, &[], SCHEMA)?, Ok((terms, bound)));
     assert_eq!(
         execute(&cache, id, &["b"], SCHEMA)?,
-        Err(StatementError::Parameters(id, 0, 1))
+        Err(StatementError::parameters(id, 0, 1))
     );
     Ok(())
 }
@@ -335,7 +335,7 @@ fn test_a_literal_or_a_triple_term_at_a_node_slot_is_refused() -> TestResult {
     };
     assert_eq!(
         execute_term(&cache, id, literal)?,
-        Err(StatementError::NotANode(id, 0))
+        Err(StatementError::not_a_node(id, 0))
     );
     let tagged = RequestTerm::LanguageLiteral {
         lexical: "x".into(),
@@ -344,7 +344,7 @@ fn test_a_literal_or_a_triple_term_at_a_node_slot_is_refused() -> TestResult {
     };
     assert_eq!(
         execute_term(&cache, id, tagged)?,
-        Err(StatementError::NotANode(id, 0))
+        Err(StatementError::not_a_node(id, 0))
     );
     // A triple term, its parts before it in the execution's table.
     let mut terms = TermTable::new();
@@ -360,7 +360,7 @@ fn test_a_literal_or_a_triple_term_at_a_node_slot_is_refused() -> TestResult {
         cache
             .execute(&ExecuteView::from_frame(&frame_of(&bytes)?)?, SCHEMA)
             .map(|_| ()),
-        Err(StatementError::NotANode(id, 0))
+        Err(StatementError::not_a_node(id, 0))
     );
     // An IRI and a blank node are nodes.
     assert_eq!(
@@ -372,7 +372,7 @@ fn test_a_literal_or_a_triple_term_at_a_node_slot_is_refused() -> TestResult {
         Ok(())
     );
     // The refusal is code 11, its detail the statement.
-    let reply = StatementError::NotANode(id, 0).reply();
+    let reply = StatementError::not_a_node(id, 0).reply();
     assert_eq!(reply.code(), ErrorCode::Parameters);
     assert_eq!(reply.detail(), id);
     Ok(())
@@ -414,7 +414,7 @@ fn test_a_wrong_parameter_count_is_named_before_a_literal() -> TestResult {
         cache
             .execute(&ExecuteView::from_frame(&frame_of(&bytes)?)?, SCHEMA)
             .map(|_| ()),
-        Err(StatementError::Parameters(id, 1, 2))
+        Err(StatementError::parameters(id, 1, 2))
     );
     Ok(())
 }
@@ -430,7 +430,7 @@ fn test_the_default_cache_holds_256_statements() -> TestResult {
     assert_eq!(cache.len(), 256);
     assert_eq!(
         execute(&cache, 1, &["a"], SCHEMA)?,
-        Err(StatementError::Unknown(1))
+        Err(StatementError::unknown(1))
     );
     assert_eq!(
         execute(&cache, 2, &["a"], SCHEMA)?.map(|(_, p)| p.subject()),

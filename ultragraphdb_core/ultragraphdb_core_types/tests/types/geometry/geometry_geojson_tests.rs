@@ -66,7 +66,7 @@ fn from_geojson_matches_go() -> TestResult {
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test decodes on a small stack to prove the decoder does not recurse"
 )]

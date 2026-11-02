@@ -50,13 +50,19 @@ fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_fligh
 fn test_a_check_follows_the_lean_models_order() -> TestResult {
     let mut table = Sessions::new(4);
     assert_eq!(table.check(0, 99, 0), Ok(None), "no session");
-    assert_eq!(table.check(5, 1, 0), Err(CommitError::SessionEvicted(5)));
+    assert_eq!(table.check(5, 1, 0), Err(CommitError::session_evicted(5)));
     let _evicted: Option<u64> = table.register(5, 0);
-    assert_eq!(table.check(5, 0, 0), Err(CommitError::RequestOutOfOrder(1)));
+    assert_eq!(
+        table.check(5, 0, 0),
+        Err(CommitError::request_out_of_order(1))
+    );
     assert_eq!(table.check(5, 1, 0), Ok(None));
-    assert_eq!(table.check(5, 2, 0), Err(CommitError::RequestOutOfOrder(1)));
+    assert_eq!(
+        table.check(5, 2, 0),
+        Err(CommitError::request_out_of_order(1))
+    );
     table.begin(5);
-    assert_eq!(table.check(5, 1, 0), Err(CommitError::SessionBusy(5)));
+    assert_eq!(table.check(5, 1, 0), Err(CommitError::session_busy(5)));
     let results = vec![OperationResult::new(9, true)];
     table.committed(5, 1, 40, results.clone());
     assert_eq!(
@@ -66,7 +72,10 @@ fn test_a_check_follows_the_lean_models_order() -> TestResult {
     );
     assert_eq!(table.bytes(), 64, "16 bytes a result");
     assert_eq!(table.check(5, 2, 0), Ok(None));
-    assert_eq!(table.check(5, 3, 0), Err(CommitError::RequestOutOfOrder(2)));
+    assert_eq!(
+        table.check(5, 3, 0),
+        Err(CommitError::request_out_of_order(2))
+    );
     // Unknown sessions take no state.
     table.begin(77);
     table.committed(77, 1, 50, Vec::new());
@@ -279,19 +288,19 @@ fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
 fn test_a_session_serves_its_owner_alone() -> TestResult {
     let mut table = Sessions::new(4);
     let _evicted: Option<u64> = table.register(5, 7);
-    assert_eq!(table.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
-    assert_eq!(table.retry(5, 1, 8), Err(CommitError::PermissionDenied(5)));
+    assert_eq!(table.check(5, 1, 8), Err(CommitError::permission_denied(5)));
+    assert_eq!(table.retry(5, 1, 8), Err(CommitError::permission_denied(5)));
     assert_eq!(table.check(5, 1, 7), Ok(None));
     table.begin(5);
     assert_eq!(
         table.check(5, 1, 8),
-        Err(CommitError::PermissionDenied(5)),
+        Err(CommitError::permission_denied(5)),
         "the owner is checked before the request in flight"
     );
     table.committed(5, 1, 30, Vec::new());
     assert_eq!(
         table.check(5, 1, 8),
-        Err(CommitError::PermissionDenied(5)),
+        Err(CommitError::permission_denied(5)),
         "nor its stored reply"
     );
     assert_eq!(table.check(5, 2, 7), Ok(None));
@@ -304,24 +313,30 @@ fn test_a_session_serves_its_owner_alone() -> TestResult {
 fn test_a_retry_is_answered_from_the_table() -> TestResult {
     let results = vec![OperationResult::new(3, true)];
     let mut table = Sessions::new(4);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::SessionEvicted(5)));
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::session_evicted(5)));
     let _evicted: Option<u64> = table.register(5, 7);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::NotCommitted(1)));
-    assert_eq!(table.retry(5, 0, 7), Err(CommitError::RequestOutOfOrder(1)));
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::not_committed(1)));
+    assert_eq!(
+        table.retry(5, 0, 7),
+        Err(CommitError::request_out_of_order(1))
+    );
     table.begin(5);
-    assert_eq!(table.retry(5, 1, 7), Err(CommitError::SessionBusy(5)));
+    assert_eq!(table.retry(5, 1, 7), Err(CommitError::session_busy(5)));
     table.committed(5, 1, 30, results.clone());
     assert_eq!(table.retry(5, 1, 7), Ok((30, results.as_slice())));
-    assert_eq!(table.retry(5, 2, 7), Err(CommitError::NotCommitted(2)));
-    assert_eq!(table.retry(5, 3, 7), Err(CommitError::RequestOutOfOrder(2)));
-    assert!(CommitError::NotCommitted(2).is_retryable());
-    assert_eq!(CommitError::NotCommitted(2).detail(), 2);
+    assert_eq!(table.retry(5, 2, 7), Err(CommitError::not_committed(2)));
     assert_eq!(
-        CommitError::PermissionDenied(5).detail(),
+        table.retry(5, 3, 7),
+        Err(CommitError::request_out_of_order(2))
+    );
+    assert!(CommitError::not_committed(2).is_retryable());
+    assert_eq!(CommitError::not_committed(2).detail(), 2);
+    assert_eq!(
+        CommitError::permission_denied(5).detail(),
         2,
         "the action, write"
     );
-    assert!(!CommitError::PermissionDenied(5).is_retryable());
+    assert!(!CommitError::permission_denied(5).is_retryable());
     Ok(())
 }
 
@@ -335,7 +350,10 @@ fn test_the_owner_survives_a_reload() -> TestResult {
     table.drain_entries(&mut entries);
     write(&store, &entries)?;
     let loaded = Sessions::load(&store)?;
-    assert_eq!(loaded.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
+    assert_eq!(
+        loaded.check(5, 1, 8),
+        Err(CommitError::permission_denied(5))
+    );
     assert_eq!(loaded.check(5, 1, 7), Ok(None));
     Ok(())
 }

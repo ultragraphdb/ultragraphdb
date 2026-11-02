@@ -174,7 +174,7 @@ fn step(
         && round.position() == start.checkpoint()
         && round.checksum() != start.checkpoint_checksum()
     {
-        return Err(LogError::Diverged(
+        return Err(LogError::diverged(
             "the checkpoint's checksum",
             start.checkpoint_checksum(),
             round.checksum(),
@@ -192,14 +192,14 @@ fn check_first(round: &ScannedRound, start: &ScanStart) -> Result<(), LogError> 
     };
     let position = round.position().get();
     if position > after {
-        return Err(LogError::Diverged(
+        return Err(LogError::diverged(
             "the first round's position",
             after,
             position,
         ));
     }
     if position == after && round.parent() != start.checkpoint_checksum() {
-        return Err(LogError::Diverged(
+        return Err(LogError::diverged(
             "the first round's parent",
             start.checkpoint_checksum(),
             round.parent(),
@@ -216,7 +216,7 @@ fn check_first(round: &ScannedRound, start: &ScanStart) -> Result<(), LogError> 
 /// Trailing bytes short of a block are not read. A round whose frame fits in the bytes is accepted though its padding
 /// does not, and the scan then ends at its padded end, past the bytes.
 ///
-/// Refused as [`LogError::Diverged`] when the chain contradicts the checkpoint: a round at the checkpoint whose
+/// Refused as [`LogError::diverged`] when the chain contradicts the checkpoint: a round at the checkpoint whose
 /// checksum is not the checkpoint's, or a first segment whose first round lies past the round after the checkpoint
 /// or is that round with another parent.
 pub fn scan_segment(bytes: &[u8], start: &ScanStart) -> Result<SegmentScan, LogError> {

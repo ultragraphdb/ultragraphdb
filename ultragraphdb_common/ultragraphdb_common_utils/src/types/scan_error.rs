@@ -95,10 +95,10 @@ impl ScanError {
         let offset = i64::try_from(offset).unwrap_or(i64::MAX);
         match self {
             ScanError::UnexpectedEof => {
-                JsonError::Syntax("unexpected end of JSON input".to_string(), offset)
+                JsonError::syntax("unexpected end of JSON input".to_string(), offset)
             }
-            ScanError::MaxDepth => JsonError::Syntax("exceeded max depth".to_string(), offset + 1),
-            ScanError::Read(msg) => JsonError::Read(msg),
+            ScanError::MaxDepth => JsonError::syntax("exceeded max depth".to_string(), offset + 1),
+            ScanError::Read(msg) => JsonError::read(msg),
             ScanError::InvalidText {
                 label,
                 what,
@@ -122,7 +122,7 @@ impl ScanError {
                 ]
                 .iter()
                 .fold(msg, |m, (from, to)| m.replace(from, to));
-                JsonError::Syntax(msg, offset + i64::try_from(what.len()).unwrap_or(i64::MAX))
+                JsonError::syntax(msg, offset + i64::try_from(what.len()).unwrap_or(i64::MAX))
             }
         }
     }

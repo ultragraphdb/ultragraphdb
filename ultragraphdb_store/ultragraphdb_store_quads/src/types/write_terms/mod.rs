@@ -144,7 +144,7 @@ impl WriteTerms {
                 Ok((!missing).then(|| encoded.into_term()))
             }
             TermRef::Triple(t) => Err(QuadError(QuadErrorEnum::Mapping(
-                ultragraphdb_core_mapping::MappingError::UnsupportedObject(t.to_string()),
+                ultragraphdb_core_mapping::MappingError::unsupported_object(t.to_string()),
             ))),
         }
     }
@@ -226,7 +226,7 @@ impl WriteTerms {
                 Ok(encoded.into_term())
             }
             TermRef::Triple(t) => Err(QuadError(QuadErrorEnum::Mapping(
-                ultragraphdb_core_mapping::MappingError::UnsupportedObject(t.to_string()),
+                ultragraphdb_core_mapping::MappingError::unsupported_object(t.to_string()),
             ))),
         }
     }
@@ -333,6 +333,6 @@ impl WriteTerms {
 pub(crate) fn decode_uid(key: &[u8], value: &[u8]) -> Result<u64, QuadError> {
     let raw: [u8; 8] = value
         .try_into()
-        .map_err(|_| QuadError::Corrupted(key, "an IRI's UID is not 8 bytes"))?;
+        .map_err(|_| QuadError::corrupted(key, "an IRI's UID is not 8 bytes"))?;
     Ok(u64::from_be_bytes(raw))
 }

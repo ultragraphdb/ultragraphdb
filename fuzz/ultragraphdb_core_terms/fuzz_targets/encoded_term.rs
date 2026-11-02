@@ -27,7 +27,7 @@ fuzz_target!(|data: &[u8]| {
         .view()
         .expect("a reader opens every encoding the check accepts");
     let _ = view.to_literal(
-        |uid| Err::<_, TermError>(TermError::NotALiteral(uid)),
+        |uid| Err::<_, TermError>(TermError::not_a_literal(uid)),
         |_| Ok("the text the hash names".to_string()),
     );
 });

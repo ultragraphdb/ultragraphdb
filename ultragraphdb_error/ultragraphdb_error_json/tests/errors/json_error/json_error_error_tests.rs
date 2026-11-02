@@ -9,6 +9,6 @@ use ultragraphdb_error_json::JsonError;
 
 #[test]
 fn test_is_a_std_error_without_a_source() {
-    let e = JsonError::Syntax("unexpected end of JSON input".to_string(), 0);
+    let e = JsonError::syntax("unexpected end of JSON input".to_string(), 0);
     assert!(e.source().is_none());
 }

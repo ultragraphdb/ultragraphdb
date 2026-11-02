@@ -19,12 +19,13 @@ impl Catalog {
     ) -> Result<(), CatalogError> {
         let predicate = declaration.predicate().as_str();
         match (object, declaration.kind()) {
-            (TermRef::Literal(literal), PredicateKind::Edge) => {
-                Err(CatalogError::LiteralOnEdge(predicate, literal.to_string()))
-            }
+            (TermRef::Literal(literal), PredicateKind::Edge) => Err(CatalogError::literal_on_edge(
+                predicate,
+                literal.to_string(),
+            )),
             (TermRef::Literal(literal), _) => match declaration.datatype() {
                 Some(expected) if literal.datatype() != expected.as_ref() => {
-                    Err(CatalogError::DatatypeMismatch(
+                    Err(CatalogError::datatype_mismatch(
                         predicate,
                         expected.as_str(),
                         literal.datatype().as_str(),
@@ -32,7 +33,7 @@ impl Catalog {
                 }
                 _ => Ok(()),
             },
-            (other, PredicateKind::Property) => Err(CatalogError::ResourceOnProperty(
+            (other, PredicateKind::Property) => Err(CatalogError::resource_on_property(
                 predicate,
                 other.to_string(),
             )),

@@ -12,7 +12,7 @@ fn test_a_uid_is_no_literal() {
         |_| Ok::<_, TermError>(NamedNode::new_unchecked("http://e/x")),
         |_| Ok(String::new()),
     );
-    assert_eq!(refused, Err(TermError::NotALiteral(5)));
+    assert_eq!(refused, Err(TermError::not_a_literal(5)));
 }
 
 #[test]

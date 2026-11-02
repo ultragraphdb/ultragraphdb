@@ -8,6 +8,7 @@
  */
 
 use crate::errors::types_error::TypesError;
+use crate::types::civil_time::CivilTime;
 use crate::types::date_time::date_time_calendar::days_in;
 use crate::types::date_time::{DateTime, Zone};
 
@@ -469,13 +470,9 @@ impl<'a> Fields<'a> {
             ));
         }
         let t = DateTime::new(
-            self.year,
-            month,
-            day,
-            self.hour,
-            self.min,
-            self.sec,
-            self.nsec,
+            CivilTime::new(
+                self.year, month, day, self.hour, self.min, self.sec, self.nsec,
+            ),
             Zone::Utc,
         );
         if self.utc {

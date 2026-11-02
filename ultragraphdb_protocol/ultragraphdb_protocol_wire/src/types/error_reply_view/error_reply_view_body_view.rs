@@ -26,7 +26,7 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 2), (8, 16)])?;
         let number = header.u16_at(0);
-        let code = ErrorCode::from_number(number).ok_or(ProtocolError::FieldValue(
+        let code = ErrorCode::from_number(number).ok_or(ProtocolError::field_value(
             command,
             "code",
             number.into(),
@@ -40,7 +40,7 @@ impl<'a> BodyView<'a> for ErrorReplyView<'a> {
             sections.get(2),
         )?;
         if terms.len() > 1 {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "value",
                 terms.len() as u64,

@@ -30,27 +30,27 @@ impl<'a> BodyView<'a> for WelcomeView<'a> {
         let max_frame = header.u32_at(8);
         let max_streams = header.u32_at(12);
         if protocol == 0 {
-            return Err(ProtocolError::FieldValue(command, "protocol", 0));
+            return Err(ProtocolError::field_value(command, "protocol", 0));
         }
         if auth > 1 {
-            return Err(ProtocolError::FieldValue(command, "auth", auth.into()));
+            return Err(ProtocolError::field_value(command, "auth", auth.into()));
         }
         if !(MAX_FRAME_FLOOR..=MAX_FRAME_SIZE).contains(&(max_frame as usize)) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "max_frame",
                 max_frame.into(),
             ));
         }
         if max_streams == 0 {
-            return Err(ProtocolError::FieldValue(command, "max_streams", 0));
+            return Err(ProtocolError::field_value(command, "max_streams", 0));
         }
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let server = text(command, 0, sections.get(0))?;
         let mechanisms = StringList::read(command, (1, 2), sections.get(1), sections.get(2))?;
         let authenticates = auth == 1;
         if authenticates == mechanisms.is_empty() {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "mechanisms",
                 mechanisms.len() as u64,

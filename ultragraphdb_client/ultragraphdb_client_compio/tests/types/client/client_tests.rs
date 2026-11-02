@@ -245,7 +245,10 @@ fn test_the_client_runs_over_tcp_loopback() -> TestResult {
 /// The shell tells the core the wall clock at each connect, so a credential's renewal falls due its margin before the
 /// expiry the server states.
 #[test]
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the wall clock the shell tells the core, to place the expiry it states"
+)]
 fn test_a_renewal_is_due_before_the_credentials_expiry() -> TestResult {
     use std::time::Duration;
     use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};

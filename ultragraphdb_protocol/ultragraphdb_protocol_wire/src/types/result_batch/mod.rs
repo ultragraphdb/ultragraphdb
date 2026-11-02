@@ -70,7 +70,7 @@ impl ResultBatch {
     }
 
     /// Appends a row, a term or `None` (unbound) per column; a term already in the table is not added again. Refused
-    /// as [`ProtocolError::CountMismatch`] when the row's length is not the batch's column count, or when the batch
+    /// as [`ProtocolError::count_mismatch`] when the row's length is not the batch's column count, or when the batch
     /// carries statement IDs ([`ResultBatch::push_row_with_id`]).
     pub fn push_row(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         if self.statement_ids.is_some() {
@@ -80,7 +80,7 @@ impl ResultBatch {
     }
 
     /// Appends a row as [`ResultBatch::push_row`] does, with the ID of the statement it read. Refused as
-    /// [`ProtocolError::CountMismatch`] when the batch carries no statement IDs.
+    /// [`ProtocolError::count_mismatch`] when the batch carries no statement IDs.
     pub fn push_row_with_id(
         &mut self,
         row: &[Option<&ResultTerm>],
@@ -98,12 +98,12 @@ impl ResultBatch {
 
     /// A row pushed with `found` statement IDs to a batch taking `expected` per row.
     fn ids_mismatch(found: u64, expected: u64) -> ProtocolError {
-        ProtocolError::CountMismatch(Command::Result.number(), "statement ids", found, expected)
+        ProtocolError::count_mismatch(Command::Result.number(), "statement ids", found, expected)
     }
 
     fn push_cells(&mut self, row: &[Option<&ResultTerm>]) -> Result<(), ProtocolError> {
         if row.len() != self.columns as usize {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 Command::Result.number(),
                 "row",
                 row.len() as u64,

@@ -7,7 +7,6 @@
 
 // The scenarios use the harness's batch and drop kills; the crash test alone reads temporary keyspaces raw and
 // names every stage.
-#[allow(dead_code)]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -386,7 +385,7 @@ fn every_version(w: &mut Steps) {
 }
 
 #[when("a batch writing 10,000 keys commits while readers read those keys repeatedly")]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the readers run on threads beside the writer, as the production store's readers do"
 )]
@@ -975,7 +974,7 @@ fn item_remains(w: &mut Steps) -> TestResult {
         versions,
         vec![
             Ok(Item::new(b"k".to_vec(), 5, 0x08, true, b"c".to_vec())),
-            Err(StoreError::Corrupted(
+            Err(StoreError::corrupted(
                 b"k".to_vec(),
                 "value too short to hold the version prefix".to_string()
             )),

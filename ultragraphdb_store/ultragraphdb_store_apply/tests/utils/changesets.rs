@@ -22,6 +22,7 @@ use ultragraphdb_store_sim::{
 };
 use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
+/// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
 pub type TestChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 
 /// The namespace the tests write.
@@ -51,6 +52,7 @@ pub fn changesets() -> TestResult<TestChangesets> {
     changesets_over(sim_store())
 }
 
+/// The IRI `http://ex.org/<name>`.
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
@@ -126,12 +128,17 @@ fn split(text: &str) -> Vec<String> {
 
 /// A statement's text: subject, predicate, object and an optional graph.
 pub struct Text {
+    /// The statement's graph, the default graph when the text names none.
     pub graph: GraphName,
+    /// The statement's subject, an IRI or a blank node.
     pub subject: NamedOrBlankNode,
+    /// The statement's predicate.
     pub predicate: NamedNode,
+    /// The statement's object.
     pub object: Term,
 }
 
+/// The statement `text` writes: its terms as [`term`] reads them, separated by spaces outside quotes.
 pub fn statement(text: &str) -> TestResult<Text> {
     let parts = split(text);
     let node = |t: Term| {
@@ -163,6 +170,7 @@ pub fn statement(text: &str) -> TestResult<Text> {
     })
 }
 
+/// The insert of the statement `text` writes.
 pub fn insert(text: &str) -> TestResult<Change> {
     let t = statement(text)?;
     Ok(Change::Insert {
@@ -173,6 +181,7 @@ pub fn insert(text: &str) -> TestResult<Change> {
     })
 }
 
+/// The delete of the statement `text` writes.
 pub fn delete(text: &str) -> TestResult<Change> {
     let t = statement(text)?;
     Ok(Change::Delete {
@@ -183,6 +192,8 @@ pub fn delete(text: &str) -> TestResult<Change> {
     })
 }
 
+/// The insert of the edge `text` writes, carrying `properties` as pairs of an `http://ex.org/` name and a term's
+/// text.
 pub fn insert_edge(text: &str, properties: &[(&str, &str)]) -> TestResult<Change> {
     let t = statement(text)?;
     Ok(Change::InsertEdge {
@@ -197,6 +208,7 @@ pub fn insert_edge(text: &str, properties: &[(&str, &str)]) -> TestResult<Change
     })
 }
 
+/// The delete of every object of `<subject>`'s `<predicate>` in the default graph.
 pub fn delete_pattern(subject: &str, predicate: &str) -> Change {
     Change::DeletePattern {
         graph: GraphName::DefaultGraph,
@@ -356,6 +368,7 @@ pub fn objects(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult
     objects_in(a, "", subject, predicate)
 }
 
+/// The objects of `subject`'s `predicate` in the graph `<graph_name>`, the default graph for `""`, as terms.
 pub fn objects_in(
     a: &TestChangesets,
     graph_name: &str,

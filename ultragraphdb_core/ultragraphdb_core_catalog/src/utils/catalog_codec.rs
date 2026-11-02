@@ -87,7 +87,7 @@ pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Declaration, CatalogError> {
     let mut r = Reader { key, bytes, at: 0 };
     let format = r.u8()?;
     if format != FORMAT {
-        return Err(CatalogError::Corrupted(
+        return Err(CatalogError::corrupted(
             key,
             format!("unknown format {format}"),
         ));
@@ -105,14 +105,14 @@ pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Declaration, CatalogError> {
             Declaration::Relation(RelationDeclaration::new(iri, roles))
         }
         other => {
-            return Err(CatalogError::Corrupted(
+            return Err(CatalogError::corrupted(
                 key,
                 format!("unknown entry kind {other}"),
             ));
         }
     };
     if r.at != bytes.len() {
-        return Err(CatalogError::Corrupted(key, "bytes follow the declaration"));
+        return Err(CatalogError::corrupted(key, "bytes follow the declaration"));
     }
     Ok(declaration)
 }
@@ -125,7 +125,7 @@ fn predicate(r: &mut Reader<'_>) -> Result<PredicateDeclaration, CatalogError> {
         1 => PredicateKind::Property,
         2 => PredicateKind::Either,
         other => {
-            return Err(CatalogError::Corrupted(
+            return Err(CatalogError::corrupted(
                 r.key,
                 format!("unknown predicate kind {other}"),
             ));
@@ -135,7 +135,7 @@ fn predicate(r: &mut Reader<'_>) -> Result<PredicateDeclaration, CatalogError> {
         0 => Cardinality::Single,
         1 => Cardinality::Multi,
         other => {
-            return Err(CatalogError::Corrupted(
+            return Err(CatalogError::corrupted(
                 r.key,
                 format!("unknown cardinality {other}"),
             ));
@@ -201,7 +201,7 @@ impl Reader<'_> {
         let part = self
             .bytes
             .get(self.at..self.at + n)
-            .ok_or_else(|| CatalogError::Corrupted(self.key, "the entry ends early"))?;
+            .ok_or_else(|| CatalogError::corrupted(self.key, "the entry ends early"))?;
         self.at += n;
         Ok(part)
     }
@@ -214,7 +214,7 @@ impl Reader<'_> {
         match self.u8()? {
             0 => Ok(false),
             1 => Ok(true),
-            other => Err(CatalogError::Corrupted(
+            other => Err(CatalogError::corrupted(
                 self.key,
                 format!("flag byte {other}"),
             )),
@@ -235,7 +235,7 @@ impl Reader<'_> {
         let len = u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize;
         let key = self.key;
         let text = self.take(len)?.to_vec();
-        String::from_utf8(text).map_err(|_| CatalogError::Corrupted(key, "a string is not UTF-8"))
+        String::from_utf8(text).map_err(|_| CatalogError::corrupted(key, "a string is not UTF-8"))
     }
 
     fn optional(&mut self) -> Result<Option<String>, CatalogError> {
@@ -248,6 +248,6 @@ impl Reader<'_> {
 
     fn iri(&mut self) -> Result<NamedNode, CatalogError> {
         let key = self.key;
-        NamedNode::new(self.string()?).map_err(|e| CatalogError::Corrupted(key, e.to_string()))
+        NamedNode::new(self.string()?).map_err(|e| CatalogError::corrupted(key, e.to_string()))
     }
 }

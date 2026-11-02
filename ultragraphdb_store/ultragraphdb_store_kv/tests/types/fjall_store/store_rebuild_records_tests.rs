@@ -121,7 +121,7 @@ fn test_an_unreadable_record_is_refused_as_corrupted() -> TestResult {
         write_raw_in(&dir, META_KEYSPACE, &key, &value)?;
         assert_eq!(
             dir.open()?.rebuild_records(),
-            Err(StoreError::Corrupted(key.clone(), reason.to_string())),
+            Err(StoreError::corrupted(key.clone(), reason.to_string())),
             "{reason}"
         );
     }

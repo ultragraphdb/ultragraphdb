@@ -48,16 +48,16 @@ fn test_a_name_escapes_its_comma_and_equals_sign() -> TestResult {
 fn test_a_name_password_or_nonce_the_rules_refuse() -> TestResult {
     assert_eq!(
         ScramClient::new("us\u{0007}er", PASSWORD, CLIENT_NONCE).err(),
-        Some(ScramError::Prepare())
+        Some(ScramError::prepare())
     );
     assert_eq!(
         ScramClient::new(NAME, "pen\u{0007}cil", CLIENT_NONCE).err(),
-        Some(ScramError::Prepare())
+        Some(ScramError::prepare())
     );
     for nonce in ["", "a,b", "caf\u{00e9}", "a b"] {
         assert_eq!(
             ScramClient::new(NAME, PASSWORD, nonce).err(),
-            Some(ScramError::Malformed("nonce")),
+            Some(ScramError::malformed("nonce")),
             "{nonce:?}"
         );
     }
@@ -74,29 +74,29 @@ fn test_the_servers_first_message_is_checked() -> TestResult {
     // A nonce that does not extend the client's.
     assert_eq!(
         first(b"r=other%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")?,
-        Err(ScramError::Nonce())
+        Err(ScramError::nonce())
     );
     // A nonce that is the client's alone, with nothing of the server's.
     assert_eq!(
         first(b"r=rOprNGfwEbeRWgbNEkqO,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096")?,
-        Err(ScramError::Nonce())
+        Err(ScramError::nonce())
     );
     assert_eq!(
         first(b"r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4095")?,
-        Err(ScramError::Iterations(4_095))
+        Err(ScramError::iterations(4_095))
     );
     assert_eq!(
         first(b"r=rOprNGfwEbeRWgbNEkqO%hv,s=!!!,i=4096")?,
-        Err(ScramError::Malformed("salt"))
+        Err(ScramError::malformed("salt"))
     );
     assert_eq!(
         first(b"r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=x")?,
-        Err(ScramError::Malformed("iteration count"))
+        Err(ScramError::malformed("iteration count"))
     );
-    assert_eq!(first(b"nonsense")?, Err(ScramError::Malformed("nonce")));
+    assert_eq!(first(b"nonsense")?, Err(ScramError::malformed("nonce")));
     assert_eq!(
         first(b"e=unknown-user")?,
-        Err(ScramError::Server("unknown-user"))
+        Err(ScramError::server("unknown-user"))
     );
     Ok(())
 }
@@ -111,13 +111,13 @@ fn test_the_servers_final_message_is_checked() -> TestResult {
     };
     assert_eq!(
         finished(b"v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")?,
-        Err(ScramError::ServerSignature())
+        Err(ScramError::server_signature())
     );
     assert_eq!(
         finished(b"e=invalid-proof")?,
-        Err(ScramError::Server("invalid-proof"))
+        Err(ScramError::server("invalid-proof"))
     );
-    assert_eq!(finished(b"x=1")?, Err(ScramError::Malformed("verifier")));
+    assert_eq!(finished(b"x=1")?, Err(ScramError::malformed("verifier")));
     Ok(())
 }
 
@@ -126,12 +126,12 @@ fn test_messages_out_of_step_are_refused() -> TestResult {
     let mut client = client()?;
     assert_eq!(
         client.final_message(SERVER_FIRST),
-        Err(ScramError::OutOfStep())
+        Err(ScramError::out_of_step())
     );
-    assert_eq!(client.verify(SERVER_FINAL), Err(ScramError::OutOfStep()));
+    assert_eq!(client.verify(SERVER_FINAL), Err(ScramError::out_of_step()));
     assert_eq!(client.first_message()?, CLIENT_FIRST);
-    assert_eq!(client.first_message(), Err(ScramError::OutOfStep()));
-    assert_eq!(client.verify(SERVER_FINAL), Err(ScramError::OutOfStep()));
+    assert_eq!(client.first_message(), Err(ScramError::out_of_step()));
+    assert_eq!(client.verify(SERVER_FINAL), Err(ScramError::out_of_step()));
     Ok(())
 }
 
@@ -147,7 +147,7 @@ fn test_more_iterations_than_the_most_are_refused_before_any_is_run() -> TestRes
             format!("r=rOprNGfwEbeRWgbNEkqO%hv,s=W22ZaJ0SNY7soEsUEjb6gQ==,i={count}");
         assert_eq!(
             client.final_message(server_first.as_bytes()),
-            Err(ScramError::Iterations(count))
+            Err(ScramError::iterations(count))
         );
     }
     Ok(())
@@ -162,7 +162,7 @@ fn test_a_server_nonce_extending_the_clients_with_a_character_outside_the_rules_
     assert_eq!(client.first_message()?, CLIENT_FIRST);
     assert_eq!(
         client.final_message(b"r=rOprNGfwEbeRWgbNEkqO h,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"),
-        Err(ScramError::Nonce())
+        Err(ScramError::nonce())
     );
     Ok(())
 }
@@ -176,7 +176,7 @@ fn test_the_mechanisms_finish_refuses_a_wrong_server_signature() -> TestResult {
     assert_eq!(client.answer(SERVER_FIRST)?, CLIENT_FINAL);
     assert_eq!(
         client.finish(b"v=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
-        Err(ScramError::ServerSignature())
+        Err(ScramError::server_signature())
     );
     Ok(())
 }

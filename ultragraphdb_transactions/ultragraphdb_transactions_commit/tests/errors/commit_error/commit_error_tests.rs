@@ -12,34 +12,34 @@ use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
 
 fn malformed() -> TestResult<CommitError> {
     let cause = WriteSetRecordView::new(&[1, 2, 3]).refused("three bytes are no record")?;
-    Ok(CommitError::Malformed(cause))
+    Ok(CommitError::malformed(cause))
 }
 
 #[test]
 fn test_each_constructor_builds_its_variant() -> TestResult {
     assert_eq!(
-        CommitError::Conflict(ConflictKind::Range).0,
+        CommitError::conflict(ConflictKind::Range).0,
         CommitErrorEnum::Conflict {
             kind: ConflictKind::Range
         }
     );
     assert_eq!(
-        CommitError::TooOld(4, 10).0,
+        CommitError::too_old(4, 10).0,
         CommitErrorEnum::TooOld {
             read_version: 4,
             floor: 10
         }
     );
     assert_eq!(
-        CommitError::TooLarge(2_000_000, 1_048_576).0,
+        CommitError::too_large(2_000_000, 1_048_576).0,
         CommitErrorEnum::TooLarge {
             size: 2_000_000,
             limit: 1_048_576
         }
     );
     assert!(matches!(malformed()?.0, CommitErrorEnum::Malformed { .. }));
-    assert_eq!(CommitError::Unsealed().0, CommitErrorEnum::Unsealed);
-    assert_eq!(CommitError::Unavailable().0, CommitErrorEnum::Unavailable);
+    assert_eq!(CommitError::unsealed().0, CommitErrorEnum::Unsealed);
+    assert_eq!(CommitError::unavailable().0, CommitErrorEnum::Unavailable);
     Ok(())
 }
 
@@ -48,27 +48,27 @@ fn test_each_reason_has_its_code_and_detail() -> TestResult {
     // The codes and details as ErrorCode's table in ultragraphdb_protocol_wire states them; a conflict's detail is its
     // kind's number there (Range is 3, Drop 6).
     assert_eq!(
-        CommitError::Conflict(ConflictKind::Range).code(),
+        CommitError::conflict(ConflictKind::Range).code(),
         ErrorCode::Conflict
     );
-    assert_eq!(CommitError::Conflict(ConflictKind::Range).detail(), 3);
-    assert_eq!(CommitError::Conflict(ConflictKind::Drop).detail(), 6);
-    assert_eq!(CommitError::TooOld(4, 10).code(), ErrorCode::TooOld);
-    assert_eq!(CommitError::TooOld(4, 10).detail(), 0);
+    assert_eq!(CommitError::conflict(ConflictKind::Range).detail(), 3);
+    assert_eq!(CommitError::conflict(ConflictKind::Drop).detail(), 6);
+    assert_eq!(CommitError::too_old(4, 10).code(), ErrorCode::TooOld);
+    assert_eq!(CommitError::too_old(4, 10).detail(), 0);
     assert_eq!(
-        CommitError::TooLarge(2_000_000, 1_048_576).code(),
+        CommitError::too_large(2_000_000, 1_048_576).code(),
         ErrorCode::TooLarge
     );
     assert_eq!(
-        CommitError::TooLarge(2_000_000, 1_048_576).detail(),
+        CommitError::too_large(2_000_000, 1_048_576).detail(),
         1_048_576
     );
     assert_eq!(malformed()?.code(), ErrorCode::Protocol);
     assert_eq!(malformed()?.detail(), 0);
-    assert_eq!(CommitError::Unsealed().code(), ErrorCode::Protocol);
-    assert_eq!(CommitError::Unsealed().detail(), 0);
-    assert_eq!(CommitError::Unavailable().code(), ErrorCode::Unavailable);
-    assert_eq!(CommitError::Unavailable().detail(), 0);
+    assert_eq!(CommitError::unsealed().code(), ErrorCode::Protocol);
+    assert_eq!(CommitError::unsealed().detail(), 0);
+    assert_eq!(CommitError::unavailable().code(), ErrorCode::Unavailable);
+    assert_eq!(CommitError::unavailable().detail(), 0);
     Ok(())
 }
 
@@ -76,28 +76,28 @@ fn test_each_reason_has_its_code_and_detail() -> TestResult {
 fn test_only_a_conflict_and_too_old_are_retryable() -> TestResult {
     // The spec's "Aborts name their reason": conflict and too old are retryable, too large is not; unavailable is the
     // wire's non-retryable Unavailable, and a malformed or unsealed hand-over is a programming error.
-    assert!(CommitError::Conflict(ConflictKind::List).is_retryable());
-    assert!(CommitError::TooOld(4, 10).is_retryable());
-    assert!(!CommitError::TooLarge(2_000_000, 1_048_576).is_retryable());
+    assert!(CommitError::conflict(ConflictKind::List).is_retryable());
+    assert!(CommitError::too_old(4, 10).is_retryable());
+    assert!(!CommitError::too_large(2_000_000, 1_048_576).is_retryable());
     assert!(!malformed()?.is_retryable());
-    assert!(!CommitError::Unsealed().is_retryable());
-    assert!(!CommitError::Unavailable().is_retryable());
+    assert!(!CommitError::unsealed().is_retryable());
+    assert!(!CommitError::unavailable().is_retryable());
     Ok(())
 }
 
 #[test]
 fn test_each_reason_displays_its_text() -> TestResult {
-    // Dgraph's texts for a conflict (QuadError::Aborted's) and for too old (ErrTsTooOld's, as StoreError has it).
+    // Dgraph's texts for a conflict (QuadError::aborted's) and for too old (ErrTsTooOld's, as StoreError has it).
     assert_eq!(
-        CommitError::Conflict(ConflictKind::List).to_string(),
+        CommitError::conflict(ConflictKind::List).to_string(),
         "Transaction has been aborted. Please retry"
     );
     assert_eq!(
-        CommitError::TooOld(4, 10).to_string(),
+        CommitError::too_old(4, 10).to_string(),
         "Transaction is too old"
     );
     assert_eq!(
-        CommitError::TooLarge(2_000_000, 1_048_576).to_string(),
+        CommitError::too_large(2_000_000, 1_048_576).to_string(),
         "the write-set record of 2000000 bytes is over the largest a round holds, 1048576 bytes"
     );
     assert!(
@@ -108,11 +108,11 @@ fn test_each_reason_displays_its_text() -> TestResult {
         malformed()?
     );
     assert_eq!(
-        CommitError::Unsealed().to_string(),
+        CommitError::unsealed().to_string(),
         "a read set reached the commit step unsealed"
     );
     assert_eq!(
-        CommitError::Unavailable().to_string(),
+        CommitError::unavailable().to_string(),
         "the node refuses writes after a failed log sync, until it restarts"
     );
     Ok(())
@@ -121,13 +121,13 @@ fn test_each_reason_displays_its_text() -> TestResult {
 #[test]
 fn test_only_a_malformed_record_has_a_source() -> TestResult {
     assert!(malformed()?.source().is_some());
-    assert!(CommitError::Unsealed().source().is_none());
+    assert!(CommitError::unsealed().source().is_none());
     Ok(())
 }
 
 #[test]
 fn test_the_operation_refusals_carry_their_codes_and_what_was_found() -> TestResult {
-    let failed = CommitError::OperationFailed(Some("\"done\"".to_string()));
+    let failed = CommitError::operation_failed(Some("\"done\"".to_string()));
     assert_eq!(
         failed.0,
         CommitErrorEnum::OperationFailed {
@@ -142,13 +142,13 @@ fn test_the_operation_refusals_carry_their_codes_and_what_was_found() -> TestRes
         failed.to_string(),
         "the compare-and-set did not hold: \"done\" is held"
     );
-    let nothing = CommitError::OperationFailed(None);
+    let nothing = CommitError::operation_failed(None);
     assert_eq!(nothing.found(), None);
     assert_eq!(
         nothing.to_string(),
         "the compare-and-set did not hold: no value is held"
     );
-    let refused = CommitError::Refused("no".to_string());
+    let refused = CommitError::refused("no".to_string());
     assert_eq!(
         refused.0,
         CommitErrorEnum::Refused {
@@ -164,7 +164,7 @@ fn test_the_operation_refusals_carry_their_codes_and_what_was_found() -> TestRes
         "the commit-time operation was refused: no"
     );
     assert!(refused.source().is_none());
-    assert_eq!(CommitError::Unavailable().found(), None);
+    assert_eq!(CommitError::unavailable().found(), None);
     Ok(())
 }
 
@@ -179,25 +179,25 @@ fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() -> T
     // Unavailable 17, NotCommitted 18 with the request, PermissionDenied 21 with the action, write being 2; a malformed
     // or unsealed hand-over is a Protocol error, code 1.
     let rows: Vec<(CommitError, u16, u64, bool)> = vec![
-        (CommitError::Conflict(ConflictKind::Statement), 2, 2, true),
-        (CommitError::TooOld(4, 10), 3, 0, true),
-        (CommitError::Busy(64), 5, 0, true),
+        (CommitError::conflict(ConflictKind::Statement), 2, 2, true),
+        (CommitError::too_old(4, 10), 3, 0, true),
+        (CommitError::busy(64), 5, 0, true),
         (
-            CommitError::TooLarge(2_000_000, 1_048_576),
+            CommitError::too_large(2_000_000, 1_048_576),
             6,
             1_048_576,
             false,
         ),
-        (CommitError::Refused("no".to_string()), 7, 0, false),
-        (CommitError::OperationFailed(None), 8, 0, false),
-        (CommitError::SessionEvicted(41), 12, 41, false),
-        (CommitError::RequestOutOfOrder(9), 13, 9, false),
-        (CommitError::SessionBusy(43), 14, 43, true),
-        (CommitError::Unavailable(), 17, 0, false),
-        (CommitError::NotCommitted(8), 18, 8, true),
-        (CommitError::PermissionDenied(45), 21, 2, false),
+        (CommitError::refused("no".to_string()), 7, 0, false),
+        (CommitError::operation_failed(None), 8, 0, false),
+        (CommitError::session_evicted(41), 12, 41, false),
+        (CommitError::request_out_of_order(9), 13, 9, false),
+        (CommitError::session_busy(43), 14, 43, true),
+        (CommitError::unavailable(), 17, 0, false),
+        (CommitError::not_committed(8), 18, 8, true),
+        (CommitError::permission_denied(45), 21, 2, false),
         (malformed()?, 1, 0, false),
-        (CommitError::Unsealed(), 1, 0, false),
+        (CommitError::unsealed(), 1, 0, false),
     ];
     for (reason, number, detail, retryable) in rows {
         assert_eq!(reason.code().number(), number, "{reason:?}");

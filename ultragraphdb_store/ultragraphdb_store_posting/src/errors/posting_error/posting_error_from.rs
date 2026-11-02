@@ -9,6 +9,6 @@ use super::PostingError;
 
 impl From<StoreError> for PostingError {
     fn from(error: StoreError) -> Self {
-        Self::Store(error)
+        Self::store(error)
     }
 }

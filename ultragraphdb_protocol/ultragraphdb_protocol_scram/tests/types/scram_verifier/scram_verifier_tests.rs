@@ -40,7 +40,7 @@ fn test_saslprep_maps_before_the_key_and_refuses_what_it_prohibits() -> TestResu
     // A control character is prohibited.
     assert_eq!(
         ScramVerifier::derive("pen\u{0007}cil", &SALT, ITERATIONS),
-        Err(ScramError::Prepare())
+        Err(ScramError::prepare())
     );
     assert_ne!(
         ScramVerifier::derive(PASSWORD, &SALT, ITERATIONS + 1)?,
@@ -54,7 +54,7 @@ fn test_saslprep_maps_before_the_key_and_refuses_what_it_prohibits() -> TestResu
 fn test_fewer_iterations_than_the_least_are_refused() -> TestResult {
     assert_eq!(
         ScramVerifier::derive(PASSWORD, &SALT, 4_095),
-        Err(ScramError::Iterations(4_095))
+        Err(ScramError::iterations(4_095))
     );
     assert!(ScramVerifier::derive(PASSWORD, &SALT, 4_096).is_ok());
     Ok(())
@@ -65,7 +65,7 @@ fn test_more_iterations_than_a_client_runs_are_refused() -> TestResult {
     // A verifier no client would authenticate against is never made.
     assert_eq!(
         ScramVerifier::derive(PASSWORD, &SALT, MAX_ITERATIONS + 1),
-        Err(ScramError::Iterations(MAX_ITERATIONS + 1))
+        Err(ScramError::iterations(MAX_ITERATIONS + 1))
     );
     Ok(())
 }

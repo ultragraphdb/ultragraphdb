@@ -27,7 +27,7 @@ impl Shared {
             .map(|name| name.to_string())
             .collect();
         for name in &left {
-            let opened = |e: fjall::Error| StoreError::OpenFailed(e.to_string());
+            let opened = |e: fjall::Error| StoreError::open_failed(e.to_string());
             let keyspace = self
                 .db
                 .keyspace(name, KeyspaceCreateOptions::default)
@@ -61,7 +61,7 @@ impl Shared {
         lock(&self.temporaries)
             .get(&temporary.id())
             .cloned()
-            .ok_or_else(|| StoreError::UnknownTemporary(temporary.id()))
+            .ok_or_else(|| StoreError::unknown_temporary(temporary.id()))
     }
 
     /// One fjall batch to the temporary keyspace, persisted no further than the journal's buffer: a temporary
@@ -103,7 +103,7 @@ impl Shared {
         self.refuse_if_poisoned()?;
         let keyspace = lock(&self.temporaries)
             .remove(&temporary.id())
-            .ok_or(StoreError::UnknownTemporary(temporary.id()))?;
+            .ok_or(StoreError::unknown_temporary(temporary.id()))?;
         self.db
             .delete_keyspace(keyspace)
             .map_err(|e| self.failed(e))

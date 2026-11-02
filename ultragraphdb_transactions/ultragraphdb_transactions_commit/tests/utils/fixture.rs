@@ -21,8 +21,11 @@ use ultragraphdb_transactions_commit::{
 use ultragraphdb_transactions_log::{SimStorage, Wal, WalConfig};
 use ultragraphdb_transactions_txn::{Commit, Mode, Prepared, Transaction, TxnBuffers, TxnLimits};
 
+/// The write-ahead log of the tests, over simulated storage.
 pub type Log = Wal<SimStorage>;
+/// The changeset applier of the tests: over the simulated store, its cache and its stepped executor.
 pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
+/// A transaction on the tests' applier.
 pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
 
 /// The namespace the tests write.
@@ -80,6 +83,7 @@ pub async fn open_wal() -> TestResult<(SimStorage, Log)> {
     Ok((storage, wal))
 }
 
+/// The IRI `http://ex.org/<name>`.
 pub fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
@@ -203,8 +207,11 @@ pub fn held(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec
 
 /// The commit step over the applier, and what a pipeline would do with its outputs.
 pub struct Driver<'a> {
+    /// The applier each synced round is applied to.
     pub applier: &'a Applier,
+    /// The commit step under test.
     pub step: CommitStep<Prepared>,
+    /// The step's output, read and drained after every input.
     pub out: StepOutput<Prepared>,
     /// The rounds the step asked to append, in order.
     pub appended: Vec<RoundRecord>,
@@ -214,6 +221,7 @@ pub struct Driver<'a> {
     pub replies: Vec<Reply>,
     /// The buffers of every proposal the step released, under its ticket, in order.
     pub released: Vec<(u64, TxnBuffers)>,
+    /// The clock the step is handed with every input, microseconds.
     pub now_us: u64,
 }
 
@@ -282,11 +290,13 @@ impl<'a> Driver<'a> {
 pub struct Rng(u64);
 
 impl Rng {
+    /// The generator seeded with `seed`.
     pub fn new(seed: u64) -> Self {
         Self(seed)
     }
 
-    pub fn next(&mut self) -> u64 {
+    /// The next number of the sequence.
+    pub fn next_u64(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -296,7 +306,7 @@ impl Rng {
 
     /// A number below `n`, which is not zero.
     pub fn below(&mut self, n: u64) -> u64 {
-        self.next() % n
+        self.next_u64() % n
     }
 
     /// A key of 1 to `max_len` bytes over a three-letter alphabet, so that keys repeat and share prefixes.

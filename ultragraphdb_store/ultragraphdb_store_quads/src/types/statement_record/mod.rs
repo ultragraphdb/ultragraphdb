@@ -79,7 +79,7 @@ impl StatementRecord {
     /// The record stored as `bytes` under `key`.
     pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Self, QuadError> {
         let bad = |reason: &str| {
-            QuadError::Corrupted(key, format!("unreadable statement record: {reason}"))
+            QuadError::corrupted(key, format!("unreadable statement record: {reason}"))
         };
         let (format, rest) = bytes.split_first().ok_or_else(|| bad("empty"))?;
         if *format != FORMAT {
@@ -113,7 +113,7 @@ impl StatementRecord {
 fn u64_at<'b>(key: &[u8], bytes: &'b [u8]) -> Result<(u64, &'b [u8]), QuadError> {
     let (head, rest) = bytes
         .split_at_checked(8)
-        .ok_or_else(|| QuadError::Corrupted(key, "unreadable statement record: ends early"))?;
+        .ok_or_else(|| QuadError::corrupted(key, "unreadable statement record: ends early"))?;
     let mut raw = [0u8; 8];
     raw.copy_from_slice(head);
     Ok((u64::from_be_bytes(raw), rest))

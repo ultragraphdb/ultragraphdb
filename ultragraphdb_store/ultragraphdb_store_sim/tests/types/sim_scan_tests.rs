@@ -46,7 +46,7 @@ fn test_a_failed_scan_yields_its_error_last() -> TestResult {
     assert_eq!(items[0].as_ref()?.key(), b"a");
     assert_eq!(
         items[1],
-        Err(StoreError::ReadFailed(
+        Err(StoreError::read_failed(
             b"b".to_vec(),
             "simulated read failure partway through a scan".into()
         ))

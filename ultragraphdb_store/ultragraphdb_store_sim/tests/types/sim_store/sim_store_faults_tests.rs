@@ -35,11 +35,11 @@ fn test_a_crash_keeps_every_batch_handed_to_the_system() -> TestResult {
     assert!(s.needs_recovery());
     assert_eq!(
         s.apply(batch(b"k", 6), PersistMode::Buffer),
-        Err(StoreError::Poisoned())
+        Err(StoreError::poisoned())
     );
     assert_eq!(
         s.snapshot(1).err(),
-        Some(StoreError::Poisoned()),
+        Some(StoreError::poisoned()),
         "a process that is down serves no read"
     );
     s.recover();
@@ -65,7 +65,7 @@ fn test_a_crash_during_a_batch_keeps_it_whole_or_not_at_all() -> TestResult {
                 "Write to the store failed: simulated process crash while the batch was written"
             );
             assert!(s.needs_recovery());
-            assert_eq!(s.snapshot(2).err(), Some(StoreError::Poisoned()));
+            assert_eq!(s.snapshot(2).err(), Some(StoreError::poisoned()));
             s.recover();
             let held = [&b"b"[..], b"c"]
                 .iter()
@@ -141,7 +141,7 @@ fn test_a_drop_interrupted_at_its_start_did_not_happen() -> TestResult {
     s.inject(Fault::CrashDuringNextDrop(DropStage::Start));
     assert_eq!(
         s.drop_prefixes(2, &[b"\x00".to_vec()], Vec::new()),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash during a drop".into()
         ))
     );
@@ -186,7 +186,7 @@ fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() -> TestResult
                     };
                     assert_eq!(
                         stopped,
-                        Err(StoreError::WriteFailed(format!(
+                        Err(StoreError::write_failed(format!(
                             "simulated {kind} during a drop"
                         )))
                     );
@@ -230,7 +230,7 @@ fn test_a_drop_whose_record_was_written_finishes_after_a_crash() -> TestResult {
             &[b"\x00".to_vec()],
             vec![Entry::put(b"\x00b".to_vec(), 1, 1, vec![])]
         ),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash during a drop".into()
         ))
     );
@@ -252,7 +252,7 @@ fn test_a_drop_whose_record_was_not_synced_survives_a_power_loss_whole_or_not_at
             let entry = Entry::put(b"\x00b".to_vec(), 1, 1, vec![]);
             assert_eq!(
                 s.drop_prefixes(2, &[b"\x00".to_vec()], vec![entry]),
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated power loss during a drop".into()
                 ))
             );
@@ -275,7 +275,7 @@ fn test_a_read_fails_when_forced() -> TestResult {
     let snapshot = s.snapshot(1)?;
     assert_eq!(
         snapshot.get(b"k"),
-        Err(StoreError::ReadFailed(
+        Err(StoreError::read_failed(
             b"k".to_vec(),
             "simulated read failure".into()
         ))
@@ -299,7 +299,7 @@ fn test_a_scan_fails_partway() -> TestResult {
     assert_eq!(keys, [vec![b'p', 1], vec![b'p', 2]]);
     assert_eq!(
         items[2..],
-        [Err(StoreError::ReadFailed(
+        [Err(StoreError::read_failed(
             vec![b'p', 3],
             "simulated read failure partway through a scan".into()
         ))]
@@ -320,7 +320,7 @@ fn test_a_scan_failing_at_its_ends_names_the_key_it_stopped_at() -> TestResult {
         assert_eq!(items.len(), after.min(3) + 1, "after {after}");
         assert_eq!(
             items.last(),
-            Some(&Err(StoreError::ReadFailed(
+            Some(&Err(StoreError::read_failed(
                 key,
                 "simulated read failure partway through a scan".into()
             )))
@@ -343,7 +343,7 @@ fn test_a_scan_stopped_by_a_corrupted_version_yields_no_second_error() -> TestRe
     assert_eq!(items.len(), 2);
     assert_eq!(
         items[1],
-        Err(StoreError::ReadFailed(
+        Err(StoreError::read_failed(
             vec![b'p', 2],
             "simulated read failure partway through a scan".into()
         ))
@@ -386,7 +386,7 @@ fn test_a_corrupted_value_reaches_the_decoder_or_is_refused() -> TestResult {
     let refused = s.get_at(b"k", 1).err().context("an error")?;
     assert_eq!(
         refused,
-        StoreError::Corrupted(
+        StoreError::corrupted(
             b"k".to_vec(),
             "value too short to hold the version prefix".into()
         )
@@ -413,7 +413,7 @@ fn test_flipping_a_value_too_short_to_flip_truncates_it() -> TestResult {
     s.corrupt(b"k", 1, Corruption::FlipValueByte);
     assert_eq!(
         s.get_at(b"k", 1),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             b"k".to_vec(),
             "value too short to hold the version prefix".into()
         ))
@@ -431,7 +431,7 @@ fn test_a_corrupted_version_breaks_only_its_own_reads() -> TestResult {
     assert_eq!(s.get_at(b"k", 2)?.context("a value")?.value(), b"value");
     assert_eq!(
         s.get_at(b"k", 1),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             b"k".to_vec(),
             "value too short to hold the version prefix".into()
         ))
@@ -449,7 +449,7 @@ fn test_drawn_faults_follow_the_configuration() -> TestResult {
     );
     s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     let snapshot = s.snapshot(1)?;
-    let failure = Err(StoreError::ReadFailed(
+    let failure = Err(StoreError::read_failed(
         b"k".to_vec(),
         "simulated read failure".into(),
     ));
@@ -482,7 +482,7 @@ fn test_drawn_batch_failures_poison_the_store() {
     let s = store(5, FaultConfig::none().with_batch_failure(1000));
     assert_eq!(
         s.apply(batch(b"k", 1), PersistMode::Buffer),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated failure during the batch's persist".into()
         ))
     );
@@ -490,7 +490,7 @@ fn test_drawn_batch_failures_poison_the_store() {
     let crashing = store(5, FaultConfig::none().with_crash_during_batch(1000));
     assert_eq!(
         crashing.apply(batch(b"k", 1), PersistMode::Buffer),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash while the batch was written".into()
         ))
     );
@@ -504,7 +504,7 @@ fn test_drawn_drop_faults_interrupt_drops() {
     let s = store(5, FaultConfig::none().with_crash_during_drop(1000));
     assert_eq!(
         s.drop_all(Vec::new()),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated process crash during a drop".into()
         ))
     );
@@ -522,7 +522,7 @@ fn test_drawn_drop_faults_interrupt_drops() {
     let losing_power = store(5, FaultConfig::none().with_power_loss_during_drop(1000));
     assert_eq!(
         losing_power.drop_all(Vec::new()),
-        Err(StoreError::WriteFailed(
+        Err(StoreError::write_failed(
             "simulated power loss during a drop".into()
         ))
     );
@@ -609,7 +609,7 @@ fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() -> Tes
                 } else {
                     (
                         "simulated process crash while the batch was written",
-                        Err(StoreError::Poisoned()),
+                        Err(StoreError::poisoned()),
                     )
                 };
                 assert_eq!(
@@ -617,7 +617,7 @@ fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() -> Tes
                         with_versionless(b"b", 2, &[(b"k", b"2"), (b"j", b"3")]),
                         PersistMode::Buffer
                     ),
-                    Err(StoreError::WriteFailed(refusal.into()))
+                    Err(StoreError::write_failed(refusal.into()))
                 );
                 assert_eq!(s.get_versionless(b"k"), before, "{fault:?}");
                 s.recover();
@@ -656,7 +656,7 @@ fn test_a_versionless_read_fails_when_forced() -> TestResult {
         PersistMode::Buffer,
     )?;
     let snapshot = s.snapshot(1)?;
-    let refused = Err(StoreError::ReadFailed(
+    let refused = Err(StoreError::read_failed(
         b"k".to_vec(),
         "simulated read failure".into(),
     ));
@@ -720,7 +720,7 @@ fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_r
             s.inject(fault);
             assert_eq!(
                 s.drop_all(Vec::new()),
-                Err(StoreError::WriteFailed(refusal.into())),
+                Err(StoreError::write_failed(refusal.into())),
                 "{fault:?}"
             );
             s.recover();

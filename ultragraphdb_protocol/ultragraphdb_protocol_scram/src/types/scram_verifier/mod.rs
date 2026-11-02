@@ -29,11 +29,11 @@ impl ScramVerifier {
     }
 
     /// The verifier of `password`, prepared with SASLprep, salted with `salt` over `iterations` of PBKDF2-HMAC-SHA256;
-    /// refused as [`ScramError::Prepare`] for a password SASLprep refuses and [`ScramError::Iterations`] outside
+    /// refused as [`ScramError::prepare`] for a password SASLprep refuses and [`ScramError::iterations`] outside
     /// [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`], a count no client would run.
     pub fn derive(password: &str, salt: &[u8], iterations: u32) -> Result<Self, ScramError> {
         if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&iterations) {
-            return Err(ScramError::Iterations(iterations));
+            return Err(ScramError::iterations(iterations));
         }
         let salted = salted(&prepare(password)?, salt, iterations);
         Ok(Self::new(

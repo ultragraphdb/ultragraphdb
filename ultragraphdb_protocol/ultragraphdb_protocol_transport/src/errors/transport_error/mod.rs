@@ -84,14 +84,12 @@ pub struct TransportError(pub TransportErrorEnum);
 
 impl TransportError {
     /// A [`TransportErrorEnum::Protocol`] for `error`.
-    #[allow(non_snake_case)]
-    pub fn Protocol(error: ProtocolError) -> Self {
+    pub fn protocol(error: ProtocolError) -> Self {
         Self(TransportErrorEnum::Protocol { error })
     }
 
     /// A [`TransportErrorEnum::Io`] for the stream's `error`.
-    #[allow(non_snake_case)]
-    pub fn Io(error: &io::Error) -> Self {
+    pub fn io(error: &io::Error) -> Self {
         Self(TransportErrorEnum::Io {
             kind: error.kind(),
             message: error.to_string(),
@@ -99,50 +97,42 @@ impl TransportError {
     }
 
     /// A [`TransportErrorEnum::Closed`].
-    #[allow(non_snake_case)]
-    pub fn Closed() -> Self {
+    pub fn closed() -> Self {
         Self(TransportErrorEnum::Closed)
     }
 
     /// A [`TransportErrorEnum::Truncated`] `received` bytes into a frame of `expected`.
-    #[allow(non_snake_case)]
-    pub fn Truncated(received: usize, expected: usize) -> Self {
+    pub fn truncated(received: usize, expected: usize) -> Self {
         Self(TransportErrorEnum::Truncated { received, expected })
     }
 
     /// A [`TransportErrorEnum::PoolExhausted`] for a pool of `buffers`.
-    #[allow(non_snake_case)]
-    pub fn PoolExhausted(buffers: usize) -> Self {
+    pub fn pool_exhausted(buffers: usize) -> Self {
         Self(TransportErrorEnum::PoolExhausted { buffers })
     }
 
     /// A [`TransportErrorEnum::StreamZero`].
-    #[allow(non_snake_case)]
-    pub fn StreamZero() -> Self {
+    pub fn stream_zero() -> Self {
         Self(TransportErrorEnum::StreamZero)
     }
 
     /// A [`TransportErrorEnum::StreamOpen`] for `stream`.
-    #[allow(non_snake_case)]
-    pub fn StreamOpen(stream: u64) -> Self {
+    pub fn stream_open(stream: u64) -> Self {
         Self(TransportErrorEnum::StreamOpen { stream })
     }
 
     /// A [`TransportErrorEnum::StreamLimit`] at `limit`.
-    #[allow(non_snake_case)]
-    pub fn StreamLimit(limit: u32) -> Self {
+    pub fn stream_limit(limit: u32) -> Self {
         Self(TransportErrorEnum::StreamLimit { limit })
     }
 
     /// A [`TransportErrorEnum::UnknownStream`] for `stream`.
-    #[allow(non_snake_case)]
-    pub fn UnknownStream(stream: u64) -> Self {
+    pub fn unknown_stream(stream: u64) -> Self {
         Self(TransportErrorEnum::UnknownStream { stream })
     }
 
     /// A [`TransportErrorEnum::Refused`] with `code` and `message`.
-    #[allow(non_snake_case)]
-    pub fn Refused(code: ErrorCode, message: impl Into<String>) -> Self {
+    pub fn refused(code: ErrorCode, message: impl Into<String>) -> Self {
         Self(TransportErrorEnum::Refused {
             code,
             message: message.into(),
@@ -150,14 +140,12 @@ impl TransportError {
     }
 
     /// A [`TransportErrorEnum::UnexpectedCommand`]: `found` where `expected` was due.
-    #[allow(non_snake_case)]
-    pub fn UnexpectedCommand(expected: u16, found: u16) -> Self {
+    pub fn unexpected_command(expected: u16, found: u16) -> Self {
         Self(TransportErrorEnum::UnexpectedCommand { expected, found })
     }
 
     /// A [`TransportErrorEnum::Authentication`] saying `reason`.
-    #[allow(non_snake_case)]
-    pub fn Authentication(reason: impl Into<String>) -> Self {
+    pub fn authentication(reason: impl Into<String>) -> Self {
         Self(TransportErrorEnum::Authentication {
             reason: reason.into(),
         })

@@ -35,19 +35,19 @@ impl ClientHandshake {
         let header = Header::new(self.cluster, Command::Hello)
             .with_sequence(1)
             .with_release(self.hello.release());
-        self.hello.frame(header).map_err(TransportError::Protocol)
+        self.hello.frame(header).map_err(TransportError::protocol)
     }
 
     /// The server's answer, the bytes of a whole frame, the server's first: its Welcome; refused as
-    /// [`TransportError::Refused`] for an Error frame, [`TransportError::UnexpectedCommand`] for another command, and
-    /// [`TransportError::Protocol`] when the frame or the Welcome breaks a rule, the frame is not the server's
+    /// [`TransportError::refused`] for an Error frame, [`TransportError::unexpected_command`] for another command, and
+    /// [`TransportError::protocol`] when the frame or the Welcome breaks a rule, the frame is not the server's
     /// sequence 1, or the Welcome chose a protocol outside the Hello's range.
     pub fn receive(&self, frame: &[u8]) -> Result<Welcome, TransportError> {
         let view = FrameView::validate(frame, self.cluster, MAX_FRAME_SIZE)
-            .map_err(TransportError::Protocol)?;
+            .map_err(TransportError::protocol)?;
         let sequence = view.header().sequence();
         if sequence != 1 {
-            return Err(TransportError::Protocol(ProtocolError::SequenceOrder(
+            return Err(TransportError::protocol(ProtocolError::sequence_order(
                 1, sequence,
             )));
         }
@@ -55,11 +55,11 @@ impl ClientHandshake {
             Command::Welcome => {
                 let welcome = WelcomeView::from_frame(&view)
                     .and_then(|w| w.to_body())
-                    .map_err(TransportError::Protocol)?;
+                    .map_err(TransportError::protocol)?;
                 if !(self.hello.protocol_min()..=self.hello.protocol_max())
                     .contains(&welcome.protocol())
                 {
-                    return Err(TransportError::Protocol(ProtocolError::FieldValue(
+                    return Err(TransportError::protocol(ProtocolError::field_value(
                         Command::Welcome.number(),
                         "protocol",
                         welcome.protocol().into(),
@@ -68,8 +68,8 @@ impl ClientHandshake {
                 Ok(welcome)
             }
             Command::Error => {
-                let error = ErrorReplyView::from_frame(&view).map_err(TransportError::Protocol)?;
-                Err(TransportError::Refused(error.code(), error.message()))
+                let error = ErrorReplyView::from_frame(&view).map_err(TransportError::protocol)?;
+                Err(TransportError::refused(error.code(), error.message()))
             }
             other @ (Command::Hello
             | Command::Register
@@ -87,7 +87,7 @@ impl ClientHandshake {
             | Command::Cancel
             | Command::Round
             | Command::Authenticate
-            | Command::Drop) => Err(TransportError::UnexpectedCommand(
+            | Command::Drop) => Err(TransportError::unexpected_command(
                 Command::Welcome.number(),
                 other.number(),
             )),

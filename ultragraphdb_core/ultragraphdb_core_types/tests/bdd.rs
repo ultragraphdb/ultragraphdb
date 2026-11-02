@@ -439,18 +439,8 @@ fn parsing_fails(w: &mut Steps, msg: &[String]) {
 #[when(
     expr = "{string}, {string}, {string}, {string}, {string}, {string} and {string} are inferred"
 )]
-#[allow(clippy::too_many_arguments)]
-fn infer(
-    w: &mut Steps,
-    a: String,
-    b: String,
-    c: String,
-    d: String,
-    e: String,
-    f: String,
-    g: String,
-) {
-    w.types = [a, b, c, d, e, f, g]
+fn infer(w: &mut Steps, values: &[String]) {
+    w.types = values
         .iter()
         .map(|s| type_for_value(s.as_bytes()).0)
         .collect();

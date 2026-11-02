@@ -38,7 +38,7 @@ pub struct WriteSetRecordView<'a> {
 impl<'a> WriteSetRecordView<'a> {
     /// The record `bytes`, checked once: the fixed part and section table, then each key-value section's entries,
     /// then the results, then the operation. Errors name the Round command and the record's own sections, offsets within the record; a
-    /// conflict point with a value is [`ProtocolError::FieldValue`].
+    /// conflict point with a value is [`ProtocolError::field_value`].
     pub fn new(bytes: &'a [u8]) -> Result<Self, ProtocolError> {
         let command = Command::Round.number();
         let sections = Sections::<11>::read(command, bytes, FIXED_SIZE)?;
@@ -57,7 +57,7 @@ impl<'a> WriteSetRecordView<'a> {
         ];
         let [deltas, .., points, statements, ranges] = tables;
         if deltas.iter().any(|e| e.value().is_none()) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "list delta",
                 ABSENT.into(),
@@ -65,14 +65,14 @@ impl<'a> WriteSetRecordView<'a> {
         }
         if let Some(entry) = points.iter().find(|e| e.value() != Some(&[][..])) {
             let value = entry.value().map_or(u64::from(ABSENT), |v| v.len() as u64);
-            return Err(ProtocolError::FieldValue(command, "conflict point", value));
+            return Err(ProtocolError::field_value(command, "conflict point", value));
         }
         for (name, entries) in [
             ("conflict statement", statements),
             ("conflict range", ranges),
         ] {
             if entries.iter().any(|e| e.value().is_none()) {
-                return Err(ProtocolError::FieldValue(command, name, ABSENT.into()));
+                return Err(ProtocolError::field_value(command, name, ABSENT.into()));
             }
         }
         check_results(command, 9, sections.offset(9), sections.get(9))?;

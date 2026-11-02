@@ -17,19 +17,19 @@ use ultragraphdb_transactions_commit::{RecoveryError, RecoveryErrorEnum};
 /// the cause's own text, and give the cause as their source.
 #[test]
 fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
-    let log = LogError::Poisoned();
+    let log = LogError::poisoned();
     let round = WriteSetRecordView::new(&[1, 2, 3]).refused("three bytes are no body")?;
-    let apply = ChangesetError::Rebuilding("p");
-    let sessions = StoreError::Corrupted(b"k".to_vec(), "bad".to_string());
+    let apply = ChangesetError::rebuilding("p");
+    let sessions = StoreError::corrupted(b"k".to_vec(), "bad".to_string());
     let cases = [
         (
-            RecoveryError::Log(log.clone()),
+            RecoveryError::log(log.clone()),
             RecoveryErrorEnum::Log { cause: log.clone() },
             format!("the log could not be read: {log}"),
             log.to_string(),
         ),
         (
-            RecoveryError::Round(7, round.clone()),
+            RecoveryError::round(7, round.clone()),
             RecoveryErrorEnum::Round {
                 position: 7,
                 cause: round.clone(),
@@ -38,7 +38,7 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
             round.to_string(),
         ),
         (
-            RecoveryError::Apply(9, apply.clone()),
+            RecoveryError::apply(9, apply.clone()),
             RecoveryErrorEnum::Apply {
                 position: 9,
                 cause: apply.clone(),
@@ -47,7 +47,7 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
             apply.to_string(),
         ),
         (
-            RecoveryError::Sessions(sessions.clone()),
+            RecoveryError::sessions(sessions.clone()),
             RecoveryErrorEnum::Sessions {
                 cause: sessions.clone(),
             },
@@ -66,7 +66,7 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
 /// The reasons about versions name them, and have no source.
 #[test]
 fn test_each_reason_about_versions_names_them_without_a_source() -> TestResult {
-    let not_in_log = RecoveryError::StoreNotInLog(30);
+    let not_in_log = RecoveryError::store_not_in_log(30);
     assert_eq!(
         not_in_log.0,
         RecoveryErrorEnum::StoreNotInLog { version: 30 }
@@ -76,14 +76,14 @@ fn test_each_reason_about_versions_names_them_without_a_source() -> TestResult {
         "the store's applied version 30 is no round's last version in the log: the store is ahead of the log or was \
          written outside it"
     );
-    let gap = RecoveryError::Gap(5);
+    let gap = RecoveryError::gap(5);
     assert_eq!(gap.0, RecoveryErrorEnum::Gap { checkpoint: 5 });
     assert_eq!(
         gap.to_string(),
         "the store is empty and the log was trimmed through position 5: the rounds it covered are lost"
     );
     // The spec's "refuses to start, naming 30 and 40".
-    let behind = RecoveryError::BehindCheckpoint(30, 40);
+    let behind = RecoveryError::behind_checkpoint(30, 40);
     assert_eq!(
         behind.0,
         RecoveryErrorEnum::BehindCheckpoint {

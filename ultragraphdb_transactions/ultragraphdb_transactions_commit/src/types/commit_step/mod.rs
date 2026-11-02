@@ -219,7 +219,7 @@ impl<P: Proposal> CommitStep<P> {
         if self.stopped {
             out.replies.push(Reply::new(
                 request.ticket(),
-                Err(CommitError::Unavailable()),
+                Err(CommitError::unavailable()),
             ));
             out.released.push(request.into_parts());
             return;
@@ -229,7 +229,7 @@ impl<P: Proposal> CommitStep<P> {
         if size > limit {
             out.replies.push(Reply::new(
                 request.ticket(),
-                Err(CommitError::TooLarge(size, limit)),
+                Err(CommitError::too_large(size, limit)),
             ));
             out.released.push(request.into_parts());
             return;
@@ -237,7 +237,7 @@ impl<P: Proposal> CommitStep<P> {
         if self.waiting.len() + self.deferred.len() >= self.queue {
             out.replies.push(Reply::new(
                 request.ticket(),
-                Err(CommitError::Busy(self.queue)),
+                Err(CommitError::busy(self.queue)),
             ));
             out.released.push(request.into_parts());
             return;
@@ -260,14 +260,14 @@ impl<P: Proposal> CommitStep<P> {
     ) {
         if self.stopped {
             out.replies
-                .push(Reply::new(ticket, Err(CommitError::Unavailable())));
+                .push(Reply::new(ticket, Err(CommitError::unavailable())));
             return;
         }
         let size = commit_step_round::registration_len();
         let limit = self.bounds.max_write_set();
         if size > limit {
             out.replies
-                .push(Reply::new(ticket, Err(CommitError::TooLarge(size, limit))));
+                .push(Reply::new(ticket, Err(CommitError::too_large(size, limit))));
             return;
         }
         self.waiting

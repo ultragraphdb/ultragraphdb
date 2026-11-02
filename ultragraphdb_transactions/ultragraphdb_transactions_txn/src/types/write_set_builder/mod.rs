@@ -296,14 +296,14 @@ impl<'e> WriteSetBuilder<'e> {
     ///
     /// # Errors
     ///
-    /// [`TxnError::WriteSetTooLarge`] when the record is larger than `limit` bytes, or than `u32::MAX`; `out` is then
+    /// [`TxnError::write_set_too_large`] when the record is larger than `limit` bytes, or than `u32::MAX`; `out` is then
     /// left empty, its capacity kept, and nothing is written.
     pub fn write_into(&self, out: &mut Vec<u8>, limit: usize) -> Result<usize, TxnError> {
         out.clear();
         let len = self.len();
         let limit = limit.min(u32::MAX as usize);
         if len > limit {
-            return Err(TxnError::WriteSetTooLarge(len, limit));
+            return Err(TxnError::write_set_too_large(len, limit));
         }
         out.reserve_exact(len);
         let fixed = [

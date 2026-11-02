@@ -15,7 +15,7 @@ pub struct WallClock {
 
 impl WallClock {
     /// The wall clock, started now.
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "a benchmark times its run by the wall clock; nothing in the storage crates reads it"
     )]
@@ -33,7 +33,7 @@ impl Default for WallClock {
 }
 
 impl Clock for WallClock {
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "a benchmark times its run by the wall clock; nothing in the storage crates reads it"
     )]

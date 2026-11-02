@@ -31,7 +31,7 @@ impl<R: Read> JsonDecoder<R> {
         let pos = match self.consume_whitespace(self.prev_end) {
             Ok(pos) => pos,
             // Nothing but whitespace after the last top-level value: io.EOF.
-            Err((_, ScanError::UnexpectedEof)) => return Err(JsonError::Eof()),
+            Err((_, ScanError::UnexpectedEof)) => return Err(JsonError::eof()),
             Err((pos, e)) => return Err(e.at(pos)),
         };
         // Top-level values take no delimiter, so a colon or comma at the start of one is invalid.

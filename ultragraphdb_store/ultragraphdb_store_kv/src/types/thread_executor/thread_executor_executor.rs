@@ -11,7 +11,7 @@ use ultragraphdb_traits_store::Executor;
 use crate::types::thread_executor::ThreadExecutor;
 
 impl Executor for ThreadExecutor {
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "the production executor runs background work on threads; the simulator's stepped executor \
                   replaces it so that a run replays"
@@ -26,7 +26,7 @@ impl Executor for ThreadExecutor {
 
     /// A task that panics makes this call panic with its payload once every task has finished, as running the
     /// tasks one after the other on the caller's thread would.
-    #[allow(
+    #[expect(
         clippy::disallowed_methods,
         reason = "the production executor runs the tasks of one batch on scoped threads; the simulator's stepped \
                   executor replaces it so that a run replays"

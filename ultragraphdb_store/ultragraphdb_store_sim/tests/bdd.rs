@@ -252,7 +252,7 @@ fn failed_batch(w: &mut Steps) -> TestResult {
 fn failed_batch_whole(w: &mut Steps) {
     let mut outcomes = BTreeSet::new();
     for (refused, contents) in &w.poisoned {
-        assert_eq!(refused, &Err(StoreError::Poisoned()));
+        assert_eq!(refused, &Err(StoreError::poisoned()));
         let failed = held(contents, 2);
         assert!(
             failed == 0 || failed == KEYS_PER_BATCH,
@@ -295,7 +295,7 @@ fn interrupted_drop(w: &mut Steps) -> TestResult {
             )]);
             assert_eq!(
                 result,
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated power loss during a drop".into()
                 )),
                 "the drop is interrupted at {stage:?}"

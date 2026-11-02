@@ -16,7 +16,7 @@ pub(crate) fn hnsw(
     spec: &VectorIndexSpec,
     keys: VectorKeys,
 ) -> Result<PersistentHnsw<f32>, ChangesetError> {
-    let refused = |error: String| ChangesetError::VectorOption(spec.factory(), error);
+    let refused = |error: String| ChangesetError::vector_option(spec.factory(), error);
     let factory = get_index_factory(spec.factory())
         .ok_or_else(|| refused("no such vector index".to_string()))?;
     let allowed = factory.allowed_options();

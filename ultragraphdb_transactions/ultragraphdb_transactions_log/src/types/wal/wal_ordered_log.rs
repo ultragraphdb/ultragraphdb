@@ -19,7 +19,7 @@ use crate::utils::io_error::io_error;
 impl<S: DurableStorage> Wal<S> {
     fn refuse_if_poisoned(&self) -> Result<(), LogError> {
         if self.poisoned {
-            Err(LogError::Poisoned())
+            Err(LogError::poisoned())
         } else {
             Ok(())
         }
@@ -28,7 +28,7 @@ impl<S: DurableStorage> Wal<S> {
     /// The round of `entry`, read and verified: the frame validates for this cluster, through its chunks, and its
     /// checksum is the one indexed, which covers every field of its header. A failed chunk is named with its range.
     async fn read_entry(&self, entry: &WalEntry) -> Result<Round, LogError> {
-        let corrupt = || LogError::Corrupt(entry.position.get(), entry.segment, entry.offset);
+        let corrupt = || LogError::corrupt(entry.position.get(), entry.segment, entry.offset);
         let Some(file) = self.files.get(&entry.segment) else {
             return Err(corrupt());
         };
@@ -42,7 +42,7 @@ impl<S: DurableStorage> Wal<S> {
             .unwrap_or_default();
         let view = FrameView::validate(frame, self.config.cluster(), MAX_FRAME_SIZE).map_err(
             |refusal| match refusal.0 {
-                ProtocolErrorEnum::Chunk { index, start, end } => LogError::CorruptChunk(
+                ProtocolErrorEnum::Chunk { index, start, end } => LogError::corrupt_chunk(
                     entry.position.get(),
                     entry.segment,
                     entry.offset,
@@ -95,27 +95,27 @@ impl<S: DurableStorage> Wal<S> {
 }
 
 impl<S: DurableStorage> OrderedLog for Wal<S> {
-    /// Refused, in this order: [`LogError::Poisoned`] after a failed write or sync; [`LogError::Sealed`];
-    /// [`LogError::Exhausted`] when the tail is the last position, `u64::MAX`; [`LogError::PositionMismatch`] unless the round is at the position after the tail;
-    /// [`LogError::ParentMismatch`] unless its parent is the tail's checksum; [`LogError::TooLarge`] when its frame
-    /// exceeds 1 MiB or its padded frame a segment; [`LogError::Busy`] when it would need a segment past the
+    /// Refused, in this order: [`LogError::poisoned`] after a failed write or sync; [`LogError::sealed`];
+    /// [`LogError::exhausted`] when the tail is the last position, `u64::MAX`; [`LogError::position_mismatch`] unless the round is at the position after the tail;
+    /// [`LogError::parent_mismatch`] unless its parent is the tail's checksum; [`LogError::too_large`] when its frame
+    /// exceeds 1 MiB or its padded frame a segment; [`LogError::busy`] when it would need a segment past the
     /// capacity. Nothing is written before [`OrderedLog::sync`].
     fn append(&mut self, round: RoundRef<'_>) -> Result<Position, LogError> {
         self.refuse_if_poisoned()?;
         if self.sealed {
-            return Err(LogError::Sealed(self.tail.0.get()));
+            return Err(LogError::sealed(self.tail.0.get()));
         }
         let Some(expected) = self.tail.0.next() else {
-            return Err(LogError::Exhausted(self.tail.0.get()));
+            return Err(LogError::exhausted(self.tail.0.get()));
         };
         if round.position() != expected {
-            return Err(LogError::PositionMismatch(
+            return Err(LogError::position_mismatch(
                 expected.get(),
                 round.position().get(),
             ));
         }
         if round.parent() != self.tail.1 {
-            return Err(LogError::ParentMismatch(
+            return Err(LogError::parent_mismatch(
                 round.position().get(),
                 self.tail.1,
                 round.parent(),
@@ -130,7 +130,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         let size = self.config.segment_size();
         let padded_len = frame.len() as u64;
         if padded_len > size {
-            return Err(LogError::TooLarge(frame.len(), size as usize));
+            return Err(LogError::too_large(frame.len(), size as usize));
         }
         let (mut segment, mut offset) = self.cursor;
         if offset + padded_len > size {
@@ -139,7 +139,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         }
         let capacity = u64::from(self.config.capacity().get());
         if segment >= self.superblock.first_segment().saturating_add(capacity) {
-            return Err(LogError::Busy(capacity));
+            return Err(LogError::busy(capacity));
         }
         let frame_size = frame
             .as_slice()
@@ -161,7 +161,7 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
     }
 
     /// Each staged round in order: its segment created, preallocated and synced with its directory when new, then
-    /// the round's one write and one sync. A failure poisons the log and is [`LogError::Io`].
+    /// the round's one write and one sync. A failure poisons the log and is [`LogError::io`].
     async fn sync(&mut self) -> Result<Position, LogError> {
         self.refuse_if_poisoned()?;
         while let Some((entry, frame)) = self.staged.pop_front() {
@@ -184,9 +184,9 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
         self.tail
     }
 
-    /// Refused as [`LogError::PositionMismatch`] when `from` lies below the first round kept or past the one after
-    /// the committed position; a round that no longer verifies is [`LogError::Corrupt`] or
-    /// [`LogError::CorruptChunk`]. A failed read is [`LogError::Io`] and does not poison the log.
+    /// Refused as [`LogError::position_mismatch`] when `from` lies below the first round kept or past the one after
+    /// the committed position; a round that no longer verifies is [`LogError::corrupt`] or
+    /// [`LogError::corrupt_chunk`]. A failed read is [`LogError::io`] and does not poison the log.
     async fn read(&mut self, from: Position, max_bytes: u32) -> Result<Vec<Round>, LogError> {
         self.refuse_if_poisoned()?;
         let after = self.committed.0.get().saturating_add(1);
@@ -195,10 +195,10 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
             .front()
             .map_or(after, |entry| entry.position.get());
         if from.get() < first {
-            return Err(LogError::PositionMismatch(first, from.get()));
+            return Err(LogError::position_mismatch(first, from.get()));
         }
         if from.get() > after {
-            return Err(LogError::PositionMismatch(after, from.get()));
+            return Err(LogError::position_mismatch(after, from.get()));
         }
         let mut rounds = Vec::new();
         let mut total = 0u64;
@@ -216,11 +216,11 @@ impl<S: DurableStorage> OrderedLog for Wal<S> {
     /// Records `position`, its round's checksum and `version`, the last commit version it covers, as the checkpoint in
     /// the superblock, then removes every segment whose rounds all lie at or below it, short of the segment the next
     /// round is written to. A position at or below the checkpoint changes nothing; one past the committed position is
-    /// [`LogError::PositionMismatch`]. A failure poisons the log.
+    /// [`LogError::position_mismatch`]. A failure poisons the log.
     async fn trim_through(&mut self, position: Position, version: u64) -> Result<(), LogError> {
         self.refuse_if_poisoned()?;
         if position > self.committed.0 {
-            return Err(LogError::PositionMismatch(
+            return Err(LogError::position_mismatch(
                 self.committed.0.get(),
                 position.get(),
             ));

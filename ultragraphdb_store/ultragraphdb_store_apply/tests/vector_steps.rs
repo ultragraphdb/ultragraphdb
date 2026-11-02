@@ -17,7 +17,7 @@ use ultragraphdb_core_mapping::{
     Cardinality, Change, Declaration, PredicateDeclaration, VectorIndexSpec,
 };
 use ultragraphdb_core_tok::get_index_factory;
-use ultragraphdb_store_apply::{Applied, Executed, Reads};
+use ultragraphdb_store_apply::{Applied, Executed, Reads, VectorQuery};
 use ultragraphdb_store_hnsw::{
     PersistentHnsw, QueryCache, VectorKeys, ViTxn, bytes_to_uint64, decode_uint64_matrix,
     parse_edges,
@@ -524,9 +524,7 @@ fn applier_search(a: &TestChangesets, query: &str, k: usize) -> TestResult<Vec<u
         NS,
         GraphNameRef::DefaultGraph,
         ex("emb").as_ref(),
-        &elements(query)?,
-        k,
-        &VectorIndexOptions::default(),
+        VectorQuery::new(&elements(query)?, k, &VectorIndexOptions::default()),
         a.quads().lists().applied_ts(),
     )
     .context("the search runs")

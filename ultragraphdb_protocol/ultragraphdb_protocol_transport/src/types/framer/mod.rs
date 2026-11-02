@@ -72,8 +72,8 @@ impl Framer {
     }
 
     /// Looks at `buffer`, filled to [`Framer::want`]: at the header, verifies it for the cluster and the largest frame
-    /// ([`TransportError::Protocol`] naming the rule) and refuses a frame larger than the buffer's capacity
-    /// ([`ProtocolError::FrameTooLarge`]); then asks for the frame's size, or reports the frame whole.
+    /// ([`TransportError::protocol`] naming the rule) and refuses a frame larger than the buffer's capacity
+    /// ([`ProtocolError::frame_too_large`]); then asks for the frame's size, or reports the frame whole.
     pub fn advance(&mut self, buffer: &PooledBuffer) -> Result<FrameStep, TransportError> {
         let bytes = buffer.as_slice();
         if bytes.len() < self.want {
@@ -89,9 +89,9 @@ impl Framer {
                     };
                     header.map(|_| view.size() as usize)
                 })
-                .map_err(TransportError::Protocol)?;
+                .map_err(TransportError::protocol)?;
             if size > buffer.capacity() {
-                return Err(TransportError::Protocol(ProtocolError::FrameTooLarge(
+                return Err(TransportError::protocol(ProtocolError::frame_too_large(
                     size,
                     buffer.capacity(),
                 )));
@@ -104,14 +104,14 @@ impl Framer {
         Ok(FrameStep::Frame)
     }
 
-    /// The error of a peer that closed with `received` bytes of the current frame read: [`TransportError::Closed`]
-    /// between frames, [`TransportError::Truncated`] inside one. The framer waits for a header again.
+    /// The error of a peer that closed with `received` bytes of the current frame read: [`TransportError::closed`]
+    /// between frames, [`TransportError::truncated`] inside one. The framer waits for a header again.
     pub fn closed(&mut self, received: usize) -> TransportError {
         let expected = std::mem::replace(&mut self.want, HEADER_SIZE);
         if received == 0 && expected == HEADER_SIZE {
-            TransportError::Closed()
+            TransportError::closed()
         } else {
-            TransportError::Truncated(received, expected)
+            TransportError::truncated(received, expected)
         }
     }
 

@@ -21,7 +21,7 @@ use crate::types::float_bits::FloatBits;
 /// [`TokErrorEnum::ShortFloat`](crate::TokErrorEnum::ShortFloat) when `encoded` is shorter than the width, on
 /// which Go panics.
 pub fn bytes_to_float<T: Float>(encoded: &[u8], float_bits: FloatBits) -> Result<T, TokError> {
-    let short = || TokError::ShortFloat(encoded.len(), float_bits.bits());
+    let short = || TokError::short_float(encoded.len(), float_bits.bits());
     match float_bits {
         FloatBits::F32 => encoded
             .first_chunk::<4>()

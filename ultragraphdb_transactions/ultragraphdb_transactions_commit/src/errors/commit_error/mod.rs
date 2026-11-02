@@ -96,14 +96,12 @@ pub enum CommitErrorEnum {
 
 impl CommitError {
     /// The [`CommitErrorEnum::Conflict`] reason.
-    #[allow(non_snake_case)]
-    pub fn Conflict(kind: ConflictKind) -> Self {
+    pub fn conflict(kind: ConflictKind) -> Self {
         Self(CommitErrorEnum::Conflict { kind })
     }
 
     /// The [`CommitErrorEnum::TooOld`] reason.
-    #[allow(non_snake_case)]
-    pub fn TooOld(read_version: u64, floor: u64) -> Self {
+    pub fn too_old(read_version: u64, floor: u64) -> Self {
         Self(CommitErrorEnum::TooOld {
             read_version,
             floor,
@@ -111,74 +109,62 @@ impl CommitError {
     }
 
     /// The [`CommitErrorEnum::TooLarge`] reason.
-    #[allow(non_snake_case)]
-    pub fn TooLarge(size: usize, limit: usize) -> Self {
+    pub fn too_large(size: usize, limit: usize) -> Self {
         Self(CommitErrorEnum::TooLarge { size, limit })
     }
 
     /// The [`CommitErrorEnum::Malformed`] reason.
-    #[allow(non_snake_case)]
-    pub fn Malformed(cause: ProtocolError) -> Self {
+    pub fn malformed(cause: ProtocolError) -> Self {
         Self(CommitErrorEnum::Malformed { cause })
     }
 
     /// The [`CommitErrorEnum::Unsealed`] reason.
-    #[allow(non_snake_case)]
-    pub fn Unsealed() -> Self {
+    pub fn unsealed() -> Self {
         Self(CommitErrorEnum::Unsealed)
     }
 
     /// The [`CommitErrorEnum::Unavailable`] reason.
-    #[allow(non_snake_case)]
-    pub fn Unavailable() -> Self {
+    pub fn unavailable() -> Self {
         Self(CommitErrorEnum::Unavailable)
     }
 
     /// The [`CommitErrorEnum::Busy`] reason.
-    #[allow(non_snake_case)]
-    pub fn Busy(limit: usize) -> Self {
+    pub fn busy(limit: usize) -> Self {
         Self(CommitErrorEnum::Busy { limit })
     }
 
     /// The [`CommitErrorEnum::SessionEvicted`] reason.
-    #[allow(non_snake_case)]
-    pub fn SessionEvicted(session: u64) -> Self {
+    pub fn session_evicted(session: u64) -> Self {
         Self(CommitErrorEnum::SessionEvicted { session })
     }
 
     /// The [`CommitErrorEnum::RequestOutOfOrder`] reason.
-    #[allow(non_snake_case)]
-    pub fn RequestOutOfOrder(expected: u64) -> Self {
+    pub fn request_out_of_order(expected: u64) -> Self {
         Self(CommitErrorEnum::RequestOutOfOrder { expected })
     }
 
     /// The [`CommitErrorEnum::SessionBusy`] reason.
-    #[allow(non_snake_case)]
-    pub fn SessionBusy(session: u64) -> Self {
+    pub fn session_busy(session: u64) -> Self {
         Self(CommitErrorEnum::SessionBusy { session })
     }
 
     /// The [`CommitErrorEnum::NotCommitted`] reason.
-    #[allow(non_snake_case)]
-    pub fn NotCommitted(request: u64) -> Self {
+    pub fn not_committed(request: u64) -> Self {
         Self(CommitErrorEnum::NotCommitted { request })
     }
 
     /// The [`CommitErrorEnum::PermissionDenied`] reason.
-    #[allow(non_snake_case)]
-    pub fn PermissionDenied(session: u64) -> Self {
+    pub fn permission_denied(session: u64) -> Self {
         Self(CommitErrorEnum::PermissionDenied { session })
     }
 
     /// The [`CommitErrorEnum::OperationFailed`] reason.
-    #[allow(non_snake_case)]
-    pub fn OperationFailed(found: Option<String>) -> Self {
+    pub fn operation_failed(found: Option<String>) -> Self {
         Self(CommitErrorEnum::OperationFailed { found })
     }
 
     /// The [`CommitErrorEnum::Refused`] reason.
-    #[allow(non_snake_case)]
-    pub fn Refused(reason: String) -> Self {
+    pub fn refused(reason: String) -> Self {
         Self(CommitErrorEnum::Refused { reason })
     }
 

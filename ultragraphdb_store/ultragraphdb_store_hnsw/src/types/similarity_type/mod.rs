@@ -54,7 +54,7 @@ impl SimilarityType {
     ///
     /// # Errors
     ///
-    /// [`HnswError::DifferentLengths`] for vectors of different lengths.
+    /// [`HnswError::different_lengths`] for vectors of different lengths.
     pub fn distance_score<T: HnswFloat>(&self, v: &[T], w: &[T]) -> Result<T, HnswError> {
         match self.metric {
             Metric::Euclidean => euclidean_distance(v, w),

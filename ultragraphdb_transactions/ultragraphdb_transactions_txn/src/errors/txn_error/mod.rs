@@ -68,38 +68,32 @@ pub struct TxnError(pub TxnErrorEnum);
 
 impl TxnError {
     /// A request naming read version `version`, above the watermark `watermark`.
-    #[allow(non_snake_case)]
-    pub fn ReadAboveWatermark(version: u64, watermark: u64) -> Self {
+    pub fn read_above_watermark(version: u64, watermark: u64) -> Self {
         Self(TxnErrorEnum::ReadAboveWatermark { version, watermark })
     }
 
     /// The transaction lived past its limit of `limit_ms` milliseconds.
-    #[allow(non_snake_case)]
-    pub fn PastLimit(limit_ms: u64) -> Self {
+    pub fn past_limit(limit_ms: u64) -> Self {
         Self(TxnErrorEnum::PastLimit { limit_ms })
     }
 
     /// A write-set record of `size` bytes, past `limit`.
-    #[allow(non_snake_case)]
-    pub fn WriteSetTooLarge(size: usize, limit: usize) -> Self {
+    pub fn write_set_too_large(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::WriteSetTooLarge { size, limit })
     }
 
     /// A read set of `size` bytes, past `limit`.
-    #[allow(non_snake_case)]
-    pub fn ReadSetTooLarge(size: usize, limit: usize) -> Self {
+    pub fn read_set_too_large(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::ReadSetTooLarge { size, limit })
     }
 
     /// A write in a read-only transaction.
-    #[allow(non_snake_case)]
-    pub fn ReadOnly() -> Self {
+    pub fn read_only() -> Self {
         Self(TxnErrorEnum::ReadOnly)
     }
 
     /// A changeset of namespace `changeset` in a transaction of namespace `transaction`.
-    #[allow(non_snake_case)]
-    pub fn Namespace(transaction: u64, changeset: u64) -> Self {
+    pub fn namespace(transaction: u64, changeset: u64) -> Self {
         Self(TxnErrorEnum::Namespace {
             transaction,
             changeset,
@@ -107,14 +101,12 @@ impl TxnError {
     }
 
     /// A request of a transaction already ended.
-    #[allow(non_snake_case)]
-    pub fn Ended() -> Self {
+    pub fn ended() -> Self {
         Self(TxnErrorEnum::Ended)
     }
 
     /// The changeset's refusal or the store's failure, `error`.
-    #[allow(non_snake_case)]
-    pub fn Changeset(error: ChangesetError) -> Self {
+    pub fn changeset(error: ChangesetError) -> Self {
         Self(TxnErrorEnum::Changeset(error))
     }
 
@@ -126,6 +118,6 @@ impl TxnError {
 
 impl From<ChangesetError> for TxnError {
     fn from(error: ChangesetError) -> Self {
-        Self::Changeset(error)
+        Self::changeset(error)
     }
 }

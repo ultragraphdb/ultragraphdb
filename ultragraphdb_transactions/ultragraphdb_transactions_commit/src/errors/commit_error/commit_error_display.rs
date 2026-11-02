@@ -10,7 +10,7 @@ use crate::errors::commit_error::{CommitError, CommitErrorEnum};
 impl fmt::Display for CommitError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.0 {
-            // Dgraph's texts: QuadError::Aborted's and posting's ErrTsTooOld.
+            // Dgraph's texts: QuadError::aborted's and posting's ErrTsTooOld.
             CommitErrorEnum::Conflict { .. } => {
                 f.write_str("Transaction has been aborted. Please retry")
             }

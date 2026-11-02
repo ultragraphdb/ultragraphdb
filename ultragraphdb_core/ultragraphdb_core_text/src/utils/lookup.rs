@@ -24,7 +24,7 @@ fn find_index(idx: &[u8], key: &mut [u8], form: &[u8]) -> Result<usize, Language
     if !fix_case(form, key) {
         return Err(LanguageError::syntax());
     }
-    tag_index::index(idx, key).ok_or_else(|| LanguageError::value(key))
+    tag_index::index(idx, key).ok_or_else(|| LanguageError::unknown_subtag(key))
 }
 
 /// The language of a two- or three-letter code; `und` is zero.
@@ -44,7 +44,7 @@ fn get_lang_iso2(s: &mut [u8]) -> Result<LangId, LanguageError> {
     {
         return Ok(LangId(i as u16));
     }
-    Err(LanguageError::value(s))
+    Err(LanguageError::unknown_subtag(s))
 }
 
 fn get_lang_iso3(s: &mut [u8]) -> Result<LangId, LanguageError> {
@@ -82,7 +82,7 @@ fn get_lang_iso3(s: &mut [u8]) -> Result<LangId, LanguageError> {
         }
         non_canonical = tag_index::next(LANG, &s[..1], x);
     }
-    Err(LanguageError::value(s))
+    Err(LanguageError::unknown_subtag(s))
 }
 
 /// The region of a two-letter or three-letter ISO code or a three-digit UN M.49 code.
@@ -123,7 +123,7 @@ fn get_region_iso3(s: &mut [u8]) -> Result<RegionId, LanguageError> {
             return Ok(RegionId(ALT_REGION_IDS[alt / 3]));
         }
     }
-    Err(LanguageError::value(s))
+    Err(LanguageError::unknown_subtag(s))
 }
 
 /// The region of a UN M.49 code. Go writes the code into a fresh buffer rather than the error, so the error's
@@ -145,7 +145,7 @@ pub(crate) fn get_region_m49(n: usize) -> Result<RegionId, LanguageError> {
             return Ok(RegionId(r & REGION_MASK));
         }
     }
-    Err(LanguageError::value(&[]))
+    Err(LanguageError::unknown_subtag(&[]))
 }
 
 /// The script of a four-letter code.

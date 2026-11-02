@@ -108,7 +108,7 @@ fn test_an_operation_is_refused_in_a_read_only_or_ended_transaction() -> TestRes
             .operate(counter(1), 0)
             .err()
             .context("the call fails")?,
-        ultragraphdb_transactions_txn::TxnError::ReadOnly()
+        ultragraphdb_transactions_txn::TxnError::read_only()
     );
     let mut late = begin(&applier, Mode::ReadWrite)?;
     // 11 s past its begin, over the 10 s limit.
@@ -118,13 +118,13 @@ fn test_an_operation_is_refused_in_a_read_only_or_ended_transaction() -> TestRes
         .context("the call fails")?;
     assert_eq!(
         refused,
-        ultragraphdb_transactions_txn::TxnError::PastLimit(10_000)
+        ultragraphdb_transactions_txn::TxnError::past_limit(10_000)
     );
     assert_eq!(
         late.operate(counter(1), 0)
             .err()
             .context("the call fails")?,
-        ultragraphdb_transactions_txn::TxnError::Ended()
+        ultragraphdb_transactions_txn::TxnError::ended()
     );
     Ok(())
 }

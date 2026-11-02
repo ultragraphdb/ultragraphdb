@@ -61,14 +61,12 @@ pub struct StatementError(pub StatementErrorEnum);
 
 impl StatementError {
     /// The connection holds no statement `statement`.
-    #[allow(non_snake_case)]
-    pub fn Unknown(statement: u64) -> Self {
+    pub fn unknown(statement: u64) -> Self {
         Self(StatementErrorEnum::Unknown { statement })
     }
 
     /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
-    #[allow(non_snake_case)]
-    pub fn Stale(statement: u64, prepared: u64, current: u64) -> Self {
+    pub fn stale(statement: u64, prepared: u64, current: u64) -> Self {
         Self(StatementErrorEnum::Stale {
             statement,
             prepared,
@@ -77,8 +75,7 @@ impl StatementError {
     }
 
     /// Statement `statement` takes `expected` parameters; the execution bound `found`.
-    #[allow(non_snake_case)]
-    pub fn Parameters(statement: u64, expected: usize, found: usize) -> Self {
+    pub fn parameters(statement: u64, expected: usize, found: usize) -> Self {
         Self(StatementErrorEnum::Parameters {
             statement,
             expected,
@@ -87,8 +84,7 @@ impl StatementError {
     }
 
     /// Parameter `parameter` is declared `declared`, which its slot, of type `slot`, does not take.
-    #[allow(non_snake_case)]
-    pub fn ParameterType(parameter: usize, declared: ColumnType, slot: ColumnType) -> Self {
+    pub fn parameter_type(parameter: usize, declared: ColumnType, slot: ColumnType) -> Self {
         Self(StatementErrorEnum::ParameterType {
             parameter,
             declared,
@@ -97,8 +93,7 @@ impl StatementError {
     }
 
     /// Parameter `parameter` of statement `statement` is bound to a term that is not a node at a slot taking one.
-    #[allow(non_snake_case)]
-    pub fn NotANode(statement: u64, parameter: usize) -> Self {
+    pub fn not_a_node(statement: u64, parameter: usize) -> Self {
         Self(StatementErrorEnum::NotANode {
             statement,
             parameter,

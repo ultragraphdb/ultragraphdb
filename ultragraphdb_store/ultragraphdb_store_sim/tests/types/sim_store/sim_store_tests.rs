@@ -98,7 +98,7 @@ fn test_the_log_records_each_operation_with_its_answer() -> TestResult {
     s.ban_namespace(7)?;
     s.set_discard_ts(2)?;
     s.set_tombstone_horizon(1)?;
-    assert_eq!(s.snapshot(1).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(1).err(), Some(StoreError::ts_too_old()));
     s.compact()?;
     s.sweep_deletions()?;
     s.corrupt(b"k", 1, Corruption::Truncate);
@@ -107,9 +107,9 @@ fn test_the_log_records_each_operation_with_its_answer() -> TestResult {
     s.drop_prefixes(5, &[b"\x02".to_vec()], Vec::new())?;
     s.inject(Fault::FailNextBatch);
     assert!(s.apply(batch(b"m", 3), PersistMode::Buffer).is_err());
-    assert_eq!(s.sync(), Err(StoreError::Poisoned()));
+    assert_eq!(s.sync(), Err(StoreError::poisoned()));
     s.power_loss();
-    assert_eq!(s.snapshot(9).err(), Some(StoreError::Poisoned()));
+    assert_eq!(s.snapshot(9).err(), Some(StoreError::poisoned()));
     s.recover();
     assert_eq!(s.take_log(), each_operation_logged(big, too_large, record));
     Ok(())
@@ -136,7 +136,7 @@ fn each_operation_logged(
         OpRecord::HorizonSet { ts: 1 },
         OpRecord::SnapshotRefused {
             read_ts: 1,
-            error: StoreError::TsTooOld(),
+            error: StoreError::ts_too_old(),
         },
         OpRecord::Compacted,
         OpRecord::Swept,
@@ -158,7 +158,7 @@ fn each_operation_logged(
         OpRecord::PowerLost,
         OpRecord::SnapshotRefused {
             read_ts: 9,
-            error: StoreError::Poisoned(),
+            error: StoreError::poisoned(),
         },
         OpRecord::Recovered,
     ]

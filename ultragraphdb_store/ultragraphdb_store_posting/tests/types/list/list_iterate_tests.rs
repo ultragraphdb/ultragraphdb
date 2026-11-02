@@ -239,7 +239,7 @@ fn test_iteration_stops_where_the_callback_breaks_and_passes_its_error() -> Test
     assert_eq!(seen, vec![1, 2]);
     let error = l
         .iterate(2, 0, |_| -> Result<ControlFlow<()>, PostingError> {
-            Err(PostingError::TsTooOld())
+            Err(PostingError::ts_too_old())
         })
         .failure("the callback's refusal")?;
     assert_eq!(error.0, PostingErrorEnum::TsTooOld);

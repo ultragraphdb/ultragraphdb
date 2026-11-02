@@ -14,9 +14,13 @@ use ultragraphdb_transactions_txn::ReadSet;
 /// What a transaction read, by kind.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Reads {
+    /// The keys of the lists read whole.
     pub lists: Vec<Vec<u8>>,
+    /// The statements tested: a list key and an object's encoding.
     pub statements: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The ranges scanned: a start, inclusive, and an end, exclusive, or `None` for the last key.
     pub ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
+    /// The dictionary keys found absent.
     pub absent: Vec<Vec<u8>>,
 }
 
@@ -24,12 +28,16 @@ pub struct Reads {
 /// empty end key.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Writes {
+    /// The conflict points: each a key written.
     pub points: Vec<Vec<u8>>,
+    /// The conflict statements: a list key and the object it changed.
     pub statements: Vec<(Vec<u8>, Vec<u8>)>,
+    /// The conflict ranges: the first key and the key past the last.
     pub ranges: Vec<(Vec<u8>, Option<Vec<u8>>)>,
 }
 
 impl Reads {
+    /// The read of the list of `key`, whole.
     pub fn list(key: &[u8]) -> Self {
         Self {
             lists: vec![key.to_vec()],
@@ -37,6 +45,7 @@ impl Reads {
         }
     }
 
+    /// The test of the statement of `object` in the list of `key`.
     pub fn statement(key: &[u8], object: &[u8]) -> Self {
         Self {
             statements: vec![(key.to_vec(), object.to_vec())],
@@ -44,6 +53,7 @@ impl Reads {
         }
     }
 
+    /// The scan from `start`, inclusive, to `end`, exclusive, or to the last key.
     pub fn range(start: &[u8], end: Option<&[u8]>) -> Self {
         Self {
             ranges: vec![(start.to_vec(), end.map(<[u8]>::to_vec))],
@@ -51,6 +61,7 @@ impl Reads {
         }
     }
 
+    /// The dictionary key `key`, found absent.
     pub fn absent(key: &[u8]) -> Self {
         Self {
             absent: vec![key.to_vec()],
@@ -60,6 +71,7 @@ impl Reads {
 }
 
 impl Writes {
+    /// The write of `key`.
     pub fn point(key: &[u8]) -> Self {
         Self {
             points: vec![key.to_vec()],
@@ -67,6 +79,7 @@ impl Writes {
         }
     }
 
+    /// The change of `object` in the list of `key`.
     pub fn statement(key: &[u8], object: &[u8]) -> Self {
         Self {
             statements: vec![(key.to_vec(), object.to_vec())],
@@ -74,6 +87,7 @@ impl Writes {
         }
     }
 
+    /// The write of the range from `start` to the key `end` past the last, or to the last key.
     pub fn range(start: &[u8], end: Option<&[u8]>) -> Self {
         Self {
             ranges: vec![(start.to_vec(), end.map(<[u8]>::to_vec))],
@@ -85,7 +99,9 @@ impl Writes {
 /// A proposal: a sealed read set and a record's bytes.
 #[derive(Debug, Clone)]
 pub struct TestProposal {
+    /// The sealed read set.
     pub read_set: ReadSet,
+    /// The write-set record's bytes.
     pub record: Vec<u8>,
 }
 

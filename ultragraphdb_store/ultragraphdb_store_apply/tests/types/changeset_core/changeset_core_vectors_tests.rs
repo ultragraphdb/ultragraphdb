@@ -9,7 +9,7 @@
 
 use oxrdf::{GraphNameRef, NamedNode};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace};
-use ultragraphdb_store_apply::{ChangesetErrorEnum, LevelDraw};
+use ultragraphdb_store_apply::{ChangesetErrorEnum, LevelDraw, VectorQuery};
 use ultragraphdb_store_hnsw::{
     VectorKeys, bytes_to_uint64, decode_uint64_matrix, insert_layer, parse_edges,
 };
@@ -55,9 +55,7 @@ fn search_at(a: &TestChangesets, query: &[f32], k: usize, read_ts: u64) -> TestR
         NS,
         GraphNameRef::DefaultGraph,
         ex("emb").as_ref(),
-        query,
-        k,
-        &VectorIndexOptions::default(),
+        VectorQuery::new(query, k, &VectorIndexOptions::default()),
         read_ts,
     )?)
 }
@@ -238,9 +236,7 @@ fn test_each_graph_and_predicate_is_indexed_on_its_own() -> TestResult {
         NS,
         GraphNameRef::NamedNode(ex("g1").as_ref()),
         ex("emb").as_ref(),
-        &[0.0, 1.0],
-        3,
-        &VectorIndexOptions::default(),
+        VectorQuery::new(&[0.0, 1.0], 3, &VectorIndexOptions::default()),
         a.quads().lists().applied_ts(),
     )?;
     assert_eq!(in_g1, vec![uid(&a, "a")?]);
@@ -268,9 +264,7 @@ fn test_the_indexer_and_the_search_refuse_a_predicate_without_a_vector_index() -
                 NS,
                 GraphNameRef::DefaultGraph,
                 predicate.as_ref(),
-                &[1.0],
-                1,
-                &VectorIndexOptions::default(),
+                VectorQuery::new(&[1.0], 1, &VectorIndexOptions::default()),
                 a.quads().lists().applied_ts(),
             )
             .err()
@@ -380,9 +374,7 @@ fn test_a_search_finds_nothing_in_an_empty_index_or_an_unknown_graph() -> TestRe
         NS,
         GraphNameRef::NamedNode(unknown.as_ref()),
         ex("emb").as_ref(),
-        &[1.0, 0.0],
-        3,
-        &VectorIndexOptions::default(),
+        VectorQuery::new(&[1.0, 0.0], 3, &VectorIndexOptions::default()),
         a.quads().lists().applied_ts(),
     )?;
     assert_eq!(found, Vec::<u64>::new());
@@ -413,9 +405,7 @@ fn test_a_search_honours_its_count_and_options() -> TestResult {
             NS,
             GraphNameRef::DefaultGraph,
             ex("emb").as_ref(),
-            &[0.0, 0.0],
-            k,
-            options,
+            VectorQuery::new(&[0.0, 0.0], k, options),
             latest,
         )
     };

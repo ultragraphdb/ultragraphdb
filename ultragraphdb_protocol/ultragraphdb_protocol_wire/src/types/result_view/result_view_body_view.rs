@@ -34,7 +34,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let texts = sections.get(3);
         let text_count = records(command, 3, texts, 8)?.len();
         if text_count != terms {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "term texts",
                 text_count as u64,
@@ -54,7 +54,7 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         let statement_ids = sections.get(7);
         let per_rows = 8 * u64::from(rows);
         if !statement_ids.is_empty() && statement_ids.len() as u64 != per_rows {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "statement ids",
                 statement_ids.len() as u64,
@@ -80,13 +80,13 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             .map(|i| {
                 let view = self
                     .term(i)
-                    .ok_or(ProtocolError::BadTerm(command, 2, i as usize))?;
+                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?;
                 if let Some(uid) = view.blank_uid() {
                     return Ok(ResultTerm::blank(uid, view.text()));
                 }
                 let term = view
                     .term()
-                    .ok_or(ProtocolError::BadTerm(command, 2, i as usize))?;
+                    .ok_or(ProtocolError::bad_term(command, 2, i as usize))?;
                 let mut owned = ResultTerm::new(term);
                 if let Some(text) = view.text() {
                     owned = owned.with_text(text);
@@ -125,7 +125,7 @@ fn check_cells(
 ) -> Result<(), ProtocolError> {
     let cells = u32s(command, 0, section)?;
     if cells.len() as u64 != expected {
-        return Err(ProtocolError::CountMismatch(
+        return Err(ProtocolError::count_mismatch(
             command,
             "cells",
             cells.len() as u64,
@@ -137,7 +137,9 @@ fn check_cells(
         .enumerate()
         .find(|(_, cell)| **cell != ABSENT && **cell >= limit)
     {
-        return Err(ProtocolError::IndexOutOfRange(command, 0, at, *cell, limit));
+        return Err(ProtocolError::index_out_of_range(
+            command, 0, at, *cell, limit,
+        ));
     }
     Ok(())
 }
@@ -145,7 +147,7 @@ fn check_cells(
 /// Refused unless every term's encoding, from its offset to the next, is one whole encoding, the first at 0.
 fn check_encodings(command: u16, offsets: &[u32], encodings: &[u8]) -> Result<(), ProtocolError> {
     if offsets.is_empty() && !encodings.is_empty() {
-        return Err(ProtocolError::CountMismatch(
+        return Err(ProtocolError::count_mismatch(
             command,
             "term encodings",
             encodings.len() as u64,
@@ -160,7 +162,7 @@ fn check_encodings(command: u16, offsets: &[u32], encodings: &[u8]) -> Result<()
         let whole =
             (at > 0 || start == 0) && encodings.get(start..end).is_some_and(result_encoding_whole);
         if !whole {
-            return Err(ProtocolError::BadTerm(command, 2, at));
+            return Err(ProtocolError::bad_term(command, 2, at));
         }
     }
     Ok(())
@@ -174,7 +176,7 @@ fn check_texts(command: u16, texts: &[u8], string_limit: u32) -> Result<(), Prot
         .enumerate()
         .find(|(_, i)| **i != ABSENT && **i >= string_limit)
     {
-        return Err(ProtocolError::IndexOutOfRange(
+        return Err(ProtocolError::index_out_of_range(
             command,
             3,
             at,

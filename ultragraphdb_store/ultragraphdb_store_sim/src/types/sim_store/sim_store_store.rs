@@ -39,7 +39,7 @@ impl Store for SimStore {
             BatchOutcome::Failed => {
                 inner.status = Status::Poisoned { failed: record };
                 inner.log.push(OpRecord::BatchFailed { batch });
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated failure during the batch's persist".into(),
                 ))
             }
@@ -49,7 +49,7 @@ impl Store for SimStore {
                     in_flight: Some(record),
                 };
                 inner.log.push(OpRecord::CrashedDuringBatch { batch });
-                Err(StoreError::WriteFailed(
+                Err(StoreError::write_failed(
                     "simulated process crash while the batch was written".into(),
                 ))
             }
@@ -73,11 +73,11 @@ impl Store for SimStore {
     fn get_versionless(&self, key: &[u8]) -> Result<Option<Vec<u8>>, StoreError> {
         let mut inner = lock(self.shared());
         let result = if matches!(inner.status, Status::Down { .. }) {
-            Err(StoreError::Poisoned())
+            Err(StoreError::poisoned())
         } else {
             inner.maybe_slow();
             if inner.faults.read_fails() {
-                Err(StoreError::ReadFailed(
+                Err(StoreError::read_failed(
                     key.to_vec(),
                     "simulated read failure".into(),
                 ))
@@ -96,7 +96,7 @@ impl Store for SimStore {
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         let mut inner = lock(self.shared());
         if matches!(inner.status, Status::Down { .. }) {
-            let error = StoreError::Poisoned();
+            let error = StoreError::poisoned();
             inner.log.push(OpRecord::SnapshotRefused {
                 read_ts,
                 error: error.clone(),
@@ -105,7 +105,7 @@ impl Store for SimStore {
         }
         inner.maybe_slow();
         if read_ts < inner.discard_ts() {
-            let error = StoreError::TsTooOld();
+            let error = StoreError::ts_too_old();
             inner.log.push(OpRecord::SnapshotRefused {
                 read_ts,
                 error: error.clone(),
@@ -163,7 +163,7 @@ impl Store for SimStore {
     fn rebuild_records(&self) -> Result<Vec<RebuildRecord>, StoreError> {
         let inner = lock(self.shared());
         if matches!(inner.status, Status::Down { .. }) {
-            return Err(StoreError::Poisoned());
+            return Err(StoreError::poisoned());
         }
         Ok(inner.rebuild_records())
     }
@@ -315,7 +315,7 @@ fn run_drop(
                     stage,
                     power_loss,
                 });
-                Err(StoreError::WriteFailed(format!(
+                Err(StoreError::write_failed(format!(
                     "simulated {} during a drop",
                     if power_loss {
                         "power loss"

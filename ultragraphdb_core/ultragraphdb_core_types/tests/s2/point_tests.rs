@@ -27,16 +27,15 @@ fn eq(x: f64, y: f64) -> bool {
 
 // Ported from golang/geo s2/point_test.go, TestOriginPoint.
 #[test]
-#[allow(clippy::excessive_precision)]
 fn point_origin() {
     let o = Point::origin();
     assert!((o.vector().norm() - 1.0).abs() <= 1e-15);
     assert_eq!(
         (o.x(), o.y(), o.z()),
         (
-            -0.0099994664350250197,
-            0.0025924542609324121,
-            0.99994664350250195
+            -0.00999946643502502,
+            0.002592454260932412,
+            0.999946643502502
         )
     );
     // About 66km from the north pole towards the East Siberian Sea: stToUV(2/3) is 7/27.

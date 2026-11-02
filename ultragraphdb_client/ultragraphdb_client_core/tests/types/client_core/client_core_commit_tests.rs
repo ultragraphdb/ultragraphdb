@@ -788,7 +788,7 @@ fn test_a_loss_with_the_commit_still_queued_consumes_no_attempt() -> TestResult 
     let s = session(&mut h)?;
     let tx = begin(&mut h)?;
     let p = h.core.commit(tx, s, h.now)?;
-    h.core.disconnected(TransportError::Closed(), h.now);
+    h.core.disconnected(TransportError::closed(), h.now);
     assert_eq!(h.core.take_reply(p), None, "not answered");
     assert!(
         h.core.needs_connection(),
@@ -837,7 +837,7 @@ fn test_a_loss_during_a_busy_answers_delay_consumes_no_attempt() -> TestResult {
     h.until(|h| commits(h).len() == 2)?;
     while h.step()? {}
     assert_eq!(h.core.take_reply(p), None, "waiting out the delay");
-    h.core.disconnected(TransportError::Closed(), h.now);
+    h.core.disconnected(TransportError::closed(), h.now);
     let c = committed(h.settle(p)?)?;
     assert_eq!(c.request(), 1);
     assert_eq!(commits(&h), vec![(9, 1); 3]);
@@ -866,7 +866,7 @@ fn test_a_loss_after_a_commit_is_sent_consumes_an_attempt() -> TestResult {
         h.core.transmit().is_some(),
         "the commit's frame leaves the core"
     );
-    h.core.disconnected(TransportError::Closed(), h.now);
+    h.core.disconnected(TransportError::closed(), h.now);
     assert_eq!(
         h.core
             .take_reply(p)

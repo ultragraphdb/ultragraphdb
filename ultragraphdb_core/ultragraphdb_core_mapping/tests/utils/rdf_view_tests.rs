@@ -96,7 +96,7 @@ fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() -> TestResul
     );
     assert_eq!(
         refused,
-        Err(MappingError::UnsupportedObject(inner.to_string())),
+        Err(MappingError::unsupported_object(inner.to_string())),
         "a triple term is presented, never written"
     );
     Ok(())

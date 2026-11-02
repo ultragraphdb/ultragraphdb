@@ -411,7 +411,7 @@ fn assert_session_replayed(replica: &Applier, session: u64, version: u64, k: usi
     );
     assert_eq!(
         table.check(session, 2, 8),
-        Err(CommitError::PermissionDenied(session)),
+        Err(CommitError::permission_denied(session)),
         "drop {k}: the session's owner replayed"
     );
     assert_eq!(
@@ -583,7 +583,7 @@ fn test_a_corrupted_session_table_refuses_recovery() -> TestResult {
     assert_eq!(
         refused.0,
         RecoveryErrorEnum::Sessions {
-            cause: StoreError::Corrupted(
+            cause: StoreError::corrupted(
                 SessionEntry::INDEX_KEY.to_vec(),
                 "a session index whose length is not a multiple of 8".to_string()
             )

@@ -5,6 +5,7 @@
 
 pub(crate) mod area;
 pub(crate) mod big_float;
+pub(crate) mod civil_time;
 pub(crate) mod date_time;
 pub(crate) mod geo_query_data;
 pub(crate) mod geometry;

@@ -25,7 +25,7 @@ pub(crate) fn check_results(
     for (i, record) in records(command, section, bytes, RESULT_SIZE)?.enumerate() {
         let created = record.get(8).copied().unwrap_or(0);
         if created > 1 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "created",
                 created.into(),
@@ -35,7 +35,7 @@ pub(crate) fn check_results(
             .get(9..)
             .and_then(|zeros| zeros.iter().position(|b| *b != 0))
         {
-            return Err(ProtocolError::PaddingNotZero(
+            return Err(ProtocolError::padding_not_zero(
                 command,
                 offset + RESULT_SIZE * i + 9 + j,
             ));

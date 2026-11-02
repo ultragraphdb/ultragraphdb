@@ -47,26 +47,22 @@ pub enum PipelineErrorEnum {
 
 impl PipelineError {
     /// The [`PipelineErrorEnum::Log`] reason.
-    #[allow(non_snake_case)]
-    pub fn Log(cause: LogError) -> Self {
+    pub fn log(cause: LogError) -> Self {
         Self(PipelineErrorEnum::Log { cause })
     }
 
     /// The [`PipelineErrorEnum::Apply`] reason.
-    #[allow(non_snake_case)]
-    pub fn Apply(cause: ChangesetError) -> Self {
+    pub fn apply(cause: ChangesetError) -> Self {
         Self(PipelineErrorEnum::Apply { cause })
     }
 
     /// The [`PipelineErrorEnum::Sessions`] reason.
-    #[allow(non_snake_case)]
-    pub fn Sessions(cause: StoreError) -> Self {
+    pub fn sessions(cause: StoreError) -> Self {
         Self(PipelineErrorEnum::Sessions { cause })
     }
 
     /// The [`PipelineErrorEnum::BuildEnd`] reason.
-    #[allow(non_snake_case)]
-    pub fn BuildEnd(cause: TxnError) -> Self {
+    pub fn build_end(cause: TxnError) -> Self {
         Self(PipelineErrorEnum::BuildEnd { cause })
     }
 }

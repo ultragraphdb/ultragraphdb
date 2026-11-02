@@ -39,7 +39,7 @@ where
         if written.len() == declared {
             return Ok(());
         }
-        Err(ChangesetError::Dimension(
+        Err(ChangesetError::dimension(
             declaration.predicate().as_str(),
             declared,
             written.len(),

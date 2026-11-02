@@ -77,10 +77,10 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
 
     /// The next frame, read into a buffer of `pool` as the [`Framer`] asks: its header, verified for the
     /// connection's cluster so its `size` is trusted, then the rest of the frame into the same buffer. Refused as
-    /// [`TransportError::Closed`] when the peer closed before the frame's first byte, [`TransportError::Truncated`]
-    /// when it closed inside the frame, [`TransportError::Protocol`] when the header breaks a rule or the frame is
-    /// larger than the pool's buffers ([`ultragraphdb_error_protocol::ProtocolError::FrameTooLarge`] naming their
-    /// capacity), [`TransportError::PoolExhausted`] with no buffer free, or [`TransportError::Io`].
+    /// [`TransportError::closed`] when the peer closed before the frame's first byte, [`TransportError::truncated`]
+    /// when it closed inside the frame, [`TransportError::protocol`] when the header breaks a rule or the frame is
+    /// larger than the pool's buffers ([`ultragraphdb_error_protocol::ProtocolError::frame_too_large`] naming their
+    /// capacity), [`TransportError::pool_exhausted`] with no buffer free, or [`TransportError::io`].
     pub async fn read_frame(&mut self, pool: &BufferPool) -> Result<ReceivedFrame, TransportError> {
         let mut buffer = pool.acquire()?;
         self.framer.reset();
@@ -95,7 +95,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
                 Fill::Closed => return Err(self.framer.closed(received)),
                 Fill::Failed(error) => {
                     self.framer.reset();
-                    return Err(TransportError::Io(&error));
+                    return Err(TransportError::io(&error));
                 }
             }
             match self.framer.advance(&buffer) {
@@ -109,15 +109,15 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         }
     }
 
-    /// Writes `frame` whole and flushes it; [`TransportError::Io`] when the stream fails. The frame is handed
+    /// Writes `frame` whole and flushes it; [`TransportError::io`] when the stream fails. The frame is handed
     /// back, so its buffer can be reused.
     pub async fn write_frame(&mut self, frame: Vec<u8>) -> Result<Vec<u8>, TransportError> {
         let BufResult(written, frame) = self.stream.write_all(frame).await;
-        written.map_err(|e| TransportError::Io(&e))?;
+        written.map_err(|e| TransportError::io(&e))?;
         self.stream
             .flush()
             .await
-            .map_err(|e| TransportError::Io(&e))?;
+            .map_err(|e| TransportError::io(&e))?;
         Ok(frame)
     }
 

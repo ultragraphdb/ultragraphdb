@@ -628,12 +628,12 @@ fn statements_of(
             }
             for id in ids {
                 let record = q.statement(NS, graph, id, ts)?.ok_or_else(|| {
-                    QuadError::Corrupted(&key.to_bytes(), format!("statement {id} has no record"))
+                    QuadError::corrupted(&key.to_bytes(), format!("statement {id} has no record"))
                 })?;
                 if (record.subject(), record.predicate(), record.object())
                     != (subject, predicate, &object)
                 {
-                    return Err(QuadError::Corrupted(
+                    return Err(QuadError::corrupted(
                         &key.to_bytes(),
                         format!("record {id} names another statement"),
                     )

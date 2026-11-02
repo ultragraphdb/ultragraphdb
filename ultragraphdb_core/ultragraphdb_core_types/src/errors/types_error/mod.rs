@@ -41,34 +41,6 @@ impl TypesError {
         Self(kind)
     }
 
-    pub(crate) fn conversion(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Conversion(msg.into()))
-    }
-
-    pub(crate) fn number(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Number(msg.into()))
-    }
-
-    pub(crate) fn time(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Time(msg.into()))
-    }
-
-    pub(crate) fn big_float(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::BigFloat(msg.into()))
-    }
-
-    pub(crate) fn geo(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Geo(msg.into()))
-    }
-
-    pub(crate) fn password(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Password(msg.into()))
-    }
-
-    pub(crate) fn compare(msg: impl Into<String>) -> Self {
-        Self::new(TypesErrorEnum::Compare(msg.into()))
-    }
-
     /// The message, as `Display` writes it.
     pub fn message(&self) -> &str {
         match &self.0 {
@@ -97,44 +69,37 @@ impl TypesError {
     }
 
     /// A [`TypesErrorEnum::Conversion`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Conversion(msg: String) -> Self {
-        Self(TypesErrorEnum::Conversion(msg))
+    pub fn conversion(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Conversion(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Number`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Number(msg: String) -> Self {
-        Self(TypesErrorEnum::Number(msg))
+    pub fn number(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Number(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Time`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Time(msg: String) -> Self {
-        Self(TypesErrorEnum::Time(msg))
+    pub fn time(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Time(msg.into()))
     }
 
     /// A [`TypesErrorEnum::BigFloat`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn BigFloat(msg: String) -> Self {
-        Self(TypesErrorEnum::BigFloat(msg))
+    pub fn big_float(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::BigFloat(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Geo`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Geo(msg: String) -> Self {
-        Self(TypesErrorEnum::Geo(msg))
+    pub fn geo(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Geo(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Password`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Password(msg: String) -> Self {
-        Self(TypesErrorEnum::Password(msg))
+    pub fn password(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Password(msg.into()))
     }
 
     /// A [`TypesErrorEnum::Compare`] error with its message.
-    #[allow(non_snake_case)]
-    pub fn Compare(msg: String) -> Self {
-        Self(TypesErrorEnum::Compare(msg))
+    pub fn compare(msg: impl Into<String>) -> Self {
+        Self(TypesErrorEnum::Compare(msg.into()))
     }
 }

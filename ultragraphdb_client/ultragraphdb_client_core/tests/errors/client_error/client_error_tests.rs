@@ -13,33 +13,33 @@ use ultragraphdb_tool_bdd::TestResult;
 
 fn every() -> Vec<ClientError> {
     vec![
-        ClientError::Transport(TransportError::Closed()),
-        ClientError::Protocol(ProtocolError::FrameTooLarge(9, 8)),
-        ClientError::Refused(
+        ClientError::transport(TransportError::closed()),
+        ClientError::protocol(ProtocolError::frame_too_large(9, 8)),
+        ClientError::refused(
             ErrorCode::Conflict,
             3,
             "conflict",
             Some(RequestTerm::Iri("http://ex.org/v".into())),
         ),
-        ClientError::Closed(ErrorCode::Protocol, "bye"),
-        ClientError::TimedOut(),
-        ClientError::ConnectionLost(Some(ClientError::Protocol(ProtocolError::FrameTooLarge(
+        ClientError::closed(ErrorCode::Protocol, "bye"),
+        ClientError::timed_out(),
+        ClientError::connection_lost(Some(ClientError::protocol(ProtocolError::frame_too_large(
             9, 8,
         )))),
-        ClientError::NotConnected(),
-        ClientError::Request(ProtocolError::FrameTooLarge(9, 8)),
-        ClientError::ReplyMismatch("session", 1, 2),
-        ClientError::RetriesExhausted(9, 7, 8),
-        ClientError::OutcomeUnknown(9, 7),
-        ClientError::InDoubt(9, 7),
-        ClientError::NotInDoubt(9),
-        ClientError::SessionBusy(9),
-        ClientError::UnknownSession(9),
-        ClientError::ReadOnly(5),
-        ClientError::StreamFinished(5),
-        ClientError::StreamBusy(5),
-        ClientError::StreamLimit(64),
-        ClientError::TransactionMismatch(5, 3),
+        ClientError::not_connected(),
+        ClientError::request(ProtocolError::frame_too_large(9, 8)),
+        ClientError::reply_mismatch("session", 1, 2),
+        ClientError::retries_exhausted(9, 7, 8),
+        ClientError::outcome_unknown(9, 7),
+        ClientError::in_doubt(9, 7),
+        ClientError::not_in_doubt(9),
+        ClientError::session_busy(9),
+        ClientError::unknown_session(9),
+        ClientError::read_only(5),
+        ClientError::stream_finished(5),
+        ClientError::stream_busy(5),
+        ClientError::stream_limit(64),
+        ClientError::transaction_mismatch(5, 3),
     ]
 }
 
@@ -59,7 +59,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         "every variant once"
     );
     assert_eq!(
-        ClientError::Refused(ErrorCode::Busy, 0, "m", None).0,
+        ClientError::refused(ErrorCode::Busy, 0, "m", None).0,
         ClientErrorEnum::Refused {
             code: ErrorCode::Busy,
             detail: 0,
@@ -68,7 +68,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         }
     );
     assert_eq!(
-        ClientError::RetriesExhausted(1, 2, 3).0,
+        ClientError::retries_exhausted(1, 2, 3).0,
         ClientErrorEnum::RetriesExhausted {
             session: 1,
             request: 2,
@@ -76,21 +76,21 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         }
     );
     assert_eq!(
-        ClientError::OutcomeUnknown(1, 2).0,
+        ClientError::outcome_unknown(1, 2).0,
         ClientErrorEnum::OutcomeUnknown {
             session: 1,
             request: 2
         }
     );
     assert_eq!(
-        ClientError::TransactionMismatch(5, 3).0,
+        ClientError::transaction_mismatch(5, 3).0,
         ClientErrorEnum::TransactionMismatch {
             stream: 5,
             named: 3
         }
     );
     assert_eq!(
-        ClientError::ReplyMismatch("request", 1, 2).0,
+        ClientError::reply_mismatch("request", 1, 2).0,
         ClientErrorEnum::ReplyMismatch {
             field: "request",
             expected: 1,
@@ -98,7 +98,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
         }
     );
     assert_eq!(
-        ClientError::InDoubt(9, 7).0,
+        ClientError::in_doubt(9, 7).0,
         ClientErrorEnum::InDoubt {
             session: 9,
             request: 7
@@ -111,7 +111,7 @@ fn test_each_constructor_builds_its_variant() -> TestResult {
 fn test_retryable_exactly_where_the_wire_says() -> TestResult {
     for code in ErrorCode::ALL {
         assert_eq!(
-            ClientError::Refused(code, 0, "", None).retryable(),
+            ClientError::refused(code, 0, "", None).retryable(),
             code.retryable(),
             "{code:?}"
         );
@@ -127,8 +127,8 @@ fn test_retryable_exactly_where_the_wire_says() -> TestResult {
 
 #[test]
 fn test_stale_and_closing_are_named() -> TestResult {
-    assert!(ClientError::Refused(ErrorCode::StaleStatement, 1, "", None).is_stale());
-    assert!(!ClientError::Refused(ErrorCode::UnknownStatement, 1, "", None).is_stale());
+    assert!(ClientError::refused(ErrorCode::StaleStatement, 1, "", None).is_stale());
+    assert!(!ClientError::refused(ErrorCode::UnknownStatement, 1, "", None).is_stale());
     // Transport, Protocol, Closed, TimedOut and ConnectionLost give the connection up, or come of its loss; nothing
     // else does.
     let closing: Vec<bool> = every().iter().map(ClientError::closes_connection).collect();
@@ -183,8 +183,8 @@ fn test_each_names_its_values() -> TestResult {
 /// A lost connection names what gave it up, in its text and as its source; with nothing to name, neither.
 #[test]
 fn test_a_lost_connection_names_its_cause() -> TestResult {
-    let cause = ClientError::Transport(TransportError::Truncated(100, 256));
-    let lost = ClientError::ConnectionLost(Some(cause.clone()));
+    let cause = ClientError::transport(TransportError::truncated(100, 256));
+    let lost = ClientError::connection_lost(Some(cause.clone()));
     assert_eq!(
         lost.0,
         ClientErrorEnum::ConnectionLost {
@@ -200,7 +200,7 @@ fn test_a_lost_connection_names_its_cause() -> TestResult {
         // ClientError's "connection failed: {error}" around TransportError's Truncated text.
         "the request's connection was lost: connection failed: connection closed 100 bytes into a frame of 256"
     );
-    let plain = ClientError::ConnectionLost(None);
+    let plain = ClientError::connection_lost(None);
     assert_eq!(plain.0, ClientErrorEnum::ConnectionLost { cause: None });
     assert!(plain.source().is_none());
     assert_eq!(plain.to_string(), "the request's connection was lost");

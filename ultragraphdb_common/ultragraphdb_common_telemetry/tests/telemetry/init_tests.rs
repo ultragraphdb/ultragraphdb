@@ -26,7 +26,7 @@ fn test_init_refuses_without_installing_then_installs_once() -> TestResult {
         let config = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint(endpoint);
         assert_eq!(
             init(&config).map(drop),
-            Err(TelemetryError::Exporter(
+            Err(TelemetryError::exporter(
                 endpoint.to_string(),
                 "the endpoint is an http:// or https:// URL".to_string()
             ))
@@ -39,7 +39,7 @@ fn test_init_refuses_without_installing_then_installs_once() -> TestResult {
         .with_otlp_endpoint("https://127.0.0.1:4318/v1/traces");
     assert_eq!(
         init(&https).map(drop),
-        Err(TelemetryError::Exporter(
+        Err(TelemetryError::exporter(
             "https://127.0.0.1:4318/v1/traces".to_string(),
             "cannot read the trust store \"/nonexistent/ultragraphdb/from-environment.pem\": No such file or directory (os error 2)".to_string()
         ))
@@ -48,7 +48,7 @@ fn test_init_refuses_without_installing_then_installs_once() -> TestResult {
     let bad = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint("http://not a uri");
     assert_eq!(
         init(&bad).map(drop),
-        Err(TelemetryError::Exporter(
+        Err(TelemetryError::exporter(
             "http://not a uri".to_string(),
             "invalid exporter configuration: endpoint: invalid endpoint 'http://not a uri': invalid uri character".to_string()
         ))
@@ -62,7 +62,7 @@ fn test_init_refuses_without_installing_then_installs_once() -> TestResult {
     let again = init(&TelemetryConfig::new("info", LogFormat::Plain));
     assert_eq!(
         again.map(drop),
-        Err(TelemetryError::Installed(
+        Err(TelemetryError::installed(
             "a global default trace dispatcher has already been set".to_string()
         ))
     );

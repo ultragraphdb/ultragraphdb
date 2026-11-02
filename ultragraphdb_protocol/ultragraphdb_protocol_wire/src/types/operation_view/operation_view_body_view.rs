@@ -31,20 +31,20 @@ impl<'a> BodyView<'a> for OperationView<'a> {
         let properties = header.u32_at(16);
         let links = header.u32_at(20);
         if !(1..=4).contains(&kind) {
-            return Err(ProtocolError::FieldValue(command, "kind", kind.into()));
+            return Err(ProtocolError::field_value(command, "kind", kind.into()));
         }
         if delta != 0 && kind != 4 {
-            return Err(ProtocolError::FieldValue(command, "delta", delta as u64));
+            return Err(ProtocolError::field_value(command, "delta", delta as u64));
         }
         if properties != 0 && kind > 2 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "properties",
                 properties.into(),
             ));
         }
         if links != 0 && kind != 2 {
-            return Err(ProtocolError::FieldValue(command, "links", links.into()));
+            return Err(ProtocolError::field_value(command, "links", links.into()));
         }
         let sections = Sections::<3>::read(command, frame.body(), 0)?;
         let terms = TermTableView::read(
@@ -61,29 +61,14 @@ impl<'a> BodyView<'a> for OperationView<'a> {
             _ => 3,
         };
         if args.len() as u64 != expected {
-            return Err(ProtocolError::CountMismatch(
+            return Err(ProtocolError::count_mismatch(
                 command,
                 "args",
                 args.len() as u64,
                 expected,
             ));
         }
-        let limit = as_u32(terms.len());
-        let link_start = 3 + 2 * properties as usize;
-        for (at, arg) in args.iter().enumerate() {
-            let direction = kind == 2 && at >= link_start && (at - link_start) % 3 == 2;
-            if direction {
-                if *arg > 1 {
-                    return Err(ProtocolError::FieldValue(
-                        command,
-                        "link direction",
-                        (*arg).into(),
-                    ));
-                }
-            } else if !(at == 0 && *arg == ABSENT) && *arg >= limit {
-                return Err(ProtocolError::IndexOutOfRange(command, 0, at, *arg, limit));
-            }
-        }
+        check_args(command, kind, properties, &args, as_u32(terms.len()))?;
         Ok(Self {
             kind,
             delta,
@@ -97,4 +82,33 @@ impl<'a> BodyView<'a> for OperationView<'a> {
     fn to_body(&self) -> Result<Operation, ProtocolError> {
         Ok(Operation::new(self.terms.to_table(), self.operation()))
     }
+}
+
+/// Refuses an argument of `args` that is neither a link direction of 0 or 1 nor an index below `limit` into the
+/// term table; the first argument may also be [`ABSENT`].
+fn check_args(
+    command: u16,
+    kind: u8,
+    properties: u32,
+    args: &[u32],
+    limit: u32,
+) -> Result<(), ProtocolError> {
+    let link_start = 3 + 2 * properties as usize;
+    for (at, arg) in args.iter().enumerate() {
+        let direction = kind == 2 && at >= link_start && (at - link_start) % 3 == 2;
+        if direction {
+            if *arg > 1 {
+                return Err(ProtocolError::field_value(
+                    command,
+                    "link direction",
+                    (*arg).into(),
+                ));
+            }
+        } else if !(at == 0 && *arg == ABSENT) && *arg >= limit {
+            return Err(ProtocolError::index_out_of_range(
+                command, 0, at, *arg, limit,
+            ));
+        }
+    }
+    Ok(())
 }

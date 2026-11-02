@@ -19,7 +19,7 @@ fn apply_distance_function<T: HnswFloat>(
     kernel: fn(&[T], &[T]) -> T,
 ) -> Result<T, HnswError> {
     if a.len() != b.len() {
-        return Err(HnswError::DifferentLengths(func_name));
+        return Err(HnswError::different_lengths(func_name));
     }
     Ok(kernel(a, b))
 }
@@ -28,7 +28,7 @@ fn apply_distance_function<T: HnswFloat>(
 ///
 /// # Errors
 ///
-/// [`HnswError::DifferentLengths`] for vectors of different lengths.
+/// [`HnswError::different_lengths`] for vectors of different lengths.
 pub fn dot_product<T: HnswFloat>(a: &[T], b: &[T]) -> Result<T, HnswError> {
     apply_distance_function(a, b, "dot product", T::dot)
 }
@@ -37,7 +37,7 @@ pub fn dot_product<T: HnswFloat>(a: &[T], b: &[T]) -> Result<T, HnswError> {
 ///
 /// # Errors
 ///
-/// [`HnswError::DifferentLengths`] for vectors of different lengths.
+/// [`HnswError::different_lengths`] for vectors of different lengths.
 pub fn cosine_similarity<T: HnswFloat>(a: &[T], b: &[T]) -> Result<T, HnswError> {
     apply_distance_function(a, b, "cosine distance", T::cosine_sim)
 }
@@ -47,7 +47,7 @@ pub fn cosine_similarity<T: HnswFloat>(a: &[T], b: &[T]) -> Result<T, HnswError>
 ///
 /// # Errors
 ///
-/// [`HnswError::DifferentLengths`] for vectors of different lengths.
+/// [`HnswError::different_lengths`] for vectors of different lengths.
 pub fn euclidean_distance<T: HnswFloat>(a: &[T], b: &[T]) -> Result<T, HnswError> {
     apply_distance_function(a, b, "euclidean distance", T::euclidean)
 }

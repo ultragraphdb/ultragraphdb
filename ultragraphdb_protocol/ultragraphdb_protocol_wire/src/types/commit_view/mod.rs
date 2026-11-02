@@ -48,12 +48,12 @@ impl<'a> CommitView<'a> {
     }
 
     /// The rule a server holds a received Commit to, a request: no results, refused as
-    /// [`ProtocolError::CountMismatch`] (`"results"`).
+    /// [`ProtocolError::count_mismatch`] (`"results"`).
     pub fn check_request(&self) -> Result<(), ProtocolError> {
         if self.result_count() == 0 {
             return Ok(());
         }
-        Err(ProtocolError::CountMismatch(
+        Err(ProtocolError::count_mismatch(
             Command::Commit.number(),
             "results",
             self.result_count() as u64,

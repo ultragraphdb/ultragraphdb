@@ -64,7 +64,7 @@ impl AllowedOptions {
         let parser = self
             .0
             .get(name)
-            .ok_or_else(|| OptionsError::NotAllowed(format!("option {name} is not allowed!")))?;
+            .ok_or_else(|| OptionsError::not_allowed(format!("option {name} is not allowed!")))?;
         parser(value)
     }
 

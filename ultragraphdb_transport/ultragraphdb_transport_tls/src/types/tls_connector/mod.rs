@@ -71,8 +71,8 @@ impl TlsConnector {
         host: &str,
     ) -> Result<TlsStream<S>, TlsError> {
         let name = ServerName::try_from(host.to_string())
-            .map_err(|_| TlsError::InvalidServerName(host.to_string()))?;
-        let failed = |reason: String| TlsError::HandshakeFailed(host.to_string(), reason);
+            .map_err(|_| TlsError::invalid_server_name(host.to_string()))?;
+        let failed = |reason: String| TlsError::handshake_failed(host.to_string(), reason);
         let connection = ClientConnection::new(Arc::clone(&self.config), name)
             .map_err(|e| failed(e.to_string()))?;
         let mut tls = StreamOwned::new(connection, stream);

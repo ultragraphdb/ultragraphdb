@@ -10,7 +10,7 @@ use ultragraphdb_core_mapping::{Change, MappingErrorEnum, StatementId, Statement
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::TokErrorEnum;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_apply::{ChangesetErrorEnum, VectorQuery};
 use ultragraphdb_store_hnsw::HnswErrorEnum;
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 use ultragraphdb_store_sim::Fault;
@@ -367,7 +367,7 @@ fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() -
 
 /// A batch the store fails to persist refuses the changeset with the store's error, and nothing of it is held; the
 /// store is then poisoned, and the next changeset is refused with that. The texts are the simulated store's
-/// (`ultragraphdb_store_sim`, `Fault::FailNextBatch`) and `StoreError::Poisoned`'s.
+/// (`ultragraphdb_store_sim`, `Fault::FailNextBatch`) and `StoreError::poisoned`'s.
 #[test]
 fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() -> TestResult {
     let a = changesets()?;
@@ -381,7 +381,7 @@ fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() -
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(
-            StoreError::WriteFailed("simulated failure during the batch's persist".into())
+            StoreError::write_failed("simulated failure during the batch's persist".into())
         ))),
         "{refused:?}"
     );
@@ -476,9 +476,7 @@ fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_e
             NS,
             GraphNameRef::DefaultGraph,
             ex("emb").as_ref(),
-            query,
-            2,
-            &VectorIndexOptions::default(),
+            VectorQuery::new(query, 2, &VectorIndexOptions::default()),
             a.quads().lists().applied_ts(),
         )
     };

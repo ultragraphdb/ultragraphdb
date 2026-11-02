@@ -42,12 +42,12 @@ impl BufferPool {
         }
     }
 
-    /// A free buffer, empty, refused as [`TransportError::PoolExhausted`] when every buffer is in use.
+    /// A free buffer, empty, refused as [`TransportError::pool_exhausted`] when every buffer is in use.
     pub fn acquire(&self) -> Result<PooledBuffer, TransportError> {
         let mut state = lock(&self.state);
         match state.free.pop() {
             Some(bytes) => Ok(PooledBuffer::new(bytes, Arc::clone(&self.state))),
-            None => Err(TransportError::PoolExhausted(state.buffers)),
+            None => Err(TransportError::pool_exhausted(state.buffers)),
         }
     }
 

@@ -86,7 +86,7 @@ impl EncodedTerm {
         if rest.is_empty() {
             Ok(term)
         } else {
-            Err(TermError::Malformed(
+            Err(TermError::malformed(
                 bytes.to_vec(),
                 "bytes follow the encoding",
             ))
@@ -100,7 +100,7 @@ impl EncodedTerm {
     /// [`EncodedTerm::from_bytes`] holds the rules of length alone, for the store's own keys.
     pub fn check(bytes: &[u8]) -> Result<(), TermError> {
         let _whole: Self = Self::from_bytes(bytes)?;
-        let malformed = |reason| Err(TermError::Malformed(bytes.to_vec(), reason));
+        let malformed = |reason| Err(TermError::malformed(bytes.to_vec(), reason));
         // An inline part at `at`: its length byte, then its bytes, which the length rules proved present.
         let inline_utf8 = |at: usize| {
             let n = bytes.get(at).copied().map_or(0, usize::from);
@@ -156,7 +156,7 @@ impl EncodedTerm {
             t if tag::BIG_LANG.contains(&t) && !inline_utf8(17) => {
                 malformed("inline text that is not UTF-8")
             }
-            tag::SMALL_KNOWN | tag::BIG_KNOWN if !known(1) => Err(TermError::UnknownDatatype(
+            tag::SMALL_KNOWN | tag::BIG_KNOWN if !known(1) => Err(TermError::unknown_datatype(
                 bytes.get(1).copied().unwrap_or_default(),
             )),
             tag::SMALL_KNOWN if !inline_utf8(2) => malformed("inline text that is not UTF-8"),
@@ -227,13 +227,13 @@ impl EncodedTerm {
 
 /// The length of the encoding `bytes` begin with, read from its tag, or why none fits.
 fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
-    let truncated = || TermError::Truncated(bytes.to_vec());
+    let truncated = || TermError::truncated(bytes.to_vec());
     let at = |i: usize| bytes.get(i).copied().map(usize::from).ok_or_else(truncated);
     let first = *bytes.first().ok_or_else(truncated)?;
     let inline_len = |i: usize| -> Result<usize, TermError> {
         let n = at(i)?;
         if n > INLINE_MAX {
-            return Err(TermError::Malformed(
+            return Err(TermError::malformed(
                 bytes.to_vec(),
                 "an inline part longer than 15 bytes",
             ));
@@ -263,11 +263,11 @@ fn encoded_len(bytes: &[u8]) -> Result<usize, TermError> {
         tag::VECTOR => {
             let dimension = at(1)? | at(2)? << 8;
             if dimension == 0 {
-                return Err(TermError::Malformed(bytes.to_vec(), "an empty vector"));
+                return Err(TermError::malformed(bytes.to_vec(), "an empty vector"));
             }
             3 + 4 * dimension
         }
-        other => return Err(TermError::UnknownTag(other)),
+        other => return Err(TermError::unknown_tag(other)),
     };
     if bytes.len() < len {
         return Err(truncated());

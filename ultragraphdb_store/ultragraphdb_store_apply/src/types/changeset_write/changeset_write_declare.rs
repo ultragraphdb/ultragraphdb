@@ -52,12 +52,12 @@ where
     ) -> Result<(), ChangesetError> {
         let iri = new.predicate().as_str();
         if self.maintained.as_ref().is_some_and(|(m, _)| *m == uid) {
-            return Err(ChangesetError::Rebuilding(iri));
+            return Err(ChangesetError::rebuilding(iri));
         }
         Catalog::check_predicate(new)?;
         if let Some(spec) = new.vector_index() {
             if spec.dimension().is_none() {
-                return Err(ChangesetError::NoDimension(iri));
+                return Err(ChangesetError::no_dimension(iri));
             }
             let _index: PersistentHnsw<f32> = hnsw(
                 spec,
@@ -72,7 +72,7 @@ where
         let plan = IndexPlan::of(&old, new);
         let declared = if plan.builds() && self.holds_data(uid)? {
             if self.building {
-                return Err(ChangesetError::Rebuilding(iri));
+                return Err(ChangesetError::rebuilding(iri));
             }
             let rebuild = Rebuild::pending(self.namespace(), uid, old, new.clone());
             self.maintained = Some((uid, rebuild.maintained()));

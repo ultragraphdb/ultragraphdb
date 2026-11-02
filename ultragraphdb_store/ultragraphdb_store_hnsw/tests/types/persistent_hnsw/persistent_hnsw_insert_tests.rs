@@ -206,7 +206,7 @@ impl Txn for FailingTxn {
 
     fn get(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
         if key == self.failing.as_slice() {
-            return Err(PostingError::Store(StoreError::ReadFailed(
+            return Err(PostingError::store(StoreError::read_failed(
                 key.to_vec(),
                 "injected".into(),
             ))

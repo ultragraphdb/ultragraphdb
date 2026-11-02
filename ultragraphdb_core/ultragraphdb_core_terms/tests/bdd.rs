@@ -23,7 +23,7 @@ struct Steps {
 }
 
 fn no_uid(_: NamedNodeRef<'_>) -> Result<u64, TermError> {
-    Err(TermError::Malformed(
+    Err(TermError::malformed(
         Vec::new(),
         "a known datatype needs no UID",
     ))
@@ -47,7 +47,7 @@ impl Steps {
             .context("views")?
             .to_literal(
                 |_| {
-                    Err(TermError::Malformed(
+                    Err(TermError::malformed(
                         Vec::new(),
                         "a known datatype needs no IRI",
                     ))

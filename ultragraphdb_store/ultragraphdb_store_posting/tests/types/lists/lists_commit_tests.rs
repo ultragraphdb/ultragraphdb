@@ -141,7 +141,7 @@ fn test_a_failed_commit_stops_writes_and_the_reads_above_it() -> TestResult {
     ));
     assert_eq!(lists.applied_ts(), ok, "a failed commit is not applied");
 
-    let poisoned = PostingError::Store(StoreError::Poisoned());
+    let poisoned = PostingError::store(StoreError::poisoned());
     assert_eq!(lists.try_gate(failed_at), Err(poisoned.clone()));
     assert!(lists.try_gate(ok)?, "a read at the watermark goes ahead");
     assert_eq!(
@@ -412,7 +412,7 @@ fn assert_rounds_of_the_systems_entries_alone(
     // Below the watermark it is refused naming both, and nothing is written.
     assert_eq!(
         lists.commit_round_with(&[], system, 6),
-        Err(PostingError::StaleVersion(6, 8))
+        Err(PostingError::stale_version(6, 8))
     );
     assert_eq!(
         lists.store().get_versionless(b"session")?,
@@ -444,15 +444,15 @@ fn test_a_round_with_a_stale_version_is_refused_whole() -> TestResult {
     let writes = request.into_writes();
     let before = lists.store().contents();
     for (round, refused) in [
-        (vec![(6, &writes)], PostingError::StaleVersion(6, 6)),
-        (vec![(4, &writes)], PostingError::StaleVersion(4, 6)),
+        (vec![(6, &writes)], PostingError::stale_version(6, 6)),
+        (vec![(4, &writes)], PostingError::stale_version(4, 6)),
         (
             vec![(8, &writes), (8, &writes)],
-            PostingError::StaleVersion(8, 8),
+            PostingError::stale_version(8, 8),
         ),
         (
             vec![(10, &writes), (8, &writes)],
-            PostingError::StaleVersion(8, 10),
+            PostingError::stale_version(8, 10),
         ),
     ] {
         assert_eq!(lists.commit_round(&round), Err(refused));
@@ -488,7 +488,7 @@ fn test_a_failed_round_stops_writes_and_the_reads_above_it() -> TestResult {
             .0,
         PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
     ));
-    let poisoned = PostingError::Store(StoreError::Poisoned());
+    let poisoned = PostingError::store(StoreError::poisoned());
     assert_eq!(lists.applied_ts(), ok);
     assert_eq!(lists.try_gate(8), Err(poisoned.clone()));
     assert!(lists.try_gate(ok)?);
@@ -752,7 +752,7 @@ fn test_lists_refuse_writes_after_a_failure_whatever_the_store_says() -> TestRes
     assert!(lists.commit(batch).is_err());
     lists.store().recover();
     let before = lists.store().contents();
-    let poisoned = PostingError::Store(StoreError::Poisoned());
+    let poisoned = PostingError::store(StoreError::poisoned());
     let mut refused_batch = lists.batch();
     let mut refused_request = refused_batch.request(ok);
     refused_request

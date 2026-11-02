@@ -86,7 +86,7 @@ fn test_an_undecodable_version_is_refused_as_corrupted() -> TestResult {
     let s = dir.open()?;
     assert_eq!(
         s.get_at(b"k", 3),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             b"k".to_vec(),
             "unknown version flags 0x80".to_string()
         ))
@@ -122,21 +122,21 @@ fn test_a_stored_key_cut_short_after_its_terminator_is_refused_not_a_panic() -> 
     let s = dir.open()?;
     assert_eq!(
         s.get_at(b"j", u64::MAX),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             long,
             "stored key of 12 bytes does not end in a terminated version".to_string()
         ))
     );
     assert_eq!(
         s.get_at(b"k", u64::MAX),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             vec![b'k', 0x00, 0x01, 0x05],
             "stored key of 4 bytes does not end in a terminated version".to_string()
         ))
     );
     assert_eq!(
         s.get_at(b"", u64::MAX),
-        Err(StoreError::Corrupted(
+        Err(StoreError::corrupted(
             vec![0x00, 0x01, 0xFF],
             "stored key of 3 bytes does not end in a terminated version".to_string()
         ))

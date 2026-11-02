@@ -35,7 +35,7 @@ impl Options {
         match self.0.get(which) {
             None => Ok(None),
             Some(v) => T::from_option(v).map(Some).ok_or_else(|| {
-                OptionsError::Type(format!(
+                OptionsError::type_mismatch(format!(
                     "unable to assign a value of type {} to type {}",
                     v.go_type(),
                     T::GO_TYPE

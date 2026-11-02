@@ -157,7 +157,7 @@ fn test_a_failed_drop_advances_the_epoch_and_stops_writes() -> TestResult {
             "{name}"
         );
         assert_eq!(lists.epoch(), epoch + 1, "{name}");
-        let poisoned = Err(PostingError::Store(StoreError::Poisoned()));
+        let poisoned = Err(PostingError::store(StoreError::poisoned()));
         assert_eq!(drop(&lists, &k), poisoned, "{name}: a later drop");
         assert_eq!(
             lists.drop_all(Vec::new()),

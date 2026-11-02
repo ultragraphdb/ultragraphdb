@@ -51,8 +51,7 @@ pub struct QuadError(pub QuadErrorEnum);
 
 impl QuadError {
     /// [`QuadErrorEnum::Corrupted`] for `key`, with `reason`.
-    #[allow(non_snake_case)]
-    pub fn Corrupted(key: &[u8], reason: impl Into<String>) -> Self {
+    pub fn corrupted(key: &[u8], reason: impl Into<String>) -> Self {
         Self(QuadErrorEnum::Corrupted {
             key: key.to_vec(),
             reason: reason.into(),
@@ -60,14 +59,12 @@ impl QuadError {
     }
 
     /// [`QuadErrorEnum::Aborted`].
-    #[allow(non_snake_case)]
-    pub fn Aborted() -> Self {
+    pub fn aborted() -> Self {
         Self(QuadErrorEnum::Aborted)
     }
 
     /// [`QuadErrorEnum::UidsExhausted`] for `namespace`.
-    #[allow(non_snake_case)]
-    pub fn UidsExhausted(namespace: u64) -> Self {
+    pub fn uids_exhausted(namespace: u64) -> Self {
         Self(QuadErrorEnum::UidsExhausted { namespace })
     }
 }

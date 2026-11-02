@@ -26,10 +26,6 @@ pub enum InvariantErrorEnum {
 
 impl InvariantError {
     /// The invariant `name` does not hold.
-    #[expect(
-        non_snake_case,
-        reason = "error constructors are named for their variant (AGENTS.md, Errors)"
-    )]
     pub fn violated(name: &'static str) -> Self {
         Self(InvariantErrorEnum::Violated { name })
     }

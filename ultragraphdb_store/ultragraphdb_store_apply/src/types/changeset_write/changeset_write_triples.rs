@@ -108,7 +108,7 @@ where
             if let Some(holder) = holder {
                 let holder = self.decode(&EncodedTerm::uid(holder))?;
                 let value = self.decode(&r.object)?;
-                return Err(ChangesetError::Unique(
+                return Err(ChangesetError::unique(
                     predicate.as_str(),
                     value.to_string(),
                     holder.to_string(),

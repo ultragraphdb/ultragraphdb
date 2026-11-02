@@ -185,7 +185,7 @@ fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() -> TestRe
         out.replies(),
         &[Reply::new(
             5,
-            Err(CommitError::TooLarge(
+            Err(CommitError::too_large(
                 size,
                 crate::utils::frames::largest_record(bound as usize)
             ))
@@ -251,7 +251,7 @@ fn test_a_round_s_body_is_the_wire_s_round_body() -> TestResult {
         out.replies(),
         &[
             Reply::new(1, Ok(4)),
-            Reply::new(2, Err(CommitError::Conflict(ConflictKind::List))),
+            Reply::new(2, Err(CommitError::conflict(ConflictKind::List))),
             Reply::new(3, Ok(6)),
         ]
     );
@@ -307,7 +307,7 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() -> TestResult {
     commit(&mut step, &mut out, 3, blind(b"c")?, 0);
     step.step(Input::SyncFailed, 0, &mut out);
     let unavailable: Vec<Reply> = (1..=3)
-        .map(|t| Reply::new(t, Err(CommitError::Unavailable())))
+        .map(|t| Reply::new(t, Err(CommitError::unavailable())))
         .collect();
     assert_eq!(out.replies(), unavailable.as_slice());
     assert_eq!(out.applied(), None);
@@ -320,7 +320,7 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() -> TestResult {
     commit(&mut step, &mut out, 4, blind(b"d")?, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(4, Err(CommitError::Unavailable()))]
+        &[Reply::new(4, Err(CommitError::unavailable()))]
     );
     assert_eq!(out.append(), None);
     sync(&mut step, &mut out, 0);
@@ -350,7 +350,7 @@ fn test_the_oldest_read_prunes_and_older_reads_are_too_old() -> TestResult {
     sync(&mut step, &mut out, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(9, Err(CommitError::TooOld(2, 4)))]
+        &[Reply::new(9, Err(CommitError::too_old(2, 4)))]
     );
     // A floor above the watermark is taken as the watermark: no open transaction reads above it.
     step.step(Input::OldestRead(1_000), 0, &mut out);
@@ -381,7 +381,7 @@ fn test_a_step_opened_after_a_version_follows_it_and_holds_older_reads_too_old()
     sync(&mut step, &mut out, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(1, Err(CommitError::TooOld(50, 100)))]
+        &[Reply::new(1, Err(CommitError::too_old(50, 100)))]
     );
     sync(&mut step, &mut out, 0);
     assert_eq!(out.replies(), &[Reply::new(2, Ok(102))]);
@@ -450,7 +450,7 @@ fn test_two_runs_of_one_round_decide_alike() -> TestResult {
             version += 2;
             Reply::new(t, Ok(version))
         } else {
-            Reply::new(t, Err(CommitError::Conflict(ConflictKind::List)))
+            Reply::new(t, Err(CommitError::conflict(ConflictKind::List)))
         });
     }
     assert_eq!(first.0, expected);
@@ -481,7 +481,7 @@ fn test_a_malformed_record_and_an_unsealed_read_set_are_refused() -> TestResult 
         Err(e @ CommitError(ultragraphdb_transactions_commit::CommitErrorEnum::Malformed { .. }))
             if e.code() == ErrorCode::Protocol && e.to_string().starts_with("a write-set record is malformed")
     ));
-    assert_eq!(replies[1], Reply::new(2, Err(CommitError::Unsealed())));
+    assert_eq!(replies[1], Reply::new(2, Err(CommitError::unsealed())));
     Ok(())
 }
 
@@ -492,7 +492,7 @@ fn test_exhausted_versions_stop_the_step() -> TestResult {
     commit(&mut step, &mut out, 1, blind(b"a")?, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(1, Err(CommitError::Unavailable()))]
+        &[Reply::new(1, Err(CommitError::unavailable()))]
     );
     assert_eq!(out.append(), None);
     assert!(step.is_stopped());
@@ -538,14 +538,14 @@ fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() ->
     commit(&mut step, &mut out, 3, late(b"c")?, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(3, Err(CommitError::Unavailable()))]
+        &[Reply::new(3, Err(CommitError::unavailable()))]
     );
     sync(&mut step, &mut out, 0);
     assert_eq!(
         out.replies(),
         &[
             Reply::new(1, Ok(u64::MAX - 1)),
-            Reply::new(2, Err(CommitError::Unavailable()))
+            Reply::new(2, Err(CommitError::unavailable()))
         ]
     );
     assert_eq!(applied_versions(&out), vec![u64::MAX - 1]);
@@ -576,7 +576,7 @@ fn test_versions_exhausted_at_a_registration_refuse_it_and_stop_the_step() -> Te
         out.replies(),
         &[
             Reply::new(1, Ok(u64::MAX - 1)),
-            Reply::new(2, Err(CommitError::Unavailable()))
+            Reply::new(2, Err(CommitError::unavailable()))
         ]
     );
     assert!(step.sessions().is_empty(), "no session numbered");
@@ -714,8 +714,8 @@ fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() -> TestResult
             .context("decided")
             .map(|r| r.outcome().clone())
     };
-    assert_eq!(outcome(2)?, Err(CommitError::Conflict(ConflictKind::Drop)));
-    assert_eq!(outcome(3)?, Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(2)?, Err(CommitError::conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(3)?, Err(CommitError::conflict(ConflictKind::Drop)));
     assert_eq!(outcome(4)?, Ok(4));
     Ok(())
 }
@@ -753,9 +753,9 @@ fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_
     commit(&mut step, &mut out, 2, over, 0);
     assert_eq!(
         out.replies(),
-        &[Reply::new(2, Err(CommitError::TooLarge(261_329, 261_328)))]
+        &[Reply::new(2, Err(CommitError::too_large(261_329, 261_328)))]
     );
     assert_eq!(step.waiting(), 0);
-    assert_eq!(CommitError::TooLarge(261_329, 261_328).detail(), 261_328);
+    assert_eq!(CommitError::too_large(261_329, 261_328).detail(), 261_328);
     Ok(())
 }

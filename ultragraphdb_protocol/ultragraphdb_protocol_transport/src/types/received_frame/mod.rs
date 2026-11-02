@@ -48,8 +48,8 @@ impl ReceivedFrame {
 
     /// The frame validated in place for the connection, in `PROTOCOL.md` §2.5's order: the header and chunks
     /// ([`FrameView::validate`], or [`FrameView::validate_client`] for a client's frame), then its sequence, the one
-    /// the connection expected ([`ProtocolError::SequenceOrder`]), then its protocol, 1 in Hello and Welcome and the
-    /// connection's after them ([`ProtocolError::FieldValue`] `"protocol"`).
+    /// the connection expected ([`ProtocolError::sequence_order`]), then its protocol, 1 in Hello and Welcome and the
+    /// connection's after them ([`ProtocolError::field_value`] `"protocol"`).
     pub fn view(&self) -> Result<FrameView<'_>, ProtocolError> {
         let bytes = self.buffer.as_slice();
         let view = if self.client {
@@ -62,13 +62,13 @@ impl ReceivedFrame {
     }
 
     /// The frame's place on the connection checked from its header alone, which the framer verified (§2.5 steps 1
-    /// to 8): its sequence, the one the connection expected ([`ProtocolError::SequenceOrder`]), then its protocol
-    /// ([`ProtocolError::FieldValue`] `"protocol"`). A receiver that keeps a frame to view later checks its order on
+    /// to 8): its sequence, the one the connection expected ([`ProtocolError::sequence_order`]), then its protocol
+    /// ([`ProtocolError::field_value`] `"protocol"`). A receiver that keeps a frame to view later checks its order on
     /// arrival and its chunks when it views it, so a frame is checksummed once; [`ReceivedFrame::view`] checks both.
     pub fn check_order(&self) -> Result<(), ProtocolError> {
         let header = HeaderView::new(self.buffer.as_slice())?;
         if header.sequence() != self.sequence {
-            return Err(ProtocolError::SequenceOrder(
+            return Err(ProtocolError::sequence_order(
                 self.sequence,
                 header.sequence(),
             ));
@@ -80,7 +80,7 @@ impl ReceivedFrame {
             self.protocol
         };
         if header.protocol() != protocol {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 header.command(),
                 "protocol",
                 header.protocol().into(),

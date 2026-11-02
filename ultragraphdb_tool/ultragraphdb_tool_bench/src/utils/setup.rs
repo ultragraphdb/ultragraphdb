@@ -41,7 +41,7 @@ pub fn open_applier(
     cache_mb: u64,
 ) -> Result<Arc<BenchApplier>, BenchError> {
     if dir.exists() {
-        return Err(BenchError::Usage(format!(
+        return Err(BenchError::usage(format!(
             "{} exists; every run takes a fresh directory",
             dir.display()
         )));

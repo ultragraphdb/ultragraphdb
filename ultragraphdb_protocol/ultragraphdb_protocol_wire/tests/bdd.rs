@@ -13,12 +13,10 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_tool_bdd::{Context, TestResult};
 
-// The golden frames of the unit tests, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The golden frames of the unit tests, shared by path.
+pub mod utils {
     #[path = "golden.rs"]
     pub mod golden;
-    #[allow(dead_code)]
     #[path = "golden_bodies.rs"]
     pub mod golden_bodies;
 }

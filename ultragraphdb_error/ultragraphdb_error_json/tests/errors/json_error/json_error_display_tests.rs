@@ -12,7 +12,7 @@ use ultragraphdb_error_json::JsonError;
 #[test]
 fn test_unmarshal_type_error_message() {
     let err = |field: &str| {
-        JsonError::UnmarshalType(
+        JsonError::unmarshal_type(
             "number 5".to_string(),
             "int".to_string(),
             "Root".to_string(),
@@ -56,7 +56,7 @@ fn test_unmarshal_type_error_message() {
 
 #[test]
 fn a_type_error_at_the_root_names_the_go_value() {
-    let root = JsonError::UnmarshalType(
+    let root = JsonError::unmarshal_type(
         "string".to_string(),
         "[]interface {}".to_string(),
         String::new(),
@@ -67,7 +67,7 @@ fn a_type_error_at_the_root_names_the_go_value() {
         "json: cannot unmarshal string into Go value of type []interface {}"
     );
     // A path without a root type's name still names the field.
-    let unrooted = JsonError::UnmarshalType(
+    let unrooted = JsonError::unmarshal_type(
         "number".to_string(),
         "string".to_string(),
         String::new(),
@@ -81,10 +81,10 @@ fn a_type_error_at_the_root_names_the_go_value() {
 
 #[test]
 fn the_other_errors_are_gos_texts() {
-    assert_eq!(JsonError::Eof().to_string(), "EOF");
-    assert_eq!(JsonError::UnexpectedEof().to_string(), "unexpected EOF");
+    assert_eq!(JsonError::eof().to_string(), "EOF");
+    assert_eq!(JsonError::unexpected_eof().to_string(), "unexpected EOF");
     assert_eq!(
-        JsonError::Syntax(
+        JsonError::syntax(
             "invalid character 'x' looking for beginning of value".to_string(),
             1
         )
@@ -92,7 +92,7 @@ fn the_other_errors_are_gos_texts() {
         "invalid character 'x' looking for beginning of value"
     );
     assert_eq!(
-        JsonError::Read("broken pipe".to_string()).to_string(),
+        JsonError::read("broken pipe".to_string()).to_string(),
         "broken pipe"
     );
 }

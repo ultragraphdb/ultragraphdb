@@ -10,26 +10,26 @@ use ultragraphdb_error_log::{LogError, LogErrorEnum};
 /// The constructors of the log's state and its positions, each with the variant it builds.
 fn position_cases() -> [(LogError, LogErrorEnum); 8] {
     [
-        (LogError::NotPrimary(), LogErrorEnum::NotPrimary),
-        (LogError::Busy(8), LogErrorEnum::Busy { segments: 8 }),
-        (LogError::Sealed(9), LogErrorEnum::Sealed { position: 9 }),
+        (LogError::not_primary(), LogErrorEnum::NotPrimary),
+        (LogError::busy(8), LogErrorEnum::Busy { segments: 8 }),
+        (LogError::sealed(9), LogErrorEnum::Sealed { position: 9 }),
         (
-            LogError::Exhausted(11),
+            LogError::exhausted(11),
             LogErrorEnum::Exhausted { position: 11 },
         ),
         (
-            LogError::Truncated(5),
+            LogError::truncated(5),
             LogErrorEnum::Truncated { position: 5 },
         ),
         (
-            LogError::PositionMismatch(6, 7),
+            LogError::position_mismatch(6, 7),
             LogErrorEnum::PositionMismatch {
                 expected: 6,
                 found: 7,
             },
         ),
         (
-            LogError::ParentMismatch(6, 0xA1, 0xB2),
+            LogError::parent_mismatch(6, 0xA1, 0xB2),
             LogErrorEnum::ParentMismatch {
                 position: 6,
                 expected: 0xA1,
@@ -37,7 +37,7 @@ fn position_cases() -> [(LogError, LogErrorEnum); 8] {
             },
         ),
         (
-            LogError::TooLarge(1_048_577, 1_048_576),
+            LogError::too_large(1_048_577, 1_048_576),
             LogErrorEnum::TooLarge {
                 size: 1_048_577,
                 limit: 1_048_576,
@@ -50,7 +50,7 @@ fn position_cases() -> [(LogError, LogErrorEnum); 8] {
 fn fault_cases() -> [(LogError, LogErrorEnum); 6] {
     [
         (
-            LogError::Corrupt(2, 3, 4_096),
+            LogError::corrupt(2, 3, 4_096),
             LogErrorEnum::Corrupt {
                 position: 2,
                 segment: 3,
@@ -58,7 +58,7 @@ fn fault_cases() -> [(LogError, LogErrorEnum); 6] {
             },
         ),
         (
-            LogError::CorruptChunk(2, 3, 4_096, 5, 12_032, 16_128),
+            LogError::corrupt_chunk(2, 3, 4_096, 5, 12_032, 16_128),
             LogErrorEnum::CorruptChunk {
                 position: 2,
                 segment: 3,
@@ -69,11 +69,11 @@ fn fault_cases() -> [(LogError, LogErrorEnum); 6] {
             },
         ),
         (
-            LogError::SuperblockUnreadable('b'),
+            LogError::superblock_unreadable('b'),
             LogErrorEnum::SuperblockUnreadable { copy: 'b' },
         ),
         (
-            LogError::Diverged("cluster", 1, 2),
+            LogError::diverged("cluster", 1, 2),
             LogErrorEnum::Diverged {
                 what: "cluster",
                 expected: 1,
@@ -81,14 +81,14 @@ fn fault_cases() -> [(LogError, LogErrorEnum); 6] {
             },
         ),
         (
-            LogError::Io("write", ErrorKind::UnexpectedEof, "short"),
+            LogError::io("write", ErrorKind::UnexpectedEof, "short"),
             LogErrorEnum::Io {
                 operation: "write",
                 kind: ErrorKind::UnexpectedEof,
                 message: "short".to_string(),
             },
         ),
-        (LogError::Poisoned(), LogErrorEnum::Poisoned),
+        (LogError::poisoned(), LogErrorEnum::Poisoned),
     ]
 }
 
@@ -102,9 +102,9 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
 
 #[test]
 fn test_errors_compare_by_variant_and_values() {
-    assert_eq!(LogError::Sealed(9), LogError::Sealed(9));
-    assert_ne!(LogError::Sealed(9), LogError::Sealed(10));
-    assert_ne!(LogError::Sealed(9), LogError::Truncated(9));
-    assert_ne!(LogError::Sealed(9), LogError::Exhausted(9));
-    assert_eq!(LogError::Poisoned().clone(), LogError::Poisoned());
+    assert_eq!(LogError::sealed(9), LogError::sealed(9));
+    assert_ne!(LogError::sealed(9), LogError::sealed(10));
+    assert_ne!(LogError::sealed(9), LogError::truncated(9));
+    assert_ne!(LogError::sealed(9), LogError::exhausted(9));
+    assert_eq!(LogError::poisoned().clone(), LogError::poisoned());
 }

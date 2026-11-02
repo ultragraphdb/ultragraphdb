@@ -14,9 +14,8 @@ use ultragraphdb_transactions_txn::{
     Commit, Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
 };
 
-// The unit tests' fixture, shared by path.
-mod utils {
-    #[allow(dead_code)]
+/// The unit tests' fixture, shared by path.
+pub mod utils {
     #[path = "fixture.rs"]
     pub mod fixture;
 }
@@ -63,7 +62,7 @@ fn refused_naming_both(w: &mut Steps) {
     let (above, watermark) = (w.versions[0], w.versions[1]);
     assert_eq!(
         w.errors,
-        vec![TxnError::ReadAboveWatermark(above, watermark)]
+        vec![TxnError::read_above_watermark(above, watermark)]
     );
     let text = w.errors[0].to_string();
     assert!(text.contains(&above.to_string()), "{text}");
@@ -149,7 +148,7 @@ fn waits_eleven(w: &mut Steps) -> TestResult {
     "the commit fails with a retryable error naming the 10 s limit, and nothing it wrote is held"
 )]
 fn past_ten(w: &mut Steps) {
-    assert_eq!(w.errors, vec![TxnError::PastLimit(10_000)]);
+    assert_eq!(w.errors, vec![TxnError::past_limit(10_000)]);
     assert!(w.errors[0].is_retryable());
     assert!(w.errors[0].to_string().contains("10 s"), "{}", w.errors[0]);
     assert!(matches!(w.errors[0].0, TxnErrorEnum::PastLimit { .. }));

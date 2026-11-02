@@ -109,7 +109,7 @@ impl<A: Authenticator> ServerConnection<A> {
             }
             return self.close(
                 ErrorCode::Protocol,
-                &TransportError::StreamZero().to_string(),
+                &TransportError::stream_zero().to_string(),
             );
         }
         if self.phase == Phase::Authenticating {
@@ -269,7 +269,7 @@ impl<A: Authenticator> ServerConnection<A> {
         };
         let due = self.exchange.as_ref().map_or(0, |(_, due)| *due);
         if message.step() != due {
-            return self.refuse_connection(&ProtocolError::FieldValue(
+            return self.refuse_connection(&ProtocolError::field_value(
                 Command::Authenticate.number(),
                 "step",
                 message.step().into(),
@@ -352,7 +352,7 @@ impl<A: Authenticator> ServerConnection<A> {
             {
                 self.close(
                     ErrorCode::Protocol,
-                    &TransportError::StreamOpen(stream).to_string(),
+                    &TransportError::stream_open(stream).to_string(),
                 )
             }
             Command::Begin => {
@@ -378,7 +378,7 @@ impl<A: Authenticator> ServerConnection<A> {
             Command::Commit if transaction => request,
             Command::Commit if open => self.close(
                 ErrorCode::Protocol,
-                &TransportError::StreamOpen(stream).to_string(),
+                &TransportError::stream_open(stream).to_string(),
             ),
             Command::Commit => {
                 let opened = self.outbound.open(stream);
@@ -391,7 +391,7 @@ impl<A: Authenticator> ServerConnection<A> {
             | Command::Round
             | Command::Authenticate) => self.close(
                 ErrorCode::Protocol,
-                &TransportError::UnexpectedCommand(Command::Begin.number(), other.number())
+                &TransportError::unexpected_command(Command::Begin.number(), other.number())
                     .to_string(),
             ),
         }

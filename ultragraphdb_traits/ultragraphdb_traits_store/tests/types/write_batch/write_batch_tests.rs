@@ -65,14 +65,14 @@ fn test_check_key_sizes_covers_versionless_keys() {
     put.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
     assert_eq!(
         put.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![7; 1024]))
+        Err(StoreError::key_too_large(65_001, 65_000, vec![7; 1024]))
     );
     // A removal names its key as a put does: 44,000 bytes of `0x00 0x01` are 66,010 stored (a code per zero byte).
     let mut removal = WriteBatch::new();
     removal.remove_versionless(alternating(44_000));
     assert_eq!(
         removal.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(66_010, 65_535, dense_head()))
+        Err(StoreError::key_too_large(66_010, 65_535, dense_head()))
     );
     // Versionless keys at both limits are accepted.
     let mut within = WriteBatch::new();
@@ -90,7 +90,7 @@ fn test_check_key_sizes_reports_an_entry_before_a_versionless_key() {
     batch.push(Entry::deletion(alternating(44_000), 1));
     assert_eq!(
         batch.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(66_010, 65_535, dense_head()))
+        Err(StoreError::key_too_large(66_010, 65_535, dense_head()))
     );
 }
 
@@ -100,20 +100,20 @@ fn test_check_key_sizes_refuses_an_empty_versionless_key_put_or_removed() {
     let mut put = WriteBatch::new();
     put.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
     put.put_versionless(Vec::new(), b"v".to_vec());
-    assert_eq!(put.check_key_sizes(), Err(StoreError::EmptyKey()));
+    assert_eq!(put.check_key_sizes(), Err(StoreError::empty_key()));
     let mut removal = WriteBatch::new();
     removal.remove_versionless(Vec::new());
-    assert_eq!(removal.check_key_sizes(), Err(StoreError::EmptyKey()));
+    assert_eq!(removal.check_key_sizes(), Err(StoreError::empty_key()));
     // The first refused key is reported: the empty one before an oversized one named after it, and an oversized
     // entry before both, entries being checked first.
     let mut first = WriteBatch::new();
     first.remove_versionless(Vec::new());
     first.put_versionless(vec![7; MAX_USER_KEY_SIZE + 1], vec![]);
-    assert_eq!(first.check_key_sizes(), Err(StoreError::EmptyKey()));
+    assert_eq!(first.check_key_sizes(), Err(StoreError::empty_key()));
     first.push(Entry::put(vec![8; MAX_USER_KEY_SIZE + 1], 1, 0, vec![]));
     assert_eq!(
         first.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![8; 1024]))
+        Err(StoreError::key_too_large(65_001, 65_000, vec![8; 1024]))
     );
     // A one-byte versionless key, and an empty versioned key, are accepted.
     let mut accepted = WriteBatch::new();
@@ -180,7 +180,7 @@ fn test_check_key_sizes_checks_deletions_too() {
     batch.push(Entry::deletion(vec![1; MAX_USER_KEY_SIZE + 1], 1));
     assert_eq!(
         batch.check_key_sizes(),
-        Err(StoreError::KeyTooLarge(65_001, 65_000, vec![1; 1024]))
+        Err(StoreError::key_too_large(65_001, 65_000, vec![1; 1024]))
     );
 }
 

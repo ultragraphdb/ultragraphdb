@@ -11,54 +11,54 @@ use ultragraphdb_protocol_scram::{ScramError, ScramErrorEnum};
 fn test_each_constructor_builds_its_variant_and_names_it() {
     let cases = [
         (
-            ScramError::Malformed("nonce"),
+            ScramError::malformed("nonce"),
             ScramErrorEnum::Malformed { part: "nonce" },
             "a SCRAM message's nonce does not parse",
         ),
         (
-            ScramError::ChannelBinding(),
+            ScramError::channel_binding(),
             ScramErrorEnum::ChannelBinding,
             "channel binding is not offered without TLS",
         ),
         (
-            ScramError::Prepare(),
+            ScramError::prepare(),
             ScramErrorEnum::Prepare,
             "SASLprep refuses the text",
         ),
         (
-            ScramError::Iterations(9),
+            ScramError::iterations(9),
             ScramErrorEnum::Iterations { iterations: 9 },
             "the iteration count 9 is outside 4,096 to 10,000,000",
         ),
         (
-            ScramError::Nonce(),
+            ScramError::nonce(),
             ScramErrorEnum::Nonce,
             "the server's nonce does not extend the client's",
         ),
         (
-            ScramError::Proof(),
+            ScramError::proof(),
             ScramErrorEnum::Proof,
             "the client's proof does not verify",
         ),
         (
-            ScramError::ServerSignature(),
+            ScramError::server_signature(),
             ScramErrorEnum::ServerSignature,
             "the server's signature does not verify",
         ),
         (
-            ScramError::Server("invalid-proof"),
+            ScramError::server("invalid-proof"),
             ScramErrorEnum::Server {
                 reason: "invalid-proof".to_string(),
             },
             "the server refused: invalid-proof",
         ),
         (
-            ScramError::OutOfStep(),
+            ScramError::out_of_step(),
             ScramErrorEnum::OutOfStep,
             "a SCRAM message out of step",
         ),
         (
-            ScramError::Random("no entropy"),
+            ScramError::random("no entropy"),
             ScramErrorEnum::Random {
                 reason: "no entropy".to_string(),
             },
@@ -69,6 +69,6 @@ fn test_each_constructor_builds_its_variant_and_names_it() {
         assert_eq!(error.0, variant);
         assert_eq!(error.to_string(), text);
     }
-    let boxed: Box<dyn Error> = Box::new(ScramError::Proof());
+    let boxed: Box<dyn Error> = Box::new(ScramError::proof());
     assert!(boxed.source().is_none());
 }

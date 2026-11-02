@@ -77,7 +77,7 @@ fn test_a_welcome_within_the_range_is_taken_and_outside_it_refused() -> TestResu
                 .receive(&welcome(protocol)?)
                 .err()
                 .context("the refusal")?,
-            TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", protocol.into()))
+            TransportError::protocol(ProtocolError::field_value(2, "protocol", protocol.into()))
         );
     }
     Ok(())
@@ -91,12 +91,12 @@ fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() -> TestRes
         .frame(Header::new(CLUSTER, Command::Error).with_sequence(1))?;
     assert_eq!(
         handshake.receive(&error).err().context("the refusal")?,
-        TransportError::Refused(ErrorCode::ProtocolVersion, "above 2")
+        TransportError::refused(ErrorCode::ProtocolVersion, "above 2")
     );
     let credit = Credit::new(1).frame(Header::new(CLUSTER, Command::Credit).with_sequence(1))?;
     assert_eq!(
         handshake.receive(&credit).err().context("the refusal")?,
-        TransportError::UnexpectedCommand(2, 14)
+        TransportError::unexpected_command(2, 14)
     );
     // An Error whose code is no code of PROTOCOL.md section 9.4: 0, written over the command header's `code` and the
     // checksum renewed by stamping the sequence again.
@@ -105,7 +105,7 @@ fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() -> TestRes
     Header::stamp_sequence(&mut unknown, 1)?;
     assert_eq!(
         handshake.receive(&unknown).err().context("the refusal")?,
-        TransportError::Protocol(ProtocolError::FieldValue(16, "code", 0))
+        TransportError::protocol(ProtocolError::field_value(16, "code", 0))
     );
     Ok(())
 }
@@ -127,7 +127,7 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
         ClientHandshake::new(CLUSTER + 1, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
     assert_eq!(
         foreign.receive(&welcome(1)?).err().context("the refusal")?,
-        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER + 1, CLUSTER))
+        TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER + 1, CLUSTER))
     );
     // A Welcome breaking its own rule: `max_streams` 0, where at least 1 is due (PROTOCOL.md section 5.2).
     let no_streams = Welcome::new(1, 9, "s")
@@ -140,7 +140,7 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
             .receive(&no_streams)
             .err()
             .context("the refusal")?,
-        TransportError::Protocol(ProtocolError::FieldValue(2, "max_streams", 0))
+        TransportError::protocol(ProtocolError::field_value(2, "max_streams", 0))
     );
     Ok(())
 }
@@ -155,7 +155,7 @@ fn test_an_answer_not_numbered_one_is_out_of_sequence() -> TestResult {
                 .receive(&welcome_numbered(1, sequence)?)
                 .err()
                 .context("the refusal")?,
-            TransportError::Protocol(ProtocolError::SequenceOrder(1, sequence))
+            TransportError::protocol(ProtocolError::sequence_order(1, sequence))
         );
     }
     assert_eq!(handshake.receive(&welcome(1)?)?.protocol(), 1);

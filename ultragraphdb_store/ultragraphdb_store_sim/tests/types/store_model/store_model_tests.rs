@@ -250,7 +250,7 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() -> TestResult {
             .invariant(),
         Invariant::ReadsAtOrBelowTimestamp
     );
-    let failed = StoreError::ReadFailed(b"b".to_vec(), "x".into());
+    let failed = StoreError::read_failed(b"b".to_vec(), "x".into());
     let cut = OpRecord::Scanned {
         id: 0,
         scan: Scan::prefix(Vec::new()),
@@ -260,7 +260,7 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() -> TestResult {
     let corrupted = OpRecord::Read {
         id: 0,
         key: b"a".to_vec(),
-        result: Err(StoreError::Corrupted(b"a".to_vec(), "x".into())),
+        result: Err(StoreError::corrupted(b"a".to_vec(), "x".into())),
     };
     let breach = model.observe(&[corrupted]).err().context("an error")?;
     assert_eq!(
@@ -279,13 +279,13 @@ fn test_a_snapshot_below_the_discard_timestamp_breaks_its_invariant() -> TestRes
     model.observe(&[OpRecord::DiscardSet { ts: 5 }])?;
     model.observe(&[OpRecord::SnapshotRefused {
         read_ts: 4,
-        error: StoreError::TsTooOld(),
+        error: StoreError::ts_too_old(),
     }])?;
     // At the discard timestamp and above it, a snapshot opens: refusing one there breaks the invariant.
     for read_ts in [5, 6] {
         let wrongly = OpRecord::SnapshotRefused {
             read_ts,
-            error: StoreError::TsTooOld(),
+            error: StoreError::ts_too_old(),
         };
         let breach = model
             .clone()
@@ -618,7 +618,7 @@ fn test_a_recovery_at_a_wrong_applied_timestamp_breaks_its_invariant() -> TestRe
 fn test_a_snapshot_refused_without_cause_breaks_its_invariant() -> TestResult {
     let poisoned = |read_ts| OpRecord::SnapshotRefused {
         read_ts,
-        error: StoreError::Poisoned(),
+        error: StoreError::poisoned(),
     };
     let breach = StoreModel::new()
         .observe(&[poisoned(3)])
@@ -636,7 +636,7 @@ fn test_a_snapshot_refused_without_cause_breaks_its_invariant() -> TestResult {
         .context("a store whose process is down refuses snapshots")?;
     let other = OpRecord::SnapshotRefused {
         read_ts: 3,
-        error: StoreError::Unsupported("snapshots"),
+        error: StoreError::unsupported("snapshots"),
     };
     let other_breach = StoreModel::new()
         .observe(&[other])
@@ -665,7 +665,10 @@ fn test_reads_fail_only_as_the_faults_allow() -> TestResult {
         .observe(&[
             read(b"a", Ok(Some(a.clone()))),
             read(b"b", Ok(None)),
-            read(b"a", Err(StoreError::ReadFailed(b"a".to_vec(), "x".into()))),
+            read(
+                b"a",
+                Err(StoreError::read_failed(b"a".to_vec(), "x".into())),
+            ),
             OpRecord::ReadMany {
                 id: 0,
                 keys: vec![b"a".to_vec(), b"b".to_vec()],
@@ -674,7 +677,7 @@ fn test_reads_fail_only_as_the_faults_allow() -> TestResult {
             OpRecord::ReadMany {
                 id: 0,
                 keys: vec![b"a".to_vec()],
-                result: Err(StoreError::ReadFailed(b"a".to_vec(), "x".into())),
+                result: Err(StoreError::read_failed(b"a".to_vec(), "x".into())),
             },
         ])
         .context("right items and drawn failures")?;
@@ -704,7 +707,7 @@ fn test_reads_fail_only_as_the_faults_allow() -> TestResult {
                 version: 1,
                 corruption: ultragraphdb_store_sim::Corruption::Truncate,
             },
-            read(b"a", Err(StoreError::Corrupted(b"a".to_vec(), "x".into()))),
+            read(b"a", Err(StoreError::corrupted(b"a".to_vec(), "x".into()))),
             OpRecord::Corrupted {
                 key: b"a".to_vec(),
                 version: 1,
@@ -745,14 +748,14 @@ fn assert_wrong_failures_break_reads(model: &StoreModel) -> TestResult {
     };
     let wrong = [
         (
-            read(b"a", Err(StoreError::Unsupported("reads"))),
+            read(b"a", Err(StoreError::unsupported("reads"))),
             "a read of 61 failed with The store does not support reads",
         ),
         (
             OpRecord::ReadMany {
                 id: 0,
                 keys: vec![b"a".to_vec(), b"b".to_vec()],
-                result: Err(StoreError::Corrupted(b"b".to_vec(), "x".into())),
+                result: Err(StoreError::corrupted(b"b".to_vec(), "x".into())),
             },
             "a read of 61, 62 failed with Corrupted value of key 62: x",
         ),
@@ -932,7 +935,7 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() -> TestResult {
                 let stopped = store.drop_prefixes(2, &[b"p".to_vec()], Vec::new());
                 assert_eq!(
                     stopped,
-                    Err(StoreError::WriteFailed(format!(
+                    Err(StoreError::write_failed(format!(
                         "simulated {} during a drop",
                         if power_loss {
                             "power loss"
@@ -1056,7 +1059,7 @@ fn test_a_snapshot_opened_before_a_drop_reads_the_corrupted_version_the_drop_rem
         read,
         vec![
             Ok(Item::new(key.clone(), 2, 0x08, true, b"rolled".to_vec())),
-            Err(StoreError::Corrupted(
+            Err(StoreError::corrupted(
                 key.clone(),
                 "value too short to hold the version prefix".to_string()
             )),
@@ -1073,7 +1076,7 @@ fn test_a_snapshot_keeps_its_taint_through_a_drop() -> TestResult {
     let corrupted = |id| OpRecord::Read {
         id,
         key: b"a".to_vec(),
-        result: Err(StoreError::Corrupted(b"a".to_vec(), "x".into())),
+        result: Err(StoreError::corrupted(b"a".to_vec(), "x".into())),
     };
     let mut model = StoreModel::new();
     model
@@ -1121,7 +1124,7 @@ fn truncated(key: &[u8], version: u64) -> OpRecord {
 
 /// The error a read of a truncated version of `key` fails with.
 fn undecodable(key: &[u8]) -> StoreError {
-    StoreError::Corrupted(
+    StoreError::corrupted(
         key.to_vec(),
         "value too short to hold the version prefix".to_string(),
     )
@@ -1206,7 +1209,7 @@ fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() -> TestRes
 fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() -> TestResult {
     let a1 = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let flipped = Item::new(b"b".to_vec(), 1, 0x04, false, vec![!1]);
-    let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
+    let failed = |key: &[u8]| StoreError::read_failed(key.to_vec(), "x".into());
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
         key: key.to_vec(),
@@ -1272,7 +1275,7 @@ fn assert_changed_answers_break_repeats(
     a1: &Item,
     flipped: &Item,
 ) -> TestResult {
-    let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
+    let failed = |key: &[u8]| StoreError::read_failed(key.to_vec(), "x".into());
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
         key: key.to_vec(),
@@ -1610,7 +1613,7 @@ fn test_a_scan_failing_as_corrupted_without_cause_names_its_key() -> TestResult 
         .observe(&[OpRecord::Scanned {
             id: 0,
             scan: Scan::prefix(Vec::new()),
-            items: vec![Ok(a), Err(StoreError::Corrupted(b"b".to_vec(), "x".into()))],
+            items: vec![Ok(a), Err(StoreError::corrupted(b"b".to_vec(), "x".into()))],
         }])
         .err()
         .context("an error")?;
@@ -1735,7 +1738,7 @@ fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() -> TestResult
     let many = OpRecord::ReadMany {
         id: 0,
         keys: vec![b"b".to_vec()],
-        result: Err(StoreError::Corrupted(b"b".to_vec(), "x".into())),
+        result: Err(StoreError::corrupted(b"b".to_vec(), "x".into())),
     };
     for (first, then) in [(point.clone(), many.clone()), (many, point)] {
         let mut model = StoreModel::new();

@@ -187,7 +187,7 @@ fn test_an_undecodable_item_survives_compaction() -> TestResult {
         versions,
         vec![
             Ok(Item::new(b"k".to_vec(), 5, 0x08, true, b"c".to_vec())),
-            Err(StoreError::Corrupted(
+            Err(StoreError::corrupted(
                 b"k".to_vec(),
                 "value too short to hold the version prefix".to_string()
             )),
@@ -224,7 +224,7 @@ fn test_an_open_reader_holds_the_discard_timestamp_back() -> TestResult {
     );
     drop(reader);
     assert_eq!(s.discard_ts(), 6);
-    assert_eq!(s.snapshot(3).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(3).err(), Some(StoreError::ts_too_old()));
     s.compact()?;
     assert_eq!(held(&s, b"k")?, vec![(5, false)]);
     Ok(())
@@ -319,7 +319,7 @@ fn test_an_open_snapshot_reads_the_undecodable_version_a_later_drop_removes() ->
         reader.versions(b"pk").collect::<Vec<_>>(),
         vec![
             Ok(Item::new(b"pk".to_vec(), 2, 0x08, true, b"rolled".to_vec())),
-            Err(StoreError::Corrupted(
+            Err(StoreError::corrupted(
                 b"pk".to_vec(),
                 "value too short to hold the version prefix".to_string()
             )),
@@ -330,7 +330,7 @@ fn test_an_open_snapshot_reads_the_undecodable_version_a_later_drop_removes() ->
 }
 
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the readers run on threads beside the writer, as the production store's readers do"
 )]

@@ -163,7 +163,7 @@ fn assert_cut_short(c: &mut Conn, stream: &ResultStream, lost: &ClientError) -> 
     );
     assert_eq!(
         c.batch(stream).err().context("an error")?,
-        ClientError::StreamFinished(stream.stream()),
+        ClientError::stream_finished(stream.stream()),
         "given once, as a refusal ends a read"
     );
     Ok(())
@@ -172,8 +172,8 @@ fn assert_cut_short(c: &mut Conn, stream: &ResultStream, lost: &ClientError) -> 
 #[test]
 fn test_a_read_cut_short_by_a_plain_loss_fails_as_lost_without_a_cause() -> TestResult {
     let (mut c, stream, p) = reading()?;
-    c.core.disconnected(TransportError::Closed(), start());
-    let lost = ClientError::ConnectionLost(None);
+    c.core.disconnected(TransportError::closed(), start());
+    let lost = ClientError::connection_lost(None);
     assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
     assert_cut_short(&mut c, &stream, &lost)?;
     Ok(())
@@ -183,9 +183,9 @@ fn test_a_read_cut_short_by_a_plain_loss_fails_as_lost_without_a_cause() -> Test
 fn test_a_framer_refusal_is_the_cause_of_every_loss() -> TestResult {
     let (mut c, stream, p) = reading()?;
     // A header the framer refuses: of another cluster (`PROTOCOL.md` §2.5 step 2).
-    let refusal = TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, 7));
+    let refusal = TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER, 7));
     c.core.disconnected(refusal.clone(), start());
-    let lost = ClientError::ConnectionLost(Some(ClientError::Transport(refusal)));
+    let lost = ClientError::connection_lost(Some(ClientError::transport(refusal)));
     assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
     assert_cut_short(&mut c, &stream, &lost)?;
     Ok(())
@@ -194,9 +194,9 @@ fn test_a_framer_refusal_is_the_cause_of_every_loss() -> TestResult {
 #[test]
 fn test_a_truncated_frame_is_the_cause_of_every_loss() -> TestResult {
     let (mut c, stream, p) = reading()?;
-    let cut = TransportError::Truncated(100, 256);
+    let cut = TransportError::truncated(100, 256);
     c.core.disconnected(cut.clone(), start());
-    let lost = ClientError::ConnectionLost(Some(ClientError::Transport(cut)));
+    let lost = ClientError::connection_lost(Some(ClientError::transport(cut)));
     assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
     assert_cut_short(&mut c, &stream, &lost)?;
     Ok(())
@@ -214,8 +214,8 @@ fn test_the_rule_a_frame_broke_is_the_cause_of_every_loss() -> TestResult {
         .err()
         .context("refused by a rule")?;
     let refused = c.deliver(&bad[..])?.err().context("refused")?;
-    assert_eq!(refused, ClientError::Protocol(rule.clone()));
-    let lost = ClientError::ConnectionLost(Some(ClientError::Protocol(rule)));
+    assert_eq!(refused, ClientError::protocol(rule.clone()));
+    let lost = ClientError::connection_lost(Some(ClientError::protocol(rule)));
     assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
     assert_cut_short(&mut c, &stream, &lost)?;
     Ok(())
@@ -228,9 +228,9 @@ fn test_the_servers_closing_error_is_the_cause_of_every_loss() -> TestResult {
         .frame(Header::new(CLUSTER, Command::Error).with_flags(1))?;
     assert_eq!(
         c.deliver(&closing)?.err().context("an error")?,
-        ClientError::Closed(ErrorCode::Protocol, "bye")
+        ClientError::closed(ErrorCode::Protocol, "bye")
     );
-    let lost = ClientError::ConnectionLost(Some(ClientError::Closed(ErrorCode::Protocol, "bye")));
+    let lost = ClientError::connection_lost(Some(ClientError::closed(ErrorCode::Protocol, "bye")));
     assert_eq!(c.core.take_reply(p), Some(Err(lost.clone())));
     assert_cut_short(&mut c, &stream, &lost)?;
     Ok(())
@@ -239,9 +239,9 @@ fn test_the_servers_closing_error_is_the_cause_of_every_loss() -> TestResult {
 #[test]
 fn test_a_read_cut_short_answers_its_loss_after_the_next_connection_opened() -> TestResult {
     let (mut c, stream, _) = reading()?;
-    c.core.disconnected(TransportError::Closed(), start());
+    c.core.disconnected(TransportError::closed(), start());
     c.connect()?;
-    assert_cut_short_connected(&mut c, &stream, &ClientError::ConnectionLost(None))?;
+    assert_cut_short_connected(&mut c, &stream, &ClientError::connection_lost(None))?;
     Ok(())
 }
 
@@ -253,7 +253,7 @@ fn assert_cut_short_connected(
     assert_eq!(c.batch(stream).err().context("an error")?, *lost);
     assert_eq!(
         c.batch(stream).err().context("an error")?,
-        ClientError::StreamFinished(stream.stream())
+        ClientError::stream_finished(stream.stream())
     );
     assert!(c.core.is_ready(), "the new connection is not given up");
     Ok(())
@@ -264,8 +264,8 @@ fn test_a_read_timed_out_answers_as_its_requests_do() -> TestResult {
     let (mut c, stream, p) = reading()?;
     let at = start() + Duration::from_secs(5);
     c.core.handle_timeout(at);
-    assert_eq!(c.core.take_reply(p), Some(Err(ClientError::TimedOut())));
-    assert_cut_short(&mut c, &stream, &ClientError::TimedOut())?;
+    assert_eq!(c.core.take_reply(p), Some(Err(ClientError::timed_out())));
+    assert_cut_short(&mut c, &stream, &ClientError::timed_out())?;
     Ok(())
 }
 
@@ -276,7 +276,7 @@ fn test_a_read_whose_last_frame_arrived_reads_to_its_end_after_the_loss() -> Tes
     let stream = c.read(&tx)?;
     c.result(&stream, false)?;
     c.result(&stream, true)?;
-    c.core.disconnected(TransportError::Closed(), start());
+    c.core.disconnected(TransportError::closed(), start());
     assert!(matches!(c.batch(&stream), Ok(BatchPoll::Batch(3))));
     assert!(matches!(c.batch(&stream), Ok(BatchPoll::Batch(3))));
     assert!(matches!(c.batch(&stream), Ok(BatchPoll::Done)));
@@ -292,13 +292,13 @@ fn test_a_read_that_ended_normally_answers_stream_finished() -> TestResult {
     c.core.abort(tx)?;
     assert_eq!(
         c.batch(&stream).err().context("an error")?,
-        ClientError::StreamFinished(stream.stream()),
+        ClientError::stream_finished(stream.stream()),
         "its transaction ended"
     );
-    c.core.disconnected(TransportError::Closed(), start());
+    c.core.disconnected(TransportError::closed(), start());
     assert_eq!(
         c.batch(&stream).err().context("an error")?,
-        ClientError::StreamFinished(stream.stream()),
+        ClientError::stream_finished(stream.stream()),
         "ended before the loss"
     );
     Ok(())
@@ -310,10 +310,10 @@ fn test_a_cancelled_read_is_not_lost_with_its_connection() -> TestResult {
     let tx = c.begin(true)?;
     let stream = c.read(&tx)?;
     c.core.cancel(stream);
-    c.core.disconnected(TransportError::Closed(), start());
+    c.core.disconnected(TransportError::closed(), start());
     assert_eq!(
         c.batch(&stream).err().context("an error")?,
-        ClientError::StreamFinished(stream.stream())
+        ClientError::stream_finished(stream.stream())
     );
     Ok(())
 }
@@ -321,7 +321,7 @@ fn test_a_cancelled_read_is_not_lost_with_its_connection() -> TestResult {
 #[test]
 fn test_the_cause_is_the_losss_source() -> TestResult {
     let (mut c, _, p) = reading()?;
-    let cut = TransportError::Truncated(100, 256);
+    let cut = TransportError::truncated(100, 256);
     c.core.disconnected(cut.clone(), start());
     let lost = c
         .core
@@ -332,7 +332,7 @@ fn test_the_cause_is_the_losss_source() -> TestResult {
     let source = lost.source().context("a source")?;
     assert_eq!(
         source.downcast_ref::<ClientError>(),
-        Some(&ClientError::Transport(cut))
+        Some(&ClientError::transport(cut))
     );
     Ok(())
 }

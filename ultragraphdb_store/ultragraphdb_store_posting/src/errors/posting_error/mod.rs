@@ -81,32 +81,27 @@ pub enum PostingErrorEnum {
 
 impl PostingError {
     /// The store's `error`.
-    #[allow(non_snake_case)]
-    pub fn Store(error: StoreError) -> Self {
+    pub fn store(error: StoreError) -> Self {
         Self(PostingErrorEnum::Store(error))
     }
 
     /// A `key` of no list keyspace.
-    #[allow(non_snake_case)]
-    pub fn NotAList(key: &[u8]) -> Self {
+    pub fn not_a_list(key: &[u8]) -> Self {
         Self(PostingErrorEnum::NotAList { key: key.to_vec() })
     }
 
     /// A split part's key read as a posting list.
-    #[allow(non_snake_case)]
-    pub fn InvalidKey() -> Self {
+    pub fn invalid_key() -> Self {
         Self(PostingErrorEnum::InvalidKey)
     }
 
     /// A read below the timestamp a list can answer.
-    #[allow(non_snake_case)]
-    pub fn TsTooOld() -> Self {
+    pub fn ts_too_old() -> Self {
         Self(PostingErrorEnum::TsTooOld)
     }
 
     /// A read at `read_ts` below `min_ts`, the complete version of the list at `key`.
-    #[allow(non_snake_case)]
-    pub fn ReadBelowMinTs(read_ts: u64, min_ts: u64, key: Vec<u8>) -> Self {
+    pub fn read_below_min_ts(read_ts: u64, min_ts: u64, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::ReadBelowMinTs {
             read_ts,
             min_ts,
@@ -115,8 +110,7 @@ impl PostingError {
     }
 
     /// A delete-all marker at `delete_below_ts` below `min_ts`, the list's complete version.
-    #[allow(non_snake_case)]
-    pub fn DeleteBelowMinTs(delete_below_ts: u64, min_ts: u64) -> Self {
+    pub fn delete_below_min_ts(delete_below_ts: u64, min_ts: u64) -> Self {
         Self(PostingErrorEnum::DeleteBelowMinTs {
             delete_below_ts,
             min_ts,
@@ -124,37 +118,32 @@ impl PostingError {
     }
 
     /// A schema or type entry at `key` read as a posting list.
-    #[allow(non_snake_case)]
-    pub fn SchemaPosting(key: Vec<u8>) -> Self {
+    pub fn schema_posting(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::SchemaPosting { key })
     }
 
     /// A version of the list at `key` whose meta byte `meta` is no posting kind.
-    #[allow(non_snake_case)]
-    pub fn UnexpectedMeta(meta: u8, key: Vec<u8>) -> Self {
+    pub fn unexpected_meta(meta: u8, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::UnexpectedMeta { meta, key })
     }
 
     /// A part at `key` a split list records and the store lacks.
-    #[allow(non_snake_case)]
-    pub fn MissingPart(key: Vec<u8>) -> Self {
+    pub fn missing_part(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::MissingPart { key })
     }
 
     /// A rollup cancelled because rollups are paused.
-    #[allow(non_snake_case)]
-    pub fn HighPriorityOp() -> Self {
+    pub fn high_priority_op() -> Self {
         Self(PostingErrorEnum::HighPriorityOp)
     }
 
     /// A commit `version` at or below `after`, the version before it.
-    #[allow(non_snake_case)]
-    pub fn StaleVersion(version: u64, after: u64) -> Self {
+    pub fn stale_version(version: u64, after: u64) -> Self {
         Self(PostingErrorEnum::StaleVersion { version, after })
     }
 
     /// A stored value of `key` the decoder refuses, as the store's `Corrupted`.
     pub fn corrupted(key: &[u8], reason: impl Into<String>) -> Self {
-        Self::Store(StoreError::Corrupted(key.to_vec(), reason.into()))
+        Self::store(StoreError::corrupted(key.to_vec(), reason.into()))
     }
 }

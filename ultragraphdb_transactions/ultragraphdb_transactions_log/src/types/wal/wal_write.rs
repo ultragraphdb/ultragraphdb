@@ -51,7 +51,7 @@ impl<S: DurableStorage> Wal<S> {
             .map(|entry| entry.checksum)
         else {
             // Every committed round above the checkpoint is indexed.
-            return Err(LogError::PositionMismatch(
+            return Err(LogError::position_mismatch(
                 self.committed.0.get(),
                 position.get(),
             ));

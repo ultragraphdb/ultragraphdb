@@ -211,7 +211,9 @@ impl CanonicalDataset {
                 .filter(|h| h.graph == *graph)
                 .flat_map(|h| h.records.iter_mut())
                 .find(|r| r.id == Some(*id))
-                .ok_or_else(|| MappingError::NoSuchStatement(format!("{} in {graph}", id.value()))),
+                .ok_or_else(|| {
+                    MappingError::no_such_statement(format!("{} in {graph}", id.value()))
+                }),
             StatementRef::Triple {
                 graph,
                 subject,
@@ -222,10 +224,10 @@ impl CanonicalDataset {
                 let held = self
                     .triples
                     .get_mut(&text)
-                    .ok_or_else(|| MappingError::NoSuchStatement(text.clone()))?;
+                    .ok_or_else(|| MappingError::no_such_statement(text.clone()))?;
                 match held.records.as_mut_slice() {
                     [one] => Ok(one),
-                    _ => Err(MappingError::AmbiguousStatement(text)),
+                    _ => Err(MappingError::ambiguous_statement(text)),
                 }
             }
         }
@@ -234,7 +236,7 @@ impl CanonicalDataset {
 
 fn refuse_triple_term(object: &Term) -> Result<(), MappingError> {
     match object {
-        Term::Triple(t) => Err(MappingError::UnsupportedObject(t.to_string())),
+        Term::Triple(t) => Err(MappingError::unsupported_object(t.to_string())),
         Term::NamedNode(_) | Term::BlankNode(_) | Term::Literal(_) => Ok(()),
     }
 }

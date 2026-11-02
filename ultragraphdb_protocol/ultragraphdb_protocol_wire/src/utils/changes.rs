@@ -278,7 +278,7 @@ impl Run<'_> {
     }
 
     fn mismatch(&self, expected: usize) -> ProtocolError {
-        ProtocolError::CountMismatch(
+        ProtocolError::count_mismatch(
             self.command,
             "change args",
             self.run.len() as u64,
@@ -291,7 +291,7 @@ impl Run<'_> {
         if value < limit {
             Ok(())
         } else {
-            Err(ProtocolError::IndexOutOfRange(
+            Err(ProtocolError::index_out_of_range(
                 self.command,
                 self.section,
                 self.base + i,
@@ -429,14 +429,14 @@ impl Record {
             (INSERT..=RELATION).contains(&self.kind)
         };
         if !known {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "change kind",
                 self.kind.into(),
             ));
         }
         if declarations_only && self.kind < last_kind {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "declaration order",
                 self.kind.into(),
@@ -445,21 +445,21 @@ impl Record {
         let flags_invalid = self.flags & !allowed_flags(self.kind) != 0
             || (self.kind == PREDICATE && self.flags & 0b11 == 0b11);
         if flags_invalid {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "flags",
                 self.flags.into(),
             ));
         }
         if self.zero != 0 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "change record",
                 self.zero.into(),
             ));
         }
         if self.extra != 0 && !(declarations_only && self.kind == ENTITY_TYPE) {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "extra",
                 self.extra.into(),
@@ -491,7 +491,7 @@ pub(crate) fn check_records(
         r.check_fields(command, declarations_only, last_kind)?;
         last_kind = r.kind;
         if r.start as usize != next {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 command,
                 "args_start",
                 r.start.into(),
@@ -499,7 +499,7 @@ pub(crate) fn check_records(
         }
         let end = next.saturating_add(r.len as usize);
         let run = args.get(next..end).ok_or_else(|| {
-            ProtocolError::CountMismatch(command, "args", args.len() as u64, end as u64)
+            ProtocolError::count_mismatch(command, "args", args.len() as u64, end as u64)
         })?;
         Run {
             command,
@@ -513,7 +513,7 @@ pub(crate) fn check_records(
         next = end;
     }
     if next != args.len() {
-        return Err(ProtocolError::CountMismatch(
+        return Err(ProtocolError::count_mismatch(
             command,
             "args",
             args.len() as u64,

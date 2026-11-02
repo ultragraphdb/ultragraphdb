@@ -86,7 +86,7 @@ fn test_snapshot_numbers_count_up_across_recoveries() -> TestResult {
 }
 
 fn truncated(key: &[u8]) -> StoreError {
-    StoreError::Corrupted(
+    StoreError::corrupted(
         key.to_vec(),
         "value too short to hold the version prefix".to_string(),
     )

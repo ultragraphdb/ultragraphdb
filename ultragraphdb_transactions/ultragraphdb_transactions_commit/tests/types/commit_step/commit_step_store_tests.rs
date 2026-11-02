@@ -88,7 +88,7 @@ fn test_write_skew_is_refused() -> TestResult {
     assert_eq!(driver.reply(1).context("decided")?.outcome(), &Ok(base + 2));
     assert_eq!(
         driver.reply(2).context("decided")?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::List))
+        &Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(held(&applier, "alice", "on-call")?, vec![literal("false")]);
     assert_eq!(held(&applier, "bob", "on-call")?, vec![literal("true")]);
@@ -120,7 +120,7 @@ fn test_inserts_of_one_new_statement_conflict_and_of_different_objects_do_not() 
     assert_eq!(driver.reply(1).context("decided")?.outcome(), &Ok(base + 4));
     assert_eq!(
         driver.reply(2).context("decided")?.outcome(),
-        &Err(CommitError::Conflict(ConflictKind::AbsentTerm))
+        &Err(CommitError::conflict(ConflictKind::AbsentTerm))
     );
     assert_eq!(held(&applier, "a", "knows")?.len(), 3);
     Ok(())
@@ -152,7 +152,7 @@ fn test_an_aborted_transaction_gives_its_buffers_back() -> TestResult {
     driver.sync()?;
     assert_eq!(
         driver.reply(2).map(|r| r.outcome().clone()),
-        Some(Err(CommitError::Conflict(ConflictKind::List)))
+        Some(Err(CommitError::conflict(ConflictKind::List)))
     );
     assert_eq!(driver.released.len(), 1);
     let (ticket, back) = driver.released.pop().context("released")?;
@@ -313,7 +313,7 @@ fn test_a_round_closes_after_a_drop() -> TestResult {
     assert_eq!(reply(2)?, Ok(6), "the drop takes its round's last version");
     // The drop writes `p`'s catalog entry, inside the namespace's catalog range every transaction of it reads: one
     // that read below the drop aborts as a catalog change aborts it, and its retry commits.
-    assert_eq!(reply(3)?, Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(reply(3)?, Err(CommitError::conflict(ConflictKind::Drop)));
     assert!(held(&applier, "a", "p")?.is_empty());
     let mut retry = begin(&applier)?;
     write(&mut retry, vec![insert("z", "knows", "y")])?;

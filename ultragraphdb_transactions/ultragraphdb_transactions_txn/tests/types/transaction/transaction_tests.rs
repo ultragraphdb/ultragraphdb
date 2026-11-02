@@ -80,7 +80,7 @@ fn test_a_version_above_the_watermark_is_refused_at_once_naming_both() -> TestRe
         );
         assert_eq!(
             refused.err(),
-            Some(TxnError::ReadAboveWatermark(above, watermark))
+            Some(TxnError::read_above_watermark(above, watermark))
         );
     }
     // The worker goes on: the next transaction begins and reads.
@@ -234,7 +234,7 @@ fn test_a_read_only_transaction_ends_on_its_worker_and_refuses_writes() -> TestR
     let mut txn = begin(&applier, Mode::ReadOnly)?;
     assert_eq!(
         txn.write(&changeset(vec![insert("a", "knows", "b")]), 0),
-        Err(TxnError::ReadOnly())
+        Err(TxnError::read_only())
     );
     assert!(!txn.is_ended(), "a refused write leaves it as it was");
     assert!(objects(&mut txn, "a", "knows", 0)?.is_empty());
@@ -249,7 +249,7 @@ fn test_a_changeset_of_another_namespace_is_refused_and_leaves_the_transaction_a
     let applier = applier()?;
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     let other = Changeset::new(3).with(insert("a", "knows", "b"));
-    assert_eq!(txn.write(&other, 0), Err(TxnError::Namespace(NS, 3)));
+    assert_eq!(txn.write(&other, 0), Err(TxnError::namespace(NS, 3)));
     assert!(!txn.is_ended());
     txn.write(&changeset(vec![insert("a", "knows", "c")]), 0)?;
     assert_eq!(
@@ -284,10 +284,10 @@ fn test_a_refused_changeset_ends_the_transaction() -> TestResult {
     assert!(txn.is_ended());
     assert_eq!(
         txn.write(&changeset(vec![insert("a", "knows", "b")]), 0),
-        Err(TxnError::Ended())
+        Err(TxnError::ended())
     );
-    assert_eq!(objects(&mut txn, "a", "knows", 0), Err(TxnError::Ended()));
-    assert!(matches!(txn.commit(1, 1, &[], 0), Err(e) if e == TxnError::Ended()));
+    assert_eq!(objects(&mut txn, "a", "knows", 0), Err(TxnError::ended()));
+    assert!(matches!(txn.commit(1, 1, &[], 0), Err(e) if e == TxnError::ended()));
     Ok(())
 }
 
@@ -315,18 +315,18 @@ fn test_one_microsecond_past_the_limit_refuses_each_request_and_ends_the_transac
     let mut txn = begin(&applier, Mode::ReadWrite)?;
     assert_eq!(
         txn.write(&changeset(vec![insert("a", "knows", "b")]), past),
-        Err(TxnError::PastLimit(10_000))
+        Err(TxnError::past_limit(10_000))
     );
     assert!(txn.is_ended());
     assert_eq!(
         objects(&mut txn, "a", "knows", past),
-        Err(TxnError::Ended())
+        Err(TxnError::ended())
     );
 
     let mut reading = begin(&applier, Mode::ReadWrite)?;
     assert_eq!(
         objects(&mut reading, "a", "knows", past),
-        Err(TxnError::PastLimit(10_000))
+        Err(TxnError::past_limit(10_000))
     );
     assert!(reading.is_ended());
 
@@ -336,7 +336,7 @@ fn test_one_microsecond_past_the_limit_refuses_each_request_and_ends_the_transac
         .commit(1, 1, &[], past)
         .err()
         .context("the call fails")?;
-    assert_eq!(error, TxnError::PastLimit(10_000));
+    assert_eq!(error, TxnError::past_limit(10_000));
     assert!(error.is_retryable());
     assert!(held(&applier, "a", "knows")?.is_empty());
     Ok(())
@@ -358,7 +358,7 @@ fn test_a_read_only_transaction_lives_sixteen_seconds() -> TestResult {
             .commit(0, 0, &[], 16 * SECOND + 1)
             .err()
             .context("the call fails")?,
-        TxnError::PastLimit(16_000)
+        TxnError::past_limit(16_000)
     );
     Ok(())
 }
@@ -382,7 +382,7 @@ fn test_the_limits_are_settings_and_count_from_the_transactions_begin() -> TestR
     read_objects(&mut txn, "a", "knows", began + 1_500_000)?;
     assert_eq!(
         objects(&mut txn, "a", "knows", began + 1_500_001),
-        Err(TxnError::PastLimit(1_500))
+        Err(TxnError::past_limit(1_500))
     );
     let mut read_only = Transaction::begin(
         &applier,
@@ -395,7 +395,7 @@ fn test_the_limits_are_settings_and_count_from_the_transactions_begin() -> TestR
     )?;
     assert_eq!(
         objects(&mut read_only, "a", "knows", began + 250_001),
-        Err(TxnError::PastLimit(250))
+        Err(TxnError::past_limit(250))
     );
     Ok(())
 }
@@ -448,7 +448,7 @@ fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
     let mut txn = begin_with(&applier, Mode::ReadWrite, limits)?;
     read_objects(&mut txn, "a", "knows", 0)?;
     let error = txn.commit(1, 1, &[], 0).err().context("the call fails")?;
-    assert_eq!(error, TxnError::ReadSetTooLarge(75, 40));
+    assert_eq!(error, TxnError::read_set_too_large(75, 40));
     assert!(!error.is_retryable());
     // The read set's bound exactly and one below it.
     let read = |max: usize| -> TestResult<Result<(), TxnError>> {
@@ -461,7 +461,7 @@ fn test_a_read_set_past_its_limit_refuses_the_commit() -> TestResult {
         Ok(bounded.commit(1, 1, &[], 0).map(|_| ()))
     };
     assert_eq!(read(75)?, Ok(()));
-    assert_eq!(read(74)?, Err(TxnError::ReadSetTooLarge(75, 74)));
+    assert_eq!(read(74)?, Err(TxnError::read_set_too_large(75, 74)));
     Ok(())
 }
 
@@ -483,13 +483,13 @@ fn test_a_write_set_past_its_limit_refuses_the_commit() -> TestResult {
         .len();
     assert!(size > 200, "{size}");
     let error = write(200)?.err().context("the call fails")?;
-    assert_eq!(error, TxnError::WriteSetTooLarge(size, 200));
+    assert_eq!(error, TxnError::write_set_too_large(size, 200));
     assert!(!error.is_retryable());
     // The bound exactly and one below it.
     assert_eq!(prepared(write(size)?)?.record().len(), size);
     assert_eq!(
         write(size - 1)?.err().context("the call fails")?,
-        TxnError::WriteSetTooLarge(size, size - 1)
+        TxnError::write_set_too_large(size, size - 1)
     );
     assert!(held(&applier, "a", "knows")?.is_empty());
     Ok(())

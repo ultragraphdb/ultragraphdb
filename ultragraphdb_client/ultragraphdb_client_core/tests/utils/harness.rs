@@ -26,7 +26,9 @@ use ultragraphdb_protocol_wire::{
 };
 use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
+/// The cluster the client and the test server name, so each end's framer accepts the other's frames.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
+/// The release the client's Hello and the server's Welcome name.
 pub const RELEASE: u32 = 0x0005_0000;
 /// The wall clock at the harness's start, microseconds of Unix time: 2027-01-15.
 pub const UNIX: u64 = 1_800_000_000_000_000;
@@ -98,11 +100,15 @@ pub fn received(pool: &BufferPool, bytes: &[u8]) -> Result<ReceivedFrame, Transp
 
 /// A point in time to start from. The core never reads a clock; the tests move this value on themselves, so the
 /// clock is read once, here, for an origin only.
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an `Instant` is made only by reading the clock, so the tests' origin reads it once"
+)]
 pub fn start() -> Instant {
     Instant::now()
 }
 
+/// The Welcome of the tests' server: protocol 1, frames up to 1 MiB, 64 streams, an initial credit of 4 frames.
 pub fn welcome() -> Welcome {
     Welcome::new(1, RELEASE, "test")
         .with_max_frame(1 << 20)
@@ -115,6 +121,7 @@ pub fn scram_welcome() -> Welcome {
     welcome().with_mechanisms([MECHANISM])
 }
 
+/// The client's configuration in the tests: a 1 s timeout, a commit retried 10 ms apart, a credit of 2 frames.
 pub fn config() -> ClientConfig {
     ClientConfig::new(CLUSTER, "ultragraph-test")
         .with_release(RELEASE)
@@ -136,6 +143,7 @@ pub fn nonce() -> Result<String, ScramError> {
 /// The test server's principal's login by SCRAM-SHA-256.
 pub type TestLogin = ScramLogin<fn() -> Result<String, ScramError>>;
 
+/// The test principal's login, with the fixed client nonce of [`nonce`].
 pub fn login() -> TestResult<TestLogin> {
     ScramLogin::new(
         TEST_NAME,
@@ -147,10 +155,15 @@ pub fn login() -> TestResult<TestLogin> {
 
 /// The client's core, the test server, and the simulated connection between them.
 pub struct Harness<L: Login = Anonymous> {
+    /// The client's core under test.
     pub core: ClientCore<L>,
+    /// The server the core talks to.
     pub server: TestServer,
+    /// The harness's time, which both ends are handed and which moves only when the harness moves it.
     pub now: Instant,
+    /// The buffers the client's frames are read into.
     pub pool: BufferPool,
+    /// The simulated network carrying the connections, with its faults.
     pub network: SimNetwork,
     origin: Instant,
     client: SimStream,
@@ -167,6 +180,7 @@ pub struct Harness<L: Login = Anonymous> {
 }
 
 impl Harness<Anonymous> {
+    /// The core of [`config`] before its first connection to `server`, over a network without faults.
     pub fn new(server: TestServer) -> Self {
         Self::with(config(), server, NetworkFaults::none(), 1, Anonymous)
     }
@@ -191,6 +205,8 @@ impl Harness<TestLogin> {
 }
 
 impl<L: Login> Harness<L> {
+    /// The core of `config` with `login` before its first connection to `server`, over a network with `faults` drawn
+    /// from `seed`.
     pub fn with(
         config: ClientConfig,
         server: TestServer,
@@ -289,7 +305,7 @@ impl<L: Login> Harness<L> {
         }
         if self.server.dropped() {
             self.server.connection(self.now, self.unix());
-            self.core.disconnected(TransportError::Closed(), self.now);
+            self.core.disconnected(TransportError::closed(), self.now);
             moved = true;
         }
         self.network.run_until_idle();
@@ -306,7 +322,7 @@ impl<L: Login> Harness<L> {
             moved = true;
         }
         if self.server.is_closing() && self.core.is_connected() {
-            self.core.disconnected(TransportError::Closed(), self.now);
+            self.core.disconnected(TransportError::closed(), self.now);
             moved = true;
         }
         Ok(moved)

@@ -64,8 +64,8 @@ impl TermTable {
     }
 
     /// The index of `term`, appended the first time only. Refused, as a table outside any frame names command 0, with
-    /// [`ProtocolError::IndexOutOfRange`] for a triple term naming an index not in the table,
-    /// [`ProtocolError::TermTooDeep`] for one nested past [`crate::MAX_TERM_DEPTH`], and [`ProtocolError::BadTerm`] for
+    /// [`ProtocolError::index_out_of_range`] for a triple term naming an index not in the table,
+    /// [`ProtocolError::term_too_deep`] for one nested past [`crate::MAX_TERM_DEPTH`], and [`ProtocolError::bad_term`] for
     /// a literal stating `xsd:string` or an empty datatype, which is written as `xsd:string`'s, or an empty language
     /// tag.
     pub fn intern(&mut self, term: RequestTerm) -> Result<u32, ProtocolError> {
@@ -73,45 +73,45 @@ impl TermTable {
             return Ok(*index);
         }
         let at = self.terms.len();
-        let depth = match &term {
-            RequestTerm::Literal {
-                datatype: Some(datatype),
-                ..
-            } if datatype == XSD_STRING || datatype.is_empty() => {
-                return Err(ProtocolError::BadTerm(0, 0, at));
-            }
-            RequestTerm::LanguageLiteral { language, .. } if language.is_empty() => {
-                return Err(ProtocolError::BadTerm(0, 0, at));
-            }
-            RequestTerm::Triple {
-                subject,
-                predicate,
-                object,
-            } => {
-                let mut deepest = 0;
-                for part in [*subject, *predicate, *object] {
-                    let depth = self
-                        .depths
-                        .get(part as usize)
-                        .ok_or(ProtocolError::IndexOutOfRange(0, 0, at, part, as_u32(at)))?;
-                    deepest = deepest.max(*depth);
+        let depth =
+            match &term {
+                RequestTerm::Literal {
+                    datatype: Some(datatype),
+                    ..
+                } if datatype == XSD_STRING || datatype.is_empty() => {
+                    return Err(ProtocolError::bad_term(0, 0, at));
                 }
-                if deepest + 1 > MAX_TERM_DEPTH {
-                    return Err(ProtocolError::TermTooDeep(
-                        0,
-                        0,
-                        at,
-                        deepest + 1,
-                        MAX_TERM_DEPTH,
-                    ));
+                RequestTerm::LanguageLiteral { language, .. } if language.is_empty() => {
+                    return Err(ProtocolError::bad_term(0, 0, at));
                 }
-                deepest + 1
-            }
-            RequestTerm::Iri(_)
-            | RequestTerm::BlankNode(_)
-            | RequestTerm::Literal { .. }
-            | RequestTerm::LanguageLiteral { .. } => 0,
-        };
+                RequestTerm::Triple {
+                    subject,
+                    predicate,
+                    object,
+                } => {
+                    let mut deepest = 0;
+                    for part in [*subject, *predicate, *object] {
+                        let depth = self.depths.get(part as usize).ok_or(
+                            ProtocolError::index_out_of_range(0, 0, at, part, as_u32(at)),
+                        )?;
+                        deepest = deepest.max(*depth);
+                    }
+                    if deepest + 1 > MAX_TERM_DEPTH {
+                        return Err(ProtocolError::term_too_deep(
+                            0,
+                            0,
+                            at,
+                            deepest + 1,
+                            MAX_TERM_DEPTH,
+                        ));
+                    }
+                    deepest + 1
+                }
+                RequestTerm::Iri(_)
+                | RequestTerm::BlankNode(_)
+                | RequestTerm::Literal { .. }
+                | RequestTerm::LanguageLiteral { .. } => 0,
+            };
         Ok(self.insert(term, depth))
     }
 

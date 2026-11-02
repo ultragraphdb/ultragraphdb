@@ -384,7 +384,6 @@ fn deg(d: f64) -> f64 {
 // Ported from golang/geo s2/cellunion_test.go, TestCellUnionRectBound (Go's epsilon 1e-14),
 // with Go's literals as written.
 #[test]
-#[allow(clippy::excessive_precision)]
 fn cell_union_rect_bound() {
     assert!(CellUnion::default().rect_bound().is_empty());
     let pi = core::f64::consts::PI;
@@ -396,28 +395,28 @@ fn cell_union_rect_bound() {
         (
             &[0x808c000000000000], // Big SFO
             [
-                deg(34.644220547108482),
-                deg(38.011928357226651),
-                deg(-124.508522987668428),
-                deg(-121.628309835221216),
+                deg(34.64422054710848),
+                deg(38.01192835722665),
+                deg(-124.50852298766843),
+                deg(-121.62830983522122),
             ],
         ),
         (
             &[0x89c4000000000000], // Big NYC
             [
-                deg(38.794595155857657),
-                deg(41.747046884651063),
-                deg(-76.456308667788633),
-                deg(-73.465162142654819),
+                deg(38.79459515585766),
+                deg(41.74704688465106),
+                deg(-76.45630866778863),
+                deg(-73.46516214265482),
             ],
         ),
         (
             &[0x89c4000000000000, 0x808c000000000000], // Big NYC, Big SFO
             [
-                deg(34.644220547108482),
-                deg(41.747046884651063),
-                deg(-124.508522987668428),
-                deg(-73.465162142654819),
+                deg(34.64422054710848),
+                deg(41.74704688465106),
+                deg(-124.50852298766843),
+                deg(-73.46516214265482),
             ],
         ),
     ];

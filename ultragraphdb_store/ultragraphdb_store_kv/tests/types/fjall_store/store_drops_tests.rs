@@ -138,7 +138,7 @@ fn test_an_unreadable_drop_record_refuses_the_open() -> TestResult {
     .context("the expected error")?;
     assert_eq!(
         err,
-        StoreError::Corrupted(b"drop".to_vec(), "unknown drop kind 7".to_string())
+        StoreError::corrupted(b"drop".to_vec(), "unknown drop kind 7".to_string())
     );
     assert_eq!(
         err.to_string(),
@@ -165,7 +165,7 @@ fn test_an_unreadable_drop_record_refuses_the_open() -> TestResult {
             )
             .err()
             .context("the expected error")?,
-            StoreError::Corrupted(b"drop".to_vec(), reason.to_string()),
+            StoreError::corrupted(b"drop".to_vec(), reason.to_string()),
             "{reason}"
         );
     }
@@ -212,7 +212,10 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() -> TestResult {
         .err()
         .context("the expected error")?;
     // Badger's exceedsSize dumps the first 1 << 10 bytes of the user key.
-    assert_eq!(err, StoreError::KeyTooLarge(65_001, 65_000, vec![1; 1024]));
+    assert_eq!(
+        err,
+        StoreError::key_too_large(65_001, 65_000, vec![1; 1024])
+    );
     assert!(
         err.to_string()
             .starts_with("Key with size 65001 exceeded 65000 limit. Key:\n"),

@@ -32,15 +32,15 @@ impl List {
     ///
     /// # Errors
     ///
-    /// [`PostingError::InvalidKey`] for a split part's key; [`PostingError::SchemaPosting`] and
-    /// [`PostingError::UnexpectedMeta`] for a version that is not a posting list; the store's error, and its
+    /// [`PostingError::invalid_key`] for a split part's key; [`PostingError::schema_posting`] and
+    /// [`PostingError::unexpected_meta`] for a version that is not a posting list; the store's error, and its
     /// `Corrupted` for a value that does not decode.
     pub fn read_versions<I>(key: &[u8], versions: I) -> Result<(List, usize), PostingError>
     where
         I: IntoIterator<Item = Result<Item, StoreError>>,
     {
         if is_split_key(key)? {
-            return Err(PostingError::InvalidKey());
+            return Err(PostingError::invalid_key());
         }
         let mut list = List::empty(key.to_vec());
         let mut deltas = 0;
@@ -66,8 +66,8 @@ impl List {
                     list.mutation.insert_committed_postings(delta);
                     deltas += 1;
                 }
-                BIT_SCHEMA_POSTING => return Err(PostingError::SchemaPosting(key.to_vec())),
-                meta => return Err(PostingError::UnexpectedMeta(meta, key.to_vec())),
+                BIT_SCHEMA_POSTING => return Err(PostingError::schema_posting(key.to_vec())),
+                meta => return Err(PostingError::unexpected_meta(meta, key.to_vec())),
             }
             if item.discard() {
                 break;
@@ -102,10 +102,10 @@ impl List {
 
 /// One part of a split list as the store holds it.
 fn read_part(key: &[u8], item: Option<Item>) -> Result<PostingList, PostingError> {
-    let item = item.ok_or_else(|| PostingError::MissingPart(key.to_vec()))?;
+    let item = item.ok_or_else(|| PostingError::missing_part(key.to_vec()))?;
     match item.meta() {
         BIT_COMPLETE_POSTING => unmarshal_complete(key, item.value()),
         BIT_EMPTY_POSTING => Ok(PostingList::default()),
-        meta => Err(PostingError::UnexpectedMeta(meta, key.to_vec())),
+        meta => Err(PostingError::unexpected_meta(meta, key.to_vec())),
     }
 }

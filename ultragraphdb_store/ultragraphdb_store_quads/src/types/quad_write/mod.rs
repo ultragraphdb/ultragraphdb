@@ -58,7 +58,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`QuadError::Corrupted`] when a statistics delta of `writes` does not decode.
+    /// [`QuadError::corrupted`] when a statistics delta of `writes` does not decode.
     pub fn seed(&mut self, writes: &Writes, terms: WriteTerms) -> Result<(), QuadError> {
         self.terms = terms;
         self.request.seed_deltas(writes.deltas());

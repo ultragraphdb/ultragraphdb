@@ -54,7 +54,7 @@ fn test_an_iri_under_the_base_holding_a_colon_is_named_by_itself() -> TestResult
 
 /// The refusal of `base` for `reason`.
 fn refused(base: &str, reason: &'static str) -> Result<Names, MappingError> {
-    Err(MappingError::InvalidBase(base.to_string(), reason))
+    Err(MappingError::invalid_base(base.to_string(), reason))
 }
 
 #[test]

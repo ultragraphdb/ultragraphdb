@@ -39,7 +39,10 @@ pub fn server() -> Rc<RefCell<TestServer>> {
 }
 
 /// The time and the wall clock the test server is told: the tests' server reads the clock itself, as the node will.
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the tests' server reads the clock itself, as the node will"
+)]
 fn clocks() -> (Instant, u64) {
     let unix = SystemTime::now()
         .duration_since(UNIX_EPOCH)

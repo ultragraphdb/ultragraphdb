@@ -23,7 +23,7 @@ fn test_an_unsealed_read_set_is_refused_first() -> TestResult {
     let mut rs = ReadSet::new();
     rs.reset(0, 10, usize::MAX);
     rs.push_list(b"k").context("within the limit")?;
-    assert_eq!(resolver.check(&rs), Err(CommitError::Unsealed()));
+    assert_eq!(resolver.check(&rs), Err(CommitError::unsealed()));
     Ok(())
 }
 
@@ -33,11 +33,11 @@ fn test_a_read_version_below_the_floor_is_too_old_before_any_conflict() -> TestR
     admit(&mut resolver, 22, &Writes::point(b"k"))?;
     assert_eq!(
         resolver.check(&read_set(0, 19, &Reads::list(b"k"))?),
-        Err(CommitError::TooOld(19, 20))
+        Err(CommitError::too_old(19, 20))
     );
     assert_eq!(
         resolver.check(&read_set(0, 20, &Reads::list(b"k"))?),
-        Err(CommitError::Conflict(ConflictKind::List))
+        Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(
         resolver.check(&read_set(0, 20, &Reads::list(b"j"))?),
@@ -54,11 +54,11 @@ fn test_a_check_changes_nothing() -> TestResult {
     let bytes = resolver.history().bytes();
     assert_eq!(
         resolver.check(&rs),
-        Err(CommitError::Conflict(ConflictKind::List))
+        Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(
         resolver.check(&rs),
-        Err(CommitError::Conflict(ConflictKind::List))
+        Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(resolver.history().bytes(), bytes);
     // A transaction that only checks adds no writes: a read of what it would have written does not conflict.
@@ -85,15 +85,15 @@ fn test_admitting_adds_every_conflict_section_of_the_record() -> TestResult {
     let at = |reads: &Reads| read_set(0, 10, reads).map(|set| resolver.check(&set));
     assert_eq!(
         at(&Reads::list(b"p"))?,
-        Err(CommitError::Conflict(ConflictKind::List))
+        Err(CommitError::conflict(ConflictKind::List))
     );
     assert_eq!(
         at(&Reads::statement(b"s", b"o"))?,
-        Err(CommitError::Conflict(ConflictKind::Statement))
+        Err(CommitError::conflict(ConflictKind::Statement))
     );
     assert_eq!(
         at(&Reads::list(b"mm"))?,
-        Err(CommitError::Conflict(ConflictKind::Drop))
+        Err(CommitError::conflict(ConflictKind::Drop))
     );
     assert_eq!(at(&Reads::list(b"n"))?, Ok(()));
     Ok(())
@@ -105,7 +105,7 @@ fn test_a_record_range_with_an_empty_end_reaches_past_the_last_key() -> TestResu
     admit(&mut resolver, 12, &Writes::range(b"m", None))?;
     assert_eq!(
         resolver.check(&read_set(0, 10, &Reads::list(b"zzz"))?),
-        Err(CommitError::Conflict(ConflictKind::Drop))
+        Err(CommitError::conflict(ConflictKind::Drop))
     );
     assert_eq!(
         resolver.check(&read_set(0, 10, &Reads::list(b"l"))?),
@@ -147,7 +147,7 @@ fn test_two_creations_of_one_iri_conflict_on_its_absence() -> TestResult {
     let second = read_set(0, 10, &Reads::absent(b"iri:x"))?;
     assert_eq!(
         resolver.check(&second),
-        Err(CommitError::Conflict(ConflictKind::AbsentTerm))
+        Err(CommitError::conflict(ConflictKind::AbsentTerm))
     );
     // Another IRI is free.
     assert_eq!(
@@ -182,11 +182,11 @@ fn test_a_write_into_a_range_written_above_the_read_version_conflicts_as_a_drop(
     };
     assert_eq!(
         check(8, &Writes::point(b"pa"))?,
-        Err(CommitError::Conflict(ConflictKind::Drop))
+        Err(CommitError::conflict(ConflictKind::Drop))
     );
     assert_eq!(
         check(8, &Writes::statement(b"pb", b"o"))?,
-        Err(CommitError::Conflict(ConflictKind::Drop))
+        Err(CommitError::conflict(ConflictKind::Drop))
     );
     assert_eq!(
         check(10, &Writes::point(b"pa"))?,
@@ -202,7 +202,7 @@ fn test_a_write_into_a_range_written_above_the_read_version_conflicts_as_a_drop(
     assert_eq!(check(8, &Writes::default())?, Ok(()));
     assert_eq!(
         check(8, &Writes::point(b"zzz"))?,
-        Err(CommitError::Conflict(ConflictKind::Drop)),
+        Err(CommitError::conflict(ConflictKind::Drop)),
         "an open range reaches past the last key"
     );
     Ok(())

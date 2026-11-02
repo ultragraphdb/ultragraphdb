@@ -31,31 +31,31 @@ impl HeaderView<'_> {
     fn check(&self, cluster: u64, max_frame: usize, client: bool) -> Result<Header, ProtocolError> {
         let computed = xxh3_64(self.tail);
         if computed != self.checksum {
-            return Err(ProtocolError::HeaderChecksum(self.checksum, computed));
+            return Err(ProtocolError::header_checksum(self.checksum, computed));
         }
         let command = Command::from_number(self.command)?;
         if let Some(i) = self.reserved.iter().position(|b| *b != 0) {
-            return Err(ProtocolError::ReservedNotZero(66 + i));
+            return Err(ProtocolError::reserved_not_zero(66 + i));
         }
         if self.cluster != cluster {
-            return Err(ProtocolError::WrongCluster(cluster, self.cluster));
+            return Err(ProtocolError::wrong_cluster(cluster, self.cluster));
         }
         if self.flags & !FLAG_LAST != 0 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "flags",
                 self.flags.into(),
             ));
         }
         if client && self.view != 0 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "view",
                 self.view.into(),
             ));
         }
         if client && self.replica != 0 {
-            return Err(ProtocolError::FieldValue(
+            return Err(ProtocolError::field_value(
                 self.command,
                 "replica",
                 self.replica.into(),
@@ -63,11 +63,11 @@ impl HeaderView<'_> {
         }
         let size = self.size as usize;
         if size < HEADER_SIZE {
-            return Err(ProtocolError::SizeBelowHeader(self.size));
+            return Err(ProtocolError::size_below_header(self.size));
         }
         let limit = max_frame.min(MAX_FRAME_SIZE);
         if size > limit {
-            return Err(ProtocolError::FrameTooLarge(size, limit));
+            return Err(ProtocolError::frame_too_large(size, limit));
         }
         Ok(Header::new(self.cluster, command)
             .with_sequence(self.sequence)

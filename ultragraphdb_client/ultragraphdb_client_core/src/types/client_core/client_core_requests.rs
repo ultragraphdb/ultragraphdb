@@ -22,8 +22,8 @@ use crate::types::transaction::Transaction;
 
 impl<L: Login> ClientCore<L> {
     /// Whether the open stream of `transaction` is free for its next request: refused as
-    /// [`ClientError::StreamFinished`] when it is gone, with the refusal it ended with when it was refused, as
-    /// [`ClientError::StreamBusy`] while a reply is awaited on it, and as [`ClientError::ReadOnly`] for a write of a
+    /// [`ClientError::stream_finished`] when it is gone, with the refusal it ended with when it was refused, as
+    /// [`ClientError::stream_busy`] while a reply is awaited on it, and as [`ClientError::read_only`] for a write of a
     /// read-only transaction.
     fn transaction_stream(
         &mut self,
@@ -32,23 +32,23 @@ impl<L: Login> ClientCore<L> {
     ) -> Result<(), ClientError> {
         let stream = transaction.stream();
         if transaction.generation() != self.generation || !self.is_ready() {
-            return Err(ClientError::StreamFinished(stream));
+            return Err(ClientError::stream_finished(stream));
         }
         let Some(state) = self.streams.get_mut(&stream) else {
-            return Err(ClientError::StreamFinished(stream));
+            return Err(ClientError::stream_finished(stream));
         };
         if let Some(failed) = state.failed.take() {
             let _ended: Option<StreamState> = self.streams.remove(&stream);
             return Err(failed);
         }
         if state.transaction.is_none() {
-            return Err(ClientError::StreamFinished(stream));
+            return Err(ClientError::stream_finished(stream));
         }
         if state.pending.is_some() {
-            return Err(ClientError::StreamBusy(stream));
+            return Err(ClientError::stream_busy(stream));
         }
         if writes && state.transaction == Some(true) {
-            return Err(ClientError::ReadOnly(stream));
+            return Err(ClientError::read_only(stream));
         }
         Ok(())
     }
@@ -61,7 +61,7 @@ impl<L: Login> ClientCore<L> {
         now: Instant,
     ) -> Result<Pending, ClientError> {
         if !self.is_ready() {
-            return Err(ClientError::NotConnected());
+            return Err(ClientError::not_connected());
         }
         let stream = self.open_stream()?;
         match self.frame(body, stream) {
@@ -145,7 +145,7 @@ impl<L: Login> ClientCore<L> {
         now: Instant,
     ) -> Result<ResultStream, ClientError> {
         if named != transaction.stream() {
-            return Err(ClientError::TransactionMismatch(
+            return Err(ClientError::transaction_mismatch(
                 transaction.stream(),
                 named,
             ));
@@ -171,7 +171,7 @@ impl<L: Login> ClientCore<L> {
     }
 
     /// Reads `read`'s quad pattern in `transaction`: a result stream of its own, naming the transaction, with the
-    /// Welcome's initial credit; refused as [`ClientError::TransactionMismatch`] when `read` names another.
+    /// Welcome's initial credit; refused as [`ClientError::transaction_mismatch`] when `read` names another.
     pub fn read(
         &mut self,
         transaction: &Transaction,
@@ -195,7 +195,7 @@ impl<L: Login> ClientCore<L> {
     /// Commits `transaction` through `session`, with the session's next request number, answered
     /// [`crate::Reply::Committed`]. Lost with its connection, it is sent again through the session, with the same
     /// session and request number, on the next connection, at most [`crate::ClientConfig::commit_attempts`] times in
-    /// all; then it is in doubt ([`ClientError::RetriesExhausted`]) until [`ClientCore::resolve`].
+    /// all; then it is in doubt ([`ClientError::retries_exhausted`]) until [`ClientCore::resolve`].
     pub fn commit(
         &mut self,
         transaction: Transaction,
@@ -205,12 +205,12 @@ impl<L: Login> ClientCore<L> {
         let state = *self
             .sessions
             .get(&session.number())
-            .ok_or(ClientError::UnknownSession(session.number()))?;
+            .ok_or(ClientError::unknown_session(session.number()))?;
         if let Some(request) = state.in_doubt {
-            return Err(ClientError::InDoubt(session.number(), request));
+            return Err(ClientError::in_doubt(session.number(), request));
         }
         if state.in_flight {
-            return Err(ClientError::SessionBusy(session.number()));
+            return Err(ClientError::session_busy(session.number()));
         }
         self.transaction_stream(&transaction, true)?;
         let request = state.next_request;
@@ -245,15 +245,15 @@ impl<L: Login> ClientCore<L> {
         let state = *self
             .sessions
             .get(&session.number())
-            .ok_or(ClientError::UnknownSession(session.number()))?;
+            .ok_or(ClientError::unknown_session(session.number()))?;
         if let Some(request) = state.in_doubt {
-            return Err(ClientError::InDoubt(session.number(), request));
+            return Err(ClientError::in_doubt(session.number(), request));
         }
         if state.in_flight {
-            return Err(ClientError::SessionBusy(session.number()));
+            return Err(ClientError::session_busy(session.number()));
         }
         if !self.is_ready() {
-            return Err(ClientError::NotConnected());
+            return Err(ClientError::not_connected());
         }
         let request = state.next_request;
         let command = command.with_session(session.number(), request);
@@ -286,9 +286,9 @@ impl<L: Login> ClientCore<L> {
         let state = self
             .sessions
             .get_mut(&session.number())
-            .ok_or(ClientError::UnknownSession(session.number()))?;
+            .ok_or(ClientError::unknown_session(session.number()))?;
         let Some(request) = state.in_doubt.take() else {
-            return Err(ClientError::NotInDoubt(session.number()));
+            return Err(ClientError::not_in_doubt(session.number()));
         };
         state.in_flight = true;
         let id = self.next_pending;

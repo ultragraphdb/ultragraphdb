@@ -112,12 +112,12 @@ impl Catalog {
         let iri = declaration.predicate().as_str();
         for tokenizer in declaration.tokenizers() {
             if get_tokenizer(tokenizer).is_none() {
-                return Err(CatalogError::UnknownTokenizer(iri, tokenizer));
+                return Err(CatalogError::unknown_tokenizer(iri, tokenizer));
             }
             if let Some(datatype) = declaration.datatype()
                 && !tokenizer_takes(tokenizer, datatype.as_str())
             {
-                return Err(CatalogError::TokenizerDatatype(
+                return Err(CatalogError::tokenizer_datatype(
                     iri,
                     tokenizer,
                     datatype.as_str(),
@@ -127,7 +127,7 @@ impl Catalog {
         if let Some(spec) = declaration.vector_index()
             && get_index_factory(spec.factory()).is_none()
         {
-            return Err(CatalogError::UnknownVectorIndex(iri, spec.factory()));
+            return Err(CatalogError::unknown_vector_index(iri, spec.factory()));
         }
         Ok(())
     }

@@ -55,17 +55,17 @@ fn test_streams_open_within_their_limit() -> TestResult {
     let mut outbound = Outbound::new(2, 0);
     assert_eq!(
         outbound.open(0).err().context("the refusal")?,
-        TransportError::StreamZero()
+        TransportError::stream_zero()
     );
     outbound.open(1)?;
     assert_eq!(
         outbound.open(1).err().context("the refusal")?,
-        TransportError::StreamOpen(1)
+        TransportError::stream_open(1)
     );
     outbound.open(7)?;
     assert_eq!(
         outbound.open(8).err().context("the refusal")?,
-        TransportError::StreamLimit(2)
+        TransportError::stream_limit(2)
     );
     assert_eq!(outbound.open_streams(), 2);
     assert!(outbound.is_open(7));
@@ -86,12 +86,12 @@ fn test_a_frame_for_a_stream_not_open_is_refused() -> TestResult {
             .push(3, reply(3, true)?)
             .err()
             .context("the refusal")?,
-        TransportError::UnknownStream(3)
+        TransportError::unknown_stream(3)
     );
     outbound.open(3)?;
     assert_eq!(
         outbound.push(3, vec![0; 10]).err().context("the refusal")?,
-        TransportError::Protocol(ProtocolError::ShortHeader(10))
+        TransportError::protocol(ProtocolError::short_header(10))
     );
     assert_eq!(outbound.queued(3), 0);
     Ok(())
@@ -151,11 +151,11 @@ fn test_transactions_and_reads_count_toward_the_stream_limit() -> TestResult {
     outbound.open(3)?;
     assert_eq!(
         outbound.open_read(4, 1).err().context("the refusal")?,
-        TransportError::StreamLimit(3)
+        TransportError::stream_limit(3)
     );
     assert_eq!(
         outbound.open_transaction(5).err().context("the refusal")?,
-        TransportError::StreamLimit(3)
+        TransportError::stream_limit(3)
     );
     assert_eq!(outbound.open_streams(), 3);
     // A read's end makes room for one more.
@@ -166,7 +166,7 @@ fn test_transactions_and_reads_count_toward_the_stream_limit() -> TestResult {
     let mut none = Outbound::new(0, 1);
     assert_eq!(
         none.open(1).err().context("the refusal")?,
-        TransportError::StreamLimit(0)
+        TransportError::stream_limit(0)
     );
     assert_eq!(none.open_streams(), 0);
     Ok(())
@@ -228,7 +228,7 @@ fn test_a_cancelled_stream_sends_nothing_more() -> TestResult {
             .push(1, result(1, 9, true)?)
             .err()
             .context("the refusal")?,
-        TransportError::UnknownStream(1)
+        TransportError::unknown_stream(1)
     );
     let rest = drain(&mut outbound)?;
     assert_eq!(
@@ -282,7 +282,7 @@ fn test_the_connections_frames_go_first_in_the_order_pushed() -> TestResult {
             .push_connection(vec![0; 8])
             .err()
             .context("the refusal")?,
-        TransportError::Protocol(ProtocolError::ShortHeader(8))
+        TransportError::protocol(ProtocolError::short_header(8))
     );
     Ok(())
 }
@@ -292,21 +292,21 @@ fn test_a_read_opens_on_an_open_transaction_with_its_own_credit() -> TestResult 
     let mut outbound = Outbound::new(8, 2);
     assert_eq!(
         outbound.open_read(3, 1).err().context("the refusal")?,
-        TransportError::UnknownStream(1),
+        TransportError::unknown_stream(1),
         "no transaction on stream 1"
     );
     outbound.open(1)?;
     assert!(!outbound.is_transaction(1));
     assert_eq!(
         outbound.open_read(3, 1).err().context("the refusal")?,
-        TransportError::UnknownStream(1),
+        TransportError::unknown_stream(1),
         "stream 1 holds a request, not a transaction"
     );
     outbound.open_transaction(5)?;
     assert!(outbound.is_transaction(5));
     assert_eq!(
         outbound.open_transaction(5).err().context("the refusal")?,
-        TransportError::StreamOpen(5)
+        TransportError::stream_open(5)
     );
     outbound.open_read(3, 5)?;
     outbound.open_read(4, 5)?;
@@ -314,11 +314,11 @@ fn test_a_read_opens_on_an_open_transaction_with_its_own_credit() -> TestResult 
     assert_eq!((outbound.credit(3), outbound.credit(4)), (Some(2), Some(2)));
     assert_eq!(
         outbound.open_read(4, 5).err().context("the refusal")?,
-        TransportError::StreamOpen(4)
+        TransportError::stream_open(4)
     );
     assert_eq!(
         outbound.open_read(0, 5).err().context("the refusal")?,
-        TransportError::StreamZero()
+        TransportError::stream_zero()
     );
     Ok(())
 }

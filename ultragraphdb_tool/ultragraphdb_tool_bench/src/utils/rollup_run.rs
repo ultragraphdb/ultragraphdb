@@ -125,7 +125,7 @@ fn uid_of(a: &Arc<BenchApplier>, iri: &str) -> Result<u64, BenchError> {
     a.quads()
         .uid_of(0, iri)
         .map_err(ultragraphdb_store_apply::ChangesetError::from)?
-        .ok_or_else(|| BenchError::Usage(format!("{iri} has no UID")))
+        .ok_or_else(|| BenchError::usage(format!("{iri} has no UID")))
 }
 
 /// Rolls up the reverse list of `predicate` of each of `hubs` hubs; how many it rolled up.

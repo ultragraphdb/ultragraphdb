@@ -94,7 +94,7 @@ fn test_executions_from_one_watermark_do_not_see_each_other() -> TestResult {
 /// A changeset executes on another thread while one is executed here: executions take no lock the commit step holds,
 /// and an execution moves to the thread that commits it.
 #[test]
-#[allow(
+#[expect(
     clippy::disallowed_methods,
     reason = "the test's subject is executions on threads of their own, which a worker of the server gives them"
 )]

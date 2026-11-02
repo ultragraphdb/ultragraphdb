@@ -37,7 +37,7 @@ impl Leases {
     pub fn next_uid<S: Store>(&self, store: &S, namespace: u64) -> Result<u64, QuadError> {
         let uid = self.next(store, namespace, UID_LEASE)?;
         if uid > MAX_UID {
-            return Err(QuadError::UidsExhausted(namespace));
+            return Err(QuadError::uids_exhausted(namespace));
         }
         Ok(uid)
     }
@@ -84,6 +84,6 @@ impl Leases {
 fn decode_mark(key: &[u8], value: &[u8]) -> Result<u64, QuadError> {
     let raw: [u8; 8] = value
         .try_into()
-        .map_err(|_| QuadError::Corrupted(key, "a lease mark is not 8 bytes"))?;
+        .map_err(|_| QuadError::corrupted(key, "a lease mark is not 8 bytes"))?;
     Ok(u64::from_be_bytes(raw))
 }

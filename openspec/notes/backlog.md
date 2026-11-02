@@ -556,9 +556,9 @@ rule 3).
 
 | Raised | Answered |
 |---|---|
-| `TxnError::ReadAboveWatermark` | Error 7 on the stream, `detail` the watermark, the message naming both versions; the worker serves on |
-| `TxnError::PastLimit` | Error 4, the transaction ended |
-| `TxnError::WriteSetTooLarge`, `ReadSetTooLarge` | Error 6, `detail` the limit |
+| `TxnErrorEnum::ReadAboveWatermark` | Error 7 on the stream, `detail` the watermark, the message naming both versions; the worker serves on |
+| `TxnErrorEnum::PastLimit` | Error 4, the transaction ended |
+| `TxnErrorEnum::WriteSetTooLarge`, `ReadSetTooLarge` | Error 6, `detail` the limit |
 | A catalog's or a term's refusal | Error 7, `detail` the term's index where one is at fault |
 | `CommitError` | its own `code()` |
 | A body breaking a rule | Error 1 on the stream; a frame breaking one, Error 1 on stream 0 and the connection closes (§2.6) |

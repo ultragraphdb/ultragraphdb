@@ -135,8 +135,8 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() -> Test
     assert_eq!(
         drained(&mut pipe),
         vec![
-            Reply::new(1, Err(CommitError::Unavailable())),
-            Reply::new(2, Err(CommitError::Unavailable()))
+            Reply::new(1, Err(CommitError::unavailable())),
+            Reply::new(2, Err(CommitError::unavailable()))
         ]
     );
     assert!(pipe.is_stopped());
@@ -146,7 +146,7 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() -> Test
     commit_insert(&mut pipe, &applier, 3, "r")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(3, Err(CommitError::Unavailable()))]
+        vec![Reply::new(3, Err(CommitError::unavailable()))]
     );
     assert_eq!(
         pipe.buffers_mut().len(),
@@ -175,7 +175,7 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
     assert_eq!(pipe.log().tail().0, Position::new(2));
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(2, Err(CommitError::Unavailable()))],
+        vec![Reply::new(2, Err(CommitError::unavailable()))],
         "the refused round's reply is withheld, the next round's is unavailable"
     );
     assert!(pipe.is_stopped());
@@ -184,7 +184,7 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
     commit_insert(&mut pipe, &applier, 3, "r")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(3, Err(CommitError::Unavailable()))]
+        vec![Reply::new(3, Err(CommitError::unavailable()))]
     );
     Ok(())
 }
@@ -214,7 +214,7 @@ fn test_the_buffers_of_applied_and_aborted_transactions_come_back() -> TestResul
         drained(&mut pipe),
         vec![
             Reply::new(1, Ok(base + 2)),
-            Reply::new(2, Err(CommitError::Conflict(ConflictKind::List)))
+            Reply::new(2, Err(CommitError::conflict(ConflictKind::List)))
         ]
     );
     assert_eq!(pipe.buffers_mut().len(), 2);
@@ -227,13 +227,13 @@ fn test_the_buffers_of_applied_and_aborted_transactions_come_back() -> TestResul
 
 #[test]
 fn test_pipeline_errors_name_their_cause() -> TestResult {
-    let log = PipelineError::Log(ultragraphdb_error_log::LogError::Poisoned());
+    let log = PipelineError::log(ultragraphdb_error_log::LogError::poisoned());
     assert!(
         log.to_string()
             .contains("the log refused or failed a round")
     );
     assert!(std::error::Error::source(&log).is_some());
-    let apply = PipelineError::Apply(ultragraphdb_store_apply::ChangesetError::Rebuilding("p"));
+    let apply = PipelineError::apply(ultragraphdb_store_apply::ChangesetError::rebuilding("p"));
     assert!(
         apply
             .to_string()
@@ -292,7 +292,7 @@ fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() ->
     );
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(1, Err(CommitError::Unavailable()))]
+        vec![Reply::new(1, Err(CommitError::unavailable()))]
     );
     assert!(pipe.is_stopped());
     assert!(!pipe.needs_sync());
@@ -300,7 +300,7 @@ fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() ->
     commit_insert(&mut pipe, &applier, 2, "q")?;
     assert_eq!(
         drained(&mut pipe),
-        vec![Reply::new(2, Err(CommitError::Unavailable()))]
+        vec![Reply::new(2, Err(CommitError::unavailable()))]
     );
     Ok(())
 }
@@ -430,7 +430,7 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() -> TestResult 
         .refused("refused")?;
     assert_eq!(
         refused,
-        PipelineError::Sessions(StoreError::Corrupted(
+        PipelineError::sessions(StoreError::corrupted(
             SessionEntry::INDEX_KEY.to_vec(),
             "a session index whose length is not a multiple of 8".to_string()
         ))
@@ -447,7 +447,7 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() -> TestResult 
         .refused("read_failed")?;
     assert_eq!(
         read_failed,
-        PipelineError::Sessions(StoreError::ReadFailed(
+        PipelineError::sessions(StoreError::read_failed(
             SessionEntry::INDEX_KEY.to_vec(),
             "simulated read failure".to_string()
         ))
@@ -495,7 +495,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult 
         drained(&mut pipe),
         vec![
             Reply::new(1, Ok(4)),
-            Reply::new(2, Err(CommitError::Unavailable()))
+            Reply::new(2, Err(CommitError::unavailable()))
         ]
     );
     Ok(())

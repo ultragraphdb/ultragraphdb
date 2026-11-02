@@ -26,7 +26,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
         let read_only = match header.u8_at(16) {
             0 => false,
             1 => true,
-            mode => return Err(ProtocolError::FieldValue(command, "mode", mode.into())),
+            mode => return Err(ProtocolError::field_value(command, "mode", mode.into())),
         };
         let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {

@@ -138,44 +138,37 @@ pub struct LogError(pub LogErrorEnum);
 
 impl LogError {
     /// This replica is not the primary.
-    #[allow(non_snake_case)]
-    pub fn NotPrimary() -> Self {
+    pub fn not_primary() -> Self {
         Self(LogErrorEnum::NotPrimary)
     }
 
     /// The log holds `segments` segments, its capacity.
-    #[allow(non_snake_case)]
-    pub fn Busy(segments: u64) -> Self {
+    pub fn busy(segments: u64) -> Self {
         Self(LogErrorEnum::Busy { segments })
     }
 
     /// The log was sealed at `position`.
-    #[allow(non_snake_case)]
-    pub fn Sealed(position: u64) -> Self {
+    pub fn sealed(position: u64) -> Self {
         Self(LogErrorEnum::Sealed { position })
     }
 
     /// The log holds a round at `position`, the last position a round can take.
-    #[allow(non_snake_case)]
-    pub fn Exhausted(position: u64) -> Self {
+    pub fn exhausted(position: u64) -> Self {
         Self(LogErrorEnum::Exhausted { position })
     }
 
     /// The round at `position` was replaced before it became durable.
-    #[allow(non_snake_case)]
-    pub fn Truncated(position: u64) -> Self {
+    pub fn truncated(position: u64) -> Self {
         Self(LogErrorEnum::Truncated { position })
     }
 
     /// A position the operation does not take: `found`, where `expected` is the one it takes or its nearest bound.
-    #[allow(non_snake_case)]
-    pub fn PositionMismatch(expected: u64, found: u64) -> Self {
+    pub fn position_mismatch(expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::PositionMismatch { expected, found })
     }
 
     /// The round at `position` names `found` as its parent, not `expected`.
-    #[allow(non_snake_case)]
-    pub fn ParentMismatch(position: u64, expected: u64, found: u64) -> Self {
+    pub fn parent_mismatch(position: u64, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::ParentMismatch {
             position,
             expected,
@@ -184,14 +177,12 @@ impl LogError {
     }
 
     /// A round of `size` bytes is larger than `limit`.
-    #[allow(non_snake_case)]
-    pub fn TooLarge(size: usize, limit: usize) -> Self {
+    pub fn too_large(size: usize, limit: usize) -> Self {
         Self(LogErrorEnum::TooLarge { size, limit })
     }
 
     /// The round at `position`, at byte `offset` of segment `segment`, is damaged before its body.
-    #[allow(non_snake_case)]
-    pub fn Corrupt(position: u64, segment: u64, offset: u64) -> Self {
+    pub fn corrupt(position: u64, segment: u64, offset: u64) -> Self {
         Self(LogErrorEnum::Corrupt {
             position,
             segment,
@@ -200,8 +191,7 @@ impl LogError {
     }
 
     /// Chunk `chunk`, body bytes `start` to `end`, of the round at `position` does not match its leaf.
-    #[allow(non_snake_case)]
-    pub fn CorruptChunk(
+    pub fn corrupt_chunk(
         position: u64,
         segment: u64,
         offset: u64,
@@ -220,14 +210,12 @@ impl LogError {
     }
 
     /// Superblock copy `copy` holds bytes that do not verify.
-    #[allow(non_snake_case)]
-    pub fn SuperblockUnreadable(copy: char) -> Self {
+    pub fn superblock_unreadable(copy: char) -> Self {
         Self(LogErrorEnum::SuperblockUnreadable { copy })
     }
 
     /// The log's `what` is `found`, not `expected`.
-    #[allow(non_snake_case)]
-    pub fn Diverged(what: &'static str, expected: u64, found: u64) -> Self {
+    pub fn diverged(what: &'static str, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::Diverged {
             what,
             expected,
@@ -236,8 +224,7 @@ impl LogError {
     }
 
     /// The storage failed `operation` with an error of `kind` saying `message`.
-    #[allow(non_snake_case)]
-    pub fn Io(operation: &'static str, kind: ErrorKind, message: impl Into<String>) -> Self {
+    pub fn io(operation: &'static str, kind: ErrorKind, message: impl Into<String>) -> Self {
         Self(LogErrorEnum::Io {
             operation,
             kind,
@@ -246,8 +233,7 @@ impl LogError {
     }
 
     /// A write or sync failed earlier; the log refuses every operation until reopened.
-    #[allow(non_snake_case)]
-    pub fn Poisoned() -> Self {
+    pub fn poisoned() -> Self {
         Self(LogErrorEnum::Poisoned)
     }
 }

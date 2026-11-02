@@ -197,7 +197,7 @@ fn test_invalid_filters_are_refused_with_the_directive_and_the_parsers_reason() 
             .context("an invalid directive is refused")?;
         assert_eq!(
             error,
-            TelemetryError::Filter(directive.to_string(), reason.to_string())
+            TelemetryError::filter(directive.to_string(), reason.to_string())
         );
     }
     Ok(())

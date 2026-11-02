@@ -134,7 +134,7 @@ impl FjallStore {
     ) -> Result<Self, StoreError> {
         let gc = Arc::new(GcSettings::default());
         let factory: Arc<dyn Factory> = Arc::new(GcFilterFactory::new(gc.clone()));
-        let opened = |e: fjall::Error| StoreError::OpenFailed(e.to_string());
+        let opened = |e: fjall::Error| StoreError::open_failed(e.to_string());
         let db = Database::builder(path.as_ref())
             .with_compaction_filter_factories(Arc::new(move |name: &str| {
                 (name == DATA_KEYSPACE).then(|| factory.clone())
@@ -201,11 +201,11 @@ impl FjallStore {
             .map(|guard| {
                 let (stored, bytes) = guard
                     .into_inner()
-                    .map_err(|e| StoreError::ReadFailed(Vec::new(), e.to_string()))?;
+                    .map_err(|e| StoreError::read_failed(Vec::new(), e.to_string()))?;
                 let (key, version) = decode_stored_key(&stored)
-                    .map_err(|reason| StoreError::Corrupted(stored.to_vec(), reason))?;
+                    .map_err(|reason| StoreError::corrupted(stored.to_vec(), reason))?;
                 let v = decode_value(&bytes)
-                    .map_err(|reason| StoreError::Corrupted(key.clone(), reason))?;
+                    .map_err(|reason| StoreError::corrupted(key.clone(), reason))?;
                 Ok(match (v.deletion, v.discard) {
                     (true, _) => Entry::deletion(key, version),
                     (false, false) => Entry::put(key, version, v.meta, v.value.to_vec()),
@@ -225,7 +225,7 @@ impl FjallStore {
             .map(|guard| {
                 let (key, value) = guard
                     .into_inner()
-                    .map_err(|e| StoreError::ReadFailed(Vec::new(), e.to_string()))?;
+                    .map_err(|e| StoreError::read_failed(Vec::new(), e.to_string()))?;
                 Ok((key.to_vec(), value.to_vec()))
             })
             .collect()
@@ -283,7 +283,7 @@ impl FjallStore {
 impl Shared {
     pub fn refuse_if_poisoned(&self) -> Result<(), StoreError> {
         if self.poisoned.load(Ordering::Acquire) {
-            return Err(StoreError::Poisoned());
+            return Err(StoreError::poisoned());
         }
         Ok(())
     }
@@ -294,7 +294,7 @@ impl Shared {
             tracing::error!(error = %error, "store poisoned by a failed write; it must be reopened");
         }
         match error {
-            fjall::Error::Poisoned => StoreError::Poisoned(),
+            fjall::Error::Poisoned => StoreError::poisoned(),
             other @ (fjall::Error::Storage(_)
             | fjall::Error::Io(_)
             | fjall::Error::JournalRecovery(_)
@@ -305,7 +305,7 @@ impl Shared {
             | fjall::Error::KeyspaceDeleted
             | fjall::Error::Locked
             | fjall::Error::Unrecoverable
-            | _) => StoreError::WriteFailed(other.to_string()),
+            | _) => StoreError::write_failed(other.to_string()),
         }
     }
 

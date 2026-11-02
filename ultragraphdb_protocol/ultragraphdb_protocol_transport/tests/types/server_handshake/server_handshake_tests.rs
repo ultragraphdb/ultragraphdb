@@ -92,7 +92,7 @@ fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() -
     );
     assert_eq!(
         outcome.err().context("the refusal")?,
-        TransportError::UnexpectedCommand(1, 14)
+        TransportError::unexpected_command(1, 14)
     );
     let mut damaged = hello(1, 1)?;
     let last = damaged.len() - 1;
@@ -120,7 +120,7 @@ fn test_another_command_or_a_damaged_frame_is_answered_with_a_protocol_error() -
     );
     assert_eq!(
         foreign_outcome.err().context("the refusal")?,
-        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, CLUSTER + 1))
+        TransportError::protocol(ProtocolError::wrong_cluster(CLUSTER, CLUSTER + 1))
     );
     Ok(())
 }
@@ -132,15 +132,15 @@ fn test_a_hello_breaking_its_bodys_rules_is_answered_with_a_protocol_error() -> 
     for (hello, refusal) in [
         (
             Hello::new(0, 1, 5, MAX_FRAME_SIZE as u32, "c"),
-            ProtocolError::FieldValue(1, "protocol_min", 0),
+            ProtocolError::field_value(1, "protocol_min", 0),
         ),
         (
             Hello::new(2, 1, 5, MAX_FRAME_SIZE as u32, "c"),
-            ProtocolError::FieldValue(1, "protocol_max", 1),
+            ProtocolError::field_value(1, "protocol_max", 1),
         ),
         (
             Hello::new(1, 1, 5, 524_287, "c"),
-            ProtocolError::FieldValue(1, "max_frame", 524_287),
+            ProtocolError::field_value(1, "max_frame", 524_287),
         ),
     ] {
         let frame = ClientHandshake::new(CLUSTER, hello).hello_frame()?;
@@ -151,7 +151,7 @@ fn test_a_hello_breaking_its_bodys_rules_is_answered_with_a_protocol_error() -> 
         );
         assert_eq!(
             outcome.err().context("the refusal")?,
-            TransportError::Protocol(refusal)
+            TransportError::protocol(refusal)
         );
     }
     // At the floor exactly, a Hello is welcomed.
@@ -179,15 +179,15 @@ fn test_a_first_frame_not_numbered_one_or_naming_a_view_or_replica_is_refused() 
     for (frame, refusal) in [
         (
             hello_with(Header::new(CLUSTER, Command::Hello).with_sequence(2))?,
-            ProtocolError::SequenceOrder(1, 2),
+            ProtocolError::sequence_order(1, 2),
         ),
         (
             hello_with(first.clone().with_view(3))?,
-            ProtocolError::FieldValue(1, "view", 3),
+            ProtocolError::field_value(1, "view", 3),
         ),
         (
             hello_with(first.with_replica(1))?,
-            ProtocolError::FieldValue(1, "replica", 1),
+            ProtocolError::field_value(1, "replica", 1),
         ),
     ] {
         let (answer, outcome) = server().receive(&frame).into_parts();
@@ -197,7 +197,7 @@ fn test_a_first_frame_not_numbered_one_or_naming_a_view_or_replica_is_refused() 
         );
         assert_eq!(
             outcome.err().context("the refusal")?,
-            TransportError::Protocol(refusal)
+            TransportError::protocol(refusal)
         );
     }
     Ok(())

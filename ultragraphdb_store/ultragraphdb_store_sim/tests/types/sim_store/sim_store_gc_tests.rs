@@ -261,10 +261,10 @@ fn test_an_open_reader_holds_the_discard_timestamp_back() -> TestResult {
         3,
         "another reader at the held timestamp opens"
     );
-    assert_eq!(s.snapshot(2).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(2).err(), Some(StoreError::ts_too_old()));
     drop(reader);
     assert_eq!(s.discard_ts(), 6);
-    assert_eq!(s.snapshot(3).err(), Some(StoreError::TsTooOld()));
+    assert_eq!(s.snapshot(3).err(), Some(StoreError::ts_too_old()));
     s.compact()?;
     assert_eq!(
         held(&s, b"k"),

@@ -42,7 +42,7 @@ fn test_reads_see_the_requests_writes_and_absence_is_no_value() -> TestResult {
     set_vector(&mut request, &p, 7, vector_encoding(&[1.0, 2.0])?)?;
     let txn = ViTxn::new(&mut request);
     assert_eq!(Txn::get(&txn, &key(&p, 7)), Ok(elements(&[1.0, 2.0])));
-    assert_eq!(Txn::get(&txn, &key(&p, 8)), Err(HnswError::NoValue()));
+    assert_eq!(Txn::get(&txn, &key(&p, 8)), Err(HnswError::no_value()));
     assert_eq!(
         LocalCache::get_with_lock_held(&txn, &key(&p, 7)),
         Ok(elements(&[1.0, 2.0]))
@@ -86,7 +86,7 @@ fn test_find_scans_the_committed_vectors_in_key_order() -> TestResult {
     );
     assert_eq!(
         Txn::find(&txn, &prefix, |_| false),
-        Err(HnswError::KeyNotFound())
+        Err(HnswError::key_not_found())
     );
     delete(&lists, &p, 4)?;
     let mut later_request = lists.request(lists.applied_ts());
@@ -112,8 +112,8 @@ fn test_a_deleted_index_value_is_no_value() -> TestResult {
         .get(&entry)?
         .add_posting(index_posting(named.clone()).with_op(DEL), false);
     let txn = ViTxn::new(&mut request);
-    assert_eq!(Txn::get(&txn, &entry), Err(HnswError::NoValue()));
-    assert_eq!(LocalCache::get(&txn, &entry), Err(HnswError::NoValue()));
+    assert_eq!(Txn::get(&txn, &entry), Err(HnswError::no_value()));
+    assert_eq!(LocalCache::get(&txn, &entry), Err(HnswError::no_value()));
     let kv = KeyValue::new(1, format!("{p}{VEC_ENTRY}"), named.clone());
     txn.add_mutation(&entry, &kv)?;
     assert_eq!(Txn::get(&txn, &entry), Ok(named));

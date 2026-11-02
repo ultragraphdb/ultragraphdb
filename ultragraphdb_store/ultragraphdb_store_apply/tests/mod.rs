@@ -11,4 +11,5 @@ mod errors;
 #[cfg(test)]
 mod types;
 #[cfg(test)]
-mod utils;
+/// The helpers the unit tests share with the BDD target, which uses a part of them.
+pub mod utils;

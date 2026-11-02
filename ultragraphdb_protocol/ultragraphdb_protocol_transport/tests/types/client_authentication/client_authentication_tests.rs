@@ -76,7 +76,7 @@ fn test_the_servers_error_is_a_refusal_naming_its_code() -> TestResult {
     ))?;
     assert_eq!(
         receive(&mut auth, &refused)?,
-        Err(TransportError::Refused(
+        Err(TransportError::refused(
             ErrorCode::AuthenticationFailed,
             "authentication failed"
         ))
@@ -91,7 +91,7 @@ fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() -> TestRe
     let early = frame(&Authenticate::new(3, "", b"welcome".to_vec()).with_final(7, 0))?;
     assert_eq!(
         receive(&mut auth, &early)?,
-        Err(TransportError::Protocol(ProtocolError::FieldValue(
+        Err(TransportError::protocol(ProtocolError::field_value(
             18, "step", 3
         )))
     );
@@ -122,7 +122,7 @@ fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() -> TestRe
     let credit = frame(&Credit::new(1))?;
     assert_eq!(
         receive(&mut credit_auth, &credit)?,
-        Err(TransportError::UnexpectedCommand(18, 14))
+        Err(TransportError::unexpected_command(18, 14))
     );
     Ok(())
 }
@@ -133,7 +133,7 @@ fn test_the_mechanisms_refusal_is_an_authentication_error() -> TestResult {
     let odd = frame(&Authenticate::new(1, "", b"something else".to_vec()))?;
     assert_eq!(
         receive(&mut auth, &odd)?,
-        Err(TransportError::Authentication("an unexpected challenge"))
+        Err(TransportError::authentication("an unexpected challenge"))
     );
     // A final message the mechanism does not take: the server did not prove itself.
     let mut forged_auth = started()?;
@@ -145,7 +145,7 @@ fn test_the_mechanisms_refusal_is_an_authentication_error() -> TestResult {
     let forged = frame(&Authenticate::new(3, "", b"forged".to_vec()).with_final(7, 0))?;
     assert_eq!(
         receive(&mut forged_auth, &forged)?,
-        Err(TransportError::Authentication(
+        Err(TransportError::authentication(
             "the server did not prove itself"
         ))
     );
@@ -181,14 +181,14 @@ fn test_a_mechanism_that_cannot_start_is_an_authentication_error() -> TestResult
     let mut auth = ClientAuthentication::new(Unstartable);
     assert_eq!(
         auth.start(),
-        Err(TransportError::Authentication("no secret to start with"))
+        Err(TransportError::authentication("no secret to start with"))
     );
     // Not started, so the server's step 1 is out of step.
     let challenge = Authenticate::new(1, "", b"challenge".to_vec())
         .frame(Header::new(CLUSTER, Command::Abort))?;
     assert_eq!(
         auth.receive(&FrameView::validate(&challenge, CLUSTER, MAX_FRAME_SIZE)?),
-        Err(TransportError::Protocol(ProtocolError::FieldValue(
+        Err(TransportError::protocol(ProtocolError::field_value(
             18, "step", 1
         )))
     );
@@ -230,7 +230,7 @@ fn test_each_challenge_is_answered_at_the_step_after_it() -> TestResult {
     );
     assert_eq!(
         receive(&mut again, &repeated)?,
-        Err(TransportError::Protocol(ProtocolError::FieldValue(
+        Err(TransportError::protocol(ProtocolError::field_value(
             18, "step", 3
         )))
     );
@@ -245,7 +245,7 @@ fn test_each_challenge_is_answered_at_the_step_after_it() -> TestResult {
     // The exchange is over: any later message is out of step, the final message repeated among them.
     assert_eq!(
         receive(&mut auth, &last)?,
-        Err(TransportError::Protocol(ProtocolError::FieldValue(
+        Err(TransportError::protocol(ProtocolError::field_value(
             18, "step", 5
         )))
     );
@@ -259,7 +259,7 @@ fn test_a_server_message_breaking_its_bodys_rules_is_a_protocol_error() -> TestR
     let named = frame(&Authenticate::new(1, TEST, b"challenge".to_vec()))?;
     assert_eq!(
         receive(&mut auth, &named)?,
-        Err(TransportError::Protocol(ProtocolError::FieldValue(
+        Err(TransportError::protocol(ProtocolError::field_value(
             18,
             "mechanism",
             4

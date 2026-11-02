@@ -55,7 +55,10 @@ impl Peer {
 
 /// A point in time to start from. The connection never reads a clock; the tests move this value on themselves, so the
 /// clock is read once, here, for an origin only.
-#[allow(clippy::disallowed_methods)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "an `Instant` is made only by reading the clock, so the tests' origin reads it once"
+)]
 pub fn start() -> Instant {
     Instant::now()
 }

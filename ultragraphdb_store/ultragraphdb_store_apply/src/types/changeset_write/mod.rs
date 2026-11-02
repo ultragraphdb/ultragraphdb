@@ -261,7 +261,7 @@ where
     ) -> Result<Option<EncodedTerm>, ChangesetError> {
         let (terms, quads) = self.write.terms();
         terms.find(quads.store(), term).map_err(|e| match e.0 {
-            QuadErrorEnum::Term(t) => ChangesetError::Literal(predicate.as_str(), t),
+            QuadErrorEnum::Term(t) => ChangesetError::literal(predicate.as_str(), t),
             QuadErrorEnum::Store(_)
             | QuadErrorEnum::Posting(_)
             | QuadErrorEnum::Key(_)
@@ -284,7 +284,7 @@ where
         terms
             .term(quads.store(), quads.leases(), term)
             .map_err(|e| match e.0 {
-                QuadErrorEnum::Term(t) => ChangesetError::Literal(predicate.as_str(), t),
+                QuadErrorEnum::Term(t) => ChangesetError::literal(predicate.as_str(), t),
                 QuadErrorEnum::Store(_)
                 | QuadErrorEnum::Posting(_)
                 | QuadErrorEnum::Key(_)

@@ -14,7 +14,7 @@ impl QuadKey {
     pub fn split_bytes(&self, start: u64) -> Result<Vec<u8>, QuadKeyError> {
         let mut key = self.to_bytes();
         if !self.keyspace().is_list() {
-            return Err(QuadKeyError::NotAList(&key));
+            return Err(QuadKeyError::not_a_list(&key));
         }
         key[0] |= SPLIT_FLAG;
         key.extend_from_slice(&start.to_be_bytes());

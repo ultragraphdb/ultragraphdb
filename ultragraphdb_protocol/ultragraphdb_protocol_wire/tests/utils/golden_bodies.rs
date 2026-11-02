@@ -26,72 +26,57 @@ pub const RELEASE: u32 = 0x0005_0000;
 /// One golden frame, as `generate_bodies.py` wrote it and printed its size and checksums.
 #[derive(Debug, Clone, Copy)]
 pub struct GoldenBody {
+    /// The frame's name, the stem of its file under `testdata/golden/bodies/`.
     pub name: &'static str,
+    /// The header's command code.
     pub command: u16,
+    /// The header's stream.
     pub stream: u64,
+    /// The header's flags.
     pub flags: u8,
+    /// The header's sequence.
     pub sequence: u128,
+    /// The frame's size in bytes.
     pub size: u32,
+    /// The header's checksum: XXH3-64 of the header after its first 8 bytes.
     pub checksum: u64,
+    /// The body's checksum: XXH3-64 of the body when it is one chunk, of its chunk table otherwise.
     pub checksum_body: u64,
 }
 
-// One golden frame per row, its arguments the generator's printed columns in order.
-#[allow(clippy::too_many_arguments)]
-const fn g(
-    name: &'static str,
-    command: u16,
-    stream: u64,
-    flags: u8,
-    sequence: u128,
-    size: u32,
-    checksum: u64,
-    checksum_body: u64,
-) -> GoldenBody {
-    GoldenBody {
-        name,
-        command,
-        stream,
-        flags,
-        sequence,
-        size,
-        checksum,
-        checksum_body,
-    }
-}
-
-// The generator's output, copied: name, command, stream, flags, sequence, size, checksum, checksum_body.
+/// The golden frames, one per row: the header fields `generate_bodies.py` built each with, and the size and
+/// checksums it printed.
 #[rustfmt::skip]
 pub const BODIES: [GoldenBody; 29] = [
-    g("hello", 1, 0, 0, 1, 279, 0x13cb_a202_760d_70b3, 0x3354_a6ce_4aa5_d7a6),
-    g("welcome", 2, 0, 0, 1, 317, 0x4561_84ae_8da6_048f, 0x7bc2_2fd5_5be2_26d0),
-    g("welcome_no_auth", 2, 0, 0, 1, 296, 0xb417_f160_aa24_f995, 0xf789_a351_5d20_daef),
-    g("authenticate_client_first", 18, 0, 0, 2, 320, 0x3e70_5c2c_9545_6070, 0xea43_1ed9_5666_34a9),
-    g("authenticate_server_first", 18, 0, 0, 2, 358, 0x5959_a508_58a8_c174, 0x64c6_adf9_e815_8a07),
-    g("authenticate_client_final", 18, 0, 0, 3, 378, 0x001e_a553_4a66_ad71, 0xa712_172f_ecff_5b46),
-    g("authenticate_server_final", 18, 0, 0, 3, 318, 0x3773_4e3a_a087_2a3c, 0x28b7_b669_06df_e983),
-    g("register", 3, 0, 0, 1, 256, 0x9df1_4939_26e5_6dd6, 0x2d06_8005_38d3_94c2),
-    g("begin", 4, 5, 0, 1, 256, 0xfd25_1229_2899_0449, 0x2d06_8005_38d3_94c2),
-    g("commit", 5, 5, 0, 1, 296, 0x369e_f720_2bb0_49a6, 0x0a21_f801_015a_ba74),
-    g("abort", 6, 5, 0, 1, 256, 0xbb90_ba9a_6b33_92ef, 0x2d06_8005_38d3_94c2),
-    g("read", 7, 11, 0, 1, 411, 0xd530_96eb_a6c9_9b26, 0xd495_36ce_eedd_927f),
-    g("write", 8, 5, 0, 1, 1_769, 0x10ea_04f3_2c09_f6ce, 0x1a97_c571_66f1_f5e1),
-    g("operation", 9, 5, 0, 1, 541, 0x819c_9678_0d07_b06d, 0xc763_0be0_93aa_4f02),
-    g("operation_counter", 9, 7, 0, 1, 387, 0x853a_2deb_e648_b96d, 0x95e0_a48a_8ed2_701c),
-    g("operation_deep", 9, 9, 0, 1, 1_142, 0x08b8_0462_4235_b2ce, 0xb338_de68_2070_1115),
-    g("prepare", 10, 13, 0, 1, 384, 0xc36e_3c3e_21de_e50a, 0xb7d8_3d8f_c6ef_0110),
-    g("prepare_reply", 10, 13, 0, 1, 385, 0x08fb_03f7_3f5f_a1cf, 0x7237_dbcf_ca74_635e),
-    g("execute", 11, 15, 0, 1, 336, 0xf929_6433_8595_88a7, 0xb518_2367_cd44_9c6f),
-    g("describe", 12, 17, 0, 1, 312, 0xe91a_4ff9_f41a_ff36, 0x2464_7a33_d027_0e23),
-    g("describe_reply", 12, 17, 0, 1, 508, 0x62ff_8ac6_af26_c4dc, 0x739b_5e15_2585_486c),
-    g("result", 13, 11, 1, 1, 600, 0x3c42_d795_e0ba_9f92, 0x3381_6917_6399_c775),
-    g("credit", 14, 11, 0, 1, 256, 0x2f73_37ee_fe0c_7c44, 0x2d06_8005_38d3_94c2),
-    g("cancel", 15, 11, 0, 1, 256, 0x5032_665c_3cbb_1b5f, 0x2d06_8005_38d3_94c2),
-    g("error", 16, 5, 1, 1, 312, 0xd3ee_ce7e_9292_95f8, 0x5167_54f7_3689_214d),
-    g("error_operation", 16, 7, 1, 1, 348, 0x2e88_d89f_9888_6cf3, 0x2897_5799_bf0a_e6df),
-    g("drop", 19, 19, 0, 1, 311, 0x6d0b_29f7_340a_0d3b, 0xabf6_85b8_5add_94f2),
-    g("drop_reply", 19, 19, 1, 1, 311, 0xeade_41ee_16c1_aee0, 0xabf6_85b8_5add_94f2),
-    g("round", 17, 0, 0, 3, 5_792, 0x8448_5601_23ef_5d44, 0x0913_d3cc_f34d_1ed6),
+    GoldenBody { name: "hello", command: 1, stream: 0, flags: 0, sequence: 1, size: 279, checksum: 0x13cb_a202_760d_70b3, checksum_body: 0x3354_a6ce_4aa5_d7a6 },
+    GoldenBody { name: "welcome", command: 2, stream: 0, flags: 0, sequence: 1, size: 317, checksum: 0x4561_84ae_8da6_048f, checksum_body: 0x7bc2_2fd5_5be2_26d0 },
+    GoldenBody { name: "welcome_no_auth", command: 2, stream: 0, flags: 0, sequence: 1, size: 296, checksum: 0xb417_f160_aa24_f995, checksum_body: 0xf789_a351_5d20_daef },
+    GoldenBody { name: "authenticate_client_first", command: 18, stream: 0, flags: 0, sequence: 2, size: 320, checksum: 0x3e70_5c2c_9545_6070, checksum_body: 0xea43_1ed9_5666_34a9 },
+    GoldenBody { name: "authenticate_server_first", command: 18, stream: 0, flags: 0, sequence: 2, size: 358, checksum: 0x5959_a508_58a8_c174, checksum_body: 0x64c6_adf9_e815_8a07 },
+    GoldenBody { name: "authenticate_client_final", command: 18, stream: 0, flags: 0, sequence: 3, size: 378, checksum: 0x001e_a553_4a66_ad71, checksum_body: 0xa712_172f_ecff_5b46 },
+    GoldenBody { name: "authenticate_server_final", command: 18, stream: 0, flags: 0, sequence: 3, size: 318, checksum: 0x3773_4e3a_a087_2a3c, checksum_body: 0x28b7_b669_06df_e983 },
+    GoldenBody { name: "register", command: 3, stream: 0, flags: 0, sequence: 1, size: 256, checksum: 0x9df1_4939_26e5_6dd6, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "begin", command: 4, stream: 5, flags: 0, sequence: 1, size: 256, checksum: 0xfd25_1229_2899_0449, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "commit", command: 5, stream: 5, flags: 0, sequence: 1, size: 296, checksum: 0x369e_f720_2bb0_49a6, checksum_body: 0x0a21_f801_015a_ba74 },
+    GoldenBody { name: "abort", command: 6, stream: 5, flags: 0, sequence: 1, size: 256, checksum: 0xbb90_ba9a_6b33_92ef, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "read", command: 7, stream: 11, flags: 0, sequence: 1, size: 411, checksum: 0xd530_96eb_a6c9_9b26, checksum_body: 0xd495_36ce_eedd_927f },
+    GoldenBody { name: "write", command: 8, stream: 5, flags: 0, sequence: 1, size: 1_769, checksum: 0x10ea_04f3_2c09_f6ce, checksum_body: 0x1a97_c571_66f1_f5e1 },
+    GoldenBody { name: "operation", command: 9, stream: 5, flags: 0, sequence: 1, size: 541, checksum: 0x819c_9678_0d07_b06d, checksum_body: 0xc763_0be0_93aa_4f02 },
+    GoldenBody { name: "operation_counter", command: 9, stream: 7, flags: 0, sequence: 1, size: 387, checksum: 0x853a_2deb_e648_b96d, checksum_body: 0x95e0_a48a_8ed2_701c },
+    GoldenBody { name: "operation_deep", command: 9, stream: 9, flags: 0, sequence: 1, size: 1_142, checksum: 0x08b8_0462_4235_b2ce, checksum_body: 0xb338_de68_2070_1115 },
+    GoldenBody { name: "prepare", command: 10, stream: 13, flags: 0, sequence: 1, size: 384, checksum: 0xc36e_3c3e_21de_e50a, checksum_body: 0xb7d8_3d8f_c6ef_0110 },
+    GoldenBody { name: "prepare_reply", command: 10, stream: 13, flags: 0, sequence: 1, size: 385, checksum: 0x08fb_03f7_3f5f_a1cf, checksum_body: 0x7237_dbcf_ca74_635e },
+    GoldenBody { name: "execute", command: 11, stream: 15, flags: 0, sequence: 1, size: 336, checksum: 0xf929_6433_8595_88a7, checksum_body: 0xb518_2367_cd44_9c6f },
+    GoldenBody { name: "describe", command: 12, stream: 17, flags: 0, sequence: 1, size: 312, checksum: 0xe91a_4ff9_f41a_ff36, checksum_body: 0x2464_7a33_d027_0e23 },
+    GoldenBody { name: "describe_reply", command: 12, stream: 17, flags: 0, sequence: 1, size: 508, checksum: 0x62ff_8ac6_af26_c4dc, checksum_body: 0x739b_5e15_2585_486c },
+    GoldenBody { name: "result", command: 13, stream: 11, flags: 1, sequence: 1, size: 600, checksum: 0x3c42_d795_e0ba_9f92, checksum_body: 0x3381_6917_6399_c775 },
+    GoldenBody { name: "credit", command: 14, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x2f73_37ee_fe0c_7c44, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "cancel", command: 15, stream: 11, flags: 0, sequence: 1, size: 256, checksum: 0x5032_665c_3cbb_1b5f, checksum_body: 0x2d06_8005_38d3_94c2 },
+    GoldenBody { name: "error", command: 16, stream: 5, flags: 1, sequence: 1, size: 312, checksum: 0xd3ee_ce7e_9292_95f8, checksum_body: 0x5167_54f7_3689_214d },
+    GoldenBody { name: "error_operation", command: 16, stream: 7, flags: 1, sequence: 1, size: 348, checksum: 0x2e88_d89f_9888_6cf3, checksum_body: 0x2897_5799_bf0a_e6df },
+    GoldenBody { name: "drop", command: 19, stream: 19, flags: 0, sequence: 1, size: 311, checksum: 0x6d0b_29f7_340a_0d3b, checksum_body: 0xabf6_85b8_5add_94f2 },
+    GoldenBody { name: "drop_reply", command: 19, stream: 19, flags: 1, sequence: 1, size: 311, checksum: 0xeade_41ee_16c1_aee0, checksum_body: 0xabf6_85b8_5add_94f2 },
+    GoldenBody { name: "round", command: 17, stream: 0, flags: 0, sequence: 3, size: 5_792, checksum: 0x8448_5601_23ef_5d44, checksum_body: 0x0913_d3cc_f34d_1ed6 },
 ];
 
 /// The schema id the generator printed for the golden Describe answer's declarations.

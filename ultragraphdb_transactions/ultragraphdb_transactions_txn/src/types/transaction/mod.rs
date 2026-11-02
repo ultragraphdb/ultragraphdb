@@ -21,7 +21,10 @@ use crate::types::write_set_builder::WriteSetBuilder;
 ///
 /// `Prepared` is unboxed: the value is moved once, from the commit to the commit step's queue, and copying it is cheaper
 /// than the heap allocation per read-write commit that boxing would add (performance by design, tasks.md).
-#[allow(clippy::large_enum_variant)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "moving `Prepared` once is cheaper than a heap allocation per read-write commit"
+)]
 #[derive(Debug)]
 pub enum Commit {
     /// A read-only transaction, ended on its worker: its buffers, for the worker's next transaction.
@@ -37,7 +40,7 @@ pub enum Commit {
 ///
 /// Time is the caller's: every request carries the worker's monotonic clock in microseconds, so a simulation drives
 /// the limits without waiting. A transaction past its limit, 10 s for a read-write and 16 s for a read-only one by
-/// default, is refused at its next request or its commit with the retryable [`TxnError::PastLimit`], and is ended,
+/// default, is refused at its next request or its commit with the retryable [`TxnError::past_limit`], and is ended,
 /// having written nothing; so is one whose changeset is refused. Aborting, or dropping it, writes nothing.
 #[derive(Debug)]
 pub struct Transaction<'a, S, C> {
@@ -62,7 +65,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::ReadAboveWatermark`] at once, never waiting, when `read_version` is above the watermark; the
+    /// [`TxnError::read_above_watermark`] at once, never waiting, when `read_version` is above the watermark; the
     /// store's error loading the namespace's catalog.
     pub fn begin<E>(
         applier: &'a ChangesetApplier<S, C, E>,
@@ -81,7 +84,7 @@ where
         let watermark = applier.quads().lists().applied_ts();
         let read_version = match read_version {
             0 => watermark,
-            v if v > watermark => return Err(TxnError::ReadAboveWatermark(v, watermark)),
+            v if v > watermark => return Err(TxnError::read_above_watermark(v, watermark)),
             v => v,
         };
         let execution = applier.begin(namespace, read_version)?;
@@ -124,7 +127,7 @@ where
     }
 
     /// Whether the transaction was ended by a refusal or its limit: every later request is refused with
-    /// [`TxnError::Ended`].
+    /// [`TxnError::ended`].
     pub fn is_ended(&self) -> bool {
         self.execution.is_none()
     }
@@ -133,14 +136,14 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::Ended`]; [`TxnError::PastLimit`], ending it; [`TxnError::ReadOnly`] and [`TxnError::Namespace`],
-    /// which leave it as it was; [`TxnError::Changeset`] for a changeset refused or a store that failed, ending it.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`] and [`TxnError::namespace`],
+    /// which leave it as it was; [`TxnError::changeset`] for a changeset refused or a store that failed, ending it.
     pub fn write(&mut self, changeset: &Changeset, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
-            return Err(TxnError::ReadOnly());
+            return Err(TxnError::read_only());
         }
         if changeset.namespace() != self.namespace {
-            return Err(TxnError::Namespace(self.namespace, changeset.namespace()));
+            return Err(TxnError::namespace(self.namespace, changeset.namespace()));
         }
         let execution = self.live(now_us)?;
         if let Err(e) = execution.apply(changeset) {
@@ -155,10 +158,10 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::Ended`]; [`TxnError::PastLimit`], ending it; [`TxnError::ReadOnly`], which leaves it as it was.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::read_only`], which leaves it as it was.
     pub fn operate(&mut self, operation: Operation, now_us: u64) -> Result<(), TxnError> {
         if self.mode == Mode::ReadOnly {
-            return Err(TxnError::ReadOnly());
+            return Err(TxnError::read_only());
         }
         let _execution: &mut Execution<'a, S, C> = self.live(now_us)?;
         self.operations.push(operation);
@@ -170,7 +173,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::Ended`]; [`TxnError::PastLimit`], ending it; [`TxnError::Changeset`] for a store that failed,
+    /// [`TxnError::ended`]; [`TxnError::past_limit`], ending it; [`TxnError::changeset`] for a store that failed,
     /// ending it.
     pub fn objects_into(
         &mut self,
@@ -193,8 +196,8 @@ where
     ///
     /// # Errors
     ///
-    /// [`TxnError::Ended`]; [`TxnError::PastLimit`]; [`TxnError::ReadSetTooLarge`] and
-    /// [`TxnError::WriteSetTooLarge`] past the limits. Nothing is written in each case.
+    /// [`TxnError::ended`]; [`TxnError::past_limit`]; [`TxnError::read_set_too_large`] and
+    /// [`TxnError::write_set_too_large`] past the limits. Nothing is written in each case.
     pub fn commit(
         self,
         session: u64,
@@ -204,10 +207,10 @@ where
     ) -> Result<Commit, TxnError> {
         let limit = self.limit();
         let Some(execution) = self.execution else {
-            return Err(TxnError::Ended());
+            return Err(TxnError::ended());
         };
         if past(now_us.saturating_sub(self.began_us), limit) {
-            return Err(TxnError::PastLimit(limit.as_millis() as u64));
+            return Err(TxnError::past_limit(limit.as_millis() as u64));
         }
         if self.mode == Mode::ReadOnly {
             return Ok(Commit::ReadOnly(self.buffers));
@@ -259,9 +262,9 @@ where
         let limit = self.limit();
         if self.execution.is_some() && past(now_us.saturating_sub(self.began_us), limit) {
             self.execution = None;
-            return Err(TxnError::PastLimit(limit.as_millis() as u64));
+            return Err(TxnError::past_limit(limit.as_millis() as u64));
         }
-        self.execution.as_mut().ok_or_else(TxnError::Ended)
+        self.execution.as_mut().ok_or_else(TxnError::ended)
     }
 
     /// Aborts the transaction, writing nothing: its buffers, for the worker's next transaction.

@@ -11,24 +11,24 @@ use crate::errors::bench_error::BenchError;
 
 impl From<ChangesetError> for BenchError {
     fn from(error: ChangesetError) -> Self {
-        Self::Apply(error)
+        Self::apply(error)
     }
 }
 
 impl From<StoreError> for BenchError {
     fn from(error: StoreError) -> Self {
-        Self::Store(error)
+        Self::store(error)
     }
 }
 
 impl From<PostingError> for BenchError {
     fn from(error: PostingError) -> Self {
-        Self::Apply(error.into())
+        Self::apply(error.into())
     }
 }
 
 impl From<std::io::Error> for BenchError {
     fn from(error: std::io::Error) -> Self {
-        Self::Io(error.to_string())
+        Self::io(error.to_string())
     }
 }

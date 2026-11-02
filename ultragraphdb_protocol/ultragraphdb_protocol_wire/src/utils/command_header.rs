@@ -31,13 +31,13 @@ impl CommandHeader<'_> {
         bytes_at(self.0, at).map_or(0, u64::from_le_bytes)
     }
 
-    /// Refused as [`ProtocolError::ReservedNotZero`], naming the header offset (128 + its offset here), at the first
+    /// Refused as [`ProtocolError::reserved_not_zero`], naming the header offset (128 + its offset here), at the first
     /// nonzero byte outside `used`, each a field's start and end.
     pub(crate) fn unused_zero(self, used: &[(usize, usize)]) -> Result<(), ProtocolError> {
         match self.0.iter().enumerate().find(|(at, byte)| {
             **byte != 0 && !used.iter().any(|(start, end)| (*start..*end).contains(at))
         }) {
-            Some((at, _)) => Err(ProtocolError::ReservedNotZero(COMMAND_HEADER_SIZE + at)),
+            Some((at, _)) => Err(ProtocolError::reserved_not_zero(COMMAND_HEADER_SIZE + at)),
             None => Ok(()),
         }
     }

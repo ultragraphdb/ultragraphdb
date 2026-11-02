@@ -102,7 +102,7 @@ where
         let p = self.iri(predicate)?;
         let encoded = self.term(predicate, value)?;
         if !self.declaration(p, predicate)?.unique() {
-            return Err(ChangesetError::NotUnique(predicate.as_str()));
+            return Err(ChangesetError::not_unique(predicate.as_str()));
         }
         let held = self.write.subjects(g, p, &encoded)?.into_iter().min();
         let (node, created) = match held {
@@ -189,8 +189,8 @@ where
                 let _removed: bool = self.remove(g, s, p, &declaration, object)?;
                 self.insert(graph, subject, predicate, new)
             }
-            [] => Err(ChangesetError::OperationFailed(None)),
-            [(object, _), ..] => Err(ChangesetError::OperationFailed(Some(
+            [] => Err(ChangesetError::operation_failed(None)),
+            [(object, _), ..] => Err(ChangesetError::operation_failed(Some(
                 self.decode(object)?.to_string(),
             ))),
         }
@@ -214,7 +214,7 @@ where
             [] => None,
             [(object, _)] => Some((object.clone(), self.decode(object)?)),
             [(object, _), ..] => {
-                return Err(ChangesetError::OperationFailed(Some(
+                return Err(ChangesetError::operation_failed(Some(
                     self.decode(object)?.to_string(),
                 )));
             }
@@ -222,10 +222,10 @@ where
         let value = match &current {
             None => 0,
             Some((_, term)) => integer(term)
-                .ok_or_else(|| ChangesetError::OperationFailed(Some(term.to_string())))?,
+                .ok_or_else(|| ChangesetError::operation_failed(Some(term.to_string())))?,
         };
         let sum = value.checked_add(delta).ok_or_else(|| {
-            ChangesetError::OperationFailed(current.as_ref().map(|(_, t)| t.to_string()))
+            ChangesetError::operation_failed(current.as_ref().map(|(_, t)| t.to_string()))
         })?;
         if let Some((object, _)) = &current {
             let declaration = self.behaviour(p, predicate);

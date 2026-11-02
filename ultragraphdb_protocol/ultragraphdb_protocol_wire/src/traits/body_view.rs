@@ -19,11 +19,11 @@ pub trait BodyView<'a>: Sized {
     type Body: BodyBuilder;
 
     /// The body of `frame`, checked: the frame's command is [`BodyView::COMMAND`], refused as
-    /// [`ProtocolError::WrongCommand`]; then the command header's fields and unused bytes; then the body's section
+    /// [`ProtocolError::wrong_command`]; then the command header's fields and unused bytes; then the body's section
     /// table, sections and their contents. The first rule broken is the error.
     fn from_frame(frame: &FrameView<'a>) -> Result<Self, ProtocolError>;
 
     /// The owned body holding the view's values, which builds the same frame again. Refused where a value is parsed
-    /// rather than read in place: an RDF term or an IRI not well formed is [`ProtocolError::BadTerm`].
+    /// rather than read in place: an RDF term or an IRI not well formed is [`ProtocolError::bad_term`].
     fn to_body(&self) -> Result<Self::Body, ProtocolError>;
 }

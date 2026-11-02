@@ -18,7 +18,7 @@ impl Sessions {
     ///
     /// # Errors
     ///
-    /// The store's error when an entry cannot be read; [`StoreError::Corrupted`] for an index whose length is not a
+    /// The store's error when an entry cannot be read; [`StoreError::corrupted`] for an index whose length is not a
     /// multiple of 8 or whose numbers do not ascend from above 0, a session it names with no entry, a malformed
     /// entry, or one committed at or before its registration.
     pub fn load<S: Store>(store: &S) -> Result<Self, StoreError> {
@@ -26,7 +26,7 @@ impl Sessions {
             return Ok(Self::new(Self::DEFAULT_CAPACITY));
         };
         let corrupted =
-            |key: &[u8], reason: &str| StoreError::Corrupted(key.to_vec(), reason.to_string());
+            |key: &[u8], reason: &str| StoreError::corrupted(key.to_vec(), reason.to_string());
         let (numbers, rest) = index.as_chunks::<8>();
         if !rest.is_empty() {
             return Err(corrupted(

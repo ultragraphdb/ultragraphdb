@@ -49,7 +49,7 @@ impl StatementCache {
     }
 
     /// Prepares `request` against the namespace's current `schema` id: each declared parameter type fits its slot
-    /// (a node where a node is expected, refused as [`StatementError::ParameterType`]); answered with the statement's
+    /// (a node where a node is expected, refused as [`StatementError::parameter_type`]); answered with the statement's
     /// id, the schema id, the parameter types and a result column type per unbound slot.
     pub fn prepare(
         &mut self,
@@ -69,7 +69,7 @@ impl StatementCache {
         for (parameter, (declared_type, slot)) in declared.iter().zip(&parameter_slots).enumerate()
         {
             if *slot == ColumnType::Node && *declared_type != ColumnType::Node {
-                return Err(StatementError::ParameterType(
+                return Err(StatementError::parameter_type(
                     parameter,
                     *declared_type,
                     *slot,
@@ -112,9 +112,9 @@ impl StatementCache {
 
     /// The pattern of `request`'s statement with its parameters bound, and the term table its indices name: the
     /// statement's terms, then the parameters' from the execution's table, each once. Given when `schema` is the
-    /// namespace's current schema id; refused, in this order: [`StatementError::Unknown`]; [`StatementError::Stale`]
-    /// when the statement was prepared against another schema id; [`StatementError::Parameters`] when the parameters
-    /// are not one per parameter slot; [`StatementError::NotANode`] when a literal or a triple term is bound at a slot
+    /// namespace's current schema id; refused, in this order: [`StatementError::unknown`]; [`StatementError::stale`]
+    /// when the statement was prepared against another schema id; [`StatementError::parameters`] when the parameters
+    /// are not one per parameter slot; [`StatementError::not_a_node`] when a literal or a triple term is bound at a slot
     /// taking a node.
     pub fn execute(
         &self,
@@ -125,13 +125,13 @@ impl StatementCache {
         let prepared = self
             .statements
             .get(&statement)
-            .ok_or(StatementError::Unknown(statement))?;
+            .ok_or(StatementError::unknown(statement))?;
         if prepared.schema != schema {
-            return Err(StatementError::Stale(statement, prepared.schema, schema));
+            return Err(StatementError::stale(statement, prepared.schema, schema));
         }
         let parameters = request.parameters();
         let expected = prepared.parameter_types.len();
-        let mismatch = StatementError::Parameters(statement, expected, parameters.len());
+        let mismatch = StatementError::parameters(statement, expected, parameters.len());
         if parameters.len() != expected {
             return Err(mismatch);
         }
@@ -158,7 +158,7 @@ impl StatementCache {
                     )
                 });
             if !node {
-                return Err(StatementError::NotANode(statement, n));
+                return Err(StatementError::not_a_node(statement, n));
             }
         }
         let mut terms = prepared.terms.clone();

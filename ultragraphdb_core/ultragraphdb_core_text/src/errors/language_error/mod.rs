@@ -38,12 +38,8 @@ impl LanguageError {
         Self(variant)
     }
 
-    pub(crate) fn syntax() -> Self {
-        Self::new(LanguageErrorEnum::Syntax)
-    }
-
     /// Go's `NewValueError`: the subtag's first eight bytes, up to a zero byte.
-    pub(crate) fn value(tag: &[u8]) -> Self {
+    pub(crate) fn unknown_subtag(tag: &[u8]) -> Self {
         let tag = &tag[..tag.len().min(8)];
         let end = tag.iter().position(|&c| c == 0).unwrap_or(tag.len());
         Self::new(LanguageErrorEnum::Value(tag[..end].to_vec()))
@@ -54,38 +50,32 @@ impl LanguageError {
     }
 
     /// A [`LanguageErrorEnum::Syntax`] error: the tag is not well-formed BCP 47.
-    #[allow(non_snake_case)]
-    pub fn Syntax() -> Self {
+    pub fn syntax() -> Self {
         Self(LanguageErrorEnum::Syntax)
     }
 
     /// A [`LanguageErrorEnum::DuplicateKey`] error: a `-u` extension has the same key twice with different values.
-    #[allow(non_snake_case)]
-    pub fn DuplicateKey() -> Self {
+    pub fn duplicate_key() -> Self {
         Self(LanguageErrorEnum::DuplicateKey)
     }
 
     /// A [`LanguageErrorEnum::Value`] error: a well-formed but unknown subtag, `value`.
-    #[allow(non_snake_case)]
-    pub fn Value(value: Vec<u8>) -> Self {
+    pub fn value(value: Vec<u8>) -> Self {
         Self(LanguageErrorEnum::Value(value))
     }
 
     /// A [`LanguageErrorEnum::PrivateUse`] error: a key was set on a private-use tag.
-    #[allow(non_snake_case)]
-    pub fn PrivateUse() -> Self {
+    pub fn private_use() -> Self {
         Self(LanguageErrorEnum::PrivateUse)
     }
 
     /// A [`LanguageErrorEnum::InvalidArguments`] error: a key or type of the wrong length was set.
-    #[allow(non_snake_case)]
-    pub fn InvalidArguments() -> Self {
+    pub fn invalid_arguments() -> Self {
         Self(LanguageErrorEnum::InvalidArguments)
     }
 
     /// A [`LanguageErrorEnum::MissingLikelyTagsData`] error: no likely subtags are known for the tag.
-    #[allow(non_snake_case)]
-    pub fn MissingLikelyTagsData() -> Self {
+    pub fn missing_likely_tags_data() -> Self {
         Self(LanguageErrorEnum::MissingLikelyTagsData)
     }
 }

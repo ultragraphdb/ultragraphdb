@@ -301,7 +301,6 @@ fn test_quo_smoke() -> TestResult {
 
 /// Go's TestFloatCmpSpecialValues: Cmp orders ±0, finite values and ±Inf as float64 does.
 #[test]
-#[allow(clippy::approx_constant, reason = "2.71828 is Go's test value, not e")]
 fn test_compare_special_values() -> TestResult {
     let args = [
         f64::NEG_INFINITY,

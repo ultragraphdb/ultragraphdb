@@ -57,7 +57,7 @@ impl Superblock {
     /// superblock: neither present (absent or empty) is [`SuperblockRead::Empty`]; one valid copy beside an absent
     /// one, or two valid copies, is [`SuperblockRead::Present`] with the higher sequence; a copy holding bytes that do
     /// not decode is [`SuperblockRead::Unreadable`] naming it, `a` first, whatever the other holds. A failed read is
-    /// [`LogError::Io`].
+    /// [`LogError::io`].
     pub async fn read<S: DurableStorage>(
         storage: &S,
         dir: &Path,
@@ -78,7 +78,7 @@ impl Superblock {
     }
 
     /// Writes the record to its copy: a temporary file beside it, synced, renamed over the copy, and `dir` synced, so
-    /// a crash at any step leaves the other copy as it was. A failed step is [`LogError::Io`].
+    /// a crash at any step leaves the other copy as it was. A failed step is [`LogError::io`].
     pub async fn write<S: DurableStorage>(&self, storage: &S, dir: &Path) -> Result<(), LogError> {
         let target = copy_path(dir, self.copy());
         let temporary = dir.join(format!("superblock.{}.tmp", self.copy()));

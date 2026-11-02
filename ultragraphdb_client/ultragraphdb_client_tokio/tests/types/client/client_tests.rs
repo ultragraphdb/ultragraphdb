@@ -301,7 +301,6 @@ fn result_stream() -> TestResult<ultragraphdb_client_tokio::ResultStream> {
 /// The shell tells the core the wall clock at each connect, so a credential's renewal falls due its margin before the
 /// expiry the server states.
 #[test]
-#[allow(clippy::disallowed_methods)]
 fn test_a_renewal_is_due_before_the_credentials_expiry() -> TestResult {
     use std::time::Duration;
     use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};

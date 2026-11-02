@@ -37,13 +37,13 @@ where
     pub fn iri_of(&self, namespace: u64, uid: u64) -> Result<(String, bool), QuadError> {
         let key = uid_key(namespace, uid);
         let value = self.store().get_versionless(&key)?.ok_or_else(|| {
-            QuadError::Corrupted(&key, format!("UID {uid} has no dictionary entry"))
+            QuadError::corrupted(&key, format!("UID {uid} has no dictionary entry"))
         })?;
         let (flag, iri) = value
             .split_first()
-            .ok_or_else(|| QuadError::Corrupted(&key, "an empty UID entry"))?;
+            .ok_or_else(|| QuadError::corrupted(&key, "an empty UID entry"))?;
         let iri = String::from_utf8(iri.to_vec())
-            .map_err(|_| QuadError::Corrupted(&key, "an IRI is not UTF-8"))?;
+            .map_err(|_| QuadError::corrupted(&key, "an IRI is not UTF-8"))?;
         Ok((iri, *flag == 1))
     }
 
@@ -51,9 +51,9 @@ where
     pub fn string_of(&self, namespace: u64, hash: Hash128) -> Result<String, QuadError> {
         let key = string_key(namespace, &hash);
         let value = self.store().get_versionless(&key)?.ok_or_else(|| {
-            QuadError::Corrupted(&key, "a literal's hash has no dictionary entry")
+            QuadError::corrupted(&key, "a literal's hash has no dictionary entry")
         })?;
-        String::from_utf8(value).map_err(|_| QuadError::Corrupted(&key, "a string is not UTF-8"))
+        String::from_utf8(value).map_err(|_| QuadError::corrupted(&key, "a string is not UTF-8"))
     }
 
     /// The RDF term `encoded` names: an IRI, a skolemized blank node presented as a blank node again, or a literal.
@@ -104,7 +104,7 @@ where
             .iter()
             .map(|(object, _)| {
                 self.term_of(namespace, object).map_err(|e| match e.0 {
-                    QuadErrorEnum::Corrupted { reason, .. } => QuadError::Corrupted(key, reason),
+                    QuadErrorEnum::Corrupted { reason, .. } => QuadError::corrupted(key, reason),
                     QuadErrorEnum::Store(_)
                     | QuadErrorEnum::Posting(_)
                     | QuadErrorEnum::Term(_)

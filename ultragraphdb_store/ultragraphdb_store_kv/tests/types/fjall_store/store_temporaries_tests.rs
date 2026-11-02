@@ -127,7 +127,7 @@ fn test_an_oversized_key_refuses_the_temporary_batch_whole() -> TestResult {
     b.put_versionless(vec![2; MAX_USER_KEY_SIZE + 1], Vec::new());
     assert_eq!(
         s.apply_temporary(&t, b),
-        Err(StoreError::KeyTooLarge(
+        Err(StoreError::key_too_large(
             65_001,
             MAX_USER_KEY_SIZE,
             vec![2; 1024]
@@ -149,15 +149,15 @@ fn test_a_dropped_temporary_keyspace_is_gone() -> TestResult {
     let again = Temporary::new(id);
     assert_eq!(
         s.apply_temporary(&again, WriteBatch::new()),
-        Err(StoreError::UnknownTemporary(id))
+        Err(StoreError::unknown_temporary(id))
     );
     assert_eq!(
         s.temporary_snapshot(&again).err(),
-        Some(StoreError::UnknownTemporary(id))
+        Some(StoreError::unknown_temporary(id))
     );
     assert_eq!(
         s.drop_temporary(Temporary::new(id)),
-        Err(StoreError::UnknownTemporary(id)),
+        Err(StoreError::unknown_temporary(id)),
         "a keyspace is dropped once"
     );
     assert_ne!(s.create_temporary()?.id(), id, "a number is not reused");

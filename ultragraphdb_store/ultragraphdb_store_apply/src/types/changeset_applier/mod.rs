@@ -10,7 +10,6 @@ use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::Changeset;
 use ultragraphdb_store_posting::{Batch, CachedList, Lists};
 use ultragraphdb_store_quads::QuadStore;
-use ultragraphdb_traits_index::VectorIndexOptions;
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -23,6 +22,7 @@ use crate::types::executed::Executed;
 use crate::types::execution::Execution;
 use crate::types::operation::Operation;
 use crate::types::record_writes::RecordWrites;
+use crate::types::vector_query::VectorQuery;
 
 /// Applies changesets to the quads of one store: each changeset executed against the snapshot at the watermark in a
 /// request of its own, checked against its namespace's catalog, its statements written to the quad lists with their
@@ -194,7 +194,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`ChangesetError::Rebuilding`] when an execution of the round starts a build while one runs or another of the
+    /// [`ChangesetError::rebuilding`] when an execution of the round starts a build while one runs or another of the
     /// round starts one, and a version not above the one before it, the watermark for the first, as the posting
     /// lists' `StaleVersion`; nothing is written. The store's error when the batch cannot be written.
     pub fn apply_round(&self, round: Vec<(u64, Executed)>) -> Result<Vec<Applied>, ChangesetError> {
@@ -232,8 +232,8 @@ where
     ///
     /// # Errors
     ///
-    /// [`ChangesetError::OperationFailed`] for a compare-and-set whose expected value is not held, or a counter that
-    /// is no integer or would overflow; [`ChangesetError::NotUnique`] for an insert-if-absent on a predicate not
+    /// [`ChangesetError::operation_failed`] for a compare-and-set whose expected value is not held, or a counter that
+    /// is no integer or would overflow; [`ChangesetError::not_unique`] for an insert-if-absent on a predicate not
     /// declared unique; a change the catalog refuses; the store's error.
     pub fn operate(
         &self,
@@ -268,7 +268,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`ChangesetError::NoVectorIndex`] when the catalog declares `predicate` with no vector index; the store's error.
+    /// [`ChangesetError::no_vector_index`] when the catalog declares `predicate` with no vector index; the store's error.
     pub fn index_vectors(
         &self,
         namespace: u64,
@@ -291,28 +291,25 @@ where
         self.core.indexed_version(namespace, predicate)
     }
 
-    /// The nodes of at most `k` vectors of `predicate` in `graph` of `namespace` nearest `query`, best first, by the
-    /// predicate's vector index as `options` ask, read at `read_ts`. A search reads the HNSW lists, and returns only
-    /// nodes whose vector is visible at its snapshot and which the lists hold: a vector committed and not yet indexed
-    /// is absent until the indexer reaches it. An index holding no vector finds none.
+    /// The nodes of the vectors of `predicate` in `graph` of `namespace` nearest `query`, best first and at most its
+    /// `k`, by the predicate's vector index as its options ask, read at `read_ts`. A search reads the HNSW lists, and
+    /// returns only nodes whose vector is visible at its snapshot and which the lists hold: a vector committed and not
+    /// yet indexed is absent until the indexer reaches it. An index holding no vector finds none.
     ///
     /// # Errors
     ///
-    /// [`ChangesetError::NoVectorIndex`] when the catalog declares `predicate` with no vector index; the store's error;
+    /// [`ChangesetError::no_vector_index`] when the catalog declares `predicate` with no vector index; the store's error;
     /// a stored list that does not decode.
-    #[allow(clippy::too_many_arguments)]
     pub fn search_vectors(
         &self,
         namespace: u64,
         graph: GraphNameRef<'_>,
         predicate: NamedNodeRef<'_>,
-        query: &[f32],
-        k: usize,
-        options: &VectorIndexOptions<f32>,
+        query: VectorQuery<'_>,
         read_ts: u64,
     ) -> Result<Vec<u64>, ChangesetError> {
         self.core
-            .search_vectors(namespace, graph, predicate, query, k, options, read_ts)
+            .search_vectors(namespace, graph, predicate, query, read_ts)
     }
 
     /// Spawns the build of record `started` on the executor, when one was started.

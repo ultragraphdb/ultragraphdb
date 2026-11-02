@@ -118,7 +118,6 @@ fn predicates_sign() {
 // Ported from golang/geo s2/predicates_test.go, TestPredicatesRobustSign. The literals are
 // Go's, verbatim.
 #[test]
-#[allow(clippy::excessive_precision)]
 fn predicates_robust_sign() {
     let x = p(1.0, 0.0, 0.0);
     let y = p(0.0, 1.0, 0.0);
@@ -127,25 +126,17 @@ fn predicates_robust_sign() {
     // The following points happen to be *exactly collinear* along a line that it
     // approximate tangent to the surface of the unit sphere. In fact, C is the
     // exact midpoint of the line segment AB.
-    let po_a = p(
-        0.72571927877036835,
-        0.46058825605889098,
-        0.51106749730504852,
-    );
-    let po_b = p(0.7257192746638208, 0.46058826573818168, 0.51106749441312738);
-    let po_c = p(
-        0.72571927671709457,
-        0.46058826089853633,
-        0.51106749585908795,
-    );
+    let po_a = p(0.7257192787703683, 0.460588256058891, 0.5110674973050485);
+    let po_b = p(0.7257192746638208, 0.4605882657381817, 0.5110674944131274);
+    let po_c = p(0.7257192767170946, 0.46058826089853633, 0.511067495859088);
 
     // The points "x1" and "x2" are exactly proportional.
-    let x1 = p(0.99999999999999989, 1.4901161193847655e-08, 0.0);
+    let x1 = p(0.9999999999999999, 1.4901161193847655e-08, 0.0);
     let x2 = p(1.0, 1.4901161193847656e-08, 0.0);
 
     // Two more points that are distinct, exactly proportional.
     let x3 = Point::from_vector(R3Vector::new(1.0, 1.0, 1.0).normalize());
-    let x4 = Point::from_vector(x3.vector().mul(0.99999999999999989));
+    let x4 = Point::from_vector(x3.vector().mul(0.9999999999999999));
 
     // Normalize() is not idempotent.
     let y0 = R3Vector::new(1.0, 1.0, 0.0);
@@ -259,11 +250,10 @@ fn predicates_symbolically_perturbed_sign() {
 // Ported from golang/geo s2/predicates_test.go, TestPredicatesStableSignUnderflow: the stable
 // determinant's error bound underflows, and RobustSign resolves the sign exactly.
 #[test]
-#[allow(clippy::excessive_precision)]
 fn predicates_robust_sign_resolves_an_underflowing_stable_sign() {
-    let a = p(1.0, 1.9535722048627587e-90, 7.4882501322554515e-80);
-    let b = p(1.0, 9.6702373087191359e-127, 3.706704857169321e-116);
-    let c = p(1.0, 3.8163353663361477e-142, 1.4628419538608985e-131);
+    let a = p(1.0, 1.9535722048627587e-90, 7.488250132255452e-80);
+    let b = p(1.0, 9.670237308719136e-127, 3.706704857169321e-116);
+    let c = p(1.0, 3.816335366336148e-142, 1.4628419538608985e-131);
     assert_eq!(robust_sign(a, b, c), Direction::CounterClockwise);
     assert_eq!(robust_sign(c, b, a), Direction::Clockwise);
 }

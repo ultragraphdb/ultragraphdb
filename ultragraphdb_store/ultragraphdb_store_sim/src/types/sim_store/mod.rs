@@ -349,7 +349,7 @@ impl Inner {
             stage,
             power_loss,
         });
-        StoreError::WriteFailed(format!(
+        StoreError::write_failed(format!(
             "simulated {} during a rebuild",
             if power_loss {
                 "power loss"
@@ -376,7 +376,7 @@ impl Inner {
             return Ok(());
         }
         self.log.push(OpRecord::WriteWhileFailed { operation });
-        Err(StoreError::Poisoned())
+        Err(StoreError::poisoned())
     }
 
     /// Removes what `record` covers and writes its entries, from wherever the drop had come.

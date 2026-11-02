@@ -15,6 +15,7 @@ use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, Tempor
 /// A step a [`Probe`] runs inside an operation of its store.
 pub type ProbeHook = Box<dyn FnMut() + Send>;
 
+/// A simulated store that runs the step a test set right after the next snapshot it opens; a clone shares the step.
 #[derive(Clone)]
 pub struct Probe {
     inner: SimStore,
@@ -28,6 +29,7 @@ impl std::fmt::Debug for Probe {
 }
 
 impl Probe {
+    /// The probe over `inner`, with no step set.
     pub fn new(inner: SimStore) -> Self {
         Self {
             inner,
@@ -35,6 +37,7 @@ impl Probe {
         }
     }
 
+    /// The simulated store the probe passes every operation to.
     pub fn inner(&self) -> &SimStore {
         &self.inner
     }

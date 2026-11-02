@@ -12,6 +12,7 @@ mod date_time_calendar;
 mod date_time_format;
 pub(crate) mod date_time_parse;
 
+use crate::types::civil_time::CivilTime;
 use crate::types::date_time::date_time_calendar::{
     ABSOLUTE_TO_UNIX, INTERNAL_TO_UNIX, UNIX_TO_INTERNAL, date_to_abs_days,
 };
@@ -54,18 +55,18 @@ impl DateTime {
         }
     }
 
-    /// Go's `time.Date(year, month, day, hour, min, sec, nsec, loc)`, normalising out-of-range fields as Go does.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        year: i64,
-        month: i64,
-        day: i64,
-        hour: i64,
-        min: i64,
-        sec: i64,
-        nsec: i64,
-        zone: Zone,
-    ) -> Self {
+    /// Go's `time.Date(year, month, day, hour, min, sec, nsec, loc)`: `civil` read in `zone`, normalising
+    /// out-of-range fields as Go does.
+    pub fn new(civil: CivilTime, zone: Zone) -> Self {
+        let CivilTime {
+            year,
+            month,
+            day,
+            hour,
+            min,
+            sec,
+            nsec,
+        } = civil;
         // Go's month is normalised from zero, then counted from one again.
         let (year, month) = norm(year, month.wrapping_sub(1), 12);
         let month = month + 1;
@@ -87,7 +88,10 @@ impl DateTime {
 
     /// `time.Date(...)` in UTC.
     pub fn utc(year: i64, month: i64, day: i64, hour: i64, min: i64, sec: i64, nsec: i64) -> Self {
-        Self::new(year, month, day, hour, min, sec, nsec, Zone::Utc)
+        Self::new(
+            CivilTime::new(year, month, day, hour, min, sec, nsec),
+            Zone::Utc,
+        )
     }
 
     /// Go's `time.Unix(sec, nsec).UTC()`.

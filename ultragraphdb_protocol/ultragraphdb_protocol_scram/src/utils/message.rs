@@ -15,7 +15,7 @@ pub(crate) fn encode(bytes: &[u8]) -> String {
 pub(crate) fn decode(text: &str, part: &'static str) -> Result<Vec<u8>, ScramError> {
     STANDARD
         .decode(text)
-        .map_err(|_| ScramError::Malformed(part))
+        .map_err(|_| ScramError::malformed(part))
 }
 
 /// Whether `nonce` is a nonce of RFC 5802: printable ASCII but the comma, at least one character.
@@ -31,7 +31,7 @@ pub(crate) fn escape(name: &str) -> String {
     name.replace('=', "=3D").replace(',', "=2C")
 }
 
-/// A name a message carries, its escapes read; refused as [`ScramError::Malformed`] for an `=` of no escape.
+/// A name a message carries, its escapes read; refused as [`ScramError::malformed`] for an `=` of no escape.
 pub(crate) fn unescape(name: &str) -> Result<String, ScramError> {
     let mut out = String::with_capacity(name.len());
     let mut rest = name;
@@ -41,7 +41,7 @@ pub(crate) fn unescape(name: &str) -> Result<String, ScramError> {
         match escape {
             Some("=2C") => out.push(','),
             Some("=3D") => out.push('='),
-            _ => return Err(ScramError::Malformed("name")),
+            _ => return Err(ScramError::malformed("name")),
         }
         rest = &rest[at + 3..];
     }
@@ -58,5 +58,5 @@ pub(crate) fn attribute(part: Option<&str>, key: char) -> Option<&str> {
 
 /// The server's error `e=`, when `message` is one.
 pub(crate) fn server_error(message: &str) -> Option<ScramError> {
-    message.strip_prefix("e=").map(ScramError::Server)
+    message.strip_prefix("e=").map(ScramError::server)
 }

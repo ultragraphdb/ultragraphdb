@@ -62,13 +62,13 @@ impl<'a> PrepareView<'a> {
     }
 
     /// The rule a server holds a received Prepare to, a request: no result types, refused as
-    /// [`ProtocolError::CountMismatch`] (`"result types"`).
+    /// [`ProtocolError::count_mismatch`] (`"result types"`).
     pub fn check_request(&self) -> Result<(), ProtocolError> {
         self.result_types_count(0)
     }
 
     /// The rule a client holds a received Prepare to, an answer: one result type per unbound slot, refused as
-    /// [`ProtocolError::CountMismatch`] (`"result types"`).
+    /// [`ProtocolError::count_mismatch`] (`"result types"`).
     pub fn check_reply(&self) -> Result<(), ProtocolError> {
         let unbound = self
             .pattern
@@ -83,7 +83,7 @@ impl<'a> PrepareView<'a> {
         if self.result_types.len() == expected {
             return Ok(());
         }
-        Err(ProtocolError::CountMismatch(
+        Err(ProtocolError::count_mismatch(
             Command::Prepare.number(),
             "result types",
             self.result_types.len() as u64,

@@ -384,9 +384,10 @@ Field visibility:
 * Private types: Public fields may be used, provided they do not leak outside their defined scope.
 
 Errors:
-* Every error is `pub struct FooError(pub FooErrorEnum)` over an exhaustive enum, with one constructor per variant
-  (`FooError::Variant(..)`), `Display` and `std::error::Error`, as `deep_causality_physics`' `PhysicsError` has it. The
-  inner field is the one public field a public type carries, so callers match on `e.0`.
+* Every error is `pub struct FooError(pub FooErrorEnum)` over an exhaustive enum, the shape of `deep_causality_physics`'
+  `PhysicsError`, with `Display`, `std::error::Error` and one constructor per variant named as the variant in snake case
+  (`FooErrorEnum::Variant` is built by `FooError::variant(..)`), so no constructor needs a lint exception. The inner
+  field is the one public field a public type carries, so callers match on `e.0`.
 * `Display` gives Dgraph's exact text wherever Dgraph has one: clients and tests match on it.
 
 Panics:

@@ -17,24 +17,22 @@ use ultragraphdb_traits_index::{
 use crate::errors::hnsw_error::HnswError;
 use crate::traits::hnsw_float::HnswFloat;
 use crate::types::candidate_heap::CandidateHeap;
+use crate::types::layer_entry::LayerEntry;
 use crate::types::persistent_heap_element::PersistentHeapElement;
 use crate::types::persistent_hnsw::PersistentHnsw;
 use crate::types::search_layer_result::SearchLayerResult;
 use crate::utils::helper::is_equal;
 
 impl<T: HnswFloat> PersistentHnsw<T> {
-    /// Dgraph's `searchPersistentLayer`: the nearest neighbours of `query` on `level`, starting from `entry`, whose
-    /// vector is `start_vec`. The search keeps `expected_neighbors` neighbours the filter keeps, and stops once its
-    /// best candidate cannot improve them.
-    #[allow(clippy::too_many_arguments)]
+    /// Dgraph's `searchPersistentLayer`: the nearest neighbours of `query` on `level`, starting from `entry`. The
+    /// search keeps `expected_neighbors` neighbours the filter keeps, and stops once its best candidate cannot improve
+    /// them.
     pub(crate) fn search_persistent_layer<C: CacheType<Error = HnswError>>(
         &self,
         c: &C,
         level: usize,
-        entry: u64,
-        start_vec: &[T],
+        entry: LayerEntry<'_, T>,
         query: &[T],
-        entry_is_filtered_out: bool,
         expected_neighbors: usize,
         filter: SearchFilter<T>,
     ) -> Result<SearchLayerResult<T>, HnswError> {
@@ -42,9 +40,9 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         // A count beyond `i64::MAX` is no count a search keeps; it saturates rather than wraps.
         let expected = i64::try_from(expected_neighbors).unwrap_or(i64::MAX);
         let mut r = SearchLayerResult::new(level);
-        let best_dist = sim.distance_score(start_vec, query)?;
+        let best_dist = sim.distance_score(entry.vector, query)?;
         r.mark_first_distance_computation();
-        let best = PersistentHeapElement::new(best_dist, entry, entry_is_filtered_out);
+        let best = PersistentHeapElement::new(best_dist, entry.uid, entry.filtered_out);
         r.set_first_path_node(best);
         let mut candidates = CandidateHeap::build(vec![best], sim.is_similarity_metric());
 
@@ -59,7 +57,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 continue;
             };
             let row = all_layer_edges.get(level).ok_or_else(|| {
-                HnswError::LevelMissing(curr.index(), level, all_layer_edges.len())
+                HnswError::level_missing(curr.index(), level, all_layer_edges.len())
             })?;
             let mut improved = false;
             for &curr_uid in row {
@@ -100,7 +98,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
     ///
     /// # Errors
     ///
-    /// [`HnswError::EmptyTree`] for an index holding no vector, which [`HnswError::is_empty_index`] recognises as
+    /// [`HnswError::empty_tree`] for an index holding no vector, which [`HnswError::is_empty_index`] recognises as
     /// no neighbours; a failed read; a stored value that does not decode.
     pub fn search<C: CacheType<Error = HnswError>>(
         &self,
@@ -136,7 +134,16 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             }
             let filter_out = !filter(query, &start_vec, entry);
             let layer = self.search_persistent_layer(
-                c, level, entry, &start_vec, query, filter_out, ef_upper, filter,
+                c,
+                level,
+                LayerEntry {
+                    uid: entry,
+                    vector: &start_vec,
+                    filtered_out: filter_out,
+                },
+                query,
+                ef_upper,
+                filter,
             )?;
             entry = layer.best_neighbor()?.index();
             start_vec = self.vec_from_uid(entry, c)?;
@@ -146,10 +153,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let layer = self.search_persistent_layer(
             c,
             self.max_levels - 1,
-            entry,
-            &start_vec,
+            LayerEntry {
+                uid: entry,
+                vector: &start_vec,
+                filtered_out: filter_out,
+            },
             query,
-            filter_out,
             candidate_k,
             filter,
         )?;
@@ -180,10 +189,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let layer = self.search_persistent_layer(
             c,
             self.max_levels - 1,
-            query_uid,
+            LayerEntry {
+                uid: query_uid,
+                vector: &query_vec,
+                filtered_out: filter_out,
+            },
             &query_vec,
-            &query_vec,
-            filter_out,
             candidate_k,
             filter,
         )?;
@@ -211,10 +222,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let layer = self.search_persistent_layer(
             c,
             self.max_levels - 1,
-            query_uid,
+            LayerEntry {
+                uid: query_uid,
+                vector: &query_vec,
+                filtered_out: filter_out,
+            },
             &query_vec,
-            &query_vec,
-            filter_out,
             max_results,
             filter,
         )?;
@@ -240,10 +253,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             let layer = self.search_persistent_layer(
                 c,
                 level,
-                entry,
-                &start_vec,
+                LayerEntry {
+                    uid: entry,
+                    vector: &start_vec,
+                    filtered_out: filter_out,
+                },
                 query,
-                filter_out,
                 self.ef_search,
                 filter,
             )?;
@@ -256,10 +271,12 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         let layer = self.search_persistent_layer(
             c,
             self.max_levels - 1,
-            entry,
-            &start_vec,
+            LayerEntry {
+                uid: entry,
+                vector: &start_vec,
+                filtered_out: filter_out,
+            },
             query,
-            filter_out,
             max_results,
             filter,
         )?;

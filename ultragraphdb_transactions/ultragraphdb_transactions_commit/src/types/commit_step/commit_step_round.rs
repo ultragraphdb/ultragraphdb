@@ -197,7 +197,7 @@ impl<P: Proposal> CommitStep<P> {
             }
             None => {
                 self.stopped = true;
-                self.decided.push((ticket, Err(CommitError::Unavailable())));
+                self.decided.push((ticket, Err(CommitError::unavailable())));
             }
         }
     }
@@ -215,7 +215,7 @@ impl<P: Proposal> CommitStep<P> {
     ) -> Decided {
         let record = match WriteSetRecordView::new(proposal.record()) {
             Ok(record) => record,
-            Err(cause) => return Decided::Refused(CommitError::Malformed(cause)),
+            Err(cause) => return Decided::Refused(CommitError::malformed(cause)),
         };
         let (session, request) = (record.session(), record.request());
         match self.sessions.check(session, request, record.principal()) {
@@ -241,20 +241,20 @@ impl<P: Proposal> CommitStep<P> {
             };
             let operated = match WriteSetRecordView::new(operator.staged_record(&staged)) {
                 Ok(operated) => operated,
-                Err(cause) => return Decided::Refused(CommitError::Malformed(cause)),
+                Err(cause) => return Decided::Refused(CommitError::malformed(cause)),
             };
             let size = operated.bytes().len();
             if !fits(size) {
                 // A record no round holds on its own would wait at the head of every round: refused instead.
                 let limit = self.bounds.max_write_set();
                 if size > limit {
-                    return Decided::Refused(CommitError::TooLarge(size, limit));
+                    return Decided::Refused(CommitError::too_large(size, limit));
                 }
                 return Decided::Deferred;
             }
             let Some(version) = self.sequencer.take() else {
                 self.stopped = true;
-                return Decided::Refused(CommitError::Unavailable());
+                return Decided::Refused(CommitError::unavailable());
             };
             self.resolver.admit(version, &operated);
             operator.adopt(proposal, staged);
@@ -262,7 +262,7 @@ impl<P: Proposal> CommitStep<P> {
         } else {
             let Some(version) = self.sequencer.take() else {
                 self.stopped = true;
-                return Decided::Refused(CommitError::Unavailable());
+                return Decided::Refused(CommitError::unavailable());
             };
             self.resolver.admit(version, &record);
             (version, None)
@@ -346,7 +346,7 @@ impl<P: Proposal> CommitStep<P> {
         self.in_flight = None;
         self.updates.clear();
         self.results.clear();
-        let unavailable = |ticket| Reply::new(ticket, Err(CommitError::Unavailable()));
+        let unavailable = |ticket| Reply::new(ticket, Err(CommitError::unavailable()));
         // The round's admitted proposals follow its committed transactions in round order: each is released under the
         // ticket of its decision. Its aborts and retries were released when the round closed.
         let tickets = self

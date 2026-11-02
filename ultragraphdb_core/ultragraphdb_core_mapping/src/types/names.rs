@@ -20,7 +20,7 @@ pub struct Names {
 }
 
 impl Names {
-    /// The names under `base`, refused with [`MappingError::InvalidBase`] when it is not an absolute IRI, holds a
+    /// The names under `base`, refused with [`MappingError::invalid_base`] when it is not an absolute IRI, holds a
     /// query or a fragment, or does not end in `/`.
     pub fn new(base: impl Into<String>) -> Result<Self, MappingError> {
         let base = base.into();
@@ -35,7 +35,7 @@ impl Names {
             None
         };
         match reason {
-            Some(reason) => Err(MappingError::InvalidBase(base, reason)),
+            Some(reason) => Err(MappingError::invalid_base(base, reason)),
             None => Ok(Self { base }),
         }
     }

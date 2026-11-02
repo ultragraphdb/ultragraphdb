@@ -21,7 +21,7 @@ impl<'a> Reader<'a> {
     fn u8(&mut self) -> Result<u8, QuadKeyError> {
         let byte = *self.key[..self.end]
             .get(self.at)
-            .ok_or_else(|| QuadKeyError::Truncated(self.key))?;
+            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
         self.at += 1;
         Ok(byte)
     }
@@ -29,7 +29,7 @@ impl<'a> Reader<'a> {
     fn u64(&mut self) -> Result<u64, QuadKeyError> {
         let bytes = self.key[..self.end]
             .get(self.at..self.at + 8)
-            .ok_or_else(|| QuadKeyError::Truncated(self.key))?;
+            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
         self.at += 8;
         let mut raw = [0u8; 8];
         raw.copy_from_slice(bytes);
@@ -40,7 +40,7 @@ impl<'a> Reader<'a> {
     fn uid(&mut self, field: &'static str) -> Result<u64, QuadKeyError> {
         let uid = self.u64()?;
         if uid == 0 {
-            return Err(QuadKeyError::ZeroUid(self.key, field));
+            return Err(QuadKeyError::zero_uid(self.key, field));
         }
         Ok(uid)
     }
@@ -48,7 +48,7 @@ impl<'a> Reader<'a> {
     fn u32(&mut self) -> Result<u32, QuadKeyError> {
         let bytes = self.key[..self.end]
             .get(self.at..self.at + 4)
-            .ok_or_else(|| QuadKeyError::Truncated(self.key))?;
+            .ok_or_else(|| QuadKeyError::truncated(self.key))?;
         self.at += 4;
         let mut raw = [0u8; 4];
         raw.copy_from_slice(bytes);
@@ -58,21 +58,21 @@ impl<'a> Reader<'a> {
     fn object(&mut self) -> Result<EncodedTerm, QuadKeyError> {
         let rest = &self.key[self.at..self.end];
         if rest.is_empty() {
-            return Err(QuadKeyError::Truncated(self.key));
+            return Err(QuadKeyError::truncated(self.key));
         }
         let (term, after) = EncodedTerm::read(rest).map_err(|e| match e.0 {
-            TermErrorEnum::Truncated { .. } => QuadKeyError::Truncated(self.key),
+            TermErrorEnum::Truncated { .. } => QuadKeyError::truncated(self.key),
             TermErrorEnum::UnknownTag { .. }
             | TermErrorEnum::UnknownDatatype { .. }
             | TermErrorEnum::Malformed { .. }
             | TermErrorEnum::InvalidVector { .. }
-            | TermErrorEnum::NotALiteral { .. } => QuadKeyError::BadObject(self.key, e),
+            | TermErrorEnum::NotALiteral { .. } => QuadKeyError::bad_object(self.key, e),
         })?;
         if term.is_vector() {
-            return Err(QuadKeyError::VectorObject(self.key));
+            return Err(QuadKeyError::vector_object(self.key));
         }
         if term.as_uid() == Some(0) {
-            return Err(QuadKeyError::ZeroUid(self.key, "object"));
+            return Err(QuadKeyError::zero_uid(self.key, "object"));
         }
         self.at = self.end - after.len();
         Ok(term)
@@ -125,7 +125,7 @@ impl<'a> Reader<'a> {
                 let graph = self.u64()?;
                 let predicate = self.uid("predicate")?;
                 let direction = CountDirection::from_byte(self.u8()?)
-                    .ok_or_else(|| QuadKeyError::UnknownDirection(self.key))?;
+                    .ok_or_else(|| QuadKeyError::unknown_direction(self.key))?;
                 QuadKey::CountIndex {
                     namespace,
                     graph,
@@ -158,7 +158,7 @@ impl<'a> Reader<'a> {
         if self.at == self.end {
             Ok(())
         } else {
-            Err(QuadKeyError::TrailingBytes(self.key))
+            Err(QuadKeyError::trailing_bytes(self.key))
         }
     }
 }
@@ -168,18 +168,18 @@ impl QuadKey {
     /// it ends early, runs on past its fields, names a UID of 0 other than the default graph, a statement ID of 0,
     /// or an object it cannot read; nothing it is given makes it panic.
     pub fn parse(key: &[u8]) -> Result<(QuadKey, Option<u64>), QuadKeyError> {
-        let first = *key.first().ok_or_else(|| QuadKeyError::Truncated(key))?;
+        let first = *key.first().ok_or_else(|| QuadKeyError::truncated(key))?;
         let (keyspace, split) =
-            Keyspace::from_byte(first).ok_or_else(|| QuadKeyError::UnknownKeyspace(key))?;
+            Keyspace::from_byte(first).ok_or_else(|| QuadKeyError::unknown_keyspace(key))?;
         if split && !keyspace.is_list() {
-            return Err(QuadKeyError::UnknownKeyspace(key));
+            return Err(QuadKeyError::unknown_keyspace(key));
         }
         let (end, start) = if split {
             let end = key
                 .len()
                 .checked_sub(8)
                 .filter(|end| *end >= 9)
-                .ok_or_else(|| QuadKeyError::Truncated(key))?;
+                .ok_or_else(|| QuadKeyError::truncated(key))?;
             let mut raw = [0u8; 8];
             raw.copy_from_slice(&key[end..]);
             (end, Some(u64::from_be_bytes(raw)))

@@ -21,16 +21,16 @@ use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
 
 #[test]
 fn test_the_constructors_build_their_variants() {
-    let literal = ChangesetError::Literal("p", TermError::InvalidVector("[]".into(), "empty"));
+    let literal = ChangesetError::literal("p", TermError::invalid_vector("[]".into(), "empty"));
     assert_eq!(
         literal.0,
         ChangesetErrorEnum::Literal {
             predicate: "p".into(),
-            error: TermError::InvalidVector("[]".into(), "empty"),
+            error: TermError::invalid_vector("[]".into(), "empty"),
         }
     );
     assert_eq!(
-        ChangesetError::Unique("p", "\"x\"".into(), "<a>".into()).0,
+        ChangesetError::unique("p", "\"x\"".into(), "<a>".into()).0,
         ChangesetErrorEnum::Unique {
             predicate: "p".into(),
             value: "\"x\"".into(),
@@ -38,7 +38,7 @@ fn test_the_constructors_build_their_variants() {
         }
     );
     assert_eq!(
-        ChangesetError::Contradicted("p", "<a>".into(), "holds a literal").0,
+        ChangesetError::contradicted("p", "<a>".into(), "holds a literal").0,
         ChangesetErrorEnum::Contradicted {
             predicate: "p".into(),
             subject: "<a>".into(),
@@ -46,13 +46,13 @@ fn test_the_constructors_build_their_variants() {
         }
     );
     assert_eq!(
-        ChangesetError::Rebuilding("p").0,
+        ChangesetError::rebuilding("p").0,
         ChangesetErrorEnum::Rebuilding {
             predicate: "p".into()
         }
     );
     assert_eq!(
-        ChangesetError::VectorOption("hnsw", "bad".into()).0,
+        ChangesetError::vector_option("hnsw", "bad".into()).0,
         ChangesetErrorEnum::VectorOption {
             factory: "hnsw".into(),
             error: "bad".into(),
@@ -60,7 +60,7 @@ fn test_the_constructors_build_their_variants() {
     );
     // 768 and 512: two different dimensions, so a swapped pair shows.
     assert_eq!(
-        ChangesetError::Dimension("p", 768, 512).0,
+        ChangesetError::dimension("p", 768, 512).0,
         ChangesetErrorEnum::Dimension {
             predicate: "p".into(),
             declared: 768,
@@ -68,13 +68,13 @@ fn test_the_constructors_build_their_variants() {
         }
     );
     assert_eq!(
-        ChangesetError::NoDimension("p").0,
+        ChangesetError::no_dimension("p").0,
         ChangesetErrorEnum::NoDimension {
             predicate: "p".into()
         }
     );
     assert_eq!(
-        ChangesetError::NoVectorIndex("p").0,
+        ChangesetError::no_vector_index("p").0,
         ChangesetErrorEnum::NoVectorIndex {
             predicate: "p".into()
         }
@@ -85,14 +85,14 @@ fn test_the_constructors_build_their_variants() {
 fn test_the_texts_of_the_applier_s_own_variants() {
     let cases = [
         (
-            ChangesetError::Literal(
+            ChangesetError::literal(
                 "http://ex.org/v",
-                TermError::InvalidVector("[1.0]".into(), "not in canonical form"),
+                TermError::invalid_vector("[1.0]".into(), "not in canonical form"),
             ),
             "Predicate <http://ex.org/v> cannot hold the literal: Invalid vector literal \"[1.0]\": not in canonical form",
         ),
         (
-            ChangesetError::Unique(
+            ChangesetError::unique(
                 "http://ex.org/id",
                 "\"x\"".into(),
                 "<http://ex.org/a>".into(),
@@ -100,7 +100,7 @@ fn test_the_texts_of_the_applier_s_own_variants() {
             "Predicate <http://ex.org/id> holds unique values, and <http://ex.org/a> already holds \"x\"",
         ),
         (
-            ChangesetError::Contradicted(
+            ChangesetError::contradicted(
                 "http://ex.org/nick",
                 "<http://ex.org/a>".into(),
                 "holds more than one object",
@@ -108,23 +108,23 @@ fn test_the_texts_of_the_applier_s_own_variants() {
             "The declaration of <http://ex.org/nick> is refused by its data: <http://ex.org/a> holds more than one object",
         ),
         (
-            ChangesetError::Rebuilding("http://ex.org/name"),
+            ChangesetError::rebuilding("http://ex.org/name"),
             "An index is being built, so <http://ex.org/name> cannot be declared now. Please retry",
         ),
         (
-            ChangesetError::VectorOption("hnsw", "no such vector index".into()),
+            ChangesetError::vector_option("hnsw", "no such vector index".into()),
             "IndexFactory: hnsw issues this error: 'no such vector index'",
         ),
         (
-            ChangesetError::Dimension("http://ex.org/e", 768, 512),
+            ChangesetError::dimension("http://ex.org/e", 768, 512),
             "Predicate <http://ex.org/e> indexes vectors of 768 elements, and a vector of 512 was written",
         ),
         (
-            ChangesetError::NoDimension("http://ex.org/e"),
+            ChangesetError::no_dimension("http://ex.org/e"),
             "Predicate <http://ex.org/e> declares a vector index without its dimension",
         ),
         (
-            ChangesetError::NoVectorIndex("http://ex.org/e"),
+            ChangesetError::no_vector_index("http://ex.org/e"),
             "Predicate <http://ex.org/e> has no vector index",
         ),
     ];
@@ -136,7 +136,7 @@ fn test_the_texts_of_the_applier_s_own_variants() {
 
 #[test]
 fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
-    let catalog = ChangesetError::from(CatalogError::LiteralOnEdge(
+    let catalog = ChangesetError::from(CatalogError::literal_on_edge(
         "http://ex.org/k",
         "\"Bob\"".into(),
     ));
@@ -145,7 +145,7 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
         catalog.to_string(),
         "Predicate <http://ex.org/k> is declared an edge and cannot hold the literal \"Bob\""
     );
-    let mapping = ChangesetError::from(MappingError::NoSuchStatement("<a> <p> <b>".into()));
+    let mapping = ChangesetError::from(MappingError::no_such_statement("<a> <p> <b>".into()));
     assert!(matches!(mapping.0, ChangesetErrorEnum::Mapping(_)));
     assert_eq!(mapping.to_string(), "No statement <a> <p> <b> is held");
     let quad = ChangesetError::from(QuadError(QuadErrorEnum::Aborted));
@@ -166,10 +166,10 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
         store.to_string(),
         "The store is poisoned by an earlier failed write and must be reopened"
     );
-    let tok = ChangesetError::from(TokError::WrongValue("wrong".into()));
+    let tok = ChangesetError::from(TokError::wrong_value("wrong"));
     assert!(matches!(tok.0, ChangesetErrorEnum::Tok(_)));
     assert_eq!(tok.to_string(), "wrong");
-    let hnsw = ChangesetError::from(HnswError::NoValue());
+    let hnsw = ChangesetError::from(HnswError::no_value());
     assert!(matches!(hnsw.0, ChangesetErrorEnum::Hnsw(_)));
     assert_eq!(hnsw.to_string(), "No value found");
     let invariant = ChangesetError::from(InvariantError::violated("one commit per execution"));
@@ -182,7 +182,7 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
 
 #[test]
 fn test_the_operation_errors_name_what_they_found() {
-    let failed = ChangesetError::OperationFailed(Some("\"done\"".to_string()));
+    let failed = ChangesetError::operation_failed(Some("\"done\"".to_string()));
     assert_eq!(
         failed.0,
         ChangesetErrorEnum::OperationFailed {
@@ -194,10 +194,10 @@ fn test_the_operation_errors_name_what_they_found() {
         "The operation did not hold: \"done\" is held"
     );
     assert_eq!(
-        ChangesetError::OperationFailed(None).to_string(),
+        ChangesetError::operation_failed(None).to_string(),
         "The operation did not hold: no value is held"
     );
-    let not_unique = ChangesetError::NotUnique("http://ex.org/p");
+    let not_unique = ChangesetError::not_unique("http://ex.org/p");
     assert_eq!(
         not_unique.0,
         ChangesetErrorEnum::NotUnique {

@@ -301,7 +301,7 @@ where
         for (_, executed) in round {
             if let Some(pending) = &executed.pending {
                 if building {
-                    return Err(ChangesetError::Rebuilding(pending.new.predicate().as_str()));
+                    return Err(ChangesetError::rebuilding(pending.new.predicate().as_str()));
                 }
                 building = true;
             }
@@ -309,7 +309,7 @@ where
         let mut after = self.quads.lists().applied_ts();
         for (version, _) in round {
             if *version <= after {
-                return Err(PostingError::StaleVersion(*version, after).into());
+                return Err(PostingError::stale_version(*version, after).into());
             }
             after = *version;
         }

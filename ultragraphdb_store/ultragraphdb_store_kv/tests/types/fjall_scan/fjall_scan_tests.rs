@@ -136,7 +136,7 @@ fn test_a_failed_read_is_the_last_item_in_either_direction() -> TestResult {
     drop(s);
     write_raw(&dir, b"b", 1, &[0x04, 0x80])?;
     let reopened = dir.open()?;
-    let corrupted = StoreError::Corrupted(b"b".to_vec(), "unknown version flags 0x80".to_string());
+    let corrupted = StoreError::corrupted(b"b".to_vec(), "unknown version flags 0x80".to_string());
     let snapshot = reopened.snapshot(1)?;
     let item = |k: &[u8]| Ok(Item::new(k.to_vec(), 1, 0x04, false, Vec::new()));
     let forward: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new())).collect();
@@ -180,11 +180,11 @@ fn refused_raw(name: &str, prefix: &[u8], reason: &str) -> TestResult {
     let got: Vec<_> = s.snapshot(1)?.scan(&Scan::prefix(Vec::new())).collect();
     assert_eq!(
         got,
-        vec![Err(StoreError::Corrupted(raw.clone(), reason.to_string()))]
+        vec![Err(StoreError::corrupted(raw.clone(), reason.to_string()))]
     );
     assert_eq!(
         s.dump(),
-        Err(StoreError::Corrupted(raw, reason.to_string()))
+        Err(StoreError::corrupted(raw, reason.to_string()))
     );
     Ok(())
 }

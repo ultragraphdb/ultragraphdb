@@ -42,9 +42,9 @@ impl Replay {
     ///
     /// # Errors
     ///
-    /// [`RecoveryError::StoreNotInLog`] when the store's applied version is neither 0 nor a held round's last version,
+    /// [`RecoveryError::store_not_in_log`] when the store's applied version is neither 0 nor a held round's last version,
     /// unless it lies below the first round held after a checkpoint, which the checkpoint covers;
-    /// [`RecoveryError::Gap`] for an empty store and a trimmed log; [`RecoveryError::BehindCheckpoint`] for a store
+    /// [`RecoveryError::gap`] for an empty store and a trimmed log; [`RecoveryError::behind_checkpoint`] for a store
     /// below the last commit version the log's checkpoint covers; and the log's, a round's, the session table's and
     /// the store's errors.
     pub async fn run<L, S, C, E>(
@@ -62,14 +62,14 @@ impl Replay {
         let applied = applier.quads().lists().applied_ts();
         let trimmed = from.get() > 1;
         if applied == 0 && trimmed {
-            return Err(RecoveryError::Gap(from.get() - 1));
+            return Err(RecoveryError::gap(from.get() - 1));
         }
         let checkpoint = log.checkpoint_version();
         if applied < checkpoint {
-            return Err(RecoveryError::BehindCheckpoint(applied, checkpoint));
+            return Err(RecoveryError::behind_checkpoint(applied, checkpoint));
         }
         let mut sessions = Sessions::load(applier.quads().store())
-            .map_err(RecoveryError::Sessions)?
+            .map_err(RecoveryError::sessions)?
             .bounded(capacity);
         let mut replay = Self { rounds: 0, applied };
         // Whether the store's applied version was found: 0 always is, and below the first round after a checkpoint.
@@ -77,7 +77,7 @@ impl Replay {
         let mut first = true;
         let mut at = from;
         loop {
-            let rounds = log.read(at, READ_BYTES).await.map_err(RecoveryError::Log)?;
+            let rounds = log.read(at, READ_BYTES).await.map_err(RecoveryError::log)?;
             let Some(last) = rounds.last() else {
                 break;
             };
@@ -93,7 +93,7 @@ impl Replay {
                     continue;
                 }
                 if !found && !(first && trimmed && applied < view.header().first_version()) {
-                    return Err(RecoveryError::StoreNotInLog(applied));
+                    return Err(RecoveryError::store_not_in_log(applied));
                 }
                 found = true;
                 first = false;
@@ -101,7 +101,7 @@ impl Replay {
             }
         }
         if !found && !(first && trimmed) {
-            return Err(RecoveryError::StoreNotInLog(applied));
+            return Err(RecoveryError::store_not_in_log(applied));
         }
         applier.forget_catalogs();
         replay.applied = applier.quads().lists().applied_ts();
@@ -122,7 +122,7 @@ impl Replay {
         E: Executor,
     {
         let position = round.position().get();
-        let apply = |cause| RecoveryError::Apply(position, cause);
+        let apply = |cause| RecoveryError::apply(position, cause);
         let mut executions: Vec<(u64, Executed)> = Vec::new();
         let mut through = 0;
         for (k, record) in view.records().iter().enumerate() {
@@ -201,7 +201,7 @@ fn round_view(round: &Round) -> Result<RoundView<'_>, RecoveryError> {
         round.transactions(),
     );
     RoundView::from_body(header, round.body())
-        .map_err(|cause| RecoveryError::Round(round.position().get(), cause))
+        .map_err(|cause| RecoveryError::round(round.position().get(), cause))
 }
 
 /// The last commit version of `view`, `None` for a round that committed nothing.

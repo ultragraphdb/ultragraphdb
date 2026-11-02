@@ -42,7 +42,7 @@ fn test_an_answer_gives_its_frame_and_outcome_and_parts_alike() -> TestResult {
     );
     assert_eq!(
         refusal_outcome.err().context("the refusal")?,
-        TransportError::Protocol(ProtocolError::ShortHeader(8))
+        TransportError::protocol(ProtocolError::short_header(8))
     );
     Ok(())
 }

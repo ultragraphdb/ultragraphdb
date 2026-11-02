@@ -11,6 +11,7 @@ mod errors;
 #[cfg(test)]
 mod types;
 #[cfg(test)]
-mod utils;
+/// The harness the unit tests share with the BDD target, which uses a part of it.
+pub mod utils;
 #[cfg(test)]
 mod utils_test;

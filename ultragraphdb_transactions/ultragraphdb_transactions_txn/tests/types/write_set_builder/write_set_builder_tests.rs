@@ -407,7 +407,7 @@ fn test_a_record_at_its_limit_is_written_and_one_byte_over_is_refused_leaving_th
     let capacity = out.capacity();
     assert_eq!(
         builder.write_into(&mut out, len - 1),
-        Err(TxnError::WriteSetTooLarge(len, len - 1))
+        Err(TxnError::write_set_too_large(len, len - 1))
     );
     assert!(out.is_empty());
     assert_eq!(out.capacity(), capacity);

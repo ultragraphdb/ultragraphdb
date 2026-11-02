@@ -84,8 +84,7 @@ pub struct CatalogError(pub CatalogErrorEnum);
 
 impl CatalogError {
     /// A [`CatalogErrorEnum::LiteralOnEdge`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn LiteralOnEdge(predicate: &str, object: String) -> Self {
+    pub fn literal_on_edge(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::LiteralOnEdge {
             predicate: predicate.to_string(),
             object,
@@ -93,8 +92,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::ResourceOnProperty`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn ResourceOnProperty(predicate: &str, object: String) -> Self {
+    pub fn resource_on_property(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::ResourceOnProperty {
             predicate: predicate.to_string(),
             object,
@@ -102,8 +100,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::DatatypeMismatch`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn DatatypeMismatch(predicate: &str, expected: &str, found: &str) -> Self {
+    pub fn datatype_mismatch(predicate: &str, expected: &str, found: &str) -> Self {
         Self(CatalogErrorEnum::DatatypeMismatch {
             predicate: predicate.to_string(),
             expected: expected.to_string(),
@@ -112,8 +109,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::UnknownTokenizer`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn UnknownTokenizer(predicate: &str, tokenizer: &str) -> Self {
+    pub fn unknown_tokenizer(predicate: &str, tokenizer: &str) -> Self {
         Self(CatalogErrorEnum::UnknownTokenizer {
             predicate: predicate.to_string(),
             tokenizer: tokenizer.to_string(),
@@ -121,8 +117,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::TokenizerDatatype`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn TokenizerDatatype(predicate: &str, tokenizer: &str, datatype: &str) -> Self {
+    pub fn tokenizer_datatype(predicate: &str, tokenizer: &str, datatype: &str) -> Self {
         Self(CatalogErrorEnum::TokenizerDatatype {
             predicate: predicate.to_string(),
             tokenizer: tokenizer.to_string(),
@@ -131,8 +126,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::UnknownVectorIndex`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn UnknownVectorIndex(predicate: &str, factory: &str) -> Self {
+    pub fn unknown_vector_index(predicate: &str, factory: &str) -> Self {
         Self(CatalogErrorEnum::UnknownVectorIndex {
             predicate: predicate.to_string(),
             factory: factory.to_string(),
@@ -140,8 +134,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::SecondParent`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn SecondParent(entity_type: &str, parent: &str, other: &str) -> Self {
+    pub fn second_parent(entity_type: &str, parent: &str, other: &str) -> Self {
         Self(CatalogErrorEnum::SecondParent {
             entity_type: entity_type.to_string(),
             parent: parent.to_string(),
@@ -150,8 +143,7 @@ impl CatalogError {
     }
 
     /// A [`CatalogErrorEnum::ParentCycle`] naming what it refused.
-    #[allow(non_snake_case)]
-    pub fn ParentCycle(entity_type: &str, parent: &str) -> Self {
+    pub fn parent_cycle(entity_type: &str, parent: &str) -> Self {
         Self(CatalogErrorEnum::ParentCycle {
             entity_type: entity_type.to_string(),
             parent: parent.to_string(),
@@ -161,9 +153,8 @@ impl CatalogError {
     /// A catalog entry of `key` that does not parse or decode, as the store's `Corrupted`, so a caller sees one kind of
     /// corruption whichever layer found it. Every entry is written from a declaration through the codec, so one that
     /// does not read back is a fault of the store or of the code, never data to skip.
-    #[allow(non_snake_case)]
-    pub fn Corrupted(key: &[u8], reason: impl Into<String>) -> Self {
-        Self(CatalogErrorEnum::Store(StoreError::Corrupted(
+    pub fn corrupted(key: &[u8], reason: impl Into<String>) -> Self {
+        Self(CatalogErrorEnum::Store(StoreError::corrupted(
             key.to_vec(),
             reason.into(),
         )))

@@ -69,23 +69,19 @@ where
         let (default_keys, default_uids) = defaults.into_iter().unzip();
         let mut touched = executed.touched.clone();
         touched.extend(outcome.touched);
-        Ok(Executed::new(
-            executed.namespace,
-            executed.read_ts,
-            request.into_writes(),
-            outcome.terms,
-            executed.reads.clone(),
-            executed.read.clone(),
-            executed.lists_read,
-            outcome.catalog,
-            (
-                default_keys,
-                default_uids,
-                executed.catalog_changed || outcome.catalog_changed,
-            ),
-            executed.pending.clone(),
+        Ok(Executed {
+            writes: request.into_writes(),
+            terms: outcome.terms,
+            reads: executed.reads.clone(),
+            read: executed.read.clone(),
+            lists_read: executed.lists_read,
+            defaults: default_keys,
+            default_uids,
+            catalog_changed: executed.catalog_changed || outcome.catalog_changed,
+            pending: executed.pending.clone(),
             touched,
-            executed.removals.clone(),
-        ))
+            removals: executed.removals.clone(),
+            ..Executed::empty(executed.namespace, executed.read_ts, outcome.catalog)
+        })
     }
 }

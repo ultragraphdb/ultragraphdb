@@ -127,10 +127,10 @@ fn test_an_interrupted_read_is_retried() -> TestResult {
 
 #[test]
 fn test_a_failed_read_fails_the_connection_with_its_error() -> TestResult {
-    // A reset connection is the stream's failure, as `TransportError::Io` records it: its kind and its text.
+    // A reset connection is the stream's failure, as `TransportError::io` records it: its kind and its text.
     assert_eq!(
         connect_with_fault(io::ErrorKind::ConnectionReset)?,
-        Err(ClientError::Transport(TransportError::Io(
+        Err(ClientError::transport(TransportError::io(
             &io::ErrorKind::ConnectionReset.into()
         )))
     );

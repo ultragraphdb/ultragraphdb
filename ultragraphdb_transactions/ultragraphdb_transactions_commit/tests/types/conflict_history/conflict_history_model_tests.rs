@@ -139,11 +139,11 @@ fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() -> TestRes
                     let rs = read_set(0, rv, &reads(&mut rng))?;
                     let expected = if rv < floor {
                         too_old += 1;
-                        Err(CommitError::TooOld(rv, floor))
+                        Err(CommitError::too_old(rv, floor))
                     } else {
                         model
                             .conflict(&rs)
-                            .map_or(Ok(()), |k| Err(CommitError::Conflict(k)))
+                            .map_or(Ok(()), |k| Err(CommitError::conflict(k)))
                     };
                     assert_eq!(resolver.check(&rs), expected, "seed {seed}");
                 }
