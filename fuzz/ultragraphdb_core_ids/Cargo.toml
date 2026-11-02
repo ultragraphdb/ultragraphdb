@@ -1,0 +1,41 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_core_ids, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its targets call the crate's public decoders only.
+
+[package]
+name = "ultragraphdb_core_ids_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
+
+# Any bytes as a stored system ID: decoded or refused with the IdError its first invalid field names, never a panic;
+# an accepted ID encodes back to its bytes.
+[[bin]]
+name = "system_id_decode"
+path = "fuzz_targets/system_id_decode.rs"
+test = false
+doc = false
+bench = false
+
+# Any bytes as a stored version: decoded when 8 bytes long, refused naming the length otherwise, never a panic; an
+# accepted version encodes back to its bytes and splits into its epoch and sequence.
+[[bin]]
+name = "version_decode"
+path = "fuzz_targets/version_decode.rs"
+test = false
+doc = false
+bench = false
