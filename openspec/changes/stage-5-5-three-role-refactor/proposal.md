@@ -63,6 +63,8 @@ recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23
   sessions, routing requests to partitions and compute, statement caches, the error table and result batches.
 - `quad-reads`: quad-pattern reads in a transaction executed by compute over storage: access paths, resume keys, an
   unbound graph, statement IDs, the empty result and the read levels.
+- `settings-toml`: the in-house parser of the TOML subset the roles' settings use, refusing every other feature by
+  name, with typed accessors that refuse unread keys.
 - `ultra-style`: the Ultra lint set, its adoption by every crate the change touches, and the conformance each crate
   reaches before its behaviour changes.
 
@@ -89,8 +91,9 @@ recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23
 
 - **New group folders and crates:** `ultragraphdb_cluster/` (`_placement`, `_metadata`, `_sequencer`, `_partition`),
   `ultragraphdb_roles/` (`_frontend`, `_compute`, `_storage`), the binaries `ultragraphdb_bin/ultragraphdb_frontend`,
-  `_compute`, `_storage` and `_dev`, `ultragraphdb_core/ultragraphdb_core_ids`, and the error crates
-  `ultragraphdb_error_ids`, `ultragraphdb_error_cluster` and `ultragraphdb_error_role`.
+  `_compute`, `_storage` and `_dev`, `ultragraphdb_core/ultragraphdb_core_ids`,
+  `ultragraphdb_tool/ultragraphdb_tool_toml`, and the error crates `ultragraphdb_error_ids`,
+  `ultragraphdb_error_cluster`, `ultragraphdb_error_role` and `ultragraphdb_error_toml`.
 - **Changed crates, each lifted into Ultra Style first:** `ultragraphdb_core_keys`, `_core_codec`, `_core_algo`,
   `_core_terms`, `_core_catalog`, `ultragraphdb_store_kv`, `_store_posting`, `_store_quads`, `_store_apply`,
   `_store_hnsw`, `ultragraphdb_traits_log`, `ultragraphdb_transactions_commit`, `_transactions_log`, `_transactions_txn`,
@@ -98,7 +101,6 @@ recorded in `openspec/notes/UltraGraphDB Shard-per-Core Write Path.md` (P1–P23
   `_client_tokio`, `_client_compio`, `ultragraphdb_tool_bench`, `_tool_test`, `_tool_bdd`.
 - **Removed:** `tools/golden/codec.go`'s generators, `ultragraphdb_core_codec/testdata/golden/codec_uidpack.json` and
   `codec_seek.json` with their tests (decided 2026-11-01).
-- **Dependencies:** `toml`, pure Rust, for the roles' settings files.
 - **Build:** the Ultra lint set in each adopting crate's manifest and `too-many-lines-threshold = 70` in `clippy.toml`;
   role images through `glibc_multiarch_img` (`bazel/container/img.bzl`) on `bazel/oci_images/glibc_base`; a seccomp
   profile allowing io_uring for the role images.

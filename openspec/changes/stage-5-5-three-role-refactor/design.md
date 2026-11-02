@@ -58,6 +58,8 @@ Today:
 | `ultragraphdb_roles_frontend` | `ultragraphdb_roles/` | `_cluster_metadata`, `_cluster_sequencer`, `ultragraphdb_protocol_*` | The client endpoint, authentication, routing, the metadata group's and sequencer's hosts |
 | `ultragraphdb_roles_compute` | `ultragraphdb_roles/` | `_cluster_placement`, `ultragraphdb_protocol_*` | Quad-pattern reads over storage's kernels: fan-out, merge in key order, resume keys, levels |
 | `ultragraphdb_roles_storage` | `ultragraphdb_roles/` | `_cluster_partition`, `ultragraphdb_protocol_*` | The partitions' host: role commands, epoch delivery, block leases |
+| `ultragraphdb_error_toml` | `ultragraphdb_error/` | — | `TomlError(pub TomlErrorEnum)`: unsupported feature, invalid document, limit, missing, wrong kind, unread key |
+| `ultragraphdb_tool_toml` | `ultragraphdb_tool/` | `_error_toml` | The TOML subset's parser, its document and typed accessors; no external dependency |
 | `ultragraphdb_frontend`, `_compute`, `_storage`, `_dev` | `ultragraphdb_bin/` | their role crate, `ultragraphdb_common_telemetry` | `main`: configuration, telemetry, the runtime, health, signals; `_dev` the supervisor |
 
 A role crate holds its role's logic and its I/O shell; a binary holds only `main`. The frontend's dependency graph
@@ -155,10 +157,16 @@ last key, so a client never sees an ID.
 
 ### The binaries, the supervisor and the images
 
-Each binary reads its settings from a standard TOML file (decided by the user, 2026-11-01), one table per concern
-(`[transport]`, `[storage]`, `[sequencer]`, ...), deserialized by the `toml` crate (pure Rust, serde) into the role's
-settings struct with `deny_unknown_fields`, so an unknown key stops the start naming it; an environment variable
-`ULTRAGRAPHDB_<TABLE>_<KEY>` overrides a file value, and every setting's bound is checked after both are read. The
+Each binary reads its settings from a standard TOML file, one table per concern (`[transport]`, `[storage]`,
+`[sequencer]`, ...), parsed by `ultragraphdb_tool_toml` (decided by the user, 2026-11-02): an in-house parser of
+exactly the TOML subset the settings use (bare-named tables, bare keys, basic strings, decimal integers, booleans,
+comments), refusing every other feature by name. A document it accepts parses as any TOML 1.0 parser would read it, so
+the files stay standard; a new setting needing new syntax extends the parser, not the dependency list. A role reads its
+settings through typed accessors and then refuses any key it did not take, so a misspelled setting stops the start; an
+environment variable `ULTRAGRAPHDB_<TABLE>_<KEY>` overrides a file value, and every setting's bound is checked after
+both are read. Storage and compute register with the frontend at its address, so no setting is a list and the subset
+needs no arrays. Its independent test source is the toml-test suite's valid and invalid documents, vendored as data
+with their source, not a crate. The
 profiles are TOML files shipped in the images. `/health` and `/ready` are served by a minimal HTTP/1.1 responder (GET
 only, bounded request size) on the observability port, written in-house: two fixed answers do not earn an HTTP
 library. The supervisor spawns the role binaries with
@@ -192,9 +200,9 @@ system calls, ships beside the images in `bazel/oci_images/seccomp/`.
   lists compact; `wal_bench` measures bytes per relation against stage 5's figures in the final group.
 - [Epoch versions depend on a reachable sequencer] → A partition keeps stamping its last delivered epoch while the
   sequencer is away and advances locally when its sequence runs out; reads at a snapshot wait, within their deadline.
-- [The in-house HTTP responder is code to maintain; `toml` is a new dependency] → The responder is a bounded, fuzzed
-  decoder with a target in phase 5; `toml` is pinned once in the workspace, justified in `AGENTS.md`, and the settings'
-  validation after deserialization has its own fuzz target over TOML text.
+- [The in-house TOML subset and HTTP responder are code to maintain] → Both are bounded, single-pass, fuzzed decoders
+  of untrusted bytes with targets in phase 5; the subset is pinned against the toml-test suite, and anything it does
+  not support is refused by name, never misread.
 - [A misbehaving supervisor hides role failures] → It restarts nothing and exits with the failing role's code, so the
   orchestrator sees what a cluster would.
 

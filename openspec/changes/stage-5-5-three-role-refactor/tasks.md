@@ -16,7 +16,7 @@ at the task that removes them.
 
 ## 0. Workspace and protocol
 
-- [ ] 0.1 Pin `toml` (pure Rust, serde) in `[workspace.dependencies]` and record it in `AGENTS.md`'s dependency table; `clippy.toml`: `too-many-lines-threshold = 70`; record the Ultra lint set's manifest block once in `ULTRA_STYLE.md` for crates to copy, with `unsafe_code = "forbid"` repeated
+- [ ] 0.1 `clippy.toml`: `too-many-lines-threshold = 70`; record the Ultra lint set's manifest block once in `ULTRA_STYLE.md` for crates to copy, with `unsafe_code = "forbid"` repeated
 - [ ] 0.2 Create the folders `ultragraphdb_cluster/`, `ultragraphdb_roles/` and the crates of the design's table with the repository's layout, headers, the Ultra lint set and Bazel targets, hermetic and sandboxed, each with an empty `features/` folder its `bdd` target reads
 - [ ] 0.3 `PROTOCOL.md` first: the role-command range 512–767 and its commands, the session token in a commit reply, a read's level and token, result batches naming IRIs by text, the client's automatic credit and in-doubt rules; the replica range 256–511 kept for stage 8
 - [ ] 0.4 Record the decisions taken in drafting (design, *Decisions taken in drafting*) in the client's and endpoint's notes for the user's review before groups 9 and 10 begin
@@ -98,13 +98,21 @@ at the task that removes them.
 - [ ] 10.3 Phases 1–3: session tokens kept per session and sent with reads; read levels; the shells without `grant`, the core's grant taking `NonZeroU32`; `ConnectionLost` before a commit's frame is sent and `InDoubt` after, `RetriesExhausted` folded into `InDoubt`
 - [ ] 10.4 Phase 4: the client against the frontend; the client's conformance suite against the role binaries of group 11
 
+## 10b. The TOML subset → `ultragraphdb_error_toml`, `ultragraphdb_tool_toml`
+
+- [ ] 10b.1 Scenarios: settings-toml (all requirements)
+- [ ] 10b.2 Vendor the toml-test suite's valid documents that use only the subset, with their expected JSON, and all its invalid documents, under `testdata/` with the suite's source and version
+- [ ] 10b.3 Phases 1–3: the document, the typed accessors and the unread-key check, `TomlError` with one variant per refusal; the corner cases (an empty document, a comment-only line, a key in the root table, `i64::MIN` and `i64::MAX` and one past each, every escape and an invalid one, a `\u` escape naming a surrogate, each unsupported feature on its own line, each limit and one past it)
+- [ ] 10b.4 Phase 4: the single-pass parser, no recursion and no external dependency
+- [ ] 10b.5 Phase 5: a fuzz target for the parser, seeded with the vendored valid documents, checking no panic and that an accepted document's values re-read alike
+
 ## 11. Binaries, supervisor and images → `ultragraphdb_error_role`, `ultragraphdb_bin/*`
 
 - [ ] 11.1 Scenarios: role-binaries (all requirements)
-- [ ] 11.2 Phases 1–3: settings from a standard TOML file through the `toml` crate (`deny_unknown_fields`), overridden by `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, with every setting's bound checked; the profiles as TOML files; `/health` and `/ready` from the in-house HTTP/1.1 responder; start, readiness and the shutdown order; exit codes; the io_uring probe and fallback; the supervisor's start order, signal forwarding and exit code
+- [ ] 11.2 Phases 1–3: settings from a standard TOML file through `ultragraphdb_tool_toml`, every key taken or refused, overridden by `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, with every setting's bound checked; the profiles as TOML files; `/health` and `/ready` from the in-house HTTP/1.1 responder; start, readiness and the shutdown order; exit codes; the io_uring probe and fallback; the supervisor's start order, signal forwarding and exit code
 - [ ] 11.3 Phase 4: the four binaries; the dependency check that the frontend links no storage engine
 - [ ] 11.4 Images: `glibc_multiarch_img` for each role; the development image layering the four binaries; the seccomp profile in `bazel/oci_images/seccomp/`; load targets; the role-binaries scenarios run against the images in Docker, under the default seccomp profile and the shipped one
-- [ ] 11.5 Phase 5: fuzz targets for the settings' validation over TOML text and the HTTP request parser
+- [ ] 11.5 Phase 5: fuzz target for the HTTP request parser
 
 ## 12. Final verification and documentation
 

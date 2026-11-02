@@ -61,7 +61,8 @@ and sync what its logs hold before it exits.
 - **THEN** every acknowledged commit is applied to its store before it exits, and a restart replays nothing
 
 ### Requirement: Configuration is explicit and validated at start
-Each role SHALL read its settings from one standard TOML file, with an environment variable
+Each role SHALL read its settings from one standard TOML file, parsed by `ultragraphdb_tool_toml` (settings-toml),
+with an environment variable
 `ULTRAGRAPHDB_<TABLE>_<KEY>` overriding the file's value, SHALL refuse to start on an unknown setting, a malformed
 file, a missing required setting or a value out of its bounds, naming the setting and the bound, and SHALL exit with
 the configuration code. The profiles `dev`, `dev-net`, `frontend`, `compute` and `storage` SHALL be presets of these

@@ -15,8 +15,9 @@ library crate SHALL never install a subscriber. A failure a caller receives as a
 
 ### Requirement: A binary installs logging and span export once
 `ultragraphdb_common_telemetry` SHALL install the global subscriber from a configuration the caller passes: a level
-directive, plain or JSON lines on standard error, and, when an OTLP endpoint is given, spans exported over OTLP; the
-guard it returns SHALL flush the exporter when dropped.
+directive, plain or JSON lines on standard error, and, when an OTLP endpoint is given, spans exported over OTLP/HTTP
+with protobuf to that `http://` URL, without an async runtime; the guard it returns SHALL flush the exporter when
+dropped.
 
 #### Scenario: JSON lines carry the event's fields
 - **WHEN** telemetry is installed for JSON output at level `info` and an `info` event with a field `key` is emitted
