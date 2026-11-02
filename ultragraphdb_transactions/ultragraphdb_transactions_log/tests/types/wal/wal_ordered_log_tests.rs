@@ -223,12 +223,12 @@ fn test_a_failed_write_or_sync_poisons_the_log() {
         "write",
         "file sync",
     ];
-    for step in 0..6 {
+    for (step, &operation) in operations.iter().enumerate() {
         let (storage, mut wal) = fresh();
         append(&mut wal, 1, ONE_BLOCK).expect("staged");
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
         let error = block_on(wal.sync()).expect_err("faulted");
-        assert_io(&error, operations[step]);
+        assert_io(&error, operation);
         assert_eq!(wal.committed(), Position::ZERO);
         assert_eq!(append(&mut wal, 2, ONE_BLOCK), Err(LogError::Poisoned()));
         assert_eq!(block_on(wal.sync()), Err(LogError::Poisoned()));
@@ -455,12 +455,12 @@ fn test_a_failed_trim_poisons_the_log() {
         "rename",
         "directory sync",
     ];
-    for step in 0..9 {
+    for (step, &operation) in operations.iter().enumerate() {
         let (storage, mut wal) = fresh();
         append_synced(&mut wal, 1, 6, ONE_BLOCK);
         storage.fail_at(storage.trace().len() + step, FaultMode::Before);
         let error = block_on(wal.trim_through(Position::new(5), 0)).expect_err("faulted");
-        assert_io(&error, operations[step]);
+        assert_io(&error, operation);
         assert_eq!(
             append(&mut wal, 7, ONE_BLOCK),
             Err(LogError::Poisoned()),

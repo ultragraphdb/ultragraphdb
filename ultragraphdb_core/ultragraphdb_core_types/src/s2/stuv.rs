@@ -20,10 +20,10 @@ pub(crate) const MAX_SI_TI: u64 = (MAX_SIZE as u64) << 1;
 /// Converts an si- or ti-value to the corresponding s- or t-value.
 /// Value is capped at 1.0 because there is no DCHECK in Go.
 pub(crate) fn si_ti_to_st(si: u32) -> f64 {
-    if si as u64 > MAX_SI_TI {
+    if u64::from(si) > MAX_SI_TI {
         return 1.0;
     }
-    si as f64 / MAX_SI_TI as f64
+    f64::from(si) / MAX_SI_TI as f64
 }
 
 /// Converts the s- or t-value to the corresponding u- or v-value. This is a non-linear

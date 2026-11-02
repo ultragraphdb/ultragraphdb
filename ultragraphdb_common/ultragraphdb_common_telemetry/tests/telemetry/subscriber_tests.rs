@@ -13,11 +13,13 @@ use opentelemetry_sdk::trace::SpanData;
 use serde_json::Value;
 use tracing::{debug, error, info, info_span, trace, warn};
 use ultragraphdb_common_telemetry::{
-    LogFormat, OtlpHttpClient, TelemetryConfig, TelemetryError, TelemetryErrorEnum, subscriber,
+    Dial, LogFormat, OtlpHttpClient, TelemetryConfig, TelemetryError, TelemetryErrorEnum,
+    subscriber,
 };
 use ultragraphdb_transport_tls::{TestPki, TlsConnector, TlsTrust};
 
-use crate::test_support::{Buffer, Kept, serve_once, serve_once_tls};
+use crate::collector::{CollectorDial, TlsCollectorDial};
+use crate::test_support::{Buffer, Kept};
 
 /// The events written while `f` runs under the subscriber of `filter` and `format`.
 fn logged(filter: &str, format: LogFormat, f: impl FnOnce()) -> String {
@@ -288,29 +290,32 @@ fn test_dropping_the_guard_exports_while_the_subscriber_lives_on() {
 
 #[test]
 fn test_spans_reach_a_collector_over_otlp_http_without_a_runtime() {
-    let (url, collector) = serve_once(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
-    spans_reach_a_collector(&url, collector, OtlpHttpClient::new(Duration::from_secs(5)));
+    let dial = CollectorDial::answering(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    spans_reach_a_collector(
+        "http://collector:4318",
+        OtlpHttpClient::over(dial.clone(), Duration::from_secs(5)),
+    );
+    assert_eq!(dial.dialed().len(), 1);
+    received_one_span(&dial.received());
 }
 
 #[test]
 fn test_spans_reach_a_collector_over_otlp_https_verified_against_its_ca() {
     let pki = TestPki::new();
-    let (url, collector) = serve_once_tls(&pki, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    let dial = TlsCollectorDial::answering(&pki, b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
     let trust = TlsTrust::from_pem("test CA", pki.ca_pem().as_bytes()).expect("the CA");
-    let client = OtlpHttpClient::new(Duration::from_secs(5)).with_tls(TlsConnector::new(trust));
-    spans_reach_a_collector(&url, collector, client);
+    let client = OtlpHttpClient::over(dial.clone(), Duration::from_secs(5))
+        .with_tls(TlsConnector::new(trust));
+    spans_reach_a_collector("https://localhost:4318", client);
+    received_one_span(&dial.plain().received());
 }
 
-/// Exports one span through `client` to the stand-in collector at `url`, the exporter as init builds it, and checks
-/// the POST the collector received; the guard's drop flushes the batch on the processor's thread.
-fn spans_reach_a_collector(
-    url: &str,
-    collector: std::thread::JoinHandle<Vec<u8>>,
-    client: OtlpHttpClient,
-) {
+/// Exports one span through `client` to the collector at `base`, the exporter as init builds it; the guard's drop
+/// flushes the batch on the processor's thread.
+fn spans_reach_a_collector<D: Dial + 'static>(base: &str, client: OtlpHttpClient<D>) {
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint(format!("{url}/v1/traces"))
+        .with_endpoint(format!("{base}/v1/traces"))
         .with_http_client(client)
         .build()
         .expect("an exporter");
@@ -322,21 +327,18 @@ fn spans_reach_a_collector(
     .expect("the filter parses");
     tracing::subscriber::with_default(subscriber, || info_span!("apply_round").in_scope(|| {}));
     drop(guard);
-    let request = collector.join().expect("the collector thread");
-    let end = request
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .expect("a request head");
-    let head = String::from_utf8_lossy(&request[..end]);
+}
+
+/// Checks that `request` is the exporter's POST of protobuf carrying the span `apply_round`.
+fn received_one_span(request: &str) {
+    let (head, body) = request.split_once("\r\n\r\n").expect("a request head");
     assert!(head.starts_with("POST /v1/traces HTTP/1.1\r\n"), "{head}");
     assert!(
         head.contains("content-type: application/x-protobuf"),
         "{head}"
     );
-    let body = &request[end + 4..];
     assert!(
-        body.windows(b"apply_round".len())
-            .any(|w| w == b"apply_round"),
+        body.contains("apply_round"),
         "the protobuf body carries the span's name"
     );
 }

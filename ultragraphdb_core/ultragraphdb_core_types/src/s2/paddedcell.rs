@@ -252,7 +252,7 @@ impl PaddedCell {
         // if both pairs of endpoints are equal we choose MaxLevel; if they differ
         // only at bit 0, we choose (MaxLevel - 1), and so on.
         let level_msb = (((i_xor | j_xor) << 1) + 1) as u64;
-        let level = MAX_LEVEL - (64 - level_msb.leading_zeros() as i64 - 1);
+        let level = MAX_LEVEL - (64 - i64::from(level_msb.leading_zeros()) - 1);
         if level <= self.level {
             return self.id;
         }

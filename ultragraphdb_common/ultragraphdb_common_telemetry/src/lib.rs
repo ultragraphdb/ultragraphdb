@@ -23,13 +23,17 @@
 
 mod errors;
 mod telemetry;
+mod traits;
 mod types;
 mod utils;
 
 pub use crate::errors::telemetry_error::{TelemetryError, TelemetryErrorEnum};
 pub use crate::telemetry::init::init;
 pub use crate::telemetry::subscriber::subscriber;
+pub use crate::traits::dial::Dial;
 pub use crate::types::log_format::LogFormat;
 pub use crate::types::otlp_http_client::OtlpHttpClient;
+pub use crate::types::tcp_dial::TcpDial;
 pub use crate::types::telemetry_config::TelemetryConfig;
 pub use crate::types::telemetry_guard::TelemetryGuard;
+pub use crate::utils::http1::decode_response;

@@ -24,7 +24,7 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     }
     // Extract out the integer and exponent such that, x = ix * 2 ** exp.
     let mut ix = x.to_bits();
-    let exp = ((ix >> SHIFT) & MASK) as i64 - BIAS - SHIFT as i64;
+    let exp = ((ix >> SHIFT) & MASK) as i64 - BIAS - i64::from(SHIFT);
     ix &= !(MASK << SHIFT);
     ix |= 1 << SHIFT;
     // Use the exponent to extract the 3 appropriate uint64 digits from mPi4,
@@ -40,13 +40,13 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     let (z1hi, z1lo) = mul64(z1, ix);
     let z0lo = z0.wrapping_mul(ix);
     let (lo, c) = z1lo.overflowing_add(z2hi);
-    let hi = z0lo.wrapping_add(z1hi).wrapping_add(c as u64);
+    let hi = z0lo.wrapping_add(z1hi).wrapping_add(u64::from(c));
     // The top 3 bits of hi give j.
     let mut j = hi >> 61;
     // Extract the fraction and find its magnitude.
     let hi = (hi << 3) | (lo >> 61);
     let lz = hi.leading_zeros();
-    let e = (BIAS as u64).wrapping_sub(lz as u64 + 1);
+    let e = (BIAS as u64).wrapping_sub(u64::from(lz) + 1);
     // Clear implicit mantissa bit and shift into place.
     // Go's uint subtraction wraps when hi is 0, and its shift by the result gives 0.
     let mut hi = shl(hi, lz + 1) | shr(lo, 64u32.wrapping_sub(lz + 1));
@@ -76,7 +76,7 @@ fn shr(x: u64, s: u32) -> u64 {
 
 /// Go's `bits.Mul64`: the 128-bit product as (hi, lo).
 fn mul64(x: u64, y: u64) -> (u64, u64) {
-    let p = (x as u128) * (y as u128);
+    let p = u128::from(x) * u128::from(y);
     ((p >> 64) as u64, p as u64)
 }
 

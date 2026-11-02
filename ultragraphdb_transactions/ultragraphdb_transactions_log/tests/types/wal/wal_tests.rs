@@ -755,13 +755,13 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
         "rename",
         "directory sync",
     ];
-    for step in 0..steps {
+    for (step, &operation) in operations.iter().enumerate() {
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
             storage.fail_at(storage.trace().len() + step, FaultMode::After);
             let failed = block_on(wal.trim_through(Position::new(8), 0))
                 .expect_err("the step fails after its effect");
-            assert_io(&failed, operations[step]);
+            assert_io(&failed, operation);
             drop(wal);
             if power {
                 storage.power_loss();
@@ -783,7 +783,7 @@ fn test_a_crash_after_any_step_of_a_recycling_checkpoint_recovers_without_a_repo
 fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
     // The spare renamed, the directory synced, the segment opened, the round written and synced.
     let operations = ["rename", "directory sync", "open", "write", "file sync"];
-    for step in 0..5 {
+    for (step, &operation) in operations.iter().enumerate() {
         for power in [false, true] {
             let (storage, mut wal, checksums) = twelve();
             block_on(wal.trim_through(Position::new(8), 0)).expect("trimmed");
@@ -794,7 +794,7 @@ fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
             append(&mut wal, 13, ONE_BLOCK).expect("staged");
             storage.fail_at(storage.trace().len() + step, FaultMode::After);
             let failed = block_on(wal.sync()).expect_err("the step fails after its effect");
-            assert_io(&failed, operations[step]);
+            assert_io(&failed, operation);
             drop(wal);
             if power {
                 storage.power_loss();

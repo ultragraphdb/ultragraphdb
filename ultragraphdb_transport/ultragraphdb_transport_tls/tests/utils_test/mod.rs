@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod test_peer_tests;
+#[cfg(test)]
 mod test_pki_tests;

@@ -4,6 +4,8 @@
  */
 
 #[cfg(test)]
+mod collector;
+#[cfg(test)]
 mod errors;
 #[cfg(test)]
 mod telemetry;
@@ -11,3 +13,5 @@ mod telemetry;
 mod test_support;
 #[cfg(test)]
 mod types;
+#[cfg(test)]
+mod utils;

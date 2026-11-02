@@ -166,7 +166,7 @@ fn test_a_write_goes_through_a_synced_temporary_renamed_over_its_copy() {
 fn test_a_write_failing_at_any_step_leaves_the_last_record() {
     // Every step of a write, each fault mode, then a power loss: the record read back is the last one written whole
     // or, when the failure came after its rename and directory sync took effect, the new one; never unreadable.
-    for step in 0..5 {
+    for (step, &operation) in OPERATIONS.iter().enumerate() {
         for mode in [
             FaultMode::Before,
             FaultMode::After,
@@ -183,7 +183,7 @@ fn test_a_write_failing_at_any_step_leaves_the_last_record() {
             if mode == FaultMode::SilentTornWrite {
                 assert_eq!(result, Ok(()), "step {step}");
             } else {
-                assert_io(&result.expect_err("the step fails"), OPERATIONS[step]);
+                assert_io(&result.expect_err("the step fails"), operation);
             }
             // What survives the power loss: the new record only once its rename's directory sync took effect, which
             // is a fault after step 4 (Before skips it; a torn mode on a sync takes effect, as After does) or any

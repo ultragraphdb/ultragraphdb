@@ -3,21 +3,21 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 
 use super::Connection;
 
-impl Write for Connection {
+impl<S: Read + Write> Write for Connection<S> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
-            Self::Plain(socket) => socket.write(buf),
+            Self::Plain(stream) => stream.write(buf),
             Self::Tls(tls) => tls.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
-            Self::Plain(socket) => socket.flush(),
+            Self::Plain(stream) => stream.flush(),
             Self::Tls(tls) => tls.flush(),
         }
     }

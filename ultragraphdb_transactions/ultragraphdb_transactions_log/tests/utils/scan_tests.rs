@@ -654,6 +654,15 @@ fn torn_damage(
 /// round (chunks of body bytes 0 to 3,840 and 3,840 to 7,904, then its 16-byte table, frame bytes 8,176 to 8,192). Each
 /// tear is damage named as the checks' order says, a clean end when nothing was kept, and the whole round only when
 /// the tear changed no byte; the round before it is always read.
+/// A frame's length, its chunk table's range if it has one, each chunk's index and range, and the damage its tears
+/// must reach.
+type TearCase = (
+    usize,
+    Option<std::ops::Range<usize>>,
+    Vec<(usize, std::ops::Range<usize>)>,
+    Vec<Option<Damage>>,
+);
+
 #[test]
 fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
     let chunk = |index, start, end| {
@@ -669,12 +678,7 @@ fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
     });
     // Each case with the outcomes its tears must reach, so the rule is never checked on one branch alone: the clean
     // end (nothing kept), header damage (a tear inside the command header's nonzero bytes), then the body's damage.
-    let cases: [(
-        usize,
-        Option<std::ops::Range<usize>>,
-        Vec<(usize, std::ops::Range<usize>)>,
-        Vec<Option<Damage>>,
-    ); 2] = [
+    let cases: [TearCase; 2] = [
         (
             FULL_BLOCK,
             None,

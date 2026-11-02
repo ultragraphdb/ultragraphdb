@@ -140,12 +140,10 @@ fn arrive(
 /// The connection's rule over `arrivals`, the sequences in the order they arrive, the first due at `first`: how many
 /// are taken, and the refusal of the one after them, if any.
 fn rule(first: u128, arrivals: &[u128]) -> (usize, Option<ProtocolError>) {
-    let mut expected = first;
-    for (taken, &found) in arrivals.iter().enumerate() {
+    for (taken, (&found, expected)) in arrivals.iter().zip(first..).enumerate() {
         if found != expected {
             return (taken, Some(ProtocolError::SequenceOrder(expected, found)));
         }
-        expected += 1;
     }
     (arrivals.len(), None)
 }

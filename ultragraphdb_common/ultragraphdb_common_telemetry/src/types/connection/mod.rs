@@ -6,26 +6,16 @@
 mod connection_read;
 mod connection_write;
 
-use std::net::TcpStream;
+use std::io::{Read, Write};
 
 use ultragraphdb_transport_tls::TlsStream;
 
-/// The connection one exchange of [`OtlpHttpClient`](crate::OtlpHttpClient) runs over.
+/// The connection one exchange of [`OtlpHttpClient`](crate::OtlpHttpClient) runs over, on a dialed stream `S`.
 #[derive(Debug)]
-pub(crate) enum Connection {
-    /// `http://`: the socket itself.
-    Plain(TcpStream),
-    /// `https://`: a verified TLS connection over the socket, boxed because rustls's state is kilobytes where a
+pub(crate) enum Connection<S: Read + Write> {
+    /// `http://`: the stream itself.
+    Plain(S),
+    /// `https://`: a verified TLS connection over the stream, boxed because rustls's state is kilobytes where a
     /// socket is a handle.
-    Tls(Box<TlsStream>),
-}
-
-impl Connection {
-    /// The socket beneath, whose timeouts bound every read and write.
-    pub(crate) fn socket(&self) -> &TcpStream {
-        match self {
-            Self::Plain(socket) => socket,
-            Self::Tls(tls) => &tls.sock,
-        }
-    }
+    Tls(Box<TlsStream<S>>),
 }

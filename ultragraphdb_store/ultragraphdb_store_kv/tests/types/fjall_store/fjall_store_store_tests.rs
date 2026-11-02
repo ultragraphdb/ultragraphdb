@@ -1110,7 +1110,8 @@ fn test_keys_with_zero_runs_about_the_code_boundaries_keep_byte_order() {
         .map(|(k, _)| k)
         .collect();
     assert_eq!(selected, under);
-    s.drop_prefixes(3, &[prefix.clone()], Vec::new()).unwrap();
+    s.drop_prefixes(3, std::slice::from_ref(&prefix), Vec::new())
+        .unwrap();
     let left: Vec<Vec<u8>> = scanned(&s, &Scan::prefix(Vec::new()), 3)
         .into_iter()
         .map(|(k, _)| k)

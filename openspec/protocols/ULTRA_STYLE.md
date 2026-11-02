@@ -388,8 +388,8 @@ the reader's and the reviewer's understanding.
 
 ## The lint set
 
-The Ultra lint set, in the crate's `Cargo.toml` `[lints]` or the workspace's, with `too-many-lines-threshold = 70`
-in `clippy.toml`, run by `make check` with `-D warnings` in every crate that has adopted it:
+The Ultra lint set, in the workspace's `[workspace.lints]`, the one lint table every crate takes with `[lints]
+workspace = true`, with `too-many-lines-threshold = 70` in `clippy.toml`, run by `make check` with `-D warnings`:
 
 | Lint | Level | Rule |
 |---|---|---|
@@ -413,9 +413,8 @@ in `clippy.toml`, run by `make check` with `-D warnings` in every crate that has
 Phase 1 of the test protocol lands a surface of `unimplemented!()` bodies; those carry
 `#[expect(clippy::unimplemented, reason = "phase 1 surface")]` until phase 4 replaces them.
 
-The workspace's `[workspace.lints]` carries rule 7's lints (`unused_must_use`, `unused_results`,
-`clippy::let_underscore_must_use`, `clippy::let_underscore_untyped`) at `warn` for every crate, so the existing crates'
-warnings list what their adoption has left to change. A crate of group 10 onward builds with none of them.
+A lint the existing crates do not meet yet stays in the table commented out, with its count of violations, and is
+uncommented once the crates comply; no crate adds a lint table of its own.
 
 ## Formatting
 

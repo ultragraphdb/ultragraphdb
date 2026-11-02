@@ -74,7 +74,7 @@ pub fn tokens_hash(t: &[String]) -> String {
     let mut h: u64 = 14695981039346656037;
     for s in t {
         for b in s.bytes().chain(std::iter::once(b',')) {
-            h ^= b as u64;
+            h ^= u64::from(b);
             h = h.wrapping_mul(1099511628211);
         }
     }

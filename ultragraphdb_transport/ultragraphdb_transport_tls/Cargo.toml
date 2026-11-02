@@ -15,44 +15,8 @@ authors.workspace = true
 publish.workspace = true
 autotests = false
 
-# The workspace's lints and the Ultra lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set"). Cargo takes a
-# crate's own table or the workspace's, never both, so the workspace's entries are repeated here.
-[lints.rust]
-unsafe_code = "forbid"
-deprecated_safe = { level = "warn", priority = -1 }
-unused_must_use = "deny"
-unused_results = "deny"
-missing_docs = "deny"
-
-[lints.clippy]
-all = { level = "deny", priority = -1 }
-allow_attributes = "deny"
-allow_attributes_without_reason = "deny"
-too_many_lines = "deny"
-unwrap_used = "deny"
-expect_used = "deny"
-panic = "deny"
-todo = "deny"
-unimplemented = "deny"
-indexing_slicing = "deny"
-let_underscore_must_use = "deny"
-let_underscore_untyped = "deny"
-cast_possible_truncation = "deny"
-cast_sign_loss = "deny"
-cast_possible_wrap = "deny"
-cast_lossless = "deny"
-wildcard_enum_match_arm = "deny"
-infinite_iter = "deny"
-maybe_infinite_iter = "deny"
-shadow_unrelated = "deny"
-large_types_passed_by_value = "deny"
-trivially_copy_pass_by_ref = "deny"
-needless_pass_by_value = "deny"
-rc_buffer = "deny"
-mutex_atomic = "deny"
-await_holding_lock = "deny"
-await_holding_refcell_ref = "deny"
-disallowed_methods = "deny"
+[lints]
+workspace = true
 
 [features]
 # A test certificate authority and a server certificate it issued, generated per run, for the tests of every crate

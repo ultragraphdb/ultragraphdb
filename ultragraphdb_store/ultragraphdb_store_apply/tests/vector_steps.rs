@@ -551,7 +551,7 @@ fn eight_found(w: &mut Steps) {
     );
     assert_eq!(w.counts[0], w.counts[1], "each commits at its version");
     let a = cs(w);
-    let last = *w.counts[1].last().expect("eight versions") as u64;
+    let last = u64::from(*w.counts[1].last().expect("eight versions"));
     assert!(index(&a, "emb") >= last);
     assert!(a.indexed_version(NS, ex("emb").as_ref()).unwrap() >= last);
     for i in 1..=8 {

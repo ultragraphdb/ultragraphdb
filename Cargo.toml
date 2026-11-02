@@ -132,17 +132,56 @@ arbitrary = { version = "1.5", features = ["derive"] }
 cucumber = "0.23"
 criterion = { version = "0.8", default-features = false }
 
+
 [workspace.lints.clippy]
-all = "warn"
-# Repo-wide lint policy. Member crates opt in with `[lints] workspace = true`.
+# The one lint table of the workspace: every crate takes it with `[lints] workspace = true`.
+# It is Ultra Style's lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set"). A lint the crates do not meet yet
+# stays here commented out, with its count of violations on 2026-11-02.
+all = { level = "deny", priority = -1 }
+# Rule 10.
+#allow_attributes = "deny"                  # 326
+#allow_attributes_without_reason = "deny"   # 299
+# Rule 4, with too-many-lines-threshold = 70 in clippy.toml.
+#too_many_lines = "deny"                    # 122
+# Rule 7.
+#unwrap_used = "deny"                       # 4366
+#expect_used = "deny"                       # 1543
+#panic = "deny"                             # 282
+todo = "deny"
+unimplemented = "deny"
+#indexing_slicing = "deny"                  # 1018
+#arithmetic_side_effects = "deny"           # 1778; Ultra asks it in decoders and parsers
+#let_underscore_must_use = "deny"           # 95
+#let_underscore_untyped = "deny"            # 136
+# Types.
+#cast_possible_truncation = "deny"          # 355
+#cast_sign_loss = "deny"                    # 118
+#cast_possible_wrap = "deny"                # 106
+cast_lossless = "deny"
+#wildcard_enum_match_arm = "deny"           # 157
+# Rule 2.
+infinite_iter = "deny"
+maybe_infinite_iter = "deny"
+# Rule 6.
+#shadow_unrelated = "deny"                  # 647
+# Rule 9.
+large_types_passed_by_value = "deny"
+#trivially_copy_pass_by_ref = "deny"        # 15; each fix changes a public signature
+#needless_pass_by_value = "deny"            # 120
+rc_buffer = "deny"
+mutex_atomic = "deny"
+# Concurrency.
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+disallowed_methods = "deny"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 deprecated_safe = { level = "warn", priority = -1 }
-# Ultra Style rule 7: every value computed is used; no `let _ =` discards one.
-let_underscore_must_use = "warn"
-# Ultra Style rule 7: a result or a returned value is never left unused.
-#unused_must_use = "warn"
-#unused_results = "warn"
+# Rule 7 and documentation.
+unused_must_use = "deny"
+#unused_results = "deny"                    # 1337
+#missing_docs = "deny"                      # 1812
 
 [profile.release]
 opt-level = 3

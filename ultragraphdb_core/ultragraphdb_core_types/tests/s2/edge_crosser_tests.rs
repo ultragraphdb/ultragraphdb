@@ -65,7 +65,7 @@ fn crossings_match_go() {
             let got = if i % 2 == 0 {
                 e3.crossing_sign(chain[i], chain[i + 1]).value()
             } else {
-                e3.edge_or_vertex_crossing(chain[i], chain[i + 1]) as i32
+                i32::from(e3.edge_or_vertex_crossing(chain[i], chain[i + 1]))
             };
             c.check(got == k.mixed[i], || {
                 format!("chain {n} mixed step {i} = {got} want {}", k.mixed[i])

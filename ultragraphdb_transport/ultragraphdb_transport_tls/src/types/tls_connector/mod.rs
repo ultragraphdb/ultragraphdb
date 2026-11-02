@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
@@ -12,12 +13,13 @@ use rustls_pki_types::ServerName;
 use crate::errors::tls_error::TlsError;
 use crate::types::tls_trust::TlsTrust;
 
-/// A verified connection, read and written as any other stream; its socket is `.sock`.
-pub type TlsStream = StreamOwned<ClientConnection, TcpStream>;
+/// A verified connection over `S`, a socket unless named otherwise, read and written as any other stream; the
+/// stream beneath is `.sock`.
+pub type TlsStream<S = TcpStream> = StreamOwned<ClientConnection, S>;
 
 /// Opens verified connections against one [`TlsTrust`]: TLS 1.3 and 1.2, ring as the crypto provider, no client
-/// certificate. It wraps a socket the caller opened, for the name the caller asked for, which is what the
-/// certificate is checked against.
+/// certificate. It wraps a stream the caller opened, a socket or any other, for the name the caller asked for, which
+/// is what the certificate is checked against.
 #[derive(Debug, Clone)]
 pub struct TlsConnector {
     // Shared, not copied: rustls takes its configuration as an `Arc` for every connection it opens.
@@ -30,10 +32,6 @@ impl TlsConnector {
     /// from the process default, so a second provider compiled into the binary later cannot make the choice
     /// ambiguous; TLS before 1.2 stays off.
     #[must_use]
-    #[expect(
-        clippy::expect_used,
-        reason = "ring's provider supports TLS 1.3 and 1.2, so naming them cannot fail"
-    )]
     pub fn new(trust: TlsTrust) -> Self {
         debug_assert!(!trust.is_empty());
         let config =
@@ -55,15 +53,19 @@ impl TlsConnector {
     }
 
     /// Wraps `stream` in a connection verified for `host`, a DNS name or an IP address, with the handshake
-    /// completed here: a certificate that does not verify fails this call, before anything is sent. The socket's
-    /// read and write timeouts bound the handshake.
+    /// completed here: a certificate that does not verify fails this call, before anything is sent. A socket's read
+    /// and write timeouts bound the handshake.
     ///
     /// # Errors
     ///
     /// [`TlsErrorEnum::InvalidServerName`](crate::TlsErrorEnum::InvalidServerName) for a host no certificate can
     /// be checked against, and [`HandshakeFailed`](crate::TlsErrorEnum::HandshakeFailed) for a handshake that did
     /// not complete or a certificate that is untrusted, expired or issued for another name.
-    pub fn connect(&self, stream: TcpStream, host: &str) -> Result<TlsStream, TlsError> {
+    pub fn connect<S: Read + Write>(
+        &self,
+        stream: S,
+        host: &str,
+    ) -> Result<TlsStream<S>, TlsError> {
         let name = ServerName::try_from(host.to_string())
             .map_err(|_| TlsError::InvalidServerName(host.to_string()))?;
         let failed = |reason: String| TlsError::HandshakeFailed(host.to_string(), reason);

@@ -3,17 +3,17 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-//! One HTTP/1.1 exchange over a `std::net` connection, plain or verified TLS: the request with `Content-Length`
-//! and `Connection: close`, the response read to the connection's end and framed by `Transfer-Encoding: chunked`
-//! or `Content-Length`.
+//! One HTTP/1.1 exchange over a dialed connection, plain or verified TLS: the request with `Content-Length` and
+//! `Connection: close`, the response read to the connection's end and framed by `Transfer-Encoding: chunked` or
+//! `Content-Length`.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use opentelemetry_http::{Bytes, HttpError, Request, Response};
 use ultragraphdb_transport_tls::TlsConnector;
 
+use crate::traits::dial::Dial;
 use crate::types::connection::Connection;
 
 /// The largest response read, as the exporter's built-in clients bound it.
@@ -22,14 +22,15 @@ const MAX_RESPONSE: usize = 4 * 1024 * 1024;
 /// The request's headers this module writes itself, and so skips among the caller's.
 const FRAMING: [&str; 4] = ["host", "content-length", "connection", "transfer-encoding"];
 
-/// Sends `request` to its `http://` URI, or its `https://` URI through `tls`, and returns the response, all within
-/// `timeout`: connecting, the TLS handshake, the request and the response's last byte.
-pub(crate) fn exchange(
+/// Sends `request` over a connection `dial` opens to its `http://` URI, or its `https://` URI through `tls`, and
+/// returns the response. `timeout` bounds each step on its own: dialing, and every read and write of the handshake,
+/// the request and the response.
+pub(crate) fn exchange<D: Dial>(
     request: &Request<Bytes>,
+    dial: &D,
     timeout: Duration,
     tls: Option<&TlsConnector>,
 ) -> Result<Response<Bytes>, HttpError> {
-    let deadline = now() + timeout;
     let uri = request.uri();
     let (connector, port_default) = match (uri.scheme_str(), tls) {
         (Some("http"), _) => (None, 80),
@@ -40,53 +41,22 @@ pub(crate) fn exchange(
     let host = uri.host().ok_or_else(|| format!("no host in {uri}"))?;
     let port = uri.port_u16().unwrap_or(port_default);
     let path = uri.path_and_query().map_or("/", |p| p.as_str());
-    let socket = connect(host, port, deadline)?;
-    socket.set_write_timeout(Some(left(deadline)?))?;
-    socket.set_read_timeout(Some(left(deadline)?))?;
+    let stream = dial.dial(bare(host), port, timeout)?;
     let mut connection = match connector {
-        Some(connector) => Connection::Tls(Box::new(connector.connect(socket, bare(host))?)),
-        None => Connection::Plain(socket),
+        Some(connector) => Connection::Tls(Box::new(connector.connect(stream, bare(host))?)),
+        None => Connection::Plain(stream),
     };
     connection.write_all(&head(request, host, port, port_default, path))?;
     connection.write_all(request.body())?;
     // TLS buffers what it writes; the flush sends it.
     connection.flush()?;
-    parse(&read_to_end(&mut connection, deadline)?)
+    decode_response(&read_to_end(&mut connection)?)
 }
 
 /// `host` without the brackets `Uri::host` keeps around an IPv6 literal, which neither the resolver nor a
 /// certificate's names carry.
 fn bare(host: &str) -> &str {
     host.trim_start_matches('[').trim_end_matches(']')
-}
-
-/// The time, read where the client meets the network.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "a request to a collector is bounded by the wall clock; no storage code reads it"
-)]
-fn now() -> Instant {
-    Instant::now()
-}
-
-/// The time left before `deadline`, or the error that it has passed.
-fn left(deadline: Instant) -> Result<Duration, HttpError> {
-    deadline
-        .checked_duration_since(now())
-        .filter(|d| !d.is_zero())
-        .ok_or_else(|| "timed out".into())
-}
-
-/// A connection to the first address of `host` that accepts one before `deadline`.
-fn connect(host: &str, port: u16, deadline: Instant) -> Result<TcpStream, HttpError> {
-    let mut last = format!("no address for {host}");
-    for addr in (bare(host), port).to_socket_addrs()? {
-        match TcpStream::connect_timeout(&addr, left(deadline)?) {
-            Ok(stream) => return Ok(stream),
-            Err(e) => last = format!("{addr}: {e}"),
-        }
-    }
-    Err(last.into())
 }
 
 /// The request line and headers: the framing this module owns, then the caller's other headers. The `Host` header
@@ -117,17 +87,15 @@ fn head(request: &Request<Bytes>, host: &str, port: u16, port_default: u16, path
     head
 }
 
-/// Every byte the server sends until it closes the connection, at most [`MAX_RESPONSE`], before `deadline`.
+/// Every byte the server sends until it closes the connection, at most [`MAX_RESPONSE`].
 ///
 /// A TLS peer that closes its socket without a `close_notify` alert ends the stream too: rustls reports that as
-/// `UnexpectedEof`, and a truncated response is still refused, by [`parse`], when its framing announces more.
-fn read_to_end(connection: &mut Connection, deadline: Instant) -> Result<Vec<u8>, HttpError> {
+/// `UnexpectedEof`, and a truncated response is still refused, by [`decode_response`], when its framing announces
+/// more.
+fn read_to_end<S: Read + Write>(connection: &mut Connection<S>) -> Result<Vec<u8>, HttpError> {
     let mut raw = Vec::new();
     let mut buf = [0u8; 8192];
     loop {
-        connection
-            .socket()
-            .set_read_timeout(Some(left(deadline)?))?;
         let n = match connection.read(&mut buf) {
             Ok(n) => n,
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => 0,
@@ -143,8 +111,15 @@ fn read_to_end(connection: &mut Connection, deadline: Instant) -> Result<Vec<u8>
     }
 }
 
-/// The response in `raw`: its status, its headers, and its body as its framing delimits it.
-fn parse(raw: &[u8]) -> Result<Response<Bytes>, HttpError> {
+/// The HTTP/1.1 response in `raw`, a connection's bytes to its end: its status, its headers, and its body as
+/// `Transfer-Encoding: chunked` or `Content-Length` delimits it, or the rest of `raw` without either. The decoder
+/// [`OtlpHttpClient`](crate::OtlpHttpClient) reads a collector's answer with, public so a fuzz target reaches it.
+///
+/// # Errors
+///
+/// A head without its blank line or not UTF-8, a malformed status line or header, a `Content-Length` that is no
+/// number or announces more than `raw` holds, and a malformed chunked body.
+pub fn decode_response(raw: &[u8]) -> Result<Response<Bytes>, HttpError> {
     let end = find(raw, b"\r\n\r\n").ok_or("response without a complete head")?;
     let head = std::str::from_utf8(&raw[..end])?;
     let rest = &raw[end + 4..];

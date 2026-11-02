@@ -36,7 +36,7 @@ use crate::utils::list_keys::compares_values;
 pub struct List {
     key: Vec<u8>,
     plist: Arc<PostingList>,
-    parts: Arc<Vec<Arc<PostingList>>>,
+    parts: Arc<[Arc<PostingList>]>,
     mutation: MutableLayer,
     min_ts: u64,
     max_ts: u64,
@@ -60,7 +60,7 @@ impl List {
 
     /// The list with the parts its immutable layer's splits name, in their order.
     pub fn with_parts(mut self, parts: Vec<PostingList>) -> Self {
-        self.parts = Arc::new(parts.into_iter().map(Arc::new).collect());
+        self.parts = parts.into_iter().map(Arc::new).collect();
         self
     }
 

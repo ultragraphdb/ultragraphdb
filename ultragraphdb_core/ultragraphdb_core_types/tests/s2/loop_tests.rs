@@ -834,7 +834,10 @@ fn indexed_loops_agree_with_brute_force() {
             // The vertices themselves and a lat/lng grid: index and brute force agree.
             let grid = (-8..=8).flat_map(|i| {
                 (-18..18).map(move |j| {
-                    Point::from_lat_lng(LatLng::from_degrees(i as f64 * 11.0, j as f64 * 10.0))
+                    Point::from_lat_lng(LatLng::from_degrees(
+                        f64::from(i) * 11.0,
+                        f64::from(j) * 10.0,
+                    ))
                 })
             });
             for p in l.vertices().iter().copied().chain(grid) {
@@ -888,7 +891,10 @@ fn invert_complements_the_loop() {
         assert_eq!(inv.vertices(), rev.as_slice());
         for i in -8..=8 {
             for j in -18..18 {
-                let p = Point::from_lat_lng(LatLng::from_degrees(i as f64 * 10.5, j as f64 * 9.5));
+                let p = Point::from_lat_lng(LatLng::from_degrees(
+                    f64::from(i) * 10.5,
+                    f64::from(j) * 9.5,
+                ));
                 assert_ne!(inv.contains_point(p), l.contains_point(p), "{s} {p:?}");
             }
         }

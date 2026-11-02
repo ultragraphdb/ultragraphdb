@@ -157,9 +157,9 @@ fn exit_axis(n: R3Vector) -> ExitAxis {
     // It exits the v=+1 or v=-1 edge if an even number of the components of N
     // are negative. We test this using signbit() rather than multiplication
     // to avoid the possibility of underflow.
-    let x = n.x.is_sign_negative() as u8;
-    let y = n.y.is_sign_negative() as u8;
-    let z = n.z.is_sign_negative() as u8;
+    let x = u8::from(n.x.is_sign_negative());
+    let y = u8::from(n.y.is_sign_negative());
+    let z = u8::from(n.z.is_sign_negative());
 
     if x ^ y ^ z == 0 {
         return ExitAxis::V;

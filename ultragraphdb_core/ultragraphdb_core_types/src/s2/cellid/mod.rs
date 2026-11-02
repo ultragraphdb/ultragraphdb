@@ -118,7 +118,7 @@ impl CellId {
 
     /// Returns the subdivision level of this cell ID, in the range [0, MaxLevel].
     pub fn level(&self) -> i64 {
-        MAX_LEVEL - (self.0.trailing_zeros() >> 1) as i64
+        MAX_LEVEL - i64::from(self.0.trailing_zeros() >> 1)
     }
 
     /// Returns whether this cell ID is at the deepest level; that is, the level at which the
@@ -295,7 +295,7 @@ impl CellId {
     /// common ancestor (they are on different faces).
     pub fn common_ancestor_level(&self, other: CellId) -> Option<i64> {
         let diff_bits = (self.0 ^ other.0).max(self.lsb()).max(other.lsb());
-        let msb_pos = 64 - diff_bits.leading_zeros() as i64 - 1;
+        let msb_pos = 64 - i64::from(diff_bits.leading_zeros()) - 1;
         if msb_pos > 60 {
             return None;
         }
@@ -404,8 +404,8 @@ impl CellId {
         const HALF_OVER_MAX_SIZE: f64 = 0.5 / MAX_SIZE as f64;
         face_uv_to_xyz(
             face,
-            st_to_uv(HALF_OVER_MAX_SIZE * si as f64),
-            st_to_uv(HALF_OVER_MAX_SIZE * ti as f64),
+            st_to_uv(HALF_OVER_MAX_SIZE * f64::from(si)),
+            st_to_uv(HALF_OVER_MAX_SIZE * f64::from(ti)),
         )
     }
 }

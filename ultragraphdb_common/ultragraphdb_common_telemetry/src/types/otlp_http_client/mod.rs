@@ -9,21 +9,37 @@ use std::time::Duration;
 
 use ultragraphdb_transport_tls::TlsConnector;
 
-/// The HTTP/1.1 client the OTLP exporter sends through: one request per connection over `std::net`, to an
-/// `http://` endpoint, or to an `https://` endpoint verified by its [`TlsConnector`]. A request, from connecting to
-/// the response's last byte, takes at most the client's timeout. It blocks, as the SDK's batch span processor
+use crate::traits::dial::Dial;
+use crate::types::tcp_dial::TcpDial;
+
+/// The HTTP/1.1 client the OTLP exporter sends through: one request per connection its [`Dial`] opens, TCP unless
+/// named otherwise, to an `http://` endpoint, or to an `https://` endpoint verified by its [`TlsConnector`]. Dialing
+/// and every read and write each wait at most the client's timeout. It blocks, as the SDK's batch span processor
 /// expects: the processor runs each export on a thread of its own under `futures_executor::block_on`, so no async
 /// runtime is needed.
 #[derive(Debug, Clone)]
-pub struct OtlpHttpClient {
+pub struct OtlpHttpClient<D = TcpDial> {
+    dial: D,
     timeout: Duration,
     tls: Option<TlsConnector>,
 }
 
 impl OtlpHttpClient {
-    /// The client whose requests each take at most `timeout`, to `http://` endpoints only.
+    /// The client over TCP whose every step waits at most `timeout`, to `http://` endpoints only.
     pub fn new(timeout: Duration) -> Self {
-        Self { timeout, tls: None }
+        Self::over(TcpDial, timeout)
+    }
+}
+
+impl<D: Dial> OtlpHttpClient<D> {
+    /// The client over the connections `dial` opens, whose every step waits at most `timeout`, to `http://`
+    /// endpoints only.
+    pub fn over(dial: D, timeout: Duration) -> Self {
+        Self {
+            dial,
+            timeout,
+            tls: None,
+        }
     }
 
     /// The client sending to `https://` endpoints too, verified through `connector`.
@@ -34,7 +50,12 @@ impl OtlpHttpClient {
         }
     }
 
-    /// The bound on one request, from connecting to the response's last byte.
+    /// What opens the client's connections.
+    pub fn dial(&self) -> &D {
+        &self.dial
+    }
+
+    /// The bound on each step of a request: dialing, and every read and write.
     pub fn timeout(&self) -> Duration {
         self.timeout
     }

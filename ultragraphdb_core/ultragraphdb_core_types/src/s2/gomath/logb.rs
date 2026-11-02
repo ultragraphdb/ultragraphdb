@@ -12,10 +12,10 @@ use super::bits::{BIAS, MASK, SHIFT, normalize};
 pub(crate) fn ilogb(x: f64) -> i64 {
     // special cases
     if x == 0.0 {
-        return i32::MIN as i64;
+        return i64::from(i32::MIN);
     }
     if x.is_nan() || x.is_infinite() {
-        return i32::MAX as i64;
+        return i64::from(i32::MAX);
     }
     let (x, exp) = normalize(x);
     ((x.to_bits() >> SHIFT) & MASK) as i64 - BIAS + exp

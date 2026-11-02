@@ -4,19 +4,14 @@
  */
 
 //! The transport-tls scenarios, bound to `features/transport_tls/`.
-#![expect(
-    clippy::expect_used,
-    reason = "a scenario fails by panicking, as a test does; cucumber's steps are no #[test] functions"
-)]
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use cucumber::{World, then, when};
-use ultragraphdb_transport_tls::{TestPki, TlsConnector, TlsError, TlsErrorEnum, TlsTrust};
+use ultragraphdb_transport_tls::{
+    TestEcho, TestPki, TlsConnector, TlsError, TlsErrorEnum, TlsTrust,
+};
 
 /// A block in certificate armour whose content is no certificate: the base64 of `not a certificate`.
 const NOT_A_CERTIFICATE: &str =
@@ -38,35 +33,10 @@ fn temp_file(name: &str, contents: &[u8]) -> String {
     path.to_str().expect("a UTF-8 path").to_string()
 }
 
-/// A loopback server presenting `pki`'s certificate to one connection, echoing five bytes.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a scenario's TLS server runs on a thread of its own"
-)]
-fn serve_once(pki: &TestPki) -> (TcpStream, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
-    let port = listener.local_addr().expect("its address").port();
-    let pki = pki.clone();
-    let handle = thread::spawn(move || {
-        let (stream, _) = listener.accept().expect("one connection");
-        let mut tls = pki.accept(stream);
-        let mut line = [0u8; 5];
-        if tls.read_exact(&mut line).is_ok() && tls.write_all(&line).is_ok() {
-            tls.flush().expect("the echo is flushed");
-        }
-    });
-    let stream = TcpStream::connect(("127.0.0.1", port)).expect("the server accepts");
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .expect("a timeout");
-    (stream, handle)
-}
-
-/// Connects to a fresh server of `server_pki` trusting `trusted` for `host`: the echo, or the refusal.
+/// Connects to an in-memory echo server of `server_pki` trusting `trusted` for `host`: the echo, or the refusal.
 fn connect(w: &mut Steps, server_pki: &TestPki, trusted: &TestPki, host: &str) {
-    let (stream, server) = serve_once(server_pki);
     let trust = TlsTrust::from_pem("trusted", trusted.ca_pem().as_bytes()).expect("one CA");
-    match TlsConnector::new(trust).connect(stream, host) {
+    match TlsConnector::new(trust).connect(server_pki.peer(TestEcho::default()), host) {
         Ok(mut tls) => {
             tls.write_all(b"ping\n").expect("a write");
             let mut echoed = [0u8; 5];
@@ -75,7 +45,6 @@ fn connect(w: &mut Steps, server_pki: &TestPki, trusted: &TestPki, host: &str) {
         }
         Err(error) => w.refused = Some(error),
     }
-    server.join().expect("the server");
 }
 
 #[when("SSL_CERT_FILE names a bundle that holds a test CA")]

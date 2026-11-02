@@ -15,7 +15,7 @@ use crate::types::otlp_http_client::OtlpHttpClient;
 use crate::types::telemetry_config::TelemetryConfig;
 use crate::types::telemetry_guard::TelemetryGuard;
 
-/// How long one export request may take: OTLP's default export timeout.
+/// How long each step of an export request may take: OTLP's default export timeout.
 const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Installs the process's global subscriber, once, at a binary's start: events filtered by the config's directive
@@ -25,7 +25,8 @@ const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 /// crates logging through `log` reach the same subscriber. Hold the returned guard until the process exits.
 ///
 /// No async runtime is needed. The exporter connects when it first exports, not here, and sends the
-/// `OTEL_EXPORTER_OTLP_HEADERS` the OpenTelemetry specification names; each request takes at most 10 s.
+/// `OTEL_EXPORTER_OTLP_HEADERS` the OpenTelemetry specification names; connecting and every read and write of a
+/// request each wait at most 10 s.
 ///
 /// # Errors
 ///

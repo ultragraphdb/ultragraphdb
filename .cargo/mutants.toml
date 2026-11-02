@@ -248,4 +248,12 @@ exclude_re = [
     # cargo-mutants over the crate, 25 mutants: 10 caught, 14 unviable, this one missed.
     "ultragraphdb_transport_tls/src/types/tls_trust/mod\\.rs:\\d+:9: replace TlsTrust::is_empty -> bool with false",
 
+    # `Err(e) if e.kind() == io::ErrorKind::WouldBlock` replaced with `true` in `TestPeer::answer` (test-utils). The
+    # peer hands rustls the client's records through `read_tls` only while records remain (`!records.is_empty()`), so
+    # rustls never reads an end of stream, and its plaintext reader then fails with `WouldBlock` alone: the
+    # `UnexpectedEof` it reports after an unclean close needs a `read_tls` that returned 0. No other error reaches the
+    # guard, so `true` takes the same branch. Measured: cargo-mutants over the crate, 56 mutants after
+    # test_peer_tests: 30 caught, 25 unviable, 1 timeout (an echo that never ends), and this one missed.
+    "ultragraphdb_transport_tls/src/utils_test/test_peer/mod\\.rs:\\d+:\\d+: replace match guard e\\.kind\\(\\) == io::ErrorKind::WouldBlock with true in TestPeer<A>::answer",
+
 ]

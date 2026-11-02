@@ -183,6 +183,9 @@ fn test_a_property_set_on_a_plain_statement_gives_it_an_id_and_its_delete_remove
     assert_eq!(d.allocated_ids(), 1, "the statement keeps its one ID");
 }
 
+/// Each statement's ID, if it has one, and its properties.
+type StatementProperties = Vec<(Option<u64>, Vec<(NamedNode, Term)>)>;
+
 #[test]
 fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_id() {
     let mut d = CanonicalDataset::new();
@@ -202,7 +205,7 @@ fn test_a_property_set_on_a_statement_with_an_id_allocates_none_and_finds_it_by_
         ],
     )
     .unwrap();
-    let properties: Vec<(Option<u64>, Vec<(NamedNode, Term)>)> = d
+    let properties: StatementProperties = d
         .statements()
         .map(|s| (s.id().map(|i| i.value()), s.properties().to_vec()))
         .collect();

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::net::TcpStream;
+use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -11,17 +11,16 @@ use rcgen::{
     BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
     KeyUsagePurpose,
 };
-use rustls::{ServerConfig, ServerConnection, StreamOwned, SupportedProtocolVersion};
+use rustls::{ServerConfig, ServerConnection, SupportedProtocolVersion};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+
+use crate::utils_test::test_peer::TestPeer;
 
 /// The number of the next authority, so no two authorities of a process share a name: a verifier finding a CA of
 /// the issuer's name checks its signature, which reports a wrong signature rather than an unknown issuer.
 // An atomic, not a `Cell`: tests create authorities on several threads at once.
 static NEXT_CA: AtomicU64 = AtomicU64::new(0);
-
-/// The server side of a test connection, read and written as any other stream.
-pub type TestServerStream = StreamOwned<ServerConnection, TcpStream>;
 
 /// A certificate authority and a server certificate it issued for `localhost` and `127.0.0.1`, generated with
 /// ECDSA P-256 keys by rcgen on every call, so a test verifies a real handshake against a CA no other test shares
@@ -38,10 +37,6 @@ pub struct TestPki {
 impl TestPki {
     /// A fresh authority and server certificate.
     #[must_use]
-    #[expect(
-        clippy::expect_used,
-        reason = "each expect names the invariant that keeps a generated key and its own parameters valid"
-    )]
     pub fn new() -> Self {
         let ca_key = KeyPair::generate().expect("ring generates a P-256 key");
         let mut ca = CertificateParams::new(Vec::<String>::new()).expect("no names to parse");
@@ -85,37 +80,26 @@ impl TestPki {
         &self.ca_pem
     }
 
-    /// The server side of `stream`, presenting the server certificate; the handshake runs on its first read or
-    /// write.
+    /// An in-memory server presenting the server certificate over TLS 1.3 or 1.2, in front of `application`.
     #[must_use]
-    #[expect(
-        clippy::expect_used,
-        reason = "a connection from a configuration that built fails only for a configuration error"
-    )]
-    pub fn accept(&self, stream: TcpStream) -> TestServerStream {
-        let connection = ServerConnection::new(Arc::clone(&self.server))
-            .expect("a server configuration that built opens a connection");
-        StreamOwned::new(connection, stream)
+    pub fn peer<A: Read + Write>(&self, application: A) -> TestPeer<A> {
+        TestPeer::new(connection(&self.server), application)
     }
 
-    /// The server side of `stream` as [`Self::accept`] gives it, speaking TLS 1.2 alone.
+    /// An in-memory server as [`Self::peer`] gives it, speaking TLS 1.2 alone.
     #[must_use]
-    #[expect(
-        clippy::expect_used,
-        reason = "a connection from a configuration that built fails only for a configuration error"
-    )]
-    pub fn accept_tls12(&self, stream: TcpStream) -> TestServerStream {
-        let connection = ServerConnection::new(Arc::clone(&self.server_tls12))
-            .expect("a server configuration that built opens a connection");
-        StreamOwned::new(connection, stream)
+    pub fn peer_tls12<A: Read + Write>(&self, application: A) -> TestPeer<A> {
+        TestPeer::new(connection(&self.server_tls12), application)
     }
 }
 
+/// A server connection of `config`.
+fn connection(config: &Arc<ServerConfig>) -> ServerConnection {
+    ServerConnection::new(Arc::clone(config))
+        .expect("a server configuration that built opens a connection")
+}
+
 /// A server configuration presenting `chain` with `key` over `versions`, ring as its provider.
-#[expect(
-    clippy::expect_used,
-    reason = "ring supports both versions, and the chain's certificate was issued for this key"
-)]
 fn server_config(
     versions: &[&'static SupportedProtocolVersion],
     chain: Vec<CertificateDer<'static>>,

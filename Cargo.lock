@@ -2839,10 +2839,8 @@ name = "ultragraphdb_common_utils"
 version = "0.1.0"
 dependencies = [
  "dashu-int",
- "serde",
  "ultragraphdb_error_json",
  "ultragraphdb_error_num",
- "ultragraphdb_tool_bdd",
 ]
 
 [[package]]

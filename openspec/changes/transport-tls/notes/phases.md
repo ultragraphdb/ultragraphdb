@@ -109,3 +109,20 @@ mutant.
 
 Fuzzing: the crate adds no decoder of its own. PEM is decoded by `rustls-pki-types` and TLS records by rustls; the
 crate passes their output on, so it has no fuzz target.
+
+## Revisions after phase 5 (2026-11-02)
+
+- **One lint table.** The crate first carried its own Ultra lint table; it now takes the workspace's
+  (`[lints] workspace = true`), which holds the Ultra lint set with the lints the crates do not meet yet commented out.
+  The phase-1 `#[expect(...)]` attributes, and the `clippy::expect_used` ones the crate's own table required, are gone.
+- **No threads in the suite.** `disallowed_methods` forbids `thread::spawn`, and the test servers needed it. The
+  connector now takes any `Read + Write` stream (`TlsStream<S = TcpStream>`), and `TestPki` serves a `TestPeer`, an
+  in-memory rustls server driven by the client's own reads and writes in front of an application (`TestEcho`). The
+  one test that needs a socket, a server that never answers, uses a listener that never accepts. The suite runs in
+  0.3 s on one thread.
+- **Mutation testing, again.** 56 mutants: 30 caught, 25 unviable, 1 timeout (`TestEcho::read -> Ok(1)` never ends,
+  which fails the tests by time), none missed. `TestPeer::failed -> false` survived the first run and is killed by
+  `test_peer_tests`; the `WouldBlock` guard in `TestPeer::answer` is equivalent and recorded in `.cargo/mutants.toml`
+  with its argument, the `comm` check confirming it excludes that mutant alone. A probe showed that rustls's TLS 1.3
+  client sends no alert the server sees when it refuses a certificate (its last write is a change-cipher-spec record),
+  so the peer's refusal is pinned with bytes that are no TLS instead.

@@ -1,9 +1,9 @@
-Follows `openspec/protocols/tdd-protocol.md`'s five phases in order, each recorded in `notes/phases.md`; the crate
-starts with the Ultra lint set of `openspec/protocols/ULTRA_STYLE.md`.
+Follows `openspec/protocols/tdd-protocol.md`'s five phases in order, each recorded in `notes/phases.md`, under the
+workspace's one lint table.
 
 ## 1. The crate
 
-- [x] 1.1 Workspace member `ultragraphdb_transport/*`, the crate's manifest with the Ultra lint set, its Bazel targets
+- [x] 1.1 Workspace member `ultragraphdb_transport/*`, the crate's manifest, its Bazel targets
 - [x] 1.2 Phase 1: the public surface with `unimplemented!()` bodies; `TestPki`, the suite's harness, implemented
 - [x] 1.3 Phase 2: the scenarios as Gherkin in `features/transport_tls/`, unit tests for the corner cases enumerated in
       `notes/phases.md`, every error variant constructed through the public API; the failing run recorded

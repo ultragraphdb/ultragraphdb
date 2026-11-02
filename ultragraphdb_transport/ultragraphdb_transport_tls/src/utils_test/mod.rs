@@ -3,4 +3,6 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+pub mod test_echo;
+pub mod test_peer;
 pub mod test_pki;

@@ -365,6 +365,9 @@ const TAG16: [u8; 16] = [
     0xf5, 0x76, 0x63, 0x7a, 0xa4, 0xb0, 0x56, 0x52, 0x52, 0x7a, 0x5f, 0x7a, 0x3a, 0x22, 0x56, 0xc1,
 ];
 
+/// A literal, its encoding, and the strings the encoding names by hash.
+type KeptForm = (Literal, Vec<u8>, Vec<(Hash128, String)>);
+
 #[test]
 fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
     // PROTOCOL.md section 10.1, written byte by byte: the tag, then each part in order; a UID big-endian, an inline
@@ -379,7 +382,7 @@ fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
     };
     let fifteen_b = "b".repeat(15);
     let fifteen_x = "x".repeat(15);
-    let mut cases: Vec<(Literal, Vec<u8>, Vec<(Hash128, String)>)> = vec![
+    let mut cases: Vec<KeptForm> = vec![
         (
             Literal::new_simple_literal("short"),
             [&[0x20, 5][..], b"short"].concat(),
