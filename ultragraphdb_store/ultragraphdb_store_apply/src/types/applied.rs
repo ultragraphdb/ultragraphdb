@@ -37,18 +37,22 @@ impl Applied {
         }
     }
 
+    /// The timestamp the changeset committed at.
     pub fn commit_ts(&self) -> u64 {
         self.commit_ts
     }
 
+    /// The regions of every key the changeset wrote.
     pub fn written(&self) -> &BTreeSet<Region> {
         &self.written
     }
 
+    /// The regions of every key the changeset read.
     pub fn read(&self) -> &BTreeSet<Region> {
         &self.read
     }
 
+    /// How many lists the changeset read from the store.
     pub fn lists_read(&self) -> usize {
         self.lists_read
     }

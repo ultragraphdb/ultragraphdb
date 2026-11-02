@@ -23,28 +23,44 @@ pub struct NumError(pub NumErrorEnum);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum NumErrorEnum {
     /// The input is not a number of the syntax the function takes.
-    Syntax { func: &'static str, num: String },
+    Syntax {
+        /// The Go function that failed.
+        func: &'static str,
+        /// The input, as Go's `strconv.Quote` writes it.
+        num: String,
+    },
     /// The input is a number out of the range of the function's type.
-    Range { func: &'static str, num: String },
+    Range {
+        /// The Go function that failed.
+        func: &'static str,
+        /// The input, as Go's `strconv.Quote` writes it.
+        num: String,
+    },
     /// The base is neither 0 nor 2 to 36: Go's `baseError`.
     Base {
+        /// The Go function that failed.
         func: &'static str,
+        /// The input, as Go's `strconv.Quote` writes it.
         num: String,
+        /// The base asked for.
         base: u32,
     },
 }
 
 impl NumError {
+    /// The input `num` is not a number of the syntax `func` takes.
     #[allow(non_snake_case)]
     pub fn Syntax(func: &'static str, num: String) -> Self {
         Self(NumErrorEnum::Syntax { func, num })
     }
 
+    /// The input `num` is a number out of the range of `func`'s type.
     #[allow(non_snake_case)]
     pub fn Range(func: &'static str, num: String) -> Self {
         Self(NumErrorEnum::Range { func, num })
     }
 
+    /// The base `base` given to `func` is neither 0 nor 2 to 36.
     #[allow(non_snake_case)]
     pub fn Base(func: &'static str, num: String, base: u32) -> Self {
         Self(NumErrorEnum::Base { func, num, base })

@@ -17,30 +17,35 @@ pub struct PropertyGraph {
 }
 
 impl PropertyGraph {
+    /// An empty graph.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// The graph with `node`, replacing a node of the same identity.
     pub fn with_node(mut self, node: PgNode) -> Self {
-        self.nodes.insert(node.id().to_string(), node);
+        let _replaced: Option<PgNode> = self.nodes.insert(node.id().to_string(), node);
         self
     }
 
+    /// The graph with `edge`, kept in edge order.
     pub fn with_edge(mut self, edge: PgEdge) -> Self {
         self.edges.push(edge);
         self.sort_edges();
         self
     }
 
+    /// The nodes, ordered by their N-Triples text.
     pub fn nodes(&self) -> impl Iterator<Item = &PgNode> {
         self.nodes.values()
     }
 
+    /// The node whose N-Triples text is `id`.
     pub fn node(&self, id: &str) -> Option<&PgNode> {
         self.nodes.get(id)
     }
 
+    /// The edges, ordered by source, type, target and statement ID.
     pub fn edges(&self) -> &[PgEdge] {
         &self.edges
     }

@@ -186,7 +186,7 @@ where
         match held.as_slice() {
             [(object, _)] if Some(object) == expected.as_ref() => {
                 let declaration = self.behaviour(p, predicate);
-                self.remove(g, s, p, &declaration, object)?;
+                let _removed: bool = self.remove(g, s, p, &declaration, object)?;
                 self.insert(graph, subject, predicate, new)
             }
             [] => Err(ChangesetError::OperationFailed(None)),
@@ -229,10 +229,10 @@ where
         })?;
         if let Some((object, _)) = &current {
             let declaration = self.behaviour(p, predicate);
-            self.remove(g, s, p, &declaration, object)?;
+            let _removed: bool = self.remove(g, s, p, &declaration, object)?;
         }
-        let held = Literal::from(sum);
-        self.insert(graph, subject, predicate, held.as_ref().into())?;
+        let summed = Literal::from(sum);
+        self.insert(graph, subject, predicate, summed.as_ref().into())?;
         Ok(sum)
     }
 }

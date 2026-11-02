@@ -6,7 +6,7 @@
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
 use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration};
-use ultragraphdb_store_hnsw::VectorKeys;
+use ultragraphdb_store_hnsw::{PersistentHnsw, VectorKeys};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_store::{ListCache, Store};
 
@@ -59,7 +59,7 @@ where
             if spec.dimension().is_none() {
                 return Err(ChangesetError::NoDimension(iri));
             }
-            hnsw(
+            let _index: PersistentHnsw<f32> = hnsw(
                 spec,
                 VectorKeys::new(iri, self.namespace(), DEFAULT_GRAPH, uid),
             )?;

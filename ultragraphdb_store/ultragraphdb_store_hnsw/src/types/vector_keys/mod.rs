@@ -29,6 +29,7 @@ pub struct VectorKeys {
 }
 
 impl VectorKeys {
+    /// The keys of the vector index `name` of `predicate` in `graph` of `namespace`.
     pub fn new(name: impl Into<String>, namespace: u64, graph: u64, predicate: u64) -> Self {
         Self {
             name: name.into(),
@@ -38,18 +39,22 @@ impl VectorKeys {
         }
     }
 
+    /// The index's name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// The namespace the index belongs to.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The graph the index belongs to.
     pub fn graph(&self) -> u64 {
         self.graph
     }
 
+    /// The predicate the index indexes.
     pub fn predicate(&self) -> u64 {
         self.predicate
     }

@@ -35,6 +35,8 @@ impl SessionEntry {
     /// The prefix of every session's key.
     pub const KEY_PREFIX: &'static [u8] = b"\xffultragraphdb/session/";
 
+    /// The entry of a session whose last committed request is `request`, at `version`, owned by `owner`, with
+    /// `results`.
     pub fn new(request: u64, version: u64, owner: u64, results: Vec<OperationResult>) -> Self {
         Self {
             request,
@@ -52,10 +54,12 @@ impl SessionEntry {
         key
     }
 
+    /// The session's last committed request number; 0 before its first commit.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// That request's commit version.
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -65,10 +69,12 @@ impl SessionEntry {
         self.owner
     }
 
+    /// That request's commit-time operations' results.
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }
 
+    /// The results, taken out of the entry.
     pub fn into_results(self) -> Vec<OperationResult> {
         self.results
     }

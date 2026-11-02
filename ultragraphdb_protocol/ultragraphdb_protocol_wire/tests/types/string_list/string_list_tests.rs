@@ -5,21 +5,21 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{BodyBuilder, BodyView, Describe, DescribeView};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{body_data, frame_of, golden, put, reframe, section};
 
 /// A Describe answer whose labels are `labels`: its names list, sections 0 and 1, holds them in order.
-fn describe(labels: &[&str]) -> Vec<u8> {
-    Describe::new(0, 0)
+fn describe(labels: &[&str]) -> TestResult<Vec<u8>> {
+    Ok(Describe::new(0, 0)
         .with_labels(labels.iter().map(|l| l.to_string()).collect())
-        .frame(golden("describe").header())
-        .unwrap()
+        .frame(golden("describe")?.header())?)
 }
 
 #[test]
-fn test_a_list_reads_its_strings_in_order() {
-    let bytes = describe(&["a", "", "ü", "<http://ex.org/x>"]);
-    let view = DescribeView::from_frame(&frame_of(&bytes)).unwrap();
+fn test_a_list_reads_its_strings_in_order() -> TestResult {
+    let bytes = describe(&["a", "", "ü", "<http://ex.org/x>"])?;
+    let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
     let list = view.strings();
     assert_eq!(list.len(), 4);
     assert!(!list.is_empty());
@@ -32,23 +32,27 @@ fn test_a_list_reads_its_strings_in_order() {
         list.iter().collect::<Vec<_>>(),
         vec!["a", "", "ü", "<http://ex.org/x>"]
     );
-    let empty = describe(&[]);
-    let view = DescribeView::from_frame(&frame_of(&empty)).unwrap();
-    assert!(view.strings().is_empty());
-    assert_eq!(view.strings().iter().count(), 0);
+    let empty = describe(&[])?;
+    let empty_view = DescribeView::from_frame(&frame_of(&empty)?)?;
+    assert!(empty_view.strings().is_empty());
+    assert_eq!(empty_view.strings().iter().count(), 0);
+    Ok(())
 }
 
-fn refused(labels: &[&str], change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum {
-    let bytes = describe(labels);
+fn refused(labels: &[&str], change: impl FnOnce(&mut Vec<u8>)) -> TestResult<ProtocolErrorEnum> {
+    let bytes = describe(labels)?;
     let mut data = body_data(&bytes).to_vec();
     change(&mut data);
-    DescribeView::from_frame(&frame_of(&reframe(&bytes, &data)))
-        .unwrap_err()
-        .0
+    Ok(
+        DescribeView::from_frame(&frame_of(&reframe(&bytes, &data))?)
+            .err()
+            .context("a refusal")?
+            .0,
+    )
 }
 
 #[test]
-fn test_ends_are_whole_monotone_and_reach_the_text_end() {
+fn test_ends_are_whole_monotone_and_reach_the_text_end() -> TestResult {
     // Two strings "ab" and "cd": ends 2, 4.
     let ends_at = |data: &[u8]| section(data, 0, 0).0;
     assert_eq!(
@@ -56,7 +60,7 @@ fn test_ends_are_whole_monotone_and_reach_the_text_end() {
             let at = ends_at(d);
             put(d, at, 3, 4);
             put(d, at + 4, 2, 4);
-        }),
+        })?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 12,
             section: 0,
@@ -69,7 +73,7 @@ fn test_ends_are_whole_monotone_and_reach_the_text_end() {
         refused(&["ab", "cd"], |d| {
             let at = ends_at(d);
             put(d, at + 4, 5, 4);
-        }),
+        })?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 12,
             section: 0,
@@ -82,7 +86,7 @@ fn test_ends_are_whole_monotone_and_reach_the_text_end() {
         refused(&["ab", "cd"], |d| {
             let at = ends_at(d);
             put(d, at + 4, 3, 4);
-        }),
+        })?,
         ProtocolErrorEnum::CountMismatch {
             command: 12,
             field: "string text",
@@ -92,7 +96,7 @@ fn test_ends_are_whole_monotone_and_reach_the_text_end() {
     );
     // Ends of 7 bytes: not whole u32s.
     assert_eq!(
-        refused(&["ab", "cd"], |d| put(d, 4, 7, 4)),
+        refused(&["ab", "cd"], |d| put(d, 4, 7, 4))?,
         ProtocolErrorEnum::SectionLength {
             command: 12,
             section: 0,
@@ -100,16 +104,17 @@ fn test_ends_are_whole_monotone_and_reach_the_text_end() {
             unit: 4
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_each_string_must_be_utf8() {
+fn test_each_string_must_be_utf8() -> TestResult {
     // The text must be UTF-8 and every end on a character boundary; the error names the first bad byte or the end.
     assert_eq!(
         refused(&["ab", "cd"], |d| {
             let text = section(d, 0, 1).0;
             d[text + 2] = 0x80;
-        }),
+        })?,
         ProtocolErrorEnum::NotUtf8 {
             command: 12,
             section: 1,
@@ -117,13 +122,14 @@ fn test_each_string_must_be_utf8() {
         }
     );
     // A two-byte character split across two strings: the text is UTF-8, but the first end is inside "ü".
-    let bytes = describe(&["x", "yz"]);
+    let bytes = describe(&["x", "yz"])?;
     let mut d = body_data(&bytes).to_vec();
     let text = section(&d, 0, 1).0;
     d[text..text + 3].copy_from_slice("üa".as_bytes());
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&reframe(&bytes, &d)))
-            .unwrap_err()
+        DescribeView::from_frame(&frame_of(&reframe(&bytes, &d))?)
+            .err()
+            .context("a refusal")?
             .0,
         ProtocolErrorEnum::NotUtf8 {
             command: 12,
@@ -131,4 +137,5 @@ fn test_each_string_must_be_utf8() {
             offset: 1
         }
     );
+    Ok(())
 }

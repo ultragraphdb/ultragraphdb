@@ -63,7 +63,7 @@ struct Wakes(AtomicUsize);
 
 impl Wake for Wakes {
     fn wake(self: Arc<Self>) {
-        self.0.fetch_add(1, Ordering::SeqCst);
+        let _before: usize = self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
 

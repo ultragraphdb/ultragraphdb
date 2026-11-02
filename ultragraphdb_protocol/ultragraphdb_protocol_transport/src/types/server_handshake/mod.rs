@@ -72,7 +72,7 @@ impl ServerHandshake {
         };
         match self.server.answer(&hello) {
             Ok(welcome) => match welcome.frame(self.header()) {
-                Ok(frame) => HandshakeAnswer::new(Some(frame), Ok(welcome)),
+                Ok(welcome_frame) => HandshakeAnswer::new(Some(welcome_frame), Ok(welcome)),
                 Err(refusal) => HandshakeAnswer::new(None, Err(TransportError::Protocol(refusal))),
             },
             Err(error) => HandshakeAnswer::new(

@@ -76,6 +76,6 @@ pub fn encode_round(
         .for_each(|(out, byte)| *out = *byte);
     let checksum = frame
         .first_chunk::<8>()
-        .map_or(0, |bytes| u64::from_le_bytes(*bytes));
+        .map_or(0, |first| u64::from_le_bytes(*first));
     Ok((bytes, checksum))
 }

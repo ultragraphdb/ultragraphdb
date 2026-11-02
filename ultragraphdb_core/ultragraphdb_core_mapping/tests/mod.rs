@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The unit tests of the mapping contract: its errors, types and views.
+
 #[cfg(test)]
 mod errors;
 #[cfg(test)]

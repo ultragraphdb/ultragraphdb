@@ -28,6 +28,7 @@ struct Shared {
 }
 
 impl SteppedExecutor {
+    /// An executor holding no task, choosing the task to step from `rng`.
     pub fn new(rng: SimRng) -> Self {
         Self {
             shared: Arc::new(Mutex::new(Shared {

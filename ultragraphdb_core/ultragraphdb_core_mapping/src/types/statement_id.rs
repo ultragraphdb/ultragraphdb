@@ -9,10 +9,12 @@
 pub struct StatementId(u64);
 
 impl StatementId {
+    /// The ID `id`.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
 
+    /// The ID as a number.
     pub fn value(&self) -> u64 {
         self.0
     }

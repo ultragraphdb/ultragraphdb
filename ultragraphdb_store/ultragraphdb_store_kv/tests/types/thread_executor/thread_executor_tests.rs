@@ -9,13 +9,18 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use ultragraphdb_store_kv::ThreadExecutor;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::Executor;
 
 #[test]
-fn test_a_spawned_task_runs() {
+fn test_a_spawned_task_runs() -> TestResult {
     let (tx, rx) = mpsc::channel();
-    ThreadExecutor::new().spawn(move || tx.send(7).unwrap());
-    assert_eq!(rx.recv().unwrap(), 7);
+    // A failed send drops the sender unsent, which the receive below reports.
+    ThreadExecutor::new().spawn(move || {
+        let _sent: Result<(), mpsc::SendError<i32>> = tx.send(7);
+    });
+    assert_eq!(rx.recv()?, 7);
+    Ok(())
 }
 
 #[test]
@@ -27,7 +32,7 @@ fn test_run_all_returns_results_in_task_order_and_tasks_may_borrow() {
 }
 
 #[test]
-fn test_a_panicking_task_panics_the_call_with_its_payload_once_every_task_finished() {
+fn test_a_panicking_task_panics_the_call_with_its_payload_once_every_task_finished() -> TestResult {
     let finished = AtomicUsize::new(0);
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let finished = &finished;
@@ -39,17 +44,18 @@ fn test_a_panicking_task_panics_the_call_with_its_payload_once_every_task_finish
                         std::panic::resume_unwind(Box::new("boom"));
                     }
                     std::thread::sleep(Duration::from_millis(20));
-                    finished.fetch_add(1, Ordering::SeqCst);
+                    let _before: usize = finished.fetch_add(1, Ordering::SeqCst);
                 }
             })
             .collect();
         ThreadExecutor.run_all(tasks)
     }));
-    let payload = result.expect_err("the call panics");
+    let payload = result.err().context("the call panics")?;
     assert_eq!(payload.downcast_ref::<&str>(), Some(&"boom"));
     assert_eq!(
         finished.load(Ordering::SeqCst),
         1,
         "the other task ran to its end first"
     );
+    Ok(())
 }

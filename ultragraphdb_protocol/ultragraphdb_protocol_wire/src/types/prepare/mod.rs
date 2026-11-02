@@ -41,6 +41,7 @@ pub struct Prepare {
 }
 
 impl Prepare {
+    /// A Prepare of `pattern` in `namespace`, naming `terms`, with its statement, schema and column types.
     pub fn new(
         namespace: u64,
         statement: u64,
@@ -61,30 +62,37 @@ impl Prepare {
         }
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The statement's id; zero in a request.
     pub fn statement(&self) -> u64 {
         self.statement
     }
 
+    /// The schema id of the namespace's catalog; zero in a request.
     pub fn schema(&self) -> u64 {
         self.schema
     }
 
+    /// The request's term table.
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
+    /// The quad pattern.
     pub fn pattern(&self) -> &QuadPattern {
         &self.pattern
     }
 
+    /// The parameters' column types, in order.
     pub fn parameter_types(&self) -> &[ColumnType] {
         &self.parameter_types
     }
 
+    /// The result columns' types, one per unbound slot; none in a request.
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }

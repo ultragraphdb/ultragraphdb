@@ -28,6 +28,7 @@ pub struct Leases {
 }
 
 impl Leases {
+    /// Leases holding no block: the first number of each sequence leases one.
     pub fn new() -> Self {
         Self::default()
     }
@@ -60,7 +61,7 @@ impl Leases {
                 self.lease(store, namespace, tag, mark)?
             }
         };
-        held.insert((namespace, tag), (next + 1, end));
+        let _replaced_lease: Option<(u64, u64)> = held.insert((namespace, tag), (next + 1, end));
         Ok(next)
     }
 

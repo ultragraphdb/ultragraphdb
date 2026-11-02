@@ -7,15 +7,16 @@
 //! seeds with faults and a seed's replay are targets of their own, so Bazel runs the three in parallel.
 
 use ultragraphdb_store_sim::{FaultConfig, Seed};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::ChangesetWorkload;
 
 #[test]
-fn test_seeds_without_faults_agree_with_the_model() {
+fn test_seeds_without_faults_agree_with_the_model() -> TestResult {
     let (mut writes, mut refusals, mut compared) = (0, 0, 0);
     for seed in 1..=12 {
         let (_, w) = ChangesetWorkload::run(Seed::new(seed), FaultConfig::none(), 300)
             .map_err(|v| v.to_string())
-            .expect("the workload breaks no invariant");
+            .context("the workload breaks no invariant")?;
         writes += w.writes;
         refusals += w.refusals;
         compared += w.compared;
@@ -23,4 +24,5 @@ fn test_seeds_without_faults_agree_with_the_model() {
     assert!(writes > 1000, "only {writes} writes");
     assert!(refusals > 20, "only {refusals} refusals");
     assert!(compared > 3000, "only {compared} comparisons");
+    Ok(())
 }

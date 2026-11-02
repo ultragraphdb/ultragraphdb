@@ -18,6 +18,7 @@ pub struct SegmentScan {
 }
 
 impl SegmentScan {
+    /// A scan that found `rounds` and stopped at `end`, for `damage` or cleanly when it is `None`.
     pub fn new(rounds: Vec<ScannedRound>, end: u64, damage: Option<Damage>) -> Self {
         Self {
             rounds,
@@ -26,6 +27,7 @@ impl SegmentScan {
         }
     }
 
+    /// The rounds of the chain, in order.
     pub fn rounds(&self) -> &[ScannedRound] {
         &self.rounds
     }
@@ -35,6 +37,7 @@ impl SegmentScan {
         self.end
     }
 
+    /// Why the scan stopped at [`end`](Self::end), `None` at a clean end.
     pub fn damage(&self) -> Option<Damage> {
         self.damage
     }

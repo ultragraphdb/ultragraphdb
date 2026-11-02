@@ -84,10 +84,11 @@ impl ModelState {
                 for e in versionless {
                     match e.value() {
                         Some(value) => {
-                            self.versionless.insert(e.key().to_vec(), value.to_vec());
+                            let _replaced: Option<Vec<u8>> =
+                                self.versionless.insert(e.key().to_vec(), value.to_vec());
                         }
                         None => {
-                            self.versionless.remove(e.key());
+                            let _removed: Option<Vec<u8>> = self.versionless.remove(e.key());
                         }
                     }
                 }
@@ -95,11 +96,12 @@ impl ModelState {
                     self.applied_ts = self.applied_ts.max(*ts);
                 }
                 removed_records.iter().for_each(|id| {
-                    self.rebuild_records.remove(id);
+                    let _removed: Option<Vec<Vec<u8>>> = self.rebuild_records.remove(id);
                 });
             }
             ModelOp::Record(record) => {
-                self.rebuild_records
+                let _replaced: Option<Vec<Vec<u8>>> = self
+                    .rebuild_records
                     .insert(record.id(), record.prefixes().to_vec());
             }
             ModelOp::Drop { prefixes, entries } => {
@@ -126,7 +128,8 @@ impl ModelState {
                 fenced,
                 value: e.value().map(<[u8]>::to_vec),
             };
-            self.keys
+            let _replaced: Option<ModelVersion> = self
+                .keys
                 .entry(e.key().to_vec())
                 .or_default()
                 .insert(e.version(), version);
@@ -156,7 +159,7 @@ impl ModelState {
                 && m.value.is_none()
             {
                 let oldest = *oldest;
-                versions.remove(&oldest);
+                let _swept: Option<ModelVersion> = versions.remove(&oldest);
             }
         }
         self.keys.retain(|_, versions| !versions.is_empty());

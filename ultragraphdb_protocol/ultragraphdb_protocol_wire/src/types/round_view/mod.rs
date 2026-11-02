@@ -23,6 +23,7 @@ pub struct RoundView<'a> {
 }
 
 impl<'a> RoundView<'a> {
+    /// The round's header.
     pub fn header(&self) -> &RoundHeader {
         &self.header
     }

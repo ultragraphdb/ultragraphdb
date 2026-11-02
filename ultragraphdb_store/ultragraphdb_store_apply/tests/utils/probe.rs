@@ -6,7 +6,7 @@
 //! A simulated store that runs a test's step right after its next snapshot is opened: what lets a single-threaded
 //! test act between a rollup's read, which reads the state the snapshot holds, and its write.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_sim::SimStore;
@@ -41,7 +41,10 @@ impl Probe {
 
     /// Runs `hook` right after the next snapshot is opened.
     pub fn on_next_snapshot(&self, hook: ProbeHook) {
-        *self.on_snapshot.lock().expect("hook") = Some(hook);
+        *self
+            .on_snapshot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(hook);
     }
 }
 
@@ -58,7 +61,11 @@ impl Store for Probe {
 
     fn snapshot(&self, read_ts: u64) -> Result<Self::Snapshot, StoreError> {
         let snapshot = self.inner.snapshot(read_ts);
-        let hook = self.on_snapshot.lock().expect("hook").take();
+        let hook = self
+            .on_snapshot
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
         if let Some(mut hook) = hook {
             hook();
         }

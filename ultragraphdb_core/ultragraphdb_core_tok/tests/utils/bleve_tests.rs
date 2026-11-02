@@ -7,6 +7,7 @@ use serde::Deserialize;
 use ultragraphdb_core_tok::{AnalysisToken, TokenType, analyze};
 
 use crate::golden::{LOWERCASE_DEVIATIONS, cases, unhex, untext};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct StreamToken {
@@ -43,21 +44,21 @@ pub(crate) fn stream(tokens: &[AnalysisToken]) -> Stream {
         .collect()
 }
 
-fn decoded(tokens: &[StreamToken]) -> Stream {
+fn decoded(tokens: &[StreamToken]) -> TestResult<Stream> {
     tokens
         .iter()
-        .map(|t| (unhex(&t.term), t.start, t.end, t.typ))
+        .map(|t| Ok((unhex(&t.term)?, t.start, t.end, t.typ)))
         .collect()
 }
 
 /// Compares the port's stream of each golden case of `name`, by `run`, with Dgraph's, and with the case's `fixed`
 /// stream for the inputs [`LOWERCASE_DEVIATIONS`] names, on which Dgraph's differs.
-pub(crate) fn check_streams(name: &str, run: impl Fn(&str) -> Vec<AnalysisToken>) {
-    let cases: Vec<StreamCase> = cases(name);
+pub(crate) fn check_streams(name: &str, run: impl Fn(&str) -> Vec<AnalysisToken>) -> TestResult {
+    let cases: Vec<StreamCase> = cases(name)?;
     let mut deviating = 0;
     let mut failures = Vec::new();
     for c in &cases {
-        let input = untext(&c.input);
+        let input = untext(&c.input)?;
         let deviation = LOWERCASE_DEVIATIONS.iter().find(|(i, _)| *i == input);
         assert_eq!(
             c.fixed.is_some(),
@@ -68,13 +69,13 @@ pub(crate) fn check_streams(name: &str, run: impl Fn(&str) -> Vec<AnalysisToken>
         let want = if let Some(fixed) = &c.fixed {
             deviating += 1;
             assert_ne!(
-                decoded(fixed),
-                decoded(&c.tokens),
+                decoded(fixed)?,
+                decoded(&c.tokens)?,
                 "{input:?}: Dgraph differs"
             );
-            decoded(fixed)
+            decoded(fixed)?
         } else {
-            decoded(&c.tokens)
+            decoded(&c.tokens)?
         };
         let got = stream(&run(&input));
         if got != want {
@@ -89,12 +90,14 @@ pub(crate) fn check_streams(name: &str, run: impl Fn(&str) -> Vec<AnalysisToken>
         cases.len(),
         failures[..failures.len().min(10)].join("\n")
     );
+    Ok(())
 }
 
 #[test]
-fn test_analyze_golden() {
-    assert!(cases::<StreamCase>("tok_analysis").len() > 1900);
-    check_streams("tok_analysis", analyze);
+fn test_analyze_golden() -> TestResult {
+    assert!(cases::<StreamCase>("tok_analysis")?.len() > 1900);
+    check_streams("tok_analysis", analyze)?;
+    Ok(())
 }
 
 #[test]

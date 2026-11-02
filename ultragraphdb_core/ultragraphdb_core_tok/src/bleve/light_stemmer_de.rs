@@ -18,10 +18,8 @@ pub(crate) fn stem(term: &str) -> String {
             c => c,
         };
     }
-    let n = step1(&s);
-    s.truncate(n);
-    let n = step2(&s);
-    s.truncate(n);
+    s.truncate(step1(&s));
+    s.truncate(step2(&s));
     s.iter().collect()
 }
 

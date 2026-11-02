@@ -12,6 +12,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_sim::{
     Contents, DropStage, FaultConfig, Invariant, OpRecord, Seed, SimClock, SimStore, StoreModel,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 /// A batch writing `entries`, then the versionless `writes` in order, a `None` value a removal.
@@ -48,43 +49,42 @@ fn failed(key: &[u8]) -> StoreError {
 }
 
 /// The contents of a fresh store after `batches` are applied, each buffered.
-fn holding(batches: Vec<WriteBatch>) -> Contents {
+fn holding(batches: Vec<WriteBatch>) -> TestResult<Contents> {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    batches
-        .into_iter()
-        .for_each(|b| store.apply(b, PersistMode::Buffer).unwrap());
-    store.contents()
+    for b in batches {
+        store.apply(b, PersistMode::Buffer)?;
+    }
+    Ok(store.contents())
 }
 
 /// Asserts that `record` breaks the read invariant with `detail`, leaving `model` as it was.
-fn breaks_read(model: &StoreModel, record: OpRecord, detail: &str) {
-    let breach = model.clone().observe(&[record]).unwrap_err();
+fn breaks_read(model: &StoreModel, record: OpRecord, detail: &str) -> TestResult {
+    let breach = model.clone().observe(&[record]).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (Invariant::ReadsAtOrBelowTimestamp, detail)
     );
+    Ok(())
 }
 
 /// A snapshot reads the versionless keys of the state it opened on, the store those of the latest batch, and a
 /// temporary keyspace's snapshot none; a read the fault stream failed is accepted, any other failure or value is not.
 #[test]
-fn test_a_versionless_read_answers_as_the_state_it_reads() {
+fn test_a_versionless_read_answers_as_the_state_it_reads() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
-            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-            applied(
-                batch(vec![], &[(b"k", Some(b"2")), (b"j", Some(b"3"))]),
-                PersistMode::Buffer,
-            ),
-            OpRecord::TemporaryCreated { temporary: 1 },
-            OpRecord::TemporarySnapshotOpened {
-                id: 1,
-                temporary: 1,
-            },
-        ])
-        .unwrap();
+    model.observe(&[
+        applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
+        OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+        applied(
+            batch(vec![], &[(b"k", Some(b"2")), (b"j", Some(b"3"))]),
+            PersistMode::Buffer,
+        ),
+        OpRecord::TemporaryCreated { temporary: 1 },
+        OpRecord::TemporarySnapshotOpened {
+            id: 1,
+            temporary: 1,
+        },
+    ])?;
     model
         .observe(&[
             read(Some(0), b"k", Ok(Some(b"1".to_vec()))),
@@ -99,9 +99,9 @@ fn test_a_versionless_read_answers_as_the_state_it_reads() {
             // Snapshot 9 was never opened: its reads are not checked.
             read(Some(9), b"k", Ok(Some(b"9".to_vec()))),
         ])
-        .expect("each read answers as its state");
+        .context("each read answers as its state")?;
     for (record, detail) in wrong_versionless_reads() {
-        breaks_read(&model, record, detail);
+        breaks_read(&model, record, detail)?;
     }
     // A closed snapshot's id names no state any more.
     model
@@ -111,7 +111,8 @@ fn test_a_versionless_read_answers_as_the_state_it_reads() {
             read(Some(0), b"k", Ok(Some(b"7".to_vec()))),
             read(Some(1), b"k", Ok(Some(b"7".to_vec()))),
         ])
-        .expect("closed snapshots are not checked");
+        .context("closed snapshots are not checked")?;
+    Ok(())
 }
 
 /// The reads of `test_a_versionless_read_answers_as_the_state_it_reads` that answer otherwise than the state they
@@ -157,26 +158,24 @@ fn wrong_versionless_reads() -> [(OpRecord, &'static str); 7] {
 /// A removal leaves its key without a value, a removal of a key without one changes nothing, an empty value is a
 /// value and not a removal, and the later of two writes to one key in a batch is the one held.
 #[test]
-fn test_a_versionless_removal_and_the_later_write_are_what_a_read_finds() {
+fn test_a_versionless_removal_and_the_later_write_are_what_a_read_finds() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
-            applied(
-                batch(
-                    vec![],
-                    &[
-                        (b"k", None),
-                        (b"z", None),
-                        (b"e", Some(b"")),
-                        (b"j", Some(b"1")),
-                        (b"j", Some(b"2")),
-                    ],
-                ),
-                PersistMode::Buffer,
+    model.observe(&[
+        applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
+        applied(
+            batch(
+                vec![],
+                &[
+                    (b"k", None),
+                    (b"z", None),
+                    (b"e", Some(b"")),
+                    (b"j", Some(b"1")),
+                    (b"j", Some(b"2")),
+                ],
             ),
-        ])
-        .unwrap();
+            PersistMode::Buffer,
+        ),
+    ])?;
     model
         .observe(&[
             read(None, b"k", Ok(None)),
@@ -184,77 +183,75 @@ fn test_a_versionless_removal_and_the_later_write_are_what_a_read_finds() {
             read(None, b"e", Ok(Some(Vec::new()))),
             read(None, b"j", Ok(Some(b"2".to_vec()))),
         ])
-        .expect("the removals, the empty value and the later write");
+        .context("the removals, the empty value and the later write")?;
     breaks_read(
         &model,
         read(None, b"e", Ok(None)),
         "a versionless read of key 65 returned Ok(None) where Some([]) was expected",
-    );
+    )?;
     breaks_read(
         &model,
         read(None, b"k", Ok(Some(b"1".to_vec()))),
         "a versionless read of key 6b returned Ok(Some([49])) where None was expected",
-    );
+    )?;
     breaks_read(
         &model,
         read(None, b"j", Ok(Some(b"1".to_vec()))),
         "a versionless read of key 6a returned Ok(Some([49])) where Some([50]) was expected",
-    );
+    )?;
+    Ok(())
 }
 
 /// A poisoned store still reads what the process sees, without the failed batch; a store whose process is down
 /// refuses the read as poisoned and with nothing else, while a snapshot opened before still reads its state.
 #[test]
-fn test_a_versionless_read_on_a_failed_store_answers_as_its_process() {
+fn test_a_versionless_read_on_a_failed_store_answers_as_its_process() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
-            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-            OpRecord::BatchFailed {
-                batch: batch(vec![], &[(b"k", Some(b"2"))]),
-            },
-        ])
-        .unwrap();
+    model.observe(&[
+        applied(batch(vec![], &[(b"k", Some(b"1"))]), PersistMode::Buffer),
+        OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+        OpRecord::BatchFailed {
+            batch: batch(vec![], &[(b"k", Some(b"2"))]),
+        },
+    ])?;
     model
         .observe(&[read(None, b"k", Ok(Some(b"1".to_vec())))])
-        .expect("the failed batch is absent until recovery");
+        .context("the failed batch is absent until recovery")?;
     breaks_read(
         &model,
         read(None, b"k", Ok(Some(b"2".to_vec()))),
         "a versionless read of key 6b returned Ok(Some([50])) where Some([49]) was expected",
-    );
-    model.observe(&[OpRecord::Crashed]).unwrap();
+    )?;
+    model.observe(&[OpRecord::Crashed])?;
     model
         .observe(&[
             read(None, b"k", Err(StoreError::Poisoned())),
             read(Some(0), b"k", Ok(Some(b"1".to_vec()))),
         ])
-        .expect("the store refuses, the snapshot reads its state");
+        .context("the store refuses, the snapshot reads its state")?;
     breaks_read(
         &model,
         read(None, b"k", Ok(Some(b"1".to_vec()))),
         "a versionless read of key 6b on a store that was down returned Ok(Some([49]))",
-    );
+    )?;
     breaks_read(
         &model,
         read(None, b"k", Err(failed(b"k"))),
         "a versionless read of key 6b on a store that was down returned \
          Err(StoreError(ReadFailed { key: [107], reason: \"x\" }))",
-    );
+    )?;
+    Ok(())
 }
 
 /// The model saw a batch of one entry and one versionless write: contents holding one without the other, or the
 /// entry beside another value, break the whole-batch invariant; contents holding both and another key break the
 /// contents invariant.
 #[test]
-fn test_versionless_contents_other_than_the_models_break_an_invariant() {
+fn test_versionless_contents_other_than_the_models_break_an_invariant() -> TestResult {
     let both = || batch(vec![put(b"a", 1)], &[(b"k", Some(b"v"))]);
     let mut model = StoreModel::new();
-    model
-        .observe(&[applied(both(), PersistMode::Buffer)])
-        .unwrap();
-    model.clone().check(&holding(vec![both()])).unwrap();
+    model.observe(&[applied(both(), PersistMode::Buffer)])?;
+    model.clone().check(&holding(vec![both()])?)?;
     let wrong = [
         (
             batch(vec![put(b"a", 1)], &[]),
@@ -282,19 +279,22 @@ fn test_versionless_contents_other_than_the_models_break_an_invariant() {
         ),
     ];
     for (held, invariant, detail) in wrong {
-        let breach = model.clone().check(&holding(vec![held])).unwrap_err();
+        let breach = model
+            .clone()
+            .check(&holding(vec![held])?)
+            .err()
+            .context("an error")?;
         assert_eq!((breach.invariant(), breach.detail()), (invariant, detail));
     }
     // A removal the store did not make: the key is still held.
-    model
-        .observe(&[applied(
-            batch(vec![put(b"b", 2)], &[(b"k", None)]),
-            PersistMode::Buffer,
-        )])
-        .unwrap();
+    model.observe(&[applied(
+        batch(vec![put(b"b", 2)], &[(b"k", None)]),
+        PersistMode::Buffer,
+    )])?;
     let breach = model
-        .check(&holding(vec![both(), batch(vec![put(b"b", 2)], &[])]))
-        .unwrap_err();
+        .check(&holding(vec![both(), batch(vec![put(b"b", 2)], &[])])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -302,12 +302,13 @@ fn test_versionless_contents_other_than_the_models_break_an_invariant() {
             "a batch survives with 1 of its 2 entries; the versionless removal of key 6b is missing"
         )
     );
+    Ok(())
 }
 
 /// A batch that writes a key and then removes it, or a version and then deletes it, holds the later write: whole,
 /// it is not reported as held in part when the contents differ elsewhere.
 #[test]
-fn test_a_batch_writing_one_key_twice_is_whole_with_its_later_write() {
+fn test_a_batch_writing_one_key_twice_is_whole_with_its_later_write() -> TestResult {
     let twice = || {
         batch(
             vec![put(b"a", 1), Entry::deletion(b"a".to_vec(), 1)],
@@ -315,14 +316,13 @@ fn test_a_batch_writing_one_key_twice_is_whole_with_its_later_write() {
         )
     };
     let mut model = StoreModel::new();
-    model
-        .observe(&[applied(twice(), PersistMode::Buffer)])
-        .unwrap();
-    model.clone().check(&holding(vec![twice()])).unwrap();
+    model.observe(&[applied(twice(), PersistMode::Buffer)])?;
+    model.clone().check(&holding(vec![twice()])?)?;
     // The store holds the batch whole and a key x the model never saw written.
     let breach = model
-        .check(&holding(vec![twice(), batch(vec![put(b"x", 1)], &[])]))
-        .unwrap_err();
+        .check(&holding(vec![twice(), batch(vec![put(b"x", 1)], &[])])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         breach.invariant(),
         Invariant::ContentsMatchModel,
@@ -334,13 +334,14 @@ fn test_a_batch_writing_one_key_twice_is_whole_with_its_later_write() {
             .starts_with("key 78 holds [StoredVersion { version: 1,"),
         "{breach}"
     );
+    Ok(())
 }
 
 /// A power loss keeps a prefix of the unsynced batches, each with its versionless writes; a batch whose entries
 /// and versionless writes survive apart breaks the whole-batch invariant, and the outcome adopted is what the next
 /// check compares.
 #[test]
-fn test_a_power_loss_keeps_versionless_writes_with_their_batch() {
+fn test_a_power_loss_keeps_versionless_writes_with_their_batch() -> TestResult {
     // Batch i writes key "e" at version i and versionless key "v" then the digit i (hex 76 3i) to [i].
     let written = |i: u8| batch(vec![], &[(&[b'v', b'0' + i], Some(&[i]))]);
     let three: Vec<WriteBatch> = (1..=3u8)
@@ -350,21 +351,21 @@ fn test_a_power_loss_keeps_versionless_writes_with_their_batch() {
             b
         })
         .collect();
-    let lost = || {
+    let lost = || -> TestResult<_> {
         let mut model = StoreModel::new();
         let mut log: Vec<OpRecord> = three
             .iter()
             .map(|b| applied(b.clone(), PersistMode::Buffer))
             .collect();
         log.extend([OpRecord::PowerLost, OpRecord::Recovered]);
-        model.observe(&log).unwrap();
-        model
+        model.observe(&log)?;
+        Ok(model)
     };
     for survivors in 0..=3 {
-        lost()
-            .check(&holding(three[..survivors].to_vec()))
+        lost()?
+            .check(&holding(three[..survivors].to_vec())?)
             .map_err(|b| format!("{survivors} survivors: {b}"))
-            .expect("the contents match a model");
+            .context("the contents match a model")?;
     }
     // Batch 2's versionless write survived without its entry, and the other way round.
     let apart = [
@@ -378,18 +379,19 @@ fn test_a_power_loss_keeps_versionless_writes_with_their_batch() {
         ),
     ];
     for (held, detail) in apart {
-        let breach = lost().check(&holding(held)).unwrap_err();
+        let breach = lost()?.check(&holding(held)?).err().context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (Invariant::BatchWhole, detail)
         );
     }
     // One survivor adopted: versionless key "v1" holds batch 1's value, [1], from then on.
-    let mut model = lost();
-    model.check(&holding(three[..1].to_vec())).unwrap();
+    let mut model = lost()?;
+    model.check(&holding(three[..1].to_vec())?)?;
     let breach = model
-        .check(&holding(vec![batch(vec![put(b"e", 1)], &[])]))
-        .unwrap_err();
+        .check(&holding(vec![batch(vec![put(b"e", 1)], &[])])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -397,31 +399,33 @@ fn test_a_power_loss_keeps_versionless_writes_with_their_batch() {
             "versionless key 7631 holds None where Some([1]) was expected"
         )
     );
+    Ok(())
 }
 
 /// A crash with a batch in flight, or a failed batch, keeps its versionless writes with its entries, or neither.
 #[test]
-fn test_a_batch_in_flight_keeps_its_versionless_writes_whole_or_not_at_all() {
+fn test_a_batch_in_flight_keeps_its_versionless_writes_whole_or_not_at_all() -> TestResult {
     let both = || batch(vec![put(b"a", 1)], &[(b"k", Some(b"v"))]);
     let failures = [
         OpRecord::CrashedDuringBatch { batch: both() },
         OpRecord::BatchFailed { batch: both() },
     ];
     for failure in failures {
-        let recovered = || {
+        let recovered = || -> TestResult<_> {
             let mut model = StoreModel::new();
-            model
-                .observe(&[failure.clone(), OpRecord::Recovered])
-                .unwrap();
-            model
+            model.observe(&[failure.clone(), OpRecord::Recovered])?;
+            Ok(model)
         };
-        recovered().check(&holding(vec![])).expect("lost whole");
-        recovered()
-            .check(&holding(vec![both()]))
-            .expect("kept whole");
-        let breach = recovered()
-            .check(&holding(vec![batch(vec![], &[(b"k", Some(b"v"))])]))
-            .unwrap_err();
+        recovered()?
+            .check(&holding(vec![])?)
+            .context("lost whole")?;
+        recovered()?
+            .check(&holding(vec![both()])?)
+            .context("kept whole")?;
+        let breach = recovered()?
+            .check(&holding(vec![batch(vec![], &[(b"k", Some(b"v"))])])?)
+            .err()
+            .context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (
@@ -431,12 +435,13 @@ fn test_a_batch_in_flight_keeps_its_versionless_writes_whole_or_not_at_all() {
             "{failure:?}"
         );
     }
+    Ok(())
 }
 
 /// A drop of everything clears the keyspace without versions, at once or at the recovery that finishes it; a prefix
 /// drop leaves it, even a key under its prefix.
 #[test]
-fn test_only_a_drop_of_everything_clears_the_versionless_keys() {
+fn test_only_a_drop_of_everything_clears_the_versionless_keys() -> TestResult {
     let written = || batch(vec![], &[(b"k", Some(b"v"))]);
     let kept = || holding(vec![written()]);
     let dropped = |prefixes| OpRecord::Dropped {
@@ -445,15 +450,13 @@ fn test_only_a_drop_of_everything_clears_the_versionless_keys() {
         entries: Vec::new(),
     };
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            applied(written(), PersistMode::Buffer),
-            dropped(Some(vec![b"k".to_vec()])),
-        ])
-        .unwrap();
-    model.check(&kept()).expect("a prefix drop keeps them");
-    model.observe(&[dropped(None)]).unwrap();
-    let breach = model.clone().check(&kept()).unwrap_err();
+    model.observe(&[
+        applied(written(), PersistMode::Buffer),
+        dropped(Some(vec![b"k".to_vec()])),
+    ])?;
+    model.check(&kept()?).context("a prefix drop keeps them")?;
+    model.observe(&[dropped(None)])?;
+    let breach = model.clone().check(&kept()?).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -463,45 +466,46 @@ fn test_only_a_drop_of_everything_clears_the_versionless_keys() {
     );
     model
         .check(&Contents::default())
-        .expect("a drop of everything clears them");
+        .context("a drop of everything clears them")?;
 
     // A drop of everything whose record was written but not synced, then a power loss: kept or cleared.
-    let interrupted = || {
-        let mut model = StoreModel::new();
-        model
-            .observe(&[
-                applied(written(), PersistMode::Sync),
-                OpRecord::DropInterrupted {
-                    ts: 0,
-                    prefixes: None,
-                    entries: Vec::new(),
-                    stage: DropStage::RecordWritten,
-                    power_loss: true,
-                },
-                OpRecord::Recovered,
-            ])
-            .unwrap();
-        model
+    let interrupted = || -> TestResult<_> {
+        let mut fresh = StoreModel::new();
+        fresh.observe(&[
+            applied(written(), PersistMode::Sync),
+            OpRecord::DropInterrupted {
+                ts: 0,
+                prefixes: None,
+                entries: Vec::new(),
+                stage: DropStage::RecordWritten,
+                power_loss: true,
+            },
+            OpRecord::Recovered,
+        ])?;
+        Ok(fresh)
     };
-    interrupted().check(&kept()).expect("the record was lost");
-    interrupted()
+    interrupted()?
+        .check(&kept()?)
+        .context("the record was lost")?;
+    interrupted()?
         .check(&Contents::default())
-        .expect("the record survived and the drop was finished");
+        .context("the record survived and the drop was finished")?;
+    Ok(())
 }
 
 /// A ban drops a batch's entries to its namespace and none of its versionless writes, in the store and the model.
 #[test]
-fn test_a_ban_drops_no_versionless_write() {
+fn test_a_ban_drops_no_versionless_write() -> TestResult {
     let mut key = vec![0x00];
     key.extend_from_slice(&5u64.to_be_bytes());
     key.push(b't');
     let to_five = || batch(vec![put(&key, 1)], &[(&key, Some(b"v"))]);
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    store.ban_namespace(5).unwrap();
-    store.apply(to_five(), PersistMode::Buffer).unwrap();
+    store.ban_namespace(5)?;
+    store.apply(to_five(), PersistMode::Buffer)?;
     let mut model = StoreModel::new();
-    model.observe(&store.take_log()).unwrap();
-    model.check(&store.contents()).unwrap();
+    model.observe(&store.take_log())?;
+    model.check(&store.contents())?;
     let contents = store.contents();
     assert!(
         contents.keys().is_empty(),
@@ -513,11 +517,9 @@ fn test_a_ban_drops_no_versionless_write() {
     );
     // A store that dropped the versionless write too.
     let banned = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    banned.ban_namespace(5).unwrap();
-    banned
-        .apply(batch(vec![put(&key, 1)], &[]), PersistMode::Buffer)
-        .unwrap();
-    let breach = model.check(&banned.contents()).unwrap_err();
+    banned.ban_namespace(5)?;
+    banned.apply(batch(vec![put(&key, 1)], &[]), PersistMode::Buffer)?;
+    let breach = model.check(&banned.contents()).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -525,28 +527,29 @@ fn test_a_ban_drops_no_versionless_write() {
             "versionless key 00000000000000000574 holds None where Some([118]) was expected"
         )
     );
+    Ok(())
 }
 
 /// After a power loss, the batch whose versionless write is missing is named by that write, even where its key holds
 /// a value an earlier batch wrote, which a lost write leaves in place.
 #[test]
-fn test_a_versionless_write_lost_over_an_earlier_value_breaks_the_whole_batch_invariant() {
+fn test_a_versionless_write_lost_over_an_earlier_value_breaks_the_whole_batch_invariant()
+-> TestResult {
     // Batch 1 writes key "s" at 1 and versionless key "v" (hex 76) to [1], synced; batch 2 writes key "e" at 2 and
     // "v" to [2]. The store kept batch 2's entry and "v" at batch 1's [1].
     let first = || batch(vec![put(b"s", 1)], &[(b"v", Some(&[1]))]);
     let second = || batch(vec![put(b"e", 2)], &[(b"v", Some(&[2]))]);
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            applied(first(), PersistMode::Sync),
-            applied(second(), PersistMode::Buffer),
-            OpRecord::PowerLost,
-            OpRecord::Recovered,
-        ])
-        .unwrap();
+    model.observe(&[
+        applied(first(), PersistMode::Sync),
+        applied(second(), PersistMode::Buffer),
+        OpRecord::PowerLost,
+        OpRecord::Recovered,
+    ])?;
     let breach = model
-        .check(&holding(vec![first(), batch(vec![put(b"e", 2)], &[])]))
-        .unwrap_err();
+        .check(&holding(vec![first(), batch(vec![put(b"e", 2)], &[])])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -560,24 +563,26 @@ fn test_a_versionless_write_lost_over_an_earlier_value_breaks_the_whole_batch_in
     let three: Vec<WriteBatch> = (1..=3u8)
         .map(|i| batch(vec![put(b"e", u64::from(i))], &[(b"v", Some(&[i]))]))
         .collect();
-    let mut model = StoreModel::new();
+    let mut three_model = StoreModel::new();
     let mut log: Vec<OpRecord> = three
         .iter()
         .map(|b| applied(b.clone(), PersistMode::Buffer))
         .collect();
     log.extend([OpRecord::PowerLost, OpRecord::Recovered]);
-    model.observe(&log).unwrap();
-    let breach = model
+    three_model.observe(&log)?;
+    let three_breach = three_model
         .check(&holding(vec![
             three[0].clone(),
             batch(vec![put(b"e", 2)], &[]),
-        ]))
-        .unwrap_err();
+        ])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
-        (breach.invariant(), breach.detail()),
+        (three_breach.invariant(), three_breach.detail()),
         (
             Invariant::BatchWhole,
             "a batch survives with 1 of its 2 entries; the versionless write of [2] to key 76 is missing"
         )
     );
+    Ok(())
 }

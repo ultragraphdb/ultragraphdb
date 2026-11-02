@@ -6,9 +6,10 @@
 //! Expected values are Go 1.27's `json.Marshal` of the value `json.Decoder.Decode` gives with `UseNumber`.
 
 use ultragraphdb_common_utils::go_json;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn marshal_is_gos_marshal_of_the_decoded_value() {
+fn marshal_is_gos_marshal_of_the_decoded_value() -> TestResult {
     for (input, want) in [
         ("null", "null"),
         (" false ", "false"),
@@ -22,9 +23,10 @@ fn marshal_is_gos_marshal_of_the_decoded_value() {
         (r#"{"a\u0000": "\u0001"}"#, r#"{"a\u0000":"\u0001"}"#),
     ] {
         assert_eq!(
-            go_json::unmarshal(input.as_bytes()).unwrap().marshal(),
+            go_json::unmarshal(input.as_bytes())?.marshal(),
             want,
             "{input}"
         );
     }
+    Ok(())
 }

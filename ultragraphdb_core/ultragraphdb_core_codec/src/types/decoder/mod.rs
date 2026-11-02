@@ -36,10 +36,12 @@ impl<'a> Decoder<'a> {
             block_idx: 0,
             uids: Vec::new(),
         };
-        decoder.seek(uid, whence);
+        // The decoder holds the block it sought, so the returned view of it is not needed here.
+        let _sought_block: &[u64] = decoder.seek(uid, whence);
         decoder
     }
 
+    /// The pack being decoded.
     pub fn pack(&self) -> &'a UidPack {
         self.pack
     }
@@ -56,9 +58,15 @@ impl<'a> Decoder<'a> {
 
     /// Unpacks the current block, all of it, or nothing past the last block.
     pub fn unpack_block(&mut self) -> &[u64] {
+        self.unpack();
+        &self.uids
+    }
+
+    /// Unpacks the current block into `uids`, for the callers that read it from there.
+    fn unpack(&mut self) {
         self.uids.clear();
         let Some(block) = self.pack.blocks().get(self.block_idx) else {
-            return &self.uids;
+            return;
         };
 
         let num_uids = block.num_uids() as usize;
@@ -78,7 +86,6 @@ impl<'a> Decoder<'a> {
         }
 
         self.uids.truncate(num_uids);
-        &self.uids
     }
 
     /// The number of UIDs the blocks from the current one on could hold.
@@ -126,7 +133,7 @@ impl<'a> Decoder<'a> {
         // the previous block is where uid would be.
         self.block_idx = idx - 1;
         if self.block_idx != held_block_idx {
-            self.unpack_block();
+            self.unpack();
         }
 
         if self.uids.last().is_some_and(|&last| uid <= last) {
@@ -160,12 +167,12 @@ impl<'a> Decoder<'a> {
         // Either idx is past the last block, or it is the first block whose base is greater than uid: in both cases
         // the previous block is where uid would be.
         self.block_idx = idx - 1;
-        self.unpack_block();
+        self.unpack();
 
         // uidx is the first uid in the block at or past uid.
         let uidx = self.uids.partition_point(|&u| !whence.reached(u, uid));
         if uidx < self.uids.len() {
-            self.uids.drain(..uidx);
+            drop(self.uids.drain(..uidx));
             return &self.uids;
         }
         // No uid in the block is >= uid. The next block might still have valid entries > uid.

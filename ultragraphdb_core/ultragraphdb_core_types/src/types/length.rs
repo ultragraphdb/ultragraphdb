@@ -13,10 +13,12 @@ use std::fmt;
 pub struct Length(f64);
 
 impl Length {
+    /// A length of `metres`.
     pub fn new(metres: f64) -> Self {
         Self(metres)
     }
 
+    /// The length in metres.
     pub fn metres(self) -> f64 {
         self.0
     }

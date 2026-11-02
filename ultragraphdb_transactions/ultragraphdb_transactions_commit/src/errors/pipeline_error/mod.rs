@@ -22,33 +22,49 @@ pub struct PipelineError(pub PipelineErrorEnum);
 pub enum PipelineErrorEnum {
     /// The log refused the round the step closed, or failed to make it durable: none of its transactions is
     /// acknowledged.
-    Log { cause: LogError },
+    Log {
+        /// The log's error.
+        cause: LogError,
+    },
     /// The store refused to write a round the log holds durably: its transactions are not acknowledged, and recovery
     /// replays them.
-    Apply { cause: ChangesetError },
+    Apply {
+        /// The store's refusal of the round's changeset.
+        cause: ChangesetError,
+    },
     /// The store's session table could not be read, or is corrupted: the pipeline does not open.
-    Sessions { cause: StoreError },
+    Sessions {
+        /// The store's error reading the session table.
+        cause: StoreError,
+    },
     /// A build's end could not be proposed: the store failed reading the build's catalog. The pipeline stops, and the
     /// build is finished when the store opens again.
-    BuildEnd { cause: TxnError },
+    BuildEnd {
+        /// The error reading the build's catalog.
+        cause: TxnError,
+    },
 }
 
 impl PipelineError {
+    /// The [`PipelineErrorEnum::Log`] reason.
     #[allow(non_snake_case)]
     pub fn Log(cause: LogError) -> Self {
         Self(PipelineErrorEnum::Log { cause })
     }
 
+    /// The [`PipelineErrorEnum::Apply`] reason.
     #[allow(non_snake_case)]
     pub fn Apply(cause: ChangesetError) -> Self {
         Self(PipelineErrorEnum::Apply { cause })
     }
 
+    /// The [`PipelineErrorEnum::Sessions`] reason.
     #[allow(non_snake_case)]
     pub fn Sessions(cause: StoreError) -> Self {
         Self(PipelineErrorEnum::Sessions { cause })
     }
 
+    /// The [`PipelineErrorEnum::BuildEnd`] reason.
     #[allow(non_snake_case)]
     pub fn BuildEnd(cause: TxnError) -> Self {
         Self(PipelineErrorEnum::BuildEnd { cause })

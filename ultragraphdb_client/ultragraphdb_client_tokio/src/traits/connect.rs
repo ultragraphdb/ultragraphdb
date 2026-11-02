@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 /// How the client opens a connection: a new byte stream to the server each time it is asked.
 pub trait Connect {
+    /// The stream a connection is read and written through.
     type Stream: AsyncRead + AsyncWrite + Unpin;
 
     /// A new stream to the server.

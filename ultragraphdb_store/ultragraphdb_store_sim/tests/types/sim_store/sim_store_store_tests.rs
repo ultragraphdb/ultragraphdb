@@ -7,18 +7,22 @@
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{Contents, FaultConfig, OpRecord, Seed, SimClock, SimStore};
-use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use ultragraphdb_tool_bdd::{Context, TestResult};
+use ultragraphdb_traits_store::{
+    Entry, Item, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, WriteBatch,
+};
 
 fn store() -> SimStore {
     SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
 }
 
-fn write(store: &SimStore, entries: Vec<Entry>) {
+fn write(store: &SimStore, entries: Vec<Entry>) -> TestResult {
     let mut batch = WriteBatch::new();
     entries.into_iter().for_each(|e| batch.push(e));
     store
         .apply(batch, PersistMode::Buffer)
-        .expect("no fault is configured");
+        .context("no fault is configured")?;
+    Ok(())
 }
 
 fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
@@ -33,63 +37,65 @@ fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
     key
 }
 
-fn versions(store: &SimStore, key: &[u8], ts: u64) -> Vec<u64> {
-    let snapshot = store.snapshot(ts).expect("readable");
+fn versions(store: &SimStore, key: &[u8], ts: u64) -> TestResult<Vec<u64>> {
+    let snapshot = store.snapshot(ts).context("readable")?;
     snapshot
         .versions(key)
-        .map(|i| i.expect("no fault").version())
+        .map(|i| Ok(i.context("no fault")?.version()))
         .collect()
 }
 
-fn scanned(store: &SimStore, scan: &Scan, ts: u64) -> Vec<(Vec<u8>, u64)> {
-    let snapshot = store.snapshot(ts).expect("readable");
+fn scanned(store: &SimStore, scan: &Scan, ts: u64) -> TestResult<Vec<(Vec<u8>, u64)>> {
+    let snapshot = store.snapshot(ts).context("readable")?;
     snapshot
         .scan(scan)
-        .map(|i| i.expect("no fault"))
-        .map(|i| (i.key().to_vec(), i.version()))
+        .map(|i| i.context("no fault"))
+        .map(|i| i.map(|item| (item.key().to_vec(), item.version())))
         .collect()
 }
 
 #[test]
-fn test_a_keys_versions_iterate_newest_first_with_their_meta() {
+fn test_a_keys_versions_iterate_newest_first_with_their_meta() -> TestResult {
     let s = store();
     for v in [3, 7, 5] {
-        write(&s, vec![Entry::put(b"k".to_vec(), v, v as u8, vec![])]);
+        write(&s, vec![Entry::put(b"k".to_vec(), v, v as u8, vec![])])?;
     }
-    let snapshot = s.snapshot(10).unwrap();
+    let snapshot = s.snapshot(10)?;
     let items: Vec<(u64, u8)> = snapshot
         .versions(b"k")
-        .map(|i| i.unwrap())
-        .map(|i| (i.version(), i.meta()))
-        .collect();
+        .map(|i| i.map(|item| (item.version(), item.meta())))
+        .collect::<Result<_, _>>()?;
     assert_eq!(items, vec![(7, 7), (5, 5), (3, 3)]);
+    Ok(())
 }
 
 #[test]
-fn test_a_version_below_the_newest_can_be_written() {
+fn test_a_version_below_the_newest_can_be_written() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"k", 9, b"a")]);
-    write(&s, vec![put(b"k", 6, b"b")]);
-    assert_eq!(versions(&s, b"k", 10), vec![9, 6]);
+    write(&s, vec![put(b"k", 9, b"a")])?;
+    write(&s, vec![put(b"k", 6, b"b")])?;
+    assert_eq!(versions(&s, b"k", 10)?, vec![9, 6]);
+    Ok(())
 }
 
 #[test]
-fn test_rewriting_a_version_replaces_it() {
+fn test_rewriting_a_version_replaces_it() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"k", 4, b"first")]);
-    write(&s, vec![put(b"k", 4, b"second")]);
-    assert_eq!(s.get_at(b"k", 4).unwrap().unwrap().value(), b"second");
-    assert_eq!(versions(&s, b"k", 4), vec![4]);
+    write(&s, vec![put(b"k", 4, b"first")])?;
+    write(&s, vec![put(b"k", 4, b"second")])?;
+    assert_eq!(s.get_at(b"k", 4)?.context("a value")?.value(), b"second");
+    assert_eq!(versions(&s, b"k", 4)?, vec![4]);
+    Ok(())
 }
 
 #[test]
-fn test_a_key_that_prefixes_another_sorts_first() {
+fn test_a_key_that_prefixes_another_sorts_first() -> TestResult {
     let s = store();
     for v in [3, 5] {
-        write(&s, vec![put(b"\x02ab", v, b""), put(b"\x02abc", v, b"")]);
+        write(&s, vec![put(b"\x02ab", v, b""), put(b"\x02abc", v, b"")])?;
     }
     let scan = Scan::prefix(b"\x02a".to_vec()).all_versions();
-    let keys = scanned(&s, &scan, 9);
+    let keys = scanned(&s, &scan, 9)?;
     let expected: Vec<(Vec<u8>, u64)> = vec![
         (b"\x02ab".to_vec(), 5),
         (b"\x02ab".to_vec(), 3),
@@ -97,96 +103,108 @@ fn test_a_key_that_prefixes_another_sorts_first() {
         (b"\x02abc".to_vec(), 3),
     ];
     assert_eq!(keys, expected);
+    Ok(())
 }
 
 #[test]
-fn test_an_oversized_key_refuses_its_whole_batch() {
+fn test_an_oversized_key_refuses_its_whole_batch() -> TestResult {
     let s = store();
     let mut batch = WriteBatch::new();
     batch.push(put(b"fine", 1, b""));
     batch.push(put(&vec![1; 65_001], 1, b""));
-    let err = s.apply(batch, PersistMode::Buffer).unwrap_err();
+    let err = s
+        .apply(batch, PersistMode::Buffer)
+        .err()
+        .context("an error")?;
     assert!(
         err.to_string()
             .starts_with("Key with size 65001 exceeded 65000 limit")
     );
-    assert_eq!(s.get_at(b"fine", 1).unwrap(), None);
+    assert_eq!(s.get_at(b"fine", 1)?, None);
 
-    let mut batch = WriteBatch::new();
-    batch.push(put(b"fine", 1, b""));
+    let mut encoded = WriteBatch::new();
+    encoded.push(put(b"fine", 1, b""));
     // 44,000 bytes of `0x00 0x01`: every zero byte a run of one, 66,010 bytes once encoded and versioned.
-    batch.push(put(
+    encoded.push(put(
         &(0..44_000).map(|i| (i % 2) as u8).collect::<Vec<u8>>(),
         1,
         b"",
     ));
-    let err = s.apply(batch, PersistMode::Buffer).unwrap_err();
+    let encoded_err = s
+        .apply(encoded, PersistMode::Buffer)
+        .err()
+        .context("an error")?;
     assert!(
-        err.to_string()
+        encoded_err
+            .to_string()
             .starts_with("Key with size 66010 exceeded 65535 limit")
     );
-    assert_eq!(s.get_at(b"fine", 1).unwrap(), None);
+    assert_eq!(s.get_at(b"fine", 1)?, None);
     assert!(
         !s.needs_recovery(),
         "a refused batch does not poison the store"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_read_takes_the_newest_version_at_or_below_its_timestamp() {
+fn test_a_read_takes_the_newest_version_at_or_below_its_timestamp() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"k", 3, b"three"), put(b"k", 7, b"seven")]);
-    assert_eq!(s.get_at(b"k", 5).unwrap().unwrap().version(), 3);
-    assert_eq!(s.get_at(b"k", 7).unwrap().unwrap().value(), b"seven");
-    assert_eq!(s.get_at(b"k", 2).unwrap(), None);
+    write(&s, vec![put(b"k", 3, b"three"), put(b"k", 7, b"seven")])?;
+    assert_eq!(s.get_at(b"k", 5)?.context("a value")?.version(), 3);
+    assert_eq!(s.get_at(b"k", 7)?.context("a value")?.value(), b"seven");
+    assert_eq!(s.get_at(b"k", 2)?, None);
+    Ok(())
 }
 
 #[test]
-fn test_a_deletion_hides_the_key() {
+fn test_a_deletion_hides_the_key() -> TestResult {
     let s = store();
     write(
         &s,
         vec![put(b"k", 3, b"v"), Entry::deletion(b"k".to_vec(), 6)],
-    );
-    assert_eq!(s.get_at(b"k", 7).unwrap(), None);
-    assert_eq!(s.get_at(b"k", 4).unwrap().unwrap().version(), 3);
-    assert_eq!(versions(&s, b"k", 7), Vec::<u64>::new());
-    assert!(scanned(&s, &Scan::prefix(b"k".to_vec()), 7).is_empty());
+    )?;
+    assert_eq!(s.get_at(b"k", 7)?, None);
+    assert_eq!(s.get_at(b"k", 4)?.context("a value")?.version(), 3);
+    assert_eq!(versions(&s, b"k", 7)?, Vec::<u64>::new());
+    assert!(scanned(&s, &Scan::prefix(b"k".to_vec()), 7)?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_read_below_the_discard_timestamp_is_refused() {
+fn test_a_read_below_the_discard_timestamp_is_refused() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"k", 3, b"v")]);
-    s.set_discard_ts(10).unwrap();
+    write(&s, vec![put(b"k", 3, b"v")])?;
+    s.set_discard_ts(10)?;
     for below in [0, 5, 9] {
-        let refused = s.get_at(b"k", below).unwrap_err();
+        let refused = s.get_at(b"k", below).err().context("an error")?;
         assert_eq!(refused, StoreError::TsTooOld());
         assert_eq!(refused.to_string(), "Transaction is too old");
     }
     let at = s
-        .get_at(b"k", 10)
-        .unwrap()
-        .expect("a read at the discard timestamp");
+        .get_at(b"k", 10)?
+        .context("a read at the discard timestamp")?;
     assert_eq!((at.version(), at.value()), (3, &b"v"[..]));
+    Ok(())
 }
 
 #[test]
-fn test_a_scan_is_unaffected_by_a_later_batch() {
+fn test_a_scan_is_unaffected_by_a_later_batch() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"p1", 1, b"")]);
-    let snapshot = s.snapshot(100).unwrap();
-    write(&s, vec![put(b"p2", 2, b""), put(b"p1", 3, b"")]);
+    write(&s, vec![put(b"p1", 1, b"")])?;
+    let snapshot = s.snapshot(100)?;
+    write(&s, vec![put(b"p2", 2, b""), put(b"p1", 3, b"")])?;
     let seen: Vec<Item> = snapshot
         .scan(&Scan::prefix(b"p".to_vec()))
         .map(Result::unwrap)
         .collect();
     assert_eq!(seen.len(), 1);
     assert_eq!((seen[0].key(), seen[0].version()), (&b"p1"[..], 1));
+    Ok(())
 }
 
 #[test]
-fn test_a_scan_reports_each_key_once_with_its_newest_version() {
+fn test_a_scan_reports_each_key_once_with_its_newest_version() -> TestResult {
     let s = store();
     for v in 1..=4 {
         write(
@@ -196,11 +214,11 @@ fn test_a_scan_reports_each_key_once_with_its_newest_version() {
                 put(b"pb", v + 10, b""),
                 put(b"pc", v * 2, b""),
             ],
-        );
+        )?;
     }
-    let got = scanned(&s, &Scan::prefix(b"p".to_vec()), 6);
+    let got = scanned(&s, &Scan::prefix(b"p".to_vec()), 6)?;
     assert_eq!(got, vec![(b"pa".to_vec(), 4), (b"pc".to_vec(), 6)]);
-    let all = scanned(&s, &Scan::prefix(b"p".to_vec()).all_versions(), 6);
+    let all = scanned(&s, &Scan::prefix(b"p".to_vec()).all_versions(), 6)?;
     assert_eq!(
         all.iter()
             .filter(|(k, _)| k == b"pa")
@@ -215,17 +233,18 @@ fn test_a_scan_reports_each_key_once_with_its_newest_version() {
             .collect::<Vec<_>>(),
         vec![6, 4, 2]
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_reverse_scan_descends_with_versions_newest_first() {
+fn test_a_reverse_scan_descends_with_versions_newest_first() -> TestResult {
     let s = store();
     write(
         &s,
         vec![put(b"a", 1, b""), put(b"b", 1, b""), put(b"c", 1, b"")],
-    );
-    write(&s, vec![put(b"b", 2, b"")]);
-    let all = scanned(&s, &Scan::prefix(Vec::new()).reverse().all_versions(), 5);
+    )?;
+    write(&s, vec![put(b"b", 2, b"")])?;
+    let all = scanned(&s, &Scan::prefix(Vec::new()).reverse().all_versions(), 5)?;
     let expected: Vec<(Vec<u8>, u64)> = vec![
         (b"c".to_vec(), 1),
         (b"b".to_vec(), 2),
@@ -237,47 +256,48 @@ fn test_a_reverse_scan_descends_with_versions_newest_first() {
         &s,
         &Scan::prefix(Vec::new()).reverse().seek(b"b".to_vec()),
         5,
-    );
+    )?;
     assert_eq!(sought, vec![(b"b".to_vec(), 2), (b"a".to_vec(), 1)]);
-    let forward = scanned(&s, &Scan::prefix(Vec::new()).seek(b"b".to_vec()), 5);
+    let forward = scanned(&s, &Scan::prefix(Vec::new()).seek(b"b".to_vec()), 5)?;
     assert_eq!(forward, vec![(b"b".to_vec(), 2), (b"c".to_vec(), 1)]);
+    Ok(())
 }
 
 #[test]
-fn test_a_batch_holds_entries_at_several_versions() {
+fn test_a_batch_holds_entries_at_several_versions() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"a", 12, b""), put(b"b", 13, b"")]);
-    let held = |ts| -> Vec<Option<u64>> {
-        s.snapshot(ts)
-            .unwrap()
-            .get_many(&[b"a", b"b"])
-            .unwrap()
+    write(&s, vec![put(b"a", 12, b""), put(b"b", 13, b"")])?;
+    let held = |ts| -> TestResult<Vec<Option<u64>>> {
+        Ok(s.snapshot(ts)?
+            .get_many(&[b"a", b"b"])?
             .iter()
             .map(|i| i.as_ref().map(Item::version))
-            .collect()
+            .collect())
     };
-    assert_eq!(held(11), [None, None]);
-    assert_eq!(held(12), [Some(12), None]);
-    assert_eq!(held(13), [Some(12), Some(13)]);
+    assert_eq!(held(11)?, [None, None]);
+    assert_eq!(held(12)?, [Some(12), None]);
+    assert_eq!(held(13)?, [Some(12), Some(13)]);
+    Ok(())
 }
 
 #[test]
-fn test_a_batch_records_the_highest_applied_timestamp() {
+fn test_a_batch_records_the_highest_applied_timestamp() -> TestResult {
     let s = store();
     let mut batch = WriteBatch::new();
     batch.set_applied_ts(9);
-    s.apply(batch, PersistMode::Buffer).unwrap();
+    s.apply(batch, PersistMode::Buffer)?;
     let mut rollup = WriteBatch::new();
     rollup.push(put(b"k", 4, b""));
-    s.apply(rollup, PersistMode::Buffer).unwrap();
+    s.apply(rollup, PersistMode::Buffer)?;
     let mut older = WriteBatch::new();
     older.set_applied_ts(5);
-    s.apply(older, PersistMode::Buffer).unwrap();
+    s.apply(older, PersistMode::Buffer)?;
     assert_eq!(s.applied_ts(), 9);
+    Ok(())
 }
 
 #[test]
-fn test_a_dropped_prefix_is_gone_after_reopening_and_below_the_drop() {
+fn test_a_dropped_prefix_is_gone_after_reopening_and_below_the_drop() -> TestResult {
     let s = store();
     write(
         &s,
@@ -286,31 +306,34 @@ fn test_a_dropped_prefix_is_gone_after_reopening_and_below_the_drop() {
             put(b"\x00a2", 3, b""),
             put(b"\x00b1", 3, b""),
         ],
-    );
-    s.drop_prefixes(8, &[b"\x00a".to_vec()], vec![put(b"\x00a9", 1, b"initial")])
-        .unwrap();
+    )?;
+    s.drop_prefixes(8, &[b"\x00a".to_vec()], vec![put(b"\x00a9", 1, b"initial")])?;
     s.crash();
     s.recover();
     assert_eq!(
-        s.get_at(b"\x00a1", 5).unwrap(),
+        s.get_at(b"\x00a1", 5)?,
         None,
         "a read below the drop finds nothing of it"
     );
-    assert_eq!(s.get_at(b"\x00a2", 9).unwrap(), None);
-    assert_eq!(s.get_at(b"\x00b1", 9).unwrap().unwrap().version(), 3);
-    assert_eq!(s.get_at(b"\x00a9", 9).unwrap().unwrap().value(), b"initial");
+    assert_eq!(s.get_at(b"\x00a2", 9)?, None);
+    assert_eq!(s.get_at(b"\x00b1", 9)?.context("a value")?.version(), 3);
+    assert_eq!(
+        s.get_at(b"\x00a9", 9)?.context("a value")?.value(),
+        b"initial"
+    );
+    Ok(())
 }
 
 #[test]
-fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() {
+fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() -> TestResult {
     let s = store();
     let mut batch = WriteBatch::new();
     batch.push(put(b"old", 3, b""));
     batch.set_applied_ts(3);
-    s.apply(batch, PersistMode::Buffer).unwrap();
-    s.set_discard_ts(2).unwrap();
-    s.set_tombstone_horizon(1).unwrap();
-    s.drop_all(vec![put(b"\x01schema", 1, b"s")]).unwrap();
+    s.apply(batch, PersistMode::Buffer)?;
+    s.set_discard_ts(2)?;
+    s.set_tombstone_horizon(1)?;
+    s.drop_all(vec![put(b"\x01schema", 1, b"s")])?;
     s.power_loss();
     s.recover();
     let contents = s.contents();
@@ -322,19 +345,20 @@ fn test_dropping_everything_keeps_only_its_entries_and_clears_the_metadata() {
         (s.applied_ts(), s.discard_ts(), contents.tombstone_horizon()),
         (0, 0, None)
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() {
+fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() -> TestResult {
     let s = store();
     let (five, six) = (ns_key(5, b"\x00\x01a"), ns_key(6, b"\x00\x01a"));
-    write(&s, vec![put(&five, 1, b"before")]);
-    s.ban_namespace(5).unwrap();
-    write(&s, vec![put(&five, 2, b""), put(&six, 2, b"")]);
-    assert_eq!(s.get_at(&five, 3).unwrap(), None);
-    assert_eq!(s.get_at(&six, 3).unwrap().map(|i| i.version()), Some(2));
+    write(&s, vec![put(&five, 1, b"before")])?;
+    s.ban_namespace(5)?;
+    write(&s, vec![put(&five, 2, b""), put(&six, 2, b"")])?;
+    assert_eq!(s.get_at(&five, 3)?, None);
+    assert_eq!(s.get_at(&six, 3)?.map(|i| i.version()), Some(2));
     assert!(
-        scanned(&s, &Scan::prefix(vec![0x00]), 3)
+        scanned(&s, &Scan::prefix(vec![0x00]), 3)?
             .iter()
             .all(|(k, _)| *k != five)
     );
@@ -343,27 +367,32 @@ fn test_a_banned_namespace_ignores_writes_and_hides_its_keys() {
         1,
         "the ban hides the earlier version, it does not remove it"
     );
+    Ok(())
 }
 
 #[test]
-fn test_dropping_everything_clears_the_banned_set() {
+fn test_dropping_everything_clears_the_banned_set() -> TestResult {
     let s = store();
     let five = ns_key(5, b"\x00\x01a");
-    s.ban_namespace(5).unwrap();
-    s.drop_all(Vec::new()).unwrap();
-    write(&s, vec![put(&five, 1, b"after")]);
+    s.ban_namespace(5)?;
+    s.drop_all(Vec::new())?;
+    write(&s, vec![put(&five, 1, b"after")])?;
     assert_eq!(s.contents().banned().len(), 0);
     assert_eq!(
-        s.get_at(&five, 1).unwrap().map(|i| i.value().to_vec()),
+        s.get_at(&five, 1)?.map(|i| i.value().to_vec()),
         Some(b"after".to_vec())
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_poisoned_store_refuses_every_write_until_recovered() {
+fn test_a_poisoned_store_refuses_every_write_until_recovered() -> TestResult {
     let s = store();
     s.inject(ultragraphdb_store_sim::Fault::FailNextBatch);
-    let failed = s.apply(WriteBatch::new(), PersistMode::Buffer).unwrap_err();
+    let failed = s
+        .apply(WriteBatch::new(), PersistMode::Buffer)
+        .err()
+        .context("an error")?;
     assert_eq!(
         failed.to_string(),
         "Write to the store failed: simulated failure during the batch's persist"
@@ -384,14 +413,11 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() {
     assert_eq!(s.apply_temporary(&temporary, WriteBatch::new()), poisoned);
     assert_eq!(s.drop_temporary(temporary), poisoned);
     assert_eq!(
-        s.write_rebuild_record(&ultragraphdb_traits_store::RebuildRecord::new(
-            1,
-            Vec::new()
-        )),
+        s.write_rebuild_record(&RebuildRecord::new(1, Vec::new())),
         poisoned
     );
     assert_eq!(
-        s.snapshot(0).unwrap().read_ts(),
+        s.snapshot(0)?.read_ts(),
         0,
         "a poisoned process still reads"
     );
@@ -428,15 +454,17 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() {
     s.recover();
     assert_eq!(s.apply(WriteBatch::new(), PersistMode::Buffer), Ok(()));
     assert!(!s.needs_recovery());
+    Ok(())
 }
 
 #[test]
-fn test_an_oversized_key_refuses_a_drop_before_it_removes_anything() {
+fn test_an_oversized_key_refuses_a_drop_before_it_removes_anything() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"\x00a", 1, b"")]);
+    write(&s, vec![put(b"\x00a", 1, b"")])?;
     let refused = s
         .drop_prefixes(2, &[b"\x00".to_vec()], vec![put(&vec![1; 65_001], 1, b"")])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert!(matches!(
         refused.0,
         StoreErrorEnum::KeyTooLarge {
@@ -446,7 +474,9 @@ fn test_an_oversized_key_refuses_a_drop_before_it_removes_anything() {
         }
     ));
     assert_eq!(
-        s.drop_all(vec![put(&vec![1; 65_001], 1, b"")]).unwrap_err(),
+        s.drop_all(vec![put(&vec![1; 65_001], 1, b"")])
+            .err()
+            .context("an error")?,
         refused
     );
     assert_eq!(s.contents().versions(b"\x00a").len(), 1);
@@ -455,38 +485,39 @@ fn test_an_oversized_key_refuses_a_drop_before_it_removes_anything() {
         s.take_log().last(),
         Some(OpRecord::Refused { error, .. }) if *error == refused
     ));
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_removes_every_key_under_any_of_its_prefixes_and_no_other() {
+fn test_a_drop_removes_every_key_under_any_of_its_prefixes_and_no_other() -> TestResult {
     let s = store();
     // 130 keys under one prefix take three removal batches.
     let under: Vec<Vec<u8>> = (0..130u8).map(|i| vec![0x02, b'a', i]).collect();
-    under
-        .iter()
-        .for_each(|k| write(&s, vec![put(k, 1, b""), put(k, 2, b"")]));
-    for key in [&b"\x02b1"[..], b"\x02c", b"\x03a", b"\x02"] {
-        write(&s, vec![put(key, 1, b"")]);
+    for k in &under {
+        write(&s, vec![put(k, 1, b""), put(k, 2, b"")])?;
     }
-    s.drop_prefixes(9, &[b"\x02a".to_vec(), b"\x02b".to_vec()], Vec::new())
-        .unwrap();
+    for key in [&b"\x02b1"[..], b"\x02c", b"\x03a", b"\x02"] {
+        write(&s, vec![put(key, 1, b"")])?;
+    }
+    s.drop_prefixes(9, &[b"\x02a".to_vec(), b"\x02b".to_vec()], Vec::new())?;
     let left: Vec<Vec<u8>> = s.contents().keys().keys().cloned().collect();
     assert_eq!(
         left,
         [b"\x02".to_vec(), b"\x02c".to_vec(), b"\x03a".to_vec()]
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_without_prefixes_removes_nothing_and_writes_its_entries() {
+fn test_a_drop_without_prefixes_removes_nothing_and_writes_its_entries() -> TestResult {
     let s = store();
-    write(&s, vec![put(b"\x00a", 1, b"")]);
-    s.drop_prefixes(2, &[], vec![put(b"\x00b", 1, b"e")])
-        .unwrap();
+    write(&s, vec![put(b"\x00a", 1, b"")])?;
+    s.drop_prefixes(2, &[], vec![put(b"\x00b", 1, b"e")])?;
     assert_eq!(
         s.contents().keys().keys().cloned().collect::<Vec<_>>(),
         [b"\x00a".to_vec(), b"\x00b".to_vec()]
     );
+    Ok(())
 }
 
 /// A batch of versionless writes, with one versioned entry beside them.
@@ -503,7 +534,7 @@ fn versionless_batch(writes: &[(&[u8], Option<&[u8]>)], version: u64) -> WriteBa
 }
 
 #[test]
-fn test_versionless_writes_replace_remove_and_survive_a_crash() {
+fn test_versionless_writes_replace_remove_and_survive_a_crash() -> TestResult {
     let s = store();
     s.apply(
         versionless_batch(
@@ -511,16 +542,14 @@ fn test_versionless_writes_replace_remove_and_survive_a_crash() {
             1,
         ),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    s.apply(versionless_batch(&[(b"b", None)], 2), PersistMode::Sync)
-        .unwrap();
+    )?;
+    s.apply(versionless_batch(&[(b"b", None)], 2), PersistMode::Sync)?;
     assert_eq!(
-        s.get_versionless(b"a").unwrap(),
+        s.get_versionless(b"a")?,
         Some(b"3".to_vec()),
         "the later write wins"
     );
-    assert_eq!(s.get_versionless(b"b").unwrap(), None);
+    assert_eq!(s.get_versionless(b"b")?, None);
     s.crash();
     assert_eq!(
         s.get_versionless(b"a"),
@@ -530,84 +559,76 @@ fn test_versionless_writes_replace_remove_and_survive_a_crash() {
     s.recover();
     let held: Vec<_> = s.contents().versionless().clone().into_iter().collect();
     assert_eq!(held, vec![(b"a".to_vec(), b"3".to_vec())]);
+    Ok(())
 }
 
 #[test]
-fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() {
+fn test_a_snapshot_reads_the_versionless_keys_of_its_opening() -> TestResult {
     let s = store();
     s.apply(
         versionless_batch(&[(b"a", Some(b"1"))], 1),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    let snapshot = s.snapshot(1).unwrap();
+    )?;
+    let snapshot = s.snapshot(1)?;
     s.apply(
         versionless_batch(&[(b"a", Some(b"2")), (b"b", Some(b"3"))], 2),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    assert_eq!(snapshot.get_versionless(b"a").unwrap(), Some(b"1".to_vec()));
-    assert_eq!(snapshot.get_versionless(b"b").unwrap(), None);
-    assert_eq!(s.get_versionless(b"a").unwrap(), Some(b"2".to_vec()));
+    )?;
+    assert_eq!(snapshot.get_versionless(b"a")?, Some(b"1".to_vec()));
+    assert_eq!(snapshot.get_versionless(b"b")?, None);
+    assert_eq!(s.get_versionless(b"a")?, Some(b"2".to_vec()));
     drop(snapshot);
-    s.set_discard_ts(2).unwrap();
+    s.set_discard_ts(2)?;
     assert!(matches!(s.snapshot(1), Err(e) if matches!(e.0, StoreErrorEnum::TsTooOld)));
-    assert_eq!(s.get_versionless(b"b").unwrap(), Some(b"3".to_vec()));
+    assert_eq!(s.get_versionless(b"b")?, Some(b"3".to_vec()));
+    Ok(())
 }
 
 #[test]
-fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone() {
+fn test_bans_prefix_drops_and_temporary_keyspaces_leave_versionless_keys_alone() -> TestResult {
     let s = store();
     s.apply(
         versionless_batch(&[(&ns_key(5, b"t"), Some(b"1"))], 1),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    s.ban_namespace(5).unwrap();
+    )?;
+    s.ban_namespace(5)?;
     s.apply(
         versionless_batch(&[(&ns_key(5, b"u"), Some(b"2"))], 2),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    s.drop_prefixes(3, &[vec![0x00]], Vec::new()).unwrap();
-    assert_eq!(
-        s.get_versionless(&ns_key(5, b"t")).unwrap(),
-        Some(b"1".to_vec())
-    );
-    assert_eq!(
-        s.get_versionless(&ns_key(5, b"u")).unwrap(),
-        Some(b"2".to_vec())
-    );
-    let temporary = s.create_temporary().unwrap();
+    )?;
+    s.drop_prefixes(3, &[vec![0x00]], Vec::new())?;
+    assert_eq!(s.get_versionless(&ns_key(5, b"t"))?, Some(b"1".to_vec()));
+    assert_eq!(s.get_versionless(&ns_key(5, b"u"))?, Some(b"2".to_vec()));
+    let temporary = s.create_temporary()?;
     let mut batch = WriteBatch::new();
     batch.put_versionless(b"tmp".to_vec(), b"x".to_vec());
-    s.apply_temporary(&temporary, batch).unwrap();
-    let snapshot = s.temporary_snapshot(&temporary).unwrap();
-    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t")).unwrap(), None);
+    s.apply_temporary(&temporary, batch)?;
+    let snapshot = s.temporary_snapshot(&temporary)?;
+    assert_eq!(snapshot.get_versionless(&ns_key(5, b"t"))?, None);
     assert_eq!(
-        s.get_versionless(b"tmp").unwrap(),
+        s.get_versionless(b"tmp")?,
         None,
         "a temporary batch's versionless writes are ignored"
     );
-    s.drop_all(Vec::new()).unwrap();
+    s.drop_all(Vec::new())?;
     assert!(
         s.contents().versionless().is_empty(),
         "a drop of everything clears them"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_versionless_read_is_logged_with_its_snapshot() {
+fn test_a_versionless_read_is_logged_with_its_snapshot() -> TestResult {
     let s = store();
     s.apply(
         versionless_batch(&[(b"a", Some(b"1"))], 1),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    let snapshot = s.snapshot(1).unwrap();
-    s.take_log();
-    snapshot.get_versionless(b"a").unwrap();
-    s.get_versionless(b"z").unwrap();
+    )?;
+    let snapshot = s.snapshot(1)?;
+    let _earlier: Vec<OpRecord> = s.take_log();
+    assert_eq!(snapshot.get_versionless(b"a")?, Some(b"1".to_vec()));
+    assert_eq!(s.get_versionless(b"z")?, None);
     let id = snapshot.id();
     assert_eq!(
         s.take_log(),
@@ -624,16 +645,20 @@ fn test_a_versionless_read_is_logged_with_its_snapshot() {
             },
         ]
     );
+    Ok(())
 }
 
 /// A versionless key over the size limit refuses its batch whole, its entries with it, and the refusal names the
 /// key's size and the limit: 65 001 bytes against `MAX_USER_KEY_SIZE`, 65 000.
 #[test]
-fn test_an_oversized_versionless_key_refuses_its_batch() {
+fn test_an_oversized_versionless_key_refuses_its_batch() -> TestResult {
     let s = store();
     let mut batch = versionless_batch(&[(b"fine", Some(b"1"))], 1);
     batch.put_versionless(vec![1; 65_001], b"2".to_vec());
-    let refused = s.apply(batch, PersistMode::Buffer).unwrap_err();
+    let refused = s
+        .apply(batch, PersistMode::Buffer)
+        .err()
+        .context("an error")?;
     assert!(
         matches!(
             refused.0,
@@ -647,4 +672,5 @@ fn test_an_oversized_versionless_key_refuses_its_batch() {
     );
     assert_eq!(s.contents(), Contents::default(), "nothing was written");
     assert!(!s.needs_recovery(), "a refusal poisons nothing");
+    Ok(())
 }

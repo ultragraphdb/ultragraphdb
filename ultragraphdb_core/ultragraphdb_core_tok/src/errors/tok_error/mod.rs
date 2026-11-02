@@ -40,7 +40,12 @@ pub enum TokErrorEnum {
     Options(OptionsError),
     /// `bytes_to_float` was given fewer bytes than a float of `bits` bits takes, on which Go panics indexing past
     /// them.
-    ShortFloat { len: usize, bits: usize },
+    ShortFloat {
+        /// The number of bytes given.
+        len: usize,
+        /// The width of the float in bits.
+        bits: usize,
+    },
 }
 
 impl TokError {
@@ -64,36 +69,43 @@ impl TokError {
         Self::new(TokErrorEnum::UnknownFactory(msg.into()))
     }
 
+    /// A [`TokErrorEnum::UnknownTokenizer`] error with its message.
     #[allow(non_snake_case)]
     pub fn UnknownTokenizer(msg: String) -> Self {
         Self(TokErrorEnum::UnknownTokenizer(msg))
     }
 
+    /// A [`TokErrorEnum::WrongValue`] error with its message.
     #[allow(non_snake_case)]
     pub fn WrongValue(msg: String) -> Self {
         Self(TokErrorEnum::WrongValue(msg))
     }
 
+    /// A [`TokErrorEnum::Geo`] error wrapping the geo index's refusal.
     #[allow(non_snake_case)]
     pub fn Geo(value: TypesError) -> Self {
         Self(TokErrorEnum::Geo(value))
     }
 
+    /// A [`TokErrorEnum::Arguments`] error with its message.
     #[allow(non_snake_case)]
     pub fn Arguments(msg: String) -> Self {
         Self(TokErrorEnum::Arguments(msg))
     }
 
+    /// A [`TokErrorEnum::UnknownFactory`] error with its message.
     #[allow(non_snake_case)]
     pub fn UnknownFactory(msg: String) -> Self {
         Self(TokErrorEnum::UnknownFactory(msg))
     }
 
+    /// A [`TokErrorEnum::Options`] error wrapping the refused option.
     #[allow(non_snake_case)]
     pub fn Options(value: OptionsError) -> Self {
         Self(TokErrorEnum::Options(value))
     }
 
+    /// A [`TokErrorEnum::ShortFloat`] error: `len` bytes given for a float of `bits` bits.
     #[allow(non_snake_case)]
     pub fn ShortFloat(len: usize, bits: usize) -> Self {
         Self(TokErrorEnum::ShortFloat { len, bits })

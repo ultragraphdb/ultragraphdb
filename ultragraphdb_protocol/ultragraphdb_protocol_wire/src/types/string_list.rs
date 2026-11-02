@@ -57,10 +57,12 @@ impl<'a> StringList<'a> {
         Ok(Self { ends, text })
     }
 
+    /// The number of strings.
     pub fn len(&self) -> usize {
         self.ends.len() / 4
     }
 
+    /// Whether the list holds no string.
     pub fn is_empty(&self) -> bool {
         self.ends.is_empty()
     }

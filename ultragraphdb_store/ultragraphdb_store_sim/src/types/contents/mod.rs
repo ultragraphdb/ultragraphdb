@@ -68,10 +68,12 @@ impl Contents {
         self.keys.get(key).map_or(&[], Vec::as_slice)
     }
 
+    /// The applied timestamp the store holds.
     pub fn applied_ts(&self) -> u64 {
         self.applied_ts
     }
 
+    /// The namespaces the store holds banned.
     pub fn banned(&self) -> &BTreeSet<u64> {
         &self.banned
     }

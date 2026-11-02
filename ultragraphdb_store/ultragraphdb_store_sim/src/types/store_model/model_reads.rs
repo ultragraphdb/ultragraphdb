@@ -4,6 +4,7 @@
  */
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_traits_store::{Item, Scan};
@@ -27,7 +28,8 @@ impl StoreModel {
             ));
         }
         *self.readers.entry(read_ts).or_default() += 1;
-        self.snapshots
+        let _replaced: Option<(u64, Arc<ModelState>, BTreeSet<Vec<u8>>)> = self
+            .snapshots
             .insert(id, (read_ts, self.current.clone(), self.tainted.clone()));
         Ok(())
     }
@@ -62,13 +64,13 @@ impl StoreModel {
 
     /// Forgets snapshot `id` and its reader.
     pub(super) fn observe_snapshot_closed(&mut self, id: u64) {
-        self.temporary_snapshots.remove(&id);
+        let _closed: Option<Arc<ModelState>> = self.temporary_snapshots.remove(&id);
         if let Some((read_ts, ..)) = self.snapshots.remove(&id)
             && let Some(count) = self.readers.get_mut(&read_ts)
         {
             *count -= 1;
             if *count == 0 {
-                self.readers.remove(&read_ts);
+                let _last_reader: Option<usize> = self.readers.remove(&read_ts);
             }
         }
     }

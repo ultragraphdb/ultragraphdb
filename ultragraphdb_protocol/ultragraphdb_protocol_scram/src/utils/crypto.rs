@@ -40,9 +40,9 @@ pub(crate) fn salted(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
         let mut u: [u8; 32] = mac.finalize().into_bytes().into();
         out = u;
         for _ in 1..iterations {
-            let mut mac = keyed.clone();
-            mac.update(&u);
-            u = mac.finalize().into_bytes().into();
+            let mut round = keyed.clone();
+            round.update(&u);
+            u = round.finalize().into_bytes().into();
             out.iter_mut().zip(u).for_each(|(o, b)| *o ^= b);
         }
     }

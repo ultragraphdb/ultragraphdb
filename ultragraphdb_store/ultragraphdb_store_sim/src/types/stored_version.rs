@@ -44,18 +44,22 @@ impl StoredVersion {
         }
     }
 
+    /// The version.
     pub fn version(&self) -> u64 {
         self.version
     }
 
+    /// The value's meta byte; 0 for a deletion or undecodable bytes.
     pub fn meta(&self) -> u8 {
         self.meta
     }
 
+    /// Whether the value carries the discard flag.
     pub fn discard(&self) -> bool {
         self.discard
     }
 
+    /// Whether the version is a deletion.
     pub fn is_deletion(&self) -> bool {
         self.deletion
     }
@@ -65,6 +69,7 @@ impl StoredVersion {
         self.decodable
     }
 
+    /// The value, or the bytes the store cannot decode.
     pub fn value(&self) -> &[u8] {
         &self.value
     }

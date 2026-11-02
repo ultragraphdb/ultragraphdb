@@ -19,10 +19,12 @@ pub struct DropCommandView<'a> {
 }
 
 impl<'a> DropCommandView<'a> {
+    /// What the drop removes.
     pub fn kind(&self) -> DropKind {
         self.kind
     }
 
+    /// The namespace the drop applies to.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
@@ -32,14 +34,17 @@ impl<'a> DropCommandView<'a> {
         self.target
     }
 
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }
 
+    /// The request's number within its session.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The commit version; zero in a request.
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }

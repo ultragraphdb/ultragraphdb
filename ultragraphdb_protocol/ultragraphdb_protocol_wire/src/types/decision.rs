@@ -9,6 +9,13 @@ use crate::types::error_code::ErrorCode;
 /// a reply names and its detail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Decision {
+    /// The transaction committed; its write-set record is the round's next.
     Committed,
-    Aborted { code: ErrorCode, detail: u64 },
+    /// The transaction aborted, for the reason `code` with its `detail`.
+    Aborted {
+        /// The reason a reply names.
+        code: ErrorCode,
+        /// The reason's detail.
+        detail: u64,
+    },
 }

@@ -14,10 +14,12 @@ pub struct Facet {
 }
 
 impl Facet {
+    /// A facet with the key `key`.
     pub fn new(key: impl Into<String>) -> Self {
         Self { key: key.into() }
     }
 
+    /// The facet's key.
     pub fn key(&self) -> &str {
         &self.key
     }

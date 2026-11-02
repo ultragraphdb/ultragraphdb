@@ -96,7 +96,7 @@ impl<S: DurableStorage> Wal<S> {
                 .rename(&self.segment_path(index), &self.spare_path(index))
                 .await
                 .map_err(io_error("rename"))?;
-            self.spares.insert(index);
+            let _new: bool = self.spares.insert(index);
         }
         self.index.retain(|entry| entry.segment >= first);
         if below.is_empty() {

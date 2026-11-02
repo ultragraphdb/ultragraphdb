@@ -14,14 +14,17 @@ pub struct Golden<T> {
 }
 
 impl<T> Golden<T> {
+    /// The Dgraph commit the vectors were generated from.
     pub fn dgraph_commit(&self) -> &str {
         &self.dgraph_commit
     }
 
+    /// The generator that wrote the file.
     pub fn generator(&self) -> &str {
         &self.generator
     }
 
+    /// The file's cases.
     pub fn cases(&self) -> &[T] {
         &self.cases
     }

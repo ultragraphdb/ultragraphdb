@@ -23,7 +23,7 @@ impl Timestamps {
         if let Some(count) = self.open.get_mut(&ts) {
             *count -= 1;
             if *count == 0 {
-                self.open.remove(&ts);
+                let _closed: Option<usize> = self.open.remove(&ts);
             }
         }
     }

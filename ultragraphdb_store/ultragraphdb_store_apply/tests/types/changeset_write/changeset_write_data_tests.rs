@@ -8,21 +8,23 @@
 
 use oxrdf::NamedNode;
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateKind};
-use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 
 use crate::utils::changesets::{
     NS, TestChangesets, apply, changesets, declaration, declare, declared, insert, uid, write,
+    write_changes,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn declared_now(
     a: &TestChangesets,
     predicate: &str,
-) -> Option<ultragraphdb_core_mapping::PredicateDeclaration> {
-    a.catalog(NS).unwrap().predicate(uid(a, predicate)).cloned()
+) -> TestResult<Option<ultragraphdb_core_mapping::PredicateDeclaration>> {
+    Ok(a.catalog(NS)?.predicate(uid(a, predicate)?).cloned())
 }
 
 #[test]
-fn test_each_contradicted_narrowing_is_refused_with_its_reason() {
+fn test_each_contradicted_narrowing_is_refused_with_its_reason() -> TestResult {
     let cases = [
         (
             vec!["<a> <nick> \"Al\"", "<a> <nick> \"Ally\""],
@@ -56,28 +58,35 @@ fn test_each_contradicted_narrowing_is_refused_with_its_reason() {
         ),
     ];
     for (data, predicate, phrase, text) in cases {
-        let a = changesets();
-        write(&a, &data);
-        let before = declared_now(&a, predicate);
-        let refused = declared(&a, predicate, phrase).unwrap_err();
+        let a = changesets()?;
+        write(&a, &data)?;
+        let before = declared_now(&a, predicate)?;
+        let refused = declared(&a, predicate, phrase)?
+            .err()
+            .context("the error of declared(&a, predicate, phrase)?")?;
         assert!(
             matches!(refused.0, ChangesetErrorEnum::Contradicted { .. }),
             "{refused:?}"
         );
         assert_eq!(refused.to_string(), text);
-        assert_eq!(declared_now(&a, predicate), before, "{predicate} unchanged");
+        assert_eq!(
+            declared_now(&a, predicate)?,
+            before,
+            "{predicate} unchanged"
+        );
         a.forget_catalogs();
         assert_eq!(
-            declared_now(&a, predicate),
+            declared_now(&a, predicate)?,
             before,
             "{predicate} unchanged in the store"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_narrowing_the_data_meets_is_applied() {
-    let a = changesets();
+fn test_a_narrowing_the_data_meets_is_applied() -> TestResult {
+    let a = changesets()?;
     write(
         &a,
         &[
@@ -86,91 +95,95 @@ fn test_a_narrowing_the_data_meets_is_applied() {
             "<a> <knows> <b>",
             "<a> <age> 30",
         ],
-    );
+    )?;
     // `c`'s list of `nick` is stored and holds no object: its deltas sum to nothing.
-    write(&a, &["<c> <nick> \"Cy\""]);
-    apply(
+    write(&a, &["<c> <nick> \"Cy\""])?;
+    write_changes(
         &a,
-        vec![crate::utils::changesets::delete("<c> <nick> \"Cy\"")],
-    )
-    .unwrap();
+        vec![crate::utils::changesets::delete("<c> <nick> \"Cy\"")?],
+    )?;
     for (predicate, phrase) in [
         ("nick", "single-valued"),
         ("nick", "a property"),
         ("knows", "an edge"),
         ("age", "with datatype `xsd:integer`"),
     ] {
-        declared(&a, predicate, phrase)
+        let _applied: Applied = declared(&a, predicate, phrase)?
             .map_err(|e| format!("{predicate} {phrase}: {e}"))
-            .expect("the phrase is declared");
+            .context("the phrase is declared")?;
         assert_eq!(
-            declared_now(&a, predicate),
-            Some(declaration(predicate, phrase))
+            declared_now(&a, predicate)?,
+            Some(declaration(predicate, phrase)?)
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_widening_is_applied_whatever_the_data_holds() {
-    let a = changesets();
-    declare(&a, "nick", "single-valued");
-    declare(&a, "age", "with datatype `xsd:integer`");
-    write(&a, &["<a> <nick> \"Al\"", "<a> <age> 30"]);
+fn test_a_widening_is_applied_whatever_the_data_holds() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "nick", "single-valued")?;
+    declare(&a, "age", "with datatype `xsd:integer`")?;
+    write(&a, &["<a> <nick> \"Al\"", "<a> <age> 30"])?;
     // Multi-valued, of kind either, and without a datatype constraint.
     for (predicate, phrase) in [("nick", ""), ("age", "")] {
-        declared(&a, predicate, phrase).unwrap();
-        let d = declared_now(&a, predicate).unwrap();
-        assert_eq!(d, declaration(predicate, phrase));
+        declare(&a, predicate, phrase)?;
+        let d = declared_now(&a, predicate)?.context("declared_now(&a, predicate)?")?;
+        assert_eq!(d, declaration(predicate, phrase)?);
         assert_eq!(d.kind(), PredicateKind::Either);
         assert_eq!(d.datatype(), None);
     }
-    write(&a, &["<a> <nick> \"Ally\"", "<a> <age> \"old\""]);
+    write(&a, &["<a> <nick> \"Ally\"", "<a> <age> \"old\""])?;
+    Ok(())
 }
 
 #[test]
-fn test_data_in_a_named_graph_or_earlier_in_the_changeset_contradicts() {
-    let a = changesets();
-    write(&a, &["<a> <name> \"Ann\" <g1>"]);
-    let refused = declared(&a, "name", "an edge").unwrap_err();
+fn test_data_in_a_named_graph_or_earlier_in_the_changeset_contradicts() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <name> \"Ann\" <g1>"])?;
+    let refused = declared(&a, "name", "an edge")?
+        .err()
+        .context("the error of declared(&a, \"name\", \"an edge\")?")?;
     assert!(
         refused
             .to_string()
             .ends_with("<http://ex.org/a> holds a literal"),
         "{refused}"
     );
-    let b = changesets();
-    let refused = apply(
+    let b = changesets()?;
+    let data_refused = apply(
         &b,
         vec![
-            insert("<s> <title> \"T\""),
-            Change::Declare(Declaration::Predicate(declaration("title", "an edge"))),
+            insert("<s> <title> \"T\"")?,
+            Change::Declare(Declaration::Predicate(declaration("title", "an edge")?)),
         ],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert_eq!(
-        refused.to_string(),
+        data_refused.to_string(),
         "The declaration of <http://ex.org/title> is refused by its data: <http://ex.org/s> holds a literal"
     );
     assert_eq!(
         b.quads()
-            .uid_of(NS, NamedNode::new_unchecked("http://ex.org/s").as_str())
-            .unwrap(),
+            .uid_of(NS, NamedNode::new_unchecked("http://ex.org/s").as_str())?,
         None
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_declaration_check_reads_the_predicate_s_lists_alone() {
-    let a = changesets();
-    write(&a, &["<t> <title> <x>", "<s> <other> \"y\""]);
+fn test_a_declaration_check_reads_the_predicate_s_lists_alone() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<t> <title> <x>", "<s> <other> \"y\""])?;
     let applied = apply(
         &a,
         vec![
-            insert("<s> <other> \"z\""),
-            Change::Declare(Declaration::Predicate(declaration("title", "an edge"))),
+            insert("<s> <other> \"z\"")?,
+            Change::Declare(Declaration::Predicate(declaration("title", "an edge")?)),
         ],
-    )
-    .unwrap();
+    )?;
     // Hand-counted: the insert reads `s`'s list of `other`, the check `t`'s list of `title`; `s` holds no `title`.
     assert_eq!(applied.lists_read(), 2, "{:?}", applied.read());
+    Ok(())
 }

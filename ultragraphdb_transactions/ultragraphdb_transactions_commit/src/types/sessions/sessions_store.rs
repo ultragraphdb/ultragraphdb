@@ -66,7 +66,7 @@ impl Sessions {
                     pending: false,
                 }
             };
-            table.insert(session, session_entry);
+            let _replaced: Option<Session> = table.insert(session, session_entry);
         }
         let capacity = table.len().max(Self::DEFAULT_CAPACITY);
         Ok(Self {

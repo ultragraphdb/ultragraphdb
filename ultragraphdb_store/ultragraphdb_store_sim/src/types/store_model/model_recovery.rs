@@ -207,14 +207,14 @@ fn partial(op: &ModelOp, later: &[ModelOp], contents: &Contents) -> Option<Strin
     // A versionless write is judged by the value its key holds, unless a later batch some of whose entries survive,
     // or a drop of everything, wrote over it.
     let overwritten = |key: &[u8]| {
-        later.iter().any(|op| match op {
+        later.iter().any(|later_op| match later_op {
             ModelOp::Batch {
-                entries,
-                versionless,
+                entries: later_entries,
+                versionless: later_versionless,
                 ..
             } => {
-                entries.iter().any(|e| holds(contents, e))
-                    && versionless.iter().any(|w| w.key() == key)
+                later_entries.iter().any(|e| holds(contents, e))
+                    && later_versionless.iter().any(|w| w.key() == key)
             }
             ModelOp::Drop { prefixes, .. } => prefixes.is_none(),
             ModelOp::Record(_) => false,

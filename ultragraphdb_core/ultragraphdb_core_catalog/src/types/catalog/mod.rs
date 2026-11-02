@@ -44,13 +44,14 @@ impl Catalog {
     /// A namespace's initial catalog: `rdf:type`, whose UID is `rdf_type`, declared an edge, and nothing else.
     pub fn initial(namespace: u64, rdf_type: u64) -> Self {
         let mut catalog = Self::new(namespace);
-        catalog.predicates.insert(
+        let _none: Option<PredicateDeclaration> = catalog.predicates.insert(
             rdf_type,
             PredicateDeclaration::new(rdf::TYPE.into_owned()).with_kind(PredicateKind::Edge),
         );
         catalog
     }
 
+    /// The namespace the catalog is of.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
@@ -73,18 +74,22 @@ impl Catalog {
         self.predicates.iter().map(|(uid, d)| (*uid, d))
     }
 
+    /// The declaration of entity type `uid`, if the catalog holds one.
     pub fn entity_type(&self, uid: u64) -> Option<&TypeDeclaration> {
         self.types.get(&uid)
     }
 
+    /// Every entity type declared, by UID.
     pub fn entity_types(&self) -> impl Iterator<Item = (u64, &TypeDeclaration)> {
         self.types.iter().map(|(uid, d)| (*uid, d))
     }
 
+    /// The declaration of relation `uid`, if the catalog holds one.
     pub fn relation(&self, uid: u64) -> Option<&RelationDeclaration> {
         self.relations.get(&uid)
     }
 
+    /// Every relation declared, by UID.
     pub fn relations(&self) -> impl Iterator<Item = (u64, &RelationDeclaration)> {
         self.relations.iter().map(|(uid, d)| (*uid, d))
     }
@@ -97,7 +102,7 @@ impl Catalog {
         declaration: PredicateDeclaration,
     ) -> Result<(), CatalogError> {
         Self::check_predicate(&declaration)?;
-        self.predicates.insert(uid, declaration);
+        let _replaced: Option<PredicateDeclaration> = self.predicates.insert(uid, declaration);
         Ok(())
     }
 
@@ -132,8 +137,9 @@ impl Catalog {
         self.predicates.remove(&uid).is_some()
     }
 
+    /// Declares relation `uid`, replacing its declaration.
     pub fn declare_relation(&mut self, uid: u64, declaration: RelationDeclaration) {
-        self.relations.insert(uid, declaration);
+        let _replaced: Option<RelationDeclaration> = self.relations.insert(uid, declaration);
     }
 
     /// Applies `declaration` of the predicate, type or relation `uid` names; a type's parent, when it has one, is

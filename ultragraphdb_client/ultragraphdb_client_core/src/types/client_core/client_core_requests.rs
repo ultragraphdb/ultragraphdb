@@ -21,14 +21,15 @@ use crate::types::stream_state::StreamState;
 use crate::types::transaction::Transaction;
 
 impl<L: Login> ClientCore<L> {
-    /// The open stream of `transaction`, free for its next request: refused as [`ClientError::StreamFinished`] when
-    /// it is gone, with the refusal it ended with when it was refused, as [`ClientError::StreamBusy`] while a reply is
-    /// awaited on it, and as [`ClientError::ReadOnly`] for a write of a read-only transaction.
+    /// Whether the open stream of `transaction` is free for its next request: refused as
+    /// [`ClientError::StreamFinished`] when it is gone, with the refusal it ended with when it was refused, as
+    /// [`ClientError::StreamBusy`] while a reply is awaited on it, and as [`ClientError::ReadOnly`] for a write of a
+    /// read-only transaction.
     fn transaction_stream(
         &mut self,
         transaction: &Transaction,
         writes: bool,
-    ) -> Result<&mut StreamState, ClientError> {
+    ) -> Result<(), ClientError> {
         let stream = transaction.stream();
         if transaction.generation() != self.generation || !self.is_ready() {
             return Err(ClientError::StreamFinished(stream));
@@ -37,12 +38,9 @@ impl<L: Login> ClientCore<L> {
             return Err(ClientError::StreamFinished(stream));
         };
         if let Some(failed) = state.failed.take() {
-            self.streams.remove(&stream);
+            let _ended: Option<StreamState> = self.streams.remove(&stream);
             return Err(failed);
         }
-        let Some(state) = self.streams.get_mut(&stream) else {
-            return Err(ClientError::StreamFinished(stream));
-        };
         if state.transaction.is_none() {
             return Err(ClientError::StreamFinished(stream));
         }
@@ -52,7 +50,7 @@ impl<L: Login> ClientCore<L> {
         if writes && state.transaction == Some(true) {
             return Err(ClientError::ReadOnly(stream));
         }
-        Ok(state)
+        Ok(())
     }
 
     /// A request of one reply on a new stream.
@@ -71,7 +69,7 @@ impl<L: Login> ClientCore<L> {
                 Ok(self.send_request(stream, frame, PendingState::new(Some(stream), expect), now))
             }
             Err(error) => {
-                self.streams.remove(&stream);
+                let _ended: Option<StreamState> = self.streams.remove(&stream);
                 Err(error)
             }
         }
@@ -132,7 +130,7 @@ impl<L: Login> ClientCore<L> {
     /// Aborts `transaction`; no reply, its stream ends, and its reads end with it.
     pub fn abort(&mut self, transaction: Transaction) -> Result<(), ClientError> {
         self.send_on(&transaction, &Abort, false)?;
-        self.streams.remove(&transaction.stream());
+        let _ended: Option<StreamState> = self.streams.remove(&transaction.stream());
         self.end_reads(transaction.stream());
         Ok(())
     }
@@ -157,7 +155,7 @@ impl<L: Login> ClientCore<L> {
         let frame = match self.frame(body, stream) {
             Ok(frame) => frame,
             Err(error) => {
-                self.streams.remove(&stream);
+                let _ended: Option<StreamState> = self.streams.remove(&stream);
                 return Err(error);
             }
         };
@@ -220,8 +218,8 @@ impl<L: Login> ClientCore<L> {
             &Commit::new(session.number(), request, 0, Vec::new()),
             transaction.stream(),
         )?;
-        if let Some(state) = self.sessions.get_mut(&session.number()) {
-            state.in_flight = true;
+        if let Some(session_state) = self.sessions.get_mut(&session.number()) {
+            session_state.in_flight = true;
         }
         let expect = Expect::Commit {
             session: session.number(),
@@ -263,12 +261,12 @@ impl<L: Login> ClientCore<L> {
         let frame = match self.frame(&command, stream) {
             Ok(frame) => frame,
             Err(error) => {
-                self.streams.remove(&stream);
+                let _ended: Option<StreamState> = self.streams.remove(&stream);
                 return Err(error);
             }
         };
-        if let Some(state) = self.sessions.get_mut(&session.number()) {
-            state.in_flight = true;
+        if let Some(session_state) = self.sessions.get_mut(&session.number()) {
+            session_state.in_flight = true;
         }
         let mut pending = PendingState::new(
             Some(stream),
@@ -299,7 +297,9 @@ impl<L: Login> ClientCore<L> {
             session: session.number(),
             request,
         };
-        self.pending.insert(id, PendingState::new(None, expect));
+        let _replaced: Option<PendingState> =
+            self.pending.insert(id, PendingState::new(None, expect));
+
         if self.is_ready() {
             self.send_commit(id, now);
         }

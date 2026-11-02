@@ -92,12 +92,12 @@ pub fn get_tokenizer_for_lang(t: &Tokenizer, lang: &str) -> Tokenizer {
         Kind::Term(_) => Tokenizer::new(Kind::Term(lang.to_string())),
         Kind::NGram(_) => Tokenizer::new(Kind::NGram(lang.to_string())),
         Kind::Exact(_) => {
-            let tag = Tag::parse(lang)
-                .or_else(|_| Tag::parse("en"))
-                .expect("the constant tag en parses");
+            // The constant tag en parses, so the default `und` is never taken; a debug build checks it.
+            let tag = Tag::parse(lang).or_else(|_| Tag::parse("en"));
+            debug_assert!(tag.is_ok(), "the constant tag en parses");
             Tokenizer::new(Kind::Exact(Some(Box::new(ExactLang {
                 lang_base: lang_base(lang),
-                collator: Collator::new(&tag),
+                collator: Collator::new(&tag.unwrap_or_default()),
             }))))
         }
         Kind::BigFloat

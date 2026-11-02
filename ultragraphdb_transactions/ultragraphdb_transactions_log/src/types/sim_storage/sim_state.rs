@@ -61,7 +61,7 @@ impl SimState {
     }
 
     pub(crate) fn fail_at(&mut self, operation: usize, mode: FaultMode) {
-        self.faults.insert(operation, mode);
+        let _replaced: Option<FaultMode> = self.faults.insert(operation, mode);
     }
 
     pub(crate) fn fail_randomly(&mut self, one_in: u32) {
@@ -151,7 +151,7 @@ impl SimState {
                 .copied()
                 .ok_or_else(missing)
         })?;
-        self.entries(dir, false)?;
+        let _directory: &BTreeMap<String, usize> = self.entries(dir, false)?;
         Ok((dir, name))
     }
 
@@ -182,7 +182,7 @@ impl SimState {
     pub(crate) fn open(&mut self, path: &Path, create: bool, cut: bool) -> io::Result<usize> {
         if !create {
             let inode = self.lookup(path, false)?;
-            self.file(inode)?;
+            let _file: &Vec<u8> = self.file(inode)?;
             return Ok(inode);
         }
         let (dir, name) = self.parent(path)?;
@@ -198,10 +198,10 @@ impl SimState {
     }
 
     fn insert(&mut self, dir: usize, name: String, inode: SimInode) -> io::Result<usize> {
-        self.entries(dir, false)?;
+        let _directory: &BTreeMap<String, usize> = self.entries(dir, false)?;
         self.inodes.push(inode);
         let index = self.inodes.len() - 1;
-        self.entries_mut(dir)?.insert(name, index);
+        let _replaced: Option<usize> = self.entries_mut(dir)?.insert(name, index);
         Ok(index)
     }
 
@@ -241,10 +241,10 @@ impl SimState {
             .ok_or_else(missing)?;
         let (to_dir, to_name) = self.parent(to)?;
         if let Some(target) = self.entries(to_dir, false)?.get(&to_name).copied() {
-            self.file(target)?;
+            let _target: &Vec<u8> = self.file(target)?;
         }
-        self.entries_mut(dir)?.remove(&name);
-        self.entries_mut(to_dir)?.insert(to_name, inode);
+        let _removed: Option<usize> = self.entries_mut(dir)?.remove(&name);
+        let _replaced: Option<usize> = self.entries_mut(to_dir)?.insert(to_name, inode);
         Ok(())
     }
 
@@ -255,8 +255,8 @@ impl SimState {
             .get(&name)
             .copied()
             .ok_or_else(missing)?;
-        self.file(inode)?;
-        self.entries_mut(dir)?.remove(&name);
+        let _file: &Vec<u8> = self.file(inode)?;
+        let _removed: Option<usize> = self.entries_mut(dir)?.remove(&name);
         Ok(())
     }
 
@@ -282,7 +282,7 @@ impl SimState {
 
     fn stabilise_entry(&mut self, dir: usize, name: &str, inode: usize) {
         if let Some(SimInode::Directory { stable, .. }) = self.inodes.get_mut(dir) {
-            stable.insert(name.to_string(), inode);
+            let _replaced: Option<usize> = stable.insert(name.to_string(), inode);
         }
     }
 
@@ -295,8 +295,8 @@ impl SimState {
                     error(io::ErrorKind::InvalidInput, "past the end of the file")
                 })?;
                 *byte ^= mask;
-                if let Some(byte) = stable.get_mut(offset) {
-                    *byte ^= mask;
+                if let Some(stable_byte) = stable.get_mut(offset) {
+                    *stable_byte ^= mask;
                 }
                 Ok(())
             }

@@ -3,14 +3,16 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::utils::fixture::Refused;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{PersistMode, Store, VersionlessEntry, WriteBatch};
 use ultragraphdb_transactions_commit::{CommitError, SessionEntry, Sessions};
 
 #[test]
-fn test_a_table_holds_at_least_one_session_and_accounts_48_bytes_each() {
+fn test_a_table_holds_at_least_one_session_and_accounts_48_bytes_each() -> TestResult {
     let mut table = Sessions::new(0);
     assert_eq!(table.capacity(), 1);
     assert!(table.is_empty());
@@ -19,13 +21,15 @@ fn test_a_table_holds_at_least_one_session_and_accounts_48_bytes_each() {
     assert_eq!(table.register(12, 0), Some(10));
     assert_eq!((table.len(), table.bytes()), (1, 48));
     assert_eq!(Sessions::new(Sessions::DEFAULT_CAPACITY).capacity(), 4_096);
+    Ok(())
 }
 
 #[test]
-fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_flight_first() {
+fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_flight_first()
+-> TestResult {
     let mut table = Sessions::new(3);
     for s in [10, 12, 14] {
-        table.register(s, 0);
+        let _evicted: Option<u64> = table.register(s, 0);
     }
     // 10 commits at 20, 14 at 22: 12 is the oldest.
     table.committed(10, 1, 20, Vec::new());
@@ -39,14 +43,15 @@ fn test_the_session_touched_longest_ago_is_evicted_one_without_a_commit_in_fligh
     table.begin(30);
     table.begin(32);
     assert_eq!(table.register(34, 0), Some(10));
+    Ok(())
 }
 
 #[test]
-fn test_a_check_follows_the_lean_models_order() {
+fn test_a_check_follows_the_lean_models_order() -> TestResult {
     let mut table = Sessions::new(4);
     assert_eq!(table.check(0, 99, 0), Ok(None), "no session");
     assert_eq!(table.check(5, 1, 0), Err(CommitError::SessionEvicted(5)));
-    table.register(5, 0);
+    let _evicted: Option<u64> = table.register(5, 0);
     assert_eq!(table.check(5, 0, 0), Err(CommitError::RequestOutOfOrder(1)));
     assert_eq!(table.check(5, 1, 0), Ok(None));
     assert_eq!(table.check(5, 2, 0), Err(CommitError::RequestOutOfOrder(1)));
@@ -66,6 +71,7 @@ fn test_a_check_follows_the_lean_models_order() {
     table.begin(77);
     table.committed(77, 1, 50, Vec::new());
     assert_eq!(table.last(77), None);
+    Ok(())
 }
 
 /// The entries `table` asks the store to write, drained.
@@ -87,11 +93,11 @@ fn index(sessions: &[u64]) -> VersionlessEntry {
 }
 
 #[test]
-fn test_the_table_hands_out_each_change_once_as_store_entries() {
+fn test_the_table_hands_out_each_change_once_as_store_entries() -> TestResult {
     let mut table = Sessions::new(2);
     assert!(drained(&mut table).is_empty(), "nothing changed");
-    table.register(12, 0);
-    table.register(10, 0);
+    assert_eq!(table.register(12, 0), None);
+    assert_eq!(table.register(10, 0), None);
     assert_eq!(
         drained(&mut table),
         vec![
@@ -131,13 +137,14 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
         ]
     );
     assert!(drained(&mut table).is_empty());
+    Ok(())
 }
 
 fn store() -> SimStore {
     SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new())
 }
 
-fn write(store: &SimStore, entries: &[VersionlessEntry]) {
+fn write(store: &SimStore, entries: &[VersionlessEntry]) -> TestResult {
     let mut batch = WriteBatch::new();
     for entry in entries {
         match entry.value() {
@@ -147,18 +154,19 @@ fn write(store: &SimStore, entries: &[VersionlessEntry]) {
     }
     store
         .apply(batch, PersistMode::Buffer)
-        .expect("the batch applies");
+        .context("the batch applies")?;
+    Ok(())
 }
 
 #[test]
-fn test_a_table_loads_as_its_entries_left_it() {
-    let empty = Sessions::load(&store()).expect("an empty store loads");
+fn test_a_table_loads_as_its_entries_left_it() -> TestResult {
+    let empty = Sessions::load(&store()).context("an empty store loads")?;
     assert!(empty.is_empty());
     assert_eq!(empty.capacity(), Sessions::DEFAULT_CAPACITY);
     let store = store();
     let mut table = Sessions::new(8);
     for s in [10, 12, 14] {
-        table.register(s, 0);
+        let _evicted: Option<u64> = table.register(s, 0);
     }
     let results = vec![
         OperationResult::new(5, true),
@@ -166,8 +174,8 @@ fn test_a_table_loads_as_its_entries_left_it() {
     ];
     table.committed(10, 3, 30, results.clone());
     table.committed(14, 1, 22, Vec::new());
-    write(&store, &drained(&mut table));
-    let mut loaded = Sessions::load(&store).expect("the table loads");
+    write(&store, &drained(&mut table))?;
+    let mut loaded = Sessions::load(&store).context("the table loads")?;
     assert_eq!(loaded.len(), 3);
     assert_eq!(loaded.check(10, 3, 0), Ok(Some((30, results.as_slice()))));
     assert_eq!(loaded.last(12), Some((0, 0)));
@@ -185,10 +193,11 @@ fn test_a_table_loads_as_its_entries_left_it() {
         ]
     );
     assert_eq!(bounded.register(40, 0), Some(14));
+    Ok(())
 }
 
 /// The reason `store` is refused with, and the key it names.
-fn refusal(store: &SimStore) -> (Vec<u8>, String) {
+fn refusal(store: &SimStore) -> TestResult<(Vec<u8>, String)> {
     let loaded = Sessions::load(store).map(|t| t.len());
     let refused = if let Err(StoreError(StoreErrorEnum::Corrupted { key, reason })) = &loaded {
         Some((key.clone(), reason.clone()))
@@ -197,11 +206,11 @@ fn refusal(store: &SimStore) -> (Vec<u8>, String) {
     };
     refused
         .ok_or_else(|| format!("not refused as corrupted, sessions loaded: {loaded:?}"))
-        .expect("refused as corrupted")
+        .context("refused as corrupted")
 }
 
 #[test]
-fn test_a_malformed_table_is_refused_as_corrupted() {
+fn test_a_malformed_table_is_refused_as_corrupted() -> TestResult {
     let ragged = store();
     write(
         &ragged,
@@ -209,12 +218,12 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
             SessionEntry::INDEX_KEY.to_vec(),
             vec![1; 9],
         )],
-    );
-    assert_eq!(refusal(&ragged).0, SessionEntry::INDEX_KEY);
+    )?;
+    assert_eq!(refusal(&ragged)?.0, SessionEntry::INDEX_KEY);
     let unordered = store();
-    write(&unordered, &[index(&[12, 10])]);
+    write(&unordered, &[index(&[12, 10])])?;
     assert_eq!(
-        refusal(&unordered),
+        refusal(&unordered)?,
         (
             SessionEntry::INDEX_KEY.to_vec(),
             "a session index whose numbers are not ascending from above 0".to_string()
@@ -228,16 +237,16 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
             index(&[10, 10]),
             put(10, &SessionEntry::new(0, 0, 0, Vec::new())),
         ],
-    );
-    assert_eq!(refusal(&repeated).0, SessionEntry::INDEX_KEY);
-    assert!(refusal(&repeated).1.contains("ascending"));
+    )?;
+    assert_eq!(refusal(&repeated)?.0, SessionEntry::INDEX_KEY);
+    assert!(refusal(&repeated)?.1.contains("ascending"));
     let zero = store();
-    write(&zero, &[index(&[0])]);
-    assert!(refusal(&zero).1.contains("ascending"));
+    write(&zero, &[index(&[0])])?;
+    assert!(refusal(&zero)?.1.contains("ascending"));
     let missing = store();
-    write(&missing, &[index(&[10])]);
+    write(&missing, &[index(&[10])])?;
     assert_eq!(
-        refusal(&missing),
+        refusal(&missing)?,
         (
             SessionEntry::key(10),
             "the index names a session with no entry".to_string()
@@ -250,8 +259,8 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
             index(&[10]),
             put(10, &SessionEntry::new(1, 10, 0, Vec::new())),
         ],
-    );
-    assert!(refusal(&early).1.contains("registration"));
+    )?;
+    assert!(refusal(&early)?.1.contains("registration"));
     let bad = store();
     write(
         &bad,
@@ -259,16 +268,17 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
             index(&[10]),
             VersionlessEntry::put(SessionEntry::key(10), vec![0; 3]),
         ],
-    );
-    assert_eq!(refusal(&bad).0, SessionEntry::key(10));
+    )?;
+    assert_eq!(refusal(&bad)?.0, SessionEntry::key(10));
+    Ok(())
 }
 
 /// A session belongs to the principal that registered it: another's commit, or its retry, is refused before anything
 /// else is checked, and the owner's next request is served (`PROTOCOL.md` §11.5).
 #[test]
-fn test_a_session_serves_its_owner_alone() {
+fn test_a_session_serves_its_owner_alone() -> TestResult {
     let mut table = Sessions::new(4);
-    table.register(5, 7);
+    let _evicted: Option<u64> = table.register(5, 7);
     assert_eq!(table.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
     assert_eq!(table.retry(5, 1, 8), Err(CommitError::PermissionDenied(5)));
     assert_eq!(table.check(5, 1, 7), Ok(None));
@@ -285,16 +295,17 @@ fn test_a_session_serves_its_owner_alone() {
         "nor its stored reply"
     );
     assert_eq!(table.check(5, 2, 7), Ok(None));
+    Ok(())
 }
 
 /// A retry sent with no transaction open for it: the last committed request's stored reply, the next one not
 /// committed, any other out of order, busy while a request is in flight, evicted when the table holds no session.
 #[test]
-fn test_a_retry_is_answered_from_the_table() {
+fn test_a_retry_is_answered_from_the_table() -> TestResult {
     let results = vec![OperationResult::new(3, true)];
     let mut table = Sessions::new(4);
     assert_eq!(table.retry(5, 1, 7), Err(CommitError::SessionEvicted(5)));
-    table.register(5, 7);
+    let _evicted: Option<u64> = table.register(5, 7);
     assert_eq!(table.retry(5, 1, 7), Err(CommitError::NotCommitted(1)));
     assert_eq!(table.retry(5, 0, 7), Err(CommitError::RequestOutOfOrder(1)));
     table.begin(5);
@@ -311,33 +322,39 @@ fn test_a_retry_is_answered_from_the_table() {
         "the action, write"
     );
     assert!(!CommitError::PermissionDenied(5).is_retryable());
+    Ok(())
 }
 
 /// The owner is durable: the entries drained carry it, and the table loaded back refuses another principal.
 #[test]
-fn test_the_owner_survives_a_reload() {
+fn test_the_owner_survives_a_reload() -> TestResult {
     let store = store();
     let mut table = Sessions::new(4);
-    table.register(5, 7);
+    let _evicted: Option<u64> = table.register(5, 7);
     let mut entries = Vec::new();
     table.drain_entries(&mut entries);
-    write(&store, &entries);
-    let loaded = Sessions::load(&store).unwrap();
+    write(&store, &entries)?;
+    let loaded = Sessions::load(&store)?;
     assert_eq!(loaded.check(5, 1, 8), Err(CommitError::PermissionDenied(5)));
     assert_eq!(loaded.check(5, 1, 7), Ok(None));
+    Ok(())
 }
 
 /// A read the store fails while loading is the store's error, passed on as it is, not reported as corruption.
 #[test]
-fn test_a_failed_read_while_loading_is_the_stores_error() {
+fn test_a_failed_read_while_loading_is_the_stores_error() -> TestResult {
     use ultragraphdb_store_sim::Fault;
     let failing = store();
     failing.inject(Fault::FailNextRead);
     assert_eq!(
-        Sessions::load(&failing).map(|t| t.len()).unwrap_err().0,
+        Sessions::load(&failing)
+            .map(|t| t.len())
+            .refused("refused")?
+            .0,
         StoreErrorEnum::ReadFailed {
             key: SessionEntry::INDEX_KEY.to_vec(),
             reason: "simulated read failure".to_string()
         }
     );
+    Ok(())
 }

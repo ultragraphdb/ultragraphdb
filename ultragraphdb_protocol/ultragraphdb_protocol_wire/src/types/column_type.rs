@@ -14,6 +14,7 @@ pub enum ColumnType {
 }
 
 impl ColumnType {
+    /// The type's number on the wire.
     pub fn number(self) -> u8 {
         match self {
             ColumnType::Node => 1,
@@ -21,6 +22,7 @@ impl ColumnType {
         }
     }
 
+    /// The type numbered `number`; `None` for a number no type has.
     pub fn from_number(number: u8) -> Option<ColumnType> {
         match number {
             1 => Some(ColumnType::Node),

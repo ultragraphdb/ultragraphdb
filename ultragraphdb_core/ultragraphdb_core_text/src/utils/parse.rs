@@ -161,17 +161,17 @@ pub(crate) fn parse_scanner(
 /// parsed. If `do_norm` is set, `<lang>-<extlang>` is normalized to `<extlang>`.
 pub(crate) fn parse_tag(scan: &mut Scanner, do_norm: bool) -> (FullTag, usize) {
     let mut t = FullTag::default();
-    let r = get_lang_id(scan.token_mut());
-    t.lang_id = r.as_ref().copied().unwrap_or_default();
-    scan.set_error(r.err());
+    let lang_id = get_lang_id(scan.token_mut());
+    t.lang_id = lang_id.as_ref().copied().unwrap_or_default();
+    scan.set_error(lang_id.err());
     scan.replace(t.lang_id.as_string().as_bytes());
     let lang_start = scan.start;
     let mut end = scan.scan();
     while scan.token_len() == 3 && is_alpha(scan.token()[0]) {
         // <lang>-<extlang> tags are equivalent to a tag of the form <extlang>.
         if do_norm {
-            let r = get_lang_id(scan.token_mut());
-            let lang = r.as_ref().copied().unwrap_or_default();
+            let extlang_id = get_lang_id(scan.token_mut());
+            let lang = extlang_id.as_ref().copied().unwrap_or_default();
             if lang.0 != 0 {
                 t.lang_id = lang;
                 let lang_str = lang.as_string();
@@ -181,24 +181,24 @@ pub(crate) fn parse_tag(scan: &mut Scanner, do_norm: bool) -> (FullTag, usize) {
                 b[lang_start + n] = b'-';
                 scan.start = lang_start + n + 1;
             }
-            scan.gobble(r.err());
+            scan.gobble(extlang_id.err());
         }
         end = scan.scan();
     }
     if scan.token_len() == 4 && is_alpha(scan.token()[0]) {
-        let r = get_script_id(scan.token_mut());
-        t.script_id = r.as_ref().copied().unwrap_or_default();
+        let script_id = get_script_id(scan.token_mut());
+        t.script_id = script_id.as_ref().copied().unwrap_or_default();
         if t.script_id.0 == 0 {
-            scan.gobble(r.err());
+            scan.gobble(script_id.err());
         }
         end = scan.scan();
     }
     let n = scan.token_len();
     if (2..=3).contains(&n) {
-        let r = get_region_id(scan.token_mut());
-        t.region_id = r.as_ref().copied().unwrap_or_default();
+        let region_id = get_region_id(scan.token_mut());
+        t.region_id = region_id.as_ref().copied().unwrap_or_default();
         if t.region_id.0 == 0 {
-            scan.gobble(r.err());
+            scan.gobble(region_id.err());
         } else {
             scan.replace(t.region_id.as_string().as_bytes());
         }
@@ -236,7 +236,7 @@ fn parse_variants(scan: &mut Scanner, mut end: usize) -> usize {
             // unknown variant
             let err = LanguageError::value(scan.token());
             scan.gobble(Some(err));
-            scan.scan();
+            scan.advance();
             continue;
         };
         var_id.push(v);
@@ -254,7 +254,7 @@ fn parse_variants(scan: &mut Scanner, mut end: usize) -> usize {
             }
         }
         end = scan.end;
-        scan.scan();
+        scan.advance();
     }
     if need_sort {
         let mut pairs: Vec<(u8, Vec<u8>)> = var_id.into_iter().zip(variant).collect();
@@ -326,7 +326,7 @@ fn parse_extension(scan: &mut Scanner) -> usize {
             end = parse_u_keys(scan, end);
         }
         b't' => {
-            scan.scan();
+            scan.advance();
             let n = scan.token_len();
             if (2..=3).contains(&n) && is_alpha(scan.token()[1]) {
                 let (_, e) = parse_tag(scan, false);
@@ -350,7 +350,7 @@ fn parse_extension(scan: &mut Scanner) -> usize {
 /// The attributes of a `u` extension whose singleton ends at `end`, sorted in place; the position of their end.
 fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
     let attr_start = end;
-    scan.scan();
+    scan.advance();
     let mut last: Vec<u8> = Vec::new();
     while scan.token_len() > 2 {
         if scan.token() >= last.as_slice() {
@@ -358,11 +358,11 @@ fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
             let p = attr_start + 1;
             scan.next = p;
             let mut attrs: Vec<Vec<u8>> = Vec::new();
-            scan.scan();
+            scan.advance();
             while scan.token_len() > 2 {
                 attrs.push(scan.token().to_vec());
                 end = scan.end;
-                scan.scan();
+                scan.advance();
             }
             attrs.sort_by(|a, b| a[..3].cmp(&b[..3]));
             scan.copy_at(p, &attrs.join(&b'-'));
@@ -370,7 +370,7 @@ fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
         }
         last = scan.token().to_vec();
         end = scan.end;
-        scan.scan();
+        scan.advance();
     }
     end
 }
@@ -385,10 +385,10 @@ fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
     while scan.token_len() == 2 {
         let key = scan.token().to_vec();
         end = scan.end;
-        scan.scan();
+        scan.advance();
         while end < scan.end && scan.token_len() > 2 {
             end = scan.end;
-            scan.scan();
+            scan.advance();
         }
         if key.as_slice() <= last.as_slice() || scan.err.is_some() {
             // We have an invalid key or the keys are not sorted. Start scanning keys from scratch and
@@ -396,14 +396,14 @@ fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
             let p = attr_end + 1;
             scan.next = p;
             let mut keys: Vec<Vec<u8>> = Vec::new();
-            scan.scan();
+            scan.advance();
             while scan.token_len() == 2 {
                 let key_start = scan.start;
                 end = scan.end;
-                scan.scan();
+                scan.advance();
                 while end < scan.end && scan.token_len() > 2 {
                     end = scan.end;
-                    scan.scan();
+                    scan.advance();
                 }
                 keys.push(scan.b()[key_start..end].to_vec());
             }

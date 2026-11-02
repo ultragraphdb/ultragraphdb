@@ -291,7 +291,7 @@ impl<P: Proposal> CommitStep<P> {
         for update in self.updates.drain(..) {
             match update {
                 Update::Registered { session, principal } => {
-                    self.sessions.register(session, principal);
+                    let _evicted: Option<u64> = self.sessions.register(session, principal);
                 }
                 Update::Committed {
                     session,
@@ -374,10 +374,12 @@ impl<P: Proposal> CommitStep<P> {
         self.stopped
     }
 
+    /// The resolver validating the step's transactions.
     pub fn resolver(&self) -> &Resolver {
         &self.resolver
     }
 
+    /// The bounds a round closes at.
     pub fn bounds(&self) -> RoundBounds {
         self.bounds
     }

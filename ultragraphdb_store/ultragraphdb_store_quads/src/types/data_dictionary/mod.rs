@@ -25,6 +25,7 @@ pub struct DataDictionary {
 }
 
 impl DataDictionary {
+    /// The data dictionary of `namespace`, with no shapes before its first pass.
     pub fn new(namespace: u64) -> Self {
         Self {
             namespace,
@@ -32,6 +33,7 @@ impl DataDictionary {
         }
     }
 
+    /// The namespace it describes.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }

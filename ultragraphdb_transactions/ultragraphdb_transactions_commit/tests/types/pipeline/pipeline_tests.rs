@@ -7,11 +7,13 @@
 //! closed round appended at the log's tail and synced, applied once durable, its replies handed out after the apply;
 //! a failed sync or a refused apply stopping every later write.
 
+use crate::utils::fixture::Refused;
 use futures::executor::block_on;
 use oxrdf::{Literal, Term};
 use ultragraphdb_error_log::LogErrorEnum;
 use ultragraphdb_protocol_wire::ConflictKind;
 use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::{OrderedLog, Position};
 use ultragraphdb_transactions_commit::{
     CommitError, Pipeline, PipelineError, PipelineErrorEnum, Reply, RoundBounds,
@@ -35,19 +37,20 @@ fn unbounded() -> RoundBounds {
     RoundBounds::new(u32::MAX, u32::MAX)
 }
 
-fn pipeline(applier: &Applier) -> (SimStorage, Pipe<'_>) {
-    let (storage, log) = wal();
-    (
+fn pipeline(applier: &Applier) -> TestResult<(SimStorage, Pipe<'_>)> {
+    let (storage, log) = wal()?;
+    Ok((
         storage,
-        Pipeline::new(applier, log, unbounded()).expect("it opens"),
-    )
+        Pipeline::new(applier, log, unbounded()).context("it opens")?,
+    ))
 }
 
 /// Commits `<subject> <knows> <b>` under `ticket`.
-fn commit_insert(pipe: &mut Pipe<'_>, applier: &Applier, ticket: u64, subject: &str) {
-    let mut txn = begin(applier);
-    write(&mut txn, vec![insert(subject, "knows", "b")]);
-    pipe.commit(ticket, prepare(txn), 0).expect("appended");
+fn commit_insert(pipe: &mut Pipe<'_>, applier: &Applier, ticket: u64, subject: &str) -> TestResult {
+    let mut txn = begin(applier)?;
+    write(&mut txn, vec![insert(subject, "knows", "b")])?;
+    pipe.commit(ticket, prepare(txn)?, 0).context("appended")?;
+    Ok(())
 }
 
 fn drained(pipe: &mut Pipe<'_>) -> Vec<Reply> {
@@ -55,45 +58,46 @@ fn drained(pipe: &mut Pipe<'_>) -> Vec<Reply> {
 }
 
 #[test]
-fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert("a", "knows", "b")]);
-    let (_storage, mut pipe) = pipeline(&applier);
-    commit_insert(&mut pipe, &applier, 7, "c");
+fn test_a_commit_is_acknowledged_once_synced_and_applied_and_visible_after() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    commit_insert(&mut pipe, &applier, 7, "c")?;
     assert!(pipe.needs_sync());
     assert!(drained(&mut pipe).is_empty(), "no reply before the sync");
     assert!(
-        held(&applier, "c", "knows").is_empty(),
+        held(&applier, "c", "knows")?.is_empty(),
         "not visible before the apply"
     );
     assert_eq!(pipe.log().tail().0, Position::new(1));
     assert_eq!(pipe.log().committed(), Position::ZERO);
-    block_on(pipe.sync(0)).expect("synced");
+    block_on(pipe.sync(0)).context("synced")?;
     assert!(!pipe.needs_sync());
     let version = base + 2;
     assert_eq!(drained(&mut pipe), vec![Reply::new(7, Ok(version))]);
     assert_eq!(pipe.watermark(), version);
     assert_eq!(applier.quads().lists().applied_ts(), version);
-    assert_eq!(held(&applier, "c", "knows").len(), 1);
+    assert_eq!(held(&applier, "c", "knows")?.len(), 1);
     assert_eq!(pipe.log().committed(), Position::new(1));
     let mut log = pipe.into_log();
-    let rounds = block_on(log.read(Position::new(1), u32::MAX)).expect("read");
+    let rounds = block_on(log.read(Position::new(1), u32::MAX)).context("read")?;
     assert_eq!(rounds.len(), 1);
     assert_eq!(rounds[0].first_version(), version);
     assert_eq!(rounds[0].transactions(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_the_next_round_is_decided_and_appended_while_one_syncs() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert("a", "knows", "b")]);
-    let (_storage, mut pipe) = pipeline(&applier);
-    commit_insert(&mut pipe, &applier, 1, "p");
-    commit_insert(&mut pipe, &applier, 2, "q");
-    commit_insert(&mut pipe, &applier, 3, "r");
+fn test_the_next_round_is_decided_and_appended_while_one_syncs() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    commit_insert(&mut pipe, &applier, 1, "p")?;
+    commit_insert(&mut pipe, &applier, 2, "q")?;
+    commit_insert(&mut pipe, &applier, 3, "r")?;
     assert_eq!(pipe.log().tail().0, Position::new(1), "two wait");
     assert_eq!(pipe.step().waiting(), 2);
-    block_on(pipe.sync(0)).expect("synced");
+    block_on(pipe.sync(0)).context("synced")?;
     assert_eq!(drained(&mut pipe), vec![Reply::new(1, Ok(base + 2))]);
     assert_eq!(
         pipe.log().tail().0,
@@ -102,7 +106,7 @@ fn test_the_next_round_is_decided_and_appended_while_one_syncs() {
     );
     assert!(pipe.needs_sync());
     assert_eq!(pipe.watermark(), base + 2);
-    block_on(pipe.sync(0)).expect("synced");
+    block_on(pipe.sync(0)).context("synced")?;
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(2, Ok(base + 4)), Reply::new(3, Ok(base + 6))]
@@ -110,19 +114,20 @@ fn test_the_next_round_is_decided_and_appended_while_one_syncs() {
     assert_eq!(pipe.log().committed(), Position::new(2));
     assert_eq!(pipe.watermark(), base + 6);
     // Nothing waits: a sync with no round appended does nothing.
-    block_on(pipe.sync(0)).expect("nothing to sync");
+    block_on(pipe.sync(0)).context("nothing to sync")?;
     assert!(drained(&mut pipe).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() {
-    let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
-    let (storage, mut pipe) = pipeline(&applier);
-    commit_insert(&mut pipe, &applier, 1, "p");
-    commit_insert(&mut pipe, &applier, 2, "q");
+fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (storage, mut pipe) = pipeline(&applier)?;
+    commit_insert(&mut pipe, &applier, 1, "p")?;
+    commit_insert(&mut pipe, &applier, 2, "q")?;
     storage.fail_at(storage.trace().len(), FaultMode::Before);
-    let error = block_on(pipe.sync(0)).expect_err("the sync fails");
+    let error = block_on(pipe.sync(0)).refused("the sync fails")?;
     assert!(
         matches!(&error.0, PipelineErrorEnum::Log { cause } if matches!(cause.0, LogErrorEnum::Io { .. })),
         "{error:?}"
@@ -136,9 +141,9 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() {
     );
     assert!(pipe.is_stopped());
     assert!(!pipe.needs_sync());
-    assert!(held(&applier, "p", "knows").is_empty());
-    assert!(held(&applier, "q", "knows").is_empty());
-    commit_insert(&mut pipe, &applier, 3, "r");
+    assert!(held(&applier, "p", "knows")?.is_empty());
+    assert!(held(&applier, "q", "knows")?.is_empty());
+    commit_insert(&mut pipe, &applier, 3, "r")?;
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(3, Err(CommitError::Unavailable()))]
@@ -148,20 +153,21 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_every_later_write() {
         3,
         "every transaction's buffers back"
     );
-    block_on(pipe.sync(0)).expect("nothing to sync");
+    block_on(pipe.sync(0)).context("nothing to sync")?;
+    Ok(())
 }
 
 #[test]
-fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline() {
-    let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
-    let (_storage, mut pipe) = pipeline(&applier);
-    commit_insert(&mut pipe, &applier, 1, "p");
-    commit_insert(&mut pipe, &applier, 2, "q");
+fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline() -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    commit_insert(&mut pipe, &applier, 1, "p")?;
+    commit_insert(&mut pipe, &applier, 2, "q")?;
     // A write outside the pipeline takes the version the round was given: the store refuses the round as stale. The
     // sync closes and appends the next round, holding 2, before the apply is refused.
-    setup(&applier, vec![insert("x", "knows", "b")]);
-    let error = block_on(pipe.sync(0)).expect_err("refused");
+    let _outside: u64 = setup(&applier, vec![insert("x", "knows", "b")])?;
+    let error = block_on(pipe.sync(0)).refused("refused")?;
     assert!(
         matches!(&error.0, PipelineErrorEnum::Apply { cause } if matches!(cause.0, ChangesetErrorEnum::Posting(_))),
         "{error:?}"
@@ -174,34 +180,35 @@ fn test_a_round_the_store_refuses_withholds_its_replies_and_stops_the_pipeline()
     );
     assert!(pipe.is_stopped());
     assert!(!pipe.needs_sync(), "the next round is never synced");
-    assert!(held(&applier, "p", "knows").is_empty());
-    commit_insert(&mut pipe, &applier, 3, "r");
+    assert!(held(&applier, "p", "knows")?.is_empty());
+    commit_insert(&mut pipe, &applier, 3, "r")?;
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(3, Err(CommitError::Unavailable()))]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_buffers_of_applied_and_aborted_transactions_come_back() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert_literal("x", "name", "X")]);
-    let (_storage, mut pipe) = pipeline(&applier);
-    let mut loser = begin(&applier);
-    read(&mut loser, "x", "name");
-    write(&mut loser, vec![insert("l", "knows", "b")]);
-    let mut winner = begin(&applier);
+fn test_the_buffers_of_applied_and_aborted_transactions_come_back() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert_literal("x", "name", "X")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let mut loser = begin(&applier)?;
+    let _read: Vec<Term> = read(&mut loser, "x", "name")?;
+    write(&mut loser, vec![insert("l", "knows", "b")])?;
+    let mut winner = begin(&applier)?;
     write(
         &mut winner,
         vec![
             delete_literal("x", "name", "X"),
             insert_literal("x", "name", "X1"),
         ],
-    );
-    pipe.commit(1, prepare(winner), 0).unwrap();
-    pipe.commit(2, prepare(loser), 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
-    block_on(pipe.sync(0)).unwrap();
+    )?;
+    pipe.commit(1, prepare(winner)?, 0)?;
+    pipe.commit(2, prepare(loser)?, 0)?;
+    block_on(pipe.sync(0))?;
+    block_on(pipe.sync(0))?;
     // The winner alone at the set-up's version plus 2; the loser read x's list the winner rewrote.
     assert_eq!(
         drained(&mut pipe),
@@ -212,13 +219,14 @@ fn test_the_buffers_of_applied_and_aborted_transactions_come_back() {
     );
     assert_eq!(pipe.buffers_mut().len(), 2);
     assert_eq!(
-        held(&applier, "x", "name"),
+        held(&applier, "x", "name")?,
         vec![Term::from(Literal::new_simple_literal("X1"))]
     );
+    Ok(())
 }
 
 #[test]
-fn test_pipeline_errors_name_their_cause() {
+fn test_pipeline_errors_name_their_cause() -> TestResult {
     let log = PipelineError::Log(ultragraphdb_error_log::LogError::Poisoned());
     assert!(
         log.to_string()
@@ -233,49 +241,51 @@ fn test_pipeline_errors_name_their_cause() {
     );
     assert!(std::error::Error::source(&apply).is_some());
     assert_ne!(log, apply);
+    Ok(())
 }
 
 /// Concurrent first writes of an undeclared predicate both commit through the log and the store, the second admitted
 /// in the round after the first's: the catalog holds the predicate's default entry, and its retry-free second write.
 #[test]
-fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert("z", "seen", "score")]);
-    let score = uid_of(&applier, "score");
-    let (_storage, mut pipe) = pipeline(&applier);
-    let mut first = begin(&applier);
-    let mut second = begin(&applier);
-    write(&mut first, vec![insert_literal("a", "score", "12")]);
-    write(&mut second, vec![insert_literal("b", "score", "high")]);
-    pipe.commit(1, prepare(first), 0).unwrap();
-    pipe.commit(2, prepare(second), 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
-    block_on(pipe.sync(0)).unwrap();
+fn test_concurrent_first_writes_of_a_predicate_both_commit_through_the_pipeline() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert("z", "seen", "score")])?;
+    let score = uid_of(&applier, "score")?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
+    let mut first = begin(&applier)?;
+    let mut second = begin(&applier)?;
+    write(&mut first, vec![insert_literal("a", "score", "12")])?;
+    write(&mut second, vec![insert_literal("b", "score", "high")])?;
+    pipe.commit(1, prepare(first)?, 0)?;
+    pipe.commit(2, prepare(second)?, 0)?;
+    block_on(pipe.sync(0))?;
+    block_on(pipe.sync(0))?;
     // Neither aborts: the first alone, the second in the next round.
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 4))]
     );
-    assert!(applier.catalog(NS).unwrap().predicate(score).is_some());
-    assert_eq!(held(&applier, "b", "score").len(), 1);
+    assert!(applier.catalog(NS)?.predicate(score).is_some());
+    assert_eq!(held(&applier, "b", "score")?.len(), 1);
+    Ok(())
 }
 
 /// A round the log refuses, here one larger than the log's segments of one block, acknowledges none of its transactions and stops
 /// the pipeline, as a failed sync does.
 #[test]
-fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() {
-    let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
+fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
     let storage = SimStorage::new(1);
     let config = WalConfig::new(1, true).with_segment_blocks(std::num::NonZeroU32::MIN);
-    let (log, _) = block_on(Wal::open(storage, "/wal", config)).expect("opened");
-    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
-    let mut txn = begin(&applier);
+    let (log, _) = block_on(Wal::open(storage, "/wal", config)).context("opened")?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
+    let mut txn = begin(&applier)?;
     let changes = (0..200)
         .map(|i| insert(&format!("s{i}"), "knows", "b"))
         .collect();
-    write(&mut txn, changes);
-    let error = pipe.commit(1, prepare(txn), 0).expect_err("refused");
+    write(&mut txn, changes)?;
+    let error = pipe.commit(1, prepare(txn)?, 0).refused("refused")?;
     assert!(
         matches!(error.0, PipelineErrorEnum::Log { .. }),
         "{error:?}"
@@ -287,78 +297,86 @@ fn test_a_round_the_log_refuses_acknowledges_nothing_and_stops_the_pipeline() {
     assert!(pipe.is_stopped());
     assert!(!pipe.needs_sync());
     assert_eq!(pipe.buffers_mut().len(), 1);
-    commit_insert(&mut pipe, &applier, 2, "q");
+    commit_insert(&mut pipe, &applier, 2, "q")?;
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(2, Err(CommitError::Unavailable()))]
     );
+    Ok(())
 }
 
 /// The session table is written with the rounds the store applies, so a pipeline opened again over the store answers
 /// a retry from it as the first did, and a round of a registration alone moves the watermark to its version (7.8).
 #[test]
-fn test_the_session_table_survives_a_restart_with_the_store() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert("a", "knows", "b")]);
-    let (_, log) = wal();
-    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
-    pipe.register(1, 0, 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
-    let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
+fn test_the_session_table_survives_a_restart_with_the_store() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_, log) = wal()?;
+    let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).context("it opens")?;
+    pipe.register(1, 0, 0)?;
+    block_on(pipe.sync(0))?;
+    let session = pipe
+        .replies_mut()
+        .pop()
+        .context("answered")?
+        .outcome()
+        .clone()?;
     assert_eq!(session, base + 2, "numbered by its registration's version");
     assert_eq!(
         pipe.watermark(),
         session,
         "the registration's round moved the watermark"
     );
-    let mut txn = begin(&applier);
-    write(&mut txn, vec![insert("s", "knows", "b")]);
-    pipe.commit(2, prepare_in(txn, session, 1), 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
-    let first = pipe.replies_mut().pop().unwrap();
-    let version = first.outcome().clone().unwrap();
+    let mut txn = begin(&applier)?;
+    write(&mut txn, vec![insert("s", "knows", "b")])?;
+    pipe.commit(2, prepare_in(txn, session, 1)?, 0)?;
+    block_on(pipe.sync(0))?;
+    let first = pipe.replies_mut().pop().context("answered")?;
+    let version = first.outcome().clone()?;
     assert_eq!(version, base + 4);
     drop(pipe);
-    let (_, log) = wal();
-    let mut again: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens again");
+    let (_, fresh_log) = wal()?;
+    let mut again: Pipe<'_> =
+        Pipeline::new(&applier, fresh_log, unbounded()).context("it opens again")?;
     assert_eq!(again.step().sessions().last(session), Some((1, version)));
-    let mut txn = begin(&applier);
-    write(&mut txn, vec![insert("s", "knows", "b")]);
-    again.commit(3, prepare_in(txn, session, 1), 0).unwrap();
+    let mut retry_txn = begin(&applier)?;
+    write(&mut retry_txn, vec![insert("s", "knows", "b")])?;
+    again.commit(3, prepare_in(retry_txn, session, 1)?, 0)?;
     assert_eq!(again.replies_mut().pop(), Some(Reply::new(3, Ok(version))));
     assert_eq!(
         applier.quads().lists().applied_ts(),
         version,
         "the retry applied nothing"
     );
+    Ok(())
 }
 
 /// Every write takes its version from the commit step (decided 2026-10-28): a build the pipeline's applier runs ends
 /// with a swap the pipeline proposes once the build is done, decided in a round of its own, and a write after it
 /// commits at the step's next version; the swap's reply goes to nobody.
 #[test]
-fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() {
+fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits() -> TestResult {
     use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
-    let applier = applier();
-    let base = setup(&applier, vec![insert_literal("a", "name", "apple")]);
-    let (_s, mut pipe) = pipeline(&applier);
-    let mut declaration = begin(&applier);
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
+    let (_s, mut pipe) = pipeline(&applier)?;
+    let mut declaration = begin(&applier)?;
     write(
         &mut declaration,
         vec![Change::Declare(Declaration::Predicate(
             PredicateDeclaration::new(crate::utils::fixture::ex("name"))
                 .with_tokenizers(vec!["term".to_string()]),
         ))],
-    );
-    pipe.commit(1, prepare(declaration), 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
+    )?;
+    pipe.commit(1, prepare(declaration)?, 0)?;
+    block_on(pipe.sync(0))?;
     assert!(applier.rebuilding());
     assert!(pipe.step().is_building());
     applier.executor().run_until_idle();
     assert!(applier.rebuilding(), "built, its swap not yet decided");
-    pipe.poll_builds(0).unwrap();
+    pipe.poll_builds(0)?;
     assert!(!pipe.step().is_building(), "the swap is admitted");
-    block_on(pipe.sync(0)).unwrap();
+    block_on(pipe.sync(0))?;
     assert!(!applier.rebuilding(), "swapped in");
     let swapped = pipe.watermark();
     assert_eq!(
@@ -368,21 +386,22 @@ fn test_a_builds_swap_takes_its_version_from_the_step_and_a_later_write_commits(
     );
     // The declaration took base + 2 and the swap, a round of its own, the step's next version.
     assert_eq!(swapped, base + 4);
-    let mut txn = begin(&applier);
-    write(&mut txn, vec![insert("b", "knows", "c")]);
-    pipe.commit(2, prepare(txn), 0).unwrap();
-    block_on(pipe.sync(0)).expect("the write applies after the swap");
+    let mut txn = begin(&applier)?;
+    write(&mut txn, vec![insert("b", "knows", "c")])?;
+    pipe.commit(2, prepare(txn)?, 0)?;
+    block_on(pipe.sync(0)).context("the write applies after the swap")?;
     assert_eq!(
         drained(&mut pipe),
         vec![Reply::new(1, Ok(base + 2)), Reply::new(2, Ok(base + 6))],
         "the swap's reply goes to nobody"
     );
     assert_eq!(pipe.watermark(), base + 6);
-    assert_eq!(held(&applier, "b", "knows").len(), 1);
+    assert_eq!(held(&applier, "b", "knows")?.len(), 1);
+    Ok(())
 }
 
 /// Writes the session index `index` into `applier`'s store, as a damaged store would hold it.
-fn write_index(applier: &Applier, index: Vec<u8>) {
+fn write_index(applier: &Applier, index: Vec<u8>) -> TestResult {
     use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
     let mut batch = WriteBatch::new();
     batch.put_versionless(
@@ -393,21 +412,22 @@ fn write_index(applier: &Applier, index: Vec<u8>) {
         .quads()
         .store()
         .apply(batch, PersistMode::Buffer)
-        .expect("the batch applies");
+        .context("the batch applies")?;
+    Ok(())
 }
 
 /// A store whose session table is corrupted, or cannot be read, does not open a pipeline (7.8).
 #[test]
-fn test_a_session_table_that_does_not_read_refuses_the_pipeline() {
+fn test_a_session_table_that_does_not_read_refuses_the_pipeline() -> TestResult {
     use ultragraphdb_error_store::StoreError;
     use ultragraphdb_transactions_commit::SessionEntry;
     // Nine bytes: no whole number of 8-byte session numbers.
-    let applier = applier();
-    write_index(&applier, vec![1; 9]);
-    let (_, log) = wal();
+    let applier = applier()?;
+    write_index(&applier, vec![1; 9])?;
+    let (_, log) = wal()?;
     let refused = Pipeline::new(&applier, log, unbounded())
         .map(|_| ())
-        .unwrap_err();
+        .refused("refused")?;
     assert_eq!(
         refused,
         PipelineError::Sessions(StoreError::Corrupted(
@@ -416,41 +436,42 @@ fn test_a_session_table_that_does_not_read_refuses_the_pipeline() {
         ))
     );
     // A read the store fails is the store's own error, not corruption.
-    let applier = crate::utils::fixture::applier();
-    applier
+    let failing = crate::utils::fixture::applier()?;
+    failing
         .quads()
         .store()
         .inject(ultragraphdb_store_sim::Fault::FailNextRead);
-    let (_, log) = wal();
-    let refused = Pipeline::new(&applier, log, unbounded())
+    let (_, failing_log) = wal()?;
+    let read_failed = Pipeline::new(&failing, failing_log, unbounded())
         .map(|_| ())
-        .unwrap_err();
+        .refused("read_failed")?;
     assert_eq!(
-        refused,
+        read_failed,
         PipelineError::Sessions(StoreError::ReadFailed(
             SessionEntry::INDEX_KEY.to_vec(),
             "simulated read failure".to_string()
         ))
     );
+    Ok(())
 }
 
 /// A build's end that cannot be proposed, its catalog unreadable, stops the pipeline: nothing later commits.
 #[test]
-fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
+fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() -> TestResult {
     use ultragraphdb_core_mapping::{Change, Declaration, PredicateDeclaration};
-    let applier = applier();
-    setup(&applier, vec![insert_literal("a", "name", "apple")]);
-    let (_s, mut pipe) = pipeline(&applier);
-    let mut declaration = begin(&applier);
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert_literal("a", "name", "apple")])?;
+    let (_s, mut pipe) = pipeline(&applier)?;
+    let mut declaration = begin(&applier)?;
     write(
         &mut declaration,
         vec![Change::Declare(Declaration::Predicate(
             PredicateDeclaration::new(crate::utils::fixture::ex("name"))
                 .with_tokenizers(vec!["term".to_string()]),
         ))],
-    );
-    pipe.commit(1, prepare(declaration), 0).unwrap();
-    block_on(pipe.sync(0)).unwrap();
+    )?;
+    pipe.commit(1, prepare(declaration)?, 0)?;
+    block_on(pipe.sync(0))?;
     applier.executor().run_until_idle();
     // The catalog is read from the store again, and that read fails.
     applier.forget_catalogs();
@@ -458,7 +479,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
         .quads()
         .store()
         .inject(ultragraphdb_store_sim::Fault::FailNextScanAfter(0));
-    let error = pipe.poll_builds(0).expect_err("the end is not proposed");
+    let error = pipe.poll_builds(0).refused("the end is not proposed")?;
     assert!(
         matches!(
             &error.0,
@@ -469,7 +490,7 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
     );
     assert!(pipe.is_stopped());
     assert!(!pipe.needs_sync());
-    commit_insert(&mut pipe, &applier, 2, "q");
+    commit_insert(&mut pipe, &applier, 2, "q")?;
     assert_eq!(
         drained(&mut pipe),
         vec![
@@ -477,20 +498,21 @@ fn test_a_builds_end_that_cannot_be_proposed_stops_the_pipeline() {
             Reply::new(2, Err(CommitError::Unavailable()))
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_oldest_read_prunes_the_conflict_history_up_to_the_watermark() {
-    let applier = applier();
-    let base = setup(&applier, vec![insert("a", "knows", "b")]);
-    let (_storage, mut pipe) = pipeline(&applier);
+fn test_the_oldest_read_prunes_the_conflict_history_up_to_the_watermark() -> TestResult {
+    let applier = applier()?;
+    let base = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let (_storage, mut pipe) = pipeline(&applier)?;
     assert!(!pipe.is_stopped(), "a pipeline opens running");
     // The history opens at the store's applied version.
     assert_eq!(pipe.step().resolver().history().floor(), base);
-    commit_insert(&mut pipe, &applier, 1, "p");
-    block_on(pipe.sync(0)).expect("synced");
-    commit_insert(&mut pipe, &applier, 2, "q");
-    block_on(pipe.sync(0)).expect("synced");
+    commit_insert(&mut pipe, &applier, 1, "p")?;
+    block_on(pipe.sync(0)).context("synced")?;
+    commit_insert(&mut pipe, &applier, 2, "q")?;
+    block_on(pipe.sync(0)).context("synced")?;
     assert!(!pipe.is_stopped(), "two commits stop nothing");
     // One commit a round, each two above the one before.
     assert_eq!(pipe.watermark(), base + 4);
@@ -499,4 +521,5 @@ fn test_the_oldest_read_prunes_the_conflict_history_up_to_the_watermark() {
     // A floor above the watermark is taken as the watermark (CommitStep's OldestRead).
     pipe.oldest_read(base + 100);
     assert_eq!(pipe.step().resolver().history().floor(), base + 4);
+    Ok(())
 }

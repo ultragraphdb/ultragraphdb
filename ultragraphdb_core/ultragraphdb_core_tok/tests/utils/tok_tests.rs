@@ -18,6 +18,7 @@ use ultragraphdb_core_tok::{
 use ultragraphdb_core_types::{BigFloat, DateTime, Geometry, Layout, TypeId, Val, Value, convert};
 
 use crate::golden::{LOWERCASE_DEVIATIONS, cases, digests_masked, unhex, untext};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn enc(id: u8, s: &str) -> Vec<u8> {
     let mut v = vec![id];
@@ -30,18 +31,17 @@ fn ngrams(shingles: &[&str]) -> Vec<Vec<u8>> {
     shingles.iter().map(|s| enc(IDENT_NGRAM, s)).collect()
 }
 
-fn tokenizer(name: &str) -> Tokenizer {
+fn tokenizer(name: &str) -> TestResult<Tokenizer> {
     get_tokenizer(name)
         .ok_or_else(|| format!("no tokenizer {name}"))
-        .expect("a registered tokenizer")
+        .context("a registered tokenizer")
 }
 
-fn tokens_for_lang(name: &str, lang: &str, s: &str) -> Vec<Vec<u8>> {
-    build_tokens(
+fn tokens_for_lang(name: &str, lang: &str, s: &str) -> TestResult<Vec<Vec<u8>>> {
+    Ok(build_tokens(
         &Value::str(s),
-        &get_tokenizer_for_lang(&tokenizer(name), lang),
-    )
-    .unwrap()
+        &get_tokenizer_for_lang(&tokenizer(name)?, lang),
+    )?)
 }
 
 fn assert_unique(tokens: &[Vec<u8>]) {
@@ -58,12 +58,11 @@ fn check_sorted_and_unique(tokens: &[Vec<u8>]) {
     );
 }
 
-fn time(s: &str) -> DateTime {
+fn time(s: &str) -> TestResult<DateTime> {
     let value = convert(
         &Val::new(TypeId::STRING, Value::Bytes(s.as_bytes().to_vec())),
         TypeId::DATETIME,
-    )
-    .unwrap()
+    )?
     .into_value();
     let time = if let Some(Value::DateTime(t)) = &value {
         Some(*t)
@@ -71,11 +70,11 @@ fn time(s: &str) -> DateTime {
         None
     };
     time.ok_or_else(|| format!("{value:?}"))
-        .expect("a datetime value")
+        .context("a datetime value")
 }
 
 #[test]
-fn test_int_encoding() {
+fn test_int_encoding() -> TestResult {
     let mut ints: Vec<i64> = vec![
         (1 << 24) + 10,
         -(1 << 24) - 1,
@@ -95,11 +94,16 @@ fn test_int_encoding() {
         -1543,
     ];
     ints.sort();
-    let int = tokenizer("int");
+    let int = tokenizer("int")?;
     let tokens: Vec<Vec<u8>> = ints
         .iter()
-        .map(|i| int.tokens(&Value::Int(*i)).unwrap().remove(0))
-        .collect();
+        .map(|i| {
+            int.tokens(&Value::Int(*i))?
+                .into_iter()
+                .next()
+                .context("the int's token")
+        })
+        .collect::<TestResult<_>>()?;
     for i in 1..tokens.len() {
         assert!(
             tokens[i - 1] < tokens[i],
@@ -110,20 +114,22 @@ fn test_int_encoding() {
             tokens[i]
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_full_text_tokenizer() {
-    let tokens = tokens_for_lang("fulltext", "en", "Stemming works!");
+fn test_full_text_tokenizer() -> TestResult {
+    let tokens = tokens_for_lang("fulltext", "en", "Stemming works!")?;
     assert_eq!(
         tokens,
         vec![enc(IDENT_FULL_TEXT, "stem"), enc(IDENT_FULL_TEXT, "work")]
     );
+    Ok(())
 }
 
 #[test]
-fn test_date_time_tokenizers() {
-    let dt = time("2017-01-01T12:12:12Z");
+fn test_date_time_tokenizers() -> TestResult {
+    let dt = time("2017-01-01T12:12:12Z")?;
     // Go checks only the lengths, 1 + 2 bytes per field; the fields are big-endian u16s: 2017 is 0x07E1.
     for (name, token) in [
         ("hour", &b"\x43\x07\xe1\x00\x01\x00\x01\x00\x0c"[..]),
@@ -131,14 +137,15 @@ fn test_date_time_tokenizers() {
         ("month", &b"\x41\x07\xe1\x00\x01"[..]),
         ("year", &b"\x04\x07\xe1"[..]),
     ] {
-        let tokens = build_tokens(&Value::DateTime(dt), &tokenizer(name)).unwrap();
+        let tokens = build_tokens(&Value::DateTime(dt), &tokenizer(name)?)?;
         assert_eq!(tokens, vec![token.to_vec()], "{name}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_full_text_tokenizer_lang() {
-    let tokens = tokens_for_lang("fulltext", "de", "Katzen und Auffassung und Auffassung");
+fn test_full_text_tokenizer_lang() -> TestResult {
+    let tokens = tokens_for_lang("fulltext", "de", "Katzen und Auffassung und Auffassung")?;
     // tokens should be sorted and unique
     assert_eq!(
         tokens,
@@ -147,21 +154,23 @@ fn test_full_text_tokenizer_lang() {
             enc(IDENT_FULL_TEXT, "katz")
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_term_tokenizer() {
-    let tokens = build_tokens(&Value::str("Tokenizer works works!"), &tokenizer("term")).unwrap();
+fn test_term_tokenizer() -> TestResult {
+    let tokens = build_tokens(&Value::str("Tokenizer works works!"), &tokenizer("term")?)?;
     assert_eq!(
         tokens,
         vec![enc(IDENT_TERM, "tokenizer"), enc(IDENT_TERM, "works")]
     );
+    Ok(())
 }
 
 #[test]
-fn test_trigram_tokenizer() {
-    let t = tokenizer("trigram");
-    let tokens = build_tokens(&Value::str("Dgraph rocks!"), &t).unwrap();
+fn test_trigram_tokenizer() -> TestResult {
+    let t = tokenizer("trigram")?;
+    let tokens = build_tokens(&Value::str("Dgraph rocks!"), &t)?;
     assert_eq!(tokens.len(), 11);
     let mut expected: Vec<Vec<u8>> = [
         "Dgr", "gra", "rap", "aph", "ph ", "h r", " ro", "roc", "ock", "cks", "ks!",
@@ -171,15 +180,16 @@ fn test_trigram_tokenizer() {
     .collect();
     expected.sort();
     assert_eq!(tokens, expected);
+    Ok(())
 }
 
 #[test]
-fn test_get_full_text_tokens() {
+fn test_get_full_text_tokens() -> TestResult {
     let val = "Our chief weapon is surprise...surprise and fear...fear and surprise....\
                Our two weapons are fear and surprise...and ruthless efficiency.... \
                Our three weapons are fear, surprise, and ruthless efficiency...";
-    let t = get_tokenizer_for_lang(&tokenizer("fulltext"), "en");
-    let tokens = t.tokens(&Value::str(val)).unwrap();
+    let t = get_tokenizer_for_lang(&tokenizer("fulltext")?, "en");
+    let tokens = t.tokens(&Value::str(val))?;
     let mut expected: Vec<Vec<u8>> = [
         "chief", "weapon", "surpris", "fear", "ruthless", "effici", "two", "three",
     ]
@@ -189,24 +199,23 @@ fn test_get_full_text_tokens() {
     expected.sort();
     // ensure that tokens are sorted and unique
     assert_eq!(tokens, expected);
+    Ok(())
 }
 
 #[test]
-fn test_get_full_text_tokens1() {
+fn test_get_full_text_tokens1() -> TestResult {
     // Go checks the count alone; the tokens are Dgraph's.
     let want = vec![
         enc(IDENT_FULL_TEXT, "brown"),
         enc(IDENT_FULL_TEXT, "fox"),
         enc(IDENT_FULL_TEXT, "quick"),
     ];
-    assert_eq!(
-        get_full_text_tokens(&["Quick brown fox"], "en").unwrap(),
-        want
-    );
+    assert_eq!(get_full_text_tokens(&["Quick brown fox"], "en")?, want);
+    Ok(())
 }
 
 #[test]
-fn test_get_full_text_tokens_invalid_lang() {
+fn test_get_full_text_tokens_invalid_lang() -> TestResult {
     // An unknown language reverts to English.
     let want = vec![
         enc(IDENT_FULL_TEXT, "brown"),
@@ -214,23 +223,27 @@ fn test_get_full_text_tokens_invalid_lang() {
         enc(IDENT_FULL_TEXT, "quick"),
     ];
     assert_eq!(
-        get_full_text_tokens(&["Quick brown fox"], "xxx_such_language").unwrap(),
+        get_full_text_tokens(&["Quick brown fox"], "xxx_such_language")?,
         want
     );
+    Ok(())
 }
 
 #[test]
-fn test_get_full_text_tokens_argument_count() {
+fn test_get_full_text_tokens_argument_count() -> TestResult {
     for (args, n) in [
         (&[][..], 0),
         (&["a", "b"][..], 2),
         (&["a", "b", "c"][..], 3),
     ] {
-        let err = get_full_text_tokens(args, "en").unwrap_err();
+        let err = get_full_text_tokens(args, "en")
+            .err()
+            .context("expected an error")?;
         let msg = format!("Function requires 1 arguments, but got {n}");
         assert_eq!(err.0, TokErrorEnum::Arguments(msg.clone()));
         assert_eq!(err.to_string(), msg);
     }
+    Ok(())
 }
 
 // NOTE: The Chinese/Japanese/Korean tests were are based on assuming that the
@@ -238,8 +251,8 @@ fn test_get_full_text_tokens_argument_count() {
 // Google translate.
 
 #[test]
-fn test_full_text_tokenizer_cjk_chinese() {
-    let got = tokens_for_lang("fulltext", "zh", "他是一个薪水很高的商人");
+fn test_full_text_tokenizer_cjk_chinese() -> TestResult {
+    let got = tokens_for_lang("fulltext", "zh", "他是一个薪水很高的商人")?;
     let want: Vec<Vec<u8>> = [
         "一个", "个薪", "他是", "商人", "很高", "是一", "水很", "的商", "薪水", "高的",
     ]
@@ -248,22 +261,24 @@ fn test_full_text_tokenizer_cjk_chinese() {
     .collect();
     assert_eq!(got, want);
     check_sorted_and_unique(&got);
+    Ok(())
 }
 
 #[test]
-fn test_full_text_tokenizer_cjk_korean() {
-    let got = tokens_for_lang("fulltext", "ko", "그는 큰 급여를 가진 사업가입니다.");
+fn test_full_text_tokenizer_cjk_korean() -> TestResult {
+    let got = tokens_for_lang("fulltext", "ko", "그는 큰 급여를 가진 사업가입니다.")?;
     let want: Vec<Vec<u8>> = ["가진", "그는", "급여를", "사업가입니다", "큰"]
         .iter()
         .map(|s| enc(IDENT_FULL_TEXT, s))
         .collect();
     assert_eq!(got, want);
     check_sorted_and_unique(&got);
+    Ok(())
 }
 
 #[test]
-fn test_full_text_tokenizer_cjk_japanese() {
-    let got = tokens_for_lang("fulltext", "ja", "彼は大きな給与を持つ実業家です");
+fn test_full_text_tokenizer_cjk_japanese() -> TestResult {
+    let got = tokens_for_lang("fulltext", "ja", "彼は大きな給与を持つ実業家です")?;
     let want: Vec<Vec<u8>> = [
         "きな", "つ実", "です", "な給", "は大", "を持", "与を", "大き", "実業", "家で", "彼は",
         "持つ", "業家", "給与",
@@ -273,21 +288,23 @@ fn test_full_text_tokenizer_cjk_japanese() {
     .collect();
     assert_eq!(got, want);
     check_sorted_and_unique(&got);
+    Ok(())
 }
 
 #[test]
-fn test_term_tokenize_cjk_chinese() {
-    let got = tokens_for_lang("term", "zh", "第一轮 第二轮 第一轮");
+fn test_term_tokenize_cjk_chinese() -> TestResult {
+    let got = tokens_for_lang("term", "zh", "第一轮 第二轮 第一轮")?;
     assert_eq!(
         got,
         vec![enc(IDENT_TERM, "第一轮"), enc(IDENT_TERM, "第二轮")]
     );
     check_sorted_and_unique(&got);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer() {
-    let tokens = tokens_for_lang("ngram", "en", "quick brown fox");
+fn test_ngram_tokenizer() -> TestResult {
+    let tokens = tokens_for_lang("ngram", "en", "quick brown fox")?;
     // Go checks that these are among the tokens; they are all of them, sorted in this port.
     assert_eq!(
         tokens,
@@ -301,30 +318,33 @@ fn test_ngram_tokenizer() {
         ])
     );
     assert_unique(&tokens);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_empty() {
+fn test_ngram_tokenizer_empty() -> TestResult {
     assert!(
-        tokens_for_lang("ngram", "en", "").is_empty(),
+        tokens_for_lang("ngram", "en", "")?.is_empty(),
         "Expected 0 tokens for empty string"
     );
     assert!(
-        tokens_for_lang("ngram", "en", "   ").is_empty(),
+        tokens_for_lang("ngram", "en", "   ")?.is_empty(),
         "Expected 0 tokens for whitespace only"
     );
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_single_word() {
-    let tokens = tokens_for_lang("ngram", "en", "hello");
+fn test_ngram_tokenizer_single_word() -> TestResult {
+    let tokens = tokens_for_lang("ngram", "en", "hello")?;
     assert_eq!(tokens, ngrams(&["hello"]));
     check_sorted_and_unique(&tokens);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_stopwords() {
-    let tokens = tokens_for_lang("ngram", "en", "the quick brown fox");
+fn test_ngram_tokenizer_stopwords() -> TestResult {
+    let tokens = tokens_for_lang("ngram", "en", "the quick brown fox")?;
     // "the" is dropped before the shingles are formed, so no shingle holds it.
     assert_eq!(
         tokens,
@@ -338,20 +358,22 @@ fn test_ngram_tokenizer_stopwords() {
         ])
     );
     assert_unique(&tokens);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_stemming() {
-    let tokens = tokens_for_lang("ngram", "en", "running quickly");
+fn test_ngram_tokenizer_stemming() -> TestResult {
+    let tokens = tokens_for_lang("ngram", "en", "running quickly")?;
     assert_eq!(tokens, ngrams(&["quickli", "run", "run quickli"]));
     assert_unique(&tokens);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_long_text() {
+fn test_ngram_tokenizer_long_text() -> TestResult {
     let long_text =
         "The quick brown fox jumps over the lazy dog. This is a test sentence with multiple words.";
-    let tokens = tokens_for_lang("ngram", "en", long_text);
+    let tokens = tokens_for_lang("ngram", "en", long_text)?;
     // Dgraph's 34 shingles of one to four of the ten words left after the stop words.
     assert_eq!(
         tokens,
@@ -403,7 +425,7 @@ fn test_ngram_tokenizer_long_text() {
         "lazy dog test sentence",
     ];
     for phrase in phrases {
-        let expected_tokens = tokens_for_lang("ngram", "en", phrase);
+        let expected_tokens = tokens_for_lang("ngram", "en", phrase)?;
         // For multi-word phrases, find the longest token (likely the full phrase); for single words, the first.
         let expected = if phrase.contains(' ') {
             expected_tokens.iter().max_by_key(|t| t.len()).cloned()
@@ -412,13 +434,14 @@ fn test_ngram_tokenizer_long_text() {
         };
         let expected = expected
             .ok_or_else(|| format!("Should find a token for phrase: {phrase}"))
-            .expect("a token for the phrase");
+            .context("a token for the phrase")?;
         assert!(
             tokens.contains(&expected),
             "Should contain token for phrase: {phrase}"
         );
     }
     assert_unique(&tokens);
+    Ok(())
 }
 
 #[test]
@@ -467,7 +490,7 @@ fn test_ngram_tokenizer_query_tokens_various_inputs() {
 }
 
 #[test]
-fn test_ngram_tokenizer_language_support() {
+fn test_ngram_tokenizer_language_support() -> TestResult {
     // The port gives the ngram tokenizer its language (ledger 14); these are Go's `GetNGramTokens` for each.
     for (lang, want) in [
         ("en", ["hello", "hello world", "world"]),
@@ -475,17 +498,18 @@ fn test_ngram_tokenizer_language_support() {
         ("fr", ["helo", "helo world", "world"]),
         ("de", ["hello", "hello world", "world"]),
     ] {
-        let tokens = tokens_for_lang("ngram", lang, "hello world");
+        let tokens = tokens_for_lang("ngram", lang, "hello world")?;
         assert_eq!(tokens, ngrams(&want), "{lang}");
         assert_unique(&tokens);
     }
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_long_token_hashing() {
+fn test_ngram_tokenizer_long_token_hashing() -> TestResult {
     let long_words = "supercalifragilisticexpialidocious antidisestablishmentarianism \
                       pneumonoultramicroscopicsilicovolcanoconiosiss";
-    let tokens = tokens_for_lang("ngram", "en", long_words);
+    let tokens = tokens_for_lang("ngram", "en", long_words)?;
     // Six tokens: every shingle of 30 bytes or more as its SHA-256 digest, the 25-byte stem
     // "antidisestablishmentarian" as text. Python's hashlib over the five shingles whose BLAKE2b-256 digests Dgraph
     // emits for this input.
@@ -498,7 +522,7 @@ fn test_ngram_tokenizer_long_token_hashing() {
     ]
     .iter()
     .map(|h| unhex(h))
-    .collect();
+    .collect::<TestResult<_>>()?;
     want.push(enc(IDENT_NGRAM, "antidisestablishmentarian"));
     want.sort();
     assert_eq!(tokens, want);
@@ -512,15 +536,17 @@ fn test_ngram_tokenizer_long_token_hashing() {
     let mut digest = vec![IDENT_NGRAM];
     digest.extend_from_slice(&Sha256::digest(b30.as_bytes()));
     assert_eq!(get_ngram_tokens(&b30, "en"), vec![digest]);
+    Ok(())
 }
 
 #[test]
-fn test_ngram_tokenizer_non_string_input() {
-    let t = get_tokenizer_for_lang(&tokenizer("ngram"), "en");
+fn test_ngram_tokenizer_non_string_input() -> TestResult {
+    let t = get_tokenizer_for_lang(&tokenizer("ngram")?, "en");
     assert!(
-        build_tokens(&Value::Int(123), &t).unwrap().is_empty(),
+        build_tokens(&Value::Int(123), &t)?.is_empty(),
         "Expected empty tokens for non-string input"
     );
+    Ok(())
 }
 
 #[test]
@@ -554,7 +580,7 @@ fn test_ngram_tokens_with_lang() {
 }
 
 #[test]
-fn test_registry_lookups() {
+fn test_registry_lookups() -> TestResult {
     // Dgraph's registered identifiers; 0x03 is the exact tokenizer's with a language, which is not registered.
     let by_id: [(u8, &str); 17] = [
         (0x01, "term"),
@@ -586,43 +612,57 @@ fn test_registry_lookups() {
     let mut registered: Vec<&str> = by_id.iter().map(|(_, n)| *n).collect();
     registered.sort();
     assert_eq!(names, registered);
-    let names = get_tokenizers(&["term", "exact", "term"]).unwrap();
+    let tokenizers = get_tokenizers(&["term", "exact", "term"])?;
     assert_eq!(
-        names.iter().map(|t| t.name()).collect::<Vec<_>>(),
+        tokenizers.iter().map(|t| t.name()).collect::<Vec<_>>(),
         vec!["term", "exact", "term"]
     );
-    assert!(get_tokenizers::<&str>(&[]).unwrap().is_empty());
-    for (names, bad) in [(&["term", "nope"][..], "nope"), (&["", "term"][..], "")] {
-        let e = get_tokenizers(names).unwrap_err();
+    assert!(get_tokenizers::<&str>(&[])?.is_empty());
+    for (bad_names, bad) in [(&["term", "nope"][..], "nope"), (&["", "term"][..], "")] {
+        let e = get_tokenizers(bad_names)
+            .err()
+            .context("expected an error")?;
         assert_eq!(
             e.0,
             TokErrorEnum::UnknownTokenizer(format!("Invalid tokenizer {bad}"))
         );
     }
-    assert!(!tokenizer("geo").is_valid_for(TypeId::BOOL));
-    assert!(tokenizer("geo").is_valid_for(TypeId::GEO));
+    Ok(())
+}
+
+/// A tokenizer's valid types, and the exact tokenizer's language prefix.
+#[test]
+fn test_tokenizer_types_and_prefixes() -> TestResult {
+    assert!(!tokenizer("geo")?.is_valid_for(TypeId::BOOL));
+    assert!(tokenizer("geo")?.is_valid_for(TypeId::GEO));
     assert_eq!(
-        get_tokenizer_for_lang(&tokenizer("exact"), "de")
+        get_tokenizer_for_lang(&tokenizer("exact")?, "de")
             .prefix()
-            .unwrap(),
+            .context("the exact tokenizer's language prefix")?,
         b"\x03de\x1f".to_vec()
     );
     // A tag that does not parse takes English's base and collator.
     assert_eq!(
-        get_tokenizer_for_lang(&tokenizer("exact"), "x!")
+        get_tokenizer_for_lang(&tokenizer("exact")?, "x!")
             .prefix()
-            .unwrap(),
+            .context("the exact tokenizer's language prefix")?,
         b"\x03en\x1f".to_vec()
     );
     // No language keeps the tokenizer as it is.
     assert_eq!(
-        get_tokenizer_for_lang(&tokenizer("exact"), "").prefix(),
+        get_tokenizer_for_lang(&tokenizer("exact")?, "").prefix(),
         Some(vec![0x02])
     );
-    assert_eq!(tokenizer("exact").prefix().unwrap(), vec![0x02]);
+    assert_eq!(
+        tokenizer("exact")?
+            .prefix()
+            .context("tokenizer(\"exact\").prefix()")?,
+        vec![0x02]
+    );
     for name in TOKENIZER_NAMES.iter().filter(|n| **n != "exact") {
-        assert!(tokenizer(name).prefix().is_none(), "{name}");
+        assert!(tokenizer(name)?.prefix().is_none(), "{name}");
     }
+    Ok(())
 }
 
 #[test]
@@ -653,7 +693,7 @@ struct TokensCase {
     fixed: Option<Vec<String>>,
 }
 
-fn converted(kind: &str, text: &str) -> Value {
+fn converted(kind: &str, text: &str) -> TestResult<Value> {
     let to = match kind {
         "bigfloat" => TypeId::BIGFLOAT,
         "datetime" => TypeId::DATETIME,
@@ -662,21 +702,20 @@ fn converted(kind: &str, text: &str) -> Value {
     convert(
         &Val::new(TypeId::STRING, Value::Bytes(text.as_bytes().to_vec())),
         to,
-    )
-    .unwrap()
+    )?
     .into_value()
-    .unwrap()
+    .context("the converted value")
 }
 
-fn golden_value(c: &TokensCase) -> Value {
-    match c.kind.as_str() {
-        "string" => Value::Str(untext(&c.input)),
-        "int" => Value::Int(c.input.parse().unwrap()),
-        "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16).unwrap())),
+fn golden_value(c: &TokensCase) -> TestResult<Value> {
+    Ok(match c.kind.as_str() {
+        "string" => Value::Str(untext(&c.input)?),
+        "int" => Value::Int(c.input.parse()?),
+        "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16)?)),
         "bool" => Value::Bool(c.input == "true"),
         "vfloat" => Value::VFloat(vec![1.0, 2.0, 3.0]),
-        kind => converted(kind, &c.input),
-    }
+        kind => converted(kind, &c.input)?,
+    })
 }
 
 /// The golden ngram index cases whose tokens differ from Dgraph's because the port's `get_tokenizer_for_lang` gives
@@ -712,35 +751,44 @@ const NGRAM_LANG_DEVIATIONS: &[(&str, &str, u32)] = &[
 
 /// The ledger entry a golden case deviates by: [`NGRAM_LANG_DEVIATIONS`] for an ngram index case with a language,
 /// [`LOWERCASE_DEVIATIONS`] for an analyzed case of the inputs it names.
-fn deviation(c: &TokensCase) -> Option<u32> {
+fn deviation(c: &TokensCase) -> TestResult<Option<u32>> {
     if c.kind != "string" {
-        return None;
+        return Ok(None);
     }
-    let input = untext(&c.input);
+    let input = untext(&c.input)?;
     if c.tokenizer == "ngram"
         && c.via == "build"
         && let Some(&(_, _, ledger)) = NGRAM_LANG_DEVIATIONS
             .iter()
             .find(|(lang, i, _)| *lang == c.lang && *i == input)
     {
-        return Some(ledger);
+        return Ok(Some(ledger));
     }
-    LOWERCASE_DEVIATIONS
+    Ok(LOWERCASE_DEVIATIONS
         .iter()
         .find(|(i, _)| *i == input)
-        .map(|&(_, ledger)| ledger)
+        .map(|&(_, ledger)| ledger))
 }
 
 /// The port's tokens of a golden case.
 fn port_tokens(c: &TokensCase) -> Result<Vec<Vec<u8>>, String> {
     let got = match c.via.as_str() {
         "build" => build_tokens(
-            &golden_value(c),
-            &get_tokenizer_for_lang(&tokenizer(&c.tokenizer), &c.lang),
+            &golden_value(c).map_err(|e| e.to_string())?,
+            &get_tokenizer_for_lang(
+                &tokenizer(&c.tokenizer).map_err(|e| e.to_string())?,
+                &c.lang,
+            ),
         )
         .map_err(|e| e.to_string()),
-        "ngram" => Ok(get_ngram_tokens(untext(&c.input), &c.lang)),
-        _ => Ok(get_ngram_query_tokens(untext(&c.input), &c.lang)),
+        "ngram" => Ok(get_ngram_tokens(
+            untext(&c.input).map_err(|e| e.to_string())?,
+            &c.lang,
+        )),
+        _ => Ok(get_ngram_query_tokens(
+            untext(&c.input).map_err(|e| e.to_string())?,
+            &c.lang,
+        )),
     };
     got.map(|mut t| {
         if c.sorted {
@@ -751,18 +799,18 @@ fn port_tokens(c: &TokensCase) -> Result<Vec<Vec<u8>>, String> {
 }
 
 #[test]
-fn test_tokens_golden() {
-    let cases: Vec<TokensCase> = cases("tok_tokens");
+fn test_tokens_golden() -> TestResult {
+    let cases: Vec<TokensCase> = cases("tok_tokens")?;
     assert!(cases.len() > 10_000);
     let mut failures = Vec::new();
     let mut deviating = (Vec::new(), Vec::new());
     for c in &cases {
-        let decoded = |t: &[String]| t.iter().map(|t| unhex(t)).collect::<Vec<_>>();
+        let decoded = |t: &[String]| t.iter().map(|t| unhex(t)).collect::<TestResult<Vec<_>>>();
         assert!(
-            c.fixed.is_none() || deviation(c).is_some(),
+            c.fixed.is_none() || deviation(c)?.is_some(),
             "{c:?}: a fixed result on a case no table names"
         );
-        let want: Result<Vec<Vec<u8>>, String> = match (&c.fixed, deviation(c)) {
+        let want: Result<Vec<Vec<u8>>, String> = match (&c.fixed, deviation(c)?) {
             (Some(fixed), Some(ledger)) => {
                 assert_ne!(fixed, &c.tokens, "{c:?}: Dgraph differs");
                 if ledger == 14 {
@@ -770,13 +818,13 @@ fn test_tokens_golden() {
                         .iter()
                         .find(|g| g.via == "ngram" && g.lang == c.lang && g.input == c.input);
                     assert_eq!(go.map(|g| &g.tokens), Some(fixed), "{c:?}: GetNGramTokens");
-                    deviating.0.push((c.lang.clone(), untext(&c.input)));
+                    deviating.0.push((c.lang.clone(), untext(&c.input)?));
                 } else {
-                    deviating.1.push(untext(&c.input));
+                    deviating.1.push(untext(&c.input)?);
                 }
-                Ok(decoded(fixed))
+                Ok(decoded(fixed)?)
             }
-            (None, _) if c.error.is_empty() => Ok(decoded(&c.tokens)),
+            (None, _) if c.error.is_empty() => Ok(decoded(&c.tokens)?),
             (None, _) => Err(c.error.clone()),
             (Some(_), None) => Err(format!("{c:?}: a fixed result on a case no table names")),
         };
@@ -802,6 +850,7 @@ fn test_tokens_golden() {
         cases.len(),
         failures[..failures.len().min(10)].join("\n")
     );
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -818,8 +867,8 @@ struct RegistryCase {
 }
 
 #[test]
-fn test_registry_golden() {
-    for c in cases::<RegistryCase>("tok_registry") {
+fn test_registry_golden() -> TestResult {
+    for c in cases::<RegistryCase>("tok_registry")? {
         let t = get_tokenizer(&c.name);
         assert_eq!(t.is_some(), c.found, "{}", c.name);
         let Some(t) = t else { continue };
@@ -837,26 +886,28 @@ fn test_registry_golden() {
             c.name
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_full_text_tokens_of_a_long_run_of_y_do_not_overflow_the_stack() {
+fn test_full_text_tokens_of_a_long_run_of_y_do_not_overflow_the_stack() -> TestResult {
     // The Porter stemmer decides whether a `y` is a consonant from the letter before it; go-porterstemmer recurses
     // once per `y` of a run and lives on Go's growable stack, which a thread's fixed stack is not.
     // A suffix that step 2 removes makes it measure the stem, which asks about every `y` of the run.
     let run = format!("{}ational", "y".repeat(100_000));
-    let tokens = get_full_text_tokens(&[run.as_str()], "en").unwrap();
+    let tokens = get_full_text_tokens(&[run.as_str()], "en")?;
     // Dgraph's stem: step 2 makes "ational" "ate", step 4 removes it.
     assert_eq!(tokens, vec![enc(IDENT_FULL_TEXT, &"y".repeat(100_000))]);
     assert_eq!(
-        get_full_text_tokens(&["yyyy"], "en").unwrap(),
+        get_full_text_tokens(&["yyyy"], "en")?,
         vec![b"\x08yyyi".to_vec()]
     );
+    Ok(())
 }
 
 /// A value of each Go type a tokenizer can be handed, with Go's `%T` of it.
-fn values_of_every_type() -> Vec<(&'static str, Value)> {
-    vec![
+fn values_of_every_type() -> TestResult<Vec<(&'static str, Value)>> {
+    Ok(vec![
         ("string", Value::str("a")),
         ("[]uint8", Value::Bytes(b"a".to_vec())),
         ("int64", Value::Int(1)),
@@ -865,19 +916,19 @@ fn values_of_every_type() -> Vec<(&'static str, Value)> {
         ("time.Time", Value::DateTime(DateTime::from_unix(0, 0))),
         (
             "*geom.Point",
-            Value::Geo(Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap()),
+            Value::Geo(Geometry::point(Layout::XY, &[1.0, 2.0])?),
         ),
         ("uint64", Value::Uid(1)),
         (
             "big.Float",
-            Value::BigFloat(BigFloat::from_f64(1.5, 53).unwrap()),
+            Value::BigFloat(BigFloat::from_f64(1.5, 53).context("BigFloat::from_f64(1.5, 53)")?),
         ),
         ("[]float32", Value::VFloat(vec![1.0])),
-    ]
+    ])
 }
 
 /// Each typed tokenizer's token of its own type's value, and Go's assertion text for every other type.
-fn assert_typed_tokens_of_every_type() {
+fn assert_typed_tokens_of_every_type() -> TestResult {
     let int1 = b"\x01\x00\x00\x00\x00\x00\x00\x00\x01";
     // The token each typed tokenizer gives its own type's value of `values_of_every_type`, the epoch for datetime.
     let typed: [(&str, &str, Vec<u8>); 8] = [
@@ -895,13 +946,13 @@ fn assert_typed_tokens_of_every_type() {
         ("bool", "bool", [&[0x09][..], int1].concat()),
     ];
     for (name, own, token) in &typed {
-        let t = tokenizer(name);
-        for (go, v) in values_of_every_type() {
+        let t = tokenizer(name)?;
+        for (go, v) in values_of_every_type()? {
             let got = build_tokens(&v, &t);
             if go == *own {
                 assert_eq!(got, Ok(vec![token.clone()]), "{name} of {go}");
             } else {
-                let e = got.expect_err(name);
+                let e = got.err().context(name)?;
                 assert_eq!(
                     e.0,
                     TokErrorEnum::WrongValue(format!(
@@ -912,13 +963,14 @@ fn assert_typed_tokens_of_every_type() {
             }
         }
     }
+    Ok(())
 }
 
 /// The geo tokenizer's tokens of a point, and Go's assertion text for every other type.
-fn assert_geo_tokens_of_every_type() {
+fn assert_geo_tokens_of_every_type() -> TestResult {
     // geom.T is an interface, whose failed assertion Go words by the first method the value lacks.
-    for (go, v) in values_of_every_type() {
-        let got = build_tokens(&v, &tokenizer("geo"));
+    for (go, v) in values_of_every_type()? {
+        let got = build_tokens(&v, &tokenizer("geo")?);
         if go == "*geom.Point" {
             // Go's tokens of POINT(1 2), in its order: the parent cells, then the cover cell.
             let want: Vec<Vec<u8>> = [
@@ -942,12 +994,13 @@ fn assert_geo_tokens_of_every_type() {
             assert_eq!(got, Ok(want), "geo of {go}");
         } else {
             assert_eq!(
-                got.unwrap_err().to_string(),
+                got.err().context("expected an error")?.to_string(),
                 format!("interface conversion: {go} is not geom.T: missing method Bounds"),
                 "geo of {go}"
             );
         }
     }
+    Ok(())
 }
 
 /// Every tokenizer given a value of every type, as Dgraph v25.5.0 answers (a Go program over `tok.BuildTokens`,
@@ -955,39 +1008,40 @@ fn assert_geo_tokens_of_every_type() {
 /// [`TokErrorEnum::WrongValue`] with the panic's text; exact, trigram and hash return their errors; term, fulltext,
 /// ngram and sha256 take any value; hnsw ignores it.
 #[test]
-fn test_tokens_of_values_of_every_type() {
-    assert_typed_tokens_of_every_type();
-    assert_geo_tokens_of_every_type();
+fn test_tokens_of_values_of_every_type() -> TestResult {
+    assert_typed_tokens_of_every_type()?;
+    assert_geo_tokens_of_every_type()?;
     let refused = [
         ("exact", "Exact indices only supported for string types"),
         ("trigram", "Trigram indices only supported for string types"),
         ("hash", "Hash tokenizer only supported for string types"),
     ];
     for (name, msg) in refused {
-        for (go, v) in values_of_every_type().into_iter().skip(1) {
-            let e = build_tokens(&v, &tokenizer(name)).expect_err(name);
+        for (go, v) in values_of_every_type()?.into_iter().skip(1) {
+            let e = build_tokens(&v, &tokenizer(name)?).err().context(name)?;
             assert_eq!(e.0, TokErrorEnum::WrongValue(msg.into()), "{name} of {go}");
         }
     }
-    for (go, v) in values_of_every_type().into_iter().skip(1) {
+    for (go, v) in values_of_every_type()?.into_iter().skip(1) {
         assert_eq!(
-            build_tokens(&v, &tokenizer("term")),
+            build_tokens(&v, &tokenizer("term")?),
             Ok(vec![vec![IDENT_TERM]]),
             "term of {go}"
         );
         for name in ["fulltext", "ngram", "sha256"] {
             assert_eq!(
-                build_tokens(&v, &tokenizer(name)),
+                build_tokens(&v, &tokenizer(name)?),
                 Ok(Vec::new()),
                 "{name} of {go}"
             );
         }
     }
-    for (go, v) in values_of_every_type() {
+    for (go, v) in values_of_every_type()? {
         assert_eq!(
-            build_tokens(&v, &tokenizer("hnsw")),
+            build_tokens(&v, &tokenizer("hnsw")?),
             Ok(vec![b"\x0efloat".to_vec()]),
             "hnsw of {go}"
         );
     }
+    Ok(())
 }

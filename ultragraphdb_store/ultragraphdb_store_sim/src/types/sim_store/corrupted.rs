@@ -52,7 +52,9 @@ impl Corrupted {
             .values_mut()
             .filter_map(|corruptions| corruptions.last_mut())
             .for_each(|(_, healed)| {
-                healed.get_or_insert(heal);
+                if healed.is_none() {
+                    *healed = Some(heal);
+                }
             });
     }
 

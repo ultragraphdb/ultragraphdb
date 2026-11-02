@@ -498,13 +498,22 @@ fn shortest_digits(f: f64, bits: u32) -> (Vec<u8>, i64) {
     } else {
         format!("{:e}", f.abs())
     };
-    let (mant, exp) = sci
-        .split_once('e')
-        .expect("`{:e}` above writes the exponent after an `e`");
-    let exp: i64 = exp
-        .parse()
-        .expect("`{:e}` above writes the exponent as a decimal integer");
-    let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+    // `{:e}` writes `d.ddde-x`: the digits before the `e`, the exponent after it as a decimal integer.
+    let digits: Vec<u8> = sci
+        .bytes()
+        .take_while(|&c| c != b'e')
+        .filter(u8::is_ascii_digit)
+        .collect();
+    let exp_text = sci.bytes().skip_while(|&c| c != b'e');
+    let exp_negative = exp_text.clone().any(|c| c == b'-');
+    let exp_magnitude = exp_text
+        .filter(u8::is_ascii_digit)
+        .fold(0i64, |acc, c| acc * 10 + i64::from(c - b'0'));
+    let exp = if exp_negative {
+        -exp_magnitude
+    } else {
+        exp_magnitude
+    };
     let dp = exp + 1;
     let v = if bits == 32 {
         f64::from(f as f32).abs()
@@ -558,7 +567,7 @@ fn round_half_even(d: &[u8], dp: i64, n: usize) -> (Vec<u8>, i64) {
         loop {
             if i == 0 {
                 r.insert(0, b'1');
-                r.pop();
+                let _dropped_zero: Option<u8> = r.pop();
                 dp += 1;
                 break;
             }
@@ -571,8 +580,8 @@ fn round_half_even(d: &[u8], dp: i64, n: usize) -> (Vec<u8>, i64) {
             }
         }
     }
-    while r.last() == Some(&b'0') {
-        r.pop();
+    while let Some(&b'0') = r.last() {
+        r.truncate(r.len() - 1);
     }
     (r, dp)
 }

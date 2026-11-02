@@ -4,10 +4,11 @@
  */
 
 use ultragraphdb_common_utils::{JsonValue, go_json};
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[test]
-fn objects_keep_their_members_in_order_with_duplicates() {
-    let v = go_json::unmarshal(br#"{"b":1,"a":"x","b":[true,null]}"#).unwrap();
+fn objects_keep_their_members_in_order_with_duplicates() -> TestResult {
+    let v = go_json::unmarshal(br#"{"b":1,"a":"x","b":[true,null]}"#)?;
     assert_eq!(
         v,
         JsonValue::Object(vec![
@@ -19,11 +20,12 @@ fn objects_keep_their_members_in_order_with_duplicates() {
             ),
         ])
     );
+    Ok(())
 }
 
 #[test]
-fn numbers_keep_their_text() {
-    let v = go_json::unmarshal(b"[-0.0e+00, 1E400, 123456789012345678901234567890]").unwrap();
+fn numbers_keep_their_text() -> TestResult {
+    let v = go_json::unmarshal(b"[-0.0e+00, 1E400, 123456789012345678901234567890]")?;
     assert_eq!(
         v,
         JsonValue::Array(
@@ -32,13 +34,13 @@ fn numbers_keep_their_text() {
                 .to_vec()
         )
     );
+    Ok(())
 }
 
 #[test]
-fn strings_replace_invalid_utf8_and_lone_surrogates() {
+fn strings_replace_invalid_utf8_and_lone_surrogates() -> TestResult {
     let v =
-        go_json::unmarshal(b"[\"a\xffb\", \"\\ud800\\u0041\", \"\\ud83d\\ude00\", \"\xe2\x82\"]")
-            .unwrap();
+        go_json::unmarshal(b"[\"a\xffb\", \"\\ud800\\u0041\", \"\\ud83d\\ude00\", \"\xe2\x82\"]")?;
     assert_eq!(
         v,
         JsonValue::Array(
@@ -47,10 +49,11 @@ fn strings_replace_invalid_utf8_and_lone_surrogates() {
                 .to_vec()
         )
     );
+    Ok(())
 }
 
 #[test]
-fn the_kind_is_what_go_names_in_a_type_error() {
+fn the_kind_is_what_go_names_in_a_type_error() -> TestResult {
     for (input, kind) in [
         ("null", "null"),
         ("true", "bool"),
@@ -59,23 +62,25 @@ fn the_kind_is_what_go_names_in_a_type_error() {
         ("[]", "array"),
         ("{}", "object"),
     ] {
-        assert_eq!(go_json::unmarshal(input.as_bytes()).unwrap().kind(), kind);
+        assert_eq!(go_json::unmarshal(input.as_bytes())?.kind(), kind);
     }
+    Ok(())
 }
 
 #[test]
-fn a_value_ten_thousand_deep_builds_and_drops() {
-    let data = format!("{}{}", "[".repeat(10000), "]".repeat(10000));
-    let v = go_json::unmarshal(data.as_bytes()).unwrap();
-    assert_eq!(v.kind(), "array");
-    assert_eq!(v.marshal(), data);
-    assert_eq!(v.go_v(), data);
-    let data = format!(r#"{}1{}"#, r#"{"a":"#.repeat(10000), "}".repeat(10000));
-    let v = go_json::unmarshal(data.as_bytes()).unwrap();
-    assert_eq!(v.marshal(), data);
+fn a_value_ten_thousand_deep_builds_and_drops() -> TestResult {
+    let arrays = format!("{}{}", "[".repeat(10000), "]".repeat(10000));
+    let array = go_json::unmarshal(arrays.as_bytes())?;
+    assert_eq!(array.kind(), "array");
+    assert_eq!(array.marshal(), arrays);
+    assert_eq!(array.go_v(), arrays);
+    let objects = format!(r#"{}1{}"#, r#"{"a":"#.repeat(10000), "}".repeat(10000));
+    let object = go_json::unmarshal(objects.as_bytes())?;
+    assert_eq!(object.marshal(), objects);
     // Go's %v of the value: map[a:map[a:...1]...].
     let go_v = format!("{}1{}", "map[a:".repeat(10000), "]".repeat(10000));
-    assert_eq!(v.go_v(), go_v);
+    assert_eq!(object.go_v(), go_v);
+    Ok(())
 }
 
 #[test]
@@ -83,17 +88,17 @@ fn a_value_ten_thousand_deep_builds_and_drops() {
     clippy::disallowed_methods,
     reason = "the test clones on a small stack to prove the clone does not recurse"
 )]
-fn a_clone_is_equal_and_copies_ten_thousand_deep() {
-    let v = go_json::unmarshal(br#"{"a":[1,{"b":null,"c":"x"},[]],"d":true,"a":{}}"#).unwrap();
-    assert_eq!(v.clone(), v);
+fn a_clone_is_equal_and_copies_ten_thousand_deep() -> TestResult {
+    let small = go_json::unmarshal(br#"{"a":[1,{"b":null,"c":"x"},[]],"d":true,"a":{}}"#)?;
+    assert_eq!(small.clone(), small);
     let data = format!(r#"{}"x"{}"#, r#"{"a":[ "#.repeat(5000), "]}".repeat(5000));
-    let v = go_json::unmarshal(data.as_bytes()).unwrap();
+    let deep = go_json::unmarshal(data.as_bytes())?;
     let copy = std::thread::Builder::new()
         .stack_size(256 * 1024)
-        .spawn(move || v.clone().marshal())
-        .unwrap()
+        .spawn(move || deep.clone().marshal())?
         .join()
-        .unwrap();
+        .map_err(|_| TestError::new("the cloning thread panicked"))?;
     // json.Marshal writes the value without the space after each bracket.
     assert_eq!(copy, data.replace("[ ", "["));
+    Ok(())
 }

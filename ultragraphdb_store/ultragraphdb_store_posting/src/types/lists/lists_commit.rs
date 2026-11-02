@@ -76,8 +76,8 @@ where
         let mut version = next_even(lock(&self.state).applied);
         let mut kept: Vec<(u64, Writes)> = Vec::new();
         let mut results = Vec::with_capacity(checked.len());
-        for (request, check) in requests.into_iter().zip(checked) {
-            match check {
+        for (request, outcome) in requests.into_iter().zip(checked) {
+            match outcome {
                 Ok(()) => {
                     kept.push((version, request.into_writes()));
                     results.push(Ok(version));
@@ -185,7 +185,7 @@ where
             if !state.fills.is_empty() {
                 for (version, writes) in round {
                     for key in writes.written_keys() {
-                        state.touched.insert(key.to_vec(), *version);
+                        let _earlier: Option<u64> = state.touched.insert(key.to_vec(), *version);
                     }
                 }
             }

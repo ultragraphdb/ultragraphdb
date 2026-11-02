@@ -16,10 +16,12 @@ const CM2: f64 = 100.0 * 100.0;
 pub struct Area(f64);
 
 impl Area {
+    /// An area of `square_metres`.
     pub fn new(square_metres: f64) -> Self {
         Self(square_metres)
     }
 
+    /// The area in square metres.
     pub fn square_metres(self) -> f64 {
         self.0
     }

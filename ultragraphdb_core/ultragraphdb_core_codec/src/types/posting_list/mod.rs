@@ -43,6 +43,7 @@ impl PostingList {
         &self.splits
     }
 
+    /// The list with `pack` as its packed UIDs.
     pub fn with_pack(self, pack: UidPack) -> Self {
         Self {
             pack: Some(pack),
@@ -50,30 +51,37 @@ impl PostingList {
         }
     }
 
+    /// The list with `postings` as its postings.
     pub fn with_postings(self, postings: Vec<Posting>) -> Self {
         Self { postings, ..self }
     }
 
+    /// The list with `commit_ts` as its commit timestamp.
     pub fn with_commit_ts(self, commit_ts: u64) -> Self {
         Self { commit_ts, ..self }
     }
 
+    /// The list with `splits` as its parts' start UIDs.
     pub fn with_splits(self, splits: Vec<u64>) -> Self {
         Self { splits, ..self }
     }
 
+    /// Sets the packed UIDs to `pack`; `None` removes the pack.
     pub fn set_pack(&mut self, pack: Option<UidPack>) {
         self.pack = pack;
     }
 
+    /// The postings, to edit in place.
     pub fn postings_mut(&mut self) -> &mut Vec<Posting> {
         &mut self.postings
     }
 
+    /// Sets the commit timestamp to `commit_ts`.
     pub fn set_commit_ts(&mut self, commit_ts: u64) {
         self.commit_ts = commit_ts;
     }
 
+    /// Sets the parts' start UIDs to `splits`.
     pub fn set_splits(&mut self, splits: Vec<u64>) {
         self.splits = splits;
     }

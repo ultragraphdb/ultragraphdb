@@ -18,6 +18,7 @@ impl<'a> VectorView<'a> {
         self.0.len() / 4
     }
 
+    /// Whether it has no elements.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

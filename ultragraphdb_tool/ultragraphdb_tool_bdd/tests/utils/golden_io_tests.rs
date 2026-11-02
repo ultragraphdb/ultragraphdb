@@ -4,21 +4,20 @@
  */
 
 use std::fs;
-use std::panic;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use ultragraphdb_tool_bdd::{Golden, load_golden};
+use ultragraphdb_tool_bdd::{Golden, TestError, TestResult, load_golden};
 
-/// A file in the temp directory, named for the test that wrote it and removed when the test ends, even on a panic.
+/// A file in the temp directory, named for the test that wrote it and removed when the test ends, even on a failure.
 struct TempFile(PathBuf);
 
 impl TempFile {
-    fn new(name: &str, contents: &str) -> Self {
+    fn new(name: &str, contents: &str) -> TestResult<Self> {
         let path =
             std::env::temp_dir().join(format!("ugdb-golden-{}-{name}.json", std::process::id()));
-        fs::write(&path, contents).unwrap();
-        TempFile(path)
+        fs::write(&path, contents)?;
+        Ok(TempFile(path))
     }
 
     fn path(&self) -> &Path {
@@ -33,14 +32,12 @@ impl Drop for TempFile {
     }
 }
 
-/// The message `load_golden` panicked with, loading `u32` cases.
-fn load_panic(path: &Path) -> String {
-    let payload =
-        panic::catch_unwind(|| load_golden::<u32>(path)).expect_err("load_golden must panic");
-    payload
-        .downcast::<String>()
-        .map(|s| *s)
-        .expect("load_golden panics with a formatted message")
+/// The message `load_golden` failed with, loading `u32` cases.
+fn load_failure(path: &Path) -> TestResult<String> {
+    let Err(e) = load_golden::<u32>(path) else {
+        return Err(TestError::new("load_golden must fail"));
+    };
+    Ok(e.reason().to_string())
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
@@ -50,24 +47,25 @@ struct Case {
 }
 
 #[test]
-fn a_golden_file_loads_with_its_commit_and_cases() {
+fn a_golden_file_loads_with_its_commit_and_cases() -> TestResult {
     let f = TempFile::new(
         "scalars",
         r#"{"dgraph_commit":"9fbf35614","generator":"t","cases":[1,2,3]}"#,
-    );
-    let g: Golden<u32> = load_golden(f.path());
+    )?;
+    let g: Golden<u32> = load_golden(f.path())?;
     assert_eq!(g.dgraph_commit(), "9fbf35614");
     assert_eq!(g.generator(), "t");
     assert_eq!(g.cases(), &[1, 2, 3]);
+    Ok(())
 }
 
 #[test]
-fn a_golden_file_keeps_its_cases_in_order_with_their_fields() {
+fn a_golden_file_keeps_its_cases_in_order_with_their_fields() -> TestResult {
     let f = TempFile::new(
         "structs",
         r#"{"generator":"tools/golden x","cases":[{"input":"b","bytes":[255,0]},{"input":"","bytes":[]},{"input":"a","bytes":[1]}],"dgraph_commit":"c"}"#,
-    );
-    let g: Golden<Case> = load_golden(f.path());
+    )?;
+    let g: Golden<Case> = load_golden(f.path())?;
     assert_eq!(g.dgraph_commit(), "c");
     assert_eq!(g.generator(), "tools/golden x");
     assert_eq!(
@@ -87,21 +85,23 @@ fn a_golden_file_keeps_its_cases_in_order_with_their_fields() {
             },
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn a_golden_file_without_cases_loads_empty() {
-    let f = TempFile::new("empty", r#"{"dgraph_commit":"","generator":"","cases":[]}"#);
-    let g: Golden<u32> = load_golden(f.path());
+fn a_golden_file_without_cases_loads_empty() -> TestResult {
+    let f = TempFile::new("empty", r#"{"dgraph_commit":"","generator":"","cases":[]}"#)?;
+    let g: Golden<u32> = load_golden(f.path())?;
     assert_eq!(g.dgraph_commit(), "");
     assert_eq!(g.generator(), "");
     assert!(g.cases().is_empty());
+    Ok(())
 }
 
 #[test]
-fn a_missing_golden_file_panics_naming_the_path() {
+fn a_missing_golden_file_fails_naming_the_path() -> TestResult {
     let path = std::env::temp_dir().join(format!("ugdb-golden-{}-absent.json", std::process::id()));
-    let msg = load_panic(&path);
+    let msg = load_failure(&path)?;
     assert_eq!(
         msg,
         format!(
@@ -109,10 +109,11 @@ fn a_missing_golden_file_panics_naming_the_path() {
             path.display()
         )
     );
+    Ok(())
 }
 
 #[test]
-fn a_malformed_golden_file_panics_naming_the_path_and_the_fault() {
+fn a_malformed_golden_file_fails_naming_the_path_and_the_fault() -> TestResult {
     let cases: &[(&str, &str, &str)] = &[
         ("truncated", "{", "EOF while parsing an object"),
         ("not-json", "dgraph", "expected value"),
@@ -143,10 +144,11 @@ fn a_malformed_golden_file_panics_naming_the_path_and_the_fault() {
         ),
     ];
     for (name, contents, fault) in cases {
-        let f = TempFile::new(name, contents);
-        let msg = load_panic(f.path());
+        let f = TempFile::new(name, contents)?;
+        let msg = load_failure(f.path())?;
         let prefix = format!("cannot parse golden file {}: ", f.path().display());
         assert!(msg.starts_with(&prefix), "{name}: {msg}");
         assert!(msg[prefix.len()..].starts_with(fault), "{name}: {msg}");
     }
+    Ok(())
 }

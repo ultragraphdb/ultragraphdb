@@ -33,6 +33,7 @@ pub enum Keyspace {
 pub const SPLIT_FLAG: u8 = 0x80;
 
 impl Keyspace {
+    /// The keyspace byte its keys begin with, without the split flag.
     pub fn byte(self) -> u8 {
         match self {
             Keyspace::Catalog => 0x01,

@@ -21,11 +21,13 @@ impl NetworkFaults {
         Self::default()
     }
 
+    /// Drops at `per_million`.
     pub fn with_drop(mut self, per_million: u32) -> Self {
         self.drop = per_million;
         self
     }
 
+    /// Duplicates at `per_million`.
     pub fn with_duplicate(mut self, per_million: u32) -> Self {
         self.duplicate = per_million;
         self
@@ -38,27 +40,33 @@ impl NetworkFaults {
         self
     }
 
+    /// Splits at `per_million`.
     pub fn with_split(mut self, per_million: u32) -> Self {
         self.split = per_million;
         self
     }
 
+    /// The rate of drops, per million messages.
     pub fn drop_rate(&self) -> u32 {
         self.drop
     }
 
+    /// The rate of duplicates, per million messages.
     pub fn duplicate_rate(&self) -> u32 {
         self.duplicate
     }
 
+    /// The rate of delays, per million messages.
     pub fn delay_rate(&self) -> u32 {
         self.delay
     }
 
+    /// The rate of splits, per million messages.
     pub fn split_rate(&self) -> u32 {
         self.split
     }
 
+    /// The most steps a delay holds a message back.
     pub fn max_delay(&self) -> u64 {
         self.max_delay
     }

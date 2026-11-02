@@ -84,14 +84,17 @@ where
         }
     }
 
+    /// The store the lists are kept in.
     pub fn store(&self) -> &S {
         &self.store
     }
 
+    /// The posting cache.
     pub fn cache(&self) -> &C {
         &self.cache
     }
 
+    /// How the lists write.
     pub fn config(&self) -> ListsConfig {
         self.config
     }

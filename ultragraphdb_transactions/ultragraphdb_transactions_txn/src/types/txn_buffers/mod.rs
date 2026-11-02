@@ -15,6 +15,7 @@ pub struct TxnBuffers {
 }
 
 impl TxnBuffers {
+    /// Empty buffers, which grow with the first transaction that uses them.
     pub fn new() -> Self {
         Self::default()
     }

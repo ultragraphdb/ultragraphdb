@@ -41,8 +41,8 @@ impl Table {
                     scan.s_end = p + end;
                 }
                 while p < suffix.len() && !scan.done && suffix[p] >= RUNE_SELF {
-                    let (r, size) = first_rune(&suffix[p..]);
-                    rune = nfd_properties(r);
+                    let (next_r, next_size) = first_rune(&suffix[p..]);
+                    rune = nfd_properties(next_r);
                     let ccc = rune.lead_ccc;
                     if ccc == 0 || prev_cc >= ccc {
                         break;
@@ -60,29 +60,29 @@ impl Table {
                         p = pp;
                         p0 = pp;
                     } else {
-                        p += size;
+                        p += next_size;
                     }
                 }
             }
         }
         // Append weights for the matched contraction, which may be an expansion.
-        let (i, n) = scan.result();
-        let ce = Elem(MAIN_CONTRACT_ELEM[i + offset]);
-        if ce.ctype() == CeType::Normal {
-            w.push(ce);
+        let (i, consumed) = scan.result();
+        let contraction_ce = Elem(MAIN_CONTRACT_ELEM[i + offset]);
+        if contraction_ce.ctype() == CeType::Normal {
+            w.push(contraction_ce);
         } else {
-            self.append_expansion(w, ce);
+            self.append_expansion(w, contraction_ce);
         }
         // Append weights for the runes in the segment not part of the contraction.
         let mut b = &buf[..bufp];
         while !b.is_empty() {
-            let p = self.append_next(w, b);
-            if p == 0 {
+            let rune_len = self.append_next(w, b);
+            if rune_len == 0 {
                 // An incomplete rune at the end of a full buffer, where Go loops forever.
                 break;
             }
-            b = &b[p..];
+            b = &b[rune_len..];
         }
-        n
+        consumed
     }
 }

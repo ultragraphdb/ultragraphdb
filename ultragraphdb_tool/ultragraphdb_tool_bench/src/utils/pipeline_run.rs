@@ -127,7 +127,7 @@ async fn commit_loop(
         Pipeline::new(a, wal, bounds).map_err(|e| BenchError::Commit(e.to_string()))?;
     let replied = Arc::new(AtomicU64::new(0));
     let rx = spawn_source(args.rate(), args.seconds(), shape, clock, replied.clone());
-    let micros = |clock: &WallClock| u64::try_from(clock.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let micros = |timer: &WallClock| u64::try_from(timer.elapsed().as_micros()).unwrap_or(u64::MAX);
     let mut counts = Counts::default();
     let mut ticket = 0u64;
     let mut waiting = Vec::new();
@@ -230,7 +230,7 @@ fn spawn_source(
     replied: Arc<AtomicU64>,
 ) -> mpsc::Receiver<Changeset> {
     let (tx, rx) = mpsc::channel::<Changeset>();
-    std::thread::spawn(move || {
+    let _source: std::thread::JoinHandle<()> = std::thread::spawn(move || {
         let mut pacer = Pacer::new(rate);
         let (mut sent, mut owed) = (0u64, 0u64);
         let end = Duration::from_secs(seconds);

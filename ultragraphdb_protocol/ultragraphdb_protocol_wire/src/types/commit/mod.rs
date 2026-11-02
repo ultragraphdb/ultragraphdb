@@ -28,6 +28,7 @@ pub struct Commit {
 }
 
 impl Commit {
+    /// A commit of `session`'s request `request`, at `commit_version` with `results`; zero and none in a request.
     pub fn new(
         session: u64,
         request: u64,
@@ -42,18 +43,22 @@ impl Commit {
         }
     }
 
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }
 
+    /// The request's number within its session.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The commit version; zero in a request.
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }
 
+    /// The commit-time operations' results, in the order asked.
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }

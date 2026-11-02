@@ -12,20 +12,26 @@ use ultragraphdb_store_apply::ChangesetErrorEnum;
 
 use crate::utils::changesets::{
     apply, changeset, changesets, counts_of, declare, delete, insert, keys_of, objects, term, uid,
-    write,
+    write, write_changes,
 };
 use ultragraphdb_core_keys::CountDirection;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn test_a_vector_of_another_dimension_than_declared_is_refused_naming_both() {
-    let a = changesets();
+fn test_a_vector_of_another_dimension_than_declared_is_refused_naming_both() -> TestResult {
+    let a = changesets()?;
     declare(
         &a,
         "emb",
         "single-valued with a vector index of dimension 3",
-    );
+    )?;
     // The index holds no vector yet: the declaration alone sets the dimension.
-    let refused = apply(&a, vec![insert("<b> <emb> \"[1, 2]\"^^ugdb:float32vector")]).unwrap_err();
+    let refused = apply(
+        &a,
+        vec![insert("<b> <emb> \"[1, 2]\"^^ugdb:float32vector")?],
+    )
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(
             refused.0,
@@ -46,9 +52,10 @@ fn test_a_vector_of_another_dimension_than_declared_is_refused_naming_both() {
         &a,
         vec![insert(
             "<c> <emb> \"[1, 2, 3, 4]\"^^ugdb:float32vector <g1>",
-        )],
+        )?],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(
             longer.0,
@@ -67,30 +74,31 @@ fn test_a_vector_of_another_dimension_than_declared_is_refused_naming_both() {
             "<b> <emb> \"[3, 2, 1]\"^^ugdb:float32vector",
             "<c> <emb> \"[1, 2, 3]\"^^ugdb:float32vector <g1>",
         ],
-    );
+    )?;
     assert_eq!(
-        objects(&a, "b", "emb"),
-        vec![term("\"[3, 2, 1]\"^^ugdb:float32vector")]
+        objects(&a, "b", "emb")?,
+        vec![term("\"[3, 2, 1]\"^^ugdb:float32vector")?]
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_transaction_writing_or_deleting_a_vector_touches_no_hnsw_list() {
-    let a = changesets();
+fn test_a_transaction_writing_or_deleting_a_vector_touches_no_hnsw_list() -> TestResult {
+    let a = changesets()?;
     declare(
         &a,
         "emb",
         "single-valued with a vector index of dimension 2",
-    );
-    write(&a, &["<a> <emb> \"[1, 0]\"^^ugdb:float32vector"]);
+    )?;
+    write(&a, &["<a> <emb> \"[1, 0]\"^^ugdb:float32vector"])?;
     let vector_index =
         |key: &[u8]| matches!(QuadKey::parse(key), Ok((QuadKey::VectorIndex { .. }, _)));
     for change in [
-        insert("<b> <emb> \"[0, 1]\"^^ugdb:float32vector"),
-        insert("<a> <emb> \"[1, 1]\"^^ugdb:float32vector"),
-        delete("<a> <emb> \"[1, 0]\"^^ugdb:float32vector"),
+        insert("<b> <emb> \"[0, 1]\"^^ugdb:float32vector")?,
+        insert("<a> <emb> \"[1, 1]\"^^ugdb:float32vector")?,
+        delete("<a> <emb> \"[1, 0]\"^^ugdb:float32vector")?,
     ] {
-        let executed = a.execute(&changeset(vec![change])).unwrap();
+        let executed = a.execute(&changeset(vec![change]))?;
         let reads = executed.reads();
         assert!(!reads.lists().iter().any(|k| vector_index(k)), "{reads:?}");
         assert!(
@@ -112,40 +120,42 @@ fn test_a_transaction_writing_or_deleting_a_vector_touches_no_hnsw_list() {
             "{writes:?}"
         );
     }
-    assert!(keys_of(&a, Keyspace::VectorIndex, "emb").is_empty());
+    assert!(keys_of(&a, Keyspace::VectorIndex, "emb")?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_vector_without_a_vector_index_is_held_and_not_indexed() {
-    let a = changesets();
+fn test_a_vector_without_a_vector_index_is_held_and_not_indexed() -> TestResult {
+    let a = changesets()?;
     write(
         &a,
         &[
             "<a> <v> \"[1, 2, 3]\"^^ugdb:float32vector",
             "<b> <v> \"[1, 2]\"^^ugdb:float32vector",
         ],
-    );
+    )?;
     assert_eq!(
-        objects(&a, "a", "v"),
-        vec![term("\"[1, 2, 3]\"^^ugdb:float32vector")]
+        objects(&a, "a", "v")?,
+        vec![term("\"[1, 2, 3]\"^^ugdb:float32vector")?]
     );
-    assert!(keys_of(&a, Keyspace::VectorIndex, "v").is_empty());
+    assert!(keys_of(&a, Keyspace::VectorIndex, "v")?.is_empty());
     // A vector takes no reverse entry.
-    assert!(keys_of(&a, Keyspace::Reverse, "v").is_empty());
+    assert!(keys_of(&a, Keyspace::Reverse, "v")?.is_empty());
+    Ok(())
 }
 
 /// A vector on a predicate with an exact count index counts its subject's objects, and takes no reverse count, as it
 /// takes no reverse entry (quad storage: a vector has no reverse entry): `a` holds one vector, then none.
 #[test]
-fn test_a_vector_is_counted_forward_and_takes_no_reverse_count() {
-    let a = changesets();
-    declare(&a, "v", "with an exact count index");
-    write(&a, &["<a> <v> \"[1, 2]\"^^ugdb:float32vector"]);
+fn test_a_vector_is_counted_forward_and_takes_no_reverse_count() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "v", "with an exact count index")?;
+    write(&a, &["<a> <v> \"[1, 2]\"^^ugdb:float32vector"])?;
     assert_eq!(
-        counts_of(&a, "v", CountDirection::Forward, uid(&a, "a")),
+        counts_of(&a, "v", CountDirection::Forward, uid(&a, "a")?)?,
         vec![1]
     );
-    let reverse_counts = keys_of(&a, Keyspace::CountIndex, "v")
+    let reverse_counts = keys_of(&a, Keyspace::CountIndex, "v")?
         .into_iter()
         .filter(|k| {
             matches!(
@@ -161,9 +171,10 @@ fn test_a_vector_is_counted_forward_and_takes_no_reverse_count() {
         })
         .count();
     assert_eq!(reverse_counts, 0);
-    apply(&a, vec![delete("<a> <v> \"[1, 2]\"^^ugdb:float32vector")]).unwrap();
+    write_changes(&a, vec![delete("<a> <v> \"[1, 2]\"^^ugdb:float32vector")?])?;
     assert_eq!(
-        counts_of(&a, "v", CountDirection::Forward, uid(&a, "a")),
+        counts_of(&a, "v", CountDirection::Forward, uid(&a, "a")?)?,
         Vec::<u32>::new()
     );
+    Ok(())
 }

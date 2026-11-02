@@ -54,6 +54,7 @@ pub struct Wal<S: DurableStorage> {
 }
 
 impl<S: DurableStorage> Wal<S> {
+    /// The configuration the log was opened with.
     pub fn config(&self) -> &WalConfig {
         &self.config
     }

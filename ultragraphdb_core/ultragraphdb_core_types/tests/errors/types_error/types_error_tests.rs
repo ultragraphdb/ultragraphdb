@@ -7,10 +7,13 @@ use std::error::Error;
 
 use ultragraphdb_core_types::{TypeId, TypesError, TypesErrorEnum, Val, convert};
 use ultragraphdb_error_num::NumError;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn test_kind_and_message() {
-    let err = convert(&Val::bytes(TypeId::STRING, b"x".to_vec()), TypeId::INT).unwrap_err();
+fn test_kind_and_message() -> TestResult {
+    let err = convert(&Val::bytes(TypeId::STRING, b"x".to_vec()), TypeId::INT)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
         err.0,
         TypesErrorEnum::Number(r#"strconv.ParseInt: parsing "x": invalid syntax"#.into())
@@ -23,14 +26,17 @@ fn test_kind_and_message() {
         err.to_string(),
         r#"strconv.ParseInt: parsing "x": invalid syntax"#
     );
-    let err = convert(&Val::bytes(TypeId::INT, Vec::new()), TypeId::UID).unwrap_err();
+    let uid_err = convert(&Val::bytes(TypeId::INT, Vec::new()), TypeId::UID)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
-        err.0,
+        uid_err.0,
         TypesErrorEnum::Conversion("invalid data for int64 []".into())
     );
-    let e: &dyn Error = &err;
+    let e: &dyn Error = &uid_err;
     assert_eq!(e.to_string(), "invalid data for int64 []");
     assert!(e.source().is_none());
+    Ok(())
 }
 
 #[test]

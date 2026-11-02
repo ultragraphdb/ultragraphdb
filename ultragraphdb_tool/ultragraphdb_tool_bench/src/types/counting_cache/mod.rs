@@ -20,6 +20,7 @@ pub struct CountingCache<C> {
 }
 
 impl<C> CountingCache<C> {
+    /// The cache `inner`, its lookups counted in `counts`.
     pub fn new(inner: C, counts: Arc<ReadCounts>) -> Self {
         Self { inner, counts }
     }

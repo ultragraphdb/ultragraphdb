@@ -62,10 +62,12 @@ where
         })
     }
 
+    /// The quad store the applier writes.
     pub fn quads(&self) -> &QuadStore<S, C> {
         self.core.quads()
     }
 
+    /// The executor the applier runs its builds on.
     pub fn executor(&self) -> &E {
         &self.executor
     }

@@ -151,11 +151,11 @@ impl DictionaryWorkload {
                 ctx.rng().below(4)
             ))
             .into(),
-            7 => Literal::new_language_tagged_literal(
+            // `en-GB` as the checked constructor lowercases it.
+            7 => Literal::new_language_tagged_literal_unchecked(
                 format!("label {}", ctx.rng().below(9999)),
-                "en-GB",
+                "en-gb",
             )
-            .unwrap()
             .into(),
             8 => Literal::new_typed_literal(
                 format!("{}", ctx.rng().below(9)),
@@ -175,7 +175,7 @@ impl DictionaryWorkload {
         if ctx.rng().chance(100) {
             let key = self.some_key(&quads, ctx)?;
             if let Some(key) = key {
-                quads.lists().rollup_key(&key)?;
+                let _rollup_key: bool = quads.lists().rollup_key(&key)?;
             }
             return Ok(());
         }
@@ -207,13 +207,26 @@ impl DictionaryWorkload {
                 let (t, q) = write.terms();
                 let (s, l) = (q.store(), q.leases());
                 let graph = t.graph(s, l, quad.graph_name.as_ref())?;
-                let subject = t.node(s, l, quad.subject.as_ref())?;
+                let subject_uid = t.node(s, l, quad.subject.as_ref())?;
                 let predicate = t.predicate(s, l, quad.predicate.as_ref())?;
                 let object = t.term(s, l, quad.object.as_ref())?;
                 if ctx.rng().chance(250) {
-                    write.delete(graph, subject, predicate, &object, &kind(&quad.object))?;
+                    let _deleted: Option<Vec<u64>> = write.delete(
+                        graph,
+                        subject_uid,
+                        predicate,
+                        &object,
+                        &kind(&quad.object),
+                    )?;
                 } else {
-                    write.insert(graph, subject, predicate, &object, &[], &kind(&quad.object));
+                    write.insert(
+                        graph,
+                        subject_uid,
+                        predicate,
+                        &object,
+                        &[],
+                        &kind(&quad.object),
+                    );
                 }
             }
             let (request, t) = write.finish();

@@ -13,6 +13,7 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_txn::{
     Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnLimits,
 };
@@ -27,7 +28,7 @@ pub const NS: u64 = 0;
 pub const SECOND: u64 = 1_000_000;
 
 /// A changeset applier over a fault-free simulated store.
-pub fn applier() -> Applier {
+pub fn applier() -> TestResult<Applier> {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
@@ -36,7 +37,7 @@ pub fn applier() -> Applier {
         executor,
         1,
     )
-    .expect("the applier opens")
+    .context("the applier opens")
 }
 
 pub fn ex(name: &str) -> NamedNode {
@@ -71,21 +72,26 @@ pub fn changeset(changes: Vec<Change>) -> Changeset {
 }
 
 /// Commits `changes` on their own, as an acknowledged commit: the watermark passes it. Its commit version.
-pub fn commit(applier: &Applier, changes: Vec<Change>) -> u64 {
-    applier
+pub fn commit(applier: &Applier, changes: Vec<Change>) -> TestResult<u64> {
+    Ok(applier
         .apply(&changeset(changes))
-        .expect("the commit applies")
-        .commit_ts()
+        .context("the commit applies")?
+        .commit_ts())
+}
+
+/// Commits `changes` as [`commit`] does, where the test needs no commit version.
+pub fn store(applier: &Applier, changes: Vec<Change>) -> TestResult {
+    commit(applier, changes).map(|_version| ())
 }
 
 /// Begins a transaction of `NS` at the watermark at time 0 with the default limits.
-pub fn begin(applier: &Applier, mode: Mode) -> Txn<'_> {
+pub fn begin(applier: &Applier, mode: Mode) -> TestResult<Txn<'_>> {
     begin_with(applier, mode, TxnLimits::default())
 }
 
 /// Begins a transaction of `NS` at the watermark at time 0 with `limits`.
-pub fn begin_with(applier: &Applier, mode: Mode, limits: TxnLimits) -> Txn<'_> {
-    Transaction::begin(applier, NS, mode, 0, 0, limits, TxnBuffers::new()).expect("it begins")
+pub fn begin_with(applier: &Applier, mode: Mode, limits: TxnLimits) -> TestResult<Txn<'_>> {
+    Transaction::begin(applier, NS, mode, 0, 0, limits, TxnBuffers::new()).context("it begins")
 }
 
 /// The objects of `<subject> <predicate>` in the default graph that `txn` reads at `now_us`.
@@ -108,10 +114,21 @@ pub fn objects(
     Ok(out)
 }
 
+/// Reads `<subject> <predicate>` in `txn` at `now_us` as [`objects`] does, recording the read, where the test needs
+/// none of the objects.
+pub fn read_objects(
+    txn: &mut Txn<'_>,
+    subject: &str,
+    predicate: &str,
+    now_us: u64,
+) -> Result<(), TxnError> {
+    objects(txn, subject, predicate, now_us).map(|_objects| ())
+}
+
 /// What a fresh read-only transaction reads of `<subject> <predicate>`: what the store holds now.
-pub fn held(applier: &Applier, subject: &str, predicate: &str) -> Vec<Term> {
-    let mut txn = begin(applier, Mode::ReadOnly);
-    objects(&mut txn, subject, predicate, 0).expect("the read")
+pub fn held(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec<Term>> {
+    let mut txn = begin(applier, Mode::ReadOnly)?;
+    objects(&mut txn, subject, predicate, 0).context("the read")
 }
 
 /// SplitMix64, the property tests' generator: a fixed seed replays a run.
@@ -144,10 +161,10 @@ impl Rng {
 }
 
 /// The proposal a read-write transaction's commit hands the commit step.
-pub fn prepared(commit: Result<Commit, TxnError>) -> Prepared {
-    let proposal = match commit.expect("the commit") {
+pub fn prepared(commit: Result<Commit, TxnError>) -> TestResult<Prepared> {
+    let proposal = match commit.context("the commit")? {
         Commit::ReadWrite(prepared) => Some(prepared),
         Commit::ReadOnly(_) => None,
     };
-    proposal.expect("a read-write transaction ends on its worker")
+    proposal.context("a read-write transaction ends on its worker")
 }

@@ -38,10 +38,11 @@ impl Reader<'_> {
     }
 
     fn read_u32(&mut self, big: bool) -> Result<u32, TypesError> {
-        let b: [u8; 4] = self
+        // read_full returns exactly the 4 bytes asked for, so the chunk is present.
+        let b: [u8; 4] = *self
             .read_full(4)?
-            .try_into()
-            .expect("read_full returns exactly the 4 bytes asked for");
+            .first_chunk()
+            .ok_or_else(|| TypesError::geo(UNEXPECTED_EOF))?;
         Ok(if big {
             u32::from_be_bytes(b)
         } else {

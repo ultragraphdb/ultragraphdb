@@ -10,6 +10,7 @@ use ultragraphdb_core_codec::{
     Decoder, Encoder, SeekPos, UidPack, approx_len, decode, decode_to_buffer, encode,
     encode_from_buffer, exact_len,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
 struct Rng(u64);
@@ -45,21 +46,21 @@ fn get_uids(rng: &mut Rng, size: u64) -> Vec<u64> {
     uids
 }
 
-fn read_uvarint(buf: &[u8]) -> (u64, usize) {
+fn read_uvarint(buf: &[u8]) -> TestResult<(u64, usize)> {
     let n = buf
         .iter()
         .position(|&b| b < 0x80)
-        .expect("the varint is not truncated")
+        .context("the varint is not truncated")?
         + 1;
     let x = buf[..n]
         .iter()
         .enumerate()
         .fold(0u64, |x, (i, &b)| x | u64::from(b & 0x7f) << (7 * i));
-    (x, n)
+    Ok((x, n))
 }
 
 #[test]
-fn test_uid_pack() {
+fn test_uid_pack() -> TestResult {
     // Some edge case tests.
     assert!(encode(&[], 128).is_none());
     assert_eq!(0, approx_len(&UidPack::default()));
@@ -69,15 +70,16 @@ fn test_uid_pack() {
     for _ in 0..13 {
         let size = rng.below(MAX_SIZE);
         let expected = get_uids(&mut rng, size);
-        let pack = encode(&expected, 256).expect("a non-empty list packs");
+        let pack = encode(&expected, 256).context("a non-empty list packs")?;
         assert_eq!(expected.len(), exact_len(&pack));
         let actual = decode(&pack, 0);
         assert_eq!(expected, actual);
     }
+    Ok(())
 }
 
 #[test]
-fn test_buffer_uid_pack() {
+fn test_buffer_uid_pack() -> TestResult {
     // Some edge case tests.
     assert!(encode(&[], 128).is_none());
 
@@ -90,7 +92,7 @@ fn test_buffer_uid_pack() {
         let size = rng.below(MAX_SIZE);
         let expected = get_uids(&mut rng, size);
 
-        let pack = encode(&expected, 256).expect("a non-empty list packs");
+        let pack = encode(&expected, 256).context("a non-empty list packs")?;
         assert_eq!(expected.len(), exact_len(&pack));
         let actual = decode(&pack, 0);
         assert_eq!(expected, actual);
@@ -98,8 +100,8 @@ fn test_buffer_uid_pack() {
         let mut actual_buffer = Vec::new();
         decode_to_buffer(&mut actual_buffer, &pack);
         let enc = encode_from_buffer(&actual_buffer, 256)
-            .expect("decode_to_buffer writes valid varints")
-            .expect("a non-empty buffer packs");
+            .context("decode_to_buffer writes valid varints")?
+            .context("a non-empty buffer packs")?;
         assert_eq!(exact_len(&pack), exact_len(&enc));
 
         let mut prev = 0u64;
@@ -107,7 +109,7 @@ fn test_buffer_uid_pack() {
         let mut uids = Vec::new();
         // Read all uids in the outBuf
         while !out_buf.is_empty() {
-            let (uid, n) = read_uvarint(out_buf);
+            let (uid, n) = read_uvarint(out_buf)?;
             out_buf = &out_buf[n..];
 
             let next = prev + uid;
@@ -116,20 +118,21 @@ fn test_buffer_uid_pack() {
         }
         assert_eq!(actual, uids);
     }
+    Ok(())
 }
 
-fn stepped_pack(n: u64, step: usize, block_size: usize) -> UidPack {
+fn stepped_pack(n: u64, step: usize, block_size: usize) -> TestResult<UidPack> {
     let mut enc = Encoder::new(block_size);
     for i in (0..n).step_by(step) {
         enc.add(i);
     }
-    enc.done().expect("the list is not empty")
+    enc.done().context("the list is not empty")
 }
 
 #[test]
-fn test_seek() {
+fn test_seek() -> TestResult {
     const N: u64 = 10001;
-    let pack = stepped_pack(N, 10, 10);
+    let pack = stepped_pack(N, 10, 10)?;
     let mut dec = Decoder::new(&pack);
 
     struct Case {
@@ -179,17 +182,18 @@ fn test_seek() {
     }
 
     // Go resets dec.blockIdx to 0; a new decoder starts there.
-    let mut dec = Decoder::new(&pack);
+    let mut linear = Decoder::new(&pack);
     for i in (100..10000).step_by(100) {
-        let uids = dec.linear_seek(i);
+        let uids = linear.linear_seek(i);
         assert!(uids.contains(&i), "linear seek {i} returned {uids:?}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_linear_seek() {
+fn test_linear_seek() -> TestResult {
     const N: u64 = 10001;
-    let pack = stepped_pack(N, 10, 10);
+    let pack = stepped_pack(N, 10, 10)?;
     let mut dec = Decoder::new(&pack);
 
     for i in (0..2 * N).step_by(10) {
@@ -208,10 +212,11 @@ fn test_linear_seek() {
 
         assert!(!uids.contains(&i), "linear seek {i} returned {uids:?}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_decoder() {
+fn test_decoder() -> TestResult {
     const N: u64 = 10001;
     let mut expected = Vec::new();
     let mut enc = Encoder::new(10);
@@ -219,23 +224,24 @@ fn test_decoder() {
         enc.add(i);
         expected.push(i);
     }
-    let pack = enc.done().expect("the list is not empty");
+    let pack = enc.done().context("the list is not empty")?;
 
     let mut dec = Decoder::new(&pack);
     for i in (3..N).step_by(3) {
         let uids = dec.seek(i, SeekPos::Start);
         assert_eq!(i, uids[0]);
 
-        let uids = dec.seek(i - 1, SeekPos::Start);
-        assert_eq!(i, uids[0]);
+        let from_before = dec.seek(i - 1, SeekPos::Start);
+        assert_eq!(i, from_before[0]);
 
-        let uids = dec.seek(i - 2, SeekPos::Start);
-        assert_eq!(i, uids[0]);
+        let from_two_before = dec.seek(i - 2, SeekPos::Start);
+        assert_eq!(i, from_two_before[0]);
 
         let start = (i / 3 - 1) as usize;
         let actual = decode(&pack, i);
         assert_eq!(expected[start..], actual[..]);
     }
+    Ok(())
 }
 
 #[test]
@@ -281,15 +287,16 @@ fn new_uid_pack(data: &[u64]) -> Option<UidPack> {
 }
 
 #[test]
-fn test_copy_uid_pack() {
+fn test_copy_uid_pack() -> TestResult {
     // Go's CopyUidPack is a deep copy; a UidPack's Clone is one.
-    let pack = new_uid_pack(&[1, 2, 3, 4, 5]).expect("the list is not empty");
+    let pack = new_uid_pack(&[1, 2, 3, 4, 5]).context("the list is not empty")?;
     let copy = pack.clone();
     assert_eq!(decode(&pack, 0), decode(&copy, 0));
+    Ok(())
 }
 
 #[test]
-fn test_buffer_varints_are_go_uvarints_byte_for_byte() {
+fn test_buffer_varints_are_go_uvarints_byte_for_byte() -> TestResult {
     // Deltas 200 (0xC8: bit 7 set in the first group), 16384 (0x4000: three groups) and 2^64 - 1 - 16584 (ten groups,
     // the last holding bit 63 alone). Their bytes per the base-128 varint of Go's binary.PutUvarint, least significant
     // group first, the continuation bit on all but the last: C8 01 | 80 80 01 | B7 FE FE FF FF FF FF FF FF 01.
@@ -297,20 +304,22 @@ fn test_buffer_varints_are_go_uvarints_byte_for_byte() {
     let bytes = [
         0xC8, 0x01, 0x80, 0x80, 0x01, 0xB7, 0xFE, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01,
     ];
-    let pack = encode(&uids, 2).expect("a non-empty list packs");
+    let pack = encode(&uids, 2).context("a non-empty list packs")?;
     let mut buf = Vec::new();
     decode_to_buffer(&mut buf, &pack);
     assert_eq!(buf, bytes);
     let read = encode_from_buffer(&bytes, 2)
-        .expect("valid varints")
-        .expect("a non-empty buffer packs");
+        .context("valid varints")?
+        .context("a non-empty buffer packs")?;
     assert_eq!(decode(&read, 0), uids);
+    Ok(())
 }
 
 #[test]
-fn test_approx_len_is_block_count_times_block_size() {
+fn test_approx_len_is_block_count_times_block_size() -> TestResult {
     // Eleven UIDs in blocks of 4: three blocks, the last holding three, so 3 * 4 = 12.
-    let pack = encode(&(0..11).collect::<Vec<u64>>(), 4).expect("a non-empty list packs");
+    let pack = encode(&(0..11).collect::<Vec<u64>>(), 4).context("a non-empty list packs")?;
     assert_eq!(pack.blocks().len(), 3);
     assert_eq!(approx_len(&pack), 12);
+    Ok(())
 }

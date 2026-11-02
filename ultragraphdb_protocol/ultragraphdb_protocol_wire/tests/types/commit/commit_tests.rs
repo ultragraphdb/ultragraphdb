@@ -4,11 +4,12 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, Commit, OperationResult};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
 #[test]
-fn test_commit_builds_the_golden_frame() {
+fn test_commit_builds_the_golden_frame() -> TestResult {
     let results = vec![
         OperationResult::new(0x10, true),
         OperationResult::new(0x20, false),
@@ -19,7 +20,8 @@ fn test_commit_builds_the_golden_frame() {
     assert_eq!(commit.commit_version(), 1000);
     assert_eq!(commit.results(), &results[..]);
     assert_eq!(
-        commit.frame(golden("commit").header()).unwrap(),
-        golden("commit").bytes()
+        commit.frame(golden("commit")?.header())?,
+        golden("commit")?.bytes()?
     );
+    Ok(())
 }

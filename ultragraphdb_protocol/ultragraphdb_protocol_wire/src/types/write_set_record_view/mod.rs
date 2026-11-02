@@ -67,12 +67,12 @@ impl<'a> WriteSetRecordView<'a> {
             let value = entry.value().map_or(u64::from(ABSENT), |v| v.len() as u64);
             return Err(ProtocolError::FieldValue(command, "conflict point", value));
         }
-        for (field, entries) in [
+        for (name, entries) in [
             ("conflict statement", statements),
             ("conflict range", ranges),
         ] {
             if entries.iter().any(|e| e.value().is_none()) {
-                return Err(ProtocolError::FieldValue(command, field, ABSENT.into()));
+                return Err(ProtocolError::FieldValue(command, name, ABSENT.into()));
             }
         }
         check_results(command, 9, sections.offset(9), sections.get(9))?;
@@ -91,50 +91,62 @@ impl<'a> WriteSetRecordView<'a> {
         })
     }
 
+    /// The record's bytes.
     pub fn bytes(&self) -> &'a [u8] {
         self.bytes
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot version the transaction read at.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }
 
+    /// The request's number within its session.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The principal the transaction acted for; 0 without authentication.
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
+    /// The list deltas, in the posting format.
     pub fn list_deltas(&self) -> KeyValues<'a> {
         self.tables[0]
     }
 
+    /// The dictionary entries.
     pub fn dictionary(&self) -> KeyValues<'a> {
         self.tables[1]
     }
 
+    /// The statement records.
     pub fn statements(&self) -> KeyValues<'a> {
         self.tables[2]
     }
 
+    /// The catalog entries.
     pub fn catalog(&self) -> KeyValues<'a> {
         self.tables[3]
     }
 
+    /// The entries of the keyspace without versions.
     pub fn versionless(&self) -> KeyValues<'a> {
         self.tables[4]
     }
 
+    /// The commit record the client attached.
     pub fn commit_record(&self) -> &'a [u8] {
         self.commit_record
     }
@@ -144,10 +156,12 @@ impl<'a> WriteSetRecordView<'a> {
         self.tables[5]
     }
 
+    /// The conflict statements: a list key and the object it changed.
     pub fn conflict_statements(&self) -> KeyValues<'a> {
         self.tables[6]
     }
 
+    /// The conflict ranges: the first key and the key past the last.
     pub fn conflict_ranges(&self) -> KeyValues<'a> {
         self.tables[7]
     }

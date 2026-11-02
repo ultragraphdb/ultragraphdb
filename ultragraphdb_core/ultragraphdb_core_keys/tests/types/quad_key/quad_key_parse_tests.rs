@@ -8,16 +8,19 @@ use ultragraphdb_core_keys::{QuadKey, QuadKeyErrorEnum};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError};
 
 use crate::types::quad_key::quad_key_tests::every_keyspace;
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[test]
-fn test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes_it_a_key() {
-    for key in every_keyspace() {
+fn test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes_it_a_key()
+-> TestResult {
+    for key in every_keyspace()? {
         let bytes = key.to_bytes();
         let splits: Vec<Vec<u8>> = key.split_bytes(42).into_iter().collect();
         for whole in std::iter::once(bytes).chain(splits) {
             for end in 0..whole.len() {
                 let prefix = &whole[..end];
-                let result = std::panic::catch_unwind(|| QuadKey::parse(prefix)).expect("no panic");
+                let result = std::panic::catch_unwind(|| QuadKey::parse(prefix))
+                    .map_err(|_| TestError::new("parse panicked"))?;
                 if let Ok(parsed) = result {
                     assert!(
                         matches!(parsed, (QuadKey::ValueIndex { .. }, _) if end >= 26),
@@ -27,54 +30,60 @@ fn test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes
             }
         }
     }
+    Ok(())
+}
+
+/// `key`, whose `field` is 0, is refused naming that field.
+fn zero(key: &QuadKey, field: &str) -> TestResult {
+    let Err(error) = QuadKey::parse(&key.to_bytes()) else {
+        return Err(TestError::new(format!("{key:?} is refused")));
+    };
+    assert!(
+        matches!(&error.0, QuadKeyErrorEnum::ZeroUid { field: f, .. } if *f == field),
+        "{key:?}: {error}"
+    );
+    Ok(())
 }
 
 #[test]
-fn test_a_zero_uid_is_refused_in_every_field_but_the_graph() {
-    let zero = |key: QuadKey, field: &str| {
-        let error = QuadKey::parse(&key.to_bytes()).unwrap_err();
-        assert!(
-            matches!(&error.0, QuadKeyErrorEnum::ZeroUid { field: f, .. } if *f == field),
-            "{key:?}: {error}"
-        );
-    };
+fn test_a_zero_uid_is_refused_in_every_field_but_the_graph() -> TestResult {
     zero(
-        QuadKey::Forward {
+        &QuadKey::Forward {
             namespace: 1,
             graph: 0,
             predicate: 0,
             subject: 1,
         },
         "predicate",
-    );
+    )?;
     zero(
-        QuadKey::Forward {
+        &QuadKey::Forward {
             namespace: 1,
             graph: 0,
             predicate: 1,
             subject: 0,
         },
         "subject",
-    );
+    )?;
     zero(
-        QuadKey::Reverse {
+        &QuadKey::Reverse {
             namespace: 1,
             graph: 0,
             predicate: 1,
             object: EncodedTerm::uid(0),
         },
         "object",
-    );
+    )?;
     zero(
-        QuadKey::SubjectPredicates {
+        &QuadKey::SubjectPredicates {
             namespace: 1,
             graph: 0,
             subject: 0,
         },
         "subject",
-    );
+    )?;
     zero(
-        QuadKey::VectorIndex {
+        &QuadKey::VectorIndex {
             namespace: 1,
             graph: 0,
             predicate: 1,
@@ -82,32 +91,32 @@ fn test_a_zero_uid_is_refused_in_every_field_but_the_graph() {
             node: 0,
         },
         "node",
-    );
+    )?;
     zero(
-        QuadKey::Statement {
+        &QuadKey::Statement {
             namespace: 1,
             graph: 0,
             statement: 0,
         },
         "statement ID",
-    );
+    )?;
     zero(
-        QuadKey::Catalog {
+        &QuadKey::Catalog {
             namespace: 1,
             kind: 0,
             uid: 0,
         },
         "uid",
-    );
+    )?;
+    Ok(())
 }
 
 #[test]
-fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() {
+fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() -> TestResult {
     let vector = EncodedTerm::literal(
         Literal::new_typed_literal("[1]", NamedNode::new_unchecked(FLOAT32_VECTOR)).as_ref(),
         |_| Ok::<_, TermError>(1),
-    )
-    .unwrap()
+    )?
     .into_term();
     let key = QuadKey::Reverse {
         namespace: 1,
@@ -116,8 +125,8 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() {
         object: vector,
     };
     assert!(matches!(
-        QuadKey::parse(&key.to_bytes()).unwrap_err().0,
-        QuadKeyErrorEnum::VectorObject { .. }
+        QuadKey::parse(&key.to_bytes()).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::VectorObject { .. })
     ));
 
     let mut bad_object = QuadKey::ObjectPredicates {
@@ -128,17 +137,17 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() {
     .to_bytes();
     bad_object[17] = 0x7f;
     assert!(matches!(
-        QuadKey::parse(&bad_object).unwrap_err().0,
-        QuadKeyErrorEnum::BadObject { .. }
+        QuadKey::parse(&bad_object).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::BadObject { .. })
     ));
 
     assert!(matches!(
-        QuadKey::parse(&[0x42; 30]).unwrap_err().0,
-        QuadKeyErrorEnum::UnknownKeyspace { .. }
+        QuadKey::parse(&[0x42; 30]).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::UnknownKeyspace { .. })
     ));
     assert!(matches!(
-        QuadKey::parse(&[]).unwrap_err().0,
-        QuadKeyErrorEnum::Truncated { .. }
+        QuadKey::parse(&[]).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::Truncated { .. })
     ));
 
     let mut direction = QuadKey::CountIndex {
@@ -151,8 +160,8 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() {
     .to_bytes();
     direction[25] = 7;
     assert!(matches!(
-        QuadKey::parse(&direction).unwrap_err().0,
-        QuadKeyErrorEnum::UnknownDirection { .. }
+        QuadKey::parse(&direction).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::UnknownDirection { .. })
     ));
 
     let mut trailing = QuadKey::Statement {
@@ -163,7 +172,8 @@ fn test_unreadable_objects_unknown_keyspaces_and_directions_are_refused() {
     .to_bytes();
     trailing.push(1);
     assert!(matches!(
-        QuadKey::parse(&trailing).unwrap_err().0,
-        QuadKeyErrorEnum::TrailingBytes { .. }
+        QuadKey::parse(&trailing).map_err(|e| e.0),
+        Err(QuadKeyErrorEnum::TrailingBytes { .. })
     ));
+    Ok(())
 }

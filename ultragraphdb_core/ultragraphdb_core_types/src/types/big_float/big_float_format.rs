@@ -88,7 +88,7 @@ impl Decimal {
         }
         self.mant.truncate(n);
         while self.mant.last() == Some(&b'0') {
-            self.mant.pop();
+            let _zero: Option<u8> = self.mant.pop();
         }
         if self.mant.is_empty() {
             self.exp = 0;
@@ -168,17 +168,17 @@ impl BigFloat {
         let upper = Decimal::new(&(&mant + UBig::ONE), exp);
         let inclusive = !mant.bit(1);
         for i in 0..d.mant.len() {
-            let m = d.mant[i];
+            let digit = d.mant[i];
             let l = lower.at(i);
             let u = upper.at(i);
-            let okdown = l != m || inclusive && i + 1 == lower.mant.len();
+            let okdown = l != digit || inclusive && i + 1 == lower.mant.len();
             // Past upper's trimmed mantissa `at` reads '0', but earlier digits fixed the bound, so rounding up is
-            // valid unless m is '9' (go.dev/issue/80206).
-            let okup = m != u
+            // valid unless the digit is '9' (go.dev/issue/80206).
+            let okup = digit != u
                 && (inclusive
-                    || m + 1 < u
+                    || digit + 1 < u
                     || i + 1 < upper.mant.len()
-                    || i >= upper.mant.len() && m < b'9');
+                    || i >= upper.mant.len() && digit < b'9');
             if okdown && okup {
                 d.round(go_int(i) + 1);
                 return;

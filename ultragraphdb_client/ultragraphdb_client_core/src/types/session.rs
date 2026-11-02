@@ -15,6 +15,7 @@ impl Session {
         Self { number }
     }
 
+    /// The session's number, as the server's Register gave it.
     pub fn number(&self) -> u64 {
         self.number
     }

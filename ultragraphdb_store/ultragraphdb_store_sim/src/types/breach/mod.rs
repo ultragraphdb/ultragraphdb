@@ -4,6 +4,7 @@
  */
 
 mod breach_display;
+mod breach_error;
 
 use crate::types::invariant::Invariant;
 
@@ -15,6 +16,7 @@ pub struct Breach {
 }
 
 impl Breach {
+    /// A breach of `invariant`, described by `detail`.
     pub fn new(invariant: Invariant, detail: impl Into<String>) -> Self {
         Self {
             invariant,
@@ -22,10 +24,12 @@ impl Breach {
         }
     }
 
+    /// The invariant broken.
     pub fn invariant(&self) -> Invariant {
         self.invariant
     }
 
+    /// How the invariant was broken.
     pub fn detail(&self) -> &str {
         &self.detail
     }

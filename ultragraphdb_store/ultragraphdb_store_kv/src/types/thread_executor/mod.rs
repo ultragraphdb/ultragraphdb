@@ -12,6 +12,7 @@ mod thread_executor_executor;
 pub struct ThreadExecutor;
 
 impl ThreadExecutor {
+    /// The executor, which holds no state.
     pub fn new() -> Self {
         Self
     }

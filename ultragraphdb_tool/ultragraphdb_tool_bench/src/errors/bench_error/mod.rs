@@ -14,6 +14,7 @@ use ultragraphdb_store_apply::ChangesetError;
 #[derive(Debug)]
 pub struct BenchError(pub BenchErrorEnum);
 
+/// The reasons a run stops, one per [`BenchError`] constructor.
 #[derive(Debug)]
 pub enum BenchErrorEnum {
     /// The arguments name no run it can make.
@@ -30,22 +31,27 @@ pub enum BenchErrorEnum {
 
 #[allow(non_snake_case)]
 impl BenchError {
+    /// The arguments name no run it can make, for `reason`.
     pub fn Usage(reason: String) -> Self {
         Self(BenchErrorEnum::Usage(reason))
     }
 
+    /// The applier refused an operation with `error`.
     pub fn Apply(error: ChangesetError) -> Self {
         Self(BenchErrorEnum::Apply(error))
     }
 
+    /// The store refused an operation with `error`.
     pub fn Store(error: StoreError) -> Self {
         Self(BenchErrorEnum::Store(error))
     }
 
+    /// A file of the run could not be read or written, for `reason`.
     pub fn Io(reason: String) -> Self {
         Self(BenchErrorEnum::Io(reason))
     }
 
+    /// The commit pipeline, a transaction or the write-ahead log refused an operation, as its text `reason`.
     pub fn Commit(reason: String) -> Self {
         Self(BenchErrorEnum::Commit(reason))
     }

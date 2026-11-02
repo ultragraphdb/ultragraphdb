@@ -9,20 +9,23 @@ use ultragraphdb_client_compio::{Anonymous, Client};
 use ultragraphdb_protocol_transport::{NetworkFaults, SimNetwork};
 
 use crate::utils::serve::{SimConnect, config, serve_sim, server};
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
 #[test]
-fn test_close_gives_the_connection_up() {
-    let rt = compio::runtime::Runtime::new().expect("a runtime");
+fn test_close_gives_the_connection_up() -> TestResult {
+    let rt = compio::runtime::Runtime::new().context("a runtime")?;
     let scripted = server();
     let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
     let accepted = Rc::clone(&connector.accepted);
     rt.block_on(async {
         let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
         let mut client = Client::new(connector, config(), Anonymous, 8);
-        client.connect().await.unwrap();
+        client.connect().await?;
         assert!(client.core().is_ready());
         client.close().await;
         assert!(!client.core().is_ready());
         assert!(!client.core().is_connected());
-    });
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
 }

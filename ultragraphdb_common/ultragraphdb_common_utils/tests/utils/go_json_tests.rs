@@ -14,6 +14,7 @@
 
 use ultragraphdb_common_utils::{JsonValue, go_json};
 use ultragraphdb_error_json::{JsonError, JsonErrorEnum};
+use ultragraphdb_tool_bdd::TestResult;
 
 /// A result of Go 1.27: the value as `json.Marshal` writes it, a `SyntaxError` with its offset, `io.EOF` or
 /// `io.ErrUnexpectedEOF`.
@@ -209,7 +210,7 @@ fn test_valid() {
 }
 
 #[test]
-fn test_indent_errors() {
+fn test_indent_errors() -> TestResult {
     for (input, msg) in [
         (
             r#"{"X": "foo", "Y"}"#,
@@ -226,11 +227,12 @@ fn test_indent_errors() {
             r#"{"X": "foo" ""#.len()
         };
         assert_eq!(
-            go_json::unmarshal(input.as_bytes()).unwrap_err(),
-            JsonError::Syntax(msg.to_string(), i64::try_from(offset).unwrap()),
+            go_json::unmarshal(input.as_bytes()),
+            Err(JsonError::Syntax(msg.to_string(), i64::try_from(offset)?)),
             "{input}"
         );
     }
+    Result::Ok(())
 }
 
 /// `TestUnmarshal`'s cases into an interface, and the syntax errors it checks with `checkValid`.
@@ -345,8 +347,11 @@ fn test_unmarshal_syntax() {
         (r#"{"key":1,"#, 9),
     ] {
         assert_eq!(
-            go_json::unmarshal(input.as_bytes()).unwrap_err(),
-            JsonError::Syntax("unexpected end of JSON input".to_string(), offset),
+            go_json::unmarshal(input.as_bytes()),
+            Err(JsonError::Syntax(
+                "unexpected end of JSON input".to_string(),
+                offset
+            )),
             "{input}"
         );
     }
@@ -380,8 +385,8 @@ fn test_unmarshal_max_depth() {
 fn the_depth_error_names_the_offset_after_the_bracket() {
     let data = format!("{}{}", "[".repeat(10001), "]".repeat(10001));
     assert_eq!(
-        go_json::unmarshal(data.as_bytes()).unwrap_err(),
-        JsonError::Syntax("exceeded max depth".to_string(), 10001)
+        go_json::unmarshal(data.as_bytes()),
+        Err(JsonError::Syntax("exceeded max depth".to_string(), 10001))
     );
 }
 

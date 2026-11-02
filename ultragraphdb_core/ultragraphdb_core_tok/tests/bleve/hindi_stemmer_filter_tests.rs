@@ -8,9 +8,10 @@
  */
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_hindi_stemmer_filter() {
+fn test_hindi_stemmer_filter() -> TestResult {
     check_stems(
         "stemmer_hi",
         &[
@@ -38,5 +39,6 @@ fn test_hindi_stemmer_filter() {
             ("", ""),
         ],
         &[],
-    );
+    )?;
+    Ok(())
 }

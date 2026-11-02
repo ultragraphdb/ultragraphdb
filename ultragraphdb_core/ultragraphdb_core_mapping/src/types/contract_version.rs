@@ -17,14 +17,17 @@ pub struct ContractVersion {
 pub const CONTRACT_VERSION: ContractVersion = ContractVersion::new(1, 0);
 
 impl ContractVersion {
+    /// The version `major`.`minor`.
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 
+    /// The major version.
     pub fn major(&self) -> u16 {
         self.major
     }
 
+    /// The minor version.
     pub fn minor(&self) -> u16 {
         self.minor
     }
@@ -36,6 +39,11 @@ impl ContractVersion {
         [a, b, c, d]
     }
 
+    /// The version recorded as `bytes`, the four bytes [`ContractVersion::to_bytes`] writes.
+    ///
+    /// # Errors
+    ///
+    /// [`MappingError::BadContractVersion`] when `bytes` are not four bytes long.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, MappingError> {
         match bytes {
             [a, b, c, d] => Ok(Self::new(

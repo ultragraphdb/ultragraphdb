@@ -16,6 +16,7 @@ use ultragraphdb_protocol_wire::{
     HelloView, MAX_FRAME_SIZE, OperationView, PrepareView, ReadView, RegisterView, ResultView,
     RoundView, WelcomeView, WriteView,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The cluster every golden frame names.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
@@ -98,31 +99,29 @@ pub const DESCRIBE_SCHEMA_ID: u64 = 0xfe70_341d_112b_65a9;
 
 /// The golden frame named `name`.
 ///
-/// # Panics
+/// # Errors
 ///
 /// When no golden frame has the name.
-pub fn golden(name: &str) -> GoldenBody {
-    *BODIES
+pub fn golden(name: &str) -> TestResult<GoldenBody> {
+    BODIES
         .iter()
         .find(|b| b.name == name)
-        .ok_or_else(|| format!("no golden frame {name}"))
-        .expect("a golden frame of the name")
+        .copied()
+        .context(&format!("the golden frame {name}"))
 }
 
 impl GoldenBody {
     /// The frame's bytes, read from `testdata/golden/bodies/<name>.frame`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// When the file cannot be read.
-    pub fn bytes(&self) -> Vec<u8> {
-        let path = ultragraphdb_tool_bdd::testdata_dir()
+    pub fn bytes(&self) -> TestResult<Vec<u8>> {
+        let path = ultragraphdb_tool_bdd::testdata_dir()?
             .join("golden")
             .join("bodies")
             .join(format!("{}.frame", self.name));
-        fs::read(&path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))
-            .expect("reading the golden frame")
+        fs::read(&path).context(&format!("reading the golden frame {}", path.display()))
     }
 
     /// The header a builder is given to rebuild the frame: the golden fields but the command and command header,
@@ -136,8 +135,12 @@ impl GoldenBody {
     }
 
     /// The body's bytes before its chunk table, split by the oracle below.
-    pub fn data(&self) -> Vec<u8> {
-        body_data(&self.bytes()).to_vec()
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be read.
+    pub fn data(&self) -> TestResult<Vec<u8>> {
+        Ok(body_data(&self.bytes()?).to_vec())
     }
 }
 
@@ -217,7 +220,7 @@ pub fn put(bytes: &mut [u8], at: usize, value: u64, width: usize) {
 
 /// The little-endian u32 at `at`.
 pub fn u32_at(bytes: &[u8], at: usize) -> u32 {
-    u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap())
+    u32::from_le_bytes(std::array::from_fn(|i| bytes[at + i]))
 }
 
 /// `(offset, len)` of section `index` of a body whose fixed part is `fixed` bytes.
@@ -228,19 +231,27 @@ pub fn section(data: &[u8], fixed: usize, index: usize) -> (usize, usize) {
 
 /// `bytes` validated and read through its command's view, and the view read back to its owned body, which builds the
 /// same frame again under the frame's own header: byte for byte, or, for Write, Describe and Result, whose names and
-/// result terms a builder interns, a frame that rebuilds to itself.
-pub fn view_any(bytes: &[u8]) -> Result<(), ProtocolError> {
-    let (command, rebuilt) = rebuild(bytes)?;
+/// result terms a builder interns, a frame that rebuilds to itself. The inner result is the frame's refusal; the outer
+/// fails the test when a rebuilt frame does not read.
+///
+/// # Errors
+///
+/// When a rebuilt frame does not read again.
+pub fn view_any(bytes: &[u8]) -> TestResult<Result<(), ProtocolError>> {
+    let (command, rebuilt) = match rebuild(bytes) {
+        Ok(read) => read,
+        Err(refusal) => return Ok(Err(refusal)),
+    };
     if matches!(
         command,
         Command::Write | Command::Describe | Command::Result
     ) {
-        let (_, again) = rebuild(&rebuilt).expect("a rebuilt frame reads");
+        let (_, again) = rebuild(&rebuilt).context("a rebuilt frame reads")?;
         assert_eq!(again, rebuilt, "{command:?} is not stable");
     } else {
         assert_eq!(rebuilt, bytes, "{command:?} rebuilt differs");
     }
-    Ok(())
+    Ok(Ok(()))
 }
 
 /// The frame `bytes` rebuilt from its view's owned body.
@@ -285,11 +296,11 @@ fn rebuild(bytes: &[u8]) -> Result<(Command, Vec<u8>), ProtocolError> {
 
 /// `frame` validated, for a view under test.
 ///
-/// # Panics
+/// # Errors
 ///
 /// When the frame does not validate.
-pub fn frame_of(bytes: &[u8]) -> FrameView<'_> {
-    FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE).expect("the frame validates")
+pub fn frame_of(bytes: &[u8]) -> TestResult<FrameView<'_>> {
+    FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE).context("the frame validates")
 }
 
 /// The `n` sections of `data` after a fixed part of `fixed` bytes, by its table.

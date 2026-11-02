@@ -66,8 +66,9 @@ impl DateTime {
         nsec: i64,
         zone: Zone,
     ) -> Self {
-        let (year, m) = norm(year, month.wrapping_sub(1), 12);
-        let month = m + 1;
+        // Go's month is normalised from zero, then counted from one again.
+        let (year, month) = norm(year, month.wrapping_sub(1), 12);
+        let month = month + 1;
         let (sec, nsec) = norm(sec, nsec, 1_000_000_000);
         let (min, sec) = norm(min, sec, 60);
         let (hour, min) = norm(hour, min, 60);

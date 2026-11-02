@@ -8,6 +8,7 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, DeclaredEntityType, DeclaredKind, DeclaredPredicate, DeclaredRelation,
     Describe, DescribeView,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::describe::describe_tests::golden_answer;
 use crate::utils::golden_bodies::{
@@ -19,9 +20,9 @@ fn ex(name: &str) -> String {
 }
 
 #[test]
-fn test_the_golden_answer_reads_its_values() {
-    let bytes = golden("describe_reply").bytes();
-    let view = DescribeView::from_frame(&frame_of(&bytes)).unwrap();
+fn test_the_golden_answer_reads_its_values() -> TestResult {
+    let bytes = golden("describe_reply")?.bytes()?;
+    let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.namespace(), view.read_version()), (0, 42));
     assert_eq!(
         view.labels().collect::<Vec<_>>(),
@@ -37,15 +38,16 @@ fn test_the_golden_answer_reads_its_values() {
     );
     assert_eq!(view.declarations(), 3);
     assert_eq!(view.strings().len(), 4);
-    assert_eq!(view.to_body().unwrap(), golden_answer());
-    let request = golden("describe").bytes();
-    let view = DescribeView::from_frame(&frame_of(&request)).unwrap();
-    assert_eq!(view.to_body().unwrap(), Describe::request(0));
-    assert_eq!(view.declarations(), 0);
+    assert_eq!(view.to_body()?, golden_answer());
+    let request = golden("describe")?.bytes()?;
+    let request_view = DescribeView::from_frame(&frame_of(&request)?)?;
+    assert_eq!(request_view.to_body()?, Describe::request(0));
+    assert_eq!(request_view.declarations(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_every_declaration_round_trips() {
+fn test_every_declaration_round_trips() -> TestResult {
     let answer = Describe::new(5, 6)
         .with_predicates(vec![
             DeclaredPredicate::new(ex("a"))
@@ -63,23 +65,24 @@ fn test_every_declaration_round_trips() {
             (DeclaredEntityType::new(ex("U"), None, false), 1),
         ])
         .with_relations(vec![DeclaredRelation::new(ex("R"), vec![ex("x"), ex("y")])]);
-    let bytes = answer.frame(golden("describe").header()).unwrap();
+    let bytes = answer.frame(golden("describe")?.header())?;
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&bytes))
-            .unwrap()
-            .to_body()
-            .unwrap(),
+        DescribeView::from_frame(&frame_of(&bytes)?)?.to_body()?,
         answer
     );
+    Ok(())
 }
 
 #[test]
-fn test_only_declarations_and_names_in_range_are_read() {
-    let bytes = with_section(&golden("describe_reply").bytes(), 7, 2, |labels| {
+fn test_only_declarations_and_names_in_range_are_read() -> TestResult {
+    let bytes = with_section(&golden("describe_reply")?.bytes()?, 7, 2, |labels| {
         put(labels, 0, 4, 4)
     });
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+        DescribeView::from_frame(&frame_of(&bytes)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 12,
             section: 2,
@@ -90,11 +93,14 @@ fn test_only_declarations_and_names_in_range_are_read() {
     );
     // Relationship types (section 3) and property keys (4) index the four strings as labels do.
     for section in [3, 4] {
-        let bytes = with_section(&golden("describe_reply").bytes(), 7, section, |names| {
+        let indexed = with_section(&golden("describe_reply")?.bytes()?, 7, section, |names| {
             put(names, 0, 4, 4)
         });
         assert_eq!(
-            DescribeView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+            DescribeView::from_frame(&frame_of(&indexed)?)
+                .err()
+                .context("a refusal")?
+                .0,
             ProtocolErrorEnum::IndexOutOfRange {
                 command: 12,
                 section,
@@ -105,11 +111,14 @@ fn test_only_declarations_and_names_in_range_are_read() {
             "section {section}"
         );
     }
-    let bytes = with_section(&golden("describe_reply").bytes(), 7, 5, |records| {
+    let bad_record = with_section(&golden("describe_reply")?.bytes()?, 7, 5, |records| {
         records[0] = 1
     });
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+        DescribeView::from_frame(&frame_of(&bad_record)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::FieldValue {
             command: 12,
             field: "change kind",
@@ -118,30 +127,28 @@ fn test_only_declarations_and_names_in_range_are_read() {
     );
     // A name is text: no IRI syntax is checked here.
     let answer = Describe::new(0, 0).with_labels(vec!["not an iri".to_string()]);
-    let bytes = answer.frame(golden("describe").header()).unwrap();
+    let answered = answer.frame(golden("describe")?.header())?;
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&bytes))
-            .unwrap()
-            .to_body()
-            .unwrap(),
+        DescribeView::from_frame(&frame_of(&answered)?)?.to_body()?,
         answer
     );
+    Ok(())
 }
 
 #[test]
-fn test_declarations_come_predicates_first_then_entity_types_then_relations() {
+fn test_declarations_come_predicates_first_then_entity_types_then_relations() -> TestResult {
     let answer = Describe::new(0, 0)
         .with_predicates(vec![DeclaredPredicate::new(ex("p"))])
         .with_entity_types(vec![(DeclaredEntityType::new(ex("T"), None, false), 1)]);
-    let bytes = answer.frame(golden("describe").header()).unwrap();
+    let bytes = answer.frame(golden("describe")?.header())?;
     let mut secs = split_sections(body_data(&bytes), 0, 7);
     // Records 0 (the predicate, args 0..4) and 1 (the entity type, args 4..6) swapped, their args with them.
     let mut entity = secs[5][16..].to_vec();
     let mut predicate = secs[5][..16].to_vec();
-    let args: Vec<u32> = secs[6]
+    let args = secs[6]
         .chunks(4)
-        .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
-        .collect();
+        .map(|c| c.try_into().map(u32::from_le_bytes))
+        .collect::<Result<Vec<u32>, _>>()?;
     entity[4..8].copy_from_slice(&0u32.to_le_bytes());
     predicate[4..8].copy_from_slice(&2u32.to_le_bytes());
     secs[5] = [entity, predicate].concat();
@@ -152,21 +159,24 @@ fn test_declarations_come_predicates_first_then_entity_types_then_relations() {
         .collect();
     let swapped = reframe(&bytes, &join_sections(&[], &secs));
     assert_eq!(
-        DescribeView::from_frame(&frame_of(&swapped)).unwrap_err().0,
+        DescribeView::from_frame(&frame_of(&swapped)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::FieldValue {
             command: 12,
             field: "declaration order",
             value: 8
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_nonzero_namespace_and_read_version_read_back() {
+fn test_a_nonzero_namespace_and_read_version_read_back() -> TestResult {
     // The golden answer's namespace is 0; an answer built with namespace 5 and read version 6 reads both back.
-    let bytes = Describe::new(5, 6)
-        .frame(golden("describe").header())
-        .unwrap();
-    let view = DescribeView::from_frame(&frame_of(&bytes)).unwrap();
+    let bytes = Describe::new(5, 6).frame(golden("describe")?.header())?;
+    let view = DescribeView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.namespace(), view.read_version()), (5, 6));
+    Ok(())
 }

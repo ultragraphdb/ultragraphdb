@@ -17,10 +17,12 @@ pub struct TcpConnector {
 }
 
 impl TcpConnector {
+    /// Connections to `address`.
     pub fn new(address: SocketAddr) -> Self {
         Self { address }
     }
 
+    /// The address connected to.
     pub fn address(&self) -> SocketAddr {
         self.address
     }

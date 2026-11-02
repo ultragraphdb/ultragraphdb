@@ -22,10 +22,12 @@ pub struct CachedList {
 }
 
 impl CachedList {
+    /// An entry of `list`, current from `ts`, written at the cache's `epoch`.
     pub fn new(list: Arc<List>, ts: u64, epoch: u64) -> Self {
         Self { list, ts, epoch }
     }
 
+    /// The immutable list.
     pub fn list(&self) -> &Arc<List> {
         &self.list
     }

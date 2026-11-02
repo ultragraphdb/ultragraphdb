@@ -15,6 +15,7 @@ pub struct Operated {
 }
 
 impl Operated {
+    /// The execution re-run with the operations' results.
     pub fn executed(&self) -> &Executed {
         &self.executed
     }

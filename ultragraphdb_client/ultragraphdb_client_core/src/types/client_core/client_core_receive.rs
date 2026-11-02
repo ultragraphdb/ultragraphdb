@@ -23,6 +23,7 @@ use crate::types::reply::Reply;
 use crate::types::session::Session;
 use crate::types::session_state::SessionState;
 use crate::types::statement::Statement;
+use crate::types::stream_state::StreamState;
 use crate::types::transaction::Transaction;
 
 /// A refusal read from an Error frame.
@@ -84,8 +85,8 @@ impl<L: Login> ClientCore<L> {
             };
             match refusal(&view) {
                 Ok(error) => {
-                    if let Some(state) = self.streams.get_mut(&stream) {
-                        state.failed = Some(error);
+                    if let Some(refused) = self.streams.get_mut(&stream) {
+                        refused.failed = Some(error);
                     }
                     self.end_reads(stream);
                 }
@@ -251,7 +252,7 @@ impl<L: Login> ClientCore<L> {
             state.pending = None;
         }
         if !keeps_stream {
-            self.streams.remove(&stream);
+            let _ended: Option<StreamState> = self.streams.remove(&stream);
             self.end_reads(stream);
         }
         if let Expect::Commit { session, request } | Expect::Drop { session, request } = expect {
@@ -309,7 +310,7 @@ impl<L: Login> ClientCore<L> {
             } else {
                 outcome
             });
-            self.sessions.remove(&session);
+            let _forgotten: Option<SessionState> = self.sessions.remove(&session);
             return;
         }
         if let Some(state) = self.sessions.get_mut(&session) {
@@ -350,11 +351,12 @@ impl<L: Login> ClientCore<L> {
                 let number = RegisterView::from_frame(view)
                     .map_err(ClientError::Protocol)?
                     .session();
-                self.sessions.entry(number).or_insert(SessionState {
-                    next_request: 1,
-                    in_flight: false,
-                    in_doubt: None,
-                });
+                let _registered: &mut SessionState =
+                    self.sessions.entry(number).or_insert(SessionState {
+                        next_request: 1,
+                        in_flight: false,
+                        in_doubt: None,
+                    });
                 Ok(Reply::Registered(Session::new(number)))
             }
             Expect::Begin => {

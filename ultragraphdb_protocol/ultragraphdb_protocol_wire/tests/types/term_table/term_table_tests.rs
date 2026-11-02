@@ -5,6 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{Direction, MAX_TERM_DEPTH, RequestTerm, TermTable};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn iri(s: &str) -> RequestTerm {
     RequestTerm::Iri(s.to_string())
@@ -36,7 +37,7 @@ fn test_a_term_is_interned_once_in_order_of_first_use() {
 }
 
 #[test]
-fn test_literals_take_one_form_each() {
+fn test_literals_take_one_form_each() -> TestResult {
     let mut table = TermTable::new();
     let plain = RequestTerm::Literal {
         lexical: "x".to_string(),
@@ -63,7 +64,7 @@ fn test_literals_take_one_form_each() {
         datatype: Some("http://www.w3.org/2001/XMLSchema#string".to_string()),
     };
     assert_eq!(
-        table.intern(stated).unwrap_err().0,
+        table.intern(stated).err().context("a refusal")?.0,
         ProtocolErrorEnum::BadTerm {
             command: 0,
             section: 0,
@@ -76,7 +77,7 @@ fn test_literals_take_one_form_each() {
         direction: None,
     };
     assert_eq!(
-        table.intern(untagged).unwrap_err().0,
+        table.intern(untagged).err().context("a refusal")?.0,
         ProtocolErrorEnum::BadTerm {
             command: 0,
             section: 0,
@@ -90,7 +91,7 @@ fn test_literals_take_one_form_each() {
         datatype: Some(String::new()),
     };
     assert_eq!(
-        table.intern(empty).unwrap_err().0,
+        table.intern(empty).err().context("a refusal")?.0,
         ProtocolErrorEnum::BadTerm {
             command: 0,
             section: 0,
@@ -98,10 +99,11 @@ fn test_literals_take_one_form_each() {
         }
     );
     assert_eq!(table.len(), 5);
+    Ok(())
 }
 
 #[test]
-fn test_a_triple_term_names_entries_already_in_the_table() {
+fn test_a_triple_term_names_entries_already_in_the_table() -> TestResult {
     let mut table = TermTable::new();
     let (a, knows, b) = (table.iri("a"), table.iri("knows"), table.iri("b"));
     let triple = RequestTerm::Triple {
@@ -117,7 +119,7 @@ fn test_a_triple_term_names_entries_already_in_the_table() {
         object: 4,
     };
     assert_eq!(
-        table.intern(forward).unwrap_err().0,
+        table.intern(forward).err().context("a refusal")?.0,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 0,
             section: 0,
@@ -126,6 +128,7 @@ fn test_a_triple_term_names_entries_already_in_the_table() {
             limit: 4
         }
     );
+    Ok(())
 }
 
 /// A table of `<a>` and the chain of triple terms over it to `depth`, the deepest last: entry k + 1 is
@@ -145,11 +148,11 @@ fn chain(depth: usize) -> Result<TermTable, ultragraphdb_error_protocol::Protoco
 }
 
 #[test]
-fn test_triple_terms_nest_at_most_the_maximum() {
+fn test_triple_terms_nest_at_most_the_maximum() -> TestResult {
     assert_eq!(MAX_TERM_DEPTH, 32);
-    assert_eq!(chain(MAX_TERM_DEPTH).unwrap().len(), MAX_TERM_DEPTH + 1);
+    assert_eq!(chain(MAX_TERM_DEPTH)?.len(), MAX_TERM_DEPTH + 1);
     assert_eq!(
-        chain(MAX_TERM_DEPTH + 1).unwrap_err().0,
+        chain(MAX_TERM_DEPTH + 1).err().context("a refusal")?.0,
         ProtocolErrorEnum::TermTooDeep {
             command: 0,
             section: 0,
@@ -158,4 +161,5 @@ fn test_triple_terms_nest_at_most_the_maximum() {
             limit: 32
         }
     );
+    Ok(())
 }

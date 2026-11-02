@@ -21,6 +21,7 @@ pub struct ResultTerm {
 }
 
 impl ResultTerm {
+    /// The term of `term`, with no text and no annotation.
     pub fn new(term: EncodedTerm) -> Self {
         Self {
             term,
@@ -41,11 +42,13 @@ impl ResultTerm {
         }
     }
 
+    /// The term with the text its encoding names but does not hold.
     pub fn with_text(mut self, text: impl Into<String>) -> Self {
         self.text = Some(text.into());
         self
     }
 
+    /// The term with its annotation.
     pub fn with_annotation(mut self, annotation: impl Into<String>) -> Self {
         self.annotation = Some(annotation.into());
         self
@@ -56,6 +59,7 @@ impl ResultTerm {
         &self.term
     }
 
+    /// Whether the term is a blank node.
     pub fn is_blank_node(&self) -> bool {
         self.blank_node
     }
@@ -82,10 +86,12 @@ impl ResultTerm {
         }
     }
 
+    /// The text the encoding names but does not hold, if any.
     pub fn text(&self) -> Option<&str> {
         self.text.as_deref()
     }
 
+    /// The annotation: a language tag held by hash or a datatype's IRI held by UID, if any.
     pub fn annotation(&self) -> Option<&str> {
         self.annotation.as_deref()
     }

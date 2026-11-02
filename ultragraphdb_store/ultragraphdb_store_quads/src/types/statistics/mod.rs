@@ -36,6 +36,7 @@ impl Default for Statistics {
 }
 
 impl Statistics {
+    /// Statistics of nothing: no statements, no kinds, empty sketches.
     pub fn new() -> Self {
         Self::default()
     }
@@ -66,6 +67,7 @@ impl Statistics {
         merge_registers(&mut self.objects, &other.objects);
     }
 
+    /// The count of statements.
     pub fn statements(&self) -> i64 {
         self.statements
     }
@@ -75,6 +77,7 @@ impl Statistics {
         self.kinds.get(kind).copied().unwrap_or(0)
     }
 
+    /// The count of objects of each kind.
     pub fn kinds(&self) -> &BTreeMap<String, i64> {
         &self.kinds
     }
@@ -89,6 +92,7 @@ impl Statistics {
         estimate(&self.objects)
     }
 
+    /// Whether the statistics count nothing and their sketches are empty.
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }

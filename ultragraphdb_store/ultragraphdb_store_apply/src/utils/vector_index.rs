@@ -25,7 +25,7 @@ pub(crate) fn hnsw(
         let parsed = allowed
             .get_parsed_option(name, value)
             .map_err(|e| refused(e.to_string()))?;
-        options.set_opt(name.clone(), parsed);
+        let _options: &mut Options = options.set_opt(name.clone(), parsed);
     }
     PersistentHnsw::new(keys, &options, factory.float_bits()).map_err(|e| refused(e.to_string()))
 }

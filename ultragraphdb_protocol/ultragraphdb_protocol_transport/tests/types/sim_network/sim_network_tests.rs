@@ -90,13 +90,14 @@ fn test_a_seed_replays_its_faults() {
 #[test]
 fn test_each_fault_does_what_it_says() {
     // Every message dropped.
-    let (chunks, _, stats) = run(1, NetworkFaults::none().with_drop(1_000_000), 10);
-    assert!(chunks.is_empty());
-    assert_eq!((stats.sent(), stats.dropped()), (10, 10));
+    let (dropped, _, dropped_stats) = run(1, NetworkFaults::none().with_drop(1_000_000), 10);
+    assert!(dropped.is_empty());
+    assert_eq!((dropped_stats.sent(), dropped_stats.dropped()), (10, 10));
     // Every message twice.
-    let (chunks, _, stats) = run(1, NetworkFaults::none().with_duplicate(1_000_000), 3);
+    let (duplicated, _, duplicated_stats) =
+        run(1, NetworkFaults::none().with_duplicate(1_000_000), 3);
     assert_eq!(
-        chunks,
+        duplicated,
         vec![
             vec![0; 10],
             vec![0; 10],
@@ -106,21 +107,21 @@ fn test_each_fault_does_what_it_says() {
             vec![2; 12]
         ]
     );
-    assert_eq!(stats.duplicated(), 3);
+    assert_eq!(duplicated_stats.duplicated(), 3);
     // Every message split into several chunks that join back in order.
-    let (chunks, _, stats) = run(1, NetworkFaults::none().with_split(1_000_000), 5);
-    assert!(chunks.len() > 5);
-    assert_eq!(stats.split(), 5);
-    let joined: Vec<u8> = chunks.concat();
+    let (split, _, split_stats) = run(1, NetworkFaults::none().with_split(1_000_000), 5);
+    assert!(split.len() > 5);
+    assert_eq!(split_stats.split(), 5);
+    let joined: Vec<u8> = split.concat();
     let sent: Vec<u8> = (0..5).flat_map(|i| vec![i as u8; 10 + i]).collect();
     assert_eq!(joined, sent);
     // Every message delayed, the order kept and the clock advanced past one step.
-    let (chunks, now, stats) = run(1, NetworkFaults::none().with_delay(1_000_000, 8), 6);
+    let (delayed, now, delayed_stats) = run(1, NetworkFaults::none().with_delay(1_000_000, 8), 6);
     assert_eq!(
-        chunks,
+        delayed,
         (0..6).map(|i| vec![i as u8; 10 + i]).collect::<Vec<_>>()
     );
-    assert_eq!(stats.delayed(), 6);
+    assert_eq!(delayed_stats.delayed(), 6);
     assert!(now > 1 && now <= 9, "{now}");
 }
 

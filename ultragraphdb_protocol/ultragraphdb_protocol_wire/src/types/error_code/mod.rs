@@ -107,6 +107,7 @@ impl ErrorCode {
         ErrorCode::CredentialExpired,
     ];
 
+    /// The code's number on the wire.
     pub fn number(self) -> u16 {
         // The numbers of the table: ALL lists the codes in their order, from 1.
         ErrorCode::ALL

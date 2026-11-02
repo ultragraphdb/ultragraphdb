@@ -28,7 +28,9 @@ const ROLLUP_FLAGS: [&str; 4] = ["--dir", "--hubs", "--versions", "--relations"]
 /// The run the arguments name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
+    /// `store_bench apply`: the apply thread at a fixed offered rate.
     Apply(ApplyArgs),
+    /// `store_bench rollup`: rollups and the compaction filter over one large predicate.
     Rollup(RollupArgs),
 }
 
@@ -92,7 +94,7 @@ pub(crate) fn flags<'a>(
         let Some(value) = it.next() else {
             return Err(BenchError::Usage(format!("{flag} takes a value")));
         };
-        flags.insert(flag.as_str(), value.as_str());
+        let _previous: Option<&str> = flags.insert(flag.as_str(), value.as_str());
     }
     Ok(flags)
 }

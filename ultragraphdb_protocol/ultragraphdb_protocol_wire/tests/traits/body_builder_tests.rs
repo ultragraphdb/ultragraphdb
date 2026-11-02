@@ -7,31 +7,36 @@ use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, Credit, ErrorCode, ErrorReply, Execute, FrameView, Header, MAX_FRAME_SIZE,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{CLUSTER, golden};
 
 #[test]
-fn test_frame_takes_the_command_and_command_header_from_the_body() {
+fn test_frame_takes_the_command_and_command_header_from_the_body() -> TestResult {
     // The header names Abort; the frame is the Credit's.
     let header = Header::new(CLUSTER, Command::Abort)
         .with_sequence(1)
         .with_stream(11)
         .with_release(0x0005_0000);
-    let bytes = Credit::new(2).frame(header).unwrap();
-    assert_eq!(bytes, golden("credit").bytes());
-    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    let bytes = Credit::new(2).frame(header)?;
+    assert_eq!(bytes, golden("credit")?.bytes()?);
+    let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?;
     assert_eq!(frame.command(), Command::Credit);
     assert_eq!(&frame.header().command_header()[..4], &2u32.to_le_bytes());
     assert_eq!(<Credit as BodyBuilder>::COMMAND, Command::Credit);
+    Ok(())
 }
 
 #[test]
-fn test_a_body_past_the_largest_frame_is_refused() {
+fn test_a_body_past_the_largest_frame_is_refused() -> TestResult {
     // 1 MiB of message. Error's body (PROTOCOL.md sections 4.1, 9.4): a 24-byte table, the 1,048,576-byte message,
     // two empty sections: 1,048,600 data bytes, 1 + ceil((1,048,600 - 3,840) / 4,096) = 257 chunks and a table of
     // 2,056, behind the 256-byte header: 1,050,912 bytes (section 2.3).
     let big = ErrorReply::new(ErrorCode::Refused, "x".repeat(1 << 20));
-    let refused = big.frame(Header::new(CLUSTER, Command::Error)).unwrap_err();
+    let refused = big
+        .frame(Header::new(CLUSTER, Command::Error))
+        .err()
+        .context("a refusal")?;
     assert_eq!(
         refused.0,
         ProtocolErrorEnum::FrameTooLarge {
@@ -55,4 +60,5 @@ fn test_a_body_past_the_largest_frame_is_refused() {
             limit: 1_048_576
         })
     );
+    Ok(())
 }

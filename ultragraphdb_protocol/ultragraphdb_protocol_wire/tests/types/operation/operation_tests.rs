@@ -6,6 +6,7 @@
 use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, CommitOperation, Link, Operation, OperationView, RequestTerm, TermTable,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::{frame_of, golden};
 
@@ -16,15 +17,15 @@ fn literal(s: &str) -> RequestTerm {
     }
 }
 
-pub fn upsert() -> Operation {
+pub fn upsert() -> TestResult<Operation> {
     let mut t = TermTable::new();
     let id = t.iri("http://ex.org/epi.id");
-    let x = t.intern(literal("x")).unwrap();
+    let x = t.intern(literal("x"))?;
     let label = t.iri("http://ex.org/label");
-    let first = t.intern(literal("first")).unwrap();
+    let first = t.intern(literal("first"))?;
     let has = t.iri("http://ex.org/HAS_ENTITY");
     let m1 = t.iri("http://ex.org/m1");
-    Operation::new(
+    Ok(Operation::new(
         t,
         CommitOperation::UpsertAndLink {
             graph: None,
@@ -33,7 +34,7 @@ pub fn upsert() -> Operation {
             properties: vec![(label, first)],
             links: vec![Link::to_node(has, m1)],
         },
-    )
+    ))
 }
 
 pub fn counter() -> Operation {
@@ -52,20 +53,18 @@ pub fn counter() -> Operation {
 }
 
 /// The golden insert-if-absent whose value nests 32 deep: <p>, <a>, then entry k + 1 = <<( k <p> k )>>.
-pub fn deep() -> Operation {
+pub fn deep() -> TestResult<Operation> {
     let mut t = TermTable::new();
     let p = t.iri("http://ex.org/p");
     let mut deepest = t.iri("http://ex.org/a");
     for _ in 0..32 {
-        deepest = t
-            .intern(RequestTerm::Triple {
-                subject: deepest,
-                predicate: p,
-                object: deepest,
-            })
-            .unwrap();
+        deepest = t.intern(RequestTerm::Triple {
+            subject: deepest,
+            predicate: p,
+            object: deepest,
+        })?;
     }
-    Operation::new(
+    Ok(Operation::new(
         t,
         CommitOperation::InsertIfAbsent {
             graph: None,
@@ -73,34 +72,33 @@ pub fn deep() -> Operation {
             value: deepest,
             properties: vec![],
         },
-    )
+    ))
 }
 
 #[test]
-fn test_operations_build_the_golden_frames() {
-    assert_eq!(upsert().terms().len(), 6);
+fn test_operations_build_the_golden_frames() -> TestResult {
+    assert_eq!(upsert()?.terms().len(), 6);
     assert!(matches!(
-        upsert().operation(),
+        upsert()?.operation(),
         CommitOperation::UpsertAndLink { .. }
     ));
     assert_eq!(
-        upsert().frame(golden("operation").header()).unwrap(),
-        golden("operation").bytes()
+        upsert()?.frame(golden("operation")?.header())?,
+        golden("operation")?.bytes()?
     );
     assert_eq!(
-        counter()
-            .frame(golden("operation_counter").header())
-            .unwrap(),
-        golden("operation_counter").bytes()
+        counter().frame(golden("operation_counter")?.header())?,
+        golden("operation_counter")?.bytes()?
     );
     assert_eq!(
-        deep().frame(golden("operation_deep").header()).unwrap(),
-        golden("operation_deep").bytes()
+        deep()?.frame(golden("operation_deep")?.header())?,
+        golden("operation_deep")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]
-fn test_every_kind_round_trips() {
+fn test_every_kind_round_trips() -> TestResult {
     let mut t = TermTable::new();
     let (a, b, c, d) = (t.iri("a"), t.iri("b"), t.iri("c"), t.iri("d"));
     let operations = [
@@ -139,9 +137,10 @@ fn test_every_kind_round_trips() {
     ];
     for operation in operations {
         let built = Operation::new(t.clone(), operation.clone());
-        let bytes = built.frame(golden("operation").header()).unwrap();
-        let view = OperationView::from_frame(&frame_of(&bytes)).unwrap();
+        let bytes = built.frame(golden("operation")?.header())?;
+        let view = OperationView::from_frame(&frame_of(&bytes)?)?;
         assert_eq!(view.operation(), operation);
-        assert_eq!(view.to_body().unwrap(), built);
+        assert_eq!(view.to_body()?, built);
     }
+    Ok(())
 }

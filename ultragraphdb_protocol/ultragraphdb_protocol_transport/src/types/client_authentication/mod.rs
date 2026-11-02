@@ -18,7 +18,12 @@ pub enum AuthenticationStep {
     Send(Authenticate),
     /// The server's final message, checked: the connection acts for `principal` until `expires`, microseconds of
     /// Unix time, 0 for never.
-    Done { principal: u64, expires: u64 },
+    Done {
+        /// The principal the connection acts for.
+        principal: u64,
+        /// When the credential expires, microseconds of Unix time; 0 for never.
+        expires: u64,
+    },
 }
 
 /// The client's side of an Authenticate exchange on stream 0, sans-I/O: the mechanism's messages numbered and carried
@@ -31,6 +36,7 @@ pub struct ClientAuthentication<M> {
 }
 
 impl<M: ClientMechanism> ClientAuthentication<M> {
+    /// The exchange `mechanism` runs, before its first message.
     pub fn new(mechanism: M) -> Self {
         Self {
             mechanism,
@@ -111,6 +117,7 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
         }
     }
 
+    /// The mechanism the exchange runs.
     pub fn mechanism(&self) -> &M {
         &self.mechanism
     }

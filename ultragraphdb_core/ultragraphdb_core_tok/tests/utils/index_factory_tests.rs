@@ -11,6 +11,7 @@ use ultragraphdb_core_tok::{
 use ultragraphdb_traits_index::OptionValue;
 
 use crate::golden::cases;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Parsed {
@@ -30,8 +31,8 @@ struct HnswCase {
 }
 
 #[test]
-fn test_hnsw_options_golden() {
-    let cases: Vec<HnswCase> = cases("tok_hnsw_options");
+fn test_hnsw_options_golden() -> TestResult {
+    let cases: Vec<HnswCase> = cases("tok_hnsw_options")?;
     assert_eq!(cases.len(), 46);
     for c in cases {
         match get_factory_create_spec_from_spec(&c.factory, &c.options) {
@@ -40,7 +41,7 @@ fn test_hnsw_options_golden() {
                 assert_eq!(fcs.name(), c.name, "{c:?}");
                 assert_eq!(fcs.factory().name(), "hnsw");
                 assert_eq!(
-                    get_index_factory_opts_from_spec(&c.factory, &c.options).unwrap(),
+                    get_index_factory_opts_from_spec(&c.factory, &c.options)?,
                     *fcs.opts()
                 );
             }
@@ -70,10 +71,11 @@ fn test_hnsw_options_golden() {
             }
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_factory_lookups_from_specs() {
+fn test_factory_lookups_from_specs() -> TestResult {
     // Go's GetIndexFactoriesFromSpecs: the found factories in spec order, an unknown name skipped.
     let names: Vec<String> = get_index_factories_from_specs(&["hnsw", "nosuch", "hnsw"])
         .iter()
@@ -83,8 +85,10 @@ fn test_factory_lookups_from_specs() {
     assert!(get_index_factories_from_specs(&[]).is_empty());
     assert_eq!(
         get_index_factory_opts_from_spec("nosuch", &[])
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "cannot get Options for factory named 'nosuch' (factory not found)"
     );
+    Ok(())
 }

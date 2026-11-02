@@ -47,9 +47,9 @@ fn test_bounded_draws_reduce_the_next_output() {
     assert_eq!(rng.index(3), (0xB346_6F8A_7B81_A989u64 % 3) as usize);
     assert_eq!(rng.between(5, 9), 5 + 0x9CEB_E8A6_D050_DD01 % 5);
     assert!(!rng.chance(647), "647 is not below 647");
-    let mut rng = SimRng::new(3);
-    assert!(rng.chance(54), "53 is below 54");
-    assert!(!rng.chance(561), "561 is not below 561");
+    let mut again = SimRng::new(3);
+    assert!(again.chance(54), "53 is below 54");
+    assert!(!again.chance(561), "561 is not below 561");
 }
 
 #[test]
@@ -103,7 +103,7 @@ fn test_chances_of_none_and_all() {
 #[test]
 fn test_clones_replay_the_same_stream() {
     let mut rng = SimRng::new(11);
-    rng.next_u64();
+    let _first: u64 = rng.next_u64();
     let mut clone = rng.clone();
     assert_eq!(clone, rng);
     assert_eq!(

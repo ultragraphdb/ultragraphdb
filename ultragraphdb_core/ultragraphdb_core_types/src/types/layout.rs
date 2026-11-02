@@ -12,10 +12,15 @@
 pub struct Layout(u32);
 
 impl Layout {
+    /// No coordinates: an empty geometry's layout.
     pub const NO_LAYOUT: Layout = Layout(0);
+    /// Two coordinates: x and y.
     pub const XY: Layout = Layout(1);
+    /// Three coordinates: x, y and z.
     pub const XYZ: Layout = Layout(2);
+    /// Three coordinates: x, y and a measure m.
     pub const XYM: Layout = Layout(3);
+    /// Four coordinates: x, y, z and a measure m.
     pub const XYZM: Layout = Layout(4);
 
     /// go-geom's `Layout(n)`.

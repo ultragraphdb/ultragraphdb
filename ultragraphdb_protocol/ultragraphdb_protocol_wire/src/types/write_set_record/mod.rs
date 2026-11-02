@@ -63,6 +63,7 @@ pub struct WriteSetRecord {
 }
 
 impl WriteSetRecord {
+    /// An empty record of `session`'s request `request` in `namespace`, reading at `read_version`.
     pub fn new(namespace: u64, read_version: u64, session: u64, request: u64) -> Self {
         Self {
             namespace,
@@ -74,42 +75,52 @@ impl WriteSetRecord {
         }
     }
 
+    /// Appends the list delta `delta` of `key`.
     pub fn push_list_delta(&mut self, key: Vec<u8>, delta: Vec<u8>) {
         self.list_deltas.push((key, Some(delta)));
     }
 
+    /// Appends a dictionary entry of `key`, `None` to remove it.
     pub fn push_dictionary(&mut self, key: Vec<u8>, value: Option<Vec<u8>>) {
         self.dictionary.push((key, value));
     }
 
+    /// Appends a statement record of `key`, `None` to remove it.
     pub fn push_statement(&mut self, key: Vec<u8>, value: Option<Vec<u8>>) {
         self.statements.push((key, value));
     }
 
+    /// Appends a catalog entry of `key`, `None` to remove it.
     pub fn push_catalog(&mut self, key: Vec<u8>, value: Option<Vec<u8>>) {
         self.catalog.push((key, value));
     }
 
+    /// Appends an entry of the keyspace without versions, `None` to remove `key`.
     pub fn push_versionless(&mut self, key: Vec<u8>, value: Option<Vec<u8>>) {
         self.versionless.push((key, value));
     }
 
+    /// Sets the commit record the client attached.
     pub fn set_commit_record(&mut self, record: Vec<u8>) {
         self.commit_record = record;
     }
 
+    /// Appends the conflict point `key`.
     pub fn push_conflict_point(&mut self, key: Vec<u8>) {
         self.conflict_points.push(key);
     }
 
+    /// Appends the conflict statement of the list `key` and the `object` it changed.
     pub fn push_conflict_statement(&mut self, key: Vec<u8>, object: Vec<u8>) {
         self.conflict_statements.push((key, object));
     }
 
+    /// Appends the conflict range from `start` to the key `end` past the last.
     pub fn push_conflict_range(&mut self, start: Vec<u8>, end: Vec<u8>) {
         self.conflict_ranges.push((start, end));
     }
 
+    /// Appends a commit-time operation's result.
     pub fn push_result(&mut self, result: OperationResult) {
         self.results.push(result);
     }
@@ -119,62 +130,77 @@ impl WriteSetRecord {
         self.principal = principal;
     }
 
+    /// Sets the record's operation.
     pub fn set_operation(&mut self, operation: RecordOperation) {
         self.operation = Some(operation);
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot version the transaction read at.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }
 
+    /// The request's number within its session.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The principal the transaction acted for; 0 without authentication.
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
+    /// The list deltas, in the posting format.
     pub fn list_deltas(&self) -> &[OwnedEntry] {
         &self.list_deltas
     }
 
+    /// The dictionary entries.
     pub fn dictionary(&self) -> &[OwnedEntry] {
         &self.dictionary
     }
 
+    /// The statement records.
     pub fn statements(&self) -> &[OwnedEntry] {
         &self.statements
     }
 
+    /// The catalog entries.
     pub fn catalog(&self) -> &[OwnedEntry] {
         &self.catalog
     }
 
+    /// The entries of the keyspace without versions.
     pub fn versionless(&self) -> &[OwnedEntry] {
         &self.versionless
     }
 
+    /// The commit record the client attached.
     pub fn commit_record(&self) -> &[u8] {
         &self.commit_record
     }
 
+    /// The conflict points: each a key written.
     pub fn conflict_points(&self) -> &[Vec<u8>] {
         &self.conflict_points
     }
 
+    /// The conflict statements: a list key and the object it changed.
     pub fn conflict_statements(&self) -> &[(Vec<u8>, Vec<u8>)] {
         &self.conflict_statements
     }
 
+    /// The conflict ranges: the first key and the key past the last.
     pub fn conflict_ranges(&self) -> &[(Vec<u8>, Vec<u8>)] {
         &self.conflict_ranges
     }

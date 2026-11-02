@@ -22,14 +22,17 @@ pub struct CommitView<'a> {
 }
 
 impl<'a> CommitView<'a> {
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }
 
+    /// The request's number within its session.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The commit version; zero in a request.
     pub fn commit_version(&self) -> u64 {
         self.commit_version
     }

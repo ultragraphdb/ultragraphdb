@@ -70,14 +70,17 @@ impl Scan {
         self.end.as_deref()
     }
 
+    /// The seek point; `None` for a scan from the start of the range in its direction.
     pub fn seek_key(&self) -> Option<&[u8]> {
         self.seek.as_deref()
     }
 
+    /// The order the scan reports its keys in.
     pub fn direction(&self) -> Direction {
         self.direction
     }
 
+    /// Whether the scan reports every version of a key rather than its newest alone.
     pub fn is_all_versions(&self) -> bool {
         self.all_versions
     }

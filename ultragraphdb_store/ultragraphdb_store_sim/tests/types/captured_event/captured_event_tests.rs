@@ -5,6 +5,7 @@
 
 use tracing::Level;
 use ultragraphdb_store_sim::{CapturedEvent, LogCapture};
+use ultragraphdb_tool_bdd::TestResult;
 
 fn one(f: impl FnOnce()) -> CapturedEvent {
     let capture = LogCapture::new();
@@ -24,7 +25,7 @@ fn test_new_has_no_fields() {
 }
 
 #[test]
-fn test_fields_keep_their_order_strings_as_they_are_and_others_as_debug() {
+fn test_fields_keep_their_order_strings_as_they_are_and_others_as_debug() -> TestResult {
     let key = vec![0x01u8, 0x02];
     let event = one(|| {
         tracing::error!(target: "ultragraphdb_core_schema", key = ?key, attr = "0-name", ts = 7_u64, ok = true, "Error while parsing key");
@@ -39,6 +40,7 @@ fn test_fields_keep_their_order_strings_as_they_are_and_others_as_debug() {
     assert_eq!(event.field("ts"), Some("7"));
     assert_eq!(event.field("ok"), Some("true"));
     assert_eq!(event.field("absent"), None);
+    Ok(())
 }
 
 #[test]

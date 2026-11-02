@@ -27,6 +27,7 @@ pub struct TimedStore {
 }
 
 impl TimedStore {
+    /// The store `inner`, its reads of a key's versions counted in `reads`.
     pub fn new(inner: FjallStore, reads: Arc<ReadCounts>) -> Self {
         Self {
             inner,
@@ -37,6 +38,7 @@ impl TimedStore {
         }
     }
 
+    /// The fjall store underneath.
     pub fn inner(&self) -> &FjallStore {
         &self.inner
     }
@@ -70,8 +72,8 @@ impl TimedStore {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(call);
         } else {
-            self.other_calls.fetch_add(1, Ordering::Relaxed);
-            self.other_nanos.fetch_add(call.nanos(), Ordering::Relaxed);
+            let _calls: u64 = self.other_calls.fetch_add(1, Ordering::Relaxed);
+            let _nanos: u64 = self.other_nanos.fetch_add(call.nanos(), Ordering::Relaxed);
         }
     }
 }

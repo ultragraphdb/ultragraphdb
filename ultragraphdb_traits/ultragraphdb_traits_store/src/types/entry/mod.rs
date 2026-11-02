@@ -47,14 +47,17 @@ impl Entry {
         self
     }
 
+    /// The key the entry writes.
     pub fn key(&self) -> &[u8] {
         &self.key
     }
 
+    /// The version the entry writes.
     pub fn version(&self) -> u64 {
         self.version
     }
 
+    /// The meta byte; 0 for a deletion.
     pub fn meta(&self) -> u8 {
         self.meta
     }
@@ -69,6 +72,7 @@ impl Entry {
         self.value.as_deref()
     }
 
+    /// Whether the entry is a deletion.
     pub fn is_deletion(&self) -> bool {
         self.value.is_none()
     }

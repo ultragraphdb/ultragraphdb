@@ -17,22 +17,30 @@ use ultragraphdb_store_posting::PostingError;
 /// Why an operation of the quad store failed. The classification is the public field `.0`; branch on it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum QuadErrorEnum {
+    /// The store failed.
     Store(StoreError),
+    /// A posting list could not be read or written.
     Posting(PostingError),
+    /// A term could not be encoded or decoded.
     Term(TermError),
+    /// A quad key could not be parsed.
     Key(QuadKeyError),
+    /// A statement maps to nothing the store holds.
     Mapping(MappingError),
     /// The catalog could not be read.
     Catalog(CatalogError),
     /// A stored UID or literal hash names no dictionary entry, or an entry cannot be read: `key` holds it.
     Corrupted {
+        /// The key whose entry is missing or unreadable.
         key: Vec<u8>,
+        /// What is wrong with it.
         reason: String,
     },
     /// A commit since the write's read assigned an IRI the write creates: the write retries and finds its UID.
     Aborted,
     /// The UIDs below the entity-type bits are spent.
     UidsExhausted {
+        /// The namespace whose UIDs are spent.
         namespace: u64,
     },
 }
@@ -42,6 +50,7 @@ pub enum QuadErrorEnum {
 pub struct QuadError(pub QuadErrorEnum);
 
 impl QuadError {
+    /// [`QuadErrorEnum::Corrupted`] for `key`, with `reason`.
     #[allow(non_snake_case)]
     pub fn Corrupted(key: &[u8], reason: impl Into<String>) -> Self {
         Self(QuadErrorEnum::Corrupted {
@@ -50,11 +59,13 @@ impl QuadError {
         })
     }
 
+    /// [`QuadErrorEnum::Aborted`].
     #[allow(non_snake_case)]
     pub fn Aborted() -> Self {
         Self(QuadErrorEnum::Aborted)
     }
 
+    /// [`QuadErrorEnum::UidsExhausted`] for `namespace`.
     #[allow(non_snake_case)]
     pub fn UidsExhausted(namespace: u64) -> Self {
         Self(QuadErrorEnum::UidsExhausted { namespace })

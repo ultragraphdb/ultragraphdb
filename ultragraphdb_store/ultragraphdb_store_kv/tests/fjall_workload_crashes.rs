@@ -7,10 +7,11 @@
 //! close and a reopen of fjall. A target of its own, so Bazel runs it beside the fault-free run.
 
 use ultragraphdb_store_sim::FaultConfig;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::{Run, run_both};
 
 #[test]
-fn test_the_store_workload_survives_crashes_on_fjall() {
+fn test_the_store_workload_survives_crashes_on_fjall() -> TestResult {
     let runs: Vec<Run> = (101..=106)
         .map(|seed| {
             run_both(
@@ -19,11 +20,11 @@ fn test_the_store_workload_survives_crashes_on_fjall() {
                 300,
                 2,
             )
-            .map_err(|e| e.to_string())
-            .expect("the workload breaks no invariant")
+            .context("the workload breaks no invariant")
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     let recoveries: usize = runs.iter().map(|r| r.recoveries()).sum();
     println!("reopened fjall {recoveries} times over 6 seeds");
     assert!(recoveries >= 6);
+    Ok(())
 }

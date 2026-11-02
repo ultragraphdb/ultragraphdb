@@ -23,16 +23,16 @@ const O_DIRECT: i32 = 0o200_000;
 /// The options of `mode`, with `O_DIRECT` for an aligned file on the Linux targets the node ships for.
 fn options(mode: OpenMode, aligned: bool) -> OpenOptions {
     let mut options = OpenOptions::new();
-    options.read(true).write(mode != OpenMode::Read);
+    let _access: &mut OpenOptions = options.read(true).write(mode != OpenMode::Read);
     if matches!(mode, OpenMode::Create | OpenMode::CreateOrOpen) {
-        options.create(true).truncate(mode == OpenMode::Create);
+        let _creation: &mut OpenOptions = options.create(true).truncate(mode == OpenMode::Create);
     }
     #[cfg(all(
         target_os = "linux",
         any(target_arch = "x86_64", target_arch = "aarch64")
     ))]
     if aligned {
-        options.custom_flags(O_DIRECT);
+        let _direct: &mut OpenOptions = options.custom_flags(O_DIRECT);
     }
     // Off those targets `aligned` selects nothing; binding it keeps it used there.
     let _aligned_elsewhere: bool = aligned;

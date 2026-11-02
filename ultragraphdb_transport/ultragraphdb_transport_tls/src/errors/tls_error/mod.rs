@@ -33,6 +33,8 @@ pub enum TlsErrorEnum {
         /// rustls's reason.
         reason: String,
     },
+    /// rustls or rcgen refused to build a configuration, a key or a certificate: the reason.
+    ConfigurationRefused(String),
 }
 
 impl TlsError {

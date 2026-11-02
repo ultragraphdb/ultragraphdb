@@ -16,7 +16,7 @@ impl Drop for FjallSnapshot {
         if let Some(count) = view.readers.get_mut(&self.read_ts) {
             *count -= 1;
             if *count == 0 {
-                view.readers.remove(&self.read_ts);
+                let _closed: Option<usize> = view.readers.remove(&self.read_ts);
             }
         }
         self.shared.publish_discard(&view);

@@ -10,10 +10,12 @@
 pub struct Temporary(u64);
 
 impl Temporary {
+    /// The temporary keyspace numbered `id`.
     pub fn new(id: u64) -> Self {
         Self(id)
     }
 
+    /// The keyspace's number.
     pub fn id(&self) -> u64 {
         self.0
     }

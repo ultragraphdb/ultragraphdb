@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The set operations' scenarios: intersections, merges and differences of plain and packed UID lists.
+
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -189,10 +191,11 @@ fn result_empty(w: &mut Steps) {
     assert!(w.result.is_empty(), "{:?}", w.result);
 }
 
-fn main() {
+fn main() -> ultragraphdb_tool_bdd::TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

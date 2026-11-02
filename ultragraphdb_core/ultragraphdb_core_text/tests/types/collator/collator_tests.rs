@@ -11,10 +11,11 @@
 use std::cmp::Ordering;
 
 use ultragraphdb_core_text::{Collator, Tag};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn numeric() {
-    let c = Collator::new(&Tag::parse("en-u-kn-true-ks-level1").unwrap());
+fn numeric() -> TestResult {
+    let c = Collator::new(&Tag::parse("en-u-kn-true-ks-level1")?);
     let tests = [
         ("1", "2", Ordering::Less),
         ("2", "12", Ordering::Less),
@@ -32,10 +33,11 @@ fn numeric() {
     for (i, (a, b, want)) in tests.into_iter().enumerate() {
         assert_eq!(c.compare(a, b), want, "{i}: compare({a}, {b})");
     }
+    Ok(())
 }
 
 #[test]
-fn alternate_sort_types() {
+fn alternate_sort_types() -> TestResult {
     let cases = [
         (
             "zh,cmn,zh-Hant-u-co-pinyin,zh-HK-u-co-pinyin,zh-pinyin",
@@ -50,10 +52,11 @@ fn alternate_sort_types() {
     ];
     for (langs, input, want) in cases {
         for lang in langs.split(',') {
-            let c = Collator::new(&Tag::parse(lang).unwrap());
+            let c = Collator::new(&Tag::parse(lang)?);
             let mut got = input;
             got.sort_by_key(|s| c.key(s));
             assert_eq!(got, want, "{lang}");
         }
     }
+    Ok(())
 }

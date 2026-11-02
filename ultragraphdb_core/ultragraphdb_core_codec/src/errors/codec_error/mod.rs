@@ -17,17 +17,25 @@ pub struct CodecError(pub CodecErrorEnum);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CodecErrorEnum {
     /// The buffer ends inside a varint.
-    TruncatedVarint { offset: usize },
+    TruncatedVarint {
+        /// The byte at which the varint starts.
+        offset: usize,
+    },
     /// The varint is longer than ten bytes or its value exceeds `u64::MAX`.
-    OverflowingVarint { offset: usize },
+    OverflowingVarint {
+        /// The byte at which the varint starts.
+        offset: usize,
+    },
 }
 
 impl CodecError {
+    /// A [`CodecErrorEnum::TruncatedVarint`] for the varint starting at `offset`.
     #[allow(non_snake_case)]
     pub fn TruncatedVarint(offset: usize) -> Self {
         Self(CodecErrorEnum::TruncatedVarint { offset })
     }
 
+    /// A [`CodecErrorEnum::OverflowingVarint`] for the varint starting at `offset`.
     #[allow(non_snake_case)]
     pub fn OverflowingVarint(offset: usize) -> Self {
         Self(CodecErrorEnum::OverflowingVarint { offset })

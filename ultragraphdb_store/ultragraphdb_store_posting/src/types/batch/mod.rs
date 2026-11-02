@@ -52,14 +52,17 @@ where
         self.stacked.push(writes.deltas().to_vec());
     }
 
+    /// The requests pushed, in commit order.
     pub fn requests(&self) -> &[Request<'a, S, C>] {
         &self.requests
     }
 
+    /// The number of requests pushed.
     pub fn len(&self) -> usize {
         self.requests.len()
     }
 
+    /// Whether no request is pushed.
     pub fn is_empty(&self) -> bool {
         self.requests.is_empty()
     }

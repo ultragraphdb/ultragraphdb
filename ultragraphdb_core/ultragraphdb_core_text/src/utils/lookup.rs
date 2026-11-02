@@ -74,13 +74,13 @@ fn get_lang_iso3(s: &mut [u8]) -> Result<LangId, LanguageError> {
         return Ok(LangId(n as u16 + LANG_NO_INDEX_OFFSET));
     }
     // Check for non-canonical uses of ISO3.
-    let mut i = tag_index::index(LANG, &s[..1]);
-    while let Some(x) = i {
+    let mut non_canonical = tag_index::index(LANG, &s[..1]);
+    while let Some(x) = non_canonical {
         let e = elem(LANG, x);
         if e[2] == s[1] && e[3] == s[2] {
             return Ok(LangId(x as u16));
         }
-        i = tag_index::next(LANG, &s[..1], x);
+        non_canonical = tag_index::next(LANG, &s[..1], x);
     }
     Err(LanguageError::value(s))
 }
@@ -118,9 +118,9 @@ fn get_region_iso3(s: &mut [u8]) -> Result<RegionId, LanguageError> {
         }
         i = tag_index::next(REGION_ISO, &s[..1], x);
     }
-    for i in (0..ALT_REGION_ISO3.len()).step_by(3) {
-        if ALT_REGION_ISO3[i..i + 3] == *s {
-            return Ok(RegionId(ALT_REGION_IDS[i / 3]));
+    for alt in (0..ALT_REGION_ISO3.len()).step_by(3) {
+        if ALT_REGION_ISO3[alt..alt + 3] == *s {
+            return Ok(RegionId(ALT_REGION_IDS[alt / 3]));
         }
     }
     Err(LanguageError::value(s))

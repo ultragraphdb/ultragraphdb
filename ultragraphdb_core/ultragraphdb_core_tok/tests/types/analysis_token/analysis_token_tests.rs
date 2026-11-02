@@ -12,9 +12,9 @@ fn test_analysis_token_fields() {
         (t.term(), t.start(), t.end(), t.typ()),
         ("katz", 3, 9, TokenType::Ideographic)
     );
-    let t = AnalysisToken::of(String::from("é"));
+    let owned = AnalysisToken::of(String::from("é"));
     assert_eq!(
-        (t.term(), t.start(), t.end(), t.typ()),
+        (owned.term(), owned.start(), owned.end(), owned.typ()),
         ("é", 0, 0, TokenType::AlphaNumeric)
     );
 }
@@ -57,6 +57,6 @@ fn test_type_numbers() {
         SegmentType::Kana,
         SegmentType::Ideo,
     ];
-    let numbers: Vec<u8> = segment_types.iter().map(|t| *t as u8).collect();
-    assert_eq!(numbers, (0..=4).collect::<Vec<u8>>());
+    let segment_numbers: Vec<u8> = segment_types.iter().map(|t| *t as u8).collect();
+    assert_eq!(segment_numbers, (0..=4).collect::<Vec<u8>>());
 }

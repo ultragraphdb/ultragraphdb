@@ -18,9 +18,12 @@ use crate::errors::catalog_error::CatalogError;
 /// Format 2 holds a vector index's dimension, u16 big-endian after its factory, 0 for none.
 const FORMAT: u8 = 2;
 
-/// The kind of a catalog entry: the byte after the namespace in its key, and the byte after the format in its value.
+/// The kind of a predicate's entry. An entry's kind is the byte after the namespace in its key, and the byte after the
+/// format in its value.
 pub const PREDICATE: u8 = 1;
+/// The kind of an entity type's entry.
 pub const ENTITY_TYPE: u8 = 2;
+/// The kind of a relation's entry.
 pub const RELATION: u8 = 3;
 /// The entry kind of `declaration`.
 pub fn kind_of(declaration: &Declaration) -> u8 {

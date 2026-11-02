@@ -8,6 +8,7 @@ use ultragraphdb_protocol_wire::{
     DeclaredRelation, Direction, RequestTerm, StatementTarget, TermTable, Write, WriteChange,
     WriteView,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::{frame_of, golden};
 
@@ -56,39 +57,39 @@ struct GoldenTerms {
 }
 
 /// The golden Write, its terms interned in generate_bodies.py's order of first use.
-pub fn golden_write() -> Write {
-    let (table, terms) = golden_terms();
+pub fn golden_write() -> TestResult<Write> {
+    let (table, terms) = golden_terms()?;
     let mut changes = golden_statements(&terms);
     changes.extend(golden_declarations());
-    Write::new(table, changes)
+    Ok(Write::new(table, changes))
 }
 
 /// The golden Write's term table, interned in generate_bodies.py's order of first use, and its indices.
-fn golden_terms() -> (TermTable, GoldenTerms) {
+fn golden_terms() -> TestResult<(TermTable, GoldenTerms)> {
     let mut t = TermTable::new();
-    let mut add = |term: RequestTerm| t.intern(term).unwrap();
-    let a = add(RequestTerm::Iri(ex("a")));
-    let knows = add(RequestTerm::Iri(ex("knows")));
-    let b = add(RequestTerm::Iri(ex("b")));
-    let g = add(RequestTerm::Iri(ex("g")));
-    let b1 = add(RequestTerm::BlankNode("b1".to_string()));
-    let nick = add(RequestTerm::Iri(ex("nick")));
-    let x_en = add(tagged("x", "en", None));
-    let c = add(RequestTerm::Iri(ex("c")));
-    let since = add(RequestTerm::Iri(ex("since")));
-    let year = add(literal("2020", Some(&format!("{XSD}gYear"))));
-    let weight = add(RequestTerm::Iri(ex("weight")));
-    let half = add(literal("0.5", Some(&format!("{XSD}decimal"))));
-    let says = add(RequestTerm::Iri(ex("says")));
+    let mut add = |term: RequestTerm| t.intern(term);
+    let a = add(RequestTerm::Iri(ex("a")))?;
+    let knows = add(RequestTerm::Iri(ex("knows")))?;
+    let b = add(RequestTerm::Iri(ex("b")))?;
+    let g = add(RequestTerm::Iri(ex("g")))?;
+    let b1 = add(RequestTerm::BlankNode("b1".to_string()))?;
+    let nick = add(RequestTerm::Iri(ex("nick")))?;
+    let x_en = add(tagged("x", "en", None))?;
+    let c = add(RequestTerm::Iri(ex("c")))?;
+    let since = add(RequestTerm::Iri(ex("since")))?;
+    let year = add(literal("2020", Some(&format!("{XSD}gYear"))))?;
+    let weight = add(RequestTerm::Iri(ex("weight")))?;
+    let half = add(literal("0.5", Some(&format!("{XSD}decimal"))))?;
+    let says = add(RequestTerm::Iri(ex("says")))?;
     let triple = add(RequestTerm::Triple {
         subject: a,
         predicate: knows,
         object: b,
-    });
-    let label = add(RequestTerm::Iri(ex("label")));
-    let plain = add(literal("plain", None));
-    let rtl = add(tagged("مرحبا", "ar", Some(Direction::Rtl)));
-    (
+    })?;
+    let label = add(RequestTerm::Iri(ex("label")))?;
+    let plain = add(literal("plain", None))?;
+    let rtl = add(tagged("مرحبا", "ar", Some(Direction::Rtl)))?;
+    Ok((
         t,
         GoldenTerms {
             a,
@@ -109,7 +110,7 @@ fn golden_terms() -> (TermTable, GoldenTerms) {
             plain,
             rtl,
         },
-    )
+    ))
 }
 
 /// The golden Write's statement changes, over its terms `t`.
@@ -216,8 +217,8 @@ fn golden_declarations() -> Vec<WriteChange> {
 }
 
 #[test]
-fn test_write_builds_the_golden_frame() {
-    let write = golden_write();
+fn test_write_builds_the_golden_frame() -> TestResult {
+    let write = golden_write()?;
     assert!(
         write.command_header().iter().all(|b| *b == 0),
         "a Write's command header is all zero"
@@ -225,20 +226,17 @@ fn test_write_builds_the_golden_frame() {
     assert_eq!(write.terms().len(), 17);
     assert_eq!(write.changes().len(), 14);
     assert_eq!(
-        write.frame(golden("write").header()).unwrap(),
-        golden("write").bytes()
+        write.frame(golden("write")?.header())?,
+        golden("write")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_empty_write_is_valid() {
-    let bytes = Write::new(TermTable::new(), Vec::new())
-        .frame(golden("write").header())
-        .unwrap();
-    let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
+fn test_an_empty_write_is_valid() -> TestResult {
+    let bytes = Write::new(TermTable::new(), Vec::new()).frame(golden("write")?.header())?;
+    let view = WriteView::from_frame(&frame_of(&bytes)?)?;
     assert!(view.is_empty());
-    assert_eq!(
-        view.to_body().unwrap(),
-        Write::new(TermTable::new(), Vec::new())
-    );
+    assert_eq!(view.to_body()?, Write::new(TermTable::new(), Vec::new()));
+    Ok(())
 }

@@ -62,8 +62,12 @@ pub(crate) fn match_lang(t: &Tag, tags: &[Tag]) -> usize {
 
     // Besides the base language, script and region, only the collation type and the custom variant defined in
     // the 'u' extension distinguish a locale. Strip all variants and extensions and add back the custom variant.
-    let (b, s, r) = t.raw();
-    let tdef = compose_raw(&[Part::Base(b), Part::Script(s), Part::Region(r)]);
+    let (def_base, def_script, def_region) = t.raw();
+    let tdef = compose_raw(&[
+        Part::Base(def_base),
+        Part::Script(def_script),
+        Part::Region(def_region),
+    ]);
     let (tdef, _) = tdef.set_type_for_key("va", &t.type_for_key("va"));
 
     // First search for a specialized collation type, if present.
@@ -76,11 +80,11 @@ pub(crate) fn match_lang(t: &Tag, tags: &[Tag]) -> usize {
 
     for mut tx in tries {
         while tx != Tag::default() {
-            for (i, t) in tags[start..].iter().enumerate() {
-                if t.raw().0 != base_id {
+            for (i, candidate) in tags[start..].iter().enumerate() {
+                if candidate.raw().0 != base_id {
                     break;
                 }
-                if tx == *t {
+                if tx == *candidate {
                     return start + i;
                 }
             }

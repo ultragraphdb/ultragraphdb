@@ -15,10 +15,12 @@ pub struct TokioSimStream {
 }
 
 impl TokioSimStream {
+    /// `stream` as a tokio stream.
     pub fn new(stream: SimStream) -> Self {
         Self { stream }
     }
 
+    /// The simulated stream underneath.
     pub fn sim(&self) -> &SimStream {
         &self.stream
     }

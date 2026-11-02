@@ -8,6 +8,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use std::panic;
 use std::thread;
 
 use ultragraphdb_core_codec::{Decoder, List, SeekPos, UidPack, exact_len};
@@ -70,12 +71,12 @@ pub fn intersect_compressed_with_lin_jump(dec: &mut Decoder, v: &[u64], o: &mut 
         if u.is_empty() {
             break;
         }
-        let (_, mut off) = intersect_with_lin(u, &v[k..], o);
-        if off == 0 {
-            off = 1; // If v[k] isn't in u, move forward.
+        let (_, mut step) = intersect_with_lin(u, &v[k..], o);
+        if step == 0 {
+            step = 1; // If v[k] isn't in u, move forward.
         }
 
-        k += off;
+        k += step;
     }
 }
 
@@ -95,8 +96,8 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[u64], o: &mut Vec<u
     // Pick the shorter list and do binary search
     if ld <= lq {
         let mut q = q;
+        let mut block_uids = dec.uids();
         loop {
-            let block_uids = dec.uids();
             if block_uids.is_empty() {
                 break;
             }
@@ -105,7 +106,7 @@ pub fn intersect_compressed_with_bin(dec: &mut Decoder, q: &[u64], o: &mut Vec<u
             if q.is_empty() {
                 return;
             }
-            dec.next_block();
+            block_uids = dec.next_block();
         }
         return;
     }
@@ -149,14 +150,15 @@ pub fn intersect_with(u: &List, v: &List, o: &mut List) {
     if n == 0 {
         n = 1;
     }
-    // Select appropriate function based on heuristics.
+    // Select appropriate function based on heuristics. The whole of both lists is intersected, so how far each
+    // function got is not needed.
     let ratio = m as f64 / n as f64;
     if ratio < 100.0 {
-        intersect_with_lin(u.uids(), v.uids(), o.uids_mut());
+        let _reached: (usize, usize) = intersect_with_lin(u.uids(), v.uids(), o.uids_mut());
     } else if ratio < 500.0 {
-        intersect_with_jump(u.uids(), v.uids(), o.uids_mut());
+        let _reached: (usize, usize) = intersect_with_jump(u.uids(), v.uids(), o.uids_mut());
     } else {
-        intersect_with_bin(u.uids(), v.uids(), o.uids_mut());
+        let _reached: usize = intersect_with_bin(u.uids(), v.uids(), o.uids_mut());
     }
 }
 
@@ -229,11 +231,11 @@ pub fn intersect_with_bin(d: &[u64], q: &[u64], o: &mut Vec<u64>) -> usize {
         return 0;
     }
 
-    let val = d[0];
-    let minq = q.partition_point(|&x| x < val);
+    let first = d[0];
+    let minq = q.partition_point(|&x| x < first);
 
-    let val = d[ld - 1];
-    let maxq = q.partition_point(|&x| x <= val);
+    let last = d[ld - 1];
+    let maxq = q.partition_point(|&x| x <= last);
 
     bin_intersect(d, &q[minq..maxq], o);
     maxq
@@ -268,12 +270,12 @@ fn bin_intersect(d: &[u64], q: &[u64], fin: &mut Vec<u64>) {
         midd
     };
 
-    let (dd, qq) = (&d[rest..], &q[midq + 1..]);
-    if dd.len() > qq.len() {
+    let (dd_right, qq_right) = (&d[rest..], &q[midq + 1..]);
+    if dd_right.len() > qq_right.len() {
         // D > Q
-        bin_intersect(dd, qq, fin);
+        bin_intersect(dd_right, qq_right, fin);
     } else {
-        bin_intersect(qq, dd, fin);
+        bin_intersect(qq_right, dd_right, fin);
     }
 }
 
@@ -356,11 +358,12 @@ pub fn merge_sorted_more_mem(lists: &[&List]) -> List {
                 s.spawn(move || merge_sorted_more_mem(chunk))
             })
             .collect();
+        // A merge thread runs only the panic-free merge, so it returns; were it to panic, its panic carries on here.
         handles
             .into_iter()
             .map(|h| {
                 h.join()
-                    .expect("a merge thread runs only the panic-free merge, so it returns")
+                    .unwrap_or_else(|payload| panic::resume_unwind(payload))
             })
             .collect()
     });
@@ -395,11 +398,12 @@ fn internal_merge_sort_with_buffer(lists: &[&List], mut output: Vec<u64>) -> Lis
             last = me.val();
         }
         let l = lists[me.list_idx()].uids();
+        // `me` is the heap's smallest element, so the element removed or replaced is `me` itself.
         if idx[me.list_idx()] >= l.len() - 1 {
-            h.pop();
+            let _exhausted: Option<Elem> = h.pop();
         } else {
             idx[me.list_idx()] += 1;
-            h.set(0, Elem::new(l[idx[me.list_idx()]], me.list_idx()));
+            let _advanced: Option<Elem> = h.set(0, Elem::new(l[idx[me.list_idx()]], me.list_idx()));
             h.fix(0);
         }
     }
@@ -436,11 +440,12 @@ pub fn merge_sorted(lists: &[&List]) -> List {
                 }))
             })
             .collect();
+        // A merge thread runs only the panic-free merge, so it returns; were it to panic, its panic carries on here.
         handles
             .into_iter()
             .map(|h| {
                 h.join()
-                    .expect("a merge thread runs only the panic-free merge, so it returns")
+                    .unwrap_or_else(|payload| panic::resume_unwind(payload))
             })
             .collect()
     });

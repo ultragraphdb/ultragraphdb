@@ -21,7 +21,7 @@ impl Drop for SimSnapshot {
         if let Some(count) = inner.readers.get_mut(&self.read_ts) {
             *count -= 1;
             if *count == 0 {
-                inner.readers.remove(&self.read_ts);
+                let _closed: Option<usize> = inner.readers.remove(&self.read_ts);
             }
         }
         inner.log.push(OpRecord::SnapshotClosed { id: self.id });

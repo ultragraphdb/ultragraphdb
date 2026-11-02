@@ -8,6 +8,8 @@
 //! assertions off (`BUILD.bazel`); `cargo test --release` runs the release half too.
 
 use ultragraphdb_error_invariant::invariant;
+#[cfg(debug_assertions)]
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 const NAME: &str = "rounds are appended in position order";
 
@@ -20,7 +22,7 @@ fn test_an_invariant_that_holds_passes() {
 /// caller's location, which the panic hook records.
 #[cfg(debug_assertions)]
 #[test]
-fn test_a_violation_panics_at_the_caller_in_a_debug_build() {
+fn test_a_violation_panics_at_the_caller_in_a_debug_build() -> TestResult {
     use std::panic;
     use std::sync::{Arc, Mutex};
 
@@ -28,23 +30,26 @@ fn test_a_violation_panics_at_the_caller_in_a_debug_build() {
     let record = Arc::clone(&seen);
     let previous = panic::take_hook();
     panic::set_hook(Box::new(move |info| {
-        if let (Some(location), Ok(mut seen)) = (info.location(), record.lock()) {
-            *seen = Some((location.file().to_string(), location.line()));
+        if let (Some(location), Ok(mut slot)) = (info.location(), record.lock()) {
+            *slot = Some((location.file().to_string(), location.line()));
         }
     }));
     let line = line!() + 1;
     let caught = panic::catch_unwind(|| invariant(false, NAME));
     panic::set_hook(previous);
-    let payload = caught.expect_err("a violation panics in a debug build");
+    let Err(payload) = caught else {
+        return Err(TestError::new("a violation panics in a debug build"));
+    };
     let message = payload.downcast_ref::<String>().map(String::as_str);
     assert_eq!(
         message,
         Some("invariant violated: rounds are appended in position order")
     );
-    let seen = seen.lock().expect("the hook released the lock").clone();
+    let seen = seen.lock().context("the hook released the lock")?.clone();
     assert_eq!(
         seen,
         Some((file!().to_string(), line)),
         "the panic names the caller's location, not the check's"
     );
+    Ok(())
 }

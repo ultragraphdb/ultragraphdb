@@ -18,10 +18,12 @@ pub struct Credit {
 }
 
 impl Credit {
+    /// A grant of `frames` frames.
     pub fn new(frames: u32) -> Self {
         Self { frames }
     }
 
+    /// The frames granted.
     pub fn frames(&self) -> u32 {
         self.frames
     }

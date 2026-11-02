@@ -21,6 +21,7 @@ pub struct PgEdge {
 }
 
 impl PgEdge {
+    /// The edge of type `edge_type` from `source` to `target`, with no statement ID and no property.
     pub fn new(
         source: NamedOrBlankNode,
         edge_type: impl Into<String>,
@@ -35,14 +36,16 @@ impl PgEdge {
         }
     }
 
+    /// The edge with the statement ID `id`.
     pub fn with_id(mut self, id: StatementId) -> Self {
         self.id = Some(id);
         self
     }
 
+    /// The edge with the property `name` holding `values`, replacing any it held.
     pub fn with_property(mut self, name: impl Into<String>, mut values: Vec<Term>) -> Self {
         values.sort_by_key(|v| v.to_string());
-        self.properties.insert(name.into(), values);
+        let _replaced: Option<Vec<Term>> = self.properties.insert(name.into(), values);
         self
     }
 
@@ -52,22 +55,27 @@ impl PgEdge {
         self
     }
 
+    /// The statement ID, when it has one.
     pub fn id(&self) -> Option<StatementId> {
         self.id
     }
 
+    /// The source node.
     pub fn source(&self) -> &NamedOrBlankNode {
         &self.source
     }
 
+    /// The edge's type.
     pub fn edge_type(&self) -> &str {
         &self.edge_type
     }
 
+    /// The target node.
     pub fn target(&self) -> &NamedOrBlankNode {
         &self.target
     }
 
+    /// The properties by name.
     pub fn properties(&self) -> &BTreeMap<String, Vec<Term>> {
         &self.properties
     }

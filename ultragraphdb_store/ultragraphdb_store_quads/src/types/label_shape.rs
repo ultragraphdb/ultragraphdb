@@ -16,10 +16,12 @@ pub struct LabelShape {
 }
 
 impl LabelShape {
+    /// Each predicate the label's nodes hold, with its shape.
     pub fn properties(&self) -> &BTreeMap<String, PropertyShape> {
         &self.properties
     }
 
+    /// Each relationship type the label's nodes hold, with the labels of the nodes it leads to.
     pub fn relationships(&self) -> &BTreeMap<String, BTreeSet<String>> {
         &self.relationships
     }

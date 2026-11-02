@@ -26,12 +26,16 @@ use crate::utils::changesets::{
     delete_pattern, ex, exact_token, index_keys_holding, indexed, insert, insert_edge, int_token,
     objects, objects_in, postings, reverse, sim_store, statement, term, term_token, tokens_of, uid,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The changeset applier of the scenario, created on first use.
-pub(crate) fn cs(w: &mut Steps) -> Arc<TestChangesets> {
-    w.changesets
-        .get_or_insert_with(|| Arc::new(changesets()))
-        .clone()
+pub(crate) fn cs(w: &mut Steps) -> TestResult<Arc<TestChangesets>> {
+    if let Some(a) = &w.changesets {
+        return Ok(a.clone());
+    }
+    let a = Arc::new(changesets()?);
+    w.changesets = Some(a.clone());
+    Ok(a)
 }
 
 /// The backticked items of a step's text, in order.
@@ -44,119 +48,130 @@ pub(crate) fn quoted(text: &str) -> Vec<String> {
 }
 
 /// The last changeset's result.
-pub(crate) fn last(w: &Steps) -> &Result<Applied, ChangesetError> {
-    w.results.last().expect("a changeset was applied")
+pub(crate) fn last(w: &Steps) -> TestResult<&Result<Applied, ChangesetError>> {
+    w.results.last().context("a changeset was applied")
 }
 
-fn applied(w: &Steps) -> &Applied {
-    last(w).as_ref().expect("the changeset applied")
+fn applied(w: &Steps) -> TestResult<&Applied> {
+    last(w)?.as_ref().context("the changeset applied")
 }
 
 /// Whether the statement `text` names is held.
-pub(crate) fn is_held(a: &TestChangesets, text: &str) -> bool {
-    let t = statement(text);
+pub(crate) fn is_held(a: &TestChangesets, text: &str) -> TestResult<bool> {
+    let t = statement(text)?;
     let graph = match &t.graph {
         GraphName::NamedNode(n) => n.as_str().trim_start_matches("http://ex.org/").to_string(),
         GraphName::BlankNode(_) | GraphName::DefaultGraph => String::new(),
     };
-    let known = |iri: &str| {
-        a.quads()
+    let known = |iri: &str| -> TestResult<bool> {
+        Ok(a.quads()
             .uid_of(NS, iri)
-            .expect("the dictionary reads")
-            .is_some()
+            .context("the dictionary reads")?
+            .is_some())
     };
     let subject = t.subject.to_string();
     let subject = subject
         .trim_start_matches("<http://ex.org/")
         .trim_end_matches('>');
     let predicate = t.predicate.as_str().trim_start_matches("http://ex.org/");
-    if !known(ex(subject).as_str())
-        || !known(t.predicate.as_str())
-        || (!graph.is_empty() && !known(ex(&graph).as_str()))
+    if !known(ex(subject).as_str())?
+        || !known(t.predicate.as_str())?
+        || (!graph.is_empty() && !known(ex(&graph).as_str())?)
     {
-        return false;
+        return Ok(false);
     }
-    objects_in(a, &graph, subject, predicate).contains(&t.object)
+    Ok(objects_in(a, &graph, subject, predicate)?.contains(&t.object))
 }
 
 /// The token a step's item names under `tokenizer`, written out independently of the tokenizer: an `int` token of an
 /// integer, a `term` token of a word, an `exact` token of a string.
-fn named_token(tokenizer: &str, item: &str) -> (u8, Vec<u8>) {
+fn named_token(tokenizer: &str, item: &str) -> TestResult<(u8, Vec<u8>)> {
     match tokenizer {
-        "int" => Ok(int_token(item.parse().expect("an integer"))),
+        "int" => Ok(int_token(item.parse().context("an integer")?)),
         "term" => Ok(term_token(item)),
         "exact" => Ok(exact_token(item)),
         other => Err(format!("no written-out token of the {other} tokenizer")),
     }
-    .expect("the tokenizer's token is written out")
+    .context("the tokenizer's token is written out")
 }
 
 // Givens.
 
 #[given(regex = r"^`(\w+)` is declared (.+)$")]
-fn declared(w: &mut Steps, args: &[String]) {
+fn declared(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let phrase = &args[1];
-    let a = cs(w);
-    crate::utils::changesets::declare(&a, predicate, phrase);
+    let a = cs(w)?;
+    crate::utils::changesets::declare(&a, predicate, phrase)?;
+    Ok(())
 }
 
 #[given(regex = r"^(`.+`) (?:is|are) held$")]
-fn held(w: &mut Steps, args: &[String]) {
+fn held(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     for text in quoted(statements) {
-        apply(&a, vec![insert(&text)]).expect("the statement is written");
+        let _applied: Applied =
+            apply(&a, vec![insert(&text)?]).context("the statement is written")?;
     }
+    Ok(())
 }
 
 #[given("every literal's fingerprint is 7")]
-fn constant_fingerprint(w: &mut Steps) {
+fn constant_fingerprint(w: &mut Steps) -> TestResult {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let quads = QuadStore::open(Lists::new(sim_store(), cache, ListsConfig::default()))
-        .expect("the quads open")
+        .context("the quads open")?
         .with_fingerprint(|_| 7);
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
-    let applier = ChangesetApplier::over(quads, executor, 1).expect("the applier opens");
+    let applier = ChangesetApplier::over(quads, executor, 1).context("the applier opens")?;
     w.changesets = Some(Arc::new(applier));
+    Ok(())
 }
 
 #[given(regex = r"^`(.+)` is held with the property `(\S+) (.+)`$")]
-fn held_with_property(w: &mut Steps, args: &[String]) {
+fn held_with_property(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let property = &args[1];
     let value = &args[2];
-    let a = cs(w);
+    let a = cs(w)?;
     let property = property.trim_start_matches('<').trim_end_matches('>');
-    apply(&a, vec![insert_edge(text, &[(property, value)])]).expect("the statement is written");
+    let _applied: Applied = apply(&a, vec![insert_edge(text, &[(property, value)])?])
+        .context("the statement is written")?;
+    Ok(())
 }
 
 // Writes.
 
 #[when(regex = r"^(`[^`]+`(?:(?:, | and |, and )`[^`]+`)*) (?:is|are) written$")]
-fn written(w: &mut Steps, args: &[String]) {
+fn written(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     for text in quoted(statements) {
-        let result = apply(&a, vec![insert(&text)]);
+        let result = apply(&a, vec![insert(&text)?]);
         w.results.push(result);
     }
+    Ok(())
 }
 
 #[when(regex = r"^(`.+`) (?:is|are) written in one changeset$")]
-fn written_together(w: &mut Steps, args: &[String]) {
+fn written_together(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let a = cs(w);
-    let changes = quoted(statements).iter().map(|t| insert(t)).collect();
+    let a = cs(w)?;
+    let changes = quoted(statements)
+        .iter()
+        .map(|t| insert(t))
+        .collect::<TestResult<_>>()?;
     let result = apply(&a, changes);
     w.results.push(result);
+    Ok(())
 }
 
 #[when(regex = r"^`(.+)` is written again$")]
-fn written_again(w: &mut Steps, args: &[String]) {
+fn written_again(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    let a = cs(w);
-    let t = statement(text);
+    let a = cs(w)?;
+    let t = statement(text)?;
     let (subject, object) = (t.subject.to_string(), t.object.to_string());
     let name = |s: &str| {
         s.trim_start_matches("<http://ex.org/")
@@ -164,26 +179,24 @@ fn written_again(w: &mut Steps, args: &[String]) {
             .to_string()
     };
     w.names = vec![name(&subject), name(&object), name(t.predicate.as_str())];
-    w.counts = count_snapshot(&a, &w.names);
-    let result = apply(&a, vec![insert(text)]);
+    w.counts = count_snapshot(&a, &w.names)?;
+    let result = apply(&a, vec![insert(text)?]);
     w.results.push(result);
+    Ok(())
 }
 
 /// The counts the subject and object are listed under, forward and reverse.
-fn count_snapshot(a: &TestChangesets, names: &[String]) -> Vec<Vec<u32>> {
+fn count_snapshot(a: &TestChangesets, names: &[String]) -> TestResult<Vec<Vec<u32>>> {
     let predicate = names[2].trim_start_matches("http://ex.org/");
-    [
+    let mut counts = Vec::new();
+    for (n, d) in [
         (&names[0], CountDirection::Forward),
         (&names[1], CountDirection::Reverse),
-    ]
-    .iter()
-    .flat_map(|(n, d)| {
-        [
-            counts_of(a, predicate, *d, uid(a, n)),
-            counts_of(a, predicate, flip(*d), uid(a, n)),
-        ]
-    })
-    .collect()
+    ] {
+        counts.push(counts_of(a, predicate, d, uid(a, n)?)?);
+        counts.push(counts_of(a, predicate, flip(d), uid(a, n)?)?);
+    }
+    Ok(counts)
 }
 
 fn flip(d: CountDirection) -> CountDirection {
@@ -194,31 +207,33 @@ fn flip(d: CountDirection) -> CountDirection {
 }
 
 #[when(regex = r"^(`.+`) (?:is|are) deleted$")]
-fn deleted(w: &mut Steps, args: &[String]) {
+fn deleted(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     for text in quoted(statements) {
-        let result = apply(&a, vec![delete(&text)]);
+        let result = apply(&a, vec![delete(&text)?]);
         w.results.push(result);
     }
+    Ok(())
 }
 
 #[when(regex = r"^the pattern `(\w+)`, `(\w+)` is deleted$")]
-fn pattern_deleted(w: &mut Steps, args: &[String]) {
+fn pattern_deleted(w: &mut Steps, args: &[String]) -> TestResult {
     let subject = &args[0];
     let predicate = &args[1];
-    let a = cs(w);
+    let a = cs(w)?;
     let result = apply(&a, vec![delete_pattern(subject, predicate)]);
     w.results.push(result);
+    Ok(())
 }
 
 #[when(regex = r"^`(.+)` gains the property `(\S+) (.+)`$")]
-fn gains_property(w: &mut Steps, args: &[String]) {
+fn gains_property(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let property = &args[1];
     let value = &args[2];
-    let a = cs(w);
-    let t = statement(text);
+    let a = cs(w)?;
+    let t = statement(text)?;
     let change = Change::SetProperty {
         statement: StatementRef::Triple {
             graph: t.graph,
@@ -227,24 +242,25 @@ fn gains_property(w: &mut Steps, args: &[String]) {
             object: t.object,
         },
         predicate: ex(property.trim_start_matches('<').trim_end_matches('>')),
-        value: term(value),
+        value: term(value)?,
     };
     let result = apply(&a, vec![change]);
     w.results.push(result);
+    Ok(())
 }
 
 #[when(regex = r"^the statement of `(.+)` is deleted by its ID$")]
-fn statement_deleted(w: &mut Steps, args: &[String]) {
+fn statement_deleted(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    let a = cs(w);
-    let t = statement(text);
+    let a = cs(w)?;
+    let t = statement(text)?;
     let name = |s: String| {
         s.trim_start_matches("<http://ex.org/")
             .trim_end_matches('>')
             .to_string()
     };
     let (subject, predicate) = (name(t.subject.to_string()), name(t.predicate.to_string()));
-    let ids = postings(&a, &subject, &predicate)[0].1.clone();
+    let ids = postings(&a, &subject, &predicate)?[0].1.clone();
     assert_eq!(ids.len(), 1, "one statement ID");
     w.statement = Some(ids[0]);
     let change = Change::DeleteStatement {
@@ -253,26 +269,26 @@ fn statement_deleted(w: &mut Steps, args: &[String]) {
     };
     let result = apply(&a, vec![change]);
     w.results.push(result);
+    Ok(())
 }
 
 #[when("one changeset is applied to two copies of one store")]
-fn two_copies(w: &mut Steps) {
-    let copies = [changesets_over(sim_store()), changesets_over(sim_store())];
+fn two_copies(w: &mut Steps) -> TestResult {
+    let copies = [changesets_over(sim_store())?, changesets_over(sim_store())?];
     for a in &copies {
-        crate::utils::changesets::declare(a, "name", "single-valued with a `term` index");
-        apply(
+        crate::utils::changesets::declare(a, "name", "single-valued with a `term` index")?;
+        let _applied: Applied = apply(
             a,
             vec![
-                insert(r#"<a> <name> "big apple""#),
-                insert("<a> <knows> <b>"),
+                insert(r#"<a> <name> "big apple""#)?,
+                insert("<a> <knows> <b>")?,
             ],
-        )
-        .unwrap();
+        )?;
     }
     let changes = vec![
-        insert(r#"<a> <name> "red apple""#),
-        insert_edge("<a> <knows> <b>", &[("since", "2020")]),
-        insert("<c> <knows> <a>"),
+        insert(r#"<a> <name> "red apple""#)?,
+        insert_edge("<a> <knows> <b>", &[("since", "2020")])?,
+        insert("<c> <knows> <a>")?,
         delete_pattern("a", "name"),
     ];
     for a in &copies {
@@ -280,78 +296,96 @@ fn two_copies(w: &mut Steps) {
         w.results.push(result);
     }
     w.copies = copies.into_iter().map(Arc::new).collect();
+    Ok(())
 }
 
 #[when(
     regex = r"^two changesets read before either commits, the first writing `(.+)` and the second `(.+)`$"
 )]
-fn concurrent(w: &mut Steps, first: String, second: String) {
-    let a = cs(w);
+fn concurrent(w: &mut Steps, first: String, second: String) -> TestResult {
+    let a = cs(w)?;
     // Both execute from one watermark, then commit in one round.
-    let executed = [first, second].map(|text| a.execute(&changeset(vec![insert(&text)])));
+    let mut changes = Vec::with_capacity(2);
+    for text in [first, second] {
+        changes.push(changeset(vec![insert(&text)?]));
+    }
+    let executed: Vec<_> = changes.iter().map(|c| a.execute(c)).collect();
     let next = a.quads().lists().next_version();
     let round: Vec<(u64, ultragraphdb_store_apply::Executed)> = executed
         .into_iter()
         .zip([next, next + 2])
-        .map(|(e, v)| (v, e.expect("executes")))
-        .collect();
-    let applied = a.apply_round(round).expect("the round is written");
+        .map(|(e, v)| Ok((v, e.context("executes")?)))
+        .collect::<TestResult<_>>()?;
+    let applied = a.apply_round(round).context("the round is written")?;
     w.results.extend(applied.into_iter().map(Ok));
+    Ok(())
 }
 
 // Outcomes.
 
 #[then(regex = r"^`(\w+)`'s `(\w+)` objects are (.+)$")]
-fn objects_are(w: &mut Steps, args: &[String]) {
+fn objects_are(w: &mut Steps, args: &[String]) -> TestResult {
     let subject = &args[0];
     let predicate = &args[1];
     let terms = &args[2];
-    let a = cs(w);
-    let held: BTreeSet<String> = objects(&a, subject, predicate)
+    let a = cs(w)?;
+    let held: BTreeSet<String> = objects(&a, subject, predicate)?
         .iter()
         .map(Term::to_string)
         .collect();
-    let expected: BTreeSet<String> = quoted(terms).iter().map(|t| term(t).to_string()).collect();
+    let expected: BTreeSet<String> = quoted(terms)
+        .iter()
+        .map(|t| Ok(term(t)?.to_string()))
+        .collect::<TestResult<_>>()?;
     assert_eq!(held, expected);
+    Ok(())
 }
 
 #[then(regex = r#"^after `(.+)` is deleted, `(\w+)`'s `(\w+)` objects are (.+)$"#)]
-fn after_delete(w: &mut Steps, args: &[String]) {
+fn after_delete(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    let a = cs(w);
-    apply(&a, vec![delete(text)]).expect("the delete applies");
+    let a = cs(w)?;
+    let _applied: Applied = apply(&a, vec![delete(text)?]).context("the delete applies")?;
     // The subject, predicate and terms, as `objects_are` reads them.
-    objects_are(w, &args[1..]);
+    objects_are(w, &args[1..])?;
+    Ok(())
 }
 
 #[then(regex = r"^`(\w+)` holds no `(\w+)`$")]
-fn holds_none(w: &mut Steps, args: &[String]) {
+fn holds_none(w: &mut Steps, args: &[String]) -> TestResult {
     let subject = &args[0];
     let predicate = &args[1];
-    let a = cs(w);
-    assert!(objects(&a, subject, predicate).is_empty());
+    let a = cs(w)?;
+    assert!(objects(&a, subject, predicate)?.is_empty());
+    Ok(())
 }
 
 #[then(regex = r"^(`.+`) (?:is|are) held$")]
-fn are_held(w: &mut Steps, args: &[String]) {
+fn are_held(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     for text in quoted(statements) {
-        assert!(is_held(&a, &text), "{text} is held");
+        assert!(is_held(&a, &text)?, "{text} is held");
     }
+    Ok(())
 }
 
 #[then(regex = r"^`(.+)` is not held$")]
-fn not_held(w: &mut Steps, args: &[String]) {
+fn not_held(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    let a = cs(w);
-    assert!(!is_held(&a, text), "{text} is not held");
+    let a = cs(w)?;
+    assert!(!is_held(&a, text)?, "{text} is not held");
+    Ok(())
 }
 
 #[then(regex = r"^the write fails with an error naming ((?:`[^`]+`(?:, | and )?)+)$")]
-fn fails_naming(w: &mut Steps, args: &[String]) {
+fn fails_naming(w: &mut Steps, args: &[String]) -> TestResult {
     let names = &args[0];
-    let error = last(w).as_ref().expect_err("the write fails").to_string();
+    let error = last(w)?
+        .as_ref()
+        .err()
+        .context("the write fails")?
+        .to_string();
     for name in quoted(names) {
         let shown = if name.chars().all(|c| c.is_alphanumeric()) {
             format!("<{}>", ex(&name).as_str())
@@ -360,87 +394,95 @@ fn fails_naming(w: &mut Steps, args: &[String]) {
         };
         assert!(error.contains(&shown), "{error} names {shown}");
     }
+    Ok(())
 }
 
 #[then("the write succeeds")]
-fn succeeds(w: &mut Steps) {
-    assert!(last(w).is_ok(), "{:?}", last(w));
+fn succeeds(w: &mut Steps) -> TestResult {
+    assert!(last(w)?.is_ok(), "{:?}", last(w)?);
+    Ok(())
 }
 
 #[then("both commit")]
-fn both_commit(w: &mut Steps) {
+fn both_commit(w: &mut Steps) -> TestResult {
     assert_eq!(w.results.len(), 2);
     let ts: Vec<u64> = w
         .results
         .iter()
-        .map(|r| r.as_ref().expect("the changeset commits").commit_ts())
-        .collect();
+        .map(|r| Ok(r.as_ref().context("the changeset commits")?.commit_ts()))
+        .collect::<TestResult<_>>()?;
     assert!(ts[0] < ts[1], "each commits at its own timestamp: {ts:?}");
+    Ok(())
 }
 
 #[then(regex = r"^the reverse list of `(\w+)` for `(\w+)` (holds|does not hold) `(\w+)`$")]
-fn reverse_list(w: &mut Steps, args: &[String]) {
+fn reverse_list(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let object = &args[1];
     let holds = &args[2];
     let subject = &args[3];
-    let a = cs(w);
-    let listed = reverse(&a, predicate, object).contains(&uid(&a, subject));
+    let a = cs(w)?;
+    let listed = reverse(&a, predicate, object)?.contains(&uid(&a, subject)?);
     assert_eq!(listed, holds == "holds");
+    Ok(())
 }
 
 #[then(regex = r"^the `(\w+)` index of `(\w+)` (lists|does not list) (.+) under (.+)$")]
-fn index_lists(w: &mut Steps, args: &[String]) {
+fn index_lists(w: &mut Steps, args: &[String]) -> TestResult {
     let tokenizer = &args[0];
     let predicate = &args[1];
     let lists = &args[2];
     let subjects = &args[3];
     let under = &args[4];
-    let a = cs(w);
+    let a = cs(w)?;
     let tokens: Vec<(u8, Vec<u8>)> = match under.strip_prefix("the tokens of ") {
-        Some(literal) => tokens_of(tokenizer, &term(&quoted(literal)[0])),
+        Some(literal) => tokens_of(tokenizer, &term(&quoted(literal)[0])?)?,
         None => quoted(under)
             .iter()
             .map(|item| named_token(tokenizer, item))
-            .collect(),
+            .collect::<TestResult<_>>()?,
     };
     assert!(!tokens.is_empty());
     for subject in quoted(subjects) {
         for token in &tokens {
-            let listed = indexed(&a, predicate, token).contains(&uid(&a, &subject));
+            let listed = indexed(&a, predicate, token)?.contains(&uid(&a, &subject)?);
             assert_eq!(listed, lists == "lists", "{subject} under {token:?}");
         }
         // Under a literal's tokens, exactly those: the subject holds that one literal, so no other value-index key of
         // the predicate lists it. The tokens themselves are pinned by hand in the unit tests.
         if lists == "lists" && under.starts_with("the tokens of ") {
             assert_eq!(
-                index_keys_holding(&a, predicate, uid(&a, &subject)).len(),
+                index_keys_holding(&a, predicate, uid(&a, &subject)?)?.len(),
                 tokens.len(),
                 "{subject}"
             );
         }
     }
+    Ok(())
 }
 
 #[then(regex = r"^a range read of the `int` index of `(\w+)` over (\d+) to (\d+) returns `(\w+)`$")]
-fn range_read(w: &mut Steps, args: &[String]) {
+fn range_read(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let low: i64 = args[1].parse().expect("the step names a number");
-    let high: i64 = args[2].parse().expect("the step names a number");
+    let low: i64 = args[1].parse().context("the step names a number")?;
+    let high: i64 = args[2].parse().context("the step names a number")?;
     let subject = &args[3];
-    let a = cs(w);
-    let found: BTreeSet<u64> = (low..=high)
-        .flat_map(|v| indexed(&a, predicate, &int_token(v)))
-        .collect();
-    assert_eq!(found, BTreeSet::from([uid(&a, subject)]));
+    let a = cs(w)?;
+    let mut found = BTreeSet::new();
+    for v in low..=high {
+        found.extend(indexed(&a, predicate, &int_token(v))?);
+    }
+    assert_eq!(found, BTreeSet::from([uid(&a, subject)?]));
+    Ok(())
 }
 
 #[then(regex = r"^no value-index key of `(\w+)` holds `(\w+)`$")]
-fn no_index_key(w: &mut Steps, args: &[String]) {
+fn no_index_key(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let subject = &args[1];
-    let a = cs(w);
-    assert!(index_keys_holding(&a, predicate, uid(&a, subject)).is_empty());
+    let a = cs(w)?;
+    assert!(index_keys_holding(&a, predicate, uid(&a, subject)?)?.is_empty());
+    Ok(())
 }
 
 fn direction(text: &str) -> CountDirection {
@@ -454,128 +496,143 @@ fn direction(text: &str) -> CountDirection {
 #[then(
     regex = r"^`(\w+)` is listed under (forward|reverse) count (\d+) of `(\w+)` and not under (\d+)$"
 )]
-fn listed_under(w: &mut Steps, args: &[String]) {
+fn listed_under(w: &mut Steps, args: &[String]) -> TestResult {
     let node = &args[0];
     let dir = &args[1];
-    let count: u32 = args[2].parse().expect("the step names a number");
+    let count: u32 = args[2].parse().context("the step names a number")?;
     let predicate = &args[3];
-    let not: u32 = args[4].parse().expect("the step names a number");
-    let a = cs(w);
-    let counts = counts_of(&a, predicate, direction(dir), uid(&a, node));
+    let not: u32 = args[4].parse().context("the step names a number")?;
+    let a = cs(w)?;
+    let counts = counts_of(&a, predicate, direction(dir), uid(&a, node)?)?;
     assert!(
         counts.contains(&count) && !counts.contains(&not),
         "{counts:?}"
     );
+    Ok(())
 }
 
 #[then(regex = r"^`(\w+)` is listed under no (forward|reverse) count key of `(\w+)`$")]
-fn listed_nowhere(w: &mut Steps, args: &[String]) {
+fn listed_nowhere(w: &mut Steps, args: &[String]) -> TestResult {
     let node = &args[0];
     let dir = &args[1];
     let predicate = &args[2];
-    let a = cs(w);
+    let a = cs(w)?;
     assert_eq!(
-        counts_of(&a, predicate, direction(dir), uid(&a, node)),
+        counts_of(&a, predicate, direction(dir), uid(&a, node)?)?,
         Vec::<u32>::new()
     );
+    Ok(())
 }
 
 #[then(regex = r"^the count keys of `(\w+)` and `(\w+)` for `(\w+)` do not change$")]
-fn counts_unchanged(w: &mut Steps, _subject: String, _object: String, _predicate: String) {
-    let a = cs(w);
-    assert!(last(w).is_ok());
-    assert_eq!(count_snapshot(&a, &w.names), w.counts);
+fn counts_unchanged(
+    w: &mut Steps,
+    _subject: String,
+    _object: String,
+    _predicate: String,
+) -> TestResult {
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok());
+    assert_eq!(count_snapshot(&a, &w.names)?, w.counts);
     assert_eq!(w.counts[0], vec![1]);
+    Ok(())
 }
 
 #[when(
     "`<a> <name> \"Ann\"` is held, `tag` is multi-valued with a `term` index and no count index, and `<a> <tag> \"x\"` is written"
 )]
-fn insert_on_held_subject(w: &mut Steps) {
-    let a = cs(w);
-    crate::utils::changesets::declare(&a, "tag", "with `term`");
-    crate::utils::changesets::write(&a, &["<a> <name> \"Ann\""]);
-    let result = apply(&a, vec![insert("<a> <tag> \"x\"")]);
+fn insert_on_held_subject(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    crate::utils::changesets::declare(&a, "tag", "with `term`")?;
+    crate::utils::changesets::write(&a, &["<a> <name> \"Ann\""])?;
+    let result = apply(&a, vec![insert("<a> <tag> \"x\"")?]);
     w.results.push(result);
+    Ok(())
 }
 
 #[then(
     "the write reads the forward list of `tag` for `a` and no other list, and writes the forward, reverse, predicate-list, index and statistics deltas"
 )]
-fn reads_subject_list_only(w: &mut Steps) {
-    let a = cs(w);
-    let tag = uid(&a, "tag");
-    let read: Vec<_> = applied(w).read().iter().cloned().collect();
-    assert_eq!(applied(w).lists_read(), 1, "{read:?}");
+fn reads_subject_list_only(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    let tag = uid(&a, "tag")?;
+    let read: Vec<_> = applied(w)?.read().iter().cloned().collect();
+    assert_eq!(applied(w)?.lists_read(), 1, "{read:?}");
     assert!(
         read.iter()
             .all(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(tag)),
         "{read:?}"
     );
-    writes_insert_regions(w, &["tag".to_string()]);
+    writes_insert_regions(w, &["tag".to_string()])?;
+    Ok(())
 }
 
 #[when("`<a> <tag> \"x\"` is written and `a` is new to the store")]
-fn insert_on_new_subject(w: &mut Steps) {
-    let a = cs(w);
-    crate::utils::changesets::declare(&a, "tag", "with `term`");
-    let result = apply(&a, vec![insert("<a> <tag> \"x\"")]);
+fn insert_on_new_subject(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    crate::utils::changesets::declare(&a, "tag", "with `term`")?;
+    let result = apply(&a, vec![insert("<a> <tag> \"x\"")?]);
     w.results.push(result);
+    Ok(())
 }
 
 #[when("`<a> <knows> <b>` is written in one commit and again in a later one")]
-fn written_twice(w: &mut Steps) {
-    let a = cs(w);
-    crate::utils::changesets::write(&a, &["<a> <knows> <b>", "<a> <knows> <b>"]);
+fn written_twice(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    crate::utils::changesets::write(&a, &["<a> <knows> <b>", "<a> <knows> <b>"])?;
+    Ok(())
 }
 
 #[then("the statistics of `knows` report 1 statement")]
-fn counted_once(w: &mut Steps) {
-    let a = cs(w);
+fn counted_once(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
     let ts = a.quads().lists().applied_ts();
     let statistics = a
         .quads()
-        .statistics(NS, DEFAULT_GRAPH, uid(&a, "knows"), ts)
-        .expect("the statistics read");
+        .statistics(NS, DEFAULT_GRAPH, uid(&a, "knows")?, ts)
+        .context("the statistics read")?;
     assert_eq!(statistics.statements(), 1);
+    Ok(())
 }
 
 #[then("the write reads no list")]
-fn reads_nothing(w: &mut Steps) {
-    assert!(applied(w).read().is_empty(), "{:?}", applied(w).read());
+fn reads_nothing(w: &mut Steps) -> TestResult {
+    assert!(applied(w)?.read().is_empty(), "{:?}", applied(w)?.read());
+    Ok(())
 }
 
 #[then(regex = r"^the write reads the forward list of `(\w+)`$")]
-fn reads_forward(w: &mut Steps, args: &[String]) {
+fn reads_forward(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let a = cs(w);
-    let p = uid(&a, predicate);
+    let a = cs(w)?;
+    let p = uid(&a, predicate)?;
     assert!(
-        applied(w)
+        applied(w)?
             .read()
             .iter()
             .any(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(p))
     );
+    Ok(())
 }
 
 /// Whether the last changeset wrote the region of `keyspace` in the default graph, for `predicate` when it names one.
-fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<u64>) -> bool {
-    applied(w).written().iter().any(|r| {
+fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<u64>) -> TestResult<bool> {
+    Ok(applied(w)?.written().iter().any(|r| {
         r.keyspace() == keyspace
             && r.namespace() == NS
             && r.graph() == Some(DEFAULT_GRAPH)
             && r.predicate() == predicate
-    })
+    }))
 }
 
 #[then(
     regex = r"^the write writes the forward, reverse, predicate-list, index and statistics regions of `(\w+)`$"
 )]
-fn writes_insert_regions(w: &mut Steps, args: &[String]) {
+fn writes_insert_regions(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let a = cs(w);
-    let p = Some(uid(&a, predicate));
-    for (keyspace, predicate) in [
+    let a = cs(w)?;
+    let p = Some(uid(&a, predicate)?);
+    for (keyspace, region_predicate) in [
         (Keyspace::Forward, p),
         (Keyspace::Reverse, p),
         (Keyspace::SubjectPredicates, None),
@@ -583,61 +640,65 @@ fn writes_insert_regions(w: &mut Steps, args: &[String]) {
         (Keyspace::ValueIndex, p),
         (Keyspace::Statistics, p),
     ] {
-        assert!(wrote(w, keyspace, predicate), "{keyspace:?}");
+        assert!(wrote(w, keyspace, region_predicate)?, "{keyspace:?}");
     }
+    Ok(())
 }
 
 #[then(regex = r"^the write writes the forward and reverse regions of `(\w+)`$")]
-fn writes_forward_reverse(w: &mut Steps, args: &[String]) {
+fn writes_forward_reverse(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let a = cs(w);
-    let p = Some(uid(&a, predicate));
-    assert!(wrote(w, Keyspace::Forward, p) && wrote(w, Keyspace::Reverse, p));
+    let a = cs(w)?;
+    let p = Some(uid(&a, predicate)?);
+    assert!(wrote(w, Keyspace::Forward, p)? && wrote(w, Keyspace::Reverse, p)?);
+    Ok(())
 }
 
 #[then("the write writes the subject- and object-predicate regions of the default graph")]
-fn writes_predicate_lists(w: &mut Steps) {
+fn writes_predicate_lists(w: &mut Steps) -> TestResult {
     assert!(
-        wrote(w, Keyspace::SubjectPredicates, None) && wrote(w, Keyspace::ObjectPredicates, None)
+        wrote(w, Keyspace::SubjectPredicates, None)? && wrote(w, Keyspace::ObjectPredicates, None)?
     );
+    Ok(())
 }
 
 #[when(
     regex = r"^a changeset inserting `(.+)` is executed and `(\w+)` holds other objects of `(\w+)`$"
 )]
-fn insert_beside_others(w: &mut Steps, args: &[String]) {
+fn insert_beside_others(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let subject = &args[1];
     let predicate = &args[2];
-    let a = cs(w);
-    crate::utils::changesets::write(&a, &[format!("<{subject}> <{predicate}> <other>")]);
-    let result = apply(&a, vec![insert(text)]);
+    let a = cs(w)?;
+    crate::utils::changesets::write(&a, &[format!("<{subject}> <{predicate}> <other>")])?;
+    let result = apply(&a, vec![insert(text)?]);
     w.results.push(result);
+    Ok(())
 }
 
 #[then(
     regex = r"^its read set holds the statement `(\w+)`, `(\w+)`, `(\w+)`, not the whole list of `(\w+)` of `(\w+)`$"
 )]
-fn read_set_holds_statement(w: &mut Steps, args: &[String]) {
+fn read_set_holds_statement(w: &mut Steps, args: &[String]) -> TestResult {
     let subject = &args[0];
     let predicate = &args[1];
     let object = &args[2];
     let list_predicate = &args[3];
     let list_subject = &args[4];
-    let a = cs(w);
-    let reads = applied(w).reads();
-    let key = |p: &str, s: &str| {
-        ultragraphdb_core_keys::QuadKey::Forward {
+    let a = cs(w)?;
+    let reads = applied(w)?.reads();
+    let key = |p: &str, s: &str| -> TestResult<Vec<u8>> {
+        Ok(ultragraphdb_core_keys::QuadKey::Forward {
             namespace: NS,
             graph: DEFAULT_GRAPH,
-            predicate: uid(&a, p),
-            subject: uid(&a, s),
+            predicate: uid(&a, p)?,
+            subject: uid(&a, s)?,
         }
-        .to_bytes()
+        .to_bytes())
     };
     let tested = (
-        key(predicate, subject),
-        EncodedTerm::uid(uid(&a, object)).as_bytes().to_vec(),
+        key(predicate, subject)?,
+        EncodedTerm::uid(uid(&a, object)?).as_bytes().to_vec(),
     );
     assert!(
         reads.statements().contains(&tested),
@@ -645,41 +706,44 @@ fn read_set_holds_statement(w: &mut Steps, args: &[String]) {
         reads.statements()
     );
     assert!(
-        !reads.lists().contains(&key(list_predicate, list_subject)),
+        !reads.lists().contains(&key(list_predicate, list_subject)?),
         "{:?}",
         reads.lists()
     );
+    Ok(())
 }
 
 #[when(
     regex = r"^a transaction creates `<(\w+)>` and commits, and no other transaction created `<\w+>` meanwhile$"
 )]
-fn creates_and_commits(w: &mut Steps, args: &[String]) {
+fn creates_and_commits(w: &mut Steps, args: &[String]) -> TestResult {
     let name = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     let executed = a
-        .execute(&changeset(vec![insert(&format!("<{name}> <p> <q>"))]))
-        .expect("the transaction executes");
+        .execute(&changeset(vec![insert(&format!("<{name}> <p> <q>"))?]))
+        .context("the transaction executes")?;
     let provisional = executed
         .terms()
         .created()
         .find(|(iri, _)| *iri == ex(name).as_str())
         .map(|(_, uid)| uid)
-        .expect("the transaction creates the IRI");
-    assert_eq!(a.quads().uid_of(NS, ex(name).as_str()).unwrap(), None);
+        .context("the transaction creates the IRI")?;
+    assert_eq!(a.quads().uid_of(NS, ex(name).as_str())?, None);
     let version = a.quads().lists().next_version();
     let applied = a
         .apply_round(vec![(version, executed)])
-        .expect("it commits");
+        .context("it commits")?;
     w.results.extend(applied.into_iter().map(Ok));
     w.statement = Some(provisional);
+    Ok(())
 }
 
 #[then(regex = r"^`<(\w+)>` holds the UID the transaction gave it$")]
-fn holds_given_uid(w: &mut Steps, args: &[String]) {
+fn holds_given_uid(w: &mut Steps, args: &[String]) -> TestResult {
     let name = &args[0];
-    let a = cs(w);
-    assert_eq!(Some(uid(&a, name)), w.statement);
+    let a = cs(w)?;
+    assert_eq!(Some(uid(&a, name)?), w.statement);
+    Ok(())
 }
 
 #[then("both stores hold the same keys, versions and values")]
@@ -692,89 +756,97 @@ fn same_bytes(w: &mut Steps) {
 }
 
 #[then(regex = r"^the catalog holds `(\w+)` with the default entry$")]
-fn catalog_default(w: &mut Steps, args: &[String]) {
+fn catalog_default(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     a.forget_catalogs();
-    let catalog = a.catalog(NS).expect("the catalog loads");
+    let catalog = a.catalog(NS).context("the catalog loads")?;
     assert_eq!(
-        catalog.predicate(uid(&a, predicate)),
+        catalog.predicate(uid(&a, predicate)?),
         Some(&PredicateDeclaration::new(ex(predicate)))
     );
+    Ok(())
 }
 
 #[then(regex = r"^the catalog does not hold `(\w+)`$")]
-fn catalog_lacks(w: &mut Steps, args: &[String]) {
+fn catalog_lacks(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
-    let a = cs(w);
+    let a = cs(w)?;
     a.forget_catalogs();
-    let catalog = a.catalog(NS).expect("the catalog loads");
+    let catalog = a.catalog(NS).context("the catalog loads")?;
     let declared = a
         .quads()
         .uid_of(NS, ex(predicate).as_str())
-        .expect("the dictionary reads")
+        .context("the dictionary reads")?
         .and_then(|p| catalog.predicate(p).cloned());
     assert_eq!(declared, None);
+    Ok(())
 }
 
 #[then(regex = r"^the forward posting of `(.+)` carries one statement ID$")]
-fn carries_id(w: &mut Steps, args: &[String]) {
+fn carries_id(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    let a = cs(w);
-    let held = postings(&a, "a", "knows");
-    let object = EncodedTerm::uid(uid(&a, "b"));
-    let ids = &held.iter().find(|(o, _)| *o == object).expect(text).1;
+    let a = cs(w)?;
+    let held = postings(&a, "a", "knows")?;
+    let object = EncodedTerm::uid(uid(&a, "b")?);
+    let ids = &held.iter().find(|(o, _)| *o == object).context(text)?.1;
     assert_eq!(ids.len(), 1);
     w.statement = Some(ids[0]);
+    Ok(())
 }
 
 #[then(regex = r"^the record of that ID holds `(.+)` and the property `(\S+) (.+)`$")]
-fn record_holds(w: &mut Steps, args: &[String]) {
+fn record_holds(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let property = &args[1];
     let value = &args[2];
-    let a = cs(w);
-    let record = stored_record(&a, w.statement.expect("a statement ID")).expect("a record");
-    let t = statement(text);
+    let a = cs(w)?;
+    let record = stored_record(&a, w.statement.context("a statement ID")?)?.context("a record")?;
+    let t = statement(text)?;
     let name = |s: String| {
         s.trim_start_matches("<http://ex.org/")
             .trim_end_matches('>')
             .to_string()
     };
-    assert_eq!(record.subject(), uid(&a, &name(t.subject.to_string())));
-    assert_eq!(record.predicate(), uid(&a, &name(t.predicate.to_string())));
+    assert_eq!(record.subject(), uid(&a, &name(t.subject.to_string()))?);
+    assert_eq!(record.predicate(), uid(&a, &name(t.predicate.to_string()))?);
     assert_eq!(
         record.object(),
-        &EncodedTerm::uid(uid(&a, &name(t.object.to_string())))
+        &EncodedTerm::uid(uid(&a, &name(t.object.to_string()))?)
     );
     let (p, v) = match record.properties() {
         [one] => Ok(one),
         more => Err(format!("one property: {more:?}")),
     }
-    .expect("the record holds one property");
+    .context("the record holds one property")?;
     assert_eq!(
         *p,
-        uid(&a, property.trim_start_matches('<').trim_end_matches('>'))
+        uid(&a, property.trim_start_matches('<').trim_end_matches('>'))?
     );
     assert_eq!(
-        a.quads().term_of(NS, v).expect("the value decodes"),
-        term(value)
+        a.quads().term_of(NS, v).context("the value decodes")?,
+        term(value)?
     );
+    Ok(())
 }
 
 #[then("no statement record of that ID remains")]
-fn no_record(w: &mut Steps) {
-    let a = cs(w);
-    assert!(last(w).is_ok(), "{:?}", last(w));
+fn no_record(w: &mut Steps) -> TestResult {
+    let a = cs(w)?;
+    assert!(last(w)?.is_ok(), "{:?}", last(w)?);
     assert_eq!(
-        stored_record(&a, w.statement.expect("a statement ID")),
+        stored_record(&a, w.statement.context("a statement ID")?)?,
         None
     );
+    Ok(())
 }
 
 /// The record of statement `id` in the default graph, as the last commit left it.
-fn stored_record(a: &TestChangesets, id: u64) -> Option<ultragraphdb_store_quads::StatementRecord> {
+fn stored_record(
+    a: &TestChangesets,
+    id: u64,
+) -> TestResult<Option<ultragraphdb_store_quads::StatementRecord>> {
     a.quads()
         .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
-        .expect("the record reads")
+        .context("the record reads")
 }

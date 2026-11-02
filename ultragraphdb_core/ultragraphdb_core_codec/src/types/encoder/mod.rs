@@ -31,6 +31,7 @@ impl Encoder {
         }
     }
 
+    /// The number of UIDs at which a block closes.
     pub fn block_size(&self) -> usize {
         self.block_size
     }

@@ -40,7 +40,7 @@ impl GcSettings {
     }
 
     pub fn add_undecodable(&self, count: u64) {
-        self.undecodable.fetch_add(count, Ordering::AcqRel);
+        let _previous: u64 = self.undecodable.fetch_add(count, Ordering::AcqRel);
     }
 
     pub fn add_collected(&self, keys: Vec<Slice>) {

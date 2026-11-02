@@ -80,14 +80,17 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         })
     }
 
+    /// The number of levels, Dgraph's `maxLevels`.
     pub fn max_levels(&self) -> usize {
         self.max_levels
     }
 
+    /// The breadth of an insert's search, Dgraph's `efConstruction`.
     pub fn ef_construction(&self) -> usize {
         self.ef_construction
     }
 
+    /// The breadth of a search, Dgraph's `efSearch`.
     pub fn ef_search(&self) -> usize {
         self.ef_search
     }
@@ -97,6 +100,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self.keys
     }
 
+    /// The metric the index scores by.
     pub fn sim_type(&self) -> SimilarityType {
         self.sim_type
     }
@@ -182,7 +186,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             return Ok(None);
         };
         let edges = self.decode_edges(uuid, &data)?;
-        self.node_all_edges.borrow_mut().insert(uuid, edges.clone());
+        let _cached: Option<Vec<Vec<u64>>> =
+            self.node_all_edges.borrow_mut().insert(uuid, edges.clone());
         Ok(Some(edges))
     }
 
@@ -273,16 +278,17 @@ fn apply_options(o: &Options) -> Result<(i64, i64, i64, Metric), HnswError> {
         // Dgraph reads the exponent ignoring a type error, which leaves its default.
         let exponent = o.get_opt::<i64>(EXPONENT_OPT).ok().flatten().unwrap_or(3);
         if !o.specifies(MAX_LEVELS_OPT) {
-            o.set_opt(MAX_LEVELS_OPT, OptionValue::Int(exponent));
+            let _options: &mut Options = o.set_opt(MAX_LEVELS_OPT, OptionValue::Int(exponent));
         }
         if !o.specifies(EF_CONSTRUCTION_OPT) {
-            o.set_opt(
+            let _options: &mut Options = o.set_opt(
                 EF_CONSTRUCTION_OPT,
                 OptionValue::Int(exponent.wrapping_mul(50)),
             );
         }
         if !o.specifies(EF_SEARCH_OPT) {
-            o.set_opt(EF_SEARCH_OPT, OptionValue::Int(exponent.wrapping_mul(30)));
+            let _options: &mut Options =
+                o.set_opt(EF_SEARCH_OPT, OptionValue::Int(exponent.wrapping_mul(30)));
         }
     }
     let max_levels = o.get_opt::<i64>(MAX_LEVELS_OPT)?.unwrap_or(3);

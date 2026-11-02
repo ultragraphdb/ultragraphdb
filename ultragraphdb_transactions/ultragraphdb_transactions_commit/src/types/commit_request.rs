@@ -12,14 +12,17 @@ pub struct CommitRequest<P> {
 }
 
 impl<P> CommitRequest<P> {
+    /// The request for `proposal` under `ticket`.
     pub fn new(ticket: u64, proposal: P) -> Self {
         Self { ticket, proposal }
     }
 
+    /// The caller's ticket, which the reply carries back.
     pub fn ticket(&self) -> u64 {
         self.ticket
     }
 
+    /// The transaction's proposal.
     pub fn proposal(&self) -> &P {
         &self.proposal
     }

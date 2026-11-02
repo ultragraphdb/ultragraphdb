@@ -70,7 +70,7 @@ impl Outbound {
     /// sent before every stream's frames, in the order pushed. Refused as [`TransportError::Protocol`] when it holds
     /// no header.
     pub fn push_connection(&mut self, frame: Vec<u8>) -> Result<(), TransportError> {
-        HeaderView::new(&frame).map_err(TransportError::Protocol)?;
+        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::Protocol)?;
         self.connection.push_back(frame);
         Ok(())
     }
@@ -98,16 +98,15 @@ impl Outbound {
             .is_some_and(|state| state.role == Role::Transaction)
     }
 
-    /// Closes `stream`, and with a transaction's its reads; whether it was open.
-    fn close(&mut self, stream: u64) -> bool {
+    /// Closes `stream`, and with a transaction's its reads; nothing for a stream not open.
+    fn close(&mut self, stream: u64) {
         let Some(state) = self.streams.remove(&stream) else {
-            return false;
+            return;
         };
         if state.role == Role::Transaction {
             self.streams
                 .retain(|_, read| read.role != Role::Read(stream));
         }
-        true
     }
 
     /// `frame` stamped with the connection's next sequence.
@@ -143,7 +142,8 @@ impl Outbound {
         if self.streams.len() as u64 >= u64::from(self.max_streams) {
             return Err(TransportError::StreamLimit(self.max_streams));
         }
-        self.streams.insert(
+        // contains_key refused an open stream above, so no state is replaced.
+        let _replaced: Option<StreamState> = self.streams.insert(
             stream,
             StreamState {
                 role,
@@ -157,7 +157,7 @@ impl Outbound {
     /// Queues `frame`, a whole frame of `stream`, refused as [`TransportError::Protocol`] when it holds no header and
     /// [`TransportError::UnknownStream`] when the stream is not open.
     pub fn push(&mut self, stream: u64, frame: Vec<u8>) -> Result<(), TransportError> {
-        HeaderView::new(&frame).map_err(TransportError::Protocol)?;
+        let _header: HeaderView<'_> = HeaderView::new(&frame).map_err(TransportError::Protocol)?;
         let state = self
             .streams
             .get_mut(&stream)
@@ -176,7 +176,9 @@ impl Outbound {
     /// Cancels `stream`: its queued frames are dropped and nothing more of it is sent, and a transaction's reads end
     /// with it. Whether it was open.
     pub fn cancel(&mut self, stream: u64) -> bool {
-        self.close(stream)
+        let was_open = self.is_open(stream);
+        self.close(stream);
+        was_open
     }
 
     /// The next frame of the connection's own queue, stream 0's and the refusals of streams never opened, stamped
@@ -218,6 +220,7 @@ impl Outbound {
         Some((stream, self.stamped(frame)))
     }
 
+    /// Whether `stream` is open.
     pub fn is_open(&self, stream: u64) -> bool {
         self.streams.contains_key(&stream)
     }
@@ -234,6 +237,7 @@ impl Outbound {
             .map_or(0, |state| state.queue.len())
     }
 
+    /// The streams open.
     pub fn open_streams(&self) -> usize {
         self.streams.len()
     }

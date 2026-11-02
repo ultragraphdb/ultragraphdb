@@ -51,6 +51,7 @@ pub(crate) enum Rank {
 }
 
 impl MutableLayer {
+    /// An empty layer, read at timestamp zero.
     pub fn new() -> Self {
         Self::default()
     }
@@ -108,7 +109,8 @@ impl MutableLayer {
             .postings_mut()
             .iter_mut()
             .for_each(|p| p.set_commit_ts(commit_ts));
-        Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(plist));
+        let _replaced: Option<Arc<PostingList>> =
+            Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(plist));
     }
 
     /// The number of layers: committed deltas, stacked layers and the current entries. Dgraph's `len`: whether the
@@ -117,6 +119,7 @@ impl MutableLayer {
         self.committed.len() + self.stacked.len() + usize::from(self.current.is_some())
     }
 
+    /// Whether the layer holds no layer at all.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -239,7 +242,8 @@ impl MutableLayer {
             .postings_mut()
             .iter_mut()
             .for_each(|p| p.set_commit_ts(commit_ts));
-        Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(delta));
+        let _replaced: Option<Arc<PostingList>> =
+            Arc::make_mut(&mut self.committed).insert(commit_ts, Arc::new(delta));
         self.stacked.clear();
         self.current = None;
         self.current_uids.clear();

@@ -16,6 +16,7 @@ pub struct RollupArgs {
 }
 
 impl RollupArgs {
+    /// A rollup run of the given directory, hubs, versions per list and records per loading commit.
     pub fn new(dir: PathBuf, hubs: u64, versions: u64, relations: usize) -> Self {
         Self {
             dir,
@@ -25,18 +26,22 @@ impl RollupArgs {
         }
     }
 
+    /// The store's directory.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
+    /// The hubs whose reverse lists make the large predicate.
     pub fn hubs(&self) -> u64 {
         self.hubs
     }
 
+    /// The versions each list is given.
     pub fn versions(&self) -> u64 {
         self.versions
     }
 
+    /// The records per loading commit.
     pub fn relations(&self) -> usize {
         self.relations
     }

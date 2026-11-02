@@ -66,9 +66,14 @@ impl StatementCache {
             .filter(|(slot, _)| matches!(slot, PatternSlot::Parameter(_)))
             .map(|(_, slot_type)| slot_type)
             .collect::<Vec<_>>();
-        for (parameter, (declared, slot)) in declared.iter().zip(&parameter_slots).enumerate() {
-            if *slot == ColumnType::Node && *declared != ColumnType::Node {
-                return Err(StatementError::ParameterType(parameter, *declared, *slot));
+        for (parameter, (declared_type, slot)) in declared.iter().zip(&parameter_slots).enumerate()
+        {
+            if *slot == ColumnType::Node && *declared_type != ColumnType::Node {
+                return Err(StatementError::ParameterType(
+                    parameter,
+                    *declared_type,
+                    *slot,
+                ));
             }
         }
         let result_types = pattern
@@ -81,7 +86,7 @@ impl StatementCache {
         let statement = self.next;
         self.next = self.next.saturating_add(1);
         let terms = request.terms().to_table();
-        self.statements.insert(
+        let _replaced: Option<Prepared> = self.statements.insert(
             statement,
             Prepared {
                 namespace: request.namespace(),
@@ -92,7 +97,7 @@ impl StatementCache {
             },
         );
         while self.statements.len() > self.capacity {
-            self.statements.pop_first();
+            let _evicted: Option<(u64, Prepared)> = self.statements.pop_first();
         }
         Ok(Prepare::new(
             request.namespace(),
@@ -159,7 +164,7 @@ impl StatementCache {
         let mut terms = prepared.terms.clone();
         let bound = parameters
             .iter()
-            .map(|p| terms.import(request.terms(), *p))
+            .map(|parameter| terms.import(request.terms(), *parameter))
             .collect::<Option<Vec<u32>>>()
             .ok_or(mismatch)?;
         let bind = |slot: PatternSlot| match slot {
@@ -184,10 +189,12 @@ impl StatementCache {
         self.statements.get(&statement).map(|p| p.namespace)
     }
 
+    /// The number of statements the cache holds.
     pub fn len(&self) -> usize {
         self.statements.len()
     }
 
+    /// Whether the cache holds no statement.
     pub fn is_empty(&self) -> bool {
         self.statements.is_empty()
     }

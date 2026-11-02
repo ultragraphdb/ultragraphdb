@@ -30,7 +30,7 @@ impl BodyBuilder for Welcome {
     fn body(&self) -> Vec<u8> {
         let mut mechanisms = StringWriter::default();
         for mechanism in self.mechanisms() {
-            mechanisms.push(mechanism);
+            let _index: u32 = mechanisms.push(mechanism);
         }
         let (ends, text) = mechanisms.sections();
         write_sections(&[], &[self.server().as_bytes(), &ends, &text])

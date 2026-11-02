@@ -8,6 +8,7 @@
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_protocol_wire::OperationResult;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::SessionEntry;
 
 fn committed() -> SessionEntry {
@@ -23,7 +24,7 @@ fn committed() -> SessionEntry {
 }
 
 #[test]
-fn test_the_keys_sit_under_the_system_prefix_the_session_big_endian() {
+fn test_the_keys_sit_under_the_system_prefix_the_session_big_endian() -> TestResult {
     assert_eq!(SessionEntry::INDEX_KEY, b"\xffultragraphdb/sessions");
     let mut key = b"\xffultragraphdb/session/".to_vec();
     key.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0x01, 0x02]);
@@ -32,10 +33,11 @@ fn test_the_keys_sit_under_the_system_prefix_the_session_big_endian() {
         SessionEntry::key(1) < SessionEntry::key(0x100),
         "ordered by number"
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_entry_is_its_request_version_owner_count_padding_and_results() {
+fn test_an_entry_is_its_request_version_owner_count_padding_and_results() -> TestResult {
     let mut expected = Vec::new();
     expected.extend_from_slice(&7u64.to_le_bytes());
     expected.extend_from_slice(&0x0102u64.to_le_bytes());
@@ -60,10 +62,11 @@ fn test_an_entry_is_its_request_version_owner_count_padding_and_results() {
     bytes[16] = 9;
     assert_eq!(registered.encode(), bytes);
     assert_eq!(SessionEntry::decode(b"k", &bytes), Ok(registered));
+    Ok(())
 }
 
 /// The reason a malformed `bytes` is refused with, its key named.
-fn refusal(bytes: &[u8]) -> String {
+fn refusal(bytes: &[u8]) -> TestResult<String> {
     let decoded = SessionEntry::decode(b"key", bytes);
     let reason = if let Err(StoreError(StoreErrorEnum::Corrupted { key, reason })) = &decoded {
         assert_eq!(key, b"key");
@@ -73,39 +76,40 @@ fn refusal(bytes: &[u8]) -> String {
     };
     reason
         .ok_or_else(|| format!("not refused as corrupted: {decoded:?}"))
-        .expect("refused as corrupted")
+        .context("refused as corrupted")
 }
 
 #[test]
-fn test_every_malformed_entry_is_refused_as_corrupted() {
+fn test_every_malformed_entry_is_refused_as_corrupted() -> TestResult {
     let good = committed().encode();
-    assert!(refusal(&good[..31]).contains("shorter"));
-    assert!(refusal(&good[..good.len() - 1]).contains("results"));
+    assert!(refusal(&good[..31])?.contains("shorter"));
+    assert!(refusal(&good[..good.len() - 1])?.contains("results"));
     let mut longer = good.clone();
     longer.extend_from_slice(&[0; 16]);
-    assert!(refusal(&longer).contains("results"));
+    assert!(refusal(&longer)?.contains("results"));
     let mut huge = good.clone();
     huge[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
-    assert!(refusal(&huge).contains("results"));
+    assert!(refusal(&huge)?.contains("results"));
     let mut padding = good.clone();
     padding[31] = 1;
-    assert!(refusal(&padding).contains("padding"));
+    assert!(refusal(&padding)?.contains("padding"));
     let mut created = good.clone();
     created[40] = 2;
-    assert!(refusal(&created).contains("created"));
+    assert!(refusal(&created)?.contains("created"));
     let mut result_padding = good.clone();
     result_padding[47] = 1;
-    assert!(refusal(&result_padding).contains("padding"));
+    assert!(refusal(&result_padding)?.contains("padding"));
     // Request 0 is a registration alone: no version and no results.
     let mut version = vec![0; 32];
     version[8] = 2;
-    assert!(refusal(&version).contains("request 0"));
+    assert!(refusal(&version)?.contains("request 0"));
     let mut results = vec![0; 32];
     results[24] = 1;
     results.extend_from_slice(&[0; 16]);
-    assert!(refusal(&results).contains("request 0"));
+    assert!(refusal(&results)?.contains("request 0"));
     // A committed request has a version.
     let mut unversioned = vec![0; 32];
     unversioned[0] = 1;
-    assert!(refusal(&unversioned).contains("version"));
+    assert!(refusal(&unversioned)?.contains("version"));
+    Ok(())
 }

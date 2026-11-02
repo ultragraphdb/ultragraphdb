@@ -16,6 +16,7 @@ pub struct Reply {
 }
 
 impl Reply {
+    /// The reply to `ticket` with `outcome` and no operation results.
     pub fn new(ticket: u64, outcome: Result<u64, CommitError>) -> Self {
         Self {
             ticket,
@@ -35,6 +36,7 @@ impl Reply {
         &self.results
     }
 
+    /// The ticket of the request answered.
     pub fn ticket(&self) -> u64 {
         self.ticket
     }

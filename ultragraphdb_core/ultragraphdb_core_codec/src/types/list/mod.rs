@@ -14,10 +14,12 @@ pub struct List {
 }
 
 impl List {
+    /// A list of `uids`.
     pub fn new(uids: Vec<u64>) -> Self {
         Self { uids }
     }
 
+    /// The UIDs.
     pub fn uids(&self) -> &[u64] {
         &self.uids
     }
@@ -27,6 +29,7 @@ impl List {
         &mut self.uids
     }
 
+    /// The UIDs, taken out of the list.
     pub fn into_uids(self) -> Vec<u64> {
         self.uids
     }

@@ -17,6 +17,7 @@ pub struct Recovery {
 }
 
 impl Recovery {
+    /// What an open found: the last `checkpoint`, the `committed` position, and the `truncation` it made, if any.
     pub fn new(checkpoint: Position, committed: Position, truncation: Option<Truncation>) -> Self {
         Self {
             checkpoint,
@@ -25,14 +26,17 @@ impl Recovery {
         }
     }
 
+    /// The last checkpoint's position, from the superblock.
     pub fn checkpoint(&self) -> Position {
         self.checkpoint
     }
 
+    /// The position of the last round the scan accepted: the log's committed position after the open.
     pub fn committed(&self) -> Position {
         self.committed
     }
 
+    /// The torn tail the open cut off, `None` when the rounds ended cleanly.
     pub fn truncation(&self) -> Option<Truncation> {
         self.truncation
     }

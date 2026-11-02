@@ -18,7 +18,10 @@ pub struct InvariantError(pub InvariantErrorEnum);
 pub enum InvariantErrorEnum {
     /// The invariant `name` does not hold. The name states the invariant as it should hold, such as "rounds are
     /// appended in position order", so a log line or a test failure reads as the property broken.
-    Violated { name: &'static str },
+    Violated {
+        /// The invariant as it should hold.
+        name: &'static str,
+    },
 }
 
 impl InvariantError {
@@ -27,7 +30,7 @@ impl InvariantError {
         non_snake_case,
         reason = "error constructors are named for their variant (AGENTS.md, Errors)"
     )]
-    pub fn Violated(name: &'static str) -> Self {
+    pub fn violated(name: &'static str) -> Self {
         Self(InvariantErrorEnum::Violated { name })
     }
 }

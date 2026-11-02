@@ -56,25 +56,25 @@ fn test_unmarshal_type_error_message() {
 
 #[test]
 fn a_type_error_at_the_root_names_the_go_value() {
-    let e = JsonError::UnmarshalType(
+    let root = JsonError::UnmarshalType(
         "string".to_string(),
         "[]interface {}".to_string(),
         String::new(),
         String::new(),
     );
     assert_eq!(
-        e.to_string(),
+        root.to_string(),
         "json: cannot unmarshal string into Go value of type []interface {}"
     );
     // A path without a root type's name still names the field.
-    let e = JsonError::UnmarshalType(
+    let unrooted = JsonError::UnmarshalType(
         "number".to_string(),
         "string".to_string(),
         String::new(),
         "type".to_string(),
     );
     assert_eq!(
-        e.to_string(),
+        unrooted.to_string(),
         "json: cannot unmarshal number into Go struct field .type of type string"
     );
 }

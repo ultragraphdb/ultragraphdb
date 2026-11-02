@@ -145,7 +145,7 @@ impl TestServer {
 
     /// `session` is evicted from the table, so its next commit is refused with code 12 (SessionEvicted).
     pub fn evict(&mut self, session: u64) {
-        self.sessions.remove(&session);
+        let _evicted: Option<SessionRecord> = self.sessions.remove(&session);
     }
 
     /// The namespace's schema id changes, as a catalog change changes it.
@@ -224,7 +224,7 @@ impl TestServer {
         let received = match read {
             Ok(received) => received,
             Err(refusal) => {
-                connection.refuse_connection(&refusal);
+                let _closing: Inbound = connection.refuse_connection(&refusal);
                 return;
             }
         };
@@ -236,7 +236,7 @@ impl TestServer {
                 transaction: true,
             }
             | Inbound::Refused { stream, .. } => {
-                self.transactions.remove(&stream);
+                let _ended: Option<u32> = self.transactions.remove(&stream);
             }
             Inbound::Closing { .. } => self.transactions.clear(),
             Inbound::Handled | Inbound::Authenticated { .. } | Inbound::Cancelled { .. } => {}

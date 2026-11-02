@@ -28,6 +28,7 @@ pub struct Hello {
 }
 
 impl Hello {
+    /// A Hello speaking protocols `protocol_min` to `protocol_max`, from the client `client` at `release`, taking frames up to `max_frame` bytes.
     pub fn new(
         protocol_min: u16,
         protocol_max: u16,
@@ -44,14 +45,17 @@ impl Hello {
         }
     }
 
+    /// The lowest protocol version the client speaks.
     pub fn protocol_min(&self) -> u16 {
         self.protocol_min
     }
 
+    /// The highest protocol version the client speaks.
     pub fn protocol_max(&self) -> u16 {
         self.protocol_max
     }
 
+    /// The client's release.
     pub fn release(&self) -> u32 {
         self.release
     }
@@ -61,6 +65,7 @@ impl Hello {
         self.max_frame
     }
 
+    /// The client's name.
     pub fn client(&self) -> &str {
         &self.client
     }

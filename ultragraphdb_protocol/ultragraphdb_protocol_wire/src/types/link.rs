@@ -31,10 +31,12 @@ impl Link {
         }
     }
 
+    /// The edge's predicate, a term index.
     pub fn predicate(&self) -> u32 {
         self.predicate
     }
 
+    /// The other node's term index.
     pub fn other(&self) -> u32 {
         self.other
     }

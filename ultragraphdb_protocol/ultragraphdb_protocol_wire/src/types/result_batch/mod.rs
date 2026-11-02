@@ -119,7 +119,7 @@ impl ResultBatch {
                         Some(index) => *index,
                         None => {
                             let index = as_u32(self.terms.len());
-                            self.index.insert(encoding, index);
+                            let _absent: Option<u32> = self.index.insert(encoding, index);
                             self.terms.push((*term).clone());
                             index
                         }
@@ -138,10 +138,12 @@ impl ResultBatch {
         self
     }
 
+    /// The number of columns.
     pub fn columns(&self) -> u32 {
         self.columns
     }
 
+    /// The number of rows.
     pub fn rows(&self) -> u32 {
         self.rows
     }
@@ -162,6 +164,7 @@ impl ResultBatch {
             .copied()
     }
 
+    /// The resume key a limited read continues from; empty for none.
     pub fn resume(&self) -> &[u8] {
         &self.resume
     }

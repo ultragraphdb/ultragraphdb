@@ -56,13 +56,13 @@ impl TermCache {
 
     /// Invalidates `keys`, which a committed write changed.
     pub fn invalidate<'k>(&self, keys: impl IntoIterator<Item = &'k [u8]>) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        let _previous: u64 = self.generation.fetch_add(1, Ordering::SeqCst);
         keys.into_iter().for_each(|k| self.cache.invalidate(k));
     }
 
     /// Invalidates every key, the keyspace having been cleared.
     pub fn clear(&self) {
-        self.generation.fetch_add(1, Ordering::SeqCst);
+        let _previous: u64 = self.generation.fetch_add(1, Ordering::SeqCst);
         self.cache.invalidate_all();
     }
 }

@@ -10,15 +10,26 @@ pub enum StorageOperation {
     Open,
     /// Opening with [`crate::OpenMode::Create`] or [`crate::OpenMode::CreateOrOpen`].
     Create,
+    /// Reading a file's bytes.
     Read,
+    /// Writing a file's bytes.
     Write,
+    /// Reserving a file's blocks.
     Preallocate,
+    /// Reading a file's length.
     Length,
+    /// Setting a file's length.
     Truncate,
+    /// Making a file's contents durable.
     FileSync,
+    /// Creating a directory.
     CreateDirectory,
+    /// Making a directory's entries durable.
     DirectorySync,
+    /// Renaming a file.
     Rename,
+    /// Removing a file.
     Remove,
+    /// Listing a directory's names.
     List,
 }

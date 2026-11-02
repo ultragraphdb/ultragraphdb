@@ -15,9 +15,10 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::measurement::WallTime;
+use criterion::{BenchmarkGroup, BenchmarkId, Criterion};
 use ultragraphdb_transactions_commit::ConflictHistory;
-use ultragraphdb_transactions_txn::ReadSet;
+use ultragraphdb_transactions_txn::{ReadSet, TxnError};
 
 /// A forward-list key of 25 bytes for `subject`.
 fn key(subject: u64) -> Vec<u8> {
@@ -56,18 +57,19 @@ fn writes(rng: &mut Lcg) -> Writes {
     }
 }
 
-fn read_set(rng: &mut Lcg, read_version: u64) -> ReadSet {
+/// A sealed read set of 16 lists and 4 statements at `read_version`; refused only past its limit, which it is far
+/// below.
+fn read_set(rng: &mut Lcg, read_version: u64) -> Result<ReadSet, TxnError> {
     let mut rs = ReadSet::new();
     rs.reset(0, read_version, usize::MAX);
     for _ in 0..16 {
-        rs.push_list(&key(rng.next())).expect("within the limit");
+        rs.push_list(&key(rng.next()))?;
     }
     for _ in 0..4 {
-        rs.push_statement(&key(rng.next()), &rng.next().to_be_bytes())
-            .expect("within the limit");
+        rs.push_statement(&key(rng.next()), &rng.next().to_be_bytes())?;
     }
     rs.seal();
-    rs
+    Ok(rs)
 }
 
 /// The design's first sketch: owned keys in ordered maps, pruned through a log of each transaction's keys.
@@ -81,10 +83,10 @@ struct BTreeHistory {
 impl BTreeHistory {
     fn insert(&mut self, version: u64, w: &Writes) {
         for k in &w.points {
-            self.points.insert(k.clone(), version);
+            let _previous: Option<u64> = self.points.insert(k.clone(), version);
         }
         for (k, o) in &w.statements {
-            self.statements.insert((k.clone(), o.clone()), version);
+            let _previous: Option<u64> = self.statements.insert((k.clone(), o.clone()), version);
         }
         let copy = Writes {
             points: w.points.clone(),
@@ -98,12 +100,12 @@ impl BTreeHistory {
             if let Some((_, w)) = self.log.pop_front() {
                 for k in &w.points {
                     if self.points.get(k).is_some_and(|v| *v <= floor) {
-                        self.points.remove(k);
+                        let _removed: Option<u64> = self.points.remove(k);
                     }
                 }
                 for s in w.statements {
                     if self.statements.get(&s).is_some_and(|v| *v <= floor) {
-                        self.statements.remove(&s);
+                        let _removed: Option<u64> = self.statements.remove(&s);
                     }
                 }
             }
@@ -142,7 +144,7 @@ fn insert_runs(h: &mut ConflictHistory, version: u64, w: &Writes) {
     );
 }
 
-fn history(c: &mut Criterion) {
+fn history(c: &mut Criterion) -> Result<(), TxnError> {
     let mut admit = c.benchmark_group("history_admit");
     for window in [1_000u64, 10_000] {
         let mut rng = Lcg(1);
@@ -155,26 +157,28 @@ fn history(c: &mut Criterion) {
         }
         let mut version = 2 * window;
         let mut at = 0usize;
-        admit.bench_with_input(BenchmarkId::new("runs", window), &window, |b, window| {
-            b.iter(|| {
-                version += 2;
-                at = (at + 1) % pool.len();
-                insert_runs(&mut runs, version, &pool[at]);
-                runs.prune(version - 2 * window);
-                black_box(runs.runs())
-            })
-        });
-        let mut version = 2 * window;
-        let mut at = 0usize;
-        admit.bench_with_input(BenchmarkId::new("btree", window), &window, |b, window| {
-            b.iter(|| {
-                version += 2;
-                at = (at + 1) % pool.len();
-                tree.insert(version, &pool[at]);
-                tree.prune(version - 2 * window);
-                black_box(tree.log.len())
-            })
-        });
+        let _admit: &mut BenchmarkGroup<'_, WallTime> =
+            admit.bench_with_input(BenchmarkId::new("runs", window), &window, |b, window| {
+                b.iter(|| {
+                    version += 2;
+                    at = (at + 1) % pool.len();
+                    insert_runs(&mut runs, version, &pool[at]);
+                    runs.prune(version - 2 * window);
+                    black_box(runs.runs())
+                })
+            });
+        let mut tree_version = 2 * window;
+        let mut tree_at = 0usize;
+        let _btree_admit: &mut BenchmarkGroup<'_, WallTime> =
+            admit.bench_with_input(BenchmarkId::new("btree", window), &window, |b, window| {
+                b.iter(|| {
+                    tree_version += 2;
+                    tree_at = (tree_at + 1) % pool.len();
+                    tree.insert(tree_version, &pool[tree_at]);
+                    tree.prune(tree_version - 2 * window);
+                    black_box(tree.log.len())
+                })
+            });
     }
     admit.finish();
 
@@ -189,24 +193,35 @@ fn history(c: &mut Criterion) {
             tree.insert(2 * (i + 1), &w);
         }
         for (name, rv) in [("recent", 2 * window - 8), ("old", 0)] {
-            let sets: Vec<ReadSet> = (0..256).map(|_| read_set(&mut rng, rv)).collect();
+            let sets: Vec<ReadSet> = (0..256)
+                .map(|_| read_set(&mut rng, rv))
+                .collect::<Result<_, _>>()?;
             let mut at = 0usize;
-            check.bench_function(BenchmarkId::new(format!("runs_{name}"), window), |b| {
-                b.iter(|| {
-                    at = (at + 1) % sets.len();
-                    black_box(runs.conflict(&sets[at]))
-                })
-            });
-            check.bench_function(BenchmarkId::new(format!("btree_{name}"), window), |b| {
-                b.iter(|| {
-                    at = (at + 1) % sets.len();
-                    black_box(tree.conflicts(&sets[at]))
-                })
-            });
+            let _check: &mut BenchmarkGroup<'_, WallTime> =
+                check.bench_function(BenchmarkId::new(format!("runs_{name}"), window), |b| {
+                    b.iter(|| {
+                        at = (at + 1) % sets.len();
+                        black_box(runs.conflict(&sets[at]))
+                    })
+                });
+            let _btree_check: &mut BenchmarkGroup<'_, WallTime> =
+                check.bench_function(BenchmarkId::new(format!("btree_{name}"), window), |b| {
+                    b.iter(|| {
+                        at = (at + 1) % sets.len();
+                        black_box(tree.conflicts(&sets[at]))
+                    })
+                });
         }
     }
     check.finish();
+    Ok(())
 }
 
-criterion_group!(benches, history);
-criterion_main!(benches);
+/// Runs the benchmarks with criterion's command-line configuration, as `criterion_main!` would, and fails on a read
+/// set refused.
+fn main() -> Result<(), TxnError> {
+    let mut criterion = Criterion::default().configure_from_args();
+    history(&mut criterion)?;
+    criterion.final_summary();
+    Ok(())
+}

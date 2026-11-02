@@ -12,6 +12,7 @@ use ultragraphdb_core_types::{
     BIG_FLOAT_PRECISION, DateTime, Geometry, TYPE_NAMES, TypeId, Value, Zone, good_time_zone,
     parse_time, value_for_type,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[allow(clippy::too_many_arguments)]
 fn fixed(y: i64, mo: i64, d: i64, h: i64, mi: i64, s: i64, ns: i64, offset: i32) -> DateTime {
@@ -117,7 +118,7 @@ fn test_type_for_name() {
 /// Go's `ValueForType` returns pointers to each type's zero value; this port returns the values, a geometry's
 /// nil `geom.T` as an empty collection. A type without a zero (object, and any unknown) is a nil default.
 #[test]
-fn test_value_for_type() {
+fn test_value_for_type() -> TestResult {
     let cases = [
         (TypeId::DEFAULT, Some(Value::str(""))),
         (TypeId::BINARY, Some(Value::Bytes(Vec::new()))),
@@ -145,7 +146,7 @@ fn test_value_for_type() {
         Some(Value::BigFloat(b)) => Ok(b),
         other => Err(format!("{other:?}")),
     }
-    .expect("a bigfloat value");
+    .context("a bigfloat value")?;
     assert!(b.is_zero() && !b.is_neg());
     assert_eq!(b.prec(), 200);
     assert_eq!(BIG_FLOAT_PRECISION, 200);
@@ -154,43 +155,54 @@ fn test_value_for_type() {
         assert_eq!(val.tid(), TypeId::DEFAULT, "{tid:?}");
         assert!(val.value().is_none(), "{tid:?}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_parse_time_without_tz() {
+fn test_parse_time_without_tz() -> TestResult {
     for (input, want) in dates_without_tz() {
-        assert_eq!(parse_time(input).unwrap(), want, "{input}");
+        assert_eq!(parse_time(input)?, want, "{input}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_parse_time_with_tz() {
+fn test_parse_time_with_tz() -> TestResult {
     for (input, want) in dates_with_tz() {
-        assert_eq!(parse_time(input).unwrap(), want, "{input}");
+        assert_eq!(parse_time(input)?, want, "{input}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_parse_time_rejection() {
+fn test_parse_time_rejection() -> TestResult {
     // Go's time.ParseError always opens with the quoted input; the full texts are in the golden vectors.
     for input in INVALID_DATES {
-        let err = parse_time(input).unwrap_err().to_string();
+        let err = parse_time(input)
+            .err()
+            .context("expected an error")?
+            .to_string();
         assert!(
             err.starts_with(&format!("parsing time \"{input}\"")),
             "{input}: {err}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_parse_time_non_rfc3339() {
+fn test_parse_time_non_rfc3339() -> TestResult {
     for input in DATES_WITH_INVALID_TZ {
-        let err = parse_time(input).unwrap_err().to_string();
+        let err = parse_time(input)
+            .err()
+            .context("expected an error")?
+            .to_string();
         assert!(
             err.contains("time zone offset hour out of range"),
             "{input}: {err}"
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -231,18 +243,23 @@ fn hex(b: &[u8]) -> String {
 }
 
 #[test]
-fn test_golden_parse_time() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_parse_time.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<ParseTimeCase>(&path);
+fn test_golden_parse_time() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_parse_time.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<ParseTimeCase>(&path)?;
     for c in golden.cases() {
         let got = parse_time(&c.input);
         if !c.err.is_empty() {
-            assert_eq!(got.unwrap_err().to_string(), c.err, "{}", c.input);
+            assert_eq!(
+                got.err().context("expected an error")?.to_string(),
+                c.err,
+                "{}",
+                c.input
+            );
             continue;
         }
         let t = got
             .map_err(|e| format!("{}: {e}", c.input))
-            .expect("parsing a golden time");
+            .context("parsing a golden time")?;
         let bin = t
             .marshal_binary()
             .map(|b| hex(&b))
@@ -252,4 +269,5 @@ fn test_golden_parse_time() {
         assert_eq!(text, c.text, "{}", c.input);
         assert_eq!((t.unix(), t.nanosecond()), (c.unix, c.nsec), "{}", c.input);
     }
+    Ok(())
 }

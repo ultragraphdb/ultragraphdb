@@ -15,6 +15,7 @@ pub struct Item {
 }
 
 impl Item {
+    /// `value` as version `version` of `key`, with meta byte `meta` and the discard flag `discard`.
     pub fn new(key: Vec<u8>, version: u64, meta: u8, discard: bool, value: Vec<u8>) -> Self {
         Self {
             key,
@@ -25,14 +26,17 @@ impl Item {
         }
     }
 
+    /// The key.
     pub fn key(&self) -> &[u8] {
         &self.key
     }
 
+    /// The version.
     pub fn version(&self) -> u64 {
         self.version
     }
 
+    /// The meta byte.
     pub fn meta(&self) -> u8 {
         self.meta
     }
@@ -42,6 +46,7 @@ impl Item {
         self.discard
     }
 
+    /// The value.
     pub fn value(&self) -> &[u8] {
         &self.value
     }

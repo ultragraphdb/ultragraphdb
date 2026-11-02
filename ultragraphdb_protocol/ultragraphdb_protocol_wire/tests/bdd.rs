@@ -11,6 +11,7 @@ use ultragraphdb_protocol_wire::{
     Command, FrameView, Header, HeaderView, MAX_FRAME_SIZE, RETIRED_COMMANDS, xxh3_64,
     xxh3_64_with_seed,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 // The golden frames of the unit tests, shared by path.
 mod utils {
@@ -29,6 +30,7 @@ use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 /// The cluster a receiver in these scenarios belongs to: the golden frames'.
 const SERVER: u64 = CLUSTER;
 
+/// The state the frame scenarios carry from one step to the next.
 #[derive(Debug, Default, World)]
 pub struct Steps {
     bytes: Vec<u8>,
@@ -46,13 +48,14 @@ pub struct Steps {
 // One header for every frame.
 
 #[when("the golden Hello frame's header is read")]
-fn read_hello(w: &mut Steps) {
-    w.bytes = HELLO.bytes();
+fn read_hello(w: &mut Steps) -> TestResult {
+    w.bytes = HELLO.bytes()?;
+    Ok(())
 }
 
 #[then("each field holds its golden value, and writing the fields back yields the same 256 bytes")]
-fn hello_round_trips(w: &mut Steps) {
-    let view = HeaderView::new(&w.bytes).expect("a header");
+fn hello_round_trips(w: &mut Steps) -> TestResult {
+    let view = HeaderView::new(&w.bytes).context("a header")?;
     // generate_frames.c's Hello: sequence 1, cluster, release 0x00050000, protocol 1, command 1, the rest zero,
     // command header byte i = i * 7 + 3, a 100-byte body.
     assert_eq!(view.checksum(), 0x51C7_F42A_F2F6_FA27);
@@ -71,12 +74,13 @@ fn hello_round_trips(w: &mut Steps) {
     assert_eq!(view.command_header(), &HELLO.command_header());
     let header = view
         .verify(SERVER, MAX_FRAME_SIZE)
-        .expect("the golden header verifies");
+        .context("the golden header verifies")?;
     assert_eq!(header.command(), Command::Hello);
     assert_eq!(
         header.encode(view.size(), view.checksum_body()).as_slice(),
         &w.bytes[..256]
     );
+    Ok(())
 }
 
 // XXH3-64 checksums.
@@ -84,15 +88,16 @@ fn hello_round_trips(w: &mut Steps) {
 #[when(
     "a header's checksum is computed by this crate and by the xxHash reference implementation over the same bytes"
 )]
-fn checksum_both_ways(w: &mut Steps) {
+fn checksum_both_ways(w: &mut Steps) -> TestResult {
     // The reference's value is the one generate_frames.c stored at offset 0, computed by xxhash.h v0.8.3.
     w.checksums = GOLDEN
         .iter()
-        .map(|golden| {
-            let bytes = golden.bytes();
-            (xxh3_64(&bytes[8..256]), golden.checksum)
+        .map(|golden| -> TestResult<(u64, u64)> {
+            let bytes = golden.bytes()?;
+            Ok((xxh3_64(&bytes[8..256]), golden.checksum))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then("both give the same 64-bit value")]
@@ -106,15 +111,16 @@ fn same_checksum(w: &mut Steps) {
 // Chunked body checksums.
 
 #[when("one byte of chunk 3 of a 20 KiB body is flipped")]
-fn flip_chunk_three(w: &mut Steps) {
+fn flip_chunk_three(w: &mut Steps) -> TestResult {
     // READ's body is 20,480 bytes: 20,432 of chunks and a 48-byte table. Chunk 3 is body bytes 12,032 to 16,128.
-    let mut bytes = READ.bytes();
+    let mut bytes = READ.bytes()?;
     assert_eq!(bytes.len() - 256, 20 * 1_024);
     bytes[256 + 14_000] ^= 0x01;
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
+    Ok(())
 }
 
 #[then("the frame is refused with an error naming chunk 3 and its byte range")]
@@ -132,8 +138,8 @@ fn chunk_three_named(w: &mut Steps) {
 }
 
 #[when("chunks 1 and 2 of a body are swapped")]
-fn swap_chunks(w: &mut Steps) {
-    let mut bytes = READ.bytes();
+fn swap_chunks(w: &mut Steps) -> TestResult {
+    let mut bytes = READ.bytes()?;
     let (one, two) = (256 + 3_840..256 + 7_936, 256 + 7_936..256 + 12_032);
     let chunk_one = bytes[one.clone()].to_vec();
     let chunk_two = bytes[two.clone()].to_vec();
@@ -143,6 +149,7 @@ fn swap_chunks(w: &mut Steps) {
         .err()
         .into_iter()
         .collect();
+    Ok(())
 }
 
 #[then("the frame is refused naming chunk 1")]
@@ -158,29 +165,33 @@ fn chunk_one_named(w: &mut Steps) {
 }
 
 #[when("a frame with a 100-byte body is built")]
-fn build_small(w: &mut Steps) {
+fn build_small(w: &mut Steps) -> TestResult {
     let header = Header::new(CLUSTER, Command::Hello)
         .with_sequence(1)
         .with_release(0x0005_0000)
         .with_command_header(HELLO.command_header());
-    w.bytes = header.encode_frame(&HELLO.data()).expect("a small frame");
+    w.bytes = header
+        .encode_frame(&HELLO.data()?)
+        .context("a small frame")?;
+    Ok(())
 }
 
 #[then("its body is 100 bytes, and `checksum_body` is the leaf of that one chunk")]
-fn small_has_no_table(w: &mut Steps) {
+fn small_has_no_table(w: &mut Steps) -> TestResult {
     assert_eq!(w.bytes.len(), 356);
-    assert_eq!(w.bytes, HELLO.bytes(), "the reference generator's frame");
-    let view = HeaderView::new(&w.bytes).unwrap();
+    assert_eq!(w.bytes, HELLO.bytes()?, "the reference generator's frame");
+    let view = HeaderView::new(&w.bytes)?;
     // The leaf of chunk 0: XXH3-64 of the body with seed 0, by the reference implementation.
     assert_eq!(view.checksum_body(), 0x93CD_9543_2B7D_483F);
     assert_eq!(view.checksum_body(), xxh3_64_with_seed(&w.bytes[256..], 0));
+    Ok(())
 }
 
 #[when(
     "a frame arrives whose body is 3,841 bytes, one byte past the first chunk with no room for a table"
 )]
-fn arrives_3841(w: &mut Steps) {
-    let mut bytes = HELLO.bytes()[..256].to_vec();
+fn arrives_3841(w: &mut Steps) -> TestResult {
+    let mut bytes = HELLO.bytes()?[..256].to_vec();
     bytes.extend_from_slice(&[0x3C; 3_841]);
     put(&mut bytes, 40, 256 + 3_841, 4);
     reseal(&mut bytes);
@@ -188,6 +199,7 @@ fn arrives_3841(w: &mut Steps) {
         .err()
         .into_iter()
         .collect();
+    Ok(())
 }
 
 #[then("it is refused with an error naming the body's length")]
@@ -202,14 +214,15 @@ fn body_length_named(w: &mut Steps) {
 // Frames are validated before use and never panic.
 
 #[when("a frame whose `cluster` is not the server's arrives")]
-fn other_cluster(w: &mut Steps) {
-    let mut bytes = CREDIT.bytes();
+fn other_cluster(w: &mut Steps) -> TestResult {
+    let mut bytes = CREDIT.bytes()?;
     put(&mut bytes, 32, 0xFEDC_BA98_7654_3210, 8);
     reseal(&mut bytes);
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
+    Ok(())
 }
 
 #[then("the server answers with an error naming the cluster and closes the connection")]
@@ -226,26 +239,24 @@ fn cluster_named(w: &mut Steps) {
 }
 
 #[when("a frame with a valid checksum names an unknown command")]
-fn unknown_command(w: &mut Steps) {
-    let mut bytes = CREDIT.bytes();
+fn unknown_command(w: &mut Steps) -> TestResult {
+    let mut bytes = CREDIT.bytes()?;
     put(&mut bytes, 54, 20, 2);
     reseal(&mut bytes);
-    assert_eq!(
-        HeaderView::new(&bytes).unwrap().checksum(),
-        xxh3_64(&bytes[8..256])
-    );
+    assert_eq!(HeaderView::new(&bytes)?.checksum(), xxh3_64(&bytes[8..256]));
     w.refusals = FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
         .err()
         .into_iter()
         .collect();
     // Another connection's frame, validated after the refusal.
-    w.frames = vec![READ.bytes()];
+    w.frames = vec![READ.bytes()?];
+    Ok(())
 }
 
 #[then(
     "the connection is closed with an error naming the command, and the server keeps serving other connections"
 )]
-fn command_named(w: &mut Steps) {
+fn command_named(w: &mut Steps) -> TestResult {
     assert_eq!(
         w.refusals,
         vec![ProtocolError(ProtocolErrorEnum::UnknownCommand {
@@ -253,15 +264,16 @@ fn command_named(w: &mut Steps) {
         })]
     );
     assert_eq!(w.refusals[0].to_string(), "unknown command 20");
-    let other =
-        FrameView::validate(&w.frames[0], SERVER, MAX_FRAME_SIZE).expect("another frame is served");
+    let other = FrameView::validate(&w.frames[0], SERVER, MAX_FRAME_SIZE)
+        .context("another frame is served")?;
     assert_eq!(other.command(), Command::Read);
+    Ok(())
 }
 
 // Commands keep their numbers.
 
 #[when("a frame carries a retired command's number")]
-fn retired_number(w: &mut Steps) {
+fn retired_number(w: &mut Steps) -> TestResult {
     // No command is retired yet: RETIRED_COMMANDS is empty, and retiring one removes its variant, so a retired
     // number is a number outside the registry. Every such number is sent here, the retired ones among them.
     let numbers: Vec<u16> = RETIRED_COMMANDS
@@ -269,7 +281,7 @@ fn retired_number(w: &mut Steps) {
         .copied()
         .chain((0..=u16::MAX).filter(|n| !(1..=19).contains(n)))
         .collect();
-    let golden = CREDIT.bytes();
+    let golden = CREDIT.bytes()?;
     w.refusals = numbers
         .iter()
         .map(|&number| {
@@ -277,10 +289,12 @@ fn retired_number(w: &mut Steps) {
             put(&mut bytes, 54, number.into(), 2);
             reseal(&mut bytes);
             FrameView::validate(&bytes, SERVER, MAX_FRAME_SIZE)
-                .expect_err("an unregistered number is refused")
+                .err()
+                .context("an unregistered number is refused")
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     w.checksums = numbers.iter().map(|&n| (n.into(), 0)).collect();
+    Ok(())
 }
 
 #[then("it is refused as an unknown command")]
@@ -296,10 +310,11 @@ fn refused_unknown(w: &mut Steps) {
     }
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

@@ -34,6 +34,7 @@ impl SimContext {
         }
     }
 
+    /// The seed of the run.
     pub fn seed(&self) -> Seed {
         self.seed
     }
@@ -47,14 +48,17 @@ impl SimContext {
         self.step += 1;
     }
 
+    /// The simulated store.
     pub fn store(&self) -> &SimStore {
         &self.store
     }
 
+    /// The stepped executor running the run's tasks.
     pub fn executor(&self) -> &SteppedExecutor {
         &self.executor
     }
 
+    /// The store's simulated clock.
     pub fn clock(&self) -> &SimClock {
         self.store.clock()
     }

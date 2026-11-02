@@ -6,9 +6,10 @@
 //! Expected values are Go 1.27's `fmt.Sprint` of the value `json.Decoder.Decode` gives with `UseNumber`.
 
 use ultragraphdb_common_utils::go_json;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn go_v_is_fmts_v_of_the_decoded_value() {
+fn go_v_is_fmts_v_of_the_decoded_value() -> TestResult {
     for (input, want) in [
         ("null", "<nil>"),
         ("true", "true"),
@@ -23,9 +24,10 @@ fn go_v_is_fmts_v_of_the_decoded_value() {
         ("{}", "map[]"),
     ] {
         assert_eq!(
-            go_json::unmarshal(input.as_bytes()).unwrap().go_v(),
+            go_json::unmarshal(input.as_bytes())?.go_v(),
             want,
             "{input}"
         );
     }
+    Ok(())
 }

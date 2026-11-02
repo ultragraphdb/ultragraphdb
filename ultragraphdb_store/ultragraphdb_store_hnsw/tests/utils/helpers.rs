@@ -23,7 +23,7 @@ use std::collections::BTreeMap;
 use oxrdf::{Literal, NamedNode};
 use ultragraphdb_core_codec::{Posting, PostingType};
 use ultragraphdb_core_keys::DEFAULT_GRAPH;
-use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, format_vector};
+use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, format_vector};
 use ultragraphdb_core_tok::{VEC_DEAD, VEC_ENTRY, VEC_KEYWORD, get_index_factory};
 use ultragraphdb_store_hnsw::{
     HnswError, HnswFloat, PersistentHnsw, QueryCache, TxnCache, VectorKeys, ViTxn, add_dead_node,
@@ -31,6 +31,7 @@ use ultragraphdb_store_hnsw::{
 };
 use ultragraphdb_store_posting::{CachedList, DEL, Lists, ListsConfig, PostingError, Request, SET};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimRng, SimStore, Stream};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, LocalCache, Metric, Options, Txn, VectorIndexOptions, accept_all,
 };
@@ -97,16 +98,19 @@ pub fn translated(dgraph_key: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// The encoding of the `ugdb:float32vector` literal holding `v`, what a node's forward list holds.
-pub fn vector_encoding(v: &[f32]) -> Vec<u8> {
+pub fn vector_encoding(v: &[f32]) -> TestResult<Vec<u8>> {
     let literal = Literal::new_typed_literal(
         format_vector(v.iter().copied()),
         NamedNode::new_unchecked(FLOAT32_VECTOR),
     );
-    EncodedTerm::literal::<TermError>(literal.as_ref(), |_| unreachable!("a known datatype"))
-        .expect("a canonical vector")
-        .into_term()
-        .as_bytes()
-        .to_vec()
+    // A vector's datatype is built in, so the encoding never asks for a datatype's UID.
+    Ok(EncodedTerm::literal::<TestError>(literal.as_ref(), |_| {
+        Err(TestError::new("a vector literal's datatype needs no UID"))
+    })
+    .context("a canonical vector")?
+    .into_term()
+    .as_bytes()
+    .to_vec())
 }
 
 /// The posting of the vector `encoding` in a forward list, with `op`.
@@ -120,15 +124,18 @@ fn vector_posting(encoding: Vec<u8>, op: u32) -> Posting {
 
 /// Options parsed as the hnsw factory parses a schema's: `exponent`, `maxLevels`, `efConstruction`, `efSearch` and
 /// `metric`.
-pub fn opts(pairs: &[(&str, &str)]) -> Options {
+pub fn opts(pairs: &[(&str, &str)]) -> TestResult<Options> {
     let allowed = get_index_factory("hnsw")
-        .expect("the hnsw factory")
+        .context("the hnsw factory")?
         .allowed_options();
     let mut o = Options::new();
     for (k, v) in pairs {
-        o.set_opt(*k, allowed.get_parsed_option(k, v).expect("a valid option"));
+        let _options: &mut Options = o.set_opt(
+            *k,
+            allowed.get_parsed_option(k, v).context("a valid option")?,
+        );
     }
-    o
+    Ok(o)
 }
 
 /// Go's `floatArrayAsBytes`: float64s, little-endian.
@@ -160,13 +167,13 @@ pub fn draws(values: Vec<f64>) -> impl FnMut() -> f64 {
     move || it.next().unwrap_or(0.0)
 }
 
-/// Sets `uid`'s vector to `v` in `request`, as a write of a `ugdb:float32vector` literal does: the vector it held
-/// replaced.
+/// Sets `uid`'s vector to `encoding`, a vector's [`vector_encoding`], in `request`, as a write of a
+/// `ugdb:float32vector` literal does: the vector it held replaced.
 pub fn set_vector<S, C>(
     request: &mut Request<'_, S, C>,
     pred: &str,
     uid: u64,
-    v: &[f32],
+    encoding: Vec<u8>,
 ) -> Result<(), PostingError>
 where
     S: Store,
@@ -178,7 +185,7 @@ where
     for held in held_values(list, read_ts)? {
         list.add_posting(vector_posting(held, DEL), false);
     }
-    list.add_posting(vector_posting(vector_encoding(v), SET), false);
+    list.add_posting(vector_posting(encoding, SET), false);
     Ok(())
 }
 
@@ -234,21 +241,21 @@ pub fn insert<S>(
     uid: u64,
     vec: &[f32],
     draw: &mut impl FnMut() -> f64,
-) -> Result<Vec<KeyValue>, HnswError>
+) -> TestResult<Vec<KeyValue>>
 where
     S: Store,
 {
     let read_ts = lists.applied_ts();
     let mut batch = lists.batch();
     let mut request = batch.request(read_ts);
-    set_vector(&mut request, pred, uid, vec)?;
+    set_vector(&mut request, pred, uid, vector_encoding(vec)?)?;
     let edges = {
         let txn = ViTxn::new(&mut request);
         let index = PersistentHnsw::<f32>::new(vkeys(pred), o, 32)?;
         index.insert(&TxnCache::new(&txn, read_ts), uid, vec, draw)?
     };
     batch.push(request);
-    lists.commit(batch)?;
+    let _timestamps: Vec<u64> = lists.commit(batch)?;
     Ok(edges)
 }
 
@@ -266,7 +273,7 @@ where
     let mut request = batch.request(read_ts);
     delete_vector(&mut request, pred, uid)?;
     batch.push(request);
-    lists.commit(batch)?;
+    let _timestamps: Vec<u64> = lists.commit(batch)?;
     Ok(())
 }
 
@@ -298,7 +305,7 @@ pub fn index_value<S: Store>(
     lists: &Lists<S, SimListCache<CachedList>>,
     key: &[u8],
     read_ts: u64,
-) -> Option<Vec<u8>> {
+) -> TestResult<Option<Vec<u8>>> {
     let mut request = lists.request(read_ts);
     let txn = ViTxn::new(&mut request);
     match Txn::get(&txn, key) {
@@ -306,7 +313,7 @@ pub fn index_value<S: Store>(
         Err(e) if e.is_absence() => Ok(None),
         Err(e) => Err(e.to_string()),
     }
-    .expect("the read finds a value or nothing")
+    .context("the read finds a value or nothing")
 }
 
 // The doubles of Dgraph's tests.
@@ -329,7 +336,7 @@ impl TsDbs {
     /// Sets `key` to `value` at every timestamp.
     pub fn set_all(&self, key: &[u8], value: &[u8]) {
         self.dbs.borrow_mut().iter_mut().for_each(|db| {
-            db.insert(key.to_vec(), value.to_vec());
+            let _previous: Option<Vec<u8>> = db.insert(key.to_vec(), value.to_vec());
         });
     }
 
@@ -343,7 +350,7 @@ impl TsDbs {
         self.dbs.borrow_mut()[from as usize..]
             .iter_mut()
             .for_each(|db| {
-                db.insert(key.to_vec(), value.to_vec());
+                let _previous: Option<Vec<u8>> = db.insert(key.to_vec(), value.to_vec());
             });
     }
 
@@ -499,6 +506,16 @@ pub struct MapTxn {
 }
 
 impl MapTxn {
+    /// Writes `value` at `key`, replacing what it held.
+    pub fn put(&self, key: Vec<u8>, value: Vec<u8>) {
+        let _replaced: Option<Vec<u8>> = self.db.borrow_mut().insert(key, value);
+    }
+
+    /// Removes `key` and what it held.
+    pub fn remove(&self, key: &[u8]) {
+        let _removed: Option<Vec<u8>> = self.db.borrow_mut().remove(key);
+    }
+
     fn read(&self, key: &[u8]) -> Result<Vec<u8>, HnswError> {
         match self.db.borrow().get(key) {
             Some(v) if !v.is_empty() => Ok(v.clone()),
@@ -552,9 +569,7 @@ impl Txn for MapTxn {
     }
 
     fn add_mutation_with_lock_held(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
-        self.db
-            .borrow_mut()
-            .insert(key.to_vec(), t.value().to_vec());
+        self.put(key.to_vec(), t.value().to_vec());
         Ok(())
     }
 

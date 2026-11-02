@@ -29,6 +29,7 @@ ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_tok = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
+ultragraphdb_error_invariant = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_hnsw = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }

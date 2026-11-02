@@ -25,6 +25,7 @@ impl VersionlessEntry {
         Self { key, value: None }
     }
 
+    /// The key written or removed.
     pub fn key(&self) -> &[u8] {
         &self.key
     }
@@ -34,6 +35,7 @@ impl VersionlessEntry {
         self.value.as_deref()
     }
 
+    /// Whether the write removes the key.
     pub fn is_removal(&self) -> bool {
         self.value.is_none()
     }

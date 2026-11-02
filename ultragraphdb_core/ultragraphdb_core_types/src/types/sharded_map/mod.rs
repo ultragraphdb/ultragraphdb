@@ -42,7 +42,7 @@ impl ShardedMap {
                     Some(m) => ag(m, v),
                     None => v.clone(),
                 };
-                mine.insert(*k, merged);
+                let _replaced: Option<Val> = mine.insert(*k, merged);
             }
         }
     }
@@ -59,7 +59,8 @@ impl ShardedMap {
 
     /// Dgraph's `Set`.
     pub fn set(&mut self, key: u64, value: Val) {
-        self.shards[(key % NUM_SHARDS as u64) as usize].insert(key, value);
+        let _replaced: Option<Val> =
+            self.shards[(key % NUM_SHARDS as u64) as usize].insert(key, value);
     }
 
     /// Dgraph's `Get`.

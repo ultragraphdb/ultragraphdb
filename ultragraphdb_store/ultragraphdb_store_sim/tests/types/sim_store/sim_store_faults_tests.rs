@@ -11,6 +11,7 @@ use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{
     Corruption, DropStage, Fault, FaultConfig, OpRecord, Seed, SimClock, SimStore,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 fn store(seed: u64, faults: FaultConfig) -> SimStore {
@@ -25,9 +26,11 @@ fn batch(key: &[u8], version: u64) -> WriteBatch {
 }
 
 #[test]
-fn test_a_crash_keeps_every_batch_handed_to_the_system() {
+fn test_a_crash_keeps_every_batch_handed_to_the_system() -> TestResult {
     let s = store(1, FaultConfig::none());
-    (1..=5).for_each(|v| s.apply(batch(b"k", v), PersistMode::Buffer).unwrap());
+    for v in 1..=5 {
+        s.apply(batch(b"k", v), PersistMode::Buffer)?;
+    }
     s.crash();
     assert!(s.needs_recovery());
     assert_eq!(
@@ -42,19 +45,23 @@ fn test_a_crash_keeps_every_batch_handed_to_the_system() {
     s.recover();
     assert_eq!(s.applied_ts(), 5);
     assert_eq!(s.contents().versions(b"k").len(), 5);
+    Ok(())
 }
 
 #[test]
-fn test_a_crash_during_a_batch_keeps_it_whole_or_not_at_all() {
+fn test_a_crash_during_a_batch_keeps_it_whole_or_not_at_all() -> TestResult {
     let outcomes: BTreeSet<usize> = (0..16)
-        .map(|seed| {
+        .map(|seed| -> TestResult<_> {
             let s = store(seed, FaultConfig::none());
-            s.apply(batch(b"a", 1), PersistMode::Buffer).unwrap();
+            s.apply(batch(b"a", 1), PersistMode::Buffer)?;
             s.inject(Fault::CrashDuringNextBatch);
             let mut two = batch(b"b", 2);
             two.push(Entry::put(b"c".to_vec(), 2, 0x04, vec![]));
             assert_eq!(
-                s.apply(two, PersistMode::Buffer).unwrap_err().to_string(),
+                s.apply(two, PersistMode::Buffer)
+                    .err()
+                    .context("an error")?
+                    .to_string(),
                 "Write to the store failed: simulated process crash while the batch was written"
             );
             assert!(s.needs_recovery());
@@ -66,20 +73,25 @@ fn test_a_crash_during_a_batch_keeps_it_whole_or_not_at_all() {
                 .count();
             assert!(held == 0 || held == 2);
             assert_eq!(s.contents().versions(b"a").len(), 1);
-            held
+            Ok(held)
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert_eq!(outcomes.len(), 2);
+    Ok(())
 }
 
 #[test]
-fn test_a_power_loss_keeps_the_synced_batches_and_a_prefix_of_the_rest() {
+fn test_a_power_loss_keeps_the_synced_batches_and_a_prefix_of_the_rest() -> TestResult {
     let survivors: BTreeSet<u64> = (0..24)
-        .map(|seed| {
+        .map(|seed| -> TestResult<_> {
             let s = store(seed, FaultConfig::none());
-            (1..=3).for_each(|v| s.apply(batch(b"k", v), PersistMode::Buffer).unwrap());
-            s.sync().unwrap();
-            (4..=8).for_each(|v| s.apply(batch(b"k", v), PersistMode::Buffer).unwrap());
+            for v in 1..=3 {
+                s.apply(batch(b"k", v), PersistMode::Buffer)?;
+            }
+            s.sync()?;
+            for v in 4..=8 {
+                s.apply(batch(b"k", v), PersistMode::Buffer)?;
+            }
             s.power_loss();
             s.recover();
             let versions: Vec<u64> = s
@@ -96,16 +108,19 @@ fn test_a_power_loss_keeps_the_synced_batches_and_a_prefix_of_the_rest() {
             );
             assert!(kept >= 3);
             assert_eq!(s.applied_ts(), kept);
-            kept
+            Ok(kept)
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert!(survivors.len() >= 4, "{survivors:?}");
+    Ok(())
 }
 
 #[test]
-fn test_a_power_loss_after_recovery_keeps_what_survived_the_first() {
+fn test_a_power_loss_after_recovery_keeps_what_survived_the_first() -> TestResult {
     let s = store(3, FaultConfig::none());
-    (1..=4).for_each(|v| s.apply(batch(b"k", v), PersistMode::Buffer).unwrap());
+    for v in 1..=4 {
+        s.apply(batch(b"k", v), PersistMode::Buffer)?;
+    }
     s.power_loss();
     s.recover();
     let kept = s.contents().versions(b"k").len();
@@ -116,12 +131,13 @@ fn test_a_power_loss_after_recovery_keeps_what_survived_the_first() {
         kept,
         "what survived a power loss was on the disk"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_interrupted_at_its_start_did_not_happen() {
+fn test_a_drop_interrupted_at_its_start_did_not_happen() -> TestResult {
     let s = store(1, FaultConfig::none());
-    s.apply(batch(b"\x00a", 1), PersistMode::Sync).unwrap();
+    s.apply(batch(b"\x00a", 1), PersistMode::Sync)?;
     s.inject(Fault::CrashDuringNextDrop(DropStage::Start));
     assert_eq!(
         s.drop_prefixes(2, &[b"\x00".to_vec()], Vec::new()),
@@ -131,10 +147,11 @@ fn test_a_drop_interrupted_at_its_start_did_not_happen() {
     );
     s.recover();
     assert_eq!(s.contents().versions(b"\x00a").len(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() {
+fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() -> TestResult {
     // Whether the drop happened after recovery, over 16 seeds, by stage, for a crash and for a power loss: before
     // its record it did not; with its record handed to the system it survives a crash and perhaps a power loss;
     // once its record is synced recovery finishes it. 130 keys take three removal batches.
@@ -148,13 +165,13 @@ fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() {
     for (stage, after_crash, after_power_loss) in cases {
         for (power_loss, expected) in [(false, after_crash), (true, after_power_loss)] {
             let outcomes: BTreeSet<bool> = (0..16)
-                .map(|seed| {
+                .map(|seed| -> TestResult<_> {
                     let s = store(seed, FaultConfig::none());
                     let mut data = WriteBatch::new();
                     (0..130u8)
                         .for_each(|i| data.push(Entry::put(vec![0x00, b'a', i], 1, 0x04, vec![])));
                     data.push(Entry::put(b"\x01kept".to_vec(), 1, 0x04, vec![]));
-                    s.apply(data, PersistMode::Sync).unwrap();
+                    s.apply(data, PersistMode::Sync)?;
                     s.inject(if power_loss {
                         Fault::PowerLossDuringNextDrop(stage)
                     } else {
@@ -189,9 +206,9 @@ fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() {
                         "{stage:?}: {} keys",
                         keys.len()
                     );
-                    dropped
+                    Ok(dropped)
                 })
-                .collect();
+                .collect::<TestResult<_>>()?;
             assert_eq!(
                 outcomes,
                 expected.iter().copied().collect(),
@@ -199,12 +216,13 @@ fn test_a_drop_stopped_at_each_stage_is_finished_or_undone_whole() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_whose_record_was_written_finishes_after_a_crash() {
+fn test_a_drop_whose_record_was_written_finishes_after_a_crash() -> TestResult {
     let s = store(1, FaultConfig::none());
-    s.apply(batch(b"\x00a", 1), PersistMode::Sync).unwrap();
+    s.apply(batch(b"\x00a", 1), PersistMode::Sync)?;
     s.inject(Fault::CrashDuringNextDrop(DropStage::RecordWritten));
     assert_eq!(
         s.drop_prefixes(
@@ -220,14 +238,16 @@ fn test_a_drop_whose_record_was_written_finishes_after_a_crash() {
     let contents = s.contents();
     assert!(contents.versions(b"\x00a").is_empty());
     assert_eq!(contents.versions(b"\x00b").len(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_drop_whose_record_was_not_synced_survives_a_power_loss_whole_or_not_at_all() {
+fn test_a_drop_whose_record_was_not_synced_survives_a_power_loss_whole_or_not_at_all() -> TestResult
+{
     let outcomes: BTreeSet<bool> = (0..16)
-        .map(|seed| {
+        .map(|seed| -> TestResult<_> {
             let s = store(seed, FaultConfig::none());
-            s.apply(batch(b"\x00a", 1), PersistMode::Sync).unwrap();
+            s.apply(batch(b"\x00a", 1), PersistMode::Sync)?;
             s.inject(Fault::PowerLossDuringNextDrop(DropStage::RecordWritten));
             let entry = Entry::put(b"\x00b".to_vec(), 1, 1, vec![]);
             assert_eq!(
@@ -240,18 +260,19 @@ fn test_a_drop_whose_record_was_not_synced_survives_a_power_loss_whole_or_not_at
             let contents = s.contents();
             let dropped = contents.versions(b"\x00a").is_empty();
             assert_eq!(contents.versions(b"\x00b").len(), usize::from(dropped));
-            dropped
+            Ok(dropped)
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert_eq!(outcomes.len(), 2);
+    Ok(())
 }
 
 #[test]
-fn test_a_read_fails_when_forced() {
+fn test_a_read_fails_when_forced() -> TestResult {
     let s = store(1, FaultConfig::none());
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     s.inject(Fault::FailNextRead);
-    let snapshot = s.snapshot(1).unwrap();
+    let snapshot = s.snapshot(1)?;
     assert_eq!(
         snapshot.get(b"k"),
         Err(StoreError::ReadFailed(
@@ -259,26 +280,22 @@ fn test_a_read_fails_when_forced() {
             "simulated read failure".into()
         ))
     );
-    assert!(
-        snapshot.get(b"k").unwrap().is_some(),
-        "only the next read fails"
-    );
+    assert!(snapshot.get(b"k")?.is_some(), "only the next read fails");
+    Ok(())
 }
 
 #[test]
-fn test_a_scan_fails_partway() {
+fn test_a_scan_fails_partway() -> TestResult {
     let s = store(1, FaultConfig::none());
-    (1..=5u8).for_each(|i| s.apply(batch(&[b'p', i], 1), PersistMode::Buffer).unwrap());
+    for i in 1..=5u8 {
+        s.apply(batch(&[b'p', i], 1), PersistMode::Buffer)?;
+    }
     s.inject(Fault::FailNextScanAfter(2));
-    let items: Vec<_> = s
-        .snapshot(1)
-        .unwrap()
-        .scan(&Scan::prefix(b"p".to_vec()))
-        .collect();
+    let items: Vec<_> = s.snapshot(1)?.scan(&Scan::prefix(b"p".to_vec())).collect();
     let keys: Vec<Vec<u8>> = items[..2]
         .iter()
-        .map(|i| i.as_ref().unwrap().key().to_vec())
-        .collect();
+        .map(|i| -> TestResult<_> { Ok(i.as_ref()?.key().to_vec()) })
+        .collect::<TestResult<_>>()?;
     assert_eq!(keys, [vec![b'p', 1], vec![b'p', 2]]);
     assert_eq!(
         items[2..],
@@ -287,20 +304,19 @@ fn test_a_scan_fails_partway() {
             "simulated read failure partway through a scan".into()
         ))]
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_scan_failing_at_its_ends_names_the_key_it_stopped_at() {
+fn test_a_scan_failing_at_its_ends_names_the_key_it_stopped_at() -> TestResult {
     // After none of the items it fails at the first key; after all of them, or more, at the start of its range.
     for (after, key) in [(0, vec![b'p', 1]), (3, b"p".to_vec()), (9, b"p".to_vec())] {
         let s = store(1, FaultConfig::none());
-        (1..=3u8).for_each(|i| s.apply(batch(&[b'p', i], 1), PersistMode::Buffer).unwrap());
+        for i in 1..=3u8 {
+            s.apply(batch(&[b'p', i], 1), PersistMode::Buffer)?;
+        }
         s.inject(Fault::FailNextScanAfter(after));
-        let items: Vec<_> = s
-            .snapshot(1)
-            .unwrap()
-            .scan(&Scan::prefix(b"p".to_vec()))
-            .collect();
+        let items: Vec<_> = s.snapshot(1)?.scan(&Scan::prefix(b"p".to_vec())).collect();
         assert_eq!(items.len(), after.min(3) + 1, "after {after}");
         assert_eq!(
             items.last(),
@@ -310,21 +326,20 @@ fn test_a_scan_failing_at_its_ends_names_the_key_it_stopped_at() {
             )))
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_scan_stopped_by_a_corrupted_version_yields_no_second_error() {
+fn test_a_scan_stopped_by_a_corrupted_version_yields_no_second_error() -> TestResult {
     // A scan yields its error and then ends: a forced failure past the corrupted version the scan already stopped
     // at adds nothing after it. One before it fails the scan there instead.
     let s = store(1, FaultConfig::none());
-    (1..=5u8).for_each(|i| s.apply(batch(&[b'p', i], 1), PersistMode::Buffer).unwrap());
+    for i in 1..=5u8 {
+        s.apply(batch(&[b'p', i], 1), PersistMode::Buffer)?;
+    }
     s.corrupt(&[b'p', 3], 1, Corruption::Truncate);
     s.inject(Fault::FailNextScanAfter(1));
-    let items: Vec<_> = s
-        .snapshot(1)
-        .unwrap()
-        .scan(&Scan::prefix(b"p".to_vec()))
-        .collect();
+    let items: Vec<_> = s.snapshot(1)?.scan(&Scan::prefix(b"p".to_vec())).collect();
     assert_eq!(items.len(), 2);
     assert_eq!(
         items[1],
@@ -334,39 +349,41 @@ fn test_a_scan_stopped_by_a_corrupted_version_yields_no_second_error() {
         ))
     );
     for after in [3, 9] {
-        let s = store(1, FaultConfig::none());
-        (1..=5u8).for_each(|i| s.apply(batch(&[b'p', i], 1), PersistMode::Buffer).unwrap());
-        s.corrupt(&[b'p', 3], 1, Corruption::Truncate);
-        s.inject(Fault::FailNextScanAfter(after));
-        let items: Vec<_> = s
-            .snapshot(1)
-            .unwrap()
+        let fresh = store(1, FaultConfig::none());
+        for i in 1..=5u8 {
+            fresh.apply(batch(&[b'p', i], 1), PersistMode::Buffer)?;
+        }
+        fresh.corrupt(&[b'p', 3], 1, Corruption::Truncate);
+        fresh.inject(Fault::FailNextScanAfter(after));
+        let fresh_items: Vec<_> = fresh
+            .snapshot(1)?
             .scan(&Scan::prefix(b"p".to_vec()))
             .collect();
         assert_eq!(
-            items.iter().filter(|i| i.is_err()).count(),
+            fresh_items.iter().filter(|i| i.is_err()).count(),
             1,
-            "after {after}: {items:?}"
+            "after {after}: {fresh_items:?}"
         );
-        assert_eq!(items.len(), 3, "after {after}");
+        assert_eq!(fresh_items.len(), 3, "after {after}");
         assert!(matches!(
-            items.last(),
+            fresh_items.last(),
             Some(Err(StoreError(StoreErrorEnum::Corrupted { key, .. }))) if *key == [b'p', 3]
         ));
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_corrupted_value_reaches_the_decoder_or_is_refused() {
+fn test_a_corrupted_value_reaches_the_decoder_or_is_refused() -> TestResult {
     let s = store(1, FaultConfig::none());
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     s.corrupt(b"k", 1, Corruption::FlipValueByte);
-    let item = s.get_at(b"k", 1).unwrap().expect("the bytes are returned");
+    let item = s.get_at(b"k", 1)?.context("the bytes are returned")?;
     // The middle byte of the five past the two-byte prefix, 'l' (0x6c), inverted; the decoder above must refuse it.
     assert_eq!(item.value(), b"va\x93ue");
     assert_eq!((item.meta(), item.version()), (0x04, 1));
     s.corrupt(b"k", 1, Corruption::Truncate);
-    let refused = s.get_at(b"k", 1).unwrap_err();
+    let refused = s.get_at(b"k", 1).err().context("an error")?;
     assert_eq!(
         refused,
         StoreError::Corrupted(
@@ -378,20 +395,21 @@ fn test_a_corrupted_value_reaches_the_decoder_or_is_refused() {
         refused.to_string(),
         "Corrupted value of key 6b: value too short to hold the version prefix"
     );
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     assert_eq!(
-        s.get_at(b"k", 1).unwrap().unwrap().value(),
+        s.get_at(b"k", 1)?.context("a value")?.value(),
         b"value",
         "rewriting the version heals it"
     );
+    Ok(())
 }
 
 #[test]
-fn test_flipping_a_value_too_short_to_flip_truncates_it() {
+fn test_flipping_a_value_too_short_to_flip_truncates_it() -> TestResult {
     let s = store(1, FaultConfig::none());
     let mut b = WriteBatch::new();
     b.push(Entry::put(b"k".to_vec(), 1, 0x04, Vec::new()));
-    s.apply(b, PersistMode::Buffer).unwrap();
+    s.apply(b, PersistMode::Buffer)?;
     s.corrupt(b"k", 1, Corruption::FlipValueByte);
     assert_eq!(
         s.get_at(b"k", 1),
@@ -401,15 +419,16 @@ fn test_flipping_a_value_too_short_to_flip_truncates_it() {
         ))
     );
     assert_eq!(s.contents().versions(b"k")[0].value(), [0x04]);
+    Ok(())
 }
 
 #[test]
-fn test_a_corrupted_version_breaks_only_its_own_reads() {
+fn test_a_corrupted_version_breaks_only_its_own_reads() -> TestResult {
     let s = store(1, FaultConfig::none());
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
-    s.apply(batch(b"k", 2), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    s.apply(batch(b"k", 2), PersistMode::Buffer)?;
     s.corrupt(b"k", 1, Corruption::Truncate);
-    assert_eq!(s.get_at(b"k", 2).unwrap().unwrap().value(), b"value");
+    assert_eq!(s.get_at(b"k", 2)?.context("a value")?.value(), b"value");
     assert_eq!(
         s.get_at(b"k", 1),
         Err(StoreError::Corrupted(
@@ -417,18 +436,19 @@ fn test_a_corrupted_version_breaks_only_its_own_reads() {
             "value too short to hold the version prefix".into()
         ))
     );
+    Ok(())
 }
 
 #[test]
-fn test_drawn_faults_follow_the_configuration() {
+fn test_drawn_faults_follow_the_configuration() -> TestResult {
     let s = store(
         5,
         FaultConfig::none()
             .with_read_failure(1000)
             .with_slow(1000, 7),
     );
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
-    let snapshot = s.snapshot(1).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    let snapshot = s.snapshot(1)?;
     let failure = Err(StoreError::ReadFailed(
         b"k".to_vec(),
         "simulated read failure".into(),
@@ -454,6 +474,7 @@ fn test_drawn_faults_follow_the_configuration() {
         "slow operations advance the clock by their delays"
     );
     assert!(s.take_log().is_empty(), "the log is taken once");
+    Ok(())
 }
 
 #[test]
@@ -466,14 +487,14 @@ fn test_drawn_batch_failures_poison_the_store() {
         ))
     );
     assert!(s.needs_recovery());
-    let s = store(5, FaultConfig::none().with_crash_during_batch(1000));
+    let crashing = store(5, FaultConfig::none().with_crash_during_batch(1000));
     assert_eq!(
-        s.apply(batch(b"k", 1), PersistMode::Buffer),
+        crashing.apply(batch(b"k", 1), PersistMode::Buffer),
         Err(StoreError::WriteFailed(
             "simulated process crash while the batch was written".into()
         ))
     );
-    assert!(s.take_log().contains(&OpRecord::CrashedDuringBatch {
+    assert!(crashing.take_log().contains(&OpRecord::CrashedDuringBatch {
         batch: batch(b"k", 1)
     }));
 }
@@ -498,14 +519,14 @@ fn test_drawn_drop_faults_interrupt_drops() {
             ..
         } if entries.is_empty()
     )));
-    let s = store(5, FaultConfig::none().with_power_loss_during_drop(1000));
+    let losing_power = store(5, FaultConfig::none().with_power_loss_during_drop(1000));
     assert_eq!(
-        s.drop_all(Vec::new()),
+        losing_power.drop_all(Vec::new()),
         Err(StoreError::WriteFailed(
             "simulated power loss during a drop".into()
         ))
     );
-    assert!(s.take_log().iter().any(|r| matches!(
+    assert!(losing_power.take_log().iter().any(|r| matches!(
         r,
         OpRecord::DropInterrupted {
             ts: 0,
@@ -518,15 +539,15 @@ fn test_drawn_drop_faults_interrupt_drops() {
 }
 
 #[test]
-fn test_drawn_corruptions_and_scan_failures_are_logged() {
+fn test_drawn_corruptions_and_scan_failures_are_logged() -> TestResult {
     let s = store(
         5,
         FaultConfig::none()
             .with_corruption(1000)
             .with_scan_failure(1000),
     );
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
-    let snapshot = s.snapshot(1).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    let snapshot = s.snapshot(1)?;
     let read = snapshot.get(b"k");
     let items: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new())).collect();
     assert_eq!(items.iter().filter(|i| i.is_err()).count(), 1, "{items:?}");
@@ -555,6 +576,7 @@ fn test_drawn_corruptions_and_scan_failures_are_logged() {
         key: b"k".to_vec(),
         result: read
     }));
+    Ok(())
 }
 
 /// Batch `version` of key `key` with the versionless `writes` beside it.
@@ -569,16 +591,15 @@ fn with_versionless(key: &[u8], version: u64, writes: &[(&[u8], &[u8])]) -> Writ
 /// A failed batch or a crash during one keeps its versionless writes with its entries after recovery, or neither:
 /// before recovery a poisoned store reads without the failed batch, and a store whose process is down reads nothing.
 #[test]
-fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() {
+fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() -> TestResult {
     for fault in [Fault::FailNextBatch, Fault::CrashDuringNextBatch] {
         let outcomes: BTreeSet<bool> = (0..16)
-            .map(|seed| {
+            .map(|seed| -> TestResult<_> {
                 let s = store(seed, FaultConfig::none());
                 s.apply(
                     with_versionless(b"a", 1, &[(b"k", b"1")]),
                     PersistMode::Buffer,
-                )
-                .unwrap();
+                )?;
                 s.inject(fault);
                 let (refusal, before) = if fault == Fault::FailNextBatch {
                     (
@@ -617,24 +638,24 @@ fn test_a_batch_in_flight_keeps_its_versionless_writes_with_its_entries() {
                     expected,
                     "{fault:?} seed {seed}"
                 );
-                kept
+                Ok(kept)
             })
-            .collect();
+            .collect::<TestResult<_>>()?;
         assert_eq!(outcomes.len(), 2, "{fault:?}: both outcomes occur");
     }
+    Ok(())
 }
 
 /// A forced read failure reaches a versionless read through the store and through a snapshot, names the key, and
 /// fails that read alone.
 #[test]
-fn test_a_versionless_read_fails_when_forced() {
+fn test_a_versionless_read_fails_when_forced() -> TestResult {
     let s = store(1, FaultConfig::none());
     s.apply(
         with_versionless(b"a", 1, &[(b"k", b"1")]),
         PersistMode::Buffer,
-    )
-    .unwrap();
-    let snapshot = s.snapshot(1).unwrap();
+    )?;
+    let snapshot = s.snapshot(1)?;
     let refused = Err(StoreError::ReadFailed(
         b"k".to_vec(),
         "simulated read failure".into(),
@@ -651,13 +672,15 @@ fn test_a_versionless_read_fails_when_forced() {
         .filter(|r| matches!(r, OpRecord::ReadVersionless { result: Err(_), .. }))
         .count();
     assert_eq!(failures, 2, "each failure is logged");
+    Ok(())
 }
 
 /// A drop of everything stopped by a power loss clears the keyspace without versions exactly when its record
 /// survives: never when stopped at its start, always once its record was synced, and after a crash once its record
 /// was written.
 #[test]
-fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_record() {
+fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_record() -> TestResult
+{
     let power_loss = "simulated power loss during a drop";
     let crash = "simulated process crash during a drop";
     let cases = [
@@ -693,8 +716,7 @@ fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_r
             s.apply(
                 with_versionless(b"a", 1, &[(b"k", b"1")]),
                 PersistMode::Sync,
-            )
-            .unwrap();
+            )?;
             s.inject(fault);
             assert_eq!(
                 s.drop_all(Vec::new()),
@@ -713,4 +735,5 @@ fn test_an_interrupted_drop_of_everything_clears_the_versionless_keys_with_its_r
             );
         }
     }
+    Ok(())
 }

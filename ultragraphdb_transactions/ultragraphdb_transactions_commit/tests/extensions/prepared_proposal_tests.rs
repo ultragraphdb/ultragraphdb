@@ -3,18 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use oxrdf::Term;
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_commit::Proposal;
 
 use crate::utils::fixture::{applier, begin, insert, prepare, read, setup, write};
 
 #[test]
-fn test_a_prepared_transaction_proposes_its_read_set_and_record() {
-    let applier = applier();
-    setup(&applier, vec![insert("a", "knows", "b")]);
-    let mut txn = begin(&applier);
-    read(&mut txn, "a", "knows");
-    write(&mut txn, vec![insert("a", "knows", "c")]);
-    let prepared = prepare(txn);
+fn test_a_prepared_transaction_proposes_its_read_set_and_record() -> TestResult {
+    let applier = applier()?;
+    let _version: u64 = setup(&applier, vec![insert("a", "knows", "b")])?;
+    let mut txn = begin(&applier)?;
+    let _read: Vec<Term> = read(&mut txn, "a", "knows")?;
+    write(&mut txn, vec![insert("a", "knows", "c")])?;
+    let prepared = prepare(txn)?;
     assert!(std::ptr::eq(
         Proposal::read_set(&prepared),
         prepared.read_set()
@@ -27,4 +29,5 @@ fn test_a_prepared_transaction_proposes_its_read_set_and_record() {
     assert!(Proposal::read_set(&prepared).is_sealed());
     // The one list read whole: the objects of `<a> <knows>`.
     assert_eq!(Proposal::read_set(&prepared).lists().count(), 1);
+    Ok(())
 }

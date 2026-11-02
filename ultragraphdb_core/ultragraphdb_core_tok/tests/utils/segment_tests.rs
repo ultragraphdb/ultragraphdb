@@ -7,6 +7,7 @@ use serde::Deserialize;
 use ultragraphdb_core_tok::{SegmentType, word_segments};
 
 use crate::golden::{cases, untext};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[derive(Debug, Clone, Deserialize)]
 struct SegmentCase {
@@ -17,12 +18,12 @@ struct SegmentCase {
 }
 
 #[test]
-fn test_word_segments_golden() {
-    let cases: Vec<SegmentCase> = cases("tok_segment");
+fn test_word_segments_golden() -> TestResult {
+    let cases: Vec<SegmentCase> = cases("tok_segment")?;
     assert!(cases.len() > 1900);
     let mut failures = Vec::new();
     for c in &cases {
-        let input = untext(&c.input);
+        let input = untext(&c.input)?;
         let (segs, err) = word_segments(&input);
         let got: Vec<(String, u8)> = segs
             .iter()
@@ -33,7 +34,8 @@ fn test_word_segments_golden() {
             .iter()
             .map(|s| untext(s))
             .zip(c.types.iter().copied())
-            .collect();
+            .map(|(s, t)| Ok((s?, t)))
+            .collect::<TestResult<_>>()?;
         if got != want || err.unwrap_or("") != c.error {
             failures.push(format!("{input:?}: want {want:?}, got {got:?}"));
         }
@@ -45,6 +47,7 @@ fn test_word_segments_golden() {
         cases.len(),
         failures[..failures.len().min(10)].join("\n")
     );
+    Ok(())
 }
 
 #[test]

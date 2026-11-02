@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The unit tests of `ultragraphdb_core_tok`, mirroring `src/`: Dgraph's tokenizers and bleve's analysis, checked
+//! against golden vectors from Dgraph's Go source.
+
 #[cfg(test)]
 mod bleve;
 #[cfg(test)]

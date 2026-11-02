@@ -97,7 +97,7 @@ where
                     .map(|d| declared_prefixes(prefix.namespace(), prefix.predicate(), d))
                     .unwrap_or_default();
                 if !declared.contains(&prefix) {
-                    undeclared.insert(prefix);
+                    let _inserted: bool = undeclared.insert(prefix);
                 }
             }
             tracing::warn!(

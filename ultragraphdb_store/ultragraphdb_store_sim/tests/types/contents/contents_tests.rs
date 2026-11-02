@@ -6,6 +6,7 @@
 use std::collections::BTreeSet;
 
 use ultragraphdb_store_sim::{Contents, FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_traits_store::{Entry, PersistMode, RebuildRecord, Store, WriteBatch};
 
 #[test]
@@ -31,17 +32,16 @@ fn test_empty_contents_hold_nothing() {
 }
 
 #[test]
-fn test_contents_list_keys_in_order_with_their_rebuild_records() {
+fn test_contents_list_keys_in_order_with_their_rebuild_records() -> TestResult {
     let s = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut batch = WriteBatch::new();
     for key in [&b"b"[..], b"a", b"ab"] {
         batch.push(Entry::put(key.to_vec(), 1, 0, vec![]));
     }
-    s.apply(batch, PersistMode::Buffer).unwrap();
-    s.ban_namespace(9).unwrap();
-    s.ban_namespace(3).unwrap();
-    s.write_rebuild_record(&RebuildRecord::new(4, vec![b"\x02p".to_vec()]))
-        .unwrap();
+    s.apply(batch, PersistMode::Buffer)?;
+    s.ban_namespace(9)?;
+    s.ban_namespace(3)?;
+    s.write_rebuild_record(&RebuildRecord::new(4, vec![b"\x02p".to_vec()]))?;
     let contents = s.contents();
     assert_eq!(
         contents.keys().keys().cloned().collect::<Vec<_>>(),
@@ -52,41 +52,43 @@ fn test_contents_list_keys_in_order_with_their_rebuild_records() {
         contents.rebuild_records().iter().collect::<Vec<_>>(),
         [(&4, &vec![b"\x02p".to_vec()])]
     );
+    Ok(())
 }
 
 #[test]
-fn test_contents_compare_equal_exactly_when_the_stores_hold_the_same() {
+fn test_contents_compare_equal_exactly_when_the_stores_hold_the_same() -> TestResult {
     let stores: Vec<SimStore> = (0..2)
         .map(|_| SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new()))
         .collect();
     for s in &stores {
         let mut batch = WriteBatch::new();
         batch.push(Entry::put(b"k".to_vec(), 1, 0, b"v".to_vec()));
-        s.apply(batch, PersistMode::Buffer).unwrap();
+        s.apply(batch, PersistMode::Buffer)?;
     }
     assert_eq!(stores[0].contents(), stores[1].contents());
-    stores[1].ban_namespace(3).unwrap();
+    stores[1].ban_namespace(3)?;
     assert_ne!(stores[0].contents(), stores[1].contents());
-    stores[0].ban_namespace(3).unwrap();
+    stores[0].ban_namespace(3)?;
     assert_eq!(stores[0].contents(), stores[1].contents());
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(b"k".to_vec(), 1, 0, b"w".to_vec()));
-    stores[1].apply(batch, PersistMode::Buffer).unwrap();
+    stores[1].apply(batch, PersistMode::Buffer)?;
     assert_ne!(
         stores[0].contents(),
         stores[1].contents(),
         "the same version with another value differs"
     );
-    stores[0].apply(batch_of_w(), PersistMode::Buffer).unwrap();
+    stores[0].apply(batch_of_w(), PersistMode::Buffer)?;
     assert_eq!(stores[0].contents(), stores[1].contents());
     let mut versionless = WriteBatch::new();
     versionless.put_versionless(b"t".to_vec(), b"1".to_vec());
-    stores[1].apply(versionless, PersistMode::Buffer).unwrap();
+    stores[1].apply(versionless, PersistMode::Buffer)?;
     assert_ne!(
         stores[0].contents(),
         stores[1].contents(),
         "a key without a version differs"
     );
+    Ok(())
 }
 
 /// The batch rewriting key `k` at version 1 to `w`.

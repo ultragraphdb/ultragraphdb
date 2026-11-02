@@ -7,6 +7,7 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, DEFAULT_INITIAL_CREDIT, DEFAULT_MAX_STREAMS, DEFAULT_MAX_WRITE_SET,
     DEFAULT_TRANSACTION_MS, ErrorCode, Hello, HelloView, MAX_FRAME_SIZE, PROTOCOL_VERSION, Welcome,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 use crate::utils::golden_bodies::{RELEASE, frame_of, golden};
 
@@ -17,20 +18,30 @@ fn server(protocol: u16) -> Welcome {
         .with_mechanisms(["SCRAM-SHA-256"])
 }
 
-fn answer(min: u16, max: u16) -> Result<Welcome, ultragraphdb_protocol_wire::ErrorReply> {
-    let frame = Hello::new(min, max, 9, MAX_FRAME_SIZE as u32, "c")
-        .frame(golden("hello").header())
-        .unwrap();
-    let view = HelloView::from_frame(&frame_of(&frame)).unwrap();
-    server(3).answer(&view)
+/// The answer of a server speaking 1 to 3 to a Hello speaking `min` to `max`; the outer result fails the test when the
+/// Hello cannot be built.
+fn answer(
+    min: u16,
+    max: u16,
+) -> TestResult<Result<Welcome, ultragraphdb_protocol_wire::ErrorReply>> {
+    let frame =
+        Hello::new(min, max, 9, MAX_FRAME_SIZE as u32, "c").frame(golden("hello")?.header())?;
+    let view = HelloView::from_frame(&frame_of(&frame)?)?;
+    Ok(server(3).answer(&view))
+}
+
+/// The Welcome a server speaking 1 to 3 answers a Hello speaking `min` to `max` with.
+fn welcomed(min: u16, max: u16) -> TestResult<Welcome> {
+    answer(min, max)?
+        .map_err(|reply| TestError::new(format!("the server refused: {}", reply.message())))
 }
 
 #[test]
-fn test_welcome_builds_the_golden_frames() {
+fn test_welcome_builds_the_golden_frames() -> TestResult {
     let welcome = server(1);
     assert_eq!(
-        welcome.frame(golden("welcome").header()).unwrap(),
-        golden("welcome").bytes()
+        welcome.frame(golden("welcome")?.header())?,
+        golden("welcome")?.bytes()?
     );
     assert_eq!(welcome.protocol(), 1);
     assert_eq!(welcome.release(), RELEASE);
@@ -48,9 +59,10 @@ fn test_welcome_builds_the_golden_frames() {
     assert!(!open.authenticates());
     assert!(open.mechanisms().is_empty());
     assert_eq!(
-        open.frame(golden("welcome_no_auth").header()).unwrap(),
-        golden("welcome_no_auth").bytes()
+        open.frame(golden("welcome_no_auth")?.header())?,
+        golden("welcome_no_auth")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]
@@ -95,25 +107,30 @@ fn test_a_new_welcome_takes_the_protocols_default_limits() {
 }
 
 #[test]
-fn test_the_answer_takes_the_highest_protocol_both_speak() {
+fn test_the_answer_takes_the_highest_protocol_both_speak() -> TestResult {
     // The server speaks 1 to 3.
-    assert_eq!(answer(1, 1).unwrap().protocol(), 1);
-    assert_eq!(answer(1, 2).unwrap().protocol(), 2);
-    assert_eq!(answer(2, 3).unwrap().protocol(), 3);
-    assert_eq!(answer(1, 9).unwrap().protocol(), 3);
-    assert_eq!(answer(3, 9).unwrap().protocol(), 3);
+    assert_eq!(welcomed(1, 1)?.protocol(), 1);
+    assert_eq!(welcomed(1, 2)?.protocol(), 2);
+    assert_eq!(welcomed(2, 3)?.protocol(), 3);
+    assert_eq!(welcomed(1, 9)?.protocol(), 3);
+    assert_eq!(welcomed(3, 9)?.protocol(), 3);
     // Everything else is the server's.
-    assert_eq!(answer(1, 9).unwrap(), server(3));
-    assert_eq!(answer(1, 2).unwrap(), server(2));
+    assert_eq!(welcomed(1, 9)?, server(3));
+    assert_eq!(welcomed(1, 2)?, server(2));
+    Ok(())
 }
 
 #[test]
-fn test_a_range_above_the_server_is_refused_naming_its_highest() {
-    let refused = answer(4, 9).unwrap_err();
+fn test_a_range_above_the_server_is_refused_naming_its_highest() -> TestResult {
+    let refused = answer(4, 9)?.err().context("a refusal")?;
     assert_eq!(refused.code(), ErrorCode::ProtocolVersion);
     assert_eq!(refused.detail(), 3);
     assert!(!refused.retryable());
     assert!(refused.message().contains('3'), "{}", refused.message());
-    assert_eq!(answer(4, 4).unwrap_err().code(), ErrorCode::ProtocolVersion);
+    assert_eq!(
+        answer(4, 4)?.err().context("a refusal")?.code(),
+        ErrorCode::ProtocolVersion
+    );
     assert_eq!(PROTOCOL_VERSION, 1);
+    Ok(())
 }

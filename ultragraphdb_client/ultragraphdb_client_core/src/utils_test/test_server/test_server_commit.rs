@@ -56,13 +56,13 @@ impl TestServer {
             self.dropped = true;
             return;
         }
-        let record = self.apply(session, request, operations);
+        let applied = self.apply(session, request, operations);
         if self.drop_after_commit {
             self.drop_after_commit = false;
             self.dropped = true;
             return;
         }
-        let reply = Commit::new(session, request, record.version, record.results);
+        let reply = Commit::new(session, request, applied.version, applied.results);
         self.reply(stream, &reply, FLAG_LAST);
     }
 
@@ -91,7 +91,7 @@ impl TestServer {
                 "out of order",
             );
         }
-        let record = self.apply(session, request, 0);
+        let applied = self.apply(session, request, 0);
         if self.drop_after_commit {
             self.drop_after_commit = false;
             self.dropped = true;
@@ -99,7 +99,7 @@ impl TestServer {
         }
         self.reply(
             stream,
-            &command.with_commit_version(record.version),
+            &command.with_commit_version(applied.version),
             FLAG_LAST,
         );
     }
@@ -115,7 +115,8 @@ impl TestServer {
                 .map(|i| OperationResult::new(100 + u64::from(i), true))
                 .collect(),
         };
-        self.sessions.insert(session, record.clone());
+        let _previous: Option<SessionRecord> = self.sessions.insert(session, record.clone());
+
         record
     }
 }

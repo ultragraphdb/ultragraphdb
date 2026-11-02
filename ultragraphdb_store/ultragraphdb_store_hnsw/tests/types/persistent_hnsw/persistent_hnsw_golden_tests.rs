@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use ultragraphdb_core_tok::VEC_DEAD;
 use ultragraphdb_store_hnsw::{HnswFloat, PersistentHnsw, QueryCache, TxnCache, add_dead_node};
-use ultragraphdb_tool_bdd::{Golden, load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{Context, Golden, TestResult, load_golden, testdata_dir};
 use ultragraphdb_traits_index::{KeyValue, VectorIndexOptions, accept_all};
 
 use crate::utils::helpers::{MapTxn, draws, key, opts, translated, vec_bytes, vkeys};
@@ -41,8 +41,8 @@ pub struct GraphCase {
     pub contents: BTreeMap<String, String>,
 }
 
-pub fn graph_golden() -> Golden<GraphCase> {
-    load_golden::<GraphCase>(&testdata_dir().join("golden/hnsw_graph.json"))
+pub fn graph_golden() -> TestResult<Golden<GraphCase>> {
+    load_golden::<GraphCase>(&testdata_dir()?.join("golden/hnsw_graph.json"))
 }
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -82,13 +82,13 @@ pub fn golden_edges(edges: &[KeyValue]) -> Vec<String> {
 }
 
 /// Runs the case; whether it stopped where Go's entry point hands over (see [`hands_over`]).
-fn run<T: HnswFloat>(c: &GraphCase) -> bool {
+fn run<T: HnswFloat>(c: &GraphCase) -> TestResult<bool> {
     let pairs: Vec<(&str, &str)> = c
         .options
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let o = opts(&pairs);
+    let o = opts(&pairs)?;
     let txn = MapTxn::default();
     let mut draw = draws(c.draws.iter().map(|&b| f64::from_bits(b)).collect());
     let dead_key = key(&format!("{}{VEC_DEAD}", c.pred), 1);
@@ -99,33 +99,37 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
         match op.op.as_str() {
             "insert" => {
                 let v = vector::<T>(op);
-                txn.db
-                    .borrow_mut()
-                    .insert(key(&c.pred, op.uid), vec_bytes(&v));
-                let index = PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits).unwrap();
+                txn.put(key(&c.pred, op.uid), vec_bytes(&v));
+                let index = PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits)?;
                 let edges = index.insert(&TxnCache::new(&txn, 1), op.uid, &v, &mut draw);
                 if let Some(heir) = go_hands_over(c, op) {
-                    hands_over(c, op, heir, &edges.unwrap());
-                    return true;
+                    hands_over(c, op, heir, &edges?);
+                    return Ok(true);
                 }
                 match edges {
                     Ok(edges) => {
-                        assert_eq!(&golden_edges(&edges), op.edges.as_ref().unwrap(), "{at}");
+                        assert_eq!(
+                            &golden_edges(&edges),
+                            op.edges.as_ref().context("op.edges.as_ref()")?,
+                            "{at}"
+                        );
                     }
                     Err(e) => assert_eq!(e.to_string(), op.error, "{at}"),
                 }
             }
             "delete" => {
-                txn.db.borrow_mut().remove(&key(&c.pred, op.uid));
+                txn.remove(&key(&c.pred, op.uid));
                 let existing = txn.db.borrow().get(&dead_key).cloned();
-                let dead = add_dead_node(existing.as_deref(), op.uid).unwrap();
-                txn.db.borrow_mut().insert(dead_key.clone(), dead);
+                let dead = add_dead_node(existing.as_deref(), op.uid)?;
+                txn.put(dead_key.clone(), dead);
             }
             search => {
-                let index = search_index.get_or_insert_with(|| {
-                    PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits).unwrap()
-                });
-                run_search(index, &txn, op, search, &at);
+                if search_index.is_none() {
+                    search_index = Some(PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits)?);
+                }
+                if let Some(index) = &search_index {
+                    run_search(index, &txn, op, search, &at)?;
+                }
                 searched += 1;
             }
         }
@@ -143,13 +147,13 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
         .map(|(k, v)| {
             let key = translated(&unhex(k))
                 .ok_or_else(|| format!("{}: a Dgraph key {k}", c.name))
-                .expect("the Dgraph key translates");
-            (hex(&key), v.clone())
+                .context("the Dgraph key translates")?;
+            Ok((hex(&key), v.clone()))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert_eq!(contents, expected, "{}: the store after the run", c.name);
     assert!(searched > 50, "{}", c.name);
-    false
+    Ok(false)
 }
 
 /// Runs `search`, the case's op `op`, through `index` over `txn`, and checks it against Go's result; `at` names the op.
@@ -159,7 +163,7 @@ fn run_search<T: HnswFloat>(
     op: &GraphOp,
     search: &str,
     at: &str,
-) {
+) -> TestResult {
     let qc = QueryCache::new(txn, 1);
     let query = vector::<T>(op);
     let result = match search {
@@ -179,7 +183,7 @@ fn run_search<T: HnswFloat>(
         )),
         other => Err(format!("unknown op {other}")),
     }
-    .expect("the op is a known search");
+    .context("the op is a known search")?;
     match result {
         Ok(uids) => {
             assert!(op.error.is_empty(), "{at}: Go failed with {}", op.error);
@@ -187,6 +191,7 @@ fn run_search<T: HnswFloat>(
         }
         Err(e) => assert_eq!(e.to_string(), op.error, "{at}"),
     }
+    Ok(())
 }
 
 /// The node Go's insert makes the entry point by wiping it, when the entry point lost its vector: the insert writes
@@ -229,19 +234,20 @@ fn hands_over(c: &GraphCase, op: &GraphOp, heir: u64, edges: &[KeyValue]) {
 }
 
 #[test]
-fn test_graph_runs_equal_gos() {
-    let golden = graph_golden();
+fn test_graph_runs_equal_gos() -> TestResult {
+    let golden = graph_golden()?;
     assert_eq!(golden.cases().len(), 10);
     let mut handed_over = Vec::new();
     for c in golden.cases() {
         let stopped = if c.bits == 32 {
-            run::<f32>(c)
+            run::<f32>(c)?
         } else {
-            run::<f64>(c)
+            run::<f64>(c)?
         };
         if stopped {
             handed_over.push(c.name.as_str());
         }
     }
     assert_eq!(handed_over, vec!["dead", "dead_entry"]);
+    Ok(())
 }

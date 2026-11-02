@@ -88,9 +88,9 @@ impl Shared {
         self.commit(batch)?;
         self.sync()?;
         observe(DropStage::EntriesSynced);
-        let mut batch = self.batch(PersistMode::Buffer);
-        batch.remove(&self.meta, DROP_KEY);
-        self.commit(batch)
+        let mut record_removal = self.batch(PersistMode::Buffer);
+        record_removal.remove(&self.meta, DROP_KEY);
+        self.commit(record_removal)
     }
 
     /// Removes every stored version under `prefixes`, read at one snapshot, with lsm-tree removals, reporting the

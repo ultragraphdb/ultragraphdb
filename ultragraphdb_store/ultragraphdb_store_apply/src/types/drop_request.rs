@@ -9,9 +9,14 @@ use oxrdf::{GraphNameRef, NamedNodeRef};
 /// a predicate, a graph, a namespace's data, a namespace, or every namespace (`PROTOCOL.md` §6.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropRequest<'a> {
+    /// The predicate named, in every graph.
     Predicate(NamedNodeRef<'a>),
+    /// The graph named, every predicate in it.
     Graph(GraphNameRef<'a>),
+    /// The namespace's data, its catalog kept.
     Data,
+    /// The namespace, its catalog included.
     Namespace,
+    /// Every namespace.
     All,
 }

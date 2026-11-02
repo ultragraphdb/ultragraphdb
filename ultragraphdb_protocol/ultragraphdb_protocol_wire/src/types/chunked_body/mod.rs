@@ -69,6 +69,7 @@ impl<'a> ChunkedBody<'a> {
         self.data
     }
 
+    /// How the body is cut into chunks.
     pub fn layout(&self) -> ChunkLayout {
         self.layout
     }

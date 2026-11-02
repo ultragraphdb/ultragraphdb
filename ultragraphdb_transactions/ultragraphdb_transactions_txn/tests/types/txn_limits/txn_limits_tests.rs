@@ -72,25 +72,25 @@ fn test_each_setter_alone_leaves_the_other_settings_at_their_defaults() {
     );
     let base = TxnLimits::default();
     assert_eq!(settings(base), defaults);
-    let mut expected = defaults;
-    expected.0 = Duration::from_millis(1_500);
+    let mut read_write = defaults;
+    read_write.0 = Duration::from_millis(1_500);
     assert_eq!(
         settings(base.with_read_write(Duration::from_millis(1_500))),
-        expected
+        read_write
     );
-    let mut expected = defaults;
-    expected.1 = Duration::from_secs(3);
+    let mut read_only = defaults;
+    read_only.1 = Duration::from_secs(3);
     assert_eq!(
         settings(base.with_read_only(Duration::from_secs(3))),
-        expected
+        read_only
     );
-    let mut expected = defaults;
-    expected.2 = 4_096;
-    assert_eq!(settings(base.with_max_write_set(4_096)), expected);
-    let mut expected = defaults;
-    expected.3 = 512;
-    assert_eq!(settings(base.with_max_read_set(512)), expected);
-    let mut expected = defaults;
-    expected.4 = 2;
-    assert_eq!(settings(base.with_objects_per_list(2)), expected);
+    let mut max_write_set = defaults;
+    max_write_set.2 = 4_096;
+    assert_eq!(settings(base.with_max_write_set(4_096)), max_write_set);
+    let mut max_read_set = defaults;
+    max_read_set.3 = 512;
+    assert_eq!(settings(base.with_max_read_set(512)), max_read_set);
+    let mut objects_per_list = defaults;
+    objects_per_list.4 = 2;
+    assert_eq!(settings(base.with_objects_per_list(2)), objects_per_list);
 }

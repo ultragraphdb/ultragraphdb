@@ -9,6 +9,8 @@ use oxrdf::Literal;
 /// list of every value otherwise, ordered by their N-Triples text.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PgValue {
+    /// The one value of a single-valued predicate.
     Scalar(Literal),
+    /// Every value, ordered by their N-Triples text.
     List(Vec<Literal>),
 }

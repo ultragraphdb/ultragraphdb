@@ -7,16 +7,17 @@ use std::collections::BTreeSet;
 
 use ultragraphdb_store_quads::{LEASE_BLOCK, Leases};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_a_crash_reissues_no_uid_and_sequences_are_apart() {
+fn test_a_crash_reissues_no_uid_and_sequences_are_apart() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut handed = BTreeSet::new();
     for _ in 0..3 {
         let leases = Leases::new();
         for _ in 0..(LEASE_BLOCK + 7) {
             assert!(
-                handed.insert(leases.next_uid(&store, 0).unwrap()),
+                handed.insert(leases.next_uid(&store, 0)?),
                 "a UID is never reissued"
             );
         }
@@ -27,13 +28,10 @@ fn test_a_crash_reissues_no_uid_and_sequences_are_apart() {
     assert!(!handed.contains(&0));
     let leases = Leases::new();
     assert_eq!(
-        leases.next_statement_id(&store, 0).unwrap(),
+        leases.next_statement_id(&store, 0)?,
         1,
         "statement IDs are a sequence of their own"
     );
-    assert_eq!(
-        leases.next_uid(&store, 9).unwrap(),
-        1,
-        "each namespace has its own"
-    );
+    assert_eq!(leases.next_uid(&store, 9)?, 1, "each namespace has its own");
+    Ok(())
 }

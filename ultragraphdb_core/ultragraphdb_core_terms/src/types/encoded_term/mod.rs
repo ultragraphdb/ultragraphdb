@@ -99,7 +99,7 @@ impl EncodedTerm {
     /// of [`KnownDatatype`]'s, a vector's dimension at least 1, and exactly the length its tag gives.
     /// [`EncodedTerm::from_bytes`] holds the rules of length alone, for the store's own keys.
     pub fn check(bytes: &[u8]) -> Result<(), TermError> {
-        Self::from_bytes(bytes)?;
+        let _whole: Self = Self::from_bytes(bytes)?;
         let malformed = |reason| Err(TermError::Malformed(bytes.to_vec(), reason));
         // An inline part at `at`: its length byte, then its bytes, which the length rules proved present.
         let inline_utf8 = |at: usize| {
@@ -191,6 +191,7 @@ impl EncodedTerm {
         Self(Repr::Vector(encoding.into_boxed_slice()))
     }
 
+    /// The encoding's bytes.
     pub fn as_bytes(&self) -> &[u8] {
         match &self.0 {
             Repr::Inline { len, bytes } => &bytes[..*len as usize],
@@ -208,10 +209,12 @@ impl EncodedTerm {
         })
     }
 
+    /// Whether it encodes a literal rather than an IRI or a blank node.
     pub fn is_literal(&self) -> bool {
         self.as_bytes()[0] != tag::UID
     }
 
+    /// Whether it encodes a vector literal.
     pub fn is_vector(&self) -> bool {
         self.as_bytes()[0] == tag::VECTOR
     }

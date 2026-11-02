@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, Decision, ErrorCode, RoundBody, RoundHeader};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::types::write_set_record::write_set_record_tests::{record0, record1};
 use crate::utils::golden_bodies::golden;
@@ -17,7 +18,7 @@ pub fn golden_round() -> RoundBody {
 }
 
 #[test]
-fn test_the_golden_round_builds_the_golden_frame() {
+fn test_the_golden_round_builds_the_golden_frame() -> TestResult {
     let round = golden_round();
     assert_eq!(
         round.header(),
@@ -37,9 +38,10 @@ fn test_the_golden_round_builds_the_golden_frame() {
     assert_eq!(round.records(), &[record0().encode(), record1().encode()]);
     assert_eq!(round.command_header(), round.header().encode());
     assert_eq!(
-        round.frame(golden("round").header()).unwrap(),
-        golden("round").bytes()
+        round.frame(golden("round")?.header())?,
+        golden("round")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

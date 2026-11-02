@@ -12,6 +12,7 @@
 use super::golden::{Checker, cell, f, ids, load, same, same_point, same_rect};
 use serde::Deserialize;
 use ultragraphdb_core_types::{Cell, CellId, LatLng, MAX_LEVEL};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize)]
 pub struct CapJson {
@@ -23,13 +24,13 @@ pub struct CapJson {
     pub full: bool,
 }
 
-pub fn same_cap(c: ultragraphdb_core_types::Cap, want: &CapJson) -> bool {
-    same_point(c.center(), &want.center)
-        && same(c.chord_radius().length2(), f(&want.chord))
-        && same(c.radius().radians(), f(&want.radius))
-        && same(c.height(), f(&want.height))
+pub fn same_cap(c: ultragraphdb_core_types::Cap, want: &CapJson) -> TestResult<bool> {
+    Ok(same_point(c.center(), &want.center)?
+        && same(c.chord_radius().length2(), f(&want.chord)?)
+        && same(c.radius().radians(), f(&want.radius)?)
+        && same(c.height(), f(&want.height)?)
         && c.is_empty() == want.empty
-        && c.is_full() == want.full
+        && c.is_full() == want.full)
 }
 
 #[derive(Deserialize)]
@@ -110,28 +111,29 @@ fn hex(c: CellId) -> String {
 }
 
 #[test]
-fn cell_ids_match_go() {
-    let g: Golden = load("cellid.json");
+fn cell_ids_match_go() -> TestResult {
+    let g: Golden = load("cellid.json")?;
     let mut c = Checker::new("cellid");
     for k in &g.cells {
-        check_cell_id(&mut c, k);
-        check_cell(&mut c, k);
+        check_cell_id(&mut c, k)?;
+        check_cell(&mut c, k)?;
     }
     for k in &g.pairs {
-        check_pair(&mut c, k);
+        check_pair(&mut c, k)?;
     }
     for k in &g.tokens {
         check_token(&mut c, k);
     }
     for k in &g.unions {
-        check_union(&mut c, k);
+        check_union(&mut c, k)?;
     }
     c.finish();
+    Ok(())
 }
 
 /// A cell id's arithmetic, tokens, hierarchy and position.
-fn check_cell_id(c: &mut Checker, k: &CellCase) {
-    let id = cell(&k.id);
+fn check_cell_id(c: &mut Checker, k: &CellCase) -> TestResult {
+    let id = cell(&k.id)?;
     let t = &k.id;
     c.check(id.to_token() == k.token, || {
         format!("{t} token {} want {}", id.to_token(), k.token)
@@ -172,12 +174,12 @@ fn check_cell_id(c: &mut Checker, k: &CellCase) {
             || format!("{t} child at level"),
         );
     }
-    c.check(same_point(id.point(), &k.point), || {
+    c.check(same_point(id.point(), &k.point)?, || {
         format!("{t} point {:?} want {:?}", id.point(), k.point)
     });
     let ll = id.lat_lng();
     c.check(
-        same(ll.lat().radians(), f(&k.latlng[0])) && same(ll.lng().radians(), f(&k.latlng[1])),
+        same(ll.lat().radians(), f(&k.latlng[0])?) && same(ll.lng().radians(), f(&k.latlng[1])?),
         || format!("{t} latlng"),
     );
     if let Some(n) = &k.vertex_neighbors {
@@ -185,49 +187,52 @@ fn check_cell_id(c: &mut Checker, k: &CellCase) {
             format!("{t} vertex neighbors")
         });
     }
+    Ok(())
 }
 
 /// The geometry of the cell a cell id names.
-fn check_cell(c: &mut Checker, k: &CellCase) {
-    let id = cell(&k.id);
+fn check_cell(c: &mut Checker, k: &CellCase) -> TestResult {
+    let id = cell(&k.id)?;
     let t = &k.id;
     let cl = Cell::from_cell_id(id);
     let uv = cl.bound_uv();
     c.check(
-        same(uv.x().lo(), f(&k.bound_uv[0]))
-            && same(uv.x().hi(), f(&k.bound_uv[1]))
-            && same(uv.y().lo(), f(&k.bound_uv[2]))
-            && same(uv.y().hi(), f(&k.bound_uv[3])),
+        same(uv.x().lo(), f(&k.bound_uv[0])?)
+            && same(uv.x().hi(), f(&k.bound_uv[1])?)
+            && same(uv.y().lo(), f(&k.bound_uv[2])?)
+            && same(uv.y().hi(), f(&k.bound_uv[3])?),
         || format!("{t} bound uv"),
     );
-    c.check(same_point(cl.center(), &k.center), || {
+    c.check(same_point(cl.center(), &k.center)?, || {
         format!("{t} cell center")
     });
     for (i, v) in k.vertices.iter().enumerate() {
-        c.check(same_point(cl.vertex(i).unwrap(), v), || {
-            format!("{t} vertex {i}")
-        });
+        c.check(
+            same_point(cl.vertex(i).context("cl.vertex(i)")?, v)?,
+            || format!("{t} vertex {i}"),
+        );
     }
-    c.check(same_rect(cl.rect_bound(), &k.rect_bound), || {
+    c.check(same_rect(cl.rect_bound(), &k.rect_bound)?, || {
         format!(
             "{t} rect bound {:?} want {:?}",
             cl.rect_bound(),
             k.rect_bound
         )
     });
-    c.check(same_cap(cl.cap_bound(), &k.cap_bound), || {
+    c.check(same_cap(cl.cap_bound(), &k.cap_bound)?, || {
         format!("{t} cap bound {:?}", cl.cap_bound())
     });
     for (p, want) in k.probes.iter().zip(&k.probe_in) {
-        let got = cl.contains_point(super::golden::pt(p));
+        let got = cl.contains_point(super::golden::pt(p)?);
         c.check(got == *want, || {
             format!("{t} contains_point({p:?}) = {got}")
         });
     }
+    Ok(())
 }
 
-fn check_pair(c: &mut Checker, k: &PairCase) {
-    let (a, b) = (cell(&k.a), cell(&k.b));
+fn check_pair(c: &mut Checker, k: &PairCase) -> TestResult {
+    let (a, b) = (cell(&k.a)?, cell(&k.b)?);
     c.check(
         a.contains(b) == k.contains && a.intersects(b) == k.intersects,
         || format!("{} {} contains/intersects", k.a, k.b),
@@ -241,6 +246,7 @@ fn check_pair(c: &mut Checker, k: &PairCase) {
     c.check(common == want, || {
         format!("{} {} common ancestor {common:?} want {want:?}", k.a, k.b)
     });
+    Ok(())
 }
 
 fn check_token(c: &mut Checker, k: &TokenCase) {
@@ -250,15 +256,17 @@ fn check_token(c: &mut Checker, k: &TokenCase) {
     });
 }
 
-fn check_union(c: &mut Checker, k: &UnionCase) {
-    let mut u = ultragraphdb_core_types::CellUnion::new(k.input.iter().map(|s| cell(s)).collect());
+fn check_union(c: &mut Checker, k: &UnionCase) -> TestResult {
+    let mut u = ultragraphdb_core_types::CellUnion::new(
+        k.input.iter().map(|s| cell(s)).collect::<TestResult<_>>()?,
+    );
     u.normalize();
     c.check(ids(u.as_slice()) == k.normalized, || {
         format!("normalize {:?}", k.input)
     });
     let mut d = u.clone();
     d.denormalize(k.min_level, k.level_mod);
-    let tok: Vec<String> = d.iter().map(|c| c.to_token()).collect();
+    let tok: Vec<String> = d.iter().map(|id| id.to_token()).collect();
     c.check(
         d.len() == k.denormalized_count && super::golden::tokens_hash(&tok) == k.denormalized_hash,
         || {
@@ -272,16 +280,16 @@ fn check_union(c: &mut Checker, k: &UnionCase) {
         c.check(&ids(d.as_slice()) == den, || "denormalized ids".to_string());
     }
     for ((p, ci), ii) in k.probes.iter().zip(&k.contains_id).zip(&k.intersects_id) {
-        let id = cell(p);
+        let id = cell(p)?;
         c.check(
             u.contains_cell_id(id) == *ci && u.intersects_cell_id(id) == *ii,
             || format!("union probe {p}"),
         );
     }
-    c.check(same_cap(u.cap_bound(), &k.cap_bound), || {
+    c.check(same_cap(u.cap_bound(), &k.cap_bound)?, || {
         format!("union cap bound {:?}", u.cap_bound())
     });
-    c.check(same_rect(u.rect_bound(), &k.rect_bound), || {
+    c.check(same_rect(u.rect_bound(), &k.rect_bound)?, || {
         format!("union rect bound {:?}", u.rect_bound())
     });
     for (ci, want) in u.iter().zip(k.from_range.iter().flatten()) {
@@ -295,6 +303,7 @@ fn check_union(c: &mut Checker, k: &UnionCase) {
         let got = cov.config.coverer().covering(&u);
         super::loop_tests::check_covering(c, "cell union region", got.as_slice(), cov);
     }
+    Ok(())
 }
 
 // Ported from golang/geo s2/cellid_test.go, TestCellIDFromFace.
@@ -422,13 +431,13 @@ fn cell_id_vertex_neighbors() {
     }
 
     // Check the vertex neighbors of the corner of faces 0, 4, and 5.
-    let id = CellId::from_face_pos_level(0, 0, MAX_LEVEL);
-    let mut neighbors = id.vertex_neighbors(0);
-    neighbors.sort();
-    assert_eq!(neighbors.len(), 3);
-    assert_eq!(neighbors[0], CellId::from_face(0));
-    assert_eq!(neighbors[1], CellId::from_face(4));
-    assert_eq!(neighbors[2], CellId::from_face(5));
+    let leaf = CellId::from_face_pos_level(0, 0, MAX_LEVEL);
+    let mut leaf_neighbors = leaf.vertex_neighbors(0);
+    leaf_neighbors.sort();
+    assert_eq!(leaf_neighbors.len(), 3);
+    assert_eq!(leaf_neighbors[0], CellId::from_face(0));
+    assert_eq!(leaf_neighbors[1], CellId::from_face(4));
+    assert_eq!(leaf_neighbors[2], CellId::from_face(5));
 }
 
 // Ported from golang/geo s2/cellid_test.go, TestCellIDTokensNominal.
@@ -479,11 +488,15 @@ fn cell_id_from_tokens_error_cases() {
 
     // Check an invalid face.
     let face7 = CellId::from_face_pos_level(7, 0, 0);
-    let token = face7.to_token();
-    assert_eq!(CellId::from_token(&token), face7);
+    let face7_token = face7.to_token();
+    assert_eq!(CellId::from_token(&face7_token), face7);
 
-    for token in ["876b e99", "876bee99\n", "876[ee99", " 876bee99"] {
-        assert_eq!(CellId::from_token(token), CellId::new(0), "{token:?}");
+    for bad_token in ["876b e99", "876bee99\n", "876[ee99", " 876bee99"] {
+        assert_eq!(
+            CellId::from_token(bad_token),
+            CellId::new(0),
+            "{bad_token:?}"
+        );
     }
 }
 
@@ -537,7 +550,7 @@ fn cell_id_common_ancestor_level() {
 /// table, and panics; the port answers `None` for the vertex and reads face 7 as face 5. The face-5 bound
 /// below is Go's `CellFromCellID(0xbfffffffffffffff).RectBound()`, the sentinel's position on face 5.
 #[test]
-fn cell_inputs_go_panics_on_answer() {
+fn cell_inputs_go_panics_on_answer() -> TestResult {
     let cell = Cell::from_cell_id(CellId::from_lat_lng(LatLng::from_degrees(10.0, 20.0)));
     // Vertices 0 to 3 are checked against Go in cell_ids_match_go.
     assert_eq!(cell.vertex(4), None);
@@ -552,19 +565,20 @@ fn cell_inputs_go_panics_on_answer() {
         "bfe921fb53998269",
     ]
     .map(String::from);
-    assert!(same_rect(r, &want), "{r:?}");
+    assert!(same_rect(r, &want)?, "{r:?}");
     // The zero id is level -2 on face 0, and Go bounds it as the face-0 cell.
     let zero = Cell::from_cell_id(CellId::new(0));
     assert_eq!((zero.level(), zero.face()), (-2, 0));
-    let want = [
+    let zero_want = [
         "bfe921fb54442d1a",
         "3fe921fb54442d1a",
         "bfe921fb54442d18",
         "3fe921fb54442d18",
     ]
     .map(String::from);
-    let r = zero.rect_bound();
-    assert!(same_rect(r, &want), "{r:?}");
+    let zero_bound = zero.rect_bound();
+    assert!(same_rect(zero_bound, &zero_want)?, "{zero_bound:?}");
+    Ok(())
 }
 
 /// Go shifts by a level outside 0 to 30 as a uint64 shift does, to 0 for a count of 64 or more, and its int

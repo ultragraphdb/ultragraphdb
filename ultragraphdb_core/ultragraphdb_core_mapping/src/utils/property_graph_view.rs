@@ -31,7 +31,7 @@ pub fn property_graph_view<'a>(
         let node = pg.node_mut(PgNode::new(s.subject().clone()));
         match (s.object(), s.predicate() == &rdf::TYPE) {
             (Term::NamedNode(label), true) => {
-                node.labels_mut().insert(names.name(label));
+                let _added: bool = node.labels_mut().insert(names.name(label));
             }
             (Term::Literal(literal), _) => {
                 let name = names.name(s.predicate());
@@ -54,7 +54,7 @@ pub fn property_graph_view<'a>(
                 let Some(target) = node_of(object) else {
                     continue;
                 };
-                pg.node_mut(PgNode::new(target.clone()));
+                let _target_node: &mut PgNode = pg.node_mut(PgNode::new(target.clone()));
                 let mut edge = PgEdge::new(s.subject().clone(), names.name(s.predicate()), target);
                 for (predicate, _) in s.properties() {
                     let values = s

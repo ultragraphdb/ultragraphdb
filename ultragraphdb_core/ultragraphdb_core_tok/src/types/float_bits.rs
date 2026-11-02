@@ -7,7 +7,9 @@
 /// panics with `Invalid floatBits`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FloatBits {
+    /// 32-bit floats.
     F32,
+    /// 64-bit floats.
     F64,
 }
 

@@ -26,6 +26,7 @@ use crate::types::drop_request::DropRequest;
 use crate::types::drop_target::DropTarget;
 use crate::types::executed::Executed;
 use crate::types::predicate_prefix::PredicatePrefix;
+use crate::types::rebuild::Rebuild;
 use crate::utils::lock::lock;
 use crate::utils::quad_prefixes::predicate_prefixes;
 
@@ -74,7 +75,8 @@ where
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
         let lists = self.quads.lists();
-        self.cancel(|r| r.namespace == namespace && r.predicate == uid);
+        let _cancelled: Option<Rebuild> =
+            self.cancel(|r| r.namespace == namespace && r.predicate == uid);
         let latest = lists.applied_ts();
         lists.gate(latest)?;
         let snapshot = lists.store().snapshot(latest)?;
@@ -93,7 +95,7 @@ where
                 };
                 for (_, ids) in self.quads.objects(&key, latest)? {
                     for statement in ids {
-                        prefixes.insert(
+                        let _inserted: bool = prefixes.insert(
                             QuadKey::Statement {
                                 namespace,
                                 graph,
@@ -125,7 +127,7 @@ where
                 self.rewrite_without(&list, uid, latest, &mut prefixes, &mut entries)?;
             }
         }
-        prefixes.insert(Catalog::predicate_key(namespace, uid));
+        let _inserted: bool = prefixes.insert(Catalog::predicate_key(namespace, uid));
         let prefixes: Vec<Vec<u8>> = prefixes.into_iter().collect();
         let ts = match at {
             Some(ts) => {
@@ -275,8 +277,8 @@ where
         }
         let mut parts = key.clone();
         parts[0] |= SPLIT_FLAG;
-        prefixes.insert(key);
-        prefixes.insert(parts);
+        let _new_key: bool = prefixes.insert(key);
+        let _new_parts: bool = prefixes.insert(parts);
         Ok(())
     }
 
@@ -339,7 +341,7 @@ where
     /// Drops `namespace` as [`ChangesetCore::drop_namespace`] does, under the apply lock the caller holds, at `at` or
     /// the next version.
     fn drop_namespace_of(&self, namespace: u64, at: Option<u64>) -> Result<u64, ChangesetError> {
-        self.cancel(|r| r.namespace == namespace);
+        let _cancelled: Option<Rebuild> = self.cancel(|r| r.namespace == namespace);
         let entries = self.initial_entries(namespace)?;
         let ts = self.drop_prefixes(&namespace_prefixes(namespace, true), entries, at)?;
         self.forget_catalogs();
@@ -356,7 +358,7 @@ where
     /// Drops every namespace as [`ChangesetCore::drop_all`] does, under the apply lock the caller holds, at `at` or the
     /// next version.
     fn drop_every(&self, at: Option<u64>) -> Result<u64, ChangesetError> {
-        self.cancel(|_| true);
+        let _cancelled: Option<Rebuild> = self.cancel(|_| true);
         let entries = self.initial_entries(ROOT_NAMESPACE)?;
         let ts = self.drop_prefixes(&every_prefix(), entries, at)?;
         self.forget_catalogs();

@@ -23,7 +23,7 @@ impl Inner {
         self.maybe_slow();
         let id = self.next_temporary;
         self.next_temporary += 1;
-        self.temporaries.insert(id, Arc::default());
+        let _replaced: Option<Arc<State>> = self.temporaries.insert(id, Arc::default());
         self.log.push(OpRecord::TemporaryCreated { temporary: id });
         Ok(Temporary::new(id))
     }
@@ -95,12 +95,12 @@ impl Inner {
             }
             BatchOutcome::Written => {
                 for entry in batch.entries() {
-                    state.data.insert(
+                    let _replaced: Option<Vec<u8>> = state.data.insert(
                         (entry.key().to_vec(), Reverse(entry.version())),
                         encode(entry, false),
                     );
                 }
-                self.temporaries.insert(id, Arc::new(state));
+                let _replaced: Option<Arc<State>> = self.temporaries.insert(id, Arc::new(state));
                 self.log.push(OpRecord::TemporaryApplied {
                     temporary: id,
                     batch,
@@ -120,7 +120,8 @@ impl Inner {
         self.refuse_unless_open("drop_temporary")?;
         self.maybe_slow();
         let id = temporary.id();
-        self.temporaries
+        let _dropped: Arc<State> = self
+            .temporaries
             .remove(&id)
             .ok_or(StoreError::UnknownTemporary(id))?;
         self.log.push(OpRecord::TemporaryDropped { temporary: id });

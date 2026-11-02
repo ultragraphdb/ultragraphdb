@@ -29,7 +29,7 @@ fn opts_from_factory_spec(
     let mut opts = Options::new();
     for (key, value) in options {
         let v = allowed.get_parsed_option(key, value)?;
-        opts.set_opt(key.clone(), v);
+        let _options: &mut Options = opts.set_opt(key.clone(), v);
     }
     Ok(opts)
 }

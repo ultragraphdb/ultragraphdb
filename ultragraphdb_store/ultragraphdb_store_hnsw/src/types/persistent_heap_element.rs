@@ -36,6 +36,7 @@ impl<T: Copy> PersistentHeapElement<T> {
         self.index
     }
 
+    /// Whether the search filter left the uid out of the result.
     pub fn filtered_out(&self) -> bool {
         self.filtered_out
     }

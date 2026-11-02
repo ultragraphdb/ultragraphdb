@@ -84,7 +84,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             entry = layer.best_neighbor()?.index();
         }
 
-        self.add_neighbors(tc, in_uuid, &vec![Vec::new(); self.max_levels])?;
+        let _written: KeyValue =
+            self.add_neighbors(tc, in_uuid, &vec![Vec::new(); self.max_levels])?;
         let mut outbound = vec![Vec::new(); self.max_levels];
         let mut inbound: BTreeMap<u64, Vec<Vec<u64>>> = BTreeMap::new();
         for (level, out) in outbound.iter_mut().enumerate().skip(in_level) {
@@ -274,7 +275,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                     return Ok(*s);
                 }
                 let s = self.uid_score_for_node(tc, uuid, node_vec, uid)?;
-                score_cache.insert(uid, s);
+                let _cached: Option<T> = score_cache.insert(uid, s);
                 Ok(s)
             };
             let new_uids: Vec<u64> = if uuid != NOT_A_UID {
@@ -291,7 +292,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             )?;
         }
 
-        self.node_all_edges
+        let _cached: Option<Vec<Vec<u64>>> = self
+            .node_all_edges
             .borrow_mut()
             .insert(uuid, all_layer_edges.clone());
         let edge = KeyValue::new(

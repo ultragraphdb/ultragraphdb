@@ -12,6 +12,7 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     Angle, Cap, LatLng, Point, R1Interval, R3Vector, Rect, S1Interval, expand_for_subregions,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 #[derive(Deserialize)]
 struct Pair {
@@ -42,11 +43,11 @@ struct Golden {
 }
 
 #[test]
-fn rects_match_go() {
-    let g: Golden = load("rects.json");
+fn rects_match_go() -> TestResult {
+    let g: Golden = load("rects.json")?;
     let mut c = Checker::new("rects");
     for k in &g.pairs {
-        let (a, b) = (rect(&k.a), rect(&k.b));
+        let (a, b) = (rect(&k.a)?, rect(&k.b)?);
         c.check(a.intersects(b) == k.intersects, || {
             format!("{a:?}.intersects({b:?})")
         });
@@ -54,7 +55,7 @@ fn rects_match_go() {
             format!("{a:?}.contains({b:?})")
         });
         let u = a.union(b);
-        c.check(same_rect(u, &k.union), || {
+        c.check(same_rect(u, &k.union)?, || {
             format!("{a:?}.union({b:?}) = {u:?}")
         });
         c.check(u.is_full() == k.union_is_full, || {
@@ -62,20 +63,20 @@ fn rects_match_go() {
         });
     }
     for k in &g.singles {
-        let r = rect(&k.r);
+        let r = rect(&k.r)?;
         c.check(
             r.is_empty() == k.is_empty && r.is_full() == k.is_full,
             || format!("{r:?} empty/full"),
         );
-        c.check(same_cap(r.cap_bound(), &k.cap_bound), || {
+        c.check(same_cap(r.cap_bound(), &k.cap_bound)?, || {
             format!("{r:?} cap bound {:?}", r.cap_bound())
         });
         let e = expand_for_subregions(r);
-        c.check(same_rect(e, &k.expand_for_subregions), || {
+        c.check(same_rect(e, &k.expand_for_subregions)?, || {
             format!("{r:?} expand_for_subregions = {e:?}")
         });
         for (p, want) in k.points.iter().zip(&k.contains_point) {
-            c.check(r.contains_point(pt(p)) == *want, || {
+            c.check(r.contains_point(pt(p)?) == *want, || {
                 format!("{r:?} contains_point({p:?})")
             });
         }
@@ -84,6 +85,7 @@ fn rects_match_go() {
         });
     }
     c.finish();
+    Ok(())
 }
 
 /// Go's test helper rectFromDegrees.

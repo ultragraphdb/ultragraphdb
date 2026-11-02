@@ -87,7 +87,9 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let apply_cpu = thread_cpu_secs();
     let (stats, errors) = apply_batches(&a, args, &clock, &rx, &applied)?;
     let elapsed = clock.elapsed();
-    let apply_cpu = thread_cpu_secs().zip(apply_cpu).map(|(b, a)| b - a);
+    let apply_cpu = thread_cpu_secs()
+        .zip(apply_cpu)
+        .map(|(after, before)| after - before);
     stop.store(true, Ordering::Release);
     let (released, waits, source_cpu) = source_result
         .recv()
@@ -96,7 +98,9 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
         Some(done) => done.recv().map_err(|e| BenchError::Io(e.to_string()))??,
         None => (0, None),
     };
-    let cpu = process_cpu_secs().zip(cpu_start).map(|(b, a)| b - a);
+    let cpu = process_cpu_secs()
+        .zip(cpu_start)
+        .map(|(after, before)| after - before);
     let (rss, rss_peak) = rss_kib();
     let rollup_calls = {
         let (calls, nanos) = lists.store().other_calls();
@@ -170,7 +174,9 @@ fn spawn_source(
                 std::thread::sleep((next - now).min(Duration::from_millis(1)));
             }
         }
-        let cpu = thread_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+        let cpu = thread_cpu_secs()
+            .zip(cpu)
+            .map(|(after, before)| after - before);
         // The run stops listening only when it ended on an error of its own, which it returns; the figures are
         // nobody's then.
         source_done.send((sent, waits, cpu)).unwrap_or_default();
@@ -205,7 +211,7 @@ fn apply_batches(
         }
         let (stat, failed) = apply_step(a, clock, &commits)?;
         errors += failed;
-        applied.fetch_add(stat.commits, Ordering::Release);
+        let _before: u64 = applied.fetch_add(stat.commits, Ordering::Release);
         stats.push(stat);
     }
     Ok((stats, errors))
@@ -265,7 +271,9 @@ fn spawn_rollups(
                 Err(e) => break Err(BenchError::from(e)),
             }
         };
-        let cpu = thread_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+        let cpu = thread_cpu_secs()
+            .zip(cpu)
+            .map(|(after, before)| after - before);
         // The run stops listening only when it ended on an error of its own, which it returns; the outcome is
         // nobody's then.
         done.send(outcome.map(|()| (rolled, cpu)))

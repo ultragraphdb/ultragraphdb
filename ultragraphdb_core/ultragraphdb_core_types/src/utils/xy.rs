@@ -126,9 +126,9 @@ fn order_by_y(x1: f64, y1: f64, x2: f64, y2: f64) -> (i32, f64, f64, f64, f64) {
             let swap = x1;
             x1 = -x2;
             x2 = swap;
-            let swap = y1;
+            let swap_y = y1;
             y1 = -y2;
-            y2 = swap;
+            y2 = swap_y;
         }
     } else if 0.0 < y2 {
         if -y1 <= y2 {
@@ -139,9 +139,9 @@ fn order_by_y(x1: f64, y1: f64, x2: f64, y2: f64) -> (i32, f64, f64, f64, f64) {
             let swap = -x1;
             x1 = x2;
             x2 = swap;
-            let swap = -y1;
+            let swap_y = -y1;
             y1 = y2;
-            y2 = swap;
+            y2 = swap_y;
         }
     } else if y1 >= y2 {
         x1 = -x1;
@@ -153,9 +153,9 @@ fn order_by_y(x1: f64, y1: f64, x2: f64, y2: f64) -> (i32, f64, f64, f64, f64) {
         let swap = -x1;
         x1 = -x2;
         x2 = swap;
-        let swap = -y1;
+        let swap_y = -y1;
         y1 = -y2;
-        y2 = swap;
+        y2 = swap_y;
     }
     (sign, x1, y1, x2, y2)
 }
@@ -218,9 +218,9 @@ fn reduce(sign: i32, x1: f64, y1: f64, x2: f64, y2: f64) -> i32 {
         if x2 == 0.0 {
             return sign;
         }
-        let k = (x1 / x2).floor();
-        x1 -= k * x2;
-        y1 -= k * y2;
+        let k1 = (x1 / x2).floor();
+        x1 -= k1 * x2;
+        y1 -= k1 * y2;
         if y1 < 0.0 {
             return sign;
         }

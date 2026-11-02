@@ -44,18 +44,22 @@ impl ScramVerifier {
         ))
     }
 
+    /// The salt the password was derived with.
     pub fn salt(&self) -> &[u8] {
         &self.salt
     }
 
+    /// The iteration count the password was derived over.
     pub fn iterations(&self) -> u32 {
         self.iterations
     }
 
+    /// `StoredKey`, the SHA-256 of the client key.
     pub fn stored_key(&self) -> &[u8; 32] {
         &self.stored_key
     }
 
+    /// `ServerKey`, which signs the server's final message.
     pub fn server_key(&self) -> &[u8; 32] {
         &self.server_key
     }

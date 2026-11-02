@@ -210,14 +210,14 @@ where
     /// Adds a catalog change's entry: a declaration's, or the namespace's initial catalog's.
     fn add_entry(&mut self, entry: Entry) {
         self.catalog_changed = true;
-        self.defaults.remove(entry.key());
-        self.entries.insert(entry.key().to_vec(), entry);
+        let _removed: Option<u64> = self.defaults.remove(entry.key());
+        let _previous: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
     }
 
     /// Adds predicate `uid`'s implicit default entry, an insert-if-absent on its key rather than a catalog change.
     fn add_default(&mut self, uid: u64, entry: Entry) {
-        self.defaults.insert(entry.key().to_vec(), uid);
-        self.entries.insert(entry.key().to_vec(), entry);
+        let _previous_default: Option<u64> = self.defaults.insert(entry.key().to_vec(), uid);
+        let _previous_entry: Option<Entry> = self.entries.insert(entry.key().to_vec(), entry);
     }
 
     fn iri(&mut self, iri: NamedNodeRef<'_>) -> Result<u64, QuadError> {

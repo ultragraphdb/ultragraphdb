@@ -74,13 +74,16 @@ fn test_absence_and_its_wrappers_are_recognised() {
     assert!(HnswError::NilVector(Some(fetching)).is_fetching_posting_list());
     assert!(!HnswError::NilVector(None).is_fetching_posting_list());
     assert!(HnswError::NilVector(None).is_nil_vector());
-    let fetching = HnswError::FetchingPostingList(HnswError::KeyNotFound(), "0-a", 1);
-    assert!(HnswError::EmptyTree(Some(fetching.clone())).is_fetching_posting_list());
+    let fetching_key = HnswError::FetchingPostingList(HnswError::KeyNotFound(), "0-a", 1);
+    assert!(HnswError::EmptyTree(Some(fetching_key.clone())).is_fetching_posting_list());
     assert!(!HnswError::EmptyTree(Some(HnswError::KeyNotFound())).is_fetching_posting_list());
     assert!(!HnswError::NilVector(Some(HnswError::NoValue())).is_fetching_posting_list());
     assert!(!HnswError::NoValue().is_fetching_posting_list());
-    assert!(!fetching.is_absence(), "a wrapped absence is no absence");
-    assert!(!fetching.is_nil_vector());
+    assert!(
+        !fetching_key.is_absence(),
+        "a wrapped absence is no absence"
+    );
+    assert!(!fetching_key.is_nil_vector());
     assert!(!HnswError::EmptyTree(None).is_nil_vector());
 }
 
@@ -104,6 +107,6 @@ fn test_corruption_is_the_stores() {
     assert_eq!(e.to_string(), "Corrupted value of key 6b: short");
     let from: HnswError = PostingError::TsTooOld().into();
     assert_eq!(from.to_string(), "Transaction is too old");
-    let e: &dyn std::error::Error = &from;
-    assert!(e.source().is_none());
+    let as_error: &dyn std::error::Error = &from;
+    assert!(as_error.source().is_none());
 }

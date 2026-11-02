@@ -5,6 +5,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{RecordEntry, WriteSetRecord, WriteSetRecordView};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{put, section};
 
@@ -17,9 +18,9 @@ fn record() -> Vec<u8> {
 }
 
 #[test]
-fn test_entries_read_back_in_order_with_removals() {
+fn test_entries_read_back_in_order_with_removals() -> TestResult {
     let bytes = record();
-    let view = WriteSetRecordView::new(&bytes).unwrap();
+    let view = WriteSetRecordView::new(&bytes)?;
     let dictionary = view.dictionary();
     assert_eq!(dictionary.len(), 3);
     assert!(!dictionary.is_empty());
@@ -33,6 +34,7 @@ fn test_entries_read_back_in_order_with_removals() {
     );
     assert!(view.list_deltas().is_empty());
     assert_eq!(view.list_deltas().iter().count(), 0);
+    Ok(())
 }
 
 #[test]
@@ -50,13 +52,13 @@ fn test_entries_are_padded_to_eight_bytes() {
 }
 
 #[test]
-fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
+fn test_an_entry_past_its_section_or_with_padding_set_is_refused() -> TestResult {
     let bytes = record();
     let (offset, _) = section(&bytes, 40, 1);
     let mut long = bytes.clone();
     put(&mut long, offset + 4, 1_000, 4);
     assert_eq!(
-        WriteSetRecordView::new(&long).unwrap_err().0,
+        WriteSetRecordView::new(&long).err().context("a refusal")?.0,
         ProtocolErrorEnum::EntryOutOfBounds {
             command: 17,
             section: 1,
@@ -67,7 +69,10 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
     let mut second = bytes.clone();
     put(&mut second, offset + 16, 1_000, 4);
     assert_eq!(
-        WriteSetRecordView::new(&second).unwrap_err().0,
+        WriteSetRecordView::new(&second)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::EntryOutOfBounds {
             command: 17,
             section: 1,
@@ -78,7 +83,10 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
     let mut padded = bytes.clone();
     padded[offset + 15] = 9;
     assert_eq!(
-        WriteSetRecordView::new(&padded).unwrap_err().0,
+        WriteSetRecordView::new(&padded)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::PaddingNotZero {
             command: 17,
             offset: offset + 15
@@ -88,7 +96,7 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
     let mut cut = bytes.clone();
     put(&mut cut, 40 + 8 + 4, 36, 4);
     assert_eq!(
-        WriteSetRecordView::new(&cut).unwrap_err().0,
+        WriteSetRecordView::new(&cut).err().context("a refusal")?.0,
         ProtocolErrorEnum::EntryOutOfBounds {
             command: 17,
             section: 1,
@@ -96,10 +104,11 @@ fn test_an_entry_past_its_section_or_with_padding_set_is_refused() {
             offset: 32
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_entry_whose_padding_runs_past_its_section_is_refused() {
+fn test_an_entry_whose_padding_runs_past_its_section_is_refused() -> TestResult {
     use crate::utils::golden_bodies::join_sections;
     // PROTOCOL.md section 12.2: entries are back to back, each 8-aligned within the section, so an entry's padding is
     // the section's. One dictionary entry of key "k1" and value "value", 8 + 2 + 5 = 15 bytes, without its padding
@@ -109,7 +118,8 @@ fn test_an_entry_whose_padding_runs_past_its_section_is_refused() {
     secs[1] = entry.clone();
     assert_eq!(
         WriteSetRecordView::new(&join_sections(&[0u8; 40], &secs))
-            .unwrap_err()
+            .err()
+            .context("a refusal")?
             .0,
         ProtocolErrorEnum::EntryOutOfBounds {
             command: 17,
@@ -122,11 +132,11 @@ fn test_an_entry_whose_padding_runs_past_its_section_is_refused() {
     secs[1].push(0);
     let bytes = join_sections(&[0u8; 40], &secs);
     assert_eq!(
-        WriteSetRecordView::new(&bytes)
-            .unwrap()
+        WriteSetRecordView::new(&bytes)?
             .dictionary()
             .iter()
             .collect::<Vec<_>>(),
         vec![RecordEntry::new(b"k1", Some(b"value"))]
     );
+    Ok(())
 }

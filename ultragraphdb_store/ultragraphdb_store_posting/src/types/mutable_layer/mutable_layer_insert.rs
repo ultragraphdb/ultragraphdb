@@ -32,7 +32,7 @@ impl MutableLayer {
         let at = self.current_uids.get(&id).copied();
         match at.and_then(|at| current.postings_mut().get_mut(at).map(|slot| (at, slot))) {
             Some((at, slot)) if has_count_index && mpost.op() == DEL && slot.op() != DEL => {
-                current.postings_mut().remove(at);
+                let _deleted: Posting = current.postings_mut().remove(at);
                 self.current_uids = uid_index(current, self.by_value);
             }
             Some((_, slot)) => {
@@ -44,7 +44,7 @@ impl MutableLayer {
                 }
             }
             None => {
-                self.current_uids.insert(id, current.postings().len());
+                let _absent: Option<usize> = self.current_uids.insert(id, current.postings().len());
                 current.postings_mut().push(mpost);
             }
         }

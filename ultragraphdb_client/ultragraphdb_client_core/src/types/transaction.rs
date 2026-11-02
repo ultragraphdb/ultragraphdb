@@ -31,6 +31,7 @@ impl Transaction {
         }
     }
 
+    /// The stream the transaction runs on.
     pub fn stream(&self) -> u64 {
         self.stream
     }
@@ -39,6 +40,7 @@ impl Transaction {
         self.generation
     }
 
+    /// The namespace the transaction reads and writes.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
@@ -48,6 +50,7 @@ impl Transaction {
         self.read_version
     }
 
+    /// Whether the transaction is read-only.
     pub fn read_only(&self) -> bool {
         self.read_only
     }

@@ -35,7 +35,7 @@ impl NumericWeighter {
     pub(crate) fn new(table: Table) -> NumericWeighter {
         let get_elem = |s: &str| {
             let mut elems = Vec::new();
-            table.append_next(&mut elems, s.as_bytes());
+            let _consumed: usize = table.append_next(&mut elems, s.as_bytes());
             elems[0]
         };
         let nine = get_elem("9");
@@ -131,7 +131,7 @@ impl NumericWeighter {
         };
         // Test the remaining added collation elements have a zero primary value.
         if w.len() - kept > 1 {
-            if w[kept + 1..].iter().any(|e| e.primary() != 0) {
+            if w[kept + 1..].iter().any(|elem| elem.primary() != 0) {
                 return None;
             }
             // In some rare cases, collation elements encode runes outside Nd as a digit, such as the Ethiopic

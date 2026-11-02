@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{
     CacheType, KeyValue, OptionalIndexSupport, OptionalSearchOptions, SearchFilter,
     SearchPathResult, Txn, VectorIndex, VectorIndexOptions, accept_all,
@@ -124,7 +125,8 @@ impl OptionalIndexSupport<f32> for BruteForce {
         *r.neighbors_mut() = self.nearest(query, max_results, filter, None);
         let first = r.neighbors().first().copied();
         r.path_mut().extend(first);
-        r.metrics_mut()
+        let _previous: Option<u64> = r
+            .metrics_mut()
             .insert("visited".into(), self.0.borrow().len() as u64);
         Ok(r)
     }
@@ -193,7 +195,7 @@ fn odd_only(_: &[f32], _: &[f32], uid: u64) -> bool {
     uid % 2 == 1
 }
 
-fn index() -> BruteForce {
+fn index() -> TestResult<BruteForce> {
     let ix = BruteForce::default();
     for (uid, v) in [
         (1, [0.0, 0.0]),
@@ -201,15 +203,19 @@ fn index() -> BruteForce {
         (3, [3.0, 0.0]),
         (4, [10.0, 0.0]),
     ] {
-        ix.insert(&NoTxn, uid, &v, &mut no_draw).unwrap();
+        let _inserted: Vec<KeyValue> = ix
+            .insert(&NoTxn, uid, &v, &mut no_draw)
+            .context("ix.insert(..)")?;
     }
-    ix
+    Ok(ix)
 }
 
 #[test]
-fn test_a_vector_index_inserts_and_searches() {
-    let ix = index();
-    let kv = ix.insert(&NoTxn, 5, &[1.0, 1.0], &mut no_draw).unwrap();
+fn test_a_vector_index_inserts_and_searches() -> TestResult {
+    let ix = index()?;
+    let kv = ix
+        .insert(&NoTxn, 5, &[1.0, 1.0], &mut no_draw)
+        .context("ix.insert(..)")?;
     // 1.0f32 is 0x3F80_0000 in IEEE 754, little-endian 00 00 80 3F.
     assert_eq!(
         kv,
@@ -239,13 +245,14 @@ fn test_a_vector_index_inserts_and_searches() {
         ix.search_with_uid(&NoCache, 9, 1, accept_all::<f32>),
         Err("no vector for 9".to_string())
     );
+    Ok(())
 }
 
 /// The edge inputs of each search: no results asked for, a filter passing nothing, an empty index, and a threshold
 /// that only the query's own vector meets.
 #[test]
-fn test_searches_at_their_edge_inputs() {
-    let ix = index();
+fn test_searches_at_their_edge_inputs() -> TestResult {
+    let ix = index()?;
     let none = |_: &[f32], _: &[f32], _: u64| false;
     assert_eq!(
         ix.search(&NoCache, &[0.0, 0.0], 0, accept_all::<f32>),
@@ -271,8 +278,9 @@ fn test_searches_at_their_edge_inputs() {
     );
     let r = ix
         .search_with_path(&NoCache, &[0.0, 0.0], 0, accept_all::<f32>)
-        .unwrap();
+        .context("search_with_path(..)")?;
     assert_eq!((r.neighbors(), r.path()), (&[][..], &[][..]));
+    Ok(())
 }
 
 /// A transaction that records what is written through it, or refuses every write.
@@ -333,7 +341,7 @@ impl OptionalIndexSupport<f32> for Layered {
         _: usize,
         _: SearchFilter<f32>,
     ) -> Result<SearchPathResult, Self::Error> {
-        c.get(b"entry")?;
+        let _get: Vec<u8> = c.get(b"entry")?;
         Ok(SearchPathResult::new())
     }
 }
@@ -356,7 +364,7 @@ impl VectorIndex<f32> for Layered {
         _: usize,
         _: SearchFilter<f32>,
     ) -> Result<Vec<u64>, Self::Error> {
-        c.get(&query_uid.to_be_bytes())?;
+        let _get: Vec<u8> = c.get(&query_uid.to_be_bytes())?;
         Ok(vec![query_uid])
     }
 
@@ -376,7 +384,7 @@ impl VectorIndex<f32> for Layered {
 }
 
 #[test]
-fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() {
+fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() -> TestResult {
     let txn = Recording::default();
     // The caller's seeded source: 0.5, 0.25, 0.125 in turn, levels 1, 2 and 3 by -ln(u) / ln(2).
     let mut next = 0.5;
@@ -386,8 +394,9 @@ fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() {
         u
     };
     let levels: Vec<Vec<KeyValue>> = (1..=3)
-        .map(|uid| Layered.insert(&txn, uid, &[0.0], &mut draw).unwrap())
-        .collect();
+        .map(|uid| Layered.insert(&txn, uid, &[0.0], &mut draw))
+        .collect::<Result<_, _>>()
+        .context("Layered.insert(..)")?;
     assert_eq!(
         levels,
         vec![
@@ -414,6 +423,7 @@ fn test_an_insert_writes_through_its_transaction_with_the_callers_draws() {
         Err("refused".to_string())
     );
     assert!(refusing.written.borrow().is_empty());
+    Ok(())
 }
 
 #[test]
@@ -435,11 +445,11 @@ fn test_a_search_passes_on_its_caches_error() {
 }
 
 #[test]
-fn test_optional_supports_give_the_path_and_take_options() {
-    let ix = index();
+fn test_optional_supports_give_the_path_and_take_options() -> TestResult {
+    let ix = index()?;
     let r = ix
         .search_with_path(&NoCache, &[2.9, 0.0], 2, accept_all::<f32>)
-        .unwrap();
+        .context("search_with_path(..)")?;
     assert_eq!(
         (r.neighbors(), r.path(), r.metrics()["visited"]),
         (&[3, 2][..], &[3][..], 4)
@@ -449,9 +459,10 @@ fn test_optional_supports_give_the_path_and_take_options() {
         ix.search_with_options(&NoCache, &[0.0, 0.0], 9, &opts),
         Ok(vec![1, 2])
     );
-    let opts = VectorIndexOptions::new(0, None, odd_only);
+    let odd_opts = VectorIndexOptions::new(0, None, odd_only);
     assert_eq!(
-        ix.search_with_uid_and_options(&NoCache, 2, 2, &opts),
+        ix.search_with_uid_and_options(&NoCache, 2, 2, &odd_opts),
         Ok(vec![1, 3])
     );
+    Ok(())
 }

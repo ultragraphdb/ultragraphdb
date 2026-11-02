@@ -34,6 +34,7 @@ impl Credential {
         }
     }
 
+    /// The principal the connection acts for.
     pub fn principal(&self) -> u64 {
         self.principal
     }

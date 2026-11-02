@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_keys::{QuadKey, Region};
 use ultragraphdb_core_mapping::Changeset;
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_store_posting::{CachedList, PostingError, Writes};
 use ultragraphdb_store_quads::{QuadStore, QuadWrite, WriteTerms};
 use ultragraphdb_traits_store::{ListCache, Store, Temporary, VersionlessEntry};
@@ -108,7 +109,7 @@ where
     }
 
     pub(crate) fn keep_built(&self, record: u64, built: Built) {
-        lock(&self.built).insert(record, built);
+        let _previous: Option<Built> = lock(&self.built).insert(record, built);
     }
 
     pub(crate) fn take_built(&self, record: u64) -> Option<Built> {
@@ -160,7 +161,8 @@ where
             .store()
             .snapshot(self.quads.lists().applied_ts())?;
         let catalog = Arc::new(Catalog::load(&snapshot, namespace)?);
-        lock(&self.catalogs).insert(namespace, catalog.clone());
+        let _previous: Option<Arc<Catalog>> =
+            lock(&self.catalogs).insert(namespace, catalog.clone());
         Ok(catalog)
     }
 
@@ -203,9 +205,9 @@ where
         let executed = self.execute(changeset)?;
         let version = self.quads.lists().next_version();
         let (mut applied, started) = self.write_round(vec![(version, executed)], &[], 0)?;
-        let applied = applied
-            .pop()
-            .expect("a round of one execution gives one commit");
+        let applied = applied.pop().ok_or(InvariantError::violated(
+            "a round of one execution gives one commit",
+        ))?;
         Ok((applied, started))
     }
 
@@ -273,7 +275,7 @@ where
         let (removals, started, applied) = self.settle_round(round)?;
         self.drop_removed(&removals)?;
         for &(version, namespace, target) in &drops {
-            self.drop_at(namespace, target, version)?;
+            let _dropped_at: u64 = self.drop_at(namespace, target, version)?;
         }
         for &(version, end) in &ends {
             self.end_build(end, version)?;
@@ -422,7 +424,7 @@ impl<S, C> ChangesetCore<S, C> {
                 merged
             }
         };
-        catalogs.insert(namespace, Arc::new(merged));
+        let _previous: Option<Arc<Catalog>> = catalogs.insert(namespace, Arc::new(merged));
         Ok(())
     }
 }

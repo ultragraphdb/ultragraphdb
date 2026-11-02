@@ -56,7 +56,7 @@ where
         object: &EncodedTerm,
     ) {
         if self.vector_built == Some(predicate) && object.is_vector() {
-            self.touched.insert((graph, subject));
+            let _inserted: bool = self.touched.insert((graph, subject));
         }
     }
 }

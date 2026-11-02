@@ -42,11 +42,13 @@ impl ClientConfig {
         }
     }
 
+    /// The client release the Hello names.
     pub fn with_release(mut self, release: u32) -> Self {
         self.release = release;
         self
     }
 
+    /// The protocol versions the client speaks, `min` to `max`.
     pub fn with_protocols(mut self, min: u16, max: u16) -> Self {
         self.protocol_min = min;
         self.protocol_max = max;
@@ -84,34 +86,42 @@ impl ClientConfig {
         self
     }
 
+    /// The cluster the client connects to.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// The client name the Hello carries.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// The client release the Hello names.
     pub fn release(&self) -> u32 {
         self.release
     }
 
+    /// How long the client waits for anything it expects.
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
 
+    /// The most times a commit is sent, the first included.
     pub fn commit_attempts(&self) -> u32 {
         self.commit_attempts
     }
 
+    /// How long a commit waits before it is sent again after a busy answer.
     pub fn retry_delay(&self) -> Duration {
         self.retry_delay
     }
 
+    /// The Result frames a stream is granted at a time.
     pub fn credit(&self) -> u32 {
         self.credit
     }
 
+    /// How long before its credential expires the client authenticates again.
     pub fn renewal_margin(&self) -> Duration {
         self.renewal_margin
     }

@@ -34,22 +34,27 @@ impl Statement {
         }
     }
 
+    /// The statement's id on the connection that prepared it.
     pub fn id(&self) -> u64 {
         self.id
     }
 
+    /// The namespace it was prepared in.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The schema id of the catalog it was prepared against.
     pub fn schema(&self) -> u64 {
         self.schema
     }
 
+    /// The column types of its parameters.
     pub fn parameter_types(&self) -> &[ColumnType] {
         &self.parameter_types
     }
 
+    /// The column types of its results.
     pub fn result_types(&self) -> &[ColumnType] {
         &self.result_types
     }

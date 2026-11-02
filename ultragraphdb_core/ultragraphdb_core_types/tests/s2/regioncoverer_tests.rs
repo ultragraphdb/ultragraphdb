@@ -16,6 +16,7 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     Angle, Cell, CellId, CellUnion, LatLng, Loop, Point, Region, RegionCoverer,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize)]
 struct CellCase {
@@ -30,11 +31,11 @@ struct CellGolden {
 // Ported from golang/geo s2/regioncoverer_test.go, TestCovererRandomCells, over the cells of
 // the golden set instead of Go's random ones.
 #[test]
-fn coverer_random_cells() {
+fn coverer_random_cells() -> TestResult {
     let rc = RegionCoverer::new(0, 30, 1, 1);
-    let g: CellGolden = load("cellid.json");
+    let g: CellGolden = load("cellid.json")?;
     for k in &g.cells {
-        let id = cell(&k.id);
+        let id = cell(&k.id)?;
         let covering = rc.covering(&Cell::from_cell_id(id));
         assert_eq!(
             covering.as_slice(),
@@ -43,6 +44,7 @@ fn coverer_random_cells() {
             id.to_token()
         );
     }
+    Ok(())
 }
 
 /// checkCoveringTight: cover completely covers the region, and holds no cell that does not
@@ -82,7 +84,7 @@ fn check_covering_tight<R: Region>(r: &R, cover: &CellUnion, id: CellId) {
 }
 
 /// checkCovering: the levels obey the coverer and the covering is a tight cover.
-fn check_covering<R: Region>(rc: &RegionCoverer, r: &R, covering: &CellUnion) {
+fn check_covering<R: Region>(rc: &RegionCoverer, r: &R, covering: &CellUnion) -> TestResult {
     let mut min_level_cells = std::collections::BTreeMap::new();
     for ci in covering.iter() {
         let level = ci.level();
@@ -106,7 +108,7 @@ fn check_covering<R: Region>(rc: &RegionCoverer, r: &R, covering: &CellUnion) {
             .entry(ci.parent(rc.min_level()))
             .or_insert(0) += 1;
     }
-    if i64::try_from(covering.len()).expect("fits i64") > rc.max_cells() {
+    if i64::try_from(covering.len()).context("fits i64")? > rc.max_cells() {
         // If the covering has more than the requested number of cells, then check
         // that the cell count cannot be reduced by using the parent of some cell.
         for (ci, count) in min_level_cells {
@@ -116,6 +118,7 @@ fn check_covering<R: Region>(rc: &RegionCoverer, r: &R, covering: &CellUnion) {
     let mut temp = covering.clone();
     temp.normalize();
     check_covering_tight(r, &temp, CellId::new(0));
+    Ok(())
 }
 
 /// Dgraph's covering parameters (types/s2index.go): MinCellLevel 5, MaxCellLevel 16, LevelMod 0
@@ -138,24 +141,22 @@ struct LoopCase {
 // The covering checks of golang/geo's TestCovererRandomCaps, applied to the loops Dgraph's
 // tests index, with Dgraph's parameters and with LevelMod 2 and 3.
 #[test]
-fn coverings_of_dgraph_loops_are_valid() {
-    let cases: Vec<LoopCase> = load("loops_testdata.json");
-    let mut loops: Vec<(String, Loop)> = cases
-        .iter()
-        .filter_map(|k| {
-            let ring: Vec<[f64; 2]> = k
-                .spec
-                .ring
-                .as_ref()?
-                .iter()
-                .map(|p| [f(&p[0]), f(&p[1])])
-                .collect();
-            if k.spec.name.ends_with("poison") {
-                return None;
-            }
-            Some((k.spec.name.clone(), dgraph_loop(&ring).0))
-        })
-        .collect();
+fn coverings_of_dgraph_loops_are_valid() -> TestResult {
+    let cases: Vec<LoopCase> = load("loops_testdata.json")?;
+    let mut loops: Vec<(String, Loop)> = Vec::new();
+    for k in &cases {
+        let Some(ring) = k.spec.ring.as_ref() else {
+            continue;
+        };
+        let ring: Vec<[f64; 2]> = ring
+            .iter()
+            .map(|p| Ok([f(&p[0])?, f(&p[1])?]))
+            .collect::<TestResult<_>>()?;
+        if k.spec.name.ends_with("poison") {
+            continue;
+        }
+        loops.push((k.spec.name.clone(), dgraph_loop(&ring).0));
+    }
     let near = Point::from_lat_lng(LatLng::from_degrees(37.4249518, -122.082506));
     loops.push((
         "near-1000m".to_string(),
@@ -169,14 +170,15 @@ fn coverings_of_dgraph_loops_are_valid() {
         ] {
             let covering = rc.covering(l);
             assert!(!covering.is_empty(), "{name}");
-            check_covering(&rc, l, &covering);
+            check_covering(&rc, l, &covering)?;
             // Check that Covering is deterministic.
             assert_eq!(rc.covering(l), covering, "{name}");
             let mut d = covering.clone();
             d.denormalize(rc.min_level(), rc.level_mod().max(1));
-            check_covering(&rc, l, &d);
+            check_covering(&rc, l, &d)?;
         }
     }
+    Ok(())
 }
 
 // Go's int64 arithmetic wraps on a max cells near its limits; the port's covering is Go's.
@@ -230,12 +232,16 @@ fn denormalize_clamps_out_of_range_parameters() {
     // A min level above 30 is clamped to 30: every cell becomes its leaves; a level-28 cell
     // has 16 of them.
     let level28 = face2.child_begin_at_level(28);
-    let mut u = CellUnion::new(vec![level28]);
-    u.denormalize(i64::MAX, 1);
-    assert_eq!(u.len(), 16);
-    assert!(u.iter().all(|c| c.is_leaf() && level28.contains(*c)));
-    assert_eq!(u.as_slice()[0], level28.range_min());
-    assert_eq!(u.as_slice()[15], level28.range_max());
+    let mut leaf_union = CellUnion::new(vec![level28]);
+    leaf_union.denormalize(i64::MAX, 1);
+    assert_eq!(leaf_union.len(), 16);
+    assert!(
+        leaf_union
+            .iter()
+            .all(|c| c.is_leaf() && level28.contains(*c))
+    );
+    assert_eq!(leaf_union.as_slice()[0], level28.range_min());
+    assert_eq!(leaf_union.as_slice()[15], level28.range_max());
 }
 
 /// A covering as golang/geo returns it: the cell count, the FNV hash of its tokens (the
@@ -247,18 +253,18 @@ type GoCovering = (usize, &'static str, Option<&'static [&'static str]>);
 type GoCoveringCase = (&'static str, (i64, i64, i64, i64), bool, GoCovering);
 
 /// golang/geo's test helper parsePoints: "lat:lng, lat:lng, ..." in degrees.
-fn loop_of(s: &str) -> Loop {
-    Loop::from_points(
+fn loop_of(s: &str) -> TestResult<Loop> {
+    Ok(Loop::from_points(
         s.split(',')
             .map(|ll| {
-                let (lat, lng) = ll.trim().split_once(':').expect("lat:lng");
-                Point::from_lat_lng(LatLng::from_degrees(
-                    lat.parse().expect("lat"),
-                    lng.parse().expect("lng"),
-                ))
+                let (lat, lng) = ll.trim().split_once(':').context("lat:lng")?;
+                Ok(Point::from_lat_lng(LatLng::from_degrees(
+                    lat.parse().context("lat")?,
+                    lng.parse().context("lng")?,
+                )))
             })
-            .collect(),
-    )
+            .collect::<TestResult<_>>()?,
+    ))
 }
 
 fn loop_10_20() -> Loop {
@@ -351,7 +357,7 @@ const GO_COVERINGS: &[GoCoveringCase] = &[
 ];
 
 #[test]
-fn fast_covering_and_cell_union_match_go() {
+fn fast_covering_and_cell_union_match_go() -> TestResult {
     let mut nyc_sfo = CellUnion::new(
         [
             0x89c25b0000000000u64,
@@ -375,10 +381,10 @@ fn fast_covering_and_cell_union_match_go() {
             "near1000m",
             Loop::regular(near, Angle::from_radians(1000.0 / 6371000.0), 100),
         ),
-        ("arctic80", loop_of("80:-150, 80:-30, 80:90")),
+        ("arctic80", loop_of("80:-150, 80:-30, 80:90")?),
         (
             "candy",
-            loop_of("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70"),
+            loop_of("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70")?,
         ),
     ];
     for (name, (min, max, lmod, cells), fast, want) in GO_COVERINGS {
@@ -392,6 +398,7 @@ fn fast_covering_and_cell_union_match_go() {
         };
         assert_go_covering(&tag, &got, want);
     }
+    Ok(())
 }
 
 // Go's NewRegionCoverer: MinLevel 0, MaxLevel 30, LevelMod 1, MaxCells 8; its Covering of

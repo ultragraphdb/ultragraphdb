@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{BIG_FLOAT_PRECISION, BigFloat, TypeId, Val, Value, convert};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize)]
 struct BigFloatCase {
@@ -26,19 +27,19 @@ struct BigFloatCase {
     str: String,
 }
 
-fn str_of(v: Val) -> String {
+fn str_of(v: Val) -> TestResult<String> {
     match v.into_value() {
         Some(Value::Str(s)) => Ok(s),
-        Some(Value::Bytes(b)) => Ok(String::from_utf8(b).unwrap()),
+        Some(Value::Bytes(b)) => Ok(String::from_utf8(b)?),
         other => Err(format!("{other:?}")),
     }
-    .expect("a string or bytes value")
+    .context("a string or bytes value")
 }
 
 #[test]
-fn test_golden_big_floats() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_bigfloat.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<BigFloatCase>(&path);
+fn test_golden_big_floats() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_bigfloat.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<BigFloatCase>(&path)?;
     // (kind) -> (cases, mismatches)
     let mut stats: BTreeMap<&str, (usize, Vec<String>)> = BTreeMap::new();
     for c in golden.cases() {
@@ -59,7 +60,7 @@ fn test_golden_big_floats() {
                 Some(Value::BigFloat(b)) => Ok(b),
                 other => Err(format!("{other:?}")),
             }
-            .expect("converting to bigfloat gives a bigfloat"),
+            .context("converting to bigfloat gives a bigfloat")?,
         };
         if got.text_p() != c.p || got.prec() != BIG_FLOAT_PRECISION {
             e.1.push(format!(
@@ -74,20 +75,14 @@ fn test_golden_big_floats() {
         if c.kind == "extreme" {
             continue;
         }
-        let text = str_of(
-            convert(
-                &Val::bytes(TypeId::BIGFLOAT, c.input.as_bytes()),
-                TypeId::BINARY,
-            )
-            .unwrap(),
-        );
-        let s = str_of(
-            convert(
-                &Val::bytes(TypeId::BIGFLOAT, c.input.as_bytes()),
-                TypeId::STRING,
-            )
-            .unwrap(),
-        );
+        let text = str_of(convert(
+            &Val::bytes(TypeId::BIGFLOAT, c.input.as_bytes()),
+            TypeId::BINARY,
+        )?)?;
+        let s = str_of(convert(
+            &Val::bytes(TypeId::BIGFLOAT, c.input.as_bytes()),
+            TypeId::STRING,
+        )?)?;
         if text != c.text || s != c.str {
             e.1.push(format!(
                 "{:?}: text {text} / {s}, Go {} / {}",
@@ -107,20 +102,24 @@ fn test_golden_big_floats() {
         })
         .collect();
     assert!(report.is_empty(), "{}", report.join("\n"));
+    Ok(())
 }
 
 #[test]
-fn test_power_of_two_formats_as_go_shortens_it() {
-    let x = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION).unwrap();
+fn test_power_of_two_formats_as_go_shortens_it() -> TestResult {
+    let x = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION)
+        .context("BigFloat::unmarshal_text(\"0x1p-1100\", BIG_FLOAT_PRECISION)")?;
     assert_eq!(
         x.marshal_text(),
         "7.3621518290228626754368661771449651176491350325096363488672e-332"
     );
+    Ok(())
 }
 
 #[test]
-fn test_conversions() {
-    let x = BigFloat::unmarshal_text("-2.5", BIG_FLOAT_PRECISION).unwrap();
+fn test_conversions() -> TestResult {
+    let x = BigFloat::unmarshal_text("-2.5", BIG_FLOAT_PRECISION)
+        .context("BigFloat::unmarshal_text(\"-2.5\", BIG_FLOAT_PRECISION)")?;
     assert_eq!(x.to_f64(), -2.5);
     assert_eq!(x.to_i64(), -2);
     assert_eq!(x.text_g(10), "-2.5");
@@ -128,7 +127,12 @@ fn test_conversions() {
     assert_eq!(BigFloat::from_i64(i64::MAX, 200).to_i64(), i64::MAX);
     assert_eq!(BigFloat::inf(false, 200).to_i64(), i64::MAX);
     assert_eq!(BigFloat::inf(true, 200).to_i64(), i64::MIN);
-    assert_eq!(BigFloat::from_f64(5e-324, 200).unwrap().to_f64(), 5e-324);
+    assert_eq!(
+        BigFloat::from_f64(5e-324, 200)
+            .context("BigFloat::from_f64(5e-324, 200)")?
+            .to_f64(),
+        5e-324
+    );
     assert!(BigFloat::from_f64(f64::NAN, 200).is_none());
     assert_eq!(
         BigFloat::from_f64(f64::INFINITY, 200),
@@ -138,7 +142,7 @@ fn test_conversions() {
         BigFloat::from_f64(f64::NEG_INFINITY, 200),
         Some(BigFloat::inf(true, 200))
     );
-    let neg_zero = BigFloat::from_f64(-0.0, 200).unwrap();
+    let neg_zero = BigFloat::from_f64(-0.0, 200).context("BigFloat::from_f64(-0.0, 200)")?;
     assert!(neg_zero.is_zero() && neg_zero.is_neg() && !neg_zero.is_inf());
     assert!(neg_zero.to_f64().is_sign_negative() && neg_zero.to_f64() == 0.0);
     assert!(!BigFloat::zero(200).is_neg());
@@ -153,24 +157,30 @@ fn test_conversions() {
         (1 << 53) + 4
     );
     assert_eq!(
-        BigFloat::from_f64(f64::MAX, 200).unwrap().to_f64(),
+        BigFloat::from_f64(f64::MAX, 200)
+            .context("BigFloat::from_f64(f64::MAX, 200)")?
+            .to_f64(),
         f64::MAX
     );
     let one = BigFloat::from_i64(1, 200);
     assert_eq!(one.compare(&BigFloat::from_i64(2, 200)), Ordering::Less);
     assert_eq!(
-        BigFloat::zero(200).compare(&BigFloat::from_f64(-0.0, 200).unwrap()),
+        BigFloat::zero(200)
+            .compare(&BigFloat::from_f64(-0.0, 200).context("BigFloat::from_f64(-0.0, 200)")?),
         Ordering::Equal
     );
     assert_eq!(
-        one.quo(&BigFloat::from_i64(3, 200), 53).unwrap().text_g(-1),
+        one.quo(&BigFloat::from_i64(3, 200), 53)
+            .context("one.quo(&BigFloat::from_i64(3, 200), 53)")?
+            .text_g(-1),
         "0.3333333333333333"
     );
+    Ok(())
 }
 
 /// Go 1.27's `Text('g', p)` for p in -1, 0, 1, 2, 5, 10 and 20, `Float64` and `Int64` of each value at 200 bits.
 #[test]
-fn test_text_g_float64_and_int64_as_go_writes_them() {
+fn test_text_g_float64_and_int64_as_go_writes_them() -> TestResult {
     #[rustfmt::skip]
     let cases: [(&str, [&str; 7], f64, i64); 16] = [
         ("0", ["0", "0", "0", "0", "0", "0", "0"], 0.0, 0),
@@ -191,7 +201,8 @@ fn test_text_g_float64_and_int64_as_go_writes_them() {
         ("-0.00001", ["-1e-05", "-1e-05", "-1e-05", "-1e-05", "-1e-05", "-1e-05", "-1e-05"], -1e-05, 0),
     ];
     for (input, texts, f, i) in cases {
-        let x = BigFloat::unmarshal_text(input, BIG_FLOAT_PRECISION).unwrap();
+        let x = BigFloat::unmarshal_text(input, BIG_FLOAT_PRECISION)
+            .context("BigFloat::unmarshal_text(input, BIG_FLOAT_PRECISION)")?;
         assert_eq!(x.prec(), BIG_FLOAT_PRECISION);
         for (p, want) in [-1, 0, 1, 2, 5, 10, 20].into_iter().zip(texts) {
             assert_eq!(x.text_g(p), want, "{input} at {p}");
@@ -200,11 +211,12 @@ fn test_text_g_float64_and_int64_as_go_writes_them() {
         assert_eq!(x.to_f64().to_bits(), f.to_bits(), "{input}");
         assert_eq!(x.to_i64(), i, "{input}");
     }
+    Ok(())
 }
 
 /// Go 1.27's `new(Float).SetPrec(p).Quo(x, y)` of int64 operands, as `Text('g', -1)` writes it.
 #[test]
-fn test_quo_rounds_as_go_does() {
+fn test_quo_rounds_as_go_does() -> TestResult {
     let cases: [((i64, i64), [&str; 5]); 6] = [
         (
             (1, 3),
@@ -252,17 +264,18 @@ fn test_quo_rounds_as_go_does() {
     for ((a, b), texts) in cases {
         let (x, y) = (BigFloat::from_i64(a, 0), BigFloat::from_i64(b, 0));
         for (p, want) in [0u32, 1, 24, 53, 200].into_iter().zip(texts) {
-            let z = x.quo(&y, p).unwrap();
+            let z = x.quo(&y, p).context("x.quo(&y, p)")?;
             // A precision of 0 is the operands' 64 bits.
             assert_eq!(z.prec(), if p == 0 { 64 } else { p });
             assert_eq!(z.text_g(-1), want, "{a}/{b} at {p}");
         }
     }
+    Ok(())
 }
 
 /// Go's TestFloatQuoSmoke (math/big/float_test.go): small integer quotients at 53 bits are float64's.
 #[test]
-fn test_quo_smoke() {
+fn test_quo_smoke() -> TestResult {
     const DPREC: i32 = 3;
     const PREC: i32 = 10 + DPREC;
     for x in -10..=10 {
@@ -273,49 +286,58 @@ fn test_quo_smoke() {
             let (a, b) = (f64::from(x), f64::from(y));
             for ad in -DPREC..=DPREC {
                 for bd in -DPREC..=DPREC {
-                    let fa = BigFloat::from_f64(a, (PREC + ad) as u32).unwrap();
-                    let fb = BigFloat::from_f64(b, (PREC + bd) as u32).unwrap();
-                    let c = fa.quo(&fb, 53).unwrap();
+                    let fa = BigFloat::from_f64(a, (PREC + ad) as u32)
+                        .context("BigFloat::from_f64(a, (PREC + ad) as u32)")?;
+                    let fb = BigFloat::from_f64(b, (PREC + bd) as u32)
+                        .context("BigFloat::from_f64(b, (PREC + bd) as u32)")?;
+                    let c = fa.quo(&fb, 53).context("fa.quo(&fb, 53)")?;
                     assert_eq!(c.to_f64().to_bits(), (a / b).to_bits(), "{a}/{b}");
                 }
             }
         }
     }
+    Ok(())
 }
 
 /// Go's TestFloatCmpSpecialValues: Cmp orders ±0, finite values and ±Inf as float64 does.
 #[test]
 #[allow(clippy::approx_constant, reason = "2.71828 is Go's test value, not e")]
-fn test_compare_special_values() {
+fn test_compare_special_values() -> TestResult {
     let args = [
         f64::NEG_INFINITY,
-        -2.71828,
+        -std::f64::consts::E,
         -1.0,
         -0.0,
         0.0,
         1.0,
-        2.71828,
+        std::f64::consts::E,
         f64::INFINITY,
     ];
     for x in args {
         for y in args {
             let (bx, by) = (
-                BigFloat::from_f64(x, 53).unwrap(),
-                BigFloat::from_f64(y, 53).unwrap(),
+                BigFloat::from_f64(x, 53).context("BigFloat::from_f64(x, 53)")?,
+                BigFloat::from_f64(y, 53).context("BigFloat::from_f64(y, 53)")?,
             );
-            assert_eq!(bx.compare(&by), x.partial_cmp(&y).unwrap(), "{x} {y}");
+            assert_eq!(
+                bx.compare(&by),
+                x.partial_cmp(&y).context("x.partial_cmp(&y)")?,
+                "{x} {y}"
+            );
         }
     }
     // Magnitudes that differ only below the 53rd bit, and opposite signs of one magnitude.
-    let a = BigFloat::unmarshal_text("1.0000000000000000000000000000000000000001", 200).unwrap();
-    let b = BigFloat::unmarshal_text("1", 200).unwrap();
+    let a = BigFloat::unmarshal_text("1.0000000000000000000000000000000000000001", 200)
+        .context("BigFloat::unmarshal_text(\"1.0000000000000000000000000000...")?;
+    let b = BigFloat::unmarshal_text("1", 200).context("BigFloat::unmarshal_text(\"1\", 200)")?;
     assert_eq!(
         (a.compare(&b), b.compare(&a)),
         (Ordering::Greater, Ordering::Less)
     );
     let (na, nb) = (
-        BigFloat::unmarshal_text("-1.0000000000000000000000000000000000000001", 200).unwrap(),
-        BigFloat::unmarshal_text("-1", 200).unwrap(),
+        BigFloat::unmarshal_text("-1.0000000000000000000000000000000000000001", 200)
+            .context("BigFloat::unmarshal_text(\"-1.000000000000000000000000000...")?,
+        BigFloat::unmarshal_text("-1", 200).context("BigFloat::unmarshal_text(\"-1\", 200)")?,
     );
     assert_eq!(
         (na.compare(&nb), nb.compare(&na)),
@@ -323,11 +345,12 @@ fn test_compare_special_values() {
     );
     assert_eq!(na.compare(&a), Ordering::Less);
     assert_eq!(a.compare(&a.clone()), Ordering::Equal);
+    Ok(())
 }
 
 /// Go's TestFloatInt64 (math/big/float_test.go), each value parsed at 1000 bits as its makeFloat does.
 #[test]
-fn test_go_float_int64() {
+fn test_go_float_int64() -> TestResult {
     let cases: [(&str, i64); 25] = [
         ("-Inf", i64::MIN),
         ("-1e10000", i64::MIN),
@@ -359,14 +382,15 @@ fn test_go_float_int64() {
         ("+Inf", i64::MAX),
     ];
     for (s, want) in cases {
-        let x = BigFloat::unmarshal_text(s, 1000).unwrap();
+        let x = BigFloat::unmarshal_text(s, 1000).context("BigFloat::unmarshal_text(s, 1000)")?;
         assert_eq!(x.to_i64(), want, "{s}");
     }
+    Ok(())
 }
 
 /// Go's TestFloatFloat64 (math/big/float_test.go), each value and its negation parsed at 1000 bits.
 #[test]
-fn test_go_float_float64() {
+fn test_go_float_float64() -> TestResult {
     const SMALLEST_NORMAL: f64 = 2.2250738585072014e-308;
     let denormal = f64::from_bits;
     let cases: [(&str, f64); 49] = [
@@ -436,15 +460,16 @@ fn test_go_float_float64() {
         ("2.2250738585072012e-308", 2.2250738585072014e-308),
     ];
     for (s, want) in cases {
-        for (text, want) in [(s.to_string(), want), (format!("-{s}"), -want)] {
-            check_float64(&text, want);
+        for (text, signed_want) in [(s.to_string(), want), (format!("-{s}"), -want)] {
+            check_float64(&text, signed_want)?;
         }
     }
+    Ok(())
 }
 
 /// `text` parsed at 1000 bits gives `want` as an f64, and that f64 survives SetFloat64.
-fn check_float64(text: &str, want: f64) {
-    let x = BigFloat::unmarshal_text(text, 1000).unwrap();
+fn check_float64(text: &str, want: f64) -> TestResult {
+    let x = BigFloat::unmarshal_text(text, 1000).context("BigFloat::unmarshal_text(text, 1000)")?;
     let got = x.to_f64();
     assert_eq!(
         got.to_bits(),
@@ -453,14 +478,18 @@ fn check_float64(text: &str, want: f64) {
     );
     // SetFloat64(f).Float64() is f.
     assert_eq!(
-        BigFloat::from_f64(got, 0).unwrap().to_f64().to_bits(),
+        BigFloat::from_f64(got, 0)
+            .context("BigFloat::from_f64(got, 0)")?
+            .to_f64()
+            .to_bits(),
         got.to_bits(),
         "{text}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_unmarshal_errors() {
+fn test_unmarshal_errors() -> TestResult {
     // Go 1.27's UnmarshalText at 200 bits: the reason each text is refused.
     let refused = [
         ("NaN", "number has no digits"),
@@ -490,7 +519,9 @@ fn test_unmarshal_errors() {
     ];
     for (text, reason) in refused {
         assert_eq!(
-            BigFloat::unmarshal_text(text, 200).unwrap_err(),
+            BigFloat::unmarshal_text(text, 200)
+                .err()
+                .context("expected an error")?,
             format!("math/big: cannot unmarshal {text:?} into a *big.Float ({reason})")
         );
     }
@@ -514,6 +545,7 @@ fn test_unmarshal_errors() {
             "{text}"
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -527,21 +559,28 @@ fn test_quo_of_zero_by_zero_or_inf_by_inf_is_nan() {
 }
 
 #[test]
-fn test_a_precision_of_zero_is_gos_default() {
+fn test_a_precision_of_zero_is_gos_default() -> TestResult {
     // Go gives SetInt64 and Parse 64 bits and SetFloat64 53 at precision 0; the port divided by a zero mantissa.
     let five = BigFloat::from_i64(5, 0);
     assert_eq!(five.prec(), 64);
-    assert_eq!(BigFloat::from_f64(0.5, 0).unwrap().prec(), 53);
-    let two = BigFloat::unmarshal_text("2", 0).unwrap();
+    assert_eq!(
+        BigFloat::from_f64(0.5, 0)
+            .context("BigFloat::from_f64(0.5, 0)")?
+            .prec(),
+        53
+    );
+    let two = BigFloat::unmarshal_text("2", 0).context("BigFloat::unmarshal_text(\"2\", 0)")?;
     assert_eq!(two.prec(), 64);
-    let q = five.quo(&two, 0).unwrap();
+    let q = five.quo(&two, 0).context("five.quo(&two, 0)")?;
     assert_eq!((q.prec(), q.text_g(-1)), (64, "2.5".to_string()));
-    let ten = BigFloat::unmarshal_text("1e1", u32::MAX).unwrap();
+    let ten = BigFloat::unmarshal_text("1e1", u32::MAX)
+        .context("BigFloat::unmarshal_text(\"1e1\", u32::MAX)")?;
     assert_eq!((ten.prec(), ten.to_i64()), (u32::MAX, 10));
+    Ok(())
 }
 
 #[test]
-fn test_an_exponent_past_int64_is_an_overflow() {
+fn test_an_exponent_past_int64_is_an_overflow() -> TestResult {
     // Go's int64 sums wrap here; the port's overflowed.
     for text in [
         "1.5e-9223372036854775808",
@@ -549,16 +588,19 @@ fn test_an_exponent_past_int64_is_an_overflow() {
         "0x1.8p-9223372036854775808",
     ] {
         assert_eq!(
-            BigFloat::unmarshal_text(text, 200).unwrap_err(),
+            BigFloat::unmarshal_text(text, 200)
+                .err()
+                .context("expected an error")?,
             format!("math/big: cannot unmarshal {text:?} into a *big.Float (exponent overflow)")
         );
     }
+    Ok(())
 }
 
 /// Go 1.27's TestRoundShortestNormal (math/big/floatconv_test.go, go.dev/issue/80206) and its neighbours: Go 1.27's
 /// `Text('g', -1)` of a float64 at 53 bits.
 #[test]
-fn test_round_shortest_of_float64_as_go_1_27_writes_it() {
+fn test_round_shortest_of_float64_as_go_1_27_writes_it() -> TestResult {
     // (value, Go 1.27's Text('g', -1) at 53 bits, strconv.FormatFloat's text); a trailing comment is the 17-digit
     // text one unit lower in the last digit, which TestRoundShortestNormal rules out.
     let cases: [(f64, &str); 15] = [
@@ -583,6 +625,13 @@ fn test_round_shortest_of_float64_as_go_1_27_writes_it() {
         (2.225073858507201e-308, "2.225073858507201e-308"),
     ];
     for (x, want) in cases {
-        assert_eq!(BigFloat::from_f64(x, 53).unwrap().text_g(-1), want, "{x:e}");
+        assert_eq!(
+            BigFloat::from_f64(x, 53)
+                .context("BigFloat::from_f64(x, 53)")?
+                .text_g(-1),
+            want,
+            "{x:e}"
+        );
     }
+    Ok(())
 }

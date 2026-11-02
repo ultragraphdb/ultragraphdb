@@ -2841,6 +2841,7 @@ dependencies = [
  "dashu-int",
  "ultragraphdb_error_json",
  "ultragraphdb_error_num",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -2972,6 +2973,9 @@ dependencies = [
 [[package]]
 name = "ultragraphdb_error_invariant"
 version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
 
 [[package]]
 name = "ultragraphdb_error_json"
@@ -3008,6 +3012,7 @@ dependencies = [
  "stringprep",
  "subtle",
  "ultragraphdb_protocol_transport",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3016,6 +3021,7 @@ version = "0.1.0"
 dependencies = [
  "ultragraphdb_error_protocol",
  "ultragraphdb_protocol_wire",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3067,6 +3073,7 @@ dependencies = [
  "ultragraphdb_core_terms",
  "ultragraphdb_core_tok",
  "ultragraphdb_core_types",
+ "ultragraphdb_error_invariant",
  "ultragraphdb_error_store",
  "ultragraphdb_store_hnsw",
  "ultragraphdb_store_posting",
@@ -3197,6 +3204,7 @@ dependencies = [
  "ultragraphdb_store_apply",
  "ultragraphdb_store_kv",
  "ultragraphdb_store_posting",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_log",
  "ultragraphdb_traits_store",
  "ultragraphdb_transactions_commit",
@@ -3222,12 +3230,16 @@ dependencies = [
  "ultragraphdb_store_posting",
  "ultragraphdb_store_quads",
  "ultragraphdb_store_sim",
+ "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
 ]
 
 [[package]]
 name = "ultragraphdb_traits_collator"
 version = "0.1.0"
+dependencies = [
+ "ultragraphdb_tool_bdd",
+]
 
 [[package]]
 name = "ultragraphdb_traits_index"
@@ -3235,6 +3247,7 @@ version = "0.1.0"
 dependencies = [
  "ultragraphdb_common_utils",
  "ultragraphdb_error_options",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]
@@ -3249,6 +3262,7 @@ name = "ultragraphdb_traits_store"
 version = "0.1.0"
 dependencies = [
  "ultragraphdb_error_store",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]

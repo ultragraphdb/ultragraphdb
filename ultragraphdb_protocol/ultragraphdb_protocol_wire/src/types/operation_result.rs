@@ -13,6 +13,7 @@ pub struct OperationResult {
 }
 
 impl OperationResult {
+    /// The result naming `uid`, created or found.
     pub fn new(uid: u64, created: bool) -> Self {
         Self { uid, created }
     }
@@ -26,6 +27,7 @@ impl OperationResult {
         }
     }
 
+    /// The UID of the node found or created; a counter add's new value in two's complement.
     pub fn uid(&self) -> u64 {
         self.uid
     }
@@ -36,6 +38,7 @@ impl OperationResult {
         self.uid.cast_signed()
     }
 
+    /// Whether the operation created the node.
     pub fn created(&self) -> bool {
         self.created
     }

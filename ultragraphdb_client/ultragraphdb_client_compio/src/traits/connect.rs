@@ -10,6 +10,7 @@ use compio::io::{AsyncRead, AsyncWrite};
 
 /// How the client opens a connection: a new compio stream to the server each time it is asked.
 pub trait Connect {
+    /// The stream a connection is read and written through.
     type Stream: AsyncRead + AsyncWrite;
 
     /// A new stream to the server.

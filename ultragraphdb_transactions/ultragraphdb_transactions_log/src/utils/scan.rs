@@ -87,11 +87,15 @@ fn check_body(bytes: &[u8], round: &ScannedRound, checksum_body: u64) -> Result<
     ChunkedBody::verify(body, checksum_body)
         .map(|_| ())
         .map_err(|refusal| match refusal.0 {
-            ProtocolErrorEnum::Chunk { index, start, end } => Damage::Chunk {
+            ProtocolErrorEnum::Chunk {
+                index,
+                start: chunk_start,
+                end: chunk_end,
+            } => Damage::Chunk {
                 position: round.position(),
                 index,
-                start,
-                end,
+                start: chunk_start,
+                end: chunk_end,
             },
             // The table failed checksum_body, or the body's length has no table to fail.
             ProtocolErrorEnum::ShortHeader { .. }

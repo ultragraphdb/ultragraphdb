@@ -11,10 +11,12 @@ pub struct RecordEntry<'a> {
 }
 
 impl<'a> RecordEntry<'a> {
+    /// The entry of `key` and `value`, `None` for a removal.
     pub fn new(key: &'a [u8], value: Option<&'a [u8]>) -> Self {
         Self { key, value }
     }
 
+    /// The key.
     pub fn key(&self) -> &'a [u8] {
         self.key
     }

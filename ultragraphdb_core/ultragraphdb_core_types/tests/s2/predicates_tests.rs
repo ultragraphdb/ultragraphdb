@@ -14,6 +14,7 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     Angle, Direction, Loop, Point, R3Vector, angle_contains_vertex, robust_sign, sign,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 #[derive(Deserialize)]
 pub struct SignCase {
@@ -55,11 +56,11 @@ pub struct Golden {
 }
 
 #[test]
-fn signs_match_go() {
-    let g: Golden = load("predicates.json");
+fn signs_match_go() -> TestResult {
+    let g: Golden = load("predicates.json")?;
     let mut c = Checker::new("predicates");
     for k in &g.signs {
-        let (a, b, p) = (pt(&k.a), pt(&k.b), pt(&k.c));
+        let (a, b, p) = (pt(&k.a)?, pt(&k.b)?, pt(&k.c)?);
         c.check(sign(a, b, p) == k.sign, || {
             format!("sign({a:?}, {b:?}, {p:?})")
         });
@@ -73,6 +74,7 @@ fn signs_match_go() {
         });
     }
     c.finish();
+    Ok(())
 }
 
 fn p(x: f64, y: f64, z: f64) -> Point {

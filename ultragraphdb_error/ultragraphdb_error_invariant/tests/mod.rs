@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The tests of `ultragraphdb_error_invariant`, mirroring `src/`.
 #[cfg(test)]
 mod errors;
 #[cfg(test)]

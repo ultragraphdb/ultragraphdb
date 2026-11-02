@@ -150,7 +150,7 @@ where
         let mut rebuild = Rebuild::pending(namespace, uid, old, new);
         rebuild.record = record;
         rebuild.start_ts = self.quads.lists().applied_ts();
-        self.begin(rebuild);
+        let _record: u64 = self.begin(rebuild);
         Ok(true)
     }
 }

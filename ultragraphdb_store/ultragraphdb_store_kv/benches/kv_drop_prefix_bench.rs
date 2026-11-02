@@ -13,7 +13,10 @@
 #[allow(dead_code)]
 mod bench_dir;
 
-use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main,
+};
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::Durability;
 use ultragraphdb_traits_store::Store;
 
@@ -21,30 +24,36 @@ use crate::bench_dir::{BenchStore, fill};
 
 const DROPPED: u64 = 100_000;
 
-fn with_prefix() -> BenchStore {
-    let bench = BenchStore::open("drop", Durability::Process);
-    fill(bench.store(), b"\x00d", DROPPED, 2, 64);
-    fill(bench.store(), b"\x00k", 1_000, 2, 64);
-    bench
+fn with_prefix() -> Result<BenchStore, StoreError> {
+    let bench = BenchStore::open("drop", Durability::Process)?;
+    fill(bench.store(), b"\x00d", DROPPED, 2, 64)?;
+    fill(bench.store(), b"\x00k", 1_000, 2, 64)?;
+    Ok(bench)
 }
 
 fn prefix_drop(c: &mut Criterion) {
     let mut group = c.benchmark_group("kv_drop_prefix");
-    group.sample_size(10);
-    group.throughput(Throughput::Elements(DROPPED));
-    group.bench_function("100k_keys", |b| {
-        b.iter_batched(
-            with_prefix,
-            |bench| {
-                bench
-                    .store()
-                    .drop_prefixes(9, &[b"\x00d".to_vec()], Vec::new())
-                    .expect("the prefix drops");
-                bench
-            },
-            BatchSize::PerIteration,
-        )
-    });
+    let _measured: &mut BenchmarkGroup<'_, _> = group
+        .sample_size(10)
+        .throughput(Throughput::Elements(DROPPED))
+        .bench_function("100k_keys", |b| {
+            b.iter_batched(
+                with_prefix,
+                |bench| {
+                    let dropped = bench.as_ref().map(|bench| {
+                        bench
+                            .store()
+                            .drop_prefixes(9, &[b"\x00d".to_vec()], Vec::new())
+                    });
+                    assert!(
+                        matches!(dropped, Ok(Ok(()))),
+                        "the store fills and the prefix drops: {dropped:?}"
+                    );
+                    bench
+                },
+                BatchSize::PerIteration,
+            )
+        });
     group.finish();
 }
 

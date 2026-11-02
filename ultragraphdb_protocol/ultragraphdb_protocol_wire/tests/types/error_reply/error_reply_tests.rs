@@ -5,11 +5,12 @@
 
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply, RequestTerm};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
 #[test]
-fn test_error_replies_build_the_golden_frames() {
+fn test_error_replies_build_the_golden_frames() -> TestResult {
     let conflict =
         ErrorReply::new(ErrorCode::Conflict, "conflict on a scanned range").with_detail(3);
     assert_eq!(conflict.code(), ErrorCode::Conflict);
@@ -18,8 +19,8 @@ fn test_error_replies_build_the_golden_frames() {
     assert_eq!(conflict.value(), None);
     assert!(conflict.retryable());
     assert_eq!(
-        conflict.frame(golden("error").header()).unwrap(),
-        golden("error").bytes()
+        conflict.frame(golden("error")?.header())?,
+        golden("error")?.bytes()?
     );
     let failed = ErrorReply::new(
         ErrorCode::OperationFailed,
@@ -38,9 +39,10 @@ fn test_error_replies_build_the_golden_frames() {
     );
     assert!(!failed.retryable());
     assert_eq!(
-        failed.frame(golden("error_operation").header()).unwrap(),
-        golden("error_operation").bytes()
+        failed.frame(golden("error_operation")?.header())?,
+        golden("error_operation")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

@@ -99,6 +99,7 @@ impl Resolver {
         self.history.prune(floor);
     }
 
+    /// The conflict history the resolver checks against.
     pub fn history(&self) -> &ConflictHistory {
         &self.history
     }

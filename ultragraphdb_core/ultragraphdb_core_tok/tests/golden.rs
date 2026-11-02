@@ -7,20 +7,21 @@
 //! analysis differs from Dgraph's.
 
 use serde::de::DeserializeOwned;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The cases of `testdata/golden/<name>.json`.
-pub(crate) fn cases<T: DeserializeOwned + Clone>(name: &str) -> Vec<T> {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/{name}.json"));
-    ultragraphdb_tool_bdd::load_golden::<T>(&path)
+pub(crate) fn cases<T: DeserializeOwned + Clone>(name: &str) -> TestResult<Vec<T>> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join(format!("golden/{name}.json"));
+    Ok(ultragraphdb_tool_bdd::load_golden::<T>(&path)?
         .cases()
-        .to_vec()
+        .to_vec())
 }
 
 /// The bytes of a hex string.
-pub(crate) fn unhex(s: &str) -> Vec<u8> {
+pub(crate) fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
@@ -51,8 +52,8 @@ pub(crate) fn digests_masked(tokenizer: &str, sorted: bool, tokens: Vec<Vec<u8>>
 }
 
 /// The text of a hex string; the generator writes valid UTF-8 only, as every string value is.
-pub(crate) fn untext(s: &str) -> String {
-    String::from_utf8(unhex(s)).expect("the golden text is UTF-8")
+pub(crate) fn untext(s: &str) -> TestResult<String> {
+    String::from_utf8(unhex(s)?).context("the golden text is UTF-8")
 }
 
 /// The golden inputs whose analyzed terms differ from Dgraph's, with the ledger entry

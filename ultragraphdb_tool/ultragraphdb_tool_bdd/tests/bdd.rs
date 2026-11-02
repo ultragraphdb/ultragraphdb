@@ -3,18 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The harness's own scenarios: a golden mismatch is reported naming the input and both values.
+
 use std::num::ParseIntError;
 use std::str::FromStr;
 
 use cucumber::{World, given, then, when};
-use ultragraphdb_tool_bdd::{compare_bytes, features_dir};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, compare_bytes, features_dir};
 
 #[derive(Debug, Default, World)]
 struct HarnessWorld {
     expected: Vec<u8>,
     actual: Vec<u8>,
     input: String,
-    compared: Option<Result<(), String>>,
+    compared: Option<TestResult>,
 }
 
 /// Bytes a step names in hex, `0a ff`.
@@ -44,14 +46,12 @@ fn compare(w: &mut HarnessWorld, bytes: HexBytes) {
 }
 
 #[then(expr = "the comparison fails and reports {string}, {string} and {string}")]
-fn compare_fails(w: &mut HarnessWorld, reported: &[String]) {
-    let err = w
-        .compared
-        .clone()
-        .expect("a comparison ran")
-        .expect_err("the comparison failed");
+fn compare_fails(w: &mut HarnessWorld, reported: &[String]) -> TestResult {
+    let Err(err) = w.compared.clone().context("a comparison ran")? else {
+        return Err(TestError::new("the comparison failed"));
+    };
     // Each value must be reported on its own line, so swapping expected and actual cannot pass.
-    let lines: Vec<&str> = err.lines().collect();
+    let lines: Vec<&str> = err.reason().lines().collect();
     assert_eq!(
         lines,
         [
@@ -61,12 +61,14 @@ fn compare_fails(w: &mut HarnessWorld, reported: &[String]) {
         ],
         "{err}"
     );
+    Ok(())
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         HarnessWorld::cucumber()
             .fail_on_skipped()
-            .run_and_exit(features_dir()),
+            .run_and_exit(features_dir()?),
     );
+    Ok(())
 }

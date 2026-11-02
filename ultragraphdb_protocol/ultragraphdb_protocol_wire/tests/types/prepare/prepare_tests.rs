@@ -6,6 +6,7 @@
 use ultragraphdb_protocol_wire::{
     BodyBuilder, ColumnType, PatternSlot, Prepare, QuadPattern, TermTable,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
@@ -25,7 +26,7 @@ pub fn pattern() -> (TermTable, QuadPattern) {
 }
 
 #[test]
-fn test_prepare_and_its_reply_build_the_golden_frames() {
+fn test_prepare_and_its_reply_build_the_golden_frames() -> TestResult {
     let (terms, p) = pattern();
     let request = Prepare::new(
         0,
@@ -37,8 +38,8 @@ fn test_prepare_and_its_reply_build_the_golden_frames() {
         Vec::new(),
     );
     assert_eq!(
-        request.frame(golden("prepare").header()).unwrap(),
-        golden("prepare").bytes()
+        request.frame(golden("prepare")?.header())?,
+        golden("prepare")?.bytes()?
     );
     let reply = Prepare::new(
         0,
@@ -50,8 +51,8 @@ fn test_prepare_and_its_reply_build_the_golden_frames() {
         vec![ColumnType::Term],
     );
     assert_eq!(
-        reply.frame(golden("prepare_reply").header()).unwrap(),
-        golden("prepare_reply").bytes()
+        reply.frame(golden("prepare_reply")?.header())?,
+        golden("prepare_reply")?.bytes()?
     );
     assert_eq!(
         (reply.namespace(), reply.statement(), reply.schema()),
@@ -61,4 +62,5 @@ fn test_prepare_and_its_reply_build_the_golden_frames() {
     assert_eq!(reply.pattern(), &p);
     assert_eq!(reply.parameter_types(), &[ColumnType::Node]);
     assert_eq!(reply.result_types(), &[ColumnType::Term]);
+    Ok(())
 }

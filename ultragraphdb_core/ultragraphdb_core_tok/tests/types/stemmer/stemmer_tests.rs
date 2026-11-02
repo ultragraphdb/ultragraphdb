@@ -8,6 +8,7 @@ use ultragraphdb_core_tok::{AnalysisToken, Stemmer, TokenType, analyze};
 
 use crate::golden::cases;
 use crate::utils::bleve_tests::check_streams;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Debug, Clone, Deserialize)]
 struct StemmerCase {
@@ -16,14 +17,14 @@ struct StemmerCase {
 }
 
 #[test]
-fn test_stemmers_golden() {
-    let cases: Vec<StemmerCase> = cases("tok_stemmers");
+fn test_stemmers_golden() -> TestResult {
+    let cases: Vec<StemmerCase> = cases("tok_stemmers")?;
     assert_eq!(cases.len(), 18);
     let mut failures = Vec::new();
     for c in &cases {
         let s = Stemmer::named(&c.filter)
             .ok_or_else(|| format!("no stemmer {}", c.filter))
-            .expect("a stemmer");
+            .context("a stemmer")?;
         assert_eq!(s.name(), c.filter);
         let bad: Vec<String> = c
             .words
@@ -42,16 +43,18 @@ fn test_stemmers_golden() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 #[test]
-fn test_cjk_bigram_golden() {
-    let cjk = Stemmer::named("cjk_bigram").unwrap();
-    check_streams("tok_cjk_bigram", |input| cjk.filter(analyze(input)));
+fn test_cjk_bigram_golden() -> TestResult {
+    let cjk = Stemmer::named("cjk_bigram").context("Stemmer::named(\"cjk_bigram\")")?;
+    check_streams("tok_cjk_bigram", |input| cjk.filter(analyze(input)))?;
+    Ok(())
 }
 
 #[test]
-fn test_stemmer_for_lang() {
+fn test_stemmer_for_lang() -> TestResult {
     // Dgraph's langStemmers (tok/stemmers.go), whole.
     let lang_stemmers = [
         ("ar", "stemmer_ar"),
@@ -79,7 +82,7 @@ fn test_stemmer_for_lang() {
     for (lang, name) in lang_stemmers {
         let s = Stemmer::for_lang(lang)
             .ok_or_else(|| format!("no stemmer for {lang}"))
-            .expect("a stemmer");
+            .context("a stemmer")?;
         assert_eq!(s.name(), name, "{lang}");
         assert_eq!(Stemmer::named(name), Some(s), "{name}");
     }
@@ -91,12 +94,12 @@ fn test_stemmer_for_lang() {
         assert_eq!(Stemmer::named(name), None, "{name:?}");
     }
     let out = Stemmer::for_lang("de")
-        .unwrap()
+        .context("the stemmer of de")?
         .filter(vec![AnalysisToken::of("katzen")]);
     assert_eq!(out, vec![AnalysisToken::of("katz")]);
     // A stemmer changes the term and keeps the token's offsets and type.
-    let out = Stemmer::for_lang("en")
-        .unwrap()
+    let en_out = Stemmer::for_lang("en")
+        .context("the stemmer of en")?
         .filter(vec![AnalysisToken::new(
             "foxes",
             4,
@@ -104,15 +107,21 @@ fn test_stemmer_for_lang() {
             TokenType::AlphaNumeric,
         )]);
     assert_eq!(
-        out,
+        en_out,
         vec![AnalysisToken::new("fox", 4, 9, TokenType::AlphaNumeric)]
     );
     // cjk_bigram works on the stream; one term it keeps.
-    assert_eq!(Stemmer::named("cjk_bigram").unwrap().stem("他是"), "他是");
+    assert_eq!(
+        Stemmer::named("cjk_bigram")
+            .context("Stemmer::named(\"cjk_bigram\")")?
+            .stem("他是"),
+        "他是"
+    );
     assert!(
         Stemmer::named("cjk_bigram")
-            .unwrap()
+            .context("the cjk_bigram stemmer")?
             .filter(Vec::new())
             .is_empty()
     );
+    Ok(())
 }

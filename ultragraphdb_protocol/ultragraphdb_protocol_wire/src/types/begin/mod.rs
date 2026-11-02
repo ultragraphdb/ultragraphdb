@@ -22,6 +22,7 @@ pub struct Begin {
 }
 
 impl Begin {
+    /// A transaction in `namespace` reading at `read_version`, read-only or read-write.
     pub fn new(namespace: u64, read_version: u64, read_only: bool) -> Self {
         Self {
             namespace,
@@ -30,14 +31,17 @@ impl Begin {
         }
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot version the transaction reads at.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// Whether the transaction is read-only.
     pub fn read_only(&self) -> bool {
         self.read_only
     }

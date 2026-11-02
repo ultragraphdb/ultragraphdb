@@ -40,10 +40,12 @@ impl Names {
         }
     }
 
+    /// The base IRI.
     pub fn base(&self) -> &str {
         &self.base
     }
 
+    /// The IRI `name` names: `name` itself when it holds a `:`, else `name` under the base.
     pub fn iri(&self, name: &str) -> NamedNode {
         if name.contains(':') {
             NamedNode::new_unchecked(name)
@@ -52,6 +54,7 @@ impl Names {
         }
     }
 
+    /// The name of `iri`: the part after the base when `iri` is under it and that part is a name, else the whole IRI.
     pub fn name(&self, iri: &NamedNode) -> String {
         match iri.as_str().strip_prefix(&self.base) {
             Some(name) if !name.is_empty() && !name.contains(':') => name.to_string(),

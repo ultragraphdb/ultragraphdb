@@ -7,11 +7,12 @@ use tracing::Level;
 use ultragraphdb_core_tok::{get_index_factory, get_tokenizer};
 use ultragraphdb_core_types::{TypeId, Value};
 use ultragraphdb_store_sim::LogCapture;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{Metric, OptionValue, Options};
 
 #[test]
-fn test_hnsw_factory() {
-    let f = get_index_factory("hnsw").unwrap();
+fn test_hnsw_factory() -> TestResult {
+    let f = get_index_factory("hnsw").context("get_index_factory(\"hnsw\")")?;
     assert_eq!(f.name(), "hnsw");
     assert_eq!(f.float_bits(), 32);
     assert!(get_index_factory("HNSW").is_none());
@@ -30,14 +31,16 @@ fn test_hnsw_factory() {
     assert_eq!(
         f.allowed_options()
             .get_parsed_option("metric", "manhattan")
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Can't create a vector index for manhattan"
     );
     assert_eq!(f.get_options(&Options::new()), "");
     // GetPersistantOptions prints the set options in its own order, whatever order they were set in.
     let mut o = Options::new();
-    o.set_opt("metric", OptionValue::Metric(Metric::Cosine))
+    let _options: &mut Options = o
+        .set_opt("metric", OptionValue::Metric(Metric::Cosine))
         .set_opt("efSearch", OptionValue::Int(40))
         .set_opt("efConstruction", OptionValue::Int(-1))
         .set_opt("maxLevels", OptionValue::Int(0))
@@ -47,16 +50,18 @@ fn test_hnsw_factory() {
         "(\"exponent\":\"9223372036854775807\",\"maxLevels\":\"0\",\"efConstruction\":\"-1\",\
          \"efSearch\":\"40\",\"metric\":\"cosine\")"
     );
-    let mut o = Options::new();
-    o.set_opt("efSearch", OptionValue::Int(7));
-    assert_eq!(f.get_options(&o), "(\"efSearch\":\"7\")");
+    let mut ef_only = Options::new();
+    let _ef_only_options: &mut Options = ef_only.set_opt("efSearch", OptionValue::Int(7));
+    assert_eq!(f.get_options(&ef_only), "(\"efSearch\":\"7\")");
+    Ok(())
 }
 
 #[test]
-fn test_hnsw_get_options_of_wrong_types() {
-    let f = get_index_factory("hnsw").unwrap();
+fn test_hnsw_get_options_of_wrong_types() -> TestResult {
+    let f = get_index_factory("hnsw").context("get_index_factory(\"hnsw\")")?;
     let mut o = Options::new();
-    o.set_opt("exponent", OptionValue::Str("x".into()))
+    let _options: &mut Options = o
+        .set_opt("exponent", OptionValue::Str("x".into()))
         .set_opt("metric", OptionValue::Int(1));
     // Go prints the default 3 for an int option of another type, and an empty metric name, logging the metric's
     // failed cast (persistent_hnsw.go's GetPersistantOptions).
@@ -68,25 +73,27 @@ fn test_hnsw_get_options_of_wrong_types() {
     assert_eq!(events[0].level(), Level::ERROR);
     assert_eq!(events[0].message(), Some("cannot cast to SimilarityType"));
     assert_eq!(events[0].field("value_type"), Some("int"));
-    o.set_opt("metric", OptionValue::Metric(Metric::DotProduct));
+    let _dot_product: &mut Options = o.set_opt("metric", OptionValue::Metric(Metric::DotProduct));
     assert_eq!(
         f.get_options(&o),
         "(\"exponent\":\"3\",\"metric\":\"dotproduct\")"
     );
+    Ok(())
 }
 
 #[test]
-fn test_hnsw_as_tokenizer() {
-    let t = get_tokenizer("hnsw").unwrap();
+fn test_hnsw_as_tokenizer() -> TestResult {
+    let t = get_tokenizer("hnsw").context("get_tokenizer(\"hnsw\")")?;
     assert_eq!(t.identifier(), 0x0E);
     assert!(t.is_valid_for(TypeId::VFLOAT));
-    let f = t.index_factory().expect("hnsw is a factory");
+    let f = t.index_factory().context("hnsw is a factory")?;
     assert_eq!((f.name(), f.float_bits()), ("hnsw", 32));
     assert_eq!(t.type_name(), "float32vector");
     assert_eq!(
-        t.tokens(&Value::VFloat(vec![1.0])).unwrap(),
+        t.tokens(&Value::VFloat(vec![1.0]))?,
         vec![b"float".to_vec()]
     );
+    Ok(())
 }
 
 #[test]

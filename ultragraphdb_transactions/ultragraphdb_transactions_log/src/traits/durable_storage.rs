@@ -17,6 +17,7 @@ use crate::types::open_mode::OpenMode;
 /// directory's entries (a created, renamed or removed file) once [`sync_directory`](Self::sync_directory) of that
 /// directory completes. Syncing a directory does not sync the directories inside it.
 pub trait DurableStorage {
+    /// The file an open returns.
     type File: DurableFile;
 
     /// Opens the file at `path` as `mode` says, for reads and writes at any offset.

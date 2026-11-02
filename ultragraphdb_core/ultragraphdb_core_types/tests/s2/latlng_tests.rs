@@ -12,6 +12,7 @@
 use super::golden::{Checker, cell, f, hx, load, pt, same, same_point};
 use serde::Deserialize;
 use ultragraphdb_core_types::{CellId, LatLng, Point};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize)]
 struct Case {
@@ -32,14 +33,14 @@ struct Case {
 }
 
 #[test]
-fn latlng_point_and_cell_match_go() {
-    let cases: Vec<Case> = load("latlng.json");
+fn latlng_point_and_cell_match_go() -> TestResult {
+    let cases: Vec<Case> = load("latlng.json")?;
     let mut c = Checker::new("latlng");
     for k in &cases {
-        let ll = LatLng::from_degrees(f(&k.lat_deg), f(&k.lng_deg));
+        let ll = LatLng::from_degrees(f(&k.lat_deg)?, f(&k.lng_deg)?);
         let tag = format!("({}, {})", k.lat_deg, k.lng_deg);
         c.check(
-            same(ll.lat().radians(), f(&k.lat_rad)) && same(ll.lng().radians(), f(&k.lng_rad)),
+            same(ll.lat().radians(), f(&k.lat_rad)?) && same(ll.lng().radians(), f(&k.lng_rad)?),
             || {
                 format!(
                     "{tag} radians {} {} want {} {}",
@@ -51,13 +52,13 @@ fn latlng_point_and_cell_match_go() {
             },
         );
         let p = Point::from_lat_lng(ll);
-        c.check(same_point(p, &k.point), || {
+        c.check(same_point(p, &k.point)?, || {
             format!("{tag} point {p:?} want {:?}", k.point)
         });
         let back = LatLng::from_point(p);
         c.check(
-            same(back.lat().radians(), f(&k.back_lat))
-                && same(back.lng().radians(), f(&k.back_lng)),
+            same(back.lat().radians(), f(&k.back_lat)?)
+                && same(back.lng().radians(), f(&k.back_lng)?),
             || {
                 format!(
                     "{tag} back {} {} want {} {}",
@@ -69,8 +70,8 @@ fn latlng_point_and_cell_match_go() {
             },
         );
         c.check(
-            same(back.lat().degrees(), f(&k.back_lat_deg))
-                && same(back.lng().degrees(), f(&k.back_lng_deg)),
+            same(back.lat().degrees(), f(&k.back_lat_deg)?)
+                && same(back.lng().degrees(), f(&k.back_lng_deg)?),
             || {
                 format!(
                     "{tag} back degrees {} {}",
@@ -80,14 +81,14 @@ fn latlng_point_and_cell_match_go() {
             },
         );
         let id = CellId::from_lat_lng(ll);
-        c.check(id == cell(&k.cell), || {
+        c.check(id == cell(&k.cell)?, || {
             format!("{tag} cell {:016x} want {}", id.id(), k.cell)
         });
         c.check(id.face() == k.face && id.level() == k.level, || {
             format!("{tag} face/level {} {}", id.face(), id.level())
         });
         for (l, (t, lv)) in k.tokens.iter().zip(&k.levels).enumerate() {
-            let parent = id.parent(i64::try_from(l).expect("fits i64"));
+            let parent = id.parent(i64::try_from(l).context("fits i64")?);
             c.check(&parent.to_token() == t && parent.level() == *lv, || {
                 format!(
                     "{tag} parent({l}) {} level {} want {t} {lv}",
@@ -98,6 +99,7 @@ fn latlng_point_and_cell_match_go() {
         }
     }
     c.finish();
+    Ok(())
 }
 
 // Ported from golang/geo s2/latlng_test.go, TestLatLngPointConversion.
@@ -179,18 +181,19 @@ struct FmaCase {
 /// A lat/lng whose point and latitude read back differ in their last bit when Go fuses multiply-adds, as it does on
 /// arm64 (ledger 11): the port computes the unfused values, which Go computes on Dgraph's default amd64 builds.
 #[test]
-fn latlng_point_is_computed_unfused() {
-    let k: FmaCase = load("fma.json");
+fn latlng_point_is_computed_unfused() -> TestResult {
+    let k: FmaCase = load("fma.json")?;
     assert!(
-        !same_point(pt(&k.fused_point), &k.point) && k.back_lat != k.fused_back_lat,
+        !same_point(pt(&k.fused_point)?, &k.point)? && k.back_lat != k.fused_back_lat,
         "the vector separates fused from unfused arithmetic"
     );
-    let p = Point::from_lat_lng(LatLng::from_degrees(f(&k.lat_deg), f(&k.lng_deg)));
+    let p = Point::from_lat_lng(LatLng::from_degrees(f(&k.lat_deg)?, f(&k.lng_deg)?));
     assert!(
-        same_point(p, &k.point),
+        same_point(p, &k.point)?,
         "point {p:?}, Go unfused {:?}",
         k.point
     );
     let back = LatLng::from_point(p).lat().radians();
     assert_eq!(hx(back), k.back_lat, "Go fused {}", k.fused_back_lat);
+    Ok(())
 }

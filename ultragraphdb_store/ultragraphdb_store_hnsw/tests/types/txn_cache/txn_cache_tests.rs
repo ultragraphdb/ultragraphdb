@@ -7,13 +7,13 @@ use ultragraphdb_store_hnsw::{HnswError, TxnCache};
 use ultragraphdb_traits_index::{CacheType, KeyValue, Txn};
 
 use crate::utils::helpers::{InMemTxn, TsDbs};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_a_txn_cache_reads_through_its_transaction_at_its_timestamp() {
+fn test_a_txn_cache_reads_through_its_transaction_at_its_timestamp() -> TestResult {
     let dbs = TsDbs::default();
     let txn = InMemTxn::new(&dbs, 3, 5);
-    txn.add_mutation(b"k", &KeyValue::new(1, "a", b"v".to_vec()))
-        .unwrap();
+    txn.add_mutation(b"k", &KeyValue::new(1, "a", b"v".to_vec()))?;
     let at_start = TxnCache::new(&txn, 3);
     assert_eq!(at_start.ts(), 3);
     assert_eq!(
@@ -27,4 +27,5 @@ fn test_a_txn_cache_reads_through_its_transaction_at_its_timestamp() {
     assert_eq!(tc.get(b"k"), Ok(b"v".to_vec()));
     assert_eq!(tc.find(b"", |v| v == b"v"), Ok(1));
     assert_eq!(tc.txn().start_ts(), 7);
+    Ok(())
 }

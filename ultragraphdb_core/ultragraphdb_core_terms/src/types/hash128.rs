@@ -18,10 +18,12 @@ impl Hash128 {
         Self(out)
     }
 
+    /// The hash with the bytes `bytes`.
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
         Self(bytes)
     }
 
+    /// The hash's bytes.
     pub fn as_bytes(&self) -> &[u8; 16] {
         &self.0
     }

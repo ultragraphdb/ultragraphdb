@@ -17,26 +17,27 @@ pub struct ReadCounts {
 }
 
 impl ReadCounts {
+    /// Counts of nothing yet.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// A cache lookup, and whether it found an entry.
     pub fn lookup(&self, hit: bool) {
-        self.lookups.fetch_add(1, Ordering::Relaxed);
+        let _lookups: u64 = self.lookups.fetch_add(1, Ordering::Relaxed);
         if hit {
-            self.hits.fetch_add(1, Ordering::Relaxed);
+            let _hits: u64 = self.hits.fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// A read of a key's versions from the store.
     pub fn store_read(&self) {
-        self.store_reads.fetch_add(1, Ordering::Relaxed);
+        let _store_reads: u64 = self.store_reads.fetch_add(1, Ordering::Relaxed);
     }
 
     /// A read of a key's versions that found none.
     pub fn empty_read(&self) {
-        self.empty_reads.fetch_add(1, Ordering::Relaxed);
+        let _empty_reads: u64 = self.empty_reads.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The lookups, hits, store reads and empty reads so far.

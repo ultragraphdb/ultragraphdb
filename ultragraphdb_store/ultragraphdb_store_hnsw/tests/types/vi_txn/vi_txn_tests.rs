@@ -25,8 +25,9 @@ use crate::types::persistent_hnsw::persistent_hnsw_golden_tests::{
 };
 use crate::utils::helpers::{
     delete, draws, index_value, insert, key, lists_over, new_lists, new_store, opts, pred,
-    set_vector, translated, vkeys,
+    set_vector, translated, vector_encoding, vkeys,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The bytes of `v`'s elements, little-endian.
 fn elements(v: &[f32]) -> Vec<u8> {
@@ -34,11 +35,11 @@ fn elements(v: &[f32]) -> Vec<u8> {
 }
 
 #[test]
-fn test_reads_see_the_requests_writes_and_absence_is_no_value() {
+fn test_reads_see_the_requests_writes_and_absence_is_no_value() -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
     let mut request = lists.request(lists.applied_ts());
-    set_vector(&mut request, &p, 7, &[1.0, 2.0]).unwrap();
+    set_vector(&mut request, &p, 7, vector_encoding(&[1.0, 2.0])?)?;
     let txn = ViTxn::new(&mut request);
     assert_eq!(Txn::get(&txn, &key(&p, 7)), Ok(elements(&[1.0, 2.0])));
     assert_eq!(Txn::get(&txn, &key(&p, 8)), Err(HnswError::NoValue()));
@@ -47,8 +48,7 @@ fn test_reads_see_the_requests_writes_and_absence_is_no_value() {
         Ok(elements(&[1.0, 2.0]))
     );
     let kv = KeyValue::new(1, format!("{p}{VEC_ENTRY}"), 7u64.to_be_bytes().to_vec());
-    txn.add_mutation(&key(&format!("{p}{VEC_ENTRY}"), 1), &kv)
-        .unwrap();
+    txn.add_mutation(&key(&format!("{p}{VEC_ENTRY}"), 1), &kv)?;
     txn.lock_key(b"any");
     txn.unlock_key(b"any");
     assert_eq!(
@@ -56,21 +56,22 @@ fn test_reads_see_the_requests_writes_and_absence_is_no_value() {
         Ok(7u64.to_be_bytes().to_vec())
     );
     assert_eq!(txn.start_ts(), txn.read_ts());
+    Ok(())
 }
 
 /// `find` scans the store at the request's timestamp, as Dgraph's `LocalCache.Find` scans Badger: the vectors of
 /// earlier commits, in key order, through the request's own writes; not the request's new keys.
 #[test]
-fn test_find_scans_the_committed_vectors_in_key_order() {
+fn test_find_scans_the_committed_vectors_in_key_order() -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
-    let o = opts(&[("maxLevels", "2")]);
+    let o = opts(&[("maxLevels", "2")])?;
     let mut draw = || 0.5;
     for uid in [9u64, 4, 6] {
-        insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut draw).unwrap();
+        let _inserted: Vec<KeyValue> = insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut draw)?;
     }
     let mut request = lists.request(lists.applied_ts());
-    set_vector(&mut request, &p, 2, &[2.0, 2.0]).unwrap();
+    set_vector(&mut request, &p, 2, vector_encoding(&[2.0, 2.0])?)?;
     let txn = ViTxn::new(&mut request);
     let prefix = vkeys(&p).vector_prefix();
     assert_eq!(
@@ -87,119 +88,124 @@ fn test_find_scans_the_committed_vectors_in_key_order() {
         Txn::find(&txn, &prefix, |_| false),
         Err(HnswError::KeyNotFound())
     );
-    delete(&lists, &p, 4).unwrap();
-    let mut request = lists.request(lists.applied_ts());
-    let txn = ViTxn::new(&mut request);
+    delete(&lists, &p, 4)?;
+    let mut later_request = lists.request(lists.applied_ts());
+    let later_txn = ViTxn::new(&mut later_request);
     assert_eq!(
-        Txn::find(&txn, &prefix, |_| true),
+        Txn::find(&later_txn, &prefix, |_| true),
         Ok(6),
         "a deleted vector is skipped"
     );
+    Ok(())
 }
 
 /// An index list whose value is a delete holds none, as Dgraph's `GetValueFromPostingList` reads a first posting with
 /// `Op == Del` as `ErrNoValue`; a set of the same value reads back.
 #[test]
-fn test_a_deleted_index_value_is_no_value() {
+fn test_a_deleted_index_value_is_no_value() -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
     let entry = key(&format!("{p}{VEC_ENTRY}"), 1);
     let named = 7u64.to_be_bytes().to_vec();
     let mut request = lists.request(lists.applied_ts());
     request
-        .get(&entry)
-        .unwrap()
+        .get(&entry)?
         .add_posting(index_posting(named.clone()).with_op(DEL), false);
     let txn = ViTxn::new(&mut request);
     assert_eq!(Txn::get(&txn, &entry), Err(HnswError::NoValue()));
     assert_eq!(LocalCache::get(&txn, &entry), Err(HnswError::NoValue()));
     let kv = KeyValue::new(1, format!("{p}{VEC_ENTRY}"), named.clone());
-    txn.add_mutation(&entry, &kv).unwrap();
+    txn.add_mutation(&entry, &kv)?;
     assert_eq!(Txn::get(&txn, &entry), Ok(named));
+    Ok(())
 }
 
 /// `find` passes over a list whose newest stored version is empty, as Dgraph's `LocalCache.Find` skips a key marked
 /// `BitEmptyPosting`, even when the request sets its vector again: 2 is committed, deleted, rolled up into an empty
 /// version, and set again in the request, so the scan names 4, the next committed vector, ahead of 6.
 #[test]
-fn test_find_passes_over_a_list_emptied_by_its_last_commit() {
+fn test_find_passes_over_a_list_emptied_by_its_last_commit() -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
-    let o = opts(&[("maxLevels", "2")]);
+    let o = opts(&[("maxLevels", "2")])?;
     for uid in [2u64, 4] {
-        insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut || 0.5).unwrap();
+        let _inserted: Vec<KeyValue> =
+            insert(&lists, &p, &o, uid, &[uid as f32, 1.0], &mut || 0.5)?;
     }
-    delete(&lists, &p, 2).unwrap();
+    delete(&lists, &p, 2)?;
     assert_eq!(
         lists.rollup_key(&key(&p, 2)),
         Ok(true),
         "the rollup writes the empty version"
     );
     // The rollup writes its version above the newest commit; a later commit brings it below the read timestamp.
-    insert(&lists, &p, &o, 6, &[6.0, 1.0], &mut || 0.5).unwrap();
+    let _inserted: Vec<KeyValue> = insert(&lists, &p, &o, 6, &[6.0, 1.0], &mut || 0.5)?;
     let mut request = lists.request(lists.applied_ts());
-    set_vector(&mut request, &p, 2, &[2.0, 2.0]).unwrap();
+    set_vector(&mut request, &p, 2, vector_encoding(&[2.0, 2.0])?)?;
     let txn = ViTxn::new(&mut request);
     assert_eq!(Txn::get(&txn, &key(&p, 2)), Ok(elements(&[2.0, 2.0])));
     assert_eq!(Txn::find(&txn, &vkeys(&p).vector_prefix(), |_| true), Ok(4));
+    Ok(())
 }
 
 #[test]
-fn test_an_insert_is_committed_with_its_request() {
+fn test_an_insert_is_committed_with_its_request() -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
-    let o = opts(&[("maxLevels", "3")]);
-    let edges = insert(&lists, &p, &o, 5, &[0.5f32, 0.5], &mut || 0.5).unwrap();
+    let o = opts(&[("maxLevels", "3")])?;
+    let edges = insert(&lists, &p, &o, 5, &[0.5f32, 0.5], &mut || 0.5)?;
     assert_eq!(edges.len(), 2);
     let ts = lists.applied_ts();
-    let entry = index_value(&lists, &key(&format!("{p}{VEC_ENTRY}"), 1), ts).unwrap();
+    let entry = index_value(&lists, &key(&format!("{p}{VEC_ENTRY}"), 1), ts)?
+        .context("index_value(..)?")?;
     assert_eq!(bytes_to_uint64(&entry), Some(5));
-    let node = index_value(&lists, &key(&format!("{p}{VEC_KEYWORD}"), 5), ts).unwrap();
+    let node = index_value(&lists, &key(&format!("{p}{VEC_KEYWORD}"), 5), ts)?
+        .context("index_value(..)?")?;
     assert_eq!(decode_uint64_matrix(&node), Ok(vec![vec![]; 3]));
     assert_eq!(
-        index_value(&lists, &key(&format!("{p}{VEC_ENTRY}"), 1), ts - 1),
+        index_value(&lists, &key(&format!("{p}{VEC_ENTRY}"), 1), ts - 1)?,
         None,
         "not before its commit"
     );
-    insert(&lists, &p, &o, 8, &[0.4f32, 0.5], &mut || 0.5).unwrap();
-    let node = index_value(
+    let _inserted: Vec<KeyValue> = insert(&lists, &p, &o, 8, &[0.4f32, 0.5], &mut || 0.5)?;
+    let node_later = index_value(
         &lists,
         &key(&format!("{p}{VEC_KEYWORD}"), 5),
         lists.applied_ts(),
-    )
-    .unwrap();
+    )?
+    .context("index_value(..)?")?;
     assert_eq!(
-        decode_uint64_matrix(&node),
+        decode_uint64_matrix(&node_later),
         Ok(vec![vec![], vec![], vec![8]])
     );
-    delete(&lists, &p, 8).unwrap();
+    delete(&lists, &p, 8)?;
     let dead = index_value(
         &lists,
         &key(&format!("{p}{VEC_DEAD}"), 1),
         lists.applied_ts(),
-    )
-    .unwrap();
+    )?
+    .context("index_value(..)?")?;
     assert_eq!(dead, b"[8]");
+    Ok(())
 }
 
 /// Replays a golden run through the posting lists of `store`, each insert in a request committed on its own, and
 /// compares the values, the results and the index's stored state with Go's.
-fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) {
+fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) -> TestResult {
     let pairs: Vec<(&str, &str)> = c
         .options
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let o = opts(&pairs);
+    let o = opts(&pairs)?;
     let mut draw = draws(c.draws.iter().map(|&b| f64::from_bits(b)).collect());
     for (i, op) in c.ops.iter().enumerate() {
         match op.op.as_str() {
             "insert" => {
-                let edges =
-                    insert(lists, &c.pred, &o, op.uid, &vector::<f32>(op), &mut draw).unwrap();
+                let edges = insert(lists, &c.pred, &o, op.uid, &vector::<f32>(op), &mut draw)?;
                 assert_eq!(
                     &golden_edges(&edges),
-                    op.edges.as_ref().unwrap(),
+                    op.edges.as_ref().context("op.edges.as_ref()")?,
                     "{} op {i}",
                     c.name
                 );
@@ -212,8 +218,7 @@ fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) {
                     &vector::<f32>(op),
                     op.k,
                     None,
-                )
-                .unwrap();
+                )?;
                 assert_eq!(
                     got,
                     op.result.clone().unwrap_or_default(),
@@ -225,25 +230,26 @@ fn replay<S: Store>(c: &GraphCase, lists: &Lists<S, SimListCache<CachedList>>) {
         }
     }
     let ts = lists.applied_ts();
-    let snapshot = lists.store().snapshot(ts).unwrap();
+    let snapshot = lists.store().snapshot(ts)?;
     let mut stored = BTreeMap::new();
     for item in snapshot.scan(&Scan::prefix(Vec::new())) {
-        let k = item.unwrap().key().to_vec();
-        if let Some(v) = index_value(lists, &k, ts) {
-            stored.insert(hex(&k), hex(&v));
+        let k = item?.key().to_vec();
+        if let Some(v) = index_value(lists, &k, ts)? {
+            let _previous: Option<String> = stored.insert(hex(&k), hex(&v));
         }
     }
     let expected: BTreeMap<String, String> = c
         .contents
         .iter()
         .map(|(k, v)| {
-            (
-                hex(&translated(&unhex(k)).expect("a Dgraph key")),
+            Ok((
+                hex(&translated(&unhex(k)).context("a Dgraph key")?),
                 v.clone(),
-            )
+            ))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert_eq!(stored, expected, "{}: the store after the run", c.name);
+    Ok(())
 }
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -264,27 +270,33 @@ fn replayable(c: &GraphCase) -> bool {
 }
 
 #[test]
-fn test_golden_runs_through_the_posting_lists_equal_gos() {
-    let golden = graph_golden();
+fn test_golden_runs_through_the_posting_lists_equal_gos() -> TestResult {
+    let golden = graph_golden()?;
     let mut replayed = 0;
     for c in golden.cases().iter().filter(|c| replayable(c)) {
-        replay(c, &lists_over(new_store()));
+        replay(c, &lists_over(new_store()))?;
         replayed += 1;
     }
     assert_eq!(replayed, 6);
+    Ok(())
 }
 
 #[test]
-fn test_a_golden_run_on_fjall_equals_gos() {
+fn test_a_golden_run_on_fjall_equals_gos() -> TestResult {
     let root =
         std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, std::path::PathBuf::from);
     let dir = root.join(format!("hnsw-golden-{}", std::process::id()));
     // A directory an earlier run left behind, which is usually absent.
     drop(std::fs::remove_dir_all(&dir));
-    let golden = graph_golden();
-    let c = golden.cases().iter().find(|c| c.name == "cosine").unwrap();
-    let store = FjallStore::open(&dir, Durability::Process).expect("the store opens");
-    replay(c, &lists_over(store));
+    let golden = graph_golden()?;
+    let c = golden
+        .cases()
+        .iter()
+        .find(|c| c.name == "cosine")
+        .context("golden.cases().iter().find(..)")?;
+    let store = FjallStore::open(&dir, Durability::Process).context("the store opens")?;
+    replay(c, &lists_over(store))?;
     // A directory left behind is litter in the temporary directory, not a failure of the test.
     drop(std::fs::remove_dir_all(&dir));
+    Ok(())
 }

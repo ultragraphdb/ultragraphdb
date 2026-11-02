@@ -7,7 +7,9 @@
 /// newest first either way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Direction {
+    /// Ascending byte order.
     #[default]
     Forward,
+    /// Descending byte order.
     Reverse,
 }

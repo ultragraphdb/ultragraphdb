@@ -21,12 +21,19 @@ use crate::utils::canonicalize::CanonType;
 use crate::utils::match_lang::match_lang;
 
 /// The locales with a tailoring of their own, parsed without canonicalization: `und` first, then sorted.
+///
+/// The constant parses, so no locale falls back to `und` and every tag keeps its index into `LOCALES`; a debug build
+/// checks it.
 static TAGS: LazyLock<Vec<Tag>> = LazyLock::new(|| {
     AVAILABLE_LOCALES
         .split(',')
         .map(|s| {
-            Tag::parse_with(CanonType::RAW, s)
-                .expect("the constant AVAILABLE_LOCALES holds valid locale tags")
+            let parsed = Tag::parse_with(CanonType::RAW, s);
+            debug_assert!(
+                parsed.is_ok(),
+                "the constant AVAILABLE_LOCALES holds valid locale tags"
+            );
+            parsed.unwrap_or_default()
         })
         .collect()
 });

@@ -15,64 +15,73 @@ mod bench_dir;
 
 use std::cell::Cell;
 
-use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main,
+};
 use ultragraphdb_store_kv::Durability;
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
-use crate::bench_dir::{BenchStore, key};
+use crate::bench_dir::{BenchStore, key, run};
 
 const BATCH_SIZES: [u64; 3] = [1, 64, 1_024];
 const VALUE_SIZES: [usize; 2] = [64, 4_096];
 
 fn batch_writes(c: &mut Criterion) {
-    for (mode, durability) in [
-        ("process", Durability::Process),
-        ("filesystem", Durability::Filesystem),
-    ] {
-        let mut group = c.benchmark_group(format!("kv_batch_write/{mode}"));
-        if durability == Durability::Filesystem {
-            // Every batch waits for a sync: fewer samples keep the group's run short.
-            group.sample_size(10);
-        }
-        let bench = BenchStore::open(&format!("write-{mode}"), durability);
-        let next = Cell::new(0u64);
-        for &value_len in &VALUE_SIZES {
-            for &batch_len in &BATCH_SIZES {
-                group.throughput(Throughput::Bytes(batch_len * value_len as u64));
-                group.bench_with_input(
-                    BenchmarkId::new(format!("{value_len}B"), batch_len),
-                    &batch_len,
-                    |b, &batch_len| {
-                        b.iter_batched(
-                            || {
-                                let version = next.get() + 1;
-                                next.set(version);
-                                let mut batch = WriteBatch::new();
-                                (0..batch_len).for_each(|i| {
-                                    batch.push(Entry::put(
-                                        key(b"\x00w", version * 2_048 + i),
-                                        version,
-                                        0,
-                                        vec![7; value_len],
-                                    ))
-                                });
-                                batch.set_applied_ts(version);
-                                batch
-                            },
-                            |batch| {
-                                bench
-                                    .store()
-                                    .apply(batch, PersistMode::Buffer)
-                                    .expect("the batch is written")
-                            },
-                            BatchSize::SmallInput,
-                        )
-                    },
-                );
+    run("kv_batch_write", || {
+        for (mode, durability) in [
+            ("process", Durability::Process),
+            ("filesystem", Durability::Filesystem),
+        ] {
+            let mut group = c.benchmark_group(format!("kv_batch_write/{mode}"));
+            if durability == Durability::Filesystem {
+                // Every batch waits for a sync: fewer samples keep the group's run short.
+                let _sampled: &mut BenchmarkGroup<'_, _> = group.sample_size(10);
             }
+            let bench = BenchStore::open(&format!("write-{mode}"), durability)?;
+            let next = Cell::new(0u64);
+            for &value_len in &VALUE_SIZES {
+                for &batch_len in &BATCH_SIZES {
+                    let _measured: &mut BenchmarkGroup<'_, _> = group
+                        .throughput(Throughput::Bytes(batch_len * value_len as u64))
+                        .bench_with_input(
+                            BenchmarkId::new(format!("{value_len}B"), batch_len),
+                            &batch_len,
+                            |b, &batch_len| {
+                                b.iter_batched(
+                                    || {
+                                        let version = next.get() + 1;
+                                        next.set(version);
+                                        let mut batch = WriteBatch::new();
+                                        (0..batch_len).for_each(|i| {
+                                            batch.push(Entry::put(
+                                                key(b"\x00w", version * 2_048 + i),
+                                                version,
+                                                0,
+                                                vec![7; value_len],
+                                            ))
+                                        });
+                                        batch.set_applied_ts(version);
+                                        batch
+                                    },
+                                    |batch| {
+                                        let written =
+                                            bench.store().apply(batch, PersistMode::Buffer);
+                                        assert!(
+                                            written.is_ok(),
+                                            "the batch is written: {written:?}"
+                                        );
+                                        written
+                                    },
+                                    BatchSize::SmallInput,
+                                )
+                            },
+                        );
+                }
+            }
+            group.finish();
         }
-        group.finish();
-    }
+        Ok(())
+    });
 }
 
 criterion_group!(benches, batch_writes);

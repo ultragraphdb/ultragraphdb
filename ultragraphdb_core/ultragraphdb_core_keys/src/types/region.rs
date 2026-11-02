@@ -38,18 +38,22 @@ impl Region {
         QuadKey::parse(key).map(|(parsed, _)| parsed.region())
     }
 
+    /// The keyspace.
     pub fn keyspace(&self) -> Keyspace {
         self.keyspace
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The graph, when the keyspace's keys name one.
     pub fn graph(&self) -> Option<u64> {
         self.graph
     }
 
+    /// The predicate, when the keyspace's keys name one.
     pub fn predicate(&self) -> Option<u64> {
         self.predicate
     }

@@ -9,6 +9,7 @@ use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, Names, PgEdge, PgNode, PgValue,
     PropertyGraph, StatementId, property_graph_to_changeset, property_graph_view,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn iri(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -18,20 +19,19 @@ fn view(
     changes: Vec<Change>,
     graph: &GraphName,
     cardinality: fn(&NamedNode) -> Cardinality,
-) -> ultragraphdb_core_mapping::PropertyGraph {
+) -> TestResult<ultragraphdb_core_mapping::PropertyGraph> {
     let mut d = CanonicalDataset::new();
     d.apply(
         &changes.into_iter().fold(Changeset::new(0), Changeset::with),
         cardinality,
-    )
-    .unwrap();
+    )?;
     let statements: Vec<_> = d.statements().collect();
-    property_graph_view(
+    Ok(property_graph_view(
         &statements,
         graph,
-        &Names::new("http://ex.org/").unwrap(),
+        &Names::new("http://ex.org/")?,
         cardinality,
-    )
+    ))
 }
 
 fn insert(
@@ -49,7 +49,7 @@ fn insert(
 }
 
 #[test]
-fn test_a_single_valued_property_is_a_scalar_and_a_literal_type_a_property() {
+fn test_a_single_valued_property_is_a_scalar_and_a_literal_type_a_property() -> TestResult {
     let g = GraphName::DefaultGraph;
     let pg = view(
         vec![
@@ -69,8 +69,8 @@ fn test_a_single_valued_property_is_a_scalar_and_a_literal_type_a_property() {
                 Cardinality::Multi
             }
         },
-    );
-    let a = pg.node("<http://ex.org/a>").unwrap();
+    )?;
+    let a = pg.node("<http://ex.org/a>").context("node a")?;
     assert_eq!(
         a.properties().get("age"),
         Some(&PgValue::Scalar(Literal::from(30)))
@@ -80,10 +80,11 @@ fn test_a_single_valued_property_is_a_scalar_and_a_literal_type_a_property() {
         Some(&PgValue::List(vec![Literal::new_simple_literal("odd")]))
     );
     assert!(a.labels().is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_an_edges_target_is_a_node_and_another_graph_is_left_out() {
+fn test_an_edges_target_is_a_node_and_another_graph_is_left_out() -> TestResult {
     let g = GraphName::DefaultGraph;
     let other = GraphName::NamedNode(iri("other"));
     let b = BlankNode::new_unchecked("b");
@@ -94,7 +95,7 @@ fn test_an_edges_target_is_a_node_and_another_graph_is_left_out() {
         ],
         &g,
         |_| Cardinality::Multi,
-    );
+    )?;
     assert_eq!(pg.nodes().count(), 2);
     assert!(pg.node(&b.to_string()).is_some());
     assert_eq!(pg.edges().len(), 1);
@@ -102,10 +103,11 @@ fn test_an_edges_target_is_a_node_and_another_graph_is_left_out() {
     assert_eq!(pg.edges()[0].source(), &NamedOrBlankNode::from(iri("a")));
     assert_eq!(pg.edges()[0].target(), &NamedOrBlankNode::from(b));
     assert!(pg.node("<http://ex.org/x>").is_none());
+    Ok(())
 }
 
 #[test]
-fn test_an_edge_carries_its_id_and_every_value_of_each_property() {
+fn test_an_edge_carries_its_id_and_every_value_of_each_property() -> TestResult {
     let g = GraphName::DefaultGraph;
     let pg = view(
         vec![Change::InsertEdge {
@@ -121,17 +123,18 @@ fn test_an_edge_carries_its_id_and_every_value_of_each_property() {
         }],
         &g,
         |_| Cardinality::Multi,
-    );
+    )?;
     let expected = PgEdge::new(iri("a").into(), "knows", iri("b").into())
         .with_id(StatementId::new(1))
         .with_property("src", vec![iri("census").into()])
         .with_property("w", vec![Literal::from(1).into(), Literal::from(2).into()]);
     assert_eq!(pg.edges(), &[expected]);
+    Ok(())
 }
 
 #[test]
-fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() {
-    let names = Names::new("http://ex.org/").unwrap();
+fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() -> TestResult {
+    let names = Names::new("http://ex.org/")?;
     let g = GraphName::NamedNode(iri("g"));
     let pg = PropertyGraph::new()
         .with_node(
@@ -180,4 +183,5 @@ fn test_a_property_graph_writes_as_labels_values_and_edges_of_their_own() {
             },
         ]
     );
+    Ok(())
 }

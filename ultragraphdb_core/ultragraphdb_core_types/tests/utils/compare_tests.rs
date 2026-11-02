@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_types::{DateTime, TypeId, Val, Value, compare_between, compare_vals};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn int(i: i64) -> Val {
     Val::new(TypeId::INT, Value::Int(i))
@@ -36,14 +37,18 @@ fn year(y: i64) -> Val {
 /// `le` negate `Less`, so NaN is `ge` and `le` everything; uid compares through `Less` but not `Equal`, bool
 /// through `Equal` but not `Less`; values of different types never compare.
 #[test]
-fn test_compare_vals() {
+fn test_compare_vals() -> TestResult {
     for (name, a, b, want) in number_and_string_cases()
         .into_iter()
         .chain(bool_uid_datetime_and_mixed_cases())
     {
-        let got = ["ge", "gt", "le", "lt", "eq"].map(|op| compare_vals(op, &a, &b).unwrap());
+        let mut got = [false; 5];
+        for (slot, op) in got.iter_mut().zip(["ge", "gt", "le", "lt", "eq"]) {
+            *slot = compare_vals(op, &a, &b)?;
+        }
         assert_eq!(got, want, "{name}");
     }
+    Ok(())
 }
 
 /// A case's name, its two values, and `ge`, `gt`, `le`, `lt` and `eq` of them.
@@ -169,10 +174,13 @@ fn test_compare_between() {
 }
 
 #[test]
-fn test_compare_vals_unknown_op() {
+fn test_compare_vals_unknown_op() -> TestResult {
     // Dgraph's x.Fatalf exits the process with this text.
     for op in ["ne", "", "GE", "eq "] {
-        let err = compare_vals(op, &int(1), &int(1)).unwrap_err();
+        let err = compare_vals(op, &int(1), &int(1))
+            .err()
+            .context("expected an error")?;
         assert_eq!(err.to_string(), format!("Unknown ineqType {op}"));
     }
+    Ok(())
 }

@@ -231,7 +231,7 @@ impl<'a> TermTableView<'a> {
                     *earlier,
                 ));
             }
-            seen.insert(key, at);
+            let _absent: Option<usize> = seen.insert(key, at);
             depths.push(depth);
         }
         if position != limit {
@@ -250,10 +250,12 @@ impl<'a> TermTableView<'a> {
         Ok(Self { records, text })
     }
 
+    /// The number of terms.
     pub fn len(&self) -> usize {
         self.records.len() / TERM_RECORD_SIZE
     }
 
+    /// Whether the table holds no term.
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }

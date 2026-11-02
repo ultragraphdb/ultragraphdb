@@ -7,6 +7,7 @@
 //! `WriteSetRecord`, so a test names exactly what a transaction read and wrote without a store.
 
 use ultragraphdb_protocol_wire::WriteSetRecord;
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_commit::Proposal;
 use ultragraphdb_transactions_txn::ReadSet;
 
@@ -99,24 +100,23 @@ impl Proposal for TestProposal {
 }
 
 /// The sealed read set of a transaction of `namespace` at `read_version` that read `reads`.
-pub fn read_set(namespace: u64, read_version: u64, reads: &Reads) -> ReadSet {
+pub fn read_set(namespace: u64, read_version: u64, reads: &Reads) -> TestResult<ReadSet> {
     let mut set = ReadSet::new();
     set.reset(namespace, read_version, usize::MAX);
     for key in &reads.lists {
-        set.push_list(key).expect("within the limit");
+        set.push_list(key)?;
     }
     for (key, object) in &reads.statements {
-        set.push_statement(key, object).expect("within the limit");
+        set.push_statement(key, object)?;
     }
     for (start, end) in &reads.ranges {
-        set.push_range(start, end.as_deref())
-            .expect("within the limit");
+        set.push_range(start, end.as_deref())?;
     }
     for key in &reads.absent {
-        set.push_absent(key).expect("within the limit");
+        set.push_absent(key)?;
     }
     set.seal();
-    set
+    Ok(set)
 }
 
 /// The record of a transaction of `namespace` at `read_version` that wrote `writes`, with `padding` bytes of commit
@@ -149,11 +149,11 @@ pub fn record_in(
 }
 
 /// A proposal of namespace 0 at `read_version` reading `reads` and writing `writes`.
-pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestProposal {
-    TestProposal {
-        read_set: read_set(0, read_version, reads),
+pub fn proposal(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult<TestProposal> {
+    Ok(TestProposal {
+        read_set: read_set(0, read_version, reads)?,
         record: record(0, read_version, writes, 0),
-    }
+    })
 }
 
 /// A proposal of namespace 0 at `read_version`, request `request` of session `session`, reading `reads` and writing
@@ -164,9 +164,9 @@ pub fn proposal_in(
     read_version: u64,
     reads: &Reads,
     writes: &Writes,
-) -> TestProposal {
-    TestProposal {
-        read_set: read_set(0, read_version, reads),
+) -> TestResult<TestProposal> {
+    Ok(TestProposal {
+        read_set: read_set(0, read_version, reads)?,
         record: record_in(0, read_version, session, request, writes, 0),
-    }
+    })
 }

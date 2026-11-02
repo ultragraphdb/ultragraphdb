@@ -26,7 +26,7 @@ pub fn statement_iri(id: StatementId) -> NamedNode {
 pub fn rdf_view<'a>(statements: impl IntoIterator<Item = &'a Statement>) -> Vec<Quad> {
     let mut quads: BTreeMap<String, Quad> = BTreeMap::new();
     let mut add = |quad: Quad| {
-        quads.insert(quad.to_string(), quad);
+        let _held: Option<Quad> = quads.insert(quad.to_string(), quad);
     };
     for s in statements {
         add(Quad::new(

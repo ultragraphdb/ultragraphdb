@@ -6,6 +6,7 @@
 //! The Go values a `Val` holds, and their `%T`.
 
 use ultragraphdb_core_types::{BIG_FLOAT_PRECISION, BigFloat, DateTime, Geometry, Layout, Value};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_str() {
@@ -15,9 +16,9 @@ fn test_str() {
 }
 
 #[test]
-fn test_go_type_is_gos_percent_t() {
-    let point = Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]]).unwrap();
+fn test_go_type_is_gos_percent_t() -> TestResult {
+    let point = Geometry::point(Layout::XY, &[1.0, 2.0])?;
+    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
     let cases = [
         (Value::Bytes(vec![1]), "[]uint8"),
         (Value::str("x"), "string"),
@@ -41,4 +42,5 @@ fn test_go_type_is_gos_percent_t() {
     for (v, want) in cases {
         assert_eq!(v.go_type(), want, "{v:?}");
     }
+    Ok(())
 }

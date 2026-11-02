@@ -9,6 +9,7 @@
 
 use std::time::Duration;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::{
     DROP_STAGES, KEYS_PER_BATCH, RECORD_STAGES, TEMPORARY_STAGES, batch_counts, fresh_dir,
     kill_after, kill_at, open,
@@ -16,18 +17,18 @@ use ultragraphdb_tool_test::{
 use ultragraphdb_traits_store::Store;
 
 #[test]
-fn test_a_kill_during_a_batch_leaves_it_whole_or_absent() {
+fn test_a_kill_during_a_batch_leaves_it_whole_or_absent() -> TestResult {
     let mut in_flight = 0;
     for (round, delay) in [0u64, 1, 2, 3, 5, 8].into_iter().enumerate() {
         let dir = fresh_dir(&format!("batch-{round}"));
-        let lines = kill_after(&dir, "batches", "batch 3", Duration::from_millis(delay));
+        let lines = kill_after(&dir, "batches", "batch 3", Duration::from_millis(delay))?;
         let started = lines.iter().filter(|l| l.starts_with("batch ")).count() as u64;
         let applied = lines.iter().filter(|l| l.starts_with("applied ")).count() as u64;
         if started > applied {
             in_flight += 1;
         }
-        let store = open(&dir);
-        let counts = batch_counts(&store, started + 1);
+        let store = open(&dir)?;
+        let counts = batch_counts(&store, started + 1)?;
         assert!(
             counts.iter().all(|&c| c == 0 || c == KEYS_PER_BATCH),
             "round {round}: a batch is visible in part: {counts:?}"
@@ -51,19 +52,20 @@ fn test_a_kill_during_a_batch_leaves_it_whole_or_absent() {
         drop(std::fs::remove_dir_all(&dir));
     }
     println!("{in_flight} of 6 kills landed while a batch was written");
+    Ok(())
 }
 
 /// The writer announces every stage of its drop, temporary and record modes, in order, when it runs to the last.
 #[test]
-fn test_the_writer_announces_each_stage_it_reaches() {
+fn test_the_writer_announces_each_stage_it_reaches() -> TestResult {
     for (mode, stages) in [
         ("drop", DROP_STAGES.as_slice()),
         ("temporary", TEMPORARY_STAGES.as_slice()),
         ("record", RECORD_STAGES.as_slice()),
     ] {
         let dir = fresh_dir(&format!("stages-{mode}"));
-        let last = stages.last().expect("a mode has stages");
-        let announced: Vec<String> = kill_at(&dir, mode, last)
+        let last = stages.last().context("a mode has stages")?;
+        let announced: Vec<String> = kill_at(&dir, mode, last)?
             .into_iter()
             .filter(|l| l.starts_with("stage "))
             .collect();
@@ -72,4 +74,5 @@ fn test_the_writer_announces_each_stage_it_reaches() {
         // A directory left behind is litter in the temporary directory, not a failure of the test.
         drop(std::fs::remove_dir_all(&dir));
     }
+    Ok(())
 }

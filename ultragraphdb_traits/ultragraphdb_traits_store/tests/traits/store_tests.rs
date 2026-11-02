@@ -6,6 +6,7 @@
 use std::cell::Cell;
 
 use ultragraphdb_error_store::StoreError;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{
     Entry, Item, PersistMode, RebuildRecord, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
 };
@@ -127,14 +128,18 @@ fn test_get_at_reads_through_a_snapshot_at_its_timestamp() {
 }
 
 #[test]
-fn test_get_at_passes_on_the_snapshots_refusal() {
+fn test_get_at_passes_on_the_snapshots_refusal() -> TestResult {
     let store = OneItem::default();
     for read_ts in [1, 0] {
-        let err = store.get_at(b"k", read_ts).unwrap_err();
+        let err = store
+            .get_at(b"k", read_ts)
+            .err()
+            .context("the error of store.get_at(b\"k\", read_ts)")?;
         assert_eq!(err, StoreError::TsTooOld());
         assert_eq!(err.to_string(), "Transaction is too old");
         assert_eq!(store.opened_at.get(), Some(read_ts));
     }
+    Ok(())
 }
 
 #[test]

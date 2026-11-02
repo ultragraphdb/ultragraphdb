@@ -125,10 +125,15 @@ impl BigFloat {
             return sign * f64::INFINITY;
         }
         let (m, me) = match r.form {
-            Form::Finite { mant, exp } => (mant, exp),
+            Form::Finite {
+                mant: rounded_mant,
+                exp: rounded_exp,
+            } => (rounded_mant, rounded_exp),
             Form::Zero | Form::Inf => return sign * f64::INFINITY,
         };
-        let m = u64::try_from(&m).expect("r is rounded to p <= 53 bits above");
+        let m = u64::try_from(&m);
+        debug_assert!(m.is_ok(), "r is rounded to p <= 53 bits above");
+        let m = m.unwrap_or(u64::MAX);
         let n = 64 - i64::from(m.leading_zeros());
         let (m53, e53) = (m << (53 - n), me - (53 - n));
         let unbiased = e53 + 52;
@@ -162,8 +167,9 @@ impl BigFloat {
                     } else {
                         mant >> (-*exp) as usize
                     };
-                    let i =
-                        i64::try_from(&i).expect("a value of go_exp <= 63, checked above, fits");
+                    let i = i64::try_from(&i);
+                    debug_assert!(i.is_ok(), "a value of go_exp <= 63, checked above, fits");
+                    let i = i.unwrap_or(i64::MAX);
                     return if self.neg { -i } else { i };
                 }
                 if self.neg { i64::MIN } else { i64::MAX }

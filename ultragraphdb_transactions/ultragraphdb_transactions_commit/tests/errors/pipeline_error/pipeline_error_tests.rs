@@ -4,6 +4,7 @@
  */
 
 use std::error::Error;
+use ultragraphdb_tool_bdd::TestResult;
 
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_store::StoreError;
@@ -14,7 +15,7 @@ use ultragraphdb_transactions_txn::TxnError;
 /// Each constructor builds its variant around its cause, displays its reason before the cause's own text, and gives
 /// the cause as its source.
 #[test]
-fn test_each_reason_carries_and_displays_its_cause() {
+fn test_each_reason_carries_and_displays_its_cause() -> TestResult {
     let log = LogError::Poisoned();
     let apply = ChangesetError::Rebuilding("p");
     let sessions = StoreError::Corrupted(b"k".to_vec(), "bad".to_string());
@@ -56,4 +57,5 @@ fn test_each_reason_carries_and_displays_its_cause() {
         assert_eq!(error.to_string(), text);
         assert_eq!(error.source().map(|s| s.to_string()), Some(source));
     }
+    Ok(())
 }

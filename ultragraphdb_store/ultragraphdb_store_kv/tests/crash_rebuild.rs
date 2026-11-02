@@ -6,19 +6,20 @@
 //! Kills the writer at each stage of a rebuild record's write and reopens the store: a synced rebuild record
 //! survives the kill.
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::{RECORD_STAGES, fresh_dir, kill_at, open};
 use ultragraphdb_traits_store::Store;
 
 /// A rebuild record survives a kill once it is written, and a kill before it leaves none.
 #[test]
-fn test_a_rebuild_record_survives_a_kill() {
+fn test_a_rebuild_record_survives_a_kill() -> TestResult {
     for stage in RECORD_STAGES {
         let dir = fresh_dir(&format!("record-{stage}"));
-        kill_at(&dir, "record", stage);
-        let store = open(&dir);
+        let _lines: Vec<String> = kill_at(&dir, "record", stage)?;
+        let store = open(&dir)?;
         let ids: Vec<u64> = store
             .rebuild_records()
-            .expect("readable")
+            .context("readable")?
             .iter()
             .map(|r| r.id())
             .collect();
@@ -28,4 +29,5 @@ fn test_a_rebuild_record_survives_a_kill() {
         // A directory left behind is litter in the temporary directory, not a failure of the test.
         drop(std::fs::remove_dir_all(&dir));
     }
+    Ok(())
 }

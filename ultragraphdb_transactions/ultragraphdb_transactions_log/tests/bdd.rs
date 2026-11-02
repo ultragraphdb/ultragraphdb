@@ -7,6 +7,7 @@
 //! that applies what the log hands it at its committed position, and nothing else.
 
 use std::collections::BTreeMap;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use cucumber::{World, then, when};
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
@@ -24,8 +25,8 @@ mod utils {
 }
 
 use crate::utils::helpers::{
-    CLUSTER, DIR, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, append, append_synced, block_on, body,
-    config, frame_checksum, open, segment, spare, superblock,
+    CLUSTER, DIR, FULL_TWO_BLOCKS, ONE_BLOCK, TWO_BLOCKS, append, append_rounds, append_synced,
+    block_on, body, config, frame_checksum, open, segment, spare, superblock,
 };
 
 #[derive(Debug, Default, World)]
@@ -40,26 +41,26 @@ struct Steps {
     regressions: Vec<String>,
 }
 
-fn storage(w: &Steps) -> SimStorage {
-    w.storage.clone().expect("a storage")
+fn storage(w: &Steps) -> TestResult<SimStorage> {
+    w.storage.clone().context("a storage")
 }
 
 /// The rounds `wal` holds from `from`, by position, read and verified.
-fn positions(wal: &mut Wal<SimStorage>, from: u64) -> Vec<u64> {
-    block_on(wal.read(Position::new(from), u32::MAX))
-        .expect("read")
+fn positions(wal: &mut Wal<SimStorage>, from: u64) -> TestResult<Vec<u64>> {
+    Ok(block_on(wal.read(Position::new(from), u32::MAX))
+        .context("read")?
         .iter()
         .map(|r| r.position().get())
-        .collect()
+        .collect())
 }
 
 // The ordered-log interface.
 
 #[when("the log holds rounds 1 to 5 and round 7 is appended")]
-fn append_seven(w: &mut Steps) {
+fn append_seven(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 5, ONE_BLOCK);
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 5, ONE_BLOCK)?;
     w.trace_before = storage.trace().len();
     let data = body(7, ONE_BLOCK);
     let parent = wal.tail().1;
@@ -68,9 +69,10 @@ fn append_seven(w: &mut Steps) {
         .err()
         .into_iter()
         .collect();
-    w.positions = vec![block_on(wal.sync()).expect("nothing to sync").get()];
+    w.positions = vec![block_on(wal.sync()).context("nothing to sync")?.get()];
     w.trace_after = storage.trace().len();
     w.storage = Some(storage);
+    Ok(())
 }
 
 #[then("the append is refused with an error naming position 6, and nothing is written")]
@@ -82,12 +84,13 @@ fn refused_naming_six(w: &mut Steps) {
 }
 
 #[when("the log is sealed at position 9 and a round is appended")]
-fn seal_at_nine(w: &mut Steps) {
+fn seal_at_nine(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 9, ONE_BLOCK);
-    w.positions = vec![wal.seal().expect("sealed").get()];
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 9, ONE_BLOCK)?;
+    w.positions = vec![wal.seal().context("sealed")?.get()];
     w.refusals = append(&mut wal, 10, ONE_BLOCK).err().into_iter().collect();
+    Ok(())
 }
 
 #[then("the append fails, and `seal` reported 9")]
@@ -99,17 +102,20 @@ fn sealed_at_nine(w: &mut Steps) {
 // A round is durable before it is applied.
 
 #[when("the node loses power at any step of a round")]
-fn power_at_every_step(w: &mut Steps) {
+fn power_at_every_step(w: &mut Steps) -> TestResult {
     // Round 5 starts segment 1, so its steps are the segment's creation, preallocation, sync and directory sync, then
     // its write and its sync. The power is cut after each step in turn, the step failing before or after its effect;
     // the store applies a round only once the log reports it committed.
     for step in 0..6 {
         for mode in [FaultMode::Before, FaultMode::After] {
             let storage = SimStorage::new(step as u64);
-            let (mut wal, _) = open(&storage).expect("opened");
-            append_synced(&mut wal, 1, 4, ONE_BLOCK);
+            let (mut wal, _) = open(&storage).context("opened")?;
+            append_rounds(&mut wal, 1, 4, ONE_BLOCK)?;
             let mut store: Vec<u64> = (1..=4).collect();
-            append(&mut wal, 5, ONE_BLOCK).expect("staged");
+            assert_eq!(
+                append(&mut wal, 5, ONE_BLOCK).context("staged")?,
+                Position::new(5)
+            );
             storage.fail_at(storage.trace().len() + step, mode);
             let synced = block_on(wal.sync());
             // Every step faulted fails the sync with the storage's error.
@@ -122,11 +128,12 @@ fn power_at_every_step(w: &mut Steps) {
             }
             drop(wal);
             storage.power_loss();
-            let (mut wal, _) = open(&storage).expect("recovered");
-            let held = positions(&mut wal, 1);
+            let (mut reopened, _) = open(&storage).context("recovered")?;
+            let held = positions(&mut reopened, 1)?;
             w.checks.push(store.iter().all(|p| held.contains(p)));
         }
     }
+    Ok(())
 }
 
 #[then("the store after recovery holds no write of a round the log does not hold")]
@@ -138,68 +145,74 @@ fn store_within_log(w: &mut Steps) {
 // Rounds are frames in segments.
 
 #[when("the log is opened with a segment holding three rounds followed by zeros")]
-fn three_then_zeros(w: &mut Steps) {
+fn three_then_zeros(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 3, ONE_BLOCK);
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 3, ONE_BLOCK)?;
     drop(wal);
     // A fresh segment is as long as its rounds; zeros follow them where a recovery cleared a torn tail.
-    let mut bytes = storage.stable_contents(&segment(0)).expect("segment 0");
+    let mut bytes = storage.stable_contents(&segment(0)).context("segment 0")?;
     bytes.resize(16_384, 0);
-    storage.put_file(&segment(0), &bytes).expect("put");
-    let (_, recovery) = open(&storage).expect("reopened");
+    storage.put_file(&segment(0), &bytes).context("put")?;
+    let (_, recovery) = open(&storage).context("reopened")?;
     w.recoveries = vec![recovery];
     w.storage = Some(storage);
+    Ok(())
 }
 
 #[then("the scan finds three rounds and its tail after the third")]
-fn three_rounds_found(w: &mut Steps) {
+fn three_rounds_found(w: &mut Steps) -> TestResult {
     assert_eq!(w.recoveries[0].committed(), Position::new(3));
     assert_eq!(w.recoveries[0].truncation(), None);
-    let bytes = storage(w).contents(&segment(0)).expect("segment 0");
+    let bytes = storage(w)?.contents(&segment(0)).context("segment 0")?;
     let scan =
-        scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::ZERO, 0)).expect("scanned");
+        scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::ZERO, 0)).context("scanned")?;
     let found: Vec<u64> = scan.rounds().iter().map(|r| r.position().get()).collect();
     assert_eq!(found, [1, 2, 3]);
     // Three one-block rounds: the tail is the fourth block.
     assert_eq!(scan.end(), 12_288);
     assert_eq!(scan.damage(), None);
+    Ok(())
 }
 
 #[when("a reused segment holds rounds of a previous incarnation after the current rounds")]
-fn reused_segment(w: &mut Steps) {
+fn reused_segment(w: &mut Steps) -> TestResult {
     // Incarnation 1 wrote rounds 1 to 8 over two segments; incarnation 2, created afresh, wrote its rounds 1 to 3 over
     // the start of segment 0. Its superblock names incarnation 2.
-    let frames = |incarnation: u64, count: u64| -> Vec<u8> {
+    let frames = |incarnation: u64, count: u64| -> TestResult<Vec<u8>> {
         let mut parent = 0;
         let mut bytes = Vec::new();
         for position in 1..=count {
             let data = body(position + incarnation * 100, ONE_BLOCK);
             let round = RoundRef::new(Position::new(position), parent, 2 * position, 1, &data);
-            let (frame, checksum) = encode_round(CLUSTER, 0, incarnation, &round).expect("encoded");
+            let (frame, checksum) =
+                encode_round(CLUSTER, 0, incarnation, &round).context("encoded")?;
             bytes.extend_from_slice(frame.as_slice());
             parent = checksum;
         }
-        bytes
+        Ok(bytes)
     };
-    let old = frames(1, 8);
+    let old = frames(1, 8)?;
     let mut first = old[..16_384].to_vec();
-    let new = frames(2, 3);
+    let new = frames(2, 3)?;
     first[..new.len()].copy_from_slice(&new);
     let storage = SimStorage::new(1);
-    storage.put_file(&segment(0), &first).expect("put");
-    storage.put_file(&segment(1), &old[16_384..]).expect("put");
+    storage.put_file(&segment(0), &first).context("put")?;
+    storage
+        .put_file(&segment(1), &old[16_384..])
+        .context("put")?;
     storage
         .put_file(
             &superblock('a'),
             &Superblock::new(3, CLUSTER, 2, Position::ZERO, 0, 0, 0).encode(),
         )
-        .expect("put");
-    let (mut wal, recovery) = open(&storage).expect("opened");
+        .context("put")?;
+    let (mut wal, recovery) = open(&storage).context("opened")?;
     w.recoveries = vec![recovery];
-    w.positions = positions(&mut wal, 1);
+    w.positions = positions(&mut wal, 1)?;
     w.checks = vec![frame_checksum(&new[8_192..]) == wal.tail().1];
     w.storage = Some(storage);
+    Ok(())
 }
 
 #[then("the scan stops after the current incarnation's rounds")]
@@ -215,16 +228,17 @@ fn stopped_after_current(w: &mut Steps) {
 #[when(
     "rounds 1 to 10 are synced in the log, the store had applied up to round 7, and power is lost"
 )]
-fn ten_synced_seven_applied(w: &mut Steps) {
+fn ten_synced_seven_applied(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 10, ONE_BLOCK);
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 10, ONE_BLOCK)?;
     drop(wal);
     storage.power_loss();
     let mut store: Vec<u64> = (1..=7).collect();
-    let (mut wal, _) = open(&storage).expect("recovered");
-    store.extend(positions(&mut wal, 8));
+    let (mut reopened, _) = open(&storage).context("recovered")?;
+    store.extend(positions(&mut reopened, 8)?);
     w.positions = store;
+    Ok(())
 }
 
 #[then("after recovery the store holds rounds 1 to 10")]
@@ -237,26 +251,30 @@ fn store_holds_ten(w: &mut Steps) {
 #[when(
     "the last round was torn by a crash during its write, before its sync completed, and no complete round follows it"
 )]
-fn torn_by_a_crash(w: &mut Steps) {
+fn torn_by_a_crash(w: &mut Steps) -> TestResult {
     // Rounds 1 and 2 take a block each; round 3 takes segment 0's last two, so its write is the next operation.
     let storage = SimStorage::new(4);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 2, ONE_BLOCK);
-    append(&mut wal, 3, FULL_TWO_BLOCKS).expect("staged");
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 2, ONE_BLOCK)?;
+    assert_eq!(
+        append(&mut wal, 3, FULL_TWO_BLOCKS).context("staged")?,
+        Position::new(3)
+    );
     storage.fail_at(storage.trace().len(), FaultMode::TornWrite);
     w.refusals = block_on(wal.sync()).err().into_iter().collect();
     drop(wal);
     // The process dies with the torn bytes written; they are as the drive left them.
-    let (mut wal, recovery) = open(&storage).expect("recovered");
+    let (mut reopened, recovery) = open(&storage).context("recovered")?;
     w.recoveries = vec![recovery];
-    w.positions = positions(&mut wal, 1);
+    w.positions = positions(&mut reopened, 1)?;
+    Ok(())
 }
 
 #[then(
     "the log is truncated before it, the truncation is reported, and the round was never acknowledged"
 )]
-fn truncated_before(w: &mut Steps) {
-    let truncation = w.recoveries[0].truncation().expect("reported");
+fn truncated_before(w: &mut Steps) -> TestResult {
+    let truncation = w.recoveries[0].truncation().context("reported")?;
     assert_eq!(truncation.position(), Position::new(3));
     // Round 3 starts at block 2 of segment 0; its chunk table lies in the write's last sector, which a tear never
     // keeps, so the table fails first.
@@ -282,19 +300,21 @@ fn truncated_before(w: &mut Steps) {
         "{:?}",
         w.refusals
     );
+    Ok(())
 }
 
 #[when("a byte of an acknowledged round's body is flipped and later rounds follow it")]
-fn interior_flip(w: &mut Steps) {
+fn interior_flip(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 5, TWO_BLOCKS);
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 5, TWO_BLOCKS)?;
     drop(wal);
     // Round 3 is at byte 0 of segment 1; body byte 4,000 lies in chunk 1, body bytes 3,840 to 5,000.
     storage
         .corrupt(&segment(1), 256 + 4_000, 0x20)
-        .expect("flipped");
+        .context("flipped")?;
     w.refusals = open(&storage).err().into_iter().collect();
+    Ok(())
 }
 
 #[then("the node refuses to start with an error naming the round, the chunk and its transactions")]
@@ -312,15 +332,15 @@ fn refused_naming_chunk(w: &mut Steps) {
 // The superblock.
 
 #[when("one superblock copy is corrupted")]
-fn corrupt_copy(w: &mut Steps) {
+fn corrupt_copy(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 6, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(2), 0)).expect("both copies written");
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 6, ONE_BLOCK)?;
+    block_on(wal.trim_through(Position::new(2), 0)).context("both copies written")?;
     drop(wal);
     storage
         .corrupt(&superblock('a'), 30, 0x01)
-        .expect("flipped");
+        .context("flipped")?;
     let segments = storage.contents(&segment(0));
     w.trace_before = storage.trace().len();
     w.refusals = open(&storage).err().into_iter().collect();
@@ -334,6 +354,7 @@ fn corrupt_copy(w: &mut Steps) {
         }),
         storage.contents(&segment(0)) == segments,
     ];
+    Ok(())
 }
 
 #[then("the node refuses to start with an error naming the copy, and does not create a new log")]
@@ -346,17 +367,17 @@ fn refused_naming_copy(w: &mut Steps) {
 // Checkpoints trim the log.
 
 #[when("rounds fill four segments and a checkpoint is taken at the end of the third")]
-fn four_segments_checkpoint(w: &mut Steps) {
+fn four_segments_checkpoint(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
-    let (mut wal, _) = open(&storage).expect("opened");
+    let (mut wal, _) = open(&storage).context("opened")?;
     // Four one-block rounds fill a segment: rounds 1 to 16 fill segments 0 to 3, round 12 ends the third.
-    append_synced(&mut wal, 1, 16, ONE_BLOCK);
-    block_on(wal.trim_through(Position::new(12), 0)).expect("trimmed");
+    append_rounds(&mut wal, 1, 16, ONE_BLOCK)?;
+    block_on(wal.trim_through(Position::new(12), 0)).context("trimmed")?;
     drop(wal);
-    let (mut wal, recovery) = open(&storage).expect("recovered");
+    let (mut reopened, recovery) = open(&storage).context("recovered")?;
     w.recoveries = vec![recovery];
-    w.positions = positions(&mut wal, 13);
-    w.refusals = block_on(wal.read(Position::new(12), u32::MAX))
+    w.positions = positions(&mut reopened, 13)?;
+    w.refusals = block_on(reopened.read(Position::new(12), u32::MAX))
         .err()
         .into_iter()
         .collect();
@@ -369,6 +390,7 @@ fn four_segments_checkpoint(w: &mut Steps) {
             [storage.contents(&segment(i)).is_some(), zeroed_spare]
         })
         .collect();
+    Ok(())
 }
 
 #[then(
@@ -388,17 +410,20 @@ fn three_recycled(w: &mut Steps) {
 // The power-loss-protection flag.
 
 #[when("the flag is `true` and a round is committed")]
-fn flag_true_commit(w: &mut Steps) {
+fn flag_true_commit(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(1);
     let protected = WalConfig::new(CLUSTER, true)
         .with_segment_blocks(config().segment_blocks())
         .with_capacity(config().capacity());
-    let (mut wal, _) = block_on(Wal::open(storage.clone(), DIR, protected)).expect("opened");
-    append_synced(&mut wal, 1, 1, ONE_BLOCK);
-    append(&mut wal, 2, ONE_BLOCK).expect("staged");
+    let (mut wal, _) = block_on(Wal::open(storage.clone(), DIR, protected)).context("opened")?;
+    append_rounds(&mut wal, 1, 1, ONE_BLOCK)?;
+    assert_eq!(
+        append(&mut wal, 2, ONE_BLOCK).context("staged")?,
+        Position::new(2)
+    );
     let before_sync = wal.committed();
     w.trace_before = storage.trace().len();
-    let committed = block_on(wal.sync()).expect("synced");
+    let committed = block_on(wal.sync()).context("synced")?;
     w.positions = vec![before_sync.get(), committed.get()];
     w.checks = vec![
         storage.trace()[w.trace_before..]
@@ -408,18 +433,22 @@ fn flag_true_commit(w: &mut Steps) {
             == [StorageOperation::Write, StorageOperation::FileSync],
     ];
     w.storage = Some(storage);
+    Ok(())
 }
 
 #[then("the round is synced before it is acknowledged")]
-fn synced_before_acknowledged(w: &mut Steps) {
+fn synced_before_acknowledged(w: &mut Steps) -> TestResult {
     // Not committed when appended; committed once its write and its sync completed.
     assert_eq!(w.positions, [1, 2]);
     assert_eq!(w.checks, [true]);
-    let stable = storage(w).stable_contents(&segment(0)).expect("segment 0");
+    let stable = storage(w)?
+        .stable_contents(&segment(0))
+        .context("segment 0")?;
     assert_eq!(
         &stable[4_096 + 256..4_096 + 1_256],
         body(2, ONE_BLOCK).as_slice()
     );
+    Ok(())
 }
 
 // The log's storage is simulated.
@@ -427,20 +456,23 @@ fn synced_before_acknowledged(w: &mut Steps) {
 #[when(
     "the simulated storage fails a round's sync with an error, or loses power after a round was acknowledged"
 )]
-fn reported_faults(w: &mut Steps) {
+fn reported_faults(w: &mut Steps) -> TestResult {
     for (seed, fault) in [(1, true), (2, false)] {
         let storage = SimStorage::new(seed);
-        let (mut wal, _) = open(&storage).expect("opened");
-        let mut acknowledged: BTreeMap<u64, u64> = append_synced(&mut wal, 1, 6, ONE_BLOCK)
+        let (mut wal, _) = open(&storage).context("opened")?;
+        let mut acknowledged: BTreeMap<u64, u64> = append_synced(&mut wal, 1, 6, ONE_BLOCK)?
             .into_iter()
             .zip(1..)
             .map(|(checksum, position)| (position, checksum))
             .collect();
-        append(&mut wal, 7, ONE_BLOCK).expect("staged");
+        assert_eq!(
+            append(&mut wal, 7, ONE_BLOCK).context("staged")?,
+            Position::new(7)
+        );
         if fault {
             // The write succeeds, its sync fails: never acknowledged.
             storage.fail_at(storage.trace().len() + 1, FaultMode::Before);
-            let refused = block_on(wal.sync()).expect_err("the sync fails");
+            let refused = block_on(wal.sync()).err().context("the sync fails")?;
             assert!(
                 matches!(
                     refused.0,
@@ -452,13 +484,16 @@ fn reported_faults(w: &mut Steps) {
                 "{refused:?}"
             );
         } else {
-            block_on(wal.sync()).expect("acknowledged");
-            acknowledged.insert(7, wal.tail().1);
+            assert_eq!(
+                block_on(wal.sync()).context("acknowledged")?,
+                Position::new(7)
+            );
+            assert_eq!(acknowledged.insert(7, wal.tail().1), None);
         }
         drop(wal);
         storage.power_loss();
-        let (mut wal, _) = open(&storage).expect("recovered");
-        let rounds = block_on(wal.read(Position::new(1), u32::MAX)).expect("read");
+        let (mut reopened, _) = open(&storage).context("recovered")?;
+        let rounds = block_on(reopened.read(Position::new(1), u32::MAX)).context("read")?;
         let present: BTreeMap<u64, u64> = rounds
             .iter()
             .map(|r| (r.position().get(), r.checksum()))
@@ -466,6 +501,7 @@ fn reported_faults(w: &mut Steps) {
         w.checks
             .push(acknowledged.iter().all(|(p, c)| present.get(p) == Some(c)));
     }
+    Ok(())
 }
 
 #[then("after recovery every acknowledged round is present")]
@@ -476,28 +512,32 @@ fn acknowledged_present(w: &mut Steps) {
 #[when(
     "the simulated storage tears the last round's write without reporting it, and the node restarts"
 )]
-fn silent_tear(w: &mut Steps) {
+fn silent_tear(w: &mut Steps) -> TestResult {
     let storage = SimStorage::new(6);
-    let (mut wal, _) = open(&storage).expect("opened");
-    append_synced(&mut wal, 1, 2, ONE_BLOCK);
-    append(&mut wal, 3, FULL_TWO_BLOCKS).expect("staged");
+    let (mut wal, _) = open(&storage).context("opened")?;
+    append_rounds(&mut wal, 1, 2, ONE_BLOCK)?;
+    assert_eq!(
+        append(&mut wal, 3, FULL_TWO_BLOCKS).context("staged")?,
+        Position::new(3)
+    );
     storage.fail_at(storage.trace().len(), FaultMode::SilentTornWrite);
-    w.positions = vec![block_on(wal.sync()).expect("reported as synced").get()];
+    w.positions = vec![block_on(wal.sync()).context("reported as synced")?.get()];
     drop(wal);
     storage.power_loss();
-    let (mut wal, recovery) = open(&storage).expect("recovered");
+    let (mut reopened, recovery) = open(&storage).context("recovered")?;
     w.recoveries = vec![recovery];
-    w.positions.extend(positions(&mut wal, 1));
+    w.positions.extend(positions(&mut reopened, 1)?);
     w.storage = Some(storage);
+    Ok(())
 }
 
 #[then(
     "recovery detects the round by its checksums, truncates it as a torn tail and reports the truncation; it never reads the round as valid"
 )]
-fn silent_tear_caught(w: &mut Steps) {
+fn silent_tear_caught(w: &mut Steps) -> TestResult {
     // The sync reported 3: the round was acknowledged, then lost with the tear, and named.
     assert_eq!(w.positions[0], 3);
-    let truncation = w.recoveries[0].truncation().expect("reported");
+    let truncation = w.recoveries[0].truncation().context("reported")?;
     assert_eq!(truncation.position(), Position::new(3));
     // A 7,920-byte body ends with its 16-byte chunk table in the write's last sector, which a tear never keeps: the
     // table fails before any chunk is checked.
@@ -509,16 +549,17 @@ fn silent_tear_caught(w: &mut Steps) {
     );
     assert_eq!(w.recoveries[0].committed(), Position::new(2));
     assert_eq!(&w.positions[1..], [1, 2]);
+    Ok(())
 }
 
 // A fuzzer finding becomes a regression test.
 
 #[when("a fuzz target finds an input that panics a decoder, and the decoder is fixed")]
-fn fuzz_finding_fixed(w: &mut Steps) {
+fn fuzz_finding_fixed(w: &mut Steps) -> TestResult {
     // The scan's finding, fixed and minimized into `testdata/fuzz_regressions/scan/`: each case scanned from the fuzz
     // target `scan`'s three starts, the whole input from a fresh log, and the input after its first eight bytes from the
     // checkpoint those bytes choose and from a continued chain.
-    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan");
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan")?;
     w.regressions = cases.iter().map(|(name, _)| name.clone()).collect();
     for (_, data) in &cases {
         let (checkpoint, rest) = data.split_at(data.len().min(8));
@@ -542,6 +583,7 @@ fn fuzz_finding_fixed(w: &mut Steps) {
             }
         }
     }
+    Ok(())
 }
 
 #[then(
@@ -554,10 +596,11 @@ fn finding_replayed(w: &mut Steps) {
     assert!(w.checks.iter().all(|held| *held), "{:?}", w.checks);
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

@@ -11,6 +11,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{TextCollator, TypeId, Val, Value, sort};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize)]
 struct SortOrderCase {
@@ -27,7 +28,7 @@ struct SortOrderCase {
 }
 
 /// The value a golden key stands for: an int, half the key as a float, or its decimal text; `None` a nil value.
-fn val(tid: &str, key: Option<i64>) -> Val {
+fn val(tid: &str, key: Option<i64>) -> TestResult<Val> {
     let t = match tid {
         "int" => Some(TypeId::INT),
         "float" => Some(TypeId::FLOAT),
@@ -35,8 +36,8 @@ fn val(tid: &str, key: Option<i64>) -> Val {
         _ => None,
     }
     .ok_or_else(|| format!("golden tid {tid:?}"))
-    .expect("a golden tid");
-    match key {
+    .context("a golden tid")?;
+    Ok(match key {
         None => Val::nil(t),
         Some(k) => Val::new(
             t,
@@ -46,13 +47,13 @@ fn val(tid: &str, key: Option<i64>) -> Val {
                 _ => Value::Int(k),
             },
         ),
-    }
+    })
 }
 
 #[test]
-fn test_golden_sort_order_of_ties() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort_order.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<SortOrderCase>(&path);
+fn test_golden_sort_order_of_ties() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_sort_order.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<SortOrderCase>(&path)?;
     let cases = golden.cases();
     let count = |layer: &str, heap: bool| {
         cases
@@ -76,16 +77,21 @@ fn test_golden_sort_order_of_ties() {
             _ => None,
         }
         .ok_or_else(|| format!("golden layer {:?}", c.layer))
-        .expect("a golden layer");
-        let mut rows: Vec<Vec<Val>> = c.keys.iter().map(|k| vec![val(tid, *k)]).collect();
+        .context("a golden layer")?;
+        let mut rows: Vec<Vec<Val>> = c
+            .keys
+            .iter()
+            .map(|k| Ok(vec![val(tid, *k)?]))
+            .collect::<TestResult<_>>()?;
         let mut uids: Vec<u64> = (0..c.keys.len() as u64).collect();
-        sort(&mut rows, &mut uids, &[c.desc], "", &TextCollator).unwrap();
+        sort(&mut rows, &mut uids, &[c.desc], "", &TextCollator)?;
         assert_eq!(uids, c.perm, "{}", c.name);
         let moved: Vec<Vec<Val>> = c
             .perm
             .iter()
-            .map(|&i| vec![val(tid, c.keys[i as usize])])
-            .collect();
+            .map(|&i| Ok(vec![val(tid, c.keys[i as usize])?]))
+            .collect::<TestResult<_>>()?;
         assert_eq!(rows, moved, "{}: rows move with their uids", c.name);
     }
+    Ok(())
 }

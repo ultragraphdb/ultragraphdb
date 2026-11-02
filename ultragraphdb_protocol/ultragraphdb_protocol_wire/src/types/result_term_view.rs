@@ -66,10 +66,12 @@ impl<'a> ResultTermView<'a> {
         blank_uid(self.encoding)
     }
 
+    /// The text the encoding names but does not hold, if any.
     pub fn text(&self) -> Option<&'a str> {
         self.text
     }
 
+    /// The annotation: a language tag held by hash or a datatype's IRI held by UID, if any.
     pub fn annotation(&self) -> Option<&'a str> {
         self.annotation
     }

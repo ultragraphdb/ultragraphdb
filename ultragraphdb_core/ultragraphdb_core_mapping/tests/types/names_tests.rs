@@ -5,10 +5,11 @@
 
 use oxrdf::NamedNode;
 use ultragraphdb_core_mapping::{MappingError, Names};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_names_map_to_iris_under_the_base_and_back() {
-    let names = Names::new("http://ex.org/").unwrap();
+fn test_names_map_to_iris_under_the_base_and_back() -> TestResult {
+    let names = Names::new("http://ex.org/")?;
     assert_eq!(
         names.iri("age"),
         NamedNode::new_unchecked("http://ex.org/age")
@@ -34,11 +35,12 @@ fn test_names_map_to_iris_under_the_base_and_back() {
         names.skolem_iri(9),
         NamedNode::new_unchecked("http://ex.org/.well-known/genid/9")
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_iri_under_the_base_holding_a_colon_is_named_by_itself() {
-    let names = Names::new("http://ex.org/").unwrap();
+fn test_an_iri_under_the_base_holding_a_colon_is_named_by_itself() -> TestResult {
+    let names = Names::new("http://ex.org/")?;
     // Its name would read back as an absolute IRI, "a:b", not as the IRI it came from.
     let colon = NamedNode::new_unchecked("http://ex.org/a:b");
     assert_eq!(names.name(&colon), "http://ex.org/a:b");
@@ -47,6 +49,7 @@ fn test_an_iri_under_the_base_holding_a_colon_is_named_by_itself() {
     let nested = NamedNode::new_unchecked("http://ex.org/x/y");
     assert_eq!(names.name(&nested), "x/y");
     assert_eq!(names.iri("x/y"), nested);
+    Ok(())
 }
 
 /// The refusal of `base` for `reason`.
@@ -105,7 +108,7 @@ fn test_a_base_not_ending_in_a_slash_is_refused() {
 }
 
 #[test]
-fn test_an_absolute_base_ending_in_a_slash_names_iris_under_it() {
+fn test_an_absolute_base_ending_in_a_slash_names_iris_under_it() -> TestResult {
     for base in [
         "http://ex.org/",
         "urn:ex:ns/",
@@ -113,25 +116,25 @@ fn test_an_absolute_base_ending_in_a_slash_names_iris_under_it() {
         // The design's default base of namespace 0, under the system vocabulary.
         "https://w3id.org/ultragraphdb/ns/namespace/0/",
     ] {
-        let names = Names::new(base).unwrap();
+        let names = Names::new(base)?;
         assert_eq!(names.base(), base);
         assert_eq!(names.iri("age").as_str(), format!("{base}age"));
         assert_eq!(names.name(&names.iri("age")), "age");
     }
     // PROTOCOL.md section 10.2's skolem IRI of namespace 0's node 6.
     assert_eq!(
-        Names::new("https://w3id.org/ultragraphdb/ns/namespace/0/")
-            .unwrap()
+        Names::new("https://w3id.org/ultragraphdb/ns/namespace/0/")?
             .skolem_iri(6)
             .as_str(),
         "https://w3id.org/ultragraphdb/ns/namespace/0/.well-known/genid/6"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_unicode_base_and_unicode_names_are_iris() {
+fn test_a_unicode_base_and_unicode_names_are_iris() -> TestResult {
     // RFC 3987 takes non-ASCII characters (ucschar) unescaped, in the host and the path alike.
-    let names = Names::new("http://例え.jp/名前/").unwrap();
+    let names = Names::new("http://例え.jp/名前/")?;
     assert_eq!(names.iri("年齢").as_str(), "http://例え.jp/名前/年齢");
     assert_eq!(names.name(&names.iri("年齢")), "年齢");
     assert_eq!(
@@ -143,4 +146,5 @@ fn test_a_unicode_base_and_unicode_names_are_iris() {
         Names::new("http://例え.jp/名前"),
         refused("http://例え.jp/名前", "does not end in '/'")
     );
+    Ok(())
 }

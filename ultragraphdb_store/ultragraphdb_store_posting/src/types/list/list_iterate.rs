@@ -99,12 +99,12 @@ impl List {
                 Ok(ControlFlow::Continue(()))
             } else if pp_id.is_none() && mp_id.is_none() {
                 break Ok(());
-            } else if mp_id.is_none() || pp_id.is_some_and(|pp| mp_id.is_some_and(|mp| pp < mp)) {
+            } else if mp_id.is_none() || pp_id.is_some_and(|p| mp_id.is_some_and(|m| p < m)) {
                 count(None);
                 let flow = call(&mut f, pp);
                 pitr.next();
                 flow
-            } else if pp_id.is_none() || mp_id.is_some_and(|mp| pp_id.is_some_and(|pp| mp < pp)) {
+            } else if pp_id.is_none() || mp_id.is_some_and(|m| pp_id.is_some_and(|p| m < p)) {
                 count(mp);
                 prev = mp_id.map(|(u, v)| (u, v.to_vec()));
                 midx += 1;

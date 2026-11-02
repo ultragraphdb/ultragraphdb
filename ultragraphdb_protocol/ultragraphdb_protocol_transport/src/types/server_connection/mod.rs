@@ -314,6 +314,15 @@ impl<A: Authenticator> ServerConnection<A> {
         }
     }
 
+    /// Cancels `stream`, which the caller found open.
+    fn cancel_open(&mut self, stream: u64) {
+        let cancelled = self.outbound.cancel(stream);
+        debug_assert!(
+            cancelled,
+            "stream {stream} was found open, so cancel closed it"
+        );
+    }
+
     /// A request on `stream`, by the stream rules of `PROTOCOL.md` §11.2.
     fn request(&mut self, stream: u64, view: &FrameView<'_>) -> Inbound {
         let command = view.command();
@@ -326,7 +335,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 if !open {
                     return Inbound::Handled;
                 }
-                self.outbound.cancel(stream);
+                self.cancel_open(stream);
                 Inbound::Cancelled {
                     stream,
                     transaction,
@@ -357,7 +366,7 @@ impl<A: Authenticator> ServerConnection<A> {
             Command::Read | Command::Execute => self.read(stream, view, request),
             Command::Write | Command::Operation | Command::Abort if transaction => {
                 if command == Command::Abort {
-                    self.outbound.cancel(stream);
+                    self.cancel_open(stream);
                 }
                 request
             }

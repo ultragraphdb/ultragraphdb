@@ -13,6 +13,7 @@ use crate::types::statistics::{SKETCH_REGISTERS, Statistics};
 const FORMAT: u8 = 1;
 
 impl Statistics {
+    /// The statistics in their stored format.
     pub fn encode(&self) -> Vec<u8> {
         let mut w = vec![FORMAT];
         w.extend_from_slice(&self.statements.to_be_bytes());
@@ -38,7 +39,7 @@ impl Statistics {
         for _ in 0..r.u16()? {
             let len = usize::from(r.u16()?);
             let name = String::from_utf8(r.take(len)?.to_vec()).map_err(|_| r.bad())?;
-            kinds.insert(name, r.i64()?);
+            let _replaced_kind: Option<i64> = kinds.insert(name, r.i64()?);
         }
         let mut subjects = [0u8; SKETCH_REGISTERS];
         subjects.copy_from_slice(r.take(SKETCH_REGISTERS)?);

@@ -38,6 +38,7 @@ compio = { workspace = true }
 mimalloc = { workspace = true }
 
 [dev-dependencies]
+ultragraphdb_tool_bdd = { workspace = true }
 serde_json = { workspace = true }
 
 # Drives the apply thread and the store at a fixed rate and prints what it measured; never run by a test.

@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_text::{Confidence, Tag};
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{TestResult, load_golden, testdata_dir};
 
 #[derive(Debug, Deserialize)]
 struct LangBaseCase {
@@ -28,19 +28,19 @@ fn confidence(c: Confidence) -> &'static str {
 
 /// Every tag parses, prints, compares with `und` and infers its base exactly as `golang.org/x/text/language`.
 #[test]
-fn tags_match_go() {
-    check_file("text_lang_base", 900);
+fn tags_match_go() -> TestResult {
+    check_file("text_lang_base", 900)
 }
 
 /// The same for tags drawn at random from subtags and separators.
 #[test]
-fn random_tags_match_go() {
-    check_file("text_lang_random", 2500);
+fn random_tags_match_go() -> TestResult {
+    check_file("text_lang_random", 2500)
 }
 
-fn check_file(name: &str, min_cases: usize) {
-    let path = testdata_dir().join(format!("golden/{name}.json"));
-    let golden = load_golden::<LangBaseCase>(&path);
+fn check_file(name: &str, min_cases: usize) -> TestResult {
+    let path = testdata_dir()?.join(format!("golden/{name}.json"));
+    let golden = load_golden::<LangBaseCase>(&path)?;
     assert!(golden.cases().len() > min_cases);
     let mut failures = Vec::new();
     for c in golden.cases() {
@@ -81,4 +81,5 @@ fn check_file(name: &str, min_cases: usize) {
         golden.cases().len(),
         failures.join("\n")
     );
+    Ok(())
 }

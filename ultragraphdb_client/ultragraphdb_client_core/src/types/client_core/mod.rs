@@ -94,6 +94,7 @@ impl<L: Login> ClientCore<L> {
         }
     }
 
+    /// The configuration the client was made with.
     pub fn config(&self) -> &ClientConfig {
         &self.config
     }
@@ -316,13 +317,20 @@ impl<L: Login> ClientCore<L> {
 
     /// The answer of `pending`, once arrived, given once.
     pub fn take_reply(&mut self, pending: Pending) -> Option<Result<Reply, ClientError>> {
-        self.pending.get(&pending.id())?.outcome.as_ref()?;
-        self.pending.remove(&pending.id())?.outcome
+        let arrived = self
+            .pending
+            .get(&pending.id())
+            .is_some_and(|p| p.outcome.is_some());
+        if arrived {
+            self.pending.remove(&pending.id())?.outcome
+        } else {
+            None
+        }
     }
 
     /// A session the application kept from an earlier client, numbered `number`, its next commit `next_request`.
     pub fn resume_session(&mut self, number: u64, next_request: u64) -> Session {
-        self.sessions.insert(
+        let _replaced: Option<SessionState> = self.sessions.insert(
             number,
             SessionState {
                 next_request,
@@ -359,9 +367,11 @@ impl<L: Login> ClientCore<L> {
                 HeaderView::new(frame.bytes()).is_ok_and(|h| h.flags() & FLAG_LAST != 0)
             });
             if ended {
-                self.kept_reads.insert((generation, id), state.inbox);
+                let _replaced: Option<VecDeque<ReceivedFrame>> =
+                    self.kept_reads.insert((generation, id), state.inbox);
             } else {
-                self.lost_reads.insert((generation, id), reason.clone());
+                let _replaced: Option<ClientError> =
+                    self.lost_reads.insert((generation, id), reason.clone());
             }
         }
         self.outbox.clear();
@@ -432,7 +442,7 @@ impl<L: Login> ClientCore<L> {
         }
         let stream = self.next_stream;
         self.next_stream += 1;
-        self.streams.insert(stream, StreamState::default());
+        let _replaced: Option<StreamState> = self.streams.insert(stream, StreamState::default());
         Ok(stream)
     }
 
@@ -447,7 +457,7 @@ impl<L: Login> ClientCore<L> {
         let id = self.next_pending;
         self.next_pending += 1;
         pending.sequence = Some(self.next_sequence());
-        self.pending.insert(id, pending);
+        let _replaced: Option<PendingState> = self.pending.insert(id, pending);
         if let Some(state) = self.streams.get_mut(&stream) {
             state.pending = Some(id);
         }

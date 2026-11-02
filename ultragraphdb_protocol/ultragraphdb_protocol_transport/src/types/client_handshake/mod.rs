@@ -25,6 +25,7 @@ impl ClientHandshake {
         Self { cluster, hello }
     }
 
+    /// The Hello the client says.
     pub fn hello(&self) -> &Hello {
         &self.hello
     }

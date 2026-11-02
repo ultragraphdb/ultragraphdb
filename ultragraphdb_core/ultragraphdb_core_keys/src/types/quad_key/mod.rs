@@ -24,68 +24,116 @@ pub const DEFAULT_GRAPH: u64 = 0;
 /// which ends where its tag says. No key carries a vector.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuadKey {
+    /// A catalog entry's key.
     Catalog {
+        /// The namespace.
         namespace: u64,
+        /// The entry kind.
         kind: u8,
+        /// The predicate's or type's UID.
         uid: u64,
     },
+    /// A key of a subject's objects of a predicate.
     Forward {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
+        /// The subject.
         subject: u64,
     },
+    /// A key of an object's subjects of a predicate.
     Reverse {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
+        /// The object's encoding.
         object: EncodedTerm,
     },
+    /// A key of the predicates a subject has.
     SubjectPredicates {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The subject.
         subject: u64,
     },
+    /// A key of the predicates that point at an object.
     ObjectPredicates {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The object's encoding.
         object: EncodedTerm,
     },
     /// A token is raw bytes to the key's end, or to its split start.
     ValueIndex {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
+        /// The tokenizer.
         tokenizer: u8,
+        /// The token.
         token: Vec<u8>,
     },
+    /// A key of the subjects with a number of a predicate's objects.
     CountIndex {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
+        /// Which end is counted.
         direction: CountDirection,
+        /// The number of objects or subjects.
         count: u32,
     },
+    /// A key of a predicate's HNSW list.
     VectorIndex {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
+        /// The list kind.
         list: u8,
+        /// The node number.
         node: u64,
     },
+    /// A statement's record's key.
     Statement {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The statement ID.
         statement: u64,
     },
+    /// A key of a predicate's statistics in a graph.
     Statistics {
+        /// The namespace.
         namespace: u64,
+        /// The graph.
         graph: u64,
+        /// The predicate.
         predicate: u64,
     },
 }
 
 impl QuadKey {
+    /// The keyspace the key belongs to.
     pub fn keyspace(&self) -> Keyspace {
         match self {
             QuadKey::Catalog { .. } => Keyspace::Catalog,
@@ -101,6 +149,7 @@ impl QuadKey {
         }
     }
 
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         match self {
             QuadKey::Catalog { namespace, .. }

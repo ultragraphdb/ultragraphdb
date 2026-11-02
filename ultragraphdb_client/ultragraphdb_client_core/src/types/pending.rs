@@ -15,6 +15,7 @@ impl Pending {
         Self { id }
     }
 
+    /// The request's id, unique on the client.
     pub fn id(&self) -> u64 {
         self.id
     }

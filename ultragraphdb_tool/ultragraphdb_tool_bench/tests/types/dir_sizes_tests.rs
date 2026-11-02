@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_bench::DirSizes;
 
 fn fresh(name: &str) -> PathBuf {
@@ -23,30 +24,28 @@ fn fresh(name: &str) -> PathBuf {
 }
 
 #[test]
-fn test_the_sizes_split_data_journal_and_metadata() {
+fn test_the_sizes_split_data_journal_and_metadata() -> TestResult {
     let dir = fresh("split");
     let data = dir.join("keyspaces").join("1");
-    std::fs::create_dir_all(data.join("tables")).unwrap();
-    std::fs::create_dir_all(dir.join("keyspaces").join("2")).unwrap();
-    std::fs::write(data.join("tables").join("0"), vec![1u8; 10_000]).unwrap();
-    std::fs::write(data.join("current"), vec![1u8; 10]).unwrap();
-    std::fs::write(dir.join("0.jnl"), vec![1u8; 3_000]).unwrap();
-    std::fs::write(dir.join("1.jnl"), vec![1u8; 2_000]).unwrap();
-    std::fs::write(dir.join("version"), vec![1u8; 7]).unwrap();
+    std::fs::create_dir_all(data.join("tables"))?;
+    std::fs::create_dir_all(dir.join("keyspaces").join("2"))?;
+    std::fs::write(data.join("tables").join("0"), vec![1u8; 10_000])?;
+    std::fs::write(data.join("current"), vec![1u8; 10])?;
+    std::fs::write(dir.join("0.jnl"), vec![1u8; 3_000])?;
+    std::fs::write(dir.join("1.jnl"), vec![1u8; 2_000])?;
+    std::fs::write(dir.join("version"), vec![1u8; 7])?;
     std::fs::write(
         dir.join("keyspaces").join("2").join("current"),
         vec![1u8; 5],
-    )
-    .unwrap();
+    )?;
     // A journal's name below the top is no journal of the store's: metadata.
     std::fs::write(
         dir.join("keyspaces").join("2").join("9.jnl"),
         vec![1u8; 100],
-    )
-    .unwrap();
+    )?;
     // A file beside the data keyspace whose name only begins as it does is not in it.
-    std::fs::write(dir.join("keyspaces").join("10"), vec![1u8; 1_000]).unwrap();
-    let sizes = DirSizes::of(&dir, &data).unwrap();
+    std::fs::write(dir.join("keyspaces").join("10"), vec![1u8; 1_000])?;
+    let sizes = DirSizes::of(&dir, &data)?;
     // data: 10,000 + 10; journal: 3,000 + 2,000; metadata: 7 + 5 + 100 + 1,000.
     assert_eq!(sizes.data().apparent(), 10_010);
     assert_eq!(sizes.journal().apparent(), 5_000);
@@ -64,23 +63,25 @@ fn test_the_sizes_split_data_journal_and_metadata() {
         sizes.total().allocated(),
         sizes.data().allocated() + sizes.journal().allocated() + sizes.metadata().allocated()
     );
-    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
+    std::fs::remove_dir_all(&dir).context("removing the test's directory")?;
+    Ok(())
 }
 
 #[test]
 fn test_a_missing_directory_is_refused() {
     let dir = fresh("missing");
-    let error = DirSizes::of(&dir, &dir.join("data")).unwrap_err();
-    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    let sized = DirSizes::of(&dir, &dir.join("data"));
+    assert_eq!(
+        sized.map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::NotFound)
+    );
 }
 
 #[test]
-fn test_an_empty_directory_has_no_size() {
+fn test_an_empty_directory_has_no_size() -> TestResult {
     let dir = fresh("empty");
-    std::fs::create_dir_all(&dir).unwrap();
-    assert_eq!(
-        DirSizes::of(&dir, &dir.join("data")).unwrap(),
-        DirSizes::default()
-    );
-    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
+    std::fs::create_dir_all(&dir)?;
+    assert_eq!(DirSizes::of(&dir, &dir.join("data"))?, DirSizes::default());
+    std::fs::remove_dir_all(&dir).context("removing the test's directory")?;
+    Ok(())
 }

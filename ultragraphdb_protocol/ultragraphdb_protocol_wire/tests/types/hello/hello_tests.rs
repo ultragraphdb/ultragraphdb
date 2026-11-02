@@ -4,16 +4,18 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, Hello, MAX_FRAME_SIZE};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::{RELEASE, golden};
 
 #[test]
-fn test_hello_builds_the_golden_frame() {
+fn test_hello_builds_the_golden_frame() -> TestResult {
     let hello = Hello::new(1, 1, RELEASE, MAX_FRAME_SIZE as u32, "ultragraph-test");
     assert_eq!(
-        hello.frame(golden("hello").header()).unwrap(),
-        golden("hello").bytes()
+        hello.frame(golden("hello")?.header())?,
+        golden("hello")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

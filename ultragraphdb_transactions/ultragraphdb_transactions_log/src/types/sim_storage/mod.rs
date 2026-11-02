@@ -68,25 +68,25 @@ impl SimStorage {
     /// Injects `mode` into the operation at index `operation` of the trace, counted from the first operation. A fault
     /// set for an index already passed never fires.
     pub fn fail_at(&self, operation: usize, mode: FaultMode) {
-        self.with(|state| state.fail_at(operation, mode));
+        let _run: Option<()> = self.with(|state| state.fail_at(operation, mode));
     }
 
     /// Faults every later operation with probability one in `one_in`, its mode drawn at equal odds from a fault
     /// before, a fault after, a torn write reported with an error (whole or short at equal odds) and a silent one;
     /// `0` stops random faults. A silent torn write drawn for an operation that is not a write is no fault.
     pub fn fail_randomly(&self, one_in: u32) {
-        self.with(|state| state.fail_randomly(one_in));
+        let _run: Option<()> = self.with(|state| state.fail_randomly(one_in));
     }
 
     /// Makes every later preallocation fail with [`io::ErrorKind::Unsupported`], as on a file system without
     /// `fallocate(2)`.
     pub fn refuse_preallocation(&self) {
-        self.with(SimState::refuse_preallocation);
+        let _run: Option<()> = self.with(SimState::refuse_preallocation);
     }
 
     /// Cuts the power: every file returns to its stable contents and every directory to its stable entries.
     pub fn power_loss(&self) {
-        self.with(SimState::power_loss);
+        let _run: Option<()> = self.with(SimState::power_loss);
     }
 
     /// Every operation so far, in order, with the path it named (the source of a rename).

@@ -26,6 +26,7 @@ struct Shared<V> {
 }
 
 impl<V> SimListCache<V> {
+    /// A cache of at most `capacity` entries, evicting as `rng` chooses.
     pub fn new(capacity: usize, rng: SimRng) -> Self {
         Self {
             shared: Mutex::new(Shared {
@@ -36,10 +37,12 @@ impl<V> SimListCache<V> {
         }
     }
 
+    /// How many entries the cache holds.
     pub fn len(&self) -> usize {
         lock(&self.shared).entries.len()
     }
 
+    /// Whether the cache holds no entry.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -52,7 +55,7 @@ impl<V> SimListCache<V> {
         let Some(key) = shared.entries.keys().nth(at).cloned() else {
             return false;
         };
-        shared.entries.remove(&key);
+        let _evicted: Option<V> = shared.entries.remove(&key);
         true
     }
 }

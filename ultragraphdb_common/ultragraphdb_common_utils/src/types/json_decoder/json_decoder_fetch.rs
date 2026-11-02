@@ -44,7 +44,7 @@ impl<R: Read> JsonDecoder<R> {
             self.cap *= 2;
         }
         // Move the unread part to the front.
-        self.buf.drain(..self.prev_start - self.base);
+        drop(self.buf.drain(..self.prev_start - self.base));
         self.base = self.prev_start;
         // The buffer is never full here: a value filling it from its start grows it.
         let len = self.buf.len();

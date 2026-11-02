@@ -8,11 +8,11 @@ use ultragraphdb_error_invariant::InvariantError;
 #[test]
 fn test_the_text_names_the_invariant_violated() {
     assert_eq!(
-        InvariantError::Violated("rounds are appended in position order").to_string(),
+        InvariantError::violated("rounds are appended in position order").to_string(),
         "invariant violated: rounds are appended in position order"
     );
     assert_eq!(
-        InvariantError::Violated("").to_string(),
+        InvariantError::violated("").to_string(),
         "invariant violated: "
     );
 }

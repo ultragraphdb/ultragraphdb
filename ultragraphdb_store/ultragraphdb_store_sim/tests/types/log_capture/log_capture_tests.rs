@@ -5,6 +5,7 @@
 
 use tracing::Level;
 use ultragraphdb_store_sim::{Event, FaultConfig, LogCapture, Seed, Simulation};
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[test]
 fn test_records_every_level_in_order() {
@@ -58,20 +59,21 @@ fn test_a_clone_records_into_the_same_list() {
     clippy::disallowed_methods,
     reason = "the test emits on a second thread to prove the capture records its own thread alone"
 )]
-fn test_events_of_other_threads_are_not_recorded() {
+fn test_events_of_other_threads_are_not_recorded() -> TestResult {
     let capture = LogCapture::new();
-    tracing::subscriber::with_default(capture.subscriber(), || {
+    tracing::subscriber::with_default(capture.subscriber(), || -> TestResult {
         tracing::info!("here");
         std::thread::spawn(|| tracing::info!("there"))
             .join()
-            .expect("the other thread ended");
-    });
+            .map_err(|_| TestError::new("the other thread panicked"))
+    })?;
     let messages: Vec<String> = capture
         .events()
         .iter()
         .map(|e| e.message().unwrap_or_default().to_string())
         .collect();
     assert_eq!(messages, vec!["here".to_string()]);
+    Ok(())
 }
 
 /// The events a seeded run emits: one per step, naming the actor the scheduler picked.
@@ -151,15 +153,17 @@ fn reached_first_elsewhere() {
     clippy::disallowed_methods,
     reason = "the test reaches the callsite first on a second thread"
 )]
-fn test_capture_records_a_callsite_another_thread_reached_first() {
+fn test_capture_records_a_callsite_another_thread_reached_first() -> TestResult {
     let capture = LogCapture::new();
-    capture.capture(|| {
+    capture.capture(|| -> TestResult {
         std::thread::spawn(reached_first_elsewhere)
             .join()
-            .expect("the other thread ended");
+            .map_err(|_| TestError::new("the other thread panicked"))?;
         reached_first_elsewhere();
-    });
+        Ok(())
+    })?;
     let events = capture.events();
     assert_eq!(events.len(), 1, "{events:?}");
     assert_eq!(events[0].field("site"), Some("elsewhere"));
+    Ok(())
 }

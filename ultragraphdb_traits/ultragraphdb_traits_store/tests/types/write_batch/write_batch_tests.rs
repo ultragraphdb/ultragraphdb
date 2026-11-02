@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{
     Entry, MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, VersionlessEntry, WriteBatch,
 };
@@ -150,7 +151,7 @@ fn test_a_batch_records_an_applied_timestamp_only_when_given_one() {
 }
 
 #[test]
-fn test_check_key_sizes_refuses_the_first_oversized_key() {
+fn test_check_key_sizes_refuses_the_first_oversized_key() -> TestResult {
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(b"ok".to_vec(), 1, 0, vec![]));
     batch.push(Entry::put(vec![7; MAX_USER_KEY_SIZE], 1, 0, vec![]));
@@ -158,7 +159,10 @@ fn test_check_key_sizes_refuses_the_first_oversized_key() {
     // A stored-size refusal first, then a larger user-size one: the first is reported.
     batch.push(Entry::put(alternating(44_000), 1, 0, vec![]));
     batch.push(Entry::deletion(vec![1; MAX_USER_KEY_SIZE + 1], 1));
-    let err = batch.check_key_sizes().unwrap_err();
+    let err = batch
+        .check_key_sizes()
+        .err()
+        .context("the error of batch.check_key_sizes()")?;
     assert_eq!(
         err.0,
         StoreErrorEnum::KeyTooLarge {
@@ -167,6 +171,7 @@ fn test_check_key_sizes_refuses_the_first_oversized_key() {
             head: dense_head(),
         }
     );
+    Ok(())
 }
 
 #[test]

@@ -133,9 +133,9 @@ impl Table {
                         debug_assert!(s.len() >= HANGUL_SIZE);
                         let mut b = &decomposed[..];
                         while !b.is_empty() {
-                            let (ce, sz) = self.lookup(b);
-                            w.push(ce);
-                            b = &b[sz..];
+                            let (hangul_ce, hangul_sz) = self.lookup(b);
+                            w.push(hangul_ce);
+                            b = &b[hangul_sz..];
                         }
                         return n;
                     }

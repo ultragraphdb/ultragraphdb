@@ -75,11 +75,14 @@ fn test_rebuild_stops_are_configured_per_rebuild() {
     );
     let m = FaultConfig::mixed();
     assert!(m.crash_during_rebuild() > 0 && m.power_loss_during_rebuild() > 0);
-    let c = FaultConfig::none()
+    let configured = FaultConfig::none()
         .with_crash_during_rebuild(12)
         .with_power_loss_during_rebuild(13);
     assert_eq!(
-        (c.crash_during_rebuild(), c.power_loss_during_rebuild()),
+        (
+            configured.crash_during_rebuild(),
+            configured.power_loss_during_rebuild()
+        ),
         (12, 13)
     );
 }

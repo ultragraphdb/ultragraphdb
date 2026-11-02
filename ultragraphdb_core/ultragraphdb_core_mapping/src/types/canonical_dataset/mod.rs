@@ -40,6 +40,7 @@ struct Record {
 }
 
 impl CanonicalDataset {
+    /// An empty dataset.
     pub fn new() -> Self {
         Self::default()
     }

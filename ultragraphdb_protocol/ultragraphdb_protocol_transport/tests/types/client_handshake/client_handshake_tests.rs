@@ -9,30 +9,30 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Command, Credit, ErrorCode, ErrorReply, FrameView, Header, HeaderView,
     Hello, HelloView, MAX_FRAME_SIZE, Welcome,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
 /// A Welcome at `protocol`, the server's first frame: sequence 1.
-fn welcome(protocol: u16) -> Vec<u8> {
+fn welcome(protocol: u16) -> TestResult<Vec<u8>> {
     welcome_numbered(protocol, 1)
 }
 
-fn welcome_numbered(protocol: u16, sequence: u128) -> Vec<u8> {
-    Welcome::new(protocol, 9, "s")
+fn welcome_numbered(protocol: u16, sequence: u128) -> TestResult<Vec<u8>> {
+    Ok(Welcome::new(protocol, 9, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(16)
         .with_initial_credit(4)
-        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(sequence))
-        .unwrap()
+        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(sequence))?)
 }
 
 #[test]
-fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() {
+fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() -> TestResult {
     let hello = Hello::new(1, 3, 0x0005_0000, MAX_FRAME_SIZE as u32, "c");
     let handshake = ClientHandshake::new(CLUSTER, hello.clone());
     assert_eq!(handshake.hello(), &hello);
-    let frame = handshake.hello_frame().unwrap();
-    let header = HeaderView::new(&frame).unwrap();
+    let frame = handshake.hello_frame()?;
+    let header = HeaderView::new(&frame)?;
     assert_eq!(
         (header.cluster(), header.release(), header.stream()),
         (CLUSTER, 0x0005_0000, 0)
@@ -48,10 +48,10 @@ fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() {
         ),
         (1, 1, 0, 0, 0)
     );
-    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    let view = FrameView::validate(&frame, CLUSTER, MAX_FRAME_SIZE)?;
     assert_eq!(view.command(), Command::Hello);
     // The command header and section 0 carry the Hello's own values.
-    let body = HelloView::from_frame(&view).unwrap();
+    let body = HelloView::from_frame(&view)?;
     assert_eq!(
         (
             body.protocol_min(),
@@ -62,63 +62,63 @@ fn test_the_hello_frame_names_the_cluster_and_the_release_on_stream_zero() {
         ),
         (1, 3, 0x0005_0000, 1_048_576, "c")
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_welcome_within_the_range_is_taken_and_outside_it_refused() {
+fn test_a_welcome_within_the_range_is_taken_and_outside_it_refused() -> TestResult {
     let handshake = ClientHandshake::new(CLUSTER, Hello::new(2, 3, 0, MAX_FRAME_SIZE as u32, "c"));
     for protocol in [2, 3] {
-        assert_eq!(
-            handshake.receive(&welcome(protocol)).unwrap().protocol(),
-            protocol
-        );
+        assert_eq!(handshake.receive(&welcome(protocol)?)?.protocol(), protocol);
     }
     for protocol in [1, 4] {
         assert_eq!(
-            handshake.receive(&welcome(protocol)).unwrap_err(),
+            handshake
+                .receive(&welcome(protocol)?)
+                .err()
+                .context("the refusal")?,
             TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", protocol.into()))
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() {
+fn test_an_error_answer_is_a_refusal_and_another_command_unexpected() -> TestResult {
     let handshake = ClientHandshake::new(CLUSTER, Hello::new(3, 4, 0, MAX_FRAME_SIZE as u32, "c"));
     let error = ErrorReply::new(ErrorCode::ProtocolVersion, "above 2")
         .with_detail(2)
-        .frame(Header::new(CLUSTER, Command::Error).with_sequence(1))
-        .unwrap();
+        .frame(Header::new(CLUSTER, Command::Error).with_sequence(1))?;
     assert_eq!(
-        handshake.receive(&error).unwrap_err(),
+        handshake.receive(&error).err().context("the refusal")?,
         TransportError::Refused(ErrorCode::ProtocolVersion, "above 2")
     );
-    let credit = Credit::new(1)
-        .frame(Header::new(CLUSTER, Command::Credit).with_sequence(1))
-        .unwrap();
+    let credit = Credit::new(1).frame(Header::new(CLUSTER, Command::Credit).with_sequence(1))?;
     assert_eq!(
-        handshake.receive(&credit).unwrap_err(),
+        handshake.receive(&credit).err().context("the refusal")?,
         TransportError::UnexpectedCommand(2, 14)
     );
     // An Error whose code is no code of PROTOCOL.md section 9.4: 0, written over the command header's `code` and the
     // checksum renewed by stamping the sequence again.
     let mut unknown = error.clone();
     unknown[128..130].copy_from_slice(&0u16.to_le_bytes());
-    Header::stamp_sequence(&mut unknown, 1).unwrap();
+    Header::stamp_sequence(&mut unknown, 1)?;
     assert_eq!(
-        handshake.receive(&unknown).unwrap_err(),
+        handshake.receive(&unknown).err().context("the refusal")?,
         TransportError::Protocol(ProtocolError::FieldValue(16, "code", 0))
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_damaged_or_foreign_answer_is_a_protocol_error() {
+fn test_a_damaged_or_foreign_answer_is_a_protocol_error() -> TestResult {
     let handshake = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
-    let mut damaged = welcome(1);
+    let mut damaged = welcome(1)?;
     let last = damaged.len() - 1;
     damaged[last] ^= 1;
     // The body's last byte is in its one chunk (PROTOCOL.md section 2.5, step 11).
     assert!(matches!(
-        handshake.receive(&damaged).unwrap_err().0,
+        handshake.receive(&damaged).err().context("the refusal")?.0,
         TransportErrorEnum::Protocol {
             error: ProtocolError(ProtocolErrorEnum::Chunk { index: 0, .. })
         }
@@ -126,7 +126,7 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() {
     let foreign =
         ClientHandshake::new(CLUSTER + 1, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
     assert_eq!(
-        foreign.receive(&welcome(1)).unwrap_err(),
+        foreign.receive(&welcome(1)?).err().context("the refusal")?,
         TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER + 1, CLUSTER))
     );
     // A Welcome breaking its own rule: `max_streams` 0, where at least 1 is due (PROTOCOL.md section 5.2).
@@ -134,25 +134,30 @@ fn test_a_damaged_or_foreign_answer_is_a_protocol_error() {
         .with_max_frame(1 << 20)
         .with_max_streams(0)
         .with_initial_credit(4)
-        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))
-        .unwrap();
+        .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))?;
     assert_eq!(
-        handshake.receive(&no_streams).unwrap_err(),
+        handshake
+            .receive(&no_streams)
+            .err()
+            .context("the refusal")?,
         TransportError::Protocol(ProtocolError::FieldValue(2, "max_streams", 0))
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_answer_not_numbered_one_is_out_of_sequence() {
+fn test_an_answer_not_numbered_one_is_out_of_sequence() -> TestResult {
     // PROTOCOL.md section 2.5, step 13: the server's first frame is its sequence 1.
     let handshake = ClientHandshake::new(CLUSTER, Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c"));
     for sequence in [0, 2] {
         assert_eq!(
             handshake
-                .receive(&welcome_numbered(1, sequence))
-                .unwrap_err(),
+                .receive(&welcome_numbered(1, sequence)?)
+                .err()
+                .context("the refusal")?,
             TransportError::Protocol(ProtocolError::SequenceOrder(1, sequence))
         );
     }
-    assert_eq!(handshake.receive(&welcome(1)).unwrap().protocol(), 1);
+    assert_eq!(handshake.receive(&welcome(1)?)?.protocol(), 1);
+    Ok(())
 }

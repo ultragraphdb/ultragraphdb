@@ -4,6 +4,7 @@
  */
 
 use std::sync::Arc;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use ultragraphdb_core_codec::{PostingList, encode};
 use ultragraphdb_store_posting::{BLOCK_SIZE, CachedList, List};
@@ -11,7 +12,7 @@ use ultragraphdb_store_posting::{BLOCK_SIZE, CachedList, List};
 use crate::utils::helpers::{add, key, set_uid};
 
 #[test]
-fn test_the_weigher_counts_the_lists_bytes() {
+fn test_the_weigher_counts_the_lists_bytes() -> TestResult {
     let k = key("weigh", 1);
     let empty = CachedList::new(Arc::new(List::empty(k.clone())), 1, 0);
     let small = empty.weight();
@@ -22,7 +23,7 @@ fn test_the_weigher_counts_the_lists_bytes() {
 
     let uids: Vec<u64> = (1..=10_000).collect();
     let complete =
-        PostingList::default().with_pack(encode(&uids, BLOCK_SIZE).expect("the uids pack"));
+        PostingList::default().with_pack(encode(&uids, BLOCK_SIZE).context("the uids pack")?);
     let big = CachedList::new(Arc::new(List::new(k.clone(), complete.clone(), 1)), 1, 0);
     assert_eq!(
         big.weight(),
@@ -49,4 +50,5 @@ fn test_the_weigher_counts_the_lists_bytes() {
         "the deltas are weighed"
     );
     assert_eq!((deltas.ts(), deltas.epoch()), (3, 0));
+    Ok(())
 }

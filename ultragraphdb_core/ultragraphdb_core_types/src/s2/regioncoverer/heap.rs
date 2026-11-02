@@ -39,7 +39,7 @@ fn up<T>(h: &mut [T], j: usize, less: &impl Fn(&T, &T) -> bool) {
     }
 }
 
-fn down<T>(h: &mut [T], i0: usize, n: usize, less: &impl Fn(&T, &T) -> bool) -> bool {
+fn down<T>(h: &mut [T], i0: usize, n: usize, less: &impl Fn(&T, &T) -> bool) {
     let mut i = i0;
     loop {
         let j1 = 2 * i + 1;
@@ -57,5 +57,4 @@ fn down<T>(h: &mut [T], i0: usize, n: usize, less: &impl Fn(&T, &T) -> bool) -> 
         h.swap(i, j);
         i = j;
     }
-    i > i0
 }

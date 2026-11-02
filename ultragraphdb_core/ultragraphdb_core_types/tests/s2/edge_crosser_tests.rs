@@ -15,13 +15,14 @@ use ultragraphdb_core_types::{
     Crossing, EdgeCrosser, Point, R3Vector, crossing_sign, edge_or_vertex_crossing, ordered_ccw,
     vertex_crossing,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn crossings_match_go() {
-    let g: Golden = load("predicates.json");
+fn crossings_match_go() -> TestResult {
+    let g: Golden = load("predicates.json")?;
     let mut c = Checker::new("crossings");
     for k in &g.crossings {
-        let (a, b, p, d) = (pt(&k.a), pt(&k.b), pt(&k.c), pt(&k.d));
+        let (a, b, p, d) = (pt(&k.a)?, pt(&k.b)?, pt(&k.c)?, pt(&k.d)?);
         let cs = crossing_sign(a, b, p, d).value();
         c.check(cs == k.crossing, || {
             format!(
@@ -43,8 +44,8 @@ fn crossings_match_go() {
         });
     }
     for (n, k) in g.chains.iter().enumerate() {
-        let (a, b) = (pt(&k.a), pt(&k.b));
-        let chain: Vec<Point> = k.chain.iter().map(pt).collect();
+        let (a, b) = (pt(&k.a)?, pt(&k.b)?);
+        let chain: Vec<Point> = k.chain.iter().map(pt).collect::<TestResult<_>>()?;
         let mut e1 = EdgeCrosser::new_chain(a, b, chain[0]);
         let mut e2 = EdgeCrosser::new_chain(a, b, chain[0]);
         for (i, q) in chain[1..].iter().enumerate() {
@@ -73,6 +74,7 @@ fn crossings_match_go() {
         }
     }
     c.finish();
+    Ok(())
 }
 
 fn test_crossing(

@@ -9,12 +9,19 @@
 /// The go-geom geometry types Dgraph stores.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GeometryKind {
+    /// A single position.
     Point,
+    /// A sequence of positions joined by segments.
     LineString,
+    /// An outer ring with optional holes.
     Polygon,
+    /// A set of points.
     MultiPoint,
+    /// A set of line strings.
     MultiLineString,
+    /// A set of polygons.
     MultiPolygon,
+    /// A set of geometries of any kind.
     GeometryCollection,
 }
 

@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{Authenticate, BodyBuilder};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
@@ -26,7 +27,7 @@ pub fn golden_exchange() -> [Authenticate; 4] {
 }
 
 #[test]
-fn test_the_exchange_builds_the_golden_frames() {
+fn test_the_exchange_builds_the_golden_frames() -> TestResult {
     let names = [
         "authenticate_client_first",
         "authenticate_server_first",
@@ -35,11 +36,12 @@ fn test_the_exchange_builds_the_golden_frames() {
     ];
     for (message, name) in golden_exchange().iter().zip(names) {
         assert_eq!(
-            message.frame(golden(name).header()).unwrap(),
-            golden(name).bytes(),
+            message.frame(golden(name)?.header())?,
+            golden(name)?.bytes()?,
             "{name}"
         );
     }
+    Ok(())
 }
 
 #[test]

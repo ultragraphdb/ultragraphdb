@@ -80,8 +80,8 @@ pub fn verify_password(
             "crypto/bcrypt: cost {cost} is outside allowed inclusive range {MIN_COST}..{MAX_COST}"
         )));
     }
-    let (salt, stored) = h[n + 3..].split_at(ENCODED_SALT_SIZE);
-    let mut padded = salt.to_vec();
+    let (encoded_salt, stored) = h[n + 3..].split_at(ENCODED_SALT_SIZE);
+    let mut padded = encoded_salt.to_vec();
     padded.extend_from_slice(b"==");
     let salt = go_base64_decode(&padded)
         .map_err(|i| TypesError::password(format!("illegal base64 data at input byte {i}")))?;

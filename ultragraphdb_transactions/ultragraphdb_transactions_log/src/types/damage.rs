@@ -15,14 +15,24 @@ pub enum Damage {
     Header,
     /// A round of this log whose header verifies at `position`, which is not the next position or whose parent is
     /// not the previous round's checksum.
-    Chain { position: Position },
+    Chain {
+        /// The position the round's header names.
+        position: Position,
+    },
     /// The chunk table of the round at `position` fails `checksum_body`: no chunk is trusted.
-    ChunkTable { position: Position },
+    ChunkTable {
+        /// The position of the round whose table fails.
+        position: Position,
+    },
     /// Chunk `index`, body bytes `start` to `end`, of the round at `position` does not match its leaf.
     Chunk {
+        /// The position of the round whose chunk fails.
         position: Position,
+        /// The chunk's index in the body.
         index: usize,
+        /// The chunk's first body byte.
         start: usize,
+        /// The body byte after the chunk's last.
         end: usize,
     },
 }

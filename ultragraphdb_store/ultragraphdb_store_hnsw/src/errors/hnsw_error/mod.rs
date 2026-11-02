@@ -41,8 +41,11 @@ pub enum HnswErrorEnum {
     KeyNotFound,
     /// A key read found nothing: Dgraph's `errFetchingPostingList`, wrapping the absence and naming the key.
     FetchingPostingList {
+        /// The absence the read reported.
         cause: Box<HnswError>,
+        /// The predicate of the key read.
         pred: String,
+        /// The uid of the key read.
         uid: u64,
     },
     /// A uid holds no vector: Dgraph's `errNilVector`, wrapping the absence when a read reported one.
@@ -56,13 +59,26 @@ pub enum HnswErrorEnum {
     /// A dead list that does not parse: Dgraph's `cannotConvertToUintSlice`.
     UintSlice(String),
     /// An index whose float width is not its vectors' type's; Dgraph panics on a width other than 32 or 64.
-    FloatBits { bits: usize, expected: usize },
+    FloatBits {
+        /// The index's float width.
+        bits: usize,
+        /// The width of its vectors' type.
+        expected: usize,
+    },
     /// An option below 1, which Dgraph accepts and panics on at the first search or insert that reaches it.
-    InvalidParameter { name: &'static str, value: i64 },
+    InvalidParameter {
+        /// The option's name.
+        name: &'static str,
+        /// The value it holds.
+        value: i64,
+    },
     /// A node's neighbour lists without the level read; Dgraph panics (index out of range).
     LevelMissing {
+        /// The node read.
         uid: u64,
+        /// The level the search read.
         level: usize,
+        /// How many levels the node's lists hold.
         levels: usize,
     },
     /// A layer search that kept no neighbour, with a breadth or result count of 0; Dgraph panics (index out of
@@ -71,26 +87,31 @@ pub enum HnswErrorEnum {
 }
 
 impl HnswError {
+    /// A read of the posting lists that failed with `error`.
     #[allow(non_snake_case)]
     pub fn Posting(error: PostingError) -> Self {
         Self(HnswErrorEnum::Posting(error))
     }
 
+    /// An option whose value is of another type, as `error` states.
     #[allow(non_snake_case)]
     pub fn Options(error: OptionsError) -> Self {
         Self(HnswErrorEnum::Options(error))
     }
 
+    /// A key that holds no value.
     #[allow(non_snake_case)]
     pub fn NoValue() -> Self {
         Self(HnswErrorEnum::NoValue)
     }
 
+    /// No key under a prefix that passes the filter.
     #[allow(non_snake_case)]
     pub fn KeyNotFound() -> Self {
         Self(HnswErrorEnum::KeyNotFound)
     }
 
+    /// A read of the key of `pred` and `uid` that found nothing, wrapping the absence `cause`.
     #[allow(non_snake_case)]
     pub fn FetchingPostingList(cause: HnswError, pred: impl Into<String>, uid: u64) -> Self {
         Self(HnswErrorEnum::FetchingPostingList {
@@ -100,46 +121,55 @@ impl HnswError {
         })
     }
 
+    /// A uid that holds no vector, wrapping the absence `cause` when a read reported one.
     #[allow(non_snake_case)]
     pub fn NilVector(cause: Option<HnswError>) -> Self {
         Self(HnswErrorEnum::NilVector(cause.map(Box::new)))
     }
 
+    /// An index with no vector to start from, wrapping the absence `cause` when `find` reported one.
     #[allow(non_snake_case)]
     pub fn EmptyTree(cause: Option<HnswError>) -> Self {
         Self(HnswErrorEnum::EmptyTree(cause.map(Box::new)))
     }
 
+    /// A distance `func_name` between vectors of different lengths.
     #[allow(non_snake_case)]
     pub fn DifferentLengths(func_name: &'static str) -> Self {
         Self(HnswErrorEnum::DifferentLengths(func_name))
     }
 
+    /// A metric option that holds a value of another type than `go_type`.
     #[allow(non_snake_case)]
     pub fn CannotCast(go_type: &'static str) -> Self {
         Self(HnswErrorEnum::CannotCast(go_type))
     }
 
+    /// A dead list `s` that does not parse.
     #[allow(non_snake_case)]
     pub fn UintSlice(s: impl Into<String>) -> Self {
         Self(HnswErrorEnum::UintSlice(s.into()))
     }
 
+    /// An index of float width `bits` whose vectors' type is `expected` bits wide.
     #[allow(non_snake_case)]
     pub fn FloatBits(bits: usize, expected: usize) -> Self {
         Self(HnswErrorEnum::FloatBits { bits, expected })
     }
 
+    /// The option `name` holding `value`, below 1.
     #[allow(non_snake_case)]
     pub fn InvalidParameter(name: &'static str, value: i64) -> Self {
         Self(HnswErrorEnum::InvalidParameter { name, value })
     }
 
+    /// The lists of node `uid`, holding `levels` levels, without the level `level` read.
     #[allow(non_snake_case)]
     pub fn LevelMissing(uid: u64, level: usize, levels: usize) -> Self {
         Self(HnswErrorEnum::LevelMissing { uid, level, levels })
     }
 
+    /// A layer search that kept no neighbour.
     #[allow(non_snake_case)]
     pub fn NoNeighbour() -> Self {
         Self(HnswErrorEnum::NoNeighbour)

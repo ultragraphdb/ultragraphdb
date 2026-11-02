@@ -5,21 +5,20 @@
 
 use oxrdf::{Literal, NamedNode};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, TermView};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn test_a_view_reads_the_elements_in_place() {
+fn test_a_view_reads_the_elements_in_place() -> TestResult {
     let literal =
         Literal::new_typed_literal("[1, -2.5, 3]", NamedNode::new_unchecked(FLOAT32_VECTOR));
-    let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))
-        .unwrap()
-        .into_term();
-    let view = term.view().unwrap();
+    let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))?.into_term();
+    let view = term.view()?;
     let view = if let TermView::Vector(v) = view {
         Some(v)
     } else {
         None
     }
-    .expect("a vector");
+    .context("a vector")?;
     assert_eq!((view.len(), view.is_empty()), (3, false));
     assert_eq!(view.iter().collect::<Vec<_>>(), vec![1.0, -2.5, 3.0]);
     // IEEE 754 binary32, little-endian (PROTOCOL.md section 10.1): 1 is 0x3F800000, -2.5 0xC0200000, 3 0x40400000.
@@ -29,4 +28,5 @@ fn test_a_view_reads_the_elements_in_place() {
             0x00, 0x00, 0x80, 0x3F, 0x00, 0x00, 0x20, 0xC0, 0x00, 0x00, 0x40, 0x40
         ]
     );
+    Ok(())
 }

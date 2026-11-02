@@ -144,6 +144,7 @@ impl Executed {
         self.pending.is_some()
     }
 
+    /// The namespace the changeset was executed in.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }

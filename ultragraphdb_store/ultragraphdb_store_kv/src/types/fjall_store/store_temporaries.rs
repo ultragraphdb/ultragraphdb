@@ -53,7 +53,7 @@ impl Shared {
                 KeyspaceCreateOptions::default,
             )
             .map_err(|e| self.failed(e))?;
-        lock(&self.temporaries).insert(id, keyspace);
+        let _replaced: Option<Keyspace> = lock(&self.temporaries).insert(id, keyspace);
         Ok(Temporary::new(id))
     }
 

@@ -15,45 +15,72 @@ pub enum Change {
     /// The triple, held once whatever how often it is written, as RDF holds statements; for a single-valued
     /// predicate it replaces the subject's object.
     Insert {
+        /// The graph.
         graph: GraphName,
+        /// The subject.
         subject: NamedOrBlankNode,
+        /// The predicate.
         predicate: NamedNode,
+        /// The object.
         object: Term,
     },
     /// A statement of its own, beside any that hold the same triple, as a property graph creates an edge: a parallel
     /// edge, or an edge with properties, takes a statement ID.
     InsertEdge {
+        /// The graph.
         graph: GraphName,
+        /// The subject.
         subject: NamedOrBlankNode,
+        /// The predicate.
         predicate: NamedNode,
+        /// The object.
         object: Term,
+        /// The statement's properties.
         properties: Vec<(NamedNode, Term)>,
     },
     /// The triple and every statement that holds it.
     Delete {
+        /// The graph.
         graph: GraphName,
+        /// The subject.
         subject: NamedOrBlankNode,
+        /// The predicate.
         predicate: NamedNode,
+        /// The object.
         object: Term,
     },
     /// One statement, by its ID.
-    DeleteStatement { graph: GraphName, id: StatementId },
+    DeleteStatement {
+        /// The graph.
+        graph: GraphName,
+        /// The statement's ID.
+        id: StatementId,
+    },
     /// Every object of the subject's predicate in the graph.
     DeletePattern {
+        /// The graph.
         graph: GraphName,
+        /// The subject.
         subject: NamedOrBlankNode,
+        /// The predicate.
         predicate: NamedNode,
     },
     /// Adds a property to a statement, which takes a statement ID if it has none.
     SetProperty {
+        /// The statement.
         statement: StatementRef,
+        /// The predicate.
         predicate: NamedNode,
+        /// The property's value.
         value: Term,
     },
     /// Removes a statement's property, one value of it or, with no value, every value.
     DeleteProperty {
+        /// The statement.
         statement: StatementRef,
+        /// The predicate.
         predicate: NamedNode,
+        /// The value removed, or none for every value.
         value: Option<Term>,
     },
     /// A catalog declaration.

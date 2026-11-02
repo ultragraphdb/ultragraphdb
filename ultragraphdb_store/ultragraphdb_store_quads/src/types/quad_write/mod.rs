@@ -40,6 +40,7 @@ where
     S: Store,
     C: ListCache<Value = CachedList>,
 {
+    /// A write of namespace `namespace` to `quads` through `request`, resolving no term yet.
     pub fn new(quads: &'a QuadStore<S, C>, namespace: u64, request: Request<'a, S, C>) -> Self {
         Self {
             quads,
@@ -96,18 +97,22 @@ where
         Ok(())
     }
 
+    /// The namespace the write writes.
     pub fn namespace(&self) -> u64 {
         self.terms.namespace()
     }
 
+    /// The quad store the write writes to.
     pub fn quads(&self) -> &'a QuadStore<S, C> {
         self.quads
     }
 
+    /// The request the write reads and writes through.
     pub fn request(&mut self) -> &mut Request<'a, S, C> {
         &mut self.request
     }
 
+    /// The timestamp the write reads at.
     pub fn read_ts(&self) -> u64 {
         self.request.read_ts()
     }
@@ -117,6 +122,7 @@ where
         (&mut self.terms, self.quads)
     }
 
+    /// Whether `uid` was created by this write, so that no list keyed by it holds anything.
     pub fn is_fresh(&self, uid: u64) -> bool {
         self.terms.is_fresh(uid)
     }
@@ -289,7 +295,7 @@ where
         }
         let mut quad = forward;
         quad.extend_from_slice(object.as_bytes());
-        self.inserted.remove(&quad);
+        let _was_inserted: bool = self.inserted.remove(&quad);
         self.stats
             .entry((graph, predicate))
             .or_default()

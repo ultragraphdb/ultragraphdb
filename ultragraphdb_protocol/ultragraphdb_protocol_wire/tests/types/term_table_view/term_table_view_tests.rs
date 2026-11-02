@@ -3,10 +3,11 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_error_protocol::ProtocolErrorEnum;
+use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
     BodyView, Direction, ExecuteView, MAX_TERM_DEPTH, RequestTerm, RequestTermView, TermTable,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{frame_of, golden, join_sections, reframe};
 
@@ -21,27 +22,29 @@ pub fn record(kind: u8, direction: u8, fields: [u32; 4]) -> Vec<u8> {
 
 /// The golden Execute's frame around a term table of `records` and `text`, binding no parameter. Its records are the
 /// body's section 0, at body offset 32.
-pub fn execute(records: &[Vec<u8>], text: &[u8]) -> Vec<u8> {
+pub fn execute(records: &[Vec<u8>], text: &[u8]) -> TestResult<Vec<u8>> {
     let body = join_sections(
         &[],
         &[records.concat(), text.to_vec(), Vec::new(), Vec::new()],
     );
-    reframe(&golden("execute").bytes(), &body)
+    Ok(reframe(&golden("execute")?.bytes()?, &body))
 }
 
-fn read(records: &[Vec<u8>], text: &[u8]) -> Result<TermTable, ProtocolErrorEnum> {
-    let bytes = execute(records, text);
-    ExecuteView::from_frame(&frame_of(&bytes))
+/// The term table of an Execute of `records` and `text`, read through the view; the outer result fails the test when
+/// the frame cannot be built.
+fn read(records: &[Vec<u8>], text: &[u8]) -> TestResult<Result<TermTable, ProtocolErrorEnum>> {
+    let bytes = execute(records, text)?;
+    Ok(ExecuteView::from_frame(&frame_of(&bytes)?)
         .map(|v| v.terms().to_table())
-        .map_err(|e| e.0)
+        .map_err(|e| e.0))
 }
 
-fn refused(records: &[Vec<u8>], text: &[u8]) -> ProtocolErrorEnum {
-    read(records, text).unwrap_err()
+fn refused(records: &[Vec<u8>], text: &[u8]) -> TestResult<ProtocolErrorEnum> {
+    read(records, text)?.err().context("a refusal")
 }
 
 #[test]
-fn test_every_kind_reads_in_place() {
+fn test_every_kind_reads_in_place() -> TestResult {
     let records = [
         record(1, 0, [0, 3, 3, 0]),
         record(2, 0, [3, 2, 5, 0]),
@@ -51,8 +54,8 @@ fn test_every_kind_reads_in_place() {
         record(5, 0, [0, 0, 1, 0]),
     ];
     // Texts: "abc" 0..3, "b1" 3..5, "x1" 5..7, "35" 7..9 and "int" 9..12, "hi" 12..14 and "ar" 14..16.
-    let bytes = execute(&records, b"abcb1x135inthiar");
-    let view = ExecuteView::from_frame(&frame_of(&bytes)).unwrap();
+    let bytes = execute(&records, b"abcb1x135inthiar")?;
+    let view = ExecuteView::from_frame(&frame_of(&bytes)?)?;
     let terms = view.terms();
     assert_eq!(terms.len(), 6);
     assert!(!terms.is_empty());
@@ -90,7 +93,7 @@ fn test_every_kind_reads_in_place() {
     );
     assert_eq!(terms.get(6), None);
     assert_eq!(
-        terms.get(4).unwrap().to_term(),
+        terms.get(4).context("term 4 of the table")?.to_term(),
         RequestTerm::LanguageLiteral {
             lexical: "hi".to_string(),
             language: "ar".to_string(),
@@ -101,14 +104,15 @@ fn test_every_kind_reads_in_place() {
         terms.to_table().terms()[1],
         RequestTerm::BlankNode("b1".to_string())
     );
+    Ok(())
 }
 
 #[test]
-fn test_records_are_whole_and_their_fixed_fields_known() {
+fn test_records_are_whole_and_their_fixed_fields_known() -> TestResult {
     let mut short = record(1, 0, [0, 1, 1, 0]);
-    short.pop();
+    assert!(short.pop().is_some());
     assert_eq!(
-        refused(&[short], b"a"),
+        refused(&[short], b"a")?,
         ProtocolErrorEnum::SectionLength {
             command: 11,
             section: 0,
@@ -118,7 +122,7 @@ fn test_records_are_whole_and_their_fixed_fields_known() {
     );
     for kind in [0u8, 6, 255] {
         assert_eq!(
-            refused(&[record(kind, 0, [0, 1, 1, 0])], b"a"),
+            refused(&[record(kind, 0, [0, 1, 1, 0])], b"a")?,
             ProtocolErrorEnum::FieldValue {
                 command: 11,
                 field: "term kind",
@@ -127,7 +131,7 @@ fn test_records_are_whole_and_their_fixed_fields_known() {
         );
     }
     assert_eq!(
-        refused(&[record(1, 1, [0, 1, 1, 0])], b"a"),
+        refused(&[record(1, 1, [0, 1, 1, 0])], b"a")?,
         ProtocolErrorEnum::FieldValue {
             command: 11,
             field: "direction",
@@ -135,7 +139,7 @@ fn test_records_are_whole_and_their_fixed_fields_known() {
         }
     );
     assert_eq!(
-        refused(&[record(4, 3, [0, 1, 1, 1])], b"ab"),
+        refused(&[record(4, 3, [0, 1, 1, 1])], b"ab")?,
         ProtocolErrorEnum::FieldValue {
             command: 11,
             field: "direction",
@@ -146,18 +150,19 @@ fn test_records_are_whole_and_their_fixed_fields_known() {
     reserved[5] = 1;
     // The records start at body offset 32, after the table of four sections.
     assert_eq!(
-        refused(&[reserved], b"a"),
+        refused(&[reserved], b"a")?,
         ProtocolErrorEnum::PaddingNotZero {
             command: 11,
             offset: 32 + 5
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_texts_follow_each_other_and_fill_their_section() {
+fn test_texts_follow_each_other_and_fill_their_section() -> TestResult {
     assert_eq!(
-        refused(&[record(1, 0, [1, 2, 3, 0])], b"abc"),
+        refused(&[record(1, 0, [1, 2, 3, 0])], b"abc")?,
         ProtocolErrorEnum::FieldValue {
             command: 11,
             field: "term text offset",
@@ -165,7 +170,7 @@ fn test_texts_follow_each_other_and_fill_their_section() {
         }
     );
     assert_eq!(
-        refused(&[record(3, 0, [0, 2, 1, 1])], b"abc"),
+        refused(&[record(3, 0, [0, 2, 1, 1])], b"abc")?,
         ProtocolErrorEnum::FieldValue {
             command: 11,
             field: "term text offset",
@@ -173,7 +178,7 @@ fn test_texts_follow_each_other_and_fill_their_section() {
         }
     );
     assert_eq!(
-        refused(&[record(1, 0, [0, 10, 10, 0])], b"abc"),
+        refused(&[record(1, 0, [0, 10, 10, 0])], b"abc")?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 11,
             section: 1,
@@ -183,7 +188,7 @@ fn test_texts_follow_each_other_and_fill_their_section() {
         }
     );
     assert_eq!(
-        refused(&[record(1, 0, [0, 3, 3, 0])], b"abcX"),
+        refused(&[record(1, 0, [0, 3, 3, 0])], b"abcX")?,
         ProtocolErrorEnum::CountMismatch {
             command: 11,
             field: "term text",
@@ -193,7 +198,7 @@ fn test_texts_follow_each_other_and_fill_their_section() {
     );
     // An empty table holds no text.
     assert_eq!(
-        refused(&[], b"a"),
+        refused(&[], b"a")?,
         ProtocolErrorEnum::CountMismatch {
             command: 11,
             field: "term text",
@@ -201,14 +206,15 @@ fn test_texts_follow_each_other_and_fill_their_section() {
             expected: 0
         }
     );
-    assert_eq!(read(&[], b""), Ok(TermTable::new()));
+    assert_eq!(read(&[], b"")?, Ok(TermTable::new()));
+    Ok(())
 }
 
 #[test]
-fn test_a_text_one_byte_past_its_section_names_the_entry() {
+fn test_a_text_one_byte_past_its_section_names_the_entry() -> TestResult {
     // An IRI of two bytes over a text section of one: refused as out of range, before the section's fill is checked.
     assert_eq!(
-        refused(&[record(1, 0, [0, 2, 2, 0])], b"a"),
+        refused(&[record(1, 0, [0, 2, 2, 0])], b"a")?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 11,
             section: 1,
@@ -217,12 +223,13 @@ fn test_a_text_one_byte_past_its_section_names_the_entry() {
             limit: 1
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_text_is_utf8_and_cut_on_character_boundaries() {
+fn test_the_text_is_utf8_and_cut_on_character_boundaries() -> TestResult {
     assert_eq!(
-        refused(&[record(1, 0, [0, 2, 2, 0])], &[b'a', 0xFF]),
+        refused(&[record(1, 0, [0, 2, 2, 0])], &[b'a', 0xFF])?,
         ProtocolErrorEnum::NotUtf8 {
             command: 11,
             section: 1,
@@ -234,7 +241,7 @@ fn test_the_text_is_utf8_and_cut_on_character_boundaries() {
         refused(
             &[record(1, 0, [0, 1, 1, 0]), record(2, 0, [1, 1, 2, 0])],
             "ü".as_bytes()
-        ),
+        )?,
         ProtocolErrorEnum::NotUtf8 {
             command: 11,
             section: 1,
@@ -245,20 +252,21 @@ fn test_the_text_is_utf8_and_cut_on_character_boundaries() {
     // "x" and the first byte of "é" (bytes 0..2), its tag the second byte and "en" (2..5). The text is UTF-8 and
     // each entry starts and ends on a boundary; the cut at 2 does not (PROTOCOL.md section 4.4 step 12).
     assert_eq!(
-        refused(&[record(4, 0, [0, 2, 2, 3])], "xéen".as_bytes()),
+        refused(&[record(4, 0, [0, 2, 2, 3])], "xéen".as_bytes())?,
         ProtocolErrorEnum::NotUtf8 {
             command: 11,
             section: 1,
             offset: 2
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_second_text_is_what_the_kind_takes() {
+fn test_a_second_text_is_what_the_kind_takes() -> TestResult {
     // An IRI and a blank node have none; a literal never states xsd:string; a language tag is never empty.
     assert_eq!(
-        refused(&[record(1, 0, [0, 1, 1, 1])], b"ab"),
+        refused(&[record(1, 0, [0, 1, 1, 1])], b"ab")?,
         ProtocolErrorEnum::BadTerm {
             command: 11,
             section: 0,
@@ -266,7 +274,7 @@ fn test_a_second_text_is_what_the_kind_takes() {
         }
     );
     assert_eq!(
-        refused(&[record(2, 0, [0, 1, 1, 1])], b"ab"),
+        refused(&[record(2, 0, [0, 1, 1, 1])], b"ab")?,
         ProtocolErrorEnum::BadTerm {
             command: 11,
             section: 0,
@@ -279,7 +287,7 @@ fn test_a_second_text_is_what_the_kind_takes() {
         refused(
             &[record(3, 0, [0, 1, 1, xsd.len() as u32])],
             text.as_bytes()
-        ),
+        )?,
         ProtocolErrorEnum::BadTerm {
             command: 11,
             section: 0,
@@ -287,20 +295,21 @@ fn test_a_second_text_is_what_the_kind_takes() {
         }
     );
     assert_eq!(
-        refused(&[record(4, 0, [0, 1, 1, 0])], b"x"),
+        refused(&[record(4, 0, [0, 1, 1, 0])], b"x")?,
         ProtocolErrorEnum::BadTerm {
             command: 11,
             section: 0,
             at: 0
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_triple_term_names_earlier_entries_only() {
+fn test_a_triple_term_names_earlier_entries_only() -> TestResult {
     // Entry 0 naming itself; entry 1 naming entry 1 or 2.
     assert_eq!(
-        refused(&[record(5, 0, [0, 0, 0, 0])], b""),
+        refused(&[record(5, 0, [0, 0, 0, 0])], b"")?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 11,
             section: 0,
@@ -313,7 +322,7 @@ fn test_a_triple_term_names_earlier_entries_only() {
         refused(
             &[record(1, 0, [0, 1, 1, 0]), record(5, 0, [0, 1, 0, 0])],
             b"a"
-        ),
+        )?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 11,
             section: 0,
@@ -326,7 +335,7 @@ fn test_a_triple_term_names_earlier_entries_only() {
         refused(
             &[record(1, 0, [0, 1, 1, 0]), record(5, 0, [0, 0, 2, 0])],
             b"a"
-        ),
+        )?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 11,
             section: 0,
@@ -340,22 +349,23 @@ fn test_a_triple_term_names_earlier_entries_only() {
         refused(
             &[record(1, 0, [0, 1, 1, 0]), record(5, 0, [0, 0, 0, 7])],
             b"a"
-        ),
+        )?,
         ProtocolErrorEnum::FieldValue {
             command: 11,
             field: "triple term",
             value: 7
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_no_term_appears_twice() {
+fn test_no_term_appears_twice() -> TestResult {
     assert_eq!(
         refused(
             &[record(1, 0, [0, 1, 1, 0]), record(1, 0, [1, 1, 2, 0])],
             b"aa"
-        ),
+        )?,
         ProtocolErrorEnum::DuplicateTerm {
             command: 11,
             section: 0,
@@ -371,7 +381,7 @@ fn test_no_term_appears_twice() {
                 record(5, 0, [0, 0, 0, 0])
             ],
             b"a"
-        ),
+        )?,
         ProtocolErrorEnum::DuplicateTerm {
             command: 11,
             section: 0,
@@ -384,13 +394,14 @@ fn test_no_term_appears_twice() {
         read(
             &[record(1, 0, [0, 1, 1, 0]), record(2, 0, [1, 1, 2, 0])],
             b"aa"
-        )
+        )?
         .map(|table| table.terms().to_vec()),
         Ok(vec![
             RequestTerm::Iri("a".to_string()),
             RequestTerm::BlankNode("a".to_string())
         ])
     );
+    Ok(())
 }
 
 /// `<a>` and a chain of `depth` triple terms, entry k + 1 naming entry k at the place `at` (0 subject, 2 object), the
@@ -407,16 +418,16 @@ fn chain(depth: usize, at: usize) -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn test_triple_terms_nest_at_most_the_maximum_through_any_part() {
+fn test_triple_terms_nest_at_most_the_maximum_through_any_part() -> TestResult {
     for at in [0, 2] {
         // <a> and 32 triple terms: 33 entries.
         assert_eq!(
-            read(&chain(MAX_TERM_DEPTH, at), b"a").map(|table| table.len()),
+            read(&chain(MAX_TERM_DEPTH, at), b"a")?.map(|table| table.len()),
             Ok(33),
             "depth 32 through part {at}"
         );
         assert_eq!(
-            refused(&chain(MAX_TERM_DEPTH + 1, at), b"a"),
+            refused(&chain(MAX_TERM_DEPTH + 1, at), b"a")?,
             ProtocolErrorEnum::TermTooDeep {
                 command: 11,
                 section: 0,
@@ -428,13 +439,14 @@ fn test_triple_terms_nest_at_most_the_maximum_through_any_part() {
         );
     }
     // The golden Operation's value is nested exactly 32 deep.
-    let bytes = golden("operation_deep").bytes();
-    let view = ultragraphdb_protocol_wire::OperationView::from_frame(&frame_of(&bytes)).unwrap();
+    let bytes = golden("operation_deep")?.bytes()?;
+    let view = ultragraphdb_protocol_wire::OperationView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.terms().len(), 34);
+    Ok(())
 }
 
 #[test]
-fn test_a_direction_is_read_and_tells_two_terms_apart() {
+fn test_a_direction_is_read_and_tells_two_terms_apart() -> TestResult {
     // PROTOCOL.md section 4.4: direction 0 none, 1 `ltr`, 2 `rtl`; two text entries are equal when kind, direction,
     // first and second texts are equal. "hi"@ar three times, one per direction: three terms.
     let records = [
@@ -442,7 +454,9 @@ fn test_a_direction_is_read_and_tells_two_terms_apart() {
         record(4, 1, [4, 2, 6, 2]),
         record(4, 2, [8, 2, 10, 2]),
     ];
-    let table = read(&records, b"hiarhiarhiar").expect("three distinct terms");
+    let table = read(&records, b"hiarhiarhiar")?
+        .map_err(ProtocolError)
+        .context("three distinct terms")?;
     let tagged = |direction| RequestTerm::LanguageLiteral {
         lexical: "hi".to_string(),
         language: "ar".to_string(),
@@ -461,7 +475,7 @@ fn test_a_direction_is_read_and_tells_two_terms_apart() {
         refused(
             &[record(4, 1, [0, 2, 2, 2]), record(4, 1, [4, 2, 6, 2])],
             b"hiarhiar"
-        ),
+        )?,
         ProtocolErrorEnum::DuplicateTerm {
             command: 11,
             section: 0,
@@ -469,4 +483,5 @@ fn test_a_direction_is_read_and_tells_two_terms_apart() {
             earlier: 0
         }
     );
+    Ok(())
 }

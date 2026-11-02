@@ -8,6 +8,7 @@
 //! alphabet so they repeat, share prefixes and fall inside each other's ranges.
 
 use ultragraphdb_protocol_wire::WriteSetRecordView;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::{CommitError, ConflictHistory, Resolver};
 
 use crate::utils::fixture::Rng;
@@ -65,7 +66,7 @@ fn insert(history: &mut ConflictHistory, version: u64, writes: &Writes) {
 }
 
 #[test]
-fn test_the_history_agrees_with_the_model_over_random_histories() {
+fn test_the_history_agrees_with_the_model_over_random_histories() -> TestResult {
     let mut checks = 0usize;
     let mut conflicts = 0usize;
     for seed in 0..40u64 {
@@ -90,7 +91,7 @@ fn test_the_history_agrees_with_the_model_over_random_histories() {
                 _ => {
                     // A read version at the floor or above it, odd ones included.
                     let rv = model.floor() + rng.below(version.saturating_sub(model.floor()) + 2);
-                    let rs = read_set(0, rv, &reads(&mut rng));
+                    let rs = read_set(0, rv, &reads(&mut rng))?;
                     let expected = model.conflict(&rs);
                     assert_eq!(history.conflict(&rs), expected, "seed {seed}, rv {rv}");
                     checks += 1;
@@ -105,10 +106,11 @@ fn test_the_history_agrees_with_the_model_over_random_histories() {
         conflicts > checks / 10 && conflicts < checks * 9 / 10,
         "{conflicts} of {checks}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() {
+fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() -> TestResult {
     let mut too_old = 0usize;
     for seed in 100..130u64 {
         let mut rng = Rng::new(seed);
@@ -121,7 +123,7 @@ fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() {
                     version += 2;
                     let w = writes(&mut rng);
                     let bytes = record(0, 0, &w, 0);
-                    let view = WriteSetRecordView::new(&bytes).expect("the record reads");
+                    let view = WriteSetRecordView::new(&bytes).context("the record reads")?;
                     resolver.admit(version, &view);
                     model.insert(version, &w);
                 }
@@ -134,7 +136,7 @@ fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() {
                     // Read versions straddling the floor: the one just below it is too old.
                     let floor = model.floor();
                     let rv = floor.saturating_sub(2) + rng.below(version.saturating_sub(floor) + 4);
-                    let rs = read_set(0, rv, &reads(&mut rng));
+                    let rs = read_set(0, rv, &reads(&mut rng))?;
                     let expected = if rv < floor {
                         too_old += 1;
                         Err(CommitError::TooOld(rv, floor))
@@ -149,4 +151,5 @@ fn test_the_resolver_agrees_with_the_model_on_too_old_and_conflicts() {
         }
     }
     assert!(too_old > 100, "{too_old}");
+    Ok(())
 }

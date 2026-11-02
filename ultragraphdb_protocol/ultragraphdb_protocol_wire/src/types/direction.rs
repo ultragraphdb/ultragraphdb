@@ -6,6 +6,8 @@
 /// The base direction of a language-tagged literal (RDF 1.2): left to right or right to left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Direction {
+    /// Left to right.
     Ltr,
+    /// Right to left.
     Rtl,
 }

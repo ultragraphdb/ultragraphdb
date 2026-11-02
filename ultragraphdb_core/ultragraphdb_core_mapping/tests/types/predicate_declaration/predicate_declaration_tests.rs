@@ -10,6 +10,7 @@ use oxrdf::vocab::xsd;
 use ultragraphdb_core_mapping::{
     Cardinality, PredicateDeclaration, PredicateKind, VectorIndexSpec,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn iri(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
@@ -32,13 +33,13 @@ fn test_an_undeclared_predicate_is_either_kind_multi_valued_unconstrained_and_un
 }
 
 #[test]
-fn test_every_builder_sets_exactly_what_its_getter_reads_back() {
+fn test_every_builder_sets_exactly_what_its_getter_reads_back() -> TestResult {
     // Each value differs from its default above, so a getter that returns the default reads back the wrong value.
     let spec = VectorIndexSpec::new(
         "hnsw",
         vec![("metric".to_string(), "euclidean".to_string())],
     )
-    .with_dimension(NonZeroU16::new(3).unwrap());
+    .with_dimension(NonZeroU16::new(3).context("3 is not zero")?);
     let d = PredicateDeclaration::new(iri("age"))
         .with_kind(PredicateKind::Property)
         .with_cardinality(Cardinality::Single)
@@ -63,4 +64,5 @@ fn test_every_builder_sets_exactly_what_its_getter_reads_back() {
 
     // Removing the vector index reads back none.
     assert_eq!(d.without_vector_index().vector_index(), None);
+    Ok(())
 }

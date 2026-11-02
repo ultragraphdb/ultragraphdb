@@ -29,14 +29,17 @@ pub struct Operation {
 }
 
 impl Operation {
+    /// The commit-time `operation` with the terms it names.
     pub fn new(terms: TermTable, operation: CommitOperation) -> Self {
         Self { terms, operation }
     }
 
+    /// The term table the operation's indices name.
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
+    /// The commit-time operation.
     pub fn operation(&self) -> &CommitOperation {
         &self.operation
     }

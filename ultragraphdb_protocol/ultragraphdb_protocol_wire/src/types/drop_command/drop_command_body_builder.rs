@@ -27,7 +27,7 @@ impl BodyBuilder for DropCommand {
     fn body(&self) -> Vec<u8> {
         let mut terms = TermTable::new();
         if let Some(target) = self.target() {
-            terms.iri(target);
+            let _index: u32 = terms.iri(target);
         }
         let (records, text) = terms.sections();
         write_sections(&[], &[&records, &text])

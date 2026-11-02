@@ -7,5 +7,6 @@ use std::time::Duration;
 
 /// The time since a run started: the wall clock in a run, a clock moved by hand in a test.
 pub trait Clock {
+    /// The time since the run started.
     fn elapsed(&self) -> Duration;
 }

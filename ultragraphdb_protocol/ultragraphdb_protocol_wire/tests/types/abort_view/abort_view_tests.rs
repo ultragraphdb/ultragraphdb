@@ -4,17 +4,13 @@
  */
 
 use ultragraphdb_protocol_wire::{Abort, AbortView, BodyView};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::{frame_of, golden};
 
 #[test]
-fn test_the_golden_abort_reads() {
-    let bytes = golden("abort").bytes();
-    assert_eq!(
-        AbortView::from_frame(&frame_of(&bytes))
-            .unwrap()
-            .to_body()
-            .unwrap(),
-        Abort
-    );
+fn test_the_golden_abort_reads() -> TestResult {
+    let bytes = golden("abort")?.bytes()?;
+    assert_eq!(AbortView::from_frame(&frame_of(&bytes)?)?.to_body()?, Abort);
+    Ok(())
 }

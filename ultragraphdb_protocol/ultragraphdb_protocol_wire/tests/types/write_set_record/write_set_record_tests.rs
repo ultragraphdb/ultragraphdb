@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{OperationResult, WriteSetRecord, WriteSetRecordView};
+use ultragraphdb_tool_bdd::TestResult;
 
 /// Record 0 of the golden Round, as generate_bodies.py lays it out.
 pub fn record0() -> WriteSetRecord {
@@ -32,7 +33,7 @@ pub fn record1() -> WriteSetRecord {
 }
 
 #[test]
-fn test_a_record_keeps_its_fields_and_tables() {
+fn test_a_record_keeps_its_fields_and_tables() -> TestResult {
     let record = record0();
     assert_eq!(
         (
@@ -92,5 +93,6 @@ fn test_a_record_keeps_its_fields_and_tables() {
     all.push_statement(b"s".to_vec(), Some(b"v".to_vec()));
     all.push_catalog(b"c".to_vec(), None);
     let bytes = all.encode();
-    assert_eq!(WriteSetRecordView::new(&bytes).unwrap().to_record(), all);
+    assert_eq!(WriteSetRecordView::new(&bytes)?.to_record(), all);
+    Ok(())
 }

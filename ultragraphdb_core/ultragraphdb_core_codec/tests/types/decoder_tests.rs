@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_codec::{Decoder, SeekPos, UidPack, decode, encode};
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SeekStep {
@@ -24,25 +24,25 @@ struct SeekCase {
     steps: Vec<SeekStep>,
 }
 
-fn golden_cases() -> Vec<SeekCase> {
-    let path = testdata_dir().join("golden/codec_seek.json");
-    let golden = load_golden::<SeekCase>(&path);
+fn golden_cases() -> TestResult<Vec<SeekCase>> {
+    let path = testdata_dir()?.join("golden/codec_seek.json");
+    let golden = load_golden::<SeekCase>(&path)?;
     assert!(golden.cases().len() >= 6, "the golden file holds the cases");
-    golden.cases().to_vec()
+    Ok(golden.cases().to_vec())
 }
 
-fn whence(name: &str) -> SeekPos {
+fn whence(name: &str) -> TestResult<SeekPos> {
     let pos = match name {
         "start" => Some(SeekPos::Start),
         "current" => Some(SeekPos::Current),
         _ => None,
     };
     pos.ok_or_else(|| format!("unknown whence {name:?}"))
-        .expect("a whence the golden file names")
+        .context("a whence the golden file names")
 }
 
-fn pack(case: &SeekCase) -> UidPack {
-    encode(&case.uids, case.block_size).expect("the golden lists are not empty")
+fn pack(case: &SeekCase) -> TestResult<UidPack> {
+    encode(&case.uids, case.block_size).context("the golden lists are not empty")
 }
 
 fn steps<'a>(case: &'a SeekCase, op: &'a str, pos: &'a str) -> impl Iterator<Item = &'a SeekStep> {
@@ -52,9 +52,9 @@ fn steps<'a>(case: &'a SeekCase, op: &'a str, pos: &'a str) -> impl Iterator<Ite
 }
 
 #[test]
-fn decode_from_a_target_matches_golden() {
-    for case in golden_cases() {
-        let pack = pack(&case);
+fn decode_from_a_target_matches_golden() -> TestResult {
+    for case in golden_cases()? {
+        let pack = pack(&case)?;
         let mut checked = 0;
         for step in steps(&case, "decode", "") {
             let actual = decode(&pack, step.target);
@@ -83,16 +83,17 @@ fn decode_from_a_target_matches_golden() {
         }
         assert!(checked > 0, "{}", case.name);
     }
+    Ok(())
 }
 
 #[test]
-fn seek_matches_golden() {
-    for case in golden_cases() {
-        let pack = pack(&case);
+fn seek_matches_golden() -> TestResult {
+    for case in golden_cases()? {
+        let pack = pack(&case)?;
         let mut dec = Decoder::new(&pack);
         for pos in ["start", "current"] {
             for step in steps(&case, "seek", pos) {
-                let actual = dec.seek(step.target, whence(pos));
+                let actual = dec.seek(step.target, whence(pos)?);
                 assert_eq!(
                     step.uids, actual,
                     "{} seek {} {pos}",
@@ -101,16 +102,17 @@ fn seek_matches_golden() {
             }
         }
     }
+    Ok(())
 }
 
 #[test]
-fn seek_to_block_matches_golden() {
-    for case in golden_cases() {
-        let pack = pack(&case);
+fn seek_to_block_matches_golden() -> TestResult {
+    for case in golden_cases()? {
+        let pack = pack(&case)?;
         for pos in ["start", "current"] {
             let mut dec = Decoder::new(&pack);
             for step in steps(&case, "seek_to_block", pos) {
-                let actual = dec.seek_to_block(step.target, whence(pos));
+                let actual = dec.seek_to_block(step.target, whence(pos)?);
                 assert_eq!(
                     step.uids, actual,
                     "{} seek_to_block {} {pos}",
@@ -119,12 +121,13 @@ fn seek_to_block_matches_golden() {
             }
         }
     }
+    Ok(())
 }
 
 #[test]
-fn linear_seek_matches_golden() {
-    for case in golden_cases() {
-        let pack = pack(&case);
+fn linear_seek_matches_golden() -> TestResult {
+    for case in golden_cases()? {
+        let pack = pack(&case)?;
         let mut dec = Decoder::new(&pack);
         for step in steps(&case, "linear_seek", "") {
             let actual = dec.linear_seek(step.target);
@@ -135,12 +138,13 @@ fn linear_seek_matches_golden() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn a_new_decoder_holds_the_first_block() {
+fn a_new_decoder_holds_the_first_block() -> TestResult {
     let uids: Vec<u64> = (1..=25).collect();
-    let pack = encode(&uids, 10).expect("the list packs");
+    let pack = encode(&uids, 10).context("the list packs")?;
     let mut dec = Decoder::new(&pack);
     assert_eq!(0, dec.block_idx());
     assert_eq!(&uids[..10], dec.uids());
@@ -155,61 +159,67 @@ fn a_new_decoder_holds_the_first_block() {
     assert!(!dec.valid());
     assert_eq!(0, dec.approx_len());
     assert_eq!(&pack, dec.pack());
+    Ok(())
 }
 
 #[test]
-fn linear_seek_to_the_largest_uid_stays_on_the_last_block() {
+fn linear_seek_to_the_largest_uid_stays_on_the_last_block() -> TestResult {
     // Go's LinearSeek never returns for u64::MAX, whose next base past the last block reads as u64::MAX (ledger 5);
     // the port returns the last block, as Go's documentation states and as Go returns for u64::MAX - 1.
-    let pack = encode(&[1, 2, 3], 2).expect("the list packs");
+    let pack = encode(&[1, 2, 3], 2).context("the list packs")?;
     let mut dec = Decoder::new(&pack);
     assert_eq!([3], dec.linear_seek(u64::MAX));
     assert!(dec.valid());
+    Ok(())
 }
 
 #[test]
-fn seek_to_block_past_the_last_block_returns_nothing() {
+fn seek_to_block_past_the_last_block_returns_nothing() -> TestResult {
     // Dgraph's SeekToBlock indexes the current block, which a decoder past the last block does not have, and panics
     // (ledger 3); the port searches from the last block and finds no UID after the target.
-    let pack = encode(&[1, 2, 3], 2).expect("the list packs");
+    let pack = encode(&[1, 2, 3], 2).context("the list packs")?;
     let mut dec = Decoder::sought(&pack, 4, SeekPos::Start);
     assert!(dec.uids().is_empty());
     assert!(dec.seek_to_block(5, SeekPos::Current).is_empty());
+    Ok(())
 }
 
 #[test]
-fn a_sought_decoder_holds_the_target_block() {
+fn a_sought_decoder_holds_the_target_block() -> TestResult {
     let uids: Vec<u64> = (1..=25).collect();
-    let pack = encode(&uids, 10).expect("the list packs");
+    let pack = encode(&uids, 10).context("the list packs")?;
     let dec = Decoder::sought(&pack, 15, SeekPos::Start);
     assert_eq!(1, dec.block_idx());
     assert_eq!(&uids[14..20], dec.uids());
+    Ok(())
 }
 
 #[test]
-fn test_seek_to_block_at_a_base_equal_to_the_held_block_stays_there() {
+fn test_seek_to_block_at_a_base_equal_to_the_held_block_stays_there() -> TestResult {
     // [5 5 5 5 6 7] in blocks of 2 has two blocks of base 5. Held at the second, a seek of 5 from the start finds 5 at
     // that block's base and stays: it searches from the held block, not from the first, as only a uid below the held
     // block's base sends it back. Dgraph v25.5.0 Decoder.Next then SeekToBlock(5, SeekStart), run in Go: BlockIdx 1,
     // UIDs [5 5].
-    let pack = encode(&[5, 5, 5, 5, 6, 7], 2).expect("a non-empty list packs");
+    let pack = encode(&[5, 5, 5, 5, 6, 7], 2).context("a non-empty list packs")?;
     let mut dec = Decoder::new(&pack);
-    dec.next_block();
+    assert_eq!(dec.next_block(), &[5, 5]);
     assert_eq!(dec.block_idx(), 1);
     assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 5]);
     assert_eq!(dec.block_idx(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_seek_to_a_base_takes_that_block_though_the_previous_block_ends_at_it() {
+fn test_a_seek_to_a_base_takes_that_block_though_the_previous_block_ends_at_it() -> TestResult {
     // [4 5 5 6] in blocks of 2 is [4 5] and [5 6]: 5 ends the first block and is the second's base. A seek of 5 from
     // the start takes the block whose base it is, the second, whole. Dgraph v25.5.0 SeekToBlock(5, SeekStart) on a new
     // decoder, and Seek(5, SeekStart), run in Go: BlockIdx 1, UIDs [5 6] for both.
-    let pack = encode(&[4, 5, 5, 6], 2).expect("a non-empty list packs");
+    let pack = encode(&[4, 5, 5, 6], 2).context("a non-empty list packs")?;
     let mut dec = Decoder::new(&pack);
     assert_eq!(dec.seek_to_block(5, SeekPos::Start), &[5, 6]);
     assert_eq!(dec.block_idx(), 1);
-    let mut dec = Decoder::new(&pack);
-    assert_eq!(dec.seek(5, SeekPos::Start), &[5, 6]);
-    assert_eq!(dec.block_idx(), 1);
+    let mut sought = Decoder::new(&pack);
+    assert_eq!(sought.seek(5, SeekPos::Start), &[5, 6]);
+    assert_eq!(sought.block_idx(), 1);
+    Ok(())
 }

@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::{Durability, FjallStore};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
@@ -23,7 +24,8 @@ pub struct BenchStore {
 }
 
 impl BenchStore {
-    pub fn open(name: &str, durability: Durability) -> Self {
+    /// Opens a store named `name` with `durability` in a fresh directory.
+    pub fn open(name: &str, durability: Durability) -> Result<Self, StoreError> {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
             "ultragraphdb-kv-bench-{name}-{}-{n}",
@@ -31,10 +33,11 @@ impl BenchStore {
         ));
         // A directory an earlier run left behind, which is usually absent.
         drop(std::fs::remove_dir_all(&dir));
-        let store = FjallStore::open(&dir, durability).expect("the bench store opens");
-        Self { store, dir }
+        let store = FjallStore::open(&dir, durability)?;
+        Ok(Self { store, dir })
     }
 
+    /// The store.
     pub fn store(&self) -> &FjallStore {
         &self.store
     }
@@ -55,17 +58,28 @@ pub fn key(prefix: &[u8], i: u64) -> Vec<u8> {
 }
 
 /// Writes `count` keys under `prefix`, each at `version` with a value of `value_len` bytes, in batches of 10,000.
-pub fn fill(store: &FjallStore, prefix: &[u8], count: u64, version: u64, value_len: usize) {
-    (0..count)
-        .collect::<Vec<_>>()
-        .chunks(10_000)
-        .for_each(|chunk| {
-            let mut batch = WriteBatch::new();
-            chunk.iter().for_each(|&i| {
-                batch.push(Entry::put(key(prefix, i), version, 0, vec![7; value_len]))
-            });
-            store
-                .apply(batch, PersistMode::Buffer)
-                .expect("the fill is written");
-        });
+pub fn fill(
+    store: &FjallStore,
+    prefix: &[u8],
+    count: u64,
+    version: u64,
+    value_len: usize,
+) -> Result<(), StoreError> {
+    for chunk in (0..count).collect::<Vec<_>>().chunks(10_000) {
+        let mut batch = WriteBatch::new();
+        chunk
+            .iter()
+            .for_each(|&i| batch.push(Entry::put(key(prefix, i), version, 0, vec![7; value_len])));
+        store.apply(batch, PersistMode::Buffer)?;
+    }
+    Ok(())
+}
+
+/// Runs the bench `name`, and on a failure of its setup reports the failure and ends the process with exit code 1, as
+/// a bench that cannot measure has failed.
+pub fn run(name: &str, bench: impl FnOnce() -> Result<(), StoreError>) {
+    if let Err(e) = bench() {
+        eprintln!("{name}: {e}");
+        std::process::exit(1);
+    }
 }

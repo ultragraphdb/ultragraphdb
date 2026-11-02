@@ -15,48 +15,58 @@ mod bench_dir;
 
 use std::cell::Cell;
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main};
 use ultragraphdb_store_kv::Durability;
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
-use crate::bench_dir::{BenchStore, fill, key};
+use crate::bench_dir::{BenchStore, fill, key, run};
 
 const KEYS: u64 = 100_000;
 const VERSIONS: u64 = 1_000;
 const READ_TS: u64 = 1_000_000;
 
 fn point_reads(c: &mut Criterion) {
-    let bench = BenchStore::open("read", Durability::Process);
-    let store = bench.store();
-    fill(store, b"\x00r", KEYS, 2, 64);
-    let mut batch = WriteBatch::new();
-    (1..=VERSIONS).for_each(|v| batch.push(Entry::put(b"\x00hot".to_vec(), v, 0, vec![7; 64])));
-    store
-        .apply(batch, PersistMode::Buffer)
-        .expect("the versions are written");
-    store.compact().expect("the store compacts");
+    run("kv_point_read", || {
+        let bench = BenchStore::open("read", Durability::Process)?;
+        let store = bench.store();
+        fill(store, b"\x00r", KEYS, 2, 64)?;
+        let mut batch = WriteBatch::new();
+        (1..=VERSIONS).for_each(|v| batch.push(Entry::put(b"\x00hot".to_vec(), v, 0, vec![7; 64])));
+        store.apply(batch, PersistMode::Buffer)?;
+        store.compact()?;
 
-    let mut group = c.benchmark_group("kv_point_read");
-    group.throughput(Throughput::Elements(1));
-    let next = Cell::new(0u64);
-    group.bench_function("newest", |b| {
-        b.iter(|| {
-            let i = next.get();
-            next.set((i + 7_919) % KEYS);
-            store.get_at(&key(b"\x00r", i), READ_TS).expect("reads")
-        })
+        let mut group = c.benchmark_group("kv_point_read");
+        let next = Cell::new(0u64);
+        let _measured: &mut BenchmarkGroup<'_, _> = group
+            .throughput(Throughput::Elements(1))
+            .bench_function("newest", |b| {
+                b.iter(|| {
+                    let i = next.get();
+                    next.set((i + 7_919) % KEYS);
+                    let read = store.get_at(&key(b"\x00r", i), READ_TS);
+                    assert!(read.is_ok(), "reads: {read:?}");
+                    read
+                })
+            })
+            .bench_function("older_of_1000_versions", |b| {
+                b.iter(|| {
+                    let read = store.get_at(b"\x00hot", 10);
+                    assert!(read.is_ok(), "reads: {read:?}");
+                    read
+                })
+            })
+            .bench_function("missing", |b| {
+                b.iter(|| {
+                    let i = next.get();
+                    next.set((i + 7_919) % KEYS);
+                    let read = store.get_at(&key(b"\x00m", i), READ_TS);
+                    assert!(read.is_ok(), "reads: {read:?}");
+                    read
+                })
+            });
+        group.finish();
+        Ok(())
     });
-    group.bench_function("older_of_1000_versions", |b| {
-        b.iter(|| store.get_at(b"\x00hot", 10).expect("reads"))
-    });
-    group.bench_function("missing", |b| {
-        b.iter(|| {
-            let i = next.get();
-            next.set((i + 7_919) % KEYS);
-            store.get_at(&key(b"\x00m", i), READ_TS).expect("reads")
-        })
-    });
-    group.finish();
 }
 
 criterion_group!(benches, point_reads);

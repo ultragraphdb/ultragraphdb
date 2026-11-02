@@ -48,6 +48,7 @@ pub fn namespace_base(namespace: u64) -> String {
 }
 
 impl WriteTerms {
+    /// The terms of a write of `namespace`, none resolved yet.
     pub fn new(namespace: u64) -> Self {
         Self {
             namespace,
@@ -55,6 +56,7 @@ impl WriteTerms {
         }
     }
 
+    /// The namespace the write writes.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
@@ -69,7 +71,7 @@ impl WriteTerms {
     /// again nor writes its entry (7.5).
     pub fn know(&mut self, iri: &str, uid: u64) {
         if !self.known.contains_key(iri) && !self.created.contains_key(iri) {
-            self.known.insert(iri.to_string(), uid);
+            let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
         }
     }
 
@@ -90,13 +92,14 @@ impl WriteTerms {
         let key = iri_key(self.namespace, iri);
         if let Some(value) = store.get_versionless(&key)? {
             let uid = decode_uid(&key, &value)?;
-            self.known.insert(iri.to_string(), uid);
+            let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
             return Ok(uid);
         }
-        self.absent.insert(key);
+        let _newly_absent: bool = self.absent.insert(key);
         let uid = leases.next_uid(store, self.namespace)?;
-        self.created.insert(iri.to_string(), (uid, false));
-        self.fresh.insert(uid);
+        let _replaced_created: Option<(u64, bool)> =
+            self.created.insert(iri.to_string(), (uid, false));
+        let _newly_fresh: bool = self.fresh.insert(uid);
         Ok(uid)
     }
 
@@ -112,11 +115,11 @@ impl WriteTerms {
         }
         let key = iri_key(self.namespace, iri);
         let Some(value) = store.get_versionless(&key)? else {
-            self.absent.insert(key);
+            let _newly_absent: bool = self.absent.insert(key);
             return Ok(None);
         };
         let uid = decode_uid(&key, &value)?;
-        self.known.insert(iri.to_string(), uid);
+        let _replaced_known: Option<u64> = self.known.insert(iri.to_string(), uid);
         Ok(Some(uid))
     }
 
@@ -159,9 +162,9 @@ impl WriteTerms {
         }
         let uid = leases.next_uid(store, self.namespace)?;
         let skolem = format!("{}.well-known/genid/{uid}", namespace_base(self.namespace));
-        self.created.insert(skolem, (uid, true));
-        self.blanks.insert(label.to_string(), uid);
-        self.fresh.insert(uid);
+        let _replaced_created: Option<(u64, bool)> = self.created.insert(skolem, (uid, true));
+        let _replaced_blank: Option<u64> = self.blanks.insert(label.to_string(), uid);
+        let _newly_fresh: bool = self.fresh.insert(uid);
         Ok(uid)
     }
 
@@ -192,6 +195,7 @@ impl WriteTerms {
         }
     }
 
+    /// The UID of a predicate.
     pub fn predicate<S: Store>(
         &mut self,
         store: &S,
@@ -216,7 +220,8 @@ impl WriteTerms {
                     self.iri(store, leases, d.as_str())
                 })?;
                 for (hash, string) in encoded.strings() {
-                    self.strings.insert(hash, string.to_string());
+                    let _replaced_string: Option<String> =
+                        self.strings.insert(hash, string.to_string());
                 }
                 Ok(encoded.into_term())
             }
@@ -290,7 +295,8 @@ impl WriteTerms {
                     };
                     let uid = u64::from_be_bytes(uid);
                     self.know(iri, uid);
-                    self.inherited_iris
+                    let _replaced_inherited_iri: Option<(String, bool)> = self
+                        .inherited_iris
                         .insert(uid, (iri.to_string(), *flag == 1));
                 }
                 Some((&HASH_TO_STRING, hash)) => {
@@ -299,7 +305,8 @@ impl WriteTerms {
                     else {
                         continue;
                     };
-                    self.inherited_strings
+                    let _replaced_inherited_string: Option<String> = self
+                        .inherited_strings
                         .insert(Hash128::from_bytes(hash), string.to_string());
                 }
                 _ => {}

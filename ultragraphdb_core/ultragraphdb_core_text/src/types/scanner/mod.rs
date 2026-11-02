@@ -53,7 +53,7 @@ impl Scanner {
             err: None,
             done: false,
         };
-        s.scan();
+        s.advance();
         s
     }
 
@@ -185,10 +185,16 @@ impl Scanner {
         self.end -= diff;
     }
 
-    /// Scans the next token. Tokens longer than eight characters or with characters other than ASCII letters and
-    /// digits are an error and are removed. Returns the end position of the last token consumed.
+    /// Scans the next token, as [`Scanner::advance`] does. Returns the end position of the last token consumed.
     pub(crate) fn scan(&mut self) -> usize {
         let end = self.end;
+        self.advance();
+        end
+    }
+
+    /// Scans the next token. Tokens longer than eight characters or with characters other than ASCII letters and
+    /// digits are an error and are removed.
+    pub(crate) fn advance(&mut self) {
         self.token = None;
         self.start = self.next;
         while self.next < self.len {
@@ -210,23 +216,22 @@ impl Scanner {
                 continue;
             }
             self.token = Some((self.start, self.end));
-            return end;
+            return;
         }
         if let Some(&b'-') = self.b().last() {
             self.set_error(Some(LanguageError::syntax()));
             self.len -= 1;
         }
         self.done = true;
-        end
     }
 
     /// Scans tokens of at least `min` bytes. Returns the end position of the last token consumed.
     pub(crate) fn accept_min_size(&mut self, min: usize) -> usize {
         let mut end = self.end;
-        self.scan();
+        self.advance();
         while self.token_len() >= min {
             end = self.end;
-            self.scan();
+            self.advance();
         }
         end
     }

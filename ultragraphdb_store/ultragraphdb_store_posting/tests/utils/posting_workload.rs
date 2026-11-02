@@ -81,16 +81,16 @@ impl Held {
     fn apply(&mut self, op: &Op) {
         match op {
             Op::Set(uid) => {
-                self.uids.insert(*uid);
+                let _added: bool = self.uids.insert(*uid);
             }
             Op::Del(uid) => {
-                self.uids.remove(uid);
+                let _removed: bool = self.uids.remove(uid);
             }
             Op::SetValue(v) => {
-                self.values.insert(v.clone());
+                let _added: bool = self.values.insert(v.clone());
             }
             Op::DelValue(v) => {
-                self.values.remove(v);
+                let _removed: bool = self.values.remove(v);
             }
             Op::DeleteAll => *self = Held::default(),
         }
@@ -101,9 +101,9 @@ impl Held {
         let mut held = Held::default();
         list.iterate(read_ts, 0, |p| {
             if p.posting_type() == PostingType::Ref {
-                held.uids.insert(p.uid());
+                let _added: bool = held.uids.insert(p.uid());
             } else {
-                held.values.insert(p.value().to_vec());
+                let _added: bool = held.values.insert(p.value().to_vec());
             }
             Ok::<_, PostingError>(ControlFlow::Continue(()))
         })?;
@@ -130,7 +130,7 @@ impl Model {
     }
 
     fn commit(&mut self, key: &[u8], ts: u64, ops: Vec<Op>) {
-        self.keys.entry(key.to_vec()).or_default().insert(ts, ops);
+        let _previous: Option<Vec<Op>> = self.keys.entry(key.to_vec()).or_default().insert(ts, ops);
     }
 
     /// Forgets the commits a recovery did not keep.
@@ -141,7 +141,7 @@ impl Model {
     }
 
     fn drop_key(&mut self, key: &[u8]) {
-        self.keys.remove(key);
+        let _dropped: Option<BTreeMap<u64, Vec<Op>>> = self.keys.remove(key);
     }
 }
 
@@ -230,8 +230,8 @@ impl PostingWorkload {
         self.lists = None;
         let applied = ctx.store().applied_ts();
         for (version, ops) in self.pending.take().into_iter().flatten() {
-            for (key, ops) in ops {
-                self.model.commit(&key, version, ops);
+            for (key, key_ops) in ops {
+                self.model.commit(&key, version, key_ops);
             }
         }
         self.model.truncate(applied);
@@ -301,7 +301,7 @@ impl PostingWorkload {
                 Ok(())
             }
             _ => {
-                lists.cache().evict_one();
+                let _evicted: bool = lists.cache().evict_one();
                 Ok(())
             }
         };
@@ -357,8 +357,8 @@ impl PostingWorkload {
         match lists.commit(batch) {
             Ok(timestamps) => {
                 for (ts, ops) in timestamps.into_iter().zip(written) {
-                    for (key, ops) in ops {
-                        self.model.commit(&key, ts, ops);
+                    for (key, key_ops) in ops {
+                        self.model.commit(&key, ts, key_ops);
                     }
                 }
                 Ok(None)
@@ -415,9 +415,9 @@ impl PostingWorkload {
             round.iter().map(|(v, _)| *v).zip(&writes).collect();
         match lists.commit_round(&versioned) {
             Ok(()) => {
-                for (version, ops) in round {
-                    for (key, ops) in ops {
-                        self.model.commit(&key, version, ops);
+                for (committed, ops) in round {
+                    for (key, key_ops) in ops {
+                        self.model.commit(&key, committed, key_ops);
                     }
                 }
                 Ok(None)

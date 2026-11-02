@@ -31,7 +31,7 @@ pub fn compact(state: &mut State, corrupted: &Corrupted, discard: u64) {
         let cut = versions
             .iter()
             .find(|(v, d)| {
-                *v <= discard && d.is_some_and(|(discard, deletion, _)| discard || deletion)
+                *v <= discard && d.is_some_and(|(discarding, deletion, _)| discarding || deletion)
             })
             .map(|(v, _)| *v);
         if let Some(cut) = cut {
@@ -41,7 +41,7 @@ pub fn compact(state: &mut State, corrupted: &Corrupted, discard: u64) {
                     *v < cut && d.is_some_and(|(_, deletion, fenced)| !deletion && !fenced)
                 })
                 .for_each(|(v, _)| {
-                    state.data.remove(&(key.clone(), Reverse(*v)));
+                    let _removed: Option<Vec<u8>> = state.data.remove(&(key.clone(), Reverse(*v)));
                 });
         }
     }
@@ -61,6 +61,6 @@ pub fn sweep(state: &mut State, corrupted: &Corrupted, horizon: u64) {
         .map(|((key, Reverse(v)), _)| (key.clone(), *v))
         .collect();
     swept.into_iter().for_each(|(key, v)| {
-        state.data.remove(&(key, Reverse(v)));
+        let _swept: Option<Vec<u8>> = state.data.remove(&(key, Reverse(v)));
     });
 }

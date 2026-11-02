@@ -17,6 +17,7 @@ pub struct ListsConfig {
 }
 
 impl ListsConfig {
+    /// A configuration writing with `persist` and splitting a list at `max_list_size`.
     pub fn new(persist: PersistMode, max_list_size: usize) -> Self {
         Self {
             persist,
@@ -24,10 +25,12 @@ impl ListsConfig {
         }
     }
 
+    /// The persist mode of the commit batches.
     pub fn persist(&self) -> PersistMode {
         self.persist
     }
 
+    /// The size at which a rollup splits a list.
     pub fn max_list_size(&self) -> usize {
         self.max_list_size
     }

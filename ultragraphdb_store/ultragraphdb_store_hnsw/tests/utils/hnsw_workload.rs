@@ -38,8 +38,10 @@ use ultragraphdb_traits_store::{PersistMode, Scan, Store, StoreSnapshot};
 use ultragraphdb_core_keys::QuadKey;
 
 use crate::utils::helpers::{
-    TestLists, delete_vector, draw, key, opts, oracle_score, pred, set_vector, vkeys,
+    TestLists, delete_vector, draw, key, opts, oracle_score, pred, set_vector, vector_encoding,
+    vkeys,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 /// The rule a search breaks when it returns a vector that is not live, twice, too many, or out of order.
 pub const SEARCH_FINDS_LIVE: &str =
@@ -107,7 +109,7 @@ impl Model {
     fn commit(&mut self, ts: u64, op: &Op) {
         match op {
             Op::Insert(uid, v) => {
-                self.lives.insert(
+                let _previous: Option<Life> = self.lives.insert(
                     *uid,
                     Life {
                         vector: v.clone(),
@@ -150,15 +152,15 @@ pub struct HnswWorkload {
 
 impl HnswWorkload {
     /// The workload of `seed`, its metric drawn from it.
-    pub fn new(seed: Seed) -> Self {
+    pub fn new(seed: Seed) -> TestResult<Self> {
         let metric = ["euclidean", "cosine", "dotproduct"][(seed.value() % 3) as usize];
         let options = opts(&[
             ("maxLevels", "3"),
             ("efConstruction", "8"),
             ("efSearch", "6"),
             ("metric", metric),
-        ]);
-        Self {
+        ])?;
+        Ok(Self {
             pred: pred("emb"),
             options,
             metric: SimilarityType::from_name(metric).metric(),
@@ -168,7 +170,7 @@ impl HnswWorkload {
             next_uid: 1,
             inserts: 0,
             searches: 0,
-        }
+        })
     }
 
     /// The faults of a vector-index run: every class but corruption, which a neighbour matrix that still decodes
@@ -184,8 +186,8 @@ impl HnswWorkload {
         faults: FaultConfig,
         steps: u64,
         readers: usize,
-    ) -> Result<(RunOutcome, usize, usize), Violation> {
-        let mut workload = Self::new(seed);
+    ) -> TestResult<(RunOutcome, usize, usize)> {
+        let mut workload = Self::new(seed)?;
         let outcome = Simulation::new(seed, faults)
             .run(steps, readers + 1, |ctx, event| workload.step(ctx, event))?;
         Ok((outcome, workload.inserts, workload.searches))
@@ -230,7 +232,7 @@ impl HnswWorkload {
         let lists = self.lists(ctx);
         let result = match ctx.rng().below(100) {
             0..70 => match self.commit(ctx, &lists) {
-                Ok(Some(detail)) => return Err(ctx.violation(DEAD_LEFT_OUT, detail)),
+                Ok(Some((rule, detail))) => return Err(ctx.violation(rule, detail)),
                 Ok(None) => Ok(()),
                 Err(e) => Err(e),
             },
@@ -264,20 +266,20 @@ impl HnswWorkload {
                 Ok(())
             }
             _ => {
-                lists.cache().evict_one();
+                let _evict_one: bool = lists.cache().evict_one();
                 Ok(())
             }
         };
         self.expected_failure(ctx, result)
     }
 
-    /// One or two requests in one batch, each inserting a new vector or deleting a live one. Returns the detail of a
-    /// written neighbour list naming a dead node.
+    /// One or two requests in one batch, each inserting a new vector or deleting a live one. Returns the rule broken
+    /// and its detail: a written neighbour list naming a dead node, or a vector that does not encode.
     fn commit(
         &mut self,
         ctx: &mut SimContext,
         lists: &TestLists,
-    ) -> Result<Option<String>, HnswError> {
+    ) -> Result<Option<(&'static str, String)>, HnswError> {
         let mut batch = lists.batch();
         let mut ops = Vec::new();
         let mut batch_dead = BTreeSet::new();
@@ -292,13 +294,17 @@ impl HnswWorkload {
                     continue;
                 }
                 delete_vector(&mut request, &self.pred, uid)?;
-                batch_dead.insert(uid);
+                let _inserted: bool = batch_dead.insert(uid);
                 ops.push(Op::Delete(uid));
             } else {
                 let uid = self.next_uid;
                 self.next_uid += 1;
                 let v = random_vector(ctx.rng());
-                set_vector(&mut request, &self.pred, uid, &v)?;
+                let encoding = match vector_encoding(&v) {
+                    Ok(encoding) => encoding,
+                    Err(e) => return Ok(Some((NO_UNEXPECTED_ERROR, format!("vector {v:?}: {e}")))),
+                };
+                set_vector(&mut request, &self.pred, uid, encoding)?;
                 let edges = {
                     let txn = ViTxn::new(&mut request);
                     let index = PersistentHnsw::<f32>::new(vkeys(&self.pred), &self.options, 32)?;
@@ -310,7 +316,10 @@ impl HnswWorkload {
                 if let Some(detail) =
                     names_dead(&edges, &format!("{}{VEC_KEYWORD}", self.pred), &dead)
                 {
-                    return Ok(Some(format!("insert of {uid} at {read_ts}: {detail}")));
+                    return Ok(Some((
+                        DEAD_LEFT_OUT,
+                        format!("insert of {uid} at {read_ts}: {detail}"),
+                    )));
                 }
                 self.inserts += 1;
                 ops.push(Op::Insert(uid, v));
@@ -482,7 +491,7 @@ pub fn graph_defect<S: Store>(
         if let Some(v) = read_value(lists, item.key(), read_ts)? {
             let levels =
                 decode_uint64_matrix(&v).map_err(|r| HnswError::corrupted(item.key(), r))?;
-            nodes.insert(uid, levels);
+            let _previous: Option<Vec<Vec<u64>>> = nodes.insert(uid, levels);
         }
     }
     if let Some(entry) = read_value(lists, &key(&format!("{pred}{VEC_ENTRY}"), 1), read_ts)? {

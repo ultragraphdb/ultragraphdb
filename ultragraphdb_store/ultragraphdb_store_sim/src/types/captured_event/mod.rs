@@ -28,10 +28,12 @@ impl CapturedEvent {
         }
     }
 
+    /// The event's level.
     pub fn level(&self) -> Level {
         self.level
     }
 
+    /// The event's target, the module that emitted it.
     pub fn target(&self) -> &str {
         &self.target
     }

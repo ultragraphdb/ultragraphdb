@@ -20,6 +20,7 @@ pub struct Statement {
 }
 
 impl Statement {
+    /// The statement of `subject`'s `predicate` and `object` in `graph`, with no ID and no property.
     pub fn new(
         graph: GraphName,
         subject: NamedOrBlankNode,
@@ -36,32 +37,39 @@ impl Statement {
         }
     }
 
+    /// The statement with the ID `id`.
     pub fn with_id(mut self, id: StatementId) -> Self {
         self.id = Some(id);
         self
     }
 
+    /// The statement with the properties `properties`.
     pub fn with_properties(mut self, properties: Vec<(NamedNode, Term)>) -> Self {
         self.properties = properties;
         self
     }
 
+    /// The graph.
     pub fn graph(&self) -> &GraphName {
         &self.graph
     }
 
+    /// The subject.
     pub fn subject(&self) -> &NamedOrBlankNode {
         &self.subject
     }
 
+    /// The predicate.
     pub fn predicate(&self) -> &NamedNode {
         &self.predicate
     }
 
+    /// The object.
     pub fn object(&self) -> &Term {
         &self.object
     }
 
+    /// The statement ID, when it has one.
     pub fn id(&self) -> Option<StatementId> {
         self.id
     }

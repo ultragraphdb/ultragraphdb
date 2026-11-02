@@ -4,6 +4,7 @@
  */
 
 use std::error::Error;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use ultragraphdb_store_apply::ChangesetError;
 use ultragraphdb_transactions_txn::{TxnError, TxnErrorEnum};
@@ -112,9 +113,9 @@ fn test_each_text_names_what_was_refused() {
 }
 
 #[test]
-fn test_a_changesets_error_is_the_source() {
+fn test_a_changesets_error_is_the_source() -> TestResult {
     let error = TxnError::Changeset(changeset_error());
-    let source = error.source().expect("a source");
+    let source = error.source().context("a source")?;
     assert_eq!(
         source.downcast_ref::<ChangesetError>(),
         Some(&changeset_error()),
@@ -131,4 +132,5 @@ fn test_a_changesets_error_is_the_source() {
     ] {
         assert!(refused.source().is_none(), "{refused:?}");
     }
+    Ok(())
 }

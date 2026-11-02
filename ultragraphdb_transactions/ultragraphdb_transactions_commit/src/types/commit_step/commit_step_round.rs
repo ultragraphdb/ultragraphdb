@@ -109,7 +109,8 @@ impl<P: Proposal> CommitStep<P> {
             {
                 break;
             }
-            let fits = |len: usize| frame_len(count + 1, count + 1, padded + len) <= limit;
+            let fits =
+                |record_len: usize| frame_len(count + 1, count + 1, padded + record_len) <= limit;
             match self.waiting.pop_front() {
                 Some(Waiting::Commit(request)) => {
                     let (ticket, mut proposal) = request.into_parts();

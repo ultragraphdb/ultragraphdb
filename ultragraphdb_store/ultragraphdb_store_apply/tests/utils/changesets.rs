@@ -20,6 +20,7 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 pub type TestChangesets = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 
@@ -34,7 +35,7 @@ pub fn sim_store() -> SimStore {
 }
 
 /// A changeset applier over `store`, with a fresh cache, its builds on a stepped executor.
-pub fn changesets_over(store: SimStore) -> TestChangesets {
+pub fn changesets_over(store: SimStore) -> TestResult<TestChangesets> {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     ChangesetApplier::new(
@@ -42,11 +43,11 @@ pub fn changesets_over(store: SimStore) -> TestChangesets {
         executor,
         1,
     )
-    .expect("the applier opens")
+    .context("the applier opens")
 }
 
 /// A changeset applier over a fault-free simulated store.
-pub fn changesets() -> TestChangesets {
+pub fn changesets() -> TestResult<TestChangesets> {
     changesets_over(sim_store())
 }
 
@@ -57,22 +58,22 @@ pub fn ex(name: &str) -> NamedNode {
 /// The term `text` names: `<a>` an IRI under `http://ex.org/`, `rdf:type`, `_:b` a blank node, a quoted literal with
 /// an optional `@lang` or `^^xsd:…`, `^^ugdb:float32vector` or `^^geo:geoJSONLiteral`, a bare `true` or `false`, and
 /// a bare integer.
-pub fn term(text: &str) -> Term {
+pub fn term(text: &str) -> TestResult<Term> {
     let text = text.trim();
     if text == "true" || text == "false" {
-        return Literal::new_typed_literal(text, xsd::BOOLEAN).into();
+        return Ok(Literal::new_typed_literal(text, xsd::BOOLEAN).into());
     }
     if let Some(name) = text.strip_prefix('<').and_then(|t| t.strip_suffix('>')) {
-        return ex(name).into();
+        return Ok(ex(name).into());
     }
     if text == "rdf:type" {
-        return rdf::TYPE.into_owned().into();
+        return Ok(rdf::TYPE.into_owned().into());
     }
     if let Some(label) = text.strip_prefix("_:") {
-        return BlankNode::new_unchecked(label).into();
+        return Ok(BlankNode::new_unchecked(label).into());
     }
     if let Some(rest) = text.strip_prefix('"') {
-        let end = rest.rfind('"').expect("a closing quote");
+        let end = rest.rfind('"').context("a closing quote")?;
         let lexical = rest[..end].replace("\\\"", "\"");
         let suffix = &rest[end + 1..];
         let literal = if let Some(lang) = suffix.strip_prefix('@') {
@@ -87,9 +88,9 @@ pub fn term(text: &str) -> Term {
         } else {
             Literal::new_simple_literal(lexical)
         };
-        return literal.into();
+        return Ok(literal.into());
     }
-    Literal::new_typed_literal(text, xsd::INTEGER).into()
+    Ok(Literal::new_typed_literal(text, xsd::INTEGER).into())
 }
 
 /// The terms of one statement's text, split at the spaces outside quotes.
@@ -131,7 +132,7 @@ pub struct Text {
     pub object: Term,
 }
 
-pub fn statement(text: &str) -> Text {
+pub fn statement(text: &str) -> TestResult<Text> {
     let parts = split(text);
     let node = |t: Term| {
         match t {
@@ -139,7 +140,7 @@ pub fn statement(text: &str) -> Text {
             Term::BlankNode(b) => Ok(NamedOrBlankNode::from(b)),
             other @ (Term::Literal(_) | Term::Triple(_)) => Err(format!("{other} is no subject")),
         }
-        .expect("a statement's subject is an IRI or a blank node")
+        .context("a statement's subject is an IRI or a blank node")
     };
     let named = |t: Term| {
         match t {
@@ -148,48 +149,52 @@ pub fn statement(text: &str) -> Text {
                 Err(format!("{other} is no IRI"))
             }
         }
-        .expect("a statement's predicate is an IRI")
+        .context("a statement's predicate is an IRI")
     };
-    Text {
-        subject: node(term(&parts[0])),
-        predicate: named(term(&parts[1])),
-        object: term(&parts[2]),
-        graph: parts
-            .get(3)
-            .map(|g| GraphName::from(named(term(g))))
-            .unwrap_or_default(),
-    }
+    let graph = match parts.get(3) {
+        Some(g) => GraphName::from(named(term(g)?)?),
+        None => GraphName::default(),
+    };
+    Ok(Text {
+        subject: node(term(&parts[0])?)?,
+        predicate: named(term(&parts[1])?)?,
+        object: term(&parts[2])?,
+        graph,
+    })
 }
 
-pub fn insert(text: &str) -> Change {
-    let t = statement(text);
-    Change::Insert {
+pub fn insert(text: &str) -> TestResult<Change> {
+    let t = statement(text)?;
+    Ok(Change::Insert {
         graph: t.graph,
         subject: t.subject,
         predicate: t.predicate,
         object: t.object,
-    }
+    })
 }
 
-pub fn delete(text: &str) -> Change {
-    let t = statement(text);
-    Change::Delete {
+pub fn delete(text: &str) -> TestResult<Change> {
+    let t = statement(text)?;
+    Ok(Change::Delete {
         graph: t.graph,
         subject: t.subject,
         predicate: t.predicate,
         object: t.object,
-    }
+    })
 }
 
-pub fn insert_edge(text: &str, properties: &[(&str, &str)]) -> Change {
-    let t = statement(text);
-    Change::InsertEdge {
+pub fn insert_edge(text: &str, properties: &[(&str, &str)]) -> TestResult<Change> {
+    let t = statement(text)?;
+    Ok(Change::InsertEdge {
         graph: t.graph,
         subject: t.subject,
         predicate: t.predicate,
         object: t.object,
-        properties: properties.iter().map(|(p, v)| (ex(p), term(v))).collect(),
-    }
+        properties: properties
+            .iter()
+            .map(|(p, v)| Ok((ex(p), term(v)?)))
+            .collect::<TestResult<_>>()?,
+    })
 }
 
 pub fn delete_pattern(subject: &str, predicate: &str) -> Change {
@@ -203,7 +208,7 @@ pub fn delete_pattern(subject: &str, predicate: &str) -> Change {
 /// The declaration a phrase states for `predicate`: `edge` or `property`, `single-valued`, `unique`, `count index`,
 /// `vector index`, with its dimension when the phrase says `of dimension N`, a backticked `xsd:` datatype, and
 /// backticked tokenizers.
-pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
+pub fn declaration(predicate: &str, phrase: &str) -> TestResult<PredicateDeclaration> {
     let mut d = PredicateDeclaration::new(ex(predicate));
     if phrase.contains("an edge") {
         d = d.with_kind(PredicateKind::Edge);
@@ -224,7 +229,7 @@ pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
         let mut spec = VectorIndexSpec::new("hnsw", Vec::new());
         if let Some((_, after)) = phrase.split_once("of dimension ") {
             let digits: String = after.chars().take_while(char::is_ascii_digit).collect();
-            spec = spec.with_dimension(digits.parse().expect("a dimension"));
+            spec = spec.with_dimension(digits.parse().context("a dimension")?);
         }
         d = d.with_vector_index(spec);
     }
@@ -235,12 +240,14 @@ pub fn declaration(predicate: &str, phrase: &str) -> PredicateDeclaration {
         .map(|q| q.to_string())
         .collect();
     if let Some(datatype) = quoted.iter().find(|q| q.starts_with("xsd:")) {
-        let Term::Literal(l) = term(&format!("\"\"^^{datatype}")) else {
-            unreachable!()
+        let Term::Literal(l) = term(&format!("\"\"^^{datatype}"))? else {
+            return Err(TestError::new(format!(
+                "{datatype} is no literal's datatype"
+            )));
         };
         d = d.with_datatype(l.datatype().into_owned());
     }
-    d.with_tokenizers(tokenizers)
+    Ok(d.with_tokenizers(tokenizers))
 }
 
 /// One changeset of the root namespace holding `changes`.
@@ -255,9 +262,17 @@ pub fn apply(a: &TestChangesets, changes: Vec<Change>) -> Result<Applied, Change
     a.apply(&changeset(changes))
 }
 
+/// Applies `changes` as one changeset, for a test that reads nothing of its commit.
+#[track_caller]
+pub fn write_changes(a: &TestChangesets, changes: Vec<Change>) -> TestResult {
+    let _applied: Applied = apply(a, changes).context("the changeset applies")?;
+    Ok(())
+}
+
 /// Declares `predicate` as `phrase` states.
-pub fn declare(a: &TestChangesets, predicate: &str, phrase: &str) {
-    declared(a, predicate, phrase).expect("the declaration applies");
+pub fn declare(a: &TestChangesets, predicate: &str, phrase: &str) -> TestResult {
+    let _applied: Applied = declared(a, predicate, phrase)?.context("the declaration applies")?;
+    Ok(())
 }
 
 /// Applies the declaration of `predicate` `phrase` states: its commit or its refusal.
@@ -265,34 +280,48 @@ pub fn declared(
     a: &TestChangesets,
     predicate: &str,
     phrase: &str,
-) -> Result<Applied, ChangesetError> {
-    apply(
+) -> TestResult<Result<Applied, ChangesetError>> {
+    Ok(apply(
         a,
         vec![Change::Declare(Declaration::Predicate(declaration(
             predicate, phrase,
-        )))],
-    )
+        )?))],
+    ))
 }
 
 /// Writes `texts`, one changeset each.
-pub fn write<T: AsRef<str>>(a: &TestChangesets, texts: &[T]) {
+pub fn write<T: AsRef<str>>(a: &TestChangesets, texts: &[T]) -> TestResult {
     for text in texts {
-        apply(a, vec![insert(text.as_ref())]).expect("the write applies");
+        let _applied: Applied =
+            apply(a, vec![insert(text.as_ref())?]).context("the write applies")?;
     }
+    Ok(())
 }
 
 /// Runs one pass of the vector indexer of `predicate`: the version it indexed through.
-pub fn index(a: &TestChangesets, predicate: &str) -> u64 {
+pub fn index(a: &TestChangesets, predicate: &str) -> TestResult<u64> {
     a.index_vectors(NS, ex(predicate).as_ref())
-        .expect("the indexer runs")
+        .context("the indexer runs")
+}
+
+/// Runs one pass of the vector indexer of `predicate`, for a test that reads nothing of what it indexed.
+#[track_caller]
+pub fn run_indexer(a: &TestChangesets, predicate: &str) -> TestResult {
+    let _indexed_through: u64 = index(a, predicate)?;
+    Ok(())
 }
 
 /// Writes `texts`, one changeset each, the vector indexer of `predicate` running after each.
-pub fn write_indexed<T: AsRef<str>>(a: &TestChangesets, predicate: &str, texts: &[T]) {
+pub fn write_indexed<T: AsRef<str>>(
+    a: &TestChangesets,
+    predicate: &str,
+    texts: &[T],
+) -> TestResult {
     for text in texts {
-        apply(a, vec![insert(text.as_ref())]).expect("the write applies");
-        index(a, predicate);
+        write_changes(a, vec![insert(text.as_ref())?])?;
+        run_indexer(a, predicate)?;
     }
+    Ok(())
 }
 
 /// Runs every build waiting, to its swap.
@@ -301,18 +330,18 @@ pub fn finish_builds(a: &TestChangesets) {
 }
 
 /// The UID of the IRI `<name>`.
-pub fn uid(a: &TestChangesets, name: &str) -> u64 {
+pub fn uid(a: &TestChangesets, name: &str) -> TestResult<u64> {
     a.quads()
         .uid_of(NS, ex(name).as_str())
-        .expect("the dictionary reads")
-        .ok_or_else(|| format!("<{name}> has a UID"))
-        .expect("the subject has a UID")
+        .context("the dictionary reads")?
+        .ok_or_else(|| format!("<{name}> has no UID"))
+        .context("the subject has a UID")
 }
 
 /// The graph UID of `<name>`, the default graph for `""`.
-pub fn graph(a: &TestChangesets, name: &str) -> u64 {
+pub fn graph(a: &TestChangesets, name: &str) -> TestResult<u64> {
     if name.is_empty() {
-        DEFAULT_GRAPH
+        Ok(DEFAULT_GRAPH)
     } else {
         uid(a, name)
     }
@@ -323,7 +352,7 @@ fn latest(a: &TestChangesets) -> u64 {
 }
 
 /// The objects of `subject`'s `predicate` in the default graph, as terms.
-pub fn objects(a: &TestChangesets, subject: &str, predicate: &str) -> Vec<Term> {
+pub fn objects(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult<Vec<Term>> {
     objects_in(a, "", subject, predicate)
 }
 
@@ -332,17 +361,17 @@ pub fn objects_in(
     graph_name: &str,
     subject: &str,
     predicate: &str,
-) -> Vec<Term> {
+) -> TestResult<Vec<Term>> {
     let key = QuadKey::Forward {
         namespace: NS,
-        graph: graph(a, graph_name),
-        predicate: uid(a, predicate),
-        subject: uid(a, subject),
+        graph: graph(a, graph_name)?,
+        predicate: uid(a, predicate)?,
+        subject: uid(a, subject)?,
     }
     .to_bytes();
     a.quads()
         .list_terms(NS, &key, latest(a))
-        .expect("the list reads")
+        .context("the list reads")
 }
 
 /// The objects of `subject`'s `predicate` in the default graph, each with its statement IDs.
@@ -350,34 +379,34 @@ pub fn postings(
     a: &TestChangesets,
     subject: &str,
     predicate: &str,
-) -> Vec<(EncodedTerm, Vec<u64>)> {
+) -> TestResult<Vec<(EncodedTerm, Vec<u64>)>> {
     let key = QuadKey::Forward {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        predicate: uid(a, predicate),
-        subject: uid(a, subject),
+        predicate: uid(a, predicate)?,
+        subject: uid(a, subject)?,
     }
     .to_bytes();
-    a.quads().objects(&key, latest(a)).expect("the list reads")
+    a.quads().objects(&key, latest(a)).context("the list reads")
 }
 
 /// The UIDs a list holds.
-fn uids(a: &TestChangesets, key: &[u8]) -> Vec<u64> {
-    a.quads()
+fn uids(a: &TestChangesets, key: &[u8]) -> TestResult<Vec<u64>> {
+    Ok(a.quads()
         .objects(key, latest(a))
-        .expect("the list reads")
+        .context("the list reads")?
         .iter()
         .filter_map(|(o, _)| o.as_uid())
-        .collect()
+        .collect())
 }
 
 /// The subjects of the reverse list of `predicate` for the object `object`, in the default graph.
-pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> Vec<u64> {
-    let object = EncodedTerm::uid(uid(a, object));
+pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> TestResult<Vec<u64>> {
+    let object = EncodedTerm::uid(uid(a, object)?);
     let key = QuadKey::Reverse {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        predicate: uid(a, predicate),
+        predicate: uid(a, predicate)?,
         object,
     }
     .to_bytes();
@@ -385,22 +414,23 @@ pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> Vec<u64> {
 }
 
 /// The value-index tokens of `literal` under `tokenizer`, computed as index maintenance computes them.
-pub fn tokens_of(tokenizer: &str, literal: &Term) -> Vec<(u8, Vec<u8>)> {
+pub fn tokens_of(tokenizer: &str, literal: &Term) -> TestResult<Vec<(u8, Vec<u8>)>> {
     let literal = match literal {
         Term::Literal(literal) => Ok(literal),
         other @ (Term::NamedNode(_) | Term::BlankNode(_) | Term::Triple(_)) => {
             Err(format!("{other} is no literal"))
         }
     }
-    .expect("the term is a literal");
-    let t = get_tokenizer(tokenizer).expect("a tokenizer");
+    .context("the term is a literal")?;
+    let t = get_tokenizer(tokenizer).context("a tokenizer")?;
     let t = get_tokenizer_for_lang(&t, literal.language().unwrap_or_default());
-    let value = token_value(literal.as_ref(), tokenizer).expect("the tokenizer takes the literal");
-    t.tokens(&value)
-        .expect("the literal tokenizes")
+    let value =
+        token_value(literal.as_ref(), tokenizer).context("the tokenizer takes the literal")?;
+    Ok(t.tokens(&value)
+        .context("the literal tokenizes")?
         .into_iter()
         .map(|token| (t.identifier(), token))
-        .collect()
+        .collect())
 }
 
 /// The `int` token of `value`, written out independently of the tokenizer: Dgraph's identifier 0x06 (`tok/tok.go`)
@@ -426,11 +456,11 @@ pub fn indexed(
     a: &TestChangesets,
     predicate: &str,
     (tokenizer, token): &(u8, Vec<u8>),
-) -> Vec<u64> {
+) -> TestResult<Vec<u64>> {
     let key = QuadKey::ValueIndex {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        predicate: uid(a, predicate),
+        predicate: uid(a, predicate)?,
         tokenizer: *tokenizer,
         token: token.clone(),
     }
@@ -439,24 +469,29 @@ pub fn indexed(
 }
 
 /// The subjects the value-index key of `predicate` for the `term` token `word` holds.
-pub fn indexed_term(a: &TestChangesets, predicate: &str, word: &str) -> Vec<u64> {
-    let id = get_tokenizer("term").expect("term").identifier();
+pub fn indexed_term(a: &TestChangesets, predicate: &str, word: &str) -> TestResult<Vec<u64>> {
+    let id = get_tokenizer("term").context("term")?.identifier();
     indexed(a, predicate, &(id, word.as_bytes().to_vec()))
 }
 
 /// Every value-index key of `predicate` that holds `subject`.
-pub fn index_keys_holding(a: &TestChangesets, predicate: &str, subject: u64) -> Vec<Vec<u8>> {
-    let p = uid(a, predicate);
-    stored_keys(a)
-        .into_iter()
-        .filter(|k| {
-            matches!(
-                QuadKey::parse(k),
-                Ok((QuadKey::ValueIndex { predicate, .. }, _)) if predicate == p
-            )
-        })
-        .filter(|k| uids(a, k).contains(&subject))
-        .collect()
+pub fn index_keys_holding(
+    a: &TestChangesets,
+    predicate: &str,
+    subject: u64,
+) -> TestResult<Vec<Vec<u8>>> {
+    let p = uid(a, predicate)?;
+    let mut holding = Vec::new();
+    for k in stored_keys(a) {
+        let of_predicate = matches!(
+            QuadKey::parse(&k),
+            Ok((QuadKey::ValueIndex { predicate: indexed, .. }, _)) if indexed == p
+        );
+        if of_predicate && uids(a, &k)?.contains(&subject) {
+            holding.push(k);
+        }
+    }
+    Ok(holding)
 }
 
 /// Every key the store holds a version of.
@@ -476,11 +511,11 @@ pub fn counted(
     predicate: &str,
     direction: CountDirection,
     count: u32,
-) -> Vec<u64> {
+) -> TestResult<Vec<u64>> {
     let key = QuadKey::CountIndex {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        predicate: uid(a, predicate),
+        predicate: uid(a, predicate)?,
         direction,
         count,
     }
@@ -494,23 +529,30 @@ pub fn counts_of(
     predicate: &str,
     direction: CountDirection,
     uid: u64,
-) -> Vec<u32> {
-    (1..=8)
-        .filter(|c| counted(a, predicate, direction, *c).contains(&uid))
-        .collect()
+) -> TestResult<Vec<u32>> {
+    let mut counts = Vec::new();
+    for c in 1..=8 {
+        if counted(a, predicate, direction, c)?.contains(&uid) {
+            counts.push(c);
+        }
+    }
+    Ok(counts)
 }
 
 /// The statistics of `predicate` in the default graph, as the last commit left them.
-pub fn statistics(a: &TestChangesets, predicate: &str) -> ultragraphdb_store_quads::Statistics {
+pub fn statistics(
+    a: &TestChangesets,
+    predicate: &str,
+) -> TestResult<ultragraphdb_store_quads::Statistics> {
     a.quads()
-        .statistics(NS, DEFAULT_GRAPH, uid(a, predicate), latest(a))
-        .expect("the statistics read")
+        .statistics(NS, DEFAULT_GRAPH, uid(a, predicate)?, latest(a))
+        .context("the statistics read")
 }
 
 /// The predicates the subject-predicate list of `node` holds in the default graph, or with `objects` its
 /// object-predicate list.
-pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> Vec<u64> {
-    let node = uid(a, node);
+pub fn predicate_list(a: &TestChangesets, node: &str, objects: bool) -> TestResult<Vec<u64>> {
+    let node = uid(a, node)?;
     let key = if objects {
         QuadKey::ObjectPredicates {
             namespace: NS,
@@ -533,24 +575,24 @@ pub fn keys_of(
     a: &TestChangesets,
     keyspace: ultragraphdb_core_keys::Keyspace,
     predicate: &str,
-) -> Vec<Vec<u8>> {
-    let p = uid(a, predicate);
-    stored_keys(a)
+) -> TestResult<Vec<Vec<u8>>> {
+    let p = uid(a, predicate)?;
+    Ok(stored_keys(a)
         .into_iter()
         .filter(|k| {
             matches!(ultragraphdb_core_keys::Keyspace::from_byte(k[0]), Some((ks, _)) if ks == keyspace)
                 && QuadKey::parse(k).is_ok_and(|(q, _)| q.predicate() == Some(p))
         })
-        .collect()
+        .collect())
 }
 
 /// Whether `subject` holds an object of `predicate` in the default graph; `false` when either has no UID.
-pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) -> bool {
-    let known = |name: &str| {
-        a.quads()
+pub fn is_held_in_default(a: &TestChangesets, subject: &str, predicate: &str) -> TestResult<bool> {
+    let known = |name: &str| -> TestResult<bool> {
+        Ok(a.quads()
             .uid_of(NS, ex(name).as_str())
-            .expect("the dictionary reads")
-            .is_some()
+            .context("the dictionary reads")?
+            .is_some())
     };
-    known(subject) && known(predicate) && !objects(a, subject, predicate).is_empty()
+    Ok(known(subject)? && known(predicate)? && !objects(a, subject, predicate)?.is_empty())
 }

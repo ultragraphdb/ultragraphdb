@@ -11,10 +11,12 @@ pub struct SimRng {
 }
 
 impl SimRng {
+    /// A stream starting from `seed`.
     pub fn new(seed: u64) -> Self {
         Self { state: seed }
     }
 
+    /// The stream's next number.
     pub fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.state;

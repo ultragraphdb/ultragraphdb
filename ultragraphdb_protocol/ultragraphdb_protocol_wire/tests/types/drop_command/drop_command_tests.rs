@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, DropCommand, DropKind};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
@@ -13,17 +14,18 @@ pub fn golden_drop() -> DropCommand {
 }
 
 #[test]
-fn test_a_drop_builds_the_golden_frames() {
+fn test_a_drop_builds_the_golden_frames() -> TestResult {
     assert_eq!(
-        golden_drop().frame(golden("drop").header()).unwrap(),
-        golden("drop").bytes()
+        golden_drop().frame(golden("drop")?.header())?,
+        golden("drop")?.bytes()?
     );
     let reply = golden_drop().with_commit_version(2002);
     assert_eq!(reply.commit_version(), 2002);
     assert_eq!(
-        reply.frame(golden("drop_reply").header()).unwrap(),
-        golden("drop_reply").bytes()
+        reply.frame(golden("drop_reply")?.header())?,
+        golden("drop_reply")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

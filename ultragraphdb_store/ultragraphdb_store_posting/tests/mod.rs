@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The unit tests of the posting lists, mirroring `src/`.
+
 #[cfg(test)]
 mod errors;
 #[cfg(test)]

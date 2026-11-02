@@ -27,6 +27,7 @@ use ultragraphdb_protocol_wire::{
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_quads::{DataDictionary, QuadStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
 
 use crate::Steps;
@@ -45,15 +46,15 @@ struct Dictionary {
 }
 
 impl Dictionary {
-    fn new() -> Self {
+    fn new() -> TestResult<Self> {
         let store = SimStore::new(Seed::new(9), FaultConfig::none(), SimClock::new());
         let cache = SimListCache::new(64, Seed::new(9).stream(Stream::Cache));
         let quads = QuadStore::open(Lists::new(store.clone(), cache, ListsConfig::default()))
-            .expect("the quads open");
-        Self { store, quads }
+            .context("the quads open")?;
+        Ok(Self { store, quads })
     }
 
-    fn declare(&self, uid: u64, declaration: PredicateDeclaration, version: u64) {
+    fn declare(&self, uid: u64, declaration: PredicateDeclaration, version: u64) -> TestResult {
         let mut batch = WriteBatch::new();
         batch.push(Catalog::entry(
             0,
@@ -63,14 +64,15 @@ impl Dictionary {
         ));
         self.store
             .apply(batch, PersistMode::Sync)
-            .expect("the declaration is written");
+            .context("the declaration is written")?;
+        Ok(())
     }
 
-    fn describe(&self, read_ts: u64) -> Describe {
+    fn describe(&self, read_ts: u64) -> TestResult<Describe> {
         let d = DataDictionary::new(0)
             .describe(&self.quads, read_ts)
-            .expect("the dictionary answers");
-        Describe::new(0, read_ts)
+            .context("the dictionary answers")?;
+        Ok(Describe::new(0, read_ts)
             .with_labels(d.labels().iter().cloned().collect())
             .with_relationship_types(d.relationship_types().iter().cloned().collect())
             .with_property_keys(d.property_keys().iter().cloned().collect())
@@ -81,7 +83,7 @@ impl Dictionary {
                     .map(|(t, preorder)| (declared_entity_type(t), *preorder))
                     .collect(),
             )
-            .with_relations(d.relations().iter().map(declared_relation).collect())
+            .with_relations(d.relations().iter().map(declared_relation).collect()))
     }
 }
 
@@ -136,22 +138,23 @@ fn name() -> PredicateDeclaration {
 // Bodies are read in place.
 
 #[when("a body's section offset points past its end")]
-fn offset_past_the_end(w: &mut Steps) {
+fn offset_past_the_end(w: &mut Steps) -> TestResult {
     // The golden Read: section 2, the pattern's term text, moved past the body's end.
-    let bytes = golden("read").bytes();
+    let bytes = golden("read")?.bytes()?;
     let mut data = body_data(&bytes).to_vec();
     let past = (data.len() + 16) as u32;
     data[16..20].copy_from_slice(&past.to_le_bytes());
-    w.refusals = view_any(&reframe(&bytes, &data))
+    w.refusals = view_any(&reframe(&bytes, &data))?
         .err()
         .into_iter()
         .collect();
     w.bytes = data;
+    Ok(())
 }
 
 #[then("the frame is refused with an error naming the section")]
-fn section_named(w: &mut Steps) {
-    let len = u32::from_le_bytes(w.bytes[20..24].try_into().unwrap());
+fn section_named(w: &mut Steps) -> TestResult {
+    let len = u32::from_le_bytes(w.bytes[20..24].try_into()?);
     assert_eq!(
         w.refusals.iter().map(|e| e.0.clone()).collect::<Vec<_>>(),
         vec![ProtocolErrorEnum::SectionOutOfBounds {
@@ -167,11 +170,12 @@ fn section_named(w: &mut Steps) {
         "{}",
         w.refusals[0]
     );
+    Ok(())
 }
 
 // Data requests, prepared statements and describe.
 
-fn prepare_view_frame() -> Vec<u8> {
+fn prepare_view_frame() -> TestResult<Vec<u8>> {
     let mut terms = TermTable::new();
     let name = terms.iri("http://ex.org/name");
     let pattern = QuadPattern::new(
@@ -180,71 +184,71 @@ fn prepare_view_frame() -> Vec<u8> {
         PatternSlot::Bound(name),
         PatternSlot::Unbound,
     );
-    Prepare::new(0, 0, 0, terms, pattern, vec![ColumnType::Node], Vec::new())
-        .frame(Header::new(CLUSTER, Command::Prepare).with_stream(3))
-        .unwrap()
+    Ok(
+        Prepare::new(0, 0, 0, terms, pattern, vec![ColumnType::Node], Vec::new())
+            .frame(Header::new(CLUSTER, Command::Prepare).with_stream(3))?,
+    )
 }
 
-fn execute_frame(statement: u64) -> Vec<u8> {
+fn execute_frame(statement: u64) -> TestResult<Vec<u8>> {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
-    Execute::new(statement, 5, 0, terms, vec![a], Vec::new())
-        .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))
-        .unwrap()
+    Ok(Execute::new(statement, 5, 0, terms, vec![a], Vec::new())
+        .frame(Header::new(CLUSTER, Command::Execute).with_stream(5))?)
 }
 
 #[when(
     "a statement is prepared, the catalog of its namespace changes, and the statement is executed"
 )]
-fn prepared_then_changed(w: &mut Steps) {
-    let dictionary = Dictionary::new();
-    dictionary.declare(7, name(), 10);
-    let before = dictionary.describe(10).schema_id();
+fn prepared_then_changed(w: &mut Steps) -> TestResult {
+    let dictionary = Dictionary::new()?;
+    dictionary.declare(7, name(), 10)?;
+    let before = dictionary.describe(10)?.schema_id();
     let mut cache = StatementCache::new(16);
-    let request = prepare_view_frame();
+    let request = prepare_view_frame()?;
     let prepared = cache
         .prepare(
-            &PrepareView::from_frame(
-                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
-            )
-            .unwrap(),
+            &PrepareView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE)?)?,
             before,
         )
-        .expect("the statement prepares");
+        .context("the statement prepares")?;
     // The catalog changes: `age` is declared.
     dictionary.declare(
         8,
         PredicateDeclaration::new(ex("age")).with_kind(PredicateKind::Property),
         20,
-    );
-    let after = dictionary.describe(20).schema_id();
+    )?;
+    let after = dictionary.describe(20)?.schema_id();
     assert_ne!(before, after, "a declaration changes the schema id");
-    let execute = execute_frame(prepared.statement());
-    let view =
-        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
-            .unwrap();
+    let execute = execute_frame(prepared.statement())?;
+    let view = ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE)?)?;
     w.statement = Some(cache.execute(&view, after).map(|_| ()));
     let again = cache
         .prepare(
-            &PrepareView::from_frame(
-                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
-            )
-            .unwrap(),
+            &PrepareView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE)?)?,
             after,
         )
-        .expect("preparing again succeeds");
-    let execute = execute_frame(again.statement());
-    let view =
-        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
-            .unwrap();
-    w.statement_again = Some(cache.execute(&view, after).map(|_| ()));
+        .context("preparing again succeeds")?;
+    let execute_again = execute_frame(again.statement())?;
+    let view_again = ExecuteView::from_frame(&FrameView::validate(
+        &execute_again,
+        CLUSTER,
+        MAX_FRAME_SIZE,
+    )?)?;
+    w.statement_again = Some(cache.execute(&view_again, after).map(|_| ()));
     w.schemas = vec![before, after];
     w.statements = vec![prepared.statement(), again.statement()];
+    Ok(())
 }
 
 #[then("the execution is refused as stale, and preparing it again succeeds")]
-fn refused_stale(w: &mut Steps) {
-    let refusal = w.statement.clone().unwrap().unwrap_err();
+fn refused_stale(w: &mut Steps) -> TestResult {
+    let refusal = w
+        .statement
+        .clone()
+        .context("a prepared statement")?
+        .err()
+        .context("a refusal")?;
     assert_eq!(
         refusal,
         StatementError::Stale(w.statements[0], w.schemas[0], w.schemas[1])
@@ -253,96 +257,103 @@ fn refused_stale(w: &mut Steps) {
     assert_eq!(refusal.reply().code(), ErrorCode::StaleStatement);
     assert_ne!(w.statements[0], w.statements[1]);
     assert_eq!(w.statement_again, Some(Ok(())));
+    Ok(())
 }
 
 #[when(
     "`name` is declared a property with a `term` index and a client sends Describe for the namespace"
 )]
-fn describe_name(w: &mut Steps) {
-    let dictionary = Dictionary::new();
-    dictionary.declare(7, name(), 10);
-    let request = Describe::request(0)
-        .frame(Header::new(CLUSTER, Command::Describe).with_stream(9))
-        .unwrap();
-    let asked =
-        DescribeView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap())
-            .unwrap();
+fn describe_name(w: &mut Steps) -> TestResult {
+    let dictionary = Dictionary::new()?;
+    dictionary.declare(7, name(), 10)?;
+    let request =
+        Describe::request(0).frame(Header::new(CLUSTER, Command::Describe).with_stream(9))?;
+    let asked = DescribeView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE)?)?;
     // The server answers the namespace asked, from the dictionary.
-    let answer = dictionary.describe(10);
+    let answer = dictionary.describe(10)?;
     assert_eq!(asked.namespace(), answer.namespace());
-    w.bytes = answer
-        .frame(Header::new(CLUSTER, Command::Describe).with_stream(9))
-        .unwrap();
+    w.bytes = answer.frame(Header::new(CLUSTER, Command::Describe).with_stream(9))?;
+    Ok(())
 }
 
 #[then(
     "the answer lists `name` as a property with its `term` index, as the data dictionary reports it"
 )]
-fn name_listed(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = DescribeView::from_frame(&frame).unwrap();
+fn name_listed(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = DescribeView::from_frame(&frame)?;
     assert_eq!(
         view.property_keys().collect::<Vec<_>>(),
         vec!["http://ex.org/name"]
     );
-    let answer = view.to_body().unwrap();
+    let answer = view.to_body()?;
     assert_eq!(answer.predicates().len(), 1);
     let declared = &answer.predicates()[0];
     assert_eq!(declared.predicate(), ex("name").as_str());
     assert_eq!(declared.kind(), DeclaredKind::Property);
     assert_eq!(declared.tokenizers(), &["term".to_string()]);
     assert_eq!(answer.read_version(), 10);
+    Ok(())
 }
 
 // Result batches are columnar and dictionary-encoded.
 
 #[when("a batch of 1,000 rows names the same IRI in every row")]
-fn thousand_rows(w: &mut Steps) {
+fn thousand_rows(w: &mut Steps) -> TestResult {
     let iri = ResultTerm::new(EncodedTerm::uid(42)).with_text("http://ex.org/same");
     let mut batch = ResultBatch::new(2);
     for row in 0..1_000u64 {
         let other = ResultTerm::new(EncodedTerm::uid(1_000 + row))
             .with_text(format!("http://ex.org/n{row}"));
-        batch.push_row(&[Some(&iri), Some(&other)]).unwrap();
+        batch.push_row(&[Some(&iri), Some(&other)])?;
     }
-    w.bytes = batch
-        .frame(Header::new(CLUSTER, Command::Result).with_stream(1))
-        .unwrap();
+    w.bytes = batch.frame(Header::new(CLUSTER, Command::Result).with_stream(1))?;
+    Ok(())
 }
 
 #[then("its term table holds that IRI once")]
-fn iri_once(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = ResultView::from_frame(&frame).unwrap();
+fn iri_once(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = ResultView::from_frame(&frame)?;
     assert_eq!(view.rows(), 1_000);
     // 1,000 distinct objects and the one IRI.
     assert_eq!(view.term_count(), 1_001);
-    let same: Vec<u32> = (0..view.term_count() as u32)
-        .filter(|i| view.term(*i).unwrap().term().unwrap().as_uid() == Some(42))
-        .collect();
+    let mut same: Vec<u32> = Vec::new();
+    for i in 0..view.term_count() as u32 {
+        let term = view
+            .term(i)
+            .context("each term of the batch")?
+            .term()
+            .context("the term in the store's encoding")?;
+        if term.as_uid() == Some(42) {
+            same.push(i);
+        }
+    }
     assert_eq!(same, vec![0]);
     assert!((0..1_000).all(|row| view.cell(0, row) == Some(0)));
+    Ok(())
 }
 
 // The conformance suite.
 
 #[when("each golden frame is truncated at every length below its size and sent")]
-fn truncate_all(w: &mut Steps) {
+fn truncate_all(w: &mut Steps) -> TestResult {
     w.truncations = 0;
     w.refusals.clear();
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         for len in 0..bytes.len() {
             let refusal = catch_unwind(AssertUnwindSafe(|| view_any(&bytes[..len])))
                 .map_err(|_| format!("{} truncated at {len} panicked", body.name))
-                .expect("a truncated frame does not panic")
+                .context("a truncated frame does not panic")??
                 .err()
                 .ok_or_else(|| format!("{} truncated at {len} was accepted", body.name))
-                .expect("a truncated frame is refused");
+                .context("a truncated frame is refused")?;
             w.refusals.push(refusal);
             w.truncations += 1;
         }
     }
+    Ok(())
 }
 
 #[then("each truncation yields a `ProtocolError` and none panics")]
@@ -371,13 +382,12 @@ fn every_truncation_refused(w: &mut Steps) {
 
 // Requests name terms by their text.
 
-fn frame_with(body: &impl BodyBuilder) -> Vec<u8> {
-    body.frame(Header::new(CLUSTER, Command::Abort).with_stream(21))
-        .unwrap()
+fn frame_with(body: &impl BodyBuilder) -> TestResult<Vec<u8>> {
+    Ok(body.frame(Header::new(CLUSTER, Command::Abort).with_stream(21))?)
 }
 
 #[when("a Read binds its subject to the IRI `http://ex.org/a`")]
-fn read_binds_iri(w: &mut Steps) {
+fn read_binds_iri(w: &mut Steps) -> TestResult {
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
     let pattern = QuadPattern::new(
@@ -386,20 +396,21 @@ fn read_binds_iri(w: &mut Steps) {
         PatternSlot::Unbound,
         PatternSlot::Unbound,
     );
-    w.bytes = frame_with(&Read::new(0, 0, terms, pattern, Vec::new()));
+    w.bytes = frame_with(&Read::new(0, 0, terms, pattern, Vec::new()))?;
+    Ok(())
 }
 
 #[then("the view reads an IRI entry whose text is `http://ex.org/a`, borrowed from the frame")]
-fn iri_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = ReadView::from_frame(&frame).unwrap();
+fn iri_read(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = ReadView::from_frame(&frame)?;
     let subject = view.pattern().subject();
     assert!(
         matches!(subject, PatternSlot::Bound(_)),
         "the subject is bound: {subject:?}"
     );
     let PatternSlot::Bound(index) = subject else {
-        return;
+        return Ok(());
     };
     let term = view.terms().get(index);
     assert!(
@@ -407,20 +418,19 @@ fn iri_read(w: &mut Steps) {
         "the subject is an IRI: {term:?}"
     );
     let Some(RequestTermView::Iri(text)) = term else {
-        return;
+        return Ok(());
     };
     assert_eq!(text, "http://ex.org/a");
     // In place: the text lies inside the frame's bytes.
     let range = w.bytes.as_ptr_range();
     assert!(range.contains(&text.as_ptr()));
+    Ok(())
 }
 
 #[when("a Write inserts a statement whose subject is the blank node labelled `b1`")]
-fn write_blank(w: &mut Steps) {
+fn write_blank(w: &mut Steps) -> TestResult {
     let mut terms = TermTable::new();
-    let b1 = terms
-        .intern(RequestTerm::BlankNode("b1".to_string()))
-        .unwrap();
+    let b1 = terms.intern(RequestTerm::BlankNode("b1".to_string()))?;
     let p = terms.iri("http://ex.org/p");
     let o = terms.iri("http://ex.org/o");
     let insert = WriteChange::Insert {
@@ -429,43 +439,44 @@ fn write_blank(w: &mut Steps) {
         predicate: p,
         object: o,
     };
-    w.bytes = frame_with(&Write::new(terms, vec![insert]));
+    w.bytes = frame_with(&Write::new(terms, vec![insert]))?;
+    Ok(())
 }
 
 #[then("the view reads a blank-node entry labelled `b1`")]
-fn blank_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = WriteView::from_frame(&frame).unwrap();
+fn blank_read(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = WriteView::from_frame(&frame)?;
     let change = view.change(0);
     assert!(
         matches!(change, Some(WriteChange::Insert { .. })),
         "an insert: {change:?}"
     );
     let Some(WriteChange::Insert { subject, .. }) = change else {
-        return;
+        return Ok(());
     };
     assert_eq!(
         view.terms().get(subject),
         Some(RequestTermView::BlankNode("b1"))
     );
+    Ok(())
 }
 
 #[when("an Execute binds the literal `35` of datatype `http://www.w3.org/2001/XMLSchema#integer`")]
-fn execute_typed(w: &mut Steps) {
+fn execute_typed(w: &mut Steps) -> TestResult {
     let mut terms = TermTable::new();
-    let n = terms
-        .intern(RequestTerm::Literal {
-            lexical: "35".to_string(),
-            datatype: Some("http://www.w3.org/2001/XMLSchema#integer".to_string()),
-        })
-        .unwrap();
-    w.bytes = frame_with(&Execute::new(1, 5, 0, terms, vec![n], Vec::new()));
+    let n = terms.intern(RequestTerm::Literal {
+        lexical: "35".to_string(),
+        datatype: Some("http://www.w3.org/2001/XMLSchema#integer".to_string()),
+    })?;
+    w.bytes = frame_with(&Execute::new(1, 5, 0, terms, vec![n], Vec::new()))?;
+    Ok(())
 }
 
 #[then("the view reads a literal entry of lexical form `35` and that datatype's IRI")]
-fn typed_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = ExecuteView::from_frame(&frame).unwrap();
+fn typed_read(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = ExecuteView::from_frame(&frame)?;
     assert_eq!(
         view.terms().get(view.parameters()[0]),
         Some(RequestTermView::Literal {
@@ -473,39 +484,39 @@ fn typed_read(w: &mut Steps) {
             datatype: Some("http://www.w3.org/2001/XMLSchema#integer")
         })
     );
+    Ok(())
 }
 
 #[when("an Operation's value is `chat` tagged `fr`")]
-fn operation_tagged(w: &mut Steps) {
+fn operation_tagged(w: &mut Steps) -> TestResult {
     let mut terms = TermTable::new();
     let p = terms.iri("http://ex.org/name");
-    let chat = terms
-        .intern(RequestTerm::LanguageLiteral {
-            lexical: "chat".to_string(),
-            language: "fr".to_string(),
-            direction: None,
-        })
-        .unwrap();
+    let chat = terms.intern(RequestTerm::LanguageLiteral {
+        lexical: "chat".to_string(),
+        language: "fr".to_string(),
+        direction: None,
+    })?;
     let operation = CommitOperation::InsertIfAbsent {
         graph: None,
         predicate: p,
         value: chat,
         properties: Vec::new(),
     };
-    w.bytes = frame_with(&Operation::new(terms, operation));
+    w.bytes = frame_with(&Operation::new(terms, operation))?;
+    Ok(())
 }
 
 #[then("the view reads a literal entry of lexical form `chat` and language tag `fr`")]
-fn tagged_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = OperationView::from_frame(&frame).unwrap();
+fn tagged_read(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = OperationView::from_frame(&frame)?;
     let operation = view.operation();
     assert!(
         matches!(operation, CommitOperation::InsertIfAbsent { .. }),
         "an insert-if-absent: {operation:?}"
     );
     let CommitOperation::InsertIfAbsent { value, .. } = operation else {
-        return;
+        return Ok(());
     };
     assert_eq!(
         view.terms().get(value),
@@ -515,12 +526,13 @@ fn tagged_read(w: &mut Steps) {
             direction: None
         })
     );
+    Ok(())
 }
 
 #[when(
     "a Write's object is the triple term of `http://ex.org/a`, `http://ex.org/knows` and `http://ex.org/b`"
 )]
-fn write_triple(w: &mut Steps) {
+fn write_triple(w: &mut Steps) -> TestResult {
     let mut terms = TermTable::new();
     let (a, knows, b) = (
         terms.iri("http://ex.org/a"),
@@ -528,33 +540,32 @@ fn write_triple(w: &mut Steps) {
         terms.iri("http://ex.org/b"),
     );
     let says = terms.iri("http://ex.org/says");
-    let triple = terms
-        .intern(RequestTerm::Triple {
-            subject: a,
-            predicate: knows,
-            object: b,
-        })
-        .unwrap();
+    let triple = terms.intern(RequestTerm::Triple {
+        subject: a,
+        predicate: knows,
+        object: b,
+    })?;
     let insert = WriteChange::Insert {
         graph: None,
         subject: a,
         predicate: says,
         object: triple,
     };
-    w.bytes = frame_with(&Write::new(terms, vec![insert]));
+    w.bytes = frame_with(&Write::new(terms, vec![insert]))?;
+    Ok(())
 }
 
 #[then("the view reads a triple-term entry naming three earlier entries, those IRIs")]
-fn triple_read(w: &mut Steps) {
-    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
-    let view = WriteView::from_frame(&frame).unwrap();
+fn triple_read(w: &mut Steps) -> TestResult {
+    let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE)?;
+    let view = WriteView::from_frame(&frame)?;
     let change = view.change(0);
     assert!(
         matches!(change, Some(WriteChange::Insert { .. })),
         "an insert: {change:?}"
     );
     let Some(WriteChange::Insert { object, .. }) = change else {
-        return;
+        return Ok(());
     };
     let term = view.terms().get(object);
     assert!(
@@ -567,7 +578,7 @@ fn triple_read(w: &mut Steps) {
         object: o,
     }) = term
     else {
-        return;
+        return Ok(());
     };
     assert!(subject < object && predicate < object && o < object);
     let text = |i| view.terms().get(i);
@@ -579,6 +590,7 @@ fn triple_read(w: &mut Steps) {
             Some(RequestTermView::Iri("http://ex.org/b")),
         ]
     );
+    Ok(())
 }
 
 /// A term record: kind, direction, six zero bytes, then the four u32 fields.
@@ -591,7 +603,7 @@ fn record(kind: u8, fields: [u32; 4]) -> Vec<u8> {
 }
 
 /// The golden Execute around a term table of `records` over the text `a`, binding entry 0.
-fn execute_with(records: &[Vec<u8>]) -> Vec<u8> {
+fn execute_with(records: &[Vec<u8>]) -> TestResult<Vec<u8>> {
     let body = crate::utils::golden_bodies::join_sections(
         &[],
         &[
@@ -601,14 +613,15 @@ fn execute_with(records: &[Vec<u8>]) -> Vec<u8> {
             Vec::new(),
         ],
     );
-    reframe(&golden("execute").bytes(), &body)
+    Ok(reframe(&golden("execute")?.bytes()?, &body))
 }
 
 #[when("a triple term's entry names an entry at or after its own index")]
-fn forward_index(w: &mut Steps) {
+fn forward_index(w: &mut Steps) -> TestResult {
     // Entry 1 names entry 2, which does not precede it.
-    w.bytes = execute_with(&[record(1, [0, 1, 1, 0]), record(5, [0, 0, 2, 0])]);
-    w.refusals = view_any(&w.bytes).err().into_iter().collect();
+    w.bytes = execute_with(&[record(1, [0, 1, 1, 0]), record(5, [0, 0, 2, 0])])?;
+    w.refusals = view_any(&w.bytes)?.err().into_iter().collect();
+    Ok(())
 }
 
 #[then("the frame is refused with an error naming the entry and the index")]
@@ -631,13 +644,14 @@ fn forward_refused(w: &mut Steps) {
 }
 
 #[when("a request's term table holds a triple term nested 33 deep")]
-fn too_deep(w: &mut Steps) {
+fn too_deep(w: &mut Steps) -> TestResult {
     let mut records = vec![record(1, [0, 1, 1, 0])];
     for k in 0..33u32 {
         records.push(record(5, [k, 0, 0, 0]));
     }
-    w.bytes = execute_with(&records);
-    w.refusals = view_any(&w.bytes).err().into_iter().collect();
+    w.bytes = execute_with(&records)?;
+    w.refusals = view_any(&w.bytes)?.err().into_iter().collect();
+    Ok(())
 }
 
 #[then("the frame is refused with an error naming the entry and its depth")]
@@ -655,48 +669,47 @@ fn depth_refused(w: &mut Steps) {
 }
 
 #[when("a statement's subject parameter is bound to a literal")]
-fn literal_at_a_node_slot(w: &mut Steps) {
+fn literal_at_a_node_slot(w: &mut Steps) -> TestResult {
     let mut cache = StatementCache::new(16);
-    let request = prepare_view_frame();
+    let request = prepare_view_frame()?;
     let prepared = cache
         .prepare(
-            &PrepareView::from_frame(
-                &FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE).unwrap(),
-            )
-            .unwrap(),
+            &PrepareView::from_frame(&FrameView::validate(&request, CLUSTER, MAX_FRAME_SIZE)?)?,
             1,
         )
-        .expect("the statement prepares");
+        .context("the statement prepares")?;
     let mut terms = TermTable::new();
-    let literal = terms
-        .intern(RequestTerm::Literal {
-            lexical: "35".into(),
-            datatype: Some("http://www.w3.org/2001/XMLSchema#integer".into()),
-        })
-        .unwrap();
+    let literal = terms.intern(RequestTerm::Literal {
+        lexical: "35".into(),
+        datatype: Some("http://www.w3.org/2001/XMLSchema#integer".into()),
+    })?;
     let execute = Execute::new(prepared.statement(), 5, 0, terms, vec![literal], Vec::new())
-        .frame(Header::new(CLUSTER, Command::Execute).with_stream(7))
-        .unwrap();
-    let view =
-        ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE).unwrap())
-            .unwrap();
+        .frame(Header::new(CLUSTER, Command::Execute).with_stream(7))?;
+    let view = ExecuteView::from_frame(&FrameView::validate(&execute, CLUSTER, MAX_FRAME_SIZE)?)?;
     w.statement = Some(cache.execute(&view, 1).map(|_| ()));
     w.statements = vec![prepared.statement()];
+    Ok(())
 }
 
 #[then("the execution is refused with code 11, `detail` the statement")]
-fn refused_not_a_node(w: &mut Steps) {
-    let refusal = w.statement.clone().unwrap().unwrap_err();
+fn refused_not_a_node(w: &mut Steps) -> TestResult {
+    let refusal = w
+        .statement
+        .clone()
+        .context("a prepared statement")?
+        .err()
+        .context("a refusal")?;
     let reply = refusal.reply();
     assert_eq!(reply.code(), ErrorCode::Parameters);
     assert_eq!(reply.code().number(), 11);
     assert_eq!(reply.detail(), w.statements[0]);
+    Ok(())
 }
 
 #[when(
     "a literal `\"0.1234567890123456789\"^^xsd:decimal`, of 19 fraction digits, is written and read back"
 )]
-fn decimal_past_its_payload(w: &mut Steps) {
+fn decimal_past_its_payload(w: &mut Steps) -> TestResult {
     let lexical = "0.1234567890123456789";
     let literal = oxrdf::Literal::new_typed_literal(lexical, oxrdf::vocab::xsd::DECIMAL);
     let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
@@ -705,7 +718,7 @@ fn decimal_past_its_payload(w: &mut Steps) {
             "a known datatype takes no UID",
         ))
     })
-    .expect("the literal encodes");
+    .context("the literal encodes")?;
     let text = encoded.strings().next().map(|(_, text)| text.to_string());
     let term = ResultTerm::new(encoded.term().clone());
     let term = match &text {
@@ -713,15 +726,12 @@ fn decimal_past_its_payload(w: &mut Steps) {
         None => term,
     };
     let mut batch = ResultBatch::new(1);
-    batch.push_row(&[Some(&term)]).unwrap();
-    let bytes = batch
-        .frame(Header::new(CLUSTER, Command::Result).with_stream(3))
-        .unwrap();
-    let view =
-        ResultView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).unwrap())
-            .unwrap();
-    let read = view.term(0).unwrap();
+    batch.push_row(&[Some(&term)])?;
+    let bytes = batch.frame(Header::new(CLUSTER, Command::Result).with_stream(3))?;
+    let view = ResultView::from_frame(&FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)?)?;
+    let read = view.term(0).context("term 0 of the batch")?;
     w.terms = vec![(read.encoding().to_vec(), read.text().map(str::to_string))];
+    Ok(())
 }
 
 #[then(

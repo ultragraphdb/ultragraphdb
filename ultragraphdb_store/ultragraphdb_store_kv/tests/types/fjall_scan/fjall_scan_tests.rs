@@ -7,6 +7,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::DATA_KEYSPACE;
 use ultragraphdb_traits_store::{Entry, Item, Scan, Store, StoreSnapshot};
 
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_tool_test::{TestDir, put, scanned, stored, write, write_raw, write_raw_in};
 
 fn keys(got: &[(Vec<u8>, u64)]) -> Vec<&[u8]> {
@@ -14,9 +15,9 @@ fn keys(got: &[(Vec<u8>, u64)]) -> Vec<&[u8]> {
 }
 
 #[test]
-fn test_ranges_seeks_and_empty_scans() {
+fn test_ranges_seeks_and_empty_scans() -> TestResult {
     let dir = TestDir::new("scan");
-    let s = dir.open();
+    let s = dir.open()?;
     write(
         &s,
         vec![
@@ -25,16 +26,16 @@ fn test_ranges_seeks_and_empty_scans() {
             put(b"c", 1, b""),
             put(&[0xFF, 0xFF], 1, b""),
         ],
-    );
-    let from_b = scanned(&s, &Scan::range(b"b".to_vec(), None), 1);
+    )?;
+    let from_b = scanned(&s, &Scan::range(b"b".to_vec(), None), 1)?;
     assert_eq!(keys(&from_b), vec![&b"b"[..], b"c", &[0xFF, 0xFF]]);
     assert_eq!(
-        scanned(&s, &Scan::prefix(vec![0xFF]), 1),
+        scanned(&s, &Scan::prefix(vec![0xFF]), 1)?,
         vec![(vec![0xFF, 0xFF], 1)]
     );
-    assert!(scanned(&s, &Scan::range(b"c".to_vec(), Some(b"b".to_vec())), 1).is_empty());
+    assert!(scanned(&s, &Scan::range(b"c".to_vec(), Some(b"b".to_vec())), 1)?.is_empty());
     assert!(
-        scanned(&s, &Scan::range(b"b".to_vec(), Some(b"b".to_vec())), 1).is_empty(),
+        scanned(&s, &Scan::range(b"b".to_vec(), Some(b"b".to_vec())), 1)?.is_empty(),
         "an empty range"
     );
     assert!(
@@ -42,7 +43,7 @@ fn test_ranges_seeks_and_empty_scans() {
             &s,
             &Scan::prefix(b"b".to_vec()).reverse().seek(b"a".to_vec()),
             1
-        )
+        )?
         .is_empty()
     );
     let reversed = scanned(
@@ -51,20 +52,21 @@ fn test_ranges_seeks_and_empty_scans() {
             .reverse()
             .seek(b"z".to_vec()),
         1,
-    );
+    )?;
     assert_eq!(keys(&reversed), vec![&b"b"[..], b"a"]);
-    let snapshot = s.snapshot(0).unwrap();
+    let snapshot = s.snapshot(0)?;
     assert_eq!(
         snapshot.scan(&Scan::prefix(Vec::new())).count(),
         0,
         "nothing at or below 0"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_seek_outside_the_range_is_held_to_it() {
+fn test_a_seek_outside_the_range_is_held_to_it() -> TestResult {
     let dir = TestDir::new("scan-seek-bounds");
-    let s = dir.open();
+    let s = dir.open()?;
     write(
         &s,
         vec![
@@ -74,12 +76,12 @@ fn test_a_seek_outside_the_range_is_held_to_it() {
             put(b"ba", 1, b""),
             put(b"c", 1, b""),
         ],
-    );
+    )?;
     let before = scanned(
         &s,
         &Scan::range(b"b".to_vec(), Some(b"c".to_vec())).seek(b"a".to_vec()),
         1,
-    );
+    )?;
     assert_eq!(
         keys(&before),
         vec![&b"b"[..], b"b\x00", b"ba"],
@@ -89,20 +91,21 @@ fn test_a_seek_outside_the_range_is_held_to_it() {
         &s,
         &Scan::prefix(Vec::new()).reverse().seek(b"b".to_vec()),
         1,
-    );
+    )?;
     assert_eq!(
         keys(&reverse),
         vec![&b"b"[..], b"a"],
         "a reverse seek at b leaves out the longer keys beginning with it"
     );
-    let forward = scanned(&s, &Scan::prefix(Vec::new()).seek(b"b\x00".to_vec()), 1);
+    let forward = scanned(&s, &Scan::prefix(Vec::new()).seek(b"b\x00".to_vec()), 1)?;
     assert_eq!(keys(&forward), vec![&b"b\x00"[..], b"ba", b"c"]);
+    Ok(())
 }
 
 #[test]
-fn test_a_reverse_scan_stops_each_key_at_its_newest_deletion() {
+fn test_a_reverse_scan_stops_each_key_at_its_newest_deletion() -> TestResult {
     let dir = TestDir::new("scan-del");
-    let s = dir.open();
+    let s = dir.open()?;
     write(
         &s,
         vec![
@@ -110,71 +113,71 @@ fn test_a_reverse_scan_stops_each_key_at_its_newest_deletion() {
             Entry::deletion(b"a".to_vec(), 2),
             put(b"a", 3, b""),
         ],
-    );
-    write(&s, vec![put(b"b", 1, b"")]);
+    )?;
+    write(&s, vec![put(b"b", 1, b"")])?;
     let all = |ts| scanned(&s, &Scan::prefix(Vec::new()).reverse().all_versions(), ts);
-    assert_eq!(all(5), vec![(b"b".to_vec(), 1), (b"a".to_vec(), 3)]);
-    assert_eq!(all(2), vec![(b"b".to_vec(), 1)]);
-    assert_eq!(all(1), vec![(b"b".to_vec(), 1), (b"a".to_vec(), 1)]);
+    assert_eq!(all(5)?, vec![(b"b".to_vec(), 1), (b"a".to_vec(), 3)]);
+    assert_eq!(all(2)?, vec![(b"b".to_vec(), 1)]);
+    assert_eq!(all(1)?, vec![(b"b".to_vec(), 1), (b"a".to_vec(), 1)]);
     let forward = |ts| scanned(&s, &Scan::prefix(Vec::new()).all_versions(), ts);
-    assert_eq!(forward(5), vec![(b"a".to_vec(), 3), (b"b".to_vec(), 1)]);
-    assert_eq!(forward(2), vec![(b"b".to_vec(), 1)]);
+    assert_eq!(forward(5)?, vec![(b"a".to_vec(), 3), (b"b".to_vec(), 1)]);
+    assert_eq!(forward(2)?, vec![(b"b".to_vec(), 1)]);
+    Ok(())
 }
 
 #[test]
-fn test_a_failed_read_is_the_last_item_in_either_direction() {
+fn test_a_failed_read_is_the_last_item_in_either_direction() -> TestResult {
     let dir = TestDir::new("scan-corrupt");
-    let s = dir.open();
+    let s = dir.open()?;
     write(
         &s,
         vec![put(b"a", 1, b""), put(b"c", 1, b""), put(b"d", 1, b"")],
-    );
+    )?;
     drop(s);
-    write_raw(&dir, b"b", 1, &[0x04, 0x80]);
-    let s = dir.open();
+    write_raw(&dir, b"b", 1, &[0x04, 0x80])?;
+    let reopened = dir.open()?;
     let corrupted = StoreError::Corrupted(b"b".to_vec(), "unknown version flags 0x80".to_string());
-    let snapshot = s.snapshot(1).unwrap();
+    let snapshot = reopened.snapshot(1)?;
     let item = |k: &[u8]| Ok(Item::new(k.to_vec(), 1, 0x04, false, Vec::new()));
     let forward: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new())).collect();
     assert_eq!(forward, vec![item(b"a"), Err(corrupted.clone())]);
     let reverse: Vec<_> = snapshot.scan(&Scan::prefix(Vec::new()).reverse()).collect();
     assert_eq!(reverse, vec![item(b"d"), item(b"c"), Err(corrupted)]);
+    Ok(())
 }
 
 #[test]
-fn test_an_undecodable_stored_key_is_refused_as_corrupted() {
+fn test_an_undecodable_stored_key_is_refused_as_corrupted() -> TestResult {
     // A zero byte of the user key followed by `0x00`, which is no run code.
     refused_raw(
         "scan-no-run-code",
         b"x\x00\x00y",
         "stored key holds a zero byte without a run code",
-    );
+    )?;
+    Ok(())
 }
 
 #[test]
-fn test_a_stored_key_running_past_its_end_code_is_refused_as_corrupted() {
+fn test_a_stored_key_running_past_its_end_code_is_refused_as_corrupted() -> TestResult {
     // `0x00 0x05` ends a key after four zero bytes, yet `y` follows it.
     refused_raw(
         "scan-past-end",
         b"x\x00\x05y",
         "stored key continues past its end code",
-    );
+    )?;
+    Ok(())
 }
 
 /// Writes `prefix` followed by the stored suffix of an empty key at version 1 raw into the data keyspace, and checks
 /// that a scan and a dump refuse it as corrupted with `reason`.
-fn refused_raw(name: &str, prefix: &[u8], reason: &str) {
+fn refused_raw(name: &str, prefix: &[u8], reason: &str) -> TestResult {
     let dir = TestDir::new(name);
-    drop(dir.open());
+    drop(dir.open()?);
     let mut raw = prefix.to_vec();
     raw.extend_from_slice(&stored(b"", 1));
-    write_raw_in(&dir, DATA_KEYSPACE, &raw, &[0x04, 0x00]);
-    let s = dir.open();
-    let got: Vec<_> = s
-        .snapshot(1)
-        .unwrap()
-        .scan(&Scan::prefix(Vec::new()))
-        .collect();
+    write_raw_in(&dir, DATA_KEYSPACE, &raw, &[0x04, 0x00])?;
+    let s = dir.open()?;
+    let got: Vec<_> = s.snapshot(1)?.scan(&Scan::prefix(Vec::new())).collect();
     assert_eq!(
         got,
         vec![Err(StoreError::Corrupted(raw.clone(), reason.to_string()))]
@@ -183,4 +186,5 @@ fn refused_raw(name: &str, prefix: &[u8], reason: &str) {
         s.dump(),
         Err(StoreError::Corrupted(raw, reason.to_string()))
     );
+    Ok(())
 }

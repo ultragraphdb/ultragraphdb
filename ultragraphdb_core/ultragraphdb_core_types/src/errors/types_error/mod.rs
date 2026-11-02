@@ -96,36 +96,43 @@ impl TypesError {
         })
     }
 
+    /// A [`TypesErrorEnum::Conversion`] error with its message.
     #[allow(non_snake_case)]
     pub fn Conversion(msg: String) -> Self {
         Self(TypesErrorEnum::Conversion(msg))
     }
 
+    /// A [`TypesErrorEnum::Number`] error with its message.
     #[allow(non_snake_case)]
     pub fn Number(msg: String) -> Self {
         Self(TypesErrorEnum::Number(msg))
     }
 
+    /// A [`TypesErrorEnum::Time`] error with its message.
     #[allow(non_snake_case)]
     pub fn Time(msg: String) -> Self {
         Self(TypesErrorEnum::Time(msg))
     }
 
+    /// A [`TypesErrorEnum::BigFloat`] error with its message.
     #[allow(non_snake_case)]
     pub fn BigFloat(msg: String) -> Self {
         Self(TypesErrorEnum::BigFloat(msg))
     }
 
+    /// A [`TypesErrorEnum::Geo`] error with its message.
     #[allow(non_snake_case)]
     pub fn Geo(msg: String) -> Self {
         Self(TypesErrorEnum::Geo(msg))
     }
 
+    /// A [`TypesErrorEnum::Password`] error with its message.
     #[allow(non_snake_case)]
     pub fn Password(msg: String) -> Self {
         Self(TypesErrorEnum::Password(msg))
     }
 
+    /// A [`TypesErrorEnum::Compare`] error with its message.
     #[allow(non_snake_case)]
     pub fn Compare(msg: String) -> Self {
         Self(TypesErrorEnum::Compare(msg))

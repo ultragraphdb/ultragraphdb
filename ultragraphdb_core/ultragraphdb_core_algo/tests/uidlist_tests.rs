@@ -17,7 +17,7 @@ use ultragraphdb_core_algo::{
     intersect_with_jump, intersect_with_lin, merge_sorted, merge_sorted_more_mem,
 };
 use ultragraphdb_core_codec::{Decoder, Encoder, List, UidPack, encode};
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
 
 /// Go's math/rand in the tests, as SplitMix64 with a fixed seed so that a failure reproduces.
 struct Rng(u64);
@@ -351,13 +351,14 @@ fn fill_nums_diff(
         common_nums[i] = val;
         block_nums[i] = val;
         other_nums[i] = val;
-        all_c.insert(val);
+        // Values may repeat: the set holds each once, whether or not it is new.
+        let _new: bool = all_c.insert(val);
     }
 
     for item in block_nums.iter_mut().skip(n1) {
         let val = rng.next_u64() % 1000;
         *item = val;
-        all_c.insert(val);
+        let _new: bool = all_c.insert(val);
     }
 
     for item in other_nums.iter_mut().skip(n1) {
@@ -428,19 +429,20 @@ fn test_intersect_compressed_with_lin_jump() {
 }
 
 #[test]
-fn test_intersect_compressed_with_bin() {
+fn test_intersect_compressed_with_bin() -> TestResult {
     let mut rng = Rng(10);
     // Go loops over the one-element tables {11} and {3}.
     let (n1, n2) = (11usize, 3usize);
     // Intersection of blockNums and otherNums is commonNums.
     let (common_nums, block_nums, other_nums) = fill_nums_diff(&mut rng, n1 / 10, n1, n2);
 
-    let pack = block_pack(&block_nums, 10).expect("the list is not empty");
+    let pack = block_pack(&block_nums, 10).context("the list is not empty")?;
     let mut dec = Decoder::new(&pack);
 
     let mut actual = Vec::new();
     intersect_compressed_with_bin(&mut dec, &other_nums, &mut actual);
     assert_eq!(common_nums, actual);
+    Ok(())
 }
 
 #[test]
@@ -495,7 +497,7 @@ struct AlgoCase {
 
 /// One plain-list operation of the golden file on a case's lists: its output and, for the pairwise intersections,
 /// the offsets it returned. `None` for an operation of the packed tests.
-fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> {
+fn run_plain(case: &AlgoCase, r: &OpResult) -> TestResult<Option<(Vec<u64>, usize, usize)>> {
     let lists: Vec<List> = case.lists.iter().map(|l| new_list(l)).collect();
     let refs: Vec<&List> = lists.iter().collect();
     let pair = || (&case.lists[0], &case.lists[1]);
@@ -518,7 +520,7 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
             out = o.into_uids();
         }
         "intersect_compressed_with_lin_jump" | "intersect_compressed_with_bin" => {
-            let pack = encode(pair().0, case.block_size).expect("the golden list is not empty");
+            let pack = encode(pair().0, case.block_size).context("the golden list is not empty")?;
             let mut dec = Decoder::new(&pack);
             if r.op == "intersect_compressed_with_bin" {
                 intersect_compressed_with_bin(&mut dec, pair().1, &mut out);
@@ -530,12 +532,12 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
         "merge_sorted_more_mem" => out = merge_sorted_more_mem(&refs).into_uids(),
         "intersect_sorted" => out = intersect_sorted(&refs).into_uids(),
         "index_of" => {
-            let index = index_of(refs[0], r.arg).map_or(-1, |i| i64::try_from(i).unwrap());
+            let index = index_of(refs[0], r.arg).map_or(Ok(-1), i64::try_from)?;
             assert_eq!(r.index, index, "{} index_of {}", case.name, r.arg);
         }
-        _ => return None,
+        _ => return Ok(None),
     }
-    Some((out, i, k))
+    Ok(Some((out, i, k)))
 }
 
 /// The golden cases where the port differs from Dgraph: the case, its operation and argument, the ledger entry
@@ -568,9 +570,9 @@ const DEVIATIONS: &[(&str, &str, u64, u32, &[u64])] = &[
 /// The plain-list operations' results equal Dgraph's on the golden inputs, duplicates included, where the
 /// strategies differ; where Dgraph panics, the port returns the result its [`DEVIATIONS`] entry names.
 #[test]
-fn plain_operations_match_golden() {
-    let path = testdata_dir().join("golden/algo_setops.json");
-    let golden = load_golden::<AlgoCase>(&path);
+fn plain_operations_match_golden() -> TestResult {
+    let path = testdata_dir()?.join("golden/algo_setops.json");
+    let golden = load_golden::<AlgoCase>(&path)?;
     let (mut checked, mut deviating) = (0, 0);
     for case in golden.cases() {
         for r in &case.results {
@@ -583,7 +585,7 @@ fn plain_operations_match_golden() {
                 deviation.is_some(),
                 "{label}: Dgraph panics exactly on the deviating cases"
             );
-            let Some((out, i, k)) = run_plain(case, r) else {
+            let Some((out, i, k)) = run_plain(case, r)? else {
                 continue;
             };
             match deviation {
@@ -608,4 +610,5 @@ fn plain_operations_match_golden() {
         DEVIATIONS.len(),
         "every deviation is in the golden file"
     );
+    Ok(())
 }

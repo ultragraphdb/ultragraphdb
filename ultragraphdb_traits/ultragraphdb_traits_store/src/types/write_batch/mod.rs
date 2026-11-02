@@ -22,10 +22,12 @@ pub struct WriteBatch {
 }
 
 impl WriteBatch {
+    /// An empty batch.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Appends `entry` to the batch's entries.
     pub fn push(&mut self, entry: Entry) {
         self.entries.push(entry);
     }
@@ -64,6 +66,7 @@ impl WriteBatch {
         &self.removed_rebuild_records
     }
 
+    /// The entries, in order.
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -78,6 +81,7 @@ impl WriteBatch {
         (self.entries, self.versionless)
     }
 
+    /// The applied timestamp the batch records; `None` when it records none.
     pub fn applied_ts(&self) -> Option<u64> {
         self.applied_ts
     }

@@ -7,47 +7,50 @@
 //! and without faults.
 
 use ultragraphdb_store_sim::{FaultConfig, Seed};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::posting_workload::PostingWorkload;
 
 #[test]
-fn test_seeds_without_faults() {
+fn test_seeds_without_faults() -> TestResult {
     let (mut reads, mut rollups) = (0, 0);
     for seed in 1..=20 {
         let (outcome, r, w) = PostingWorkload::run(Seed::new(seed), FaultConfig::none(), 400, 2)
             .map_err(|v| v.to_string())
-            .expect("the workload breaks no invariant");
+            .context("the workload breaks no invariant")?;
         assert!(!outcome.contents().keys().is_empty());
         reads += r;
         rollups += w;
     }
     assert!(reads > 1000, "only {reads} reads compared");
     assert!(rollups > 50, "only {rollups} rollups written");
+    Ok(())
 }
 
 #[test]
-fn test_seeds_with_faults() {
+fn test_seeds_with_faults() -> TestResult {
     let mut reads = 0;
     for seed in 100..=139 {
         let (_, r, _) = PostingWorkload::run(Seed::new(seed), PostingWorkload::faults(), 400, 2)
             .map_err(|v| v.to_string())
-            .expect("the workload breaks no invariant");
+            .context("the workload breaks no invariant")?;
         reads += r;
     }
     assert!(reads > 1000, "only {reads} reads compared");
+    Ok(())
 }
 
 #[test]
-fn test_a_seed_replays_its_run_and_its_events() {
-    let run = || {
+fn test_a_seed_replays_its_run_and_its_events() -> TestResult {
+    let run = || -> TestResult<_> {
         let capture = ultragraphdb_store_sim::LogCapture::new();
         let outcome = capture.capture(|| {
-            PostingWorkload::run(Seed::new(7), PostingWorkload::faults(), 300, 2).expect("run")
-        });
-        (outcome, capture.events())
+            PostingWorkload::run(Seed::new(7), PostingWorkload::faults(), 300, 2).context("run")
+        })?;
+        Ok((outcome, capture.events()))
     };
-    let (first, first_events) = run();
-    let (again, again_events) = run();
+    let (first, first_events) = run()?;
+    let (again, again_events) = run()?;
     assert_eq!(first.0, again.0);
     assert_eq!((first.1, first.2), (again.1, again.2));
     assert_eq!(first_events, again_events);
@@ -55,4 +58,5 @@ fn test_a_seed_replays_its_run_and_its_events() {
         !first_events.is_empty(),
         "the faults of the run are reported"
     );
+    Ok(())
 }

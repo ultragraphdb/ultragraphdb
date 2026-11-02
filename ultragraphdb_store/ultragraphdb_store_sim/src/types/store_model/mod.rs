@@ -105,6 +105,7 @@ struct Outcome {
 }
 
 impl StoreModel {
+    /// A model of an empty store.
     pub fn new() -> Self {
         Self::default()
     }
@@ -129,14 +130,16 @@ impl StoreModel {
             match step(&mut model) {
                 Ok(()) => {
                     let forked = std::mem::take(&mut model.others);
-                    for model in std::iter::once(model).chain(forked) {
-                        if !kept.iter().any(|k| k.same_as(&model)) {
-                            kept.push(model);
+                    for candidate in std::iter::once(model).chain(forked) {
+                        if !kept.iter().any(|k| k.same_as(&candidate)) {
+                            kept.push(candidate);
                         }
                     }
                 }
                 Err(b) => {
-                    breach.get_or_insert(b);
+                    if breach.is_none() {
+                        breach = Some(b);
+                    }
                     refused.push(model);
                 }
             }
@@ -237,14 +240,15 @@ impl StoreModel {
                 power_loss,
             } => self.observe_rebuild_interrupted(record, *stage, *power_loss),
             OpRecord::TemporaryCreated { temporary } => {
-                self.temporaries.insert(*temporary, ModelState::default());
+                let _replaced: Option<ModelState> =
+                    self.temporaries.insert(*temporary, ModelState::default());
             }
             OpRecord::TemporaryApplied { temporary, batch } => {
                 self.observe_temporary_applied(*temporary, batch)?;
             }
             OpRecord::TemporaryRefused { .. } => {}
             OpRecord::TemporaryDropped { temporary } => {
-                self.temporaries.remove(temporary);
+                let _dropped: Option<ModelState> = self.temporaries.remove(temporary);
             }
             OpRecord::TemporaryFailed { crashed, .. } => self.observe_temporary_failed(*crashed),
             OpRecord::TemporarySnapshotOpened { id, temporary } => {

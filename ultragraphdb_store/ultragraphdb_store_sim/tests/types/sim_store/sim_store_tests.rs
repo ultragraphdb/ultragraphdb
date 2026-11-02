@@ -5,6 +5,7 @@
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_sim::{Corruption, Fault, FaultConfig, OpRecord, Seed, SimClock, SimStore};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{
     Entry, PersistMode, RebuildRecord, Store, StoreSnapshot, WriteBatch,
 };
@@ -21,24 +22,22 @@ fn batch(key: &[u8], version: u64) -> WriteBatch {
 }
 
 #[test]
-fn test_clones_share_one_store_and_the_clock_given() {
+fn test_clones_share_one_store_and_the_clock_given() -> TestResult {
     let clock = SimClock::new();
     let s = SimStore::new(Seed::new(1), FaultConfig::none(), clock.clone());
     let clone = s.clone();
-    clone.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
-    let item = s
-        .get_at(b"k", 1)
-        .unwrap()
-        .expect("written through the clone");
+    clone.apply(batch(b"k", 1), PersistMode::Buffer)?;
+    let item = s.get_at(b"k", 1)?.context("written through the clone")?;
     assert_eq!((item.version(), item.value()), (1, &b"v"[..]));
     clock.advance(5);
     assert_eq!((s.clock().now(), clone.clock().now()), (5, 5));
     s.crash();
     assert!(clone.needs_recovery(), "a crash reaches every clone");
+    Ok(())
 }
 
 #[test]
-fn test_a_new_store_serves_at_once() {
+fn test_a_new_store_serves_at_once() -> TestResult {
     let s = store();
     assert!(!s.needs_recovery());
     assert!(s.take_log().is_empty());
@@ -46,14 +45,15 @@ fn test_a_new_store_serves_at_once() {
         (s.applied_ts(), s.discard_ts(), s.tombstone_horizon()),
         (0, 0, 0)
     );
-    assert_eq!(s.rebuild_records().unwrap(), []);
+    assert_eq!(s.rebuild_records()?, []);
+    Ok(())
 }
 
 #[test]
-fn test_the_log_records_operations_in_order() {
+fn test_the_log_records_operations_in_order() -> TestResult {
     let s = store();
-    s.sync().unwrap();
-    let snapshot = s.snapshot(0).unwrap();
+    s.sync()?;
+    let snapshot = s.snapshot(0)?;
     // The log records the read whatever it answers.
     drop(snapshot.get(b"k"));
     drop(snapshot);
@@ -74,15 +74,19 @@ fn test_the_log_records_operations_in_order() {
             OpRecord::Recovered,
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_log_records_each_operation_with_its_answer() {
+fn test_the_log_records_each_operation_with_its_answer() -> TestResult {
     let s = store();
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     let mut big = WriteBatch::new();
     big.push(Entry::put(vec![1; 65_001], 1, 0, vec![]));
-    let too_large = s.apply(big.clone(), PersistMode::Sync).unwrap_err();
+    let too_large = s
+        .apply(big.clone(), PersistMode::Sync)
+        .err()
+        .context("an error")?;
     assert!(matches!(
         too_large.0,
         StoreErrorEnum::KeyTooLarge {
@@ -91,23 +95,24 @@ fn test_the_log_records_each_operation_with_its_answer() {
             ..
         }
     ));
-    s.ban_namespace(7).unwrap();
-    s.set_discard_ts(2).unwrap();
-    s.set_tombstone_horizon(1).unwrap();
+    s.ban_namespace(7)?;
+    s.set_discard_ts(2)?;
+    s.set_tombstone_horizon(1)?;
     assert_eq!(s.snapshot(1).err(), Some(StoreError::TsTooOld()));
-    s.compact().unwrap();
-    s.sweep_deletions().unwrap();
+    s.compact()?;
+    s.sweep_deletions()?;
     s.corrupt(b"k", 1, Corruption::Truncate);
     let record = RebuildRecord::new(4, vec![b"\x02p".to_vec()]);
-    s.write_rebuild_record(&record).unwrap();
-    s.drop_prefixes(5, &[b"\x02".to_vec()], Vec::new()).unwrap();
+    s.write_rebuild_record(&record)?;
+    s.drop_prefixes(5, &[b"\x02".to_vec()], Vec::new())?;
     s.inject(Fault::FailNextBatch);
-    s.apply(batch(b"m", 3), PersistMode::Buffer).unwrap_err();
+    assert!(s.apply(batch(b"m", 3), PersistMode::Buffer).is_err());
     assert_eq!(s.sync(), Err(StoreError::Poisoned()));
     s.power_loss();
     assert_eq!(s.snapshot(9).err(), Some(StoreError::Poisoned()));
     s.recover();
     assert_eq!(s.take_log(), each_operation_logged(big, too_large, record));
+    Ok(())
 }
 
 /// The log of `test_the_log_records_each_operation_with_its_answer`, given the batch refused as too large, its
@@ -160,13 +165,13 @@ fn each_operation_logged(
 }
 
 #[test]
-fn test_a_snapshot_of_an_earlier_process_releases_nothing() {
+fn test_a_snapshot_of_an_earlier_process_releases_nothing() -> TestResult {
     let s = store();
-    let old = s.snapshot(2).unwrap();
+    let old = s.snapshot(2)?;
     s.crash();
     s.recover();
-    let held = s.snapshot(4).unwrap();
-    s.set_discard_ts(9).unwrap();
+    let held = s.snapshot(4)?;
+    s.set_discard_ts(9)?;
     assert_eq!(s.discard_ts(), 4);
     drop(old);
     assert_eq!(
@@ -182,39 +187,42 @@ fn test_a_snapshot_of_an_earlier_process_releases_nothing() {
     );
     drop(held);
     assert_eq!(s.discard_ts(), 9);
+    Ok(())
 }
 
 #[test]
-fn test_two_snapshots_at_one_timestamp_hold_it_until_both_close() {
+fn test_two_snapshots_at_one_timestamp_hold_it_until_both_close() -> TestResult {
     let s = store();
-    let (a, b) = (s.snapshot(3).unwrap(), s.snapshot(3).unwrap());
-    s.set_discard_ts(8).unwrap();
+    let (a, b) = (s.snapshot(3)?, s.snapshot(3)?);
+    s.set_discard_ts(8)?;
     drop(a);
     assert_eq!(s.discard_ts(), 3);
     drop(b);
     assert_eq!(s.discard_ts(), 8);
+    Ok(())
 }
 
 #[test]
-fn test_recovering_an_open_store_keeps_what_it_holds() {
+fn test_recovering_an_open_store_keeps_what_it_holds() -> TestResult {
     let s = store();
-    s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap();
+    s.apply(batch(b"k", 1), PersistMode::Buffer)?;
     let before = s.contents();
     s.recover();
     assert_eq!(s.contents(), before);
     assert_eq!(s.take_log().last(), Some(&OpRecord::Recovered));
+    Ok(())
 }
 
 #[test]
-fn test_a_crash_of_a_poisoned_store_decides_the_failed_batch_at_recovery() {
+fn test_a_crash_of_a_poisoned_store_decides_the_failed_batch_at_recovery() -> TestResult {
     // A crash or a power loss over a poisoned store keeps the failed batch in flight: recovery keeps it whole or
     // drops it whole, as the fault stream decides, so both happen over a few seeds.
     for power_loss in [false, true] {
         let outcomes: std::collections::BTreeSet<bool> = (0..16)
-            .map(|seed| {
+            .map(|seed| -> TestResult<_> {
                 let s = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
                 s.inject(Fault::FailNextBatch);
-                s.apply(batch(b"k", 1), PersistMode::Buffer).unwrap_err();
+                assert!(s.apply(batch(b"k", 1), PersistMode::Buffer).is_err());
                 if power_loss {
                     s.power_loss();
                 } else {
@@ -225,24 +233,25 @@ fn test_a_crash_of_a_poisoned_store_decides_the_failed_batch_at_recovery() {
                 assert!(!s.needs_recovery());
                 let kept = s.applied_ts() == 1;
                 assert_eq!(s.contents().versions(b"k").len(), usize::from(kept));
-                kept
+                Ok(kept)
             })
-            .collect();
+            .collect::<TestResult<_>>()?;
         assert_eq!(outcomes.len(), 2, "power loss {power_loss}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_contents_lists_deletions_and_the_metadata() {
+fn test_contents_lists_deletions_and_the_metadata() -> TestResult {
     let s = store();
     let mut batch = WriteBatch::new();
     batch.push(Entry::put(b"k".to_vec(), 2, 0x08, b"v".to_vec()).with_discard());
     batch.push(Entry::deletion(b"k".to_vec(), 3));
     batch.set_applied_ts(3);
-    s.apply(batch, PersistMode::Buffer).unwrap();
-    s.ban_namespace(7).unwrap();
-    s.set_discard_ts(1).unwrap();
-    s.set_tombstone_horizon(1).unwrap();
+    s.apply(batch, PersistMode::Buffer)?;
+    s.ban_namespace(7)?;
+    s.set_discard_ts(1)?;
+    s.set_tombstone_horizon(1)?;
     let contents = s.contents();
     let versions = contents.versions(b"k");
     assert_eq!(versions.len(), 2);
@@ -273,14 +282,15 @@ fn test_contents_lists_deletions_and_the_metadata() {
         (1, Some(1))
     );
     assert!(contents.versions(b"none").is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_contents_show_an_undecodable_version_as_its_raw_bytes() {
+fn test_contents_show_an_undecodable_version_as_its_raw_bytes() -> TestResult {
     let s = store();
     let mut b = WriteBatch::new();
     b.push(Entry::put(b"k".to_vec(), 2, 0x08, b"value".to_vec()).with_discard());
-    s.apply(b, PersistMode::Buffer).unwrap();
+    s.apply(b, PersistMode::Buffer)?;
     s.corrupt(b"k", 2, Corruption::Truncate);
     let contents = s.contents();
     let version = &contents.versions(b"k")[0];
@@ -296,4 +306,5 @@ fn test_contents_show_an_undecodable_version_as_its_raw_bytes() {
         (2, false, 0, false, false, &[0x08][..]),
         "truncated to its meta byte"
     );
+    Ok(())
 }

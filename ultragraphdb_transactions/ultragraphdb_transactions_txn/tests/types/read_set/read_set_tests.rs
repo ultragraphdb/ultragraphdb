@@ -4,11 +4,12 @@
  */
 
 use std::collections::BTreeSet;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use ultragraphdb_core_mapping::{Cardinality, Change, Declaration, PredicateDeclaration};
 use ultragraphdb_transactions_txn::{ReadSet, TxnError, TxnErrorEnum};
 
-use crate::utils::fixture::{NS, Rng, applier, changeset, commit, ex, insert, insert_literal};
+use crate::utils::fixture::{NS, Rng, applier, changeset, ex, insert, insert_literal, store};
 
 /// The catalog range of namespace `ns`, from the key layout: the catalog keyspace byte `0x01` and the namespace
 /// big-endian, to the same prefix of the next namespace.
@@ -75,34 +76,35 @@ fn test_a_new_read_set_is_bounded_by_the_default_and_holds_namespace_zeros_catal
 }
 
 #[test]
-fn test_each_push_is_accounted_as_its_bytes_and_8_per_key() {
+fn test_each_push_is_accounted_as_its_bytes_and_8_per_key() -> TestResult {
     let mut r = ReadSet::new();
     r.reset(NS, 1, 10_000);
-    r.push_list(b"list").unwrap();
+    r.push_list(b"list")?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 4 + 8);
-    r.push_statement(b"key", b"object").unwrap();
+    r.push_statement(b"key", b"object")?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 12 + 3 + 6 + 16);
-    r.push_range(b"from", Some(b"to")).unwrap();
+    r.push_range(b"from", Some(b"to"))?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 37 + 4 + 2 + 16);
-    r.push_range(b"open", None).unwrap();
+    r.push_range(b"open", None)?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 59 + 4 + 16);
-    r.push_absent(b"gone").unwrap();
+    r.push_absent(b"gone")?;
     assert_eq!(r.bytes(), CATALOG_BYTES + 79 + 4 + 8);
+    Ok(())
 }
 
 #[test]
-fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing() {
+fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing() -> TestResult {
     // CATALOG_BYTES + 5 + 8: a five-byte key fills the limit exactly.
     let limit = CATALOG_BYTES + 13;
     let mut r = ReadSet::new();
     r.reset(NS, 1, limit);
-    r.push_list(b"12345").unwrap();
+    r.push_list(b"12345")?;
     assert_eq!(r.bytes(), limit);
     let refusals = [
-        r.push_list(b"").unwrap_err(),
-        r.push_statement(b"", b"").unwrap_err(),
-        r.push_range(b"", None).unwrap_err(),
-        r.push_absent(b"x").unwrap_err(),
+        r.push_list(b"").err().context("the call fails")?,
+        r.push_statement(b"", b"").err().context("the call fails")?,
+        r.push_range(b"", None).err().context("the call fails")?,
+        r.push_absent(b"x").err().context("the call fails")?,
     ];
     assert_eq!(
         refusals,
@@ -116,38 +118,40 @@ fn test_a_push_at_the_limit_is_taken_and_one_past_it_is_refused_adding_nothing()
     assert_eq!(r.bytes(), limit);
     assert_eq!(lists(&r), vec![b"12345".to_vec()]);
     assert!(statements(&r).is_empty() && ranges(&r).is_empty() && absent(&r).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_one_byte_under_the_limit_refuses_a_key_one_byte_too_long() {
+fn test_one_byte_under_the_limit_refuses_a_key_one_byte_too_long() -> TestResult {
     let limit = CATALOG_BYTES + 12;
     let mut r = ReadSet::new();
     r.reset(NS, 1, limit);
     assert!(matches!(
-        r.push_list(b"12345").unwrap_err().0,
+        r.push_list(b"12345").err().context("the call fails")?.0,
         TxnErrorEnum::ReadSetTooLarge { size, limit: l } if size == limit + 1 && l == limit
     ));
-    r.push_list(b"1234").unwrap();
+    r.push_list(b"1234")?;
     assert_eq!(r.bytes(), limit);
+    Ok(())
 }
 
 #[test]
-fn test_sealing_sorts_and_drops_duplicates() {
+fn test_sealing_sorts_and_drops_duplicates() -> TestResult {
     let mut r = ReadSet::new();
     r.reset(NS, 1, 10_000);
     for key in [&b"b"[..], b"a", b"b", b"", b"ab"] {
-        r.push_list(key).unwrap();
-        r.push_absent(key).unwrap();
+        r.push_list(key)?;
+        r.push_absent(key)?;
     }
-    r.push_statement(b"k", b"2").unwrap();
-    r.push_statement(b"k", b"1").unwrap();
-    r.push_statement(b"j", b"9").unwrap();
-    r.push_statement(b"k", b"1").unwrap();
-    r.push_range(b"m", None).unwrap();
-    r.push_range(b"m", Some(b"z")).unwrap();
-    r.push_range(b"c", Some(b"d")).unwrap();
-    r.push_range(b"m", None).unwrap();
-    r.push_range(b"m", Some(b"n")).unwrap();
+    r.push_statement(b"k", b"2")?;
+    r.push_statement(b"k", b"1")?;
+    r.push_statement(b"j", b"9")?;
+    r.push_statement(b"k", b"1")?;
+    r.push_range(b"m", None)?;
+    r.push_range(b"m", Some(b"z"))?;
+    r.push_range(b"c", Some(b"d"))?;
+    r.push_range(b"m", None)?;
+    r.push_range(b"m", Some(b"n"))?;
     assert!(!r.is_sealed());
     r.seal();
     assert!(r.is_sealed());
@@ -174,38 +178,41 @@ fn test_sealing_sorts_and_drops_duplicates() {
     // The catalog range stays, and accounting counts what was pushed.
     let (start, end) = catalog_of(NS);
     assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
+    Ok(())
 }
 
 #[test]
-fn test_before_sealing_the_tables_keep_push_order() {
+fn test_before_sealing_the_tables_keep_push_order() -> TestResult {
     let mut r = ReadSet::new();
     r.reset(NS, 1, 10_000);
-    r.push_list(b"b").unwrap();
-    r.push_list(b"a").unwrap();
-    r.push_list(b"b").unwrap();
+    r.push_list(b"b")?;
+    r.push_list(b"a")?;
+    r.push_list(b"b")?;
     assert_eq!(lists(&r), vec![b"b".to_vec(), b"a".to_vec(), b"b".to_vec()]);
+    Ok(())
 }
 
 #[test]
-fn test_a_push_after_sealing_unseals() {
+fn test_a_push_after_sealing_unseals() -> TestResult {
     let mut r = ReadSet::new();
     r.reset(NS, 1, 10_000);
-    r.push_list(b"b").unwrap();
+    r.push_list(b"b")?;
     r.seal();
-    r.push_list(b"a").unwrap();
+    r.push_list(b"a")?;
     assert!(!r.is_sealed());
     r.seal();
     assert_eq!(lists(&r), vec![b"a".to_vec(), b"b".to_vec()]);
+    Ok(())
 }
 
 #[test]
-fn test_a_reset_clears_everything_and_unseals() {
+fn test_a_reset_clears_everything_and_unseals() -> TestResult {
     let mut r = ReadSet::new();
     r.reset(NS, 1, 10_000);
-    r.push_list(b"a").unwrap();
-    r.push_statement(b"k", b"o").unwrap();
-    r.push_range(b"s", None).unwrap();
-    r.push_absent(b"d").unwrap();
+    r.push_list(b"a")?;
+    r.push_statement(b"k", b"o")?;
+    r.push_range(b"s", None)?;
+    r.push_absent(b"d")?;
     r.seal();
     r.reset(4, 9, 500);
     assert!(!r.is_sealed());
@@ -214,6 +221,7 @@ fn test_a_reset_clears_everything_and_unseals() {
     assert!(ranges(&r).is_empty() && absent(&r).is_empty());
     let (start, end) = catalog_of(4);
     assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
+    Ok(())
 }
 
 /// A range's end in the model: a bounded end sorts before the open one.
@@ -238,19 +246,19 @@ impl Model {
     fn record(&mut self, kind: u64, a: Vec<u8>, b: Vec<u8>) {
         match kind {
             0 => {
-                self.lists.insert(a);
+                let _new: bool = self.lists.insert(a);
             }
             1 => {
-                self.statements.insert((a, b));
+                let _new: bool = self.statements.insert((a, b));
             }
             2 => {
-                self.ranges.insert((a, End::Bounded(b)));
+                let _new: bool = self.ranges.insert((a, End::Bounded(b)));
             }
             3 => {
-                self.absent.insert(a);
+                let _new: bool = self.absent.insert(a);
             }
             _ => {
-                self.ranges.insert((a, End::Open));
+                let _new: bool = self.ranges.insert((a, End::Open));
             }
         }
     }
@@ -333,19 +341,20 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
 }
 
 #[test]
-fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() {
+fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() -> TestResult {
     let mut r = ReadSet::new();
-    let fill = |r: &mut ReadSet| {
-        r.reset(NS, 1, 1 << 20);
+    let fill = |set: &mut ReadSet| -> TestResult {
+        set.reset(NS, 1, 1 << 20);
         for i in 0u32..100 {
-            r.push_list(&i.to_be_bytes()).unwrap();
-            r.push_statement(&i.to_be_bytes(), b"object").unwrap();
-            r.push_range(&i.to_be_bytes(), None).unwrap();
-            r.push_absent(&i.to_le_bytes()).unwrap();
+            set.push_list(&i.to_be_bytes())?;
+            set.push_statement(&i.to_be_bytes(), b"object")?;
+            set.push_range(&i.to_be_bytes(), None)?;
+            set.push_absent(&i.to_le_bytes())?;
         }
-        r.seal();
+        set.seal();
+        Ok(())
     };
-    fill(&mut r);
+    fill(&mut r)?;
     let grown = r.capacity();
     assert!(
         grown.0 >= 18 + 100 * (4 + 4 + 6 + 4 + 4) && grown.1 >= 400,
@@ -354,9 +363,10 @@ fn test_a_reused_read_set_keeps_its_capacity_and_grows_no_more_for_what_fits() {
     for _ in 0..3 {
         r.reset(NS, 2, 1 << 20);
         assert_eq!(r.capacity(), grown, "a reset keeps the buffers");
-        fill(&mut r);
+        fill(&mut r)?;
         assert_eq!(r.capacity(), grown, "what fits takes no more room");
     }
+    Ok(())
 }
 
 #[test]
@@ -382,22 +392,22 @@ fn test_the_capacity_is_the_arenas_and_the_sum_of_the_four_tables() {
 }
 
 #[test]
-fn test_gathering_an_executions_reads_records_each_of_them() {
-    let applier = applier();
-    commit(&applier, vec![insert("a", "knows", "z")]);
+fn test_gathering_an_executions_reads_records_each_of_them() -> TestResult {
+    let applier = applier()?;
+    store(&applier, vec![insert("a", "knows", "z")])?;
     let executed = applier
         .execute(&changeset(vec![
             insert("a", "knows", "b"),
             insert("c", "likes", "d"),
         ]))
-        .expect("executed");
+        .context("executed")?;
     let reads = executed.reads();
     assert!(!reads.statements().is_empty() && !reads.absent().is_empty());
     let mut r = ReadSet::new();
     r.reset(NS, executed.read_ts(), 1 << 20);
-    r.gather(reads).unwrap();
+    r.gather(reads)?;
     // Gathering accounts as pushing each read one at a time does: a second path through the documented rule.
-    let mut oracle = pushed(reads, NS, executed.read_ts());
+    let mut oracle = pushed(reads, NS, executed.read_ts())?;
     assert_eq!(r.bytes(), oracle.bytes());
     assert!(r.bytes() > CATALOG_BYTES, "the reads are accounted");
     r.seal();
@@ -426,39 +436,40 @@ fn test_gathering_an_executions_reads_records_each_of_them() {
         Err(TxnError::ReadSetTooLarge(needed, needed - 1))
     );
     assert_eq!(below.bytes(), CATALOG_BYTES, "nothing is added");
+    Ok(())
 }
 
 /// `reads` recorded one push at a time into a read set of `ns` at `version` with no effective bound: the oracle
 /// `gather`, which reserves room for all of them at once, is checked against.
-fn pushed(reads: &ultragraphdb_store_apply::Reads, ns: u64, version: u64) -> ReadSet {
+fn pushed(reads: &ultragraphdb_store_apply::Reads, ns: u64, version: u64) -> TestResult<ReadSet> {
     let mut r = ReadSet::new();
     r.reset(ns, version, usize::MAX);
     for key in reads.lists() {
-        r.push_list(key).unwrap();
+        r.push_list(key)?;
     }
     for (key, object) in reads.statements() {
-        r.push_statement(key, object).unwrap();
+        r.push_statement(key, object)?;
     }
     for (start, end) in reads.ranges() {
-        r.push_range(start, end.as_deref()).unwrap();
+        r.push_range(start, end.as_deref())?;
     }
     for key in reads.absent() {
-        r.push_absent(key).unwrap();
+        r.push_absent(key)?;
     }
-    r
+    Ok(r)
 }
 
 #[test]
-fn test_gathering_a_declarations_scan_records_its_ranges() {
+fn test_gathering_a_declarations_scan_records_its_ranges() -> TestResult {
     // Narrowing a predicate that holds data scans its lists: the execution's reads hold ranges, and so must the set.
-    let applier = applier();
-    commit(&applier, vec![insert_literal("a", "nick", "x")]);
+    let applier = applier()?;
+    store(&applier, vec![insert_literal("a", "nick", "x")])?;
     let single = PredicateDeclaration::new(ex("nick")).with_cardinality(Cardinality::Single);
     let executed = applier
         .execute(&changeset(vec![Change::Declare(Declaration::Predicate(
             single,
         ))]))
-        .expect("executed");
+        .context("executed")?;
     let reads = executed.reads();
     assert!(
         !reads.ranges().is_empty(),
@@ -466,13 +477,13 @@ fn test_gathering_a_declarations_scan_records_its_ranges() {
     );
     let mut r = ReadSet::new();
     r.reset(NS, executed.read_ts(), 1 << 20);
-    r.gather(reads).unwrap();
+    r.gather(reads)?;
     r.seal();
     let gathered: BTreeSet<_> = ranges(&r).into_iter().collect();
     let expected: BTreeSet<_> = reads.ranges().iter().cloned().collect();
     assert_eq!(gathered, expected);
     // A range names two keys, its end included: accounted as pushing each range does.
-    let needed = pushed(reads, NS, executed.read_ts()).bytes();
+    let needed = pushed(reads, NS, executed.read_ts())?.bytes();
     assert_eq!(r.bytes(), needed);
     // The bound exactly, and one byte below it: each range's start and end are counted as their bytes.
     let mut at = ReadSet::new();
@@ -484,6 +495,7 @@ fn test_gathering_a_declarations_scan_records_its_ranges() {
         below.gather(reads),
         Err(TxnError::ReadSetTooLarge(needed, needed - 1))
     );
+    Ok(())
 }
 
 #[test]
@@ -494,17 +506,17 @@ fn test_a_limit_past_u32_is_capped_where_spans_reach() {
 }
 
 #[test]
-fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() {
-    let applier = applier();
+fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() -> TestResult {
+    let applier = applier()?;
     let executed = applier
         .execute(&changeset(vec![insert("a", "knows", "b")]))
-        .expect("executed");
+        .context("executed")?;
     let mut r = ReadSet::new();
     r.reset(NS, 1, CATALOG_BYTES + 20);
-    r.push_list(b"before").unwrap();
-    let error = r.gather(executed.reads()).unwrap_err();
+    r.push_list(b"before")?;
+    let error = r.gather(executed.reads()).err().context("the call fails")?;
     // The size refused: the 14 bytes of "before" and its span, and everything the reads add, as pushing them would.
-    let added = pushed(executed.reads(), NS, 1).bytes() - CATALOG_BYTES;
+    let added = pushed(executed.reads(), NS, 1)?.bytes() - CATALOG_BYTES;
     assert!(added > 6, "the reads take more than the 6 bytes left");
     assert_eq!(
         error,
@@ -513,4 +525,5 @@ fn test_a_gather_past_the_limit_leaves_the_read_set_as_it_was() {
     assert_eq!(r.bytes(), CATALOG_BYTES + 14);
     assert_eq!(lists(&r), vec![b"before".to_vec()]);
     assert!(statements(&r).is_empty() && absent(&r).is_empty());
+    Ok(())
 }

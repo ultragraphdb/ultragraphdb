@@ -32,14 +32,17 @@ pub struct Write {
 }
 
 impl Write {
+    /// A Write of `changes` naming `terms`.
     pub fn new(terms: TermTable, changes: Vec<WriteChange>) -> Self {
         Self { terms, changes }
     }
 
+    /// The Write's term table.
     pub fn terms(&self) -> &TermTable {
         &self.terms
     }
 
+    /// The changes, in order.
     pub fn changes(&self) -> &[WriteChange] {
         &self.changes
     }

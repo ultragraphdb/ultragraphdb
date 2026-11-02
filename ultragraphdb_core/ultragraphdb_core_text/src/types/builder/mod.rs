@@ -42,7 +42,7 @@ impl Builder {
             // The string is parsed again, as remaking it is not always needed but tricky to decide.
             let mut scan = Scanner::new(buf);
             return match parse_scanner(&mut scan, b"") {
-                Ok(t) | Err((t, _)) => t,
+                Ok(parsed) | Err((parsed, _)) => parsed,
             };
         } else if !self.private.is_empty() {
             t.str = self.private.clone();

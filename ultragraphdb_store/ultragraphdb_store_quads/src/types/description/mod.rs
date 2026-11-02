@@ -47,14 +47,17 @@ impl Description {
         }
     }
 
+    /// The labels: the declared entity types and the labels of the last pass's shapes.
     pub fn labels(&self) -> &BTreeSet<String> {
         &self.labels
     }
 
+    /// The relationship types: the predicates whose objects are nodes.
     pub fn relationship_types(&self) -> &BTreeSet<String> {
         &self.relationship_types
     }
 
+    /// The property keys: the predicates whose objects are literals.
     pub fn property_keys(&self) -> &BTreeSet<String> {
         &self.property_keys
     }
@@ -74,14 +77,18 @@ impl Description {
         &self.predicates
     }
 
+    /// The catalog's entity types, each with its preorder number.
     pub fn entity_types(&self) -> &[(TypeDeclaration, u32)] {
         &self.entity_types
     }
 
+    /// The catalog's relation declarations.
     pub fn relations(&self) -> &[RelationDeclaration] {
         &self.relations
     }
 
+    /// The statistics of each graph and predicate, by the graph's IRI, empty for the default graph, and the
+    /// predicate's.
     pub fn statistics(&self) -> &BTreeMap<(String, String), Statistics> {
         &self.statistics
     }

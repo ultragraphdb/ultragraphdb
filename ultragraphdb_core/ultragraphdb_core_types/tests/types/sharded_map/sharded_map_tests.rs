@@ -7,17 +7,19 @@
 
 use std::cell::Cell;
 use ultragraphdb_core_types::{NUM_SHARDS, ShardedMap, TypeId, Val, Value};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn int(i: i64) -> Val {
     Val::new(TypeId::INT, Value::Int(i))
 }
 
+/// The merge test's aggregate of two ints, `x * 1000 + y`; any other pair keeps `x`, which the test's assertions
+/// on the merged value refuse.
 fn sum(x: &Val, y: &Val) -> Val {
     match (x.value(), y.value()) {
-        (Some(Value::Int(p)), Some(Value::Int(q))) => Ok(int(p * 1000 + q)),
-        _ => Err(format!("{x:?} {y:?}")),
+        (Some(Value::Int(p)), Some(Value::Int(q))) => int(p * 1000 + q),
+        _ => x.clone(),
     }
-    .expect("two int values")
 }
 
 #[test]
@@ -38,7 +40,7 @@ fn test_a_new_map_has_thirty_empty_shards() {
 }
 
 #[test]
-fn test_a_key_lives_in_shard_key_mod_thirty() {
+fn test_a_key_lives_in_shard_key_mod_thirty() -> TestResult {
     let mut m = ShardedMap::new();
     // u64::MAX % 30 is 15.
     let keys = [0, 1, 29, 30, 31, 59, 60, u64::MAX];
@@ -55,7 +57,13 @@ fn test_a_key_lives_in_shard_key_mod_thirty() {
             "key {k}"
         );
     }
-    let sizes: Vec<usize> = (0..NUM_SHARDS).map(|i| m.shard(i).unwrap().len()).collect();
+    let sizes: Vec<usize> = (0..NUM_SHARDS)
+        .map(|i| {
+            m.shard(i)
+                .map(|shard| shard.len())
+                .context("a shard below NUM_SHARDS")
+        })
+        .collect::<TestResult<_>>()?;
     let mut want = vec![0; NUM_SHARDS];
     (want[0], want[1], want[15], want[29]) = (3, 2, 1, 2);
     assert_eq!(sizes, want);
@@ -64,6 +72,7 @@ fn test_a_key_lives_in_shard_key_mod_thirty() {
     // Set replaces.
     m.set(31, int(-1));
     assert_eq!((m.len(), m.get(31)), (keys.len(), Some(&int(-1))));
+    Ok(())
 }
 
 #[test]
@@ -100,16 +109,16 @@ fn test_merge() {
 }
 
 #[test]
-fn test_iterate_goes_shard_by_shard_and_stops_at_the_first_error() {
+fn test_iterate_goes_shard_by_shard_and_stops_at_the_first_error() -> TestResult {
     let mut m = ShardedMap::new();
     // One key in each of shards 29, 0 and 1.
     for k in [29, 30, 1] {
-        m.set(k, int(i64::try_from(k).expect("a small key")));
+        m.set(k, int(i64::try_from(k).context("a small key")?));
     }
     let mut seen = Vec::new();
     assert_eq!(
-        m.iterate(|k, v| -> Result<(), ()> {
-            assert_eq!(v, &int(i64::try_from(k).expect("a small key")));
+        m.iterate(|k, v| -> TestResult {
+            assert_eq!(v, &int(i64::try_from(k).context("a small key")?));
             seen.push(k);
             Ok(())
         }),
@@ -134,4 +143,5 @@ fn test_iterate_goes_shard_by_shard_and_stops_at_the_first_error() {
         Ok(())
     );
     assert_eq!(none, 0);
+    Ok(())
 }

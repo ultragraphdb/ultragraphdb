@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_store_apply::Applied;
 use ultragraphdb_traits_store::{Scan, Store, StoreSnapshot};
 
 use crate::errors::bench_error::BenchError;
@@ -72,7 +73,9 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     let cpu = process_cpu_secs();
     let rolled = roll_up_hubs(&a, args.hubs(), predicate)?;
     let rollup = clock.elapsed() - start;
-    let rollup_cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+    let rollup_cpu = process_cpu_secs()
+        .zip(cpu)
+        .map(|(after, before)| after - before);
     lists.sync()?;
     let rolled_sizes = DirSizes::of(args.dir(), &data_path)?;
 
@@ -105,7 +108,7 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
         rollup.as_secs_f64(),
         rolled as f64 / rollup.as_secs_f64(),
         c.before.0.at_or_below.saturating_sub(c.before.0.keys) as f64 / rollup.as_secs_f64(),
-        opt_json(rollup_cpu.map(|c| format!("{c:.2}"))),
+        opt_json(rollup_cpu.map(|secs| format!("{secs:.2}"))),
         compaction_json(&c),
         files_json(loaded),
         files_json(rolled_sizes),
@@ -166,7 +169,9 @@ fn compact(
     let cpu = process_cpu_secs();
     store.compact()?;
     let seconds = clock.elapsed() - start;
-    let cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+    let cpu = process_cpu_secs()
+        .zip(cpu)
+        .map(|(cpu_after, cpu_before)| cpu_after - cpu_before);
     let after = (
         count(store, reverse, discard)?,
         count(store, forward, discard)?,
@@ -215,7 +220,7 @@ fn load(
         let n = left.min(LOAD_BATCH as u64);
         let changesets: Vec<_> = (0..n).map(|_| shape.next_commit()).collect();
         for changeset in &changesets {
-            a.apply(changeset)?;
+            let _applied: Applied = a.apply(changeset)?;
         }
         left -= n;
         // The rollups this load queues are not run; the measurement runs them itself.

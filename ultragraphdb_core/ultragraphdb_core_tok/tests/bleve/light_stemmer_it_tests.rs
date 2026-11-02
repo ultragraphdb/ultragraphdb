@@ -8,12 +8,14 @@
  */
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_italian_light_stemmer() {
+fn test_italian_light_stemmer() -> TestResult {
     check_stems(
         "stemmer_it_light",
         &[("ragazzo", "ragazz"), ("ragazzi", "ragazz")],
         &[],
-    );
+    )?;
+    Ok(())
 }

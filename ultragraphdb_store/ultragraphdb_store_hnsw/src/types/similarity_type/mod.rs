@@ -35,6 +35,7 @@ impl SimilarityType {
         Self::new(Metric::from_name(index_type).unwrap_or(Metric::Euclidean))
     }
 
+    /// The metric.
     pub fn metric(&self) -> Metric {
         self.metric
     }

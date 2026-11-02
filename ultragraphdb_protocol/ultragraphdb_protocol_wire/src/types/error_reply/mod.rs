@@ -33,6 +33,7 @@ pub struct ErrorReply {
 }
 
 impl ErrorReply {
+    /// A reply of `code` saying `message`, its detail zero.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -42,14 +43,17 @@ impl ErrorReply {
         }
     }
 
+    /// The error's code.
     pub fn code(&self) -> ErrorCode {
         self.code
     }
 
+    /// The detail the code defines.
     pub fn detail(&self) -> u64 {
         self.detail
     }
 
+    /// The message.
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -64,6 +68,7 @@ impl ErrorReply {
         Self::new(ErrorCode::Protocol, error.to_string())
     }
 
+    /// The reply with the `detail` its code defines.
     pub fn with_detail(mut self, detail: u64) -> Self {
         self.detail = detail;
         self

@@ -28,12 +28,18 @@ use crate::utils::json_wire::{self, NumberState};
 /// its parts. `PartialEq` and `Debug` recurse into the value.
 #[derive(Debug, Default, PartialEq)]
 pub enum JsonValue {
+    /// JSON `null`, Go's `nil`.
     #[default]
     Null,
+    /// `true` or `false`.
     Bool(bool),
+    /// A number as its text, Go's `json.Number`.
     Number(String),
+    /// A string, unquoted.
     String(String),
+    /// An array's elements in order.
     Array(Vec<JsonValue>),
+    /// An object's members in the order of the input, duplicates included.
     Object(Vec<(String, JsonValue)>),
 }
 

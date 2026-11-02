@@ -10,6 +10,7 @@ use oxrdf::{BaseDirection, Literal, NamedNode, NamedNodeRef};
 use ultragraphdb_core_terms::{
     Datatype, EncodedTerm, FLOAT32_VECTOR, Hash128, KnownDatatype, TermError, TermView, Text,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// The UID the tests give a datatype the encoding does not know.
 const OTHER_UID: u64 = 0x0102_0304_0506_0708;
@@ -20,8 +21,8 @@ fn other_uid(datatype: NamedNodeRef<'_>) -> Result<u64, TermError> {
 }
 
 /// `literal` encoded, its dictionary strings collected, and decoded back.
-fn round_trip(literal: &Literal) -> (EncodedTerm, Literal) {
-    let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
+fn round_trip(literal: &Literal) -> TestResult<(EncodedTerm, Literal)> {
+    let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).context("encodes")?;
     let strings: BTreeMap<Hash128, String> = encoded
         .strings()
         .map(|(h, s)| {
@@ -36,7 +37,7 @@ fn round_trip(literal: &Literal) -> (EncodedTerm, Literal) {
     let term = encoded.into_term();
     let decoded = term
         .view()
-        .expect("views")
+        .context("views")?
         .to_literal(
             |uid| {
                 assert_eq!(uid, OTHER_UID);
@@ -44,11 +45,11 @@ fn round_trip(literal: &Literal) -> (EncodedTerm, Literal) {
             },
             |h| Ok(strings[&h].clone()),
         )
-        .expect("decodes");
+        .context("decodes")?;
     assert_eq!(&decoded, literal, "decoding returns the exact literal");
-    let (read, rest) = EncodedTerm::read(term.as_bytes()).expect("reads back");
+    let (read, rest) = EncodedTerm::read(term.as_bytes()).context("reads back")?;
     assert_eq!((read, rest), (term.clone(), &[][..]));
-    (term, decoded)
+    Ok((term, decoded))
 }
 
 /// Lexical forms of each datatype encoded by value, canonical and not, as oxsdatatypes formats values.
@@ -100,13 +101,14 @@ fn by_value_samples() -> Vec<(NamedNodeRef<'static>, Vec<&'static str>)> {
 }
 
 #[test]
-fn test_each_by_value_datatype_encodes_canonical_forms_by_value_and_keeps_the_others() {
+fn test_each_by_value_datatype_encodes_canonical_forms_by_value_and_keeps_the_others() -> TestResult
+{
     for (datatype, samples) in by_value_samples() {
         let (mut by_value, mut kept) = (0, 0);
         for lexical_form in samples {
             let literal = Literal::new_typed_literal(lexical_form, datatype);
-            let (term, _) = round_trip(&literal);
-            let view = term.view().unwrap();
+            let (term, _) = round_trip(&literal)?;
+            let view = term.view()?;
             assert!(
                 !matches!(
                     view,
@@ -139,10 +141,11 @@ fn test_each_by_value_datatype_encodes_canonical_forms_by_value_and_keeps_the_ot
             "{datatype}: {by_value} by value, {kept} kept"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_equal_literals_encode_equally_and_unequal_ones_unequally() {
+fn test_equal_literals_encode_equally_and_unequal_ones_unequally() -> TestResult {
     let mut literals: Vec<Literal> = by_value_samples()
         .into_iter()
         .flat_map(|(d, samples)| {
@@ -156,51 +159,56 @@ fn test_equal_literals_encode_equally_and_unequal_ones_unequally() {
         Literal::new_simple_literal("true"),
         Literal::new_typed_literal("1", xsd::INT),
         Literal::new_typed_literal("1", NamedNode::new_unchecked("http://example.org/other")),
-        Literal::new_language_tagged_literal("1", "en").unwrap(),
-        Literal::new_directional_language_tagged_literal("1", "en", BaseDirection::Ltr).unwrap(),
-        Literal::new_directional_language_tagged_literal("1", "en", BaseDirection::Rtl).unwrap(),
+        Literal::new_language_tagged_literal("1", "en")?,
+        Literal::new_directional_language_tagged_literal("1", "en", BaseDirection::Ltr)?,
+        Literal::new_directional_language_tagged_literal("1", "en", BaseDirection::Rtl)?,
     ]);
-    let encoded: Vec<EncodedTerm> = literals.iter().map(|l| round_trip(l).0).collect();
+    let encoded: Vec<EncodedTerm> = literals
+        .iter()
+        .map(|l| round_trip(l).map(|(term, _)| term))
+        .collect::<TestResult<_>>()?;
     for (i, a) in literals.iter().enumerate() {
         for (j, b) in literals.iter().enumerate() {
             assert_eq!(a == b, encoded[i] == encoded[j], "{a} against {b}");
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_strings_are_inline_up_to_fifteen_bytes_and_hashed_beyond() {
-    let (small, _) = round_trip(&Literal::new_simple_literal("a".repeat(15)));
+fn test_strings_are_inline_up_to_fifteen_bytes_and_hashed_beyond() -> TestResult {
+    let (small, _) = round_trip(&Literal::new_simple_literal("a".repeat(15)))?;
     assert_eq!(small.as_bytes().len(), 17);
     assert_eq!(
-        small.view().unwrap(),
+        small.view()?,
         TermView::String(Text::Inline(&"a".repeat(15)))
     );
     let big = "a".repeat(16);
-    let (hashed, _) = round_trip(&Literal::new_simple_literal(big.clone()));
+    let (hashed, _) = round_trip(&Literal::new_simple_literal(big.clone()))?;
     assert_eq!(
-        hashed.view().unwrap(),
+        hashed.view()?,
         TermView::String(Text::Hashed(Hash128::of(big.as_bytes())))
     );
-    let (explicit, _) = round_trip(&Literal::new_typed_literal("a", xsd::STRING));
+    let (explicit, _) = round_trip(&Literal::new_typed_literal("a", xsd::STRING))?;
     assert_eq!(
         explicit,
-        round_trip(&Literal::new_simple_literal("a")).0,
+        round_trip(&Literal::new_simple_literal("a"))?.0,
         "xsd:string is a simple literal"
     );
-    let (unicode, _) = round_trip(&Literal::new_simple_literal("ünïcödé"));
+    let (unicode, _) = round_trip(&Literal::new_simple_literal("ünïcödé"))?;
     // Seven characters, eleven bytes of UTF-8: the length byte counts bytes.
     assert_eq!(
         unicode.as_bytes(),
         [&[0x20, 11][..], "ünïcödé".as_bytes()].concat().as_slice()
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_inline_limit_counts_bytes_not_characters() {
+fn test_the_inline_limit_counts_bytes_not_characters() -> TestResult {
     // Seven two-byte characters and one ASCII byte are 15 bytes, held inline.
     let fifteen = "ééééééé".to_string() + "a";
-    let (inline, _) = round_trip(&Literal::new_simple_literal(fifteen.clone()));
+    let (inline, _) = round_trip(&Literal::new_simple_literal(fifteen.clone()))?;
     assert_eq!(
         inline.as_bytes(),
         [&[0x20, 15][..], fifteen.as_bytes()].concat().as_slice()
@@ -208,7 +216,7 @@ fn test_the_inline_limit_counts_bytes_not_characters() {
     // Eight two-byte characters are 16 bytes, though only 8 characters: hashed. SHA-256 of "é" × 8, its first 16
     // bytes, from Python's `hashlib.sha256`.
     let sixteen = "é".repeat(8);
-    let (hashed, _) = round_trip(&Literal::new_simple_literal(sixteen));
+    let (hashed, _) = round_trip(&Literal::new_simple_literal(sixteen))?;
     assert_eq!(
         hashed.as_bytes(),
         [
@@ -216,27 +224,24 @@ fn test_the_inline_limit_counts_bytes_not_characters() {
             0x71, 0x9b, 0x07
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_language_strings_take_inline_hashed_and_both_hashed_forms_in_each_direction() {
+fn test_language_strings_take_inline_hashed_and_both_hashed_forms_in_each_direction() -> TestResult
+{
     let directions = [None, Some(BaseDirection::Ltr), Some(BaseDirection::Rtl)];
     let long_tag = "zh-Hant-TW-x-abcdefgh";
     for direction in directions {
-        let make = |lexical: &str, language: &str| match direction {
-            None => Literal::new_language_tagged_literal(lexical, language).unwrap(),
-            Some(d) => {
-                Literal::new_directional_language_tagged_literal(lexical, language, d).unwrap()
-            }
-        };
+        let make = |lexical: &str, language: &str| lang(lexical, language, direction);
         let cases = [
-            (make("chat", "fr"), true, true),
-            (make(&"b".repeat(30), "fr"), false, true),
-            (make("chat", long_tag), false, false),
+            (make("chat", "fr")?, true, true),
+            (make(&"b".repeat(30), "fr")?, false, true),
+            (make("chat", long_tag)?, false, false),
         ];
         for (literal, lexical_inline, language_inline) in cases {
-            let (term, _) = round_trip(&literal);
-            let view = term.view().unwrap();
+            let (term, _) = round_trip(&literal)?;
+            let view = term.view()?;
             assert!(
                 matches!(view, TermView::LangString { .. }),
                 "{literal} is no language string: {view:?}"
@@ -263,40 +268,42 @@ fn test_language_strings_take_inline_hashed_and_both_hashed_forms_in_each_direct
             assert!(term.as_bytes().len() <= 33);
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_other_typed_literals_name_their_datatype_by_uid() {
+fn test_other_typed_literals_name_their_datatype_by_uid() -> TestResult {
     let other = NamedNode::new_unchecked("http://example.org/other");
-    let (small, _) = round_trip(&Literal::new_typed_literal("x", other.clone()));
+    let (small, _) = round_trip(&Literal::new_typed_literal("x", other.clone()))?;
     assert_eq!(
-        small.view().unwrap(),
+        small.view()?,
         TermView::Typed {
             datatype: Datatype::Uid(OTHER_UID),
             lexical: Text::Inline("x")
         }
     );
     let long = "x".repeat(20);
-    let (big, _) = round_trip(&Literal::new_typed_literal(long.clone(), other));
+    let (big, _) = round_trip(&Literal::new_typed_literal(long.clone(), other))?;
     assert_eq!(
-        big.view().unwrap(),
+        big.view()?,
         TermView::Typed {
             datatype: Datatype::Uid(OTHER_UID),
             lexical: Text::Hashed(Hash128::of(long.as_bytes()))
         }
     );
-    let (known, _) = round_trip(&Literal::new_typed_literal("7", xsd::INT));
+    let (known, _) = round_trip(&Literal::new_typed_literal("7", xsd::INT))?;
     assert_eq!(
-        known.view().unwrap(),
+        known.view()?,
         TermView::Typed {
             datatype: Datatype::Known(KnownDatatype::Int),
             lexical: Text::Inline("7")
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_known_datatype_takes_no_uid() {
+fn test_a_known_datatype_takes_no_uid() -> TestResult {
     let long = "x".repeat(30);
     for (literal, expected) in [
         (
@@ -319,10 +326,10 @@ fn test_a_known_datatype_takes_no_uid() {
     ] {
         let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
             Err(TermError::Malformed(Vec::new(), "no UID is needed"))
-        })
-        .unwrap();
+        })?;
         assert_eq!(encoded.term().view(), Ok(expected), "{literal}");
     }
+    Ok(())
 }
 
 #[test]
@@ -348,9 +355,9 @@ fn test_a_failure_to_name_a_datatype_is_returned_as_the_callers_error() {
     );
     // A term's own refusal arrives through `From<TermError>`.
     let vector = Literal::new_typed_literal("[]", NamedNode::new_unchecked(FLOAT32_VECTOR));
-    let refused = EncodedTerm::literal(vector.as_ref(), |_| Ok::<u64, Failure>(0));
+    let refused_vector = EncodedTerm::literal(vector.as_ref(), |_| Ok::<u64, Failure>(0));
     assert_eq!(
-        refused,
+        refused_vector,
         Err(Failure::Term(TermError::InvalidVector(
             "[]".into(),
             "empty"
@@ -387,11 +394,11 @@ const FOX_TEXT: &str = "the quick brown fox";
 const TAG_TEXT: &str = "zh-hant-tw-x-abcdefgh";
 
 /// The language-tagged literal, with its base direction when it has one.
-fn lang(lexical: &str, language: &str, direction: Option<BaseDirection>) -> Literal {
-    match direction {
-        None => Literal::new_language_tagged_literal(lexical, language).unwrap(),
-        Some(d) => Literal::new_directional_language_tagged_literal(lexical, language, d).unwrap(),
-    }
+fn lang(lexical: &str, language: &str, direction: Option<BaseDirection>) -> TestResult<Literal> {
+    Ok(match direction {
+        None => Literal::new_language_tagged_literal(lexical, language)?,
+        Some(d) => Literal::new_directional_language_tagged_literal(lexical, language, d)?,
+    })
 }
 
 /// The kept forms of simple and typed literals and a vector's by-value form, byte by byte.
@@ -451,17 +458,17 @@ fn plain_and_typed_forms() -> Vec<KeptForm> {
 }
 
 /// The kept forms of language-tagged literals, byte by byte, in each direction.
-fn language_forms() -> Vec<KeptForm> {
+fn language_forms() -> TestResult<Vec<KeptForm>> {
     let fifteen_b = "b".repeat(15);
     let mut cases: Vec<KeptForm> = vec![
         // A 15-byte tag is the longest held inline; a 16-byte one hashes the lexical form too.
         (
-            lang("chat", "de-de-x-abcdefg", None),
+            lang("chat", "de-de-x-abcdefg", None)?,
             [&[0x22, 4][..], b"chat", &[15], b"de-de-x-abcdefg"].concat(),
             vec![],
         ),
         (
-            lang("chat", "de-de-x-abcdefgh", None),
+            lang("chat", "de-de-x-abcdefgh", None)?,
             [&[0x24][..], &CHAT, &TAG16].concat(),
             vec![
                 (Hash128::from_bytes(CHAT), "chat".into()),
@@ -470,12 +477,12 @@ fn language_forms() -> Vec<KeptForm> {
         ),
         // A 15-byte lexical form is the longest held inline beside an inline tag.
         (
-            lang(&fifteen_b, "fr", None),
+            lang(&fifteen_b, "fr", None)?,
             [&[0x22, 15][..], fifteen_b.as_bytes(), &[2, b'f', b'r']].concat(),
             vec![],
         ),
         (
-            lang(&"b".repeat(16), "fr", None),
+            lang(&"b".repeat(16), "fr", None)?,
             [&[0x23][..], &B16, &[2, b'f', b'r']].concat(),
             vec![(Hash128::from_bytes(B16), "b".repeat(16))],
         ),
@@ -487,17 +494,17 @@ fn language_forms() -> Vec<KeptForm> {
     {
         let shift = 3 * set as u8;
         cases.push((
-            lang("chat", "fr", direction),
+            lang("chat", "fr", direction)?,
             [&[0x22 + shift, 4][..], b"chat", &[2, b'f', b'r']].concat(),
             vec![],
         ));
         cases.push((
-            lang(FOX_TEXT, "fr", direction),
+            lang(FOX_TEXT, "fr", direction)?,
             [&[0x23 + shift][..], &FOX, &[2, b'f', b'r']].concat(),
             vec![(Hash128::from_bytes(FOX), FOX_TEXT.into())],
         ));
         cases.push((
-            lang("chat", TAG_TEXT, direction),
+            lang("chat", TAG_TEXT, direction)?,
             [&[0x24 + shift][..], &CHAT, &LONG_TAG].concat(),
             vec![
                 (Hash128::from_bytes(CHAT), "chat".into()),
@@ -505,15 +512,15 @@ fn language_forms() -> Vec<KeptForm> {
             ],
         ));
     }
-    cases
+    Ok(cases)
 }
 
 #[test]
-fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
+fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() -> TestResult {
     // PROTOCOL.md section 10.1, written byte by byte: the tag, then each part in order; a UID big-endian, an inline
     // part its length then its bytes, a hash 16 bytes; and the strings the encoding names.
-    for (literal, bytes, strings) in plain_and_typed_forms().into_iter().chain(language_forms()) {
-        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
+    for (literal, bytes, strings) in plain_and_typed_forms().into_iter().chain(language_forms()?) {
+        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).context("encodes")?;
         assert_eq!(encoded.term().as_bytes(), bytes.as_slice(), "{literal}");
         // The strings it names, in any order: the writer enters each in the dictionary.
         let mut named: Vec<(Hash128, String)> =
@@ -522,16 +529,17 @@ fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
         let mut strings = strings;
         strings.sort();
         assert_eq!(named, strings, "{literal}");
-        round_trip(&literal);
+        let _read_back: (EncodedTerm, Literal) = round_trip(&literal)?;
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() {
+fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() -> TestResult {
     let vector = |l: &str| Literal::new_typed_literal(l, NamedNode::new_unchecked(FLOAT32_VECTOR));
-    let (term, _) = round_trip(&vector("[0.5, -1, 2.25]"));
+    let (term, _) = round_trip(&vector("[0.5, -1, 2.25]"))?;
     assert!(term.is_vector());
-    let view = term.view().unwrap();
+    let view = term.view()?;
     let elements = if let TermView::Vector(elements) = &view {
         Some(elements.iter().collect::<Vec<_>>())
     } else {
@@ -546,47 +554,50 @@ fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() {
         ("[NaN]", "an element is not finite"),
         ("[inf]", "an element is not finite"),
     ] {
-        let error = EncodedTerm::literal(vector(bad).as_ref(), other_uid).unwrap_err();
+        let Err(error) = EncodedTerm::literal(vector(bad).as_ref(), other_uid) else {
+            return Err(TestError::new(format!("{bad} is refused")));
+        };
         assert_eq!(error, TermError::InvalidVector(bad.into(), reason), "{bad}");
     }
+    Ok(())
 }
 
 /// The golden vectors of `testdata/by_value/by_value.tsv`, which `generate_by_value.py` computed from PROTOCOL.md
 /// section 10.5 alone: each lexical form and the encoding it takes, by value or kept by its lexical form.
-fn by_value_vectors() -> Vec<(String, String, Vec<u8>)> {
-    let path = ultragraphdb_tool_bdd::testdata_dir()
+fn by_value_vectors() -> TestResult<Vec<(String, String, Vec<u8>)>> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?
         .join("by_value")
         .join("by_value.tsv");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))
-        .expect("the by-value vectors are readable");
+        .context("the by-value vectors are readable")?;
     text.lines()
         .map(|line| {
             let mut fields = line.split('\t');
             let (datatype, lexical, hex) = (
-                fields.next().unwrap(),
-                fields.next().unwrap(),
-                fields.next().unwrap(),
+                fields.next().context("a datatype")?,
+                fields.next().context("a lexical form")?,
+                fields.next().context("an encoding")?,
             );
             let bytes = (0..hex.len())
                 .step_by(2)
-                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-                .collect();
-            (datatype.to_string(), lexical.to_string(), bytes)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16))
+                .collect::<Result<_, _>>()?;
+            Ok((datatype.to_string(), lexical.to_string(), bytes))
         })
         .collect()
 }
 
 #[test]
-fn test_the_by_value_forms_are_the_protocols_own() {
+fn test_the_by_value_forms_are_the_protocols_own() -> TestResult {
     // Point 12: the canonical forms are normative, pinned against a formatting library's upgrade. Points 11 and 49:
     // an offset of -00:01, and a value past its payload, are kept by their lexical form.
-    let vectors = by_value_vectors();
+    let vectors = by_value_vectors()?;
     assert_eq!(vectors.len(), 114);
     let mut failures = Vec::new();
     for (datatype, lexical, want) in &vectors {
         let literal = Literal::new_typed_literal(lexical, NamedNode::new_unchecked(datatype));
-        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
+        let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).context("encodes")?;
         if encoded.term().as_bytes() != want.as_slice() {
             failures.push(format!(
                 "{lexical}^^{datatype}: {:02x?}, want {want:02x?}",
@@ -595,10 +606,11 @@ fn test_the_by_value_forms_are_the_protocols_own() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 #[test]
-fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
+fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() -> TestResult {
     for (datatype, lexical) in [
         (xsd::DATE_TIME, "2026-10-26T12:00:00-00:01"),
         (xsd::TIME, "12:00:00-00:01"),
@@ -610,7 +622,7 @@ fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
         (xsd::G_MONTH, "--10-00:01"),
     ] {
         let literal = Literal::new_typed_literal(lexical, datatype);
-        let (term, decoded) = round_trip(&literal);
+        let (term, decoded) = round_trip(&literal)?;
         assert!(
             matches!(term.as_bytes()[0], 0x30 | 0x31),
             "{lexical} is kept by its lexical form"
@@ -619,21 +631,21 @@ fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
         // One minute east is held by value, and reads back with its offset: Z, the payload's last two bytes, is the
         // i16 +1 (PROTOCOL.md section 10.5).
         let east = lexical.replace("-00:01", "+00:01");
-        let (term, _) = round_trip(&Literal::new_typed_literal(east.as_str(), datatype));
-        let bytes = term.as_bytes();
-        assert_eq!(bytes.len(), 19, "{east} is by value");
-        assert_eq!(&bytes[17..], &[0x00, 0x01], "{east}");
+        let (east_term, _) = round_trip(&Literal::new_typed_literal(east.as_str(), datatype))?;
+        let east_bytes = east_term.as_bytes();
+        assert_eq!(east_bytes.len(), 19, "{east} is by value");
+        assert_eq!(&east_bytes[17..], &[0x00, 0x01], "{east}");
         // Two minutes west is held by value too: Z is the i16 -2, 0xFFFE, which is no "no timezone" marker.
         let west_two = lexical.replace("-00:01", "-00:02");
-        let (term, _) = round_trip(&Literal::new_typed_literal(west_two.as_str(), datatype));
-        let bytes = term.as_bytes();
-        assert_eq!(bytes.len(), 19, "{west_two} is by value");
-        assert_eq!(&bytes[17..], &[0xFF, 0xFE], "{west_two}");
+        let (west_term, _) = round_trip(&Literal::new_typed_literal(west_two.as_str(), datatype))?;
+        let west_bytes = west_term.as_bytes();
+        assert_eq!(west_bytes.len(), 19, "{west_two} is by value");
+        assert_eq!(&west_bytes[17..], &[0xFF, 0xFE], "{west_two}");
     }
     // The whole payload of two minutes west, from testdata/by_value/generate_by_value.py's `date_payload(year=2026,
     // month=10, day=26, hour=12, minute=0, second=0, tz=-2)`, PROTOCOL.md section 10.5's formula with exact decimals.
     let two_west = Literal::new_typed_literal("2026-10-26T12:00:00-00:02", xsd::DATE_TIME);
-    let encoded = EncodedTerm::literal(two_west.as_ref(), other_uid).unwrap();
+    let encoded = EncodedTerm::literal(two_west.as_ref(), other_uid)?;
     assert_eq!(
         encoded.term().as_bytes(),
         &[
@@ -641,33 +653,35 @@ fn test_a_timezone_of_minus_one_minute_is_kept_by_its_lexical_form() {
             0xe0, 0x00, 0x00, 0xff, 0xfe
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_february_29_of_a_gmonthday_is_held_by_value_and_reads_back() {
+fn test_february_29_of_a_gmonthday_is_held_by_value_and_reads_back() -> TestResult {
     // XML Schema 1.1's day-of-month constraint takes --02-29; the payload is February 28's and one day.
     for lexical in ["--02-29", "--02-29Z", "--02-29+05:30"] {
         let literal = Literal::new_typed_literal(lexical, xsd::G_MONTH_DAY);
-        let (term, decoded) = round_trip(&literal);
+        let (term, decoded) = round_trip(&literal)?;
         assert_eq!(term.as_bytes()[0], 0x1A, "{lexical} is by value");
         assert_eq!(decoded, literal);
     }
     let day_before = EncodedTerm::literal(
         Literal::new_typed_literal("--02-28Z", xsd::G_MONTH_DAY).as_ref(),
         other_uid,
-    )
-    .unwrap()
+    )?
     .into_term();
     let leap_day = EncodedTerm::literal(
         Literal::new_typed_literal("--02-29Z", xsd::G_MONTH_DAY).as_ref(),
         other_uid,
-    )
-    .unwrap()
+    )?
     .into_term();
-    let instant = |t: &EncodedTerm| i128::from_be_bytes(t.as_bytes()[1..17].try_into().unwrap());
+    let instant = |t: &EncodedTerm| -> TestResult<i128> {
+        Ok(i128::from_be_bytes(t.as_bytes()[1..17].try_into()?))
+    };
     assert_eq!(
-        instant(&leap_day) - instant(&day_before),
+        instant(&leap_day)? - instant(&day_before)?,
         86_400 * 10i128.pow(18)
     );
     assert!(day_before < leap_day, "terms order as their values");
+    Ok(())
 }

@@ -8,6 +8,7 @@
 //! round logs.
 
 use ultragraphdb_protocol_wire::{ConflictKind, OperationResult, WriteSetRecord};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::VersionlessEntry;
 use ultragraphdb_transactions_commit::{
     CommitError, CommitRequest, CommitStep, Input, NoOperations, Operator, Proposal, Reply,
@@ -99,18 +100,18 @@ fn unbounded() -> RoundBounds {
     RoundBounds::new(u32::MAX, u32::MAX)
 }
 
-fn plain(read_version: u64, reads: &Reads, writes: &Writes) -> OpProposal {
-    OpProposal {
-        inner: proposal(read_version, reads, writes),
+fn plain(read_version: u64, reads: &Reads, writes: &Writes) -> TestResult<OpProposal> {
+    Ok(OpProposal {
+        inner: proposal(read_version, reads, writes)?,
         asks: false,
-    }
+    })
 }
 
-fn asking(writes: &Writes) -> OpProposal {
-    OpProposal {
-        inner: proposal(0, &Reads::default(), writes),
+fn asking(writes: &Writes) -> TestResult<OpProposal> {
+    Ok(OpProposal {
+        inner: proposal(0, &Reads::default(), writes)?,
         asks: true,
-    }
+    })
 }
 
 fn commit(step: &mut Step, out: &mut Out, ticket: u64, p: OpProposal, script: &mut Script) {
@@ -122,7 +123,7 @@ fn sync(step: &mut Step, out: &mut Out, script: &mut Script) {
 }
 
 #[test]
-fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() {
+fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let mut script = Script {
@@ -134,21 +135,21 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() {
         &mut step,
         &mut out,
         1,
-        plain(0, &Reads::default(), &Writes::point(b"a")),
+        plain(0, &Reads::default(), &Writes::point(b"a"))?,
         &mut script,
     );
     commit(
         &mut step,
         &mut out,
         2,
-        asking(&Writes::point(b"b")),
+        asking(&Writes::point(b"b"))?,
         &mut script,
     );
     commit(
         &mut step,
         &mut out,
         3,
-        plain(0, &Reads::default(), &Writes::point(b"c")),
+        plain(0, &Reads::default(), &Writes::point(b"c"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
@@ -161,14 +162,14 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() {
             .iter()
             .find(|r| r.ticket() == t)
             .cloned()
-            .expect("answered")
+            .context("answered")
     };
     assert_eq!(
-        reply(2).outcome(),
+        reply(2)?.outcome(),
         &Err(CommitError::OperationFailed(Some("\"done\"".to_string())))
     );
-    assert!(reply(2).results().is_empty());
-    assert_eq!(reply(3).outcome(), &Ok(4));
+    assert!(reply(2)?.results().is_empty());
+    assert_eq!(reply(3)?.outcome(), &Ok(4));
     assert_eq!(
         script.admitted, 2,
         "only the two admitted reach the operator"
@@ -179,15 +180,17 @@ fn test_a_refused_operation_takes_no_version_and_adds_nothing_to_the_history() {
         &mut step,
         &mut out,
         4,
-        plain(2, &Reads::list(b"op"), &Writes::point(b"d")),
+        plain(2, &Reads::list(b"op"), &Writes::point(b"d"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
     assert_eq!(out.replies()[0].outcome(), &Ok(6));
+    Ok(())
 }
 
 #[test]
-fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_results() {
+fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_results() -> TestResult
+{
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let mut script = Script {
@@ -200,10 +203,10 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
         &mut step,
         &mut out,
         1,
-        asking(&Writes::point(b"a")),
+        asking(&Writes::point(b"a"))?,
         &mut script,
     );
-    let (_, body) = out.append().expect("a round closed");
+    let (_, body) = out.append().context("a round closed")?;
     let mut staged = WriteSetRecord::new(0, 0, 0, 0);
     staged.push_conflict_point(b"node".to_vec());
     staged.set_commit_record(vec![1; 40]);
@@ -226,7 +229,7 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
         &mut step,
         &mut out,
         2,
-        plain(0, &Reads::list(b"node"), &Writes::point(b"z")),
+        plain(0, &Reads::list(b"node"), &Writes::point(b"z"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
@@ -234,10 +237,11 @@ fn test_the_record_an_operation_leaves_is_logged_held_and_answered_with_its_resu
         out.replies()[0].outcome(),
         &Err(CommitError::Conflict(ConflictKind::List))
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_operator_sees_the_round_syncing_and_the_rounds_admitted_before_it() {
+fn test_the_operator_sees_the_round_syncing_and_the_rounds_admitted_before_it() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let mut script = Script {
@@ -248,7 +252,7 @@ fn test_the_operator_sees_the_round_syncing_and_the_rounds_admitted_before_it() 
         &mut step,
         &mut out,
         1,
-        plain(0, &Reads::default(), &Writes::point(b"a")),
+        plain(0, &Reads::default(), &Writes::point(b"a"))?,
         &mut script,
     );
     assert_eq!(script.rounds, 1);
@@ -256,21 +260,21 @@ fn test_the_operator_sees_the_round_syncing_and_the_rounds_admitted_before_it() 
         &mut step,
         &mut out,
         2,
-        plain(0, &Reads::default(), &Writes::point(b"b")),
+        plain(0, &Reads::default(), &Writes::point(b"b"))?,
         &mut script,
     );
     commit(
         &mut step,
         &mut out,
         3,
-        plain(0, &Reads::default(), &Writes::point(b"c")),
+        plain(0, &Reads::default(), &Writes::point(b"c"))?,
         &mut script,
     );
     commit(
         &mut step,
         &mut out,
         4,
-        asking(&Writes::point(b"d")),
+        asking(&Writes::point(b"d"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
@@ -281,16 +285,17 @@ fn test_the_operator_sees_the_round_syncing_and_the_rounds_admitted_before_it() 
         &mut step,
         &mut out,
         5,
-        asking(&Writes::point(b"e")),
+        asking(&Writes::point(b"e"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
     // Round 2 applied by now: the round syncing, of three, and nothing admitted before it.
     assert_eq!(script.seen, vec![3, 3]);
+    Ok(())
 }
 
 #[test]
-fn test_an_operation_whose_record_no_longer_fits_waits_for_the_next_round() {
+fn test_an_operation_whose_record_no_longer_fits_waits_for_the_next_round() -> TestResult {
     let mut script = Script {
         key: b"node".to_vec(),
         padding: 3_500,
@@ -300,38 +305,43 @@ fn test_an_operation_whose_record_no_longer_fits_waits_for_the_next_round() {
     // A round of 4 KiB holds two small records, or the operation's record of 3.5 KiB alone, never both.
     let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, small(), &mut script);
-    commit(&mut step, &mut out, 2, small(), &mut script);
-    commit(&mut step, &mut out, 3, small(), &mut script);
+    commit(&mut step, &mut out, 1, small()?, &mut script);
+    commit(&mut step, &mut out, 2, small()?, &mut script);
+    commit(&mut step, &mut out, 3, small()?, &mut script);
     commit(
         &mut step,
         &mut out,
         4,
-        asking(&Writes::point(b"b")),
+        asking(&Writes::point(b"b"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
-    let (round, _) = out.append().expect("the second round");
+    let (round, _) = out.append().context("the second round")?;
     assert_eq!(round.transactions(), 2, "the operation waits");
     assert_eq!(step.waiting(), 1);
     sync(&mut step, &mut out, &mut script);
-    let (round, _) = out.append().expect("the third round");
-    assert_eq!(round.transactions(), 1);
+    let (third_round, _) = out.append().context("the third round")?;
+    assert_eq!(third_round.transactions(), 1);
     sync(&mut step, &mut out, &mut script);
     // 1 alone at 2; 2 and 3 at 4 and 6; the operation, decided again, alone at 8 with its result.
     assert_eq!(
         out.replies(),
         &[Reply::new(4, Ok(8)).with_results(vec![OperationResult::new(0, true)])]
     );
-    assert_eq!(script.seen.len(), 2, "decided again in the next round");
+    assert_eq!(
+        script.seen.len(),
+        2,
+        "decided again in the next third_round"
+    );
+    Ok(())
 }
 
 #[test]
-fn test_a_step_without_an_operator_refuses_operations() {
+fn test_a_step_without_an_operator_refuses_operations() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     step.step(
-        Input::Commit(CommitRequest::new(1, asking(&Writes::point(b"a")))),
+        Input::Commit(CommitRequest::new(1, asking(&Writes::point(b"a"))?)),
         0,
         &mut out,
     );
@@ -349,13 +359,14 @@ fn test_a_step_without_an_operator_refuses_operations() {
     let staged = ();
     assert!(<NoOperations as Operator<OpProposal>>::staged_record(&none, &staged).is_empty());
     <NoOperations as Operator<OpProposal>>::begin_round(&mut none);
-    let _read_set: ReadSet = read_set(0, 0, &Reads::default());
+    let _read_set: ReadSet = read_set(0, 0, &Reads::default())?;
+    Ok(())
 }
 
 /// A retry of a request whose operations ran is answered with its results as the commit was, from the table, whose
 /// entry the step hands to the apply with the round (7.8).
 #[test]
-fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
+fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let mut script = Script {
@@ -388,11 +399,13 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
             index,
         ]
     );
-    let asks = || OpProposal {
-        inner: proposal_in(2, 1, 0, &Reads::default(), &Writes::point(b"a")),
-        asks: true,
+    let asks = || -> TestResult<OpProposal> {
+        Ok(OpProposal {
+            inner: proposal_in(2, 1, 0, &Reads::default(), &Writes::point(b"a"))?,
+            asks: true,
+        })
     };
-    commit(&mut step, &mut out, 1, asks(), &mut script);
+    commit(&mut step, &mut out, 1, asks()?, &mut script);
     assert!(out.system().is_empty(), "nothing applied yet");
     step.step_with(Input::Synced, 0, &mut out, &mut script);
     let results = vec![OperationResult::new(77, true)];
@@ -408,9 +421,10 @@ fn test_a_retry_is_answered_with_its_results_and_the_tables_entry_holds_them() {
         )]
     );
     let operations = script.seen.len();
-    commit(&mut step, &mut out, 2, asks(), &mut script);
+    commit(&mut step, &mut out, 2, asks()?, &mut script);
     assert_eq!(out.replies(), &[Reply::new(2, Ok(4)).with_results(results)]);
     assert_eq!(script.seen.len(), operations, "no operation runs again");
+    Ok(())
 }
 
 /// The record `script`'s operation leaves, built as `Script::operate` builds it.
@@ -425,7 +439,8 @@ fn staged(script: &Script) -> Vec<u8> {
 /// version, nothing in the history, its record not adopted, released and answered with its round, and the commit behind
 /// it decided next. Without the refusal it was put back at the head of every round, each closing empty, forever.
 #[test]
-fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_queue_moves_on() {
+fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_queue_moves_on()
+-> TestResult {
     use crate::utils::frames::{largest_record, round_frame};
     let mut script = Script {
         key: b"node".to_vec(),
@@ -436,7 +451,7 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     assert!(round_frame(&[staged(&script)]).is_some_and(|f| f > 4_096));
     let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
     let mut out = Out::new();
-    let op = asking(&Writes::point(b"a"));
+    let op = asking(&Writes::point(b"a"))?;
     let original = op.inner.record.clone();
     commit(&mut step, &mut out, 1, op, &mut script);
     // Decided in the round it closed at once: an abort, no version (max(0 + 2, 0) would have been 2).
@@ -458,7 +473,7 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
         &mut step,
         &mut out,
         2,
-        plain(0, &Reads::default(), &Writes::point(b"b")),
+        plain(0, &Reads::default(), &Writes::point(b"b"))?,
         &mut script,
     );
     sync(&mut step, &mut out, &mut script);
@@ -479,22 +494,23 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
     assert_eq!(script.admitted, 1, "the plain commit alone");
     assert_eq!(
         step.resolver()
-            .check(&read_set(0, 0, &Reads::list(b"node"))),
+            .check(&read_set(0, 0, &Reads::list(b"node"))?),
         Ok(()),
         "nothing of the operation in the history"
     );
+    Ok(())
 }
 
 /// The largest operation record a fresh round holds waits for one when the round it is decided in is too full, then
 /// commits there; one more byte and no round holds it, so it is refused instead of waiting.
 #[test]
 fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_byte_more_is_refused()
-{
+-> TestResult {
     use crate::utils::frames::largest_record;
-    let padding = largest_fitting_padding();
+    let padding = largest_fitting_padding()?;
     use ultragraphdb_transactions_commit::RoundRecord;
     // At the capacity: 1 alone at 2; 2 at 4 with the operation deferred; the operation alone at 6.
-    let (replies, rounds, _) = run_with_padding(padding);
+    let (replies, rounds, _) = run_with_padding(padding)?;
     assert_eq!(
         rounds,
         vec![
@@ -512,23 +528,24 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
         ]
     );
     // One byte more: refused in the round it is decided in, beside 2.
-    let (replies, rounds, size) = run_with_padding(padding + 1);
+    let (longer_replies, longer_rounds, size) = run_with_padding(padding + 1)?;
     assert_eq!(
-        rounds,
+        longer_rounds,
         vec![RoundRecord::new(2, 1, 1), RoundRecord::new(4, 2, 1)]
     );
     assert_eq!(
-        replies,
+        longer_replies,
         vec![
             Reply::new(1, Ok(2)),
             Reply::new(2, Ok(4)),
             Reply::new(3, Err(CommitError::TooLarge(size, largest_record(4_096))))
         ]
     );
+    Ok(())
 }
 
 /// The largest padding whose operation record a round of 4,096 bytes holds alone, by the wire's builder.
-fn largest_fitting_padding() -> usize {
+fn largest_fitting_padding() -> TestResult<usize> {
     use crate::utils::frames::round_frame;
     let fits = |padding: usize| {
         round_frame(&[staged(&Script {
@@ -541,20 +558,20 @@ fn largest_fitting_padding() -> usize {
     let padding = (0..4_096)
         .rev()
         .find(|p| fits(*p))
-        .expect("some record fits");
+        .context("some record fits")?;
     assert!(!fits(padding + 1));
-    padding
+    Ok(padding)
 }
 
 /// Two plain commits and one asking an operation of record padded by `padding`, in rounds of 4,096 bytes: the replies,
 /// the rounds appended and the operation record's size.
 fn run_with_padding(
     padding: usize,
-) -> (
+) -> TestResult<(
     Vec<Reply>,
     Vec<ultragraphdb_transactions_commit::RoundRecord>,
     usize,
-) {
+)> {
     let small = || plain(0, &Reads::default(), &Writes::point(b"a"));
     let mut script = Script {
         key: b"node".to_vec(),
@@ -565,14 +582,14 @@ fn run_with_padding(
     let mut out = Out::new();
     let mut replies = Vec::new();
     let mut rounds = Vec::new();
-    commit(&mut step, &mut out, 1, small(), &mut script);
+    commit(&mut step, &mut out, 1, small()?, &mut script);
     rounds.extend(out.append().map(|(r, _)| r));
-    commit(&mut step, &mut out, 2, small(), &mut script);
+    commit(&mut step, &mut out, 2, small()?, &mut script);
     commit(
         &mut step,
         &mut out,
         3,
-        asking(&Writes::point(b"b")),
+        asking(&Writes::point(b"b"))?,
         &mut script,
     );
     for _ in 0..3 {
@@ -580,5 +597,5 @@ fn run_with_padding(
         replies.extend(out.replies().iter().cloned());
         rounds.extend(out.append().map(|(r, _)| r));
     }
-    (replies, rounds, staged(&script).len())
+    Ok((replies, rounds, staged(&script).len()))
 }

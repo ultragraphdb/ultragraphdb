@@ -159,10 +159,10 @@ impl<C: Connect, L: Login> Client<C, L> {
                     if let Err(error) = self.core.receive(frame, now()) {
                         self.failure = Some(error);
                     }
-                    if let (Some(welcome), Some(connection)) =
+                    if let (Some(welcome), Some(read_on)) =
                         (self.core.welcome(), self.connection.as_mut())
                     {
-                        connection.framer_mut().set_protocol(welcome.protocol());
+                        read_on.framer_mut().set_protocol(welcome.protocol());
                     }
                 }
                 Ok(Err(error)) => {

@@ -20,30 +20,37 @@ pub struct ExecuteView<'a> {
 }
 
 impl<'a> ExecuteView<'a> {
+    /// The prepared statement's id.
     pub fn statement(&self) -> u64 {
         self.statement
     }
 
+    /// The stream number of the transaction's Begin.
     pub fn transaction(&self) -> u64 {
         self.transaction
     }
 
+    /// Whether each row's statement ID is returned.
     pub fn statement_ids(&self) -> bool {
         self.statement_ids
     }
 
+    /// The most rows returned; 0 for no limit.
     pub fn limit(&self) -> u32 {
         self.limit
     }
 
+    /// The request's term table.
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
 
+    /// The parameters, term indices in order.
     pub fn parameters(&self) -> &[u32] {
         &self.parameters
     }
 
+    /// The resume key: where a previous result of the same request ended; empty to start.
     pub fn resume(&self) -> &'a [u8] {
         self.resume
     }

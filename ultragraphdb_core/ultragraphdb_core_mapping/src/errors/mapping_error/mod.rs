@@ -12,20 +12,39 @@ mod mapping_error_error;
 pub enum MappingErrorEnum {
     /// A store written under another major version of the mapping contract.
     ContractVersion {
+        /// The stored version, major and minor.
         stored: (u16, u16),
+        /// The version implemented, major and minor.
         implemented: (u16, u16),
     },
     /// The bytes of a stored contract version cannot be read.
-    BadContractVersion { bytes: Vec<u8> },
+    BadContractVersion {
+        /// The stored bytes.
+        bytes: Vec<u8>,
+    },
     /// A statement-property change names a statement that does not exist; `statement` describes it.
-    NoSuchStatement { statement: String },
+    NoSuchStatement {
+        /// The statement named.
+        statement: String,
+    },
     /// A statement-property change names a triple held by several statements, which only their IDs tell apart.
-    AmbiguousStatement { statement: String },
+    AmbiguousStatement {
+        /// The triple named.
+        statement: String,
+    },
     /// An object the contract does not hold: a triple term, which RDF 1.2's reifiers present but no write stores.
-    UnsupportedObject { object: String },
+    UnsupportedObject {
+        /// The object.
+        object: String,
+    },
     /// A base IRI the property-graph view cannot name IRIs under: not an absolute IRI, with a query or a fragment, or
     /// not ending in `/`.
-    InvalidBase { base: String, reason: &'static str },
+    InvalidBase {
+        /// The base IRI.
+        base: String,
+        /// What is wrong with it.
+        reason: &'static str,
+    },
 }
 
 /// See [`MappingErrorEnum`].
@@ -33,6 +52,7 @@ pub enum MappingErrorEnum {
 pub struct MappingError(pub MappingErrorEnum);
 
 impl MappingError {
+    /// A [`MappingErrorEnum::ContractVersion`] for the `stored` and `implemented` versions.
     #[allow(non_snake_case)]
     pub fn ContractVersion(stored: (u16, u16), implemented: (u16, u16)) -> Self {
         Self(MappingErrorEnum::ContractVersion {
@@ -41,6 +61,7 @@ impl MappingError {
         })
     }
 
+    /// A [`MappingErrorEnum::BadContractVersion`] for `bytes`.
     #[allow(non_snake_case)]
     pub fn BadContractVersion(bytes: &[u8]) -> Self {
         Self(MappingErrorEnum::BadContractVersion {
@@ -48,21 +69,25 @@ impl MappingError {
         })
     }
 
+    /// A [`MappingErrorEnum::NoSuchStatement`] for `statement`.
     #[allow(non_snake_case)]
     pub fn NoSuchStatement(statement: String) -> Self {
         Self(MappingErrorEnum::NoSuchStatement { statement })
     }
 
+    /// A [`MappingErrorEnum::AmbiguousStatement`] for `statement`.
     #[allow(non_snake_case)]
     pub fn AmbiguousStatement(statement: String) -> Self {
         Self(MappingErrorEnum::AmbiguousStatement { statement })
     }
 
+    /// A [`MappingErrorEnum::UnsupportedObject`] for `object`.
     #[allow(non_snake_case)]
     pub fn UnsupportedObject(object: String) -> Self {
         Self(MappingErrorEnum::UnsupportedObject { object })
     }
 
+    /// A [`MappingErrorEnum::InvalidBase`] for `base`, saying why.
     #[allow(non_snake_case)]
     pub fn InvalidBase(base: String, reason: &'static str) -> Self {
         Self(MappingErrorEnum::InvalidBase { base, reason })

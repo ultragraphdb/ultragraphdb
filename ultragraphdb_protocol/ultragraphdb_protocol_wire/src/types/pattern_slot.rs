@@ -10,8 +10,12 @@
 /// (the bound term's index, or the parameter's number; zero otherwise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PatternSlot {
+    /// Unbound: the position matches any term.
     Unbound,
+    /// The default graph, at the graph position only.
     DefaultGraph,
+    /// Bound to the term of this index in the body's term table.
     Bound(u32),
+    /// The statement's parameter of this number.
     Parameter(u32),
 }

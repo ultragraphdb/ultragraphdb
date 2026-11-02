@@ -10,9 +10,10 @@ use ultragraphdb_store_posting::{
     DEL, HIGH_PRIORITY_DELTAS, MAX_LIST_SIZE, OVR, ROLLUP_BATCH, ROLLUP_DEDUP_SECS, ROLLUP_QUEUE,
     SET,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_the_operations_and_meta_bytes_are_dgraphs() {
+fn test_the_operations_and_meta_bytes_are_dgraphs() -> TestResult {
     // posting/list.go:50-63.
     assert_eq!((SET, DEL, OVR), (0x01, 0x02, 0x03));
     assert_eq!(
@@ -24,10 +25,11 @@ fn test_the_operations_and_meta_bytes_are_dgraphs() {
         ),
         (0x01, 0x04, 0x08, 0x10)
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_sizes_and_rollup_limits_are_dgraphs() {
+fn test_the_sizes_and_rollup_limits_are_dgraphs() -> TestResult {
     // posting/list.go:45 maxListSize = mb / 2, and 1570 blockSize = 256.
     assert_eq!(MAX_LIST_SIZE, 524_288);
     assert_eq!(BLOCK_SIZE, 256);
@@ -38,4 +40,5 @@ fn test_the_sizes_and_rollup_limits_are_dgraphs() {
         (ROLLUP_BATCH, ROLLUP_QUEUE, ROLLUP_DEDUP_SECS),
         (16, 16, 10)
     );
+    Ok(())
 }

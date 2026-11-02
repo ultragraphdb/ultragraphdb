@@ -71,6 +71,7 @@ impl RoundBody {
         )
     }
 
+    /// Each transaction's decision, in order.
     pub fn decisions(&self) -> &[Decision] {
         &self.decisions
     }

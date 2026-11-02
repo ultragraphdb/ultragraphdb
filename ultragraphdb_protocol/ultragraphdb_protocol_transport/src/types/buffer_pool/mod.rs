@@ -56,6 +56,7 @@ impl BufferPool {
         lock(&self.state).free.len()
     }
 
+    /// The buffers the pool holds, in use or not.
     pub fn buffers(&self) -> usize {
         lock(&self.state).buffers
     }

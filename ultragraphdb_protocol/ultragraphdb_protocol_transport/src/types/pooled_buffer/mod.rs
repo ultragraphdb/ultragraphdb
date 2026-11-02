@@ -26,10 +26,12 @@ impl PooledBuffer {
         &self.bytes
     }
 
+    /// The number of bytes read into it.
     pub fn len(&self) -> usize {
         self.bytes.len()
     }
 
+    /// Whether no bytes were read into it.
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }

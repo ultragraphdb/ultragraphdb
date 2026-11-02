@@ -37,18 +37,22 @@ impl DirSizes {
         Ok(sizes)
     }
 
+    /// The data keyspace's directory.
     pub fn data(&self) -> Size {
         self.data
     }
 
+    /// fjall's journals.
     pub fn journal(&self) -> Size {
         self.journal
     }
 
+    /// Every other file: the metadata keyspace and fjall's own version files.
     pub fn metadata(&self) -> Size {
         self.metadata
     }
 
+    /// The whole store.
     pub fn total(&self) -> Size {
         self.data.plus(self.journal).plus(self.metadata)
     }

@@ -11,6 +11,7 @@
 //! program over snowballstem v0.9.0, on words of the corpus sentences and on the edge inputs.
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 /// A stemmer's name, its (word, stem) cases, and the edge inputs it changes.
 type Case<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a [(&'a str, &'a str)]);
@@ -127,8 +128,9 @@ const TESTS: [Case<'static>; 9] = [
 ];
 
 #[test]
-fn test_snowball_stemmers() {
+fn test_snowball_stemmers() -> TestResult {
     for (name, cases, changed) in TESTS {
-        check_stems(name, cases, changed);
+        check_stems(name, cases, changed)?;
     }
+    Ok(())
 }

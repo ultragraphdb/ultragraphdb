@@ -4,22 +4,24 @@
  */
 
 use ultragraphdb_core_terms::{TermError, TermErrorEnum, format_vector, parse_vector};
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[test]
-fn test_the_canonical_form_round_trips() {
+fn test_the_canonical_form_round_trips() -> TestResult {
     for lexical in [
         "[0.5, -1, 2.25]",
         "[0]",
         "[-0]",
         "[0.1, 100000000000000000000, 0.000001]",
     ] {
-        let elements = parse_vector(lexical).unwrap();
+        let elements = parse_vector(lexical)?;
         assert_eq!(format_vector(elements.into_iter()), lexical);
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_canonical_form_parses_to_its_elements() {
+fn test_a_canonical_form_parses_to_its_elements() -> TestResult {
     // Each element a decimal exactly representable in binary32, or the nearest binary32 to it.
     assert_eq!(parse_vector("[0.5, -1, 2.25]"), Ok(vec![0.5, -1.0, 2.25]));
     assert_eq!(
@@ -29,8 +31,8 @@ fn test_a_canonical_form_parses_to_its_elements() {
     // -0 keeps its sign bit, 0x80000000, which `==` alone does not tell from +0.
     let zeros: Vec<u32> = ["[0]", "[-0]"]
         .iter()
-        .map(|l| parse_vector(l).unwrap()[0].to_bits())
-        .collect();
+        .map(|l| parse_vector(l).map(|elements| elements[0].to_bits()))
+        .collect::<Result<_, _>>()?;
     assert_eq!(zeros, vec![0x0000_0000, 0x8000_0000]);
     // The largest finite binary32, (2 - 2^-23) × 2^127, and the least subnormal, 2^-149, each written in full.
     assert_eq!(
@@ -39,6 +41,7 @@ fn test_a_canonical_form_parses_to_its_elements() {
     );
     let least = format!("[0.{}1]", "0".repeat(44));
     assert_eq!(parse_vector(&least), Ok(vec![f32::from_bits(1)]));
+    Ok(())
 }
 
 #[test]
@@ -92,15 +95,18 @@ fn test_any_other_form_is_refused_with_its_reason() {
 }
 
 #[test]
-fn test_a_vector_holds_at_most_65535_elements() {
+fn test_a_vector_holds_at_most_65535_elements() -> TestResult {
     // PROTOCOL.md section 10.1: the dimension is a u16, 1 to 65,535.
     let too_long = format!("[{}]", vec!["1"; 65_536].join(", "));
-    let error = parse_vector(&too_long).unwrap_err();
+    let Err(error) = parse_vector(&too_long) else {
+        return Err(TestError::new("a vector of 65,536 elements is refused"));
+    };
     assert!(
         matches!(&error.0, TermErrorEnum::InvalidVector { lexical, reason }
             if lexical == &too_long && *reason == "more than 65,535 elements"),
         "{error}"
     );
     let longest = format!("[{}]", vec!["1"; 65_535].join(", "));
-    assert_eq!(parse_vector(&longest).unwrap().len(), 65_535);
+    assert_eq!(parse_vector(&longest)?.len(), 65_535);
+    Ok(())
 }

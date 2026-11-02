@@ -41,7 +41,7 @@ impl Store for FjallStore {
             .map(|ts| ts.max(s.applied_ts.load(Ordering::Acquire)));
         let mut fb = s.batch(mode);
         if s.gc.collected_len() >= COLLECTED_IN_A_BATCH {
-            s.remove_collected(&mut fb);
+            let _removed: usize = s.remove_collected(&mut fb);
         }
         for id in batch.removed_rebuild_records() {
             fb.remove(&s.meta, rebuild_key(*id));
@@ -161,7 +161,7 @@ impl Store for FjallStore {
         s.commit(batch)?;
         let mut view = lock(&s.view);
         let mut banned = (*view.banned).clone();
-        banned.insert(namespace);
+        let _newly_banned: bool = banned.insert(namespace);
         view.banned = Arc::new(banned);
         tracing::info!(namespace, "namespace banned");
         Ok(())

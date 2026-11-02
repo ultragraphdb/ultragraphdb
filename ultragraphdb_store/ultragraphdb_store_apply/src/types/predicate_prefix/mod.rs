@@ -110,9 +110,9 @@ impl PredicatePrefix {
                 return Ok((graphs, ranges));
             };
             let prefix = self.in_graph(graph);
-            let scan = Scan::prefix(prefix.clone()).all_versions();
-            ranges.push((prefix.clone(), scan.end().map(<[u8]>::to_vec)));
-            if snapshot.scan(&scan).next().transpose()?.is_some() {
+            let graph_scan = Scan::prefix(prefix.clone()).all_versions();
+            ranges.push((prefix.clone(), graph_scan.end().map(<[u8]>::to_vec)));
+            if snapshot.scan(&graph_scan).next().transpose()?.is_some() {
                 graphs.push(graph);
             }
             let Some(next) = graph.checked_add(1) else {

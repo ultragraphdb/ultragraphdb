@@ -9,7 +9,7 @@
 
 use ultragraphdb_core_keys::Keyspace;
 use ultragraphdb_error_store::StoreError;
-use ultragraphdb_store_apply::{BuildEnd, ChangesetErrorEnum, Executed, RecordWrites};
+use ultragraphdb_store_apply::{Applied, BuildEnd, ChangesetErrorEnum, Executed, RecordWrites};
 use ultragraphdb_store_quads::{HASH_TO_STRING, IRI_TO_UID, UID_TO_IRI};
 use ultragraphdb_traits_store::{Store, VersionlessEntry};
 
@@ -17,6 +17,7 @@ use crate::utils::changesets::{
     NS, TestChangesets, changeset, changesets, changesets_over, declaration, declare, ex,
     finish_builds, indexed, insert, term_token, uid, write,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// A write-set record's sections 0 to 4, owned: what the transaction builder writes for `executed`.
 struct Sections {
@@ -129,41 +130,34 @@ fn next_version(a: &TestChangesets) -> u64 {
 }
 
 #[test]
-fn test_a_replayed_execution_writes_what_the_original_wrote() {
-    let original = changesets();
-    let replica = changesets();
+fn test_a_replayed_execution_writes_what_the_original_wrote() -> TestResult {
+    let original = changesets()?;
+    let replica = changesets()?;
     for a in [&original, &replica] {
-        write(a, &["<a> <name> \"apple\"", "<a> <knows> <b>"]);
-        declare(a, "age", "single-valued `xsd:integer`");
+        write(a, &["<a> <name> \"apple\"", "<a> <knows> <b>"])?;
+        declare(a, "age", "single-valued `xsd:integer`")?;
     }
-    let executed = original
-        .execute(&changeset(vec![
-            insert(
-                "<c> <name> \"a string long enough to be stored out of line in the dictionary\"",
-            ),
-            insert("<c> <knows> <a>"),
-            insert("<d> <age> 7"),
-            crate::utils::changesets::delete("<a> <knows> <b>"),
-        ]))
-        .unwrap();
-    let declared = original
-        .execute(&changeset(vec![
-            ultragraphdb_core_mapping::Change::Declare(
-                ultragraphdb_core_mapping::Declaration::Predicate(declaration("knows", "an edge")),
-            ),
-        ]))
-        .unwrap();
+    let executed = original.execute(&changeset(vec![
+        insert("<c> <name> \"a string long enough to be stored out of line in the dictionary\"")?,
+        insert("<c> <knows> <a>")?,
+        insert("<d> <age> 7")?,
+        crate::utils::changesets::delete("<a> <knows> <b>")?,
+    ]))?;
+    let declared = original.execute(&changeset(vec![
+        ultragraphdb_core_mapping::Change::Declare(
+            ultragraphdb_core_mapping::Declaration::Predicate(declaration("knows", "an edge")?),
+        ),
+    ]))?;
     let parts = [sections(&executed), sections(&declared)];
     let version = next_version(&original);
-    original
-        .apply_round(vec![(version, executed), (version + 2, declared)])
-        .unwrap();
+    let _applied: Vec<Applied> =
+        original.apply_round(vec![(version, executed), (version + 2, declared)])?;
     let replayed: Vec<(u64, Executed)> = parts
         .iter()
         .zip([version, version + 2])
-        .map(|(s, v)| (v, replica.prepare_replay(NS, record_writes(s)).unwrap()))
-        .collect();
-    replica.apply_round(replayed).unwrap();
+        .map(|(s, v)| Ok((v, replica.prepare_replay(NS, record_writes(s))?)))
+        .collect::<TestResult<_>>()?;
+    let _replayed: Vec<Applied> = replica.apply_round(replayed)?;
     replica.forget_catalogs();
     assert_eq!(
         stored(&replica),
@@ -171,190 +165,191 @@ fn test_a_replayed_execution_writes_what_the_original_wrote() {
         "entry for entry, versions and metadata"
     );
     assert_eq!(replica.quads().lists().applied_ts(), version + 2);
+    Ok(())
 }
 
 #[test]
-fn test_a_replayed_drop_drops_its_predicate_at_its_version() {
-    let original = changesets();
-    let replica = changesets();
+fn test_a_replayed_drop_drops_its_predicate_at_its_version() -> TestResult {
+    let original = changesets()?;
+    let replica = changesets()?;
     for a in [&original, &replica] {
-        write(a, &["<a> <p> <b>", "<a> <q> <b>"]);
+        write(a, &["<a> <p> <b>", "<a> <q> <b>"])?;
     }
-    let p = uid(&original, "p");
+    let p = uid(&original, "p")?;
     let version = next_version(&original);
-    let drop = original
-        .prepare_drop(
-            NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
-        )
-        .unwrap();
-    original.apply_round(vec![(version, drop)]).unwrap();
-    let replayed = replica
-        .prepare_replayed_drop(NS, ultragraphdb_store_apply::DropTarget::Predicate(p))
-        .unwrap();
+    let drop = original.prepare_drop(
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
+    )?;
+    let _applied: Vec<Applied> = original.apply_round(vec![(version, drop)])?;
+    let replayed =
+        replica.prepare_replayed_drop(NS, ultragraphdb_store_apply::DropTarget::Predicate(p))?;
     assert!(replayed.is_drop());
-    replica.apply_round(vec![(version, replayed)]).unwrap();
+    let _replayed: Vec<Applied> = replica.apply_round(vec![(version, replayed)])?;
     replica.forget_catalogs();
     assert_eq!(stored(&replica), stored(&original));
+    Ok(())
 }
 
 /// A build in flight when the node stopped: the reopened store holds the interim declaration, and the swap's record
 /// names the new one; restored from it, the build is made again and swapped in at the swap's version.
 #[test]
-fn test_a_swap_replayed_after_a_restart_builds_again_from_its_declaration() {
-    let a = changesets();
+fn test_a_swap_replayed_after_a_restart_builds_again_from_its_declaration() -> TestResult {
+    let a = changesets()?;
     a.sequence_builds();
-    write(&a, &["<a> <name> \"big apple\""]);
-    declare(&a, "name", "with `term`");
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `term`")?;
     finish_builds(&a);
-    let end = a.take_build_end().unwrap();
-    let ending = a.prepare_build_end(end).unwrap();
+    let end = a.take_build_end().context("a build ended")?;
+    let ending = a.prepare_build_end(end)?;
     let entry = ending.writes().entries()[0].clone();
     assert_eq!(
-        ultragraphdb_core_catalog::decode_declaration(entry.key(), entry.value().unwrap()).unwrap(),
-        ultragraphdb_core_mapping::Declaration::Predicate(declaration("name", "with `term`")),
+        ultragraphdb_core_catalog::decode_declaration(
+            entry.key(),
+            entry.value().context("the entry has a value")?
+        )?,
+        ultragraphdb_core_mapping::Declaration::Predicate(declaration("name", "with `term`")?),
         "the swap's record names the declaration it swaps in"
     );
     let store = a.quads().store().clone();
     drop(ending);
     drop(a);
-    let b = changesets_over(store);
+    let b = changesets_over(store)?;
     assert!(!b.rebuilding());
     assert!(
-        b.catalog(NS)
-            .unwrap()
-            .predicate(uid(&b, "name"))
-            .unwrap()
+        b.catalog(NS)?
+            .predicate(uid(&b, "name")?)
+            .context("the predicate is declared")?
             .tokenizers()
             .is_empty()
     );
-    assert!(
-        b.restore_build(NS, end, entry.key(), entry.value().unwrap())
-            .unwrap()
-    );
+    assert!(b.restore_build(
+        NS,
+        end,
+        entry.key(),
+        entry.value().context("the entry has a value")?
+    )?);
     assert!(b.rebuilding());
-    let swap = b.prepare_build_end(end).unwrap();
+    let swap = b.prepare_build_end(end)?;
     let version = next_version(&b);
-    b.apply_round(vec![(version, swap)]).unwrap();
+    let _applied: Vec<Applied> = b.apply_round(vec![(version, swap)])?;
     assert!(!b.rebuilding());
     assert_eq!(
-        indexed(&b, "name", &term_token("apple")),
-        vec![uid(&b, "a")]
+        indexed(&b, "name", &term_token("apple"))?,
+        vec![uid(&b, "a")?]
     );
     assert_eq!(
-        b.catalog(NS)
-            .unwrap()
-            .predicate(uid(&b, "name"))
-            .unwrap()
+        b.catalog(NS)?
+            .predicate(uid(&b, "name")?)
+            .context("the predicate is declared")?
             .tokenizers(),
         ["term"]
     );
     assert_eq!(b.quads().lists().applied_ts(), version);
+    Ok(())
 }
 
 /// An undo replayed writes the old declaration back and removes every index key of the predicate the declaration
 /// does not name: those of a write during the build, replayed before it.
 #[test]
-fn test_an_undo_replayed_restores_the_old_declaration_and_removes_the_rest() {
-    let a = changesets();
+fn test_an_undo_replayed_restores_the_old_declaration_and_removes_the_rest() -> TestResult {
+    let a = changesets()?;
     a.sequence_builds();
-    write(&a, &["<a> <name> \"big apple\""]);
-    declare(&a, "name", "with `term`");
-    let during = a
-        .execute(&changeset(vec![insert("<c> <name> \"pear\"")]))
-        .unwrap();
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `term`")?;
+    let during = a.execute(&changeset(vec![insert("<c> <name> \"pear\"")?]))?;
     let during_sections = sections(&during);
-    let undo = a.prepare_build_end(BuildEnd::Undo(record_of(&a))).unwrap();
+    let undo = a.prepare_build_end(BuildEnd::Undo(record_of(&a)?))?;
     let entry = undo.writes().entries()[0].clone();
-    let end = BuildEnd::Undo(record_of(&a));
+    let end = BuildEnd::Undo(record_of(&a)?);
     let store = a.quads().store().clone();
     drop(undo);
     drop(during);
     drop(a);
-    let b = changesets_over(store);
+    let b = changesets_over(store)?;
     let version = next_version(&b);
-    let replayed = b
-        .prepare_replay(NS, record_writes(&during_sections))
-        .unwrap();
-    b.apply_round(vec![(version, replayed)]).unwrap();
+    let replayed = b.prepare_replay(NS, record_writes(&during_sections))?;
+    let _applied: Vec<Applied> = b.apply_round(vec![(version, replayed)])?;
     b.forget_catalogs();
     assert_eq!(
-        indexed(&b, "name", &term_token("pear")),
-        vec![uid(&b, "c")],
+        indexed(&b, "name", &term_token("pear"))?,
+        vec![uid(&b, "c")?],
         "the write maintained the index"
     );
-    assert!(
-        b.restore_build(NS, end, entry.key(), entry.value().unwrap())
-            .unwrap()
-    );
-    let undo = b.prepare_build_end(end).unwrap();
-    b.apply_round(vec![(version + 2, undo)]).unwrap();
+    assert!(b.restore_build(
+        NS,
+        end,
+        entry.key(),
+        entry.value().context("the entry has a value")?
+    )?);
+    let replayed_undo = b.prepare_build_end(end)?;
+    let _undone: Vec<Applied> = b.apply_round(vec![(version + 2, replayed_undo)])?;
     assert!(!b.rebuilding());
     assert!(
-        indexed(&b, "name", &term_token("pear")).is_empty(),
+        indexed(&b, "name", &term_token("pear"))?.is_empty(),
         "removed"
     );
     assert!(
-        b.catalog(NS)
-            .unwrap()
-            .predicate(uid(&b, "name"))
-            .unwrap()
+        b.catalog(NS)?
+            .predicate(uid(&b, "name")?)
+            .context("the predicate is declared")?
             .tokenizers()
             .is_empty()
     );
+    Ok(())
 }
 
 /// The record number of the build `a` runs.
-fn record_of(a: &TestChangesets) -> u64 {
+fn record_of(a: &TestChangesets) -> TestResult<u64> {
     a.quads()
         .store()
-        .rebuild_records()
-        .unwrap()
+        .rebuild_records()?
         .first()
         .map(|r| r.id())
-        .expect("a build runs")
+        .context("a build runs")
 }
 
 /// An end whose predicate the store no longer declares is not restored: its build was cancelled.
 #[test]
-fn test_an_end_whose_predicate_is_gone_is_not_restored() {
-    let a = changesets();
+fn test_an_end_whose_predicate_is_gone_is_not_restored() -> TestResult {
+    let a = changesets()?;
     a.sequence_builds();
-    write(&a, &["<a> <name> \"big apple\""]);
-    declare(&a, "name", "with `term`");
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `term`")?;
     finish_builds(&a);
-    let end = a.take_build_end().unwrap();
-    let entry = a.prepare_build_end(end).unwrap().writes().entries()[0].clone();
+    let end = a.take_build_end().context("a build ended")?;
+    let entry = a.prepare_build_end(end)?.writes().entries()[0].clone();
     let version = next_version(&a);
-    let dropping = a
-        .prepare_drop(
-            NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(ex("name").as_ref()),
-        )
-        .unwrap();
-    a.apply_round(vec![(version, dropping)]).unwrap();
+    let dropping = a.prepare_drop(
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("name").as_ref()),
+    )?;
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, dropping)])?;
     let store = a.quads().store().clone();
     drop(a);
-    let b = changesets_over(store);
-    assert!(
-        !b.restore_build(NS, end, entry.key(), entry.value().unwrap())
-            .unwrap()
-    );
+    let b = changesets_over(store)?;
+    assert!(!b.restore_build(
+        NS,
+        end,
+        entry.key(),
+        entry.value().context("the entry has a value")?
+    )?);
     assert!(!b.rebuilding());
+    Ok(())
 }
 
 /// A record whose list delta is no posting list is refused with the store's corruption naming the key, and nothing is
 /// prepared: the posting codec's version byte is 1 (`ultragraphdb_core_codec`), so a value starting 0xFF is of an
 /// unknown version.
 #[test]
-fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b>"]);
+fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>"])?;
     let key = ultragraphdb_core_keys::QuadKey::Forward {
         namespace: NS,
         graph: ultragraphdb_core_keys::DEFAULT_GRAPH,
-        predicate: uid(&a, "knows"),
-        subject: uid(&a, "a"),
+        predicate: uid(&a, "knows")?,
+        subject: uid(&a, "a")?,
     }
     .to_bytes();
     let record = RecordWrites::new(
@@ -364,7 +359,10 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
         Vec::new(),
         Vec::new(),
     );
-    let refused = a.prepare_replay(NS, record).unwrap_err();
+    let refused = a
+        .prepare_replay(NS, record)
+        .err()
+        .context("the error of a.prepare_replay(NS, record)")?;
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::Store(StoreError::Corrupted(
@@ -372,19 +370,21 @@ fn test_a_replayed_list_delta_that_is_no_posting_list_is_refused_naming_its_key(
             "unknown posting format version 255".to_string()
         ))
     );
+    Ok(())
 }
 
 /// A build end whose catalog entry is no declaration is refused with the catalog's corruption naming the key, and no
 /// build is restored: the catalog codec's format byte is 2 (`ultragraphdb_core_catalog`), so a value starting 0xFF is
 /// of an unknown format.
 #[test]
-fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() {
-    let a = changesets();
-    write(&a, &["<a> <name> \"big apple\""]);
-    let key = ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "name"));
+fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <name> \"big apple\""])?;
+    let key = ultragraphdb_core_catalog::Catalog::predicate_key(NS, uid(&a, "name")?);
     let refused = a
         .restore_build(NS, BuildEnd::Swap(1), &key, &[0xFF])
-        .unwrap_err();
+        .err()
+        .context("the error of a.restore_build(..)")?;
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::Catalog(ultragraphdb_core_catalog::CatalogError::Corrupted(
@@ -393,4 +393,5 @@ fn test_a_build_end_whose_entry_is_no_declaration_is_refused_naming_its_key() {
         ))
     );
     assert!(!a.rebuilding());
+    Ok(())
 }

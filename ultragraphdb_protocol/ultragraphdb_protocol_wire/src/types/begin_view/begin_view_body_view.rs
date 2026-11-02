@@ -28,7 +28,7 @@ impl<'a> BodyView<'a> for BeginView<'a> {
             1 => true,
             mode => return Err(ProtocolError::FieldValue(command, "mode", mode.into())),
         };
-        Sections::<0>::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             namespace: header.u64_at(0),

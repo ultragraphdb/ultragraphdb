@@ -402,10 +402,11 @@ impl Loop {
     ///
     /// This requires that it.Locate(target) returned Indexed.
     fn boundary_approx_intersects(&self, it: &ShapeIndexIterator<'_>, target: &Cell) -> bool {
-        let a_clipped = it
-            .index_cell()
-            .find_by_shape_id(0)
-            .expect("index cell holds shape 0");
+        // A position with no index cell, or a cell that holds no clipped shape 0, has none of the loop's edges, so
+        // there is no intersection, as with no edges.
+        let Some(a_clipped) = it.index_cell().and_then(|cell| cell.find_by_shape_id(0)) else {
+            return false;
+        };
 
         // If there are no edges, there is no intersection.
         if a_clipped.edges.is_empty() {
@@ -438,10 +439,11 @@ impl Loop {
     fn iterator_contains_point(&self, it: &ShapeIndexIterator<'_>, p: Point) -> bool {
         // Test containment by drawing a line segment from the cell center to the
         // given point and counting edge crossings.
-        let a_clipped = it
-            .index_cell()
-            .find_by_shape_id(0)
-            .expect("index cell holds shape 0");
+        // A position with no index cell, or a cell that holds no clipped shape 0, is one the loop neither crosses
+        // nor covers, so it contains none of the cell's points, as S2's index omits such a shape from the cell.
+        let Some(a_clipped) = it.index_cell().and_then(|cell| cell.find_by_shape_id(0)) else {
+            return false;
+        };
         let mut inside = a_clipped.contains_center;
         if !a_clipped.edges.is_empty() {
             let center = it.center();

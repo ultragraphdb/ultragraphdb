@@ -252,6 +252,7 @@ impl ReadSet {
         self.sealed
     }
 
+    /// The namespace the reads were made in.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }

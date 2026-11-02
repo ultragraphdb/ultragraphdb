@@ -22,15 +22,17 @@ impl Uint64Heap {
         let mut heap = Self { elems };
         let n = heap.elems.len();
         for i in (0..n / 2).rev() {
-            heap.down(i, n);
+            let _moved: bool = heap.down(i, n);
         }
         heap
     }
 
+    /// The number of elements.
     pub fn len(&self) -> usize {
         self.elems.len()
     }
 
+    /// Whether the heap holds no element.
     pub fn is_empty(&self) -> bool {
         self.elems.is_empty()
     }
@@ -58,7 +60,7 @@ impl Uint64Heap {
     pub fn pop(&mut self) -> Option<Elem> {
         let n = self.elems.len().checked_sub(1)?;
         self.elems.swap(0, n);
-        self.down(0, n);
+        let _moved: bool = self.down(0, n);
         self.elems.pop()
     }
 

@@ -6,9 +6,10 @@
 use ultragraphdb_core_mapping::{
     CONTRACT_VERSION, ContractVersion, MappingError, MappingErrorEnum,
 };
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 #[test]
-fn test_the_version_round_trips_and_another_major_version_is_refused() {
+fn test_the_version_round_trips_and_another_major_version_is_refused() -> TestResult {
     assert_eq!((CONTRACT_VERSION.major(), CONTRACT_VERSION.minor()), (1, 0));
     let v = ContractVersion::new(2, 7);
     assert_eq!((v.major(), v.minor()), (2, 7));
@@ -22,7 +23,11 @@ fn test_the_version_round_trips_and_another_major_version_is_refused() {
         CONTRACT_VERSION.check_stored(ContractVersion::new(1, 9)),
         Ok(())
     );
-    let error = CONTRACT_VERSION.check_stored(v).unwrap_err();
+    let Err(error) = CONTRACT_VERSION.check_stored(v) else {
+        return Err(TestError::new(
+            "check_stored returned Ok where an error was expected",
+        ));
+    };
     assert!(matches!(
         error.0,
         MappingErrorEnum::ContractVersion {
@@ -34,6 +39,7 @@ fn test_the_version_round_trips_and_another_major_version_is_refused() {
         error.to_string(),
         "The store was written under mapping contract version 2.7; this build implements version 1.0"
     );
+    Ok(())
 }
 
 #[test]
@@ -52,9 +58,13 @@ fn test_the_version_is_two_u16s_big_endian() {
 }
 
 #[test]
-fn test_only_four_bytes_are_a_version() {
+fn test_only_four_bytes_are_a_version() -> TestResult {
     for bytes in [&[][..], &[1], &[0, 1, 0], &[0, 1, 0, 0, 0]] {
-        let error = ContractVersion::from_bytes(bytes).unwrap_err();
+        let Err(error) = ContractVersion::from_bytes(bytes) else {
+            return Err(TestError::new(
+                "from_bytes returned Ok where an error was expected",
+            ));
+        };
         assert_eq!(
             error.0,
             MappingErrorEnum::BadContractVersion {
@@ -63,6 +73,7 @@ fn test_only_four_bytes_are_a_version() {
             "{bytes:?}"
         );
     }
+    Ok(())
 }
 
 #[test]

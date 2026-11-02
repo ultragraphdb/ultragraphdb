@@ -10,15 +10,17 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use opentelemetry_sdk::error::OTelSdkResult;
 use opentelemetry_sdk::trace::{InMemorySpanExporter, SpanData, SpanExporter};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// What the fmt layer writes, shared with the test.
 #[derive(Clone, Default)]
 pub struct Buffer(Arc<Mutex<Vec<u8>>>);
 
 impl Buffer {
-    pub fn text(&self) -> String {
+    /// What was written, as text.
+    pub fn text(&self) -> TestResult<String> {
         let bytes = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        String::from_utf8(bytes.clone()).expect("the fmt layer writes UTF-8")
+        String::from_utf8(bytes.clone()).context("the fmt layer writes UTF-8")
     }
 }
 

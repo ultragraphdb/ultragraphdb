@@ -9,6 +9,7 @@ use ultragraphdb_core_tok::{
     get_tokenizers, get_tokens,
 };
 use ultragraphdb_core_types::{Geometry, Layout, Value};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 /// A spec's option pairs as the factory lookups take them.
 fn options(options: &[(&str, &str)]) -> Vec<(String, String)> {
     options
@@ -19,58 +20,91 @@ fn options(options: &[(&str, &str)]) -> Vec<(String, String)> {
 
 /// Each error the API returns, its variant and its Dgraph text.
 #[test]
-fn test_tok_error_kinds() {
-    let e = get_tokenizers(&["x"]).unwrap_err();
+fn test_tok_error_kinds() -> TestResult {
+    let e = get_tokenizers(&["x"]).err().context("expected an error")?;
     assert_eq!(
         e.0,
         TokErrorEnum::UnknownTokenizer("Invalid tokenizer x".into())
     );
     assert_eq!(e.to_string(), "Invalid tokenizer x");
-    let e = build_tokens(&Value::str("a"), &get_tokenizer("int").unwrap()).unwrap_err();
-    assert!(matches!(e.0, TokErrorEnum::WrongValue(_)));
+    let int_err = build_tokens(
+        &Value::str("a"),
+        &get_tokenizer("int").context("get_tokenizer(\"int\")")?,
+    )
+    .err()
+    .context("expected an error")?;
+    assert!(matches!(int_err.0, TokErrorEnum::WrongValue(_)));
     assert_eq!(
-        e.to_string(),
+        int_err.to_string(),
         "interface conversion: interface {} is string, not int64"
     );
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]]).unwrap();
-    let e = build_tokens(&Value::Geo(line), &get_tokenizer("geo").unwrap()).unwrap_err();
-    assert!(matches!(e.0, TokErrorEnum::Geo(_)));
+    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
+    let geo_err = build_tokens(
+        &Value::Geo(line),
+        &get_tokenizer("geo").context("get_tokenizer(\"geo\")")?,
+    )
+    .err()
+    .context("expected an error")?;
+    assert!(matches!(geo_err.0, TokErrorEnum::Geo(_)));
     assert_eq!(
-        e.to_string(),
+        geo_err.to_string(),
         "Cannot index geometry of type *geom.LineString"
     );
-    let e = get_tokens(0x01, &["a", "b"]).unwrap_err();
+    Ok(())
+}
+
+/// Each error of token functions, index factories and float decoding, its variant and its Dgraph text.
+#[test]
+fn test_tok_error_kinds_of_functions_and_factories() -> TestResult {
+    let tokens_err = get_tokens(0x01, &["a", "b"])
+        .err()
+        .context("expected an error")?;
     assert_eq!(
-        e.0,
+        tokens_err.0,
         TokErrorEnum::Arguments("Function requires 1 arguments, but got 2".into())
     );
-    let e = get_factory_create_spec_from_spec("nosuch", &[]).unwrap_err();
+    let factory_err = get_factory_create_spec_from_spec("nosuch", &[])
+        .err()
+        .context("expected an error")?;
     assert_eq!(
-        e.0,
+        factory_err.0,
         TokErrorEnum::UnknownFactory("cannot find index factory named 'nosuch'".into())
     );
-    assert_eq!(e.to_string(), "cannot find index factory named 'nosuch'");
-    let e = get_index_factory_opts_from_spec("", &[]).unwrap_err();
     assert_eq!(
-        e.0,
+        factory_err.to_string(),
+        "cannot find index factory named 'nosuch'"
+    );
+    let opts_err = get_index_factory_opts_from_spec("", &[])
+        .err()
+        .context("expected an error")?;
+    assert_eq!(
+        opts_err.0,
         TokErrorEnum::UnknownFactory(
             "cannot get Options for factory named '' (factory not found)".into()
         )
     );
-    let e = get_factory_create_spec_from_spec("hnsw", &options(&[("metric", "l1")])).unwrap_err();
-    assert!(matches!(e.0, TokErrorEnum::Options(_)));
-    let e: &dyn std::error::Error = &e;
+    let metric_err = get_factory_create_spec_from_spec("hnsw", &options(&[("metric", "l1")]))
+        .err()
+        .context("expected an error")?;
+    assert!(matches!(metric_err.0, TokErrorEnum::Options(_)));
+    let e: &dyn std::error::Error = &metric_err;
     assert_eq!(e.to_string(), "Can't create a vector index for l1");
     assert!(e.source().is_none());
-    let e = bytes_to_float::<f32>(&[1], FloatBits::F32).unwrap_err();
-    assert_eq!(e.0, TokErrorEnum::ShortFloat { len: 1, bits: 32 });
-    assert_eq!(e.to_string(), "cannot read a 32-bit float from 1 bytes");
+    let float_err = bytes_to_float::<f32>(&[1], FloatBits::F32)
+        .err()
+        .context("expected an error")?;
+    assert_eq!(float_err.0, TokErrorEnum::ShortFloat { len: 1, bits: 32 });
+    assert_eq!(
+        float_err.to_string(),
+        "cannot read a 32-bit float from 1 bytes"
+    );
+    Ok(())
 }
 
 /// The public constructors build the variant they are named after, and `Display` prints it; the wrapped errors of
 /// other crates print as those crates do, by constructor and by `From` alike.
 #[test]
-fn test_tok_error_constructors() {
+fn test_tok_error_constructors() -> TestResult {
     let cases = [
         (
             TokError::UnknownTokenizer("Invalid tokenizer t".into()),
@@ -108,26 +142,32 @@ fn test_tok_error_constructors() {
         assert_eq!(e.to_string(), text);
     }
 
-    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]]).unwrap();
-    let error = build_tokens(&Value::Geo(line), &get_tokenizer("geo").unwrap()).unwrap_err();
+    let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]])?;
+    let error = build_tokens(
+        &Value::Geo(line),
+        &get_tokenizer("geo").context("get_tokenizer(\"geo\")")?,
+    )
+    .err()
+    .context("expected an error")?;
     let types = if let TokErrorEnum::Geo(types) = error.0 {
         Some(types)
     } else {
         None
     }
-    .expect("a geo error");
+    .context("a geo error")?;
     for e in [TokError::Geo(types.clone()), TokError::from(types.clone())] {
         assert_eq!(e.0, TokErrorEnum::Geo(types.clone()));
         assert_eq!(e.to_string(), types.to_string());
     }
-    let error =
-        get_factory_create_spec_from_spec("hnsw", &options(&[("efSearch", "x")])).unwrap_err();
-    let options = if let TokErrorEnum::Options(options) = error.0 {
+    let ef_search_err = get_factory_create_spec_from_spec("hnsw", &options(&[("efSearch", "x")]))
+        .err()
+        .context("expected an error")?;
+    let options = if let TokErrorEnum::Options(options) = ef_search_err.0 {
         Some(options)
     } else {
         None
     }
-    .expect("an options error");
+    .context("an options error")?;
     for e in [
         TokError::Options(options.clone()),
         TokError::from(options.clone()),
@@ -135,4 +175,5 @@ fn test_tok_error_constructors() {
         assert_eq!(e.0, TokErrorEnum::Options(options.clone()));
         assert_eq!(e.to_string(), options.to_string());
     }
+    Ok(())
 }

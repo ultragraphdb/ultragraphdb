@@ -12,26 +12,27 @@ use ultragraphdb_core_types::{
     Geometry, Layout, MAX_CELL_LEVEL, MAX_CELLS, MIN_CELL_LEVEL, TypeId, Val, Value, convert,
     index_cells, index_geo_tokens,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// Dgraph's `loadPolygon`: the geometry of a GeoJSON Feature under Dgraph's `types/testdata`.
-pub fn load_polygon(name: &str) -> Geometry {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("geo").join(name);
-    let text = std::fs::read_to_string(&path).unwrap();
-    let feature: serde_json::Value = serde_json::from_str(&text).unwrap();
-    Geometry::from_geojson(feature["geometry"].to_string())
-        .unwrap()
-        .unwrap()
+pub fn load_polygon(name: &str) -> TestResult<Geometry> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?
+        .join("geo")
+        .join(name);
+    let text = std::fs::read_to_string(&path)?;
+    let feature: serde_json::Value = serde_json::from_str(&text)?;
+    Geometry::from_geojson(feature["geometry"].to_string())?.context("the feature's geometry")
 }
 
-fn point() -> Geometry {
-    Geometry::point(Layout::XY, &[-122.082506, 37.4249518]).unwrap()
+fn point() -> TestResult<Geometry> {
+    Ok(Geometry::point(Layout::XY, &[-122.082506, 37.4249518])?)
 }
 
 #[test]
-fn test_index_cells_point() {
-    let (parents, cover) = index_cells(&point()).unwrap();
+fn test_index_cells_point() -> TestResult {
+    let (parents, cover) = index_cells(&point()?)?;
     assert_eq!(
-        i64::try_from(parents.len()).expect("fits i64"),
+        i64::try_from(parents.len()).context("fits i64")?,
         MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1
     );
     assert_eq!(parents[0].level(), MIN_CELL_LEVEL);
@@ -45,21 +46,23 @@ fn test_index_cells_point() {
     assert_eq!(cover.len(), 1);
     assert_eq!(cover[0].level(), MAX_CELL_LEVEL);
     assert_eq!(cover[0].to_token(), "808fb9f81");
+    Ok(())
 }
 
 #[test]
-fn test_index_cells_polygon() {
-    let (parents, cover) = index_cells(&load_polygon("zip.json")).unwrap();
-    assert!(i64::try_from(cover.len()).expect("fits i64") <= MAX_CELLS);
+fn test_index_cells_polygon() -> TestResult {
+    let (parents, cover) = index_cells(&load_polygon("zip.json")?)?;
+    assert!(i64::try_from(cover.len()).context("fits i64")? <= MAX_CELLS);
     for c in &cover {
         assert!((MIN_CELL_LEVEL..=MAX_CELL_LEVEL).contains(&c.level()));
         assert!(parents.contains(c));
     }
     assert!(parents.len() > cover.len());
+    Ok(())
 }
 
 #[test]
-fn test_index_cells_polygon_error() {
+fn test_index_cells_polygon_error() -> TestResult {
     let poly = Geometry::polygon(
         Layout::XY,
         &[vec![
@@ -69,38 +72,43 @@ fn test_index_cells_polygon_error() {
             vec![-122.0, 38.0],
             vec![-122.0, 38.0],
         ]],
-    )
-    .unwrap();
+    )?;
     // Go's %+v of the go-geom polygon, as the golden index vectors hold it.
     assert_eq!(
-        index_cells(&poly).unwrap_err().to_string(),
+        index_cells(&poly)
+            .err()
+            .context("expected an error")?
+            .to_string(),
         "Last coordinate not same as first for polygon: &{geom2:{geom1:{geom0:{layout:1 stride:2 \
          flatCoords:[-122 37 -123 37 -123 38 -122 38 -122 38] srid:0}} ends:[10]}}\n"
     );
+    Ok(())
 }
 
-fn round_trip(g: &Geometry) -> Geometry {
-    let src = Val::bytes(TypeId::BINARY, g.marshal_wkb().unwrap());
-    match convert(&src, TypeId::GEO).unwrap().into_value() {
-        Some(Value::Geo(g)) => Ok(g),
+fn round_trip(g: &Geometry) -> TestResult<Geometry> {
+    let src = Val::bytes(TypeId::BINARY, g.marshal_wkb()?);
+    match convert(&src, TypeId::GEO)?.into_value() {
+        Some(Value::Geo(geo)) => Ok(geo),
         other => Err(format!("{other:?}")),
     }
-    .expect("converting to geo gives a geometry")
+    .context("converting to geo gives a geometry")
 }
 
 #[test]
-fn test_key_generator_point() {
-    let keys = index_geo_tokens(&round_trip(&point())).unwrap();
+fn test_key_generator_point() -> TestResult {
+    let keys = index_geo_tokens(&round_trip(&point()?)?)?;
     assert_eq!(
-        i64::try_from(keys.len()).expect("fits i64"),
+        i64::try_from(keys.len()).context("fits i64")?,
         MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1 + 1
     );
+    Ok(())
 }
 
 #[test]
-fn test_key_generator_polygon() {
-    let keys = index_geo_tokens(&round_trip(&load_polygon("zip.json"))).unwrap();
+fn test_key_generator_polygon() -> TestResult {
+    let keys = index_geo_tokens(&round_trip(&load_polygon("zip.json")?)?)?;
     assert_eq!(keys.len(), 67);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -113,19 +121,19 @@ struct GeoIndexCase {
     err: String,
 }
 
-pub fn unhex(s: &str) -> Vec<u8> {
+pub fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
 #[test]
-fn test_golden_index_tokens() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_geo_index.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<GeoIndexCase>(&path);
+fn test_golden_index_tokens() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_geo_index.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<GeoIndexCase>(&path)?;
     for c in golden.cases() {
-        let g = Geometry::unmarshal_wkb(&unhex(&c.wkb)).unwrap();
+        let g = Geometry::unmarshal_wkb(&unhex(&c.wkb)?)?;
         match index_geo_tokens(&g) {
             Err(e) => assert_eq!(e.to_string(), c.err, "{}", c.name),
             Ok(mut toks) => {
@@ -134,4 +142,5 @@ fn test_golden_index_tokens() {
             }
         }
     }
+    Ok(())
 }

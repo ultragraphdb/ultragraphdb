@@ -10,7 +10,10 @@ use crate::types::declared_relation::DeclaredRelation;
 /// A catalog declaration a Write carries.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Declared {
+    /// A predicate's declaration.
     Predicate(DeclaredPredicate),
+    /// An entity type's declaration.
     EntityType(DeclaredEntityType),
+    /// A relation's declaration.
     Relation(DeclaredRelation),
 }

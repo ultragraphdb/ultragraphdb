@@ -7,7 +7,9 @@ use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_protocol_wire::{
     RecordEntry, RecordOperation, RoundHeader, RoundView, WriteSetRecordView,
 };
-use ultragraphdb_store_apply::{BuildEnd, ChangesetApplier, DropTarget, Executed, RecordWrites};
+use ultragraphdb_store_apply::{
+    Applied, BuildEnd, ChangesetApplier, DropTarget, Executed, RecordWrites,
+};
 use ultragraphdb_store_posting::CachedList;
 use ultragraphdb_traits_log::{OrderedLog, Position, Round};
 use ultragraphdb_traits_store::{Executor, ListCache, Store, VersionlessEntry};
@@ -131,7 +133,7 @@ impl Replay {
             let (namespace, session, request) =
                 (record.namespace(), record.session(), record.request());
             if session != 0 && request == 0 {
-                sessions.register(session, record.principal());
+                let _evicted: Option<u64> = sessions.register(session, record.principal());
                 continue;
             }
             let executed = match record.operation() {
@@ -170,7 +172,7 @@ impl Replay {
         }
         let mut system: Vec<VersionlessEntry> = Vec::new();
         sessions.drain_entries(&mut system);
-        applier
+        let _applied: Vec<Applied> = applier
             .apply_round_with(executions, &system, through)
             .map_err(apply)?;
         applier.forget_catalogs();
@@ -226,7 +228,7 @@ where
         && let (Ok((QuadKey::Catalog { namespace, .. }, _)), Some(value)) =
             (QuadKey::parse(entry.key()), entry.value())
     {
-        applier.restore_build(namespace, end, entry.key(), value)?;
+        let _restored: bool = applier.restore_build(namespace, end, entry.key(), value)?;
     }
     applier.prepare_build_end(end)
 }

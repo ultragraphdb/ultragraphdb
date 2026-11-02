@@ -128,6 +128,7 @@ pub struct SimNetwork {
 }
 
 impl SimNetwork {
+    /// A network with no connections, drawing its `faults` from `seed`.
     pub fn new(seed: u64, faults: NetworkFaults) -> Self {
         Self {
             state: Rc::new(RefCell::new(NetworkState {
@@ -170,6 +171,7 @@ impl SimNetwork {
         self.state.borrow().now
     }
 
+    /// What the network did to the messages written so far.
     pub fn stats(&self) -> NetworkStats {
         self.state.borrow().stats
     }

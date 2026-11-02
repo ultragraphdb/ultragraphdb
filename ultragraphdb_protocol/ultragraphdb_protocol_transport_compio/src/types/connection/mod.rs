@@ -60,6 +60,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         &mut self.framer
     }
 
+    /// The cluster the connection's framer verifies every frame's header for.
     pub fn cluster(&self) -> u64 {
         self.framer.cluster()
     }
@@ -69,6 +70,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         &mut self.stream
     }
 
+    /// The stream, the connection given up.
     pub fn into_inner(self) -> S {
         self.stream
     }
@@ -133,7 +135,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         hello: &Hello,
     ) -> Result<Welcome, TransportError> {
         let handshake = ClientHandshake::new(self.cluster(), hello.clone());
-        self.write_frame(handshake.hello_frame()?).await?;
+        let _sent: Vec<u8> = self.write_frame(handshake.hello_frame()?).await?;
         let answer = self.read_frame(pool).await?;
         let welcome = handshake.receive(answer.bytes())?;
         self.framer.set_protocol(welcome.protocol());
@@ -154,7 +156,7 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
         drop(received);
         match (frame, &outcome) {
             (Some(frame), Ok(_)) => {
-                self.write_frame(frame).await?;
+                let _sent: Vec<u8> = self.write_frame(frame).await?;
             }
             (Some(frame), Err(_)) => {
                 // The handshake failed already: its refusal is sent if the stream takes it, and the failure

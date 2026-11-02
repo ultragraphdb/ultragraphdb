@@ -11,7 +11,7 @@ use crate::types::breach::Breach;
 use crate::types::drop_stage::DropStage;
 use crate::types::invariant::Invariant;
 use crate::types::rebuild_stage::RebuildStage;
-use crate::types::store_model::model_state::ModelOp;
+use crate::types::store_model::model_state::{ModelOp, ModelState};
 use crate::types::store_model::{Status, StoreModel};
 
 /// How the model follows each write, drop, rebuild, temporary keyspace and failure the store logs.
@@ -147,11 +147,12 @@ impl StoreModel {
             .get(&temporary)
             .cloned()
             .unwrap_or_default();
-        self.temporary_snapshots.insert(id, Arc::new(state));
+        let _replaced: Option<Arc<ModelState>> =
+            self.temporary_snapshots.insert(id, Arc::new(state));
     }
 
     pub(super) fn observe_banned(&mut self, namespace: u64) {
-        Arc::make_mut(&mut self.current).banned.insert(namespace);
+        let _newly: bool = Arc::make_mut(&mut self.current).banned.insert(namespace);
         self.sync_point();
     }
 
@@ -179,9 +180,9 @@ impl StoreModel {
     }
 
     pub(super) fn observe_corrupted(&mut self, key: &[u8]) {
-        self.tainted.insert(key.to_vec());
+        let _newly: bool = self.tainted.insert(key.to_vec());
         self.snapshots.values_mut().for_each(|(_, _, tainted)| {
-            tainted.insert(key.to_vec());
+            let _newly_in_snapshot: bool = tainted.insert(key.to_vec());
         });
     }
 

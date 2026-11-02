@@ -85,15 +85,15 @@ impl FaultInjector {
                 Fault::CrashDuringNextRebuild(_) | Fault::PowerLossDuringNextRebuild(_)
             )
         });
-        let stage = |rng: &mut SimRng| RebuildStage::ALL[rng.index(RebuildStage::ALL.len())];
+        let random_stage = |rng: &mut SimRng| RebuildStage::ALL[rng.index(RebuildStage::ALL.len())];
         match forced {
             Some(Fault::PowerLossDuringNextRebuild(stage)) => Some((stage, true)),
             Some(Fault::CrashDuringNextRebuild(stage)) => Some((stage, false)),
             _ if self.rng.chance(self.config.power_loss_during_rebuild()) => {
-                Some((stage(&mut self.rng), true))
+                Some((random_stage(&mut self.rng), true))
             }
             _ if self.rng.chance(self.config.crash_during_rebuild()) => {
-                Some((stage(&mut self.rng), false))
+                Some((random_stage(&mut self.rng), false))
             }
             _ => None,
         }

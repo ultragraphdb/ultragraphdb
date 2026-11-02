@@ -27,10 +27,14 @@ pub const SERVER_FINAL: &[u8] = b"v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=
 
 pub const SECRET: [u8; 32] = [7; 32];
 
+use ultragraphdb_tool_bdd::TestResult;
+
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-pub fn verifier() -> ultragraphdb_protocol_scram::ScramVerifier {
-    ultragraphdb_protocol_scram::ScramVerifier::derive(PASSWORD, &SALT, ITERATIONS).unwrap()
+pub fn verifier() -> TestResult<ultragraphdb_protocol_scram::ScramVerifier> {
+    Ok(ultragraphdb_protocol_scram::ScramVerifier::derive(
+        PASSWORD, &SALT, ITERATIONS,
+    )?)
 }

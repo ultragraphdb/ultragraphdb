@@ -18,6 +18,7 @@ pub struct PgNode {
 }
 
 impl PgNode {
+    /// The node `id`, with no label and no property.
     pub fn new(id: NamedOrBlankNode) -> Self {
         Self {
             id,
@@ -26,24 +27,29 @@ impl PgNode {
         }
     }
 
+    /// The node with the label `label`.
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
-        self.labels.insert(label.into());
+        let _added: bool = self.labels.insert(label.into());
         self
     }
 
+    /// The node with the property `name` holding `value`, replacing any it held.
     pub fn with_property(mut self, name: impl Into<String>, value: PgValue) -> Self {
-        self.properties.insert(name.into(), value);
+        let _replaced: Option<PgValue> = self.properties.insert(name.into(), value);
         self
     }
 
+    /// The node's IRI or blank node.
     pub fn id(&self) -> &NamedOrBlankNode {
         &self.id
     }
 
+    /// The labels.
     pub fn labels(&self) -> &BTreeSet<String> {
         &self.labels
     }
 
+    /// The properties by name.
     pub fn properties(&self) -> &BTreeMap<String, PgValue> {
         &self.properties
     }

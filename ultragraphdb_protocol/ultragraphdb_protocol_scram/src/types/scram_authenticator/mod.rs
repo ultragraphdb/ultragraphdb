@@ -21,6 +21,8 @@ pub struct ScramAuthenticator<C, N> {
 }
 
 impl<C, N> ScramAuthenticator<C, N> {
+    /// The authenticator over `credentials`, its server nonces from `nonces` and its unknown names' verifiers from
+    /// `secret`, at [`crate::DEFAULT_ITERATIONS`].
     pub fn new(credentials: C, nonces: N, secret: [u8; 32]) -> Self {
         Self {
             credentials,

@@ -23,7 +23,7 @@ impl<'a> BodyView<'a> for CancelView<'a> {
         let command = Self::COMMAND.number();
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[])?;
-        Sections::<0>::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self { frame: PhantomData })
     }
 

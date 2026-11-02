@@ -3,6 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The simulator's scenarios: a seed replays exactly, a power loss keeps a prefix of the batches and every synced
+//! one, a failed batch poisons the store until it reopens, an interrupted drop finishes at recovery, and a broken
+//! invariant stops the run with its step and seed.
+
 use std::collections::BTreeSet;
 
 use cucumber::{World, then, when};
@@ -11,6 +15,7 @@ use ultragraphdb_store_sim::{
     Contents, DropStage, Event, Fault, FaultConfig, Invariant, RunOutcome, Seed, SimClock,
     SimStore, Simulation, StoreWorkload, Violation,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 #[derive(Debug, Default, World)]
@@ -70,15 +75,13 @@ fn run_twice(w: &mut Steps) {
 }
 
 #[then("both runs perform the same operations, inject the same faults and end in the same state")]
-fn runs_equal(w: &mut Steps) {
+fn runs_equal(w: &mut Steps) -> TestResult {
     let first = w.runs[0]
         .as_ref()
-        .map_err(|v| v.to_string())
-        .expect("the first run breaks no invariant");
+        .context("the first run breaks no invariant")?;
     let second = w.runs[1]
         .as_ref()
-        .map_err(|v| v.to_string())
-        .expect("the second run breaks no invariant");
+        .context("the second run breaks no invariant")?;
     assert_eq!(first.trace(), second.trace());
     assert_eq!(first.contents(), second.contents());
     let faults = [
@@ -101,6 +104,7 @@ fn runs_equal(w: &mut Steps) {
         })
         .collect();
     assert!(injected.len() >= 3, "the run injected only {injected:?}");
+    Ok(())
 }
 
 /// Versionless key `j` of batch `i`.
@@ -111,9 +115,9 @@ fn versionless_key(i: u64, j: u64) -> Vec<u8> {
 }
 
 #[when("batches write versioned and versionless keys together and a power loss is injected")]
-fn mixed_power_loss(w: &mut Steps) {
+fn mixed_power_loss(w: &mut Steps) -> TestResult {
     w.mixed = (0..40)
-        .map(|seed| {
+        .map(|seed| -> TestResult<Contents> {
             let store = new_store(seed);
             for i in 1..=BATCHES {
                 let mut b = batch(i);
@@ -123,13 +127,14 @@ fn mixed_power_loss(w: &mut Steps) {
                 } else {
                     PersistMode::Buffer
                 };
-                store.apply(b, mode).expect("no fault is configured");
+                store.apply(b, mode).context("no fault is configured")?;
             }
             store.power_loss();
             store.recover();
-            store.contents()
+            Ok(store.contents())
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(
@@ -156,7 +161,7 @@ fn mixed_kept(w: &mut Steps) {
                 kept = i;
             }
         }
-        survivors.insert(kept);
+        let _new: bool = survivors.insert(kept);
     }
     assert!(
         survivors.len() > 3,
@@ -165,9 +170,9 @@ fn mixed_kept(w: &mut Steps) {
 }
 
 #[when("batches are written, some synced, and a power loss is injected")]
-fn power_loss(w: &mut Steps) {
+fn power_loss(w: &mut Steps) -> TestResult {
     w.recovered = (0..40)
-        .map(|seed| {
+        .map(|seed| -> TestResult<(Contents, u64)> {
             let store = new_store(seed);
             let synced = 4 + seed % 5;
             for i in 1..=BATCHES {
@@ -176,13 +181,16 @@ fn power_loss(w: &mut Steps) {
                 } else {
                     PersistMode::Buffer
                 };
-                store.apply(batch(i), mode).expect("no fault is configured");
+                store
+                    .apply(batch(i), mode)
+                    .context("no fault is configured")?;
             }
             store.power_loss();
             store.recover();
-            (store.contents(), synced)
+            Ok((store.contents(), synced))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(
@@ -203,7 +211,7 @@ fn power_loss_kept(w: &mut Steps) {
         );
         assert!(kept >= *synced, "synced batch {synced} lost: {counts:?}");
         assert_eq!(contents.applied_ts(), kept);
-        survivors.insert(kept);
+        let _new: bool = survivors.insert(kept);
     }
     assert!(
         survivors.len() > 3,
@@ -212,13 +220,13 @@ fn power_loss_kept(w: &mut Steps) {
 }
 
 #[when("a batch fails during its persist, a write follows, and the store is reopened")]
-fn failed_batch(w: &mut Steps) {
+fn failed_batch(w: &mut Steps) -> TestResult {
     w.poisoned = (0..20)
-        .map(|seed| {
+        .map(|seed| -> TestResult<(Result<(), StoreError>, Contents)> {
             let store = new_store(seed);
             store
                 .apply(batch(1), PersistMode::Buffer)
-                .expect("no fault is configured");
+                .context("no fault is configured")?;
             store.inject(Fault::FailNextBatch);
             let failed = store.apply(batch(2), PersistMode::Buffer);
             assert!(
@@ -232,9 +240,10 @@ fn failed_batch(w: &mut Steps) {
             );
             let refused = store.apply(batch(3), PersistMode::Buffer);
             store.recover();
-            (refused, store.contents())
+            Ok((refused, store.contents()))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(
@@ -251,7 +260,7 @@ fn failed_batch_whole(w: &mut Steps) {
         );
         assert_eq!(held(contents, 1), KEYS_PER_BATCH);
         assert_eq!(held(contents, 3), 0, "the refused write is absent");
-        outcomes.insert(failed);
+        let _new: bool = outcomes.insert(failed);
     }
     assert_eq!(outcomes.len(), 2, "both outcomes occur across the seeds");
 }
@@ -259,7 +268,7 @@ fn failed_batch_whole(w: &mut Steps) {
 #[when(
     "a drop of everything has synced its record and a power loss is injected before it deletes the record"
 )]
-fn interrupted_drop(w: &mut Steps) {
+fn interrupted_drop(w: &mut Steps) -> TestResult {
     let stages = [
         DropStage::RecordSynced,
         DropStage::DataRemoved,
@@ -268,15 +277,15 @@ fn interrupted_drop(w: &mut Steps) {
     w.recovered = stages
         .iter()
         .flat_map(|&stage| (0..5).map(move |seed| (stage, seed)))
-        .map(|(stage, seed)| {
+        .map(|(stage, seed)| -> TestResult<(Contents, u64)> {
             let store = new_store(seed);
-            (1..=4).for_each(|i| {
+            for i in 1..=4 {
                 store
                     .apply(batch(i), PersistMode::Buffer)
-                    .expect("no fault is configured")
-            });
-            store.set_discard_ts(2).expect("no fault is configured");
-            store.ban_namespace(5).expect("no fault is configured");
+                    .context("no fault is configured")?;
+            }
+            store.set_discard_ts(2).context("no fault is configured")?;
+            store.ban_namespace(5).context("no fault is configured")?;
             store.inject(Fault::PowerLossDuringNextDrop(stage));
             let result = store.drop_all(vec![Entry::put(
                 b"\x01schema".to_vec(),
@@ -293,9 +302,10 @@ fn interrupted_drop(w: &mut Steps) {
             );
             assert!(store.needs_recovery());
             store.recover();
-            (store.contents(), 0)
+            Ok((store.contents(), 0))
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then("after recovery the store holds only the entries the drop was given")]
@@ -332,12 +342,10 @@ fn broken_run(w: &mut Steps) {
 }
 
 #[then("the simulator stops and reports the invariant, the step and the seed")]
-fn reported(w: &mut Steps) {
-    let violation = w
-        .violation
-        .take()
-        .expect("ran")
-        .expect_err("the run breaks an invariant");
+fn reported(w: &mut Steps) -> TestResult {
+    let Err(violation) = w.violation.take().context("ran")? else {
+        return Err(TestError::new("the run breaks an invariant"));
+    };
     assert_eq!(violation.invariant(), Invariant::NoWriteBelowDeletion);
     assert_eq!((violation.seed(), violation.step()), (Seed::new(99), 1));
     assert_eq!(
@@ -345,12 +353,14 @@ fn reported(w: &mut Steps) {
         "seed 99 step 1 broke the invariant that no write lands below a deletion of the same key: \
          key 006b6579 written at 5 below its deletion at 10; replay it with seed 99"
     );
+    Ok(())
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

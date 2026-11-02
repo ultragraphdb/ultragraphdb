@@ -6,10 +6,11 @@
 use std::cmp::Ordering;
 
 use ultragraphdb_core_types::TextCollator;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_collator::Collator;
 
 #[test]
-fn test_text_collator_refuses_what_go_refuses() {
+fn test_text_collator_refuses_what_go_refuses() -> TestResult {
     // language.Parse refuses a malformed tag and a well-formed unknown one.
     for lang in ["xx-invalid-tag-!", "xx", ""] {
         assert!(TextCollator.language(lang).is_none(), "{lang:?}");
@@ -28,36 +29,48 @@ fn test_text_collator_refuses_what_go_refuses() {
         let c = TextCollator
             .language(lang)
             .ok_or_else(|| format!("{lang} is a tag Go accepts"))
-            .expect("a tag Go accepts");
+            .context("a tag Go accepts")?;
         let got = [("a", "B"), ("B", "a"), ("e", "é"), ("ä", "b")]
             .map(|(a, b)| TextCollator.compare(&c, a, b) as i8);
         assert_eq!(got, want, "{lang}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_text_collator_compares_as_compare_string() {
-    let de = TextCollator.language("de").unwrap();
+fn test_text_collator_compares_as_compare_string() -> TestResult {
+    let de = TextCollator
+        .language("de")
+        .context("TextCollator.language(\"de\")")?;
     assert_eq!(
         TextCollator.compare(&de, "öffnen", "zumachen"),
         Ordering::Less
     );
-    let sv = TextCollator.language("sv").unwrap();
+    let sv = TextCollator
+        .language("sv")
+        .context("TextCollator.language(\"sv\")")?;
     assert_eq!(TextCollator.compare(&sv, "öppna", "zon"), Ordering::Greater);
     // CompareString, not a comparison of keys: with -u-ka-shifted Go skips the primary level.
-    let shifted = TextCollator.language("en-u-ka-shifted").unwrap();
+    let shifted = TextCollator
+        .language("en-u-ka-shifted")
+        .context("TextCollator.language(\"en-u-ka-shifted\")")?;
     assert_eq!(TextCollator.compare(&shifted, "a", "b"), Ordering::Equal);
     // Strings that collate equal compare by their bytes under -u-ks-identic.
-    let identic = TextCollator.language("en-u-ks-identic").unwrap();
+    let identic = TextCollator
+        .language("en-u-ks-identic")
+        .context("TextCollator.language(\"en-u-ks-identic\")")?;
     assert_eq!(
         TextCollator.compare(&identic, "a\u{301}", "\u{e1}"),
         "a\u{301}".cmp("\u{e1}")
     );
+    Ok(())
 }
 
 #[test]
-fn test_text_collator_compares_bytes_as_go_compares_strings() {
-    let en = TextCollator.language("en").unwrap();
+fn test_text_collator_compares_bytes_as_go_compares_strings() -> TestResult {
+    let en = TextCollator
+        .language("en")
+        .context("TextCollator.language(\"en\")")?;
     // An invalid byte weighs as U+FFFD's implicit weight, above U+FFFD's own.
     assert_eq!(
         TextCollator.compare_bytes(&en, b"\xff", "\u{fffd}".as_bytes()),
@@ -71,4 +84,5 @@ fn test_text_collator_compares_bytes_as_go_compares_strings() {
         TextCollator.compare(&en, "a", "b"),
         TextCollator.compare_bytes(&en, b"a", b"b")
     );
+    Ok(())
 }

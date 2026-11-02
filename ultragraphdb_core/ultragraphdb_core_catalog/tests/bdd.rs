@@ -14,6 +14,7 @@ use ultragraphdb_core_mapping::{
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_kv::{Durability, FjallStore};
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
 #[derive(Debug, Default, World)]
@@ -45,30 +46,28 @@ fn declare_age_int(w: &mut Steps) {
 }
 
 #[then("the declaration fails with an error naming age, int and xsd:string")]
-fn age_refused(w: &mut Steps) {
-    let error = w.refusals.first().expect("refused").to_string();
+fn age_refused(w: &mut Steps) -> TestResult {
+    let error = w.refusals.first().context("refused")?.to_string();
     assert!(
         error.contains("age") && error.contains("int") && error.contains("XMLSchema#string"),
         "{error}"
     );
     assert!(w.catalog.predicate(5).is_none(), "nothing was declared");
+    Ok(())
 }
 
 #[when("Employee is declared a subtype of Person and then of Agent")]
-fn second_parent(w: &mut Steps) {
+fn second_parent(w: &mut Steps) -> TestResult {
     let (employee, person, agent) = (1, 2, 3);
     for (uid, name) in [(person, "Person"), (agent, "Agent")] {
         w.catalog
-            .declare_type(uid, TypeDeclaration::new(ex(name), None, false), None)
-            .unwrap();
+            .declare_type(uid, TypeDeclaration::new(ex(name), None, false), None)?;
     }
-    w.catalog
-        .declare_type(
-            employee,
-            TypeDeclaration::new(ex("Employee"), Some(ex("Person")), false),
-            Some(person),
-        )
-        .unwrap();
+    w.catalog.declare_type(
+        employee,
+        TypeDeclaration::new(ex("Employee"), Some(ex("Person")), false),
+        Some(person),
+    )?;
     w.refusals.extend(
         w.catalog
             .declare_type(
@@ -78,11 +77,12 @@ fn second_parent(w: &mut Steps) {
             )
             .err(),
     );
+    Ok(())
 }
 
 #[then("the second declaration fails with an error naming Employee, Person and Agent")]
-fn second_parent_refused(w: &mut Steps) {
-    let error = w.refusals.first().expect("refused").to_string();
+fn second_parent_refused(w: &mut Steps) -> TestResult {
+    let error = w.refusals.first().context("refused")?.to_string();
     for name in ["Employee", "Person", "Agent"] {
         assert!(error.contains(name), "{error}");
     }
@@ -90,20 +90,22 @@ fn second_parent_refused(w: &mut Steps) {
         w.catalog.entity_type(1).and_then(|t| t.parent()),
         Some(&ex("Person"))
     );
+    Ok(())
 }
 
 #[when("Agent has the subtypes Person and Org, and Person the subtype Employee")]
-fn hierarchy(w: &mut Steps) {
-    let declare = |w: &mut Steps, uid: u64, name: &str, parent: Option<(&str, u64)>| {
+fn hierarchy(w: &mut Steps) -> TestResult {
+    let declare = |steps: &mut Steps, uid: u64, name: &str, parent: Option<(&str, u64)>| {
         let declaration = TypeDeclaration::new(ex(name), parent.map(|(p, _)| ex(p)), false);
-        w.catalog
+        steps
+            .catalog
             .declare_type(uid, declaration, parent.map(|(_, u)| u))
-            .unwrap();
     };
-    declare(w, 10, "Agent", None);
-    declare(w, 20, "Person", Some(("Agent", 10)));
-    declare(w, 30, "Org", Some(("Agent", 10)));
-    declare(w, 40, "Employee", Some(("Person", 20)));
+    declare(w, 10, "Agent", None)?;
+    declare(w, 20, "Person", Some(("Agent", 10)))?;
+    declare(w, 30, "Org", Some(("Agent", 10)))?;
+    declare(w, 40, "Employee", Some(("Person", 20)))?;
+    Ok(())
 }
 
 #[then("the preorder numbers place Employee between Person and Org")]
@@ -134,78 +136,77 @@ fn fjall_dir() -> std::path::PathBuf {
     dir
 }
 
-fn write_catalog(store: &FjallStore, entries: Vec<Entry>) {
+fn write_catalog(store: &FjallStore, entries: Vec<Entry>) -> TestResult {
     let mut batch = WriteBatch::new();
     entries.into_iter().for_each(|e| batch.push(e));
-    store.apply(batch, PersistMode::Sync).unwrap();
+    store.apply(batch, PersistMode::Sync)?;
+    Ok(())
 }
 
 #[when("declarations are made and the store is closed and reopened")]
-fn catalog_restart(w: &mut Steps) {
+fn catalog_restart(w: &mut Steps) -> TestResult {
     let dir = fjall_dir();
     let mut catalog = Catalog::initial(3, 1);
-    catalog
-        .declare_predicate(
-            7,
-            PredicateDeclaration::new(ex("name"))
-                .with_kind(PredicateKind::Property)
-                .with_cardinality(Cardinality::Single)
-                .with_tokenizers(vec!["exact".into(), "term".into()])
-                .with_unique(true),
-        )
-        .unwrap();
-    catalog
-        .declare_type(8, TypeDeclaration::new(ex("Person"), None, false), None)
-        .unwrap();
+    catalog.declare_predicate(
+        7,
+        PredicateDeclaration::new(ex("name"))
+            .with_kind(PredicateKind::Property)
+            .with_cardinality(Cardinality::Single)
+            .with_tokenizers(vec!["exact".into(), "term".into()])
+            .with_unique(true),
+    )?;
+    catalog.declare_type(8, TypeDeclaration::new(ex("Person"), None, false), None)?;
     catalog.declare_relation(
         9,
         RelationDeclaration::new(ex("Employment"), vec![ex("employer")]),
     );
-    let store = FjallStore::open(&dir, Durability::Filesystem).unwrap();
-    write_catalog(&store, catalog.entries(2));
+    let store = FjallStore::open(&dir, Durability::Filesystem)?;
+    write_catalog(&store, catalog.entries(2))?;
     drop(store);
-    let store = FjallStore::open(&dir, Durability::Filesystem).unwrap();
-    let loaded = Catalog::load(&store.snapshot(u64::MAX).unwrap(), 3).unwrap();
+    let reopened = FjallStore::open(&dir, Durability::Filesystem)?;
+    let loaded = Catalog::load(&reopened.snapshot(u64::MAX)?, 3)?;
     w.catalogs = Some((catalog, loaded));
-    drop(store);
-    std::fs::remove_dir_all(&dir).expect("the store's directory is removed");
+    drop(reopened);
+    std::fs::remove_dir_all(&dir).context("the store's directory is removed")?;
+    Ok(())
 }
 
 #[then("the loaded catalog equals the catalog before closing")]
-fn catalog_equal(w: &mut Steps) {
-    let (before, after) = w.catalogs.take().unwrap();
+fn catalog_equal(w: &mut Steps) -> TestResult {
+    let (before, after) = w.catalogs.take().context("the catalogs before and after")?;
     assert_eq!(after, before);
+    Ok(())
 }
 
 #[when("a predicate's declaration is removed and the store is reopened")]
-fn removal_restart(w: &mut Steps) {
+fn removal_restart(w: &mut Steps) -> TestResult {
     let dir = fjall_dir();
     let mut catalog = Catalog::initial(0, 1);
-    catalog
-        .declare_predicate(7, PredicateDeclaration::new(ex("nick")))
-        .unwrap();
-    let store = FjallStore::open(&dir, Durability::Filesystem).unwrap();
-    write_catalog(&store, catalog.entries(2));
-    catalog.remove_predicate(7);
-    write_catalog(&store, vec![Catalog::removal(0, PREDICATE, 7, 3)]);
+    catalog.declare_predicate(7, PredicateDeclaration::new(ex("nick")))?;
+    let store = FjallStore::open(&dir, Durability::Filesystem)?;
+    write_catalog(&store, catalog.entries(2))?;
+    assert!(catalog.remove_predicate(7), "nick was declared");
+    write_catalog(&store, vec![Catalog::removal(0, PREDICATE, 7, 3)])?;
     drop(store);
-    let store = FjallStore::open(&dir, Durability::Filesystem).unwrap();
-    let loaded = Catalog::load(&store.snapshot(u64::MAX).unwrap(), 0).unwrap();
+    let reopened = FjallStore::open(&dir, Durability::Filesystem)?;
+    let loaded = Catalog::load(&reopened.snapshot(u64::MAX)?, 0)?;
     w.catalogs = Some((catalog, loaded));
-    drop(store);
-    std::fs::remove_dir_all(&dir).expect("the store's directory is removed");
+    drop(reopened);
+    std::fs::remove_dir_all(&dir).context("the store's directory is removed")?;
+    Ok(())
 }
 
 #[then("the loaded catalog does not declare the predicate")]
-fn removal_kept(w: &mut Steps) {
-    let (before, after) = w.catalogs.take().unwrap();
+fn removal_kept(w: &mut Steps) -> TestResult {
+    let (before, after) = w.catalogs.take().context("the catalogs before and after")?;
     assert!(after.predicate(7).is_none());
     assert!(after.predicate(1).is_some(), "rdf:type stays declared");
     assert_eq!(after, before);
+    Ok(())
 }
 
 #[when("a namespace's catalog is loaded from a store holding a catalog key that does not parse")]
-fn load_unparseable_key(w: &mut Steps) {
+fn load_unparseable_key(w: &mut Steps) -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut batch = WriteBatch::new();
     Catalog::initial(0, 1)
@@ -215,20 +216,19 @@ fn load_unparseable_key(w: &mut Steps) {
     batch.push(Entry::put(UNPARSEABLE_KEY.to_vec(), 3, 0x01, vec![1]).with_discard());
     store
         .apply(batch, PersistMode::Buffer)
-        .expect("the batch is written");
+        .context("the batch is written")?;
     w.loaded = Some(Catalog::load(
-        &store.snapshot(u64::MAX).expect("a snapshot"),
+        &store.snapshot(u64::MAX).context("a snapshot")?,
         0,
     ));
+    Ok(())
 }
 
 #[then("the load fails with a corruption error naming the key, and nothing panics")]
-fn load_refused(w: &mut Steps) {
-    let error = w
-        .loaded
-        .take()
-        .expect("loaded")
-        .expect_err("the load is refused");
+fn load_refused(w: &mut Steps) -> TestResult {
+    let Err(error) = w.loaded.take().context("loaded")? else {
+        return Err(TestError::new("the load is refused"));
+    };
     assert!(
         matches!(
             &error.0,
@@ -237,12 +237,14 @@ fn load_refused(w: &mut Steps) {
         ),
         "{error:?}"
     );
+    Ok(())
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

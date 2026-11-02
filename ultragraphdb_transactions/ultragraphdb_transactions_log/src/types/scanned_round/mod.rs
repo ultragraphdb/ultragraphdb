@@ -20,6 +20,8 @@ pub struct ScannedRound {
 }
 
 impl ScannedRound {
+    /// A round at `position` naming `parent`, with its frame's `checksum`, its `first_version` and `transactions`,
+    /// its frame of `size` bytes at `offset`.
     pub fn new(
         position: Position,
         parent: u64,
@@ -40,22 +42,27 @@ impl ScannedRound {
         }
     }
 
+    /// The round's position, as its header names it.
     pub fn position(&self) -> Position {
         self.position
     }
 
+    /// The checksum of the round before it, as its header names it.
     pub fn parent(&self) -> u64 {
         self.parent
     }
 
+    /// The frame's `checksum`, the parent the next round names.
     pub fn checksum(&self) -> u64 {
         self.checksum
     }
 
+    /// The commit version of the round's first transaction.
     pub fn first_version(&self) -> u64 {
         self.first_version
     }
 
+    /// The number of transactions the round carries.
     pub fn transactions(&self) -> u32 {
         self.transactions
     }

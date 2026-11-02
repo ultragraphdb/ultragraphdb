@@ -8,6 +8,7 @@
 
 use ultragraphdb_error_protocol::ProtocolErrorEnum;
 use ultragraphdb_protocol_wire::{RecordOperation, WriteSetRecord, WriteSetRecordView};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::section;
 
@@ -46,7 +47,7 @@ fn operating(operation: RecordOperation) -> Vec<u8> {
 }
 
 #[test]
-fn test_an_operation_is_sixteen_bytes_in_section_ten() {
+fn test_an_operation_is_sixteen_bytes_in_section_ten() -> TestResult {
     let bytes = operating(RecordOperation::SwapBuild(0x0102));
     let (offset, len) = section(&bytes, 40, 10);
     assert_eq!(len, 16);
@@ -54,7 +55,7 @@ fn test_an_operation_is_sixteen_bytes_in_section_ten() {
     expected.extend_from_slice(&[0; 6]);
     expected.extend_from_slice(&0x0102u64.to_le_bytes());
     assert_eq!(&bytes[offset..offset + 16], expected.as_slice());
-    let view = WriteSetRecordView::new(&bytes).unwrap();
+    let view = WriteSetRecordView::new(&bytes)?;
     assert_eq!(view.operation(), Some(RecordOperation::SwapBuild(0x0102)));
     assert_eq!(
         view.to_record().encode(),
@@ -64,17 +65,21 @@ fn test_an_operation_is_sixteen_bytes_in_section_ten() {
     // A transaction's record has none.
     let plain = WriteSetRecord::new(5, 0, 0, 0).encode();
     assert_eq!(section(&plain, 40, 10).1, 0);
-    assert_eq!(WriteSetRecordView::new(&plain).unwrap().operation(), None);
+    assert_eq!(WriteSetRecordView::new(&plain)?.operation(), None);
+    Ok(())
 }
 
 #[test]
-fn test_a_malformed_operation_is_refused() {
+fn test_a_malformed_operation_is_refused() -> TestResult {
     let bytes = operating(RecordOperation::DropPredicate(9));
     let (offset, _) = section(&bytes, 40, 10);
     let mut unknown = bytes.clone();
     unknown[offset] = 8;
     assert_eq!(
-        WriteSetRecordView::new(&unknown).unwrap_err().0,
+        WriteSetRecordView::new(&unknown)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::FieldValue {
             command: 17,
             field: "operation",
@@ -85,7 +90,10 @@ fn test_a_malformed_operation_is_refused() {
     let mut argument = bytes.clone();
     argument[offset] = 5;
     assert_eq!(
-        WriteSetRecordView::new(&argument).unwrap_err().0,
+        WriteSetRecordView::new(&argument)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::FieldValue {
             command: 17,
             field: "argument",
@@ -96,7 +104,7 @@ fn test_a_malformed_operation_is_refused() {
     let mut both = argument.clone();
     both[offset + 2] = 1;
     assert_eq!(
-        WriteSetRecordView::new(&both).unwrap_err().0,
+        WriteSetRecordView::new(&both).err().context("a refusal")?.0,
         ProtocolErrorEnum::PaddingNotZero {
             command: 17,
             offset: offset + 2
@@ -105,7 +113,7 @@ fn test_a_malformed_operation_is_refused() {
     let mut zero = bytes.clone();
     zero[offset] = 0;
     assert_eq!(
-        WriteSetRecordView::new(&zero).unwrap_err().0,
+        WriteSetRecordView::new(&zero).err().context("a refusal")?.0,
         ProtocolErrorEnum::FieldValue {
             command: 17,
             field: "operation",
@@ -115,16 +123,20 @@ fn test_a_malformed_operation_is_refused() {
     let mut padding = bytes.clone();
     padding[offset + 7] = 1;
     assert_eq!(
-        WriteSetRecordView::new(&padding).unwrap_err().0,
+        WriteSetRecordView::new(&padding)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::PaddingNotZero {
             command: 17,
             offset: offset + 7
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_an_operation_section_of_the_wrong_length_is_refused() {
+fn test_an_operation_section_of_the_wrong_length_is_refused() -> TestResult {
     // A section of 8 bytes: the table's last entry names it, the bytes follow.
     let mut short = WriteSetRecord::new(0, 1, 2, 3).encode();
     let at = 40 + 8 * 10;
@@ -133,7 +145,10 @@ fn test_an_operation_section_of_the_wrong_length_is_refused() {
     short[at + 4..at + 8].copy_from_slice(&8u32.to_le_bytes());
     short.extend_from_slice(&[0; 8]);
     assert_eq!(
-        WriteSetRecordView::new(&short).unwrap_err().0,
+        WriteSetRecordView::new(&short)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::SectionLength {
             command: 17,
             section: 10,
@@ -143,13 +158,13 @@ fn test_an_operation_section_of_the_wrong_length_is_refused() {
     );
     // A section of 24 bytes: one operation and eight more, which is not "empty or one operation".
     let mut long = WriteSetRecord::new(0, 1, 2, 3).encode();
-    let end = long.len() as u32;
-    long[at..at + 4].copy_from_slice(&end.to_le_bytes());
+    let long_end = long.len() as u32;
+    long[at..at + 4].copy_from_slice(&long_end.to_le_bytes());
     long[at + 4..at + 8].copy_from_slice(&24u32.to_le_bytes());
     long.extend_from_slice(&[1, 0, 0, 0, 0, 0, 0, 0]);
     long.extend_from_slice(&[0; 16]);
     assert_eq!(
-        WriteSetRecordView::new(&long).unwrap_err().0,
+        WriteSetRecordView::new(&long).err().context("a refusal")?.0,
         ProtocolErrorEnum::SectionLength {
             command: 17,
             section: 10,
@@ -157,4 +172,5 @@ fn test_an_operation_section_of_the_wrong_length_is_refused() {
             unit: 16
         }
     );
+    Ok(())
 }

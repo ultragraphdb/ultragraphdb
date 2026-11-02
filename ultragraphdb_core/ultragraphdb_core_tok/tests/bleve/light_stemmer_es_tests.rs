@@ -7,9 +7,10 @@
 //! Dgraph's tok/stemmers_test.go and the corpus sentences, by a Go program over bleve's filter.
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_spanish_light_stemmer() {
+fn test_spanish_light_stemmer() -> TestResult {
     check_stems(
         "stemmer_es_light",
         &[
@@ -29,5 +30,6 @@ fn test_spanish_light_stemmer() {
             ("veces", "vez"),
         ],
         &[],
-    );
+    )?;
+    Ok(())
 }

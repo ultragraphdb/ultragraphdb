@@ -55,7 +55,7 @@ impl List {
     /// The number of uids in the immutable layer, every part counted.
     fn immutable_layer_len(&self) -> Result<usize, PostingError> {
         // Seeking checks that every part is held.
-        PIterator::seek(self, 0, 0)?;
+        let _seeked: PIterator<'_> = PIterator::seek(self, 0, 0)?;
         Ok(self
             .immutable_parts()
             .iter()

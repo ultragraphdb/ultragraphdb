@@ -3,12 +3,15 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The behaviour scenarios of `ultragraphdb_core_types`, run by cucumber over the crate's `features/`.
+
 use cucumber::{World, given, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_types::{
     BIG_FLOAT_PRECISION, BigFloat, DateTime, TextCollator, TypeId, Val, Value, convert, encrypt,
     marshal, parse_time, sort, type_for_value, verify_password,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -27,17 +30,17 @@ struct Steps {
     golden_lang: Vec<LangSortCase>,
 }
 
-fn golden<T: for<'de> Deserialize<'de> + Clone>(name: &str) -> Vec<T> {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/{name}.json"));
-    ultragraphdb_tool_bdd::load_golden::<T>(&path)
+fn golden<T: for<'de> Deserialize<'de> + Clone>(name: &str) -> TestResult<Vec<T>> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join(format!("golden/{name}.json"));
+    Ok(ultragraphdb_tool_bdd::load_golden::<T>(&path)?
         .cases()
-        .to_vec()
+        .to_vec())
 }
 
-fn unhex(s: &str) -> Vec<u8> {
+fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
@@ -55,12 +58,12 @@ fn binary_of(v: &Val) -> Result<Vec<u8>, String> {
     }
 }
 
-fn text_of(v: &Val) -> String {
-    match marshal(v, TypeId::STRING).unwrap().into_value() {
+fn text_of(v: &Val) -> TestResult<String> {
+    match marshal(v, TypeId::STRING)?.into_value() {
         Some(Value::Str(s)) => Ok(s),
         other => Err(format!("{other:?}")),
     }
-    .expect("marshalling to string gives a string")
+    .context("marshalling to string gives a string")
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -81,8 +84,8 @@ struct ConvCase {
 }
 
 /// The golden conversions of a type's binary form to binary: the value's own encoding, as Dgraph writes it.
-fn encodings() -> Vec<ConvCase> {
-    golden::<ConvCase>("types_convert")
+fn encodings() -> TestResult<Vec<ConvCase>> {
+    Ok(golden::<ConvCase>("types_convert")?
         .into_iter()
         .filter(|c| {
             c.from != TypeId::BINARY.enum_value()
@@ -92,7 +95,7 @@ fn encodings() -> Vec<ConvCase> {
                     .as_ref()
                     .is_some_and(|o| !o.bin.is_empty() && o.panic.is_empty())
         })
-        .collect()
+        .collect())
 }
 
 // ---------- Type identifiers ----------
@@ -116,24 +119,25 @@ fn names_map(w: &mut Steps) {
 // ---------- Binary encodings ----------
 
 #[when(expr = "the golden values of each type are converted to binary")]
-fn encode_golden(w: &mut Steps) {
-    let cases = encodings();
+fn encode_golden(w: &mut Steps) -> TestResult {
+    let cases = encodings()?;
     assert!(cases.len() > 100, "{} golden encodings", cases.len());
     for c in cases {
         let got = convert(
-            &Val::bytes(TypeId::new(c.from), unhex(&c.input)),
+            &Val::bytes(TypeId::new(c.from), unhex(&c.input)?),
             TypeId::BINARY,
         )
         .map(|v| binary_of(&v))
         .map_err(|e| e.to_string());
-        let want = c.out.unwrap().bin;
-        if got != Ok(Ok(unhex(&want))) {
+        let want = c.out.context("c.out")?.bin;
+        if got != Ok(Ok(unhex(&want)?)) {
             w.failures.push(format!(
                 "type {} of {}: {got:?}, Dgraph {want}",
                 c.from, c.input
             ));
         }
     }
+    Ok(())
 }
 
 #[then(expr = "each result equals Dgraph's bytes")]
@@ -142,13 +146,13 @@ fn encodings_match(w: &mut Steps) {
 }
 
 #[when(expr = "{string} is converted to binary")]
-fn datetime_to_binary(w: &mut Steps, s: String) {
+fn datetime_to_binary(w: &mut Steps, s: String) -> TestResult {
     let t = convert(
         &Val::bytes(TypeId::STRING, s.into_bytes()),
         TypeId::DATETIME,
-    )
-    .unwrap();
-    w.bytes = binary_of(&t).unwrap();
+    )?;
+    w.bytes = binary_of(&t).context("the binary form of the datetime")?;
+    Ok(())
 }
 
 #[then(expr = "the result is 15 bytes starting with 0x01 and ending in the offset FF FF")]
@@ -161,14 +165,14 @@ fn version_1_layout(w: &mut Steps) {
 }
 
 #[when(expr = "each golden binary value is converted back to its type")]
-fn decode_golden(w: &mut Steps) {
+fn decode_golden(w: &mut Steps) -> TestResult {
     let mut decoded_values = 0;
-    for c in encodings() {
+    for c in encodings()? {
         let tid = TypeId::new(c.from);
-        let bin = unhex(&c.out.unwrap().bin);
+        let bin = unhex(&c.out.context("c.out")?.bin)?;
         // A malformed input (a vector of 3 bytes, a datetime with trailing bytes, a string that is not UTF-8) is not a
         // value of its type.
-        let Ok(original) = convert(&Val::bytes(tid, unhex(&c.input)), tid) else {
+        let Ok(original) = convert(&Val::bytes(tid, unhex(&c.input)?), tid) else {
             continue;
         };
         if binary_of(&original) != Ok(bin.clone()) {
@@ -196,6 +200,7 @@ fn decode_golden(w: &mut Steps) {
         decoded_values > 100,
         "{decoded_values} golden values decoded"
     );
+    Ok(())
 }
 
 #[then(expr = "the result equals the original value")]
@@ -206,9 +211,13 @@ fn decoded_match(w: &mut Steps) {
 // ---------- Conversions ----------
 
 #[when(expr = "the float {word} is converted to int")]
-fn float_to_int(w: &mut Steps, f: f64) {
+fn float_to_int(w: &mut Steps, f: f64) -> TestResult {
     let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
-    w.error = convert(&v, TypeId::INT).unwrap_err().to_string();
+    w.error = convert(&v, TypeId::INT)
+        .err()
+        .context("expected an error")?
+        .to_string();
+    Ok(())
 }
 
 /// The error text of a conversion, or the value it gave.
@@ -222,14 +231,15 @@ fn outcome(r: Result<Val, ultragraphdb_core_types::TypesError>) -> String {
 #[when(
     expr = "the floats {string}, {string} and {string} and the bigfloat {string} are each converted to datetime"
 )]
-fn floats_to_datetime(w: &mut Steps, a: String, b: String, c: String, big: String) {
+fn floats_to_datetime(w: &mut Steps, a: String, b: String, c: String, big: String) -> TestResult {
     for f in [a, b, c] {
-        let f: f64 = f.parse().unwrap();
+        let f: f64 = f.parse()?;
         let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
         w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
     }
     let v = Val::bytes(TypeId::BIGFLOAT, big.into_bytes());
     w.failures.push(outcome(convert(&v, TypeId::DATETIME)));
+    Ok(())
 }
 
 #[then(expr = "each conversion fails with {string}")]
@@ -238,24 +248,30 @@ fn each_conversion_fails(w: &mut Steps, msg: String) {
 }
 
 #[when(expr = "the binary value with the bytes {string} is converted to string")]
-fn invalid_binary_to_string(w: &mut Steps, bytes: &[String]) {
+fn invalid_binary_to_string(w: &mut Steps, bytes: &[String]) -> TestResult {
     w.error = outcome(convert(
-        &Val::bytes(TypeId::BINARY, unhex(&bytes[0])),
+        &Val::bytes(TypeId::BINARY, unhex(&bytes[0])?),
         TypeId::STRING,
     ));
+    Ok(())
 }
 
 #[when(expr = "the binary value of {string} is converted to string")]
-fn binary_to_string(w: &mut Steps, s: String) {
-    w.text =
-        text_of(&convert(&Val::bytes(TypeId::BINARY, s.into_bytes()), TypeId::STRING).unwrap());
+fn binary_to_string(w: &mut Steps, s: String) -> TestResult {
+    w.text = text_of(&convert(
+        &Val::bytes(TypeId::BINARY, s.into_bytes()),
+        TypeId::STRING,
+    )?)?;
+    Ok(())
 }
 
 #[when(expr = "the string {string} is converted to float")]
-fn string_to_float(w: &mut Steps, s: String) {
+fn string_to_float(w: &mut Steps, s: String) -> TestResult {
     w.error = convert(&Val::bytes(TypeId::STRING, s.into_bytes()), TypeId::FLOAT)
-        .unwrap_err()
+        .err()
+        .context("expected an error")?
         .to_string();
+    Ok(())
 }
 
 #[then(expr = "conversion fails with {string}")]
@@ -270,7 +286,7 @@ fn bytes_to_bool(w: &mut Steps) {
         .map(
             |b| match convert(&Val::bytes(TypeId::BINARY, b), TypeId::BOOL) {
                 Ok(v) => match v.into_value() {
-                    Some(Value::Bool(b)) => Ok(b),
+                    Some(Value::Bool(flag)) => Ok(flag),
                     other => Err(format!("{other:?}")),
                 },
                 Err(e) => Err(e.to_string()),
@@ -286,9 +302,10 @@ fn bools_match(w: &mut Steps) {
 }
 
 #[when(expr = "the float 2.5e-7 is converted to string")]
-fn float_to_string(w: &mut Steps) {
+fn float_to_string(w: &mut Steps) -> TestResult {
     let v = Val::bytes(TypeId::FLOAT, 2.5e-7f64.to_bits().to_le_bytes().to_vec());
-    w.text = text_of(&convert(&v, TypeId::STRING).unwrap());
+    w.text = text_of(&convert(&v, TypeId::STRING)?)?;
+    Ok(())
 }
 
 #[then(expr = "the result is {string}")]
@@ -314,8 +331,8 @@ struct BigFloatCase {
 #[when(
     expr = "the golden big-float inputs are parsed and formatted: hand-picked, random, exact midpoints between adjacent 200-bit values, and powers of two"
 )]
-fn big_float_golden(w: &mut Steps) {
-    let cases = golden::<BigFloatCase>("types_bigfloat");
+fn big_float_golden(w: &mut Steps) -> TestResult {
+    let cases = golden::<BigFloatCase>("types_bigfloat")?;
     for kind in ["hand", "random", "midpoint", "pow2"] {
         assert!(cases.iter().any(|c| c.kind == kind), "no {kind} vectors");
     }
@@ -332,6 +349,7 @@ fn big_float_golden(w: &mut Steps) {
             )),
         }
     }
+    Ok(())
 }
 
 #[then(expr = "every 200-bit value equals Go's and every text equals Go's MarshalText")]
@@ -340,10 +358,11 @@ fn big_floats_match(w: &mut Steps) {
 }
 
 #[when(expr = "2^-1100 at 200 bits is formatted")]
-fn format_pow2(w: &mut Steps) {
+fn format_pow2(w: &mut Steps) -> TestResult {
     w.text = BigFloat::unmarshal_text("0x1p-1100", BIG_FLOAT_PRECISION)
-        .unwrap()
+        .context("2^-1100 as a big float")?
         .marshal_text();
+    Ok(())
 }
 
 #[then(expr = "the text is {string}")]
@@ -384,8 +403,9 @@ fn big_float_syntax(w: &mut Steps, words: &[String]) {
 // ---------- Datetimes ----------
 
 #[when(expr = "{string}, {string} and {string} are parsed")]
-fn parse_dates(w: &mut Steps, a: String, b: String, c: String) {
-    w.times = [a, b, c].iter().map(|s| parse_time(s).unwrap()).collect();
+fn parse_dates(w: &mut Steps, a: String, b: String, c: String) -> TestResult {
+    w.times = [a, b, c].iter().map(parse_time).collect::<Result<_, _>>()?;
+    Ok(())
 }
 
 #[then(expr = "each yields midnight UTC on the first day of the period it names")]
@@ -399,9 +419,13 @@ fn midnight(w: &mut Steps) {
 }
 
 #[when(expr = "{string} is parsed")]
-fn parse_one(w: &mut Steps, s: String) {
-    w.error = parse_time(&s).unwrap_err().to_string();
+fn parse_one(w: &mut Steps, s: String) -> TestResult {
+    w.error = parse_time(&s)
+        .err()
+        .context("expected an error")?
+        .to_string();
     w.text = s;
+    Ok(())
 }
 
 #[then(expr = "parsing fails with {string}")]
@@ -452,13 +476,15 @@ fn inferred(w: &mut Steps) {
 // ---------- Passwords ----------
 
 #[when(expr = "the string {string} is converted to password")]
-fn to_password(w: &mut Steps, s: String) {
+fn to_password(w: &mut Steps, s: String) -> TestResult {
     w.error = convert(
         &Val::bytes(TypeId::STRING, s.into_bytes()),
         TypeId::PASSWORD,
     )
-    .unwrap_err()
+    .err()
+    .context("expected an error")?
     .to_string();
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -474,25 +500,26 @@ struct PasswordFile {
 }
 
 #[when(expr = "a golden password and its Go-generated bcrypt hash are checked")]
-fn check_hash(w: &mut Steps) {
-    let file = &golden::<PasswordFile>("types_password")[0];
+fn check_hash(w: &mut Steps) -> TestResult {
+    let file = &golden::<PasswordFile>("types_password")?[0];
     let c = file
         .encrypt
         .iter()
         .find(|c| !c.hash.is_empty())
-        .expect("a Go-written hash");
+        .context("a Go-written hash")?;
     w.hash_ok = verify_password(&c.plain, &c.hash).is_ok();
     w.other_fails = verify_password(format!("{}x", c.plain), &c.hash)
         .map_err(|e| e.to_string())
         .err()
         .unwrap_or_default();
     // A hash the port writes is bcrypt's 2a form at Dgraph's cost of 10, and verifies.
-    let own = encrypt(&c.plain).unwrap();
+    let own = encrypt(&c.plain)?;
     assert!(own.starts_with("$2a$10$") && own.len() == 60, "{own}");
     assert_eq!(
         verify_password(&c.plain, &own).map_err(|e| e.to_string()),
         Ok(())
     );
+    Ok(())
 }
 
 #[then(expr = "the check succeeds, and a different password fails it")]
@@ -507,15 +534,19 @@ fn hash_checked(w: &mut Steps) {
 // ---------- Sorting ----------
 
 #[when(expr = "the values 3, 2.5 and -1 of mixed int and float types are sorted")]
-fn sort_mixed(w: &mut Steps) {
+fn sort_mixed(w: &mut Steps) -> TestResult {
     let mut rows = vec![
         vec![Val::new(TypeId::INT, Value::Int(3))],
         vec![Val::new(TypeId::FLOAT, Value::Float(2.5))],
         vec![Val::new(TypeId::INT, Value::Int(-1))],
     ];
     let mut uids = vec![1, 2, 3];
-    sort(&mut rows, &mut uids, &[false], "", &TextCollator).unwrap();
-    w.sorted = rows.iter().map(|r| text_of(&r[0])).collect();
+    sort(&mut rows, &mut uids, &[false], "", &TextCollator)?;
+    w.sorted = rows
+        .iter()
+        .map(|r| text_of(&r[0]))
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(expr = "the order is -1, 2.5, 3")]
@@ -532,16 +563,17 @@ struct LangSortCase {
 }
 
 #[given(expr = "the golden German strings")]
-fn german_strings(w: &mut Steps) {
-    w.golden_lang = golden::<LangSortCase>("types_sort_lang")
+fn german_strings(w: &mut Steps) -> TestResult {
+    w.golden_lang = golden::<LangSortCase>("types_sort_lang")?
         .into_iter()
         .filter(|c| c.lang == "de")
         .collect();
     assert_eq!(w.golden_lang.len(), 1);
+    Ok(())
 }
 
 #[when(expr = "the golden German strings are sorted with language {string}")]
-fn sort_german(w: &mut Steps, langs: &[String]) {
+fn sort_german(w: &mut Steps, langs: &[String]) -> TestResult {
     let lang = &langs[0];
     let c = &w.golden_lang[0];
     assert_eq!(&c.lang, lang);
@@ -551,8 +583,12 @@ fn sort_german(w: &mut Steps, langs: &[String]) {
         .map(|s| vec![Val::new(TypeId::STRING, Value::str(s))])
         .collect();
     let mut uids: Vec<u64> = (1..=rows.len() as u64).map(|i| i * 100).collect();
-    sort(&mut rows, &mut uids, &[false], lang, &TextCollator).unwrap();
-    w.sorted = rows.iter().map(|r| text_of(&r[0])).collect();
+    sort(&mut rows, &mut uids, &[false], lang, &TextCollator)?;
+    w.sorted = rows
+        .iter()
+        .map(|r| text_of(&r[0]))
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(expr = "the order equals Dgraph's")]
@@ -564,10 +600,11 @@ fn german_order(w: &mut Steps) {
     );
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

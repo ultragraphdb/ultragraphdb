@@ -14,5 +14,8 @@ pub enum SuperblockRead {
     /// The newest record that verifies.
     Present(Superblock),
     /// Copy `copy` holds bytes that do not verify; its sequence is lost, so it may have been the newer.
-    Unreadable { copy: char },
+    Unreadable {
+        /// The copy that does not verify, `'a'` or `'b'`.
+        copy: char,
+    },
 }

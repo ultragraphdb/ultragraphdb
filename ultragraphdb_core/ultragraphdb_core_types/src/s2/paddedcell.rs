@@ -237,16 +237,24 @@ impl PaddedCell {
         if i_min < st_to_ij(uv_to_st(padded.x.lo)) {
             i_min = st_to_ij(uv_to_st(padded.x.lo));
         }
-        let a = self.i_lo + ij_size - 1;
-        let b = st_to_ij(uv_to_st(padded.x.hi));
-        let i_xor = if a <= b { i_min ^ a } else { i_min ^ b };
+        let i_cell_hi = self.i_lo + ij_size - 1;
+        let i_padded_hi = st_to_ij(uv_to_st(padded.x.hi));
+        let i_xor = if i_cell_hi <= i_padded_hi {
+            i_min ^ i_cell_hi
+        } else {
+            i_min ^ i_padded_hi
+        };
 
         if j_min < st_to_ij(uv_to_st(padded.y.lo)) {
             j_min = st_to_ij(uv_to_st(padded.y.lo));
         }
-        let a = self.j_lo + ij_size - 1;
-        let b = st_to_ij(uv_to_st(padded.y.hi));
-        let j_xor = if a <= b { j_min ^ a } else { j_min ^ b };
+        let j_cell_hi = self.j_lo + ij_size - 1;
+        let j_padded_hi = st_to_ij(uv_to_st(padded.y.hi));
+        let j_xor = if j_cell_hi <= j_padded_hi {
+            j_min ^ j_cell_hi
+        } else {
+            j_min ^ j_padded_hi
+        };
 
         // Compute the highest bit position where the two i- or j-endpoints differ,
         // and then choose the cell level that includes both of these endpoints. So

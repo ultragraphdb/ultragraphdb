@@ -19,7 +19,9 @@ impl Drop for JsonValue {
         while let Some(mut v) = stack.pop() {
             match &mut v {
                 JsonValue::Array(items) => stack.append(items),
-                JsonValue::Object(members) => stack.extend(members.drain(..).map(|(_, v)| v)),
+                JsonValue::Object(members) => {
+                    stack.extend(members.drain(..).map(|(_, member)| member))
+                }
                 JsonValue::Null
                 | JsonValue::Bool(_)
                 | JsonValue::Number(_)

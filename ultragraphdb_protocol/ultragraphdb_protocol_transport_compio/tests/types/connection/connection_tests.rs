@@ -15,6 +15,7 @@ use crate::utils::sim::connect;
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, Credit, ErrorCode, ErrorReply, Header, Hello, MAX_FRAME_SIZE, Welcome,
 };
+use ultragraphdb_tool_bdd::{TestError, TestResult};
 
 const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -34,32 +35,40 @@ fn pair(
     )
 }
 
-fn credit(stream: u64) -> Vec<u8> {
-    Credit::new(1)
-        .frame(Header::new(CLUSTER, Command::Credit).with_stream(stream))
-        .unwrap()
+fn credit(stream: u64) -> TestResult<Vec<u8>> {
+    Ok(Credit::new(1).frame(Header::new(CLUSTER, Command::Credit).with_stream(stream))?)
 }
 
 /// An Error frame of a 6,000-byte message: a body of two chunks and a table.
-fn large() -> Vec<u8> {
-    ErrorReply::new(ErrorCode::Refused, "m".repeat(6_000))
-        .frame(Header::new(CLUSTER, Command::Error).with_stream(3))
-        .unwrap()
+fn large() -> TestResult<Vec<u8>> {
+    Ok(ErrorReply::new(ErrorCode::Refused, "m".repeat(6_000))
+        .frame(Header::new(CLUSTER, Command::Error).with_stream(3))?)
 }
 
 /// `frame` numbered as its sender's first, sequence 1, as a handshake's frame is.
-fn first(mut frame: Vec<u8>) -> Vec<u8> {
-    Header::stamp_sequence(&mut frame, 1).unwrap();
-    frame
+fn first(mut frame: Vec<u8>) -> TestResult<Vec<u8>> {
+    Header::stamp_sequence(&mut frame, 1)?;
+    Ok(frame)
 }
 
-fn raw(connection: &mut Connection<CompioSimStream>, bytes: &[u8]) {
+/// The error `result` failed with; a [`TestError`] naming `what` when it succeeded instead.
+fn failure<T>(result: Result<T, TransportError>, what: &str) -> TestResult<TransportError> {
+    let Err(error) = result else {
+        return Err(TestError::new(format!(
+            "{what}: succeeded, a failure was expected"
+        )));
+    };
+    Ok(error)
+}
+
+fn raw(connection: &mut Connection<CompioSimStream>, bytes: &[u8]) -> TestResult {
     let compio::BufResult(written, _) = ready(connection.stream_mut().write(bytes.to_vec()));
-    written.unwrap();
+    assert_eq!(written?, bytes.len());
+    Ok(())
 }
 
 #[test]
-fn test_frames_split_in_flight_are_read_whole() {
+fn test_frames_split_in_flight_are_read_whole() -> TestResult {
     let (_network, mut client, mut server) = pair(
         NetworkFaults::none()
             .with_split(1_000_000)
@@ -67,138 +76,162 @@ fn test_frames_split_in_flight_are_read_whole() {
     );
     assert_eq!(client.cluster(), CLUSTER);
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
-    let frames = vec![
-        credit(1),
-        large(),
+    let unnumbered = vec![
+        credit(1)?,
+        large()?,
         Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")
-            .frame(Header::new(CLUSTER, Command::Hello))
-            .unwrap(),
+            .frame(Header::new(CLUSTER, Command::Hello))?,
     ];
     // Numbered as a client numbers them, from 1, so each view holds the connection's sequence.
-    let frames: Vec<Vec<u8>> = frames
+    let frames = unnumbered
         .into_iter()
         .zip(1u128..)
         .map(|(mut frame, sequence)| {
-            Header::stamp_sequence(&mut frame, sequence).unwrap();
-            frame
+            Header::stamp_sequence(&mut frame, sequence)?;
+            Ok(frame)
         })
-        .collect();
+        .collect::<TestResult<Vec<Vec<u8>>>>()?;
     for frame in &frames {
-        ready(client.write_frame(frame.clone())).unwrap();
+        assert_eq!(ready(client.write_frame(frame.clone()))?, *frame);
     }
     for frame in &frames {
-        let received = ready(server.read_frame(&pool)).unwrap();
+        let received = ready(server.read_frame(&pool))?;
         assert_eq!(received.bytes(), &frame[..]);
         assert!(received.view().is_ok());
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() {
+fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() -> TestResult {
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    ready(client.write_frame(credit(1))).unwrap();
-    ready(client.stream_mut().shutdown()).unwrap();
-    assert!(ready(server.read_frame(&pool)).is_ok());
-    assert_eq!(
-        ready(server.read_frame(&pool)).unwrap_err(),
-        TransportError::Closed()
-    );
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        assert_eq!(ready(client.write_frame(credit(1)?))?, credit(1)?);
+        ready(client.stream_mut().shutdown())?;
+        assert!(ready(server.read_frame(&pool)).is_ok());
+        assert_eq!(
+            failure(ready(server.read_frame(&pool)), "a read after the close")?,
+            TransportError::Closed()
+        );
+    }
     // Inside the header.
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    raw(&mut client, &large()[..100]);
-    ready(client.stream_mut().shutdown()).unwrap();
-    assert_eq!(
-        ready(server.read_frame(&pool)).unwrap_err(),
-        TransportError::Truncated(100, 256)
-    );
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        raw(&mut client, &large()?[..100])?;
+        ready(client.stream_mut().shutdown())?;
+        assert_eq!(
+            failure(ready(server.read_frame(&pool)), "a read of a cut header")?,
+            TransportError::Truncated(100, 256)
+        );
+    }
     // Inside the body.
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let frame = large();
-    raw(&mut client, &frame[..4_000]);
-    ready(client.stream_mut().shutdown()).unwrap();
-    assert_eq!(
-        ready(server.read_frame(&pool)).unwrap_err(),
-        TransportError::Truncated(4_000, frame.len())
-    );
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let frame = large()?;
+        raw(&mut client, &frame[..4_000])?;
+        ready(client.stream_mut().shutdown())?;
+        assert_eq!(
+            failure(ready(server.read_frame(&pool)), "a read of a cut body")?,
+            TransportError::Truncated(4_000, frame.len())
+        );
+    }
     assert_eq!(pool.available(), 4, "every buffer is back");
+    Ok(())
 }
 
 #[test]
-fn test_a_header_breaking_a_rule_is_refused_before_its_body_is_read() {
+fn test_a_header_breaking_a_rule_is_refused_before_its_body_is_read() -> TestResult {
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let other = ErrorReply::new(ErrorCode::Busy, "b".repeat(100))
-        .frame(Header::new(7, Command::Error))
-        .unwrap();
-    ready(client.write_frame(other)).unwrap();
-    assert_eq!(
-        ready(server.read_frame(&pool)).unwrap_err(),
-        TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, 7))
-    );
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let mut broken = credit(1);
-    broken[0] ^= 1;
-    ready(client.write_frame(broken)).unwrap();
-    assert!(matches!(
-        ready(server.read_frame(&pool)).unwrap_err().0,
-        ultragraphdb_protocol_transport::TransportErrorEnum::Protocol { .. }
-    ));
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let other = ErrorReply::new(ErrorCode::Busy, "b".repeat(100))
+            .frame(Header::new(7, Command::Error))?;
+        assert_eq!(ready(client.write_frame(other.clone()))?, other);
+        assert_eq!(
+            failure(
+                ready(server.read_frame(&pool)),
+                "a read of another cluster's frame"
+            )?,
+            TransportError::Protocol(ProtocolError::WrongCluster(CLUSTER, 7))
+        );
+    }
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let mut broken = credit(1)?;
+        broken[0] ^= 1;
+        assert_eq!(ready(client.write_frame(broken.clone()))?, broken);
+        assert!(matches!(
+            failure(ready(server.read_frame(&pool)), "a read of a broken header")?.0,
+            ultragraphdb_protocol_transport::TransportErrorEnum::Protocol { .. }
+        ));
+    }
+    Ok(())
 }
 
 #[test]
-fn test_the_body_of_a_refused_header_stays_unread() {
+fn test_the_body_of_a_refused_header_stays_unread() -> TestResult {
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
     let network = SimNetwork::new(3, NetworkFaults::none());
-    let (client, server) = connect(&network);
-    let probe = server.clone();
-    let mut client = Connection::new(client, Framer::new(CLUSTER, MAX_FRAME_SIZE));
-    let mut server = Connection::new(server, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
-    let other = ErrorReply::new(ErrorCode::Busy, "b".repeat(100))
-        .frame(Header::new(7, Command::Error))
-        .unwrap();
+    let (client_end, server_end) = connect(&network);
+    let probe = server_end.clone();
+    let mut client = Connection::new(client_end, Framer::new(CLUSTER, MAX_FRAME_SIZE));
+    let mut server = Connection::new(server_end, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
+    let other =
+        ErrorReply::new(ErrorCode::Busy, "b".repeat(100)).frame(Header::new(7, Command::Error))?;
     let body = other.len() - 256;
-    ready(client.write_frame(other)).unwrap();
+    assert_eq!(ready(client.write_frame(other.clone()))?, other);
     network.run_until_idle();
     assert!(ready(server.read_frame(&pool)).is_err());
     assert_eq!(probe.sim().pending(), body);
+    Ok(())
 }
 
 #[test]
-fn test_no_free_buffer_or_a_frame_past_its_capacity_is_refused() {
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let one = BufferPool::new(1, MAX_FRAME_SIZE);
-    ready(client.write_frame(credit(1))).unwrap();
-    ready(client.write_frame(credit(2))).unwrap();
-    let held = ready(server.read_frame(&one)).unwrap();
-    assert_eq!(
-        ready(server.read_frame(&one)).unwrap_err(),
-        TransportError::PoolExhausted(1)
-    );
-    drop(held);
-    assert_eq!(ready(server.read_frame(&one)).unwrap().stream(), 2);
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let small = BufferPool::new(1, 300);
-    let frame = large();
-    let size = frame.len();
-    ready(client.write_frame(frame)).unwrap();
-    assert_eq!(
-        ready(server.read_frame(&small)).unwrap_err(),
-        TransportError::Protocol(ProtocolError::FrameTooLarge(size, 300))
-    );
-    assert_eq!(small.available(), 1);
+fn test_no_free_buffer_or_a_frame_past_its_capacity_is_refused() -> TestResult {
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let one = BufferPool::new(1, MAX_FRAME_SIZE);
+        assert_eq!(ready(client.write_frame(credit(1)?))?, credit(1)?);
+        assert_eq!(ready(client.write_frame(credit(2)?))?, credit(2)?);
+        let held = ready(server.read_frame(&one))?;
+        assert_eq!(
+            failure(ready(server.read_frame(&one)), "a read with no buffer free")?,
+            TransportError::PoolExhausted(1)
+        );
+        drop(held);
+        assert_eq!(ready(server.read_frame(&one))?.stream(), 2);
+    }
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let small = BufferPool::new(1, 300);
+        let frame = large()?;
+        let size = frame.len();
+        assert_eq!(ready(client.write_frame(frame.clone()))?, frame);
+        assert_eq!(
+            failure(
+                ready(server.read_frame(&small)),
+                "a read of a frame past the buffers"
+            )?,
+            TransportError::Protocol(ProtocolError::FrameTooLarge(size, 300))
+        );
+        assert_eq!(small.available(), 1);
+    }
+    Ok(())
 }
 
 #[test]
-fn test_a_read_of_a_waiting_stream_takes_what_arrives_later() {
+fn test_a_read_of_a_waiting_stream_takes_what_arrives_later() -> TestResult {
     let pool = BufferPool::new(2, MAX_FRAME_SIZE);
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
+    let frame = credit(4)?;
     let (written, read) = ready(futures::future::join(
-        async { client.write_frame(credit(4)).await },
+        async { client.write_frame(frame.clone()).await },
         server.read_frame(&pool),
     ));
-    written.unwrap();
-    assert_eq!(read.unwrap().stream(), 4);
+    assert_eq!(written?, frame);
+    assert_eq!(read?.stream(), 4);
+    Ok(())
 }
 
 fn handshake(
@@ -217,20 +250,21 @@ fn handshake(
 }
 
 #[test]
-fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() {
+fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() -> TestResult {
     let welcome = Welcome::new(2, 9, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(16)
         .with_initial_credit(4);
     let (client, server) = handshake(&Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
-    assert_eq!(client.unwrap(), welcome);
-    assert_eq!(server.unwrap(), welcome);
-    let (client, _) = handshake(&Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
-    assert_eq!(client.unwrap().protocol(), 1);
+    assert_eq!(client?, welcome);
+    assert_eq!(server?, welcome);
+    let (lower_client, _) = handshake(&Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
+    assert_eq!(lower_client?.protocol(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_hello_above_the_server_is_refused_on_both_sides() {
+fn test_a_hello_above_the_server_is_refused_on_both_sides() -> TestResult {
     let (client, server) = handshake(
         &Hello::new(3, 4, 5, MAX_FRAME_SIZE as u32, "c"),
         &Welcome::new(2, 9, "s")
@@ -239,92 +273,99 @@ fn test_a_hello_above_the_server_is_refused_on_both_sides() {
             .with_initial_credit(4),
     );
     assert!(matches!(
-        client.unwrap_err().0,
+        failure(client, "the client's handshake")?.0,
         ultragraphdb_protocol_transport::TransportErrorEnum::Refused {
             code: ErrorCode::ProtocolVersion,
             ..
         }
     ));
     assert!(matches!(
-        server.unwrap_err().0,
+        failure(server, "the server's handshake")?.0,
         ultragraphdb_protocol_transport::TransportErrorEnum::Refused {
             code: ErrorCode::ProtocolVersion,
             ..
         }
     ));
+    Ok(())
 }
 
 #[test]
-fn test_a_handshake_of_another_command_is_refused() {
+fn test_a_handshake_of_another_command_is_refused() -> TestResult {
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
     // The client opens with Credit: the server refuses and answers with a protocol error.
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    ready(client.write_frame(first(credit(1)))).unwrap();
-    assert_eq!(
-        ready(
-            server.welcome(
-                &pool,
-                &Welcome::new(1, 0, "s")
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let opening = first(credit(1)?)?;
+        assert_eq!(ready(client.write_frame(opening.clone()))?, opening);
+        assert_eq!(
+            failure(
+                ready(
+                    server.welcome(
+                        &pool,
+                        &Welcome::new(1, 0, "s")
+                            .with_max_frame(1 << 20)
+                            .with_max_streams(1)
+                            .with_initial_credit(1)
+                    )
+                ),
+                "the server's handshake of a Credit"
+            )?,
+            TransportError::UnexpectedCommand(1, 14)
+        );
+        let answer = ready(client.read_frame(&pool))?;
+        assert_eq!(answer.command(), 16);
+    }
+    // The server answers Hello with Credit: the client refuses it.
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let (refused, answered) = ready(futures::future::join(
+            client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
+            async {
+                let _hello = server.read_frame(&pool).await?;
+                Ok::<Vec<u8>, TestError>(server.write_frame(first(credit(0)?)?).await?)
+            },
+        ));
+        assert_eq!(
+            failure(refused, "the client's handshake answered by a Credit")?,
+            TransportError::UnexpectedCommand(2, 14)
+        );
+        let _answer: Vec<u8> = answered?;
+    }
+    // The server welcomes at a protocol the client did not offer.
+    {
+        let (_n, mut client, mut server) = pair(NetworkFaults::none());
+        let (refused, answered) = ready(futures::future::join(
+            client.hello(&pool, &Hello::new(1, 2, 0, MAX_FRAME_SIZE as u32, "c")),
+            async {
+                let _hello = server.read_frame(&pool).await?;
+                let welcome = Welcome::new(5, 0, "s")
                     .with_max_frame(1 << 20)
                     .with_max_streams(1)
                     .with_initial_credit(1)
-            )
-        )
-        .unwrap_err(),
-        TransportError::UnexpectedCommand(1, 14)
-    );
-    let answer = ready(client.read_frame(&pool)).unwrap();
-    assert_eq!(answer.command(), 16);
-    // The server answers Hello with Credit: the client refuses it.
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let (refused, _) = ready(futures::future::join(
-        client.hello(&pool, &Hello::new(1, 1, 0, MAX_FRAME_SIZE as u32, "c")),
-        async {
-            let _hello = server.read_frame(&pool).await.unwrap();
-            server.write_frame(first(credit(0))).await
-        },
-    ));
-    assert_eq!(
-        refused.unwrap_err(),
-        TransportError::UnexpectedCommand(2, 14)
-    );
-    // The server welcomes at a protocol the client did not offer.
-    let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let (refused, _) = ready(futures::future::join(
-        client.hello(&pool, &Hello::new(1, 2, 0, MAX_FRAME_SIZE as u32, "c")),
-        async {
-            let _hello = server.read_frame(&pool).await.unwrap();
-            let welcome = Welcome::new(5, 0, "s")
-                .with_max_frame(1 << 20)
-                .with_max_streams(1)
-                .with_initial_credit(1)
-                .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))
-                .unwrap();
-            server.write_frame(welcome).await
-        },
-    ));
-    assert_eq!(
-        refused.unwrap_err(),
-        TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", 5))
-    );
+                    .frame(Header::new(CLUSTER, Command::Welcome).with_sequence(1))?;
+                Ok::<Vec<u8>, TestError>(server.write_frame(welcome).await?)
+            },
+        ));
+        assert_eq!(
+            failure(refused, "the client's handshake welcomed at protocol 5")?,
+            TransportError::Protocol(ProtocolError::FieldValue(2, "protocol", 5))
+        );
+        let _answer: Vec<u8> = answered?;
+    }
+    Ok(())
 }
 
 #[test]
-fn test_a_connection_runs_over_compio_tcp() {
+fn test_a_connection_runs_over_compio_tcp() -> TestResult {
     use compio::net::{TcpListener, TcpStream};
-    let runtime = compio::runtime::Runtime::new().expect("a compio runtime");
+    let runtime = compio::runtime::Runtime::new()?;
     runtime.block_on(async {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("a listener on loopback");
-        let address = listener.local_addr().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
         let (accepted, connected) =
             futures::future::join(listener.accept(), TcpStream::connect(address)).await;
-        let mut server = Connection::new(
-            accepted.unwrap().0,
-            Framer::from_client(CLUSTER, MAX_FRAME_SIZE),
-        );
-        let mut client = Connection::new(connected.unwrap(), Framer::new(CLUSTER, MAX_FRAME_SIZE));
+        let mut server = Connection::new(accepted?.0, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
+        let mut client = Connection::new(connected?, Framer::new(CLUSTER, MAX_FRAME_SIZE));
         let pool = BufferPool::new(4, MAX_FRAME_SIZE);
         let welcome = Welcome::new(1, 0, "s")
             .with_max_frame(1 << 20)
@@ -335,18 +376,22 @@ fn test_a_connection_runs_over_compio_tcp() {
             server.welcome(&pool, &welcome),
         )
         .await;
-        assert_eq!(client_side.unwrap(), welcome);
-        assert_eq!(server_side.unwrap(), welcome);
-        let frame = large();
-        client.write_frame(frame.clone()).await.unwrap();
-        let received = server.read_frame(&pool).await.unwrap();
+        assert_eq!(client_side?, welcome);
+        assert_eq!(server_side?, welcome);
+        let frame = large()?;
+        assert_eq!(client.write_frame(frame.clone()).await?, frame);
+        let received = server.read_frame(&pool).await?;
         assert_eq!(received.bytes(), &frame[..]);
         drop(client);
         assert_eq!(
-            server.read_frame(&pool).await.unwrap_err(),
+            failure(
+                server.read_frame(&pool).await,
+                "a read after the client dropped"
+            )?,
             TransportError::Closed()
         );
-    });
+        Ok::<(), TestError>(())
+    })
 }
 
 /// A stream of the tests' own: its first read is interrupted, as a signal interrupts a system call, then it serves
@@ -392,28 +437,30 @@ impl AsyncWrite for Interrupting {
 }
 
 #[test]
-fn test_an_interrupted_read_is_retried() {
+fn test_an_interrupted_read_is_retried() -> TestResult {
     let stream = Interrupting {
-        incoming: credit(4),
+        incoming: credit(4)?,
         ..Interrupting::default()
     };
     let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
-    let frame = ready(connection.read_frame(&pool)).unwrap();
+    let frame = ready(connection.read_frame(&pool))?;
     assert_eq!(frame.stream(), 4);
     assert!(connection.stream_mut().interrupted);
+    Ok(())
 }
 
 #[test]
-fn test_a_frame_written_is_flushed() {
+fn test_a_frame_written_is_flushed() -> TestResult {
     let mut connection = Connection::new(
         Interrupting::default(),
         Framer::new(CLUSTER, MAX_FRAME_SIZE),
     );
-    ready(connection.write_frame(credit(1))).unwrap();
+    assert_eq!(ready(connection.write_frame(credit(1)?))?, credit(1)?);
     let stream = connection.into_inner();
-    assert_eq!(stream.flushed, credit(1));
+    assert_eq!(stream.flushed, credit(1)?);
     assert!(stream.held.is_empty());
+    Ok(())
 }
 
 /// A stream of the tests' own whose first read fails with `ConnectionReset`, then serves `incoming`: a failure that is
@@ -451,45 +498,57 @@ impl AsyncWrite for Resetting {
 }
 
 #[test]
-fn test_a_failed_read_is_an_io_error_and_not_retried() {
+fn test_a_failed_read_is_an_io_error_and_not_retried() -> TestResult {
     let stream = Resetting {
-        incoming: credit(4),
+        incoming: credit(4)?,
         ..Resetting::default()
     };
     let mut connection = Connection::new(stream, Framer::from_client(CLUSTER, MAX_FRAME_SIZE));
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
     // The error the stream raised, as `TransportError::Io` records it: its kind and its text.
     let expected = TransportError::Io(&std::io::ErrorKind::ConnectionReset.into());
-    assert_eq!(ready(connection.read_frame(&pool)).unwrap_err(), expected);
+    assert_eq!(
+        failure(
+            ready(connection.read_frame(&pool)),
+            "a read of a reset stream"
+        )?,
+        expected
+    );
     assert_eq!(pool.available(), 1, "the buffer is back");
+    Ok(())
 }
 
 #[test]
-fn test_a_shutdown_closes_the_peers_reads() {
+fn test_a_shutdown_closes_the_peers_reads() -> TestResult {
     let pool = BufferPool::new(1, MAX_FRAME_SIZE);
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    ready(client.write_frame(credit(1))).unwrap();
+    assert_eq!(ready(client.write_frame(credit(1)?))?, credit(1)?);
     ready(client.shutdown());
     // What was sent before the shutdown is read, then the close between frames.
-    assert_eq!(ready(server.read_frame(&pool)).unwrap().stream(), 1);
+    assert_eq!(ready(server.read_frame(&pool))?.stream(), 1);
     assert_eq!(
-        ready(server.read_frame(&pool)).unwrap_err(),
+        failure(ready(server.read_frame(&pool)), "a read after the shutdown")?,
         TransportError::Closed()
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_pool_smaller_than_a_header_refuses_the_frame_naming_its_capacity() {
+fn test_a_pool_smaller_than_a_header_refuses_the_frame_naming_its_capacity() -> TestResult {
     // 100 bytes is below the header's 256: the read still takes the whole header, so the header is verified and its
     // size refused against the pool's capacity, rather than the read stopping at the buffer's end.
     let small = BufferPool::new(1, 100);
     let (_n, mut client, mut server) = pair(NetworkFaults::none());
-    let frame = credit(1);
+    let frame = credit(1)?;
     let size = frame.len();
-    ready(client.write_frame(frame)).unwrap();
+    assert_eq!(ready(client.write_frame(frame.clone()))?, frame);
     assert_eq!(
-        ready(server.read_frame(&small)).unwrap_err(),
+        failure(
+            ready(server.read_frame(&small)),
+            "a read into a buffer below a header"
+        )?,
         TransportError::Protocol(ProtocolError::FrameTooLarge(size, 100))
     );
     assert_eq!(small.available(), 1);
+    Ok(())
 }

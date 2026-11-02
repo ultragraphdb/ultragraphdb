@@ -242,7 +242,7 @@ where
         let Some(round) = self.out.round_ref(position, parent) else {
             return Ok(());
         };
-        self.log.append(round)?;
+        let _appended: Position = self.log.append(round)?;
         self.unsynced = true;
         Ok(())
     }
@@ -311,10 +311,12 @@ where
         self.applier.quads().lists().applied_ts()
     }
 
+    /// The commit step the pipeline drives.
     pub fn step(&self) -> &CommitStep<Prepared> {
         &self.step
     }
 
+    /// The log the pipeline appends to.
     pub fn log(&self) -> &L {
         &self.log
     }

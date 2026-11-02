@@ -12,6 +12,7 @@ use ultragraphdb_core_catalog::CatalogError;
 use ultragraphdb_core_mapping::MappingError;
 use ultragraphdb_core_terms::TermError;
 use ultragraphdb_core_tok::TokError;
+use ultragraphdb_error_invariant::InvariantError;
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_hnsw::HnswError;
@@ -171,6 +172,12 @@ fn test_a_wrapped_error_converts_to_its_variant_and_shows_its_own_text() {
     let hnsw = ChangesetError::from(HnswError::NoValue());
     assert!(matches!(hnsw.0, ChangesetErrorEnum::Hnsw(_)));
     assert_eq!(hnsw.to_string(), "No value found");
+    let invariant = ChangesetError::from(InvariantError::violated("one commit per execution"));
+    assert!(matches!(invariant.0, ChangesetErrorEnum::Invariant(_)));
+    assert_eq!(
+        invariant.to_string(),
+        "invariant violated: one commit per execution"
+    );
 }
 
 #[test]

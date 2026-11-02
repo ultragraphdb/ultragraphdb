@@ -60,8 +60,8 @@ impl Store for SimStore {
                 }
                 inner.log.push(OpRecord::Applied { batch, mode });
                 match stop {
-                    Some((record, power_loss)) => {
-                        Err(inner.stop_rebuild(record, RebuildStage::RecordRemoved, power_loss))
+                    Some((stopped, power_loss)) => {
+                        Err(inner.stop_rebuild(stopped, RebuildStage::RecordRemoved, power_loss))
                     }
                     None => Ok(()),
                 }
@@ -301,14 +301,14 @@ fn run_drop(
         entries,
     };
     let interruption = inner.faults.drop_interruption();
-    let stop = |inner: &mut Inner, stage: DropStage| -> Result<(), StoreError> {
+    let stop = |store: &mut Inner, stage: DropStage| -> Result<(), StoreError> {
         match interruption {
             Some((at, power_loss)) if at == stage => {
-                inner.status = Status::Down {
+                store.status = Status::Down {
                     power_loss,
                     in_flight: None,
                 };
-                inner.log.push(OpRecord::DropInterrupted {
+                store.log.push(OpRecord::DropInterrupted {
                     ts: record.ts,
                     prefixes: record.prefixes.clone(),
                     entries: record.entries.clone(),

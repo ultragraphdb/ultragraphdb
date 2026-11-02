@@ -171,6 +171,8 @@ impl Dial for TlsCollectorDial {
     type Stream = TestPeer<Collector>;
 
     fn dial(&self, host: &str, port: u16, timeout: Duration) -> io::Result<TestPeer<Collector>> {
-        Ok(self.pki.peer(self.plain.dial(host, port, timeout)?))
+        self.pki
+            .peer(self.plain.dial(host, port, timeout)?)
+            .map_err(io::Error::other)
     }
 }

@@ -9,11 +9,12 @@
 
 use oxrdf::{GraphName, Literal, NamedNode, Term};
 use ultragraphdb_core_mapping::{Change, Changeset};
-use ultragraphdb_store_apply::ChangesetApplier;
+use ultragraphdb_store_apply::{Applied, ChangesetApplier};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_transactions_commit::{
     CommitRequest, CommitStep, Input, Reply, RoundBounds, RoundRecord, StepOutput,
 };
@@ -33,12 +34,12 @@ pub fn sim_store() -> SimStore {
 }
 
 /// A changeset applier over a fault-free simulated store.
-pub fn applier() -> Applier {
+pub fn applier() -> TestResult<Applier> {
     applier_over(sim_store())
 }
 
 /// A changeset applier over `store`, as a restarted node opens it.
-pub fn applier_over(store: SimStore) -> Applier {
+pub fn applier_over(store: SimStore) -> TestResult<Applier> {
     let cache = SimListCache::new(1024, Seed::new(1).stream(Stream::Cache));
     let executor = SteppedExecutor::new(Seed::new(1).stream(Stream::Executor));
     ChangesetApplier::new(
@@ -46,33 +47,37 @@ pub fn applier_over(store: SimStore) -> Applier {
         executor,
         1,
     )
-    .expect("the applier opens")
+    .context("the applier opens")
 }
 
 /// A fresh write-ahead log over simulated storage, and the storage, to inject its faults.
-pub fn wal() -> (SimStorage, Log) {
+pub fn wal() -> TestResult<(SimStorage, Log)> {
     futures::executor::block_on(open_wal())
 }
 
 /// The write-ahead log over `storage` opened again, as a restarted node opens it, and what its open found.
-pub fn reopen_wal(storage: &SimStorage) -> (Log, ultragraphdb_transactions_log::Recovery) {
+pub fn reopen_wal(
+    storage: &SimStorage,
+) -> TestResult<(Log, ultragraphdb_transactions_log::Recovery)> {
     futures::executor::block_on(reopen(storage))
 }
 
 /// The same, awaited: for a caller already on an executor.
-pub async fn reopen(storage: &SimStorage) -> (Log, ultragraphdb_transactions_log::Recovery) {
+pub async fn reopen(
+    storage: &SimStorage,
+) -> TestResult<(Log, ultragraphdb_transactions_log::Recovery)> {
     Wal::open(storage.clone(), "/wal", WalConfig::new(1, true))
         .await
-        .expect("the log opens again")
+        .context("the log opens again")
 }
 
 /// The same, awaited: for a caller already on an executor.
-pub async fn open_wal() -> (SimStorage, Log) {
+pub async fn open_wal() -> TestResult<(SimStorage, Log)> {
     let storage = SimStorage::new(1);
     let (wal, _) = Wal::open(storage.clone(), "/wal", WalConfig::new(1, true))
         .await
-        .expect("the log opens");
-    (storage, wal)
+        .context("the log opens")?;
+    Ok((storage, wal))
 }
 
 pub fn ex(name: &str) -> NamedNode {
@@ -80,12 +85,12 @@ pub fn ex(name: &str) -> NamedNode {
 }
 
 /// The UID the store holds for `<name>`.
-pub fn uid_of(applier: &Applier, name: &str) -> u64 {
+pub fn uid_of(applier: &Applier, name: &str) -> TestResult<u64> {
     applier
         .quads()
         .uid_of(NS, ex(name).as_str())
-        .expect("the dictionary reads")
-        .expect("the IRI is known")
+        .context("the dictionary reads")?
+        .context("the IRI is known")
 }
 
 /// The insert of `<subject> <predicate> <object>`, all three IRIs under `http://ex.org/`.
@@ -126,20 +131,20 @@ pub fn changeset(changes: Vec<Change>) -> Changeset {
 }
 
 /// Commits `changes` on their own, outside the commit step, as set-up: its commit version.
-pub fn setup(applier: &Applier, changes: Vec<Change>) -> u64 {
-    applier
+pub fn setup(applier: &Applier, changes: Vec<Change>) -> TestResult<u64> {
+    Ok(applier
         .apply(&changeset(changes))
-        .expect("the set-up applies")
-        .commit_ts()
+        .context("the set-up applies")?
+        .commit_ts())
 }
 
 /// Begins a read-write transaction of `NS` at the watermark.
-pub fn begin(applier: &Applier) -> Txn<'_> {
+pub fn begin(applier: &Applier) -> TestResult<Txn<'_>> {
     begin_with(applier, TxnBuffers::new())
 }
 
 /// Begins a read-write transaction of `NS` at the watermark on `buffers`.
-pub fn begin_with(applier: &Applier, buffers: TxnBuffers) -> Txn<'_> {
+pub fn begin_with(applier: &Applier, buffers: TxnBuffers) -> TestResult<Txn<'_>> {
     Transaction::begin(
         applier,
         NS,
@@ -149,11 +154,11 @@ pub fn begin_with(applier: &Applier, buffers: TxnBuffers) -> Txn<'_> {
         TxnLimits::default(),
         buffers,
     )
-    .expect("it begins")
+    .context("it begins")
 }
 
 /// The objects of `<subject> <predicate>` that `txn` reads.
-pub fn read(txn: &mut Txn<'_>, subject: &str, predicate: &str) -> Vec<Term> {
+pub fn read(txn: &mut Txn<'_>, subject: &str, predicate: &str) -> TestResult<Vec<Term>> {
     let mut out = Vec::new();
     let s = ex(subject);
     let p = ex(predicate);
@@ -164,32 +169,35 @@ pub fn read(txn: &mut Txn<'_>, subject: &str, predicate: &str) -> Vec<Term> {
         0,
         &mut out,
     )
-    .expect("the read");
-    out
+    .context("the read")?;
+    Ok(out)
 }
 
 /// Writes `changes` in `txn`.
-pub fn write(txn: &mut Txn<'_>, changes: Vec<Change>) {
-    txn.write(&changeset(changes), 0).expect("the write");
+pub fn write(txn: &mut Txn<'_>, changes: Vec<Change>) -> TestResult {
+    txn.write(&changeset(changes), 0).context("the write")
 }
 
 /// Ends a read-write `txn` as its proposal.
-pub fn prepare(txn: Txn<'_>) -> Prepared {
+pub fn prepare(txn: Txn<'_>) -> TestResult<Prepared> {
     prepare_in(txn, 0, 0)
 }
 
 /// Ends a read-write `txn` as its proposal, request `request` of session `session`.
-pub fn prepare_in(txn: Txn<'_>, session: u64, request: u64) -> Prepared {
-    let prepared = match txn.commit(session, request, &[], 0).expect("it prepares") {
+pub fn prepare_in(txn: Txn<'_>, session: u64, request: u64) -> TestResult<Prepared> {
+    let prepared = match txn
+        .commit(session, request, &[], 0)
+        .context("it prepares")?
+    {
         Commit::ReadWrite(prepared) => Some(prepared),
         Commit::ReadOnly(_) => None,
     };
-    prepared.expect("a read-write transaction prepares")
+    prepared.context("a read-write transaction prepares")
 }
 
 /// What a fresh transaction reads of `<subject> <predicate>`: what the store holds at the watermark.
-pub fn held(applier: &Applier, subject: &str, predicate: &str) -> Vec<Term> {
-    let mut txn = begin(applier);
+pub fn held(applier: &Applier, subject: &str, predicate: &str) -> TestResult<Vec<Term>> {
+    let mut txn = begin(applier)?;
     read(&mut txn, subject, predicate)
 }
 
@@ -225,7 +233,7 @@ impl<'a> Driver<'a> {
         }
     }
 
-    fn run(&mut self, input: Input<Prepared>) {
+    fn run(&mut self, input: Input<Prepared>) -> TestResult {
         self.step.step(input, self.now_us, &mut self.out);
         if let Some((record, _)) = self.out.append() {
             self.appended.push(record);
@@ -237,7 +245,10 @@ impl<'a> Driver<'a> {
             .map(|(version, prepared)| (version, prepared.into_parts().0))
             .collect();
         if !round.is_empty() {
-            self.applier.apply_round(round).expect("the round applies");
+            let _applied: Vec<Applied> = self
+                .applier
+                .apply_round(round)
+                .context("the round applies")?;
         }
         self.replies.extend(self.out.replies().iter().cloned());
         let released = self
@@ -246,17 +257,18 @@ impl<'a> Driver<'a> {
             .drain(..)
             .map(|(ticket, prepared)| (ticket, prepared.into_parts().1));
         self.released.extend(released);
+        Ok(())
     }
 
     /// Hands `prepared` to the commit step under `ticket`.
-    pub fn submit(&mut self, ticket: u64, prepared: Prepared) {
-        self.run(Input::Commit(CommitRequest::new(ticket, prepared)));
+    pub fn submit(&mut self, ticket: u64, prepared: Prepared) -> TestResult {
+        self.run(Input::Commit(CommitRequest::new(ticket, prepared)))
     }
 
     /// Completes the sync of the round in flight.
-    pub fn sync(&mut self) {
+    pub fn sync(&mut self) -> TestResult {
         self.syncs += 1;
-        self.run(Input::Synced);
+        self.run(Input::Synced)
     }
 
     /// The reply to `ticket`, if one was sent.
@@ -291,5 +303,24 @@ impl Rng {
     pub fn key(&mut self, max_len: u64) -> Vec<u8> {
         let len = 1 + self.below(max_len);
         (0..len).map(|_| b'a' + self.below(3) as u8).collect()
+    }
+}
+
+/// The error a result holds, for a test that expects a refusal.
+pub trait Refused<E> {
+    /// The error, or a failure naming `what` was expected and the value found instead.
+    fn refused(self, what: &str) -> TestResult<E>;
+}
+
+impl<T: std::fmt::Debug, E> Refused<E> for Result<T, E> {
+    #[track_caller]
+    fn refused(self, what: &str) -> TestResult<E> {
+        let at = std::panic::Location::caller();
+        match self {
+            Ok(value) => Err(TestError::new(format!(
+                "{what}: not refused, found {value:?} (at {at})"
+            ))),
+            Err(error) => Ok(error),
+        }
     }
 }

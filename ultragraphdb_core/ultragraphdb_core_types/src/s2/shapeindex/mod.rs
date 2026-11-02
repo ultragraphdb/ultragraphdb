@@ -300,20 +300,20 @@ impl ShapeIndex {
                 // The edge bound spans all four children. The edge
                 // itself intersects either three or four padded children.
                 let left = clip_u_bound(*edge, 1, middle.x.hi, face_edges);
-                let (a, b) = clip_v_axis(left, middle.y, face_edges);
-                if let Some(a) = a {
-                    child_edges[0][0].push(a);
+                let (left_lo, left_hi) = clip_v_axis(left, middle.y, face_edges);
+                if let Some(clipped) = left_lo {
+                    child_edges[0][0].push(clipped);
                 }
-                if let Some(b) = b {
-                    child_edges[0][1].push(b);
+                if let Some(clipped) = left_hi {
+                    child_edges[0][1].push(clipped);
                 }
                 let right = clip_u_bound(*edge, 0, middle.x.lo, face_edges);
-                let (a, b) = clip_v_axis(right, middle.y, face_edges);
-                if let Some(a) = a {
-                    child_edges[1][0].push(a);
+                let (right_lo, right_hi) = clip_v_axis(right, middle.y, face_edges);
+                if let Some(clipped) = right_lo {
+                    child_edges[1][0].push(clipped);
                 }
-                if let Some(b) = b {
-                    child_edges[1][1].push(b);
+                if let Some(clipped) = right_hi {
+                    child_edges[1][1].push(clipped);
                 }
             }
         }
@@ -468,10 +468,10 @@ fn add_face_edge(fe: FaceEdge, all_edges: &mut [Vec<FaceEdge>; NUM_FACES]) {
     // See if both endpoints are on the same face, and are far enough from
     // the edge of the face that they don't intersect any (padded) adjacent face.
     if a_face == face(fe.edge.v1.0) {
-        let (x, y) = valid_face_xyz_to_uv(a_face, fe.edge.v0.0);
-        fe.a = R2Point::new(x, y);
-        let (x, y) = valid_face_xyz_to_uv(a_face, fe.edge.v1.0);
-        fe.b = R2Point::new(x, y);
+        let (a_u, a_v) = valid_face_xyz_to_uv(a_face, fe.edge.v0.0);
+        fe.a = R2Point::new(a_u, a_v);
+        let (b_u, b_v) = valid_face_xyz_to_uv(a_face, fe.edge.v1.0);
+        fe.b = R2Point::new(b_u, b_v);
 
         if fe.a.x.abs() <= MAX_UV
             && fe.a.y.abs() <= MAX_UV

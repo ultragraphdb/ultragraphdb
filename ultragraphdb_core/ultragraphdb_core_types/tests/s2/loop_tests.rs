@@ -20,6 +20,7 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     Angle, Cell, CellUnion, LatLng, Loop, Point, R3Vector, RegionCoverer,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Deserialize, Clone, Copy)]
 pub struct Config {
@@ -146,37 +147,41 @@ pub fn check_covering(
     }
 }
 
-fn run(file: &'static str) {
-    let cases: Vec<Case> = load(file);
+fn run(file: &'static str) -> TestResult {
+    let cases: Vec<Case> = load(file)?;
     let mut c = Checker::new(file);
     for k in &cases {
         let tag = &k.spec.name;
-        let (l, reversed, inverted) = case_loop(k);
+        let (l, reversed, inverted) = case_loop(k)?;
         c.check(reversed == k.reversed && inverted == k.inverted, || {
             format!("{tag}: reversed {reversed} inverted {inverted}")
         });
-        check_loop_shape(&mut c, k, &l);
-        check_loop_queries(&mut c, k, &l);
+        check_loop_shape(&mut c, k, &l)?;
+        check_loop_queries(&mut c, k, &l)?;
     }
     c.finish();
+    Ok(())
 }
 
 /// The case's loop, whether its ring was reversed, and whether it was inverted.
-fn case_loop(k: &Case) -> (Loop, bool, bool) {
+fn case_loop(k: &Case) -> TestResult<(Loop, bool, bool)> {
     let (mut l, reversed, mut inverted) = match &k.spec.ring {
         Some(ring) => {
-            let ring: Vec<[f64; 2]> = ring.iter().map(|p| [f(&p[0]), f(&p[1])]).collect();
+            let ring: Vec<[f64; 2]> = ring
+                .iter()
+                .map(|p| Ok([f(&p[0])?, f(&p[1])?]))
+                .collect::<TestResult<_>>()?;
             dgraph_loop(&ring)
         }
         None => {
-            let center = pt(k.spec.center.as_ref().expect("regular loop center"));
+            let center = pt(k.spec.center.as_ref().context("regular loop center")?)?;
             let radius =
-                Angle::from_radians(f(k.spec.radius.as_ref().expect("regular loop radius")));
+                Angle::from_radians(f(k.spec.radius.as_ref().context("regular loop radius")?)?);
             (
                 Loop::regular(
                     center,
                     radius,
-                    k.spec.num_vertices_in.expect("regular loop vertices"),
+                    k.spec.num_vertices_in.context("regular loop vertices")?,
                 ),
                 false,
                 false,
@@ -184,15 +189,15 @@ fn case_loop(k: &Case) -> (Loop, bool, bool) {
         }
     };
     if k.spec.poison_cover == Some(true) {
-        k.coverings[0].config.coverer().covering(&l);
+        let _poison: CellUnion = k.coverings[0].config.coverer().covering(&l);
         l.invert();
         inverted = !inverted;
     }
-    (l, reversed, inverted)
+    Ok((l, reversed, inverted))
 }
 
 /// The loop's vertices and bounds.
-fn check_loop_shape(c: &mut Checker, k: &Case, l: &Loop) {
+fn check_loop_shape(c: &mut Checker, k: &Case, l: &Loop) -> TestResult {
     let tag = &k.spec.name;
     c.check(
         l.num_vertices() == k.num_vertices && l.num_edges() == k.num_edges,
@@ -201,36 +206,37 @@ fn check_loop_shape(c: &mut Checker, k: &Case, l: &Loop) {
     c.check(vertex_hash(l.vertices()) == k.vertex_hash, || {
         format!("{tag}: vertex hash")
     });
-    c.check(same_point(l.vertex(0), &k.vertex0), || {
+    c.check(same_point(l.vertex(0), &k.vertex0)?, || {
         format!("{tag}: vertex 0 {:?}", l.vertex(0))
     });
     c.check(l.contains_origin() == k.origin_inside, || {
         format!("{tag}: origin inside")
     });
-    c.check(same_rect(l.rect_bound(), &k.rect_bound), || {
+    c.check(same_rect(l.rect_bound(), &k.rect_bound)?, || {
         format!(
             "{tag}: rect bound {:?} want {:?}",
             l.rect_bound(),
             k.rect_bound
         )
     });
-    c.check(same_cap(l.cap_bound(), &k.cap_bound), || {
+    c.check(same_cap(l.cap_bound(), &k.cap_bound)?, || {
         format!("{tag}: cap bound {:?}", l.cap_bound())
     });
     let deg = l.cap_bound().radius().degrees();
-    c.check(same(deg, f(&k.cap_radius_deg)), || {
+    c.check(same(deg, f(&k.cap_radius_deg)?), || {
         format!(
             "{tag}: cap radius degrees {} want {}",
             hx(deg),
             k.cap_radius_deg
         )
     });
+    Ok(())
 }
 
 /// The loop's answers to points, cells and coverings, before and after its index is built.
-fn check_loop_queries(c: &mut Checker, k: &Case, l: &Loop) {
+fn check_loop_queries(c: &mut Checker, k: &Case, l: &Loop) -> TestResult {
     let tag = &k.spec.name;
-    let points: Vec<Point> = k.points.iter().map(pt).collect();
+    let points: Vec<Point> = k.points.iter().map(pt).collect::<TestResult<_>>()?;
     for (i, p) in points.iter().enumerate() {
         let got = l.contains_point(*p);
         c.check(got == k.contains_stale[i], || {
@@ -245,7 +251,7 @@ fn check_loop_queries(c: &mut Checker, k: &Case, l: &Loop) {
         check_covering(c, tag, got.as_slice(), cov);
     }
     for (i, id) in k.probe_cells.iter().enumerate() {
-        let cl = Cell::from_cell_id(cell(id));
+        let cl = Cell::from_cell_id(cell(id)?);
         let cc = l.contains_cell(&cl);
         c.check(cc == k.contains_cell[i], || {
             format!("{tag}: contains_cell({id}) = {cc}")
@@ -261,38 +267,42 @@ fn check_loop_queries(c: &mut Checker, k: &Case, l: &Loop) {
             format!("{tag}: contains_point (index built) {i} {p:?} = {got}")
         });
     }
+    Ok(())
 }
 
 #[test]
-fn dgraph_testdata_loops_match_go() {
-    run("loops_testdata.json");
+fn dgraph_testdata_loops_match_go() -> TestResult {
+    run("loops_testdata.json")?;
+    Ok(())
 }
 
 #[test]
-fn us_loops_match_go() {
-    run("loops_us.json");
+fn us_loops_match_go() -> TestResult {
+    run("loops_us.json")?;
+    Ok(())
 }
 
 #[test]
-fn random_loops_match_go() {
-    run("loops_random.json");
+fn random_loops_match_go() -> TestResult {
+    run("loops_random.json")?;
+    Ok(())
 }
 
 /// golang/geo's test helper parsePoints: "lat:lng, lat:lng, ..." in degrees.
-fn parse_points(s: &str) -> Vec<Point> {
+fn parse_points(s: &str) -> TestResult<Vec<Point>> {
     s.split(',')
         .map(|ll| {
-            let (lat, lng) = ll.trim().split_once(':').expect("lat:lng");
-            Point::from_lat_lng(LatLng::from_degrees(
-                lat.parse().expect("lat"),
-                lng.parse().expect("lng"),
-            ))
+            let (lat, lng) = ll.trim().split_once(':').context("lat:lng")?;
+            Ok(Point::from_lat_lng(LatLng::from_degrees(
+                lat.parse().context("lat")?,
+                lng.parse().context("lng")?,
+            )))
         })
         .collect()
 }
 
-fn make_loop(s: &str) -> Loop {
-    Loop::from_points(parse_points(s))
+fn make_loop(s: &str) -> TestResult<Loop> {
+    Ok(Loop::from_points(parse_points(s)?))
 }
 
 /// golang/geo's test helper rotate: the loop with its first vertex moved to the end.
@@ -319,7 +329,7 @@ fn loop_empty_and_full() {
 
 // Ported from golang/geo s2/loop_test.go, TestLoopContainsPoint.
 #[test]
-fn loop_contains_point() {
+fn loop_contains_point() -> TestResult {
     let north = Point::from_vector(R3Vector::new(0.0, 0.0, 1.0));
     let south = Point::from_vector(R3Vector::new(0.0, 0.0, -1.0));
     let east = Point::from_coords(0.0, 1.0, 0.0);
@@ -338,31 +348,31 @@ fn loop_contains_point() {
     let tests = [
         (
             "north hemisphere",
-            make_loop("0:-180, 0:-90, 0:0, 0:90"),
+            make_loop("0:-180, 0:-90, 0:0, 0:90")?,
             north,
             south,
         ),
         (
             "south hemisphere",
-            make_loop("0:90, 0:0, 0:-90, 0:-180"),
+            make_loop("0:90, 0:0, 0:-90, 0:-180")?,
             south,
             north,
         ),
         (
             "west hemisphere",
-            make_loop("0:-180, -90:0, 0:0, 90:0"),
+            make_loop("0:-180, -90:0, 0:0, 90:0")?,
             west,
             east,
         ),
         (
             "east hemisphere",
-            make_loop("90:0, 0:0, -90:0, 0:-180"),
+            make_loop("90:0, 0:0, -90:0, 0:-180")?,
             east,
             west,
         ),
         (
             "candy cane",
-            make_loop("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70"),
+            make_loop("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70")?,
             ll(5.0, 71.0),
             ll(-8.0, 71.0),
         ),
@@ -385,12 +395,13 @@ fn loop_contains_point() {
     // This code checks each cell vertex is contained by exactly one of
     // the adjacent cells.
     for level in 0..3 {
-        check_cell_points_contained_once(level);
+        check_cell_points_contained_once(level)?;
     }
+    Ok(())
 }
 
 /// Each cell vertex and center at `level` is contained by exactly one of the cells' loops.
-fn check_cell_points_contained_once(level: i64) {
+fn check_cell_points_contained_once(level: i64) -> TestResult {
     // set of unique points across all loops at this level.
     let mut points = std::collections::BTreeSet::new();
     let mut loops = Vec::new();
@@ -400,11 +411,12 @@ fn check_cell_points_contained_once(level: i64) {
         let cl = Cell::from_cell_id(id);
         let mut vertices = Vec::new();
         let c = cl.center();
-        points.insert((c.x().to_bits(), c.y().to_bits(), c.z().to_bits()));
+        let _new_center: bool = points.insert((c.x().to_bits(), c.y().to_bits(), c.z().to_bits()));
         for k in 0..4 {
-            let v = cl.vertex(k).unwrap();
+            let v = cl.vertex(k).context("cl.vertex(k)")?;
             vertices.push(v);
-            points.insert((v.x().to_bits(), v.y().to_bits(), v.z().to_bits()));
+            let _new_vertex: bool =
+                points.insert((v.x().to_bits(), v.y().to_bits(), v.z().to_bits()));
         }
         loops.push(Loop::from_points(vertices));
         id = id.next();
@@ -421,23 +433,24 @@ fn check_cell_points_contained_once(level: i64) {
             "point {q:?} should only be contained by one loop at level {level}, got {count}"
         );
     }
+    Ok(())
 }
 
 // Ported from golang/geo s2/loop_test.go, TestLoopRectBound (with Go's rectError tolerance,
 // 10 and 1 machine epsilons in latitude and longitude).
 #[test]
-fn loop_rect_bound() {
+fn loop_rect_bound() -> TestResult {
     let lat_err = 10.0 * f64::EPSILON;
     let lng_err = f64::EPSILON;
     let near = |a: f64, b: f64, e: f64| (a - b).abs() <= e;
-    let candy_cane = make_loop("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70");
+    let candy_cane = make_loop("-20:150, -20:-70, 0:70, 10:-150, 10:70, -10:-70")?;
     assert!(candy_cane.rect_bound().lng().is_full());
     assert!(candy_cane.rect_bound().lat().lo() < -0.349066);
     assert!(candy_cane.rect_bound().lat().hi() > 0.174533);
-    assert!(make_loop("35:20, 45:20, 40:25").rect_bound().is_full());
+    assert!(make_loop("35:20, 45:20, 40:25")?.rect_bound().is_full());
 
     let deg = |d: f64| d.to_radians();
-    let arctic80 = make_loop("80:-150, 80:-30, 80:90");
+    let arctic80 = make_loop("80:-150, 80:-30, 80:90")?;
     let b = arctic80.rect_bound();
     assert!(
         near(b.lat().lo(), deg(80.0), lat_err) && near(b.lat().hi(), deg(90.0), lat_err),
@@ -447,14 +460,15 @@ fn loop_rect_bound() {
         near(b.lng().lo(), deg(-180.0), lng_err) && near(b.lng().hi(), deg(180.0), lng_err),
         "{b:?}"
     );
-    let antarctic80 = make_loop("-80:120, -80:0, -80:-120");
-    let b = antarctic80.rect_bound();
+    let antarctic80 = make_loop("-80:120, -80:0, -80:-120")?;
+    let antarctic_bound = antarctic80.rect_bound();
     assert!(
-        near(b.lat().lo(), deg(-90.0), lat_err) && near(b.lat().hi(), deg(-80.0), lat_err),
-        "{b:?}"
+        near(antarctic_bound.lat().lo(), deg(-90.0), lat_err)
+            && near(antarctic_bound.lat().hi(), deg(-80.0), lat_err),
+        "{antarctic_bound:?}"
     );
 
-    let south_hemi = make_loop("0:90, 0:0, 0:-90, 0:-180");
+    let south_hemi = make_loop("0:90, 0:0, 0:-90, 0:-180")?;
     assert!(south_hemi.rect_bound().lng().is_full());
     let lat = south_hemi.rect_bound().lat();
     assert!(
@@ -471,6 +485,7 @@ fn loop_rect_bound() {
     let want = LatLng::from_point(mid).lat().radians();
     let got = arctic80_inv.rect_bound().lat().hi();
     assert!(near(got, want, 10.0 * f64::EPSILON), "{got} {want}");
+    Ok(())
 }
 
 // Ported from golang/geo s2/loop_test.go, TestLoopRegularLoop.
@@ -508,11 +523,12 @@ fn loop_regular_loop() {
 
 // Ported from golang/geo s2/loop_test.go, TestLoopVertex (wrapping indices).
 #[test]
-fn loop_vertex_wraps() {
-    let l = make_loop("0:0, 0:1, 1:0");
+fn loop_vertex_wraps() -> TestResult {
+    let l = make_loop("0:0, 0:1, 1:0")?;
     assert_eq!(l.vertex(3), l.vertex(0));
     assert_eq!(l.vertex(4), l.vertex(1));
     assert_eq!(l.vertex(7), l.vertex(1));
+    Ok(())
 }
 
 #[test]
@@ -533,9 +549,9 @@ fn a_loop_of_no_points_is_the_empty_loop() {
     let nan = Point::from_vector(R3Vector::new(f64::NAN, 0.0, 1.0));
     let p = Point::from_lat_lng(LatLng::from_degrees(1.0, 2.0));
     let q = Point::from_lat_lng(LatLng::from_degrees(3.0, 4.0));
-    let l = Loop::from_points(vec![p, nan, q]);
+    let nan_loop = Loop::from_points(vec![p, nan, q]);
     // The answer is not Go's (Go has none); only that it comes back is asserted.
-    let _contains: bool = l.contains_point(p);
+    let _contains: bool = nan_loop.contains_point(p);
 }
 
 // golang/geo's standard test loops (s2/loop_test.go).
@@ -556,7 +572,7 @@ const LOOP_A: &str = "0:178, -1:180, 0:-179, 1:-180";
 
 // Ported from golang/geo s2/loop_test.go, TestLoopOriginInside.
 #[test]
-fn loop_origin_inside() {
+fn loop_origin_inside() -> TestResult {
     let tests = [
         (NORTH_HEMI, true),
         (NORTH_HEMI3, true),
@@ -572,10 +588,11 @@ fn loop_origin_inside() {
         (LOOP_A, false),
     ];
     for (s, want) in tests {
-        assert_eq!(make_loop(s).contains_origin(), want, "{s}");
+        assert_eq!(make_loop(s)?.contains_origin(), want, "{s}");
     }
     assert!(!Loop::empty().contains_origin());
     assert!(Loop::full().contains_origin());
+    Ok(())
 }
 
 fn rect_from_degrees(
@@ -593,10 +610,10 @@ fn rect_from_degrees(
 // Ported from golang/geo s2/loop_test.go, TestLoopCapBound (Cap.ApproxEqual: centers and
 // radii within 1e-14).
 #[test]
-fn loop_cap_bound() {
+fn loop_cap_bound() -> TestResult {
     assert!(Loop::empty().cap_bound().is_empty());
     assert!(Loop::full().cap_bound().is_full());
-    assert!(make_loop(SMALL_NECW).cap_bound().is_full());
+    assert!(make_loop(SMALL_NECW)?.cap_bound().is_full());
     let approx = |got: ultragraphdb_core_types::Cap, want: ultragraphdb_core_types::Cap| {
         let (g, w) = (got.center(), want.center());
         (g.x() - w.x()).abs() <= 1e-14
@@ -604,7 +621,7 @@ fn loop_cap_bound() {
             && (g.z() - w.z()).abs() <= 1e-14
             && (got.radius().radians() - want.radius().radians()).abs() <= 1e-14
     };
-    let got = make_loop(ARCTIC80).cap_bound();
+    let got = make_loop(ARCTIC80)?.cap_bound();
     let want = rect_from_degrees(80.0, -180.0, 90.0, 180.0).cap_bound();
     assert!(approx(got, want), "{got:?} want {want:?}");
     // golang/geo: centred exactly on the north pole, radius 10.000000000000025 degrees.
@@ -613,20 +630,27 @@ fn loop_cap_bound() {
         Point::from_vector(R3Vector::new(0.0, 0.0, 1.0))
     );
     assert!((got.radius().degrees() - 10.0).abs() < 1e-9, "{got:?}");
-    let got = make_loop(ANTARCTIC80).cap_bound();
-    let want = rect_from_degrees(-90.0, -180.0, -80.0, 180.0).cap_bound();
-    assert!(approx(got, want), "{got:?} want {want:?}");
+    let antarctic_cap = make_loop(ANTARCTIC80)?.cap_bound();
+    let want_cap = rect_from_degrees(-90.0, -180.0, -80.0, 180.0).cap_bound();
+    assert!(
+        approx(antarctic_cap, want_cap),
+        "{antarctic_cap:?} want {want_cap:?}"
+    );
     // golang/geo: centred exactly on the south pole, radius 10.000000000000025 degrees.
     assert_eq!(
-        got.center(),
+        antarctic_cap.center(),
         Point::from_vector(R3Vector::new(0.0, 0.0, -1.0))
     );
-    assert!((got.radius().degrees() - 10.0).abs() < 1e-9, "{got:?}");
+    assert!(
+        (antarctic_cap.radius().degrees() - 10.0).abs() < 1e-9,
+        "{antarctic_cap:?}"
+    );
+    Ok(())
 }
 
 // Ported from golang/geo s2/loop_test.go, TestLoopNumEdges and TestLoopVertex.
 #[test]
-fn loop_num_edges_and_vertices() {
+fn loop_num_edges_and_vertices() -> TestResult {
     assert_eq!(
         (Loop::empty().num_edges(), Loop::empty().num_vertices()),
         (0, 1)
@@ -644,7 +668,7 @@ fn loop_num_edges_and_vertices() {
         (LINE_TRIANGLE, 3),
         (SKINNY_CHEVRON, 4),
     ] {
-        let l = make_loop(s);
+        let l = make_loop(s)?;
         assert_eq!((l.num_edges(), l.num_vertices()), (want, want), "{s}");
     }
     let north = Point::from_vector(R3Vector::new(0.0, 0.0, 1.0));
@@ -653,8 +677,8 @@ fn loop_num_edges_and_vertices() {
     assert_eq!(Loop::empty().vertex(1), north);
     assert_eq!(Loop::full().vertex(0), south);
     assert_eq!(Loop::full().vertex(1), south);
-    let arctic = make_loop(ARCTIC80);
-    let p = parse_points("80:-150, 80:-30, 80:90");
+    let arctic = make_loop(ARCTIC80)?;
+    let p = parse_points("80:-150, 80:-30, 80:90")?;
     assert_eq!(
         [
             arctic.vertex(0),
@@ -666,13 +690,14 @@ fn loop_num_edges_and_vertices() {
     );
     assert_eq!(arctic.vertex(5), arctic.vertex(2));
     assert_eq!(arctic.vertex(2 + 3 * 3), arctic.vertex(2));
+    Ok(())
 }
 
 // Ported from golang/geo s2/loop_test.go, TestLoopContainsMatchesCrossingSign. The cell and
 // its children's points were checked against golang/geo: cell 0x4000000000040000 and a0 =
 // [0x3fe279a724b7ecbc, 0x3fe279a724b7ecbc, 0x3fe279a78740bf2b].
 #[test]
-fn loop_contains_matches_crossing_sign() {
+fn loop_contains_matches_crossing_sign() -> TestResult {
     use ultragraphdb_core_types::{Crossing, EdgeCrosser};
     let bits = |p: Point| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
     let id = Cell::from_point(Point::from_vector(R3Vector::new(1.0, 1.0, 1.0)))
@@ -690,7 +715,7 @@ fn loop_contains_matches_crossing_sign() {
     );
     let l = Loop::from_points(points.clone());
     let grandchild = Cell::from_cell_id(children[0].children()[2]);
-    let a0 = grandchild.vertex(0).expect("vertex 0");
+    let a0 = grandchild.vertex(0).context("vertex 0")?;
     assert_eq!(
         bits(a0),
         [0x3fe279a724b7ecbc, 0x3fe279a724b7ecbc, 0x3fe279a78740bf2b]
@@ -715,32 +740,33 @@ fn loop_contains_matches_crossing_sign() {
     assert!(l.contains_point(a0));
     // Since a0 is inside the loop, it should be inside the bound.
     assert!(l.rect_bound().contains_point(a0));
+    Ok(())
 }
 
 // Ported from golang/geo s2/loop_test.go, TestLoopBasic (the parts the port exposes) and
 // TestLoopEdge: the edges a loop's index reads run from vertex i to vertex i + 1.
 #[test]
-fn loop_basic() {
-    let l = make_loop("0:0, 0:1, 1:0");
+fn loop_basic() -> TestResult {
+    let l = make_loop("0:0, 0:1, 1:0")?;
     assert_eq!(l.num_edges(), 3);
     assert!(!l.is_empty() && !l.is_full());
     assert!(!l.contains_origin());
     let ll = |lat: f64, lng: f64| Point::from_lat_lng(LatLng::from_degrees(lat, lng));
     assert_eq!((l.vertex(2), l.vertex(3)), (ll(1.0, 0.0), ll(0.0, 0.0)));
-    let candy = make_loop(CANDY_CANE);
-    let p = parse_points(CANDY_CANE);
+    let candy = make_loop(CANDY_CANE)?;
+    let p = parse_points(CANDY_CANE)?;
     for i in 0..6 {
         assert_eq!(
             (candy.vertex(i), candy.vertex(i + 1)),
             (p[i], p[(i + 1) % 6])
         );
     }
-    let chevron = make_loop(SKINNY_CHEVRON);
+    let chevron = make_loop(SKINNY_CHEVRON)?;
     assert_eq!(chevron.vertex(3), ll(1e-320, 80.0));
     assert_eq!(chevron.vertex(4), ll(0.0, 0.0));
     // TestLoopEdge's farHemi edge 2 and skinnyChevron edge 2, as golang/geo's bits.
-    let bits = |p: Point| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
-    let far = make_loop(FAR_HEMI);
+    let bits = |v: Point| [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
+    let far = make_loop(FAR_HEMI)?;
     assert_eq!(
         (bits(far.vertex(2)), bits(far.vertex(3))),
         (
@@ -755,12 +781,13 @@ fn loop_basic() {
             [0x3fc63a1a7e0b738c, 0x3fef838b8c811c18, 0x23]
         )
     );
+    Ok(())
 }
 
 // ContainsCell and IntersectsCell of golang/geo's standard loops against seven probe cells,
 // generated by golang/geo v0.0.0-20260427214057-41a1a8c7eb2a.
 #[test]
-fn standard_loop_cell_relations_match_go() {
+fn standard_loop_cell_relations_match_go() -> TestResult {
     use ultragraphdb_core_types::CellId;
     let probes = [
         0x1000000000000000u64,
@@ -778,25 +805,25 @@ fn standard_loop_cell_relations_match_go() {
         ("full", Loop::full(), [t; 7], [t; 7]),
         (
             "north_hemi",
-            make_loop(NORTH_HEMI),
+            make_loop(NORTH_HEMI)?,
             [f, t, f, t, t, t, f],
             [t, t, f, t, t, t, f],
         ),
         (
             "candy_cane",
-            make_loop(CANDY_CANE),
+            make_loop(CANDY_CANE)?,
             [f, f, f, f, f, t, f],
             [t, f, t, f, f, t, f],
         ),
         (
             "small_necw",
-            make_loop(SMALL_NECW),
+            make_loop(SMALL_NECW)?,
             [f, f, t, t, f, t, t],
             [t, t, t, t, f, t, t],
         ),
         (
             "arctic80",
-            make_loop(ARCTIC80),
+            make_loop(ARCTIC80)?,
             [f, f, f, t, f, f, f],
             [f, t, f, t, f, f, f],
         ),
@@ -807,6 +834,7 @@ fn standard_loop_cell_relations_match_go() {
         assert_eq!(got_c, contains, "{name} contains_cell");
         assert_eq!(got_i, intersects, "{name} intersects_cell");
     }
+    Ok(())
 }
 
 /// golang/geo's ContainsBruteForce (s2/shapeutil.go) for a loop: crossings counted from the
@@ -830,7 +858,7 @@ fn contains_brute_force(l: &Loop, p: Point) -> bool {
 // counting crossings. The first loop is centred on the cube corner (1, 1, 1), so its edges are
 // clipped to three faces.
 #[test]
-fn indexed_loops_agree_with_brute_force() {
+fn indexed_loops_agree_with_brute_force() -> TestResult {
     use ultragraphdb_core_types::CellId;
     let corner = Point::from_coords(1.0, 1.0, 1.0);
     let centers = [
@@ -879,9 +907,9 @@ fn indexed_loops_agree_with_brute_force() {
             for id in cells {
                 let cl = Cell::from_cell_id(id);
                 let pts: Vec<Point> = (0..4)
-                    .map(|k| cl.vertex(k).expect("vertex"))
-                    .chain([cl.center()])
-                    .collect();
+                    .map(|k| cl.vertex(k).context("vertex"))
+                    .chain([Ok(cl.center())])
+                    .collect::<TestResult<_>>()?;
                 if l.contains_cell(&cl) {
                     assert!(l.intersects_cell(&cl));
                     assert!(pts.iter().all(|p| contains_brute_force(&l, *p)), "{id:?}");
@@ -893,12 +921,13 @@ fn indexed_loops_agree_with_brute_force() {
         }
     }
     assert!(checked > 5000, "{checked}");
+    Ok(())
 }
 
 // Invert complements the loop: every point off the boundary changes sides, the origin's
 // containment flips, and inverting twice restores the vertices.
 #[test]
-fn invert_complements_the_loop() {
+fn invert_complements_the_loop() -> TestResult {
     for (s, n) in [(CANDY_CANE, 0), (SMALL_NECW, 0), ("", 40)] {
         let l = if n > 0 {
             Loop::regular(
@@ -907,7 +936,7 @@ fn invert_complements_the_loop() {
                 n,
             )
         } else {
-            make_loop(s)
+            make_loop(s)?
         };
         let mut inv = l.clone();
         inv.invert();
@@ -933,6 +962,7 @@ fn invert_complements_the_loop() {
     assert!(e.is_full() && e.rect_bound().is_full());
     e.invert();
     assert!(e.is_empty() && e.rect_bound().is_empty());
+    Ok(())
 }
 
 // A loop of one or two vertices that is not the empty or the full loop: Go returns from

@@ -21,18 +21,22 @@ use ultragraphdb_protocol_wire::MAX_FRAME_SIZE;
 use ultragraphdb_client_tokio::TokioSimStream;
 
 use crate::utils::serve::CLUSTER;
+use ultragraphdb_tool_bdd::{Context as _, TestResult};
 
 /// Golden frame `name`, read from the wire crate's `testdata/golden/bodies/`.
-pub fn golden(name: &str) -> Vec<u8> {
+pub fn golden(name: &str) -> TestResult<Vec<u8>> {
     // The repository's root, three levels above this crate's `testdata/`, taken lexically: the directory need not exist.
-    let testdata = ultragraphdb_tool_bdd::testdata_dir();
-    let root = testdata.ancestors().nth(3).expect("the repository's root");
+    let testdata = ultragraphdb_tool_bdd::testdata_dir()?;
+    let root = testdata
+        .ancestors()
+        .nth(3)
+        .context("the repository's root")?;
     let path = root
         .join("ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden/bodies")
         .join(format!("{name}.frame"));
     fs::read(&path)
         .map_err(|e| format!("{}: {e}", path.display()))
-        .expect("reading the golden frame")
+        .context("reading the golden frame")
 }
 
 /// The header's checksum over bytes 8 to 256, recomputed with xxhash-rust directly (`PROTOCOL.md` §2.2).
@@ -63,12 +67,24 @@ pub fn not_last(frame: &[u8]) -> Vec<u8> {
     checksummed(frame)
 }
 
-pub fn stream_of(frame: &[u8]) -> u64 {
-    u64::from_le_bytes(frame[56..64].try_into().expect("a header"))
+pub fn stream_of(frame: &[u8]) -> TestResult<u64> {
+    Ok(u64::from_le_bytes(
+        frame[56..64].try_into().context("a header")?,
+    ))
 }
 
-pub fn sequence_of(frame: &[u8]) -> u128 {
-    u128::from_le_bytes(frame[16..32].try_into().expect("a header"))
+pub fn sequence_of(frame: &[u8]) -> TestResult<u128> {
+    Ok(u128::from_le_bytes(
+        frame[16..32].try_into().context("a header")?,
+    ))
+}
+
+/// The golden frame `name` as the client's `frame` should be: moved to its stream and numbered with its sequence.
+fn expected(name: &str, frame: &[u8]) -> TestResult<Vec<u8>> {
+    Ok(numbered(
+        &restream(&golden(name)?, stream_of(frame)?),
+        sequence_of(frame)?,
+    ))
 }
 
 /// What the server does with the client's next frame.
@@ -149,14 +165,14 @@ pub struct Golden {
 
 impl Golden {
     /// A server answering each Hello with golden frame `welcome`.
-    pub fn new(welcome: &str) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self {
-            welcome: golden(welcome),
+    pub fn new(welcome: &str) -> TestResult<Rc<RefCell<Self>>> {
+        Ok(Rc::new(RefCell::new(Self {
+            welcome: golden(welcome)?,
             steps: VecDeque::new(),
             matched: Vec::new(),
             mismatches: Vec::new(),
             connections: 0,
-        }))
+        })))
     }
 
     pub fn push(&mut self, step: Step) {
@@ -179,16 +195,13 @@ impl Golden {
         self.steps.len()
     }
 
-    /// `frame` of the client's against golden frame `name`, but for its stream and sequence.
+    /// `frame` of the client's against golden frame `name`, but for its stream and sequence; a golden frame that
+    /// cannot be read is a mismatch naming why.
     fn check(&mut self, name: &'static str, frame: &[u8]) {
-        let expected = numbered(
-            &restream(&golden(name), stream_of(frame)),
-            sequence_of(frame),
-        );
-        if frame == expected {
-            self.matched.push(name);
-        } else {
-            self.mismatches.push(name.to_string());
+        match expected(name, frame) {
+            Ok(golden_frame) if frame == golden_frame => self.matched.push(name),
+            Ok(_) => self.mismatches.push(name.to_string()),
+            Err(error) => self.mismatches.push(format!("{name}: {error}")),
         }
     }
 }
@@ -247,11 +260,19 @@ pub async fn serve_golden<S: AsyncRead + AsyncWrite + Unpin>(
             golden.borrow_mut().check(name, &frame);
         }
         // The step's frames in one write, so a read may meet the next frame's bytes behind a frame's, as over TCP.
+        let Ok(request_stream) = stream_of(&frame) else {
+            golden
+                .borrow_mut()
+                .mismatches
+                .push("a frame without a header".to_string());
+            return;
+        };
         let mut out = Vec::new();
         let replies = step.replies.len();
         for (i, reply) in step.replies.iter().enumerate() {
             sent += 1;
-            let mut reply = numbered(&restream(reply, stream_of(&frame)), sent);
+            let mut reply = numbered(&restream(reply, request_stream), sent);
+
             if let Some(at) = step.damage.filter(|_| i + 1 == replies) {
                 reply[at] ^= 1 << (at % 8);
             }

@@ -30,6 +30,7 @@ pub struct RoundHeader {
 }
 
 impl RoundHeader {
+    /// The header of the round at `position` after the round of checksum `parent`, of the log's `incarnation`, its first transaction at `first_version`, holding `transactions` transactions.
     pub fn new(
         position: u64,
         parent: u64,
@@ -78,22 +79,27 @@ impl RoundHeader {
         header
     }
 
+    /// The round's place in the log, gapless from 1.
     pub fn position(&self) -> u64 {
         self.position
     }
 
+    /// The previous round's frame checksum.
     pub fn parent(&self) -> u64 {
         self.parent
     }
 
+    /// The log's incarnation, raised each time a log is created afresh.
     pub fn incarnation(&self) -> u64 {
         self.incarnation
     }
 
+    /// The commit version of the round's first transaction.
     pub fn first_version(&self) -> u64 {
         self.first_version
     }
 
+    /// The round's transaction count.
     pub fn transactions(&self) -> u32 {
         self.transactions
     }

@@ -22,22 +22,27 @@ pub struct OperationView<'a> {
 }
 
 impl<'a> OperationView<'a> {
+    /// The operation's kind: 1 insert-if-absent, 2 upsert-and-link, 3 compare-and-set, 4 counter add.
     pub fn kind(&self) -> u8 {
         self.kind
     }
 
+    /// The counter add's delta; zero for every other operation.
     pub fn delta(&self) -> i64 {
         self.delta
     }
 
+    /// The number of properties for creation.
     pub fn properties(&self) -> u32 {
         self.properties
     }
 
+    /// The number of an upsert-and-link's links.
     pub fn links(&self) -> u32 {
         self.links
     }
 
+    /// The term table the operation's indices name.
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }

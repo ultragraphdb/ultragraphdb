@@ -9,7 +9,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_text::language_base;
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{TestResult, load_golden, testdata_dir};
 
 /// Dgraph's `tok.LangBase`, without its cache.
 fn lang_base(lang: &str) -> String {
@@ -65,18 +65,18 @@ struct LangBaseCase {
 }
 
 #[test]
-fn lang_base_matches_dgraph() {
-    check_file("text_lang_base");
+fn lang_base_matches_dgraph() -> TestResult {
+    check_file("text_lang_base")
 }
 
 #[test]
-fn random_lang_base_matches_dgraph() {
-    check_file("text_lang_random");
+fn random_lang_base_matches_dgraph() -> TestResult {
+    check_file("text_lang_random")
 }
 
-fn check_file(name: &str) {
-    let path = testdata_dir().join(format!("golden/{name}.json"));
-    let golden = load_golden::<LangBaseCase>(&path);
+fn check_file(name: &str) -> TestResult {
+    let path = testdata_dir()?.join(format!("golden/{name}.json"));
+    let golden = load_golden::<LangBaseCase>(&path)?;
     let failures: Vec<String> = golden
         .cases()
         .iter()
@@ -96,4 +96,5 @@ fn check_file(name: &str) {
         failures.len(),
         failures.join("\n")
     );
+    Ok(())
 }

@@ -9,6 +9,7 @@ use ultragraphdb_client_core::{ClientError, ClientErrorEnum};
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::TransportError;
 use ultragraphdb_protocol_wire::{ErrorCode, RequestTerm};
+use ultragraphdb_tool_bdd::TestResult;
 
 fn every() -> Vec<ClientError> {
     vec![
@@ -43,7 +44,7 @@ fn every() -> Vec<ClientError> {
 }
 
 #[test]
-fn test_each_constructor_builds_its_variant() {
+fn test_each_constructor_builds_its_variant() -> TestResult {
     let kinds: Vec<_> = every()
         .into_iter()
         .map(|e| std::mem::discriminant(&e.0))
@@ -103,10 +104,11 @@ fn test_each_constructor_builds_its_variant() {
             request: 7
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_retryable_exactly_where_the_wire_says() {
+fn test_retryable_exactly_where_the_wire_says() -> TestResult {
     for code in ErrorCode::ALL {
         assert_eq!(
             ClientError::Refused(code, 0, "", None).retryable(),
@@ -120,10 +122,11 @@ fn test_retryable_exactly_where_the_wire_says() {
             .filter(|e| !matches!(e.0, ClientErrorEnum::Refused { .. }))
             .all(|e| !e.retryable())
     );
+    Ok(())
 }
 
 #[test]
-fn test_stale_and_closing_are_named() {
+fn test_stale_and_closing_are_named() -> TestResult {
     assert!(ClientError::Refused(ErrorCode::StaleStatement, 1, "", None).is_stale());
     assert!(!ClientError::Refused(ErrorCode::UnknownStatement, 1, "", None).is_stale());
     // Transport, Protocol, Closed, TimedOut and ConnectionLost give the connection up, or come of its loss; nothing
@@ -142,10 +145,11 @@ fn test_stale_and_closing_are_named() {
             .filter(|e| !matches!(e.0, ClientErrorEnum::Refused { .. }))
             .all(|e| !e.is_stale())
     );
+    Ok(())
 }
 
 #[test]
-fn test_each_names_its_values() {
+fn test_each_names_its_values() -> TestResult {
     let texts: Vec<String> = every().iter().map(ToString::to_string).collect();
     assert_eq!(
         texts,
@@ -173,11 +177,12 @@ fn test_each_names_its_values() {
         ]
     );
     assert!(every()[0].source().is_none());
+    Ok(())
 }
 
 /// A lost connection names what gave it up, in its text and as its source; with nothing to name, neither.
 #[test]
-fn test_a_lost_connection_names_its_cause() {
+fn test_a_lost_connection_names_its_cause() -> TestResult {
     let cause = ClientError::Transport(TransportError::Truncated(100, 256));
     let lost = ClientError::ConnectionLost(Some(cause.clone()));
     assert_eq!(
@@ -200,4 +205,5 @@ fn test_a_lost_connection_names_its_cause() {
     assert!(plain.source().is_none());
     assert_eq!(plain.to_string(), "the request's connection was lost");
     assert!(plain.closes_connection());
+    Ok(())
 }

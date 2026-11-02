@@ -9,20 +9,25 @@
 //! fjall, moka, the wall clock and threads; the simulator replaces all three under its seed.
 //!
 //! ```
+//! use ultragraphdb_error_store::StoreError;
 //! use ultragraphdb_store_kv::{Durability, FjallStore};
 //! use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 //!
+//! # fn main() -> Result<(), StoreError> {
 //! let tmp = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, Into::into);
 //! let dir = tmp.join(format!("kv-doc-{}", std::process::id()));
-//! let store = FjallStore::open(&dir, Durability::Filesystem).expect("opens");
+//! let store = FjallStore::open(&dir, Durability::Filesystem)?;
 //! let mut batch = WriteBatch::new();
 //! batch.push(Entry::put(b"key".to_vec(), 7, 0x04, b"delta".to_vec()));
 //! batch.set_applied_ts(7);
-//! store.apply(batch, PersistMode::Buffer).expect("applies");
-//! assert_eq!(store.get_at(b"key", 9).expect("reads").map(|i| i.version()), Some(7));
-//! assert_eq!(store.get_at(b"key", 6).expect("reads"), None);
+//! store.apply(batch, PersistMode::Buffer)?;
+//! assert_eq!(store.get_at(b"key", 9)?.map(|i| i.version()), Some(7));
+//! assert_eq!(store.get_at(b"key", 6)?, None);
 //! drop(store);
-//! let _ = std::fs::remove_dir_all(&dir);
+//! // A directory left behind is litter in the temporary directory.
+//! drop(std::fs::remove_dir_all(&dir));
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Benchmarks

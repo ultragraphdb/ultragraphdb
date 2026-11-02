@@ -18,10 +18,12 @@ pub struct Register {
 }
 
 impl Register {
+    /// A registration of `session`.
     pub fn new(session: u64) -> Self {
         Self { session }
     }
 
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }

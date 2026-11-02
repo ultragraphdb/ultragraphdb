@@ -23,6 +23,8 @@ pub struct ApplyArgs {
 }
 
 impl ApplyArgs {
+    /// An apply run of the given directory, rate, records per commit, length, durability, rollups, cache share and
+    /// cap on an apply step's commits.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         dir: PathBuf,
@@ -46,34 +48,42 @@ impl ApplyArgs {
         }
     }
 
+    /// The store's directory.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
+    /// The offered rate, in commits a second.
     pub fn rate(&self) -> u64 {
         self.rate
     }
 
+    /// The records per commit.
     pub fn relations(&self) -> usize {
         self.relations
     }
 
+    /// The run's length in seconds.
     pub fn seconds(&self) -> u64 {
         self.seconds
     }
 
+    /// The store's durability.
     pub fn durability(&self) -> Durability {
         self.durability
     }
 
+    /// Whether rollups run beside the apply thread.
     pub fn rollups(&self) -> bool {
         self.rollups
     }
 
+    /// The posting cache's size in MiB.
     pub fn cache_mb(&self) -> u64 {
         self.cache_mb
     }
 
+    /// The cap on an apply step's commits, if any.
     pub fn max_batch(&self) -> Option<usize> {
         self.max_batch
     }

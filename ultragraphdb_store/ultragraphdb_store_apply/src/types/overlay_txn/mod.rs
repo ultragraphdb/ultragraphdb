@@ -106,7 +106,8 @@ where
 
     /// Writes `value` at `key`.
     pub(crate) fn write(&self, key: &[u8], value: &[u8]) {
-        self.values
+        let _previous: Option<Vec<u8>> = self
+            .values
             .borrow_mut()
             .insert(key.to_vec(), value.to_vec());
     }

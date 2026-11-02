@@ -80,7 +80,7 @@ struct Coverer<'r, R: Region> {
     max_level: i64, // the maximum cell level to be used.
     level_mod: i64, // the LevelMod to be used.
     max_cells: i64, // the maximum desired number of cells in the approximation.
-    region: Option<&'r R>,
+    region: &'r R,
     result: CellUnion,
     pq: Vec<Candidate>,
 }
@@ -117,14 +117,14 @@ impl RegionCoverer {
         self.max_cells
     }
 
-    /// Returns an instance of coverer.
-    fn new_coverer<'r, R: Region>(&self) -> Coverer<'r, R> {
+    /// Returns an instance of coverer for `region`.
+    fn new_coverer<'r, R: Region>(&self, region: &'r R) -> Coverer<'r, R> {
         Coverer {
             min_level: clamp(self.min_level, 0, MAX_LEVEL),
             max_level: clamp(self.max_level, 0, MAX_LEVEL),
             level_mod: clamp(self.level_mod, 1, 3),
             max_cells: self.max_cells,
-            region: None,
+            region,
             result: CellUnion::default(),
             pq: Vec::new(),
         }
@@ -147,8 +147,8 @@ impl RegionCoverer {
     /// child cells with their parent whenever possible. (Note that the list of cell ids passed
     /// to the CellUnion constructor does in fact satisfy all the given restrictions.)
     pub fn cell_union<R: Region>(&self, region: &R) -> CellUnion {
-        let mut c = self.new_coverer::<R>();
-        c.covering_internal(region);
+        let mut c = self.new_coverer(region);
+        c.covering_internal();
         let mut cu = core::mem::take(&mut c.result);
         cu.normalize();
         cu
@@ -163,7 +163,7 @@ impl RegionCoverer {
     /// This function is useful as a starting point for algorithms that recursively subdivide
     /// cells.
     pub fn fast_covering<R: Region>(&self, region: &R) -> CellUnion {
-        let c = self.new_coverer::<R>();
+        let c = self.new_coverer(region);
         let mut cu = CellUnion::new(region.cell_union_bound());
         c.normalize_covering(&mut cu);
         cu
@@ -171,14 +171,10 @@ impl RegionCoverer {
 }
 
 impl<'r, R: Region> Coverer<'r, R> {
-    fn region(&self) -> &'r R {
-        self.region.expect("coverer region is set while covering")
-    }
-
     /// Returns a new candidate with no children if the cell intersects the given region. The
     /// candidate is marked as terminal if it should not be expanded further.
     fn new_candidate(&self, cell: Cell) -> Option<Candidate> {
-        if !self.region().intersects_cell(&cell) {
+        if !self.region.intersects_cell(&cell) {
             return None;
         }
         let mut cand = Candidate {
@@ -190,7 +186,7 @@ impl<'r, R: Region> Coverer<'r, R> {
         };
         let level = cell.level();
         if level >= self.min_level
-            && (level + self.level_mod > self.max_level || self.region().contains_cell(&cell))
+            && (level + self.level_mod > self.max_level || self.region.contains_cell(&cell))
         {
             cand.terminal = true;
         }
@@ -207,7 +203,7 @@ impl<'r, R: Region> Coverer<'r, R> {
         while ci != last {
             let child_cell = Cell::from_cell_id(ci);
             if num_levels > 0 {
-                if self.region().intersects_cell(&child_cell) {
+                if self.region.intersects_cell(&child_cell) {
                     num_terminals += self.expand_children(cand, child_cell, num_levels);
                 }
                 ci = ci.next();
@@ -321,7 +317,7 @@ impl<'r, R: Region> Coverer<'r, R> {
             max_cells: self.max_cells.min(4),
         };
 
-        let mut cells = temp.fast_covering(self.region());
+        let mut cells = temp.fast_covering(self.region);
         self.adjust_cell_levels(&mut cells);
         for &ci in cells.iter() {
             let cand = self.new_candidate(Cell::from_cell_id(ci));
@@ -340,9 +336,7 @@ impl<'r, R: Region> Coverer<'r, R> {
     /// intersect the region. Candidates are prioritized first according to cell size (larger
     /// cells first), then by the number of intersecting children they have (fewest children
     /// first), and then by the number of fully contained children (fewest children first).
-    fn covering_internal(&mut self, region: &'r R) {
-        self.region = Some(region);
-
+    fn covering_internal(&mut self) {
         self.initial_candidates();
         while let Some(mut cand) = heap::pop(&mut self.pq, higher_priority) {
             // For exterior covering we cannot do this, because result has to cover the
@@ -365,7 +359,6 @@ impl<'r, R: Region> Coverer<'r, R> {
         }
 
         self.pq.clear();
-        self.region = None;
 
         // Rather than just returning the raw list of cell ids, we construct a cell
         // union and then denormalize it. This has the effect of replacing four
@@ -544,7 +537,8 @@ fn replace_cells_with_ancestor(covering: &mut CellUnion, id: CellId) {
     let v = covering.vec_mut();
     let begin = v.partition_point(|&c| c <= id.range_min());
     let end = v.partition_point(|&c| c <= id.range_max());
-    v.splice(begin..end, [id]);
+    // Dropping the splice replaces the range; the removed descendants are not needed.
+    drop(v.splice(begin..end, [id]));
 }
 
 /// Go's `int` length of a collection: a length is at most `isize::MAX`, so the saturation never fires.

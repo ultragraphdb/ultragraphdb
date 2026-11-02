@@ -17,7 +17,7 @@ pub(crate) fn stem(term: &str) -> String {
         s = norm_feminine(s);
     }
     if s.len() > 4 && matches!(s[s.len() - 1], 'e' | 'a' | 'o') {
-        s.pop();
+        let _last: Option<char> = s.pop();
     }
     for r in s.iter_mut() {
         *r = match *r {

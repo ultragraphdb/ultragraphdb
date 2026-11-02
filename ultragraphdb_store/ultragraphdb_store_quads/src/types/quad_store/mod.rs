@@ -66,18 +66,22 @@ where
         self
     }
 
+    /// The posting lists the quads are stored in.
     pub fn lists(&self) -> &Lists<S, C> {
         &self.lists
     }
 
+    /// The store under the posting lists.
     pub fn store(&self) -> &S {
         self.lists.store()
     }
 
+    /// The leases UIDs and statement IDs are drawn from.
     pub fn leases(&self) -> &Leases {
         &self.leases
     }
 
+    /// The fingerprint literal postings are ordered by.
     pub fn fingerprint(&self) -> fn(&[u8]) -> u64 {
         self.fingerprint
     }
@@ -137,7 +141,7 @@ where
             }
         }
         for (iri, uid) in write.created() {
-            claimed.insert((ns, iri.to_string()), uid);
+            let _replaced_claim: Option<u64> = claimed.insert((ns, iri.to_string()), uid);
         }
         for (key, value) in write.entries() {
             request.add_versionless(key, value);

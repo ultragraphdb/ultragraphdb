@@ -9,6 +9,7 @@
 
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
 use ultragraphdb_protocol_wire::{Command, Header, RoundHeader};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::{Position, RoundRef};
 use ultragraphdb_transactions_log::{
     Damage, ScanStart, SegmentScan, encode_round, find_complete_round, scan_segment,
@@ -28,7 +29,13 @@ struct Spec {
 }
 
 /// Rounds `from` to `to` of `incarnation`, chained from `parent`, each with a body of `len`.
-fn chain(incarnation: u64, from: u64, to: u64, parent: u64, len: usize) -> Vec<Vec<u8>> {
+fn chain(
+    incarnation: u64,
+    from: u64,
+    to: u64,
+    parent: u64,
+    len: usize,
+) -> TestResult<Vec<Vec<u8>>> {
     let mut parent = parent;
     (from..=to)
         .map(|position| {
@@ -37,14 +44,14 @@ fn chain(incarnation: u64, from: u64, to: u64, parent: u64, len: usize) -> Vec<V
                 parent,
                 incarnation,
                 len,
-            });
+            })?;
             parent = frame_checksum(&frame);
-            frame
+            Ok(frame)
         })
         .collect()
 }
 
-fn frame_of(spec: Spec) -> Vec<u8> {
+fn frame_of(spec: Spec) -> TestResult<Vec<u8>> {
     let data = body(spec.position, spec.len);
     let round = RoundRef::new(
         Position::new(spec.position),
@@ -53,11 +60,11 @@ fn frame_of(spec: Spec) -> Vec<u8> {
         1,
         &data,
     );
-    encode_round(CLUSTER, 0, spec.incarnation, &round)
-        .expect("encoded")
+    Ok(encode_round(CLUSTER, 0, spec.incarnation, &round)
+        .context("encoded")?
         .0
         .as_slice()
-        .to_vec()
+        .to_vec())
 }
 
 /// A segment of `blocks` blocks holding `frames` from its start, then zeros.
@@ -72,8 +79,8 @@ fn start() -> ScanStart {
     ScanStart::new(CLUSTER, 1, Position::ZERO, 0)
 }
 
-fn scan(bytes: &[u8]) -> SegmentScan {
-    scan_segment(bytes, &start()).expect("scanned")
+fn scan(bytes: &[u8]) -> TestResult<SegmentScan> {
+    scan_segment(bytes, &start()).context("scanned")
 }
 
 fn positions(scan: &SegmentScan) -> Vec<u64> {
@@ -87,17 +94,18 @@ fn reseal(frame: &mut [u8]) {
 }
 
 #[test]
-fn test_a_segment_of_zeros_holds_no_round() {
-    let scan = scan(&segment(4, &[]));
+fn test_a_segment_of_zeros_holds_no_round() -> TestResult {
+    let scan = scan(&segment(4, &[]))?;
     assert!(scan.rounds().is_empty());
     assert_eq!(scan.end(), 0);
     assert_eq!(scan.damage(), None);
+    Ok(())
 }
 
 #[test]
-fn test_three_rounds_then_zeros_end_after_the_third() {
-    let frames = chain(1, 1, 3, 0, ONE_BLOCK);
-    let scan = scan(&segment(16, &frames));
+fn test_three_rounds_then_zeros_end_after_the_third() -> TestResult {
+    let frames = chain(1, 1, 3, 0, ONE_BLOCK)?;
+    let scan = scan(&segment(16, &frames))?;
     assert_eq!(positions(&scan), [1, 2, 3]);
     assert_eq!(scan.end(), 12_288);
     assert_eq!(scan.damage(), None);
@@ -110,74 +118,79 @@ fn test_three_rounds_then_zeros_end_after_the_third() {
     }
     assert_eq!(scan.rounds()[0].parent(), 0);
     assert_eq!(scan.rounds()[2].parent(), frame_checksum(&frames[1]));
+    Ok(())
 }
 
 #[test]
-fn test_rounds_of_mixed_sizes_lie_at_block_boundaries() {
+fn test_rounds_of_mixed_sizes_lie_at_block_boundaries() -> TestResult {
     let one = frame_of(Spec {
         position: 1,
         parent: 0,
         incarnation: 1,
         len: ONE_BLOCK,
-    });
+    })?;
     let two = frame_of(Spec {
         position: 2,
         parent: frame_checksum(&one),
         incarnation: 1,
         len: TWO_BLOCKS,
-    });
+    })?;
     let three = frame_of(Spec {
         position: 3,
         parent: frame_checksum(&two),
         incarnation: 1,
         len: ONE_BLOCK,
-    });
-    let scan = scan(&segment(8, &[one, two, three]));
+    })?;
+    let scan = scan(&segment(8, &[one, two, three]))?;
     let offsets: Vec<u64> = scan.rounds().iter().map(|r| r.offset()).collect();
     assert_eq!(offsets, [0, 4_096, 12_288]);
     assert_eq!(scan.rounds()[1].size(), 5_272);
     assert_eq!(scan.end(), 16_384);
+    Ok(())
 }
 
 #[test]
-fn test_rounds_filling_the_segment_end_at_its_length() {
-    let scan = scan(&segment(4, &chain(1, 1, 4, 0, ONE_BLOCK)));
+fn test_rounds_filling_the_segment_end_at_its_length() -> TestResult {
+    let scan = scan(&segment(4, &chain(1, 1, 4, 0, ONE_BLOCK)?))?;
     assert_eq!(positions(&scan), [1, 2, 3, 4]);
     assert_eq!(scan.end(), 16_384);
     assert_eq!(scan.damage(), None);
+    Ok(())
 }
 
 #[test]
-fn test_bytes_short_of_a_block_are_not_read() {
-    let mut bytes = segment(2, &chain(1, 1, 2, 0, ONE_BLOCK));
+fn test_bytes_short_of_a_block_are_not_read() -> TestResult {
+    let mut bytes = segment(2, &chain(1, 1, 2, 0, ONE_BLOCK)?);
     bytes.extend_from_slice(&[0xFF; 100]);
-    let scan = scan(&bytes);
+    let scan = scan(&bytes)?;
     assert_eq!(positions(&scan), [1, 2]);
     assert_eq!(scan.end(), 8_192);
     assert_eq!(scan.damage(), None);
     for short in [Vec::new(), vec![0xFF; 4_095]] {
-        let scan = self::scan(&short);
-        assert!(scan.rounds().is_empty());
-        assert_eq!((scan.end(), scan.damage()), (0, None));
+        let short_scan = self::scan(&short)?;
+        assert!(short_scan.rounds().is_empty());
+        assert_eq!((short_scan.end(), short_scan.damage()), (0, None));
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_round_whose_padding_lies_past_the_bytes_ends_at_its_padded_end() {
-    let frames = chain(1, 1, 2, 0, ONE_BLOCK);
+fn test_a_round_whose_padding_lies_past_the_bytes_ends_at_its_padded_end() -> TestResult {
+    let frames = chain(1, 1, 2, 0, ONE_BLOCK)?;
     let mut bytes = segment(1, &frames[..1]);
     bytes.extend_from_slice(&frames[1]);
-    let scan = scan(&bytes);
+    let scan = scan(&bytes)?;
     assert_eq!(positions(&scan), [1, 2]);
     assert_eq!(scan.end(), 8_192);
     assert_eq!(scan.damage(), None);
+    Ok(())
 }
 
 /// Each committed case scanned from the fuzz target `scan`'s three starts: the whole input from a fresh log, and the
 /// input after its first eight bytes from the checkpoint those bytes choose and from a continued chain.
 #[test]
-fn test_the_scan_fuzz_regressions_end_within_a_block_of_the_bytes() {
-    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan");
+fn test_the_scan_fuzz_regressions_end_within_a_block_of_the_bytes() -> TestResult {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("scan")?;
     assert!(!cases.is_empty(), "the committed cases");
     for (name, data) in cases {
         let (checkpoint, rest) = data.split_at(data.len().min(8));
@@ -199,113 +212,122 @@ fn test_the_scan_fuzz_regressions_end_within_a_block_of_the_bytes() {
             }
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_rounds_of_an_older_incarnation_after_the_current_are_a_clean_end() {
+fn test_rounds_of_an_older_incarnation_after_the_current_are_a_clean_end() -> TestResult {
     // A reused segment: incarnation 1 wrote rounds 1 to 6; incarnation 2 wrote its rounds 1 to 3 over the first three.
-    let old = chain(1, 1, 6, 0, ONE_BLOCK);
-    let new = chain(2, 1, 3, 0, ONE_BLOCK);
+    let old = chain(1, 1, 6, 0, ONE_BLOCK)?;
+    let new = chain(2, 1, 3, 0, ONE_BLOCK)?;
     let frames = [new.clone(), old[3..].to_vec()].concat();
     let bytes = segment(8, &frames);
     let scan =
-        scan_segment(&bytes, &ScanStart::new(CLUSTER, 2, Position::ZERO, 0)).expect("scanned");
+        scan_segment(&bytes, &ScanStart::new(CLUSTER, 2, Position::ZERO, 0)).context("scanned")?;
     assert_eq!(positions(&scan), [1, 2, 3]);
     assert_eq!(scan.end(), 12_288);
     assert_eq!(scan.damage(), None);
     // Read as incarnation 1, the same segment's first block is not this log's: a clean end at once.
-    let as_old = scan_segment(&bytes, &start()).expect("scanned");
+    let as_old = scan_segment(&bytes, &start()).context("scanned")?;
     assert!(as_old.rounds().is_empty());
     assert_eq!((as_old.end(), as_old.damage()), (0, None));
+    Ok(())
 }
 
 #[test]
-fn test_a_valid_round_of_another_cluster_is_damage() {
+fn test_a_valid_round_of_another_cluster_is_damage() -> TestResult {
     let data = body(1, 10);
     let round = RoundRef::new(Position::new(1), 0, 2, 1, &data);
-    let foreign = encode_round(CLUSTER ^ 1, 0, 1, &round).expect("encoded").0;
-    let scan = scan(&segment(4, &[foreign.as_slice().to_vec()]));
+    let foreign = encode_round(CLUSTER ^ 1, 0, 1, &round)
+        .context("encoded")?
+        .0;
+    let scan = scan(&segment(4, &[foreign.as_slice().to_vec()]))?;
     assert!(scan.rounds().is_empty());
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+    Ok(())
 }
 
 #[test]
-fn test_a_flipped_header_byte_is_header_damage_where_it_lies() {
+fn test_a_flipped_header_byte_is_header_damage_where_it_lies() -> TestResult {
     // Offsets in each part of the header: checksum, checksum_body, cluster, size, command, reserved, command header.
     for offset in [0usize, 8, 33, 41, 54, 100, 128, 140, 255] {
-        let mut frames = chain(1, 1, 3, 0, ONE_BLOCK);
+        let mut frames = chain(1, 1, 3, 0, ONE_BLOCK)?;
         frames[1][offset] ^= 0x10;
-        let scan = scan(&segment(8, &frames));
+        let scan = scan(&segment(8, &frames))?;
         assert_eq!(positions(&scan), [1], "offset {offset}");
         assert_eq!(scan.end(), 4_096, "offset {offset}");
         assert_eq!(scan.damage(), Some(Damage::Header), "offset {offset}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_size_out_of_bounds_is_header_damage_before_its_checksum_is_trusted() {
+fn test_a_size_out_of_bounds_is_header_damage_before_its_checksum_is_trusted() -> TestResult {
     // Resealed, so only the size rule refuses them: below a header, past 1 MiB, past the segment's end.
     for size in [0u32, 255, 1_048_577, u32::MAX, 16_385] {
-        let mut frames = chain(1, 1, 1, 0, ONE_BLOCK);
+        let mut frames = chain(1, 1, 1, 0, ONE_BLOCK)?;
         frames[0][40..44].copy_from_slice(&size.to_le_bytes());
         reseal(&mut frames[0]);
-        let scan = scan(&segment(4, &frames));
+        let scan = scan(&segment(4, &frames))?;
         assert!(scan.rounds().is_empty(), "size {size}");
         assert_eq!(scan.damage(), Some(Damage::Header), "size {size}");
     }
     // A valid two-block round in the segment's last block runs past its end.
-    let mut frames = chain(1, 1, 3, 0, ONE_BLOCK);
+    let mut frames = chain(1, 1, 3, 0, ONE_BLOCK)?;
     frames.push(frame_of(Spec {
         position: 4,
         parent: frame_checksum(&frames[2]),
         incarnation: 1,
         len: TWO_BLOCKS,
-    }));
+    })?);
     let mut bytes: Vec<u8> = frames.concat();
     bytes.truncate(16_384);
-    let scan = scan(&bytes);
+    let scan = scan(&bytes)?;
     assert_eq!(positions(&scan), [1, 2, 3]);
     assert_eq!((scan.end(), scan.damage()), (12_288, Some(Damage::Header)));
+    Ok(())
 }
 
 #[test]
-fn test_a_frame_of_another_command_is_header_damage() {
+fn test_a_frame_of_another_command_is_header_damage() -> TestResult {
     let data = body(1, 10);
     let header = Header::new(CLUSTER, Command::Commit)
         .with_command_header(RoundHeader::new(1, 0, 1, 2, 1).encode());
-    let mut frame = header.encode_frame(&data).expect("a frame");
+    let mut frame = header.encode_frame(&data).context("a frame")?;
     frame.resize(4_096, 0);
-    let scan = scan(&segment(4, &[frame]));
+    let scan = scan(&segment(4, &[frame]))?;
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+    Ok(())
 }
 
 /// A frame of another command is header damage though everything else about it reads as the log's first round: its
 /// sequence is the position its command header names, its parent the fresh log's 0, its body's checksums sound.
 #[test]
-fn test_a_frame_of_another_command_numbered_as_a_round_is_header_damage() {
+fn test_a_frame_of_another_command_numbered_as_a_round_is_header_damage() -> TestResult {
     let data = body(1, 10);
     let header = Header::new(CLUSTER, Command::Commit)
         .with_sequence(1)
         .with_command_header(RoundHeader::new(1, 0, 1, 2, 1).encode());
-    let mut frame = header.encode_frame(&data).expect("a frame");
+    let mut frame = header.encode_frame(&data).context("a frame")?;
     frame.resize(4_096, 0);
-    let scan = scan(&segment(4, &[frame]));
+    let scan = scan(&segment(4, &[frame]))?;
     assert_eq!(positions(&scan), Vec::<u64>::new());
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
+    Ok(())
 }
 
 /// `Position::ZERO` is the place before the first round, never a round: a well-formed Round frame of this cluster and
 /// incarnation claiming position 0, numbered 0 and parented on the fresh log's 0, is header damage at a fresh log's
 /// head, as a frame numbered other than its position is.
 #[test]
-fn test_a_round_claiming_position_zero_is_header_damage() {
+fn test_a_round_claiming_position_zero_is_header_damage() -> TestResult {
     let zero = frame_of(Spec {
         position: 0,
         parent: 0,
         incarnation: 1,
         len: ONE_BLOCK,
-    });
-    let scan = scan(&segment(4, std::slice::from_ref(&zero)));
+    })?;
+    let scan = scan(&segment(4, std::slice::from_ref(&zero)))?;
     assert_eq!(positions(&scan), Vec::<u64>::new());
     assert_eq!((scan.end(), scan.damage()), (0, Some(Damage::Header)));
     // Nor is it a complete round a recovery would find past damage.
@@ -313,27 +335,28 @@ fn test_a_round_claiming_position_zero_is_header_damage() {
         find_complete_round(&segment(4, &[zero]), 0, CLUSTER, 1, Position::ZERO),
         None
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_broken_chain_is_chain_damage_naming_the_round() {
-    let frames = chain(1, 1, 3, 0, ONE_BLOCK);
+fn test_a_broken_chain_is_chain_damage_naming_the_round() -> TestResult {
+    let frames = chain(1, 1, 3, 0, ONE_BLOCK)?;
     // Round 2 with another parent; round 3 after round 1; round 1 again after round 1.
     let wrong_parent = frame_of(Spec {
         position: 2,
         parent: 0xDEAD,
         incarnation: 1,
         len: ONE_BLOCK,
-    });
+    })?;
     let skipped = frames[2].clone();
     let repeated = frame_of(Spec {
         position: 1,
         parent: frame_checksum(&frames[0]),
         incarnation: 1,
         len: ONE_BLOCK,
-    });
+    })?;
     for (second, position) in [(wrong_parent, 2), (skipped, 3), (repeated, 1)] {
-        let scan = scan(&segment(4, &[frames[0].clone(), second]));
+        let scan = scan(&segment(4, &[frames[0].clone(), second]))?;
         assert_eq!(positions(&scan), [1]);
         assert_eq!(scan.end(), 4_096);
         assert_eq!(
@@ -343,22 +366,26 @@ fn test_a_broken_chain_is_chain_damage_naming_the_round() {
             })
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_fresh_logs_first_round_with_another_parent_diverges() {
+fn test_a_fresh_logs_first_round_with_another_parent_diverges() -> TestResult {
     // A fresh log's checkpoint is position 0 with checksum 0, so its round 1 must name parent 0.
-    let frames = chain(1, 1, 1, 0xBEEF, ONE_BLOCK);
-    let error = scan_segment(&segment(4, &frames), &start()).expect_err("diverged");
-    assert_eq!(diverged(&error), ("the first round's parent", 0, 0xBEEF));
+    let frames = chain(1, 1, 1, 0xBEEF, ONE_BLOCK)?;
+    let error = scan_segment(&segment(4, &frames), &start())
+        .err()
+        .context("diverged")?;
+    assert_eq!(diverged(&error)?, ("the first round's parent", 0, 0xBEEF));
+    Ok(())
 }
 
 #[test]
-fn test_a_flipped_table_byte_is_chunk_table_damage() {
-    let mut frames = chain(1, 1, 2, 0, TWO_BLOCKS);
+fn test_a_flipped_table_byte_is_chunk_table_damage() -> TestResult {
+    let mut frames = chain(1, 1, 2, 0, TWO_BLOCKS)?;
     // The table is the body's last 16 bytes: frame bytes 5,256 to 5,272.
     frames[1][256 + 5_000 + 3] ^= 0x01;
-    let scan = scan(&segment(8, &frames));
+    let scan = scan(&segment(8, &frames))?;
     assert_eq!(positions(&scan), [1]);
     assert_eq!(scan.end(), 8_192);
     assert_eq!(
@@ -367,10 +394,11 @@ fn test_a_flipped_table_byte_is_chunk_table_damage() {
             position: Position::new(2)
         })
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_flipped_chunk_byte_is_named_with_its_range() {
+fn test_a_flipped_chunk_byte_is_named_with_its_range() -> TestResult {
     // Chunk 0 is body bytes 0 to 3,840; chunk 1 of a 5,000-byte body is 3,840 to 5,000.
     for (body_offset, index, start, end) in [
         (10usize, 0, 0, 3_840),
@@ -378,9 +406,9 @@ fn test_a_flipped_chunk_byte_is_named_with_its_range() {
         (3_840, 1, 3_840, 5_000),
         (4_999, 1, 3_840, 5_000),
     ] {
-        let mut frames = chain(1, 1, 2, 0, TWO_BLOCKS);
+        let mut frames = chain(1, 1, 2, 0, TWO_BLOCKS)?;
         frames[1][256 + body_offset] ^= 0x80;
-        let scan = scan(&segment(8, &frames));
+        let scan = scan(&segment(8, &frames))?;
         assert_eq!(positions(&scan), [1]);
         assert_eq!(
             scan.damage(),
@@ -393,9 +421,9 @@ fn test_a_flipped_chunk_byte_is_named_with_its_range() {
             "body byte {body_offset}"
         );
     }
-    let mut frames = chain(1, 1, 1, 0, ONE_BLOCK);
+    let mut frames = chain(1, 1, 1, 0, ONE_BLOCK)?;
     frames[0][256 + 999] ^= 0x01;
-    let scan = scan(&segment(4, &frames));
+    let scan = scan(&segment(4, &frames))?;
     assert_eq!(
         scan.damage(),
         Some(Damage::Chunk {
@@ -405,39 +433,42 @@ fn test_a_flipped_chunk_byte_is_named_with_its_range() {
             end: 1_000
         })
     );
+    Ok(())
 }
 
 #[test]
-fn test_padding_after_a_frame_is_not_checked() {
-    let mut frames = chain(1, 1, 2, 0, ONE_BLOCK);
+fn test_padding_after_a_frame_is_not_checked() -> TestResult {
+    let mut frames = chain(1, 1, 2, 0, ONE_BLOCK)?;
     frames[0][4_000] = 0xFF;
-    assert_eq!(positions(&scan(&segment(4, &frames))), [1, 2]);
+    assert_eq!(positions(&scan(&segment(4, &frames))?), [1, 2]);
+    Ok(())
 }
 
 #[test]
-fn test_the_first_kept_segment_may_start_below_the_checkpoint() {
+fn test_the_first_kept_segment_may_start_below_the_checkpoint() -> TestResult {
     // Checkpoint at 7: the segment starts at round 5, and round 7's checksum is the checkpoint's.
-    let frames = chain(1, 5, 9, 0x55, ONE_BLOCK);
+    let frames = chain(1, 5, 9, 0x55, ONE_BLOCK)?;
     let at_seven = frame_checksum(&frames[2]);
     let bytes = segment(8, &frames);
     let scan = scan_segment(
         &bytes,
         &ScanStart::new(CLUSTER, 1, Position::new(7), at_seven),
     )
-    .expect("scanned");
+    .context("scanned")?;
     assert_eq!(positions(&scan), [5, 6, 7, 8, 9]);
     assert_eq!(scan.rounds()[0].parent(), 0x55);
     // The segment starts at the round after the checkpoint, its parent the checkpoint's checksum.
-    let after = chain(1, 8, 9, 0x77, ONE_BLOCK);
-    let scan = scan_segment(
+    let after = chain(1, 8, 9, 0x77, ONE_BLOCK)?;
+    let after_scan = scan_segment(
         &segment(4, &after),
         &ScanStart::new(CLUSTER, 1, Position::new(7), 0x77),
     )
-    .expect("scanned");
-    assert_eq!(positions(&scan), [8, 9]);
+    .context("scanned")?;
+    assert_eq!(positions(&after_scan), [8, 9]);
+    Ok(())
 }
 
-fn diverged(error: &LogError) -> (&'static str, u64, u64) {
+fn diverged(error: &LogError) -> TestResult<(&'static str, u64, u64)> {
     let found = if let LogErrorEnum::Diverged {
         what,
         expected,
@@ -450,12 +481,12 @@ fn diverged(error: &LogError) -> (&'static str, u64, u64) {
     };
     found
         .ok_or_else(|| format!("not diverged: {error:?}"))
-        .expect("a divergence")
+        .context("a divergence")
 }
 
 #[test]
-fn test_rounds_contradicting_the_checkpoint_diverge() {
-    let frames = chain(1, 5, 9, 0x55, ONE_BLOCK);
+fn test_rounds_contradicting_the_checkpoint_diverge() -> TestResult {
+    let frames = chain(1, 5, 9, 0x55, ONE_BLOCK)?;
     let bytes = segment(8, &frames);
     let at_seven = frame_checksum(&frames[2]);
     // Round 7 with another checksum than the checkpoint's.
@@ -463,44 +494,55 @@ fn test_rounds_contradicting_the_checkpoint_diverge() {
         &bytes,
         &ScanStart::new(CLUSTER, 1, Position::new(7), 0x1234),
     )
-    .expect_err("diverged");
+    .err()
+    .context("diverged")?;
     assert_eq!(
-        diverged(&error),
+        diverged(&error)?,
         ("the checkpoint's checksum", 0x1234, at_seven)
     );
     // The segment starts past the round after the checkpoint: rounds 5 to 9 with the checkpoint at 3.
-    let error = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(3), 0))
-        .expect_err("diverged");
-    assert_eq!(diverged(&error), ("the first round's position", 4, 5));
+    let position_refusal = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(3), 0))
+        .err()
+        .context("diverged")?;
+    assert_eq!(
+        diverged(&position_refusal)?,
+        ("the first round's position", 4, 5)
+    );
     // The round after the checkpoint names another parent than the checkpoint's checksum.
-    let error = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(4), 0x99))
-        .expect_err("diverged");
-    assert_eq!(diverged(&error), ("the first round's parent", 0x99, 0x55));
+    let parent_refusal = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(4), 0x99))
+        .err()
+        .context("diverged")?;
+    assert_eq!(
+        diverged(&parent_refusal)?,
+        ("the first round's parent", 0x99, 0x55)
+    );
+    Ok(())
 }
 
 #[test]
-fn test_a_continuing_segment_starts_with_exactly_the_next_round() {
-    let frames = chain(1, 5, 6, 0x55, ONE_BLOCK);
+fn test_a_continuing_segment_starts_with_exactly_the_next_round() -> TestResult {
+    let frames = chain(1, 5, 6, 0x55, ONE_BLOCK)?;
     let bytes = segment(4, &frames);
     let base = ScanStart::new(CLUSTER, 1, Position::ZERO, 0);
-    let scan = scan_segment(&bytes, &base.continuing(Position::new(5), 0x55)).expect("scanned");
+    let scan = scan_segment(&bytes, &base.continuing(Position::new(5), 0x55)).context("scanned")?;
     assert_eq!(positions(&scan), [5, 6]);
     for (position, parent, named) in [(4, 0x55, 5), (5, 0x56, 5), (6, 0x55, 5)] {
-        let scan = scan_segment(&bytes, &base.continuing(Position::new(position), parent))
-            .expect("scanned");
-        assert!(scan.rounds().is_empty());
+        let broken = scan_segment(&bytes, &base.continuing(Position::new(position), parent))
+            .context("scanned")?;
+        assert!(broken.rounds().is_empty());
         assert_eq!(
-            scan.damage(),
+            broken.damage(),
             Some(Damage::Chain {
                 position: Position::new(named)
             })
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_find_complete_round_after_damage() {
-    let mut frames = chain(1, 1, 4, 0, ONE_BLOCK);
+fn test_find_complete_round_after_damage() -> TestResult {
+    let mut frames = chain(1, 1, 4, 0, ONE_BLOCK)?;
     frames[1][300] ^= 0x01;
     let bytes = segment(8, &frames);
     assert_eq!(
@@ -545,11 +587,12 @@ fn test_find_complete_round_after_damage() {
         find_complete_round(&[], 0, CLUSTER, 1, Position::new(1)),
         None
     );
+    Ok(())
 }
 
 #[test]
-fn test_find_complete_round_needs_the_whole_frame() {
-    let frames = chain(1, 1, 1, 0, TWO_BLOCKS);
+fn test_find_complete_round_needs_the_whole_frame() -> TestResult {
+    let frames = chain(1, 1, 1, 0, TWO_BLOCKS)?;
     let mut bytes = frames[0].clone();
     bytes.truncate(5_271);
     assert_eq!(
@@ -562,30 +605,32 @@ fn test_find_complete_round_needs_the_whole_frame() {
         find_complete_round(&bytes, 0, CLUSTER, 1, Position::new(1)),
         None
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_round_at_the_last_position_ends_the_scan() {
+fn test_the_round_at_the_last_position_ends_the_scan() -> TestResult {
     // A checkpoint just below u64::MAX: the first round may be the last position, and nothing can follow it.
-    let frames = chain(1, u64::MAX, u64::MAX, 0x77, ONE_BLOCK);
+    let frames = chain(1, u64::MAX, u64::MAX, 0x77, ONE_BLOCK)?;
     let bytes = segment(4, &[frames[0].clone(), frames[0].clone()]);
     let start = ScanStart::new(CLUSTER, 1, Position::new(u64::MAX - 1), 0x77);
-    let scan = scan_segment(&bytes, &start).expect("scanned");
+    let scan = scan_segment(&bytes, &start).context("scanned")?;
     assert_eq!(positions(&scan), [u64::MAX]);
     assert_eq!((scan.end(), scan.damage()), (4_096, None));
+    Ok(())
 }
 
 /// A checkpoint at the last position has no round after it: a first kept segment starting with the checkpoint's own
 /// round, `u64::MAX`, whose parent is the round before it, is read, not taken as the round after the checkpoint with
 /// the wrong parent.
 #[test]
-fn test_a_checkpoint_at_the_last_position_has_no_round_after_it() {
-    let frames = chain(1, u64::MAX - 1, u64::MAX, 0x55, ONE_BLOCK);
+fn test_a_checkpoint_at_the_last_position_has_no_round_after_it() -> TestResult {
+    let frames = chain(1, u64::MAX - 1, u64::MAX, 0x55, ONE_BLOCK)?;
     let last = frame_checksum(&frames[1]);
     // The segment starts at round u64::MAX, its parent round u64::MAX - 1's checksum.
     let bytes = segment(4, &frames[1..]);
     let start = ScanStart::new(CLUSTER, 1, Position::new(u64::MAX), last);
-    let scan = scan_segment(&bytes, &start).expect("scanned, not diverged");
+    let scan = scan_segment(&bytes, &start).context("scanned, not diverged")?;
     assert_eq!(positions(&scan), [u64::MAX]);
     assert_eq!((scan.end(), scan.damage()), (4_096, None));
     // Its checksum must still be the checkpoint's.
@@ -593,22 +638,25 @@ fn test_a_checkpoint_at_the_last_position_has_no_round_after_it() {
         &bytes,
         &ScanStart::new(CLUSTER, 1, Position::new(u64::MAX), last ^ 1),
     )
-    .expect_err("diverged");
+    .err()
+    .context("diverged")?;
     assert_eq!(
-        diverged(&error),
+        diverged(&error)?,
         ("the checkpoint's checksum", last ^ 1, last)
     );
+    Ok(())
 }
 
 /// A Round frame is numbered by its round's position (`PROTOCOL.md` §12): one whose header says another, its checksum
 /// sound, is no round of the log and stops the scan as damage.
 #[test]
-fn test_a_round_numbered_other_than_its_position_is_damage() {
-    let mut frames = chain(1, 1, 3, 0, ONE_BLOCK);
-    Header::stamp_sequence(&mut frames[1], 7).expect("a header");
-    let scan = scan(&segment(8, &frames));
+fn test_a_round_numbered_other_than_its_position_is_damage() -> TestResult {
+    let mut frames = chain(1, 1, 3, 0, ONE_BLOCK)?;
+    Header::stamp_sequence(&mut frames[1], 7).context("a header")?;
+    let scan = scan(&segment(8, &frames))?;
     assert_eq!(positions(&scan), [1]);
     assert_eq!(scan.damage(), Some(Damage::Header));
+    Ok(())
 }
 
 /// The damage a scan must report for a round whose frame `frame` kept only its first `kept` bytes, the rest zeros, as a
@@ -669,7 +717,7 @@ type TearCase = (
 );
 
 #[test]
-fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
+fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() -> TestResult {
     let chunk = |index, start, end| {
         Some(Damage::Chunk {
             position: Position::new(2),
@@ -699,21 +747,21 @@ fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
     ];
     for (len, table, chunks, reached) in cases {
         let mut outcomes = std::collections::BTreeSet::new();
-        let frames = chain(1, 1, 2, 0, ONE_BLOCK);
+        let frames = chain(1, 1, 2, 0, ONE_BLOCK)?;
         let torn_frame = frame_of(Spec {
             position: 2,
             parent: frame_checksum(&frames[0]),
             incarnation: 1,
             len,
-        });
+        })?;
         let size = torn_frame.len();
         for kept in 0..size {
             let mut torn = torn_frame.clone();
             torn[kept..].fill(0);
-            let scan = scan(&segment(4, &[frames[0].clone(), torn]));
+            let scan = scan(&segment(4, &[frames[0].clone(), torn]))?;
             match torn_damage(&torn_frame, kept, 2, table.clone(), &chunks) {
                 Some(damage) => {
-                    outcomes.insert(format!("{damage:?}"));
+                    let _new: bool = outcomes.insert(format!("{damage:?}"));
                     assert_eq!(positions(&scan), [1], "len {len}, kept {kept}");
                     assert_eq!(
                         (scan.end(), scan.damage()),
@@ -731,4 +779,5 @@ fn test_a_round_torn_at_every_byte_is_damage_or_a_clean_end() {
             );
         }
     }
+    Ok(())
 }

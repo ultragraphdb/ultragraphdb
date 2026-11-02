@@ -58,34 +58,42 @@ impl<'a> HeaderView<'a> {
         })
     }
 
+    /// The header's checksum: XXH3-64 of its bytes 8 to 256.
     pub fn checksum(&self) -> u64 {
         self.checksum
     }
 
+    /// The checksum of the body's chunk table.
     pub fn checksum_body(&self) -> u64 {
         self.checksum_body
     }
 
+    /// The frame's place among its sender's frames on the connection, from 1.
     pub fn sequence(&self) -> u128 {
         self.sequence
     }
 
+    /// The cluster the frame belongs to.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// The frame's size in bytes, header and body.
     pub fn size(&self) -> u32 {
         self.size
     }
 
+    /// The VSR view; 0 from a client.
     pub fn view(&self) -> u32 {
         self.view
     }
 
+    /// The sender's release.
     pub fn release(&self) -> u32 {
         self.release
     }
 
+    /// The protocol version.
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
@@ -95,14 +103,17 @@ impl<'a> HeaderView<'a> {
         self.command
     }
 
+    /// The stream the frame belongs to; 0 for the connection.
     pub fn stream(&self) -> u64 {
         self.stream
     }
 
+    /// The sending replica; 0 from a client.
     pub fn replica(&self) -> u8 {
         self.replica
     }
 
+    /// The header's flags: bit 0 marks the stream's last frame.
     pub fn flags(&self) -> u8 {
         self.flags
     }
@@ -112,6 +123,7 @@ impl<'a> HeaderView<'a> {
         self.reserved
     }
 
+    /// The command header's 128 bytes.
     pub fn command_header(&self) -> &'a [u8; COMMAND_HEADER_SIZE] {
         self.command_header
     }

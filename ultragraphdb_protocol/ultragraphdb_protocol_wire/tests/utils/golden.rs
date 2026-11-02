@@ -8,6 +8,8 @@
 
 use std::fs;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
+
 /// The cluster every golden frame names.
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 
@@ -152,18 +154,24 @@ pub const GOLDEN: [GoldenFrame; 6] = [HELLO, READ, CREDIT, ONE_CHUNK, TWO_CHUNKS
 
 impl GoldenFrame {
     /// The frame's bytes, read from `testdata/golden/<name>.frame`.
-    pub fn bytes(&self) -> Vec<u8> {
-        let path = ultragraphdb_tool_bdd::testdata_dir()
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be read.
+    pub fn bytes(&self) -> TestResult<Vec<u8>> {
+        let path = ultragraphdb_tool_bdd::testdata_dir()?
             .join("golden")
             .join(format!("{}.frame", self.name));
-        fs::read(&path)
-            .map_err(|e| format!("cannot read {}: {e}", path.display()))
-            .expect("reading the golden frame")
+        fs::read(&path).context(&format!("reading the golden frame {}", path.display()))
     }
 
     /// The body's bytes before its table.
-    pub fn data(&self) -> Vec<u8> {
-        self.bytes()[256..256 + self.data_len].to_vec()
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be read.
+    pub fn data(&self) -> TestResult<Vec<u8>> {
+        Ok(self.bytes()?[256..256 + self.data_len].to_vec())
     }
 
     /// The 128-byte command header the generator wrote.

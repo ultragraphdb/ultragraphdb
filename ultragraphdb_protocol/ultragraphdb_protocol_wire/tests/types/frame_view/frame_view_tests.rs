@@ -5,6 +5,7 @@
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{Command, FrameView, MAX_FRAME_SIZE};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden::{CLUSTER, CREDIT, GOLDEN, HELLO, READ, put, reseal};
 
@@ -13,12 +14,14 @@ fn validate(bytes: &[u8]) -> Result<FrameView<'_>, ProtocolErrorEnum> {
 }
 
 #[test]
-fn test_golden_frames_validate() {
+fn test_golden_frames_validate() -> TestResult {
     for golden in GOLDEN {
-        let bytes = golden.bytes();
-        let frame = validate(&bytes).expect("a golden frame");
+        let bytes = golden.bytes()?;
+        let frame = validate(&bytes)
+            .map_err(ProtocolError)
+            .context("a golden frame")?;
         assert_eq!(frame.command().number(), golden.command, "{}", golden.name);
-        assert_eq!(frame.body(), &golden.data()[..], "{}", golden.name);
+        assert_eq!(frame.body(), &golden.data()?[..], "{}", golden.name);
         assert_eq!(frame.chunked_body().data(), frame.body(), "{}", golden.name);
         assert_eq!(frame.header().size(), golden.size, "{}", golden.name);
         assert_eq!(
@@ -28,14 +31,18 @@ fn test_golden_frames_validate() {
             golden.name
         );
     }
-    let bytes = READ.bytes();
-    assert_eq!(validate(&bytes).unwrap().command(), Command::Read);
+    let bytes = READ.bytes()?;
+    assert_eq!(
+        validate(&bytes).map_err(ProtocolError)?.command(),
+        Command::Read
+    );
+    Ok(())
 }
 
 #[test]
-fn test_every_truncation_is_refused_cleanly() {
+fn test_every_truncation_is_refused_cleanly() -> TestResult {
     for golden in GOLDEN {
-        let bytes = golden.bytes();
+        let bytes = golden.bytes()?;
         for len in 0..bytes.len() {
             let want = if len < 256 {
                 ProtocolErrorEnum::ShortHeader { len }
@@ -53,12 +60,13 @@ fn test_every_truncation_is_refused_cleanly() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_bytes_past_the_frame_are_refused() {
+fn test_bytes_past_the_frame_are_refused() -> TestResult {
     for golden in GOLDEN {
-        let mut bytes = golden.bytes();
+        let mut bytes = golden.bytes()?;
         bytes.push(0);
         assert_eq!(
             validate(&bytes).err(),
@@ -70,11 +78,12 @@ fn test_bytes_past_the_frame_are_refused() {
             golden.name
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_every_bit_flip_is_refused() {
-    let golden = HELLO.bytes();
+fn test_every_bit_flip_is_refused() -> TestResult {
+    let golden = HELLO.bytes()?;
     for bit in 0..golden.len() * 8 {
         let mut bytes = golden.clone();
         bytes[bit / 8] ^= 1 << (bit % 8);
@@ -96,11 +105,12 @@ fn test_every_bit_flip_is_refused() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_body_length_with_no_split_is_refused_naming_it() {
-    let mut bytes = HELLO.bytes()[..256].to_vec();
+fn test_a_body_length_with_no_split_is_refused_naming_it() -> TestResult {
+    let mut bytes = HELLO.bytes()?[..256].to_vec();
     bytes.extend_from_slice(&[0xA5; 3_841]);
     put(&mut bytes, 40, 256 + 3_841, 4);
     reseal(&mut bytes);
@@ -108,12 +118,13 @@ fn test_a_body_length_with_no_split_is_refused_naming_it() {
         FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE),
         Err(ProtocolError(ProtocolErrorEnum::BodyLength { len: 3_841 }))
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_length_is_checked_before_the_body() {
+fn test_the_length_is_checked_before_the_body() -> TestResult {
     // A truncated frame whose body is also corrupt: the length is the rule reported.
-    let mut bytes = READ.bytes();
+    let mut bytes = READ.bytes()?;
     bytes[10_000] ^= 1;
     bytes.truncate(20_000);
     assert_eq!(
@@ -123,31 +134,33 @@ fn test_the_length_is_checked_before_the_body() {
             len: 20_000
         })
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_header_is_checked_before_the_length() {
-    let mut bytes = READ.bytes();
+fn test_the_header_is_checked_before_the_length() -> TestResult {
+    let mut bytes = READ.bytes()?;
     bytes.truncate(1_000);
     bytes[50] ^= 1;
     assert!(matches!(
         validate(&bytes),
         Err(ProtocolErrorEnum::HeaderChecksum { .. })
     ));
-    let mut bytes = READ.bytes();
-    bytes.truncate(1_000);
+    let mut truncated = READ.bytes()?;
+    truncated.truncate(1_000);
     assert_eq!(
-        FrameView::validate(&bytes, 1, MAX_FRAME_SIZE).err(),
+        FrameView::validate(&truncated, 1, MAX_FRAME_SIZE).err(),
         Some(ProtocolError(ProtocolErrorEnum::WrongCluster {
             expected: 1,
             found: CLUSTER
         }))
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_refusal_leaves_the_next_frame_unaffected() {
-    let golden = CREDIT.bytes();
+fn test_a_refusal_leaves_the_next_frame_unaffected() -> TestResult {
+    let golden = CREDIT.bytes()?;
     let mut other = golden.clone();
     put(&mut other, 32, 42, 8);
     reseal(&mut other);
@@ -158,7 +171,11 @@ fn test_a_refusal_leaves_the_next_frame_unaffected() {
             found: 42
         })
     );
-    assert_eq!(validate(&golden).unwrap().command(), Command::Credit);
+    assert_eq!(
+        validate(&golden).map_err(ProtocolError)?.command(),
+        Command::Credit
+    );
+    Ok(())
 }
 
 fn validate_client(bytes: &[u8]) -> Result<FrameView<'_>, ProtocolErrorEnum> {
@@ -166,12 +183,14 @@ fn validate_client(bytes: &[u8]) -> Result<FrameView<'_>, ProtocolErrorEnum> {
 }
 
 #[test]
-fn test_a_clients_frame_is_validated_with_the_clients_header_rules() {
+fn test_a_clients_frame_is_validated_with_the_clients_header_rules() -> TestResult {
     // The golden Hello is a client's frame: view and replica 0.
-    let golden = HELLO.bytes();
-    let frame = validate_client(&golden).expect("a client's golden frame");
+    let golden = HELLO.bytes()?;
+    let frame = validate_client(&golden)
+        .map_err(ProtocolError)
+        .context("a client's golden frame")?;
     assert_eq!(frame.command(), Command::Hello);
-    assert_eq!(frame.body(), &HELLO.data()[..]);
+    assert_eq!(frame.body(), &HELLO.data()?[..]);
     // PROTOCOL.md section 2.5 step 6: in a client's frame `view` and `replica` are 0; a server's frame takes any.
     let mut viewed = golden.clone();
     put(&mut viewed, 44, 7, 4);
@@ -219,4 +238,5 @@ fn test_a_clients_frame_is_validated_with_the_clients_header_rules() {
         validate_client(&golden[..10]).err(),
         Some(ProtocolErrorEnum::ShortHeader { len: 10 })
     );
+    Ok(())
 }

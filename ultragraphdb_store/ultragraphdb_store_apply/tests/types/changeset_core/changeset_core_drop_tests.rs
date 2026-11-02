@@ -12,11 +12,14 @@ use ultragraphdb_core_keys::{Keyspace, QuadKey};
 
 use ultragraphdb_traits_store::Store;
 
+use ultragraphdb_store_apply::{Applied, ChangesetError};
+
 use crate::utils::changesets::{
-    NS, TestChangesets, apply, changesets, declaration, declare, ex, finish_builds, indexed,
-    insert, insert_edge, keys_of, objects_in, predicate_list, stored_keys, term, term_token, uid,
-    write,
+    NS, TestChangesets, changesets, declaration, declare, ex, finish_builds, indexed, insert,
+    insert_edge, keys_of, objects_in, predicate_list, stored_keys, term, term_token, uid, write,
+    write_changes,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn names(a: &TestChangesets, predicate: u64) -> Vec<Vec<u8>> {
     stored_keys(a)
@@ -26,44 +29,45 @@ fn names(a: &TestChangesets, predicate: u64) -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn test_dropping_a_predicate_the_store_never_named_changes_nothing() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b>"]);
+fn test_dropping_a_predicate_the_store_never_named_changes_nothing() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>"])?;
     let before = a.quads().store().contents();
     let latest = a.quads().lists().applied_ts();
-    assert_eq!(a.drop_predicate(NS, ex("never").as_ref()).unwrap(), latest);
+    assert_eq!(a.drop_predicate(NS, ex("never").as_ref())?, latest);
     assert_eq!(a.quads().store().contents(), before);
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_predicate_without_data_removes_its_declaration() {
-    let a = changesets();
-    declare(&a, "name", "with `exact`");
-    let p = uid(&a, "name");
-    a.drop_predicate(NS, ex("name").as_ref()).unwrap();
-    assert_eq!(a.catalog(NS).unwrap().predicate(p), None);
+fn test_dropping_a_predicate_without_data_removes_its_declaration() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with `exact`")?;
+    let p = uid(&a, "name")?;
+    let _dropped_at: u64 = a.drop_predicate(NS, ex("name").as_ref())?;
+    assert_eq!(a.catalog(NS)?.predicate(p), None);
     assert!(names(&a, p).is_empty());
     // The dictionary keeps its UID, so a second drop finds it and drops nothing.
-    assert_eq!(uid(&a, "name"), p);
-    a.drop_predicate(NS, ex("name").as_ref()).unwrap();
+    assert_eq!(uid(&a, "name")?, p);
+    let _dropped_again_at: u64 = a.drop_predicate(NS, ex("name").as_ref())?;
     assert!(names(&a, p).is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_predicate_removes_it_from_every_graph_and_keyspace() {
-    let a = changesets();
-    declare(&a, "friend", "with an exact count index and `term`");
-    apply(
+fn test_dropping_a_predicate_removes_it_from_every_graph_and_keyspace() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "with an exact count index and `term`")?;
+    write_changes(
         &a,
         vec![
-            insert("<a> <friend> <b>"),
-            insert("<a> <friend> \"best\" <g1>"),
-            insert("<a> <name> \"Ann\" <g1>"),
-            insert_edge("<c> <friend> <b> <g1>", &[("since", "2020")]),
+            insert("<a> <friend> <b>")?,
+            insert("<a> <friend> \"best\" <g1>")?,
+            insert("<a> <name> \"Ann\" <g1>")?,
+            insert_edge("<c> <friend> <b> <g1>", &[("since", "2020")])?,
         ],
-    )
-    .unwrap();
-    let friend = uid(&a, "friend");
+    )?;
+    let friend = uid(&a, "friend")?;
     for keyspace in [
         Keyspace::Forward,
         Keyspace::Reverse,
@@ -72,12 +76,12 @@ fn test_dropping_a_predicate_removes_it_from_every_graph_and_keyspace() {
         Keyspace::Statistics,
     ] {
         assert!(
-            !keys_of(&a, keyspace, "friend").is_empty(),
+            !keys_of(&a, keyspace, "friend")?.is_empty(),
             "{keyspace:?} before"
         );
     }
     let versionless = a.quads().store().contents().versionless().clone();
-    a.drop_predicate(NS, ex("friend").as_ref()).unwrap();
+    let _dropped_at: u64 = a.drop_predicate(NS, ex("friend").as_ref())?;
     assert!(names(&a, friend).is_empty(), "{:?}", names(&a, friend));
     assert!(
         !stored_keys(&a)
@@ -85,40 +89,40 @@ fn test_dropping_a_predicate_removes_it_from_every_graph_and_keyspace() {
             .any(|k| matches!(Keyspace::from_byte(k[0]), Some((Keyspace::Statements, _)))),
         "the record of <c> <friend> <b> in <g1> is gone"
     );
-    assert!(predicate_list(&a, "a", false).is_empty());
-    assert!(predicate_list(&a, "b", true).is_empty());
-    assert_eq!(objects_in(&a, "g1", "a", "name"), vec![term("\"Ann\"")]);
-    assert_eq!(a.catalog(NS).unwrap().predicate(friend), None);
+    assert!(predicate_list(&a, "a", false)?.is_empty());
+    assert!(predicate_list(&a, "b", true)?.is_empty());
+    assert_eq!(objects_in(&a, "g1", "a", "name")?, vec![term("\"Ann\"")?]);
+    assert_eq!(a.catalog(NS)?.predicate(friend), None);
     // The dictionary is kept: every versionless entry before the drop is still there.
     let after = a.quads().store().contents().versionless().clone();
     assert!(versionless.iter().all(|(k, v)| after.get(k) == Some(v)));
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_graph_the_store_does_not_hold_changes_nothing() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b> <g1>"]);
+fn test_dropping_a_graph_the_store_does_not_hold_changes_nothing() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b> <g1>"])?;
     let before = a.quads().store().contents();
     let latest = a.quads().lists().applied_ts();
     assert_eq!(
-        a.drop_graph(NS, GraphName::from(ex("never")).as_ref())
-            .unwrap(),
+        a.drop_graph(NS, GraphName::from(ex("never")).as_ref())?,
         latest
     );
     let blank = BlankNode::new_unchecked("g");
     assert_eq!(
-        a.drop_graph(NS, GraphNameRef::BlankNode(blank.as_ref()))
-            .unwrap(),
+        a.drop_graph(NS, GraphNameRef::BlankNode(blank.as_ref()))?,
         latest
     );
     assert_eq!(a.quads().store().contents(), before);
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_graph_removes_its_index_keys_and_keeps_the_other_graphs() {
-    let a = changesets();
-    declare(&a, "name", "with `term`");
-    declare(&a, "friend", "with an exact count index");
+fn test_dropping_a_graph_removes_its_index_keys_and_keeps_the_other_graphs() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with `term`")?;
+    declare(&a, "friend", "with an exact count index")?;
     write(
         &a,
         &[
@@ -127,117 +131,123 @@ fn test_dropping_a_graph_removes_its_index_keys_and_keeps_the_other_graphs() {
             "<a> <name> \"big apple\"",
             "<a> <friend> <b>",
         ],
-    );
-    let g1 = uid(&a, "g1");
-    a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())
-        .unwrap();
+    )?;
+    let g1 = uid(&a, "g1")?;
+    let _dropped_at: u64 = a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())?;
     let left: Vec<Vec<u8>> = stored_keys(&a)
         .into_iter()
         .filter(|k| QuadKey::parse(k).is_ok_and(|(q, _)| q.graph() == Some(g1)))
         .collect();
     assert!(left.is_empty(), "{left:?}");
-    assert_eq!(indexed(&a, "name", &term_token("big")), vec![uid(&a, "a")]);
-    assert_eq!(objects_in(&a, "", "a", "friend"), vec![term("<b>")]);
+    assert_eq!(
+        indexed(&a, "name", &term_token("big"))?,
+        vec![uid(&a, "a")?]
+    );
+    assert_eq!(objects_in(&a, "", "a", "friend")?, vec![term("<b>")?]);
+    Ok(())
 }
 
 #[test]
-fn test_dropping_the_default_graph_keeps_the_named_ones() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"]);
-    a.drop_graph(NS, GraphNameRef::DefaultGraph).unwrap();
-    assert!(objects_in(&a, "", "a", "knows").is_empty());
-    assert_eq!(objects_in(&a, "g1", "a", "knows"), vec![term("<c>")]);
+fn test_dropping_the_default_graph_keeps_the_named_ones() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"])?;
+    let _dropped_at: u64 = a.drop_graph(NS, GraphNameRef::DefaultGraph)?;
+    assert!(objects_in(&a, "", "a", "knows")?.is_empty());
+    assert_eq!(objects_in(&a, "g1", "a", "knows")?, vec![term("<c>")?]);
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_namespace_never_written_writes_no_catalog() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b>"]);
+fn test_dropping_a_namespace_never_written_writes_no_catalog() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>"])?;
     let before = a.quads().store().contents();
-    a.drop_namespace(5).unwrap();
+    let _dropped_at: u64 = a.drop_namespace(5)?;
     assert_eq!(a.quads().store().contents().keys(), before.keys());
-    assert!(a.catalog(5).unwrap().predicates().next().is_none());
+    assert!(a.catalog(5)?.predicates().next().is_none());
+    Ok(())
 }
 
 #[test]
-fn test_dropping_the_predicate_being_built_cancels_its_build() {
-    let a = changesets();
-    declare(&a, "name", "with `term`");
-    write(&a, &["<a> <name> \"big apple\""]);
-    declare(&a, "name", "with `exact`");
+fn test_dropping_the_predicate_being_built_cancels_its_build() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with `term`")?;
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `exact`")?;
     assert!(a.rebuilding());
-    let p = uid(&a, "name");
-    a.drop_predicate(NS, ex("name").as_ref()).unwrap();
+    let p = uid(&a, "name")?;
+    let _dropped_at: u64 = a.drop_predicate(NS, ex("name").as_ref())?;
     assert!(!a.rebuilding());
     finish_builds(&a);
     assert!(names(&a, p).is_empty(), "{:?}", names(&a, p));
-    assert_eq!(a.catalog(NS).unwrap().predicate(p), None);
-    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
+    assert_eq!(a.catalog(NS)?.predicate(p), None);
+    assert!(a.quads().store().rebuild_records()?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_dropping_the_data_during_a_build_declares_the_new_declaration() {
-    let a = changesets();
-    declare(&a, "name", "with `term`");
-    write(&a, &["<a> <name> \"big apple\""]);
-    declare(&a, "name", "with `exact`");
-    a.drop_data(NS).unwrap();
+fn test_dropping_the_data_during_a_build_declares_the_new_declaration() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with `term`")?;
+    write(&a, &["<a> <name> \"big apple\""])?;
+    declare(&a, "name", "with `exact`")?;
+    let _dropped_at: u64 = a.drop_data(NS)?;
     assert!(!a.rebuilding());
     finish_builds(&a);
-    let p = uid(&a, "name");
+    let p = uid(&a, "name")?;
     assert_eq!(
-        a.catalog(NS).unwrap().predicate(p),
-        Some(&declaration("name", "with `exact`"))
+        a.catalog(NS)?.predicate(p),
+        Some(&declaration("name", "with `exact`")?)
     );
-    assert!(a.quads().store().rebuild_records().unwrap().is_empty());
+    assert!(a.quads().store().rebuild_records()?.is_empty());
     // Writes after the drop are indexed under the new declaration alone.
-    write(&a, &["<b> <name> \"pear\""]);
-    assert!(indexed(&a, "name", &term_token("pear")).is_empty());
-    assert_eq!(keys_of(&a, Keyspace::ValueIndex, "name").len(), 1);
+    write(&a, &["<b> <name> \"pear\""])?;
+    assert!(indexed(&a, "name", &term_token("pear"))?.is_empty());
+    assert_eq!(keys_of(&a, Keyspace::ValueIndex, "name")?.len(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_each_drop_returns_its_own_timestamp() {
-    let a = changesets();
-    write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"]);
-    let drops: [&dyn Fn() -> u64; 5] = [
-        &|| a.drop_predicate(NS, ex("knows").as_ref()).unwrap(),
-        &|| {
-            a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())
-                .unwrap()
-        },
-        &|| a.drop_data(NS).unwrap(),
-        &|| a.drop_namespace(NS).unwrap(),
-        &|| a.drop_all().unwrap(),
+fn test_each_drop_returns_its_own_timestamp() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"])?;
+    let drops: [&dyn Fn() -> Result<u64, ChangesetError>; 5] = [
+        &|| a.drop_predicate(NS, ex("knows").as_ref()),
+        &|| a.drop_graph(NS, GraphName::from(ex("g1")).as_ref()),
+        &|| a.drop_data(NS),
+        &|| a.drop_namespace(NS),
+        &|| a.drop_all(),
     ];
     for (i, drop) in drops.iter().enumerate() {
-        write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"]);
+        write(&a, &["<a> <knows> <b>", "<a> <knows> <c> <g1>"])?;
         let before = a.quads().lists().applied_ts();
-        let ts = drop();
+        let ts = drop()?;
         assert!(ts > before, "drop {i}: {ts} after {before}");
         assert_eq!(ts, a.quads().lists().applied_ts(), "drop {i}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_dropping_another_namespace_keeps_the_build() {
-    let a = changesets();
-    write(&a, &["<a> <name> \"pear\""]);
-    a.apply(&ultragraphdb_core_mapping::Changeset::new(3).with(insert("<a> <name> \"fig\"")))
-        .unwrap();
-    declare(&a, "name", "with `exact`");
-    a.drop_namespace(3).unwrap();
-    a.drop_data(3).unwrap();
+fn test_dropping_another_namespace_keeps_the_build() -> TestResult {
+    let a = changesets()?;
+    write(&a, &["<a> <name> \"pear\""])?;
+    let _applied: Applied =
+        a.apply(&ultragraphdb_core_mapping::Changeset::new(3).with(insert("<a> <name> \"fig\"")?))?;
+    declare(&a, "name", "with `exact`")?;
+    let _dropped_at: u64 = a.drop_namespace(3)?;
+    let _data_dropped_at: u64 = a.drop_data(3)?;
     assert!(a.rebuilding());
     finish_builds(&a);
     assert_eq!(
-        indexed(&a, "name", &crate::utils::changesets::exact_token("pear")),
-        vec![uid(&a, "a")]
+        indexed(&a, "name", &crate::utils::changesets::exact_token("pear"))?,
+        vec![uid(&a, "a")?]
     );
+    Ok(())
 }
 
 #[test]
-fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
+fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() -> TestResult {
     use ultragraphdb_core_keys::{DEFAULT_GRAPH, SPLIT_FLAG};
     use ultragraphdb_store_posting::{Lists, ListsConfig};
     use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
@@ -250,31 +260,30 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
         cache,
         ListsConfig::new(PersistMode::Buffer, 256),
     );
-    let a = TestChangesets::new(lists, executor, 1).unwrap();
+    let a = TestChangesets::new(lists, executor, 1)?;
     let changes = (0..2_000)
         .map(|i| insert(&format!("<a> <p{i}> <o>")))
-        .collect();
-    apply(&a, changes).unwrap();
+        .collect::<TestResult<_>>()?;
+    write_changes(&a, changes)?;
     let key = QuadKey::SubjectPredicates {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        subject: uid(&a, "a"),
+        subject: uid(&a, "a")?,
     }
     .to_bytes();
-    a.quads().lists().rollup_key(&key).unwrap();
+    let _rollup_key: bool = a.quads().lists().rollup_key(&key)?;
     let latest = a.quads().lists().applied_ts();
     // The rollup is written one above the commit it folds, past the watermark: a read of everything reaches it.
     assert!(
         !a.quads()
             .lists()
-            .read(&key, u64::MAX)
-            .unwrap()
+            .read(&key, u64::MAX)?
             .plist()
             .splits()
             .is_empty(),
         "the list is split"
     );
-    a.drop_predicate(NS, ex("p0").as_ref()).unwrap();
+    let _dropped_at: u64 = a.drop_predicate(NS, ex("p0").as_ref())?;
     // The list's parts, every version, were dropped and written again at the drop's read timestamp.
     let mut parts_prefix = key.clone();
     parts_prefix[0] |= SPLIT_FLAG;
@@ -292,34 +301,31 @@ fn test_dropping_a_predicate_rewrites_a_split_predicate_list_whole() {
             versions.iter().map(|v| v.version()).collect::<Vec<_>>()
         );
     }
-    let held = predicate_list(&a, "a", false);
+    let held = predicate_list(&a, "a", false)?;
     assert_eq!(held.len(), 1_999);
-    assert!(!held.contains(&uid(&a, "p0")));
+    assert!(!held.contains(&uid(&a, "p0")?));
+    Ok(())
 }
 
 /// A drop prepared for the commit step writes the predicate's key ranges, its catalog entry's among them, and nothing
 /// else; applied in a round at its version, it drops the predicate, and a predicate the store does not know is no drop
 /// (7.7).
 #[test]
-fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version() {
+fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version() -> TestResult {
     use ultragraphdb_core_catalog::Catalog;
-    let a = changesets();
-    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
-    let unknown = a
-        .prepare_drop(
-            NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(ex("none").as_ref()),
-        )
-        .unwrap();
+    let a = changesets()?;
+    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"])?;
+    let unknown = a.prepare_drop(
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("none").as_ref()),
+    )?;
     assert!(!unknown.is_drop());
     assert!(unknown.drop_ranges().is_empty());
-    let p = uid(&a, "p");
-    let drop = a
-        .prepare_drop(
-            NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
-        )
-        .unwrap();
+    let p = uid(&a, "p")?;
+    let drop = a.prepare_drop(
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
+    )?;
     assert!(drop.is_drop());
     assert!(!drop.starts_build());
     let catalog = Catalog::predicate_key(NS, p);
@@ -332,54 +338,51 @@ fn test_a_drop_prepared_for_a_round_writes_its_ranges_and_drops_at_its_version()
     assert!(drop.drop_ranges().iter().all(|(s, e)| s < e));
     assert!(drop.writes().deltas().is_empty());
     let version = a.quads().lists().applied_ts() + 2;
-    a.apply_round(vec![(version, drop)]).unwrap();
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, drop)])?;
     assert_eq!(a.quads().lists().applied_ts(), version);
-    assert!(crate::utils::changesets::objects(&a, "a", "p").is_empty());
-    assert_eq!(crate::utils::changesets::objects(&a, "a", "q").len(), 1);
+    assert!(crate::utils::changesets::objects(&a, "a", "p")?.is_empty());
+    assert_eq!(crate::utils::changesets::objects(&a, "a", "q")?.len(), 1);
+    Ok(())
 }
 
 /// A round ending in a drop, with the system's entries and a `through` of the drop's version: the drop lands above the
 /// watermark, then the entries are written and the watermark is the drop's version (7.8).
 #[test]
-fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
+fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() -> TestResult {
     use ultragraphdb_traits_store::VersionlessEntry;
-    let a = changesets();
-    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"]);
+    let a = changesets()?;
+    crate::utils::changesets::write(&a, &["<a> <p> <b>", "<a> <q> <b>"])?;
     let before = a.quads().lists().applied_ts();
-    let write = a
-        .execute(&crate::utils::changesets::changeset(vec![insert(
-            "<c> <q> <d>",
-        )]))
-        .unwrap();
-    let drop = a
-        .prepare_drop(
-            NS,
-            ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
-        )
-        .unwrap();
+    let write = a.execute(&crate::utils::changesets::changeset(vec![insert(
+        "<c> <q> <d>",
+    )?]))?;
+    let drop = a.prepare_drop(
+        NS,
+        ultragraphdb_store_apply::DropRequest::Predicate(ex("p").as_ref()),
+    )?;
     let system = [VersionlessEntry::put(
         b"\xffsession".to_vec(),
         b"entry".to_vec(),
     )];
-    a.apply_round_with(
+    let _applied: Vec<Applied> = a.apply_round_with(
         vec![(before + 2, write), (before + 6, drop)],
         &system,
         before + 6,
-    )
-    .unwrap();
+    )?;
     assert_eq!(a.quads().lists().applied_ts(), before + 6);
-    assert!(crate::utils::changesets::objects(&a, "a", "p").is_empty());
-    assert_eq!(crate::utils::changesets::objects(&a, "c", "q").len(), 1);
+    assert!(crate::utils::changesets::objects(&a, "a", "p")?.is_empty());
+    assert_eq!(crate::utils::changesets::objects(&a, "c", "q")?.len(), 1);
     assert_eq!(
-        a.quads().store().get_versionless(b"\xffsession").unwrap(),
+        a.quads().store().get_versionless(b"\xffsession")?,
         Some(b"entry".to_vec())
     );
     // A round of the system's entries alone moves the watermark to `through`; one below it is refused.
-    a.apply_round_with(Vec::new(), &system, before + 8).unwrap();
+    let _system_applied: Vec<Applied> = a.apply_round_with(Vec::new(), &system, before + 8)?;
     assert_eq!(a.quads().lists().applied_ts(), before + 8);
     let refused = a
         .apply_round_with(Vec::new(), &system, before + 4)
-        .unwrap_err();
+        .err()
+        .context("the error of a.apply_round_with(..)")?;
     // `through` at before + 4 is below the watermark, before + 8.
     assert_eq!(
         refused.0,
@@ -393,13 +396,14 @@ fn test_a_round_ending_in_a_drop_writes_the_systems_entries_after_it() {
         )
     );
     assert_eq!(a.quads().lists().applied_ts(), before + 8);
+    Ok(())
 }
 
 /// The store a drop of each kind is tried on: statements in the default graph, in `g1` and in another namespace, and a
 /// declaration, so every kind leaves something and takes something.
-fn dropping_store() -> TestChangesets {
-    let a = changesets();
-    declare(&a, "name", "a property with `term`");
+fn dropping_store() -> TestResult<TestChangesets> {
+    let a = changesets()?;
+    declare(&a, "name", "a property with `term`")?;
     write(
         &a,
         &[
@@ -410,68 +414,61 @@ fn dropping_store() -> TestChangesets {
             // `rdf:type` has a UID, so a namespace dropped writes its initial catalog again.
             "<a> rdf:type <Fruit>",
         ],
-    );
-    a.apply(&ultragraphdb_core_mapping::Changeset::new(7).with(insert("<x> <friend> <y>")))
-        .unwrap();
-    a
+    )?;
+    let _applied: Applied =
+        a.apply(&ultragraphdb_core_mapping::Changeset::new(7).with(insert("<x> <friend> <y>")?))?;
+    Ok(a)
 }
 
 /// What a drop of `request` decided in a round leaves: the store's keys, after the drop prepared for the commit step
 /// and applied at the round's next version.
-fn dropped_in_a_round(request: ultragraphdb_store_apply::DropRequest<'_>) -> Vec<Vec<u8>> {
-    let a = dropping_store();
-    let drop = a.prepare_drop(NS, request).unwrap();
+fn dropped_in_a_round(
+    request: ultragraphdb_store_apply::DropRequest<'_>,
+) -> TestResult<Vec<Vec<u8>>> {
+    let a = dropping_store()?;
+    let drop = a.prepare_drop(NS, request)?;
     assert!(drop.is_drop());
     let version = a.quads().lists().applied_ts() + 2;
-    a.apply_round(vec![(version, drop)]).unwrap();
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, drop)])?;
     assert_eq!(a.quads().lists().applied_ts(), version);
-    stored_keys(&a)
+    Ok(stored_keys(&a))
 }
 
 /// A drop's name, its request decided in a round, and its immediate drop, the oracle.
 type DropCase<'a> = (
     &'a str,
     ultragraphdb_store_apply::DropRequest<'a>,
-    fn(&TestChangesets),
+    fn(&TestChangesets) -> Result<u64, ChangesetError>,
 );
 
 /// Each kind of drop decided in a round leaves the keys its immediate drop leaves: a graph, a namespace's data, the
 /// namespace, every namespace (`PROTOCOL.md` §6.5, §12.2 operations 4 to 7).
 #[test]
-fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does() {
+fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does() -> TestResult {
     use ultragraphdb_store_apply::DropRequest;
     let g1 = ex("g1");
     let cases: [DropCase<'_>; 5] = [
         (
             "graph",
             DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
-            |a| {
-                a.drop_graph(NS, GraphName::from(ex("g1")).as_ref())
-                    .unwrap();
-            },
+            |a| a.drop_graph(NS, GraphName::from(ex("g1")).as_ref()),
         ),
         (
             "default graph",
             DropRequest::Graph(GraphNameRef::DefaultGraph),
-            |a| {
-                a.drop_graph(NS, GraphNameRef::DefaultGraph).unwrap();
-            },
+            |a| a.drop_graph(NS, GraphNameRef::DefaultGraph),
         ),
-        ("data", DropRequest::Data, |a| {
-            a.drop_data(NS).unwrap();
-        }),
+        ("data", DropRequest::Data, |a| a.drop_data(NS)),
         ("namespace", DropRequest::Namespace, |a| {
-            a.drop_namespace(NS).unwrap();
+            a.drop_namespace(NS)
         }),
-        ("all", DropRequest::All, |a| {
-            a.drop_all().unwrap();
-        }),
+        ("all", DropRequest::All, |a| a.drop_all()),
     ];
     for (name, request, immediate) in cases {
-        let oracle = dropping_store();
-        immediate(&oracle);
-        let before = dropping_store();
-        let in_a_round = dropped_in_a_round(request);
+        let oracle = dropping_store()?;
+        let _dropped_at: u64 = immediate(&oracle)?;
+        let before = dropping_store()?;
+        let in_a_round = dropped_in_a_round(request)?;
         assert_eq!(in_a_round, stored_keys(&oracle), "{name}");
         assert_ne!(
             in_a_round,
@@ -479,19 +476,18 @@ fn test_each_kind_of_drop_decided_in_a_round_drops_what_its_immediate_drop_does(
             "{name}: something dropped"
         );
     }
+    Ok(())
 }
 
 /// A drop prepared for a round names what it drops and writes the key ranges of it: a graph's in every quad keyspace,
 /// a namespace's data without its catalog, a namespace with it, every namespace's every keyspace.
 #[test]
-fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
+fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() -> TestResult {
     use ultragraphdb_core_keys::key_prefix;
     use ultragraphdb_store_apply::{DropRequest, DropTarget};
-    let a = dropping_store();
-    let g1 = uid(&a, "g1");
-    let graph = a
-        .prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))
-        .unwrap();
+    let a = dropping_store()?;
+    let g1 = uid(&a, "g1")?;
+    let graph = a.prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))?;
     assert_eq!(graph.dropped(), Some(DropTarget::Graph(g1)));
     let forward = key_prefix(Keyspace::Forward, false, NS, Some(g1), None);
     assert!(
@@ -501,7 +497,7 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
             .any(|(start, _)| start == &forward)
     );
     assert!(graph.drop_ranges().iter().all(|(s, e)| s < e));
-    let data = a.prepare_drop(NS, DropRequest::Data).unwrap();
+    let data = a.prepare_drop(NS, DropRequest::Data)?;
     assert_eq!(data.dropped(), Some(DropTarget::Data));
     let catalog = key_prefix(Keyspace::Catalog, false, NS, None, None);
     assert!(
@@ -511,7 +507,7 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
             .any(|(start, _)| start == &catalog),
         "the catalog is kept"
     );
-    let namespace = a.prepare_drop(NS, DropRequest::Namespace).unwrap();
+    let namespace = a.prepare_drop(NS, DropRequest::Namespace)?;
     assert_eq!(namespace.dropped(), Some(DropTarget::Namespace));
     assert!(
         namespace
@@ -520,7 +516,7 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
             .any(|(start, _)| start == &catalog)
     );
     assert!(namespace.drop_ranges().len() > data.drop_ranges().len());
-    let all = a.prepare_drop(NS, DropRequest::All).unwrap();
+    let all = a.prepare_drop(NS, DropRequest::All)?;
     assert_eq!(all.dropped(), Some(DropTarget::All));
     assert!(
         all.drop_ranges()
@@ -530,39 +526,37 @@ fn test_a_drop_prepared_for_a_round_names_its_target_and_its_ranges() {
     for drop in [&graph, &data, &namespace, &all] {
         assert!(drop.writes().deltas().is_empty());
     }
+    Ok(())
 }
 
 /// A graph the store does not know, and a blank-node graph, are dropped as nothing: no drop.
 #[test]
-fn test_a_drop_of_a_graph_the_store_does_not_hold_is_no_drop() {
+fn test_a_drop_of_a_graph_the_store_does_not_hold_is_no_drop() -> TestResult {
     use ultragraphdb_store_apply::DropRequest;
-    let a = dropping_store();
-    let never = a
-        .prepare_drop(
-            NS,
-            DropRequest::Graph(GraphName::from(ex("never")).as_ref()),
-        )
-        .unwrap();
+    let a = dropping_store()?;
+    let never = a.prepare_drop(
+        NS,
+        DropRequest::Graph(GraphName::from(ex("never")).as_ref()),
+    )?;
     let blank = BlankNode::new_unchecked("g");
-    let blank = a
-        .prepare_drop(
-            NS,
-            DropRequest::Graph(GraphNameRef::BlankNode(blank.as_ref())),
-        )
-        .unwrap();
+    let blank = a.prepare_drop(
+        NS,
+        DropRequest::Graph(GraphNameRef::BlankNode(blank.as_ref())),
+    )?;
     for drop in [never, blank] {
         assert!(!drop.is_drop());
         assert_eq!(drop.dropped(), None);
         assert!(drop.drop_ranges().is_empty());
     }
+    Ok(())
 }
 
 /// A drop replayed from its record drops what the drop decided in the round did.
 #[test]
-fn test_each_kind_of_drop_replayed_drops_what_it_dropped() {
+fn test_each_kind_of_drop_replayed_drops_what_it_dropped() -> TestResult {
     use ultragraphdb_store_apply::{DropRequest, DropTarget};
     let g1 = ex("g1");
-    let g1_uid = uid(&dropping_store(), "g1");
+    let g1_uid = uid(&dropping_store()?, "g1")?;
     for (request, target) in [
         (
             DropRequest::Graph(GraphNameRef::NamedNode(g1.as_ref())),
@@ -576,19 +570,20 @@ fn test_each_kind_of_drop_replayed_drops_what_it_dropped() {
         (DropRequest::Namespace, DropTarget::Namespace),
         (DropRequest::All, DropTarget::All),
     ] {
-        let decided = dropped_in_a_round(request);
-        let a = dropping_store();
-        let replayed = a.prepare_replayed_drop(NS, target).unwrap();
+        let decided = dropped_in_a_round(request)?;
+        let a = dropping_store()?;
+        let replayed = a.prepare_replayed_drop(NS, target)?;
         assert_eq!(replayed.dropped(), Some(target));
         let version = a.quads().lists().applied_ts() + 2;
-        a.apply_round(vec![(version, replayed)]).unwrap();
+        let _applied: Vec<Applied> = a.apply_round(vec![(version, replayed)])?;
         assert_eq!(stored_keys(&a), decided, "{target:?}");
     }
+    Ok(())
 }
 
 /// A graph whose lists split is dropped whole in a round: no key of the graph remains, its lists' split parts with them.
 #[test]
-fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() {
+fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() -> TestResult {
     use ultragraphdb_store_apply::DropRequest;
     use ultragraphdb_store_posting::{Lists, ListsConfig};
     use ultragraphdb_store_sim::{Seed, SimListCache, SteppedExecutor, Stream};
@@ -601,21 +596,21 @@ fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() {
         cache,
         ListsConfig::new(PersistMode::Buffer, 256),
     );
-    let a = TestChangesets::new(lists, executor, 1).unwrap();
+    let a = TestChangesets::new(lists, executor, 1)?;
     let changes = (0..2_000)
         .map(|i| insert(&format!("<a> <p{i}> <o> <g1>")))
-        .collect();
-    apply(&a, changes).unwrap();
-    let g1 = uid(&a, "g1");
+        .collect::<TestResult<_>>()?;
+    write_changes(&a, changes)?;
+    let g1 = uid(&a, "g1")?;
     let key = QuadKey::SubjectPredicates {
         namespace: NS,
         graph: g1,
-        subject: uid(&a, "a"),
+        subject: uid(&a, "a")?,
     }
     .to_bytes();
-    a.quads().lists().rollup_key(&key).unwrap();
-    let in_g1 = |a: &TestChangesets| -> usize {
-        stored_keys(a)
+    let _rollup_key: bool = a.quads().lists().rollup_key(&key)?;
+    let in_g1 = |store: &TestChangesets| -> usize {
+        stored_keys(store)
             .into_iter()
             .filter(|k| QuadKey::parse(k).is_ok_and(|(q, _)| q.graph() == Some(g1)))
             .count()
@@ -626,52 +621,51 @@ fn test_a_graph_dropped_in_a_round_takes_its_split_lists_parts() {
         stored_keys(&a).iter().any(|k| k.starts_with(&parts)),
         "the list is split"
     );
-    let drop = a
-        .prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))
-        .unwrap();
+    let drop = a.prepare_drop(NS, DropRequest::Graph(GraphName::from(ex("g1")).as_ref()))?;
     let version = a.quads().lists().applied_ts() + 2;
-    a.apply_round(vec![(version, drop)]).unwrap();
+    let _applied: Vec<Applied> = a.apply_round(vec![(version, drop)])?;
     assert_eq!(in_g1(&a), 0);
     assert!(
         !stored_keys(&a).iter().any(|k| k.starts_with(&parts)),
         "its split parts too"
     );
+    Ok(())
 }
 
 /// A namespace dropped, at once or in a round, writes its initial catalog again: `rdf:type` declared as a new
 /// namespace's catalog declares it, and the predicates declared before the drop are gone.
 #[test]
-fn test_a_namespace_dropped_keeps_its_initial_catalog() {
+fn test_a_namespace_dropped_keeps_its_initial_catalog() -> TestResult {
     use ultragraphdb_core_catalog::Catalog;
     use ultragraphdb_store_apply::DropRequest;
-    let rdf_type = |a: &TestChangesets| {
+    let rdf_type = |a: &TestChangesets| -> TestResult<u64> {
         a.quads()
-            .uid_of(NS, oxrdf::vocab::rdf::TYPE.as_str())
-            .unwrap()
-            .expect("rdf:type has a UID")
+            .uid_of(NS, oxrdf::vocab::rdf::TYPE.as_str())?
+            .context("rdf:type has a UID")
     };
-    let initial = |a: &TestChangesets| {
-        Catalog::initial(NS, rdf_type(a))
-            .predicate(rdf_type(a))
-            .cloned()
+    let initial = |a: &TestChangesets| -> TestResult<_> {
+        Ok(Catalog::initial(NS, rdf_type(a)?)
+            .predicate(rdf_type(a)?)
+            .cloned())
     };
-    let at_once = dropping_store();
-    at_once.drop_namespace(NS).unwrap();
-    let in_a_round = dropping_store();
-    let drop = in_a_round.prepare_drop(NS, DropRequest::Namespace).unwrap();
+    let at_once = dropping_store()?;
+    let _dropped_at: u64 = at_once.drop_namespace(NS)?;
+    let in_a_round = dropping_store()?;
+    let drop = in_a_round.prepare_drop(NS, DropRequest::Namespace)?;
     let version = in_a_round.quads().lists().applied_ts() + 2;
-    in_a_round.apply_round(vec![(version, drop)]).unwrap();
+    let _applied: Vec<Applied> = in_a_round.apply_round(vec![(version, drop)])?;
     for a in [&at_once, &in_a_round] {
-        let catalog = a.catalog(NS).unwrap();
+        let catalog = a.catalog(NS)?;
         assert!(
-            initial(a).is_some(),
+            initial(a)?.is_some(),
             "the initial catalog declares rdf:type"
         );
-        assert_eq!(catalog.predicate(rdf_type(a)).cloned(), initial(a));
+        assert_eq!(catalog.predicate(rdf_type(a)?).cloned(), initial(a)?);
         assert_eq!(
-            catalog.predicate(uid(a, "name")),
+            catalog.predicate(uid(a, "name")?),
             None,
             "the declaration of `name` is gone"
         );
     }
+    Ok(())
 }

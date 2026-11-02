@@ -15,27 +15,44 @@ use crate::types::error_reply::ErrorReply;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StatementErrorEnum {
     /// The connection holds no statement `statement`: never prepared, or evicted.
-    Unknown { statement: u64 },
+    Unknown {
+        /// The statement's number on the connection.
+        statement: u64,
+    },
     /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
     Stale {
+        /// The statement's number on the connection.
         statement: u64,
+        /// The schema id the statement was prepared against.
         prepared: u64,
+        /// The namespace's schema id now.
         current: u64,
     },
     /// Statement `statement` takes `expected` parameters; the execution bound `found`.
     Parameters {
+        /// The statement's number on the connection.
         statement: u64,
+        /// The parameters the statement takes.
         expected: usize,
+        /// The parameters the execution bound.
         found: usize,
     },
     /// Parameter `parameter` is declared `declared`, which its slot, of type `slot`, does not take.
     ParameterType {
+        /// The parameter's index.
         parameter: usize,
+        /// The type the parameter is declared.
         declared: ColumnType,
+        /// The type of the slot it fills.
         slot: ColumnType,
     },
     /// Parameter `parameter` of statement `statement` is bound to a literal or a triple term at a slot taking a node.
-    NotANode { statement: u64, parameter: usize },
+    NotANode {
+        /// The statement's number on the connection.
+        statement: u64,
+        /// The parameter's index.
+        parameter: usize,
+    },
 }
 
 /// Why a statement was refused; `.0` classifies it.
@@ -43,11 +60,13 @@ pub enum StatementErrorEnum {
 pub struct StatementError(pub StatementErrorEnum);
 
 impl StatementError {
+    /// The connection holds no statement `statement`.
     #[allow(non_snake_case)]
     pub fn Unknown(statement: u64) -> Self {
         Self(StatementErrorEnum::Unknown { statement })
     }
 
+    /// Statement `statement` was prepared against schema id `prepared`; its namespace's is now `current`.
     #[allow(non_snake_case)]
     pub fn Stale(statement: u64, prepared: u64, current: u64) -> Self {
         Self(StatementErrorEnum::Stale {
@@ -57,6 +76,7 @@ impl StatementError {
         })
     }
 
+    /// Statement `statement` takes `expected` parameters; the execution bound `found`.
     #[allow(non_snake_case)]
     pub fn Parameters(statement: u64, expected: usize, found: usize) -> Self {
         Self(StatementErrorEnum::Parameters {
@@ -66,6 +86,7 @@ impl StatementError {
         })
     }
 
+    /// Parameter `parameter` is declared `declared`, which its slot, of type `slot`, does not take.
     #[allow(non_snake_case)]
     pub fn ParameterType(parameter: usize, declared: ColumnType, slot: ColumnType) -> Self {
         Self(StatementErrorEnum::ParameterType {
@@ -75,6 +96,7 @@ impl StatementError {
         })
     }
 
+    /// Parameter `parameter` of statement `statement` is bound to a term that is not a node at a slot taking one.
     #[allow(non_snake_case)]
     pub fn NotANode(statement: u64, parameter: usize) -> Self {
         Self(StatementErrorEnum::NotANode {

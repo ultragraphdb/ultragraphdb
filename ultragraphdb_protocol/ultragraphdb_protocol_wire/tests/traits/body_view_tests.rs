@@ -11,6 +11,7 @@ use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::{
     BodyView, CreditView, FrameView, HelloView, MAX_FRAME_SIZE, RoundView, WelcomeView,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{
     BODIES, CLUSTER, GoldenBody, body_data, golden, put, reframe, section, u32_at, view_any,
@@ -63,17 +64,17 @@ fn used(command: u16) -> Vec<(usize, usize)> {
     }
 }
 
-fn refusal(bytes: &[u8]) -> ProtocolErrorEnum {
-    view_any(bytes).expect_err("the frame is refused").0
+fn refusal(bytes: &[u8]) -> TestResult<ProtocolErrorEnum> {
+    Ok(view_any(bytes)?.err().context("the frame is refused")?.0)
 }
 
 #[test]
-fn test_every_golden_body_reads_and_rebuilds() {
+fn test_every_golden_body_reads_and_rebuilds() -> TestResult {
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         assert_eq!(bytes.len(), body.size as usize, "{}", body.name);
-        let frame =
-            FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE).expect("a golden frame validates");
+        let frame = FrameView::validate(&bytes, CLUSTER, MAX_FRAME_SIZE)
+            .context("a golden frame validates")?;
         assert_eq!(frame.command().number(), body.command, "{}", body.name);
         assert_eq!(frame.header().checksum(), body.checksum, "{}", body.name);
         assert_eq!(
@@ -82,17 +83,18 @@ fn test_every_golden_body_reads_and_rebuilds() {
             "{}",
             body.name
         );
-        assert_eq!(view_any(&bytes), Ok(()), "{}", body.name);
+        assert_eq!(view_any(&bytes)?, Ok(()), "{}", body.name);
     }
+    Ok(())
 }
 
 #[test]
-fn test_every_truncation_of_every_body_is_refused() {
+fn test_every_truncation_of_every_body_is_refused() -> TestResult {
     // PROTOCOL.md section 4.1: a body shorter than its table is `BodyTooShort`; otherwise the first section, in table
     // order, running past the shortened body is `SectionOutOfBounds`. The expectation is read off the golden body's
     // own table by the test's helpers, not by the crate.
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         let data = body_data(&bytes);
         let n = sections_of(body.command);
         for len in 0..data.len() {
@@ -107,7 +109,7 @@ fn test_every_truncation_of_every_body_is_refused() {
                 let (section, (offset, slen)) = (0..n)
                     .map(|i| (i, section(data, 0, i)))
                     .find(|(_, (offset, slen))| offset + slen > len)
-                    .expect("a truncation cuts a section");
+                    .context("a truncation cuts a section")?;
                 ProtocolErrorEnum::SectionOutOfBounds {
                     command: body.command,
                     section,
@@ -116,59 +118,63 @@ fn test_every_truncation_of_every_body_is_refused() {
                     body: len,
                 }
             };
-            assert_eq!(refusal(&truncated), want, "{} at {len}", body.name);
+            assert_eq!(refusal(&truncated)?, want, "{} at {len}", body.name);
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_every_bit_flip_of_every_body_reads_or_is_refused_without_a_panic() {
+fn test_every_bit_flip_of_every_body_reads_or_is_refused_without_a_panic() -> TestResult {
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         let data = body_data(&bytes).to_vec();
         for bit in 0..data.len() * 8 {
             let mut flipped = data.clone();
             flipped[bit / 8] ^= 1 << (bit % 8);
             // A flip may give another valid body, a term's text changed; it must never panic.
-            let _read_or_refused: Result<(), ProtocolError> = view_any(&reframe(&bytes, &flipped));
+            let _read_or_refused: Result<(), ProtocolError> = view_any(&reframe(&bytes, &flipped))?;
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_every_bit_flip_of_every_command_header_reads_or_is_refused_without_a_panic() {
+fn test_every_bit_flip_of_every_command_header_reads_or_is_refused_without_a_panic() -> TestResult {
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         for bit in 0..128 * 8 {
             let flipped = with_command_header(&bytes, |h| h[bit / 8] ^= 1 << (bit % 8));
-            let _read_or_refused: Result<(), ProtocolError> = view_any(&flipped);
+            let _read_or_refused: Result<(), ProtocolError> = view_any(&flipped)?;
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_each_unused_command_header_byte_must_be_zero() {
+fn test_each_unused_command_header_byte_must_be_zero() -> TestResult {
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         let used = used(body.command);
         for at in (0..128).filter(|at| !used.iter().any(|(start, end)| (*start..*end).contains(at)))
         {
             let changed = with_command_header(&bytes, |h| h[at] = 0x40);
             assert_eq!(
-                refusal(&changed),
+                refusal(&changed)?,
                 ProtocolErrorEnum::ReservedNotZero { offset: 128 + at },
                 "{} at {at}",
                 body.name
             );
         }
     }
+    Ok(())
 }
 
 /// A layout case: its name, the body data, and the refusal it gets.
 type LayoutCase = (String, Vec<u8>, ProtocolErrorEnum);
 
-fn layout_cases(body: GoldenBody) -> Vec<LayoutCase> {
-    let bytes = body.bytes();
+fn layout_cases(body: GoldenBody) -> TestResult<Vec<LayoutCase>> {
+    let bytes = body.bytes()?;
     let data = body_data(&bytes).to_vec();
     let n = sections_of(body.command);
     let command = body.command;
@@ -186,12 +192,12 @@ fn layout_cases(body: GoldenBody) -> Vec<LayoutCase> {
         },
     ));
     if n == 0 {
-        return cases;
+        return Ok(cases);
     }
     bounds_cases(command, n, &data, &mut cases);
     order_cases(command, n, &data, &mut cases);
     gap_cases(command, n, &data, &mut cases);
-    cases
+    Ok(cases)
 }
 
 /// The cases of a table or a section outside the body of `data`, `command`'s, of `n` sections.
@@ -338,25 +344,26 @@ fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
 }
 
 #[test]
-fn test_each_layout_rule_is_refused_naming_its_section() {
+fn test_each_layout_rule_is_refused_naming_its_section() -> TestResult {
     let mut seen = std::collections::BTreeSet::new();
     for body in BODIES {
-        let bytes = body.bytes();
-        for (case, data, want) in layout_cases(body) {
+        let bytes = body.bytes()?;
+        for (case, data, want) in layout_cases(body)? {
             let frame = reframe(&bytes, &data);
-            assert_eq!(refusal(&frame), want, "{}: {case}", body.name);
-            seen.insert(case);
+            assert_eq!(refusal(&frame)?, want, "{}: {case}", body.name);
+            let _first_seen: bool = seen.insert(case);
         }
     }
     // Every case met at least one body.
     assert_eq!(seen.len(), 9, "{seen:?}");
+    Ok(())
 }
 
 #[test]
-fn test_a_view_of_another_command_is_refused() {
-    let hello = golden("hello").bytes();
-    let welcome = golden("welcome").bytes();
-    let frame = FrameView::validate(&welcome, CLUSTER, MAX_FRAME_SIZE).unwrap();
+fn test_a_view_of_another_command_is_refused() -> TestResult {
+    let hello = golden("hello")?.bytes()?;
+    let welcome = golden("welcome")?.bytes()?;
+    let frame = FrameView::validate(&welcome, CLUSTER, MAX_FRAME_SIZE)?;
     assert_eq!(
         HelloView::from_frame(&frame).err(),
         Some(ProtocolError(ProtocolErrorEnum::WrongCommand {
@@ -364,45 +371,55 @@ fn test_a_view_of_another_command_is_refused() {
             found: 2
         }))
     );
-    let frame = FrameView::validate(&hello, CLUSTER, MAX_FRAME_SIZE).unwrap();
+    let hello_frame = FrameView::validate(&hello, CLUSTER, MAX_FRAME_SIZE)?;
     assert_eq!(
-        WelcomeView::from_frame(&frame).unwrap_err().0,
+        WelcomeView::from_frame(&hello_frame)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::WrongCommand {
             expected: 2,
             found: 1
         }
     );
     assert_eq!(
-        CreditView::from_frame(&frame).unwrap_err().0,
+        CreditView::from_frame(&hello_frame)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::WrongCommand {
             expected: 14,
             found: 1
         }
     );
     assert_eq!(
-        RoundView::from_frame(&frame).unwrap_err().0,
+        RoundView::from_frame(&hello_frame)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::WrongCommand {
             expected: 17,
             found: 1
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_frame_relabelled_as_every_other_command_never_panics() {
+fn test_a_frame_relabelled_as_every_other_command_never_panics() -> TestResult {
     // Each golden body under every other command number: its view reads it as that command's body and must refuse
     // it or read it, never panic.
     for body in BODIES {
-        let bytes = body.bytes();
+        let bytes = body.bytes()?;
         for command in 1..=19u16 {
             let _read_or_refused: Result<(), ProtocolError> =
-                view_any(&with_command(&bytes, command));
+                view_any(&with_command(&bytes, command))?;
         }
     }
     // A body of no sections relabelled as Read, whose zero command header is valid, is too short for its table.
-    let abort = golden("abort").bytes();
+    let abort = golden("abort")?.bytes()?;
     assert_eq!(
-        refusal(&with_command(&abort, 7)),
+        refusal(&with_command(&abort, 7))?,
         ProtocolErrorEnum::BodyTooShort {
             command: 7,
             len: 0,
@@ -410,9 +427,9 @@ fn test_a_frame_relabelled_as_every_other_command_never_panics() {
         }
     );
     // The command header is checked before the body: Credit's frames read as Hello's protocol range.
-    let credit = golden("credit").bytes();
+    let credit = golden("credit")?.bytes()?;
     assert_eq!(
-        refusal(&with_command(&credit, 1)),
+        refusal(&with_command(&credit, 1))?,
         ProtocolErrorEnum::FieldValue {
             command: 1,
             field: "protocol_max",
@@ -420,4 +437,5 @@ fn test_a_frame_relabelled_as_every_other_command_never_panics() {
         }
     );
     assert_eq!(u32_at(&credit[128..], 0), 2);
+    Ok(())
 }

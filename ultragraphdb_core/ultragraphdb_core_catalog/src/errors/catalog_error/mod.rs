@@ -13,36 +13,67 @@ use ultragraphdb_error_store::StoreError;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum CatalogErrorEnum {
     /// A literal object for a predicate declared an edge.
-    LiteralOnEdge { predicate: String, object: String },
+    LiteralOnEdge {
+        /// The predicate.
+        predicate: String,
+        /// The object.
+        object: String,
+    },
     /// An IRI or blank-node object for a predicate declared a property.
-    ResourceOnProperty { predicate: String, object: String },
+    ResourceOnProperty {
+        /// The predicate.
+        predicate: String,
+        /// The object.
+        object: String,
+    },
     /// A literal of another datatype than the predicate's constraint.
     DatatypeMismatch {
+        /// The predicate.
         predicate: String,
+        /// The datatype the constraint names.
         expected: String,
+        /// The literal's datatype.
         found: String,
     },
     /// A tokenizer the registry does not know.
     UnknownTokenizer {
+        /// The predicate.
         predicate: String,
+        /// The tokenizer.
         tokenizer: String,
     },
     /// A datatype constraint none of whose values a declared tokenizer takes.
     TokenizerDatatype {
+        /// The predicate.
         predicate: String,
+        /// The tokenizer.
         tokenizer: String,
+        /// The datatype constraint.
         datatype: String,
     },
     /// A vector index whose factory the registry does not know.
-    UnknownVectorIndex { predicate: String, factory: String },
+    UnknownVectorIndex {
+        /// The predicate.
+        predicate: String,
+        /// The index's factory.
+        factory: String,
+    },
     /// An entity type declared with a parent other than the one it has.
     SecondParent {
+        /// The entity type.
         entity_type: String,
+        /// The parent declared.
         parent: String,
+        /// The parent it has.
         other: String,
     },
     /// A parent that would make the type its own ancestor.
-    ParentCycle { entity_type: String, parent: String },
+    ParentCycle {
+        /// The entity type.
+        entity_type: String,
+        /// The parent declared.
+        parent: String,
+    },
     /// The store failed, or holds a catalog entry that does not parse or decode: its `Corrupted`, naming the key.
     Store(StoreError),
 }
@@ -52,6 +83,7 @@ pub enum CatalogErrorEnum {
 pub struct CatalogError(pub CatalogErrorEnum);
 
 impl CatalogError {
+    /// A [`CatalogErrorEnum::LiteralOnEdge`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn LiteralOnEdge(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::LiteralOnEdge {
@@ -60,6 +92,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::ResourceOnProperty`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn ResourceOnProperty(predicate: &str, object: String) -> Self {
         Self(CatalogErrorEnum::ResourceOnProperty {
@@ -68,6 +101,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::DatatypeMismatch`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn DatatypeMismatch(predicate: &str, expected: &str, found: &str) -> Self {
         Self(CatalogErrorEnum::DatatypeMismatch {
@@ -77,6 +111,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::UnknownTokenizer`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn UnknownTokenizer(predicate: &str, tokenizer: &str) -> Self {
         Self(CatalogErrorEnum::UnknownTokenizer {
@@ -85,6 +120,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::TokenizerDatatype`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn TokenizerDatatype(predicate: &str, tokenizer: &str, datatype: &str) -> Self {
         Self(CatalogErrorEnum::TokenizerDatatype {
@@ -94,6 +130,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::UnknownVectorIndex`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn UnknownVectorIndex(predicate: &str, factory: &str) -> Self {
         Self(CatalogErrorEnum::UnknownVectorIndex {
@@ -102,6 +139,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::SecondParent`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn SecondParent(entity_type: &str, parent: &str, other: &str) -> Self {
         Self(CatalogErrorEnum::SecondParent {
@@ -111,6 +149,7 @@ impl CatalogError {
         })
     }
 
+    /// A [`CatalogErrorEnum::ParentCycle`] naming what it refused.
     #[allow(non_snake_case)]
     pub fn ParentCycle(entity_type: &str, parent: &str) -> Self {
         Self(CatalogErrorEnum::ParentCycle {

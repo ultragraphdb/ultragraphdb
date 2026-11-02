@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ultragraphdb_store_apply::ChangesetApplier;
+use ultragraphdb_store_apply::{Applied, ChangesetApplier};
 use ultragraphdb_store_kv::{Durability, FjallStore, MokaListCache, ThreadExecutor};
 use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 
@@ -69,11 +69,11 @@ pub fn open_applier(
 ///
 /// The applier's.
 pub fn prepare(a: &Arc<BenchApplier>, shape: &CommitShape, types: u64) -> Result<(), BenchError> {
-    a.apply(&CommitShape::declarations(types))?;
+    let _declared: Applied = a.apply(&CommitShape::declarations(types))?;
     while a.rebuilding() {
         std::thread::sleep(Duration::from_millis(10));
     }
-    a.apply(&shape.hubs())?;
+    let _hubs: Applied = a.apply(&shape.hubs())?;
     Ok(())
 }
 

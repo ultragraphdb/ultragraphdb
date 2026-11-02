@@ -122,7 +122,7 @@ impl Tracker {
 
         // If it's the first element, drop it from the slice.
         if self.shape_ids[0] == shape_id {
-            self.shape_ids.remove(0);
+            let _removed: i32 = self.shape_ids.remove(0);
             return;
         }
 
@@ -134,7 +134,7 @@ impl Tracker {
 
             // If it's in the set, cut it out.
             if s == shape_id {
-                self.shape_ids.remove(i);
+                let _removed: i32 = self.shape_ids.remove(i);
                 return;
             }
 

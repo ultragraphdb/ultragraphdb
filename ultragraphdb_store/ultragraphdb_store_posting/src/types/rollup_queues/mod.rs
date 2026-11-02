@@ -70,7 +70,7 @@ impl RollupQueues {
             .get(&hash)
             .is_none_or(|&at| now_secs.saturating_sub(at) >= ROLLUP_DEDUP_SECS);
         if due {
-            self.rolled.insert(hash, now_secs);
+            let _previous: Option<u64> = self.rolled.insert(hash, now_secs);
         }
         due
     }

@@ -11,6 +11,7 @@ mod fuzz_args_error_error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuzzArgsError(pub FuzzArgsErrorEnum);
 
+/// Each reason `store_sim_fuzz` refuses its arguments for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FuzzArgsErrorEnum {
     /// The argument at the position is no whole number a `u64` holds, written in decimal digits alone.
@@ -27,22 +28,27 @@ pub enum FuzzArgsErrorEnum {
 
 #[allow(non_snake_case)]
 impl FuzzArgsError {
+    /// The argument `value` at `position` is no whole number a `u64` holds.
     pub fn NotANumber(position: usize, value: String) -> Self {
         Self(FuzzArgsErrorEnum::NotANumber(position, value))
     }
 
+    /// The argument `value` at `position` follows the last of the three positions.
     pub fn TooMany(position: usize, value: String) -> Self {
         Self(FuzzArgsErrorEnum::TooMany(position, value))
     }
 
+    /// The seed count is 0.
     pub fn NoSeeds() -> Self {
         Self(FuzzArgsErrorEnum::NoSeeds)
     }
 
+    /// `seeds` seeds from `first` run past `u64::MAX`.
     pub fn PastLastSeed(first: u64, seeds: u64) -> Self {
         Self(FuzzArgsErrorEnum::PastLastSeed(first, seeds))
     }
 
+    /// The flag `value` is not `--versionless-reads`.
     pub fn UnknownFlag(value: String) -> Self {
         Self(FuzzArgsErrorEnum::UnknownFlag(value))
     }

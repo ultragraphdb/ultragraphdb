@@ -22,6 +22,9 @@ impl fmt::Display for TlsError {
             TlsErrorEnum::HandshakeFailed { host, reason } => {
                 write!(f, "TLS handshake with {host:?} failed: {reason}")
             }
+            TlsErrorEnum::ConfigurationRefused(reason) => {
+                write!(f, "TLS configuration refused: {reason}")
+            }
         }
     }
 }

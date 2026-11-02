@@ -14,15 +14,18 @@ pub struct SimClock {
 }
 
 impl SimClock {
+    /// A clock at time 0.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// The simulated time, in nanoseconds.
     pub fn now(&self) -> u64 {
         self.nanos.load(Ordering::SeqCst)
     }
 
+    /// Moves the clock `nanos` nanoseconds on.
     pub fn advance(&self, nanos: u64) {
-        self.nanos.fetch_add(nanos, Ordering::SeqCst);
+        let _before: u64 = self.nanos.fetch_add(nanos, Ordering::SeqCst);
     }
 }

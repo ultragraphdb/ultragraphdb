@@ -71,7 +71,8 @@ pub(crate) fn word_segments(input: &str) -> (Vec<(&str, SegmentType)>, Option<&'
 
 /// segment's `segmentWords(data, 1, true, nil, nil)`: the first segment of `data`.
 fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
-    let pe = isize::try_from(data.len()).expect("a slice holds at most isize::MAX bytes");
+    // A slice holds at most isize::MAX bytes, so the conversion succeeds.
+    let pe = isize::try_from(data.len()).map_err(|_| PARSE_ERROR)?;
     let eof = pe;
     let mut cs = S_START;
     let mut p: isize = 0;
@@ -164,10 +165,10 @@ fn transition(cs: usize, c: u8) -> usize {
         }
     }
     if !matched {
-        let klen = i64::from(S_RANGE_LENGTHS[cs]);
-        if klen > 0 {
+        let range_len = i64::from(S_RANGE_LENGTHS[cs]);
+        if range_len > 0 {
             let mut lower = keys;
-            let mut upper = keys + (klen << 1) - 2;
+            let mut upper = keys + (range_len << 1) - 2;
             while upper >= lower {
                 let mid = lower + (((upper - lower) >> 1) & !1);
                 if c < S_TRANS_KEYS[mid as usize] {
@@ -182,7 +183,7 @@ fn transition(cs: usize, c: u8) -> usize {
             }
         }
         if !matched {
-            trans += klen;
+            trans += range_len;
         }
     }
     S_INDICIES[trans as usize] as usize

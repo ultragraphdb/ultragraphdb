@@ -15,14 +15,17 @@ pub struct Elem {
 }
 
 impl Elem {
+    /// The element `val` from the list at `list_idx`.
     pub fn new(val: u64, list_idx: usize) -> Self {
         Self { val, list_idx }
     }
 
+    /// The element's value.
     pub fn val(&self) -> u64 {
         self.val
     }
 
+    /// The index of the list the value comes from.
     pub fn list_idx(&self) -> usize {
         self.list_idx
     }

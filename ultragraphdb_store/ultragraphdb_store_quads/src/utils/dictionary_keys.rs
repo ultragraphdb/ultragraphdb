@@ -6,11 +6,15 @@
 use ultragraphdb_core_terms::Hash128;
 
 /// The tags after the namespace of a key in the keyspace without versions. They are stored: none changes meaning.
+/// This one keys an IRI's UID.
 pub const IRI_TO_UID: u8 = 0x01;
+/// The tag keying a UID's IRI.
 pub const UID_TO_IRI: u8 = 0x02;
+/// The tag keying the string a literal hash names.
 pub const HASH_TO_STRING: u8 = 0x03;
-/// The high-water marks of the namespace's leased UIDs and statement IDs.
+/// The high-water marks of the namespace's leased UIDs and statement IDs: this one the UIDs'.
 pub const UID_LEASE: u8 = 0x10;
+/// The tag keying the high-water mark of the namespace's leased statement IDs.
 pub const STATEMENT_LEASE: u8 = 0x11;
 
 /// The key recording the mapping contract's version, once per store, under no namespace's prefix.

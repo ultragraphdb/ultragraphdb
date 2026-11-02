@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_tok::Stemmer;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[cfg(test)]
 mod cjk_bigram_tests;
@@ -49,10 +50,14 @@ pub(crate) const EDGE_INPUTS: [&str; 24] = [
 /// Checks the stemmer `name` against Go: each of `cases` stems as bleve's filter stems it; each of [`EDGE_INPUTS`]
 /// stems to its entry in `changed`, or stays as it is; and a 300-letter term stays as it is. The expected values are
 /// bleve v2.5.7's, from its tests or from running its filter.
-pub(crate) fn check_stems(name: &str, cases: &[(&str, &str)], changed: &[(&str, &str)]) {
+pub(crate) fn check_stems(
+    name: &str,
+    cases: &[(&str, &str)],
+    changed: &[(&str, &str)],
+) -> TestResult {
     let s = Stemmer::named(name)
         .ok_or_else(|| format!("no stemmer {name}"))
-        .expect("a stemmer of that name");
+        .context("a stemmer of that name")?;
     let mut failures = Vec::new();
     for &(input, want) in cases {
         if s.stem(input) != want {
@@ -75,4 +80,5 @@ pub(crate) fn check_stems(name: &str, cases: &[(&str, &str)], changed: &[(&str, 
     let long = "abcdefghij".repeat(30);
     assert_eq!(s.stem(&long), long, "{name}: a 300-letter term");
     assert!(failures.is_empty(), "{name}:\n{}", failures.join("\n"));
+    Ok(())
 }

@@ -3,18 +3,20 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::utils::fixture::Refused;
 use std::error::Error;
+use ultragraphdb_tool_bdd::TestResult;
 
 use ultragraphdb_protocol_wire::{ConflictKind, ErrorCode, WriteSetRecordView};
 use ultragraphdb_transactions_commit::{CommitError, CommitErrorEnum};
 
-fn malformed() -> CommitError {
-    let cause = WriteSetRecordView::new(&[1, 2, 3]).expect_err("three bytes are no record");
-    CommitError::Malformed(cause)
+fn malformed() -> TestResult<CommitError> {
+    let cause = WriteSetRecordView::new(&[1, 2, 3]).refused("three bytes are no record")?;
+    Ok(CommitError::Malformed(cause))
 }
 
 #[test]
-fn test_each_constructor_builds_its_variant() {
+fn test_each_constructor_builds_its_variant() -> TestResult {
     assert_eq!(
         CommitError::Conflict(ConflictKind::Range).0,
         CommitErrorEnum::Conflict {
@@ -35,13 +37,14 @@ fn test_each_constructor_builds_its_variant() {
             limit: 1_048_576
         }
     );
-    assert!(matches!(malformed().0, CommitErrorEnum::Malformed { .. }));
+    assert!(matches!(malformed()?.0, CommitErrorEnum::Malformed { .. }));
     assert_eq!(CommitError::Unsealed().0, CommitErrorEnum::Unsealed);
     assert_eq!(CommitError::Unavailable().0, CommitErrorEnum::Unavailable);
+    Ok(())
 }
 
 #[test]
-fn test_each_reason_has_its_code_and_detail() {
+fn test_each_reason_has_its_code_and_detail() -> TestResult {
     // The codes and details as ErrorCode's table in ultragraphdb_protocol_wire states them; a conflict's detail is its
     // kind's number there (Range is 3, Drop 6).
     assert_eq!(
@@ -60,28 +63,30 @@ fn test_each_reason_has_its_code_and_detail() {
         CommitError::TooLarge(2_000_000, 1_048_576).detail(),
         1_048_576
     );
-    assert_eq!(malformed().code(), ErrorCode::Protocol);
-    assert_eq!(malformed().detail(), 0);
+    assert_eq!(malformed()?.code(), ErrorCode::Protocol);
+    assert_eq!(malformed()?.detail(), 0);
     assert_eq!(CommitError::Unsealed().code(), ErrorCode::Protocol);
     assert_eq!(CommitError::Unsealed().detail(), 0);
     assert_eq!(CommitError::Unavailable().code(), ErrorCode::Unavailable);
     assert_eq!(CommitError::Unavailable().detail(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_only_a_conflict_and_too_old_are_retryable() {
+fn test_only_a_conflict_and_too_old_are_retryable() -> TestResult {
     // The spec's "Aborts name their reason": conflict and too old are retryable, too large is not; unavailable is the
     // wire's non-retryable Unavailable, and a malformed or unsealed hand-over is a programming error.
     assert!(CommitError::Conflict(ConflictKind::List).is_retryable());
     assert!(CommitError::TooOld(4, 10).is_retryable());
     assert!(!CommitError::TooLarge(2_000_000, 1_048_576).is_retryable());
-    assert!(!malformed().is_retryable());
+    assert!(!malformed()?.is_retryable());
     assert!(!CommitError::Unsealed().is_retryable());
     assert!(!CommitError::Unavailable().is_retryable());
+    Ok(())
 }
 
 #[test]
-fn test_each_reason_displays_its_text() {
+fn test_each_reason_displays_its_text() -> TestResult {
     // Dgraph's texts for a conflict (QuadError::Aborted's) and for too old (ErrTsTooOld's, as StoreError has it).
     assert_eq!(
         CommitError::Conflict(ConflictKind::List).to_string(),
@@ -96,11 +101,11 @@ fn test_each_reason_displays_its_text() {
         "the write-set record of 2000000 bytes is over the largest a round holds, 1048576 bytes"
     );
     assert!(
-        malformed()
+        malformed()?
             .to_string()
             .starts_with("a write-set record is malformed: "),
         "{}",
-        malformed()
+        malformed()?
     );
     assert_eq!(
         CommitError::Unsealed().to_string(),
@@ -110,16 +115,18 @@ fn test_each_reason_displays_its_text() {
         CommitError::Unavailable().to_string(),
         "the node refuses writes after a failed log sync, until it restarts"
     );
+    Ok(())
 }
 
 #[test]
-fn test_only_a_malformed_record_has_a_source() {
-    assert!(malformed().source().is_some());
+fn test_only_a_malformed_record_has_a_source() -> TestResult {
+    assert!(malformed()?.source().is_some());
     assert!(CommitError::Unsealed().source().is_none());
+    Ok(())
 }
 
 #[test]
-fn test_the_operation_refusals_carry_their_codes_and_what_was_found() {
+fn test_the_operation_refusals_carry_their_codes_and_what_was_found() -> TestResult {
     let failed = CommitError::OperationFailed(Some("\"done\"".to_string()));
     assert_eq!(
         failed.0,
@@ -158,13 +165,14 @@ fn test_the_operation_refusals_carry_their_codes_and_what_was_found() {
     );
     assert!(refused.source().is_none());
     assert_eq!(CommitError::Unavailable().found(), None);
+    Ok(())
 }
 
 /// Every reason against `PROTOCOL.md` §9's table, written out by hand: its code's number, its `detail` and whether a
 /// client retries it. The table is the independent source; `ErrorCode::retryable` is checked against the same column so
 /// the commit step and the wire cannot disagree on what a client may retry.
 #[test]
-fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
+fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() -> TestResult {
     // (reason, code number, detail, retryable), each row from §9: Conflict 2 with the kind's number (Statement is 2),
     // TooOld 3, Busy 5, TooLarge 6 with the limit, Refused 7, OperationFailed 8, SessionEvicted 12 with the session,
     // RequestOutOfOrder 13 with the request expected, SessionBusy 14 with the session, retryable after a delay,
@@ -188,7 +196,7 @@ fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
         (CommitError::Unavailable(), 17, 0, false),
         (CommitError::NotCommitted(8), 18, 8, true),
         (CommitError::PermissionDenied(45), 21, 2, false),
-        (malformed(), 1, 0, false),
+        (malformed()?, 1, 0, false),
         (CommitError::Unsealed(), 1, 0, false),
     ];
     for (reason, number, detail, retryable) in rows {
@@ -201,4 +209,5 @@ fn test_every_reason_matches_the_wire_tables_code_detail_and_retryability() {
             "{reason:?}: the wire's code"
         );
     }
+    Ok(())
 }

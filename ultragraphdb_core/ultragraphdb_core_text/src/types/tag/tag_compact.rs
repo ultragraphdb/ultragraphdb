@@ -22,13 +22,18 @@ use crate::utils::parse;
 use crate::utils::tag_index::partition_point;
 
 /// The tags with a compact index after the core tags.
+///
+/// The constant parses, so no tag falls back to the default; a debug build checks it.
 static SPECIAL_TAGS: LazyLock<Vec<FullTag>> = LazyLock::new(|| {
     SPECIAL_TAGS_STR
         .split(' ')
         .map(|t| {
-            parse::parse(t)
-                .map_err(|(_, e)| e)
-                .expect("the constant SPECIAL_TAGS_STR holds valid tags")
+            let parsed = parse::parse(t);
+            debug_assert!(
+                parsed.is_ok(),
+                "the constant SPECIAL_TAGS_STR holds valid tags"
+            );
+            parsed.unwrap_or_default()
         })
         .collect()
 });
@@ -109,7 +114,7 @@ fn from_tag(t: &FullTag) -> (u16, bool) {
         }
         if has_extra {
             // We have some variants.
-            if let Some(i) = SPECIAL_TAGS.iter().position(|s| *s == t) {
+            if let Some(i) = SPECIAL_TAGS.iter().position(|special| *special == t) {
                 return ((i + CORE_TAGS.len()) as u16, exact);
             }
             exact = false;

@@ -24,12 +24,12 @@ impl<V: Clone> ListCache for SimListCache<V> {
             !shared.entries.contains_key(&key) && shared.entries.len() >= self.capacity
         };
         if full {
-            self.evict_one();
+            let _evicted: bool = self.evict_one();
         }
-        lock(&self.shared).entries.insert(key, value);
+        let _replaced: Option<V> = lock(&self.shared).entries.insert(key, value);
     }
 
     fn remove(&self, key: &[u8]) {
-        lock(&self.shared).entries.remove(key);
+        let _removed: Option<V> = lock(&self.shared).entries.remove(key);
     }
 }

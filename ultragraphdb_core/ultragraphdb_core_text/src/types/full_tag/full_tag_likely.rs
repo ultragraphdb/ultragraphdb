@@ -40,18 +40,15 @@ impl FullTag {
         }
     }
 
-    /// Specializes a group region to the region of the group's most likely tag; reports whether the region was
-    /// a group.
-    fn specialize_region(&mut self) -> bool {
+    /// Specializes a group region to the region of the group's most likely tag.
+    fn specialize_region(&mut self) {
         let i = REGION_INCLUSION[usize::from(self.region_id.0)];
         if i < N_REGION_GROUPS {
             let x = LIKELY_REGION_GROUP[usize::from(i)];
             if LangId(x.lang) == self.lang_id && ScriptId(x.script) == self.script_id {
                 self.region_id = RegionId(x.region);
             }
-            return true;
         }
-        false
     }
 
     /// `Maximize`, Go's `addTags`: the tag with missing subtags filled in. On an error Go returns the tag as it
@@ -75,10 +72,10 @@ impl FullTag {
             } else {
                 &LIKELY_REGION[usize::from(t.region_id.0)..usize::from(t.region_id.0) + 1]
             };
-            for x in list {
+            for entry in list {
                 // Deviating from the spec. See match_test.go for details.
-                if ScriptId(x.script) == t.script_id {
-                    t.set_undefined_lang(LangId(x.lang));
+                if ScriptId(entry.script) == t.script_id {
+                    t.set_undefined_lang(LangId(entry.lang));
                     return (t, None);
                 }
             }
@@ -122,9 +119,11 @@ impl FullTag {
                 let list =
                     &LIKELY_LANG_LIST[usize::from(x.region)..usize::from(x.region + x.script)];
                 if self.script_id.0 != 0 {
-                    for x in list {
-                        if ScriptId(x.script) == self.script_id && x.flags & SCRIPT_IN_FROM != 0 {
-                            self.set_undefined_region(RegionId(x.region));
+                    for entry in list {
+                        if ScriptId(entry.script) == self.script_id
+                            && entry.flags & SCRIPT_IN_FROM != 0
+                        {
+                            self.set_undefined_region(RegionId(entry.region));
                             return true;
                         }
                     }
@@ -132,15 +131,15 @@ impl FullTag {
                     let mut count = 0;
                     let mut good_script = true;
                     let mut tt = self.clone();
-                    for x in list {
+                    for entry in list {
                         // Visit all entries for which the script was not defined, including the ones where the
                         // region was not defined, for proper disambiguation within regions.
-                        if x.flags & SCRIPT_IN_FROM == 0
-                            && self.region_id.contains(RegionId(x.region))
+                        if entry.flags & SCRIPT_IN_FROM == 0
+                            && self.region_id.contains(RegionId(entry.region))
                         {
-                            tt.region_id = RegionId(x.region);
-                            tt.set_undefined_script(ScriptId(x.script));
-                            good_script = good_script && tt.script_id == ScriptId(x.script);
+                            tt.region_id = RegionId(entry.region);
+                            tt.set_undefined_script(ScriptId(entry.script));
+                            good_script = good_script && tt.script_id == ScriptId(entry.script);
                             count += 1;
                         }
                     }

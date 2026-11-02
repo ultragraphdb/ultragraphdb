@@ -15,6 +15,7 @@ pub struct RegisterView<'a> {
 }
 
 impl<'a> RegisterView<'a> {
+    /// The client's session.
     pub fn session(&self) -> u64 {
         self.session
     }

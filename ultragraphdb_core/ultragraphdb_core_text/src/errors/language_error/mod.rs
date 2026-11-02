@@ -53,31 +53,37 @@ impl LanguageError {
         self.0 == LanguageErrorEnum::Syntax
     }
 
+    /// A [`LanguageErrorEnum::Syntax`] error: the tag is not well-formed BCP 47.
     #[allow(non_snake_case)]
     pub fn Syntax() -> Self {
         Self(LanguageErrorEnum::Syntax)
     }
 
+    /// A [`LanguageErrorEnum::DuplicateKey`] error: a `-u` extension has the same key twice with different values.
     #[allow(non_snake_case)]
     pub fn DuplicateKey() -> Self {
         Self(LanguageErrorEnum::DuplicateKey)
     }
 
+    /// A [`LanguageErrorEnum::Value`] error: a well-formed but unknown subtag, `value`.
     #[allow(non_snake_case)]
     pub fn Value(value: Vec<u8>) -> Self {
         Self(LanguageErrorEnum::Value(value))
     }
 
+    /// A [`LanguageErrorEnum::PrivateUse`] error: a key was set on a private-use tag.
     #[allow(non_snake_case)]
     pub fn PrivateUse() -> Self {
         Self(LanguageErrorEnum::PrivateUse)
     }
 
+    /// A [`LanguageErrorEnum::InvalidArguments`] error: a key or type of the wrong length was set.
     #[allow(non_snake_case)]
     pub fn InvalidArguments() -> Self {
         Self(LanguageErrorEnum::InvalidArguments)
     }
 
+    /// A [`LanguageErrorEnum::MissingLikelyTagsData`] error: no likely subtags are known for the tag.
     #[allow(non_snake_case)]
     pub fn MissingLikelyTagsData() -> Self {
         Self(LanguageErrorEnum::MissingLikelyTagsData)

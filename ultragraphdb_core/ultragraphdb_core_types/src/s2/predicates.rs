@@ -289,24 +289,24 @@ fn symbolically_perturbed_sign(
         }
     }
 
-    let det_sign = (&(&c.x * &a.y) - &(&c.y * &a.x)).sign(); // db.Z
+    let mut det_sign = (&(&c.x * &a.y) - &(&c.y * &a.x)).sign(); // db.Z
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = c.x.sign(); // db.Z * da.Y
+    det_sign = c.x.sign(); // db.Z * da.Y
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = -c.y.sign(); // db.Z * da.X
+    det_sign = -c.y.sign(); // db.Z * da.X
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
 
-    let det_sign = (&(&c.z * &a.x) - &(&c.x * &a.z)).sign(); // db.Y
+    det_sign = (&(&c.z * &a.x) - &(&c.x * &a.z)).sign(); // db.Y
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = c.z.sign(); // db.Y * da.X
+    det_sign = c.z.sign(); // db.Y * da.X
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
@@ -315,19 +315,19 @@ fn symbolically_perturbed_sign(
     // the previous tests guarantee that C == (0, 0, 0).
     // (c.Y*a.Z - c.Z*a.Y).Sign() // db.X
 
-    let det_sign = (&(&a.x * &b.y) - &(&a.y * &b.x)).sign(); // dc.Z
+    det_sign = (&(&a.x * &b.y) - &(&a.y * &b.x)).sign(); // dc.Z
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = -b.x.sign(); // dc.Z * da.Y
+    det_sign = -b.x.sign(); // dc.Z * da.Y
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = b.y.sign(); // dc.Z * da.X
+    det_sign = b.y.sign(); // dc.Z * da.X
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }
-    let det_sign = a.x.sign(); // dc.Z * db.Y
+    det_sign = a.x.sign(); // dc.Z * db.Y
     if det_sign != 0 {
         return Direction::from_sign(det_sign);
     }

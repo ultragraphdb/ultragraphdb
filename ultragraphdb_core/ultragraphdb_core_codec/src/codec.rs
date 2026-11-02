@@ -64,9 +64,10 @@ pub fn exact_len(pack: &UidPack) -> usize {
 pub fn decode(pack: &UidPack, seek: u64) -> Vec<u64> {
     let mut out = Vec::with_capacity(approx_len(pack));
     let mut dec = Decoder::sought(pack, seek, SeekPos::Start);
-    while !dec.uids().is_empty() {
-        out.extend_from_slice(dec.uids());
-        dec.next_block();
+    let mut uids = dec.uids();
+    while !uids.is_empty() {
+        out.extend_from_slice(uids);
+        uids = dec.next_block();
     }
     out
 }
@@ -75,12 +76,13 @@ pub fn decode(pack: &UidPack, seek: u64) -> Vec<u64> {
 pub fn decode_to_buffer(buf: &mut Vec<u8>, pack: &UidPack) {
     let mut last = 0u64;
     let mut dec = Decoder::new(pack);
-    while !dec.uids().is_empty() {
-        for &u in dec.uids() {
+    let mut uids = dec.uids();
+    while !uids.is_empty() {
+        for &u in uids {
             put_uvarint(buf, u.wrapping_sub(last));
             last = u;
         }
-        dec.next_block();
+        uids = dec.next_block();
     }
 }
 

@@ -4,9 +4,10 @@
  */
 
 use ultragraphdb_store_posting::Timestamps;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_open_reads_bound_the_discard_timestamp() {
+fn test_open_reads_bound_the_discard_timestamp() -> TestResult {
     let mut ts = Timestamps::default();
     assert_eq!(ts.oldest_open_read(), None);
     assert_eq!(ts.discard_bound(50), 50);
@@ -20,11 +21,12 @@ fn test_open_reads_bound_the_discard_timestamp() {
     assert_eq!(ts.oldest_open_read(), Some(9));
     ts.close_read(3);
     assert_eq!(ts.discard_bound(4), 4);
+    Ok(())
 }
 
 /// The open reads are the whole state: two registries with the same reads are equal, whatever order they opened in.
 #[test]
-fn test_the_open_reads_are_the_state() {
+fn test_the_open_reads_are_the_state() -> TestResult {
     let (mut a, mut b) = (Timestamps::default(), Timestamps::default());
     a.open_read(3);
     a.open_read(u64::MAX);
@@ -34,4 +36,5 @@ fn test_the_open_reads_are_the_state() {
     a.close_read(u64::MAX);
     assert_ne!(a, b);
     assert_eq!(a.discard_bound(u64::MAX), 3);
+    Ok(())
 }

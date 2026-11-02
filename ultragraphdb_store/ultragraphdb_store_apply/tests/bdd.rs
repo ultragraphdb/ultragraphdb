@@ -43,10 +43,11 @@ struct Steps {
     events: Vec<ultragraphdb_store_sim::CapturedEvent>,
 }
 
-fn main() {
+fn main() -> ultragraphdb_tool_bdd::TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

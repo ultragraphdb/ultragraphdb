@@ -24,6 +24,7 @@ use ultragraphdb_protocol_transport::{
 use ultragraphdb_protocol_wire::{
     Describe, HEADER_SIZE, Header, HeaderView, MAX_FRAME_SIZE, Welcome,
 };
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 pub const RELEASE: u32 = 0x0005_0000;
@@ -135,13 +136,13 @@ pub fn nonce() -> Result<String, ScramError> {
 /// The test server's principal's login by SCRAM-SHA-256.
 pub type TestLogin = ScramLogin<fn() -> Result<String, ScramError>>;
 
-pub fn login() -> TestLogin {
+pub fn login() -> TestResult<TestLogin> {
     ScramLogin::new(
         TEST_NAME,
         TEST_PASSWORD,
         nonce as fn() -> Result<String, ScramError>,
     )
-    .expect("the test principal's name and password prepare")
+    .context("the test principal's name and password prepare")
 }
 
 /// The client's core, the test server, and the simulated connection between them.
@@ -171,21 +172,21 @@ impl Harness<Anonymous> {
     }
 
     /// The core connected and welcomed.
-    pub fn ready(server: TestServer) -> Self {
+    pub fn ready(server: TestServer) -> TestResult<Self> {
         let mut h = Self::new(server);
-        h.connect();
-        h.until(|h| h.core.is_ready());
-        h
+        h.connect()?;
+        h.until(|h| h.core.is_ready())?;
+        Ok(h)
     }
 }
 
 impl Harness<TestLogin> {
     /// The core connected to a server asking for SCRAM-SHA-256, authenticated as the test principal.
-    pub fn authenticated(server: TestServer) -> Self {
-        let mut h = Self::with(config(), server, NetworkFaults::none(), 1, login());
-        h.connect();
-        h.until(|h| h.core.is_ready());
-        h
+    pub fn authenticated(server: TestServer) -> TestResult<Self> {
+        let mut h = Self::with(config(), server, NetworkFaults::none(), 1, login()?);
+        h.connect()?;
+        h.until(|h| h.core.is_ready())?;
+        Ok(h)
     }
 }
 
@@ -224,7 +225,7 @@ impl<L: Login> Harness<L> {
     }
 
     /// A new connection: the core's handshake begun, the server and the client's framer reset for it.
-    pub fn connect(&mut self) {
+    pub fn connect(&mut self) -> TestResult {
         self.client.shutdown();
         self.server_end.shutdown();
         let (client, server_end) = self.network.connect();
@@ -239,23 +240,24 @@ impl<L: Login> Harness<L> {
         self.connections += 1;
         self.core
             .connect(self.now, unix)
-            .expect("the core connects");
+            .context("the core connects")
     }
 
     /// A frame of the server's a test made, numbered as the connection's next: after every frame the server sent and
     /// every one made before it.
-    pub fn numbered(&mut self, frame: &[u8]) -> Vec<u8> {
+    pub fn numbered(&mut self, frame: &[u8]) -> TestResult<Vec<u8>> {
         self.forged += 1;
-        let mut frame = frame.to_vec();
-        Header::stamp_sequence(&mut frame, self.server.sent() + self.forged)
-            .expect("a whole frame");
-        frame
+        let mut stamped = frame.to_vec();
+        Header::stamp_sequence(&mut stamped, self.server.sent() + self.forged)
+            .context("a whole frame")?;
+        Ok(stamped)
     }
 
-    /// A frame of the server delivered to the core as it stands, through the client's framer.
-    pub fn deliver(&mut self, bytes: &[u8]) -> Result<(), ClientError> {
-        let frame = frame_through(&mut self.framer, &self.pool, bytes).expect("a whole frame");
-        self.core.receive(frame, self.now)
+    /// A frame of the server delivered to the core as it stands, through the client's framer: the core's answer, or
+    /// the test's failure when `bytes` is no whole frame.
+    pub fn deliver(&mut self, bytes: &[u8]) -> TestResult<Result<(), ClientError>> {
+        let frame = frame_through(&mut self.framer, &self.pool, bytes).context("a whole frame")?;
+        Ok(self.core.receive(frame, self.now))
     }
 
     /// The core's next frame sent twice, as a network that repeats a frame delivers it.
@@ -267,7 +269,7 @@ impl<L: Login> Harness<L> {
     }
 
     /// One round: the core's frames to the server, the server's to the core; whether anything moved.
-    pub fn step(&mut self) -> bool {
+    pub fn step(&mut self) -> TestResult<bool> {
         let mut moved = false;
         while let Some(frame) = self.core.transmit() {
             self.client.send(frame);
@@ -292,8 +294,9 @@ impl<L: Login> Harness<L> {
         }
         self.network.run_until_idle();
         self.at_client.take(&self.client);
-        while let Some(frame) = self.at_client.frame() {
-            let frame = frame_through(&mut self.framer, &self.pool, &frame).expect("a whole frame");
+        while let Some(bytes) = self.at_client.frame() {
+            let frame =
+                frame_through(&mut self.framer, &self.pool, &bytes).context("a whole frame")?;
             if let Some(welcome) = self.core.welcome() {
                 self.framer.set_protocol(welcome.protocol());
             }
@@ -306,28 +309,32 @@ impl<L: Login> Harness<L> {
             self.core.disconnected(TransportError::Closed(), self.now);
             moved = true;
         }
-        moved
+        Ok(moved)
     }
 
     /// Rounds until `done` holds: when nothing moves, time moves to the core's next deadline, or the server's when
     /// the core has none, and a core that has lost its connection is connected again.
-    pub fn until(&mut self, mut done: impl FnMut(&mut Self) -> bool) {
+    pub fn until(&mut self, mut done: impl FnMut(&mut Self) -> bool) -> TestResult {
         let mut steps = 0;
         loop {
-            assert!(steps < STEPS, "not done after {STEPS} steps");
+            if steps >= STEPS {
+                return Err(TestError::new(format!("not done after {STEPS} steps")));
+            }
             steps += 1;
             if done(self) {
-                return;
+                return Ok(());
             }
             if self.core.needs_connection() {
-                self.connect();
+                self.connect()?;
                 continue;
             }
-            if !self.step() {
+            if !self.step()? {
                 let Some(deadline) = self.core.next_deadline().or(self.server.next_deadline())
                 else {
-                    assert!(done(self), "nothing moves and nothing is due");
-                    return;
+                    if done(self) {
+                        return Ok(());
+                    }
+                    return Err(TestError::new("nothing moves and nothing is due"));
                 };
                 self.now = self.now.max(deadline);
                 self.server.handle_timeout(self.now);
@@ -337,18 +344,18 @@ impl<L: Login> Harness<L> {
     }
 
     /// The answer of `pending`.
-    pub fn settle(&mut self, pending: Pending) -> Result<Reply, ClientError> {
+    pub fn settle(&mut self, pending: Pending) -> TestResult<Result<Reply, ClientError>> {
         let mut answer = None;
         self.until(|h| {
             answer = h.core.take_reply(pending);
             answer.is_some()
-        });
-        answer.expect("an answer")
+        })?;
+        answer.context("an answer")
     }
 }
 
 /// The session of a Register's `reply`.
-pub fn registered(reply: Result<Reply, ClientError>) -> Session {
+pub fn registered(reply: Result<Reply, ClientError>) -> TestResult<Session> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Registered(session)) = reply {
@@ -357,11 +364,11 @@ pub fn registered(reply: Result<Reply, ClientError>) -> Session {
         None
     }
     .ok_or(found)
-    .expect("a Register's session")
+    .context("a Register's session")
 }
 
 /// The transaction of a Begin's `reply`.
-pub fn begun(reply: Result<Reply, ClientError>) -> Transaction {
+pub fn begun(reply: Result<Reply, ClientError>) -> TestResult<Transaction> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Begun(tx)) = reply {
@@ -370,11 +377,11 @@ pub fn begun(reply: Result<Reply, ClientError>) -> Transaction {
         None
     }
     .ok_or(found)
-    .expect("a Begin's transaction")
+    .context("a Begin's transaction")
 }
 
 /// The answer of a Commit's `reply`.
-pub fn committed(reply: Result<Reply, ClientError>) -> Committed {
+pub fn committed(reply: Result<Reply, ClientError>) -> TestResult<Committed> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Committed(committed)) = reply {
@@ -383,11 +390,11 @@ pub fn committed(reply: Result<Reply, ClientError>) -> Committed {
         None
     }
     .ok_or(found)
-    .expect("a Commit's answer")
+    .context("a Commit's answer")
 }
 
 /// The answer of a Drop's `reply`.
-pub fn dropped(reply: Result<Reply, ClientError>) -> Committed {
+pub fn dropped(reply: Result<Reply, ClientError>) -> TestResult<Committed> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Dropped(dropped)) = reply {
@@ -396,11 +403,11 @@ pub fn dropped(reply: Result<Reply, ClientError>) -> Committed {
         None
     }
     .ok_or(found)
-    .expect("a Drop's answer")
+    .context("a Drop's answer")
 }
 
 /// The statement of a Prepare's `reply`.
-pub fn prepared(reply: Result<Reply, ClientError>) -> Statement {
+pub fn prepared(reply: Result<Reply, ClientError>) -> TestResult<Statement> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Prepared(statement)) = reply {
@@ -409,11 +416,11 @@ pub fn prepared(reply: Result<Reply, ClientError>) -> Statement {
         None
     }
     .ok_or(found)
-    .expect("a Prepare's statement")
+    .context("a Prepare's statement")
 }
 
 /// The answer of a Describe's `reply`.
-pub fn described(reply: Result<Reply, ClientError>) -> Describe {
+pub fn described(reply: Result<Reply, ClientError>) -> TestResult<Describe> {
     let found = format!("{reply:?}");
     let reply = reply.ok();
     if let Some(Reply::Described(describe)) = reply {
@@ -422,5 +429,5 @@ pub fn described(reply: Result<Reply, ClientError>) -> Describe {
         None
     }
     .ok_or(found)
-    .expect("a Describe's answer")
+    .context("a Describe's answer")
 }

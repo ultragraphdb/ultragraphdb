@@ -5,111 +5,112 @@
 
 use ultragraphdb_core_codec::Posting;
 use ultragraphdb_store_posting::List;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::helpers::{
     add, del_uid, delete_all, key, new_store, roll_up, set_uid, set_value, with_facet,
 };
 
 #[test]
-fn test_lengths_and_postings_without_sorting() {
+fn test_lengths_and_postings_without_sorting() -> TestResult {
     let mut l = List::empty(key("len", 1));
     (1..=5).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
-    assert_eq!(l.get_length(3).unwrap(), 5);
+    assert_eq!(l.get_length(3)?, 5);
     let (len, found) = l.get_posting_and_length(3, 0, 4);
     assert_eq!((len, found.map(|p| p.uid())), (5, Some(4)));
-    let (len, found) = l.get_posting_and_length_no_sort(3, 0, 6, false).unwrap();
-    assert_eq!((len, found), (5, None));
-    let (len, found) = l.get_posting_and_length_no_sort(3, 0, 2, true).unwrap();
-    assert_eq!((len, found.map(|p| p.uid())), (5, Some(2)));
-    assert!(!l.is_empty(3, 0).unwrap());
-    assert!(l.is_empty(3, 5).unwrap());
-    assert!(l.is_empty(1, 0).unwrap());
+    let (unsorted_len_6, unsorted_found_6) = l.get_posting_and_length_no_sort(3, 0, 6, false)?;
+    assert_eq!((unsorted_len_6, unsorted_found_6), (5, None));
+    let (unsorted_len_2, unsorted_found_2) = l.get_posting_and_length_no_sort(3, 0, 2, true)?;
+    assert_eq!(
+        (unsorted_len_2, unsorted_found_2.map(|p| p.uid())),
+        (5, Some(2))
+    );
+    assert!(!l.is_empty(3, 0)?);
+    assert!(l.is_empty(3, 5)?);
+    assert!(l.is_empty(1, 0)?);
+    Ok(())
 }
 
 #[test]
-fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() {
+fn test_a_posting_is_found_in_the_deltas_or_else_in_the_immutable_layer() -> TestResult {
     let store = new_store();
     let mut l = List::empty(key("find", 1));
     add(&mut l, 1, &set_uid(2));
     add(&mut l, 1, &with_facet(set_uid(4), "f"));
     add(&mut l, 1, &set_uid(6));
     l.commit_mutation(2);
-    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000);
+    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000)?;
     // A posting kept beside the pack comes back whole; a bare uid as a uid posting.
-    let found = l.find_posting(2, 4).unwrap().unwrap();
+    let found = l.find_posting(2, 4)?.context("the posting")?;
     assert_eq!((found.uid(), found.facets()[0].key()), (4, "f"));
-    assert_eq!(
-        l.find_posting(2, 2).unwrap(),
-        Some(Posting::default().with_uid(2))
-    );
-    assert_eq!(l.find_posting(2, 3).unwrap(), None, "between two uids");
-    assert_eq!(l.find_posting(2, 7).unwrap(), None, "above the last uid");
-    assert_eq!(l.find_posting(2, 0).unwrap(), None, "uid 0");
+    assert_eq!(l.find_posting(2, 2)?, Some(Posting::default().with_uid(2)));
+    assert_eq!(l.find_posting(2, 3)?, None, "between two uids");
+    assert_eq!(l.find_posting(2, 7)?, None, "above the last uid");
+    assert_eq!(l.find_posting(2, 0)?, None, "uid 0");
     // A delta's set is found there; a delta's delete hides the immutable posting.
     add(&mut l, 3, &with_facet(set_uid(6), "g"));
     add(&mut l, 3, &del_uid(2));
     l.commit_mutation(4);
     assert_eq!(
-        l.find_posting(4, 6).unwrap().unwrap().facets()[0].key(),
+        l.find_posting(4, 6)?.context("the posting")?.facets()[0].key(),
         "g"
     );
-    assert_eq!(l.find_posting(4, 2).unwrap(), None);
+    assert_eq!(l.find_posting(4, 2)?, None);
     assert_eq!(
-        l.find_posting(3, 2).unwrap().map(|p| p.uid()),
+        l.find_posting(3, 2)?.map(|p| p.uid()),
         Some(2),
         "below the delete"
     );
     // A delete-all ends the search before the immutable layer.
     add(&mut l, 5, &delete_all());
     l.commit_mutation(6);
-    assert_eq!(l.find_posting(6, 4).unwrap(), None);
-    assert_eq!(l.find_posting(5, 4).unwrap().map(|p| p.uid()), Some(4));
+    assert_eq!(l.find_posting(6, 4)?, None);
+    assert_eq!(l.find_posting(5, 4)?.map(|p| p.uid()), Some(4));
+    Ok(())
 }
 
 #[test]
-fn test_a_length_counts_the_immutable_layer_unless_a_delete_all_hides_it() {
+fn test_a_length_counts_the_immutable_layer_unless_a_delete_all_hides_it() -> TestResult {
     let store = new_store();
     let mut l = List::empty(key("get-length", 1));
     (1..=3).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
-    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000);
+    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000)?;
     add(&mut l, 3, &set_uid(9));
     add(&mut l, 3, &del_uid(1));
     l.commit_mutation(4);
     // 3 in the pack, plus one set and minus one delete.
-    assert_eq!(l.get_length(4).unwrap(), 3);
-    assert_eq!(
-        l.get_length(3).unwrap(),
-        3,
-        "the pack alone below the delta"
-    );
+    assert_eq!(l.get_length(4)?, 3);
+    assert_eq!(l.get_length(3)?, 3, "the pack alone below the delta");
     add(&mut l, 5, &delete_all());
     add(&mut l, 5, &set_uid(7));
     l.commit_mutation(6);
-    assert_eq!(
-        l.get_length(6).unwrap(),
-        1,
-        "only the set after the delete-all"
-    );
+    assert_eq!(l.get_length(6)?, 1, "only the set after the delete-all");
     assert_eq!(l.length(6, 0), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_length_and_a_posting_above_an_after_uid() {
+fn test_a_length_and_a_posting_above_an_after_uid() -> TestResult {
     let mut l = List::empty(key("len-after", 1));
     (1..=5).for_each(|u| add(&mut l, 1, &set_uid(u)));
     l.commit_mutation(2);
     let (len, found) = l.get_posting_and_length(3, 2, 4);
     assert_eq!((len, found.map(|p| p.uid())), (3, Some(4)));
-    let (len, found) = l.get_posting_and_length(3, 2, 1);
-    assert_eq!((len, found), (3, None), "uid 1 is not above the after-uid");
-    let (len, found) = l.get_posting_and_length_no_sort(3, 2, 1, false).unwrap();
+    let (len_after_1, found_after_1) = l.get_posting_and_length(3, 2, 1);
     assert_eq!(
-        (len, found.map(|p| p.uid())),
+        (len_after_1, found_after_1),
+        (3, None),
+        "uid 1 is not above the after-uid"
+    );
+    let (unsorted_len, unsorted_found) = l.get_posting_and_length_no_sort(3, 2, 1, false)?;
+    assert_eq!(
+        (unsorted_len, unsorted_found.map(|p| p.uid())),
         (5, Some(1)),
         "without sorting, the after-uid is not applied"
     );
+    Ok(())
 }
 
 /// The value of the newest layer `static_value` picks, in the order its documentation gives.
@@ -119,7 +120,7 @@ fn static_of(l: &List, read_ts: u64) -> Option<Vec<u8>> {
 }
 
 #[test]
-fn test_a_static_value_is_the_newest_layer_at_its_timestamp() {
+fn test_a_static_value_is_the_newest_layer_at_its_timestamp() -> TestResult {
     let store = new_store();
     let k = ultragraphdb_core_keys::QuadKey::VectorIndex {
         namespace: 0,
@@ -132,7 +133,7 @@ fn test_a_static_value_is_the_newest_layer_at_its_timestamp() {
     let mut l = List::empty(k);
     add(&mut l, 1, &set_value("a"));
     l.commit_mutation(2);
-    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000);
+    let (mut l, _) = roll_up(&store, &l, u64::MAX, 2000)?;
     assert_eq!(
         static_of(&l, 2),
         Some(b"a".to_vec()),
@@ -169,4 +170,5 @@ fn test_a_static_value_is_the_newest_layer_at_its_timestamp() {
         Some(b"c".to_vec()),
         "not at another timestamp"
     );
+    Ok(())
 }

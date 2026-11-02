@@ -9,10 +9,11 @@ use ultragraphdb_protocol_wire::TermTable;
 
 use crate::types::client_core::client_core_tests::counter;
 use crate::utils::harness::{Harness, committed, config, server};
+use ultragraphdb_tool_bdd::TestResult;
 
 /// Transactions until `commits` are acknowledged, each retried by the application on whatever failed but an
 /// acknowledged commit: every acknowledged commit is applied once, whatever the network did.
-fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
+fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> TestResult<(u64, u64)> {
     let mut h = Harness::with(config(), server().with_results(2), faults, seed, Anonymous);
     let mut acknowledged = Vec::new();
     let mut session = None;
@@ -21,8 +22,8 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
             break;
         }
         if !h.core.is_ready() {
-            h.connect();
-            h.until(|h| h.core.is_ready() || !h.core.is_connected());
+            h.connect()?;
+            h.until(|h| h.core.is_ready() || !h.core.is_connected())?;
             if !h.core.is_ready() {
                 continue;
             }
@@ -33,7 +34,7 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
                 let Ok(p) = h.core.register(h.now) else {
                     continue;
                 };
-                match h.settle(p) {
+                match h.settle(p)? {
                     Ok(Reply::Registered(s)) => *session.insert(s),
                     _ => continue,
                 }
@@ -42,7 +43,7 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
         let Ok(p) = h.core.begin(0, false, h.now) else {
             continue;
         };
-        let Ok(Reply::Begun(tx)) = h.settle(p) else {
+        let Ok(Reply::Begun(tx)) = h.settle(p)? else {
             continue;
         };
         if h.core
@@ -51,20 +52,20 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
         {
             continue;
         }
-        let Ok(p) = h.core.commit(tx, s, h.now) else {
+        let Ok(committing) = h.core.commit(tx, s, h.now) else {
             continue;
         };
-        match h.settle(p) {
+        match h.settle(committing)? {
             Ok(Reply::Committed(c)) => acknowledged.push(c.request()),
             Err(e) if matches!(e.0, ClientErrorEnum::RetriesExhausted { .. }) => {
-                if let Ok(p) = h.core.resolve(s, h.now)
-                    && let Ok(Reply::Committed(c)) = h.settle(p)
+                if let Ok(resolving) = h.core.resolve(s, h.now)
+                    && let Ok(Reply::Committed(c)) = h.settle(resolving)?
                 {
                     acknowledged.push(c.request());
                 }
             }
             Err(_) => {}
-            Ok(reply) => acknowledged.push(committed(Ok(reply)).request()),
+            Ok(reply) => acknowledged.push(committed(Ok(reply))?.request()),
         }
     }
     let mut distinct = acknowledged.clone();
@@ -74,11 +75,11 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
         acknowledged,
         (1..=acknowledged.len() as u64).collect::<Vec<_>>()
     );
-    (acknowledged.len() as u64, h.server.applied())
+    Ok((acknowledged.len() as u64, h.server.applied()))
 }
 
 #[test]
-fn test_each_acknowledged_commit_is_applied_once_under_every_fault() {
+fn test_each_acknowledged_commit_is_applied_once_under_every_fault() -> TestResult {
     let cases = [
         NetworkFaults::none(),
         NetworkFaults::none().with_split(500_000),
@@ -93,7 +94,8 @@ fn test_each_acknowledged_commit_is_applied_once_under_every_fault() {
     ];
     for (i, faults) in cases.into_iter().enumerate() {
         for seed in 1..=4 {
-            let (acknowledged, applied) = workload(faults, seed * 31 + i as u64, 12);
+            let (acknowledged, applied) = workload(faults, seed * 31 + i as u64, 12)?;
+
             assert_eq!(acknowledged, 12, "case {i} seed {seed}");
             assert_eq!(
                 applied, acknowledged,
@@ -101,4 +103,5 @@ fn test_each_acknowledged_commit_is_applied_once_under_every_fault() {
             );
         }
     }
+    Ok(())
 }

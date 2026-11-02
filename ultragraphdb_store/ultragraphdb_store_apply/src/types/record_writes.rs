@@ -16,6 +16,8 @@ pub struct RecordWrites<'r> {
 }
 
 impl<'r> RecordWrites<'r> {
+    /// The writes of a record's sections: `lists`, `dictionary`, `statements`, `catalog` and `versionless`, in that
+    /// order.
     pub fn new(
         lists: Vec<(&'r [u8], &'r [u8])>,
         dictionary: Vec<(&'r [u8], Option<&'r [u8]>)>,

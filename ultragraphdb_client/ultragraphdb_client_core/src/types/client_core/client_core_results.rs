@@ -3,6 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use ultragraphdb_error_protocol::ProtocolError;
@@ -14,6 +15,7 @@ use crate::types::batch_poll::BatchPoll;
 use crate::types::client_core::ClientCore;
 use crate::types::client_core::client_core_receive::refusal;
 use crate::types::result_stream::ResultStream;
+use crate::types::stream_state::StreamState;
 
 /// What a result stream's frame holds.
 enum Arrived<T> {
@@ -67,13 +69,13 @@ impl<L: Login> ClientCore<L> {
         }
         if let Some(inbox) = self.kept_reads.get_mut(&key) {
             let Some(frame) = inbox.pop_front() else {
-                self.kept_reads.remove(&key);
+                let _drained: Option<VecDeque<ReceivedFrame>> = self.kept_reads.remove(&key);
                 return Ok(BatchPoll::Done);
             };
             return match arrived(&frame, read) {
                 Arrived::Batch(value, _) => Ok(BatchPoll::Batch(value)),
                 Arrived::Refused(error) | Arrived::Broken(error) => {
-                    self.kept_reads.remove(&key);
+                    let _drained: Option<VecDeque<ReceivedFrame>> = self.kept_reads.remove(&key);
                     Err(error)
                 }
             };
@@ -100,17 +102,17 @@ impl<L: Login> ClientCore<L> {
         match arrived(&frame, read) {
             Arrived::Batch(value, last) => {
                 if last {
-                    self.streams.remove(&id);
-                    self.done_reads.insert(id);
+                    let _ended: Option<StreamState> = self.streams.remove(&id);
+                    let _first_end: bool = self.done_reads.insert(id);
                 }
                 Ok(BatchPoll::Batch(value))
             }
             Arrived::Refused(error) => {
-                self.streams.remove(&id);
+                let _ended: Option<StreamState> = self.streams.remove(&id);
                 Err(error)
             }
             Arrived::Broken(error) => {
-                self.streams.remove(&id);
+                let _ended: Option<StreamState> = self.streams.remove(&id);
                 self.lose(&ClientError::ConnectionLost(Some(error.clone())));
                 Err(error)
             }

@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use ultragraphdb_protocol_transport::{BufferPool, Framer, ReceivedFrame};
 use ultragraphdb_protocol_wire::{BodyBuilder, Command, Header, MAX_FRAME_SIZE};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::feed::feed;
 
@@ -33,17 +34,17 @@ impl Default for Peer {
 
 impl Peer {
     /// `body` on `stream`, the client's next frame, as the server reads it.
-    pub fn send<B: BodyBuilder>(&mut self, stream: u64, body: &B) -> ReceivedFrame {
+    pub fn send<B: BodyBuilder>(&mut self, stream: u64, body: &B) -> TestResult<ReceivedFrame> {
         self.sequence += 1;
         let header = Header::new(CLUSTER, Command::Abort)
             .with_sequence(self.sequence)
             .with_stream(stream);
-        self.raw(&body.frame(header).unwrap())
+        self.raw(&body.frame(header)?)
     }
 
     /// `frame`, as built, as the server reads it.
-    pub fn raw(&mut self, frame: &[u8]) -> ReceivedFrame {
-        feed(&mut self.framer, &self.pool, frame, &mut 0, 1 << 20).unwrap()
+    pub fn raw(&mut self, frame: &[u8]) -> TestResult<ReceivedFrame> {
+        Ok(feed(&mut self.framer, &self.pool, frame, &mut 0, 1 << 20)?)
     }
 
     /// The sequence the client's next frame takes.

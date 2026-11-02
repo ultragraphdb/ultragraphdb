@@ -61,7 +61,8 @@ where
     ) -> Result<u64, ChangesetError> {
         let id = self.write.next_statement_id()?;
         let record = StatementRecord::new(r.subject, r.predicate, r.object.clone(), properties);
-        self.records.insert((r.graph, id), Some(record));
+        let _previous: Option<Option<StatementRecord>> =
+            self.records.insert((r.graph, id), Some(record));
         Ok(id)
     }
 
@@ -90,14 +91,14 @@ where
             .map(|(_, ids)| ids)
             .unwrap_or_default();
         let remaining: Vec<u64> = ids.into_iter().filter(|i| *i != id).collect();
-        self.records.insert((graph, id), None);
+        let _previous: Option<Option<StatementRecord>> = self.records.insert((graph, id), None);
         if remaining.is_empty() {
             let iri = self.decode(&EncodedTerm::uid(predicate))?;
             let declaration = match &iri {
                 Term::NamedNode(n) => self.behaviour(predicate, n.as_ref()),
                 Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_) => return Ok(()),
             };
-            self.remove(graph, subject, predicate, &declaration, &object)?;
+            let _removed: bool = self.remove(graph, subject, predicate, &declaration, &object)?;
         } else {
             self.write
                 .set_statement_ids(graph, subject, predicate, &object, &remaining);
@@ -130,7 +131,8 @@ where
         if !record.properties().contains(&property) {
             record.properties_mut().push(property);
         }
-        self.records.insert((graph, id), Some(record));
+        let _previous: Option<Option<StatementRecord>> =
+            self.records.insert((graph, id), Some(record));
         Ok(())
     }
 
@@ -149,7 +151,7 @@ where
         };
         let value = match value {
             Some(v) => match self.find_term(predicate, v)? {
-                Some(value) => Some(value),
+                Some(found) => Some(found),
                 None => return Ok(()),
             },
             None => None,
@@ -157,7 +159,8 @@ where
         record
             .properties_mut()
             .retain(|(p, v)| *p != uid || value.as_ref().is_some_and(|value| v != value));
-        self.records.insert((graph, id), Some(record));
+        let _previous: Option<Option<StatementRecord>> =
+            self.records.insert((graph, id), Some(record));
         Ok(())
     }
 

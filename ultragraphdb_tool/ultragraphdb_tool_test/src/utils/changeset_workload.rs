@@ -31,7 +31,9 @@ use ultragraphdb_core_mapping::{
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_core_tok::{get_tokenizer, get_tokenizer_for_lang};
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
-use ultragraphdb_store_apply::{ChangesetApplier, ChangesetError, ChangesetErrorEnum, token_value};
+use ultragraphdb_store_apply::{
+    Applied, ChangesetApplier, ChangesetError, ChangesetErrorEnum, token_value,
+};
 use ultragraphdb_store_posting::{CachedList, ListsConfig, PostingError, PostingErrorEnum};
 use ultragraphdb_store_quads::{QuadError, QuadErrorEnum};
 use ultragraphdb_store_sim::{
@@ -47,6 +49,7 @@ pub const RECORDS_MATCH_POSTINGS: &str =
     "every statement ID a posting carries has its record, and every record its posting";
 /// The rule the store breaks when it holds other statements than the model.
 pub const STATISTICS_MATCH_DATA: &str = "the statistics of every graph and predicate count exactly the statements its forward lists hold";
+/// The rule the store breaks when it holds other statements than the model.
 pub const MODEL_AGREES: &str = "the store holds the statements the canonical model holds";
 /// The rule broken by an error no fault explains.
 pub const NO_UNEXPECTED_ERROR: &str =
@@ -93,6 +96,8 @@ fn cardinality(predicate: &NamedNode) -> Cardinality {
 /// One statement, as both sides are compared: its quad, its properties sorted, and whether it carries an ID.
 type Held = (String, Vec<String>, bool);
 
+/// The changeset applier's workload on the simulator: random changesets and administration over a fault-injecting
+/// simulated store, each step checked against the canonical model and the store's own invariants.
 #[derive(Default)]
 pub struct ChangesetWorkload {
     applier: Option<Arc<SimChangesets>>,
@@ -100,9 +105,13 @@ pub struct ChangesetWorkload {
     model: Option<CanonicalDataset>,
     /// A changeset the store and the model did not both apply, or both refuse.
     disagreement: Option<String>,
+    /// How many changesets the store applied.
     pub writes: usize,
+    /// How many changesets the store and the model both refused.
     pub refusals: usize,
+    /// How many steps were checked.
     pub checked: usize,
+    /// How many checks compared the store with the model.
     pub compared: usize,
 }
 
@@ -112,6 +121,12 @@ impl ChangesetWorkload {
         FaultConfig::mixed().with_corruption(0)
     }
 
+    /// Runs the workload for `steps` steps of `seed` under `faults`: the simulation's outcome and the workload's
+    /// counts.
+    ///
+    /// # Errors
+    ///
+    /// The [`Violation`] of the first rule a step breaks.
     pub fn run(
         seed: Seed,
         faults: FaultConfig,
@@ -146,12 +161,17 @@ impl ChangesetWorkload {
             None => false,
         };
         if !declared {
-            a.apply(&declarations())?;
+            let _declared: Applied = a.apply(&declarations())?;
         }
         self.applier = Some(a.clone());
         Ok(a)
     }
 
+    /// Performs one step on `event`: a write or administration, then the checks.
+    ///
+    /// # Errors
+    ///
+    /// The [`Violation`] of the rule the step breaks.
     pub fn step(&mut self, ctx: &mut SimContext, event: Event) -> Result<(), Violation> {
         if event == Event::Recovered {
             self.applier = None;
@@ -305,9 +325,9 @@ impl ChangesetWorkload {
         let Some((_, Some(id))) = stored.iter().find(|(h, id)| *h == wanted && id.is_some()) else {
             return Ok(None);
         };
-        let delete = |id: u64| Change::DeleteStatement {
+        let delete = |statement: u64| Change::DeleteStatement {
             graph: GraphName::DefaultGraph,
-            id: StatementId::new(id),
+            id: StatementId::new(statement),
         };
         let model_id = chosen.id().map(|i| i.value()).unwrap_or_default();
         Ok(Some((delete(*id), delete(model_id))))
@@ -449,7 +469,7 @@ fn statistics_disagree(
             _,
         )) = QuadKey::parse(&key)
         {
-            held.entry((graph, predicate)).or_default();
+            let _statements: &mut i64 = held.entry((graph, predicate)).or_default();
         }
     }
     for ((graph, predicate), statements) in held {
@@ -498,6 +518,7 @@ fn injected(error: &ChangesetError) -> bool {
         ChangesetErrorEnum::Mapping(_)
         | ChangesetErrorEnum::Tok(_)
         | ChangesetErrorEnum::Hnsw(_)
+        | ChangesetErrorEnum::Invariant(_)
         | ChangesetErrorEnum::Literal { .. }
         | ChangesetErrorEnum::Unique { .. }
         | ChangesetErrorEnum::Contradicted { .. }
@@ -685,23 +706,27 @@ fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, Chang
             continue;
         }
         let declaration = catalog.predicate(*predicate);
-        data.subject_predicates
+        let _new_predicate: bool = data
+            .subject_predicates
             .entry(*subject)
             .or_default()
             .insert(*predicate);
         if declaration.is_some_and(PredicateDeclaration::count_index) {
             let count = u32::try_from(objects.len()).unwrap_or(u32::MAX);
-            data.forward_counts
+            let _new_counted: bool = data
+                .forward_counts
                 .entry((*predicate, count))
                 .or_default()
                 .insert(*subject);
         }
         for (object, _) in objects {
-            data.reverse
+            let _new_subject: bool = data
+                .reverse
                 .entry((*predicate, object.clone()))
                 .or_default()
                 .insert(*subject);
-            data.object_predicates
+            let _new_object_predicate: bool = data
+                .object_predicates
                 .entry(object.clone())
                 .or_default()
                 .insert(*predicate);
@@ -717,7 +742,8 @@ fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, Chang
                 };
                 let t = get_tokenizer_for_lang(&t, literal.language().unwrap_or_default());
                 for token in t.tokens(&value)? {
-                    data.tokens
+                    let _new_token_subject: bool = data
+                        .tokens
                         .entry((*predicate, t.identifier(), token))
                         .or_default()
                         .insert(*subject);
@@ -838,7 +864,7 @@ fn counts_disagree(
         for ((predicate, object), subjects) in &data.reverse {
             if *predicate == friend {
                 let count = u32::try_from(subjects.len()).unwrap_or(u32::MAX);
-                reverse_counts
+                let _new_object: bool = reverse_counts
                     .entry((friend, count))
                     .or_default()
                     .insert(object.clone());
@@ -857,10 +883,11 @@ fn counts_disagree(
         {
             match direction {
                 CountDirection::Forward => {
-                    actual_forward_counts.insert((predicate, count), object_uids(&o));
+                    let _previous: Option<BTreeSet<u64>> =
+                        actual_forward_counts.insert((predicate, count), object_uids(&o));
                 }
                 CountDirection::Reverse => {
-                    actual_reverse_counts
+                    let _previous: Option<BTreeSet<EncodedTerm>> = actual_reverse_counts
                         .insert((predicate, count), o.into_iter().map(|(t, _)| t).collect());
                 }
             }

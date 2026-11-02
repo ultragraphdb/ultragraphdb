@@ -13,7 +13,12 @@ pub enum Input<P> {
     /// A session registration under its ticket, for `principal`, the session's owner: it waits for the next round as a
     /// commit does, takes a commit version, which numbers the session, and is answered with it once its round is
     /// applied.
-    Register { ticket: u64, principal: u64 },
+    Register {
+        /// The caller's ticket, which the answer carries back.
+        ticket: u64,
+        /// The principal registering the session, its owner.
+        principal: u64,
+    },
     /// The sync of the round in flight completed: that round is to be applied and acknowledged, and the next round
     /// closes over the requests waiting.
     Synced,

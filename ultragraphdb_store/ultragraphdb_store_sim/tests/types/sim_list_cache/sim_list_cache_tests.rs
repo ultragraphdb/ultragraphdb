@@ -56,7 +56,7 @@ fn test_a_full_cache_evicts_the_entry_its_stream_chooses() {
         let mut held: Vec<u8> = Vec::new();
         for i in 0..10u8 {
             if held.len() == 3 {
-                held.remove(rng.index(3));
+                let _evicted: u8 = held.remove(rng.index(3));
             }
             held.push(i);
         }

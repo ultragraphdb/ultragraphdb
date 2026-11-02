@@ -37,20 +37,24 @@ impl AlignedBuf {
         buf
     }
 
+    /// The number of bytes.
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Whether the buffer holds no byte.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
+    /// The bytes, starting at the aligned address.
     pub fn as_slice(&self) -> &[u8] {
         self.bytes
             .get(self.start..self.start + self.len)
             .unwrap_or_default()
     }
 
+    /// The bytes, starting at the aligned address, to write into.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         let range = self.start..self.start + self.len;
         self.bytes.get_mut(range).unwrap_or_default()

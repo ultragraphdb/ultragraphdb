@@ -24,6 +24,7 @@ use crate::utils::helpers::{
     TestLists, brute_force, delete, draw, index_value, insert, key, new_lists, opts, oracle_score,
     pred, search,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// What a search of an empty index reported, and the neighbours its caller took from it.
 type EmptySearch = (Result<Vec<u64>, HnswError>, Vec<u64>);
@@ -41,8 +42,8 @@ struct Steps {
     heir_lists: Vec<Vec<u64>>,
 }
 
-fn lists(w: &Steps) -> &TestLists {
-    w.lists.as_ref().expect("lists")
+fn lists(w: &Steps) -> TestResult<&TestLists> {
+    w.lists.as_ref().context("lists")
 }
 
 fn widen(v: &[f32]) -> Vec<f64> {
@@ -58,69 +59,71 @@ fn random_vector(rng: &mut SimRng, dims: usize) -> Vec<f32> {
 }
 
 #[when("the first vector is inserted into an empty index")]
-fn first_insert(w: &mut Steps) {
+fn first_insert(w: &mut Steps) -> TestResult {
     w.lists = Some(new_lists());
     w.pred = pred("emb");
     w.uid = 7;
-    insert(
-        lists(w),
+    let _inserted: Vec<KeyValue> = insert(
+        lists(w)?,
         &w.pred,
-        &opts(&[("maxLevels", "3")]),
+        &opts(&[("maxLevels", "3")])?,
         7,
         &[0.5f32, 0.25],
         &mut || 0.5,
-    )
-    .unwrap();
+    )?;
+    Ok(())
 }
 
 #[then("the entry point names its uid and its neighbour lists exist, empty, at every level")]
-fn entry_and_empty_lists(w: &mut Steps) {
-    let ts = lists(w).applied_ts();
-    let entry = index_value(lists(w), &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts).unwrap();
+fn entry_and_empty_lists(w: &mut Steps) -> TestResult {
+    let ts = lists(w)?.applied_ts();
+    let entry = index_value(lists(w)?, &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts)?
+        .context("index_value(..)?")?;
     assert_eq!(bytes_to_uint64(&entry), Some(w.uid));
     let node = index_value(
-        lists(w),
+        lists(w)?,
         &key(&format!("{}{VEC_KEYWORD}", w.pred), w.uid),
         ts,
-    )
-    .unwrap();
+    )?
+    .context("index_value(..)?")?;
     assert_eq!(decode_uint64_matrix(&node), Ok(vec![Vec::new(); 3]));
+    Ok(())
 }
 
 #[when("a vector is deleted")]
-fn vector_deleted(w: &mut Steps) {
+fn vector_deleted(w: &mut Steps) -> TestResult {
     w.lists = Some(new_lists());
     w.pred = pred("emb");
     let o = opts(&[
         ("maxLevels", "3"),
         ("efConstruction", "6"),
         ("efSearch", "6"),
-    ]);
+    ])?;
     let mut rng = SimRng::new(3);
     for uid in 1..=20 {
         let v = random_vector(&mut rng, 3);
-        insert(lists(w), &w.pred, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+        let _inserted: Vec<KeyValue> =
+            insert(lists(w)?, &w.pred, &o, uid, &v, &mut || draw(&mut rng))?;
     }
     // Uid 1 is the entry point; deleting another leaves the graph rooted.
     w.uid = 9;
-    delete(lists(w), &w.pred, w.uid).unwrap();
+    delete(lists(w)?, &w.pred, w.uid)?;
     for uid in 21..=40 {
         let v = random_vector(&mut rng, 3);
-        let edges = insert(lists(w), &w.pred, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+        let edges = insert(lists(w)?, &w.pred, &o, uid, &v, &mut || draw(&mut rng))?;
         w.later_edges.extend(edges);
     }
+    Ok(())
 }
 
 #[then(
     "its uid is added to the dead list, and later inserts leave it out of the neighbour lists they write"
 )]
-fn dead_and_left_out(w: &mut Steps) {
-    let ts = lists(w).applied_ts();
-    let dead = index_value(lists(w), &key(&format!("{}{VEC_DEAD}", w.pred), 1), ts).unwrap();
-    assert_eq!(
-        parse_edges(&String::from_utf8_lossy(&dead)).unwrap(),
-        vec![w.uid]
-    );
+fn dead_and_left_out(w: &mut Steps) -> TestResult {
+    let ts = lists(w)?.applied_ts();
+    let dead = index_value(lists(w)?, &key(&format!("{}{VEC_DEAD}", w.pred), 1), ts)?
+        .context("index_value(..)?")?;
+    assert_eq!(parse_edges(&String::from_utf8_lossy(&dead))?, vec![w.uid]);
     let vec_key = format!("{}{VEC_KEYWORD}", w.pred);
     let written: Vec<&KeyValue> = w
         .later_edges
@@ -133,7 +136,7 @@ fn dead_and_left_out(w: &mut Steps) {
         written.len()
     );
     for e in written {
-        let levels = decode_uint64_matrix(e.value()).unwrap();
+        let levels = decode_uint64_matrix(e.value()).context("the matrix decodes")?;
         assert!(
             !levels.iter().flatten().any(|&u| u == w.uid),
             "the lists of {} name {}",
@@ -141,21 +144,22 @@ fn dead_and_left_out(w: &mut Steps) {
             w.uid
         );
     }
+    Ok(())
 }
 
 #[when(
     "50 vectors are indexed under each metric and a search asks for the 5 nearest to a query vector"
 )]
-fn fifty_per_metric(w: &mut Steps) {
+fn fifty_per_metric(w: &mut Steps) -> TestResult {
     for metric in [Metric::Euclidean, Metric::Cosine, Metric::DotProduct] {
         let lists = new_lists();
         let p = pred("emb");
-        let o = opts(&[("metric", metric.name())]);
+        let o = opts(&[("metric", metric.name())])?;
         let mut rng = SimRng::new(50);
         let mut vectors = Vec::new();
         for uid in 1..=50 {
             let v = random_vector(&mut rng, 4);
-            insert(&lists, &p, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+            let _inserted: Vec<KeyValue> = insert(&lists, &p, &o, uid, &v, &mut || draw(&mut rng))?;
             vectors.push((uid, v));
         }
         let query = random_vector(&mut rng, 4);
@@ -166,12 +170,12 @@ fn fifty_per_metric(w: &mut Steps) {
             &query,
             5,
             Some(&VectorIndexOptions::default()),
-        )
-        .unwrap();
+        )?;
         // The exhaustive oracle, its distances computed naively in float64, not by the index's kernels.
         let brute = brute_force(metric, &widened(&vectors), &widen(&query), 5);
         w.compared.push((metric, found, brute));
     }
+    Ok(())
 }
 
 #[then("the result equals the 5 nearest by brute force under that metric")]
@@ -183,40 +187,49 @@ fn equals_brute_force(w: &mut Steps) {
 }
 
 #[when("the entry point's vector is deleted and another vector is inserted")]
-fn entry_deleted(w: &mut Steps) {
+fn entry_deleted(w: &mut Steps) -> TestResult {
     w.lists = Some(new_lists());
     w.pred = pred("emb");
     let o = opts(&[
         ("maxLevels", "3"),
         ("efConstruction", "6"),
         ("efSearch", "6"),
-    ]);
+    ])?;
     let mut rng = SimRng::new(5);
     for uid in 1..=12 {
         let v = random_vector(&mut rng, 3);
-        insert(lists(w), &w.pred, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+        let _inserted: Vec<KeyValue> =
+            insert(lists(w)?, &w.pred, &o, uid, &v, &mut || draw(&mut rng))?;
     }
-    let ts = lists(w).applied_ts();
+    let ts = lists(w)?.applied_ts();
     let heir_key = key(&format!("{}{VEC_KEYWORD}", w.pred), 2);
-    w.heir_lists = decode_uint64_matrix(&index_value(lists(w), &heir_key, ts).unwrap()).unwrap();
+    w.heir_lists = decode_uint64_matrix(
+        &index_value(lists(w)?, &heir_key, ts)?
+            .context("index_value(lists(w)?, &heir_key, ts)?")?,
+    )
+    .context("the matrix decodes")?;
     // Uid 1 is the entry point; uid 2 is the first node holding a vector after it.
-    delete(lists(w), &w.pred, 1).unwrap();
+    delete(lists(w)?, &w.pred, 1)?;
     w.uid = 13;
     let v = random_vector(&mut rng, 3);
-    insert(lists(w), &w.pred, &o, 13, &v, &mut || draw(&mut rng)).unwrap();
+    let _inserted: Vec<KeyValue> = insert(lists(w)?, &w.pred, &o, 13, &v, &mut || draw(&mut rng))?;
+    Ok(())
 }
 
 #[then(
     "the first node holding a vector becomes the entry point with its neighbour lists kept, and the new vector is inserted"
 )]
-fn handed_over(w: &mut Steps) {
+fn handed_over(w: &mut Steps) -> TestResult {
     // Dgraph rewrites uid 2 with empty lists at every level and does not insert 13 (ledger 45).
-    let ts = lists(w).applied_ts();
-    let entry = index_value(lists(w), &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts).unwrap();
+    let ts = lists(w)?.applied_ts();
+    let entry = index_value(lists(w)?, &key(&format!("{}{VEC_ENTRY}", w.pred), 1), ts)?
+        .context("index_value(..)?")?;
     assert_eq!(bytes_to_uint64(&entry), Some(2));
     let vec_key = format!("{}{VEC_KEYWORD}", w.pred);
-    let heir =
-        decode_uint64_matrix(&index_value(lists(w), &key(&vec_key, 2), ts).unwrap()).unwrap();
+    let heir = decode_uint64_matrix(
+        &index_value(lists(w)?, &key(&vec_key, 2), ts)?.context("index_value(..)?")?,
+    )
+    .context("the matrix decodes")?;
     assert!(heir.iter().any(|l| !l.is_empty()), "{heir:?}");
     for (before, after) in w.heir_lists.iter().zip(&heir) {
         assert!(
@@ -227,27 +240,30 @@ fn handed_over(w: &mut Steps) {
             "{before:?} -> {after:?}"
         );
     }
-    let new =
-        decode_uint64_matrix(&index_value(lists(w), &key(&vec_key, w.uid), ts).unwrap()).unwrap();
+    let new = decode_uint64_matrix(
+        &index_value(lists(w)?, &key(&vec_key, w.uid), ts)?.context("index_value(..)?")?,
+    )
+    .context("the matrix decodes")?;
     assert!(new.iter().any(|l| !l.is_empty()), "13 is linked: {new:?}");
+    Ok(())
 }
 
 #[when("a search carries a distance threshold")]
-fn threshold_search(w: &mut Steps) {
+fn threshold_search(w: &mut Steps) -> TestResult {
     for (metric, threshold) in [(Metric::Euclidean, 0.7), (Metric::Cosine, 0.2)] {
         let lists = new_lists();
         let p = pred("emb");
-        let o = opts(&[("metric", metric.name())]);
+        let o = opts(&[("metric", metric.name())])?;
         let mut rng = SimRng::new(70);
         let mut vectors = Vec::new();
         for uid in 1..=40 {
             let v = random_vector(&mut rng, 3);
-            insert(&lists, &p, &o, uid, &v, &mut || draw(&mut rng)).unwrap();
+            let _inserted: Vec<KeyValue> = insert(&lists, &p, &o, uid, &v, &mut || draw(&mut rng))?;
             vectors.push((uid, v));
         }
         let query = random_vector(&mut rng, 3);
         let options = VectorIndexOptions::new(0, Some(threshold), accept_all::<f32>);
-        let found = search(&lists, &p, &o, &query, 40, Some(&options)).unwrap();
+        let found = search(&lists, &p, &o, &query, 40, Some(&options))?;
         // The exhaustive oracle: every vector within the threshold, best first. The count asked for is the whole set and
         // the default efSearch of 90 exceeds it, so the search is exact.
         let oracle_distance = |v: &[f32]| {
@@ -258,28 +274,27 @@ fn threshold_search(w: &mut Steps) {
                 score
             }
         };
-        let exact: Vec<u64> = brute_force(metric, &widened(&vectors), &widen(&query), 40)
-            .into_iter()
-            .filter(|uid| {
-                let (_, v) = vectors.iter().find(|(u, _)| u == uid).unwrap();
-                oracle_distance(v) <= threshold
-            })
-            .collect();
+        let vector_of = |uid: u64| {
+            vectors
+                .iter()
+                .find(|(u, _)| *u == uid)
+                .map(|(_, v)| v.as_slice())
+                .context("the vector of a found uid")
+        };
+        let mut exact = Vec::new();
+        for uid in brute_force(metric, &widened(&vectors), &widen(&query), 40) {
+            if oracle_distance(vector_of(uid)?) <= threshold {
+                exact.push(uid);
+            }
+        }
         w.within_exact.push((metric, found.clone(), exact));
         let distances = found
             .iter()
-            .map(|uid| {
-                let (_, v) = vectors.iter().find(|(u, _)| u == uid).unwrap();
-                let score = oracle_score(metric, &widen(v), &widen(&query));
-                if metric == Metric::Cosine {
-                    1.0 - score
-                } else {
-                    score
-                }
-            })
-            .collect();
+            .map(|uid| Ok(oracle_distance(vector_of(*uid)?)))
+            .collect::<TestResult<Vec<_>>>()?;
         w.within.push((metric, threshold, distances));
     }
+    Ok(())
 }
 
 #[then("no returned vector lies farther than the threshold")]
@@ -302,36 +317,39 @@ fn within_threshold(w: &mut Steps) {
 }
 
 #[when("an index holding no vectors is searched")]
-fn empty_searched(w: &mut Steps) {
+fn empty_searched(w: &mut Steps) -> TestResult {
     let lists = new_lists();
     let p = pred("emb");
-    let reported = search(&lists, &p, &opts(&[]), &[0.1f32, 0.2], 3, None);
+    let reported = search(&lists, &p, &opts(&[])?, &[0.1f32, 0.2], 3, None);
     // The caller, Dgraph's similar_to, takes the empty-index result for no neighbours.
     let neighbours = match &reported {
         Err(e) if e.is_empty_index() => Ok(Vec::new()),
         Err(e) => Err(e.to_string()),
         Ok(uids) => Ok(uids.clone()),
     }
-    .expect("the search finds neighbours or the empty index");
+    .context("the search finds neighbours or the empty index")?;
     w.empty = Some((reported, neighbours));
+    Ok(())
 }
 
 #[then(
     "the index reports an empty-index result, which the caller treats as no neighbours, and the search returns an empty result without error"
 )]
-fn empty_result(w: &mut Steps) {
-    let (reported, neighbours) = w.empty.as_ref().unwrap();
+fn empty_result(w: &mut Steps) -> TestResult {
+    let (reported, neighbours) = w.empty.as_ref().context("w.empty.as_ref()")?;
     assert!(
         reported.as_ref().is_err_and(HnswError::is_empty_index),
         "{reported:?}"
     );
     assert!(neighbours.is_empty());
+    Ok(())
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

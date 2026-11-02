@@ -36,7 +36,7 @@ impl Answers {
 
     /// Forgets every answer a corruption of `key` may change: its point read and each scan selecting it.
     fn forget(&mut self, key: &[u8]) {
-        self.points.remove(key);
+        let _forgotten: Option<PointAnswer> = self.points.remove(key);
         self.scans.retain(|(scan, _)| !scan.selects(key));
     }
 
@@ -57,7 +57,7 @@ impl Answers {
     /// Holds `answer` as the first answer to a read of `key`, unless one is held or the snapshot holds its most.
     fn hold_point(&mut self, key: &[u8], answer: PointAnswer) {
         if !self.points.contains_key(key) && !self.full() {
-            self.points.insert(key.to_vec(), answer);
+            let _replaced: Option<PointAnswer> = self.points.insert(key.to_vec(), answer);
         }
     }
 
@@ -109,10 +109,10 @@ impl StoreModel {
     pub(super) fn observe_repeat(&mut self, record: &OpRecord) -> Result<(), Breach> {
         match record {
             OpRecord::SnapshotOpened { id, .. } | OpRecord::TemporarySnapshotOpened { id, .. } => {
-                self.answers.insert(*id, Answers::default());
+                let _replaced: Option<Answers> = self.answers.insert(*id, Answers::default());
             }
             OpRecord::SnapshotClosed { id } => {
-                self.answers.remove(id);
+                let _closed: Option<Answers> = self.answers.remove(id);
             }
             OpRecord::Corrupted { key, version, .. } => self.forget_corrupted(key, *version),
             OpRecord::Read { id, key, result } => {

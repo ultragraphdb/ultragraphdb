@@ -4,16 +4,21 @@
  */
 
 use ultragraphdb_common_telemetry::{LogFormat, TelemetryConfig, TelemetryError, init};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 
 /// One test, because the global subscriber can be installed once per process: every refusal installs nothing, so
 /// the first success installs, and the next call is refused.
 #[test]
-fn test_init_refuses_without_installing_then_installs_once() {
+fn test_init_refuses_without_installing_then_installs_once() -> TestResult {
     // The reasons are the dependencies' own, as tracing-subscriber 0.3.23, opentelemetry-otlp 0.33.1 and
     // tracing-core give them.
-    let refused = init(&TelemetryConfig::new("ultragraphdb=loud", LogFormat::Plain));
+    let Err(refused) = init(&TelemetryConfig::new("ultragraphdb=loud", LogFormat::Plain)) else {
+        return Err(TestError::new(
+            "an unparsable directive installed a subscriber",
+        ));
+    };
     assert_eq!(
-        refused.map(drop).unwrap_err().to_string(),
+        refused.to_string(),
         "invalid log filter \"ultragraphdb=loud\": error parsing level filter: expected one of \"off\", \"error\", \"warn\", \"info\", \"debug\", \"trace\", or a number 0-5"
     );
 
@@ -53,7 +58,7 @@ fn test_init_refuses_without_installing_then_installs_once() {
     // nothing is sent.
     let endpoint = TelemetryConfig::new("info", LogFormat::Json)
         .with_otlp_endpoint("http://127.0.0.1:4318/v1/traces");
-    let guard = init(&endpoint).expect("the first subscriber of the process");
+    let guard = init(&endpoint).context("the first subscriber of the process")?;
     let again = init(&TelemetryConfig::new("info", LogFormat::Plain));
     assert_eq!(
         again.map(drop),
@@ -62,4 +67,5 @@ fn test_init_refuses_without_installing_then_installs_once() {
         ))
     );
     drop(guard);
+    Ok(())
 }

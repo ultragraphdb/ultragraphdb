@@ -20,10 +20,12 @@ pub struct WriteView<'a> {
 }
 
 impl<'a> WriteView<'a> {
+    /// The Write's term table.
     pub fn terms(&self) -> &TermTableView<'a> {
         &self.terms
     }
 
+    /// The names the declarations index.
     pub fn names(&self) -> &StringList<'a> {
         &self.names
     }
@@ -33,6 +35,7 @@ impl<'a> WriteView<'a> {
         self.records.len() / CHANGE_RECORD_SIZE
     }
 
+    /// Whether the Write holds no change.
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }

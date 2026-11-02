@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ultragraphdb_error_log::LogError;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_log::{OrderedLog, Position, RoundRef};
 use ultragraphdb_transactions_log::{DurableStorage, Recovery, SimStorage, Wal, WalConfig};
 
@@ -61,8 +62,8 @@ pub fn superblock(copy: char) -> PathBuf {
 /// A small log: segments of four blocks, 16,384 bytes, at most eight of them.
 pub fn config() -> WalConfig {
     WalConfig::new(CLUSTER, false)
-        .with_segment_blocks(NonZeroU32::new(4).expect("nonzero"))
-        .with_capacity(NonZeroU32::new(8).expect("nonzero"))
+        .with_segment_blocks(NonZeroU32::MIN.saturating_add(3))
+        .with_capacity(NonZeroU32::MIN.saturating_add(7))
 }
 
 /// Runs a future of the simulated storage, which completes when first polled, by polling it with a waker that does
@@ -78,10 +79,10 @@ pub fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 /// Runs a future on a compio runtime of its own.
-pub fn run<F: Future>(future: F) -> F::Output {
-    compio::runtime::Runtime::new()
-        .expect("a compio runtime")
-        .block_on(future)
+pub fn run<F: Future>(future: F) -> TestResult<F::Output> {
+    Ok(compio::runtime::Runtime::new()
+        .context("a compio runtime")?
+        .block_on(future))
 }
 
 /// The log in [`DIR`] on `storage`, with [`config`].
@@ -103,14 +104,34 @@ pub fn append_synced<S: DurableStorage>(
     from: u64,
     to: u64,
     len: usize,
-) -> Vec<u64> {
+) -> TestResult<Vec<u64>> {
     (from..=to)
         .map(|position| {
-            append(wal, position, len).expect("the round is accepted");
-            block_on(wal.sync()).expect("the round syncs");
-            wal.tail().1
+            append_one_synced(wal, position, len)?;
+            Ok(wal.tail().1)
         })
         .collect()
+}
+
+/// Appends rounds `from` to `to` as [`append_synced`] does, where the test needs none of their checksums.
+pub fn append_rounds<S: DurableStorage>(
+    wal: &mut Wal<S>,
+    from: u64,
+    to: u64,
+    len: usize,
+) -> TestResult {
+    (from..=to).try_for_each(|position| append_one_synced(wal, position, len))
+}
+
+/// Appends round `position` after the log's tail and syncs it.
+fn append_one_synced<S: DurableStorage>(wal: &mut Wal<S>, position: u64, len: usize) -> TestResult {
+    let appended = append(wal, position, len).context("the round is accepted")?;
+    let synced = block_on(wal.sync()).context("the round syncs")?;
+    assert_eq!(
+        (appended, synced),
+        (Position::new(position), Position::new(position))
+    );
+    Ok(())
 }
 
 /// Appends round `position` after the log's tail, unsynced.
@@ -143,14 +164,14 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 pub struct TempDir(PathBuf);
 
 impl TempDir {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> TestResult<Self> {
         let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = root.join(format!("wal-{name}-{}-{n}", std::process::id()));
         // A directory left by an earlier run is cleared; none is the usual case.
         let _cleared: std::io::Result<()> = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("the temporary directory is created");
-        Self(dir)
+        std::fs::create_dir_all(&dir).context("the temporary directory is created")?;
+        Ok(Self(dir))
     }
 
     pub fn path(&self) -> &Path {

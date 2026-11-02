@@ -233,15 +233,16 @@ fn analyzed(lang: &str, v: &Value) -> Option<Vec<AnalysisToken>> {
 /// Dgraph's `generateNGrams`: the shingles of `terms` at the `(first word, words)` spans, each of 30 bytes or more
 /// as its SHA-256 digest, deduplicated and, in this port, sorted.
 fn shingles(terms: &[&str], spans: impl Iterator<Item = (usize, usize)>) -> Vec<Vec<u8>> {
-    let mut set = HashSet::new();
-    for (i, n) in spans {
-        let shingle = terms[i..i + n].join(" ").into_bytes();
-        if shingle.len() < MAX_SHINGLE_LEN {
-            set.insert(shingle);
-        } else {
-            set.insert(Sha256::digest(&shingle).to_vec());
-        }
-    }
+    let set: HashSet<Vec<u8>> = spans
+        .map(|(i, n)| {
+            let shingle = terms[i..i + n].join(" ").into_bytes();
+            if shingle.len() < MAX_SHINGLE_LEN {
+                shingle
+            } else {
+                Sha256::digest(&shingle).to_vec()
+            }
+        })
+        .collect();
     let mut out: Vec<Vec<u8>> = set.into_iter().collect();
     out.sort();
     out

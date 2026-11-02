@@ -11,7 +11,10 @@ use crate::types::type_declaration::TypeDeclaration;
 /// entity type or a relation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Declaration {
+    /// A predicate's declaration.
     Predicate(PredicateDeclaration),
+    /// An entity type's declaration.
     EntityType(TypeDeclaration),
+    /// A relation's declaration.
     Relation(RelationDeclaration),
 }

@@ -109,7 +109,7 @@ fn checked_uids(key: &[u8], pack: &UidPack) -> Result<Vec<u64>, PostingError> {
     let mut decoder = Decoder::new(pack);
     while decoder.valid() {
         uids.extend_from_slice(decoder.uids());
-        decoder.next_block();
+        let _next_uids: &[u64] = decoder.next_block();
     }
     if uids.windows(2).any(|w| w[0] >= w[1]) {
         return Err(PostingError::corrupted(

@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_transport_tls::TlsError;
+use ultragraphdb_transport_tls::{TlsError, TlsErrorEnum};
 
 #[test]
 fn test_display_names_the_input_and_the_reason() {
@@ -22,5 +22,9 @@ fn test_display_names_the_input_and_the_reason() {
     assert_eq!(
         TlsError::HandshakeFailed("h".into(), "bad".into()).to_string(),
         "TLS handshake with \"h\" failed: bad"
+    );
+    assert_eq!(
+        TlsError(TlsErrorEnum::ConfigurationRefused("no versions".into())).to_string(),
+        "TLS configuration refused: no versions"
     );
 }

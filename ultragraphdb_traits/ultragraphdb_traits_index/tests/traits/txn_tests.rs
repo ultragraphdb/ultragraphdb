@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{KeyValue, Txn};
 
 /// A transaction over a map, with its own lock set.
@@ -47,7 +48,7 @@ impl Txn for MapTxn {
     }
 
     fn add_mutation(&self, key: &[u8], t: &KeyValue) -> Result<(), Self::Error> {
-        self.values.borrow_mut().insert(key.to_vec(), t.clone());
+        let _previous: Option<KeyValue> = self.values.borrow_mut().insert(key.to_vec(), t.clone());
         Ok(())
     }
 
@@ -59,27 +60,29 @@ impl Txn for MapTxn {
     }
 
     fn lock_key(&self, key: &[u8]) {
-        self.locked.borrow_mut().insert(key.to_vec());
+        let _inserted: bool = self.locked.borrow_mut().insert(key.to_vec());
     }
 
     fn unlock_key(&self, key: &[u8]) {
-        self.locked.borrow_mut().remove(key);
+        let _removed: bool = self.locked.borrow_mut().remove(key);
     }
 }
 
 #[test]
-fn test_a_txn_reads_its_writes_and_honours_its_locks() {
+fn test_a_txn_reads_its_writes_and_honours_its_locks() -> TestResult {
     let t = MapTxn::default();
     assert_eq!(t.start_ts(), 7);
     t.add_mutation(b"k1", &KeyValue::new(1, "a", b"v1".to_vec()))
-        .unwrap();
+        .context("add_mutation(..)")?;
     assert_eq!(t.get(b"k1"), Ok(b"v1".to_vec()));
     let kv = KeyValue::new(2, "a", b"v2".to_vec());
     assert!(t.add_mutation_with_lock_held(b"k2", &kv).is_err());
     t.lock_key(b"k2");
-    t.add_mutation_with_lock_held(b"k2", &kv).unwrap();
+    t.add_mutation_with_lock_held(b"k2", &kv)
+        .context("t.add_mutation_with_lock_held(..)")?;
     assert_eq!(t.get_with_lock_held(b"k2"), Ok(b"v2".to_vec()));
     t.unlock_key(b"k2");
     assert!(t.get_with_lock_held(b"k2").is_err());
     assert_eq!(t.find(b"k", |v| v == b"v2"), Ok(2));
+    Ok(())
 }

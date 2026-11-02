@@ -24,10 +24,12 @@ pub struct ResultView<'a> {
 }
 
 impl<'a> ResultView<'a> {
+    /// The number of columns.
     pub fn columns(&self) -> u32 {
         self.columns
     }
 
+    /// The number of rows.
     pub fn rows(&self) -> u32 {
         self.rows
     }
@@ -79,6 +81,7 @@ impl<'a> ResultView<'a> {
             .map(u64::from_le_bytes)
     }
 
+    /// The resume key a limited read continues from; empty for none.
     pub fn resume(&self) -> &'a [u8] {
         self.resume
     }

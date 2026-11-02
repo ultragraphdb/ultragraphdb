@@ -21,18 +21,41 @@ use ultragraphdb_store_apply::ChangesetError;
 pub enum TxnErrorEnum {
     /// A request named read version `version`, above the visibility watermark `watermark`: refused at once, never
     /// waited on.
-    ReadAboveWatermark { version: u64, watermark: u64 },
+    ReadAboveWatermark {
+        /// The read version the request named.
+        version: u64,
+        /// The visibility watermark it is above.
+        watermark: u64,
+    },
     /// The transaction lived past its limit of `limit_ms` milliseconds, 10 s for a read-write and 16 s for a
     /// read-only one by default; it is aborted and wrote nothing.
-    PastLimit { limit_ms: u64 },
+    PastLimit {
+        /// The transaction's limit, in milliseconds.
+        limit_ms: u64,
+    },
     /// The transaction's write-set record of `size` bytes exceeds `limit`, the maximum frame by default.
-    WriteSetTooLarge { size: usize, limit: usize },
+    WriteSetTooLarge {
+        /// The record's size in bytes.
+        size: usize,
+        /// The largest record allowed, in bytes.
+        limit: usize,
+    },
     /// The transaction's read set would hold `size` bytes, past `limit`.
-    ReadSetTooLarge { size: usize, limit: usize },
+    ReadSetTooLarge {
+        /// The bytes the read set would hold.
+        size: usize,
+        /// The most bytes it may hold.
+        limit: usize,
+    },
     /// A write in a read-only transaction.
     ReadOnly,
     /// A changeset of namespace `changeset` in a transaction of namespace `transaction`.
-    Namespace { transaction: u64, changeset: u64 },
+    Namespace {
+        /// The transaction's namespace.
+        transaction: u64,
+        /// The changeset's namespace.
+        changeset: u64,
+    },
     /// A request of a transaction already ended by a refusal or its limit.
     Ended,
     /// The changeset was refused, or the store failed; the transaction is aborted.
@@ -44,31 +67,37 @@ pub enum TxnErrorEnum {
 pub struct TxnError(pub TxnErrorEnum);
 
 impl TxnError {
+    /// A request naming read version `version`, above the watermark `watermark`.
     #[allow(non_snake_case)]
     pub fn ReadAboveWatermark(version: u64, watermark: u64) -> Self {
         Self(TxnErrorEnum::ReadAboveWatermark { version, watermark })
     }
 
+    /// The transaction lived past its limit of `limit_ms` milliseconds.
     #[allow(non_snake_case)]
     pub fn PastLimit(limit_ms: u64) -> Self {
         Self(TxnErrorEnum::PastLimit { limit_ms })
     }
 
+    /// A write-set record of `size` bytes, past `limit`.
     #[allow(non_snake_case)]
     pub fn WriteSetTooLarge(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::WriteSetTooLarge { size, limit })
     }
 
+    /// A read set of `size` bytes, past `limit`.
     #[allow(non_snake_case)]
     pub fn ReadSetTooLarge(size: usize, limit: usize) -> Self {
         Self(TxnErrorEnum::ReadSetTooLarge { size, limit })
     }
 
+    /// A write in a read-only transaction.
     #[allow(non_snake_case)]
     pub fn ReadOnly() -> Self {
         Self(TxnErrorEnum::ReadOnly)
     }
 
+    /// A changeset of namespace `changeset` in a transaction of namespace `transaction`.
     #[allow(non_snake_case)]
     pub fn Namespace(transaction: u64, changeset: u64) -> Self {
         Self(TxnErrorEnum::Namespace {
@@ -77,11 +106,13 @@ impl TxnError {
         })
     }
 
+    /// A request of a transaction already ended.
     #[allow(non_snake_case)]
     pub fn Ended() -> Self {
         Self(TxnErrorEnum::Ended)
     }
 
+    /// The changeset's refusal or the store's failure, `error`.
     #[allow(non_snake_case)]
     pub fn Changeset(error: ChangesetError) -> Self {
         Self(TxnErrorEnum::Changeset(error))

@@ -25,14 +25,27 @@ pub enum StoreErrorEnum {
     /// against fjall's 65,535. `head` holds the first 1,024 bytes of that key, which the text dumps as Badger
     /// does.
     KeyTooLarge {
+        /// The length that broke the limit.
         size: usize,
+        /// The longest key the store takes.
         limit: usize,
+        /// The first 1,024 bytes of the key.
         head: Vec<u8>,
     },
     /// A read of `key` failed, at once or partway through a scan, as fjall reports a block checksum failure.
-    ReadFailed { key: Vec<u8>, reason: String },
+    ReadFailed {
+        /// The key read.
+        key: Vec<u8>,
+        /// Why the read failed, as the store reports it.
+        reason: String,
+    },
     /// The stored value of `key` cannot be decoded; no value is returned.
-    Corrupted { key: Vec<u8>, reason: String },
+    Corrupted {
+        /// The key whose value is corrupted.
+        key: Vec<u8>,
+        /// Why the value cannot be decoded.
+        reason: String,
+    },
     /// A write failed: a batch, a sync, a drop or a compaction. The store is poisoned from then on and recovers
     /// only by reopening.
     WriteFailed(String),
@@ -53,51 +66,61 @@ pub enum StoreErrorEnum {
 }
 
 impl StoreError {
+    /// A read below the discard timestamp.
     #[allow(non_snake_case)]
     pub fn TsTooOld() -> Self {
         Self(StoreErrorEnum::TsTooOld)
     }
 
+    /// A write whose key of `size` bytes is longer than `limit`; `head` holds the key's first 1,024 bytes.
     #[allow(non_snake_case)]
     pub fn KeyTooLarge(size: usize, limit: usize, head: Vec<u8>) -> Self {
         Self(StoreErrorEnum::KeyTooLarge { size, limit, head })
     }
 
+    /// A read of `key` failed, for `reason`.
     #[allow(non_snake_case)]
     pub fn ReadFailed(key: Vec<u8>, reason: String) -> Self {
         Self(StoreErrorEnum::ReadFailed { key, reason })
     }
 
+    /// The stored value of `key` cannot be decoded, for `reason`.
     #[allow(non_snake_case)]
     pub fn Corrupted(key: Vec<u8>, reason: String) -> Self {
         Self(StoreErrorEnum::Corrupted { key, reason })
     }
 
+    /// A write failed, for `reason`; the store is poisoned from then on.
     #[allow(non_snake_case)]
     pub fn WriteFailed(reason: String) -> Self {
         Self(StoreErrorEnum::WriteFailed(reason))
     }
 
+    /// A write refused because an earlier one failed.
     #[allow(non_snake_case)]
     pub fn Poisoned() -> Self {
         Self(StoreErrorEnum::Poisoned)
     }
 
+    /// The store could not be opened, for `reason`.
     #[allow(non_snake_case)]
     pub fn OpenFailed(reason: String) -> Self {
         Self(StoreErrorEnum::OpenFailed(reason))
     }
 
+    /// The store does not offer `operation`.
     #[allow(non_snake_case)]
     pub fn Unsupported(operation: &'static str) -> Self {
         Self(StoreErrorEnum::Unsupported(operation))
     }
 
+    /// No temporary keyspace numbered `id` exists.
     #[allow(non_snake_case)]
     pub fn UnknownTemporary(id: u64) -> Self {
         Self(StoreErrorEnum::UnknownTemporary(id))
     }
 
+    /// A versionless write whose key is empty.
     #[allow(non_snake_case)]
     pub fn EmptyKey() -> Self {
         Self(StoreErrorEnum::EmptyKey)

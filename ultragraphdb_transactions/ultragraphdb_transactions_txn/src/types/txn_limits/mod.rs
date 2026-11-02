@@ -52,6 +52,7 @@ fn capped(bytes: usize) -> usize {
 }
 
 impl TxnLimits {
+    /// A read-write transaction living `limit`.
     pub fn with_read_write(self, limit: Duration) -> Self {
         Self {
             read_write: limit,
@@ -59,6 +60,7 @@ impl TxnLimits {
         }
     }
 
+    /// A read-only transaction living `limit`.
     pub fn with_read_only(self, limit: Duration) -> Self {
         Self {
             read_only: limit,
@@ -66,6 +68,7 @@ impl TxnLimits {
         }
     }
 
+    /// A write-set record of at most `bytes` bytes, at most `u32::MAX`.
     pub fn with_max_write_set(self, bytes: usize) -> Self {
         Self {
             max_write_set: capped(bytes),
@@ -73,6 +76,7 @@ impl TxnLimits {
         }
     }
 
+    /// A read set of at most `bytes` bytes, at most `u32::MAX`.
     pub fn with_max_read_set(self, bytes: usize) -> Self {
         Self {
             max_read_set: capped(bytes),
@@ -80,6 +84,7 @@ impl TxnLimits {
         }
     }
 
+    /// At most `objects` objects of one list named one by one in the write set; a list changed by more is named whole.
     pub fn with_objects_per_list(self, objects: usize) -> Self {
         Self {
             objects_per_list: objects,

@@ -4,12 +4,13 @@
  */
 
 use std::error::Error;
+use ultragraphdb_tool_bdd::TestResult;
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_store_posting::{PostingError, PostingErrorEnum};
 
 #[test]
-fn test_texts_are_dgraphs() {
+fn test_texts_are_dgraphs() -> TestResult {
     let cases = [
         (
             PostingError::InvalidKey(),
@@ -36,10 +37,11 @@ fn test_texts_are_dgraphs() {
     for (error, text) in cases {
         assert_eq!(error.to_string(), text);
     }
+    Ok(())
 }
 
 #[test]
-fn test_meta_texts_dump_the_key() {
+fn test_meta_texts_dump_the_key() -> TestResult {
     let dump = "00000000  6b 65 79                                          |key|\n";
     assert_eq!(
         PostingError::SchemaPosting(b"key".to_vec()).to_string(),
@@ -49,16 +51,17 @@ fn test_meta_texts_dump_the_key() {
         PostingError::UnexpectedMeta(0x20, b"key".to_vec()).to_string(),
         format!("Unexpected meta: 32 for key: {dump}")
     );
+    Ok(())
 }
 
 #[test]
-fn test_store_errors_carry_through_and_a_key_of_no_list_is_named() {
+fn test_store_errors_carry_through_and_a_key_of_no_list_is_named() -> TestResult {
     let error: PostingError = StoreError::TsTooOld().into();
     assert_eq!(error.0, PostingErrorEnum::Store(StoreError::TsTooOld()));
     assert_eq!(error.to_string(), "Transaction is too old");
-    let error = PostingError::NotAList(b"key");
+    let not_a_list = PostingError::NotAList(b"key");
     assert_eq!(
-        error.0,
+        not_a_list.0,
         PostingErrorEnum::NotAList {
             key: b"key".to_vec()
         }
@@ -66,13 +69,14 @@ fn test_store_errors_carry_through_and_a_key_of_no_list_is_named() {
     // The key as Go's hex.Dump prints it, as in the meta texts above.
     let dump = "00000000  6b 65 79                                          |key|\n";
     assert_eq!(
-        error.to_string(),
+        not_a_list.to_string(),
         format!("Key {dump} is not a posting list's")
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_refused_value_is_the_stores_corruption_naming_its_key() {
+fn test_a_refused_value_is_the_stores_corruption_naming_its_key() -> TestResult {
     let error = PostingError::corrupted(b"\x01\x02", "bad");
     assert!(matches!(
         &error.0,
@@ -80,11 +84,12 @@ fn test_a_refused_value_is_the_stores_corruption_naming_its_key() {
     ));
     assert_eq!(error.to_string(), "Corrupted value of key 0102: bad");
     assert!(error.source().is_none());
+    Ok(())
 }
 
 /// A round's version at or below the one before it is refused naming both.
 #[test]
-fn test_a_stale_version_names_both_versions() {
+fn test_a_stale_version_names_both_versions() -> TestResult {
     let error = PostingError::StaleVersion(12, 14);
     assert_eq!(
         error.0,
@@ -94,4 +99,5 @@ fn test_a_stale_version_names_both_versions() {
         }
     );
     assert_eq!(error.to_string(), "commit version 12 is not above 14");
+    Ok(())
 }

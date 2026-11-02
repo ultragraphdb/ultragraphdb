@@ -137,12 +137,12 @@ fn rect_bounder_nearly_identical_or_antipodal_points() {
     assert_eq!((r.lng().lo(), r.lng().hi()), (0.0, 0.0));
     assert_eq!(r.lat().hi(), 2.0 * MACHINE_EPSILON);
     // Points on nearly opposite meridians: the longitude bound is full.
-    let r = bound_for(
+    let second_bound = bound_for(
         Point::from_lat_lng(LatLng::from_degrees(10.0, 0.0)),
         Point::from_lat_lng(LatLng::from_degrees(10.0, 180.0)),
     );
-    assert!(r.lng().is_full(), "{r:?}");
-    assert_eq!(r.lat().hi(), FRAC_PI_2);
+    assert!(second_bound.lng().is_full(), "{second_bound:?}");
+    assert_eq!(second_bound.lat().hi(), FRAC_PI_2);
 }
 
 // Ported from golang/geo s2/rect_bounder_test.go, TestRectBounderExpandForSubregions.

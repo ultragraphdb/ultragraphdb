@@ -10,12 +10,13 @@
 use ultragraphdb_store_hnsw::{
     HnswError, HnswErrorEnum, cosine_similarity, dot_product, euclidean_distance,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// A distance function of two vectors.
 type Distance = fn(&[f32], &[f32]) -> Result<f32, HnswError>;
 
 #[test]
-fn test_distance_score_length_mismatch() {
+fn test_distance_score_length_mismatch() -> TestResult {
     let a: Vec<f32> = (0..16).map(|i| i as f32 / 16.0).collect();
     let fns: [(&str, Distance); 3] = [
         ("dot", dot_product::<f32>),
@@ -27,8 +28,8 @@ fn test_distance_score_length_mismatch() {
         fns.into_iter()
             .zip(["dot product", "cosine distance", "euclidean distance"])
     {
-        for (a, b) in [(&a[..], &a[..8]), (&a[..0], &a[..1])] {
-            let err = f(a, b).expect_err(name);
+        for (left, right) in [(&a[..], &a[..8]), (&a[..0], &a[..1])] {
+            let err = f(left, right).err().context(name)?;
             assert_eq!(err.0, HnswErrorEnum::DifferentLengths(func_name), "{name}");
             assert_eq!(
                 err.to_string(),
@@ -36,6 +37,7 @@ fn test_distance_score_length_mismatch() {
             );
         }
     }
+    Ok(())
 }
 
 /// The three distances at both widths, by hand: (2,1)·(3,4) = 10; |(0,3)-(4,0)| = 5; cos((3,4),(4,3)) = 24/25;

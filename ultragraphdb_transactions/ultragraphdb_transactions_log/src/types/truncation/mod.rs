@@ -20,6 +20,7 @@ pub struct Truncation {
 }
 
 impl Truncation {
+    /// A torn tail from the round at `position`, damaged by `damage` at byte `offset` of segment `segment`.
     pub fn new(position: Position, segment: u64, offset: u64, damage: Damage) -> Self {
         Self {
             position,
@@ -34,14 +35,17 @@ impl Truncation {
         self.position
     }
 
+    /// The index of the segment the damage lies in.
     pub fn segment(&self) -> u64 {
         self.segment
     }
 
+    /// The byte of the segment where the damage lies, where the log now ends.
     pub fn offset(&self) -> u64 {
         self.offset
     }
 
+    /// What the scan found at the offset.
     pub fn damage(&self) -> Damage {
         self.damage
     }

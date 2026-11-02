@@ -4,8 +4,9 @@
  */
 
 use ultragraphdb_store_sim::{
-    Breach, Event, FaultConfig, Invariant, Seed, Simulation, Stream, Violation,
+    Breach, Event, FaultConfig, Invariant, RunOutcome, Seed, Simulation, Stream, Violation,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::Store;
 
 #[test]
@@ -31,22 +32,22 @@ fn test_the_contexts_clock_is_its_stores() {
 }
 
 #[test]
-fn test_the_step_counts_from_zero_through_a_run() {
+fn test_the_step_counts_from_zero_through_a_run() -> TestResult {
     let mut sim = Simulation::new(Seed::new(8), FaultConfig::none());
     let mut seen = Vec::new();
-    sim.run(3, 1, |ctx, event| {
+    let _outcome: RunOutcome = sim.run(3, 1, |ctx, event| {
         if let Event::Step(_) = event {
             seen.push(ctx.step());
         }
         Ok(())
-    })
-    .unwrap();
+    })?;
     assert_eq!(seen, [0, 1, 2]);
     assert_eq!(sim.context().step(), 3);
+    Ok(())
 }
 
 #[test]
-fn test_a_violation_names_the_seed_the_step_and_the_rule() {
+fn test_a_violation_names_the_seed_the_step_and_the_rule() -> TestResult {
     let mut sim = Simulation::new(Seed::new(8), FaultConfig::none());
     let violation = sim
         .run(5, 1, |ctx, _| {
@@ -56,7 +57,8 @@ fn test_a_violation_names_the_seed_the_step_and_the_rule() {
                 Ok(())
             }
         })
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         violation,
         Violation::new(
@@ -72,4 +74,5 @@ fn test_a_violation_names_the_seed_the_step_and_the_rule() {
         violation.to_string(),
         "seed 8 step 2 broke the invariant that lists are sorted: posting 0x3 before 0x2; replay it with seed 8"
     );
+    Ok(())
 }

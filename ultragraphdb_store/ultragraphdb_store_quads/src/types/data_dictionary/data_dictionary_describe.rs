@@ -15,6 +15,7 @@ use crate::types::data_dictionary::DataDictionary;
 use crate::types::description::Description;
 use crate::types::property_shape::PropertyShape;
 use crate::types::quad_store::QuadStore;
+use crate::types::statistics::Statistics;
 
 /// The statistics kinds of objects that are nodes.
 const NODE_KINDS: [&str; 2] = ["iri", "blank"];
@@ -60,17 +61,19 @@ impl DataDictionary {
                 if name != rdf::TYPE.as_str() {
                     let counted = |kind: &str| statistics.kinds().get(kind).is_some_and(|n| *n > 0);
                     if NODE_KINDS.iter().any(|k| counted(k)) {
-                        d.relationship_types.insert(name.clone());
+                        let _new_relationship_type: bool =
+                            d.relationship_types.insert(name.clone());
                     }
                     if statistics
                         .kinds()
                         .keys()
                         .any(|k| !NODE_KINDS.contains(&k.as_str()) && counted(k))
                     {
-                        d.property_keys.insert(name.clone());
+                        let _new_property_key: bool = d.property_keys.insert(name.clone());
                     }
                 }
-                d.statistics.insert((graph_name, name), statistics);
+                let _replaced_statistics: Option<Statistics> =
+                    d.statistics.insert((graph_name, name), statistics);
             }
         }
         for (_, declaration) in catalog.predicates() {
@@ -78,7 +81,7 @@ impl DataDictionary {
         }
         let preorder = catalog.preorder();
         for (uid, t) in catalog.entity_types() {
-            d.labels.insert(t.iri().as_str().to_string());
+            let _new_label: bool = d.labels.insert(t.iri().as_str().to_string());
             d.entity_types
                 .push((t.clone(), preorder.get(&uid).copied().unwrap_or_default()));
         }
@@ -93,15 +96,15 @@ fn describe_predicate(d: &mut Description, declaration: &PredicateDeclaration) {
     let name = declaration.predicate().as_str().to_string();
     match declaration.kind() {
         PredicateKind::Edge if name != rdf::TYPE.as_str() => {
-            d.relationship_types.insert(name.clone());
+            let _new_relationship_type: bool = d.relationship_types.insert(name.clone());
         }
         PredicateKind::Property => {
-            d.property_keys.insert(name.clone());
+            let _new_property_key: bool = d.property_keys.insert(name.clone());
         }
         PredicateKind::Edge | PredicateKind::Either => {}
     }
     for domain in declaration.domains() {
-        d.labels.insert(domain.as_str().to_string());
+        let _new_label: bool = d.labels.insert(domain.as_str().to_string());
         let kinds = declaration
             .datatype()
             .map(|t| [t.as_str().to_string()].into())
@@ -113,7 +116,8 @@ fn describe_predicate(d: &mut Description, declaration: &PredicateDeclaration) {
                     .unwrap_or_default()
             });
         let cardinality: Cardinality = declaration.cardinality();
-        d.shapes
+        let _replaced_shape: Option<PropertyShape> = d
+            .shapes
             .entry(domain.as_str().to_string())
             .or_default()
             .properties

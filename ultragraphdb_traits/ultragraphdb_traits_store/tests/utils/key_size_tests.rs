@@ -4,12 +4,13 @@
  */
 
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{
     MAX_STORED_KEY_SIZE, MAX_USER_KEY_SIZE, check_key_size, stored_key_size,
 };
 
 /// The parts of a `KeyTooLarge` refusal, or a failure naming the error that came instead.
-fn too_large(err: &StoreError) -> (usize, usize, &[u8]) {
+fn too_large(err: &StoreError) -> TestResult<(usize, usize, &[u8])> {
     let parts = if let StoreErrorEnum::KeyTooLarge { size, limit, head } = &err.0 {
         Some((*size, *limit, head.as_slice()))
     } else {
@@ -17,7 +18,7 @@ fn too_large(err: &StoreError) -> (usize, usize, &[u8]) {
     };
     parts
         .ok_or_else(|| format!("expected KeyTooLarge, got {:?}", err.0))
-        .expect("a KeyTooLarge refusal")
+        .context("a KeyTooLarge refusal")
 }
 
 #[test]
@@ -67,12 +68,14 @@ fn test_a_key_within_both_limits_is_accepted() {
 }
 
 #[test]
-fn test_a_user_key_over_badgers_limit_is_refused_with_badgers_text() {
+fn test_a_user_key_over_badgers_limit_is_refused_with_badgers_text() -> TestResult {
     let key: Vec<u8> = (0..MAX_USER_KEY_SIZE + 1)
         .map(|i| (i % 251) as u8)
         .collect();
-    let err = check_key_size(&key).unwrap_err();
-    let (size, limit, head) = too_large(&err);
+    let err = check_key_size(&key)
+        .err()
+        .context("the error of check_key_size(&key)")?;
+    let (size, limit, head) = too_large(&err)?;
     assert_eq!((size, limit), (65_001, 65_000));
     assert_eq!(head, &key[..1024]);
 
@@ -109,24 +112,30 @@ fn test_a_user_key_over_badgers_limit_is_refused_with_badgers_text() {
             "",
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_user_limit_is_checked_before_the_stored_one() {
+fn test_the_user_limit_is_checked_before_the_stored_one() -> TestResult {
     // 65,001 bytes of `0x00 0x01` are over both limits; the user key's refusal is Badger's and names the user length.
     let key = alternating(MAX_USER_KEY_SIZE + 1);
-    let err = check_key_size(&key).unwrap_err();
-    let (size, limit, head) = too_large(&err);
+    let err = check_key_size(&key)
+        .err()
+        .context("the error of check_key_size(&key)")?;
+    let (size, limit, head) = too_large(&err)?;
     assert_eq!((size, limit), (65_001, 65_000));
     assert_eq!(head, &key[..1024]);
+    Ok(())
 }
 
 #[test]
-fn test_a_stored_key_over_fjalls_limit_is_refused_with_its_encoded_head() {
+fn test_a_stored_key_over_fjalls_limit_is_refused_with_its_encoded_head() -> TestResult {
     // 22,000 zero bytes each a run of one, `0x00 0xFE`, between 22,000 ones: 66,000 bytes, the end code's 2 and the
     // version's 8.
-    let err = check_key_size(&alternating(44_000)).unwrap_err();
-    let (size, limit, head) = too_large(&err);
+    let err = check_key_size(&alternating(44_000))
+        .err()
+        .context("the error of check_key_size(&alternating(44_000))")?;
+    let (size, limit, head) = too_large(&err)?;
     assert_eq!((size, limit), (66_010, MAX_STORED_KEY_SIZE));
     let expected: Vec<u8> = [0x00, 0xFE, 0x01]
         .iter()
@@ -139,30 +148,37 @@ fn test_a_stored_key_over_fjalls_limit_is_refused_with_its_encoded_head() {
         "Key with size 66010 exceeded 65535 limit. Key:\n\
              00000000  00 fe 01 00 fe 01 00 fe  01 00 fe 01 00 fe 01 00  |................|\n"
     ));
+    Ok(())
 }
 
 #[test]
-fn test_the_encoded_head_writes_a_long_run_as_its_codes() {
+fn test_the_encoded_head_writes_a_long_run_as_its_codes() -> TestResult {
     // 300 zero bytes before a one: two codes of 126 (`0x00 0x80`), then the last 48 before a non-zero byte
     // (`0x00 0xCF`), then the one, then the dense part.
     let key = [vec![0; 300], vec![1], alternating(44_000)].concat();
-    let err = check_key_size(&key).unwrap_err();
-    let (size, _, head) = too_large(&err);
+    let err = check_key_size(&key)
+        .err()
+        .context("the error of check_key_size(&key)")?;
+    let (size, _, head) = too_large(&err)?;
     assert_eq!(size, 2 + 2 + 2 + 1 + 66_000 + 2 + 8);
     assert_eq!(
         head[..10],
         [0x00, 0x80, 0x00, 0x80, 0x00, 0xCF, 0x01, 0x00, 0xFE, 0x01]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_stored_limit_is_inclusive() {
+fn test_the_stored_limit_is_inclusive() -> TestResult {
     // 21,841 runs of one between ones and two more ones are 65,535 bytes stored; one more zero byte between them
     // takes one more code and is over the limit.
     let at_limit = [alternating(43_682), vec![1, 1]].concat();
     assert_eq!(stored_key_size(&at_limit), MAX_STORED_KEY_SIZE);
     assert_eq!(check_key_size(&at_limit), Ok(()));
-    let err = check_key_size(&alternating(43_684)).unwrap_err();
-    let (size, limit, _) = too_large(&err);
+    let err = check_key_size(&alternating(43_684))
+        .err()
+        .context("the error of check_key_size(&alternating(43_684))")?;
+    let (size, limit, _) = too_large(&err)?;
     assert_eq!((size, limit), (65_536, MAX_STORED_KEY_SIZE));
+    Ok(())
 }

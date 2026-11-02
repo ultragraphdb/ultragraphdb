@@ -26,7 +26,7 @@ pub(crate) fn literal_tokens(
         };
         let tokenizer = get_tokenizer_for_lang(&tokenizer, lang);
         for token in tokenizer.tokens(&value)? {
-            tokens.insert((tokenizer.identifier(), token));
+            let _inserted: bool = tokens.insert((tokenizer.identifier(), token));
         }
     }
     Ok(tokens)

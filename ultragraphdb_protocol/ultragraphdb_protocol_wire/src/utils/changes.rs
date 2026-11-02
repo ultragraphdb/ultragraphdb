@@ -656,8 +656,8 @@ pub(crate) fn decode_declaration(
             let at = at + 1 + domains;
             if r.flags & VECTOR_INDEX != 0 {
                 let factory = name(at)?;
-                let options = *a.get(at + 1)? as usize;
-                let pairs = list(at + 2, 2 * options)?;
+                let option_count = *a.get(at + 1)? as usize;
+                let pairs = list(at + 2, 2 * option_count)?;
                 let options = pairs
                     .as_chunks::<2>()
                     .0

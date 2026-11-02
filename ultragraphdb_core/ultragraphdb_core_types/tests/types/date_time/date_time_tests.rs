@@ -7,6 +7,7 @@
 //! `UnixNano`, `MarshalBinary`, `UnmarshalBinary` and `MarshalText`, printed by a Go program over the same inputs.
 
 use ultragraphdb_core_types::{DateTime, Zone};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const UTC: Option<i32> = None;
 
@@ -118,7 +119,7 @@ const DATES: [DateCase; 36] = [
 ];
 
 #[test]
-fn test_dates_as_go_computes_and_encodes_them() {
+fn test_dates_as_go_computes_and_encodes_them() -> TestResult {
     for c in &DATES {
         let [y, mo, d, h, mi, s, ns] = c.date;
         let t = DateTime::new(y, mo, d, h, mi, s, ns, zone(c.offset));
@@ -137,7 +138,7 @@ fn test_dates_as_go_computes_and_encodes_them() {
             "{at}"
         );
         if let (Ok(b), Some((unix, nsec, offset, utc))) = (&bin, c.back) {
-            let u = DateTime::unmarshal_binary(b).unwrap();
+            let u = DateTime::unmarshal_binary(b)?;
             assert_eq!(
                 (u.unix(), u.nanosecond(), u.offset(), u.zone() == Zone::Utc),
                 (unix, nsec, offset, utc),
@@ -154,6 +155,7 @@ fn test_dates_as_go_computes_and_encodes_them() {
             assert_eq!(t, DateTime::utc(y, mo, d, h, mi, s, ns), "{at}");
         }
     }
+    Ok(())
 }
 
 /// The version, seconds since year 1, nanoseconds and offset in minutes of Go's binary layout, with `extra` after.
@@ -167,7 +169,7 @@ fn binary(version: u8, sec: i64, nsec: u32, offset_min: i16, extra: &[u8]) -> Ve
 }
 
 #[test]
-fn test_unmarshal_binary_as_go_reads_it() {
+fn test_unmarshal_binary_as_go_reads_it() -> TestResult {
     // The internal seconds of the Unix epoch.
     const EPOCH: i64 = 62135596800;
     // (input, Unix seconds, nanoseconds, offset, UTC), each Go 1.27's.
@@ -233,7 +235,7 @@ fn test_unmarshal_binary_as_go_reads_it() {
         (binary(1, EPOCH, 0, i16::MAX, &[]), 0, 0, 1966020, false),
     ];
     for (b, unix, nsec, offset, utc) in cases {
-        let t = DateTime::unmarshal_binary(&b).unwrap();
+        let t = DateTime::unmarshal_binary(&b)?;
         assert_eq!(
             (t.unix(), t.nanosecond(), t.offset(), t.zone() == Zone::Utc),
             (unix, nsec, offset, utc),
@@ -241,10 +243,11 @@ fn test_unmarshal_binary_as_go_reads_it() {
             hex(&b)
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_unmarshal_errors() {
+fn test_unmarshal_errors() -> TestResult {
     let cases = [
         (vec![], "Time.UnmarshalBinary: no data"),
         (vec![0], "Time.UnmarshalBinary: unsupported version"),
@@ -272,16 +275,20 @@ fn test_unmarshal_errors() {
     ];
     for (b, want) in cases {
         assert_eq!(
-            DateTime::unmarshal_binary(&b).unwrap_err().to_string(),
+            DateTime::unmarshal_binary(&b)
+                .err()
+                .context("expected an error")?
+                .to_string(),
             want,
             "{}",
             hex(&b)
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_from_unix_normalises_as_go_does() {
+fn test_from_unix_normalises_as_go_does() -> TestResult {
     // Go's time.Unix(sec, nsec).UTC(), with its RFC 3339 text.
     let cases = [
         ((-1, 500), (-1, 500), "1969-12-31T23:59:59.0000005Z"),
@@ -304,12 +311,13 @@ fn test_from_unix_normalises_as_go_does() {
         let t = DateTime::from_unix(sec, nsec);
         assert_eq!((t.unix(), t.nanosecond()), (unix, ns), "{sec} {nsec}");
         assert_eq!(t.zone(), Zone::Utc);
-        assert_eq!(t.marshal_text().unwrap(), text);
+        assert_eq!(t.marshal_text()?, text);
     }
+    Ok(())
 }
 
 #[test]
-fn test_zero_before_and_equal() {
+fn test_zero_before_and_equal() -> TestResult {
     let zero = DateTime::zero();
     assert_eq!(zero, DateTime::default());
     assert_eq!(
@@ -331,8 +339,9 @@ fn test_zero_before_and_equal() {
     assert!(a.equal(&east) && !a.before(&east) && !east.before(&a));
     assert_ne!(a, east);
     assert_eq!((east.unix(), east.offset()), (1, 3600));
-    assert_eq!(east.marshal_text().unwrap(), "1970-01-01T01:00:01+01:00");
+    assert_eq!(east.marshal_text()?, "1970-01-01T01:00:01+01:00");
     assert_eq!(east.with_zone(Zone::Utc), a);
+    Ok(())
 }
 
 #[test]
@@ -352,7 +361,7 @@ fn test_new_with_extreme_fields_wraps_as_go_does() {
             (-9223372026495189533, 854775807),
         ],
     ];
-    for (v, want) in [i64::MIN, i64::MAX].into_iter().zip(want) {
+    for (v, want_of_v) in [i64::MIN, i64::MAX].into_iter().zip(want) {
         let got = [
             DateTime::new(2006, v, 2, 15, 4, 5, 0, Zone::Utc),
             DateTime::new(2006, 1, v, 15, 4, 5, 0, Zone::Utc),
@@ -360,7 +369,7 @@ fn test_new_with_extreme_fields_wraps_as_go_does() {
             DateTime::utc(2006, 1, 2, 15, 4, v, v),
         ]
         .map(|t| (t.unix(), t.nanosecond()));
-        assert_eq!(got, want, "{v}");
+        assert_eq!(got, want_of_v, "{v}");
     }
     assert_eq!(
         DateTime::new(2006, 13, 2, 15, 4, 5, 0, Zone::Utc),

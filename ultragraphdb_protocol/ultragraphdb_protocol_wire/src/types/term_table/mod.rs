@@ -58,6 +58,7 @@ pub struct TermTable {
 }
 
 impl TermTable {
+    /// An empty table.
     pub fn new() -> Self {
         Self::default()
     }
@@ -123,10 +124,12 @@ impl TermTable {
         }
     }
 
+    /// The number of terms.
     pub fn len(&self) -> usize {
         self.terms.len()
     }
 
+    /// Whether the table holds no term.
     pub fn is_empty(&self) -> bool {
         self.terms.is_empty()
     }
@@ -136,6 +139,7 @@ impl TermTable {
         self.terms.get(index as usize)
     }
 
+    /// The terms, in order.
     pub fn terms(&self) -> &[RequestTerm] {
         &self.terms
     }
@@ -143,7 +147,7 @@ impl TermTable {
     /// Appends `term`, of `depth`, which the caller checked; its index.
     fn insert(&mut self, term: RequestTerm, depth: usize) -> u32 {
         let index = as_u32(self.terms.len());
-        self.index.insert(term.clone(), index);
+        let _absent: Option<u32> = self.index.insert(term.clone(), index);
         self.terms.push(term);
         self.depths.push(depth);
         index

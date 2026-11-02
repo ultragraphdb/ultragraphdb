@@ -68,7 +68,8 @@ impl CanonicalDataset {
                 predicate,
                 object,
             } => {
-                self.triples.remove(&key(graph, subject, predicate, object));
+                let _deleted: Option<Held> =
+                    self.triples.remove(&key(graph, subject, predicate, object));
             }
             Change::DeleteStatement { graph, id } => {
                 self.triples.retain(|_, held| {

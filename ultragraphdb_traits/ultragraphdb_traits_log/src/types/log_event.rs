@@ -10,7 +10,13 @@ use crate::types::position::Position;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LogEvent {
     /// The replicas moved to `view`; this node's role in it follows from the view.
-    ViewChanged { view: u32 },
+    ViewChanged {
+        /// The view the replicas moved to.
+        view: u32,
+    },
     /// The uncommitted rounds from `from` on were replaced by the new view's: their appends' outcomes are unknown.
-    SuffixReplaced { from: Position },
+    SuffixReplaced {
+        /// The position of the first replaced round.
+        from: Position,
+    },
 }

@@ -8,6 +8,7 @@
  */
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 /// The French light stemmer's (word, stem) cases.
 const CASES: &[(&str, &str)] = &[
@@ -92,6 +93,7 @@ const CASES: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn test_french_light_stemmer() {
-    check_stems("stemmer_fr_light", CASES, &[]);
+fn test_french_light_stemmer() -> TestResult {
+    check_stems("stemmer_fr_light", CASES, &[])?;
+    Ok(())
 }

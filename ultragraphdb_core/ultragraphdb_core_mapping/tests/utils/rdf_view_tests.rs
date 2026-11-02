@@ -9,19 +9,20 @@ use ultragraphdb_core_mapping::{
     CanonicalDataset, Cardinality, Change, Changeset, MappingError, StatementId,
     quads_to_changeset, rdf_view, statement_iri,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 fn iri(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
 #[test]
-fn test_every_kind_of_literal_and_graph_round_trips() {
+fn test_every_kind_of_literal_and_graph_round_trips() -> TestResult {
     let g = GraphName::NamedNode(iri("g"));
     let b = BlankNode::new_unchecked("n");
     let literals = vec![
         Literal::new_simple_literal("plain"),
-        Literal::new_language_tagged_literal("hello", "en-GB").unwrap(),
-        Literal::new_directional_language_tagged_literal("שלום", "he", BaseDirection::Rtl).unwrap(),
+        Literal::new_language_tagged_literal("hello", "en-GB")?,
+        Literal::new_directional_language_tagged_literal("שלום", "he", BaseDirection::Rtl)?,
         Literal::new_typed_literal("01", xsd::INTEGER),
         Literal::new_typed_literal("twelve", xsd::INTEGER),
         Literal::new_typed_literal("x", iri("custom")),
@@ -43,19 +44,17 @@ fn test_every_kind_of_literal_and_graph_round_trips() {
         GraphName::DefaultGraph,
     ));
     let mut d = CanonicalDataset::new();
-    d.apply(&quads_to_changeset(0, &quads).unwrap(), |_| {
-        Cardinality::Multi
-    })
-    .unwrap();
+    d.apply(&quads_to_changeset(0, &quads)?, |_| Cardinality::Multi)?;
     let statements: Vec<_> = d.statements().collect();
     let read = rdf_view(&statements);
     quads.dedup();
     quads.sort_by_key(Quad::to_string);
     assert_eq!(read, quads);
+    Ok(())
 }
 
 #[test]
-fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() {
+fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() -> TestResult {
     let mut d = CanonicalDataset::new();
     let changeset = Changeset::new(0).with(Change::InsertEdge {
         graph: GraphName::DefaultGraph,
@@ -64,7 +63,7 @@ fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() {
         object: iri("b").into(),
         properties: vec![(iri("w"), Literal::from(3).into())],
     });
-    d.apply(&changeset, |_| Cardinality::Multi).unwrap();
+    d.apply(&changeset, |_| Cardinality::Multi)?;
     let statements: Vec<_> = d.statements().collect();
     let reifier = statement_iri(StatementId::new(1));
     // `ugdb:statement/1`, `ugdb:` being PROTOCOL.md section 10.4's https://w3id.org/ultragraphdb/ns/.
@@ -100,10 +99,11 @@ fn test_a_statement_id_presents_as_a_reifier_with_its_annotations() {
         Err(MappingError::UnsupportedObject(inner.to_string())),
         "a triple term is presented, never written"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_reifier_and_its_annotations_are_in_their_statements_graph() {
+fn test_a_reifier_and_its_annotations_are_in_their_statements_graph() -> TestResult {
     let g = GraphName::NamedNode(iri("g"));
     let mut d = CanonicalDataset::new();
     let changeset = Changeset::new(0).with(Change::InsertEdge {
@@ -113,7 +113,7 @@ fn test_a_reifier_and_its_annotations_are_in_their_statements_graph() {
         object: iri("b").into(),
         properties: vec![(iri("w"), Literal::from(3).into())],
     });
-    d.apply(&changeset, |_| Cardinality::Multi).unwrap();
+    d.apply(&changeset, |_| Cardinality::Multi)?;
     let statements: Vec<_> = d.statements().collect();
     let reifier = statement_iri(StatementId::new(1));
     let triple = Term::Triple(Box::new(Triple::new(iri("a"), iri("knows"), iri("b"))));
@@ -124,10 +124,11 @@ fn test_a_reifier_and_its_annotations_are_in_their_statements_graph() {
     ];
     expected.sort_by_key(Quad::to_string);
     assert_eq!(rdf_view(&statements), expected);
+    Ok(())
 }
 
 #[test]
-fn test_each_quad_writes_as_one_insert_in_its_graph() {
+fn test_each_quad_writes_as_one_insert_in_its_graph() -> TestResult {
     let g = GraphName::NamedNode(iri("g"));
     let quads = [
         Quad::new(iri("a"), iri("knows"), iri("b"), g.clone()),
@@ -138,7 +139,7 @@ fn test_each_quad_writes_as_one_insert_in_its_graph() {
             GraphName::DefaultGraph,
         ),
     ];
-    let changeset = quads_to_changeset(5, &quads).unwrap();
+    let changeset = quads_to_changeset(5, &quads)?;
     assert_eq!(changeset.namespace(), 5);
     assert_eq!(
         changeset.changes(),
@@ -157,5 +158,6 @@ fn test_each_quad_writes_as_one_insert_in_its_graph() {
             },
         ]
     );
-    assert!(quads_to_changeset(5, &[]).unwrap().is_empty());
+    assert!(quads_to_changeset(5, &[])?.is_empty());
+    Ok(())
 }

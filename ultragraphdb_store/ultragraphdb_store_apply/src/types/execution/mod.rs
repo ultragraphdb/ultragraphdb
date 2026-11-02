@@ -50,6 +50,7 @@ where
         }
     }
 
+    /// The namespace the execution writes.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }

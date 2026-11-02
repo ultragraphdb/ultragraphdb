@@ -4,3 +4,4 @@
  */
 
 pub mod golden;
+pub mod test_error;

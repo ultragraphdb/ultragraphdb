@@ -11,6 +11,7 @@
 //! cell's vertices. Cell geometry is checked bit for bit against Go in cellid_tests.
 
 use ultragraphdb_core_types::{Cell, CellId, LatLng, MAX_LEVEL, Point, R3Vector};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn face0_level2() -> CellId {
     CellId::from_face(0).child_begin_at_level(2)
@@ -106,7 +107,7 @@ fn cell_contains_cell() {
 
 // Ported from golang/geo s2/cell_test.go, TestCellRectBound.
 #[test]
-fn cell_rect_bound_contains_the_vertices() {
+fn cell_rect_bound_contains_the_vertices() -> TestResult {
     for (lat, lng) in [
         (50.0, 50.0),
         (-50.0, 50.0),
@@ -119,13 +120,14 @@ fn cell_rect_bound_contains_the_vertices() {
         let c = Cell::from_cell_id(CellId::from_lat_lng(LatLng::from_degrees(lat, lng)));
         let rect = c.rect_bound();
         for i in 0..4 {
-            let v = c.vertex(i).unwrap();
+            let v = c.vertex(i).context("c.vertex(i)")?;
             assert!(
                 rect.contains_lat_lng(LatLng::from_point(v)),
                 "({lat}, {lng}) vertex {i}"
             );
         }
     }
+    Ok(())
 }
 
 // Ported from golang/geo s2/cell_test.go, TestCellRectBoundAroundPoleMinLat.
@@ -164,24 +166,32 @@ fn cell_rect_bound_around_pole_min_lat() {
 
 // Ported from golang/geo s2/cell_test.go, TestCellCapBound.
 #[test]
-fn cell_cap_bound_contains_the_vertices() {
+fn cell_cap_bound_contains_the_vertices() -> TestResult {
     let c = Cell::from_cell_id(CellId::from_face(0).child_begin_at_level(20));
     let cap = c.cap_bound();
     for i in 0..4 {
-        assert!(cap.contains_point(c.vertex(i).unwrap()), "vertex {i}");
+        assert!(
+            cap.contains_point(c.vertex(i).context("c.vertex(i)")?),
+            "vertex {i}"
+        );
     }
+    Ok(())
 }
 
 // Ported from golang/geo s2/cell_test.go, TestCellContainsPoint.
 #[test]
-fn cell_contains_point() {
+fn cell_contains_point() -> TestResult {
     let c = Cell::from_cell_id(face0_level2());
     let child = Cell::from_cell_id(face0_level2().child_begin_at_level(5));
     let next_child = Cell::from_cell_id(face0_level2().next().child_begin_at_level(5));
     let tests = [
-        (c, child.vertex(1).unwrap(), true),
-        (c, c.vertex(1).unwrap(), true),
-        (child, next_child.vertex(1).unwrap(), false),
+        (c, child.vertex(1).context("child.vertex(1)")?, true),
+        (c, c.vertex(1).context("c.vertex(1)")?, true),
+        (
+            child,
+            next_child.vertex(1).context("next_child.vertex(1)")?,
+            false,
+        ),
     ];
     for (cell, p, want) in tests {
         assert_eq!(
@@ -195,6 +205,7 @@ fn cell_contains_point() {
     assert!(!c.contains_point(Point::from_coords(-1.0, 0.0, 0.0)));
     // A point that is not finite is never contained.
     assert!(!c.contains_point(Point::from_vector(R3Vector::new(f64::NAN, 0.0, 0.0))));
+    Ok(())
 }
 
 // Ported from golang/geo s2/cell_test.go, TestCellContainsPointConsistentWithS2CellIDFromPointExample1
@@ -210,7 +221,7 @@ fn cell_contains_point_of_its_own_id() {
     assert!(Cell::from_point(p).contains_point(p));
     // x is ~6.1e-17 rather than 0, so s rounds to 0.5 and the cell id picks a neighbouring cell;
     // the expanded bound still contains the point.
-    let p = Point::from_lat_lng(LatLng::from_degrees(-2.0, 90.0));
-    let cell = Cell::from_cell_id(Cell::from_point(p).id().parent(1));
-    assert!(cell.contains_point(p));
+    let equator_point = Point::from_lat_lng(LatLng::from_degrees(-2.0, 90.0));
+    let cell = Cell::from_cell_id(Cell::from_point(equator_point).id().parent(1));
+    assert!(cell.contains_point(equator_point));
 }

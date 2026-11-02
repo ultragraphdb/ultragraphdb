@@ -17,6 +17,7 @@ impl fmt::Display for ChangesetError {
             ChangesetErrorEnum::Store(e) => write!(f, "{e}"),
             ChangesetErrorEnum::Tok(e) => write!(f, "{e}"),
             ChangesetErrorEnum::Hnsw(e) => write!(f, "{e}"),
+            ChangesetErrorEnum::Invariant(e) => write!(f, "{e}"),
             ChangesetErrorEnum::Literal { predicate, error } => {
                 write!(
                     f,

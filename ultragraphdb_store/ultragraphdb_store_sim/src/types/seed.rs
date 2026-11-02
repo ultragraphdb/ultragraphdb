@@ -14,10 +14,12 @@ use crate::types::stream::Stream;
 pub struct Seed(u64);
 
 impl Seed {
+    /// The seed `seed`.
     pub fn new(seed: u64) -> Self {
         Self(seed)
     }
 
+    /// The seed's number.
     pub fn value(&self) -> u64 {
         self.0
     }

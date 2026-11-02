@@ -62,7 +62,7 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
         }
     }
     let mut frac_ok = true;
-    let mut digits: Vec<u8> = Vec::new();
+    let mut digits = String::new();
     let mut dp: i64 = -1;
     while let Some(c) = ch {
         if c == b'.' && frac_ok {
@@ -84,7 +84,7 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
             }
             prev = b'0';
             count += 1;
-            digits.push(c);
+            digits.push(char::from(c));
         }
         ch = r.read();
     }
@@ -95,11 +95,12 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
     if inval_sep || prev == b'_' {
         return Err(ERR_INVAL_SEP);
     }
-    let text = std::str::from_utf8(&digits).expect("the loop above pushes ASCII digits alone");
-    let mant = if text.is_empty() {
+    let mant = if digits.is_empty() {
         UBig::ZERO
     } else {
-        UBig::from_str_radix(text, b).expect("the loop above pushes digits below base b alone")
+        // The loop above pushes digits below base b alone, so the parse succeeds.
+        UBig::from_str_radix(&digits, b)
+            .map_err(|_| "invariant violated: the mantissa holds digits below its base alone")?
     };
     if dp >= 0 {
         count = dp - count;
@@ -119,10 +120,10 @@ fn digit_value(c: u8) -> u32 {
 
 /// Go's `scanExponent(r, true, true)`: the exponent and its base, 10 for `e`/`E`, 2 for `p`/`P`.
 fn scan_exponent(r: &mut Scanner<'_>) -> Result<(i64, u32), String> {
-    let Some(ch) = r.read() else {
+    let Some(marker) = r.read() else {
         return Ok((0, 10));
     };
-    let base = match ch {
+    let base = match marker {
         b'e' | b'E' => 10,
         b'p' | b'P' => 2,
         _ => {

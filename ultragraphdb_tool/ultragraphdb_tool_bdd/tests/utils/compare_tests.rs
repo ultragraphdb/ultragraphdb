@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_tool_bdd::compare_bytes;
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult, compare_bytes};
 
 #[test]
 fn equal_bytes_compare_equal() {
@@ -77,26 +77,33 @@ fn a_mismatch_reports_the_input_and_both_values_in_hex() {
     for (input, expected, actual, message) in cases {
         assert_eq!(
             compare_bytes(input, expected, actual),
-            Err((*message).to_string()),
+            Err(TestError::new(*message)),
             "input {input:?}"
         );
     }
 }
 
 #[test]
-fn a_mismatch_in_a_large_value_prints_every_byte() {
+fn a_mismatch_in_a_large_value_prints_every_byte() -> TestResult {
     let expected: Vec<u8> = (0..=255).collect();
     let mut actual = expected.clone();
     actual[255] = 0x00;
-    let err = compare_bytes("large", &expected, &actual).unwrap_err();
-    let lines: Vec<&str> = err.lines().collect();
+    let Err(err) = compare_bytes("large", &expected, &actual) else {
+        return Err(TestError::new("the large values compare unequal"));
+    };
+    let lines: Vec<&str> = err.reason().lines().collect();
     assert_eq!(lines.len(), 3, "{err}");
-    let expected_hex = lines[1].strip_prefix("  expected: ").unwrap();
-    let actual_hex = lines[2].strip_prefix("  actual:   ").unwrap();
+    let expected_hex = lines[1]
+        .strip_prefix("  expected: ")
+        .context("the expected line")?;
+    let actual_hex = lines[2]
+        .strip_prefix("  actual:   ")
+        .context("the actual line")?;
     // 256 bytes are 256 two-digit groups and 255 separators.
     assert_eq!(expected_hex.len(), 256 * 3 - 1);
     assert_eq!(actual_hex.len(), 256 * 3 - 1);
     assert!(expected_hex.starts_with("00 01 02 "), "{expected_hex}");
     assert!(expected_hex.ends_with(" fd fe ff"), "{expected_hex}");
     assert!(actual_hex.ends_with(" fd fe 00"), "{actual_hex}");
+    Ok(())
 }

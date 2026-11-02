@@ -129,6 +129,7 @@ impl StoreWorkload {
         Simulation::new(seed, faults).run(steps, actors, |ctx, event| self.step(ctx, event))
     }
 
+    /// Runs `event`, an actor's step or a recovery, against `ctx`'s store: the [`Violation`] when it finds an invariant broken.
     pub fn step(&mut self, ctx: &mut SimContext, event: Event) -> Result<(), Violation> {
         match event {
             Event::Recovered => {
@@ -192,7 +193,7 @@ impl StoreWorkload {
                 let prefixes = (0..ctx.rng().between(1, 2))
                     .map(|_| self.keys.prefix(ctx.rng()))
                     .collect();
-                self.records.insert(id);
+                let _newly: bool = self.records.insert(id);
                 store.write_rebuild_record(&RebuildRecord::new(id, prefixes))
             }
             _ => self.temporary_step(ctx),
@@ -273,7 +274,7 @@ impl StoreWorkload {
         if !self.records.is_empty() && ctx.rng().chance(300) {
             let at = ctx.rng().index(self.records.len());
             if let Some(id) = self.records.iter().nth(at).copied() {
-                self.records.remove(&id);
+                let _held: bool = self.records.remove(&id);
                 batch.remove_rebuild_record(id);
             }
         }

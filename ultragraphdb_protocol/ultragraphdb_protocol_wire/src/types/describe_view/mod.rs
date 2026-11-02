@@ -22,14 +22,17 @@ pub struct DescribeView<'a> {
 }
 
 impl<'a> DescribeView<'a> {
+    /// The namespace described.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot the answer was read at; zero in a request.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// The strings the body's indices name.
     pub fn strings(&self) -> &StringList<'a> {
         &self.strings
     }

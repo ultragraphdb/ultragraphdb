@@ -66,10 +66,12 @@ impl<'a> FrameView<'a> {
         })
     }
 
+    /// The frame's header.
     pub fn header(&self) -> &HeaderView<'a> {
         &self.header
     }
 
+    /// The frame's command.
     pub fn command(&self) -> Command {
         self.command
     }
@@ -79,6 +81,7 @@ impl<'a> FrameView<'a> {
         self.body.data()
     }
 
+    /// The body with its chunk table.
     pub fn chunked_body(&self) -> &ChunkedBody<'a> {
         &self.body
     }

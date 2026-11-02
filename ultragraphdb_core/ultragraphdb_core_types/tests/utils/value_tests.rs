@@ -12,6 +12,7 @@ use ultragraphdb_core_types::{
     DateTime, TypeId, Val, Value, bytes_as_float_array, float_array_as_bytes,
     float_array_as_string, marshal, type_for_value,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
 fn test_type_for_value() {
@@ -102,7 +103,7 @@ fn test_bytes_as_float_array_ignores_trailing_bytes() {
 #[test]
 #[allow(clippy::excessive_precision)] // Go's test case, which float32 rounds
 fn test_float_array_translation() {
-    let cases: [&[f32]; 4] = [&[], &[0.1], &[0.0], &[0.65433, 1.855, 3.1415926539]];
+    let cases: [&[f32]; 4] = [&[], &[0.1], &[0.0], &[0.65433, 1.855, std::f32::consts::PI]];
     for tc in cases {
         assert_eq!(bytes_as_float_array(&float_array_as_bytes(tc)), tc);
     }
@@ -150,9 +151,9 @@ fn hex(b: &[u8]) -> String {
 }
 
 #[test]
-fn test_golden_type_for_value() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_type_for_value.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<TypeForValueCase>(&path);
+fn test_golden_type_for_value() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_type_for_value.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<TypeForValueCase>(&path)?;
     for c in golden.cases() {
         let (tid, v) = type_for_value(c.input.as_bytes());
         assert_eq!(tid.enum_value(), c.tid, "{}", c.input);
@@ -166,14 +167,15 @@ fn test_golden_type_for_value() {
         match (&c.out, v) {
             (None, _) | (_, None) => {}
             (Some(want), Some(v)) => {
-                let bin = marshal(&Val::new(tid, v), TypeId::BINARY).unwrap();
+                let bin = marshal(&Val::new(tid, v), TypeId::BINARY)?;
                 let b = match bin.value() {
                     Some(Value::Bytes(b)) => Ok(b),
                     other => Err(format!("{}: {other:?}", c.input)),
                 }
-                .expect("marshalling to binary gives bytes");
+                .context("marshalling to binary gives bytes")?;
                 assert_eq!(hex(b), want.bin, "{}", c.input);
             }
         }
     }
+    Ok(())
 }

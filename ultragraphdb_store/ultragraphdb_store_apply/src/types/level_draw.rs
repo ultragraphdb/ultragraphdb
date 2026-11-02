@@ -13,6 +13,7 @@ pub struct LevelDraw {
 }
 
 impl LevelDraw {
+    /// The draws of the stream seeded with `seed`.
     pub fn new(seed: u64) -> Self {
         Self { state: seed }
     }

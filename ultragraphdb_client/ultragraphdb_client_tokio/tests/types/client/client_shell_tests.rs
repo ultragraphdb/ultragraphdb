@@ -14,29 +14,33 @@ use ultragraphdb_client_tokio::{Anonymous, Client, ClientError, Connect, TokioSi
 use ultragraphdb_protocol_transport::{NetworkFaults, SimNetwork, TransportError};
 
 use crate::utils::serve::{SimConnect, config, serve_sim, server};
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
-fn runtime() -> tokio::runtime::Runtime {
+fn runtime() -> TestResult<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("a runtime")
+        .context("a runtime")
 }
 
 #[test]
-fn test_close_gives_the_connection_up() {
-    let rt = runtime();
+fn test_close_gives_the_connection_up() -> TestResult {
+    let rt = runtime()?;
     let scripted = server();
     let connector = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
     let accepted = Rc::clone(&connector.accepted);
     LocalSet::new().block_on(&rt, async {
-        tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+        let _server: tokio::task::JoinHandle<()> =
+            tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
         let mut client = Client::new(connector, config(), Anonymous, 8);
-        client.connect().await.unwrap();
+        client.connect().await?;
         assert!(client.core().is_ready());
         client.close().await;
         assert!(!client.core().is_ready());
         assert!(!client.core().is_connected());
-    });
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
 }
 
 /// A simulated stream whose first read fails with `fault`, the rest served by the stream.
@@ -95,8 +99,8 @@ impl Connect for FaultyConnect {
 }
 
 /// `client.connect()` over a connection whose first read fails with `fault`.
-fn connect_with_fault(fault: io::ErrorKind) -> Result<(), ClientError> {
-    let rt = runtime();
+fn connect_with_fault(fault: io::ErrorKind) -> TestResult<Result<(), ClientError>> {
+    let rt = runtime()?;
     let scripted = server();
     let inner = SimConnect::new(SimNetwork::new(3, NetworkFaults::none()));
     let accepted = Rc::clone(&inner.accepted);
@@ -104,28 +108,31 @@ fn connect_with_fault(fault: io::ErrorKind) -> Result<(), ClientError> {
         inner,
         fault: Some(fault),
     };
-    LocalSet::new().block_on(&rt, async {
-        tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
+    Ok(LocalSet::new().block_on(&rt, async {
+        let _server: tokio::task::JoinHandle<()> =
+            tokio::task::spawn_local(serve_sim(Rc::clone(&scripted), accepted));
         let mut client = Client::new(connector, config(), Anonymous, 8);
         let connected = client.connect().await;
         assert_eq!(connected.is_ok(), client.core().is_ready());
         connected
-    })
+    }))
 }
 
 #[test]
-fn test_an_interrupted_read_is_retried() {
+fn test_an_interrupted_read_is_retried() -> TestResult {
     // A signal interrupting the read is no failure: the read is made again and the handshake completes.
-    assert_eq!(connect_with_fault(io::ErrorKind::Interrupted), Ok(()));
+    assert_eq!(connect_with_fault(io::ErrorKind::Interrupted)?, Ok(()));
+    Ok(())
 }
 
 #[test]
-fn test_a_failed_read_fails_the_connection_with_its_error() {
+fn test_a_failed_read_fails_the_connection_with_its_error() -> TestResult {
     // A reset connection is the stream's failure, as `TransportError::Io` records it: its kind and its text.
     assert_eq!(
-        connect_with_fault(io::ErrorKind::ConnectionReset),
+        connect_with_fault(io::ErrorKind::ConnectionReset)?,
         Err(ClientError::Transport(TransportError::Io(
             &io::ErrorKind::ConnectionReset.into()
         )))
     );
+    Ok(())
 }

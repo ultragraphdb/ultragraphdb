@@ -12,6 +12,7 @@ impl Position {
     /// The place before the first round.
     pub const ZERO: Self = Self(0);
 
+    /// The place `position`, 0 being the place before the first round.
     pub fn new(position: u64) -> Self {
         Self(position)
     }

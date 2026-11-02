@@ -46,18 +46,22 @@ impl ScanStart {
         }
     }
 
+    /// The cluster every round's header must name.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// The incarnation of the log's rounds; a round of another is the segment's clean end.
     pub fn incarnation(&self) -> u64 {
         self.incarnation
     }
 
+    /// The last checkpoint's position.
     pub fn checkpoint(&self) -> Position {
         self.checkpoint
     }
 
+    /// The checksum of the round at the checkpoint, the parent of the round after it.
     pub fn checkpoint_checksum(&self) -> u64 {
         self.checkpoint_checksum
     }

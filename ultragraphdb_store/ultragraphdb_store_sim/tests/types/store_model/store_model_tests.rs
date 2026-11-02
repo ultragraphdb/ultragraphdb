@@ -9,6 +9,7 @@ use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_sim::{
     Contents, FaultConfig, Invariant, OpRecord, Seed, SimClock, SimStore, StoreModel,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, Item, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 fn batch(entries: Vec<Entry>, applied: Option<u64>) -> WriteBatch {
@@ -25,26 +26,27 @@ fn put(key: &[u8], version: u64) -> Entry {
 }
 
 /// The model after feeding it the log of what `run` does to a fresh store, and the store.
-fn observed(run: impl Fn(&SimStore)) -> (StoreModel, SimStore) {
+fn observed(run: impl Fn(&SimStore) -> TestResult) -> TestResult<(StoreModel, SimStore)> {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    run(&store);
+    run(&store)?;
     let mut model = StoreModel::new();
     model
         .observe(&store.take_log())
-        .expect("the log is consistent");
-    model.check(&store.contents()).expect("the contents match");
-    (model, store)
+        .context("the log is consistent")?;
+    model
+        .check(&store.contents())
+        .context("the contents match")?;
+    Ok((model, store))
 }
 
 #[test]
-fn test_a_store_that_kept_its_contract_passes() {
-    observed(|s| {
+fn test_a_store_that_kept_its_contract_passes() -> TestResult {
+    let _observed: (StoreModel, SimStore) = observed(|s| -> TestResult {
         s.apply(
             batch(vec![put(b"a", 1), put(b"b", 2)], Some(2)),
             PersistMode::Sync,
-        )
-        .unwrap();
-        let snapshot = s.snapshot(2).unwrap();
+        )?;
+        let snapshot = s.snapshot(2)?;
         // The log records each read, which the model checks, whatever it answers.
         drop(snapshot.get(b"a"));
         drop(snapshot.get_many(&[b"a", b"b"]));
@@ -52,21 +54,26 @@ fn test_a_store_that_kept_its_contract_passes() {
             .scan(&Scan::prefix(Vec::new()).all_versions())
             .count();
         drop(snapshot);
-        s.drop_prefixes(3, &[b"a".to_vec()], Vec::new()).unwrap();
-        s.set_discard_ts(2).unwrap();
-        s.compact().unwrap();
-        s.sweep_deletions().unwrap();
+        s.drop_prefixes(3, &[b"a".to_vec()], Vec::new())?;
+        s.set_discard_ts(2)?;
+        s.compact()?;
+        s.sweep_deletions()?;
         s.power_loss();
-    });
+        Ok(())
+    })?;
+    Ok(())
 }
 
 #[test]
-fn test_contents_other_than_the_models_break_an_invariant() {
-    let (mut model, _) = observed(|s| {
-        s.apply(batch(vec![put(b"a", 1)], Some(1)), PersistMode::Buffer)
-            .unwrap()
-    });
-    let breach = model.check(&Contents::default()).unwrap_err();
+fn test_contents_other_than_the_models_break_an_invariant() -> TestResult {
+    let (mut model, _) = observed(|s| -> TestResult {
+        s.apply(batch(vec![put(b"a", 1)], Some(1)), PersistMode::Buffer)?;
+        Ok(())
+    })?;
+    let breach = model
+        .check(&Contents::default())
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -75,60 +82,60 @@ fn test_contents_other_than_the_models_break_an_invariant() {
         )
     );
 
-    let (mut model, _) = observed(|s| {
-        s.apply(batch(vec![put(b"a", 1)], None), PersistMode::Buffer)
-            .unwrap()
-    });
-    let breach = model.check(&Contents::default()).unwrap_err();
+    let (mut unapplied_model, _) = observed(|s| -> TestResult {
+        s.apply(batch(vec![put(b"a", 1)], None), PersistMode::Buffer)?;
+        Ok(())
+    })?;
+    let unapplied_breach = unapplied_model
+        .check(&Contents::default())
+        .err()
+        .context("an error")?;
     assert_eq!(
-        breach.invariant(),
+        unapplied_breach.invariant(),
         Invariant::ContentsMatchModel,
-        "{breach}"
+        "{unapplied_breach}"
     );
     assert!(
-        breach
+        unapplied_breach
             .detail()
             .starts_with("key 61 holds [] where [StoredVersion { version: 1,"),
-        "{breach}"
+        "{unapplied_breach}"
     );
 
     // The model saw a batch of two keys; the store holds one of them.
     let half = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    half.apply(batch(vec![put(b"a", 1)], None), PersistMode::Buffer)
-        .unwrap();
-    let mut model = StoreModel::new();
+    half.apply(batch(vec![put(b"a", 1)], None), PersistMode::Buffer)?;
+    let mut two_key_model = StoreModel::new();
     let both = batch(vec![put(b"a", 1), put(b"b", 1)], None);
-    model
-        .observe(&[OpRecord::Applied {
-            batch: both,
-            mode: PersistMode::Buffer,
-        }])
-        .unwrap();
-    let breach = model.check(&half.contents()).unwrap_err();
+    two_key_model.observe(&[OpRecord::Applied {
+        batch: both,
+        mode: PersistMode::Buffer,
+    }])?;
+    let half_breach = two_key_model
+        .check(&half.contents())
+        .err()
+        .context("an error")?;
     assert_eq!(
-        (breach.invariant(), breach.detail()),
+        (half_breach.invariant(), half_breach.detail()),
         (
             Invariant::BatchWhole,
             "a batch survives with 1 of its 2 entries; key 62 at 1 is missing"
         )
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_key_left_by_a_drop_breaks_the_drop_invariant() {
+fn test_a_key_left_by_a_drop_breaks_the_drop_invariant() -> TestResult {
     let other = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    other
-        .apply(batch(vec![put(b"pa", 1)], None), PersistMode::Buffer)
-        .unwrap();
+    other.apply(batch(vec![put(b"pa", 1)], None), PersistMode::Buffer)?;
     let mut model = StoreModel::new();
-    model
-        .observe(&[OpRecord::Dropped {
-            ts: 2,
-            prefixes: Some(vec![b"p".to_vec()]),
-            entries: Vec::new(),
-        }])
-        .unwrap();
-    let breach = model.check(&other.contents()).unwrap_err();
+    model.observe(&[OpRecord::Dropped {
+        ts: 2,
+        prefixes: Some(vec![b"p".to_vec()]),
+        entries: Vec::new(),
+    }])?;
+    let breach = model.check(&other.contents()).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -136,25 +143,25 @@ fn test_a_key_left_by_a_drop_breaks_the_drop_invariant() {
             "key 7061 survived the drop covering it"
         )
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_write_below_a_deletion_breaks_its_invariant() {
+fn test_a_write_below_a_deletion_breaks_its_invariant() -> TestResult {
     let mut model = StoreModel::new();
     let deletion = batch(vec![Entry::deletion(b"k".to_vec(), 9)], None);
-    model
-        .observe(&[OpRecord::Applied {
-            batch: deletion,
-            mode: PersistMode::Buffer,
-        }])
-        .unwrap();
+    model.observe(&[OpRecord::Applied {
+        batch: deletion,
+        mode: PersistMode::Buffer,
+    }])?;
     let below = batch(vec![put(b"k", 4)], None);
     let breach = model
         .observe(&[OpRecord::Applied {
             batch: below,
             mode: PersistMode::Buffer,
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -169,15 +176,17 @@ fn test_a_write_below_a_deletion_breaks_its_invariant() {
             batch: at_and_above,
             mode: PersistMode::Buffer,
         }])
-        .expect("a write at or above the deletion");
+        .context("a write at or above the deletion")?;
+    Ok(())
 }
 
 #[test]
-fn test_a_write_after_a_failure_breaks_the_recovery_invariant() {
+fn test_a_write_after_a_failure_breaks_the_recovery_invariant() -> TestResult {
     let mut model = StoreModel::new();
     let breach = model
         .observe(&[OpRecord::WriteWhileFailed { operation: "apply" }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -185,10 +194,11 @@ fn test_a_write_after_a_failure_breaks_the_recovery_invariant() {
             "apply was called on a store that had to be recovered first"
         )
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_wrong_read_breaks_the_read_invariant() {
+fn test_a_wrong_read_breaks_the_read_invariant() -> TestResult {
     let mut model = StoreModel::new();
     let written = batch(vec![put(b"k", 3)], None);
     let wrong = Item::new(b"k".to_vec(), 4, 0x04, false, vec![4]);
@@ -204,7 +214,7 @@ fn test_a_wrong_read_breaks_the_read_invariant() {
             result: Ok(Some(wrong)),
         },
     ];
-    let breach = model.observe(&log).unwrap_err();
+    let breach = model.observe(&log).err().context("an error")?;
     assert_eq!(breach.invariant(), Invariant::ReadsAtOrBelowTimestamp);
     assert!(
         breach
@@ -212,10 +222,11 @@ fn test_a_wrong_read_breaks_the_read_invariant() {
             .starts_with("a read of key 6b at 5 returned Some("),
         "{breach}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() {
+fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() -> TestResult {
     let mut model = StoreModel::new();
     let log = [
         OpRecord::Applied {
@@ -224,7 +235,7 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() {
         },
         OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
     ];
-    model.observe(&log).unwrap();
+    model.observe(&log)?;
     let a = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let partial = OpRecord::Scanned {
         id: 0,
@@ -232,7 +243,11 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() {
         items: vec![Ok(a.clone())],
     };
     assert_eq!(
-        model.observe(&[partial]).unwrap_err().invariant(),
+        model
+            .observe(&[partial])
+            .err()
+            .context("an error")?
+            .invariant(),
         Invariant::ReadsAtOrBelowTimestamp
     );
     let failed = StoreError::ReadFailed(b"b".to_vec(), "x".into());
@@ -241,13 +256,13 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() {
         scan: Scan::prefix(Vec::new()),
         items: vec![Ok(a), Err(failed)],
     };
-    model.observe(&[cut]).expect("a scan may fail partway");
+    model.observe(&[cut]).context("a scan may fail partway")?;
     let corrupted = OpRecord::Read {
         id: 0,
         key: b"a".to_vec(),
         result: Err(StoreError::Corrupted(b"a".to_vec(), "x".into())),
     };
-    let breach = model.observe(&[corrupted]).unwrap_err();
+    let breach = model.observe(&[corrupted]).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -255,25 +270,28 @@ fn test_a_wrong_scan_or_failure_breaks_the_read_invariant() {
             "a read of 61 failed with Corrupted value of key 61: x"
         )
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_snapshot_below_the_discard_timestamp_breaks_its_invariant() {
+fn test_a_snapshot_below_the_discard_timestamp_breaks_its_invariant() -> TestResult {
     let mut model = StoreModel::new();
-    model.observe(&[OpRecord::DiscardSet { ts: 5 }]).unwrap();
-    model
-        .observe(&[OpRecord::SnapshotRefused {
-            read_ts: 4,
-            error: StoreError::TsTooOld(),
-        }])
-        .unwrap();
+    model.observe(&[OpRecord::DiscardSet { ts: 5 }])?;
+    model.observe(&[OpRecord::SnapshotRefused {
+        read_ts: 4,
+        error: StoreError::TsTooOld(),
+    }])?;
     // At the discard timestamp and above it, a snapshot opens: refusing one there breaks the invariant.
     for read_ts in [5, 6] {
         let wrongly = OpRecord::SnapshotRefused {
             read_ts,
             error: StoreError::TsTooOld(),
         };
-        let breach = model.clone().observe(&[wrongly]).unwrap_err();
+        let breach = model
+            .clone()
+            .observe(&[wrongly])
+            .err()
+            .context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail().to_string()),
             (
@@ -283,7 +301,7 @@ fn test_a_snapshot_below_the_discard_timestamp_breaks_its_invariant() {
         );
     }
     let opened = OpRecord::SnapshotOpened { id: 0, read_ts: 4 };
-    let breach = model.observe(&[opened]).unwrap_err();
+    let breach = model.observe(&[opened]).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -293,11 +311,12 @@ fn test_a_snapshot_below_the_discard_timestamp_breaks_its_invariant() {
     );
     model
         .observe(&[OpRecord::SnapshotOpened { id: 1, read_ts: 5 }])
-        .expect("a snapshot at the discard timestamp opens");
+        .context("a snapshot at the discard timestamp opens")?;
+    Ok(())
 }
 
 #[test]
-fn test_a_lost_synced_batch_breaks_its_invariant() {
+fn test_a_lost_synced_batch_breaks_its_invariant() -> TestResult {
     let mut model = StoreModel::new();
     let synced = batch(vec![put(b"a", 1)], None);
     let log = [
@@ -308,8 +327,11 @@ fn test_a_lost_synced_batch_breaks_its_invariant() {
         OpRecord::PowerLost,
         OpRecord::Recovered,
     ];
-    model.observe(&log).unwrap();
-    let breach = model.check(&Contents::default()).unwrap_err();
+    model.observe(&log)?;
+    let breach = model
+        .check(&Contents::default())
+        .err()
+        .context("an error")?;
     assert_eq!(
         breach.invariant(),
         Invariant::SyncedBatchSurvives,
@@ -321,15 +343,14 @@ fn test_a_lost_synced_batch_breaks_its_invariant() {
         ),
         "{breach}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_survivors_out_of_order_break_the_prefix_invariant() {
+fn test_survivors_out_of_order_break_the_prefix_invariant() -> TestResult {
     // The second unsynced batch survives without the first.
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    store
-        .apply(batch(vec![put(b"b", 2)], None), PersistMode::Buffer)
-        .unwrap();
+    store.apply(batch(vec![put(b"b", 2)], None), PersistMode::Buffer)?;
     let mut model = StoreModel::new();
     let log = [
         OpRecord::Applied {
@@ -343,21 +364,23 @@ fn test_survivors_out_of_order_break_the_prefix_invariant() {
         OpRecord::PowerLost,
         OpRecord::Recovered,
     ];
-    model.observe(&log).unwrap();
-    let breach = model.check(&store.contents()).unwrap_err();
+    model.observe(&log)?;
+    let breach = model.check(&store.contents()).err().context("an error")?;
     assert_eq!(
         breach.invariant(),
         Invariant::SurvivorsArePrefix,
         "{breach}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_record_after_an_unchecked_recovery_is_refused() {
+fn test_a_record_after_an_unchecked_recovery_is_refused() -> TestResult {
     let mut model = StoreModel::new();
     let breach = model
         .observe(&[OpRecord::Crashed, OpRecord::Recovered, OpRecord::Synced])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -365,59 +388,56 @@ fn test_a_record_after_an_unchecked_recovery_is_refused() {
             "record 2 of the log follows a recovery the model has not checked"
         )
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_model_keeps_what_a_prefix_drop_wrote_through_a_compaction() {
-    let (_, store) = observed(|s| {
+fn test_the_model_keeps_what_a_prefix_drop_wrote_through_a_compaction() -> TestResult {
+    let (_, store) = observed(|s| -> TestResult {
         s.drop_prefixes(
             3,
             &[b"\x01".to_vec()],
             vec![Entry::put(b"\x01s".to_vec(), 1, 0x01, b"initial".to_vec())],
-        )
-        .unwrap();
+        )?;
         s.apply(
             batch(
                 vec![Entry::put(b"\x01s".to_vec(), 4, 0x01, b"new".to_vec()).with_discard()],
                 Some(4),
             ),
             PersistMode::Buffer,
-        )
-        .unwrap();
-        s.set_discard_ts(5).unwrap();
-        s.compact().unwrap();
-    });
+        )?;
+        s.set_discard_ts(5)?;
+        s.compact()?;
+        Ok(())
+    })?;
     assert_eq!(
         store.contents().versions(b"\x01s").len(),
         2,
         "the fenced version stays"
     );
+    Ok(())
 }
 
 /// A deletion a power loss took with its batch never happened: a write below its version afterwards breaks no
 /// invariant. The posting lists' counter restarts at the applied timestamp the store kept, so a lost batch's
 /// versions are written again.
 #[test]
-fn test_a_deletion_a_power_loss_lost_holds_no_write_back() {
+fn test_a_deletion_a_power_loss_lost_holds_no_write_back() -> TestResult {
     let mut lost = 0;
     for seed in 1..=20 {
         let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
         let mut model = StoreModel::new();
-        store
-            .apply(batch(vec![put(b"k", 5)], Some(5)), PersistMode::Sync)
-            .unwrap();
-        store
-            .apply(
-                batch(vec![Entry::deletion(b"k".to_vec(), 9)], Some(9)),
-                PersistMode::Buffer,
-            )
-            .unwrap();
+        store.apply(batch(vec![put(b"k", 5)], Some(5)), PersistMode::Sync)?;
+        store.apply(
+            batch(vec![Entry::deletion(b"k".to_vec(), 9)], Some(9)),
+            PersistMode::Buffer,
+        )?;
         store.power_loss();
-        model.observe(&store.take_log()).unwrap();
-        model.check(&store.contents()).unwrap();
+        model.observe(&store.take_log())?;
+        model.check(&store.contents())?;
         store.recover();
-        model.observe(&store.take_log()).unwrap();
-        model.check(&store.contents()).unwrap();
+        model.observe(&store.take_log())?;
+        model.check(&store.contents())?;
         let kept = store
             .contents()
             .versions(b"k")
@@ -429,30 +449,31 @@ fn test_a_deletion_a_power_loss_lost_holds_no_write_back() {
         let outcome = model.observe(&store.take_log());
         if kept {
             assert_eq!(
-                outcome.unwrap_err().invariant(),
+                outcome.err().context("an error")?.invariant(),
                 Invariant::NoWriteBelowDeletion
             );
         } else {
-            outcome.unwrap();
+            outcome?;
             lost += 1;
         }
     }
     assert!(lost > 0, "a power loss took the deletion's batch");
+    Ok(())
 }
 
 /// The contents of a fresh store after `batches` are applied, each buffered.
-fn holding(batches: Vec<WriteBatch>) -> Contents {
+fn holding(batches: Vec<WriteBatch>) -> TestResult<Contents> {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    batches
-        .into_iter()
-        .for_each(|b| store.apply(b, PersistMode::Buffer).unwrap());
-    store.contents()
+    for b in batches {
+        store.apply(b, PersistMode::Buffer)?;
+    }
+    Ok(store.contents())
 }
 
 /// After a power loss, as after a crash with a batch in flight, a batch the store holds in part is reported as a
 /// partial batch, not as a lost or out-of-order survivor.
 #[test]
-fn test_a_batch_held_in_part_after_a_recovery_breaks_the_whole_batch_invariant() {
+fn test_a_batch_held_in_part_after_a_recovery_breaks_the_whole_batch_invariant() -> TestResult {
     let both = || batch(vec![put(b"a", 1), put(b"b", 1)], None);
     let logs = [
         (
@@ -480,10 +501,11 @@ fn test_a_batch_held_in_part_after_a_recovery_breaks_the_whole_batch_invariant()
     ];
     for (name, log) in logs {
         let mut model = StoreModel::new();
-        model.observe(&log).unwrap();
+        model.observe(&log)?;
         let breach = model
-            .check(&holding(vec![batch(vec![put(b"a", 1)], None)]))
-            .unwrap_err();
+            .check(&holding(vec![batch(vec![put(b"a", 1)], None)])?)
+            .err()
+            .context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (
@@ -493,14 +515,18 @@ fn test_a_batch_held_in_part_after_a_recovery_breaks_the_whole_batch_invariant()
             "{name}"
         );
     }
+    Ok(())
 }
 
 /// Feeds the model what the store logged since the last call and compares their contents.
-fn checked(store: &SimStore, model: &mut StoreModel) {
+fn checked(store: &SimStore, model: &mut StoreModel) -> TestResult {
     model
         .observe(&store.take_log())
-        .expect("the log is consistent");
-    model.check(&store.contents()).expect("the contents match");
+        .context("the log is consistent")?;
+    model
+        .check(&store.contents())
+        .context("the contents match")?;
+    Ok(())
 }
 
 /// The versions `contents` holds of `key`, newest first, each with whether it is a deletion.
@@ -515,7 +541,7 @@ fn versions(contents: &Contents, key: &[u8]) -> Vec<(u64, bool)> {
 /// A crash with a batch in flight, or a failed batch, may keep the batch whole or lose it whole; a power loss may
 /// keep any prefix of the unsynced batches. The model accepts each, adopts it and checks the next step against it.
 #[test]
-fn test_a_recovery_accepts_every_outcome_its_failure_allows() {
+fn test_a_recovery_accepts_every_outcome_its_failure_allows() -> TestResult {
     let both = || batch(vec![put(b"a", 1), put(b"b", 1)], None);
     let in_flight = [
         OpRecord::CrashedDuringBatch { batch: both() },
@@ -524,21 +550,19 @@ fn test_a_recovery_accepts_every_outcome_its_failure_allows() {
     for failure in in_flight {
         for kept in [vec![], vec![both()]] {
             let mut model = StoreModel::new();
-            model
-                .observe(&[failure.clone(), OpRecord::Recovered])
-                .unwrap();
-            let contents = holding(kept.clone());
-            model.check(&contents).expect("an allowed outcome");
+            model.observe(&[failure.clone(), OpRecord::Recovered])?;
+            let contents = holding(kept.clone())?;
+            model.check(&contents).context("an allowed outcome")?;
             // The adopted outcome is what the next step is checked against.
-            model.observe(&[]).unwrap();
-            model.check(&contents).expect("the adopted outcome");
+            model.observe(&[])?;
+            model.check(&contents).context("the adopted outcome")?;
             let other = holding(if kept.is_empty() {
                 vec![both()]
             } else {
                 vec![]
-            });
+            })?;
             assert_eq!(
-                model.check(&other).unwrap_err().invariant(),
+                model.check(&other).err().context("an error")?.invariant(),
                 Invariant::ContentsMatchModel
             );
         }
@@ -554,31 +578,31 @@ fn test_a_recovery_accepts_every_outcome_its_failure_allows() {
             })
             .collect();
         log.extend([OpRecord::PowerLost, OpRecord::Recovered]);
-        model.observe(&log).unwrap();
+        model.observe(&log)?;
         model
-            .check(&holding(three[..survivors].to_vec()))
+            .check(&holding(three[..survivors].to_vec())?)
             .map_err(|b| format!("{survivors} survivors: {b}"))
-            .expect("the contents match a model");
+            .context("the contents match a model")?;
     }
+    Ok(())
 }
 
 /// A recovery that ends at an applied timestamp no outcome holds breaks the applied-timestamp invariant.
 #[test]
-fn test_a_recovery_at_a_wrong_applied_timestamp_breaks_its_invariant() {
+fn test_a_recovery_at_a_wrong_applied_timestamp_breaks_its_invariant() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1)], Some(1)),
-                mode: PersistMode::Sync,
-            },
-            OpRecord::Crashed,
-            OpRecord::Recovered,
-        ])
-        .unwrap();
+    model.observe(&[
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 1)], Some(1)),
+            mode: PersistMode::Sync,
+        },
+        OpRecord::Crashed,
+        OpRecord::Recovered,
+    ])?;
     let breach = model
-        .check(&holding(vec![batch(vec![put(b"a", 1)], Some(2))]))
-        .unwrap_err();
+        .check(&holding(vec![batch(vec![put(b"a", 1)], Some(2))])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -586,16 +610,20 @@ fn test_a_recovery_at_a_wrong_applied_timestamp_breaks_its_invariant() {
             "applied timestamp 2 where 1 was expected"
         )
     );
+    Ok(())
 }
 
 /// A snapshot is refused as poisoned only while the process is down, and with no other error.
 #[test]
-fn test_a_snapshot_refused_without_cause_breaks_its_invariant() {
+fn test_a_snapshot_refused_without_cause_breaks_its_invariant() -> TestResult {
     let poisoned = |read_ts| OpRecord::SnapshotRefused {
         read_ts,
         error: StoreError::Poisoned(),
     };
-    let breach = StoreModel::new().observe(&[poisoned(3)]).unwrap_err();
+    let breach = StoreModel::new()
+        .observe(&[poisoned(3)])
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -605,24 +633,28 @@ fn test_a_snapshot_refused_without_cause_breaks_its_invariant() {
     );
     StoreModel::new()
         .observe(&[OpRecord::Crashed, poisoned(3)])
-        .expect("a store whose process is down refuses snapshots");
+        .context("a store whose process is down refuses snapshots")?;
     let other = OpRecord::SnapshotRefused {
         read_ts: 3,
         error: StoreError::Unsupported("snapshots"),
     };
-    let breach = StoreModel::new().observe(&[other]).unwrap_err();
+    let other_breach = StoreModel::new()
+        .observe(&[other])
+        .err()
+        .context("an error")?;
     assert_eq!(
-        breach.detail(),
+        other_breach.detail(),
         "a snapshot at 3 was refused with The store does not support snapshots"
     );
+    Ok(())
 }
 
 /// A point read or a read of many keys may fail as the fault stream makes it, or as corrupted once the key's bytes
 /// were; any other failure, or a wrong item, breaks the read invariant. A read through an unknown or closed snapshot
 /// is not checked.
 #[test]
-fn test_reads_fail_only_as_the_faults_allow() {
-    let mut model = snapshot_of_a_and_b();
+fn test_reads_fail_only_as_the_faults_allow() -> TestResult {
+    let mut model = snapshot_of_a_and_b()?;
     let a = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
@@ -645,8 +677,8 @@ fn test_reads_fail_only_as_the_faults_allow() {
                 result: Err(StoreError::ReadFailed(b"a".to_vec(), "x".into())),
             },
         ])
-        .expect("right items and drawn failures");
-    assert_wrong_failures_break_reads(&model);
+        .context("right items and drawn failures")?;
+    assert_wrong_failures_break_reads(&model)?;
     // The version at 2 is above the snapshot's timestamp.
     let above = Item::new(b"b".to_vec(), 2, 0x04, false, vec![2]);
     let breach = model
@@ -656,7 +688,8 @@ fn test_reads_fail_only_as_the_faults_allow() {
             keys: vec![b"a".to_vec(), b"b".to_vec()],
             result: Ok(vec![Some(a.clone()), Some(above.clone())]),
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert!(
         breach
             .detail()
@@ -686,26 +719,25 @@ fn test_reads_fail_only_as_the_faults_allow() {
             OpRecord::SnapshotClosed { id: 0 },
             read(b"b", Ok(Some(above))),
         ])
-        .expect("tainted keys and unknown snapshots are not compared");
+        .context("tainted keys and unknown snapshots are not compared")?;
+    Ok(())
 }
 
 /// A model holding `a` at 1 and `b` at 2, with snapshot 0 open at 1.
-fn snapshot_of_a_and_b() -> StoreModel {
+fn snapshot_of_a_and_b() -> TestResult<StoreModel> {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1), put(b"b", 2)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-        ])
-        .unwrap();
-    model
+    model.observe(&[
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 1), put(b"b", 2)], None),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+    ])?;
+    Ok(model)
 }
 
 /// Checks that a failure the faults do not allow breaks the read invariant, through snapshot 0 of `model`.
-fn assert_wrong_failures_break_reads(model: &StoreModel) {
+fn assert_wrong_failures_break_reads(model: &StoreModel) -> TestResult {
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
         key: key.to_vec(),
@@ -726,24 +758,26 @@ fn assert_wrong_failures_break_reads(model: &StoreModel) {
         ),
     ];
     for (record, detail) in wrong {
-        let breach = model.clone().observe(&[record]).unwrap_err();
+        let breach = model.clone().observe(&[record]).err().context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (Invariant::ReadsAtOrBelowTimestamp, detail)
         );
     }
+    Ok(())
 }
 
 /// A temporary keyspace's snapshot reads every version written to it, and a batch to a keyspace that does not exist
 /// breaks the contents invariant.
 #[test]
-fn test_a_temporary_keyspace_is_read_at_every_version() {
+fn test_a_temporary_keyspace_is_read_at_every_version() -> TestResult {
     let breach = StoreModel::new()
         .observe(&[OpRecord::TemporaryApplied {
             temporary: 3,
             batch: batch(vec![put(b"k", 1)], None),
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -752,19 +786,17 @@ fn test_a_temporary_keyspace_is_read_at_every_version() {
         )
     );
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::TemporaryCreated { temporary: 1 },
-            OpRecord::TemporaryApplied {
-                temporary: 1,
-                batch: batch(vec![put(b"k", 3), put(b"k", 7)], None),
-            },
-            OpRecord::TemporarySnapshotOpened {
-                id: 5,
-                temporary: 1,
-            },
-        ])
-        .unwrap();
+    model.observe(&[
+        OpRecord::TemporaryCreated { temporary: 1 },
+        OpRecord::TemporaryApplied {
+            temporary: 1,
+            batch: batch(vec![put(b"k", 3), put(b"k", 7)], None),
+        },
+        OpRecord::TemporarySnapshotOpened {
+            id: 5,
+            temporary: 1,
+        },
+    ])?;
     let at = |version: u64| OpRecord::Read {
         id: 5,
         key: b"k".to_vec(),
@@ -776,54 +808,58 @@ fn test_a_temporary_keyspace_is_read_at_every_version() {
             vec![version as u8],
         ))),
     };
-    model.observe(&[at(7)]).expect("the newest version");
+    model.observe(&[at(7)]).context("the newest version")?;
     assert_eq!(
-        model.clone().observe(&[at(3)]).unwrap_err().invariant(),
+        model
+            .clone()
+            .observe(&[at(3)])
+            .err()
+            .context("an error")?
+            .invariant(),
         Invariant::ReadsAtOrBelowTimestamp
     );
     model
         .observe(&[OpRecord::SnapshotClosed { id: 5 }, at(3)])
-        .expect("a closed snapshot's reads are not compared");
+        .context("a closed snapshot's reads are not compared")?;
     // The temporary keyspace is not part of the store's contents.
-    model.check(&Contents::default()).unwrap();
+    model.check(&Contents::default())?;
+    Ok(())
 }
 
 /// Compaction collects below the discard timestamp in effect, which an open snapshot holds down; the sweep removes a
 /// deletion at or below the tombstone horizon with nothing below it. The store and the model agree at every step, on
 /// the versions computed here by hand.
 #[test]
-fn test_garbage_collection_keeps_what_open_reads_and_the_horizon_need() {
+fn test_garbage_collection_keeps_what_open_reads_and_the_horizon_need() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut model = StoreModel::new();
     let rolled = Entry::put(b"k".to_vec(), 2, 0x08, vec![2]).with_discard();
-    store
-        .apply(
-            batch(
-                vec![
-                    put(b"k", 1),
-                    rolled,
-                    put(b"k", 3),
-                    Entry::deletion(b"d".to_vec(), 1),
-                    put(b"e", 1),
-                    Entry::deletion(b"e".to_vec(), 2),
-                ],
-                Some(3),
-            ),
-            PersistMode::Buffer,
-        )
-        .unwrap();
-    let snapshot = store.snapshot(1).unwrap();
-    store.set_discard_ts(3).unwrap();
-    store.compact().unwrap();
-    checked(&store, &mut model);
+    store.apply(
+        batch(
+            vec![
+                put(b"k", 1),
+                rolled,
+                put(b"k", 3),
+                Entry::deletion(b"d".to_vec(), 1),
+                put(b"e", 1),
+                Entry::deletion(b"e".to_vec(), 2),
+            ],
+            Some(3),
+        ),
+        PersistMode::Buffer,
+    )?;
+    let snapshot = store.snapshot(1)?;
+    store.set_discard_ts(3)?;
+    store.compact()?;
+    checked(&store, &mut model)?;
     assert_eq!(
         versions(&store.contents(), b"k"),
         vec![(3, false), (2, false), (1, false)],
         "the snapshot at 1 holds the discard timestamp at 1"
     );
     drop(snapshot);
-    store.compact().unwrap();
-    checked(&store, &mut model);
+    store.compact()?;
+    checked(&store, &mut model)?;
     assert_eq!(
         versions(&store.contents(), b"k"),
         vec![(3, false), (2, false)]
@@ -833,39 +869,36 @@ fn test_garbage_collection_keeps_what_open_reads_and_the_horizon_need() {
         vec![(2, true)],
         "a deletion collects the values below it"
     );
-    store.set_tombstone_horizon(0).unwrap();
-    store.sweep_deletions().unwrap();
-    checked(&store, &mut model);
+    store.set_tombstone_horizon(0)?;
+    store.sweep_deletions()?;
+    checked(&store, &mut model)?;
     assert_eq!(versions(&store.contents(), b"d"), vec![(1, true)]);
-    store.set_tombstone_horizon(2).unwrap();
-    store.sweep_deletions().unwrap();
-    checked(&store, &mut model);
+    store.set_tombstone_horizon(2)?;
+    store.sweep_deletions()?;
+    checked(&store, &mut model)?;
     assert!(store.contents().versions(b"d").is_empty());
     assert!(store.contents().versions(b"e").is_empty());
+    Ok(())
 }
 
 /// A ban drops the later entries addressed to the namespace and hides its keys from snapshots opened after it.
 #[test]
-fn test_a_banned_namespace_takes_no_writes_and_reads_empty() {
+fn test_a_banned_namespace_takes_no_writes_and_reads_empty() -> TestResult {
     let mut key = vec![0x00];
     key.extend_from_slice(&5u64.to_be_bytes());
     key.push(b'x');
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut model = StoreModel::new();
-    store
-        .apply(batch(vec![put(&key, 1)], None), PersistMode::Buffer)
-        .unwrap();
-    store.ban_namespace(5).unwrap();
-    store
-        .apply(
-            batch(vec![put(&key, 2), put(b"k", 2)], None),
-            PersistMode::Buffer,
-        )
-        .unwrap();
-    let snapshot = store.snapshot(2).unwrap();
+    store.apply(batch(vec![put(&key, 1)], None), PersistMode::Buffer)?;
+    store.ban_namespace(5)?;
+    store.apply(
+        batch(vec![put(&key, 2), put(b"k", 2)], None),
+        PersistMode::Buffer,
+    )?;
+    let snapshot = store.snapshot(2)?;
     assert_eq!(snapshot.get(&key), Ok(None));
     drop(snapshot);
-    checked(&store, &mut model);
+    checked(&store, &mut model)?;
     let contents = store.contents();
     assert_eq!(versions(&contents, &key), vec![(1, false)]);
     assert_eq!(versions(&contents, b"k"), vec![(2, false)]);
@@ -873,12 +906,13 @@ fn test_a_banned_namespace_takes_no_writes_and_reads_empty() {
         contents.banned().iter().copied().collect::<Vec<_>>(),
         vec![5]
     );
+    Ok(())
 }
 
 /// A drop stopped by a crash at any stage, or by a power loss, is accepted by the model as the store recovers it: a
 /// crash keeps the record once it was written, and recovery finishes the drop; a crash before it leaves the data.
 #[test]
-fn test_an_interrupted_drop_recovers_as_the_model_expects() {
+fn test_an_interrupted_drop_recovers_as_the_model_expects() -> TestResult {
     use ultragraphdb_store_sim::{DropStage, Fault};
     for stage in DropStage::ALL {
         for power_loss in [false, true] {
@@ -886,12 +920,10 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() {
             for seed in 0..8 {
                 let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
                 let mut model = StoreModel::new();
-                store
-                    .apply(
-                        batch(vec![put(b"pa", 1), put(b"q", 1)], Some(1)),
-                        PersistMode::Sync,
-                    )
-                    .unwrap();
+                store.apply(
+                    batch(vec![put(b"pa", 1), put(b"q", 1)], Some(1)),
+                    PersistMode::Sync,
+                )?;
                 store.inject(if power_loss {
                     Fault::PowerLossDuringNextDrop(stage)
                 } else {
@@ -909,12 +941,12 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() {
                         }
                     )))
                 );
-                checked(&store, &mut model);
+                checked(&store, &mut model)?;
                 store.recover();
-                checked(&store, &mut model);
+                checked(&store, &mut model)?;
                 let contents = store.contents();
                 assert_eq!(versions(&contents, b"q"), vec![(1, false)]);
-                outcomes.insert(contents.versions(b"pa").is_empty());
+                let _new: bool = outcomes.insert(contents.versions(b"pa").is_empty());
             }
             let expected: Vec<bool> = match (stage, power_loss) {
                 (DropStage::Start, _) => vec![false],
@@ -928,6 +960,7 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() {
             );
         }
     }
+    Ok(())
 }
 
 /// A power loss while a prefix drop's record is unsynced may keep the drop or lose it. When the drop rewrites the one
@@ -935,7 +968,7 @@ fn test_an_interrupted_drop_recovers_as_the_model_expects() {
 /// compaction collects the version the drop never wrote and keeps the one it fenced. The model follows both outcomes
 /// until the compaction shows which one the store took.
 #[test]
-fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction() {
+fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction() -> TestResult {
     use ultragraphdb_store_sim::{DropStage, Fault};
     let key = b"\x01s".to_vec();
     let schema = || Entry::put(key.clone(), 1, 0x01, b"name: string .".to_vec());
@@ -943,22 +976,20 @@ fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction()
     for seed in 0..8 {
         let store = SimStore::new(Seed::new(seed), FaultConfig::none(), SimClock::new());
         let mut model = StoreModel::new();
-        store
-            .apply(batch(vec![schema()], Some(1)), PersistMode::Sync)
-            .unwrap();
+        store.apply(batch(vec![schema()], Some(1)), PersistMode::Sync)?;
         store.inject(Fault::PowerLossDuringNextDrop(DropStage::RecordWritten));
         // The power loss stops the drop; the model reads what it did from the log.
         drop(store.drop_prefixes(2, &[b"\x01".to_vec()], vec![schema()]));
-        checked(&store, &mut model);
+        checked(&store, &mut model)?;
         store.recover();
-        checked(&store, &mut model);
+        checked(&store, &mut model)?;
         assert_eq!(versions(&store.contents(), &key), vec![(1, false)]);
         // Contents neither outcome holds still break the invariant.
         let other = holding(vec![batch(
             vec![Entry::put(key.clone(), 1, 0x01, b"x".to_vec())],
             Some(1),
-        )]);
-        let breach = model.clone().check(&other).unwrap_err();
+        )])?;
+        let breach = model.clone().check(&other).err().context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (
@@ -969,61 +1000,57 @@ fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction()
                  32, 46] }] was expected"
             )
         );
-        store
-            .apply(
-                batch(
-                    vec![Entry::put(key.clone(), 4, 0x08, b"rolled".to_vec()).with_discard()],
-                    Some(4),
-                ),
-                PersistMode::Buffer,
-            )
-            .unwrap();
-        store.set_discard_ts(5).unwrap();
-        store.compact().unwrap();
+        store.apply(
+            batch(
+                vec![Entry::put(key.clone(), 4, 0x08, b"rolled".to_vec()).with_discard()],
+                Some(4),
+            ),
+            PersistMode::Buffer,
+        )?;
+        store.set_discard_ts(5)?;
+        store.compact()?;
         model
             .observe(&store.take_log())
             .map_err(|b| format!("seed {seed}: {b}"))
-            .expect("the contents match a model");
+            .context("the contents match a model")?;
         model
             .check(&store.contents())
             .map_err(|b| format!("seed {seed}: {b}"))
-            .expect("the contents match a model");
-        kept.insert(versions(&store.contents(), &key));
+            .context("the contents match a model")?;
+        let _new: bool = kept.insert(versions(&store.contents(), &key));
     }
     assert_eq!(
         kept.into_iter().collect::<Vec<_>>(),
         vec![vec![(4, false)], vec![(4, false), (1, false)]],
         "the drop is lost on some seeds and kept on others"
     );
+    Ok(())
 }
 
 /// A compaction keeps an undecodable version the model collects, and a snapshot opened then reads it after a drop
 /// removed it: the model accepts the corrupted read, through the snapshot that opened while the key was tainted.
 #[test]
-fn test_a_snapshot_opened_before_a_drop_reads_the_corrupted_version_the_drop_removed() {
+fn test_a_snapshot_opened_before_a_drop_reads_the_corrupted_version_the_drop_removed() -> TestResult
+{
     let store = SimStore::new(Seed::new(0), FaultConfig::none(), SimClock::new());
     let mut model = StoreModel::new();
     let key = b"pk".to_vec();
-    store
-        .apply(
-            batch(
-                vec![
-                    Entry::put(key.clone(), 1, 0x04, b"old".to_vec()),
-                    Entry::put(key.clone(), 2, 0x08, b"rolled".to_vec()).with_discard(),
-                ],
-                Some(2),
-            ),
-            PersistMode::Buffer,
-        )
-        .unwrap();
+    store.apply(
+        batch(
+            vec![
+                Entry::put(key.clone(), 1, 0x04, b"old".to_vec()),
+                Entry::put(key.clone(), 2, 0x08, b"rolled".to_vec()).with_discard(),
+            ],
+            Some(2),
+        ),
+        PersistMode::Buffer,
+    )?;
     store.corrupt(&key, 1, ultragraphdb_store_sim::Corruption::Truncate);
-    store.set_discard_ts(2).unwrap();
-    store.compact().unwrap();
-    let reader = store.snapshot(2).unwrap();
-    store
-        .drop_prefixes(3, &[b"p".to_vec()], Vec::new())
-        .unwrap();
-    checked(&store, &mut model);
+    store.set_discard_ts(2)?;
+    store.compact()?;
+    let reader = store.snapshot(2)?;
+    store.drop_prefixes(3, &[b"p".to_vec()], Vec::new())?;
+    checked(&store, &mut model)?;
     let read: Vec<_> = reader.versions(&key).collect();
     assert_eq!(
         read,
@@ -1036,12 +1063,13 @@ fn test_a_snapshot_opened_before_a_drop_reads_the_corrupted_version_the_drop_rem
         ]
     );
     assert_eq!(model.observe(&store.take_log()), Ok(()));
+    Ok(())
 }
 
 /// A snapshot keeps the taint of every key corrupted while it was open or before it opened, through a drop that
 /// lifts the taint for later snapshots; a snapshot opened after the drop compares the key again.
 #[test]
-fn test_a_snapshot_keeps_its_taint_through_a_drop() {
+fn test_a_snapshot_keeps_its_taint_through_a_drop() -> TestResult {
     let corrupted = |id| OpRecord::Read {
         id,
         key: b"a".to_vec(),
@@ -1070,8 +1098,8 @@ fn test_a_snapshot_keeps_its_taint_through_a_drop() {
             corrupted(0),
             corrupted(1),
         ])
-        .expect("the snapshots open before the drop read the key as tainted");
-    let breach = model.observe(&[corrupted(2)]).unwrap_err();
+        .context("the snapshots open before the drop read the key as tainted")?;
+    let breach = model.observe(&[corrupted(2)]).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1079,6 +1107,7 @@ fn test_a_snapshot_keeps_its_taint_through_a_drop() {
             "a read of 61 failed with Corrupted value of key 61: x"
         )
     );
+    Ok(())
 }
 
 /// A Truncate corruption of `key` at `version`, as the store logs it.
@@ -1103,7 +1132,7 @@ fn undecodable(key: &[u8]) -> StoreError {
 /// live corruptions would. The key is tainted, so its reads are not compared with the model's state; the second
 /// read differs from the first, and that breaks the repeat invariant, for a point read and for a scan alike.
 #[test]
-fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() {
+fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() -> TestResult {
     let a1 = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let versions = Scan::key(b"a".to_vec()).all_versions();
     let mut model = StoreModel::new();
@@ -1131,13 +1160,17 @@ fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() {
                 entries: Vec::new(),
             },
         ])
-        .expect("the snapshot read the corrupted version once");
+        .context("the snapshot read the corrupted version once")?;
     let healed_read = OpRecord::Read {
         id: 0,
         key: b"a".to_vec(),
         result: Ok(Some(a1.clone())),
     };
-    let breach = model.clone().observe(&[healed_read]).unwrap_err();
+    let breach = model
+        .clone()
+        .observe(&[healed_read])
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1152,9 +1185,9 @@ fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() {
         scan: versions,
         items: vec![Ok(a1)],
     };
-    let breach = model.observe(&[healed_scan]).unwrap_err();
+    let scan_breach = model.observe(&[healed_scan]).err().context("an error")?;
     assert_eq!(
-        (breach.invariant(), breach.detail()),
+        (scan_breach.invariant(), scan_breach.detail()),
         (
             Invariant::SnapshotReadsRepeat,
             "snapshot 0 scanned Scan { start: [97], end: Some([97, 0]), seek: None, direction: Forward, \
@@ -1163,13 +1196,14 @@ fn test_a_snapshot_whose_answer_changes_breaks_the_repeat_invariant() {
              prefix\" }))] the first time"
         )
     );
+    Ok(())
 }
 
 /// A repeated read may differ from the first only where the store may legitimately answer anew: a read the fault
 /// stream failed, compared only up to its failure, and the reads covering a key corrupted since. The answers are a
 /// snapshot's own, shared by its point reads and the keys of its many-key reads, and die with it.
 #[test]
-fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
+fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() -> TestResult {
     let a1 = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let flipped = Item::new(b"b".to_vec(), 1, 0x04, false, vec![!1]);
     let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
@@ -1209,8 +1243,8 @@ fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
             scan(vec![Ok(a1.clone()), Err(failed(b"b"))]),
             scan(vec![Err(failed(b""))]),
         ])
-        .expect("the same answers, and failures the faults drew");
-    assert_changed_answers_break_repeats(&model, &a1, &flipped);
+        .context("the same answers, and failures the faults drew")?;
+    assert_changed_answers_break_repeats(&model, &a1, &flipped)?;
     // A corruption of `b` lets every read covering it answer anew; a snapshot opened later has answers of its own,
     // and a closed snapshot's reads are compared with nothing.
     model
@@ -1227,12 +1261,17 @@ fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
             OpRecord::SnapshotClosed { id: 0 },
             read(b"b", Ok(Some(flipped))),
         ])
-        .expect("answers a corruption, another snapshot or a close set free");
+        .context("answers a corruption, another snapshot or a close set free")?;
+    Ok(())
 }
 
 /// Checks that a read through snapshot 0 of `model` answering otherwise than it first did, with `a1` and `flipped`
 /// held for `a` and `b`, breaks the repeat invariant.
-fn assert_changed_answers_break_repeats(model: &StoreModel, a1: &Item, flipped: &Item) {
+fn assert_changed_answers_break_repeats(
+    model: &StoreModel,
+    a1: &Item,
+    flipped: &Item,
+) -> TestResult {
     let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
@@ -1270,19 +1309,20 @@ fn assert_changed_answers_break_repeats(model: &StoreModel, a1: &Item, flipped: 
         ),
     ];
     for (record, detail) in wrong {
-        let breach = model.clone().observe(&[record]).unwrap_err();
+        let breach = model.clone().observe(&[record]).err().context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (Invariant::SnapshotReadsRepeat, detail)
         );
     }
+    Ok(())
 }
 
 /// A key a many-key read names twice is read twice in one call, and a corruption drawn at the second read is logged
 /// before the call, so the first occurrence read the bytes before it. The call is compared with the snapshot's
 /// earlier answers, not with itself, and the last occurrence of a key is the answer later reads repeat.
 #[test]
-fn test_a_many_key_read_holds_the_last_answer_to_a_key_it_names_twice() {
+fn test_a_many_key_read_holds_the_last_answer_to_a_key_it_names_twice() -> TestResult {
     let b1 = Item::new(b"b".to_vec(), 1, 0x04, false, vec![1]);
     let flipped = Item::new(b"b".to_vec(), 1, 0x04, false, vec![!1]);
     let flip = OpRecord::Corrupted {
@@ -1313,8 +1353,11 @@ fn test_a_many_key_read_holds_the_last_answer_to_a_key_it_names_twice() {
             },
             read(Ok(Some(flipped))),
         ])
-        .expect("one call read the key before and after the corruption drawn during it");
-    let breach = model.observe(&[read(Ok(Some(b1)))]).unwrap_err();
+        .context("one call read the key before and after the corruption drawn during it")?;
+    let breach = model
+        .observe(&[read(Ok(Some(b1)))])
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1324,13 +1367,18 @@ fn test_a_many_key_read_holds_the_last_answer_to_a_key_it_names_twice() {
              the first time"
         )
     );
+    Ok(())
 }
 
 /// A snapshot holds the answers of its first 64 reads: a read past them is compared with nothing.
 #[test]
-fn test_a_snapshot_holds_the_answers_of_64_reads() {
+fn test_a_snapshot_holds_the_answers_of_64_reads() -> TestResult {
     let key = |n: u8| vec![b'k', n];
-    let read = |key: Vec<u8>, result| OpRecord::Read { id: 0, key, result };
+    let read = |read_key: Vec<u8>, result| OpRecord::Read {
+        id: 0,
+        key: read_key,
+        result,
+    };
     let mut log = vec![
         OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
         truncated(&key(0), 1),
@@ -1343,8 +1391,11 @@ fn test_a_snapshot_holds_the_answers_of_64_reads() {
     let mut model = StoreModel::new();
     model
         .observe(&log)
-        .expect("the 65th read is not held, so its answer may change");
-    let breach = model.observe(&[read(key(0), Ok(None))]).unwrap_err();
+        .context("the 65th read is not held, so its answer may change")?;
+    let breach = model
+        .observe(&[read(key(0), Ok(None))])
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1353,13 +1404,14 @@ fn test_a_snapshot_holds_the_answers_of_64_reads() {
              \"value too short to hold the version prefix\" })) the first time"
         )
     );
+    Ok(())
 }
 
 /// A corruption lets a snapshot answer anew only where its reads reach the corrupted version: a snapshot of the data
 /// at or above the version. A snapshot below it, and a snapshot of a temporary keyspace, whose bytes are never
 /// corrupted, must still repeat their answers to the key.
 #[test]
-fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() {
+fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() -> TestResult {
     let item = |version: u64| Item::new(b"a".to_vec(), version, 0x04, false, vec![version as u8]);
     let read = |id, result| OpRecord::Read {
         id,
@@ -1390,7 +1442,7 @@ fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() {
             truncated(b"a", 2),
             read(1, Err(undecodable(b"a"))),
         ])
-        .expect("the snapshot at the corrupted version reads it anew");
+        .context("the snapshot at the corrupted version reads it anew")?;
     for (id, detail) in [
         (
             0,
@@ -1403,38 +1455,41 @@ fn test_a_corruption_frees_only_the_snapshots_that_read_its_version() {
              discard: false, value: [1] })) the first time",
         ),
     ] {
-        let breach = model.clone().observe(&[read(id, Ok(None))]).unwrap_err();
+        let breach = model
+            .clone()
+            .observe(&[read(id, Ok(None))])
+            .err()
+            .context("an error")?;
         assert_eq!(
             (breach.invariant(), breach.detail()),
             (Invariant::SnapshotReadsRepeat, detail)
         );
     }
+    Ok(())
 }
 
 /// A batch failed again and again on a store already holding what it writes leaves contents every outcome matches:
 /// after n failures the model follows n + 1 models, one per number of the failed batches its journal kept, up to 16;
 /// the 16th failure leaves 17, which breaks the contents invariant.
 #[test]
-fn test_a_store_matching_more_than_16_models_breaks_the_contents_invariant() {
+fn test_a_store_matching_more_than_16_models_breaks_the_contents_invariant() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    store
-        .apply(batch(vec![put(b"k", 1)], None), PersistMode::Sync)
-        .unwrap();
+    store.apply(batch(vec![put(b"k", 1)], None), PersistMode::Sync)?;
     let contents = store.contents();
     let mut model = StoreModel::new();
-    checked(&store, &mut model);
+    checked(&store, &mut model)?;
     let failed = || OpRecord::BatchFailed {
         batch: batch(vec![put(b"k", 1)], None),
     };
     for n in 1..=15 {
-        model.observe(&[failed(), OpRecord::Recovered]).unwrap();
+        model.observe(&[failed(), OpRecord::Recovered])?;
         model
             .check(&contents)
             .map_err(|b| format!("{} models after {n} failures: {b}", n + 1))
-            .expect("the contents match a model");
+            .context("the contents match a model")?;
     }
-    model.observe(&[failed(), OpRecord::Recovered]).unwrap();
-    let breach = model.check(&contents).unwrap_err();
+    model.observe(&[failed(), OpRecord::Recovered])?;
+    let breach = model.check(&contents).err().context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1442,36 +1497,36 @@ fn test_a_store_matching_more_than_16_models_breaks_the_contents_invariant() {
             "the store's contents match 17 models, more than the 16 the model follows"
         )
     );
+    Ok(())
 }
 
 /// A power loss while the process is down after a crash, or a crash after a power loss, is a power loss: the
 /// unsynced batch may be lost.
 #[test]
-fn test_a_crash_and_a_power_loss_together_are_a_power_loss() {
+fn test_a_crash_and_a_power_loss_together_are_a_power_loss() -> TestResult {
     for faults in [
         [OpRecord::Crashed, OpRecord::PowerLost],
         [OpRecord::PowerLost, OpRecord::Crashed],
     ] {
         let mut model = StoreModel::new();
-        model
-            .observe(&[OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1)], None),
-                mode: PersistMode::Buffer,
-            }])
-            .unwrap();
-        model.observe(&faults).unwrap();
-        model.observe(&[OpRecord::Recovered]).unwrap();
+        model.observe(&[OpRecord::Applied {
+            batch: batch(vec![put(b"a", 1)], None),
+            mode: PersistMode::Buffer,
+        }])?;
+        model.observe(&faults)?;
+        model.observe(&[OpRecord::Recovered])?;
         model
             .check(&Contents::default())
             .map_err(|b| format!("{faults:?}: {b}"))
-            .expect("the contents match a model");
+            .context("the contents match a model")?;
     }
+    Ok(())
 }
 
 /// A drop forgets the deletions of the keys it removed, so a write below one is allowed afterwards, and keeps those
 /// of the keys it does not cover.
 #[test]
-fn test_a_drop_forgets_only_the_deletions_it_removed() {
+fn test_a_drop_forgets_only_the_deletions_it_removed() -> TestResult {
     let mut model = StoreModel::new();
     model
         .observe(&[
@@ -1495,13 +1550,14 @@ fn test_a_drop_forgets_only_the_deletions_it_removed() {
                 mode: PersistMode::Buffer,
             },
         ])
-        .expect("the dropped key's deletion is forgotten");
+        .context("the dropped key's deletion is forgotten")?;
     let breach = model
         .observe(&[OpRecord::Applied {
             batch: batch(vec![put(b"qk", 4)], None),
             mode: PersistMode::Buffer,
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1509,24 +1565,21 @@ fn test_a_drop_forgets_only_the_deletions_it_removed() {
             "key 716b written at 4 below its deletion at 9"
         )
     );
+    Ok(())
 }
 
 /// After a drop, a key outside its prefixes the model does not hold breaks the contents invariant, not the drop's.
 #[test]
-fn test_a_key_outside_a_drop_breaks_the_contents_invariant() {
+fn test_a_key_outside_a_drop_breaks_the_contents_invariant() -> TestResult {
     let other = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
-    other
-        .apply(batch(vec![put(b"x", 1)], None), PersistMode::Buffer)
-        .unwrap();
+    other.apply(batch(vec![put(b"x", 1)], None), PersistMode::Buffer)?;
     let mut model = StoreModel::new();
-    model
-        .observe(&[OpRecord::Dropped {
-            ts: 2,
-            prefixes: Some(vec![b"p".to_vec()]),
-            entries: vec![put(b"pw", 1)],
-        }])
-        .unwrap();
-    let breach = model.check(&other.contents()).unwrap_err();
+    model.observe(&[OpRecord::Dropped {
+        ts: 2,
+        prefixes: Some(vec![b"p".to_vec()]),
+        entries: vec![put(b"pw", 1)],
+    }])?;
+    let breach = model.check(&other.contents()).err().context("an error")?;
     assert_eq!(
         breach.invariant(),
         Invariant::ContentsMatchModel,
@@ -1538,21 +1591,20 @@ fn test_a_key_outside_a_drop_breaks_the_contents_invariant() {
             .starts_with("key 7077 holds [] where [StoredVersion { version: 1,"),
         "{breach}"
     );
+    Ok(())
 }
 
 /// A scan ending with a failure other than an injected one names the key the failure names.
 #[test]
-fn test_a_scan_failing_as_corrupted_without_cause_names_its_key() {
+fn test_a_scan_failing_as_corrupted_without_cause_names_its_key() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1), put(b"b", 1)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-        ])
-        .unwrap();
+    model.observe(&[
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 1), put(b"b", 1)], None),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+    ])?;
     let a = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let breach = model
         .observe(&[OpRecord::Scanned {
@@ -1560,7 +1612,8 @@ fn test_a_scan_failing_as_corrupted_without_cause_names_its_key() {
             scan: Scan::prefix(Vec::new()),
             items: vec![Ok(a), Err(StoreError::Corrupted(b"b".to_vec(), "x".into()))],
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1568,30 +1621,30 @@ fn test_a_scan_failing_as_corrupted_without_cause_names_its_key() {
             "a read of 62 failed with Corrupted value of key 62: x"
         )
     );
+    Ok(())
 }
 
 /// A deletion a recovery kept still bounds later writes, whether or not the batch that wrote it recorded an applied
 /// timestamp at or above it: here none, so the applied timestamp stays 0, below the deletion at 9.
 #[test]
-fn test_a_deletion_a_crash_kept_holds_writes_back() {
+fn test_a_deletion_a_crash_kept_holds_writes_back() -> TestResult {
     let store = SimStore::new(Seed::new(1), FaultConfig::none(), SimClock::new());
     let mut model = StoreModel::new();
-    store
-        .apply(
-            batch(vec![Entry::deletion(b"k".to_vec(), 9)], None),
-            PersistMode::Buffer,
-        )
-        .unwrap();
+    store.apply(
+        batch(vec![Entry::deletion(b"k".to_vec(), 9)], None),
+        PersistMode::Buffer,
+    )?;
     store.crash();
     store.recover();
-    checked(&store, &mut model);
+    checked(&store, &mut model)?;
     assert_eq!(versions(&store.contents(), b"k"), vec![(9, true)]);
     let breach = model
         .observe(&[OpRecord::Applied {
             batch: batch(vec![put(b"k", 4)], None),
             mode: PersistMode::Buffer,
         }])
-        .unwrap_err();
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1599,30 +1652,30 @@ fn test_a_deletion_a_crash_kept_holds_writes_back() {
             "key 6b written at 4 below its deletion at 9"
         )
     );
+    Ok(())
 }
 
 /// A batch one of whose entries is missing is held in part, even when its key holds another version.
 #[test]
-fn test_an_entry_missing_beside_another_version_of_its_key_is_a_partial_batch() {
+fn test_an_entry_missing_beside_another_version_of_its_key_is_a_partial_batch() -> TestResult {
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 2), put(b"b", 2)], None),
-                mode: PersistMode::Buffer,
-            },
-        ])
-        .unwrap();
+    model.observe(&[
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 1)], None),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 2), put(b"b", 2)], None),
+            mode: PersistMode::Buffer,
+        },
+    ])?;
     let breach = model
         .check(&holding(vec![
             batch(vec![put(b"a", 1)], None),
             batch(vec![put(b"b", 2)], None),
-        ]))
-        .unwrap_err();
+        ])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         (breach.invariant(), breach.detail()),
         (
@@ -1630,47 +1683,49 @@ fn test_an_entry_missing_beside_another_version_of_its_key_is_a_partial_batch() 
             "a batch survives with 1 of its 2 entries; key 61 at 2 is missing"
         )
     );
+    Ok(())
 }
 
 /// Survivors out of order beside a synced batch that survived break the prefix invariant, not the synced one's.
 #[test]
-fn test_survivors_out_of_order_beside_a_kept_synced_batch_break_the_prefix_invariant() {
+fn test_survivors_out_of_order_beside_a_kept_synced_batch_break_the_prefix_invariant() -> TestResult
+{
     let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"s", 1)], None),
-                mode: PersistMode::Sync,
-            },
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 2)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::Applied {
-                batch: batch(vec![put(b"b", 3)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::PowerLost,
-            OpRecord::Recovered,
-        ])
-        .unwrap();
+    model.observe(&[
+        OpRecord::Applied {
+            batch: batch(vec![put(b"s", 1)], None),
+            mode: PersistMode::Sync,
+        },
+        OpRecord::Applied {
+            batch: batch(vec![put(b"a", 2)], None),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::Applied {
+            batch: batch(vec![put(b"b", 3)], None),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::PowerLost,
+        OpRecord::Recovered,
+    ])?;
     let breach = model
         .check(&holding(vec![
             batch(vec![put(b"s", 1)], None),
             batch(vec![put(b"b", 3)], None),
-        ]))
-        .unwrap_err();
+        ])?)
+        .err()
+        .context("an error")?;
     assert_eq!(
         breach.invariant(),
         Invariant::SurvivorsArePrefix,
         "{breach}"
     );
+    Ok(())
 }
 
 /// A many-key read refused as corrupted is an answer for the key it names, compared with that key's first answer
 /// and held as it: a snapshot that read the corrupted key once one way and once the other breaks the repeat rule.
 #[test]
-fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() {
+fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() -> TestResult {
     let b = Item::new(b"b".to_vec(), 1, 0x04, false, vec![1]);
     let point = OpRecord::Read {
         id: 0,
@@ -1684,18 +1739,16 @@ fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() {
     };
     for (first, then) in [(point.clone(), many.clone()), (many, point)] {
         let mut model = StoreModel::new();
-        model
-            .observe(&[
-                OpRecord::Applied {
-                    batch: batch(vec![put(b"b", 1)], None),
-                    mode: PersistMode::Buffer,
-                },
-                OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-                truncated(b"b", 1),
-                first,
-            ])
-            .unwrap();
-        let breach = model.observe(&[then]).unwrap_err();
+        model.observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"b", 1)], None),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+            truncated(b"b", 1),
+            first,
+        ])?;
+        let breach = model.observe(&[then]).err().context("an error")?;
         assert_eq!(
             breach.invariant(),
             Invariant::SnapshotReadsRepeat,
@@ -1706,4 +1759,5 @@ fn test_a_many_key_read_refused_as_corrupted_answers_for_its_key() {
             "{breach}"
         );
     }
+    Ok(())
 }

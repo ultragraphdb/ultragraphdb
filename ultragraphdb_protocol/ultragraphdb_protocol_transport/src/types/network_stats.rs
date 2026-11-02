@@ -19,18 +19,22 @@ impl NetworkStats {
         self.sent
     }
 
+    /// The messages dropped.
     pub fn dropped(&self) -> u64 {
         self.dropped
     }
 
+    /// The messages delivered twice.
     pub fn duplicated(&self) -> u64 {
         self.duplicated
     }
 
+    /// The messages delayed.
     pub fn delayed(&self) -> u64 {
         self.delayed
     }
 
+    /// The messages split into several reads.
     pub fn split(&self) -> u64 {
         self.split
     }

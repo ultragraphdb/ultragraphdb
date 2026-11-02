@@ -17,14 +17,17 @@ pub struct BeginView<'a> {
 }
 
 impl<'a> BeginView<'a> {
+    /// The namespace.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot version the transaction reads at.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// Whether the transaction is read-only.
     pub fn read_only(&self) -> bool {
         self.read_only
     }

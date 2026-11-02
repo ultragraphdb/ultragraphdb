@@ -17,39 +17,71 @@ pub struct QuadKeyError(pub QuadKeyErrorEnum);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuadKeyErrorEnum {
     /// The key ends before the fields its keyspace defines.
-    Truncated { key: Vec<u8> },
+    Truncated {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
     /// Bytes follow the fields its keyspace defines.
-    TrailingBytes { key: Vec<u8> },
+    TrailingBytes {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
     /// The first byte is no keyspace's.
-    UnknownKeyspace { key: Vec<u8> },
+    UnknownKeyspace {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
     /// A UID other than the default graph's, or a statement ID, is 0; `field` names it.
-    ZeroUid { key: Vec<u8>, field: &'static str },
+    ZeroUid {
+        /// The key's bytes.
+        key: Vec<u8>,
+        /// The field that is 0.
+        field: &'static str,
+    },
     /// A count index key's direction byte is neither direction.
-    UnknownDirection { key: Vec<u8> },
+    UnknownDirection {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
     /// An object's encoding cannot be read.
-    BadObject { key: Vec<u8>, error: TermError },
+    BadObject {
+        /// The key's bytes.
+        key: Vec<u8>,
+        /// Why the object's encoding cannot be read.
+        error: TermError,
+    },
     /// A vector names no object of a key.
-    VectorObject { key: Vec<u8> },
+    VectorObject {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
     /// Only a key of a list keyspace splits.
-    NotAList { key: Vec<u8> },
+    NotAList {
+        /// The key's bytes.
+        key: Vec<u8>,
+    },
 }
 
 impl QuadKeyError {
+    /// A [`QuadKeyErrorEnum::Truncated`] for `key`.
     #[allow(non_snake_case)]
     pub fn Truncated(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::Truncated { key: key.to_vec() })
     }
 
+    /// A [`QuadKeyErrorEnum::TrailingBytes`] for `key`.
     #[allow(non_snake_case)]
     pub fn TrailingBytes(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::TrailingBytes { key: key.to_vec() })
     }
 
+    /// A [`QuadKeyErrorEnum::UnknownKeyspace`] for `key`.
     #[allow(non_snake_case)]
     pub fn UnknownKeyspace(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::UnknownKeyspace { key: key.to_vec() })
     }
 
+    /// A [`QuadKeyErrorEnum::ZeroUid`] for `key`, naming the zero `field`.
     #[allow(non_snake_case)]
     pub fn ZeroUid(key: &[u8], field: &'static str) -> Self {
         Self(QuadKeyErrorEnum::ZeroUid {
@@ -58,11 +90,13 @@ impl QuadKeyError {
         })
     }
 
+    /// A [`QuadKeyErrorEnum::UnknownDirection`] for `key`.
     #[allow(non_snake_case)]
     pub fn UnknownDirection(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::UnknownDirection { key: key.to_vec() })
     }
 
+    /// A [`QuadKeyErrorEnum::BadObject`] for `key`, with the object's `error`.
     #[allow(non_snake_case)]
     pub fn BadObject(key: &[u8], error: TermError) -> Self {
         Self(QuadKeyErrorEnum::BadObject {
@@ -71,11 +105,13 @@ impl QuadKeyError {
         })
     }
 
+    /// A [`QuadKeyErrorEnum::VectorObject`] for `key`.
     #[allow(non_snake_case)]
     pub fn VectorObject(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::VectorObject { key: key.to_vec() })
     }
 
+    /// A [`QuadKeyErrorEnum::NotAList`] for `key`.
     #[allow(non_snake_case)]
     pub fn NotAList(key: &[u8]) -> Self {
         Self(QuadKeyErrorEnum::NotAList { key: key.to_vec() })

@@ -8,9 +8,10 @@
 //! filter. Unnormalized, `ك` (Arabic kaf) is not `ک`, so `-كە` loses only its `ە`.
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_sorani_stemmer_filter() {
+fn test_sorani_stemmer_filter() -> TestResult {
     check_stems(
         "stemmer_ckb",
         &[
@@ -37,5 +38,6 @@ fn test_sorani_stemmer_filter() {
             ("پارەیان", "پارە"),
         ],
         &[],
-    );
+    )?;
+    Ok(())
 }

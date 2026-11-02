@@ -5,6 +5,7 @@
 
 use std::cmp::Ordering;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_collator::Collator;
 
 /// A collator that knows one language, `rev`, whose order is the reverse of the bytes' order.
@@ -29,8 +30,10 @@ fn test_language_refuses_what_the_collator_does_not_know() {
 }
 
 #[test]
-fn test_compare_is_compare_bytes_over_the_strings_bytes() {
-    let rev = Reverse.language("rev").unwrap();
+fn test_compare_is_compare_bytes_over_the_strings_bytes() -> TestResult {
+    let rev = Reverse
+        .language("rev")
+        .context("Reverse.language(\"rev\")")?;
     assert_eq!(Reverse.compare(&rev, "a", "b"), Ordering::Greater);
     assert_eq!(Reverse.compare(&rev, "b", "a"), Ordering::Less);
     assert_eq!(Reverse.compare(&rev, "é", "é"), Ordering::Equal);
@@ -38,4 +41,5 @@ fn test_compare_is_compare_bytes_over_the_strings_bytes() {
         Reverse.compare(&rev, "a\u{301}", "\u{e1}"),
         Reverse.compare_bytes(&rev, "a\u{301}".as_bytes(), "\u{e1}".as_bytes())
     );
+    Ok(())
 }

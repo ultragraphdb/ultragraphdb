@@ -23,6 +23,7 @@ pub struct WelcomeView<'a> {
 }
 
 impl<'a> WelcomeView<'a> {
+    /// The protocol version chosen.
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
@@ -32,30 +33,37 @@ impl<'a> WelcomeView<'a> {
         self.authenticates
     }
 
+    /// The server's release.
     pub fn release(&self) -> u32 {
         self.release
     }
 
+    /// The largest frame the sender takes, in bytes.
     pub fn max_frame(&self) -> u32 {
         self.max_frame
     }
 
+    /// The streams a connection may hold in flight.
     pub fn max_streams(&self) -> u32 {
         self.max_streams
     }
 
+    /// The credit each read's stream starts with.
     pub fn initial_credit(&self) -> u32 {
         self.initial_credit
     }
 
+    /// The largest write set a transaction commits, in bytes.
     pub fn max_write_set(&self) -> u32 {
         self.max_write_set
     }
 
+    /// A read-write transaction's longest life, in milliseconds.
     pub fn transaction_ms(&self) -> u32 {
         self.transaction_ms
     }
 
+    /// The server's name.
     pub fn server(&self) -> &'a str {
         self.server
     }

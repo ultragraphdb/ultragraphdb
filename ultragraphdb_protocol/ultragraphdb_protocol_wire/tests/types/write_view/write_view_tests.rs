@@ -8,21 +8,25 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, Declared, DeclaredPredicate, RequestTerm, RequestTermView, TermTable,
     Write, WriteChange, WriteView,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::types::write::write_tests::golden_write;
 use crate::utils::golden_bodies::{
     body_data, frame_of, golden, put, section, with_command_header, with_section,
 };
 
-fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> ProtocolErrorEnum {
-    let bytes = with_section(&golden("write").bytes(), 6, index, change);
-    WriteView::from_frame(&frame_of(&bytes)).unwrap_err().0
+fn refused(index: usize, change: impl FnOnce(&mut Vec<u8>)) -> TestResult<ProtocolErrorEnum> {
+    let bytes = with_section(&golden("write")?.bytes()?, 6, index, change);
+    Ok(WriteView::from_frame(&frame_of(&bytes)?)
+        .err()
+        .context("a refusal")?
+        .0)
 }
 
 #[test]
-fn test_the_golden_write_reads_its_changes_and_terms() {
-    let bytes = golden("write").bytes();
-    let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
+fn test_the_golden_write_reads_its_changes_and_terms() -> TestResult {
+    let bytes = golden("write")?.bytes()?;
+    let view = WriteView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!(view.len(), 14);
     assert!(!view.is_empty());
     assert_eq!(view.terms().len(), 17);
@@ -46,7 +50,8 @@ fn test_the_golden_write_reads_its_changes_and_terms() {
         })
     );
     assert_eq!(view.change(14), None);
-    assert_eq!(view.to_body().unwrap(), golden_write());
+    assert_eq!(view.to_body()?, golden_write()?);
+    Ok(())
 }
 
 /// The refusal of a Write's field `field` holding `value`.
@@ -59,9 +64,9 @@ fn field_value(field: &'static str, value: u64) -> ProtocolErrorEnum {
 }
 
 #[test]
-fn test_records_are_whole_known_and_zero_where_unused() {
+fn test_records_are_whole_known_and_zero_where_unused() -> TestResult {
     assert_eq!(
-        refused(0, |r| r.truncate(r.len() - 1)),
+        refused(0, |r| r.truncate(r.len() - 1))?,
         ProtocolErrorEnum::SectionLength {
             command: 8,
             section: 0,
@@ -69,27 +74,31 @@ fn test_records_are_whole_known_and_zero_where_unused() {
             unit: 16
         }
     );
-    assert_eq!(refused(0, |r| r[0] = 11), field_value("change kind", 11));
-    assert_eq!(refused(0, |r| r[0] = 0), field_value("change kind", 0));
+    assert_eq!(refused(0, |r| r[0] = 11)?, field_value("change kind", 11));
+    assert_eq!(refused(0, |r| r[0] = 0)?, field_value("change kind", 0));
     // Insert takes no flags; DeleteProperty only bit 0; a predicate declaration's kind bits only 0 to 2.
-    assert_eq!(refused(0, |r| r[1] = 1), field_value("flags", 1));
-    assert_eq!(refused(0, |r| r[16 * 6 + 1] = 3), field_value("flags", 3));
+    assert_eq!(refused(0, |r| r[1] = 1)?, field_value("flags", 1));
+    assert_eq!(refused(0, |r| r[16 * 6 + 1] = 3)?, field_value("flags", 3));
     assert_eq!(
-        refused(0, |r| r[16 * 10 + 1] = 3 | 4),
+        refused(0, |r| r[16 * 10 + 1] = 3 | 4)?,
         field_value("flags", 7)
     );
     assert_eq!(
-        refused(0, |r| r[16 * 10 + 1] = 64 | 1),
+        refused(0, |r| r[16 * 10 + 1] = 64 | 1)?,
         field_value("flags", 65)
     );
-    assert_eq!(refused(0, |r| r[2] = 1), field_value("change record", 1));
-    assert_eq!(refused(0, |r| r[16 * 12 + 12] = 1), field_value("extra", 1));
+    assert_eq!(refused(0, |r| r[2] = 1)?, field_value("change record", 1));
+    assert_eq!(
+        refused(0, |r| r[16 * 12 + 12] = 1)?,
+        field_value("extra", 1)
+    );
+    Ok(())
 }
 
 #[test]
-fn test_args_follow_each_other_and_are_consumed_exactly() {
+fn test_args_follow_each_other_and_are_consumed_exactly() -> TestResult {
     assert_eq!(
-        refused(0, |r| put(r, 16 + 4, 5, 4)),
+        refused(0, |r| put(r, 16 + 4, 5, 4))?,
         ProtocolErrorEnum::FieldValue {
             command: 8,
             field: "args_start",
@@ -97,7 +106,7 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
         }
     );
     assert_eq!(
-        refused(0, |r| put(r, 8, 3, 4)),
+        refused(0, |r| put(r, 8, 3, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "change args",
@@ -107,7 +116,7 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
     );
     // 65 args: 4, 4, 3, 3, 6, 5, 6, 4, 4, 4 for the changes, 7, 10, 2, 3 for the declarations.
     assert_eq!(
-        refused(1, |a| a.extend_from_slice(&0u32.to_le_bytes())),
+        refused(1, |a| a.extend_from_slice(&0u32.to_le_bytes()))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
@@ -117,7 +126,7 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
     );
     // The first declaration's tokenizer count, arg 43 + 2, past its args.
     assert_eq!(
-        refused(1, |a| put(a, 4 * 45, 40, 4)),
+        refused(1, |a| put(a, 4 * 45, 40, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "change args",
@@ -125,13 +134,14 @@ fn test_args_follow_each_other_and_are_consumed_exactly() {
             expected: 43
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_term_and_name_references_are_in_range() {
+fn test_term_and_name_references_are_in_range() -> TestResult {
     // The Insert's subject, arg 1, past the 17 terms; absent where it may not be.
     assert_eq!(
-        refused(1, |a| put(a, 4, 17, 4)),
+        refused(1, |a| put(a, 4, 17, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
@@ -141,7 +151,7 @@ fn test_term_and_name_references_are_in_range() {
         }
     );
     assert_eq!(
-        refused(1, |a| put(a, 4, u32::MAX.into(), 4)),
+        refused(1, |a| put(a, 4, u32::MAX.into(), 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
@@ -152,7 +162,7 @@ fn test_term_and_name_references_are_in_range() {
     );
     // The first declaration's predicate, arg 43, past the 15 names.
     assert_eq!(
-        refused(1, |a| put(a, 4 * 43, 15, 4)),
+        refused(1, |a| put(a, 4 * 43, 15, 4))?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
@@ -161,17 +171,16 @@ fn test_term_and_name_references_are_in_range() {
             limit: 15
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() {
+fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() -> TestResult {
     // Three terms and five names: an Insert's object, arg 3, naming term 3 is out of range though name 3 exists.
     let mut terms = TermTable::new();
-    let [a, knows, b] = ["a", "knows", "b"].map(|n| {
-        terms
-            .intern(RequestTerm::Iri(format!("http://ex.org/{n}")))
-            .unwrap()
-    });
+    let [a, knows, b] =
+        ["a", "knows", "b"].map(|n| terms.intern(RequestTerm::Iri(format!("http://ex.org/{n}"))));
+    let [a, knows, b] = [a?, knows?, b?];
     let declared = DeclaredPredicate::new("http://ex.org/name".to_string())
         .with_datatype("http://www.w3.org/2001/XMLSchema#string".to_string())
         .with_tokenizers(vec!["term".to_string(), "exact".to_string()])
@@ -185,14 +194,15 @@ fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() {
         },
         WriteChange::Declare(Declared::Predicate(declared)),
     ];
-    let bytes = Write::new(terms, changes)
-        .frame(golden("write").header())
-        .unwrap();
-    let view = WriteView::from_frame(&frame_of(&bytes)).unwrap();
+    let bytes = Write::new(terms, changes).frame(golden("write")?.header())?;
+    let view = WriteView::from_frame(&frame_of(&bytes)?)?;
     assert_eq!((view.terms().len(), view.names().len()), (3, 5));
-    let bytes = with_section(&bytes, 6, 1, |a| put(a, 4 * 3, 3, 4));
+    let bytes = with_section(&bytes, 6, 1, |args| put(args, 4 * 3, 3, 4));
     assert_eq!(
-        WriteView::from_frame(&frame_of(&bytes)).unwrap_err().0,
+        WriteView::from_frame(&frame_of(&bytes)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 8,
             section: 1,
@@ -201,36 +211,42 @@ fn test_a_term_reference_is_bounded_by_the_terms_not_the_names() {
             limit: 3
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_reserved_term_byte_is_named_at_its_body_offset() {
+fn test_a_reserved_term_byte_is_named_at_its_body_offset() -> TestResult {
     // The term records are section 2; the first record's reserved bytes start 2 bytes in.
-    let records_at = section(body_data(&golden("write").bytes()), 0, 2).0;
+    let records_at = section(body_data(&golden("write")?.bytes()?), 0, 2).0;
     assert_eq!(
-        refused(2, |r| r[2] = 1),
+        refused(2, |r| r[2] = 1)?,
         ProtocolErrorEnum::PaddingNotZero {
             command: 8,
             offset: records_at + 2
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_every_command_header_byte_is_unused() {
+fn test_every_command_header_byte_is_unused() -> TestResult {
     // The transaction's Begin names the namespace; a Write's command header is all zero.
-    let bytes = golden("write").bytes();
+    let bytes = golden("write")?.bytes()?;
     for at in [0usize, 7, 8, 127] {
         let frame = with_command_header(&bytes, |h| h[at] = 2);
         assert_eq!(
-            WriteView::from_frame(&frame_of(&frame)).unwrap_err().0,
+            WriteView::from_frame(&frame_of(&frame)?)
+                .err()
+                .context("a refusal")?
+                .0,
             ProtocolErrorEnum::ReservedNotZero { offset: 128 + at }
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_each_change_kind_takes_its_arg_count() {
+fn test_each_change_kind_takes_its_arg_count() -> TestResult {
     // PROTOCOL.md section 4.6 step 8, record by record of the golden Write (the changes and declarations of
     // `golden_write`): record i's `args_len` (record offset 8) set to `len`, refused at record i before the next
     // record's `args_start` is read: (record, len, the count the kind takes).
@@ -262,7 +278,7 @@ fn test_each_change_kind_takes_its_arg_count() {
     ];
     for (record, len, expected) in cases {
         assert_eq!(
-            refused(0, |r| put(r, 16 * record + 8, len.into(), 4)),
+            refused(0, |r| put(r, 16 * record + 8, len.into(), 4))?,
             ProtocolErrorEnum::CountMismatch {
                 command: 8,
                 field: "change args",
@@ -274,7 +290,7 @@ fn test_each_change_kind_takes_its_arg_count() {
     }
     // A relation of two names is whole: the one arg it leaves is the args section's, 65 held and 64 consumed.
     assert_eq!(
-        refused(0, |r| put(r, 16 * 13 + 8, 2, 4)),
+        refused(0, |r| put(r, 16 * 13 + 8, 2, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
@@ -282,10 +298,11 @@ fn test_each_change_kind_takes_its_arg_count() {
             expected: 64
         }
     );
+    Ok(())
 }
 
 #[test]
-fn test_each_change_kind_checks_its_term_and_name_args() {
+fn test_each_change_kind_checks_its_term_and_name_args() -> TestResult {
     // PROTOCOL.md section 4.6 step 9 over the golden Write's 65 args (17 terms, 15 names). Record i's args start at
     // the sum of the counts before it, 4, 4, 3, 3, 6, 5, 6, 4, 4, 4, 7, 10, 2, 3: record 5 at 20, 6 at 25, 10 at 43,
     // 13 at 62. (arg, value, limit) for one arg set out of range, refused naming the arg's index in the args section.
@@ -302,7 +319,7 @@ fn test_each_change_kind_checks_its_term_and_name_args() {
     ];
     for (at, value, limit) in cases {
         assert_eq!(
-            refused(1, |a| put(a, 4 * at, value.into(), 4)),
+            refused(1, |a| put(a, 4 * at, value.into(), 4))?,
             ProtocolErrorEnum::IndexOutOfRange {
                 command: 8,
                 section: 1,
@@ -315,7 +332,7 @@ fn test_each_change_kind_checks_its_term_and_name_args() {
     }
     // A predicate's args are consumed exactly: the first predicate's seven args and one more.
     assert_eq!(
-        refused(0, |r| put(r, 16 * 10 + 8, 8, 4)),
+        refused(0, |r| put(r, 16 * 10 + 8, 8, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "change args",
@@ -325,7 +342,7 @@ fn test_each_change_kind_checks_its_term_and_name_args() {
     );
     // The last record, the relation of 3 args at 62, claiming 4: 66 args asked of the 65 held.
     assert_eq!(
-        refused(0, |r| put(r, 16 * 13 + 8, 4, 4)),
+        refused(0, |r| put(r, 16 * 13 + 8, 4, 4))?,
         ProtocolErrorEnum::CountMismatch {
             command: 8,
             field: "args",
@@ -335,21 +352,22 @@ fn test_each_change_kind_checks_its_term_and_name_args() {
     );
     // The ID halves of DeleteStatement (record 3, args 11 to 13) take any value: low 0xFFFF_FFFF, high 0x8000_0000
     // are the ID 0x8000_0000_FFFF_FFFF.
-    let bytes = with_section(&golden("write").bytes(), 6, 1, |a| {
+    let bytes = with_section(&golden("write")?.bytes()?, 6, 1, |a| {
         put(a, 4 * 12, 0xFFFF_FFFF, 4);
         put(a, 4 * 13, 0x8000_0000, 4);
     });
     assert_eq!(
-        WriteView::from_frame(&frame_of(&bytes)).unwrap().change(3),
+        WriteView::from_frame(&frame_of(&bytes)?)?.change(3),
         Some(WriteChange::DeleteStatement {
             graph: None,
             id: 0x8000_0000_FFFF_FFFF
         })
     );
+    Ok(())
 }
 
 #[test]
-fn test_each_predicate_flag_reads_back_alone() {
+fn test_each_predicate_flag_reads_back_alone() -> TestResult {
     // Flag bits 2 to 4 of a predicate declaration (single, unique, count index), each set alone, read back as that
     // property alone: a decoder reading one bit for another fails here, where the golden predicate sets all three.
     let base = || DeclaredPredicate::new("http://ex.org/p".to_string());
@@ -362,13 +380,8 @@ fn test_each_predicate_flag_reads_back_alone() {
             TermTable::new(),
             vec![WriteChange::Declare(Declared::Predicate(declared))],
         );
-        let bytes = write.frame(golden("write").header()).unwrap();
-        assert_eq!(
-            WriteView::from_frame(&frame_of(&bytes))
-                .unwrap()
-                .to_body()
-                .unwrap(),
-            write
-        );
+        let bytes = write.frame(golden("write")?.header())?;
+        assert_eq!(WriteView::from_frame(&frame_of(&bytes)?)?.to_body()?, write);
     }
+    Ok(())
 }

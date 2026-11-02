@@ -3,8 +3,10 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::sync::Mutex;
+use std::sync::mpsc::SendError;
+use std::sync::{Mutex, PoisonError};
 
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_traits_store::Executor;
 
 /// An executor running every task at once, in the caller's thread; `run_all` runs them last to first.
@@ -18,7 +20,7 @@ impl Executor for Inline {
     where
         F: FnOnce() + Send + 'static,
     {
-        *self.spawned.lock().unwrap() += 1;
+        *self.spawned.lock().unwrap_or_else(PoisonError::into_inner) += 1;
         task();
     }
 
@@ -46,10 +48,20 @@ fn test_run_all_returns_results_in_task_order_and_tasks_may_borrow() {
 }
 
 #[test]
-fn test_spawn_takes_an_owned_task() {
+fn test_spawn_takes_an_owned_task() -> TestResult {
     let executor = Inline::default();
     let (tx, rx) = std::sync::mpsc::channel();
-    executor.spawn(move || tx.send(7).unwrap());
-    assert_eq!(rx.recv().unwrap(), 7);
-    assert_eq!(*executor.spawned.lock().unwrap(), 1);
+    // A failed send leaves the channel empty, which the receive below reports.
+    executor.spawn(move || {
+        let _sent: Result<(), SendError<i32>> = tx.send(7);
+    });
+    assert_eq!(rx.recv()?, 7);
+    assert_eq!(
+        *executor
+            .spawned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner),
+        1
+    );
+    Ok(())
 }

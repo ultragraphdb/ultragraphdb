@@ -13,6 +13,7 @@
 use ultragraphdb_core_tok::{AnalysisToken, Stemmer, TokenType};
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The Porter stemmer's (word, stem) cases.
 const CASES: &[(&str, &str)] = &[
@@ -119,19 +120,20 @@ const CHANGED: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn test_porter_stemmer() {
-    check_stems("stemmer_porter", CASES, CHANGED);
+fn test_porter_stemmer() -> TestResult {
+    check_stems("stemmer_porter", CASES, CHANGED)?;
+    Ok(())
 }
 
 /// go-porterstemmer's `TestStemFuzz`, which asks only that no term of one to five letters panics, here over every
 /// term of one to four letters `a` to `z` with the stems compared to Go's: FNV-1a 64 over each stem's bytes and a
 /// 0xff, in the fuzz order (by length, then alphabetically), as bleve's `stemmer_porter` gives them.
 #[test]
-fn test_porter_stem_fuzz() {
+fn test_porter_stem_fuzz() -> TestResult {
     const GO_TERMS: usize = 475_254;
     const GO_CHANGED: usize = 30_960;
     const GO_HASH: u64 = 0x11e7_6279_923d_7d27;
-    let s = Stemmer::named("stemmer_porter").unwrap();
+    let s = Stemmer::named("stemmer_porter").context("Stemmer::named(\"stemmer_porter\")")?;
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let (mut terms, mut changed) = (0, 0);
     let mut term = Vec::new();
@@ -139,7 +141,7 @@ fn test_porter_stem_fuzz() {
         term.clear();
         term.resize(len, b'a');
         loop {
-            let input = std::str::from_utf8(&term).unwrap();
+            let input = std::str::from_utf8(&term)?;
             let stem = s.stem(input);
             terms += 1;
             changed += usize::from(stem != input);
@@ -158,11 +160,12 @@ fn test_porter_stem_fuzz() {
     }
     assert_eq!((terms, changed), (GO_TERMS, GO_CHANGED));
     assert_eq!(hash, GO_HASH);
+    Ok(())
 }
 
 #[test]
-fn test_porter_filter_keeps_offsets() {
-    let s = Stemmer::named("stemmer_porter").unwrap();
+fn test_porter_filter_keeps_offsets() -> TestResult {
+    let s = Stemmer::named("stemmer_porter").context("Stemmer::named(\"stemmer_porter\")")?;
     let out = s.filter(vec![
         AnalysisToken::new("walking", 0, 7, TokenType::AlphaNumeric),
         AnalysisToken::new("42", 8, 10, TokenType::Numeric),
@@ -177,4 +180,5 @@ fn test_porter_filter_keeps_offsets() {
         ]
     );
     assert_eq!(s.filter(Vec::new()), Vec::new());
+    Ok(())
 }

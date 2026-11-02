@@ -37,7 +37,7 @@ where
         }
         let mut miss = self.miss(key, read_ts)?;
         let list = miss.take_list();
-        self.fill(miss);
+        let _filled: bool = self.fill(miss);
         Ok(list)
     }
 

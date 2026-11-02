@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The tests of `ultragraphdb_traits_store`, mirroring `src/`.
+
 #[cfg(test)]
 mod traits;
 #[cfg(test)]

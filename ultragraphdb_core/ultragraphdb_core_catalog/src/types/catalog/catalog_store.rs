@@ -4,7 +4,7 @@
  */
 
 use ultragraphdb_core_keys::{Keyspace, QuadKey, key_prefix};
-use ultragraphdb_core_mapping::Declaration;
+use ultragraphdb_core_mapping::{Declaration, PredicateDeclaration, RelationDeclaration};
 use ultragraphdb_traits_store::{Entry, Scan, StoreSnapshot};
 
 use crate::errors::catalog_error::CatalogError;
@@ -86,11 +86,11 @@ impl Catalog {
             };
             match (kind, decode(item.key(), item.value())?) {
                 (PREDICATE, Declaration::Predicate(p)) => {
-                    catalog.predicates.insert(uid, p);
+                    let _loaded: Option<PredicateDeclaration> = catalog.predicates.insert(uid, p);
                 }
                 (ENTITY_TYPE, Declaration::EntityType(t)) => types.push((uid, t)),
                 (RELATION, Declaration::Relation(r)) => {
-                    catalog.relations.insert(uid, r);
+                    let _loaded: Option<RelationDeclaration> = catalog.relations.insert(uid, r);
                 }
                 _ => {
                     return Err(CatalogError::Corrupted(

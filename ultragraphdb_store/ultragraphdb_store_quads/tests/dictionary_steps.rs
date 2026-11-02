@@ -12,10 +12,11 @@ use oxrdf::vocab::{rdf, xsd};
 use oxrdf::{GraphName, Literal, Quad, Term};
 use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::{Cardinality, Declaration, PredicateDeclaration, PredicateKind};
-use ultragraphdb_store_quads::{DataDictionary, Description};
+use ultragraphdb_store_quads::{DataDictionary, Description, Shapes};
 
 use crate::Steps;
 use crate::utils::helpers::{TestQuads, commit, ex, insert_write, quads, write};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn quoted(text: &str) -> Vec<String> {
     text.split('`')
@@ -36,9 +37,9 @@ fn term(text: &str) -> Term {
 }
 
 /// The quad a statement's text names, in the default graph.
-fn statement(text: &str) -> Quad {
-    let (s, rest) = text.split_once(' ').expect("a subject");
-    let (p, o) = rest.split_once(' ').expect("a predicate");
+fn statement(text: &str) -> TestResult<Quad> {
+    let (s, rest) = text.split_once(' ').context("a subject")?;
+    let (p, o) = rest.split_once(' ').context("a predicate")?;
     let named = |t: Term| {
         match t {
             Term::NamedNode(n) => Ok(n),
@@ -46,18 +47,21 @@ fn statement(text: &str) -> Quad {
                 Err(format!("{other} is no IRI"))
             }
         }
-        .expect("a statement's subject and predicate are IRIs")
+        .context("a statement's subject and predicate are IRIs")
     };
-    Quad::new(
-        named(term(s)),
-        named(term(p)),
+    Ok(Quad::new(
+        named(term(s))?,
+        named(term(p))?,
         term(o),
         GraphName::DefaultGraph,
-    )
+    ))
 }
 
-fn store(w: &mut Steps) -> &TestQuads {
-    w.store.get_or_insert_with(quads)
+fn store(w: &mut Steps) -> TestResult<&TestQuads> {
+    if w.store.is_none() {
+        w.store = Some(quads()?);
+    }
+    w.store.as_ref().context("the store")
 }
 
 fn dictionary(w: &mut Steps) -> Arc<DataDictionary> {
@@ -66,44 +70,57 @@ fn dictionary(w: &mut Steps) -> Arc<DataDictionary> {
         .clone()
 }
 
-fn describe(w: &mut Steps) -> Description {
+fn describe(w: &mut Steps) -> TestResult<Description> {
     let d = dictionary(w);
-    let store = store(w);
+    let store = store(w)?;
     d.describe(store, store.lists().applied_ts())
-        .expect("the dictionary answers")
+        .context("the dictionary answers")
 }
 
-fn pass(w: &mut Steps) -> u64 {
+/// Runs a pass at the newest timestamp: the timestamp.
+fn pass_at(w: &mut Steps) -> TestResult<u64> {
     let d = dictionary(w);
-    let store = store(w);
+    let store = store(w)?;
     let ts = store.lists().applied_ts();
-    d.run_pass(store, ts).expect("the pass completes");
-    ts
+    let _shapes: Arc<Shapes> = d.run_pass(store, ts).context("the pass completes")?;
+    Ok(ts)
+}
+
+/// Runs a pass at the newest timestamp, for a step that does not read the timestamp.
+fn pass(w: &mut Steps) -> TestResult {
+    let _passed_at: u64 = pass_at(w)?;
+    Ok(())
 }
 
 #[given(regex = r"^(`.+`) (?:is|are) held$")]
-fn held(w: &mut Steps, args: &[String]) {
+fn held(w: &mut Steps, args: &[String]) -> TestResult {
     let statements = &args[0];
-    let quads: Vec<Quad> = quoted(statements).iter().map(|t| statement(t)).collect();
-    write(store(w), 0, &quads);
+    let quads: Vec<Quad> = quoted(statements)
+        .iter()
+        .map(|t| statement(t))
+        .collect::<TestResult<_>>()?;
+    write(store(w)?, 0, &quads)?;
+    Ok(())
 }
 
 #[given("the shapes are current")]
-fn shapes_current(w: &mut Steps) {
-    pass(w);
+fn shapes_current(w: &mut Steps) -> TestResult {
+    pass(w)?;
+    Ok(())
 }
 
 #[given(regex = r"^`(.+)` is held and the shapes are current$")]
-fn held_and_current(w: &mut Steps, args: &[String]) {
+fn held_and_current(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    write(store(w), 0, &[statement(text)]);
-    pass(w);
+    write(store(w)?, 0, &[statement(text)?])?;
+    pass(w)?;
+    Ok(())
 }
 
 #[given(
     regex = r"^`(\w+)` is declared a single-valued property of `(\w+)` with datatype `xsd:string`$"
 )]
-fn declared(w: &mut Steps, args: &[String]) {
+fn declared(w: &mut Steps, args: &[String]) -> TestResult {
     let predicate = &args[0];
     let domain = &args[1];
     let declaration = PredicateDeclaration::new(ex(predicate))
@@ -111,89 +128,95 @@ fn declared(w: &mut Steps, args: &[String]) {
         .with_cardinality(Cardinality::Single)
         .with_datatype(xsd::STRING.into_owned())
         .with_domains(vec![ex(domain)]);
-    let store = store(w);
+    let store = store(w)?;
     // One write assigns the predicate its UID and commits the declaration under it.
-    let mut write = insert_write(store, 0, &[]);
+    let mut write = insert_write(store, 0, &[])?;
     let (terms, q) = write.terms();
     let p = terms
         .iri(q.store(), q.leases(), ex(predicate).as_str())
-        .expect("a UID");
+        .context("a UID")?;
     write.request().add_entry(Catalog::entry(
         0,
         p,
         &Declaration::Predicate(declaration),
         0,
     ));
-    commit(store, vec![write])
+    let _removed: u64 = commit(store, vec![write])?
         .remove(0)
-        .expect("the declaration commits");
+        .context("the declaration commits")?;
+    Ok(())
 }
 
 #[when(regex = r"^`(.+)` is written and the next pass completes$")]
-fn written_then_pass(w: &mut Steps, args: &[String]) {
+fn written_then_pass(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
-    write(store(w), 0, &[statement(text)]);
-    let ts = pass(w);
+    write(store(w)?, 0, &[statement(text)?])?;
+    let ts = pass_at(w)?;
     w.ts.push(ts);
+    Ok(())
 }
 
 #[when(regex = r"^`(.+)` is written while a pass over the snapshot before it runs$")]
-fn written_during_pass(w: &mut Steps, args: &[String]) {
+fn written_during_pass(w: &mut Steps, args: &[String]) -> TestResult {
     let text = &args[0];
     let d = dictionary(w);
-    let store = store(w);
+    let store = store(w)?;
     let before = store.lists().applied_ts();
-    let during = d.run_pass(store, before).expect("the pass completes");
-    let write = insert_write(store, 0, &[statement(text)]);
+    let during = d.run_pass(store, before).context("the pass completes")?;
+    let write = insert_write(store, 0, &[statement(text)?])?;
     let (request, terms) = write.finish();
     let read_nothing = request.read_keys().next().is_none();
     let mut batch = store.lists().batch();
     batch.push(request);
-    store
+    let _removed: u64 = store
         .commit(batch, &[terms])
-        .expect("the batch is written")
+        .context("the batch is written")?
         .remove(0)
-        .expect("commits");
-    let after = d.run_pass(store, before).expect("the pass completes");
+        .context("commits")?;
+    let after = d.run_pass(store, before).context("the pass completes")?;
     w.flags = vec![read_nothing, during == after];
+    Ok(())
 }
 
 #[then(regex = r"^the dictionary lists the label `(\w+)`$")]
-fn lists_label(w: &mut Steps, args: &[String]) {
+fn lists_label(w: &mut Steps, args: &[String]) -> TestResult {
     let label = &args[0];
-    assert!(describe(w).labels().contains(ex(label).as_str()));
+    assert!(describe(w)?.labels().contains(ex(label).as_str()));
+    Ok(())
 }
 
 #[then(
     regex = r"^the dictionary lists the property `(\w+)` of `(\w+)` with datatype `xsd:string`$"
 )]
-fn lists_property(w: &mut Steps, args: &[String]) {
+fn lists_property(w: &mut Steps, args: &[String]) -> TestResult {
     let property = &args[0];
     let label = &args[1];
-    let d = describe(w);
+    let d = describe(w)?;
     assert!(d.property_keys().contains(ex(property).as_str()));
     let shape = &d.shapes()[ex(label).as_str()].properties()[ex(property).as_str()];
     assert_eq!(shape.kinds(), &[xsd::STRING.as_str().to_string()].into());
+    Ok(())
 }
 
 #[then(regex = r"^the dictionary lists the relationship type `(\w+)` from `(\w+)` to `(\w+)`$")]
-fn lists_relationship(w: &mut Steps, args: &[String]) {
+fn lists_relationship(w: &mut Steps, args: &[String]) -> TestResult {
     let relationship = &args[0];
     let from = &args[1];
     let to = &args[2];
-    let d = describe(w);
+    let d = describe(w)?;
     assert!(d.relationship_types().contains(ex(relationship).as_str()));
     let targets = &d.shapes()[ex(from).as_str()].relationships()[ex(relationship).as_str()];
     assert_eq!(targets, &[ex(to).as_str().to_string()].into());
+    Ok(())
 }
 
 #[then(
     regex = r"^the dictionary reports `(\w+)` on `(\w+)`, single-valued, of datatype `xsd:string`$"
 )]
-fn reports_declared(w: &mut Steps, args: &[String]) {
+fn reports_declared(w: &mut Steps, args: &[String]) -> TestResult {
     let property = &args[0];
     let label = &args[1];
-    let d = describe(w);
+    let d = describe(w)?;
     assert!(d.labels().contains(ex(label).as_str()));
     let shape = &d.shapes()[ex(label).as_str()].properties()[ex(property).as_str()];
     assert_eq!(shape.cardinality(), Cardinality::Single);
@@ -203,20 +226,22 @@ fn reports_declared(w: &mut Steps, args: &[String]) {
             .iter()
             .any(|p| p.predicate() == &ex(property))
     );
+    Ok(())
 }
 
 #[then(regex = r"^the dictionary lists `(\w+)` on `(\w+)`, with the pass's snapshot timestamp$")]
-fn lists_after_pass(w: &mut Steps, args: &[String]) {
+fn lists_after_pass(w: &mut Steps, args: &[String]) -> TestResult {
     let property = &args[0];
     let label = &args[1];
-    let ts = *w.ts.last().expect("a pass");
-    let d = describe(w);
+    let ts = *w.ts.last().context("a pass")?;
+    let d = describe(w)?;
     assert!(
         d.shapes()[ex(label).as_str()]
             .properties()
             .contains_key(ex(property).as_str())
     );
     assert_eq!(d.shapes_ts(), Some(ts));
+    Ok(())
 }
 
 #[then("the write reads no list")]

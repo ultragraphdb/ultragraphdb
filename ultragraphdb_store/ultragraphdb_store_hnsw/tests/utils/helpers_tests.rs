@@ -11,16 +11,23 @@
 use ultragraphdb_traits_index::{KeyValue, Metric};
 
 use crate::utils::helpers::{InMemList, TsDbs, brute_force, oracle_score};
+use ultragraphdb_tool_bdd::TestResult;
 
 fn kv(value: &str) -> KeyValue {
     KeyValue::new(0, "", value.as_bytes().to_vec())
 }
 
 /// Dgraph's `flatInMemListWriteMutation`.
-fn write_mutation(dbs: &TsDbs, key: &str, start_ts: u64, finish_ts: u64, value: &str) {
+fn write_mutation(
+    dbs: &TsDbs,
+    key: &str,
+    start_ts: u64,
+    finish_ts: u64,
+    value: &str,
+) -> TestResult {
     let list = InMemList::new(dbs, key, start_ts, finish_ts);
     assert_eq!(list.start_ts(), start_ts);
-    list.add_mutation(&kv(value)).unwrap();
+    list.add_mutation(&kv(value))?;
     let k = key.as_bytes();
     assert_eq!(
         dbs.get(finish_ts - 1, k),
@@ -29,34 +36,37 @@ fn write_mutation(dbs: &TsDbs, key: &str, start_ts: u64, finish_ts: u64, value: 
     );
     assert_eq!(dbs.get(finish_ts, k), Some(value.as_bytes().to_vec()));
     assert_eq!(dbs.get(finish_ts, k), dbs.get(99, k), "to the end of time");
+    Ok(())
 }
 
 #[test]
-fn test_flat_in_mem_list_add_mutation() {
+fn test_flat_in_mem_list_add_mutation() -> TestResult {
     let dbs = TsDbs::default();
     for (key, start, finish, value) in [("a", 0, 5, "abc"), ("b", 1, 2, "123"), ("c", 0, 99, "xyz")]
     {
-        write_mutation(&dbs, key, start, finish, value);
+        write_mutation(&dbs, key, start, finish, value)?;
     }
+    Ok(())
 }
 
 #[test]
-fn test_flat_in_mem_list_add_overwrite_mutation() {
+fn test_flat_in_mem_list_add_overwrite_mutation() -> TestResult {
     let dbs = TsDbs::default();
     for value in ["abc", "123", "xyz"] {
-        write_mutation(&dbs, "a", 0, 5, value);
+        write_mutation(&dbs, "a", 0, 5, value)?;
     }
+    Ok(())
 }
 
 #[test]
-fn test_flat_in_mem_list_add_multiple_writes_mutation() {
+fn test_flat_in_mem_list_add_multiple_writes_mutation() -> TestResult {
     let dbs = TsDbs::default();
     let writes = [(0, 2, "abc"), (1, 3, "123"), (2, 4, "xyz")];
     for (i, (start, finish, value)) in writes.into_iter().enumerate() {
         let list = InMemList::new(&dbs, "a", start, finish);
-        list.add_mutation(&kv(value)).unwrap();
+        list.add_mutation(&kv(value))?;
         if i == 0 {
-            write_mutation(&dbs, "a", start, finish, value);
+            write_mutation(&dbs, "a", start, finish, value)?;
         } else {
             assert_eq!(
                 dbs.get(finish - 1, b"a"),
@@ -65,6 +75,7 @@ fn test_flat_in_mem_list_add_multiple_writes_mutation() {
             assert_eq!(dbs.get(finish, b"a"), Some(value.as_bytes().to_vec()));
         }
     }
+    Ok(())
 }
 
 /// The oracle's scores, by hand: |(0,3)-(4,0)| = 5; (3,4)·(4,3) = 24, over |(3,4)||(4,3)| = 25; (1,2)·(-3,1) = -1.

@@ -233,7 +233,7 @@ pub fn invariant(holds: bool, name: &'static str) -> Result<(), InvariantError> 
     if holds {
         Ok(())
     } else {
-        Err(InvariantError::Violated(name))
+        Err(InvariantError::violated(name))
     }
 }
 ```

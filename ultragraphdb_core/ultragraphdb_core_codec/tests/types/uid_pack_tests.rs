@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_codec::{UidBlock, UidPack, encode};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
 fn a_pack_returns_what_it_was_built_with() {
@@ -23,9 +24,9 @@ fn the_default_pack_has_no_blocks() {
 }
 
 #[test]
-fn the_encoder_appends_each_block_it_closes() {
+fn the_encoder_appends_each_block_it_closes() -> TestResult {
     // Hand-derived: block size 2 closes [5, 6] and [7]; deltas 1 then nothing, one group each.
-    let pack = encode(&[5, 6, 7], 2).expect("three UIDs pack");
+    let pack = encode(&[5, 6, 7], 2).context("three UIDs pack")?;
     assert_eq!(
         pack,
         UidPack::new(
@@ -36,4 +37,5 @@ fn the_encoder_appends_each_block_it_closes() {
             ]
         )
     );
+    Ok(())
 }

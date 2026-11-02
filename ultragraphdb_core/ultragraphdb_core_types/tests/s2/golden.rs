@@ -12,38 +12,51 @@
 
 use serde::de::DeserializeOwned;
 use ultragraphdb_core_types::{CellId, Point, R1Interval, R3Vector, Rect, S1Interval};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// Loads `testdata/golden/types_s2_<name>`; each file holds its vectors as its one case.
-pub fn load<T: DeserializeOwned>(name: &str) -> T {
+pub fn load<T: DeserializeOwned>(name: &str) -> TestResult<T> {
     let stem = name.trim_end_matches(".json");
-    let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/types_s2_{stem}.json"));
-    let golden = ultragraphdb_tool_bdd::load_golden::<serde_json::Value>(&path);
-    serde_json::from_value(golden.cases()[0].clone())
-        .map_err(|e| format!("parsing {}: {e}", path.display()))
-        .expect("parsing the golden vectors")
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join(format!("golden/types_s2_{stem}.json"));
+    let golden = ultragraphdb_tool_bdd::load_golden::<serde_json::Value>(&path)?;
+    let case = golden
+        .cases()
+        .first()
+        .context("the golden file's one case")?;
+    serde_json::from_value(case.clone())
+        .context(&format!("parsing the golden vectors of {}", path.display()))
 }
 
-pub fn f(s: &str) -> f64 {
-    f64::from_bits(u64::from_str_radix(s, 16).expect("hex float"))
+/// The float whose IEEE-754 bits are the hex digits `s`.
+pub fn f(s: &str) -> TestResult<f64> {
+    Ok(f64::from_bits(
+        u64::from_str_radix(s, 16).context("hex float")?,
+    ))
 }
 
 pub fn hx(x: f64) -> String {
     format!("{:016x}", x.to_bits())
 }
 
-pub fn pt(v: &[String; 3]) -> Point {
-    Point::from_vector(R3Vector::new(f(&v[0]), f(&v[1]), f(&v[2])))
+pub fn pt(v: &[String; 3]) -> TestResult<Point> {
+    Ok(Point::from_vector(R3Vector::new(
+        f(&v[0])?,
+        f(&v[1])?,
+        f(&v[2])?,
+    )))
 }
 
-pub fn cell(s: &str) -> CellId {
-    CellId::new(u64::from_str_radix(s, 16).expect("hex cell id"))
+pub fn cell(s: &str) -> TestResult<CellId> {
+    Ok(CellId::new(
+        u64::from_str_radix(s, 16).context("hex cell id")?,
+    ))
 }
 
-pub fn rect(r: &[String; 4]) -> Rect {
-    Rect::new(
-        R1Interval::new(f(&r[0]), f(&r[1])),
-        S1Interval::new(f(&r[2]), f(&r[3])),
-    )
+pub fn rect(r: &[String; 4]) -> TestResult<Rect> {
+    Ok(Rect::new(
+        R1Interval::new(f(&r[0])?, f(&r[1])?),
+        S1Interval::new(f(&r[2])?, f(&r[3])?),
+    ))
 }
 
 /// Bit equality, with every NaN equal to every NaN (NaN payloads differ between CPUs).
@@ -51,15 +64,15 @@ pub fn same(a: f64, b: f64) -> bool {
     a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
 }
 
-pub fn same_point(a: Point, b: &[String; 3]) -> bool {
-    same(a.x(), f(&b[0])) && same(a.y(), f(&b[1])) && same(a.z(), f(&b[2]))
+pub fn same_point(a: Point, b: &[String; 3]) -> TestResult<bool> {
+    Ok(same(a.x(), f(&b[0])?) && same(a.y(), f(&b[1])?) && same(a.z(), f(&b[2])?))
 }
 
-pub fn same_rect(a: Rect, b: &[String; 4]) -> bool {
-    same(a.lat().lo(), f(&b[0]))
-        && same(a.lat().hi(), f(&b[1]))
-        && same(a.lng().lo(), f(&b[2]))
-        && same(a.lng().hi(), f(&b[3]))
+pub fn same_rect(a: Rect, b: &[String; 4]) -> TestResult<bool> {
+    Ok(same(a.lat().lo(), f(&b[0])?)
+        && same(a.lat().hi(), f(&b[1])?)
+        && same(a.lng().lo(), f(&b[2])?)
+        && same(a.lng().hi(), f(&b[3])?))
 }
 
 pub fn ids(v: &[CellId]) -> Vec<String> {

@@ -11,7 +11,10 @@ mod scram_error_error;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScramErrorEnum {
     /// A message breaks RFC 5802's grammar: `part` names the part that does not parse.
-    Malformed { part: &'static str },
+    Malformed {
+        /// The part of the message that does not parse.
+        part: &'static str,
+    },
     /// The client asked for channel binding, which this mechanism without TLS does not offer.
     ChannelBinding,
     /// A password or name SASLprep (RFC 4013) refuses: a prohibited or unassigned character, or bidirectional text
@@ -19,7 +22,10 @@ pub enum ScramErrorEnum {
     Prepare,
     /// The iteration count, `iterations`, is outside [`crate::MIN_ITERATIONS`] to [`crate::MAX_ITERATIONS`]: a
     /// server's, which the client refuses to run, or a verifier's, which is never derived.
-    Iterations { iterations: u32 },
+    Iterations {
+        /// The iteration count refused.
+        iterations: u32,
+    },
     /// The server's nonce does not extend the client's.
     Nonce,
     /// The client's proof does not verify: a wrong password, or a name no principal holds.
@@ -27,11 +33,17 @@ pub enum ScramErrorEnum {
     /// The server's signature does not verify: the server does not hold the password's verifier.
     ServerSignature,
     /// The server answered with its error `e=`, `reason`.
-    Server { reason: String },
+    Server {
+        /// The server's error, as its `e=` attribute states it.
+        reason: String,
+    },
     /// A message arrived where the exchange expected none, or another.
     OutOfStep,
     /// The operating system's random source failed, `reason` its error: no nonce was drawn.
-    Random { reason: String },
+    Random {
+        /// The random source's error.
+        reason: String,
+    },
 }
 
 /// Why a SCRAM message or password was refused; `.0` classifies it.
@@ -39,41 +51,49 @@ pub enum ScramErrorEnum {
 pub struct ScramError(pub ScramErrorEnum);
 
 impl ScramError {
+    /// A [`ScramErrorEnum::Malformed`] naming `part`.
     #[allow(non_snake_case)]
     pub fn Malformed(part: &'static str) -> Self {
         Self(ScramErrorEnum::Malformed { part })
     }
 
+    /// A [`ScramErrorEnum::ChannelBinding`].
     #[allow(non_snake_case)]
     pub fn ChannelBinding() -> Self {
         Self(ScramErrorEnum::ChannelBinding)
     }
 
+    /// A [`ScramErrorEnum::Prepare`].
     #[allow(non_snake_case)]
     pub fn Prepare() -> Self {
         Self(ScramErrorEnum::Prepare)
     }
 
+    /// A [`ScramErrorEnum::Iterations`] of `iterations`.
     #[allow(non_snake_case)]
     pub fn Iterations(iterations: u32) -> Self {
         Self(ScramErrorEnum::Iterations { iterations })
     }
 
+    /// A [`ScramErrorEnum::Nonce`].
     #[allow(non_snake_case)]
     pub fn Nonce() -> Self {
         Self(ScramErrorEnum::Nonce)
     }
 
+    /// A [`ScramErrorEnum::Proof`].
     #[allow(non_snake_case)]
     pub fn Proof() -> Self {
         Self(ScramErrorEnum::Proof)
     }
 
+    /// A [`ScramErrorEnum::ServerSignature`].
     #[allow(non_snake_case)]
     pub fn ServerSignature() -> Self {
         Self(ScramErrorEnum::ServerSignature)
     }
 
+    /// A [`ScramErrorEnum::Server`] for the server's `reason`.
     #[allow(non_snake_case)]
     pub fn Server(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Server {
@@ -81,11 +101,13 @@ impl ScramError {
         })
     }
 
+    /// A [`ScramErrorEnum::OutOfStep`].
     #[allow(non_snake_case)]
     pub fn OutOfStep() -> Self {
         Self(ScramErrorEnum::OutOfStep)
     }
 
+    /// A [`ScramErrorEnum::Random`] for the random source's `reason`.
     #[allow(non_snake_case)]
     pub fn Random(reason: impl Into<String>) -> Self {
         Self(ScramErrorEnum::Random {

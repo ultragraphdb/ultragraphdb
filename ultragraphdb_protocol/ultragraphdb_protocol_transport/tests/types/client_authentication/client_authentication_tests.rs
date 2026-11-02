@@ -11,88 +11,95 @@ use ultragraphdb_protocol_wire::{
     Authenticate, BodyBuilder, Command, Credit, ErrorCode, ErrorReply, FrameView, Header,
     MAX_FRAME_SIZE,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::mechanism::{TEST, TestClient};
 
 const CLUSTER: u64 = 3;
 
-fn frame<B: BodyBuilder>(body: &B) -> Vec<u8> {
-    body.frame(Header::new(CLUSTER, Command::Abort)).unwrap()
+fn frame<B: BodyBuilder>(body: &B) -> TestResult<Vec<u8>> {
+    Ok(body.frame(Header::new(CLUSTER, Command::Abort))?)
 }
 
+/// What the exchange made of `bytes`, a frame that validates.
 fn receive(
     auth: &mut ClientAuthentication<TestClient>,
     bytes: &[u8],
-) -> Result<AuthenticationStep, TransportError> {
-    auth.receive(&FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE).unwrap())
+) -> TestResult<Result<AuthenticationStep, TransportError>> {
+    Ok(auth.receive(&FrameView::validate(bytes, CLUSTER, MAX_FRAME_SIZE)?))
 }
 
 /// An exchange of `alice` past its start.
-fn started() -> ClientAuthentication<TestClient> {
+fn started() -> TestResult<ClientAuthentication<TestClient>> {
     let mut auth = ClientAuthentication::new(TestClient::new("alice", "pw"));
-    auth.start().unwrap();
-    auth
+    assert_eq!(
+        auth.start()?,
+        Authenticate::new(0, TEST, b"user=alice".to_vec())
+    );
+    Ok(auth)
 }
 
 #[test]
-fn test_an_exchange_numbers_its_messages_and_ends_with_the_servers_final() {
+fn test_an_exchange_numbers_its_messages_and_ends_with_the_servers_final() -> TestResult {
     let mut auth = ClientAuthentication::new(TestClient::new("alice", "pw"));
     assert_eq!(auth.mechanism().name_of(), TEST);
     assert_eq!(
         auth.start(),
         Ok(Authenticate::new(0, TEST, b"user=alice".to_vec()))
     );
-    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()));
+    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()))?;
     assert_eq!(
-        receive(&mut auth, &challenge),
+        receive(&mut auth, &challenge)?,
         Ok(AuthenticationStep::Send(Authenticate::new(
             2,
             "",
             b"pass=pw".to_vec()
         )))
     );
-    let last = frame(&Authenticate::new(3, "", b"welcome".to_vec()).with_final(7, 99));
+    let last = frame(&Authenticate::new(3, "", b"welcome".to_vec()).with_final(7, 99))?;
     assert_eq!(
-        receive(&mut auth, &last),
+        receive(&mut auth, &last)?,
         Ok(AuthenticationStep::Done {
             principal: 7,
             expires: 99
         })
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_servers_error_is_a_refusal_naming_its_code() {
-    let mut auth = started();
+fn test_the_servers_error_is_a_refusal_naming_its_code() -> TestResult {
+    let mut auth = started()?;
     let refused = frame(&ErrorReply::new(
         ErrorCode::AuthenticationFailed,
         "authentication failed",
-    ));
+    ))?;
     assert_eq!(
-        receive(&mut auth, &refused),
+        receive(&mut auth, &refused)?,
         Err(TransportError::Refused(
             ErrorCode::AuthenticationFailed,
             "authentication failed"
         ))
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() {
+fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() -> TestResult {
     // Step 3 where 1 is due.
-    let mut auth = started();
-    let early = frame(&Authenticate::new(3, "", b"welcome".to_vec()).with_final(7, 0));
+    let mut auth = started()?;
+    let early = frame(&Authenticate::new(3, "", b"welcome".to_vec()).with_final(7, 0))?;
     assert_eq!(
-        receive(&mut auth, &early),
+        receive(&mut auth, &early)?,
         Err(TransportError::Protocol(ProtocolError::FieldValue(
             18, "step", 3
         )))
     );
     // A final message at step 1 is the server's at its step, and taken.
-    let mut auth = started();
-    let quick = frame(&Authenticate::new(1, "", b"welcome".to_vec()).with_final(9, 0));
+    let mut quick_auth = started()?;
+    let quick = frame(&Authenticate::new(1, "", b"welcome".to_vec()).with_final(9, 0))?;
     assert_eq!(
-        receive(&mut auth, &quick),
+        receive(&mut quick_auth, &quick)?,
         Ok(AuthenticationStep::Done {
             principal: 9,
             expires: 0
@@ -100,41 +107,49 @@ fn test_a_message_out_of_step_or_another_command_is_a_protocol_error() {
     );
     // Before the exchange starts, any message is out of step.
     let mut fresh = ClientAuthentication::new(TestClient::new("alice", "pw"));
-    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()));
+    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()))?;
     assert!(matches!(
-        receive(&mut fresh, &challenge).unwrap_err().0,
+        receive(&mut fresh, &challenge)?
+            .err()
+            .context("the refusal")?
+            .0,
         TransportErrorEnum::Protocol {
             error: ProtocolError(ProtocolErrorEnum::FieldValue { field: "step", .. })
         }
     ));
     // Another command on stream 0.
-    let mut auth = started();
-    let credit = frame(&Credit::new(1));
+    let mut credit_auth = started()?;
+    let credit = frame(&Credit::new(1))?;
     assert_eq!(
-        receive(&mut auth, &credit),
+        receive(&mut credit_auth, &credit)?,
         Err(TransportError::UnexpectedCommand(18, 14))
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_mechanisms_refusal_is_an_authentication_error() {
-    let mut auth = started();
-    let odd = frame(&Authenticate::new(1, "", b"something else".to_vec()));
+fn test_the_mechanisms_refusal_is_an_authentication_error() -> TestResult {
+    let mut auth = started()?;
+    let odd = frame(&Authenticate::new(1, "", b"something else".to_vec()))?;
     assert_eq!(
-        receive(&mut auth, &odd),
+        receive(&mut auth, &odd)?,
         Err(TransportError::Authentication("an unexpected challenge"))
     );
     // A final message the mechanism does not take: the server did not prove itself.
-    let mut auth = started();
-    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()));
-    receive(&mut auth, &challenge).unwrap();
-    let forged = frame(&Authenticate::new(3, "", b"forged".to_vec()).with_final(7, 0));
+    let mut forged_auth = started()?;
+    let challenge = frame(&Authenticate::new(1, "", b"challenge".to_vec()))?;
     assert_eq!(
-        receive(&mut auth, &forged),
+        receive(&mut forged_auth, &challenge)??,
+        AuthenticationStep::Send(Authenticate::new(2, "", b"pass=pw".to_vec()))
+    );
+    let forged = frame(&Authenticate::new(3, "", b"forged".to_vec()).with_final(7, 0))?;
+    assert_eq!(
+        receive(&mut forged_auth, &forged)?,
         Err(TransportError::Authentication(
             "the server did not prove itself"
         ))
     );
+    Ok(())
 }
 
 /// A mechanism that cannot start, as a login whose secret is unavailable.
@@ -162,7 +177,7 @@ impl ultragraphdb_protocol_transport::ClientMechanism for Unstartable {
 }
 
 #[test]
-fn test_a_mechanism_that_cannot_start_is_an_authentication_error() {
+fn test_a_mechanism_that_cannot_start_is_an_authentication_error() -> TestResult {
     let mut auth = ClientAuthentication::new(Unstartable);
     assert_eq!(
         auth.start(),
@@ -170,25 +185,25 @@ fn test_a_mechanism_that_cannot_start_is_an_authentication_error() {
     );
     // Not started, so the server's step 1 is out of step.
     let challenge = Authenticate::new(1, "", b"challenge".to_vec())
-        .frame(Header::new(CLUSTER, Command::Abort))
-        .unwrap();
+        .frame(Header::new(CLUSTER, Command::Abort))?;
     assert_eq!(
-        auth.receive(&FrameView::validate(&challenge, CLUSTER, MAX_FRAME_SIZE).unwrap()),
+        auth.receive(&FrameView::validate(&challenge, CLUSTER, MAX_FRAME_SIZE)?),
         Err(TransportError::Protocol(ProtocolError::FieldValue(
             18, "step", 1
         )))
     );
+    Ok(())
 }
 
 #[test]
-fn test_each_challenge_is_answered_at_the_step_after_it() {
+fn test_each_challenge_is_answered_at_the_step_after_it() -> TestResult {
     // Two challenges before the final message: the client's messages take steps 0, 2, 4 and the server's 1, 3, 5
     // (PROTOCOL.md section 5.3).
-    let mut auth = started();
+    let mut auth = started()?;
     for (challenge, answer) in [(1, 2), (3, 4)] {
-        let message = frame(&Authenticate::new(challenge, "", b"challenge".to_vec()));
+        let message = frame(&Authenticate::new(challenge, "", b"challenge".to_vec()))?;
         assert_eq!(
-            receive(&mut auth, &message),
+            receive(&mut auth, &message)?,
             Ok(AuthenticationStep::Send(Authenticate::new(
                 answer,
                 "",
@@ -197,27 +212,31 @@ fn test_each_challenge_is_answered_at_the_step_after_it() {
         );
     }
     // Step 3 again, where 5 is due.
-    let repeated = frame(&Authenticate::new(3, "", b"challenge".to_vec()));
-    let mut again = started();
-    receive(
-        &mut again,
-        &frame(&Authenticate::new(1, "", b"challenge".to_vec())),
-    )
-    .unwrap();
-    receive(
-        &mut again,
-        &frame(&Authenticate::new(3, "", b"challenge".to_vec())),
-    )
-    .unwrap();
+    let repeated = frame(&Authenticate::new(3, "", b"challenge".to_vec()))?;
+    let mut again = started()?;
     assert_eq!(
-        receive(&mut again, &repeated),
+        receive(
+            &mut again,
+            &frame(&Authenticate::new(1, "", b"challenge".to_vec()))?,
+        )??,
+        AuthenticationStep::Send(Authenticate::new(2, "", b"pass=pw".to_vec()))
+    );
+    assert_eq!(
+        receive(
+            &mut again,
+            &frame(&Authenticate::new(3, "", b"challenge".to_vec()))?,
+        )??,
+        AuthenticationStep::Send(Authenticate::new(4, "", b"pass=pw".to_vec()))
+    );
+    assert_eq!(
+        receive(&mut again, &repeated)?,
         Err(TransportError::Protocol(ProtocolError::FieldValue(
             18, "step", 3
         )))
     );
-    let last = frame(&Authenticate::new(5, "", b"welcome".to_vec()).with_final(7, 0));
+    let last = frame(&Authenticate::new(5, "", b"welcome".to_vec()).with_final(7, 0))?;
     assert_eq!(
-        receive(&mut auth, &last),
+        receive(&mut auth, &last)?,
         Ok(AuthenticationStep::Done {
             principal: 7,
             expires: 0
@@ -225,24 +244,26 @@ fn test_each_challenge_is_answered_at_the_step_after_it() {
     );
     // The exchange is over: any later message is out of step, the final message repeated among them.
     assert_eq!(
-        receive(&mut auth, &last),
+        receive(&mut auth, &last)?,
         Err(TransportError::Protocol(ProtocolError::FieldValue(
             18, "step", 5
         )))
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_server_message_breaking_its_bodys_rules_is_a_protocol_error() {
+fn test_a_server_message_breaking_its_bodys_rules_is_a_protocol_error() -> TestResult {
     // A message after step 0 names no mechanism (PROTOCOL.md section 5.3): one naming `TEST`, 4 bytes, is refused.
-    let mut auth = started();
-    let named = frame(&Authenticate::new(1, TEST, b"challenge".to_vec()));
+    let mut auth = started()?;
+    let named = frame(&Authenticate::new(1, TEST, b"challenge".to_vec()))?;
     assert_eq!(
-        receive(&mut auth, &named),
+        receive(&mut auth, &named)?,
         Err(TransportError::Protocol(ProtocolError::FieldValue(
             18,
             "mechanism",
             4
         )))
     );
+    Ok(())
 }

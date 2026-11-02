@@ -13,7 +13,10 @@
 #[allow(dead_code)]
 mod bench_dir;
 
-use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main,
+};
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::Durability;
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
 
@@ -24,8 +27,8 @@ const VERSIONS: u64 = 10;
 const COMPLETE: u64 = 8;
 
 /// A fresh store holding garbage below its discard timestamp.
-fn with_garbage() -> BenchStore {
-    let bench = BenchStore::open("compact", Durability::Process);
+fn with_garbage() -> Result<BenchStore, StoreError> {
+    let bench = BenchStore::open("compact", Durability::Process)?;
     for version in 1..=VERSIONS {
         let mut batch = WriteBatch::new();
         (0..KEYS).for_each(|i| {
@@ -36,33 +39,32 @@ fn with_garbage() -> BenchStore {
                 entry
             });
         });
-        bench
-            .store()
-            .apply(batch, PersistMode::Buffer)
-            .expect("the versions are written");
+        bench.store().apply(batch, PersistMode::Buffer)?;
     }
-    bench
-        .store()
-        .set_discard_ts(COMPLETE + 1)
-        .expect("the discard timestamp is set");
-    bench
+    bench.store().set_discard_ts(COMPLETE + 1)?;
+    Ok(bench)
 }
 
 fn compaction(c: &mut Criterion) {
     let mut group = c.benchmark_group("kv_compact");
-    group.sample_size(10);
-    group.throughput(Throughput::Elements(KEYS * VERSIONS));
-    group.bench_function("gc_filter_10k_keys_10_versions", |b| {
-        b.iter_batched(
-            with_garbage,
-            |bench| {
-                bench.store().compact().expect("the store compacts");
-                // Dropped, with its directory, outside the timed routine.
-                bench
-            },
-            BatchSize::PerIteration,
-        )
-    });
+    let _measured: &mut BenchmarkGroup<'_, _> = group
+        .sample_size(10)
+        .throughput(Throughput::Elements(KEYS * VERSIONS))
+        .bench_function("gc_filter_10k_keys_10_versions", |b| {
+            b.iter_batched(
+                with_garbage,
+                |bench| {
+                    let compacted = bench.as_ref().map(|bench| bench.store().compact());
+                    assert!(
+                        matches!(compacted, Ok(Ok(()))),
+                        "the store fills and compacts: {compacted:?}"
+                    );
+                    // Dropped, with its directory, outside the timed routine.
+                    bench
+                },
+                BatchSize::PerIteration,
+            )
+        });
     group.finish();
 }
 

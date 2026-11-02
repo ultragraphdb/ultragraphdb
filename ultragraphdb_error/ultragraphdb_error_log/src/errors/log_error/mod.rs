@@ -29,60 +29,103 @@ pub enum LogErrorEnum {
     /// This replica is not the primary, so it takes no appends; send them to the primary.
     NotPrimary,
     /// The log holds `segments` segments, its capacity: a checkpoint must trim it before another round fits.
-    Busy { segments: u64 },
+    Busy {
+        /// The segments the log holds, its capacity.
+        segments: u64,
+    },
     /// The log was sealed at `position`; a later round goes to the log that continues it.
-    Sealed { position: u64 },
+    Sealed {
+        /// The position the log was sealed at.
+        position: u64,
+    },
     /// The log holds a round at `position`, the last position a round can take (`u64::MAX`): no position follows it,
     /// so no round can be appended; nothing was written.
-    Exhausted { position: u64 },
+    Exhausted {
+        /// The last position, `u64::MAX`.
+        position: u64,
+    },
     /// The round at `position` was appended and then replaced before it became durable; its outcome is resolved
     /// through the client's session.
-    Truncated { position: u64 },
+    Truncated {
+        /// The position of the replaced round.
+        position: u64,
+    },
     /// A position the operation does not take: an append's position is not `expected`, the one after the tail; a
     /// read starts outside the rounds the log holds, of which `expected` is the nearest bound; a trim reaches past
     /// `expected`, the committed position.
-    PositionMismatch { expected: u64, found: u64 },
+    PositionMismatch {
+        /// The position the operation takes, or its nearest bound.
+        expected: u64,
+        /// The position asked for.
+        found: u64,
+    },
     /// The round at `position` names `found` as its parent, not `expected`, the checksum of the round before it.
     ParentMismatch {
+        /// The round's position.
         position: u64,
+        /// The checksum of the round before it.
         expected: u64,
+        /// The parent the round names.
         found: u64,
     },
     /// A round of `size` bytes is larger than `limit`: the 1 MiB frame, or the segment it would have to fit in.
-    TooLarge { size: usize, limit: usize },
+    TooLarge {
+        /// The round's size in bytes.
+        size: usize,
+        /// The largest size that fits.
+        limit: usize,
+    },
     /// The round expected at `position`, at byte `offset` of segment `segment`, is damaged before its body: its
     /// header, its place in the chain, or its chunk table. A complete round follows it, so it is not a torn tail.
     Corrupt {
+        /// The round's position.
         position: u64,
+        /// The segment holding the round.
         segment: u64,
+        /// The round's byte offset within the segment.
         offset: u64,
     },
     /// Chunk `chunk`, body bytes `start` to `end`, of the round at `position`, at byte `offset` of segment
     /// `segment`, does not match its leaf, and a complete round follows it. The transactions whose records overlap
     /// the range are the round body's to name.
     CorruptChunk {
+        /// The round's position.
         position: u64,
+        /// The segment holding the round.
         segment: u64,
+        /// The round's byte offset within the segment.
         offset: u64,
+        /// The chunk's index in the round's chunk table.
         chunk: usize,
+        /// The first body byte of the chunk.
         start: usize,
+        /// The body byte after the chunk's last.
         end: usize,
     },
     /// Superblock copy `copy`, `'a'` or `'b'`, holds bytes that do not verify. Its sequence is lost, so it may have
     /// been the newer copy: the log neither starts nor writes, and it is never read as a fresh log.
-    SuperblockUnreadable { copy: char },
+    SuperblockUnreadable {
+        /// The copy, `'a'` or `'b'`.
+        copy: char,
+    },
     /// The log does not match what it must: `what` (the cluster, the checkpoint's checksum, the first round after
     /// the checkpoint, the segments the superblock counts) is `found`, not `expected`.
     Diverged {
+        /// What the log does not match.
         what: &'static str,
+        /// The value it must hold.
         expected: u64,
+        /// The value it holds.
         found: u64,
     },
     /// The storage failed `operation` with an error of `kind` saying `message`. A failed write or sync poisons the
     /// log.
     Io {
+        /// The storage operation that failed.
         operation: &'static str,
+        /// The kind of the I/O error.
         kind: ErrorKind,
+        /// The I/O error's text.
         message: String,
     },
     /// A write or sync failed earlier; the log refuses every operation until it is opened again.
@@ -94,36 +137,43 @@ pub enum LogErrorEnum {
 pub struct LogError(pub LogErrorEnum);
 
 impl LogError {
+    /// This replica is not the primary.
     #[allow(non_snake_case)]
     pub fn NotPrimary() -> Self {
         Self(LogErrorEnum::NotPrimary)
     }
 
+    /// The log holds `segments` segments, its capacity.
     #[allow(non_snake_case)]
     pub fn Busy(segments: u64) -> Self {
         Self(LogErrorEnum::Busy { segments })
     }
 
+    /// The log was sealed at `position`.
     #[allow(non_snake_case)]
     pub fn Sealed(position: u64) -> Self {
         Self(LogErrorEnum::Sealed { position })
     }
 
+    /// The log holds a round at `position`, the last position a round can take.
     #[allow(non_snake_case)]
     pub fn Exhausted(position: u64) -> Self {
         Self(LogErrorEnum::Exhausted { position })
     }
 
+    /// The round at `position` was replaced before it became durable.
     #[allow(non_snake_case)]
     pub fn Truncated(position: u64) -> Self {
         Self(LogErrorEnum::Truncated { position })
     }
 
+    /// A position the operation does not take: `found`, where `expected` is the one it takes or its nearest bound.
     #[allow(non_snake_case)]
     pub fn PositionMismatch(expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::PositionMismatch { expected, found })
     }
 
+    /// The round at `position` names `found` as its parent, not `expected`.
     #[allow(non_snake_case)]
     pub fn ParentMismatch(position: u64, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::ParentMismatch {
@@ -133,11 +183,13 @@ impl LogError {
         })
     }
 
+    /// A round of `size` bytes is larger than `limit`.
     #[allow(non_snake_case)]
     pub fn TooLarge(size: usize, limit: usize) -> Self {
         Self(LogErrorEnum::TooLarge { size, limit })
     }
 
+    /// The round at `position`, at byte `offset` of segment `segment`, is damaged before its body.
     #[allow(non_snake_case)]
     pub fn Corrupt(position: u64, segment: u64, offset: u64) -> Self {
         Self(LogErrorEnum::Corrupt {
@@ -147,6 +199,7 @@ impl LogError {
         })
     }
 
+    /// Chunk `chunk`, body bytes `start` to `end`, of the round at `position` does not match its leaf.
     #[allow(non_snake_case)]
     pub fn CorruptChunk(
         position: u64,
@@ -166,11 +219,13 @@ impl LogError {
         })
     }
 
+    /// Superblock copy `copy` holds bytes that do not verify.
     #[allow(non_snake_case)]
     pub fn SuperblockUnreadable(copy: char) -> Self {
         Self(LogErrorEnum::SuperblockUnreadable { copy })
     }
 
+    /// The log's `what` is `found`, not `expected`.
     #[allow(non_snake_case)]
     pub fn Diverged(what: &'static str, expected: u64, found: u64) -> Self {
         Self(LogErrorEnum::Diverged {
@@ -180,6 +235,7 @@ impl LogError {
         })
     }
 
+    /// The storage failed `operation` with an error of `kind` saying `message`.
     #[allow(non_snake_case)]
     pub fn Io(operation: &'static str, kind: ErrorKind, message: impl Into<String>) -> Self {
         Self(LogErrorEnum::Io {
@@ -189,6 +245,7 @@ impl LogError {
         })
     }
 
+    /// A write or sync failed earlier; the log refuses every operation until reopened.
     #[allow(non_snake_case)]
     pub fn Poisoned() -> Self {
         Self(LogErrorEnum::Poisoned)

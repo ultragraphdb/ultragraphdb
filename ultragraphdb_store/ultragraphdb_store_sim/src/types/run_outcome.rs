@@ -18,10 +18,12 @@ impl RunOutcome {
         Self { trace, contents }
     }
 
+    /// The run's trace, one line per step.
     pub fn trace(&self) -> &[String] {
         &self.trace
     }
 
+    /// The store's contents at the end of the run.
     pub fn contents(&self) -> &Contents {
         &self.contents
     }

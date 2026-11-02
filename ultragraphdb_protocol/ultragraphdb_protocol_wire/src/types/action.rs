@@ -15,11 +15,17 @@
 /// | 6 | Operate |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Action {
+    /// Reading statements and their properties, and seeing declarations.
     Read,
+    /// Write, Operation and Commit of statements.
     Write,
+    /// Declaring predicates, entity types, relations and indexes.
     Declare,
+    /// The Drop command.
     Drop,
+    /// Administering roles, grants and group mappings, and at the cluster principals and issuers.
     Admin,
+    /// Cluster operations: namespaces, backup, restore, export.
     Operate,
 }
 
@@ -34,6 +40,7 @@ impl Action {
         Action::Operate,
     ];
 
+    /// The action's number, 1 to 6.
     pub fn number(self) -> u64 {
         Action::ALL
             .iter()

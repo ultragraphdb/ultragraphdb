@@ -8,9 +8,10 @@
  */
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_portuguese_light_stemmer() {
+fn test_portuguese_light_stemmer() -> TestResult {
     check_stems(
         "stemmer_pt_light",
         &[
@@ -61,5 +62,6 @@ fn test_portuguese_light_stemmer() {
             ("aproximam", "aproximam"),
         ],
         &[],
-    );
+    )?;
+    Ok(())
 }

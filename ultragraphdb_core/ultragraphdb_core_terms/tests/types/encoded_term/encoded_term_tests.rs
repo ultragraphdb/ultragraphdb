@@ -6,15 +6,14 @@
 use oxrdf::vocab::xsd;
 use oxrdf::{BaseDirection, Literal, NamedNode};
 use ultragraphdb_core_terms::{EncodedTerm, FLOAT32_VECTOR, TermError, TermView};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn encode(literal: &Literal) -> EncodedTerm {
-    EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(9))
-        .unwrap()
-        .into_term()
+fn encode(literal: &Literal) -> TestResult<EncodedTerm> {
+    Ok(EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(9))?.into_term())
 }
 
 /// One encoding of every tag kind.
-fn every_kind() -> Vec<EncodedTerm> {
+fn every_kind() -> TestResult<Vec<EncodedTerm>> {
     let other = NamedNode::new_unchecked("http://example.org/other");
     let long = "z".repeat(20);
     let mut terms = vec![EncodedTerm::uid(42)];
@@ -27,11 +26,10 @@ fn every_kind() -> Vec<EncodedTerm> {
             Literal::new_typed_literal("P1Y2M3DT4H5M6S", xsd::DURATION),
             Literal::new_simple_literal("short"),
             Literal::new_simple_literal(long.clone()),
-            Literal::new_language_tagged_literal("chat", "fr").unwrap(),
-            Literal::new_language_tagged_literal(long.clone(), "fr").unwrap(),
-            Literal::new_language_tagged_literal("chat", "zh-Hant-TW-x-abcdefgh").unwrap(),
-            Literal::new_directional_language_tagged_literal("chat", "fr", BaseDirection::Rtl)
-                .unwrap(),
+            Literal::new_language_tagged_literal("chat", "fr")?,
+            Literal::new_language_tagged_literal(long.clone(), "fr")?,
+            Literal::new_language_tagged_literal("chat", "zh-Hant-TW-x-abcdefgh")?,
+            Literal::new_directional_language_tagged_literal("chat", "fr", BaseDirection::Rtl)?,
             Literal::new_typed_literal("042", xsd::INTEGER),
             Literal::new_typed_literal(long.clone(), xsd::INT),
             Literal::new_typed_literal("x", other.clone()),
@@ -39,9 +37,10 @@ fn every_kind() -> Vec<EncodedTerm> {
             Literal::new_typed_literal("[1, 2]", NamedNode::new_unchecked(FLOAT32_VECTOR)),
         ]
         .iter()
-        .map(encode),
+        .map(encode)
+        .collect::<TestResult<Vec<_>>>()?,
     );
-    terms
+    Ok(terms)
 }
 
 #[test]
@@ -74,12 +73,13 @@ fn test_a_uid_is_its_tag_and_its_value_big_endian() {
 }
 
 #[test]
-fn test_a_literal_names_no_uid() {
-    for term in every_kind().into_iter().skip(1) {
+fn test_a_literal_names_no_uid() -> TestResult {
+    for term in every_kind()?.into_iter().skip(1) {
         assert!(term.is_literal(), "{term:?}");
         assert_eq!(term.as_uid(), None, "{term:?}");
         assert_eq!(term.is_vector(), term.as_bytes()[0] == 0x40, "{term:?}");
     }
+    Ok(())
 }
 
 #[test]
@@ -91,11 +91,11 @@ fn test_debug_shows_the_encoding_in_hex() {
 }
 
 #[test]
-fn test_read_stops_where_the_tag_says_and_returns_the_rest() {
-    for term in every_kind() {
+fn test_read_stops_where_the_tag_says_and_returns_the_rest() -> TestResult {
+    for term in every_kind()? {
         let mut bytes = term.as_bytes().to_vec();
         bytes.extend_from_slice(b"rest");
-        let (read, rest) = EncodedTerm::read(&bytes).unwrap();
+        let (read, rest) = EncodedTerm::read(&bytes)?;
         assert_eq!((&read, rest), (&term, &b"rest"[..]));
         assert_eq!(
             EncodedTerm::from_bytes(&bytes),
@@ -106,11 +106,12 @@ fn test_read_stops_where_the_tag_says_and_returns_the_rest() {
             "trailing bytes are refused"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_every_proper_prefix_of_every_kind_is_refused_without_a_panic() {
-    for term in every_kind() {
+fn test_every_proper_prefix_of_every_kind_is_refused_without_a_panic() -> TestResult {
+    for term in every_kind()? {
         let bytes = term.as_bytes();
         for end in 0..bytes.len() {
             assert_eq!(
@@ -120,13 +121,14 @@ fn test_every_proper_prefix_of_every_kind_is_refused_without_a_panic() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_unknown_tags_codes_and_overlong_parts_are_refused() {
+fn test_unknown_tags_codes_and_overlong_parts_are_refused() -> TestResult {
     assert_eq!(
-        EncodedTerm::read(&[0x7f]).unwrap_err(),
-        TermError::UnknownTag(0x7f)
+        EncodedTerm::read(&[0x7f]).err(),
+        Some(TermError::UnknownTag(0x7f))
     );
     assert_eq!(
         EncodedTerm::read(&[0x20, 16]).map(|_| ()),
@@ -135,9 +137,9 @@ fn test_unknown_tags_codes_and_overlong_parts_are_refused() {
             "an inline part longer than 15 bytes"
         ))
     );
-    let unknown_code = EncodedTerm::from_bytes(&[0x30, 200, 1, b'x']).unwrap();
+    let unknown_code = EncodedTerm::from_bytes(&[0x30, 200, 1, b'x'])?;
     assert_eq!(unknown_code.view(), Err(TermError::UnknownDatatype(200)));
-    let not_utf8 = EncodedTerm::from_bytes(&[0x20, 1, 0xff]).unwrap();
+    let not_utf8 = EncodedTerm::from_bytes(&[0x20, 1, 0xff])?;
     assert_eq!(
         not_utf8.view(),
         Err(TermError::Malformed(
@@ -149,6 +151,7 @@ fn test_unknown_tags_codes_and_overlong_parts_are_refused() {
         EncodedTerm::read(&[0x40, 0, 0]).map(|_| ()),
         Err(TermError::Malformed(vec![0x40, 0, 0], "an empty vector"))
     );
+    Ok(())
 }
 
 #[test]
@@ -189,12 +192,12 @@ fn test_every_inline_length_is_read_where_its_tag_puts_it() {
 }
 
 #[test]
-fn test_a_vectors_dimension_is_little_endian() {
+fn test_a_vectors_dimension_is_little_endian() -> TestResult {
     // Dimension 258 is 0x0102, the bytes 02 01; read big-endian it would be 513 and the bytes too few.
     let bytes = [&[0x40, 0x02, 0x01][..], &[0u8; 4 * 258]].concat();
-    let (term, rest) = EncodedTerm::read(&bytes).unwrap();
+    let (term, rest) = EncodedTerm::read(&bytes)?;
     assert_eq!((term.as_bytes().len(), rest.len()), (3 + 4 * 258, 0));
-    let view = term.view().unwrap();
+    let view = term.view()?;
     let len = if let TermView::Vector(v) = &view {
         Some(v.len())
     } else {
@@ -204,10 +207,11 @@ fn test_a_vectors_dimension_is_little_endian() {
     // The widest vector, 65,535 elements: 0xFFFF.
     let widest = [&[0x40, 0xFF, 0xFF][..], &vec![0u8; 4 * 65_535]].concat();
     assert_eq!(EncodedTerm::check(&widest), Ok(()));
+    Ok(())
 }
 
 #[test]
-fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() {
+fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() -> TestResult {
     for bytes in [
         // A language string's lexical form, then its tag.
         vec![0x22, 1, 0xFF, 2, b'e', b'n'],
@@ -218,7 +222,7 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() {
         vec![0x30, 2, 1, 0xFF],
         [&[0x32][..], &[0; 8], &[1, 0xFF]].concat(),
     ] {
-        let term = EncodedTerm::from_bytes(&bytes).unwrap();
+        let term = EncodedTerm::from_bytes(&bytes)?;
         assert_eq!(
             term.view(),
             Err(TermError::Malformed(
@@ -230,35 +234,36 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() {
     }
     let hashed_unknown = [&[0x31, 0][..], &[0; 16]].concat();
     assert_eq!(
-        EncodedTerm::from_bytes(&hashed_unknown).unwrap().view(),
+        EncodedTerm::from_bytes(&hashed_unknown)?.view(),
         Err(TermError::UnknownDatatype(0))
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_fingerprint_is_xxh3_of_the_encoding_and_order_is_byte_order() {
+fn test_the_fingerprint_is_xxh3_of_the_encoding_and_order_is_byte_order() -> TestResult {
     // XXH3-64 from Python's xxhash 3.6.0 (libxxhash 0.8.2) over each encoding's bytes, independently of the Rust code.
     for (term, fingerprint) in [
         (EncodedTerm::uid(42), 5_096_793_477_454_505_956u64),
         (
-            encode(&Literal::new_simple_literal("short")),
+            encode(&Literal::new_simple_literal("short"))?,
             4_658_978_779_619_232_382,
         ),
         (
-            encode(&Literal::new_typed_literal("42", xsd::INTEGER)),
+            encode(&Literal::new_typed_literal("42", xsd::INTEGER))?,
             13_403_847_476_459_031_323,
         ),
         (
             encode(&Literal::new_typed_literal(
                 "[1, 2]",
                 NamedNode::new_unchecked(FLOAT32_VECTOR),
-            )),
+            ))?,
             15_859_647_792_802_437_645,
         ),
     ] {
         assert_eq!(term.fingerprint(), fingerprint, "{term:?}");
     }
-    let terms = every_kind();
+    let terms = every_kind()?;
     let mut sorted = terms.clone();
     sorted.sort();
     let mut bytes: Vec<Vec<u8>> = terms.iter().map(|t| t.as_bytes().to_vec()).collect();
@@ -275,11 +280,12 @@ fn test_the_fingerprint_is_xxh3_of_the_encoding_and_order_is_byte_order() {
             .iter()
             .all(|t| t.is_vector() || t.as_bytes().len() <= 33)
     );
+    Ok(())
 }
 
 #[test]
-fn test_check_takes_every_whole_encoding() {
-    for term in every_kind() {
+fn test_check_takes_every_whole_encoding() -> TestResult {
+    for term in every_kind()? {
         assert_eq!(
             EncodedTerm::check(term.as_bytes()),
             Ok(()),
@@ -299,6 +305,7 @@ fn test_check_takes_every_whole_encoding() {
     ] {
         assert_eq!(EncodedTerm::check(bytes), Ok(()), "{bytes:02x?}");
     }
+    Ok(())
 }
 
 #[test]
@@ -420,7 +427,7 @@ fn test_check_takes_the_longest_inline_text_and_the_boundary_values() {
 }
 
 #[test]
-fn test_check_refuses_a_duration_whose_parts_differ_in_sign() {
+fn test_check_refuses_a_duration_whose_parts_differ_in_sign() -> TestResult {
     // PROTOCOL.md section 10.5: tag 0x1D holds i64 months, then i128 seconds × 10¹⁸, big-endian; a duration is negative
     // as a whole, so months and seconds of opposite signs are no whole encoding. One month and one second either way.
     let duration = |months: i64, seconds: i128| {
@@ -450,21 +457,22 @@ fn test_check_refuses_a_duration_whose_parts_differ_in_sign() {
         assert_eq!(EncodedTerm::check(&bytes), Ok(()), "{bytes:02x?}");
     }
     // The encoder's own encoding of a negative duration, `-P1MT1S`, passes.
-    let negative = encode(&Literal::new_typed_literal("-P1MT1S", xsd::DURATION));
+    let negative = encode(&Literal::new_typed_literal("-P1MT1S", xsd::DURATION))?;
     assert_eq!(negative.as_bytes(), duration(-1, -second));
     assert_eq!(EncodedTerm::check(negative.as_bytes()), Ok(()));
+    Ok(())
 }
 
 /// Each committed case of the fuzz target `encoded_term`, through the target's steps: the whole-encoding check, and
 /// for an encoding it accepts the reader and the literal, which return a value or an error and never panic.
 #[test]
-fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() {
-    let cases = ultragraphdb_tool_bdd::fuzz_regressions("encoded_term");
+fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() -> TestResult {
+    let cases = ultragraphdb_tool_bdd::fuzz_regressions("encoded_term")?;
     assert!(!cases.is_empty(), "the committed cases");
     for (name, data) in &cases {
         if EncodedTerm::check(data).is_ok() {
-            let term = EncodedTerm::from_bytes(data).expect(name);
-            let view = term.view().expect(name);
+            let term = EncodedTerm::from_bytes(data).context(name)?;
+            let view = term.view().context(name)?;
             // A literal or an error, either of which passes: the replay asks only that nothing panics.
             let _literal: Result<Literal, TermError> = view.to_literal(
                 |uid| Err::<_, TermError>(TermError::NotALiteral(uid)),
@@ -474,36 +482,37 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() {
     }
     // The first finding, a duration of one positive and one negative part, whose literal the reader cannot write: its
     // bytes as committed, months 0x00F9FFFFFFFEFFFF and seconds 0xFFFF0000000162626262626262626262.
-    let (_, found) = cases
+    let (_, duration) = cases
         .iter()
         .find(|(name, _)| name == "duration_parts_of_opposite_signs")
-        .expect("the duration case");
+        .context("the duration case")?;
     assert_eq!(
-        EncodedTerm::check(found),
+        EncodedTerm::check(duration),
         Err(TermError::Malformed(
-            found.clone(),
+            duration.clone(),
             "a duration whose months and seconds differ in sign"
         ))
     );
     // The second, a gDay whose timezone offset is i16::MIN minutes, whose literal the reader cannot write: its bytes
     // as committed, the offset 0x8000 in bytes 17 and 18.
-    let (_, found) = cases
+    let (_, timezone) = cases
         .iter()
         .find(|(name, _)| name == "timezone_offset_of_i16_min")
-        .expect("the timezone case");
-    assert_eq!(found.len(), 19);
-    assert_eq!(&found[17..], &[0x80, 0x00]);
+        .context("the timezone case")?;
+    assert_eq!(timezone.len(), 19);
+    assert_eq!(&timezone[17..], &[0x80, 0x00]);
     assert_eq!(
-        EncodedTerm::check(found),
+        EncodedTerm::check(timezone),
         Err(TermError::Malformed(
-            found.clone(),
+            timezone.clone(),
             "a timezone offset beyond 14 hours"
         ))
     );
+    Ok(())
 }
 
 #[test]
-fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() {
+fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() -> TestResult {
     // PROTOCOL.md section 10.5: tags 0x15 to 0x1C hold an i128 `T`, then an i16 `Z`, the offset in minutes or 0xFFFF
     // for none; XML Schema's offsets run from -14:00 to +14:00, -840 to 840 minutes.
     let temporal = |tag: u8, minutes: i16| [&[tag][..], &[0; 16], &minutes.to_be_bytes()].concat();
@@ -526,7 +535,8 @@ fn test_check_refuses_a_timezone_offset_beyond_fourteen_hours() {
         }
     }
     // The encoder's own encoding of a date at +14:00 passes.
-    let east = encode(&Literal::new_typed_literal("2026-11-01+14:00", xsd::DATE));
+    let east = encode(&Literal::new_typed_literal("2026-11-01+14:00", xsd::DATE))?;
     assert_eq!(&east.as_bytes()[17..], &840i16.to_be_bytes());
     assert_eq!(EncodedTerm::check(east.as_bytes()), Ok(()));
+    Ok(())
 }

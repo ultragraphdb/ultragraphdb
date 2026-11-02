@@ -8,15 +8,16 @@
 
 use ultragraphdb_core_keys::QuadKey;
 use ultragraphdb_store_hnsw::{DEAD_LIST, ENTRY_LIST, NEIGHBOUR_LIST, VectorKeys};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn parsed(key: &[u8]) -> QuadKey {
-    let (key, split) = QuadKey::parse(key).expect("a quad key");
+fn parsed(key: &[u8]) -> TestResult<QuadKey> {
+    let (key, split) = QuadKey::parse(key).context("a quad key")?;
     assert_eq!(split, None);
-    key
+    Ok(key)
 }
 
 #[test]
-fn test_every_key_names_its_namespace_graph_and_predicate() {
+fn test_every_key_names_its_namespace_graph_and_predicate() -> TestResult {
     let keys = VectorKeys::new("0-emb", 3, 5, 7);
     assert_eq!(
         (
@@ -28,7 +29,7 @@ fn test_every_key_names_its_namespace_graph_and_predicate() {
         ("0-emb", 3, 5, 7)
     );
     assert_eq!(
-        parsed(&keys.vector(42)),
+        parsed(&keys.vector(42))?,
         QuadKey::Forward {
             namespace: 3,
             graph: 5,
@@ -42,7 +43,7 @@ fn test_every_key_names_its_namespace_graph_and_predicate() {
         (keys.dead(), DEAD_LIST, 1),
     ] {
         assert_eq!(
-            parsed(&key),
+            parsed(&key)?,
             QuadKey::VectorIndex {
                 namespace: 3,
                 graph: 5,
@@ -66,6 +67,7 @@ fn test_every_key_names_its_namespace_graph_and_predicate() {
             "0-emb__vector_dead".to_string()
         )
     );
+    Ok(())
 }
 
 #[test]

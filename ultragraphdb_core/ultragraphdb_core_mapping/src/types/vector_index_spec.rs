@@ -33,6 +33,7 @@ impl VectorIndexSpec {
         }
     }
 
+    /// The name of the index's factory.
     pub fn factory(&self) -> &str {
         &self.factory
     }
@@ -42,6 +43,7 @@ impl VectorIndexSpec {
         self.dimension
     }
 
+    /// The index's options, each a name and a value.
     pub fn options(&self) -> &[(String, String)] {
         &self.options
     }

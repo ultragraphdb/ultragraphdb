@@ -6,6 +6,7 @@
 use ultragraphdb_protocol_wire::{
     BodyBuilder, DeclaredEntityType, DeclaredKind, DeclaredPredicate, DeclaredRelation, Describe,
 };
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::{DESCRIBE_SCHEMA_ID, golden};
 
@@ -31,24 +32,23 @@ pub fn golden_answer() -> Describe {
 }
 
 #[test]
-fn test_the_request_and_the_answer_build_the_golden_frames() {
+fn test_the_request_and_the_answer_build_the_golden_frames() -> TestResult {
     assert_eq!(
-        Describe::request(0)
-            .frame(golden("describe").header())
-            .unwrap(),
-        golden("describe").bytes()
+        Describe::request(0).frame(golden("describe")?.header())?,
+        golden("describe")?.bytes()?
     );
     assert_eq!(Describe::request(0), Describe::new(0, 0));
     let answer = golden_answer();
     assert_eq!(
-        answer.frame(golden("describe_reply").header()).unwrap(),
-        golden("describe_reply").bytes()
+        answer.frame(golden("describe_reply")?.header())?,
+        golden("describe_reply")?.bytes()?
     );
     assert_eq!((answer.namespace(), answer.read_version()), (0, 42));
     assert_eq!(answer.labels(), &[ex("Person")]);
     assert_eq!(answer.predicates().len(), 2);
     assert_eq!(answer.entity_types()[0].1, 1);
     assert!(answer.relations().is_empty());
+    Ok(())
 }
 
 #[test]

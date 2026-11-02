@@ -11,15 +11,16 @@
 use oxrdf::{GraphName, NamedOrBlankNode};
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey};
 use ultragraphdb_core_mapping::Change;
-use ultragraphdb_store_apply::ChangesetErrorEnum;
+use ultragraphdb_store_apply::{Applied, ChangesetErrorEnum};
 use ultragraphdb_store_quads::{MAX_UID, QuadErrorEnum, UID_LEASE, lease_key};
 use ultragraphdb_traits_store::{PersistMode, Store, WriteBatch};
 
 use crate::utils::changesets::{
     NS, apply, changesets, changesets_over, counts_of, declare, delete, ex, exact_token,
     index_keys_holding, indexed, insert, keys_of, objects, objects_in, postings, predicate_list,
-    reverse, sim_store, statistics, stored_keys, term, term_token, uid, write,
+    reverse, sim_store, statistics, stored_keys, term, term_token, uid, write, write_changes,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// The keys the store holds that are not catalog keys.
 fn quad_keys(a: &crate::utils::changesets::TestChangesets) -> Vec<Vec<u8>> {
@@ -30,182 +31,185 @@ fn quad_keys(a: &crate::utils::changesets::TestChangesets) -> Vec<Vec<u8>> {
 }
 
 #[test]
-fn test_an_empty_changeset_commits_and_writes_no_quad() {
-    let a = changesets();
-    let first = apply(&a, Vec::new()).expect("an empty changeset applies");
+fn test_an_empty_changeset_commits_and_writes_no_quad() -> TestResult {
+    let a = changesets()?;
+    let first = apply(&a, Vec::new()).context("an empty changeset applies")?;
     assert!(
         first.read().is_empty() && first.lists_read() == 0,
         "{first:?}"
     );
     assert!(quad_keys(&a).is_empty(), "{:?}", quad_keys(&a));
     let before = a.quads().store().contents();
-    let second = apply(&a, Vec::new()).expect("an empty changeset applies");
+    let second = apply(&a, Vec::new()).context("an empty changeset applies")?;
     assert!(
         second.written().is_empty() && second.read().is_empty(),
         "{second:?}"
     );
     assert_eq!(a.quads().store().contents().keys(), before.keys());
+    Ok(())
 }
 
 #[test]
-fn test_one_quad_twice_in_a_changeset_is_held_and_counted_once() {
-    let a = changesets();
-    declare(&a, "friend", "with an exact count index");
-    declare(&a, "tag", "with a `term` index");
-    apply(
+fn test_one_quad_twice_in_a_changeset_is_held_and_counted_once() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "with an exact count index")?;
+    declare(&a, "tag", "with a `term` index")?;
+    write_changes(
         &a,
         vec![
-            insert("<a> <friend> <b>"),
-            insert("<a> <friend> <b>"),
-            insert(r#"<a> <tag> "x""#),
-            insert(r#"<a> <tag> "x""#),
+            insert("<a> <friend> <b>")?,
+            insert("<a> <friend> <b>")?,
+            insert(r#"<a> <tag> "x""#)?,
+            insert(r#"<a> <tag> "x""#)?,
         ],
-    )
-    .unwrap();
-    assert_eq!(objects(&a, "a", "friend"), vec![term("<b>")]);
-    assert_eq!(objects(&a, "a", "tag"), vec![term(r#""x""#)]);
+    )?;
+    assert_eq!(objects(&a, "a", "friend")?, vec![term("<b>")?]);
+    assert_eq!(objects(&a, "a", "tag")?, vec![term(r#""x""#)?]);
     // One statement each, counted once: forward count 1 for `a`, reverse count 1 for `b`.
-    assert_eq!(statistics(&a, "friend").statements(), 1);
-    assert_eq!(statistics(&a, "tag").statements(), 1);
+    assert_eq!(statistics(&a, "friend")?.statements(), 1);
+    assert_eq!(statistics(&a, "tag")?.statements(), 1);
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")),
+        counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")?)?,
         vec![1]
     );
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")),
+        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")?)?,
         vec![1]
     );
-    assert_eq!(reverse(&a, "friend", "b"), vec![uid(&a, "a")]);
-    assert_eq!(indexed(&a, "tag", &term_token("x")), vec![uid(&a, "a")]);
+    assert_eq!(reverse(&a, "friend", "b")?, vec![uid(&a, "a")?]);
+    assert_eq!(indexed(&a, "tag", &term_token("x"))?, vec![uid(&a, "a")?]);
+    Ok(())
 }
 
 #[test]
-fn test_a_set_and_a_delete_of_one_quad_in_a_changeset_leave_nothing() {
-    let a = changesets();
-    declare(&a, "friend", "with an exact count index");
-    declare(&a, "tag", "with a `term` index");
-    apply(
+fn test_a_set_and_a_delete_of_one_quad_in_a_changeset_leave_nothing() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "with an exact count index")?;
+    declare(&a, "tag", "with a `term` index")?;
+    write_changes(
         &a,
         vec![
-            insert("<a> <friend> <b>"),
-            delete("<a> <friend> <b>"),
-            insert(r#"<a> <tag> "x""#),
-            delete(r#"<a> <tag> "x""#),
+            insert("<a> <friend> <b>")?,
+            delete("<a> <friend> <b>")?,
+            insert(r#"<a> <tag> "x""#)?,
+            delete(r#"<a> <tag> "x""#)?,
         ],
-    )
-    .unwrap();
-    assert!(objects(&a, "a", "friend").is_empty());
-    assert!(objects(&a, "a", "tag").is_empty());
-    assert!(reverse(&a, "friend", "b").is_empty());
-    assert!(counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")).is_empty());
-    assert!(counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")).is_empty());
-    assert!(index_keys_holding(&a, "tag", uid(&a, "a")).is_empty());
-    assert!(predicate_list(&a, "a", false).is_empty());
-    assert!(predicate_list(&a, "b", true).is_empty());
-    assert_eq!(statistics(&a, "friend").statements(), 0);
-    assert_eq!(statistics(&a, "tag").statements(), 0);
+    )?;
+    assert!(objects(&a, "a", "friend")?.is_empty());
+    assert!(objects(&a, "a", "tag")?.is_empty());
+    assert!(reverse(&a, "friend", "b")?.is_empty());
+    assert!(counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")?)?.is_empty());
+    assert!(counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")?)?.is_empty());
+    assert!(index_keys_holding(&a, "tag", uid(&a, "a")?)?.is_empty());
+    assert!(predicate_list(&a, "a", false)?.is_empty());
+    assert!(predicate_list(&a, "b", true)?.is_empty());
+    assert_eq!(statistics(&a, "friend")?.statements(), 0);
+    assert_eq!(statistics(&a, "tag")?.statements(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_and_a_set_of_one_quad_in_a_changeset_hold_it_once() {
-    let a = changesets();
-    declare(&a, "friend", "with an exact count index");
-    apply(&a, vec![insert("<a> <friend> <b>")]).unwrap();
-    apply(
+fn test_a_delete_and_a_set_of_one_quad_in_a_changeset_hold_it_once() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "with an exact count index")?;
+    write_changes(&a, vec![insert("<a> <friend> <b>")?])?;
+    write_changes(
         &a,
-        vec![delete("<a> <friend> <b>"), insert("<a> <friend> <b>")],
-    )
-    .unwrap();
-    assert_eq!(objects(&a, "a", "friend"), vec![term("<b>")]);
-    assert_eq!(reverse(&a, "friend", "b"), vec![uid(&a, "a")]);
+        vec![delete("<a> <friend> <b>")?, insert("<a> <friend> <b>")?],
+    )?;
+    assert_eq!(objects(&a, "a", "friend")?, vec![term("<b>")?]);
+    assert_eq!(reverse(&a, "friend", "b")?, vec![uid(&a, "a")?]);
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")),
+        counts_of(&a, "friend", CountDirection::Forward, uid(&a, "a")?)?,
         vec![1]
     );
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")),
+        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")?)?,
         vec![1]
     );
-    assert_eq!(statistics(&a, "friend").statements(), 1);
+    assert_eq!(statistics(&a, "friend")?.statements(), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_subject_that_is_its_own_object_is_kept_in_both_directions() {
-    let a = changesets();
-    declare(&a, "friend", "with an exact count index");
-    apply(&a, vec![insert("<a> <friend> <a>")]).unwrap();
-    let (node, friend) = (uid(&a, "a"), uid(&a, "friend"));
-    assert_eq!(reverse(&a, "friend", "a"), vec![node]);
-    assert_eq!(predicate_list(&a, "a", false), vec![friend]);
-    assert_eq!(predicate_list(&a, "a", true), vec![friend]);
+fn test_a_subject_that_is_its_own_object_is_kept_in_both_directions() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "with an exact count index")?;
+    write_changes(&a, vec![insert("<a> <friend> <a>")?])?;
+    let (node, friend) = (uid(&a, "a")?, uid(&a, "friend")?);
+    assert_eq!(reverse(&a, "friend", "a")?, vec![node]);
+    assert_eq!(predicate_list(&a, "a", false)?, vec![friend]);
+    assert_eq!(predicate_list(&a, "a", true)?, vec![friend]);
     // One object for the subject and one subject for the object, both the node itself.
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Forward, node),
+        counts_of(&a, "friend", CountDirection::Forward, node)?,
         vec![1]
     );
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Reverse, node),
+        counts_of(&a, "friend", CountDirection::Reverse, node)?,
         vec![1]
     );
-    apply(&a, vec![delete("<a> <friend> <a>")]).unwrap();
-    assert!(reverse(&a, "friend", "a").is_empty());
-    assert!(predicate_list(&a, "a", false).is_empty());
-    assert!(predicate_list(&a, "a", true).is_empty());
-    assert!(counts_of(&a, "friend", CountDirection::Forward, node).is_empty());
-    assert!(counts_of(&a, "friend", CountDirection::Reverse, node).is_empty());
+    write_changes(&a, vec![delete("<a> <friend> <a>")?])?;
+    assert!(reverse(&a, "friend", "a")?.is_empty());
+    assert!(predicate_list(&a, "a", false)?.is_empty());
+    assert!(predicate_list(&a, "a", true)?.is_empty());
+    assert!(counts_of(&a, "friend", CountDirection::Forward, node)?.is_empty());
+    assert!(counts_of(&a, "friend", CountDirection::Reverse, node)?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_the_empty_string_is_held_and_indexed() {
-    let a = changesets();
-    declare(&a, "name", "with `exact` and `term`");
-    apply(&a, vec![insert(r#"<a> <name> """#)]).unwrap();
-    assert_eq!(objects(&a, "a", "name"), vec![term(r#""""#)]);
+fn test_the_empty_string_is_held_and_indexed() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with `exact` and `term`")?;
+    write_changes(&a, vec![insert(r#"<a> <name> """#)?])?;
+    assert_eq!(objects(&a, "a", "name")?, vec![term(r#""""#)?]);
     // The exact token of "" is the identifier alone; Dgraph's term tokenizer gives an empty value one empty token.
-    assert_eq!(indexed(&a, "name", &exact_token("")), vec![uid(&a, "a")]);
-    assert_eq!(indexed(&a, "name", &term_token("")), vec![uid(&a, "a")]);
-    apply(&a, vec![delete(r#"<a> <name> """#)]).unwrap();
-    assert!(objects(&a, "a", "name").is_empty());
-    assert!(index_keys_holding(&a, "name", uid(&a, "a")).is_empty());
+    assert_eq!(indexed(&a, "name", &exact_token(""))?, vec![uid(&a, "a")?]);
+    assert_eq!(indexed(&a, "name", &term_token(""))?, vec![uid(&a, "a")?]);
+    write_changes(&a, vec![delete(r#"<a> <name> """#)?])?;
+    assert!(objects(&a, "a", "name")?.is_empty());
+    assert!(index_keys_holding(&a, "name", uid(&a, "a")?)?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_single_valued_overwrite_moves_reverse_and_counts() {
-    let a = changesets();
-    declare(&a, "friend", "single-valued with an exact count index");
-    apply(&a, vec![insert("<a> <friend> <b>")]).unwrap();
-    apply(&a, vec![insert("<a> <friend> <c>")]).unwrap();
-    let node = uid(&a, "a");
-    assert_eq!(objects(&a, "a", "friend"), vec![term("<c>")]);
-    assert!(reverse(&a, "friend", "b").is_empty());
-    assert_eq!(reverse(&a, "friend", "c"), vec![node]);
+fn test_a_single_valued_overwrite_moves_reverse_and_counts() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "friend", "single-valued with an exact count index")?;
+    write_changes(&a, vec![insert("<a> <friend> <b>")?])?;
+    write_changes(&a, vec![insert("<a> <friend> <c>")?])?;
+    let node = uid(&a, "a")?;
+    assert_eq!(objects(&a, "a", "friend")?, vec![term("<c>")?]);
+    assert!(reverse(&a, "friend", "b")?.is_empty());
+    assert_eq!(reverse(&a, "friend", "c")?, vec![node]);
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Forward, node),
+        counts_of(&a, "friend", CountDirection::Forward, node)?,
         vec![1]
     );
-    assert!(counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")).is_empty());
+    assert!(counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "b")?)?.is_empty());
     assert_eq!(
-        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "c")),
+        counts_of(&a, "friend", CountDirection::Reverse, uid(&a, "c")?)?,
         vec![1]
     );
-    assert_eq!(statistics(&a, "friend").statements(), 1);
-    assert!(!predicate_list(&a, "b", true).contains(&uid(&a, "friend")));
+    assert_eq!(statistics(&a, "friend")?.statements(), 1);
+    assert!(!predicate_list(&a, "b", true)?.contains(&uid(&a, "friend")?));
+    Ok(())
 }
 
 #[test]
-fn test_statistics_count_each_object_kind() {
-    let a = changesets();
-    apply(
+fn test_statistics_count_each_object_kind() -> TestResult {
+    let a = changesets()?;
+    write_changes(
         &a,
         vec![
-            insert("<a> <p> <b>"),
-            insert("<a> <p> _:z"),
-            insert(r#"<a> <p> "x""#),
-            insert("<a> <p> 5"),
+            insert("<a> <p> <b>")?,
+            insert("<a> <p> _:z")?,
+            insert(r#"<a> <p> "x""#)?,
+            insert("<a> <p> 5")?,
         ],
-    )
-    .unwrap();
-    let s = statistics(&a, "p");
+    )?;
+    let s = statistics(&a, "p")?;
     assert_eq!(s.statements(), 4);
     for (kind, n) in [
         ("iri", 1),
@@ -215,56 +219,62 @@ fn test_statistics_count_each_object_kind() {
     ] {
         assert_eq!(s.kind(kind), n, "{kind}");
     }
-    apply(&a, vec![delete(r#"<a> <p> "x""#)]).unwrap();
-    let s = statistics(&a, "p");
-    assert_eq!(s.statements(), 3);
-    assert_eq!(s.kind("http://www.w3.org/2001/XMLSchema#string"), 0);
-    assert_eq!(s.kind("iri"), 1);
+    write_changes(&a, vec![delete(r#"<a> <p> "x""#)?])?;
+    let after_delete = statistics(&a, "p")?;
+    assert_eq!(after_delete.statements(), 3);
+    assert_eq!(
+        after_delete.kind("http://www.w3.org/2001/XMLSchema#string"),
+        0
+    );
+    assert_eq!(after_delete.kind("iri"), 1);
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_of_an_object_not_held_writes_nothing() {
-    let a = changesets();
-    declare(&a, "name", "with a `term` index");
-    apply(&a, vec![insert(r#"<a> <name> "A""#)]).unwrap();
+fn test_a_delete_of_an_object_not_held_writes_nothing() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "with a `term` index")?;
+    write_changes(&a, vec![insert(r#"<a> <name> "A""#)?])?;
     let before = a.quads().store().contents();
-    let applied = apply(&a, vec![delete(r#"<a> <name> "B""#)]).unwrap();
+    let applied = apply(&a, vec![delete(r#"<a> <name> "B""#)?])?;
     assert!(applied.written().is_empty(), "{:?}", applied.written());
     assert_eq!(a.quads().store().contents().keys(), before.keys());
-    assert_eq!(objects(&a, "a", "name"), vec![term(r#""A""#)]);
+    assert_eq!(objects(&a, "a", "name")?, vec![term(r#""A""#)?]);
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_by_pattern_stays_in_its_graph() {
-    let a = changesets();
-    apply(
+fn test_a_delete_by_pattern_stays_in_its_graph() -> TestResult {
+    let a = changesets()?;
+    write_changes(
         &a,
         vec![
-            insert("<a> <knows> <b> <g1>"),
-            insert("<a> <knows> <c> <g1>"),
-            insert("<a> <knows> <d>"),
+            insert("<a> <knows> <b> <g1>")?,
+            insert("<a> <knows> <c> <g1>")?,
+            insert("<a> <knows> <d>")?,
         ],
-    )
-    .unwrap();
-    apply(
+    )?;
+    write_changes(
         &a,
         vec![Change::DeletePattern {
             graph: GraphName::from(ex("g1")),
             subject: NamedOrBlankNode::from(ex("a")),
             predicate: ex("knows"),
         }],
-    )
-    .unwrap();
-    assert!(objects_in(&a, "g1", "a", "knows").is_empty());
-    assert_eq!(objects(&a, "a", "knows"), vec![term("<d>")]);
+    )?;
+    assert!(objects_in(&a, "g1", "a", "knows")?.is_empty());
+    assert_eq!(objects(&a, "a", "knows")?, vec![term("<d>")?]);
+    Ok(())
 }
 
 #[test]
-fn test_a_unique_value_held_by_another_subject_is_refused_naming_both() {
-    let a = changesets();
-    declare(&a, "id", "unique");
-    apply(&a, vec![insert(r#"<a> <id> "x""#)]).unwrap();
-    let refused = apply(&a, vec![insert(r#"<b> <id> "x""#)]).unwrap_err();
+fn test_a_unique_value_held_by_another_subject_is_refused_naming_both() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "id", "unique")?;
+    write_changes(&a, vec![insert(r#"<a> <id> "x""#)?])?;
+    let refused = apply(&a, vec![insert(r#"<b> <id> "x""#)?])
+        .err()
+        .context("the error of apply(..)")?;
     assert!(
         matches!(refused.0, ChangesetErrorEnum::Unique { .. }),
         "{refused:?}"
@@ -274,32 +284,38 @@ fn test_a_unique_value_held_by_another_subject_is_refused_naming_both() {
         r#"Predicate <http://ex.org/id> holds unique values, and <http://ex.org/a> already holds "x""#
     );
     // Another value, and the same value in another graph, are written.
-    apply(&a, vec![insert(r#"<b> <id> "y""#)]).unwrap();
-    apply(&a, vec![insert(r#"<b> <id> "x" <g1>"#)]).unwrap();
-    assert_eq!(objects(&a, "b", "id"), vec![term(r#""y""#)]);
+    write_changes(&a, vec![insert(r#"<b> <id> "y""#)?])?;
+    write_changes(&a, vec![insert(r#"<b> <id> "x" <g1>"#)?])?;
+    assert_eq!(objects(&a, "b", "id")?, vec![term(r#""y""#)?]);
+    Ok(())
 }
 
 #[test]
-fn test_an_object_of_the_wrong_kind_or_datatype_is_refused_with_its_text() {
-    let a = changesets();
-    declare(&a, "name", "a property");
-    declare(&a, "age", "with datatype `xsd:integer`");
-    let refused = apply(&a, vec![insert("<a> <name> <b>")]).unwrap_err();
+fn test_an_object_of_the_wrong_kind_or_datatype_is_refused_with_its_text() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "name", "a property")?;
+    declare(&a, "age", "with datatype `xsd:integer`")?;
+    let refused = apply(&a, vec![insert("<a> <name> <b>")?])
+        .err()
+        .context("the error of apply(..)")?;
     assert_eq!(
         refused.to_string(),
         "Predicate <http://ex.org/name> is declared a property and cannot hold <http://ex.org/b>"
     );
-    let refused = apply(&a, vec![insert(r#"<a> <age> "old""#)]).unwrap_err();
+    let age_refused = apply(&a, vec![insert(r#"<a> <age> "old""#)?])
+        .err()
+        .context("the error of apply(..)")?;
     assert_eq!(
-        refused.to_string(),
+        age_refused.to_string(),
         "Predicate <http://ex.org/age> holds literals of <http://www.w3.org/2001/XMLSchema#integer>, not of <http://www.w3.org/2001/XMLSchema#string>"
     );
-    assert!(keys_of(&a, Keyspace::Forward, "name").is_empty());
-    assert!(keys_of(&a, Keyspace::Forward, "age").is_empty());
+    assert!(keys_of(&a, Keyspace::Forward, "name")?.is_empty());
+    assert!(keys_of(&a, Keyspace::Forward, "age")?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_the_largest_uids_are_written_and_the_next_is_refused() {
+fn test_the_largest_uids_are_written_and_the_next_is_refused() -> TestResult {
     let store = sim_store();
     // The lease mark is the next UID to hand out: MAX_UID - 3 = 2^48 - 4.
     let mut batch = WriteBatch::new();
@@ -307,18 +323,20 @@ fn test_the_largest_uids_are_written_and_the_next_is_refused() {
         lease_key(NS, UID_LEASE),
         (MAX_UID - 3).to_be_bytes().to_vec(),
     );
-    store.apply(batch, PersistMode::Sync).unwrap();
-    let a = changesets_over(store);
+    store.apply(batch, PersistMode::Sync)?;
+    let a = changesets_over(store)?;
     // rdf:type, then <a>, <knows> and <b>, in the order the write resolves them.
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
     assert_eq!(
-        (uid(&a, "a"), uid(&a, "knows"), uid(&a, "b")),
+        (uid(&a, "a")?, uid(&a, "knows")?, uid(&a, "b")?),
         (MAX_UID - 2, MAX_UID - 1, MAX_UID)
     );
-    assert_eq!(reverse(&a, "knows", "b"), vec![MAX_UID - 2]);
-    assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
-    assert_eq!(predicate_list(&a, "b", true), vec![MAX_UID - 1]);
-    let refused = apply(&a, vec![insert("<a> <knows> <c>")]).unwrap_err();
+    assert_eq!(reverse(&a, "knows", "b")?, vec![MAX_UID - 2]);
+    assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
+    assert_eq!(predicate_list(&a, "b", true)?, vec![MAX_UID - 1]);
+    let refused = apply(&a, vec![insert("<a> <knows> <c>")?])
+        .err()
+        .context("the error of apply(..)")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Quad(q) if matches!(q.0, QuadErrorEnum::UidsExhausted { namespace: NS })),
         "{refused:?}"
@@ -327,27 +345,31 @@ fn test_the_largest_uids_are_written_and_the_next_is_refused() {
         refused.to_string(),
         "Namespace 0 has no UID left below the entity-type bits"
     );
-    assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
+    assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
+    Ok(())
 }
 
 #[test]
-fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() {
-    let a = changesets();
+fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() -> TestResult {
+    let a = changesets()?;
     let three = |change| ultragraphdb_core_mapping::Changeset::new(3).with(change);
-    a.apply(&three(Change::Declare(
+    let _applied: Applied = a.apply(&three(Change::Declare(
         ultragraphdb_core_mapping::Declaration::Predicate(crate::utils::changesets::declaration(
             "name",
             "with `term` and an exact count index",
-        )),
-    )))
-    .unwrap();
-    a.apply(&three(insert(r#"<a> <name> "big apple""#)))
-        .unwrap();
-    let namespace_of = |k: &Vec<u8>| u64::from_be_bytes(k[1..9].try_into().unwrap());
+        )?),
+    )))?;
+    let _written: Applied = a.apply(&three(insert(r#"<a> <name> "big apple""#)?))?;
+    let namespace_of =
+        |k: &Vec<u8>| -> TestResult<u64> { Ok(u64::from_be_bytes(k[1..9].try_into()?)) };
     let keys = stored_keys(&a);
     assert!(!keys.is_empty());
     assert!(
-        keys.iter().all(|k| namespace_of(k) == 3),
+        keys.iter()
+            .map(namespace_of)
+            .collect::<TestResult<Vec<u64>>>()?
+            .iter()
+            .all(|n| *n == 3),
         "every key is namespace 3's"
     );
     for keyspace in [
@@ -361,55 +383,63 @@ fn test_a_write_in_another_namespace_keeps_its_keys_and_catalog_there() {
             "{keyspace:?}"
         );
     }
-    let name = a.quads().uid_of(3, ex("name").as_str()).unwrap().unwrap();
+    let name = a
+        .quads()
+        .uid_of(3, ex("name").as_str())?
+        .context("<name> has a UID in namespace 3")?;
     a.forget_catalogs();
     assert_eq!(
-        a.catalog(3).unwrap().predicate(name),
+        a.catalog(3)?.predicate(name),
         Some(&crate::utils::changesets::declaration(
             "name",
             "with `term` and an exact count index"
-        ))
+        )?)
     );
-    assert!(a.catalog(NS).unwrap().predicates().next().is_none());
+    assert!(a.catalog(NS)?.predicates().next().is_none());
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_naming_a_literal_that_cannot_be_encoded_is_refused_naming_its_predicate() {
-    let a = changesets();
+fn test_a_delete_naming_a_literal_that_cannot_be_encoded_is_refused_naming_its_predicate()
+-> TestResult {
+    let a = changesets()?;
     let refused = apply(
         &a,
         vec![delete(
             r#"<a> <embedding> "[0.50,-1.0]"^^ugdb:float32vector"#,
-        )],
+        )?],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Literal { predicate, .. } if predicate == ex("embedding").as_str()),
         "{refused:?}"
     );
+    Ok(())
 }
 
 /// Two subjects given one unique value in one changeset: the second is refused, for the first holds it in the write,
 /// and nothing of the changeset is held. The catalog specification's unique values, for a literal, an IRI new to the
 /// store and an IRI it holds.
 #[test]
-fn test_a_unique_value_given_to_two_subjects_in_one_changeset_is_refused() {
+fn test_a_unique_value_given_to_two_subjects_in_one_changeset_is_refused() -> TestResult {
     for (object, shown) in [
         (r#""x""#, r#""x""#),
         ("<new>", "<http://ex.org/new>"),
         ("<held>", "<http://ex.org/held>"),
     ] {
-        let a = changesets();
-        declare(&a, "id", "unique");
-        write(&a, &["<z> <seen> <held>"]);
+        let a = changesets()?;
+        declare(&a, "id", "unique")?;
+        write(&a, &["<z> <seen> <held>"])?;
         let refused = apply(
             &a,
             vec![
-                insert(&format!("<a> <id> {object}")),
-                insert(&format!("<b> <id> {object}")),
+                insert(&format!("<a> <id> {object}"))?,
+                insert(&format!("<b> <id> {object}"))?,
             ],
         )
-        .unwrap_err();
+        .err()
+        .context("the error of apply(..)")?;
         assert_eq!(
             refused.0,
             ChangesetErrorEnum::Unique {
@@ -419,52 +449,55 @@ fn test_a_unique_value_given_to_two_subjects_in_one_changeset_is_refused() {
             },
             "{object}"
         );
-        assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
-        assert_eq!(a.quads().uid_of(NS, ex("b").as_str()).unwrap(), None);
+        assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+        assert_eq!(a.quads().uid_of(NS, ex("b").as_str())?, None);
         // One subject writing the value twice in a changeset is no conflict.
-        apply(
+        write_changes(
             &a,
             vec![
-                insert(&format!("<a> <id> {object}")),
-                insert(&format!("<a> <id> {object}")),
+                insert(&format!("<a> <id> {object}"))?,
+                insert(&format!("<a> <id> {object}"))?,
             ],
-        )
-        .unwrap();
-        assert_eq!(objects(&a, "a", "id"), vec![term(object)], "{object}");
+        )?;
+        assert_eq!(objects(&a, "a", "id")?, vec![term(object)?], "{object}");
     }
+    Ok(())
 }
 
 /// A literal object keeps its reverse entry, as every object kind does (index maintenance, reverse edges): the reverse
 /// list of the predicate for the literal lists the subject until the statement is deleted.
 #[test]
-fn test_a_literal_object_keeps_its_reverse_entry() {
-    let a = changesets();
-    apply(
+fn test_a_literal_object_keeps_its_reverse_entry() -> TestResult {
+    let a = changesets()?;
+    write_changes(
         &a,
-        vec![insert(r#"<a> <name> "Ann""#), insert(r#"<b> <name> "Ann""#)],
-    )
-    .unwrap();
-    let literal = postings(&a, "a", "name")[0].0.clone();
+        vec![
+            insert(r#"<a> <name> "Ann""#)?,
+            insert(r#"<b> <name> "Ann""#)?,
+        ],
+    )?;
+    let literal = postings(&a, "a", "name")?[0].0.clone();
     let key = QuadKey::Reverse {
         namespace: NS,
         graph: DEFAULT_GRAPH,
-        predicate: uid(&a, "name"),
+        predicate: uid(&a, "name")?,
         object: literal,
     }
     .to_bytes();
-    let subjects = |a: &crate::utils::changesets::TestChangesets| -> Vec<u64> {
-        a.quads()
-            .objects(&key, a.quads().lists().applied_ts())
-            .unwrap()
+    let subjects = |store: &crate::utils::changesets::TestChangesets| -> TestResult<Vec<u64>> {
+        Ok(store
+            .quads()
+            .objects(&key, store.quads().lists().applied_ts())?
             .iter()
             .filter_map(|(o, _)| o.as_uid())
-            .collect()
+            .collect())
     };
-    let mut both = vec![uid(&a, "a"), uid(&a, "b")];
+    let mut both = vec![uid(&a, "a")?, uid(&a, "b")?];
     both.sort();
-    assert_eq!(subjects(&a), both);
-    apply(&a, vec![delete(r#"<a> <name> "Ann""#)]).unwrap();
-    assert_eq!(subjects(&a), vec![uid(&a, "b")]);
-    apply(&a, vec![delete(r#"<b> <name> "Ann""#)]).unwrap();
-    assert_eq!(subjects(&a), Vec::<u64>::new());
+    assert_eq!(subjects(&a)?, both);
+    write_changes(&a, vec![delete(r#"<a> <name> "Ann""#)?])?;
+    assert_eq!(subjects(&a)?, vec![uid(&a, "b")?]);
+    write_changes(&a, vec![delete(r#"<b> <name> "Ann""#)?])?;
+    assert_eq!(subjects(&a)?, Vec::<u64>::new());
+    Ok(())
 }

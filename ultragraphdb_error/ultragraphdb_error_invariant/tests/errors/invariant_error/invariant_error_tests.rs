@@ -7,7 +7,7 @@ use ultragraphdb_error_invariant::{InvariantError, InvariantErrorEnum};
 
 #[test]
 fn test_the_constructor_names_the_invariant() {
-    let error = InvariantError::Violated("rounds are appended in position order");
+    let error = InvariantError::violated("rounds are appended in position order");
     assert_eq!(
         error.0,
         InvariantErrorEnum::Violated {
@@ -18,6 +18,6 @@ fn test_the_constructor_names_the_invariant() {
 
 #[test]
 fn test_violations_are_equal_by_their_invariant() {
-    assert_eq!(InvariantError::Violated("a"), InvariantError::Violated("a"));
-    assert_ne!(InvariantError::Violated("a"), InvariantError::Violated("b"));
+    assert_eq!(InvariantError::violated("a"), InvariantError::violated("a"));
+    assert_ne!(InvariantError::violated("a"), InvariantError::violated("b"));
 }

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 use ultragraphdb_protocol_wire::ChunkLayout;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// (data length, chunks, table length, body length), worked by hand: one chunk up to 3,840 bytes, one more per
 /// 4,096 or part of one, a table of 8 bytes a chunk past the first.
@@ -35,15 +36,16 @@ fn test_of_data_splits_as_worked_by_hand() {
 }
 
 #[test]
-fn test_of_body_finds_the_split_worked_by_hand() {
+fn test_of_body_finds_the_split_worked_by_hand() -> TestResult {
     for (data_len, chunks, _, body_len) in CASES {
-        let layout = ChunkLayout::of_body(body_len).expect("a valid body length");
+        let layout = ChunkLayout::of_body(body_len).context("a valid body length")?;
         assert_eq!(
             (layout.data_len(), layout.chunks()),
             (data_len, chunks),
             "{body_len}"
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -80,12 +82,12 @@ fn oracle(max_data: usize) -> HashMap<usize, usize> {
 }
 
 #[test]
-fn test_every_body_length_to_one_mebibyte_matches_the_oracle() {
+fn test_every_body_length_to_one_mebibyte_matches_the_oracle() -> TestResult {
     let valid = oracle(1_048_320);
     for body_len in 0..=1_048_320 {
         match valid.get(&body_len) {
             Some(&data_len) => {
-                let layout = ChunkLayout::of_body(body_len).expect("the oracle's length");
+                let layout = ChunkLayout::of_body(body_len).context("the oracle's length")?;
                 assert_eq!(layout.data_len(), data_len, "{body_len}");
                 assert_eq!(layout.body_len(), body_len, "{body_len}");
                 assert_eq!(layout, ChunkLayout::of_data(data_len), "{body_len}");
@@ -97,6 +99,7 @@ fn test_every_body_length_to_one_mebibyte_matches_the_oracle() {
             ),
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -154,7 +157,7 @@ fn test_lengths_past_any_frame_do_not_overflow() {
 }
 
 #[test]
-fn test_a_layout_of_any_data_length_answers_without_overflowing() {
+fn test_a_layout_of_any_data_length_answers_without_overflowing() -> TestResult {
     // usize::MAX bytes take 1 + ceil((usize::MAX - 3,840) / 4,096) chunks; no slice is that long, and the body's
     // length saturates rather than wrapping.
     let layout = ChunkLayout::of_data(usize::MAX);
@@ -163,6 +166,7 @@ fn test_a_layout_of_any_data_length_answers_without_overflowing() {
     assert_eq!(layout.chunk_range(layout.chunks()), None);
     let last = layout
         .chunk_range(layout.chunks() - 1)
-        .expect("the last chunk");
+        .context("the last chunk")?;
     assert_eq!(last.end, usize::MAX);
+    Ok(())
 }

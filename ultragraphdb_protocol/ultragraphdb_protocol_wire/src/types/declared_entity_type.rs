@@ -12,6 +12,7 @@ pub struct DeclaredEntityType {
 }
 
 impl DeclaredEntityType {
+    /// The declaration of the entity type `iri`, below `parent`, abstract or not.
     pub fn new(iri: impl Into<String>, parent: Option<String>, is_abstract: bool) -> Self {
         Self {
             iri: iri.into(),
@@ -20,14 +21,17 @@ impl DeclaredEntityType {
         }
     }
 
+    /// The entity type's IRI.
     pub fn iri(&self) -> &str {
         &self.iri
     }
 
+    /// The parent type's IRI, if it has one.
     pub fn parent(&self) -> Option<&str> {
         self.parent.as_deref()
     }
 
+    /// Whether the entity type is abstract.
     pub fn is_abstract(&self) -> bool {
         self.is_abstract
     }

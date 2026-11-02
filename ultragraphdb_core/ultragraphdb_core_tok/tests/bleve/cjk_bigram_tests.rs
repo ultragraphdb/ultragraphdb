@@ -9,6 +9,7 @@
  */
 
 use ultragraphdb_core_tok::{AnalysisToken, Stemmer, TokenType};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn tok(term: &str, start: usize, end: usize, typ: TokenType) -> AnalysisToken {
     AnalysisToken::new(term, start, end, typ)
@@ -131,17 +132,19 @@ fn edge_cases() -> Vec<Case> {
 }
 
 #[test]
-fn test_cjk_bigram_filter() {
+fn test_cjk_bigram_filter() -> TestResult {
     let tests = bleve_cases().into_iter().chain(edge_cases());
-    let cjk = Stemmer::named("cjk_bigram").unwrap();
+    let cjk = Stemmer::named("cjk_bigram").context("Stemmer::named(\"cjk_bigram\")")?;
     for (name, input, output) in tests {
         assert_eq!(cjk.filter(input), output, "{name}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_cjk_bigram_stem_keeps_the_term() {
-    let cjk = Stemmer::named("cjk_bigram").unwrap();
+fn test_cjk_bigram_stem_keeps_the_term() -> TestResult {
+    let cjk = Stemmer::named("cjk_bigram").context("Stemmer::named(\"cjk_bigram\")")?;
     assert_eq!(cjk.stem("世界"), "世界");
     assert_eq!(cjk.stem(""), "");
+    Ok(())
 }

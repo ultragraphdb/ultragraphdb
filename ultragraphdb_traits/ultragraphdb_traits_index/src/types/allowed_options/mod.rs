@@ -47,7 +47,7 @@ impl AllowedOptions {
         name: impl Into<String>,
         parser: OptionParser,
     ) -> &mut Self {
-        self.0.insert(name.into(), parser);
+        let _replaced: Option<OptionParser> = self.0.insert(name.into(), parser);
         self
     }
 
@@ -81,7 +81,7 @@ impl AllowedOptions {
     ) -> Result<(), OptionsError> {
         for p in pairs {
             let v = self.parse_pair(p)?;
-            opts.set_opt(p.option(), v);
+            let _opts: &mut Options = opts.set_opt(p.option(), v);
         }
         Ok(())
     }

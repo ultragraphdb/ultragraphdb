@@ -13,6 +13,7 @@ use ultragraphdb_core_mapping::{
     PropertyGraph, Statement, StatementRef, property_graph_to_changeset, property_graph_view,
     quads_to_changeset, rdf_view,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const BASE: &str = "http://ex.org/";
 
@@ -32,8 +33,8 @@ fn node(name: &str) -> NamedOrBlankNode {
 }
 
 /// The names under `BASE`, a valid base IRI.
-fn names() -> Names {
-    Names::new(BASE).expect("BASE is an absolute IRI ending in '/'")
+fn names() -> TestResult<Names> {
+    Names::new(BASE).context("BASE is an absolute IRI ending in '/'")
 }
 
 fn multi(_: &NamedNode) -> Cardinality {
@@ -41,10 +42,10 @@ fn multi(_: &NamedNode) -> Cardinality {
 }
 
 impl Steps {
-    fn apply(&mut self, changes: Vec<Change>) {
+    fn apply(&mut self, changes: Vec<Change>) -> TestResult {
         let mut changeset = Changeset::new(0);
         changes.into_iter().for_each(|c| changeset.push(c));
-        self.dataset.apply(&changeset, multi).expect("applies");
+        self.dataset.apply(&changeset, multi).context("applies")
     }
 
     fn statements(&self) -> Vec<Statement> {
@@ -55,13 +56,13 @@ impl Steps {
         rdf_view(&self.statements())
     }
 
-    fn pg(&self) -> PropertyGraph {
-        property_graph_view(
+    fn pg(&self) -> TestResult<PropertyGraph> {
+        Ok(property_graph_view(
             &self.statements(),
             &GraphName::DefaultGraph,
-            &names(),
+            &names()?,
             multi,
-        )
+        ))
     }
 }
 
@@ -85,11 +86,12 @@ fn edge(s: &str, p: &str, o: &str) -> Change {
 }
 
 #[when("the statement <a> <knows> <b> is written to the default graph")]
-fn write_plain(w: &mut Steps) {
+fn write_plain(w: &mut Steps) -> TestResult {
     w.apply(vec![
         insert("a", "knows", iri("b").into()),
         insert("a", "knows", iri("b").into()),
-    ]);
+    ])?;
+    Ok(())
 }
 
 #[then("it is held once, with no statement ID")]
@@ -101,8 +103,9 @@ fn held_once(w: &mut Steps) {
 
 #[when("<a> <knows> <b> is written twice to the default graph as two distinct edges")]
 #[when("<a> <knows> <b> is held twice with two statement IDs")]
-fn write_parallel(w: &mut Steps) {
-    w.apply(vec![edge("a", "knows", "b"), edge("a", "knows", "b")]);
+fn write_parallel(w: &mut Steps) -> TestResult {
+    w.apply(vec![edge("a", "knows", "b"), edge("a", "knows", "b")])?;
+    Ok(())
 }
 
 #[then("both statements are held, each with its own statement ID")]
@@ -127,7 +130,7 @@ fn one_quad_two_reifiers(w: &mut Steps) {
 }
 
 #[when("the statement <a> <knows> <b> carries the property <since> \"2020\"^^xsd:gYear")]
-fn with_property(w: &mut Steps) {
+fn with_property(w: &mut Steps) -> TestResult {
     w.apply(vec![
         insert("a", "knows", iri("b").into()),
         Change::SetProperty {
@@ -140,13 +143,14 @@ fn with_property(w: &mut Steps) {
             predicate: iri("since"),
             value: Literal::new_typed_literal("2020", xsd::G_YEAR).into(),
         },
-    ]);
+    ])?;
+    Ok(())
 }
 
 #[then(
     "the RDF view holds the quad and a reifier of it annotated with <since> \"2020\"^^xsd:gYear"
 )]
-fn annotated(w: &mut Steps) {
+fn annotated(w: &mut Steps) -> TestResult {
     let quads = w.quads();
     assert!(quads.contains(&Quad::new(
         node("a"),
@@ -158,7 +162,7 @@ fn annotated(w: &mut Steps) {
         .iter()
         .find(|q| q.predicate == rdf::REIFIES)
         .map(|q| q.subject.clone())
-        .expect("a reifier");
+        .context("a reifier")?;
     let annotation = Quad::new(
         reifier,
         iri("since"),
@@ -166,29 +170,32 @@ fn annotated(w: &mut Steps) {
         GraphName::DefaultGraph,
     );
     assert!(quads.contains(&annotation), "{quads:?}");
+    Ok(())
 }
 
 #[when("<a> rdf:type <Person> is held")]
-fn typed(w: &mut Steps) {
+fn typed(w: &mut Steps) -> TestResult {
     w.apply(vec![Change::Insert {
         graph: GraphName::DefaultGraph,
         subject: node("a"),
         predicate: rdf::TYPE.into_owned(),
         object: iri("Person").into(),
-    }]);
+    }])?;
+    Ok(())
 }
 
 #[then("the property-graph view shows node a with the label Person")]
-fn labelled(w: &mut Steps) {
-    let pg = w.pg();
-    let a = pg.node(&node("a").to_string()).expect("node a");
+fn labelled(w: &mut Steps) -> TestResult {
+    let pg = w.pg()?;
+    let a = pg.node(&node("a").to_string()).context("node a")?;
     assert!(a.labels().contains("Person"));
     assert!(pg.edges().is_empty(), "a label is no edge");
+    Ok(())
 }
 
 #[then("the property-graph view shows two knows edges from a to b")]
-fn two_edges(w: &mut Steps) {
-    let pg = w.pg();
+fn two_edges(w: &mut Steps) -> TestResult {
+    let pg = w.pg()?;
     let edges: Vec<&PgEdge> = pg
         .edges()
         .iter()
@@ -201,20 +208,22 @@ fn two_edges(w: &mut Steps) {
             .all(|e| *e.source() == node("a") && *e.target() == node("b"))
     );
     assert_ne!(edges[0].id(), edges[1].id());
+    Ok(())
 }
 
 #[when("<a> <nick> \"Al\" and <a> <nick> \"Ally\" are held and nick is not declared single-valued")]
-fn nicks(w: &mut Steps) {
+fn nicks(w: &mut Steps) -> TestResult {
     w.apply(vec![
         insert("a", "nick", Literal::new_simple_literal("Ally").into()),
         insert("a", "nick", Literal::new_simple_literal("Al").into()),
-    ]);
+    ])?;
+    Ok(())
 }
 
 #[then("the property-graph view shows nick on a as a list of both values")]
-fn nick_list(w: &mut Steps) {
-    let pg = w.pg();
-    let a = pg.node(&node("a").to_string()).expect("node a");
+fn nick_list(w: &mut Steps) -> TestResult {
+    let pg = w.pg()?;
+    let a = pg.node(&node("a").to_string()).context("node a")?;
     assert_eq!(
         a.properties().get("nick"),
         Some(&PgValue::List(vec![
@@ -222,21 +231,23 @@ fn nick_list(w: &mut Steps) {
             Literal::new_simple_literal("Ally")
         ]))
     );
+    Ok(())
 }
 
 #[when(
     "the base IRI is http://ex.org/ and a property age is written through the property-graph view"
 )]
-fn pg_age(w: &mut Steps) {
+fn pg_age(w: &mut Steps) -> TestResult {
     let pg = PropertyGraph::new()
         .with_node(PgNode::new(node("a")).with_property("age", PgValue::Scalar(Literal::from(30))));
     let changeset = property_graph_to_changeset(
         &pg,
         0,
         &GraphName::DefaultGraph,
-        &Names::new("http://ex.org/").expect("a valid base"),
+        &Names::new("http://ex.org/").context("a valid base")?,
     );
-    w.dataset.apply(&changeset, multi).expect("applies");
+    w.dataset.apply(&changeset, multi).context("applies")?;
+    Ok(())
 }
 
 #[then("the RDF view holds it under the predicate <http://ex.org/age>")]
@@ -250,7 +261,7 @@ fn age_iri(w: &mut Steps) {
 }
 
 #[when("_:x <knows> <b> is written through the RDF view and read back through it")]
-fn blank_written(w: &mut Steps) {
+fn blank_written(w: &mut Steps) -> TestResult {
     let x = BlankNode::new_unchecked("x");
     w.written = vec![
         Quad::new(x.clone(), iri("knows"), iri("b"), GraphName::DefaultGraph),
@@ -261,8 +272,9 @@ fn blank_written(w: &mut Steps) {
             GraphName::DefaultGraph,
         ),
     ];
-    let changeset = quads_to_changeset(0, &w.written).unwrap();
-    w.dataset.apply(&changeset, multi).unwrap();
+    let changeset = quads_to_changeset(0, &w.written)?;
+    w.dataset.apply(&changeset, multi)?;
+    Ok(())
 }
 
 #[then(
@@ -276,12 +288,13 @@ fn same_blank(w: &mut Steps) {
 }
 
 #[when(expr = "<a> <n> {string}^^xsd:integer is written")]
-fn integer_written(w: &mut Steps, lexical: String) {
+fn integer_written(w: &mut Steps, lexical: String) -> TestResult {
     w.apply(vec![insert(
         "a",
         "n",
         Literal::new_typed_literal(lexical, xsd::INTEGER).into(),
-    )]);
+    )])?;
+    Ok(())
 }
 
 #[then(
@@ -310,7 +323,7 @@ fn integer_unchanged(w: &mut Steps, lexical: String) {
 #[when(
     "a set of quads over two named graphs, with blank nodes, language-tagged and typed literals, is written and read back through the RDF view"
 )]
-fn quads_written(w: &mut Steps) {
+fn quads_written(w: &mut Steps) -> TestResult {
     let (g1, g2) = (
         GraphName::NamedNode(iri("g1")),
         GraphName::NamedNode(iri("g2")),
@@ -321,7 +334,7 @@ fn quads_written(w: &mut Steps) {
         Quad::new(
             b.clone(),
             iri("name"),
-            Literal::new_language_tagged_literal("Anne", "fr").unwrap(),
+            Literal::new_language_tagged_literal("Anne", "fr")?,
             g1.clone(),
         ),
         Quad::new(
@@ -344,8 +357,9 @@ fn quads_written(w: &mut Steps) {
             GraphName::DefaultGraph,
         ),
     ];
-    let changeset = quads_to_changeset(0, &w.written).unwrap();
-    w.dataset.apply(&changeset, multi).unwrap();
+    let changeset = quads_to_changeset(0, &w.written)?;
+    w.dataset.apply(&changeset, multi)?;
+    Ok(())
 }
 
 #[then("the quads read back equal the quads written")]
@@ -358,7 +372,7 @@ fn quads_equal(w: &mut Steps) {
 #[when(
     "nodes with labels and properties, and parallel edges with properties, are written and read back through the property-graph view"
 )]
-fn pg_written(w: &mut Steps) {
+fn pg_written(w: &mut Steps) -> TestResult {
     let since = |y: &str| vec![Term::from(Literal::new_typed_literal(y, xsd::G_YEAR))];
     w.pg_written = PropertyGraph::new()
         .with_node(
@@ -378,24 +392,23 @@ fn pg_written(w: &mut Steps) {
         .with_edge(PgEdge::new(node("a"), "knows", node("b")).with_property("since", since("2024")))
         .with_edge(PgEdge::new(node("b"), "likes", node("a")));
     let changeset =
-        property_graph_to_changeset(&w.pg_written, 0, &GraphName::DefaultGraph, &names());
-    w.dataset
-        .apply(&changeset, |p: &NamedNode| {
-            if *p == iri("name") {
-                Cardinality::Single
-            } else {
-                Cardinality::Multi
-            }
-        })
-        .unwrap();
+        property_graph_to_changeset(&w.pg_written, 0, &GraphName::DefaultGraph, &names()?);
+    w.dataset.apply(&changeset, |p: &NamedNode| {
+        if *p == iri("name") {
+            Cardinality::Single
+        } else {
+            Cardinality::Multi
+        }
+    })?;
+    Ok(())
 }
 
 #[then("the nodes, labels, properties, edges and edge properties read back equal those written")]
-fn pg_equal(w: &mut Steps) {
+fn pg_equal(w: &mut Steps) -> TestResult {
     let read = property_graph_view(
         &w.statements(),
         &GraphName::DefaultGraph,
-        &names(),
+        &names()?,
         |p: &NamedNode| {
             if *p == iri("name") {
                 Cardinality::Single
@@ -414,12 +427,14 @@ fn pg_equal(w: &mut Steps) {
         read.without_edge_ids(),
         w.pg_written.clone().without_edge_ids()
     );
+    Ok(())
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

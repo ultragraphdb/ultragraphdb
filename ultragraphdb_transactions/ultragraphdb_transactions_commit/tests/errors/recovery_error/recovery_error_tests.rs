@@ -3,7 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use crate::utils::fixture::Refused;
 use std::error::Error;
+use ultragraphdb_tool_bdd::TestResult;
 
 use ultragraphdb_error_log::LogError;
 use ultragraphdb_error_store::StoreError;
@@ -14,9 +16,9 @@ use ultragraphdb_transactions_commit::{RecoveryError, RecoveryErrorEnum};
 /// The reasons that carry a cause build their variant around it, display their reason and the position they name before
 /// the cause's own text, and give the cause as their source.
 #[test]
-fn test_each_reason_with_a_cause_carries_and_displays_it() {
+fn test_each_reason_with_a_cause_carries_and_displays_it() -> TestResult {
     let log = LogError::Poisoned();
-    let round = WriteSetRecordView::new(&[1, 2, 3]).expect_err("three bytes are no body");
+    let round = WriteSetRecordView::new(&[1, 2, 3]).refused("three bytes are no body")?;
     let apply = ChangesetError::Rebuilding("p");
     let sessions = StoreError::Corrupted(b"k".to_vec(), "bad".to_string());
     let cases = [
@@ -58,11 +60,12 @@ fn test_each_reason_with_a_cause_carries_and_displays_it() {
         assert_eq!(error.to_string(), text);
         assert_eq!(error.source().map(|s| s.to_string()), Some(source));
     }
+    Ok(())
 }
 
 /// The reasons about versions name them, and have no source.
 #[test]
-fn test_each_reason_about_versions_names_them_without_a_source() {
+fn test_each_reason_about_versions_names_them_without_a_source() -> TestResult {
     let not_in_log = RecoveryError::StoreNotInLog(30);
     assert_eq!(
         not_in_log.0,
@@ -96,4 +99,5 @@ fn test_each_reason_about_versions_names_them_without_a_source() {
     for error in [not_in_log, gap, behind] {
         assert!(error.source().is_none(), "{error:?}");
     }
+    Ok(())
 }

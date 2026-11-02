@@ -9,9 +9,10 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{encrypt, verify_password};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn test_encrypt() {
+fn test_encrypt() -> TestResult {
     let cases = [
         ("", 0, true),
         ("12345", 0, true),
@@ -30,28 +31,36 @@ fn test_encrypt() {
             Ok(h) => {
                 assert_eq!(h.len(), want, "{input}");
                 assert!(h.starts_with("$2a$10$"), "{h}");
-                verify_password(input, &h).unwrap();
+                verify_password(input, &h)?;
             }
         }
     }
+    Ok(())
 }
 
 /// golang.org/x/crypto/bcrypt v0.56.0 refuses to hash more than 72 bytes; compared, a longer password is read as
 /// its first 72 bytes.
 #[test]
-fn test_encrypt_length_limit() {
+fn test_encrypt_length_limit() -> TestResult {
     let at_limit = "x".repeat(72);
-    let h = encrypt(&at_limit).unwrap();
+    let h = encrypt(&at_limit)?;
     assert_eq!(h.len(), 60);
     assert_eq!(
-        encrypt("x".repeat(73)).unwrap_err().to_string(),
+        encrypt("x".repeat(73))
+            .err()
+            .context("expected an error")?
+            .to_string(),
         "bcrypt: password length exceeds 72 bytes"
     );
-    verify_password("x".repeat(73), &h).unwrap();
+    verify_password("x".repeat(73), &h)?;
     assert_eq!(
-        verify_password("x".repeat(71), &h).unwrap_err().to_string(),
+        verify_password("x".repeat(71), &h)
+            .err()
+            .context("expected an error")?
+            .to_string(),
         "crypto/bcrypt: hashedPassword is not the hash of the given password"
     );
+    Ok(())
 }
 
 #[test]
@@ -218,16 +227,18 @@ fn malformed_salts() -> Vec<(String, String)> {
 /// its hash part was computed with that 13-byte salt (probed with Go 1.27). The port takes 16-byte salts only and
 /// reports a mismatch.
 #[test]
-fn test_verify_password_short_salt_deviation() {
+fn test_verify_password_short_salt_deviation() -> TestResult {
     assert_eq!(
         verify_password(
             "123456",
             "$2a$10$LMGg\r\n\n\nOq4/YrWXjAy6W.mpHTlrSY83rd7rKFKeChhiM0T8c8GSC"
         )
-        .unwrap_err()
+        .err()
+        .context("expected an error")?
         .to_string(),
         "crypto/bcrypt: hashedPassword is not the hash of the given password"
     );
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -254,9 +265,9 @@ struct PasswordFile {
 }
 
 #[test]
-fn test_golden_go_written_hashes() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_password.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<PasswordFile>(&path);
+fn test_golden_go_written_hashes() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_password.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<PasswordFile>(&path)?;
     let f = &golden.cases()[0];
     for e in &f.encrypt {
         match encrypt(&e.plain) {
@@ -267,7 +278,7 @@ fn test_golden_go_written_hashes() {
                     "{}",
                     e.plain
                 );
-                verify_password(&e.plain, &h).unwrap();
+                verify_password(&e.plain, &h)?;
             }
         }
     }
@@ -278,4 +289,5 @@ fn test_golden_go_written_hashes() {
             .unwrap_or_default();
         assert_eq!(got, v.err, "{} {}", v.plain, v.hash);
     }
+    Ok(())
 }

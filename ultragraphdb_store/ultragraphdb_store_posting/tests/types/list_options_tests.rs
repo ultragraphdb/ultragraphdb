@@ -5,9 +5,10 @@
 
 use ultragraphdb_core_codec::List as UidList;
 use ultragraphdb_store_posting::ListOptions;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_options_build_from_their_read_timestamp() {
+fn test_options_build_from_their_read_timestamp() -> TestResult {
     let opt = ListOptions::at(9)
         .after(3)
         .first(-2)
@@ -21,4 +22,5 @@ fn test_options_build_from_their_read_timestamp() {
         Some(vec![4])
     );
     assert_eq!(ListOptions::at(1).intersect_with(), None);
+    Ok(())
 }

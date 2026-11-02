@@ -39,6 +39,7 @@ pub struct LogCapture {
 }
 
 impl LogCapture {
+    /// A capture holding no events yet.
     pub fn new() -> Self {
         Self::default()
     }

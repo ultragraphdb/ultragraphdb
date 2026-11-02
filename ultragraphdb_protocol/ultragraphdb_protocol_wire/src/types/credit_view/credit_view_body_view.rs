@@ -27,7 +27,7 @@ impl<'a> BodyView<'a> for CreditView<'a> {
         if frames == 0 {
             return Err(ProtocolError::FieldValue(command, "frames", 0));
         }
-        Sections::<0>::read(command, frame.body(), 0)?;
+        let _sections: Sections<'_, 0> = Sections::read(command, frame.body(), 0)?;
         Ok(Self {
             frame: PhantomData,
             frames,

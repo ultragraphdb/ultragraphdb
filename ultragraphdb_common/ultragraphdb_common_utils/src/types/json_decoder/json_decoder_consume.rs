@@ -103,7 +103,7 @@ impl<R: Read> JsonDecoder<R> {
                     }
                     (b'{', b'}') | (b'[', b']') => {
                         pos += 1;
-                        open.pop();
+                        let _closed: Option<u8> = open.pop();
                     }
                     (b'{', _) => {
                         let where_ = "after object value (expecting ',' or '}')";

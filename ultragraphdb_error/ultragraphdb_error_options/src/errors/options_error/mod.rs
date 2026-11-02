@@ -50,21 +50,25 @@ impl OptionsError {
         }
     }
 
+    /// The option is not among the allowed options; `msg` is Dgraph's message.
     #[allow(non_snake_case)]
     pub fn NotAllowed(msg: String) -> Self {
         Self(OptionsErrorEnum::NotAllowed(msg))
     }
 
+    /// The option's text does not parse as its type; `msg` is Dgraph's message.
     #[allow(non_snake_case)]
     pub fn Parse(msg: String) -> Self {
         Self(OptionsErrorEnum::Parse(msg))
     }
 
+    /// The custom parser refused the value; `msg` is Dgraph's message.
     #[allow(non_snake_case)]
     pub fn Invalid(msg: String) -> Self {
         Self(OptionsErrorEnum::Invalid(msg))
     }
 
+    /// A stored value is not of the type asked for; `msg` is Dgraph's message.
     #[allow(non_snake_case)]
     pub fn Type(msg: String) -> Self {
         Self(OptionsErrorEnum::Type(msg))

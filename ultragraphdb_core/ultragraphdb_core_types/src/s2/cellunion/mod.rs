@@ -106,11 +106,11 @@ impl CellUnion {
             }
 
             // Discard any previously accepted cells contained by ci.
-            while let Some(last) = output.last() {
-                if !ci.contains(*last) {
+            while let Some(&last) = output.last() {
+                if !ci.contains(last) {
                     break;
                 }
-                output.pop();
+                let _discarded: Option<CellId> = output.pop();
             }
 
             // See if the last three cells plus this one can be collapsed.

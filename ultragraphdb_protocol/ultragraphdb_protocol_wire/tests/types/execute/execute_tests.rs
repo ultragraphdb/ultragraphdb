@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, Execute, TermTable};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
@@ -14,7 +15,7 @@ pub fn golden_execute() -> Execute {
 }
 
 #[test]
-fn test_execute_builds_the_golden_frame() {
+fn test_execute_builds_the_golden_frame() -> TestResult {
     let execute = golden_execute();
     assert_eq!(
         (execute.statement(), execute.transaction(), execute.limit()),
@@ -25,9 +26,10 @@ fn test_execute_builds_the_golden_frame() {
     assert_eq!(execute.terms().len(), 1);
     assert!(execute.resume().is_empty());
     assert_eq!(
-        execute.frame(golden("execute").header()).unwrap(),
-        golden("execute").bytes()
+        execute.frame(golden("execute")?.header())?,
+        golden("execute")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

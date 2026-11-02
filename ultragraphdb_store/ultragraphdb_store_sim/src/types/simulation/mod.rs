@@ -32,6 +32,7 @@ pub struct Simulation {
 }
 
 impl Simulation {
+    /// A simulation of `seed`, its store injecting `faults`.
     pub fn new(seed: Seed, faults: FaultConfig) -> Self {
         let store = SimStore::new(seed, faults, SimClock::new());
         let executor = SteppedExecutor::new(seed.stream(Stream::Executor));
@@ -45,6 +46,7 @@ impl Simulation {
         }
     }
 
+    /// The context a workload runs in.
     pub fn context(&mut self) -> &mut SimContext {
         &mut self.context
     }
@@ -80,7 +82,7 @@ impl Simulation {
             if pick < actors {
                 workload(&mut self.context, Event::Step(pick))?;
             } else {
-                self.context.executor().step();
+                let _ran: bool = self.context.executor().step();
             }
             self.check()?;
             self.recover_if_needed(&mut workload)?;

@@ -8,6 +8,7 @@ use ultragraphdb_core_catalog::Catalog;
 use ultragraphdb_core_mapping::{Cardinality, PredicateDeclaration};
 use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_store_posting::CachedList;
+use ultragraphdb_store_quads::StatementRecord;
 use ultragraphdb_traits_store::{ListCache, Store};
 
 use crate::errors::changeset_error::ChangesetError;
@@ -132,7 +133,8 @@ where
         }
         let held = self.write.objects(r.graph, r.subject, r.predicate)?;
         for (other, _) in held.iter().filter(|(o, _)| *o != r.object) {
-            self.remove(r.graph, r.subject, r.predicate, declaration, other)?;
+            let _removed: bool =
+                self.remove(r.graph, r.subject, r.predicate, declaration, other)?;
         }
         Ok(held
             .into_iter()
@@ -213,7 +215,7 @@ where
             return Ok(false);
         };
         ids.into_iter().for_each(|id| {
-            self.records.insert((graph, id), None);
+            let _previous: Option<Option<StatementRecord>> = self.records.insert((graph, id), None);
         });
         self.vector_changed(graph, subject, predicate, object);
         if let Some((objects, subjects)) = counts {
@@ -234,7 +236,7 @@ where
             for (remaining, _) in self.write.objects(graph, subject, predicate)? {
                 if let oxrdf::Term::Literal(kept) = self.decode(&remaining)? {
                     for token in self.tokens(declaration, kept.as_ref())? {
-                        stale.remove(&token);
+                        let _removed: bool = stale.remove(&token);
                     }
                 }
             }
@@ -257,7 +259,8 @@ where
             return Ok(());
         };
         let declaration = self.behaviour(r.predicate, predicate);
-        self.remove(r.graph, r.subject, r.predicate, &declaration, &r.object)?;
+        let _removed: bool =
+            self.remove(r.graph, r.subject, r.predicate, &declaration, &r.object)?;
         Ok(())
     }
 
@@ -278,7 +281,7 @@ where
         };
         let declaration = self.behaviour(uid, predicate);
         for (object, _) in self.write.objects(graph, subject, uid)? {
-            self.remove(graph, subject, uid, &declaration, &object)?;
+            let _removed: bool = self.remove(graph, subject, uid, &declaration, &object)?;
         }
         Ok(())
     }

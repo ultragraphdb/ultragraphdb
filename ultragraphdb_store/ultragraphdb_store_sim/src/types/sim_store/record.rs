@@ -50,7 +50,7 @@ impl Record {
                 fenced,
             } => {
                 for entry in entries {
-                    state.data.insert(
+                    let _replaced: Option<Vec<u8>> = state.data.insert(
                         (entry.key().to_vec(), Reverse(entry.version())),
                         encode(entry, *fenced),
                     );
@@ -58,12 +58,12 @@ impl Record {
                 for entry in versionless {
                     match entry.value() {
                         Some(value) => {
-                            state
+                            let _replaced: Option<Vec<u8>> = state
                                 .versionless
                                 .insert(entry.key().to_vec(), value.to_vec());
                         }
                         None => {
-                            state.versionless.remove(entry.key());
+                            let _removed: Option<Vec<u8>> = state.versionless.remove(entry.key());
                         }
                     }
                 }
@@ -71,17 +71,18 @@ impl Record {
                     state.applied_ts = state.applied_ts.max(*ts);
                 }
                 removed_records.iter().for_each(|id| {
-                    state.rebuild_records.remove(id);
+                    let _removed: Option<Vec<Vec<u8>>> = state.rebuild_records.remove(id);
                 });
             }
             Record::StartRebuild(record) => {
-                state
+                let _replaced: Option<Vec<Vec<u8>>> = state
                     .rebuild_records
                     .insert(record.id(), record.prefixes().to_vec());
             }
             Record::StartDrop(record) => state.drop_record = Some(record.clone()),
             Record::Remove(keys) => keys.iter().for_each(|(key, version)| {
-                state.data.remove(&(key.clone(), Reverse(*version)));
+                let _removed: Option<Vec<u8>> =
+                    state.data.remove(&(key.clone(), Reverse(*version)));
             }),
             Record::Clear => {
                 state.data.clear();
@@ -96,7 +97,7 @@ impl Record {
             }
             Record::EndDrop => state.drop_record = None,
             Record::Ban(namespace) => {
-                state.banned.insert(*namespace);
+                let _newly: bool = state.banned.insert(*namespace);
             }
             Record::Discard(ts) => state.discard_ts = state.discard_ts.max(*ts),
             Record::Horizon(ts) => state.horizon = Some(*ts),

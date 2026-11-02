@@ -51,6 +51,9 @@ impl Superblock {
     /// A record's length.
     pub const SIZE: usize = 72;
 
+    /// A record of `sequence` for the log of `cluster` and `incarnation`: its last checkpoint at `checkpoint` with
+    /// `checkpoint_checksum`, covering commit versions through `checkpoint_version`, and its first kept segment
+    /// `first_segment`.
     pub fn new(
         sequence: u64,
         cluster: u64,
@@ -127,22 +130,27 @@ impl Superblock {
         if self.sequence % 2 == 1 { 'a' } else { 'b' }
     }
 
+    /// The record's sequence: the higher of two copies is the newer.
     pub fn sequence(&self) -> u64 {
         self.sequence
     }
 
+    /// The cluster the log belongs to.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// The incarnation of the log's rounds.
     pub fn incarnation(&self) -> u64 {
         self.incarnation
     }
 
+    /// The last checkpoint's position.
     pub fn checkpoint(&self) -> Position {
         self.checkpoint
     }
 
+    /// The checksum of the round at the checkpoint, the parent of the round after it.
     pub fn checkpoint_checksum(&self) -> u64 {
         self.checkpoint_checksum
     }
@@ -152,6 +160,7 @@ impl Superblock {
         self.checkpoint_version
     }
 
+    /// The index of the first segment kept.
     pub fn first_segment(&self) -> u64 {
         self.first_segment
     }

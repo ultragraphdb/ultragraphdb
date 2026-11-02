@@ -24,7 +24,9 @@ use crate::types::write_set_builder::WriteSetBuilder;
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Commit {
+    /// A read-only transaction, ended on its worker: its buffers, for the worker's next transaction.
     ReadOnly(TxnBuffers),
+    /// A read-write transaction's proposal, for the commit step.
     ReadWrite(Prepared),
 }
 
@@ -106,10 +108,12 @@ where
         self.principal
     }
 
+    /// The namespace the transaction runs in.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// Whether the transaction writes.
     pub fn mode(&self) -> Mode {
         self.mode
     }
@@ -156,7 +160,7 @@ where
         if self.mode == Mode::ReadOnly {
             return Err(TxnError::ReadOnly());
         }
-        self.live(now_us)?;
+        let _execution: &mut Execution<'a, S, C> = self.live(now_us)?;
         self.operations.push(operation);
         Ok(())
     }
@@ -217,7 +221,7 @@ where
         );
         read_set.gather(executed.reads())?;
         read_set.seal();
-        WriteSetBuilder::new(&executed, session, request, commit_record)
+        let _record_len: usize = WriteSetBuilder::new(&executed, session, request, commit_record)
             .with_principal(self.principal)
             .with_objects_per_list(self.limits.objects_per_list())
             .write_into(&mut record, self.limits.max_write_set())?;

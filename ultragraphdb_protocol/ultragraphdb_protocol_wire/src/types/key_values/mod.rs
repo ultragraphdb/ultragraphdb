@@ -67,6 +67,7 @@ impl<'a> KeyValues<'a> {
         self.len
     }
 
+    /// Whether the section holds no entry.
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }

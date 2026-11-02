@@ -56,6 +56,7 @@ impl Framer {
         self.protocol = protocol;
     }
 
+    /// The cluster the frames must name.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }

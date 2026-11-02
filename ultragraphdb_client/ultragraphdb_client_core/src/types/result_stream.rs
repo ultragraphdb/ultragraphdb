@@ -16,6 +16,7 @@ impl ResultStream {
         Self { stream, generation }
     }
 
+    /// The stream the results arrive on.
     pub fn stream(&self) -> u64 {
         self.stream
     }

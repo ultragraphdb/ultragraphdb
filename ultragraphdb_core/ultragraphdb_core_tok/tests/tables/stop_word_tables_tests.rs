@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_tok::stop_words;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// bleve v2.5.7's token map `stop_<lang>` for each language of Dgraph's `langStops`, as a Go program over bleve's
 /// registry reads it: the number of words, their total length in bytes, and the first and last word sorted
@@ -40,11 +41,11 @@ pub(crate) const GO_STOP_WORDS: [(&str, usize, usize, &str, &str); 28] = [
 ];
 
 #[test]
-fn test_stop_word_tables_match_bleve() {
+fn test_stop_word_tables_match_bleve() -> TestResult {
     for (lang, count, bytes, first, last) in GO_STOP_WORDS {
         let words = stop_words(lang)
             .ok_or_else(|| format!("no stop words for {lang}"))
-            .expect("stop words for the language");
+            .context("stop words for the language")?;
         assert_eq!(words.len(), count, "{lang}: count");
         assert_eq!(
             words.iter().map(|w| w.len()).sum::<usize>(),
@@ -59,6 +60,7 @@ fn test_stop_word_tables_match_bleve() {
         );
         assert!(!words.contains(&""), "{lang}: an empty word");
     }
+    Ok(())
 }
 
 #[test]

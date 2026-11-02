@@ -13,7 +13,7 @@
 use serde::Deserialize;
 use ultragraphdb_store_hnsw::HnswFloat;
 use ultragraphdb_store_sim::SimRng;
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{TestResult, load_golden, testdata_dir};
 
 /// A kernel of two vectors of `F`.
 type Kernel<F> = fn(&[F], &[F]) -> F;
@@ -208,8 +208,8 @@ struct KernelCase {
 }
 
 #[test]
-fn test_kernels_equal_gos_bit_for_bit() {
-    let golden = load_golden::<KernelCase>(&testdata_dir().join("golden/hnsw_kernels.json"));
+fn test_kernels_equal_gos_bit_for_bit() -> TestResult {
+    let golden = load_golden::<KernelCase>(&testdata_dir()?.join("golden/hnsw_kernels.json"))?;
     assert_eq!(golden.cases().len(), 196);
     for c in golden.cases() {
         let got = if c.bits == 32 {
@@ -241,4 +241,5 @@ fn test_kernels_equal_gos_bit_for_bit() {
             c.bits
         );
     }
+    Ok(())
 }

@@ -48,10 +48,9 @@ impl<'a> ShapeIndexIterator<'a> {
         self.id
     }
 
-    /// Returns the current index cell.
-    pub(crate) fn index_cell(&self) -> &'a ShapeIndexCell {
+    /// Returns the current index cell, or `None` when the iterator is not positioned at one.
+    pub(crate) fn index_cell(&self) -> Option<&'a ShapeIndexCell> {
         self.cell
-            .expect("iterator is not positioned at an index cell")
     }
 
     /// Returns the Point at the center of the current position of the iterator.

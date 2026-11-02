@@ -116,7 +116,7 @@ impl FullTag {
                 *c = b'-';
             }
         }
-        parse_extensions(&mut scan);
+        let _extensions_end: usize = parse_extensions(&mut scan);
         if let Some(err) = scan.err.clone() {
             return Err((t, err));
         }

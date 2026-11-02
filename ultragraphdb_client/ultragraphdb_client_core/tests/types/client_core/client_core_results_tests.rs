@@ -17,18 +17,19 @@ use ultragraphdb_protocol_wire::{
 use crate::utils::harness::{
     CLUSTER, Harness, RELEASE, begun, config, prepared, registered, server,
 };
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
-fn begin(h: &mut Harness) -> Transaction {
-    let p = h.core.begin(0, true, h.now).unwrap();
-    begun(h.settle(p))
+fn begin(h: &mut Harness) -> TestResult<Transaction> {
+    let p = h.core.begin(0, true, h.now)?;
+    begun(h.settle(p)?)
 }
 
-fn begin_writing(h: &mut Harness) -> (Session, Transaction) {
-    let p = h.core.register(h.now).unwrap();
-    let session = registered(h.settle(p));
-    let p = h.core.begin(0, false, h.now).unwrap();
-    let tx = begun(h.settle(p));
-    (session, tx)
+fn begin_writing(h: &mut Harness) -> TestResult<(Session, Transaction)> {
+    let registering = h.core.register(h.now)?;
+    let session = registered(h.settle(registering)?)?;
+    let beginning = h.core.begin(0, false, h.now)?;
+    let tx = begun(h.settle(beginning)?)?;
+    Ok((session, tx))
 }
 
 /// A read of `tx`, naming it.
@@ -50,42 +51,48 @@ fn read(tx: &Transaction) -> Read {
 }
 
 /// Every batch of `stream`, each read in place as its rows' first cell's text, and the Credit frames sent.
-fn drain(h: &mut Harness, stream: &ResultStream) -> Vec<Vec<String>> {
+fn drain(h: &mut Harness, stream: &ResultStream) -> TestResult<Vec<Vec<String>>> {
     let mut batches = Vec::new();
     let mut done = false;
+    let mut failure = None;
     h.until(|h| {
         loop {
-            match h
-                .core
-                .next_batch(stream, h.now, |view| {
-                    (0..view.rows())
-                        .map(|row| {
-                            let cell = view.cell(0, row).unwrap_or(ABSENT);
-                            assert_eq!(
-                                view.term_count(),
-                                1,
-                                "a repeated term is sent once per batch"
-                            );
-                            view.term(cell)
-                                .and_then(|t| t.text())
-                                .unwrap_or("")
-                                .to_string()
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .expect("a batch, the end or a wait")
-            {
-                BatchPoll::Batch(rows) => batches.push(rows),
-                BatchPoll::Done => {
+            match h.core.next_batch(stream, h.now, |view| {
+                (0..view.rows())
+                    .map(|row| {
+                        let cell = view.cell(0, row).unwrap_or(ABSENT);
+                        assert_eq!(
+                            view.term_count(),
+                            1,
+                            "a repeated term is sent once per batch"
+                        );
+                        view.term(cell)
+                            .and_then(|t| t.text())
+                            .unwrap_or("")
+                            .to_string()
+                    })
+                    .collect::<Vec<_>>()
+            }) {
+                Ok(BatchPoll::Batch(rows)) => batches.push(rows),
+                Ok(BatchPoll::Done) => {
                     done = true;
                     return true;
                 }
-                BatchPoll::Wait => return false,
+                Ok(BatchPoll::Wait) => return false,
+                Err(error) => {
+                    failure = Some(error);
+                    return true;
+                }
             }
         }
-    });
+    })?;
+    if let Some(error) = failure {
+        return Err(TestError::new(format!(
+            "a batch, the end or a wait: {error}"
+        )));
+    }
     assert!(done);
-    batches
+    Ok(batches)
 }
 
 fn credits(h: &Harness) -> Vec<u32> {
@@ -101,11 +108,11 @@ fn credits(h: &Harness) -> Vec<u32> {
 }
 
 #[test]
-fn test_a_read_streams_its_batches_read_in_place_until_the_last() {
-    let mut h = Harness::ready(server().with_results(5));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    let batches = drain(&mut h, &stream);
+fn test_a_read_streams_its_batches_read_in_place_until_the_last() -> TestResult {
+    let mut h = Harness::ready(server().with_results(5))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    let batches = drain(&mut h, &stream)?;
     assert_eq!(batches, vec![vec!["http://ex.org/same".to_string(); 2]; 5]);
     assert_eq!(
         credits(&h),
@@ -116,12 +123,13 @@ fn test_a_read_streams_its_batches_read_in_place_until_the_last() {
         h.core.next_batch(&stream, h.now, |_| ()),
         Ok(BatchPoll::Done)
     ));
+    Ok(())
 }
 
 /// Credit stops a stream, from the client's side: with no initial credit the client grants its window first, and the
 /// server sends that many frames before it waits.
 #[test]
-fn test_without_credit_the_client_grants_before_any_frame_arrives() {
+fn test_without_credit_the_client_grants_before_any_frame_arrives() -> TestResult {
     let welcome = Welcome::new(1, RELEASE, "s")
         .with_max_frame(1 << 20)
         .with_max_streams(8)
@@ -133,30 +141,31 @@ fn test_without_credit_the_client_grants_before_any_frame_arrives() {
         1,
         Anonymous,
     );
-    h.connect();
-    h.until(|h| h.core.is_ready());
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     assert!(matches!(
         h.core.next_batch(&stream, h.now, |_| ()),
         Ok(BatchPoll::Wait)
     ));
-    assert_eq!(drain(&mut h, &stream).len(), 3);
+    assert_eq!(drain(&mut h, &stream)?.len(), 3);
     assert_eq!(credits(&h), vec![2, 2]);
     assert_eq!(
-        h.core.grant(&stream, 1).unwrap_err().0,
+        h.core.grant(&stream, 1).err().context("an error")?.0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         },
         "a finished read takes no credit"
     );
+    Ok(())
 }
 
 #[test]
-fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() {
-    let mut h = Harness::ready(server().with_results(6));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() -> TestResult {
+    let mut h = Harness::ready(server().with_results(6))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     let mut first = None;
     h.until(|h| {
         first = match h.core.next_batch(&stream, h.now, |v| v.rows()) {
@@ -164,12 +173,16 @@ fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() {
             _ => None,
         };
         first.is_some()
-    });
+    })?;
     assert_eq!(first, Some(2));
     h.core.cancel(stream);
-    let other = begin(&mut h);
+    let other = begin(&mut h)?;
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         }
@@ -184,8 +197,9 @@ fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() {
         })
         .count();
     assert_eq!(cancels, 1);
-    let next = h.core.read(&other, &read(&other), h.now).unwrap();
-    assert_eq!(drain(&mut h, &next).len(), 6, "the other stream continues");
+    let next = h.core.read(&other, &read(&other), h.now)?;
+    assert_eq!(drain(&mut h, &next)?.len(), 6, "the other stream continues");
+    Ok(())
 }
 
 /// A Prepare of the pattern `?s <http://ex.org/name> ?o` in the default graph, its subject a node parameter.
@@ -216,30 +230,26 @@ fn execute(id: u64, tx: &Transaction) -> Execute {
 }
 
 #[test]
-fn test_a_stale_statement_is_refused_and_prepared_again() {
-    let mut h = Harness::ready(server().with_results(1));
-    let p = h.core.prepare(&prepare_name(), h.now).unwrap();
-    let statement = prepared(h.settle(p));
-    let tx = begin(&mut h);
-    let stream = h
-        .core
-        .execute(&tx, &execute(statement.id(), &tx), h.now)
-        .unwrap();
-    assert_eq!(drain(&mut h, &stream).len(), 1);
+fn test_a_stale_statement_is_refused_and_prepared_again() -> TestResult {
+    let mut h = Harness::ready(server().with_results(1))?;
+    let p = h.core.prepare(&prepare_name(), h.now)?;
+    let statement = prepared(h.settle(p)?)?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.execute(&tx, &execute(statement.id(), &tx), h.now)?;
+    assert_eq!(drain(&mut h, &stream)?.len(), 1);
     h.server.set_schema(2);
-    let reader = begin(&mut h);
-    let other = h.core.read(&reader, &read(&reader), h.now).unwrap();
-    let tx = begin(&mut h);
+    let reader = begin(&mut h)?;
+    let other = h.core.read(&reader, &read(&reader), h.now)?;
+    let stale_tx = begin(&mut h)?;
     let stale = h
         .core
-        .execute(&tx, &execute(statement.id(), &tx), h.now)
-        .unwrap();
+        .execute(&stale_tx, &execute(statement.id(), &stale_tx), h.now)?;
     let mut refused = None;
     h.until(|h| {
         refused = h.core.next_batch(&stale, h.now, |_| ()).err();
         refused.is_some()
-    });
-    let refused = refused.unwrap();
+    })?;
+    let refused = refused.context("a refusal")?;
     assert!(refused.is_stale() && !refused.retryable(), "{refused:?}");
     assert!(
         matches!(
@@ -253,36 +263,40 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
         "detail names the statement: {refused:?}"
     );
     assert!(h.core.is_ready(), "a refused request keeps the connection");
-    assert_eq!(drain(&mut h, &other).len(), 1, "and the other stream");
+    assert_eq!(drain(&mut h, &other)?.len(), 1, "and the other stream");
     assert_eq!(
-        h.core.next_batch(&stale, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stale, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stale.stream()
         },
         "the refusal ended its stream"
     );
-    let goes_on = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    let goes_on = h.core.read(&stale_tx, &read(&stale_tx), h.now)?;
     assert_eq!(
-        drain(&mut h, &goes_on).len(),
+        drain(&mut h, &goes_on)?.len(),
         1,
         "and its transaction goes on"
     );
-    let p = h.core.prepare(&prepare_name(), h.now).unwrap();
-    let again = prepared(h.settle(p));
+    let preparing = h.core.prepare(&prepare_name(), h.now)?;
+    let again = prepared(h.settle(preparing)?)?;
     assert_eq!((again.id(), again.schema()), (2, 2));
-    let tx = begin(&mut h);
-    let stream = h
+    let current_tx = begin(&mut h)?;
+    let current = h
         .core
-        .execute(&tx, &execute(again.id(), &tx), h.now)
-        .unwrap();
-    assert_eq!(drain(&mut h, &stream).len(), 1);
+        .execute(&current_tx, &execute(again.id(), &current_tx), h.now)?;
+    assert_eq!(drain(&mut h, &current)?.len(), 1);
+    Ok(())
 }
 
 /// Point 35: a statement belongs to the connection that prepared it, so the next connection holds none of its
 /// predecessor's, and its ids start at 1 again.
 #[test]
-fn test_a_statement_does_not_outlive_its_connection() {
-    let mut h = Harness::ready(server().with_results(1));
+fn test_a_statement_does_not_outlive_its_connection() -> TestResult {
+    let mut h = Harness::ready(server().with_results(1))?;
     let mut terms = TermTable::new();
     let name = terms.iri("http://ex.org/name");
     let prepare = Prepare::new(
@@ -299,11 +313,11 @@ fn test_a_statement_does_not_outlive_its_connection() {
         Vec::new(),
         Vec::new(),
     );
-    let p = h.core.prepare(&prepare, h.now).unwrap();
-    let statement = prepared(h.settle(p));
-    h.connect();
-    h.until(|h| h.core.is_ready());
-    let tx = begin(&mut h);
+    let p = h.core.prepare(&prepare, h.now)?;
+    let statement = prepared(h.settle(p)?)?;
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let tx = begin(&mut h)?;
     let execute = Execute::new(
         statement.id(),
         tx.stream(),
@@ -312,12 +326,12 @@ fn test_a_statement_does_not_outlive_its_connection() {
         Vec::new(),
         Vec::new(),
     );
-    let stream = h.core.execute(&tx, &execute, h.now).unwrap();
+    let stream = h.core.execute(&tx, &execute, h.now)?;
     let mut refused = None;
     h.until(|h| {
         refused = h.core.next_batch(&stream, h.now, |_| ()).err();
         refused.is_some()
-    });
+    })?;
     assert!(
         matches!(
             refused.map(|e| e.0),
@@ -329,36 +343,34 @@ fn test_a_statement_does_not_outlive_its_connection() {
         ),
         "the new connection holds no statement"
     );
-    let p = h.core.prepare(&prepare, h.now).unwrap();
-    let again = prepared(h.settle(p));
+    let preparing = h.core.prepare(&prepare, h.now)?;
+    let again = prepared(h.settle(preparing)?)?;
     assert_eq!(again.id(), 1, "ids start again on the new connection");
+    Ok(())
 }
 
 /// The server's Result frame on `stream`, numbered as the connection's next.
-fn forged(h: &mut Harness, stream: u64, resume: u8, flags: u8) -> Vec<u8> {
+fn forged(h: &mut Harness, stream: u64, resume: u8, flags: u8) -> TestResult<Vec<u8>> {
     use ultragraphdb_protocol_wire::{BodyBuilder, ResultBatch};
-    let frame = ResultBatch::new(1)
-        .with_resume(vec![resume])
-        .frame(
-            Header::new(CLUSTER, Command::Result)
-                .with_stream(stream)
-                .with_flags(flags),
-        )
-        .unwrap();
+    let frame = ResultBatch::new(1).with_resume(vec![resume]).frame(
+        Header::new(CLUSTER, Command::Result)
+            .with_stream(stream)
+            .with_flags(flags),
+    )?;
     h.numbered(&frame)
 }
 
 /// Frames are numbered: a Result frame the network delivered twice is out of sequence, and the client gives the
 /// connection up.
 #[test]
-fn test_a_repeated_frame_of_the_server_closes_the_connection() {
-    let mut h = Harness::ready(server());
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_a_repeated_frame_of_the_server_closes_the_connection() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
-    let frame = forged(&mut h, stream.stream(), 1, 0);
-    h.deliver(&frame).unwrap();
-    let refused = h.deliver(&frame).unwrap_err();
+    let frame = forged(&mut h, stream.stream(), 1, 0)?;
+    h.deliver(&frame)??;
+    let refused = h.deliver(&frame)?.err().context("an error")?;
     assert!(
         matches!(
             &refused.0,
@@ -370,19 +382,20 @@ fn test_a_repeated_frame_of_the_server_closes_the_connection() {
         "{refused:?}"
     );
     assert!(!h.core.is_connected(), "the connection is given up");
+    Ok(())
 }
 
 /// A transaction's reads run on streams of their own: each names the transaction and has its own credit, and the
 /// transaction commits on its own stream.
 #[test]
-fn test_two_reads_of_a_transaction_run_on_streams_of_their_own() {
-    let mut h = Harness::ready(server().with_results(5));
-    let (session, tx) = begin_writing(&mut h);
-    let first = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    let second = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_two_reads_of_a_transaction_run_on_streams_of_their_own() -> TestResult {
+    let mut h = Harness::ready(server().with_results(5))?;
+    let (session, tx) = begin_writing(&mut h)?;
+    let first = h.core.read(&tx, &read(&tx), h.now)?;
+    let second = h.core.read(&tx, &read(&tx), h.now)?;
     assert!(first.stream() != tx.stream() && second.stream() != first.stream());
-    assert_eq!(drain(&mut h, &first).len(), 5);
-    assert_eq!(drain(&mut h, &second).len(), 5);
+    assert_eq!(drain(&mut h, &first)?.len(), 5);
+    assert_eq!(drain(&mut h, &second)?.len(), 5);
     let named: Vec<(u64, u64)> = h
         .server
         .received()
@@ -401,226 +414,265 @@ fn test_two_reads_of_a_transaction_run_on_streams_of_their_own() {
         ]
     );
     assert_eq!(credits(&h), vec![2, 2], "each read granted its own credit");
-    let p = h.core.commit(tx, session, h.now).unwrap();
-    assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
+    let p = h.core.commit(tx, session, h.now)?;
+    assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
+    Ok(())
 }
 
 /// Cancelling a read keeps its transaction.
 #[test]
-fn test_cancelling_a_read_keeps_its_transaction() {
-    let mut h = Harness::ready(server().with_results(6));
-    let (session, tx) = begin_writing(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_cancelling_a_read_keeps_its_transaction() -> TestResult {
+    let mut h = Harness::ready(server().with_results(6))?;
+    let (session, tx) = begin_writing(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     h.until(|h| {
         matches!(
             h.core.next_batch(&stream, h.now, |_| ()),
             Ok(BatchPoll::Batch(()))
         )
-    });
+    })?;
     h.core.cancel(stream);
-    let p = h.core.commit(tx, session, h.now).unwrap();
-    assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
+    let p = h.core.commit(tx, session, h.now)?;
+    assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         }
     );
+    Ok(())
 }
 
 /// A transaction's end ends its reads: once its commit is answered, a read with frames left is finished.
 #[test]
-fn test_a_transactions_end_ends_its_reads() {
-    let mut h = Harness::ready(server().with_results(8));
-    let (session, tx) = begin_writing(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    let p = h.core.commit(tx, session, h.now).unwrap();
-    assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
+fn test_a_transactions_end_ends_its_reads() -> TestResult {
+    let mut h = Harness::ready(server().with_results(8))?;
+    let (session, tx) = begin_writing(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    let p = h.core.commit(tx, session, h.now)?;
+    assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         }
     );
-    let (_, aborted) = begin_writing(&mut h);
-    let stream = h.core.read(&aborted, &read(&aborted), h.now).unwrap();
-    h.core.abort(aborted).unwrap();
+    let (_, aborted) = begin_writing(&mut h)?;
+    let aborted_stream = h.core.read(&aborted, &read(&aborted), h.now)?;
+    h.core.abort(aborted)?;
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&aborted_stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
-            stream: stream.stream()
+            stream: aborted_stream.stream()
         },
         "an abort ends them too"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_read_naming_another_transaction_is_refused() {
-    let mut h = Harness::ready(server());
-    let tx = begin(&mut h);
-    let other = begin(&mut h);
+fn test_a_read_naming_another_transaction_is_refused() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    let other = begin(&mut h)?;
     assert_eq!(
-        h.core.read(&tx, &read(&other), h.now).unwrap_err().0,
+        h.core
+            .read(&tx, &read(&other), h.now)
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::TransactionMismatch {
             stream: tx.stream(),
             named: other.stream()
         }
     );
     let frames = h.server.received().len();
-    h.step();
+    let _moved: bool = h.step()?;
     assert_eq!(h.server.received().len(), frames, "nothing was sent");
+    Ok(())
 }
 
 /// The client numbers its frames from 1 on each connection, one more for each.
 #[test]
-fn test_the_clients_frames_are_numbered_from_one_on_each_connection() {
-    let mut h = Harness::ready(server());
-    let tx = begin(&mut h);
-    let _stream: ResultStream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    h.step();
+fn test_the_clients_frames_are_numbered_from_one_on_each_connection() -> TestResult {
+    let mut h = Harness::ready(server())?;
+    let tx = begin(&mut h)?;
+    let _stream: ResultStream = h.core.read(&tx, &read(&tx), h.now)?;
+    let _moved: bool = h.step()?;
     let numbers: Vec<u128> = h
         .server
         .received()
         .iter()
-        .map(|f| HeaderView::new(f).unwrap().sequence())
-        .collect();
+        .map(|f| Ok(HeaderView::new(f)?.sequence()))
+        .collect::<TestResult<_>>()?;
     assert_eq!(numbers, vec![1, 2, 3]);
-    h.connect();
-    h.until(|h| h.core.is_ready());
-    let last = h.server.received().last().unwrap();
+    h.connect()?;
+    h.until(|h| h.core.is_ready())?;
+    let last = h.server.received().last().context("a frame received")?;
     assert_eq!(
-        HeaderView::new(last).unwrap().sequence(),
+        HeaderView::new(last)?.sequence(),
         1,
         "a new connection's Hello"
     );
+    Ok(())
 }
 
 /// A frame of a stream that ended is late: the client drops it and keeps the connection.
 #[test]
-fn test_a_late_frame_of_a_cancelled_read_is_dropped() {
-    let mut h = Harness::ready(server().with_results(1));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_a_late_frame_of_a_cancelled_read_is_dropped() -> TestResult {
+    let mut h = Harness::ready(server().with_results(1))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
     h.core.cancel(stream);
-    let late = forged(&mut h, stream.stream(), 1, 0);
-    h.deliver(&late).unwrap();
+    let late = forged(&mut h, stream.stream(), 1, 0)?;
+    h.deliver(&late)??;
     assert!(h.core.is_ready(), "the connection stays");
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         }
     );
+    Ok(())
 }
 
 /// A read starts with the Welcome's initial credit: no grant goes out before it is spent.
 #[test]
-fn test_a_read_grants_no_credit_before_its_initial_credit_is_spent() {
-    let mut h = Harness::ready(server().with_results(3));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+fn test_a_read_grants_no_credit_before_its_initial_credit_is_spent() -> TestResult {
+    let mut h = Harness::ready(server().with_results(3))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     assert!(matches!(
         h.core.next_batch(&stream, h.now, |_| ()),
         Ok(BatchPoll::Wait)
     ));
     let queued: Vec<u16> = std::iter::from_fn(|| h.core.transmit())
-        .map(|f| HeaderView::new(&f).unwrap().command())
-        .collect();
+        .map(|f| Ok(HeaderView::new(&f)?.command()))
+        .collect::<TestResult<_>>()?;
+
     assert_eq!(
         queued,
         vec![Command::Read.number()],
         "the read alone, no Credit"
     );
+    Ok(())
 }
 
 /// A refusal on a transaction's stream ends the transaction, and its reads with it.
 #[test]
-fn test_a_refused_transaction_ends_its_reads() {
+fn test_a_refused_transaction_ends_its_reads() -> TestResult {
     use ultragraphdb_protocol_wire::{BodyBuilder, ErrorCode, ErrorReply, FLAG_LAST};
-    let mut h = Harness::ready(server().with_results(1));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    let mut h = Harness::ready(server().with_results(1))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
     while h.core.transmit().is_some() {}
-    let refusal = ErrorReply::new(ErrorCode::Refused, "refused")
-        .frame(
-            Header::new(CLUSTER, Command::Error)
-                .with_stream(tx.stream())
-                .with_flags(FLAG_LAST),
-        )
-        .unwrap();
-    let refusal = h.numbered(&refusal);
-    h.deliver(&refusal).unwrap();
+    let refusal = ErrorReply::new(ErrorCode::Refused, "refused").frame(
+        Header::new(CLUSTER, Command::Error)
+            .with_stream(tx.stream())
+            .with_flags(FLAG_LAST),
+    )?;
+    let refusal = h.numbered(&refusal)?;
+    h.deliver(&refusal)??;
     assert_eq!(
-        h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&stream, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: stream.stream()
         }
     );
+    Ok(())
 }
 
 /// A transaction's end ends its own reads alone: another transaction's read goes on.
 #[test]
-fn test_a_transactions_end_leaves_another_transactions_read() {
-    let mut h = Harness::ready(server().with_results(3));
-    let (session, tx) = begin_writing(&mut h);
-    let other = begin(&mut h);
-    let mine = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    let theirs = h.core.read(&other, &read(&other), h.now).unwrap();
-    let p = h.core.commit(tx, session, h.now).unwrap();
-    assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
+fn test_a_transactions_end_leaves_another_transactions_read() -> TestResult {
+    let mut h = Harness::ready(server().with_results(3))?;
+    let (session, tx) = begin_writing(&mut h)?;
+    let other = begin(&mut h)?;
+    let mine = h.core.read(&tx, &read(&tx), h.now)?;
+    let theirs = h.core.read(&other, &read(&other), h.now)?;
+    let p = h.core.commit(tx, session, h.now)?;
+    assert!(matches!(h.settle(p)?, Ok(Reply::Committed(_))));
     assert_eq!(
-        h.core.next_batch(&mine, h.now, |_| ()).unwrap_err().0,
+        h.core
+            .next_batch(&mine, h.now, |_| ())
+            .err()
+            .context("an error")?
+            .0,
         ClientErrorEnum::StreamFinished {
             stream: mine.stream()
         }
     );
-    assert_eq!(drain(&mut h, &theirs).len(), 3);
+    assert_eq!(drain(&mut h, &theirs)?.len(), 3);
+    Ok(())
 }
 
 #[test]
-fn test_a_read_matching_nothing_ends_after_one_empty_batch() {
+fn test_a_read_matching_nothing_ends_after_one_empty_batch() -> TestResult {
     // Point 9: a read that matches nothing is answered with one batch flagged LAST and no rows.
-    let mut h = Harness::ready(server().with_results(0));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    assert_eq!(drain(&mut h, &stream), vec![Vec::<String>::new()]);
+    let mut h = Harness::ready(server().with_results(0))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    assert_eq!(drain(&mut h, &stream)?, vec![Vec::<String>::new()]);
     assert!(matches!(
         h.core.next_batch(&stream, h.now, |_| ()),
         Ok(BatchPoll::Done)
     ));
+    Ok(())
 }
 
 /// A grant adds the frames asked for to the read's credit, in a Credit frame of that many.
 #[test]
-fn test_a_grant_sends_a_credit_of_the_frames_asked_for() {
-    let mut h = Harness::ready(server().with_results(3));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    h.core.grant(&stream, 7).unwrap();
-    while h.step() {}
+fn test_a_grant_sends_a_credit_of_the_frames_asked_for() -> TestResult {
+    let mut h = Harness::ready(server().with_results(3))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    h.core.grant(&stream, 7)?;
+    while h.step()? {}
     assert_eq!(credits(&h), vec![7]);
-    assert_eq!(drain(&mut h, &stream).len(), 3);
+    assert_eq!(drain(&mut h, &stream)?.len(), 3);
     assert_eq!(
         credits(&h),
         vec![7],
         "4 + 7 frames of credit cover the 3, so no grant follows"
     );
+    Ok(())
 }
 
 /// PROTOCOL.md section 9.2: a Credit grants at least 1 frame, so a grant of none is no request the client sends.
 #[test]
-fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() {
-    let mut h = Harness::ready(server().with_results(3));
-    let tx = begin(&mut h);
-    let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
-    while h.step() {}
+fn test_a_grant_of_no_frames_is_refused_before_it_is_sent() -> TestResult {
+    let mut h = Harness::ready(server().with_results(3))?;
+    let tx = begin(&mut h)?;
+    let stream = h.core.read(&tx, &read(&tx), h.now)?;
+    while h.step()? {}
     assert_eq!(
-        h.core.grant(&stream, 0).unwrap_err().0,
+        h.core.grant(&stream, 0).err().context("an error")?.0,
         ClientErrorEnum::Request {
             error: ultragraphdb_error_protocol::ProtocolError::FieldValue(14, "frames", 0)
         }
     );
     assert_eq!(h.core.transmit(), None, "no Credit queued");
-    assert_eq!(drain(&mut h, &stream).len(), 3, "the read goes on");
+    assert_eq!(drain(&mut h, &stream)?.len(), 3, "the read goes on");
+    Ok(())
 }

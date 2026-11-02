@@ -11,24 +11,30 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     TextCollator, TypeId, Val, Value, convert, equal, is_sortable, less, marshal, sort, sort_top_n,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
-fn to_string(values: &[Vec<Val>]) -> Vec<String> {
+fn to_string(values: &[Vec<Val>]) -> TestResult<Vec<String>> {
     values
         .iter()
         .map(|v| {
-            match marshal(&v[0], TypeId::STRING).unwrap().into_value() {
+            match marshal(&v[0], TypeId::STRING)?.into_value() {
                 Some(Value::Str(s)) => Ok(s),
                 other => Err(format!("{other:?}")),
             }
-            .expect("marshalling to string gives a string")
+            .context("marshalling to string gives a string")
         })
         .collect()
 }
 
-fn get_input(tid: TypeId, input: &[&str]) -> Vec<Vec<Val>> {
+fn get_input(tid: TypeId, input: &[&str]) -> TestResult<Vec<Vec<Val>>> {
     input
         .iter()
-        .map(|s| vec![convert(&Val::bytes(TypeId::STRING, s.as_bytes()), tid).unwrap()])
+        .map(|s| {
+            Ok(vec![convert(
+                &Val::bytes(TypeId::STRING, s.as_bytes()),
+                tid,
+            )?])
+        })
         .collect()
 }
 
@@ -37,7 +43,7 @@ fn get_uid_list(n: usize) -> Vec<u64> {
 }
 
 #[test]
-fn test_quick_select() {
+fn test_quick_select() -> TestResult {
     let (n, k) = (10000, 10);
     let mut seed: u64 = 7;
     let mut list: Vec<Vec<Val>> = (0..n)
@@ -46,43 +52,47 @@ fn test_quick_select() {
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             let s = ((seed >> 33) % 100000).to_string();
-            vec![convert(&Val::bytes(TypeId::STRING, s.into_bytes()), TypeId::INT).unwrap()]
+            Ok(vec![convert(
+                &Val::bytes(TypeId::STRING, s.into_bytes()),
+                TypeId::INT,
+            )?])
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     let mut ul = get_uid_list(n);
-    sort_top_n(&mut list, &mut ul, &[false], "", k, &TextCollator).unwrap();
+    sort_top_n(&mut list, &mut ul, &[false], "", k, &TextCollator)?;
     let int = |v: &Val| {
         match v.value() {
             Some(Value::Int(i)) => Ok(*i),
             other => Err(format!("{other:?}")),
         }
-        .expect("an int value")
+        .context("an int value")
     };
     for i in 0..k {
         for j in k..n {
-            assert!(int(&list[i][0]) <= int(&list[j][0]));
+            assert!(int(&list[i][0])? <= int(&list[j][0])?);
         }
     }
     // SortTopN also sorts the first k, and the uids move with their values.
     for w in list[..k].windows(2) {
-        assert!(int(&w[0][0]) <= int(&w[1][0]));
+        assert!(int(&w[0][0])? <= int(&w[1][0])?);
     }
-    let mut seed: u64 = 7;
+    let mut replay_seed: u64 = 7;
     let original: Vec<i64> = (0..n)
         .map(|_| {
-            seed = seed
+            replay_seed = replay_seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
-            i64::try_from((seed >> 33) % 100000).expect("below 100000")
+            i64::try_from((replay_seed >> 33) % 100000).context("below 100000")
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     for (row, uid) in list.iter().zip(&ul) {
         assert_eq!(
-            int(&row[0]),
+            int(&row[0])?,
             original[(*uid / 100 - 1) as usize],
             "uid {uid}"
         );
     }
+    Ok(())
 }
 
 /// One-column int rows, `None` a nil value, with uids 100, 200, ...
@@ -99,7 +109,7 @@ fn int_rows(input: &[Option<i64>]) -> (Vec<Vec<Val>>, Vec<u64>) {
 }
 
 /// The rows' values after a sort, `None` a nil value.
-fn int_values(rows: &[Vec<Val>]) -> Vec<Option<i64>> {
+fn int_values(rows: &[Vec<Val>]) -> TestResult<Vec<Option<i64>>> {
     rows.iter()
         .map(|r| {
             match r[0].value() {
@@ -107,7 +117,7 @@ fn int_values(rows: &[Vec<Val>]) -> Vec<Option<i64>> {
                 None => Ok(None),
                 other => Err(format!("{other:?}")),
             }
-            .expect("an int or nil value")
+            .context("an int or nil value")
         })
         .collect()
 }
@@ -119,13 +129,14 @@ fn assert_top_n(
     ns: &[usize],
     uids: &[u64],
     values: &[Option<i64>],
-) {
+) -> TestResult {
     for &n in ns {
         let (mut rows, mut ul) = int_rows(input);
-        sort_top_n(&mut rows, &mut ul, &[desc], "", n, &TextCollator).unwrap();
+        sort_top_n(&mut rows, &mut ul, &[desc], "", n, &TextCollator)?;
         assert_eq!(ul, uids, "uids, desc {desc}, n {n}");
-        assert_eq!(int_values(&rows), values, "values, desc {desc}, n {n}");
+        assert_eq!(int_values(&rows)?, values, "values, desc {desc}, n {n}");
     }
+    Ok(())
 }
 
 // The expected orders for n up to the row count are Go 1.27's types.SortTopN over the same rows (Dgraph
@@ -133,7 +144,7 @@ fn assert_top_n(
 // len`, and the port returns the order of n equal to the row count, as SQL's LIMIT and Dgraph's first: do.
 
 #[test]
-fn test_sort_top_n_with_nil_values_and_ties() {
+fn test_sort_top_n_with_nil_values_and_ties() -> TestResult {
     let input = [
         Some(5),
         Some(3),
@@ -160,7 +171,7 @@ fn test_sort_top_n_with_nil_values_and_ties() {
         &[0, 1, 2, 3, 5, 6, 7, 8, 9, 100, usize::MAX],
         &[500, 800, 200, 400, 100, 600, 700, 300],
         &asc,
-    );
+    )?;
     let desc = [
         Some(5),
         Some(5),
@@ -177,7 +188,7 @@ fn test_sort_top_n_with_nil_values_and_ties() {
         &[0, 2, 3, 6],
         &[100, 600, 200, 400, 800, 500, 700, 300],
         &desc,
-    );
+    )?;
     // Sorting all eight rows swaps the two nil rows: Dgraph's Less of two nil values is the direction.
     assert_top_n(
         &input,
@@ -185,11 +196,12 @@ fn test_sort_top_n_with_nil_values_and_ties() {
         &[8, 9, usize::MAX],
         &[100, 600, 200, 400, 800, 500, 300, 700],
         &desc,
-    );
+    )?;
+    Ok(())
 }
 
 #[test]
-fn test_sort_top_n_counts_past_the_rows_sort_every_row() {
+fn test_sort_top_n_counts_past_the_rows_sort_every_row() -> TestResult {
     // Twelve values and a nil: n of 13 sorts the nil row too, and Go's pdqsort then orders the ties
     // differently from the insertion sort quickselect ends in.
     let input = [
@@ -230,7 +242,7 @@ fn test_sort_top_n_counts_past_the_rows_sort_every_row() {
             700, 1100, 600, 200, 400, 900, 1200, 100, 800, 300, 500, 1000, 1300,
         ],
         &values,
-    );
+    )?;
     assert_top_n(
         &input,
         false,
@@ -239,11 +251,12 @@ fn test_sort_top_n_counts_past_the_rows_sort_every_row() {
             1100, 700, 600, 400, 900, 200, 1200, 100, 800, 300, 500, 1000, 1300,
         ],
         &values,
-    );
+    )?;
+    Ok(())
 }
 
 #[test]
-fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
+fn test_sort_top_n_leaves_the_rest_selected_not_sorted() -> TestResult {
     let input: Vec<Option<i64>> = [
         14, 2, 27, 2, 9, 30, 5, 18, 2, 21, 11, 0, 25, 7, 16, 9, 3, 29, 12, 1, 23, 9, 6, 19, 8, 28,
         4, 15, 10, 22,
@@ -251,15 +264,16 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
     .into_iter()
     .map(Some)
     .collect();
-    top_n_ascending_leaves_the_rest_selected(&input);
-    top_n_descending_leaves_the_rest_selected(&input);
+    top_n_ascending_leaves_the_rest_selected(&input)?;
+    top_n_descending_leaves_the_rest_selected(&input)?;
+    Ok(())
 }
 
 fn some(v: &[i64]) -> Vec<Option<i64>> {
     v.iter().copied().map(Some).collect()
 }
 
-fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
+fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) -> TestResult {
     assert_top_n(
         input,
         false,
@@ -272,7 +286,7 @@ fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
             0, 1, 2, 2, 2, 3, 4, 5, 7, 9, 10, 12, 14, 9, 6, 8, 11, 15, 9, 16, 23, 30, 22, 19, 21,
             28, 27, 29, 18, 25,
         ]),
-    );
+    )?;
     assert_top_n(
         input,
         false,
@@ -285,7 +299,7 @@ fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
             0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 12, 11, 15, 14, 16, 23, 30, 22, 19, 21,
             28, 27, 29, 18, 25,
         ]),
-    );
+    )?;
     let sorted = some(&[
         0, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 9, 10, 11, 12, 14, 15, 16, 18, 19, 21, 22, 23, 25,
         27, 28, 29, 30,
@@ -299,7 +313,7 @@ fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
             1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
         ],
         &sorted,
-    );
+    )?;
     assert_top_n(
         input,
         false,
@@ -309,10 +323,11 @@ fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
             1100, 1900, 100, 2800, 1500, 800, 2400, 1000, 3000, 2100, 1300, 300, 2600, 1800, 600,
         ],
         &sorted,
-    );
+    )?;
+    Ok(())
 }
 
-fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) {
+fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) -> TestResult {
     assert_top_n(
         input,
         true,
@@ -325,7 +340,7 @@ fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) {
             30, 29, 28, 27, 25, 22, 21, 23, 19, 18, 16, 0, 9, 7, 2, 9, 3, 5, 12, 1, 14, 9, 6, 2, 8,
             2, 4, 15, 10, 11,
         ]),
-    );
+    )?;
     assert_top_n(
         input,
         true,
@@ -338,83 +353,90 @@ fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) {
             30, 29, 28, 27, 25, 23, 22, 21, 19, 18, 16, 15, 14, 12, 11, 10, 9, 9, 9, 8, 7, 6, 5, 4,
             3, 2, 2, 2, 1, 0,
         ]),
-    );
+    )?;
+    Ok(())
 }
 
 #[test]
-fn test_sort_top_n_of_no_rows() {
+fn test_sort_top_n_of_no_rows() -> TestResult {
     for n in [0, 1, 5, usize::MAX] {
         let (mut rows, mut ul) = int_rows(&[]);
-        sort_top_n(&mut rows, &mut ul, &[false], "", n, &TextCollator).unwrap();
+        sort_top_n(&mut rows, &mut ul, &[false], "", n, &TextCollator)?;
         assert!(rows.is_empty(), "n {n}");
         assert!(ul.is_empty(), "n {n}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_sort_strings() {
-    let mut list = get_input(TypeId::STRING, &["bb", "aaa", "aa", "bab"]);
+fn test_sort_strings() -> TestResult {
+    let mut list = get_input(TypeId::STRING, &["bb", "aaa", "aa", "bab"])?;
     let mut ul = get_uid_list(4);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
     assert_eq!(ul, [300, 200, 400, 100]);
-    assert_eq!(to_string(&list), ["aa", "aaa", "bab", "bb"]);
+    assert_eq!(to_string(&list)?, ["aa", "aaa", "bab", "bb"]);
+    Ok(())
 }
 
 #[test]
-fn test_sort_language() {
-    let mut list = get_input(TypeId::STRING, &["öffnen", "zumachen"]);
+fn test_sort_language() -> TestResult {
+    let mut list = get_input(TypeId::STRING, &["öffnen", "zumachen"])?;
     let mut ul = get_uid_list(2);
-    sort(&mut list, &mut ul, &[false], "de", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "de", &TextCollator)?;
     assert_eq!(ul, [100, 200]);
-    assert_eq!(to_string(&list), ["öffnen", "zumachen"]);
+    assert_eq!(to_string(&list)?, ["öffnen", "zumachen"]);
 
-    let mut list = get_input(TypeId::STRING, &["öppna", "zon"]);
-    sort(&mut list, &mut ul, &[false], "sv", &TextCollator).unwrap();
+    let mut swedish = get_input(TypeId::STRING, &["öppna", "zon"])?;
+    sort(&mut swedish, &mut ul, &[false], "sv", &TextCollator)?;
     assert_eq!(ul, [200, 100]);
-    assert_eq!(to_string(&list), ["zon", "öppna"]);
+    assert_eq!(to_string(&swedish)?, ["zon", "öppna"]);
+    Ok(())
 }
 
 #[test]
-fn test_sort_ints() {
-    let mut list = get_input(TypeId::INT, &["22", "111", "11", "212"]);
+fn test_sort_ints() -> TestResult {
+    let mut list = get_input(TypeId::INT, &["22", "111", "11", "212"])?;
     let mut ul = get_uid_list(4);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
     assert_eq!(ul, [300, 100, 200, 400]);
-    assert_eq!(to_string(&list), ["11", "22", "111", "212"]);
+    assert_eq!(to_string(&list)?, ["11", "22", "111", "212"]);
+    Ok(())
 }
 
 #[test]
-fn test_sort_floats() {
-    let mut list = get_input(TypeId::FLOAT, &["22.2", "11.2", "11.5", "2.12"]);
+fn test_sort_floats() -> TestResult {
+    let mut list = get_input(TypeId::FLOAT, &["22.2", "11.2", "11.5", "2.12"])?;
     let mut ul = get_uid_list(4);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
     assert_eq!(ul, [400, 200, 300, 100]);
-    assert_eq!(to_string(&list), ["2.12", "11.2", "11.5", "22.2"]);
+    assert_eq!(to_string(&list)?, ["2.12", "11.2", "11.5", "22.2"]);
+    Ok(())
 }
 
 #[test]
-fn test_sort_floats_desc() {
-    let mut list = get_input(TypeId::FLOAT, &["22.2", "11.2", "11.5", "2.12"]);
+fn test_sort_floats_desc() -> TestResult {
+    let mut list = get_input(TypeId::FLOAT, &["22.2", "11.2", "11.5", "2.12"])?;
     let mut ul = get_uid_list(4);
-    sort(&mut list, &mut ul, &[true], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[true], "", &TextCollator)?;
     assert_eq!(ul, [100, 300, 200, 400]);
-    assert_eq!(to_string(&list), ["22.2", "11.5", "11.2", "2.12"]);
+    assert_eq!(to_string(&list)?, ["22.2", "11.5", "11.2", "2.12"]);
+    Ok(())
 }
 
 #[test]
-fn test_sort_date_times() {
+fn test_sort_date_times() -> TestResult {
     let input = [
         "2016-01-02T15:04:05",
         "2006-01-02T15:04:05",
         "2006-01-02T15:04:06",
         "2006-01-02T15:04:01",
     ];
-    let mut list = get_input(TypeId::DATETIME, &input);
+    let mut list = get_input(TypeId::DATETIME, &input)?;
     let mut ul = get_uid_list(4);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
     assert_eq!(ul, [400, 200, 300, 100]);
     assert_eq!(
-        to_string(&list),
+        to_string(&list)?,
         [
             "2006-01-02T15:04:01Z",
             "2006-01-02T15:04:05Z",
@@ -422,54 +444,58 @@ fn test_sort_date_times() {
             "2016-01-02T15:04:05Z"
         ]
     );
+    Ok(())
 }
 
 #[test]
-fn test_sort_int_and_float() {
+fn test_sort_int_and_float() -> TestResult {
     let mut list = vec![
         vec![Val::new(TypeId::INT, Value::Int(55))],
         vec![Val::new(TypeId::FLOAT, Value::Float(21.5))],
         vec![Val::new(TypeId::INT, Value::Int(100))],
     ];
     let mut ul = get_uid_list(3);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
     assert_eq!(ul, [200, 100, 300]);
-    assert_eq!(to_string(&list), ["21.5", "55", "100"]);
+    assert_eq!(to_string(&list)?, ["21.5", "55", "100"]);
+    Ok(())
 }
 
 #[test]
-fn test_equal() {
+fn test_equal() -> TestResult {
     let int = |i| Val::new(TypeId::INT, Value::Int(i));
-    assert!(equal(&int(3), &int(3)).unwrap());
-    assert!(!equal(&int(3), &int(4)).unwrap());
+    assert!(equal(&int(3), &int(3))?);
+    assert!(!equal(&int(3), &int(4))?);
     assert_eq!(
         equal(&int(3), &Val::new(TypeId::FLOAT, Value::Float(3.0)))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Arguments of different type can not be compared."
     );
-    assert!(!equal(&int(3), &Val::nil(TypeId::INT)).unwrap());
-    assert!(!equal(&Val::nil(TypeId::INT), &int(3)).unwrap());
-    assert!(!equal(&Val::nil(TypeId::INT), &Val::nil(TypeId::INT)).unwrap());
+    assert!(!equal(&int(3), &Val::nil(TypeId::INT))?);
+    assert!(!equal(&Val::nil(TypeId::INT), &int(3))?);
+    assert!(!equal(&Val::nil(TypeId::INT), &Val::nil(TypeId::INT))?);
     let int_with_float = Val::new(TypeId::INT, Value::Float(3.0));
-    assert!(!equal(&int_with_float, &Val::new(TypeId::INT, Value::Float(3.0))).unwrap());
-    assert!(
-        !equal(
-            &Val::new(TypeId::FLOAT, Value::Float(3.0)),
-            &Val::new(TypeId::FLOAT, Value::Int(3))
-        )
-        .unwrap()
-    );
+    assert!(!equal(
+        &int_with_float,
+        &Val::new(TypeId::INT, Value::Float(3.0))
+    )?);
+    assert!(!equal(
+        &Val::new(TypeId::FLOAT, Value::Float(3.0)),
+        &Val::new(TypeId::FLOAT, Value::Int(3))
+    )?);
+    Ok(())
 }
 
-fn find_index(uids: &[u64], uid: u64) -> usize {
+fn find_index(uids: &[u64], uid: u64) -> TestResult<usize> {
     uids.iter()
         .position(|u| *u == uid)
-        .expect("Could not find index")
+        .context("Could not find index")
 }
 
 #[test]
-fn test_sort_mismatched_types() {
+fn test_sort_mismatched_types() -> TestResult {
     let mut list = vec![
         vec![Val::new(TypeId::STRING, Value::str("cat"))],
         vec![Val::new(TypeId::INT, Value::Int(55))],
@@ -480,32 +506,38 @@ fn test_sort_mismatched_types() {
         vec![Val::new(TypeId::FLOAT, Value::Float(33.33))],
     ];
     let mut ul = get_uid_list(7);
-    sort(&mut list, &mut ul, &[false], "", &TextCollator).unwrap();
-    assert!(find_index(&ul, 500) < find_index(&ul, 600));
-    assert!(find_index(&ul, 600) < find_index(&ul, 100));
-    assert!(find_index(&ul, 400) < find_index(&ul, 700));
-    assert!(find_index(&ul, 700) < find_index(&ul, 200));
+    sort(&mut list, &mut ul, &[false], "", &TextCollator)?;
+    assert!(find_index(&ul, 500)? < find_index(&ul, 600)?);
+    assert!(find_index(&ul, 600)? < find_index(&ul, 100)?);
+    assert!(find_index(&ul, 400)? < find_index(&ul, 700)?);
+    assert!(find_index(&ul, 700)? < find_index(&ul, 200)?);
+    Ok(())
 }
 
 #[test]
-fn test_less_errors() {
+fn test_less_errors() -> TestResult {
     let int = Val::new(TypeId::INT, Value::Int(1));
     assert_eq!(
         less(&int, &Val::new(TypeId::FLOAT, Value::Float(1.0)))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Arguments of different type can not be compared."
     );
     let b = Val::new(TypeId::BOOL, Value::Bool(true));
     assert_eq!(
-        less(&b, &b).unwrap_err().to_string(),
+        less(&b, &b).err().context("expected an error")?.to_string(),
         "Compare not supported for type: 4"
     );
     let g = Val::new(TypeId::GEO, Value::Bytes(Vec::new()));
     assert_eq!(
-        equal(&g, &g).unwrap_err().to_string(),
+        equal(&g, &g)
+            .err()
+            .context("expected an error")?
+            .to_string(),
         "Equal not supported for type: 6"
     );
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -530,17 +562,17 @@ struct SortCase {
     err: String,
 }
 
-fn unhex(s: &str) -> Vec<u8> {
+fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
 #[test]
-fn test_golden_sort_orders() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<SortCase>(&path);
+fn test_golden_sort_orders() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_sort.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<SortCase>(&path)?;
     for c in golden.cases() {
         let mut rows: Vec<Vec<Val>> = c
             .rows
@@ -548,23 +580,25 @@ fn test_golden_sort_orders() {
             .flatten()
             .map(|r| {
                 r.iter()
-                    .map(|v| {
+                    .map(|v| -> TestResult<Val> {
                         let tid = TypeId::new(v.tid);
-                        if v.nil {
+                        Ok(if v.nil {
                             Val::nil(tid)
                         } else if tid == TypeId::UID {
-                            let b = unhex(&v.bin);
+                            let b = unhex(&v.bin)?;
                             Val::new(
                                 tid,
-                                Value::Uid(u64::from_le_bytes(b[..8].try_into().unwrap())),
+                                Value::Uid(u64::from_le_bytes(
+                                    *b.first_chunk().context("the 8 bytes of a uid")?,
+                                )),
                             )
                         } else {
-                            convert(&Val::bytes(TypeId::BINARY, unhex(&v.bin)), tid).unwrap()
-                        }
+                            convert(&Val::bytes(TypeId::BINARY, unhex(&v.bin)?), tid)?
+                        })
                     })
                     .collect()
             })
-            .collect();
+            .collect::<TestResult<_>>()?;
         let mut uids = get_uid_list(rows.len());
         let res = if c.top_n > 0 {
             sort_top_n(&mut rows, &mut uids, &c.desc, "", c.top_n, &TextCollator)
@@ -576,6 +610,7 @@ fn test_golden_sort_orders() {
             Ok(()) => assert_eq!(uids, c.uids.clone().unwrap_or_default(), "{}", c.name),
         }
     }
+    Ok(())
 }
 
 /// A language sort case; the strings, in hex, may hold invalid UTF-8.
@@ -606,17 +641,18 @@ const NOT_EXPRESSIBLE: &[(&str, &str, &str)] = &[
 ];
 
 #[test]
-fn test_golden_language_sort_orders() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_sort_lang.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<LangSortCase>(&path);
+fn test_golden_language_sort_orders() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_sort_lang.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<LangSortCase>(&path)?;
     assert!(golden.cases().len() >= 33);
     let (mut checked, mut not_expressible) = (0, 0);
     for c in golden.cases() {
-        let input: Result<Vec<String>, _> = c
+        let bytes: Vec<Vec<u8>> = c
             .in_hex
             .iter()
-            .map(|s| String::from_utf8(unhex(s)))
-            .collect();
+            .map(|s| unhex(s))
+            .collect::<TestResult<_>>()?;
+        let input: Result<Vec<String>, _> = bytes.iter().cloned().map(String::from_utf8).collect();
         let Ok(input) = input else {
             assert!(
                 NOT_EXPRESSIBLE.iter().any(|&(lang, _, _)| lang == c.lang),
@@ -624,9 +660,11 @@ fn test_golden_language_sort_orders() {
                 c.lang
             );
             // Go sorts these bytes as strings; the port refuses them as a string value.
-            for b in c.in_hex.iter().map(|s| unhex(s)) {
+            for b in bytes {
                 if std::str::from_utf8(&b).is_err() {
-                    let err = convert(&Val::bytes(TypeId::STRING, b), TypeId::STRING).unwrap_err();
+                    let err = convert(&Val::bytes(TypeId::STRING, b), TypeId::STRING)
+                        .err()
+                        .context("expected an error")?;
                     assert_eq!(err.to_string(), "Value is not valid UTF-8 for type string");
                 }
             }
@@ -638,7 +676,7 @@ fn test_golden_language_sort_orders() {
             .map(|s| vec![Val::new(TypeId::STRING, Value::Str(s))])
             .collect();
         let mut uids = get_uid_list(rows.len());
-        sort(&mut rows, &mut uids, &[false], &c.lang, &TextCollator).unwrap();
+        sort(&mut rows, &mut uids, &[false], &c.lang, &TextCollator)?;
         let out: Vec<Vec<u8>> = rows
             .iter()
             .map(|r| {
@@ -646,10 +684,14 @@ fn test_golden_language_sort_orders() {
                     Some(Value::Str(s)) => Ok(s.as_bytes().to_vec()),
                     other => Err(format!("{other:?}")),
                 }
-                .expect("a string value")
+                .context("a string value")
             })
-            .collect();
-        let want: Vec<Vec<u8>> = c.out_hex.iter().map(|s| unhex(s)).collect();
+            .collect::<TestResult<_>>()?;
+        let want: Vec<Vec<u8>> = c
+            .out_hex
+            .iter()
+            .map(|s| unhex(s))
+            .collect::<TestResult<_>>()?;
         assert_eq!(out, want, "{}", c.lang);
         assert_eq!(uids, c.uids, "{}", c.lang);
         checked += 1;
@@ -660,34 +702,54 @@ fn test_golden_language_sort_orders() {
         "every listed case is in the golden file"
     );
     assert!(checked >= 22, "{checked} language sorts checked");
+    Ok(())
 }
 
 #[test]
-fn test_sort_of_mismatched_shapes_is_refused() {
+fn test_sort_of_mismatched_shapes_is_refused() -> TestResult {
     // Dgraph indexes the uids, directions and the second row by the first's shape and panics past them.
     let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
     let mut values = vec![vec![int(2), int(1)], vec![int(1)]];
-    let err = sort(&mut values, &mut [1, 2], &[false, false], "", &TextCollator).unwrap_err();
+    let err = sort(&mut values, &mut [1, 2], &[false, false], "", &TextCollator)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
         err.to_string(),
         "Sort row 1 holds 1 values where the first holds 2"
     );
-    let mut values = vec![vec![int(2)], vec![int(1)]];
-    let err = sort(&mut values, &mut [1], &[false], "", &TextCollator).unwrap_err();
-    assert_eq!(err.to_string(), "Sort has 2 rows of values but 1 uids");
-    let err = sort(&mut values, &mut [1, 2], &[], "", &TextCollator).unwrap_err();
+    let mut two_values = vec![vec![int(2)], vec![int(1)]];
+    let uids_err = sort(&mut two_values, &mut [1], &[false], "", &TextCollator)
+        .err()
+        .context("expected an error")?;
+    assert_eq!(uids_err.to_string(), "Sort has 2 rows of values but 1 uids");
+    let desc_err = sort(&mut two_values, &mut [1, 2], &[], "", &TextCollator)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
-        err.to_string(),
+        desc_err.to_string(),
         "Sort has 0 directions for rows of 1 values"
     );
-    let err = sort_top_n(&mut values, &mut [1, 2, 3], &[false], "", 1, &TextCollator).unwrap_err();
-    assert_eq!(err.to_string(), "Sort has 2 rows of values but 3 uids");
+    let top_n_err = sort_top_n(
+        &mut two_values,
+        &mut [1, 2, 3],
+        &[false],
+        "",
+        1,
+        &TextCollator,
+    )
+    .err()
+    .context("expected an error")?;
+    assert_eq!(
+        top_n_err.to_string(),
+        "Sort has 2 rows of values but 3 uids"
+    );
     // Empty rows are allowed beside full ones, as Dgraph's Less returns false for them: an empty row is never
     // less nor greater, so Go's insertion sort of three rows leaves them where they are.
-    let mut values = vec![vec![int(2)], vec![], vec![int(1)]];
+    let mut with_empty = vec![vec![int(2)], vec![], vec![int(1)]];
     let mut uids = [1, 2, 3];
-    sort(&mut values, &mut uids, &[false], "", &TextCollator).unwrap();
+    sort(&mut with_empty, &mut uids, &[false], "", &TextCollator)?;
     assert_eq!(uids, [1, 2, 3]);
+    Ok(())
 }
 
 #[test]
@@ -713,14 +775,14 @@ fn test_is_sortable() {
 }
 
 #[test]
-fn test_sort_nil_values_last_and_ties_by_next_value() {
+fn test_sort_nil_values_last_and_ties_by_next_value() -> TestResult {
     let int = |i: i64| Val::new(TypeId::INT, Value::Int(i));
     let nil = Val::nil(TypeId::INT);
     // Dgraph sorts a nil value last whichever the direction.
     for (desc, want) in [(false, [300, 200, 100]), (true, [200, 300, 100])] {
         let mut values = vec![vec![nil.clone()], vec![int(2)], vec![int(1)]];
         let mut uids = [100, 200, 300];
-        sort(&mut values, &mut uids, &[desc], "", &TextCollator).unwrap();
+        sort(&mut values, &mut uids, &[desc], "", &TextCollator)?;
         assert_eq!(uids, want, "desc {desc}");
     }
     // Equal first values are ordered by the second, in its own direction.
@@ -735,7 +797,8 @@ fn test_sort_nil_values_last_and_ties_by_next_value() {
             vec![int(0), st("z")],
         ];
         let mut uids = [100, 200, 300];
-        sort(&mut values, &mut uids, &desc, "", &TextCollator).unwrap();
+        sort(&mut values, &mut uids, &desc, "", &TextCollator)?;
         assert_eq!(uids, want, "desc {desc:?}");
     }
+    Ok(())
 }

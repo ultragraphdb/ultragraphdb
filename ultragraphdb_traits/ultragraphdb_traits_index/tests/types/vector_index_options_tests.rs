@@ -25,7 +25,7 @@ fn test_search_path_result_and_key_value() {
     assert!(r.neighbors().is_empty() && r.path().is_empty() && r.metrics().is_empty());
     r.neighbors_mut().push(1);
     r.path_mut().push(2);
-    r.metrics_mut().insert("visited".into(), 3);
+    let _previous: Option<u64> = r.metrics_mut().insert("visited".into(), 3);
     assert_eq!(
         (r.neighbors(), r.path(), r.metrics()["visited"]),
         (&[1][..], &[2][..], 3)

@@ -29,7 +29,8 @@ pub fn apply_filter_packed(u: &UidPack, mut f: impl FnMut(u64, usize) -> bool) -
             }
             index += 1;
         }
-        decoder.next_block();
+        // The block is read at the loop's top, once its validity is checked.
+        let _block: &[u64] = decoder.next_block();
     }
 
     encoder.done()
@@ -57,14 +58,15 @@ pub fn intersect_with_lin_packed(u: Option<&UidPack>, v: Option<&UidPack>) -> Op
             if !u_dec.valid() {
                 break;
             }
-            u_dec.next_block();
+            // The block is read below, beside the other list's.
+            let _u_block: &[u64] = u_dec.next_block();
             u_idx = 0;
         }
         if v_idx == v_dec.uids().len() {
             if !v_dec.valid() {
                 break;
             }
-            v_dec.next_block();
+            let _v_block: &[u64] = v_dec.next_block();
             v_idx = 0;
         }
 
@@ -180,8 +182,9 @@ pub fn merge_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
         }
 
         let li = me.list_idx();
+        // `me` is the heap's smallest element, so the element removed or replaced is `me` itself.
         let (Some(decoder), Some(position)) = (decoders.get_mut(li), positions.get_mut(li)) else {
-            h.pop();
+            let _orphan: Option<Elem> = h.pop();
             continue;
         };
 
@@ -190,19 +193,19 @@ pub fn merge_sorted_packed(lists: &[Option<&UidPack>]) -> Option<UidPack> {
         // Reached the end of the current block. Decode the next block and reset the block counter; an empty block,
         // which only a corrupt pack holds and on which Dgraph panics, contributes nothing.
         while *position >= decoder.uids().len() && decoder.valid() {
-            decoder.next_block();
+            let _block: &[u64] = decoder.next_block();
             *position = 0;
         }
 
         match decoder.uids().get(*position) {
             // Update current value and re-heapify.
             Some(&next) => {
-                h.set(0, Elem::new(next, li));
+                let _advanced: Option<Elem> = h.set(0, Elem::new(next, li));
                 h.fix(0); // Faster than pop followed by push.
             }
             // Reached the end of this list. Remove it from the heap.
             None => {
-                h.pop();
+                let _exhausted: Option<Elem> = h.pop();
             }
         }
     }

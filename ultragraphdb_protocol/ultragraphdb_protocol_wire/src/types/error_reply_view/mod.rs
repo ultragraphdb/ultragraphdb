@@ -18,14 +18,17 @@ pub struct ErrorReplyView<'a> {
 }
 
 impl<'a> ErrorReplyView<'a> {
+    /// The error's code.
     pub fn code(&self) -> ErrorCode {
         self.code
     }
 
+    /// The detail the code defines.
     pub fn detail(&self) -> u64 {
         self.detail
     }
 
+    /// The message.
     pub fn message(&self) -> &'a str {
         self.message
     }

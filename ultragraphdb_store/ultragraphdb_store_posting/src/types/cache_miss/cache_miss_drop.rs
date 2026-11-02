@@ -13,7 +13,7 @@ impl Drop for CacheMiss<'_> {
         if let Some(count) = state.fills.get_mut(&self.base) {
             *count -= 1;
             if *count == 0 {
-                state.fills.remove(&self.base);
+                let _ended: Option<usize> = state.fills.remove(&self.base);
             }
         }
         if state.fills.is_empty() {

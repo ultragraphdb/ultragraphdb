@@ -56,53 +56,65 @@ impl Describe {
         }
     }
 
+    /// The namespace described.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The snapshot the answer was read at; zero in a request.
     pub fn read_version(&self) -> u64 {
         self.read_version
     }
 
+    /// The labels.
     pub fn labels(&self) -> &[String] {
         &self.labels
     }
 
+    /// The relationship types.
     pub fn relationship_types(&self) -> &[String] {
         &self.relationship_types
     }
 
+    /// The property keys.
     pub fn property_keys(&self) -> &[String] {
         &self.property_keys
     }
 
+    /// The declared predicates.
     pub fn predicates(&self) -> &[DeclaredPredicate] {
         &self.predicates
     }
 
+    /// The declared entity types, each with its preorder number.
     pub fn entity_types(&self) -> &[(DeclaredEntityType, u32)] {
         &self.entity_types
     }
 
+    /// The declared relations.
     pub fn relations(&self) -> &[DeclaredRelation] {
         &self.relations
     }
 
+    /// The answer with its labels.
     pub fn with_labels(mut self, labels: Vec<String>) -> Self {
         self.labels = labels;
         self
     }
 
+    /// The answer with its relationship types.
     pub fn with_relationship_types(mut self, relationship_types: Vec<String>) -> Self {
         self.relationship_types = relationship_types;
         self
     }
 
+    /// The answer with its property keys.
     pub fn with_property_keys(mut self, property_keys: Vec<String>) -> Self {
         self.property_keys = property_keys;
         self
     }
 
+    /// The answer with its declared predicates.
     pub fn with_predicates(mut self, predicates: Vec<DeclaredPredicate>) -> Self {
         self.predicates = predicates;
         self
@@ -114,6 +126,7 @@ impl Describe {
         self
     }
 
+    /// The answer with its declared relations.
     pub fn with_relations(mut self, relations: Vec<DeclaredRelation>) -> Self {
         self.relations = relations;
         self

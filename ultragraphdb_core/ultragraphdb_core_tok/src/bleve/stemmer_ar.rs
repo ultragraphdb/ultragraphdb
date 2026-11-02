@@ -16,7 +16,8 @@ pub(crate) fn stem(term: &str) -> String {
     for p in PREFIXES {
         let p: Vec<char> = p.chars().collect();
         if can_stem_prefix(&s, &p) {
-            s.drain(..p.len());
+            // Dropping the drain removes the prefix; its characters are not needed.
+            drop(s.drain(..p.len()));
             break;
         }
     }

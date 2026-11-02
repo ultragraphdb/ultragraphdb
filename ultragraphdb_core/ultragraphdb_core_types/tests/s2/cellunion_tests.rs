@@ -15,6 +15,7 @@ use serde::Deserialize;
 use ultragraphdb_core_types::{
     Cap, Cell, CellId, CellUnion, LatLng, MAX_LEVEL, Point, R3Vector, Region,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn union(ids: &[u64]) -> CellUnion {
     CellUnion::new(ids.iter().map(|&i| CellId::new(i)).collect())
@@ -60,33 +61,33 @@ fn cell_union_normalize_collapses_siblings_only() {
     assert_eq!(u.as_slice(), &[id]);
 
     // Three children and the parent itself: the parent contains the children.
-    let mut u = CellUnion::new(vec![c1, id, c2, c3]);
-    u.normalize();
-    assert_eq!(u.as_slice(), &[id]);
+    let mut with_parent = CellUnion::new(vec![c1, id, c2, c3]);
+    with_parent.normalize();
+    assert_eq!(with_parent.as_slice(), &[id]);
 
     // Three children only: nothing collapses, the result is sorted.
-    let mut u = CellUnion::new(vec![c3, c1, c0]);
-    u.normalize();
-    assert_eq!(u.as_slice(), &[c0, c1, c3]);
+    let mut three = CellUnion::new(vec![c3, c1, c0]);
+    three.normalize();
+    assert_eq!(three.as_slice(), &[c0, c1, c3]);
 
     // All sixteen grandchildren collapse twice, to id.
     let mut grand: Vec<CellId> = id.children().iter().flat_map(|c| c.children()).collect();
     grand.reverse();
-    let mut u = CellUnion::new(grand);
-    u.normalize();
-    assert_eq!(u.as_slice(), &[id]);
+    let mut grand_union = CellUnion::new(grand);
+    grand_union.normalize();
+    assert_eq!(grand_union.as_slice(), &[id]);
 
     // Duplicates are removed.
-    let mut u = CellUnion::new(vec![c0, c0, c1, c1]);
-    u.normalize();
-    assert_eq!(u.as_slice(), &[c0, c1]);
+    let mut duplicates = CellUnion::new(vec![c0, c0, c1, c1]);
+    duplicates.normalize();
+    assert_eq!(duplicates.as_slice(), &[c0, c1]);
 
     // The six faces are not siblings of any parent.
     let faces: Vec<CellId> = (0..6).rev().map(CellId::from_face).collect();
-    let mut u = CellUnion::new(faces);
-    u.normalize();
+    let mut face_union = CellUnion::new(faces);
+    face_union.normalize();
     assert_eq!(
-        u.as_slice(),
+        face_union.as_slice(),
         &(0..6).map(CellId::from_face).collect::<Vec<_>>()[..]
     );
 }
@@ -457,12 +458,18 @@ fn check_from_range(min: CellId, max: CellId) {
 // Ported from golang/geo s2/cellunion_test.go, TestCellUnionFromRange, over the leaf cells of
 // the golden set's cells instead of Go's random ones.
 #[test]
-fn cell_union_from_range() {
-    let g: CellGolden = load("cellid.json");
+fn cell_union_from_range() -> TestResult {
+    let g: CellGolden = load("cellid.json")?;
     let leaves: Vec<CellId> = g
         .cells
         .iter()
-        .map(|k| CellId::new(u64::from_str_radix(&k.id, 16).expect("hex cell id")))
+        .map(|k| {
+            u64::from_str_radix(&k.id, 16)
+                .map(CellId::new)
+                .context("hex cell id")
+        })
+        .collect::<TestResult<Vec<_>>>()?
+        .into_iter()
         .filter(|c| c.is_valid())
         .flat_map(|c| [c.range_min(), c.range_max()])
         .collect();
@@ -501,6 +508,7 @@ fn cell_union_from_range() {
         CellUnion::from_range(cell.range_min(), cell.range_max().next()).as_slice(),
         &[cell]
     );
+    Ok(())
 }
 
 // Ported from golang/geo s2/cellunion_test.go, TestCellUnionEmpty (the parts this port has),
@@ -542,23 +550,24 @@ fn cell_union_construction_keeps_order() {
 
 // CapBound: an axis at the area-weighted centroid of the cells, widened to every cell's cap.
 #[test]
-fn cell_union_cap_bound_contains_every_cell() {
+fn cell_union_cap_bound_contains_every_cell() -> TestResult {
     let u = union(&[0x89c4000000000000, 0x808c000000000000]);
     let cap = u.cap_bound();
     for id in u.iter() {
         let cl = Cell::from_cell_id(*id);
         for k in 0..4 {
-            assert!(cap.contains_point(cl.vertex(k).expect("vertex")));
+            assert!(cap.contains_point(cl.vertex(k).context("vertex")?));
         }
         assert!(cap.contains_point(cl.center()));
     }
     // A single face cell: the cap is that face's cell's cap, centred on its center.
     let face = union(&[CellId::from_face(0).id()]);
-    let cap = face.cap_bound();
-    let center = cap.center();
+    let face_cap = face.cap_bound();
+    let center = face_cap.center();
     assert!(
         (center.x() - 1.0).abs() <= 1e-15 && center.y().abs() <= 1e-15 && center.z().abs() <= 1e-15,
         "{center:?}"
     );
-    assert!(!cap.contains_point(Point::from_vector(R3Vector::new(-1.0, 0.0, 0.0))));
+    assert!(!face_cap.contains_point(Point::from_vector(R3Vector::new(-1.0, 0.0, 0.0))));
+    Ok(())
 }

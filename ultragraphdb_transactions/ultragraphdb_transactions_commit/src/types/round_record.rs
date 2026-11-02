@@ -13,6 +13,7 @@ pub struct RoundRecord {
 }
 
 impl RoundRecord {
+    /// The record of a round from `first_version` with `transactions` decisions, `committed` of them commits.
     pub fn new(first_version: u64, transactions: u32, committed: u32) -> Self {
         Self {
             first_version,
@@ -21,6 +22,7 @@ impl RoundRecord {
         }
     }
 
+    /// The round's first commit version.
     pub fn first_version(&self) -> u64 {
         self.first_version
     }
@@ -30,6 +32,7 @@ impl RoundRecord {
         self.transactions
     }
 
+    /// The number of transactions that committed.
     pub fn committed(&self) -> u32 {
         self.committed
     }

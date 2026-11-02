@@ -19,10 +19,12 @@ impl<'a> EncodedLiteral<'a> {
         Self { term, strings }
     }
 
+    /// The literal's encoding.
     pub fn term(&self) -> &EncodedTerm {
         &self.term
     }
 
+    /// The literal's encoding, consuming the literal.
     pub fn into_term(self) -> EncodedTerm {
         self.term
     }

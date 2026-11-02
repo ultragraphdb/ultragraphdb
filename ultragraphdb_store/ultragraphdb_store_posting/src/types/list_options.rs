@@ -46,18 +46,22 @@ impl ListOptions {
         self
     }
 
+    /// The timestamp the uids are read at.
     pub fn read_ts(&self) -> u64 {
         self.read_ts
     }
 
+    /// The uid after which the uids start.
     pub fn after_uid(&self) -> u64 {
         self.after_uid
     }
 
+    /// The uids the read intersects with, if any.
     pub fn intersect_with(&self) -> Option<&UidList> {
         self.intersect.as_ref()
     }
 
+    /// The count of uids the read keeps, as set by [`Self::first`].
     pub fn first_count(&self) -> i64 {
         self.first
     }

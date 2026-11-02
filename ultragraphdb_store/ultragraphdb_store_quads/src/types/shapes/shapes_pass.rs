@@ -59,7 +59,7 @@ impl Shapes {
                 } else {
                     Cardinality::Single
                 };
-                shape
+                let _replaced_property: Option<PropertyShape> = shape
                     .properties
                     .insert(name.clone(), PropertyShape::new(kinds.clone(), cardinality));
             }
@@ -111,7 +111,7 @@ where
                 .map(|u| quads.iri_of(namespace, u).map(|(iri, _)| iri))
                 .collect::<Result<Vec<_>, _>>()?;
             if !labels.is_empty() {
-                typed.insert((graph, subject), labels);
+                let _replaced_labels: Option<Vec<String>> = typed.insert((graph, subject), labels);
             }
         }
     }
@@ -156,7 +156,7 @@ where
             let mut kinds = BTreeSet::new();
             let mut targets = BTreeSet::new();
             for (object, _) in &objects {
-                kinds.insert(kind(quads, namespace, object)?);
+                let _new_kind: bool = kinds.insert(kind(quads, namespace, object)?);
                 if let Some(uid) = object.as_uid() {
                     targets.extend(typed.get(&(*graph, uid)).into_iter().flatten().cloned());
                 }

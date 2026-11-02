@@ -6,6 +6,7 @@
 //! Builds through the step (decided 2026-10-28): a proposal starting a build waits, set aside, while a build runs,
 //! and is decided again once the build's end is admitted; a build's end is a round of its own.
 
+use ultragraphdb_tool_bdd::TestResult;
 use ultragraphdb_transactions_commit::{
     CommitRequest, CommitStep, Input, Proposal, Reply, RoundBounds, StepOutput,
 };
@@ -42,12 +43,12 @@ impl Proposal for BuildProposal {
 type Step = CommitStep<BuildProposal>;
 type Out = StepOutput<BuildProposal>;
 
-fn of(key: &[u8], starts: bool, ends: bool) -> BuildProposal {
-    BuildProposal {
-        inner: proposal(0, &Reads::default(), &Writes::point(key)),
+fn of(key: &[u8], starts: bool, ends: bool) -> TestResult<BuildProposal> {
+    Ok(BuildProposal {
+        inner: proposal(0, &Reads::default(), &Writes::point(key))?,
         starts,
         ends,
-    }
+    })
 }
 
 fn commit(step: &mut Step, out: &mut Out, ticket: u64, p: BuildProposal) {
@@ -68,18 +69,19 @@ fn round_size(out: &Out) -> Option<u32> {
 }
 
 #[test]
-fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_its_end() {
+fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_its_end() -> TestResult
+{
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, of(b"a", true, false));
+    commit(&mut step, &mut out, 1, of(b"a", true, false)?);
     assert!(step.is_building(), "admitted, the build runs");
     sync(&mut step, &mut out);
     // A second build waits; the plain write beside it is decided.
-    commit(&mut step, &mut out, 2, of(b"b", true, false));
+    commit(&mut step, &mut out, 2, of(b"b", true, false)?);
     assert_eq!(round_size(&out), Some(0), "set aside, nothing to decide");
     assert_eq!((step.waiting(), step.deferred()), (0, 1));
     sync(&mut step, &mut out);
-    commit(&mut step, &mut out, 3, of(b"c", false, false));
+    commit(&mut step, &mut out, 3, of(b"c", false, false)?);
     assert_eq!(round_size(&out), Some(1));
     sync(&mut step, &mut out);
     assert_eq!(
@@ -88,7 +90,7 @@ fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_it
         "a round deciding nothing takes no version"
     );
     // The build's end: its round alone; the proposal set aside is decided in the next.
-    commit(&mut step, &mut out, 4, of(b"end", false, true));
+    commit(&mut step, &mut out, 4, of(b"end", false, true)?);
     assert_eq!(round_size(&out), Some(1));
     assert!(!step.is_building());
     assert_eq!(
@@ -102,17 +104,18 @@ fn test_a_proposal_starting_a_build_waits_while_one_runs_and_is_decided_after_it
     assert!(step.is_building());
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(2, Ok(8))]);
+    Ok(())
 }
 
 #[test]
-fn test_a_builds_end_is_a_round_of_its_own() {
+fn test_a_builds_end_is_a_round_of_its_own() -> TestResult {
     let mut step = Step::new(unbounded(), 0).with_build_running(true);
     let mut out = Out::new();
     // A round in flight, so the next three wait together.
-    commit(&mut step, &mut out, 1, of(b"x", false, false));
-    commit(&mut step, &mut out, 2, of(b"a", false, false));
-    commit(&mut step, &mut out, 3, of(b"end", false, true));
-    commit(&mut step, &mut out, 4, of(b"b", false, false));
+    commit(&mut step, &mut out, 1, of(b"x", false, false)?);
+    commit(&mut step, &mut out, 2, of(b"a", false, false)?);
+    commit(&mut step, &mut out, 3, of(b"end", false, true)?);
+    commit(&mut step, &mut out, 4, of(b"b", false, false)?);
     sync(&mut step, &mut out);
     assert_eq!(round_size(&out), Some(1), "the round closes before the end");
     sync(&mut step, &mut out);
@@ -123,14 +126,15 @@ fn test_a_builds_end_is_a_round_of_its_own() {
     assert_eq!(round_size(&out), Some(1));
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(4, Ok(8))]);
+    Ok(())
 }
 
 #[test]
-fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() {
+fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() -> TestResult {
     let mut step = Step::new(unbounded(), 0).with_build_running(true);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, of(b"x", false, false));
-    commit(&mut step, &mut out, 2, of(b"b", true, false));
+    commit(&mut step, &mut out, 1, of(b"x", false, false)?);
+    commit(&mut step, &mut out, 2, of(b"b", true, false)?);
     sync(&mut step, &mut out);
     assert_eq!(step.deferred(), 1);
     step.step(Input::SyncFailed, 0, &mut out);
@@ -145,21 +149,22 @@ fn test_a_failed_sync_answers_the_proposals_set_aside_unavailable() {
     );
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
     assert_eq!(released, vec![2]);
+    Ok(())
 }
 
 /// A proposal set aside while a build runs still holds its place in the commit queue: with a queue of one, a commit
 /// arriving while it waits is refused busy.
 #[test]
-fn test_a_proposal_set_aside_counts_against_the_commit_queue() {
+fn test_a_proposal_set_aside_counts_against_the_commit_queue() -> TestResult {
     let mut step = Step::new(unbounded(), 0)
         .with_build_running(true)
         .with_queue(1);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, of(b"x", false, false));
-    commit(&mut step, &mut out, 2, of(b"b", true, false));
+    commit(&mut step, &mut out, 1, of(b"x", false, false)?);
+    commit(&mut step, &mut out, 2, of(b"b", true, false)?);
     sync(&mut step, &mut out);
     assert_eq!((step.waiting(), step.deferred()), (0, 1));
-    commit(&mut step, &mut out, 3, of(b"c", false, false));
+    commit(&mut step, &mut out, 3, of(b"c", false, false)?);
     assert_eq!(
         out.replies(),
         &[Reply::new(
@@ -169,4 +174,5 @@ fn test_a_proposal_set_aside_counts_against_the_commit_queue() {
     );
     let released: Vec<u64> = out.released().iter().map(|(t, _)| *t).collect();
     assert_eq!(released, vec![3]);
+    Ok(())
 }

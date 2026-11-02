@@ -4,7 +4,7 @@
  */
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use ultragraphdb_traits_store::ListCache;
 
@@ -16,15 +16,27 @@ impl ListCache for Keep {
     type Value = Arc<u64>;
 
     fn get(&self, key: &[u8]) -> Option<Self::Value> {
-        self.0.lock().unwrap().get(key).cloned()
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(key)
+            .cloned()
     }
 
     fn insert(&self, key: Vec<u8>, value: Self::Value) {
-        self.0.lock().unwrap().insert(key, value);
+        let _previous: Option<Arc<u64>> = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key, value);
     }
 
     fn remove(&self, key: &[u8]) {
-        self.0.lock().unwrap().remove(key);
+        let _removed: Option<Arc<u64>> = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(key);
     }
 }
 

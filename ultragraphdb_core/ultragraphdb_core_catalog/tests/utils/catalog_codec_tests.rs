@@ -11,13 +11,14 @@ use ultragraphdb_core_mapping::{
     Cardinality, Declaration, PredicateDeclaration, PredicateKind, RelationDeclaration,
     TypeDeclaration, VectorIndexSpec,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn ex(name: &str) -> NamedNode {
     NamedNode::new_unchecked(format!("http://ex.org/{name}"))
 }
 
 #[test]
-fn test_every_declaration_round_trips_and_every_truncation_is_refused() {
+fn test_every_declaration_round_trips_and_every_truncation_is_refused() -> TestResult {
     let declarations = vec![
         Declaration::Predicate(PredicateDeclaration::new(ex("plain"))),
         Declaration::Predicate(
@@ -30,7 +31,7 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() {
                 .with_count_index(true)
                 .with_vector_index(
                     VectorIndexSpec::new("hnsw", vec![("metric".into(), "cosine".into())])
-                        .with_dimension(NonZeroU16::new(768).unwrap()),
+                        .with_dimension(NonZeroU16::new(768).context("768 is not zero")?),
                 )
                 .with_domains(vec![ex("Person"), ex("Org")]),
         ),
@@ -56,6 +57,7 @@ fn test_every_declaration_round_trips_and_every_truncation_is_refused() {
         longer.push(0);
         assert!(decode_declaration(b"k", &longer).is_err());
     }
+    Ok(())
 }
 
 #[test]
@@ -73,15 +75,15 @@ fn test_unknown_codes_are_refused() {
 }
 
 #[test]
-fn test_a_vector_index_s_dimension_is_two_big_endian_bytes_after_its_factory() {
-    let with = |dimension: Option<u16>| {
+fn test_a_vector_index_s_dimension_is_two_big_endian_bytes_after_its_factory() -> TestResult {
+    let with = |dimension: Option<u16>| -> TestResult<Vec<u8>> {
         let mut spec = VectorIndexSpec::new("hnsw", Vec::new());
         if let Some(d) = dimension {
-            spec = spec.with_dimension(NonZeroU16::new(d).unwrap());
+            spec = spec.with_dimension(NonZeroU16::new(d).context("the dimension is not zero")?);
         }
-        encode_declaration(&Declaration::Predicate(
+        Ok(encode_declaration(&Declaration::Predicate(
             PredicateDeclaration::new(ex("p")).with_vector_index(spec),
-        ))
+        )))
     };
     // After the factory's name, a u32 big-endian length and "hnsw": 768 is 0x0300, none is 0.
     let factory_end = |bytes: &[u8]| {
@@ -89,15 +91,16 @@ fn test_a_vector_index_s_dimension_is_two_big_endian_bytes_after_its_factory() {
             .windows(4)
             .position(|w| w == b"hnsw")
             .map(|at| at + 4)
-            .expect("the factory's name")
+            .context("the factory's name")
     };
-    let declared = with(Some(768));
-    let at = factory_end(&declared);
-    assert_eq!(&declared[at..at + 2], &[0x03, 0x00]);
-    let none = with(None);
-    let at = factory_end(&none);
-    assert_eq!(&none[at..at + 2], &[0x00, 0x00]);
+    let declared = with(Some(768))?;
+    let declared_at = factory_end(&declared)?;
+    assert_eq!(&declared[declared_at..declared_at + 2], &[0x03, 0x00]);
+    let none = with(None)?;
+    let none_at = factory_end(&none)?;
+    assert_eq!(&none[none_at..none_at + 2], &[0x00, 0x00]);
     assert_eq!(declared.len(), none.len());
+    Ok(())
 }
 
 #[test]

@@ -121,7 +121,7 @@ impl<S: DurableStorage> Wal<S> {
                 .open_aligned(&path, OpenMode::ReadWrite)
                 .await
                 .map_err(io_error("open"))?;
-            self.files.insert(index, file);
+            let _replaced: Option<S::File> = self.files.insert(index, file);
         }
         self.recycle_segments_below(self.superblock.first_segment())
             .await?;

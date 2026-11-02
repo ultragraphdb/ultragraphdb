@@ -13,6 +13,7 @@ use ultragraphdb_core_tok::lang_base;
 use ultragraphdb_store_sim::LogCapture;
 
 use crate::golden::cases;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_lang_base() {
@@ -54,14 +55,15 @@ struct LangBaseCase {
 }
 
 #[test]
-fn test_lang_base_golden() {
-    let cases: Vec<LangBaseCase> = cases("tok_lang_base");
+fn test_lang_base_golden() -> TestResult {
+    let cases: Vec<LangBaseCase> = cases("tok_lang_base")?;
     assert!(cases.len() > 90);
     for c in cases {
         assert_eq!(lang_base(&c.input), c.out, "{:?}", c.input);
         // A second lookup reads the cache.
         assert_eq!(lang_base(&c.input), c.out, "{:?} cached", c.input);
     }
+    Ok(())
 }
 
 /// The events Dgraph's `LangBase` logs: an error for a tag that does not parse, and a warning for every tag

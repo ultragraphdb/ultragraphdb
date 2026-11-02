@@ -25,7 +25,7 @@ impl<N: FnMut() -> Result<String, ScramError>> ScramLogin<N> {
     /// The login of `name` with `password`, refused as [`ScramError::Prepare`] when SASLprep refuses either, so a
     /// login that is built can start every exchange its nonces allow.
     pub fn new(name: &str, password: &str, nonces: N) -> Result<Self, ScramError> {
-        ScramClient::new(name, password, PROBE)?;
+        let _probe: ScramClient = ScramClient::new(name, password, PROBE)?;
         Ok(Self {
             name: name.to_string(),
             password: password.to_string(),
@@ -43,6 +43,7 @@ impl<N: FnMut() -> Result<String, ScramError>> ScramLogin<N> {
         (self.nonces)()
     }
 
+    /// The principal's name the login authenticates as.
     pub fn name(&self) -> &str {
         &self.name
     }

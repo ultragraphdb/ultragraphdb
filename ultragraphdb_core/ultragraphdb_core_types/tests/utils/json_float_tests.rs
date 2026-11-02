@@ -8,11 +8,12 @@
 //! program marshalling the same float64, whose bits are given beside it where the literal alone is ambiguous.
 
 use ultragraphdb_core_types::{Geometry, Layout, TypeId, Val, Value, marshal_json};
+use ultragraphdb_tool_bdd::TestResult;
 
 fn json(f: f64) -> Result<String, String> {
     marshal_json(&Val::new(TypeId::FLOAT, Value::Float(f)))
-        .map(|b| String::from_utf8(b).unwrap())
         .map_err(|e| e.to_string())
+        .and_then(|b| String::from_utf8(b).map_err(|e| e.to_string()))
 }
 
 #[test]
@@ -75,10 +76,11 @@ fn a_non_finite_float_is_refused_with_go_1_27s_text() {
 }
 
 #[test]
-fn a_geometrys_coordinates_take_the_same_layout() {
-    let p = Geometry::point(Layout::XY, &[-0.0, 9.999999999999999e20]).unwrap();
+fn a_geometrys_coordinates_take_the_same_layout() -> TestResult {
+    let p = Geometry::point(Layout::XY, &[-0.0, 9.999999999999999e20])?;
     assert_eq!(
-        String::from_utf8(marshal_json(&Val::new(TypeId::GEO, Value::Geo(p))).unwrap()).unwrap(),
+        String::from_utf8(marshal_json(&Val::new(TypeId::GEO, Value::Geo(p)))?)?,
         r#"{"type":"Point","coordinates":[-0,999999999999999900000]}"#
     );
+    Ok(())
 }

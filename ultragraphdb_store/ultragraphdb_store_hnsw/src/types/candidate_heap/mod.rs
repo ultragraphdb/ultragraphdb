@@ -36,10 +36,12 @@ impl<T: HnswFloat> CandidateHeap<T> {
         heap
     }
 
+    /// The number of candidates.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    /// Whether the heap holds no candidate.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -61,7 +63,7 @@ impl<T: HnswFloat> CandidateHeap<T> {
     /// Dgraph's `PopLast`, Go's `heap.Remove` of the last element: drops the heap array's last leaf, which is not
     /// necessarily the worst candidate.
     pub fn pop_last(&mut self) {
-        self.items.pop();
+        let _last: Option<PersistentHeapElement<T>> = self.items.pop();
     }
 
     fn less(&self, i: usize, j: usize) -> bool {

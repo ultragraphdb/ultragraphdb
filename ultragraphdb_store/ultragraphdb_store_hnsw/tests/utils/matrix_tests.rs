@@ -5,7 +5,7 @@
 
 use serde::Deserialize;
 use ultragraphdb_store_hnsw::{decode_uint64_matrix, encode_uint64_matrix};
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{TestResult, load_golden, testdata_dir};
 
 #[derive(Debug, Deserialize)]
 struct MatrixCase {
@@ -19,8 +19,8 @@ fn hex(b: &[u8]) -> String {
 }
 
 #[test]
-fn test_the_matrix_encodes_as_gos_and_decodes_back() {
-    let golden = load_golden::<MatrixCase>(&testdata_dir().join("golden/hnsw_matrix.json"));
+fn test_the_matrix_encodes_as_gos_and_decodes_back() -> TestResult {
+    let golden = load_golden::<MatrixCase>(&testdata_dir()?.join("golden/hnsw_matrix.json"))?;
     assert_eq!(golden.cases().len(), 14);
     for c in golden.cases() {
         let encoded = encode_uint64_matrix(&c.matrix);
@@ -32,4 +32,5 @@ fn test_the_matrix_encodes_as_gos_and_decodes_back() {
             c.name
         );
     }
+    Ok(())
 }

@@ -13,7 +13,7 @@ use ultragraphdb_core_algo::{
     intersect_with_lin_packed, merge_sorted_packed,
 };
 use ultragraphdb_core_codec::{Encoder, UidBlock, UidPack, decode, encode};
-use ultragraphdb_tool_bdd::{load_golden, testdata_dir};
+use ultragraphdb_tool_bdd::{Context, TestResult, load_golden, testdata_dir};
 
 fn new_uid_pack(data: &[u64]) -> Option<UidPack> {
     // Using a small block size to make sure multiple blocks are used by the tests.
@@ -304,11 +304,12 @@ fn test_index_of_packed3() {
 }
 
 #[test]
-fn test_apply_filter_uint_packed() {
+fn test_apply_filter_uint_packed() -> TestResult {
     let l = [1u64, 2, 3, 4, 5, 6, 7, 8, 9];
-    let u = new_uid_pack(&l).expect("the list is not empty");
+    let u = new_uid_pack(&l).context("the list is not empty")?;
     let res = apply_filter_packed(&u, |_, idx| l[idx] % 2 == 1);
     assert_eq!(vec![1, 3, 5, 7, 9], decoded(res));
+    Ok(())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -527,8 +528,8 @@ fn packed_want<'a>(
     case: &'a AlgoCase,
     r: &'a OpResult,
     actual_is_none: bool,
-) -> (&'a Vec<u64>, bool) {
-    let plain_name = plain_op(&r.op).expect("a packed operation has a plain one");
+) -> TestResult<(&'a Vec<u64>, bool)> {
+    let plain_name = plain_op(&r.op).context("a packed operation has a plain one")?;
     let plain = case.results.iter().find(|p| p.op == plain_name);
     let deviation = DEVIATIONS
         .iter()
@@ -550,7 +551,7 @@ fn packed_want<'a>(
                     case.name, r.op
                 );
             }
-            (&plain.out, deviation.is_some())
+            Ok((&plain.out, deviation.is_some()))
         }
         None => {
             assert!(
@@ -564,7 +565,7 @@ fn packed_want<'a>(
                 "{} {}: nil pack",
                 case.name, r.op
             );
-            (&r.out, false)
+            Ok((&r.out, false))
         }
     }
 }
@@ -574,9 +575,9 @@ fn packed_want<'a>(
 /// own packed result equals its plain one in every case but the `DEVIATIONS`; with no lists there is no plain result,
 /// and Dgraph's packed one, no pack, is the expected one.
 #[test]
-fn packed_operations_match_golden() {
-    let path = testdata_dir().join("golden/algo_setops.json");
-    let golden = load_golden::<AlgoCase>(&path);
+fn packed_operations_match_golden() -> TestResult {
+    let path = testdata_dir()?.join("golden/algo_setops.json");
+    let golden = load_golden::<AlgoCase>(&path)?;
     let mut checked = 0;
     let mut deviations_seen = 0;
     for case in golden.cases() {
@@ -608,7 +609,7 @@ fn packed_operations_match_golden() {
                 _ => continue,
             };
             assert!(!r.panics, "{} {}: Dgraph panicked", case.name, r.op);
-            let (want, deviation) = packed_want(case, r, actual.is_none());
+            let (want, deviation) = packed_want(case, r, actual.is_none())?;
             deviations_seen += usize::from(deviation);
             // An encoder that was given no UID returns no pack, so an empty result is no pack.
             assert_eq!(
@@ -631,65 +632,70 @@ fn packed_operations_match_golden() {
         checked > 200,
         "the golden file holds packed results, {checked} checked"
     );
+    Ok(())
 }
 
 #[test]
-fn merge_sorted_packed_skips_an_empty_block() {
+fn merge_sorted_packed_skips_an_empty_block() -> TestResult {
     // A corrupt block with no UIDs between two others: Dgraph indexes the empty block and panics; the port moves on.
-    let first = new_uid_pack(&(1..=10).collect::<Vec<_>>()).expect("the list is not empty");
+    let first = new_uid_pack(&(1..=10).collect::<Vec<_>>()).context("the list is not empty")?;
     let mut blocks = first.blocks().to_vec();
     blocks.push(UidBlock::new(11, Vec::new(), 0));
     blocks.extend_from_slice(
         new_uid_pack(&(21..=30).collect::<Vec<_>>())
-            .expect("the list is not empty")
+            .context("the list is not empty")?
             .blocks(),
     );
     let pack = UidPack::new(first.block_size(), blocks);
-    let other = new_uid_pack(&[5, 25]).expect("the list is not empty");
+    let other = new_uid_pack(&[5, 25]).context("the list is not empty")?;
     let want: Vec<u64> = (1..=10).chain(21..=30).collect();
     assert_eq!(
         want,
         decoded(merge_sorted_packed(&[Some(&pack), Some(&other)]))
     );
+    Ok(())
 }
 
 #[test]
-fn merge_sorted_packed_takes_the_first_present_lists_block_size() {
+fn merge_sorted_packed_takes_the_first_present_lists_block_size() -> TestResult {
     // Dgraph v25.5.0 MergeSortedPacked over (nil, [1 2] packed by 3, [2 5] packed by 7), run in Go: BlockSize 3, UIDs
     // [1 2 5].
     let a = encode(&[1, 2], 3);
     let b = encode(&[2, 5], 7);
-    let merged = merge_sorted_packed(&[None, a.as_ref(), b.as_ref()]).expect("a pack");
+    let merged = merge_sorted_packed(&[None, a.as_ref(), b.as_ref()]).context("a pack")?;
     assert_eq!(merged.block_size(), 3);
     assert_eq!(decode(&merged, 0), vec![1, 2, 5]);
+    Ok(())
 }
 
 #[test]
-fn merge_sorted_packed_skips_a_list_of_no_uids() {
+fn merge_sorted_packed_skips_a_list_of_no_uids() -> TestResult {
     // A corrupt pack whose one block, base 7, holds no UIDs, so its decoder holds none: it is skipped, though its block
     // size, the first present list's, is the result's. Dgraph v25.5.0 MergeSortedPacked over (that pack with block
     // size 4, [1 2] packed by 3), run in Go: BlockSize 4, UIDs [1 2].
     let corrupt = UidPack::new(4, vec![UidBlock::new(7, Vec::new(), 0)]);
     let b = encode(&[1, 2], 3);
-    let merged = merge_sorted_packed(&[Some(&corrupt), b.as_ref()]).expect("a pack");
+    let merged = merge_sorted_packed(&[Some(&corrupt), b.as_ref()]).context("a pack")?;
     assert_eq!(merged.block_size(), 4);
     assert_eq!(decode(&merged, 0), vec![1, 2]);
+    Ok(())
 }
 
 #[test]
-fn intersect_with_lin_packed_stops_at_a_block_of_no_uids() {
+fn intersect_with_lin_packed_stops_at_a_block_of_no_uids() -> TestResult {
     // A corrupt block with no UIDs between [1..5] and [7..10]: its decoder holds no UIDs though it is valid, and the
     // intersection stops there, before 8. Dgraph v25.5.0 IntersectWithLinPacked over that pack and [3 8], run in Go:
     // [3].
-    let first = new_uid_pack(&[1, 2, 3, 4, 5]).expect("the list is not empty");
-    let last = new_uid_pack(&[7, 8, 9, 10]).expect("the list is not empty");
+    let first = new_uid_pack(&[1, 2, 3, 4, 5]).context("the list is not empty")?;
+    let last = new_uid_pack(&[7, 8, 9, 10]).context("the list is not empty")?;
     let mut blocks = first.blocks().to_vec();
     blocks.push(UidBlock::new(6, Vec::new(), 0));
     blocks.extend_from_slice(last.blocks());
     let u = UidPack::new(5, blocks);
-    let v = new_uid_pack(&[3, 8]).expect("the list is not empty");
+    let v = new_uid_pack(&[3, 8]).context("the list is not empty")?;
     assert_eq!(
         vec![3],
         decoded(intersect_with_lin_packed(Some(&u), Some(&v)))
     );
+    Ok(())
 }

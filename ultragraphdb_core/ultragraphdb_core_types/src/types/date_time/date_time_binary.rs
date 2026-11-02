@@ -60,16 +60,16 @@ impl DateTime {
             ));
         }
         let want = if version == VERSION_V2 { 16 } else { 15 };
+        let invalid_length = || TypesError::time("Time.UnmarshalBinary: invalid length");
         if data.len() != want {
-            return Err(TypesError::time("Time.UnmarshalBinary: invalid length"));
+            return Err(invalid_length());
         }
-        // The length is 15 or 16, checked above, so each range holds exactly the bytes it is read as.
-        let sec = i64::from_be_bytes(data[1..9].try_into().expect("bytes 1 to 9 of 15 or more"));
-        let nsec = i32::from_be_bytes(data[9..13].try_into().expect("bytes 9 to 13 of 15 or more"));
+        // The length is 15 or 16, checked above, so each chunk is present.
+        let chunk = |start: usize| data.get(start..).ok_or_else(invalid_length);
+        let sec = i64::from_be_bytes(*chunk(1)?.first_chunk().ok_or_else(invalid_length)?);
+        let nsec = i32::from_be_bytes(*chunk(9)?.first_chunk().ok_or_else(invalid_length)?);
         let mut offset = i32::from(i16::from_be_bytes(
-            data[13..15]
-                .try_into()
-                .expect("bytes 13 to 15 of 15 or more"),
+            *chunk(13)?.first_chunk().ok_or_else(invalid_length)?,
         )) * 60;
         if version == VERSION_V2 {
             // Go's int8(b): the byte read as two's complement.

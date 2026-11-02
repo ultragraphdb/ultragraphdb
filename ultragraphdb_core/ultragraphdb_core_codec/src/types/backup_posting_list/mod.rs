@@ -26,14 +26,17 @@ impl BackupPostingList {
         &self.uids
     }
 
+    /// The postings the UIDs cannot carry.
     pub fn postings(&self) -> &[Posting] {
         &self.postings
     }
 
+    /// The commit timestamp of the list.
     pub fn commit_ts(&self) -> u64 {
         self.commit_ts
     }
 
+    /// The start UIDs of a split list's parts; empty for a list that is not split.
     pub fn splits(&self) -> &[u64] {
         &self.splits
     }
@@ -43,22 +46,27 @@ impl BackupPostingList {
         &self.uid_bytes
     }
 
+    /// The list with `uids` as its plain UIDs.
     pub fn with_uids(self, uids: Vec<u64>) -> Self {
         Self { uids, ..self }
     }
 
+    /// The list with `postings` as its postings.
     pub fn with_postings(self, postings: Vec<Posting>) -> Self {
         Self { postings, ..self }
     }
 
+    /// The list with `commit_ts` as its commit timestamp.
     pub fn with_commit_ts(self, commit_ts: u64) -> Self {
         Self { commit_ts, ..self }
     }
 
+    /// The list with `splits` as its parts' start UIDs.
     pub fn with_splits(self, splits: Vec<u64>) -> Self {
         Self { splits, ..self }
     }
 
+    /// The list with `uid_bytes` as its UIDs in uvarint deltas.
     pub fn with_uid_bytes(self, uid_bytes: Vec<u8>) -> Self {
         Self { uid_bytes, ..self }
     }

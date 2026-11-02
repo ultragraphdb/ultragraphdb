@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use fjall::{Database, KeyspaceCreateOptions};
 use ultragraphdb_store_kv::{DATA_KEYSPACE, Durability, FjallStore};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -20,6 +21,7 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 pub struct TestDir(PathBuf);
 
 impl TestDir {
+    /// A fresh directory for the test `name`, empty: one an earlier run left behind is removed.
     pub fn new(name: &str) -> Self {
         let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -29,12 +31,18 @@ impl TestDir {
         Self(dir)
     }
 
+    /// The directory's path.
     pub fn path(&self) -> &Path {
         &self.0
     }
 
-    pub fn open(&self) -> FjallStore {
-        FjallStore::open(&self.0, Durability::Process).expect("the store opens")
+    /// The fjall store in the directory, opened with process durability.
+    ///
+    /// # Errors
+    ///
+    /// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the store does not open.
+    pub fn open(&self) -> TestResult<FjallStore> {
+        FjallStore::open(&self.0, Durability::Process).context("the store opens")
     }
 }
 
@@ -45,14 +53,20 @@ impl Drop for TestDir {
     }
 }
 
-pub fn write(store: &FjallStore, entries: Vec<Entry>) {
+/// Writes `entries` to `store` as one batch, buffered.
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the store refuses the batch.
+pub fn write(store: &FjallStore, entries: Vec<Entry>) -> TestResult {
     let mut batch = WriteBatch::new();
     entries.into_iter().for_each(|e| batch.push(e));
     store
         .apply(batch, PersistMode::Buffer)
-        .expect("the batch is written");
+        .context("the batch is written")
 }
 
+/// `value` as version `version` of `key`, with Dgraph's delta meta byte.
 pub fn put(key: &[u8], version: u64, value: &[u8]) -> Entry {
     Entry::put(key.to_vec(), version, 0x04, value.to_vec())
 }
@@ -65,47 +79,74 @@ pub fn ns_key(ns: u64, tail: &[u8]) -> Vec<u8> {
     key
 }
 
-pub fn versions(store: &FjallStore, key: &[u8], ts: u64) -> Vec<u64> {
-    let snapshot = store.snapshot(ts).expect("readable");
+/// The versions of `key` a snapshot of `store` at `ts` reads, newest first.
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the snapshot does not open or a read fails.
+pub fn versions(store: &FjallStore, key: &[u8], ts: u64) -> TestResult<Vec<u64>> {
+    let snapshot = store.snapshot(ts).context("readable")?;
     snapshot
         .versions(key)
-        .map(|i| i.expect("read").version())
-        .collect()
+        .map(|i| i.map(|i| i.version()))
+        .collect::<Result<_, _>>()
+        .context("read")
 }
 
-pub fn scanned(store: &FjallStore, scan: &Scan, ts: u64) -> Vec<(Vec<u8>, u64)> {
-    let snapshot = store.snapshot(ts).expect("readable");
+/// The keys and versions `scan` reports from a snapshot of `store` at `ts`, in its order.
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the snapshot does not open or a read fails.
+pub fn scanned(store: &FjallStore, scan: &Scan, ts: u64) -> TestResult<Vec<(Vec<u8>, u64)>> {
+    let snapshot = store.snapshot(ts).context("readable")?;
     snapshot
         .scan(scan)
-        .map(|i| i.expect("read"))
-        .map(|i| (i.key().to_vec(), i.version()))
-        .collect()
+        .map(|i| i.map(|i| (i.key().to_vec(), i.version())))
+        .collect::<Result<_, _>>()
+        .context("read")
 }
 
 /// The versions the store holds of `key`, newest first, with whether each is a deletion.
-pub fn held(store: &FjallStore, key: &[u8]) -> Vec<(u64, bool)> {
-    store
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when the store does not dump.
+pub fn held(store: &FjallStore, key: &[u8]) -> TestResult<Vec<(u64, bool)>> {
+    Ok(store
         .dump()
-        .expect("dumps")
+        .context("dumps")?
         .iter()
         .filter(|e| e.key() == key)
         .map(|e| (e.version(), e.is_deletion()))
-        .collect()
+        .collect())
 }
 
 /// Writes `value` raw at the stored key of `key` at `version` into the closed store in `dir`.
-pub fn write_raw(dir: &TestDir, key: &[u8], version: u64, value: &[u8]) {
-    write_raw_in(dir, DATA_KEYSPACE, &stored(key, version), value);
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when fjall fails to open, write or persist.
+pub fn write_raw(dir: &TestDir, key: &[u8], version: u64, value: &[u8]) -> TestResult {
+    write_raw_in(dir, DATA_KEYSPACE, &stored(key, version), value)
 }
 
 /// Writes `value` raw at `key` of `keyspace` into the closed store in `dir`, whatever the store would make of it.
-pub fn write_raw_in(dir: &TestDir, keyspace: &str, key: &[u8], value: &[u8]) {
-    let db = Database::builder(dir.path()).open().unwrap();
+///
+/// # Errors
+///
+/// A [`TestError`](ultragraphdb_tool_bdd::TestError) when fjall fails to open, write or persist.
+pub fn write_raw_in(dir: &TestDir, keyspace: &str, key: &[u8], value: &[u8]) -> TestResult {
+    let db = Database::builder(dir.path())
+        .open()
+        .context("fjall opens")?;
     let ks = db
         .keyspace(keyspace, KeyspaceCreateOptions::default)
-        .unwrap();
-    ks.insert(key.to_vec(), value.to_vec()).unwrap();
-    db.persist(fjall::PersistMode::SyncAll).unwrap();
+        .context("the keyspace opens")?;
+    ks.insert(key.to_vec(), value.to_vec())
+        .context("the raw value is written")?;
+    db.persist(fjall::PersistMode::SyncAll)
+        .context("fjall persists")
 }
 
 /// The stored key as the specification states it: every run of zero bytes as `0x00` and a code (`0xFF - k` for `k`

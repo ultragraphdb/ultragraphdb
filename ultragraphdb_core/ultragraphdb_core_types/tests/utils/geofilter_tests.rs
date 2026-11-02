@@ -13,6 +13,7 @@ use ultragraphdb_core_types::{
 };
 
 use crate::utils::s2index_tests::load_polygon;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 /// Dgraph's test helper `queryTokens`: the GeoJSON text parsed as geo, then `queryTokensGeo`.
 fn query_tokens(
@@ -26,42 +27,43 @@ fn query_tokens(
         TypeId::GEO,
     ) {
         Ok(v) => match v.into_value() {
-            Some(Value::Geo(g)) => Ok(g),
-            other => Err(format!("{other:?}")),
-        }
-        .expect("converting to geo gives a geometry"),
+            Some(Value::Geo(geo)) => geo,
+            other => return Err(format!("converting to geo gives a geometry: {other:?}")),
+        },
         Err(e) => return Err(format!("Cannot decode given geoJson input: {e}")),
     };
     query_tokens_geo(qt, &g, max_distance).map_err(|e| e.to_string())
 }
 
 /// Dgraph's `formData`: a geometry's string form, through WKB.
-fn form_data(g: &Geometry) -> String {
-    let src = Val::bytes(TypeId::GEO, g.marshal_wkb().unwrap());
-    match convert(&src, TypeId::STRING).unwrap().into_value() {
+fn form_data(g: &Geometry) -> TestResult<String> {
+    let src = Val::bytes(TypeId::GEO, g.marshal_wkb()?);
+    match convert(&src, TypeId::STRING)?.into_value() {
         Some(Value::Str(s)) => Ok(s),
         other => Err(format!("{other:?}")),
     }
-    .expect("converting to string gives a string")
+    .context("converting to string gives a string")
 }
 
-fn pt(x: f64, y: f64) -> Geometry {
-    Geometry::point(Layout::XY, &[x, y]).unwrap()
+fn pt(x: f64, y: f64) -> TestResult<Geometry> {
+    Ok(Geometry::point(Layout::XY, &[x, y])?)
 }
 
-fn poly(ring: &[[f64; 2]]) -> Geometry {
-    Geometry::polygon(Layout::XY, &[ring.iter().map(|c| c.to_vec()).collect()]).unwrap()
+fn poly(ring: &[[f64; 2]]) -> TestResult<Geometry> {
+    Ok(Geometry::polygon(
+        Layout::XY,
+        &[ring.iter().map(|c| c.to_vec()).collect()],
+    )?)
 }
 
-fn multi(polys: &[&[[f64; 2]]]) -> Geometry {
-    Geometry::multi_polygon(
+fn multi(polys: &[&[[f64; 2]]]) -> TestResult<Geometry> {
+    Ok(Geometry::multi_polygon(
         Layout::XY,
         &polys
             .iter()
             .map(|r| vec![r.iter().map(|c| c.to_vec()).collect()])
             .collect::<Vec<_>>(),
-    )
-    .unwrap()
+    )?)
 }
 
 const SQUARE: [[f64; 2]; 5] = [
@@ -73,59 +75,70 @@ const SQUARE: [[f64; 2]; 5] = [
 ];
 
 #[test]
-fn test_query_tokens_polygon() {
-    let data = form_data(&load_polygon("zip.json"));
+fn test_query_tokens_polygon() -> TestResult {
+    let data = form_data(&load_polygon("zip.json")?)?;
     for qt in [QueryType::Within, QueryType::Intersects] {
-        let (toks, qd) = query_tokens(qt, &data, 0.0).unwrap();
+        let (toks, qd) = query_tokens(qt, &data, 0.0).context("query_tokens(qt, &data, 0.0)")?;
         assert_eq!(toks.len(), if qt == QueryType::Within { 18 } else { 67 });
         assert_eq!(qd.qtype(), qt);
         assert!(!qd.loops().is_empty());
         assert!(qd.pt().is_none());
     }
+    Ok(())
 }
 
 #[test]
-fn test_query_tokens_polygon_error() {
-    let data = form_data(&load_polygon("zip.json"));
+fn test_query_tokens_polygon_error() -> TestResult {
+    let data = form_data(&load_polygon("zip.json")?)?;
     assert_eq!(
-        query_tokens(QueryType::Near, &data, 0.0).unwrap_err(),
+        query_tokens(QueryType::Near, &data, 0.0)
+            .err()
+            .context("expected an error")?,
         "Require a point for a within query."
     );
+    Ok(())
 }
 
 #[test]
-fn test_query_tokens_point() {
-    let data = form_data(&pt(-122.082506, 37.4249518));
-    let (toks, qd) = query_tokens(QueryType::Contains, &data, 0.0).unwrap();
+fn test_query_tokens_point() -> TestResult {
+    let data = form_data(&pt(-122.082506, 37.4249518)?)?;
+    let (toks, qd) = query_tokens(QueryType::Contains, &data, 0.0)
+        .context("query_tokens(QueryType::Contains, &data, 0.0)")?;
     assert_eq!(
-        i64::try_from(toks.len()).expect("fits i64"),
+        i64::try_from(toks.len()).context("fits i64")?,
         MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1
     );
     assert_eq!(qd.qtype(), QueryType::Contains);
     assert!(qd.loops().is_empty());
     assert!(qd.pt().is_some());
+    Ok(())
 }
 
 #[test]
-fn test_query_tokens_near() {
-    let data = form_data(&pt(-122.082506, 37.4249518));
-    let (toks, qd) = query_tokens(QueryType::Near, &data, 1000.0).unwrap();
+fn test_query_tokens_near() -> TestResult {
+    let data = form_data(&pt(-122.082506, 37.4249518)?)?;
+    let (toks, qd) = query_tokens(QueryType::Near, &data, 1000.0)
+        .context("query_tokens(QueryType::Near, &data, 1000.0)")?;
     assert_eq!(toks.len(), 56);
     assert_eq!(qd.qtype(), QueryType::Intersects);
     assert_eq!(qd.loops().len(), 1);
     assert!(qd.pt().is_none());
+    Ok(())
 }
 
 #[test]
-fn test_query_tokens_near_error() {
-    let data = form_data(&pt(-122.082506, 37.4249518));
+fn test_query_tokens_near_error() -> TestResult {
+    let data = form_data(&pt(-122.082506, 37.4249518)?)?;
     for d in [0.0, -1.0] {
         assert_eq!(
-            query_tokens(QueryType::Near, &data, d).unwrap_err(),
+            query_tokens(QueryType::Near, &data, d)
+                .err()
+                .context("expected an error")?,
             "Invalid max distance specified for a near query",
             "{d}"
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -147,27 +160,29 @@ fn test_is_geo_func() {
 }
 
 #[test]
-fn test_matches_filter_contains_point() {
-    let data = form_data(&pt(-122.082506, 37.4249518));
-    let (_, qd) = query_tokens(QueryType::Contains, &data, 0.0).unwrap();
-    assert!(!qd.matches_filter(&pt(-122.082506, 37.4249518)));
-    assert!(qd.matches_filter(&poly(&SQUARE)));
+fn test_matches_filter_contains_point() -> TestResult {
+    let data = form_data(&pt(-122.082506, 37.4249518)?)?;
+    let (_, qd) = query_tokens(QueryType::Contains, &data, 0.0)
+        .context("query_tokens(QueryType::Contains, &data, 0.0)")?;
+    assert!(!qd.matches_filter(&pt(-122.082506, 37.4249518)?));
+    assert!(qd.matches_filter(&poly(&SQUARE)?));
     assert!(!qd.matches_filter(&poly(&[
         [-122.0, 36.0],
         [-123.0, 36.0],
         [-123.0, 37.0],
         [-122.0, 37.0],
         [-122.0, 36.0]
-    ])));
-    let us = load_polygon("us.json");
+    ])?));
+    let us = load_polygon("us.json")?;
     assert!(qd.matches_filter(&us));
     for (x, y, want) in [
         (-157.9197, 21.33, true),
         (-153.369141, 66.160507, true),
         (77.224249103, 28.6077159025, false),
     ] {
-        let (_, qd) = query_tokens(QueryType::Contains, &form_data(&pt(x, y)), 0.0).unwrap();
-        assert_eq!(qd.matches_filter(&us), want, "{x} {y}");
+        let (_, point_query) = query_tokens(QueryType::Contains, &form_data(&pt(x, y)?)?, 0.0)
+            .context("query_tokens(QueryType::Contains, &form_data(&pt(x, y)), ...")?;
+        assert_eq!(point_query.matches_filter(&us), want, "{x} {y}");
     }
     let inner: [[f64; 2]; 5] = [
         [-112.0, 39.0],
@@ -176,8 +191,9 @@ fn test_matches_filter_contains_point() {
         [-112.0, 40.0],
         [-112.0, 39.0],
     ];
-    let (_, qd) = query_tokens(QueryType::Contains, &form_data(&poly(&inner)), 0.0).unwrap();
-    assert!(qd.matches_filter(&us));
+    let (_, inner_query) = query_tokens(QueryType::Contains, &form_data(&poly(&inner)?)?, 0.0)
+        .context("query_tokens(QueryType::Contains, &form_data(&poly(&inner...")?;
+    assert!(inner_query.matches_filter(&us));
     let far: [[f64; 2]; 5] = [
         [71.09, 42.35],
         [72.09, 42.35],
@@ -185,38 +201,41 @@ fn test_matches_filter_contains_point() {
         [71.09, 41.35],
         [71.09, 42.35],
     ];
-    let (_, qd) = query_tokens(
+    let (_, multi_query) = query_tokens(
         QueryType::Contains,
-        &form_data(&multi(&[&inner, &far])),
+        &form_data(&multi(&[&inner, &far])?)?,
         0.0,
     )
-    .unwrap();
-    assert!(!qd.matches_filter(&us));
-    let sudan = load_polygon("sudan.json");
-    let (_, qd) = query_tokens(QueryType::Contains, &form_data(&pt(0.0, 0.0)), 0.0).unwrap();
-    assert!(!qd.matches_filter(&sudan));
+    .context("the query tokens")?;
+    assert!(!multi_query.matches_filter(&us));
+    let sudan = load_polygon("sudan.json")?;
+    let (_, origin_query) = query_tokens(QueryType::Contains, &form_data(&pt(0.0, 0.0)?)?, 0.0)
+        .context("query_tokens(QueryType::Contains, &form_data(&pt(0.0, 0.0...")?;
+    assert!(!origin_query.matches_filter(&sudan));
+    Ok(())
 }
 
 #[test]
-fn test_matches_filter_intersects_polygon() {
-    let (_, qd) = query_tokens(QueryType::Intersects, &form_data(&poly(&SQUARE)), 0.0).unwrap();
-    let p2 = pt(-122.082506, 37.4249518);
+fn test_matches_filter_intersects_polygon() -> TestResult {
+    let (_, qd) = query_tokens(QueryType::Intersects, &form_data(&poly(&SQUARE)?)?, 0.0)
+        .context("query_tokens(QueryType::Intersects, &form_data(&poly(&SQU...")?;
+    let p2 = pt(-122.082506, 37.4249518)?;
     assert!(qd.matches_filter(&p2));
-    assert!(!qd.matches_filter(&pt(-123.082506, 37.4249518)));
+    assert!(!qd.matches_filter(&pt(-123.082506, 37.4249518)?));
     assert!(qd.matches_filter(&poly(&[
         [-122.1, 37.1],
         [-122.9, 37.1],
         [-122.9, 37.9],
         [-122.1, 37.9],
         [-122.1, 37.1]
-    ])));
+    ])?));
     assert!(qd.matches_filter(&poly(&[
         [-121.0, 36.0],
         [-124.0, 36.0],
         [-124.0, 39.0],
         [-121.0, 39.0],
         [-121.0, 36.0]
-    ])));
+    ])?));
     let crossing: [[f64; 2]; 5] = [
         [-121.5, 36.5],
         [-122.5, 36.5],
@@ -224,20 +243,20 @@ fn test_matches_filter_intersects_polygon() {
         [-121.5, 37.5],
         [-121.5, 36.5],
     ];
-    assert!(qd.matches_filter(&poly(&crossing)));
+    assert!(qd.matches_filter(&poly(&crossing)?));
     assert!(!qd.matches_filter(&poly(&[
         [-120.0, 35.0],
         [-121.0, 35.0],
         [-121.0, 36.0],
         [-120.0, 36.0],
         [-120.0, 35.0]
-    ])));
+    ])?));
     let poly_out = poly(&[
         [-122.4989104270935, 37.736953437345356],
         [-122.50504732131958, 37.729096212099975],
         [-122.49515533447264, 37.732049133202324],
         [-122.4989104270935, 37.736953437345356],
-    ]);
+    ])?;
     let poly2 = poly(&[
         [-122.5033039, 37.7334601],
         [-122.503128, 37.7335189],
@@ -252,20 +271,25 @@ fn test_matches_filter_intersects_polygon() {
         [-122.503369, 37.7335068],
         [-122.5033462, 37.7334474],
         [-122.5033039, 37.7334601],
-    ]);
-    let (_, qd) = query_tokens(QueryType::Intersects, &form_data(&poly_out), 0.0).unwrap();
-    assert!(!qd.matches_filter(&poly2));
-    let us = load_polygon("us.json");
-    let (_, qd) = query_tokens(QueryType::Intersects, &form_data(&poly(&crossing)), 0.0).unwrap();
-    assert!(qd.matches_filter(&us));
-    let (_, qd) = query_tokens(QueryType::Intersects, &form_data(&us), 0.0).unwrap();
-    assert!(qd.matches_filter(&p2));
-    assert!(qd.matches_filter(&us));
+    ])?;
+    let (_, out_query) = query_tokens(QueryType::Intersects, &form_data(&poly_out)?, 0.0)
+        .context("query_tokens(QueryType::Intersects, &form_data(&poly_out)...")?;
+    assert!(!out_query.matches_filter(&poly2));
+    let us = load_polygon("us.json")?;
+    let (_, crossing_query) =
+        query_tokens(QueryType::Intersects, &form_data(&poly(&crossing)?)?, 0.0)
+            .context("query_tokens(QueryType::Intersects, &form_data(&poly(&cro...")?;
+    assert!(crossing_query.matches_filter(&us));
+    let (_, us_query) = query_tokens(QueryType::Intersects, &form_data(&us)?, 0.0)
+        .context("query_tokens(QueryType::Intersects, &form_data(&us), 0.0)")?;
+    assert!(us_query.matches_filter(&p2));
+    assert!(us_query.matches_filter(&us));
+    Ok(())
 }
 
 #[test]
-fn test_matches_filter_within_polygon() {
-    let us = load_polygon("us.json");
+fn test_matches_filter_within_polygon() -> TestResult {
+    let us = load_polygon("us.json")?;
     let a: [[f64; 2]; 5] = [
         [-119.53, 37.86],
         [-120.53, 37.86],
@@ -273,8 +297,9 @@ fn test_matches_filter_within_polygon() {
         [-119.53, 36.86],
         [-119.53, 37.86],
     ];
-    let (_, qd) = query_tokens(QueryType::Within, &form_data(&us), 0.0).unwrap();
-    assert!(qd.matches_filter(&poly(&a)));
+    let (_, qd) = query_tokens(QueryType::Within, &form_data(&us)?, 0.0)
+        .context("query_tokens(QueryType::Within, &form_data(&us), 0.0)")?;
+    assert!(qd.matches_filter(&poly(&a)?));
     let b: [[f64; 2]; 5] = [
         [-115.13, 36.18],
         [-116.13, 36.18],
@@ -296,73 +321,83 @@ fn test_matches_filter_within_polygon() {
             .iter()
             .map(|r| r.iter().map(|p| p.to_vec()).collect())
             .collect()],
-    )
-    .unwrap();
+    )?;
     assert!(qd.matches_filter(&mp));
+    Ok(())
 }
 
 #[test]
-fn test_matches_filter_near_point() {
+fn test_matches_filter_near_point() -> TestResult {
     let (_, qd) = query_tokens(
         QueryType::Near,
-        &form_data(&pt(-122.082506, 37.4249518)),
+        &form_data(&pt(-122.082506, 37.4249518)?)?,
         1000.0,
     )
-    .unwrap();
-    assert!(qd.matches_filter(&pt(-122.082506, 37.4249518)));
-    assert!(qd.matches_filter(&pt(-122.080668, 37.426753)));
-    assert!(!qd.matches_filter(&pt(-123.082506, 37.4249518)));
-    assert!(qd.matches_filter(&poly(&SQUARE)));
+    .context("the query tokens")?;
+    assert!(qd.matches_filter(&pt(-122.082506, 37.4249518)?));
+    assert!(qd.matches_filter(&pt(-122.080668, 37.426753)?));
+    assert!(!qd.matches_filter(&pt(-123.082506, 37.4249518)?));
+    assert!(qd.matches_filter(&poly(&SQUARE)?));
+    Ok(())
 }
 
 #[test]
-fn test_geo_inputs_dgraph_panics_on_are_refused() {
+fn test_geo_inputs_dgraph_panics_on_are_refused() -> TestResult {
     // A near distance of NaN passes Go's sign check and reaches exact predicates, where Go's big.Float panics; the
     // port refuses it.
     assert_eq!(
-        query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0), f64::NAN)
-            .unwrap_err()
+        query_tokens_geo(QueryType::Near, &pt(-122.0, 37.0)?, f64::NAN)
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Invalid max distance specified for a near query"
     );
     // A polygon of no rings: go-geom's LinearRing(0) indexes past its ends.
-    let no_rings = Geometry::polygon(Layout::XY, &[]).unwrap();
+    let no_rings = Geometry::polygon(Layout::XY, &[])?;
     assert_eq!(
         query_tokens_geo(QueryType::Intersects, &no_rings, 0.0)
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Can't convert ring with less than 4 pts"
     );
     // An empty point: Dgraph's pointFromCoord indexes its missing coordinates.
     let empty = Geometry::point_empty(Layout::XY);
-    let err = query_tokens_geo(QueryType::Intersects, &empty, 0.0).unwrap_err();
+    let err = query_tokens_geo(QueryType::Intersects, &empty, 0.0)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
         err.to_string(),
         "Invalid coordinates []: a point needs two finite numbers"
     );
     assert_eq!(
         ultragraphdb_core_types::index_geo_tokens(&empty)
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Invalid coordinates []: a point needs two finite numbers"
     );
     // A non-finite coordinate reaches Go's exact predicates, whose big.Float panics on NaN.
-    let nan = Geometry::point(Layout::XY, &[f64::NAN, 0.0]).unwrap();
-    let err = query_tokens_geo(QueryType::Intersects, &nan, 0.0).unwrap_err();
+    let nan = Geometry::point(Layout::XY, &[f64::NAN, 0.0])?;
+    let nan_err = query_tokens_geo(QueryType::Intersects, &nan, 0.0)
+        .err()
+        .context("expected an error")?;
     assert_eq!(
-        err.to_string(),
+        nan_err.to_string(),
         "Invalid coordinates [NaN 0]: a point needs two finite numbers"
     );
     let ring = [[0.0, 0.0], [f64::NAN, 0.0], [1.0, 1.0], [0.0, 0.0]];
     assert_eq!(
-        query_tokens_geo(QueryType::Intersects, &poly(&ring), 0.0)
-            .unwrap_err()
+        query_tokens_geo(QueryType::Intersects, &poly(&ring)?, 0.0)
+            .err()
+            .context("expected an error")?
             .to_string(),
         "Invalid coordinates [NaN 0]: a point needs two finite numbers"
     );
     // A stored geometry Dgraph would panic on matches nothing.
-    let (_, q) = query_tokens_geo(QueryType::Intersects, &load_polygon("zip.json"), 0.0).unwrap();
-    for g in [no_rings, empty, nan, poly(&ring)] {
+    let (_, q) = query_tokens_geo(QueryType::Intersects, &load_polygon("zip.json")?, 0.0)?;
+    for g in [no_rings, empty, nan, poly(&ring)?] {
         assert!(!q.matches_filter(&g), "{g:?}");
     }
+    Ok(())
 }

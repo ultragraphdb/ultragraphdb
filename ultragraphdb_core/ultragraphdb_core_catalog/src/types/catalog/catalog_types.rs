@@ -41,7 +41,7 @@ impl Catalog {
                 at = self.parent_uid(ancestor);
             }
         }
-        self.types.insert(uid, declaration);
+        let _replaced: Option<TypeDeclaration> = self.types.insert(uid, declaration);
         Ok(())
     }
 
@@ -51,7 +51,7 @@ impl Catalog {
         self.types
             .iter()
             .find(|(_, d)| d.iri() == parent)
-            .map(|(uid, _)| *uid)
+            .map(|(parent_uid, _)| *parent_uid)
     }
 
     /// Each declared type's number in a preorder walk of the type hierarchy, from 1: each type before its children,
@@ -71,7 +71,7 @@ impl Catalog {
             .map(|roots| roots.iter().rev().copied().collect())
             .unwrap_or_default();
         while let Some(uid) = stack.pop() {
-            numbers.insert(uid, numbers.len() as u32 + 1);
+            let _numbered: Option<u32> = numbers.insert(uid, numbers.len() as u32 + 1);
             if let Some(kids) = children.get(&Some(uid)) {
                 stack.extend(kids.iter().rev().copied());
             }

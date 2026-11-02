@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_protocol_wire::{BodyBuilder, PatternSlot, QuadPattern, Read, TermTable};
+use ultragraphdb_tool_bdd::TestResult;
 
 use crate::utils::golden_bodies::golden;
 
@@ -28,7 +29,7 @@ pub fn golden_read() -> Read {
 }
 
 #[test]
-fn test_read_builds_the_golden_frame() {
+fn test_read_builds_the_golden_frame() -> TestResult {
     let read = golden_read();
     assert_eq!((read.transaction(), read.limit()), (5, 100));
     assert!(read.statement_ids());
@@ -36,9 +37,10 @@ fn test_read_builds_the_golden_frame() {
     assert_eq!(read.terms().len(), 2);
     assert_eq!(read.pattern().parameters(), 0);
     assert_eq!(
-        read.frame(golden("read").header()).unwrap(),
-        golden("read").bytes()
+        read.frame(golden("read")?.header())?,
+        golden("read")?.bytes()?
     );
+    Ok(())
 }
 
 #[test]

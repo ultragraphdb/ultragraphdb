@@ -31,7 +31,7 @@ impl StringWriter {
             return *index;
         }
         let index = self.push(s);
-        self.interned.insert(s.to_string(), index);
+        let _absent: Option<u32> = self.interned.insert(s.to_string(), index);
         index
     }
 

@@ -25,8 +25,8 @@ impl BodyBuilder for Describe {
 
     fn body(&self) -> Vec<u8> {
         let mut writer = ChangeWriter::default();
-        let names = |list: &[String], writer: &mut ChangeWriter| -> Vec<u8> {
-            let indices: Vec<u32> = list.iter().map(|s| writer.names.intern(s)).collect();
+        let names = |list: &[String], interner: &mut ChangeWriter| -> Vec<u8> {
+            let indices: Vec<u32> = list.iter().map(|s| interner.names.intern(s)).collect();
             u32_bytes(&indices)
         };
         let labels = names(self.labels(), &mut writer);

@@ -32,6 +32,7 @@ pub struct PipelineArgs {
 }
 
 impl PipelineArgs {
+    /// A pipeline run of the given directory, rate, records per commit, length, cache share and drive.
     pub fn new(
         dir: PathBuf,
         rate: u64,
@@ -80,26 +81,32 @@ impl PipelineArgs {
         ))
     }
 
+    /// The run's directory, holding the store and the write-ahead log.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
+    /// The offered rate, in commits a second.
     pub fn rate(&self) -> u64 {
         self.rate
     }
 
+    /// The records per commit.
     pub fn relations(&self) -> usize {
         self.relations
     }
 
+    /// The run's length in seconds.
     pub fn seconds(&self) -> u64 {
         self.seconds
     }
 
+    /// The posting cache's size in MiB.
     pub fn cache_mb(&self) -> u64 {
         self.cache_mb
     }
 
+    /// Whether the log's drive has power-loss protection.
     pub fn power_loss_protection(&self) -> bool {
         self.power_loss_protection
     }

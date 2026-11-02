@@ -31,7 +31,7 @@ use ultragraphdb_store_posting::{
     CachedList, List, Lists, PostingError, PostingErrorEnum, Request, SET,
 };
 use ultragraphdb_store_quads::object_posting;
-use ultragraphdb_traits_index::{Txn, VectorIndex};
+use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex};
 use ultragraphdb_traits_store::{Entry, Item, ListCache, Scan, Store, StoreSnapshot, Temporary};
 
 use crate::errors::changeset_error::{ChangesetError, ChangesetErrorEnum};
@@ -257,7 +257,7 @@ where
                 continue;
             };
             for (tokenizer, token) in literal_tokens(&plan.build_tokenizers, literal.as_ref())? {
-                let key = QuadKey::ValueIndex {
+                let index_key = QuadKey::ValueIndex {
                     namespace: ns,
                     graph,
                     predicate,
@@ -265,12 +265,12 @@ where
                     token,
                 }
                 .to_bytes();
-                buffer.add_posting(key, ref_posting(subject));
+                buffer.add_posting(index_key, ref_posting(subject));
             }
         }
         if plan.build_count && !objects.is_empty() {
-            let key = count_key(rebuild, graph, CountDirection::Forward, objects.len());
-            buffer.add_posting(key, ref_posting(subject));
+            let count = count_key(rebuild, graph, CountDirection::Forward, objects.len());
+            buffer.add_posting(count, ref_posting(subject));
         }
         Ok(())
     }
@@ -294,8 +294,8 @@ where
             };
             let subjects = self.quads.objects(&key, rebuild.start_ts)?.len();
             if subjects > 0 {
-                let key = count_key(rebuild, graph, CountDirection::Reverse, subjects);
-                buffer.add_posting(key, object_posting(&object, SET, &[], fp));
+                let count = count_key(rebuild, graph, CountDirection::Reverse, subjects);
+                buffer.add_posting(count, object_posting(&object, SET, &[], fp));
             }
             buffer.maybe_flush(store)?;
         }
@@ -330,7 +330,8 @@ where
                 };
                 self.insert_built(&index, &txn, node, false)?;
             }
-            built.insert(graph, txn.into_values());
+            let _previous: Option<BTreeMap<Vec<u8>, Vec<u8>>> =
+                built.insert(graph, txn.into_values());
         }
         Ok(built)
     }
@@ -355,7 +356,8 @@ where
                 };
                 let mut levels =
                     LevelDraw::of_node(self.seed, keys.namespace(), keys.predicate(), node);
-                VectorIndex::insert(index, txn, node, &vector, &mut || levels.next_f64())?;
+                let _inserted: Vec<KeyValue> =
+                    VectorIndex::insert(index, txn, node, &vector, &mut || levels.next_f64())?;
             }
             Err(e) if e.is_absence() => {
                 if dead_when_absent {
@@ -395,7 +397,7 @@ where
             let temp = lists.store().temporary_snapshot(t)?;
             for item in temp.scan(&Scan::prefix(vec![SWAP])) {
                 let entry = swap_entry(item?);
-                built.insert(entry.key().to_vec());
+                let _inserted: bool = built.insert(entry.key().to_vec());
                 request.add_entry_at_version(entry);
             }
         }
@@ -422,8 +424,9 @@ where
         let ts = commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();
         catalog.declare_predicate(predicate, rebuild.new.clone())?;
-        lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
-        self.cancel(|r| r.record == record);
+        let _previous: Option<std::sync::Arc<Catalog>> =
+            lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
+        let _cancelled: Option<Rebuild> = self.cancel(|r| r.record == record);
         self.drop_removed(&removed)?;
         self.remove_record(record)?;
         tracing::info!(record, ts, "indexes built and swapped in");
@@ -452,12 +455,13 @@ where
             let values = vectors.remove(graph).unwrap_or_default();
             let txn = OverlayTxn::new(&self.quads, keys, latest, values);
             self.insert_built(&index, &txn, *node, true)?;
-            vectors.insert(*graph, txn.into_values());
+            let _previous: Option<BTreeMap<Vec<u8>, Vec<u8>>> =
+                vectors.insert(*graph, txn.into_values());
         }
         let mut written: BTreeSet<Vec<u8>> = BTreeSet::new();
         for (key, value) in vectors.into_values().flatten() {
             request.get(&key)?.add_posting(index_posting(value), false);
-            written.insert(key);
+            let _inserted: bool = written.insert(key);
         }
         for key in keys_under(snapshot, &vector_prefixes(ns, predicate))? {
             if !written.contains(&key) {
@@ -482,10 +486,11 @@ where
         let declaration = Declaration::Predicate(rebuild.old.clone());
         request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
         request.advance_epoch_on_commit();
-        commit_at(lists, request, at)?;
+        let _committed_at: u64 = commit_at(lists, request, at)?;
         let mut catalog = (*self.catalog(ns)?).clone();
         catalog.declare_predicate(predicate, rebuild.old.clone())?;
-        lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
+        let _previous: Option<std::sync::Arc<Catalog>> =
+            lock(&self.catalogs).insert(ns, std::sync::Arc::new(catalog));
         self.drop_removed(&built)?;
         self.remove_record(record)
     }
@@ -553,6 +558,7 @@ fn store_failed(error: &ChangesetError) -> bool {
         | ChangesetErrorEnum::Posting(_)
         | ChangesetErrorEnum::Tok(_)
         | ChangesetErrorEnum::Hnsw(_)
+        | ChangesetErrorEnum::Invariant(_)
         | ChangesetErrorEnum::Literal { .. }
         | ChangesetErrorEnum::Unique { .. }
         | ChangesetErrorEnum::Contradicted { .. }
@@ -574,12 +580,12 @@ where
     F: FnMut(Vec<u8>, List) -> Result<(), ChangesetError>,
 {
     let mut versions: Vec<Item> = Vec::new();
-    let mut finish = |versions: &mut Vec<Item>| -> Result<(), ChangesetError> {
-        let Some(first) = versions.first() else {
+    let mut finish = |pending: &mut Vec<Item>| -> Result<(), ChangesetError> {
+        let Some(first) = pending.first() else {
             return Ok(());
         };
         let key = first.key().to_vec();
-        let read = std::mem::take(versions).into_iter().map(Ok);
+        let read = std::mem::take(pending).into_iter().map(Ok);
         let (merged, _) = List::read_versions(&key, read)?;
         let mut list = List::empty(key.clone());
         list.set_ts(start_ts);

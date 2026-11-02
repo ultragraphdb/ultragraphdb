@@ -20,6 +20,7 @@ pub struct ApplierOperator<'a, S, C, E> {
 }
 
 impl<'a, S, C, E> ApplierOperator<'a, S, C, E> {
+    /// An operator over `applier`, with no overlay built.
     pub fn new(applier: &'a ChangesetApplier<S, C, E>) -> Self {
         Self {
             applier,
@@ -27,6 +28,7 @@ impl<'a, S, C, E> ApplierOperator<'a, S, C, E> {
         }
     }
 
+    /// The changeset applier the operations read and write through.
     pub fn applier(&self) -> &'a ChangesetApplier<S, C, E> {
         self.applier
     }

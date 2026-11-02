@@ -22,12 +22,13 @@ use ultragraphdb_store_hnsw::{
     index_posting, parse_edges, uint64_to_bytes,
 };
 use ultragraphdb_store_posting::{CachedList, DEL, Request};
-use ultragraphdb_traits_index::{Txn, VectorIndex, VectorIndexOptions};
+use ultragraphdb_traits_index::{KeyValue, Txn, VectorIndex, VectorIndexOptions};
 use ultragraphdb_traits_store::{ListCache, Scan, Store, StoreSnapshot};
 
 use crate::errors::changeset_error::ChangesetError;
 use crate::types::changeset_core::ChangesetCore;
 use crate::types::level_draw::LevelDraw;
+use crate::types::vector_queue::VectorQueue;
 use crate::utils::lock::lock;
 use crate::utils::vector_index::hnsw;
 
@@ -59,7 +60,7 @@ where
         let catalog = self.catalog(namespace)?;
         let Some(spec) = catalog.predicate(uid).and_then(|d| d.vector_index()) else {
             // The queue of an index no longer declared goes with it.
-            lock(&self.vectors).remove(&(namespace, uid));
+            let _removed: Option<VectorQueue> = lock(&self.vectors).remove(&(namespace, uid));
             return Err(refused());
         };
         let lists = self.quads.lists();
@@ -87,16 +88,17 @@ where
                         let index = hnsw(spec, keys)?;
                         let txn = ViTxn::new(&mut request);
                         let mut levels = LevelDraw::of_node(self.seed, namespace, uid, node);
-                        VectorIndex::insert(&index, &txn, node, &vector, &mut || {
-                            levels.next_f64()
-                        })?;
+                        let _inserted: Vec<KeyValue> =
+                            VectorIndex::insert(&index, &txn, node, &vector, &mut || {
+                                levels.next_f64()
+                            })?;
                     }
                     None => mark_dead(&mut request, &keys, node)?,
                 }
             }
             let mut batch = lists.batch();
             batch.push(request);
-            lists.commit(batch)?;
+            let _committed: Vec<u64> = lists.commit(batch)?;
         }
         lock(&self.vectors)
             .entry((namespace, uid))

@@ -78,14 +78,17 @@ impl FuzzArgs {
         self.versionless_reads
     }
 
+    /// The first seed run.
     pub fn first(&self) -> u64 {
         self.first
     }
 
+    /// How many seeds are run, from the first.
     pub fn seeds(&self) -> u64 {
         self.seeds
     }
 
+    /// How many steps each seed runs.
     pub fn steps(&self) -> u64 {
         self.steps
     }

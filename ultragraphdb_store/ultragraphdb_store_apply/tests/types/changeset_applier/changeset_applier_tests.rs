@@ -17,9 +17,11 @@ use ultragraphdb_store_sim::Fault;
 use ultragraphdb_traits_index::VectorIndexOptions;
 
 use crate::utils::changesets::{
-    NS, apply, changesets, changesets_over, declare, delete, ex, index, indexed, insert,
-    insert_edge, int_token, objects, postings, sim_store, statement, term, uid, write,
+    NS, apply, changesets, changesets_over, declare, delete, ex, indexed, insert, insert_edge,
+    int_token, objects, postings, run_indexer, sim_store, statement, term, uid, write,
+    write_changes,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn keyspaces(regions: &std::collections::BTreeSet<Region>) -> Vec<Keyspace> {
     let mut k: Vec<Keyspace> = regions.iter().map(Region::keyspace).collect();
@@ -28,13 +30,13 @@ fn keyspaces(regions: &std::collections::BTreeSet<Region>) -> Vec<Keyspace> {
 }
 
 #[test]
-fn test_an_insert_reads_the_subjects_list_alone_and_none_of_a_new_subject() {
-    let a = changesets();
-    declare(&a, "tag", "with a `term` index");
-    let applied = apply(&a, vec![insert(r#"<a> <tag> "x""#)]).unwrap();
+fn test_an_insert_reads_the_subjects_list_alone_and_none_of_a_new_subject() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "tag", "with a `term` index")?;
+    let applied = apply(&a, vec![insert(r#"<a> <tag> "x""#)?])?;
     assert!(applied.read().is_empty(), "{:?}", applied.read());
-    let again = apply(&a, vec![insert(r#"<a> <tag> "y""#)]).unwrap();
-    let tag = uid(&a, "tag");
+    let again = apply(&a, vec![insert(r#"<a> <tag> "y""#)?])?;
+    let tag = uid(&a, "tag")?;
     assert_eq!(again.lists_read(), 1);
     assert!(
         again
@@ -53,40 +55,43 @@ fn test_an_insert_reads_the_subjects_list_alone_and_none_of_a_new_subject() {
     ] {
         assert!(written.contains(&keyspace), "{keyspace:?} in {written:?}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_write_naming_new_uids_reads_none_of_their_lists() {
-    let a = changesets();
+fn test_a_write_naming_new_uids_reads_none_of_their_lists() -> TestResult {
+    let a = changesets()?;
     declare(
         &a,
         "friend",
         "single-valued with an exact count index, unique",
-    );
-    let applied = apply(&a, vec![insert("<new> <friend> <newer>")]).unwrap();
+    )?;
+    let applied = apply(&a, vec![insert("<new> <friend> <newer>")?])?;
     assert!(applied.read().is_empty(), "{:?}", applied.read());
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_reads_the_subjects_list() {
-    let a = changesets();
-    apply(&a, vec![insert(r#"<a> <tag> "x""#)]).unwrap();
-    let applied = apply(&a, vec![delete(r#"<a> <tag> "x""#)]).unwrap();
-    let tag = uid(&a, "tag");
+fn test_a_delete_reads_the_subjects_list() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert(r#"<a> <tag> "x""#)?])?;
+    let applied = apply(&a, vec![delete(r#"<a> <tag> "x""#)?])?;
+    let tag = uid(&a, "tag")?;
     assert!(
         applied
             .read()
             .iter()
             .any(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(tag))
     );
-    assert!(objects(&a, "a", "tag").is_empty());
+    assert!(objects(&a, "a", "tag")?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_the_written_regions_name_the_predicate_and_the_graph() {
-    let a = changesets();
-    let applied = apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
-    let knows = uid(&a, "knows");
+fn test_the_written_regions_name_the_predicate_and_the_graph() -> TestResult {
+    let a = changesets()?;
+    let applied = apply(&a, vec![insert("<a> <knows> <b>")?])?;
+    let knows = uid(&a, "knows")?;
     let has = |keyspace, predicate| {
         applied.written().iter().any(|r| {
             r.keyspace() == keyspace
@@ -104,51 +109,60 @@ fn test_the_written_regions_name_the_predicate_and_the_graph() {
     assert!(!touched.contains(&Keyspace::ValueIndex), "{touched:?}");
     assert!(!touched.contains(&Keyspace::CountIndex), "{touched:?}");
     // With a count index declared, the write touches the count keyspace, and still no value index.
-    declare(&a, "likes", "with an exact count index");
-    let counted = apply(&a, vec![insert("<a> <likes> <b>")]).unwrap();
-    let touched = keyspaces(counted.written());
-    assert!(touched.contains(&Keyspace::CountIndex), "{touched:?}");
-    assert!(!touched.contains(&Keyspace::ValueIndex), "{touched:?}");
+    declare(&a, "likes", "with an exact count index")?;
+    let counted = apply(&a, vec![insert("<a> <likes> <b>")?])?;
+    let count_touched = keyspaces(counted.written());
+    assert!(
+        count_touched.contains(&Keyspace::CountIndex),
+        "{count_touched:?}"
+    );
+    assert!(
+        !count_touched.contains(&Keyspace::ValueIndex),
+        "{count_touched:?}"
+    );
+    Ok(())
 }
 
 #[test]
-fn test_one_changeset_writes_the_same_bytes_to_two_copies() {
-    let history = |a: &crate::utils::changesets::TestChangesets| {
-        declare(a, "name", "single-valued with a `term` index");
-        apply(
+fn test_one_changeset_writes_the_same_bytes_to_two_copies() -> TestResult {
+    let history = |a: &crate::utils::changesets::TestChangesets| -> TestResult {
+        declare(a, "name", "single-valued with a `term` index")?;
+        write_changes(
             a,
             vec![
-                insert(r#"<a> <name> "big apple""#),
-                insert("<a> <knows> <b>"),
+                insert(r#"<a> <name> "big apple""#)?,
+                insert("<a> <knows> <b>")?,
             ],
-        )
-        .unwrap();
+        )?;
+        Ok(())
     };
-    let (one, two) = (changesets_over(sim_store()), changesets_over(sim_store()));
-    history(&one);
-    history(&two);
+    let (one, two) = (changesets_over(sim_store())?, changesets_over(sim_store())?);
+    history(&one)?;
+    history(&two)?;
     let change = vec![
-        insert(r#"<a> <name> "red apple""#),
-        insert_edge("<a> <knows> <b>", &[("since", "2020")]),
-        insert("<c> <knows> <a>"),
+        insert(r#"<a> <name> "red apple""#)?,
+        insert_edge("<a> <knows> <b>", &[("since", "2020")])?,
+        insert("<c> <knows> <a>")?,
     ];
-    apply(&one, change.clone()).unwrap();
-    apply(&two, change).unwrap();
+    write_changes(&one, change.clone())?;
+    write_changes(&two, change)?;
     assert_eq!(
         one.quads().store().contents(),
         two.quads().store().contents()
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_refused_change_refuses_the_whole_changeset() {
-    let a = changesets();
-    declare(&a, "knows", "an edge");
+fn test_a_refused_change_refuses_the_whole_changeset() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "knows", "an edge")?;
     let refused = apply(
         &a,
-        vec![insert("<a> <knows> <b>"), insert(r#"<a> <knows> "Bob""#)],
+        vec![insert("<a> <knows> <b>")?, insert(r#"<a> <knows> "Bob""#)?],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Catalog(e) if matches!(e.0, CatalogErrorEnum::LiteralOnEdge { .. })),
         "{refused:?}"
@@ -157,19 +171,21 @@ fn test_a_refused_change_refuses_the_whole_changeset() {
         refused.to_string(),
         "Predicate <http://ex.org/knows> is declared an edge and cannot hold the literal \"Bob\""
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
+    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+    Ok(())
 }
 
 #[test]
-fn test_a_non_canonical_vector_is_refused_naming_its_predicate() {
-    let a = changesets();
+fn test_a_non_canonical_vector_is_refused_naming_its_predicate() -> TestResult {
+    let a = changesets()?;
     let refused = apply(
         &a,
         vec![insert(
             r#"<a> <embedding> "[0.50,-1.0]"^^ugdb:float32vector"#,
-        )],
+        )?],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Literal { predicate, .. } if predicate == ex("embedding").as_str()),
         "{refused:?}"
@@ -179,16 +195,17 @@ fn test_a_non_canonical_vector_is_refused_naming_its_predicate() {
         refused.to_string(),
         "Predicate <http://ex.org/embedding> cannot hold the literal: Invalid vector literal \"[0.50,-1.0]\": an element is no 32-bit float"
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
+    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
+    Ok(())
 }
 
 #[test]
-fn test_a_property_gives_a_held_statement_an_id_and_a_record() {
-    let a = changesets();
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
-    assert_eq!(postings(&a, "a", "knows")[0].1, Vec::<u64>::new());
-    let t = statement("<a> <knows> <b>");
-    apply(
+fn test_a_property_gives_a_held_statement_an_id_and_a_record() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
+    assert_eq!(postings(&a, "a", "knows")?[0].1, Vec::<u64>::new());
+    let t = statement("<a> <knows> <b>")?;
+    write_changes(
         &a,
         vec![Change::SetProperty {
             statement: StatementRef::Triple {
@@ -198,35 +215,34 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() {
                 object: t.object,
             },
             predicate: ex("since"),
-            value: term("2020"),
+            value: term("2020")?,
         }],
-    )
-    .unwrap();
-    let ids = postings(&a, "a", "knows")[0].1.clone();
+    )?;
+    let ids = postings(&a, "a", "knows")?[0].1.clone();
     assert_eq!(ids.len(), 1);
     let record = a
         .quads()
-        .statement(NS, DEFAULT_GRAPH, ids[0], a.quads().lists().applied_ts())
-        .unwrap()
-        .expect("a record");
-    assert_eq!(record.subject(), uid(&a, "a"));
-    assert_eq!(record.predicate(), uid(&a, "knows"));
-    assert_eq!(record.object(), &EncodedTerm::uid(uid(&a, "b")));
+        .statement(NS, DEFAULT_GRAPH, ids[0], a.quads().lists().applied_ts())?
+        .context("a record")?;
+    assert_eq!(record.subject(), uid(&a, "a")?);
+    assert_eq!(record.predicate(), uid(&a, "knows")?);
+    assert_eq!(record.object(), &EncodedTerm::uid(uid(&a, "b")?));
     let (property, value) = match record.properties() {
         [one] => Ok(one),
         more => Err(format!("one property: {more:?}")),
     }
-    .expect("the record holds one property");
-    assert_eq!(*property, uid(&a, "since"));
-    assert_eq!(a.quads().term_of(NS, value).unwrap(), term("2020"));
+    .context("the record holds one property")?;
+    assert_eq!(*property, uid(&a, "since")?);
+    assert_eq!(a.quads().term_of(NS, value)?, term("2020")?);
+    Ok(())
 }
 
 #[test]
-fn test_a_repeated_edge_gives_both_statements_ids() {
-    let a = changesets();
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
-    apply(&a, vec![insert_edge("<a> <knows> <b>", &[])]).unwrap();
-    let held = postings(&a, "a", "knows");
+fn test_a_repeated_edge_gives_both_statements_ids() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
+    write_changes(&a, vec![insert_edge("<a> <knows> <b>", &[])?])?;
+    let held = postings(&a, "a", "knows")?;
     assert_eq!(held.len(), 1);
     let ids = held[0].1.clone();
     assert_eq!(ids.len(), 2);
@@ -234,57 +250,56 @@ fn test_a_repeated_edge_gives_both_statements_ids() {
     for id in &ids {
         let record = a
             .quads()
-            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().applied_ts())
-            .unwrap()
-            .expect("a record");
+            .statement(NS, DEFAULT_GRAPH, *id, a.quads().lists().applied_ts())?
+            .context("a record")?;
         assert_eq!(
             (record.subject(), record.predicate(), record.object()),
             (
-                uid(&a, "a"),
-                uid(&a, "knows"),
-                &EncodedTerm::uid(uid(&a, "b"))
+                uid(&a, "a")?,
+                uid(&a, "knows")?,
+                &EncodedTerm::uid(uid(&a, "b")?)
             )
         );
         assert!(record.properties().is_empty());
     }
     // A plain insert of the held triple keeps both.
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
-    assert_eq!(postings(&a, "a", "knows")[0].1, ids);
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
+    assert_eq!(postings(&a, "a", "knows")?[0].1, ids);
+    Ok(())
 }
 
 #[test]
-fn test_deleting_statements_removes_their_records_and_then_the_triple() {
-    let a = changesets();
-    apply(
+fn test_deleting_statements_removes_their_records_and_then_the_triple() -> TestResult {
+    let a = changesets()?;
+    write_changes(
         &a,
-        vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])],
-    )
-    .unwrap();
-    apply(&a, vec![insert_edge("<a> <knows> <b>", &[])]).unwrap();
-    let ids = postings(&a, "a", "knows")[0].1.clone();
+        vec![insert_edge("<a> <knows> <b>", &[("since", "2020")])?],
+    )?;
+    write_changes(&a, vec![insert_edge("<a> <knows> <b>", &[])?])?;
+    let ids = postings(&a, "a", "knows")?[0].1.clone();
     assert_eq!(ids.len(), 2);
     let record = |id| {
         a.quads()
             .statement(NS, DEFAULT_GRAPH, id, a.quads().lists().applied_ts())
-            .unwrap()
     };
     let delete_id = |id| Change::DeleteStatement {
         graph: GraphName::DefaultGraph,
         id: StatementId::new(id),
     };
-    apply(&a, vec![delete_id(ids[0])]).unwrap();
-    assert!(record(ids[0]).is_none());
-    assert_eq!(postings(&a, "a", "knows")[0].1, vec![ids[1]]);
-    apply(&a, vec![delete_id(ids[1])]).unwrap();
-    assert!(record(ids[1]).is_none());
-    assert!(objects(&a, "a", "knows").is_empty());
+    write_changes(&a, vec![delete_id(ids[0])])?;
+    assert!(record(ids[0])?.is_none());
+    assert_eq!(postings(&a, "a", "knows")?[0].1, vec![ids[1]]);
+    write_changes(&a, vec![delete_id(ids[1])])?;
+    assert!(record(ids[1])?.is_none());
+    assert!(objects(&a, "a", "knows")?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_property_change_naming_no_statement_is_refused() {
-    let a = changesets();
-    apply(&a, vec![insert("<x> <p> <y>")]).unwrap();
-    let t = statement("<x> <p> <z>");
+fn test_a_property_change_naming_no_statement_is_refused() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<x> <p> <y>")?])?;
+    let t = statement("<x> <p> <z>")?;
     let refused = apply(
         &a,
         vec![Change::SetProperty {
@@ -295,10 +310,11 @@ fn test_a_property_change_naming_no_statement_is_refused() {
                 object: t.object,
             },
             predicate: ex("since"),
-            value: term("1"),
+            value: term("1")?,
         }],
     )
-    .unwrap_err();
+    .err()
+    .context("the error of apply(..)")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Mapping(e) if matches!(e.0, MappingErrorEnum::NoSuchStatement { .. }))
     );
@@ -306,58 +322,61 @@ fn test_a_property_change_naming_no_statement_is_refused() {
         refused.to_string(),
         "No statement <http://ex.org/x> <http://ex.org/p> <http://ex.org/z> is held"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_term_is_kept_as_written() {
-    let a = changesets();
-    declare(&a, "n", "with an `int` index");
-    apply(&a, vec![insert(r#"<a> <n> "007"^^xsd:integer"#)]).unwrap();
-    assert_eq!(objects(&a, "a", "n"), vec![term(r#""007"^^xsd:integer"#)]);
-    assert_eq!(indexed(&a, "n", &int_token(7)), vec![uid(&a, "a")]);
+fn test_a_term_is_kept_as_written() -> TestResult {
+    let a = changesets()?;
+    declare(&a, "n", "with an `int` index")?;
+    write_changes(&a, vec![insert(r#"<a> <n> "007"^^xsd:integer"#)?])?;
+    assert_eq!(objects(&a, "a", "n")?, vec![term(r#""007"^^xsd:integer"#)?]);
+    assert_eq!(indexed(&a, "n", &int_token(7))?, vec![uid(&a, "a")?]);
     // The lexical form is not indexed as a string: no int key of 007 read as 0 or 700.
-    assert!(indexed(&a, "n", &int_token(0)).is_empty());
-    assert!(indexed(&a, "n", &int_token(700)).is_empty());
+    assert!(indexed(&a, "n", &int_token(0))?.is_empty());
+    assert!(indexed(&a, "n", &int_token(700))?.is_empty());
+    Ok(())
 }
 
 #[test]
-fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() {
-    let a = changesets();
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+fn test_a_delete_of_terms_the_store_does_not_hold_writes_no_dictionary_entry() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
     let before = a.quads().store().contents().versionless().clone();
     let applied = apply(
         &a,
         vec![
-            delete("<never> <knows> <b>"),
+            delete("<never> <knows> <b>")?,
             crate::utils::changesets::delete_pattern("nobody", "knows"),
         ],
-    )
-    .unwrap();
+    )?;
     // A statement naming an IRI the store does not hold is not held: nothing is read.
     assert!(applied.read().is_empty(), "{:?}", applied.read());
     // A literal is encoded by content, so its delete reads the subject's list.
-    apply(
+    write_changes(
         &a,
         vec![delete(
             r#"<a> <knows> "a long literal the store has never held""#,
-        )],
-    )
-    .unwrap();
+        )?],
+    )?;
     assert_eq!(a.quads().store().contents().versionless(), &before);
-    assert_eq!(a.quads().uid_of(NS, ex("never").as_str()).unwrap(), None);
-    assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
+    assert_eq!(a.quads().uid_of(NS, ex("never").as_str())?, None);
+    assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
+    Ok(())
 }
 
 /// A batch the store fails to persist refuses the changeset with the store's error, and nothing of it is held; the
 /// store is then poisoned, and the next changeset is refused with that. The texts are the simulated store's
 /// (`ultragraphdb_store_sim`, `Fault::FailNextBatch`) and `StoreError::Poisoned`'s.
 #[test]
-fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() {
-    let a = changesets();
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
     let watermark = a.quads().lists().applied_ts();
     a.quads().store().inject(Fault::FailNextBatch);
-    let refused = apply(&a, vec![insert("<a> <knows> <c>")]).unwrap_err();
+    let refused = apply(&a, vec![insert("<a> <knows> <c>")?])
+        .err()
+        .context("the error of apply(..)")?;
     // The posting lists' commit writes the batch, so the store's error reaches the changeset through theirs.
     assert_eq!(
         refused.0,
@@ -367,7 +386,9 @@ fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() {
         "{refused:?}"
     );
     assert_eq!(a.quads().lists().applied_ts(), watermark);
-    let poisoned = apply(&a, vec![insert("<a> <knows> <d>")]).unwrap_err();
+    let poisoned = apply(&a, vec![insert("<a> <knows> <d>")?])
+        .err()
+        .context("the error of apply(..)")?;
     assert_eq!(
         poisoned.0,
         ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(StoreError(
@@ -375,17 +396,21 @@ fn test_a_batch_the_store_fails_refuses_the_changeset_with_the_store_s_error() {
         )))),
         "{poisoned:?}"
     );
+    Ok(())
 }
 
 /// A drop whose read of the store fails is refused with the store's own error, which no other crate wraps: a drop
 /// scans the store's snapshot directly. The text is the simulated store's (`Fault::FailNextScanAfter`). Nothing is
 /// dropped.
 #[test]
-fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() {
-    let a = changesets();
-    apply(&a, vec![insert("<a> <knows> <b>")]).unwrap();
+fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() -> TestResult {
+    let a = changesets()?;
+    write_changes(&a, vec![insert("<a> <knows> <b>")?])?;
     a.quads().store().inject(Fault::FailNextScanAfter(0));
-    let refused = a.drop_predicate(NS, ex("knows").as_ref()).unwrap_err();
+    let refused = a
+        .drop_predicate(NS, ex("knows").as_ref())
+        .err()
+        .context("the error of a.drop_predicate(..)")?;
     assert!(
         matches!(
             &refused.0,
@@ -394,18 +419,22 @@ fn test_a_drop_whose_scan_fails_is_refused_with_the_store_s_error() {
         ),
         "{refused:?}"
     );
-    assert_eq!(objects(&a, "a", "knows"), vec![term("<b>")]);
+    assert_eq!(objects(&a, "a", "knows")?, vec![term("<b>")?]);
+    Ok(())
 }
 
 /// A geometry the geo index cannot cover refuses the write with the tokenizer's error: Dgraph's `indexCells`
 /// (`types/s2index.go`) indexes points, polygons and multipolygons, and refuses any other geometry with
 /// `Cannot index geometry of type %T`, here `*geom.LineString`. Nothing of the changeset is held.
 #[test]
-fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_error() {
-    let a = changesets();
-    declare(&a, "where", "with a `geo` index");
+fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_error() -> TestResult
+{
+    let a = changesets()?;
+    declare(&a, "where", "with a `geo` index")?;
     let line = r#"<a> <where> "{\"type\": \"LineString\", \"coordinates\": [[8.63, 50.12], [8.64, 50.13]]}"^^geo:geoJSONLiteral"#;
-    let refused = apply(&a, vec![insert(line)]).unwrap_err();
+    let refused = apply(&a, vec![insert(line)?])
+        .err()
+        .context("the error of apply(&a, vec![insert(line)?])")?;
     assert!(
         matches!(&refused.0, ChangesetErrorEnum::Tok(t) if matches!(t.0, TokErrorEnum::Geo(_))),
         "{refused:?}"
@@ -414,32 +443,34 @@ fn test_a_geometry_the_geo_index_cannot_cover_is_refused_with_the_tokenizer_s_er
         refused.to_string(),
         "Cannot index geometry of type *geom.LineString"
     );
-    assert_eq!(a.quads().uid_of(NS, ex("a").as_str()).unwrap(), None);
+    assert_eq!(a.quads().uid_of(NS, ex("a").as_str())?, None);
     // The same predicate without the index holds the line.
-    declare(&a, "where", "");
-    apply(&a, vec![insert(line)]).unwrap();
-    assert_eq!(objects(&a, "a", "where").len(), 1);
+    declare(&a, "where", "")?;
+    write_changes(&a, vec![insert(line)?])?;
+    assert_eq!(objects(&a, "a", "where")?.len(), 1);
+    Ok(())
 }
 
 /// A search whose query is not of the index's dimension is refused with the index's error: Dgraph's
 /// `applyDistanceFunction` (`tok/hnsw/helper.go`) refuses vectors of different lengths, naming the metric, euclidean
 /// by default.
 #[test]
-fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_error() {
-    let a = changesets();
+fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_error() -> TestResult
+{
+    let a = changesets()?;
     declare(
         &a,
         "emb",
         "single-valued with a vector index of dimension 2",
-    );
+    )?;
     write(
         &a,
         &[
             "<a> <emb> \"[1, 0]\"^^ugdb:float32vector",
             "<b> <emb> \"[0, 1]\"^^ugdb:float32vector",
         ],
-    );
-    index(&a, "emb");
+    )?;
+    run_indexer(&a, "emb")?;
     let search = |query: &[f32]| {
         a.search_vectors(
             NS,
@@ -452,11 +483,10 @@ fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_e
         )
     };
     // A query of the index's dimension finds the nearer first: [1, 0] is at 0 from `a`, at sqrt(2) from `b`.
-    assert_eq!(
-        search(&[1.0, 0.0]).unwrap(),
-        vec![uid(&a, "a"), uid(&a, "b")]
-    );
-    let refused = search(&[1.0, 0.0, 0.0]).unwrap_err();
+    assert_eq!(search(&[1.0, 0.0])?, vec![uid(&a, "a")?, uid(&a, "b")?]);
+    let refused = search(&[1.0, 0.0, 0.0])
+        .err()
+        .context("the error of search(&[1.0, 0.0, 0.0])")?;
     assert_eq!(
         refused.0,
         ChangesetErrorEnum::Hnsw(ultragraphdb_store_hnsw::HnswError(
@@ -468,4 +498,5 @@ fn test_a_search_with_a_query_of_another_dimension_is_refused_with_the_index_s_e
         refused.to_string(),
         "can not compute euclidean distance on vectors of different lengths"
     );
+    Ok(())
 }

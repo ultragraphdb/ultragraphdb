@@ -6,6 +6,7 @@
 use tracing::Level;
 use ultragraphdb_core_tok::{FloatBits, TokErrorEnum, bytes_as_float_array, bytes_to_float};
 use ultragraphdb_store_sim::LogCapture;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
 fn test_bytes_to_float() {
@@ -39,10 +40,12 @@ fn test_bytes_to_float() {
 }
 
 #[test]
-fn test_bytes_to_float_of_too_few_bytes_is_refused() {
+fn test_bytes_to_float_of_too_few_bytes_is_refused() -> TestResult {
     // Go's binary.LittleEndian panics indexing past the input; a width other than 32 and 64, on which Go panics
     // with "Invalid floatBits", is not a FloatBits.
-    let err = bytes_to_float::<f64>(&[1, 2, 3], FloatBits::F64).expect_err("three bytes");
+    let err = bytes_to_float::<f64>(&[1, 2, 3], FloatBits::F64)
+        .err()
+        .context("three bytes")?;
     assert_eq!(err.0, TokErrorEnum::ShortFloat { len: 3, bits: 64 });
     assert_eq!(err.to_string(), "cannot read a 64-bit float from 3 bytes");
     for (len, bits) in [
@@ -51,9 +54,11 @@ fn test_bytes_to_float_of_too_few_bytes_is_refused() {
         (0, FloatBits::F64),
         (7, FloatBits::F64),
     ] {
-        let err = bytes_to_float::<f64>(&vec![0; len], bits).expect_err("too few bytes");
+        let short_err = bytes_to_float::<f64>(&vec![0; len], bits)
+            .err()
+            .context("too few bytes")?;
         assert_eq!(
-            err.0,
+            short_err.0,
             TokErrorEnum::ShortFloat {
                 len,
                 bits: bits.bits()
@@ -61,6 +66,7 @@ fn test_bytes_to_float_of_too_few_bytes_is_refused() {
         );
     }
     assert_eq!((FloatBits::F32.bits(), FloatBits::F64.bits()), (32, 64));
+    Ok(())
 }
 
 #[test]

@@ -31,22 +31,27 @@ impl Summary {
         }
     }
 
+    /// The number of samples.
     pub fn count(&self) -> usize {
         self.count
     }
 
+    /// The nearest-rank median.
     pub fn p50(&self) -> u64 {
         self.p50
     }
 
+    /// The nearest-rank 99th percentile.
     pub fn p99(&self) -> u64 {
         self.p99
     }
 
+    /// The largest sample.
     pub fn max(&self) -> u64 {
         self.max
     }
 
+    /// The mean of the samples.
     pub fn mean(&self) -> f64 {
         self.mean
     }

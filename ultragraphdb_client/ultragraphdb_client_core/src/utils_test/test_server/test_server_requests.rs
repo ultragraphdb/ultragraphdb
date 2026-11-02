@@ -56,12 +56,13 @@ impl TestServer {
         match command {
             Command::Register => {
                 let session = self.sessions.len() as u64 + 9;
-                self.sessions.insert(session, SessionRecord::default());
+                let _fresh: Option<SessionRecord> =
+                    self.sessions.insert(session, SessionRecord::default());
                 self.reply(stream, &Register::new(session), FLAG_LAST);
             }
             Command::Begin => {
                 if let Ok(begin) = BeginView::from_frame(&view) {
-                    self.transactions.insert(stream, 0);
+                    let _replaced: Option<u32> = self.transactions.insert(stream, 0);
                     let body = Begin::new(begin.namespace(), self.version, begin.read_only());
                     self.reply(stream, &body, 0);
                 }
@@ -93,7 +94,7 @@ impl TestServer {
                 }
             }
             Command::Abort => {
-                self.transactions.remove(&stream);
+                let _aborted: Option<u32> = self.transactions.remove(&stream);
             }
             Command::Hello
             | Command::Welcome
@@ -112,7 +113,7 @@ impl TestServer {
     fn prepare(&mut self, stream: u64, view: &FrameView<'_>) {
         if let Ok(body) = PrepareView::from_frame(view).and_then(|p| p.to_body()) {
             let id = self.statements.len() as u64 + 1;
-            self.statements.insert(id, self.schema);
+            let _replaced: Option<u64> = self.statements.insert(id, self.schema);
             let types = body
                 .pattern()
                 .slots()
@@ -159,12 +160,15 @@ impl TestServer {
         }
         for i in 0..results {
             let mut batch = ResultBatch::new(1).with_resume(vec![i as u8]);
-            batch
+            let rows = batch
                 .push_row(&[Some(&term)])
-                .expect("a row of one cell fits a batch of one column");
-            batch
-                .push_row(&[Some(&term)])
-                .expect("a row of one cell fits a batch of one column");
+                .and_then(|()| batch.push_row(&[Some(&term)]));
+            if let Err(error) = rows {
+                // A row of one cell fits a batch of one column, so the stream is refused only if that breaks.
+                let message = format!("a row of one cell fits a batch of one column: {error}");
+                return self.error(stream, ErrorCode::OperationFailed, 0, &message);
+            }
+
             let flags = if i + 1 == results { FLAG_LAST } else { 0 };
             self.reply(stream, &batch, flags);
         }

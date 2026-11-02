@@ -18,10 +18,12 @@ pub struct Shapes {
 }
 
 impl Shapes {
+    /// The timestamp of the snapshot the pass read.
     pub fn read_ts(&self) -> u64 {
         self.read_ts
     }
 
+    /// Each label with what its nodes hold.
     pub fn labels(&self) -> &BTreeMap<String, LabelShape> {
         &self.labels
     }

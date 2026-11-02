@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_core_terms::{FLOAT32_VECTOR, KnownDatatype, SYSTEM_VOCABULARY};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
 fn test_codes_and_iris_name_each_known_datatype_once() {
@@ -71,29 +72,31 @@ const SECTION_10_4: [(u8, &str); 33] = [
 ];
 
 #[test]
-fn test_each_code_names_the_datatype_section_10_4_gives_it() {
+fn test_each_code_names_the_datatype_section_10_4_gives_it() -> TestResult {
     for (code, iri) in SECTION_10_4 {
         let datatype = KnownDatatype::from_code(code)
             .ok_or_else(|| format!("code {code}"))
-            .expect("a code of section 10.4");
+            .context("a code of section 10.4")?;
         assert_eq!(datatype.iri(), iri, "code {code}");
         assert_eq!(KnownDatatype::from_iri(iri), Some(datatype), "{iri}");
         assert_eq!(datatype.code(), code, "{iri}");
     }
     assert_eq!(KnownDatatype::from_code(34), None);
     assert_eq!(KnownDatatype::from_code(u8::MAX), None);
+    Ok(())
 }
 
 #[test]
-fn test_exactly_codes_1_to_16_are_encoded_by_value() {
+fn test_exactly_codes_1_to_16_are_encoded_by_value() -> TestResult {
     // Section 10.4: "codes 1 to 16 are also the by-value datatypes"; 16 and 17 are the threshold and one past it.
     for (code, iri) in SECTION_10_4 {
         let datatype = KnownDatatype::from_code(code)
             .ok_or_else(|| format!("code {code}"))
-            .expect("a code of section 10.4");
+            .context("a code of section 10.4")?;
         assert_eq!(datatype.by_value(), code <= 16, "{iri}");
     }
     assert!(KnownDatatype::Boolean.by_value() && !KnownDatatype::Long.by_value());
+    Ok(())
 }
 
 #[test]

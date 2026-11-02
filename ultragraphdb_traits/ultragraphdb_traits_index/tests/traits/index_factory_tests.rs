@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_traits_index::{
     AllowedOptions, CacheType, IndexFactory, KeyValue, OptionalIndexSupport, Options, SearchFilter,
     SearchPathResult, Txn, VectorIndex,
@@ -87,7 +88,7 @@ impl IndexFactory<f64> for Factory {
 
     fn allowed_options(&self) -> AllowedOptions {
         let mut ao = AllowedOptions::new();
-        ao.add_int_option("k");
+        let _add_int_option: &mut AllowedOptions = ao.add_int_option("k");
         ao
     }
 
@@ -104,7 +105,7 @@ impl IndexFactory<f64> for Factory {
             name: name.into(),
             float_bits,
         };
-        self.0.borrow_mut().insert(name.into(), ix.clone());
+        let _previous: Option<Empty> = self.0.borrow_mut().insert(name.into(), ix.clone());
         Ok(ix)
     }
 
@@ -113,7 +114,7 @@ impl IndexFactory<f64> for Factory {
     }
 
     fn remove(&self, name: &str) -> Result<(), Self::Error> {
-        self.0.borrow_mut().remove(name);
+        let _removed: Option<Empty> = self.0.borrow_mut().remove(name);
         Ok(())
     }
 
@@ -129,13 +130,13 @@ impl IndexFactory<f64> for Factory {
 }
 
 #[test]
-fn test_a_factory_creates_finds_and_removes_indexes() {
+fn test_a_factory_creates_finds_and_removes_indexes() -> TestResult {
     let f = Factory::default();
     let o = Options::new();
     assert_eq!(f.name(), "empty");
     assert_eq!(f.get_options(&o), "");
     assert_eq!(f.allowed_options().get_option_list(), vec!["k"]);
-    let ix = f.create("a", &o, 64).unwrap();
+    let ix = f.create("a", &o, 64).context("f.create(\"a\", &o, 64)")?;
     assert_eq!((ix.name.as_str(), ix.float_bits), ("a", 64));
     assert_eq!(f.create("a", &o, 64), Err("a exists".to_string()));
     assert_eq!(f.find("a"), Ok(Some(ix.clone())));
@@ -143,7 +144,7 @@ fn test_a_factory_creates_finds_and_removes_indexes() {
         f.create_or_replace("a", &o, 32).map(|i| i.float_bits),
         Ok(32)
     );
-    f.remove("a").unwrap();
+    f.remove("a").context("f.remove(\"a\")")?;
     assert_eq!(f.find("a"), Ok(None));
     assert_eq!(
         ix.search_with_path(&NoCache, &[], 1, |_, _, _| true)
@@ -156,6 +157,7 @@ fn test_a_factory_creates_finds_and_removes_indexes() {
         Ok(vec![])
     );
     assert_eq!(ix.insert(&NoTxn, 1, &[1.0], &mut || 0.0), Ok(vec![]));
+    Ok(())
 }
 
 struct NoCache;

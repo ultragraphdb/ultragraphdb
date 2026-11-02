@@ -8,17 +8,16 @@
 //! crash replay.
 
 use ultragraphdb_store_sim::FaultConfig;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_tool_test::{Run, run_both};
 
 #[test]
-fn test_the_store_workload_passes_the_same_checks_on_fjall() {
+fn test_the_store_workload_passes_the_same_checks_on_fjall() -> TestResult {
     let runs: Vec<Run> = (1..=12)
         .map(|seed| {
-            run_both(seed, FaultConfig::none(), 300, 2)
-                .map_err(|e| e.to_string())
-                .expect("the workload breaks no invariant")
+            run_both(seed, FaultConfig::none(), 300, 2).context("the workload breaks no invariant")
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     let replayed: usize = runs.iter().map(|r| r.replayed()).sum();
     let fenced: usize = runs.iter().map(|r| r.fenced()).sum();
     let (reads, found) = runs.iter().fold((0, 0), |(r, f), run| {
@@ -34,4 +33,5 @@ fn test_the_store_workload_passes_the_same_checks_on_fjall() {
         found > 0 && found < reads,
         "versionless reads found {found} values in {reads} reads"
     );
+    Ok(())
 }

@@ -43,7 +43,8 @@ impl VectorIndexFactory {
     /// `metric` as one of `euclidean`, `cosine` and `dotproduct`.
     pub fn allowed_options(&self) -> AllowedOptions {
         let mut ao = AllowedOptions::new();
-        ao.add_int_option(EXPONENT_OPT)
+        let _allowed: &mut AllowedOptions = ao
+            .add_int_option(EXPONENT_OPT)
             .add_int_option(MAX_LEVELS_OPT)
             .add_int_option(EF_CONSTRUCTION_OPT)
             .add_int_option(EF_SEARCH_OPT)
@@ -80,7 +81,7 @@ impl VectorIndexFactory {
         if sb.is_empty() {
             return sb;
         }
-        sb.pop();
+        let _trailing_comma: Option<char> = sb.pop();
         format!("({sb})")
     }
 }

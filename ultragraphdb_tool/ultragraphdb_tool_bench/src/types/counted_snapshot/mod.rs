@@ -19,6 +19,7 @@ pub struct CountedSnapshot {
 }
 
 impl CountedSnapshot {
+    /// The snapshot `inner`, its reads counted in `counts`.
     pub fn new(inner: FjallSnapshot, counts: Arc<ReadCounts>) -> Self {
         Self { inner, counts }
     }

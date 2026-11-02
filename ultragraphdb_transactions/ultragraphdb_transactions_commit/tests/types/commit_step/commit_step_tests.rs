@@ -6,6 +6,7 @@
 use ultragraphdb_protocol_wire::{
     BodyBuilder, Command, ConflictKind, ErrorCode, Header, RoundBody,
 };
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_traits_log::Position;
 use ultragraphdb_transactions_commit::{
     CommitError, CommitRequest, CommitStep, Input, Reply, RoundBounds, RoundRecord, StepOutput,
@@ -22,7 +23,7 @@ fn unbounded() -> RoundBounds {
     RoundBounds::new(u32::MAX, u32::MAX)
 }
 
-fn blind(key: &[u8]) -> TestProposal {
+fn blind(key: &[u8]) -> TestResult<TestProposal> {
     proposal(0, &Reads::default(), &Writes::point(key))
 }
 
@@ -40,24 +41,25 @@ fn applied_versions(out: &Out) -> Vec<u64> {
 }
 
 /// The frame size of a round holding `records`, committed, by the wire's own builder.
-fn frame_of(records: &[&TestProposal]) -> usize {
+fn frame_of(records: &[&TestProposal]) -> TestResult<usize> {
     let mut body = RoundBody::new(0, 0, 0, 2);
     for p in records {
         body.commit(p.record.clone());
     }
-    body.frame(Header::new(0, Command::Round))
-        .expect("within the frame")
-        .len()
+    Ok(body
+        .frame(Header::new(0, Command::Round))
+        .context("within the frame")?
+        .len())
 }
 
 #[test]
-fn test_a_lone_commit_on_an_idle_step_closes_a_round_at_once() {
+fn test_a_lone_commit_on_an_idle_step_closes_a_round_at_once() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    let p = blind(b"k");
+    let p = blind(b"k")?;
     let record = p.record.clone();
     commit(&mut step, &mut out, 1, p, 0);
-    let (round, body) = out.append().expect("a round closed");
+    let (round, body) = out.append().context("a round closed")?;
     // max(0 + 2, 2 × 0) = 2.
     assert_eq!(round, RoundRecord::new(2, 1, 1));
     let mut expected = RoundBody::new(0, 0, 0, 2);
@@ -79,22 +81,29 @@ fn test_a_lone_commit_on_an_idle_step_closes_a_round_at_once() {
     assert_eq!(step.in_flight(), None);
     assert_eq!(step.watermark(), 2);
     assert_eq!(step.previous_version(), 2);
+    Ok(())
 }
 
 #[test]
-fn test_commits_during_a_sync_wait_and_share_the_next_round() {
+fn test_commits_during_a_sync_wait_and_share_the_next_round() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, blind(b"first"), 0);
+    commit(&mut step, &mut out, 0, blind(b"first")?, 0);
     for ticket in 1..=10u64 {
-        commit(&mut step, &mut out, ticket, blind(&ticket.to_be_bytes()), 0);
+        commit(
+            &mut step,
+            &mut out,
+            ticket,
+            blind(&ticket.to_be_bytes())?,
+            0,
+        );
         assert_eq!(out.append(), None);
         assert!(out.replies().is_empty());
     }
     assert_eq!(step.waiting(), 10);
     sync(&mut step, &mut out, 0);
     assert_eq!(out.replies(), &[Reply::new(0, Ok(2))]);
-    let (round, _) = out.append().expect("the next round closed");
+    let (round, _) = out.append().context("the next round closed")?;
     // Versions 4, 6, …, 22.
     assert_eq!(round, RoundRecord::new(4, 10, 10));
     assert_eq!(step.waiting(), 0);
@@ -106,15 +115,22 @@ fn test_commits_during_a_sync_wait_and_share_the_next_round() {
         (4..=22).step_by(2).collect::<Vec<u64>>()
     );
     assert_eq!(step.watermark(), 22);
+    Ok(())
 }
 
 #[test]
-fn test_a_round_holds_at_most_the_bound_s_transactions() {
+fn test_a_round_holds_at_most_the_bound_s_transactions() -> TestResult {
     let mut step = Step::new(RoundBounds::new(u32::MAX, 3), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, blind(b"first"), 0);
+    commit(&mut step, &mut out, 0, blind(b"first")?, 0);
     for ticket in 1..=7u64 {
-        commit(&mut step, &mut out, ticket, blind(&ticket.to_be_bytes()), 0);
+        commit(
+            &mut step,
+            &mut out,
+            ticket,
+            blind(&ticket.to_be_bytes())?,
+            0,
+        );
     }
     sync(&mut step, &mut out, 0);
     assert_eq!(out.append().map(|(r, _)| r.transactions()), Some(3));
@@ -124,22 +140,23 @@ fn test_a_round_holds_at_most_the_bound_s_transactions() {
     sync(&mut step, &mut out, 0);
     assert_eq!(out.append().map(|(r, _)| r.transactions()), Some(1));
     assert_eq!(step.waiting(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_a_round_holds_what_fits_its_bytes() {
+fn test_a_round_holds_what_fits_its_bytes() -> TestResult {
     let ps: Vec<TestProposal> = (0..4u8)
         .map(|i| {
-            let mut p = blind(&[i]);
+            let mut p = blind(&[i])?;
             p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(&[i]), 5_000);
-            p
+            Ok(p)
         })
-        .collect();
-    let two = frame_of(&[&ps[0], &ps[1]]) as u32;
+        .collect::<TestResult<_>>()?;
+    let two = frame_of(&[&ps[0], &ps[1]])? as u32;
     for (bound, held) in [(two, 2u32), (two - 1, 1)] {
         let mut step = Step::new(RoundBounds::new(bound, u32::MAX), 0);
         let mut out = Out::new();
-        commit(&mut step, &mut out, 9, blind(b"first"), 0);
+        commit(&mut step, &mut out, 9, blind(b"first")?, 0);
         for (t, p) in ps.iter().enumerate() {
             commit(&mut step, &mut out, t as u64, p.clone(), 0);
         }
@@ -150,13 +167,14 @@ fn test_a_round_holds_what_fits_its_bytes() {
             "bound {bound}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() {
-    let mut p = blind(b"big");
+fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() -> TestResult {
+    let mut p = blind(b"big")?;
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
-    let alone = frame_of(&[&p]);
+    let alone = frame_of(&[&p])?;
     let bound = alone as u32 - 1;
     let size = p.record.len();
     let mut step = Step::new(RoundBounds::new(bound, u32::MAX), 0);
@@ -176,14 +194,15 @@ fn test_a_request_too_large_for_any_round_is_refused_when_it_arrives() {
     assert_eq!(out.append(), None);
     assert_eq!(step.waiting(), 0);
     assert_eq!(step.in_flight(), None);
+    Ok(())
 }
 
 #[test]
-fn test_a_request_whose_round_alone_is_exactly_the_bound_is_taken() {
+fn test_a_request_whose_round_alone_is_exactly_the_bound_is_taken() -> TestResult {
     // The bound is inclusive: a round of exactly `bytes` fits (the request above is refused one byte below it).
-    let mut p = blind(b"big");
+    let mut p = blind(b"big")?;
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"big"), 9_000);
-    let alone = frame_of(&[&p]);
+    let alone = frame_of(&[&p])?;
     let mut step = Step::new(RoundBounds::new(alone as u32, u32::MAX), 0);
     let mut out = Out::new();
     commit(&mut step, &mut out, 5, p, 0);
@@ -194,22 +213,23 @@ fn test_a_request_whose_round_alone_is_exactly_the_bound_is_taken() {
     );
     sync(&mut step, &mut out, 0);
     assert_eq!(out.replies(), &[Reply::new(5, Ok(2))]);
+    Ok(())
 }
 
 #[test]
-fn test_a_round_s_body_is_the_wire_s_round_body() {
+fn test_a_round_s_body_is_the_wire_s_round_body() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, blind(b"first"), 0);
-    let a = proposal(0, &Reads::default(), &Writes::point(b"k"));
-    let b = proposal(0, &Reads::list(b"k"), &Writes::point(b"b"));
-    let c = proposal(0, &Reads::list(b"b"), &Writes::point(b"c"));
+    commit(&mut step, &mut out, 0, blind(b"first")?, 0);
+    let a = proposal(0, &Reads::default(), &Writes::point(b"k"))?;
+    let b = proposal(0, &Reads::list(b"k"), &Writes::point(b"b"))?;
+    let c = proposal(0, &Reads::list(b"b"), &Writes::point(b"c"))?;
     let (ra, rc) = (a.record.clone(), c.record.clone());
     commit(&mut step, &mut out, 1, a, 0);
     commit(&mut step, &mut out, 2, b, 0);
     commit(&mut step, &mut out, 3, c, 0);
     sync(&mut step, &mut out, 0);
-    let (round, body) = out.append().expect("the round closed");
+    let (round, body) = out.append().context("the round closed")?;
     // A at 4; B conflicts with A's write and takes no version; C's read of what B would have written does not
     // conflict, so it takes 6.
     assert_eq!(round, RoundRecord::new(4, 3, 2));
@@ -220,7 +240,7 @@ fn test_a_round_s_body_is_the_wire_s_round_body() {
     assert_eq!(body, expected.body().as_slice());
     let r = out
         .round_ref(Position::new(2), 77)
-        .expect("a round to append");
+        .context("a round to append")?;
     assert_eq!(r.position(), Position::new(2));
     assert_eq!(r.parent(), 77);
     assert_eq!(r.first_version(), 4);
@@ -236,18 +256,19 @@ fn test_a_round_s_body_is_the_wire_s_round_body() {
         ]
     );
     assert_eq!(applied_versions(&out), vec![4, 6]);
+    Ok(())
 }
 
 #[test]
-fn test_a_round_of_aborts_alone_keeps_the_watermark() {
+fn test_a_round_of_aborts_alone_keeps_the_watermark() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, blind(b"k"), 0);
+    commit(&mut step, &mut out, 0, blind(b"k")?, 0);
     commit(
         &mut step,
         &mut out,
         1,
-        proposal(0, &Reads::list(b"k"), &Writes::point(b"x")),
+        proposal(0, &Reads::list(b"k"), &Writes::point(b"x"))?,
         0,
     );
     sync(&mut step, &mut out, 0);
@@ -260,12 +281,13 @@ fn test_a_round_of_aborts_alone_keeps_the_watermark() {
     assert!(out.apply().is_empty());
     assert_eq!(step.watermark(), 2);
     // The next commit follows 2.
-    commit(&mut step, &mut out, 2, blind(b"y"), 0);
+    commit(&mut step, &mut out, 2, blind(b"y")?, 0);
     assert_eq!(out.append().map(|(r, _)| r.first_version()), Some(4));
+    Ok(())
 }
 
 #[test]
-fn test_a_sync_with_no_round_in_flight_does_nothing() {
+fn test_a_sync_with_no_round_in_flight_does_nothing() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     sync(&mut step, &mut out, 0);
@@ -273,15 +295,16 @@ fn test_a_sync_with_no_round_in_flight_does_nothing() {
     assert_eq!(out.applied(), None);
     assert!(out.replies().is_empty());
     assert!(!step.is_stopped());
+    Ok(())
 }
 
 #[test]
-fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() {
+fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(b"a"), 0);
-    commit(&mut step, &mut out, 2, blind(b"b"), 0);
-    commit(&mut step, &mut out, 3, blind(b"c"), 0);
+    commit(&mut step, &mut out, 1, blind(b"a")?, 0);
+    commit(&mut step, &mut out, 2, blind(b"b")?, 0);
+    commit(&mut step, &mut out, 3, blind(b"c")?, 0);
     step.step(Input::SyncFailed, 0, &mut out);
     let unavailable: Vec<Reply> = (1..=3)
         .map(|t| Reply::new(t, Err(CommitError::Unavailable())))
@@ -294,7 +317,7 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() {
     assert_eq!(step.in_flight(), None);
     assert_eq!(step.waiting(), 0);
     assert_eq!(step.watermark(), 0);
-    commit(&mut step, &mut out, 4, blind(b"d"), 0);
+    commit(&mut step, &mut out, 4, blind(b"d")?, 0);
     assert_eq!(
         out.replies(),
         &[Reply::new(4, Err(CommitError::Unavailable()))]
@@ -302,14 +325,15 @@ fn test_a_failed_sync_acknowledges_nothing_and_stops_the_step() {
     assert_eq!(out.append(), None);
     sync(&mut step, &mut out, 0);
     assert!(out.replies().is_empty() && out.append().is_none() && out.applied().is_none());
+    Ok(())
 }
 
 #[test]
-fn test_the_oldest_read_prunes_and_older_reads_are_too_old() {
+fn test_the_oldest_read_prunes_and_older_reads_are_too_old() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     for t in 0..3u64 {
-        commit(&mut step, &mut out, t, blind(&t.to_be_bytes()), 0);
+        commit(&mut step, &mut out, t, blind(&t.to_be_bytes())?, 0);
         sync(&mut step, &mut out, 0);
     }
     assert_eq!(step.watermark(), 6);
@@ -320,7 +344,7 @@ fn test_the_oldest_read_prunes_and_older_reads_are_too_old() {
         &mut step,
         &mut out,
         9,
-        proposal(2, &Reads::default(), &Writes::default()),
+        proposal(2, &Reads::default(), &Writes::default())?,
         0,
     );
     sync(&mut step, &mut out, 0);
@@ -331,10 +355,11 @@ fn test_the_oldest_read_prunes_and_older_reads_are_too_old() {
     // A floor above the watermark is taken as the watermark: no open transaction reads above it.
     step.step(Input::OldestRead(1_000), 0, &mut out);
     assert_eq!(step.resolver().history().floor(), 6);
+    Ok(())
 }
 
 #[test]
-fn test_a_step_opened_after_a_version_follows_it_and_holds_older_reads_too_old() {
+fn test_a_step_opened_after_a_version_follows_it_and_holds_older_reads_too_old() -> TestResult {
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
     assert_eq!(step.watermark(), 100);
@@ -343,14 +368,14 @@ fn test_a_step_opened_after_a_version_follows_it_and_holds_older_reads_too_old()
         &mut step,
         &mut out,
         1,
-        proposal(50, &Reads::default(), &Writes::default()),
+        proposal(50, &Reads::default(), &Writes::default())?,
         0,
     );
     commit(
         &mut step,
         &mut out,
         2,
-        proposal(100, &Reads::default(), &Writes::default()),
+        proposal(100, &Reads::default(), &Writes::default())?,
         0,
     );
     sync(&mut step, &mut out, 0);
@@ -360,33 +385,35 @@ fn test_a_step_opened_after_a_version_follows_it_and_holds_older_reads_too_old()
     );
     sync(&mut step, &mut out, 0);
     assert_eq!(out.replies(), &[Reply::new(2, Ok(102))]);
+    Ok(())
 }
 
 #[test]
-fn test_a_clock_stepping_back_between_rounds_does_not_lower_versions() {
+fn test_a_clock_stepping_back_between_rounds_does_not_lower_versions() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(b"a"), 10_000_000);
+    commit(&mut step, &mut out, 1, blind(b"a")?, 10_000_000);
     assert_eq!(
         out.append().map(|(r, _)| r.first_version()),
         Some(20_000_000)
     );
-    commit(&mut step, &mut out, 2, blind(b"b"), 10_000_000);
+    commit(&mut step, &mut out, 2, blind(b"b")?, 10_000_000);
     sync(&mut step, &mut out, 9_000_000);
     assert_eq!(
         out.append().map(|(r, _)| r.first_version()),
         Some(20_000_002)
     );
+    Ok(())
 }
 
 #[test]
-fn test_two_runs_of_one_round_decide_alike() {
+fn test_two_runs_of_one_round_decide_alike() -> TestResult {
     let run = || {
         let mut step = Step::new(unbounded(), 0);
         let mut out = Out::new();
         let mut replies = Vec::new();
         let mut bodies = Vec::new();
-        commit(&mut step, &mut out, 0, blind(b"k"), 0);
+        commit(&mut step, &mut out, 0, blind(b"k")?, 0);
         for t in 1..20u64 {
             let key = [b'a' + (t % 5) as u8];
             commit(
@@ -397,7 +424,7 @@ fn test_two_runs_of_one_round_decide_alike() {
                     0,
                     &Reads::list(&key),
                     &Writes::point(&[b'a' + (t % 3) as u8]),
-                ),
+                )?,
                 0,
             );
         }
@@ -406,9 +433,9 @@ fn test_two_runs_of_one_round_decide_alike() {
             replies.extend(out.replies().iter().cloned());
             bodies.extend(out.append().map(|(_, b)| b.to_vec()));
         }
-        (replies, bodies)
+        Ok::<_, TestError>((replies, bodies))
     };
-    let (first, second) = (run(), run());
+    let (first, second) = (run()?, run()?);
     assert_eq!(first, second);
     // And both decide what the round's serial order decides, worked by hand: transaction t reads `a + t % 5` and writes
     // `a + t % 3`, every read at 0, so t aborts on a list conflict once a transaction admitted before it in the round
@@ -427,20 +454,21 @@ fn test_two_runs_of_one_round_decide_alike() {
         });
     }
     assert_eq!(first.0, expected);
+    Ok(())
 }
 
 #[test]
-fn test_a_malformed_record_and_an_unsealed_read_set_are_refused() {
+fn test_a_malformed_record_and_an_unsealed_read_set_are_refused() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, blind(b"first"), 0);
-    let mut bad = blind(b"x");
+    commit(&mut step, &mut out, 0, blind(b"first")?, 0);
+    let mut bad = blind(b"x")?;
     bad.record = vec![1, 2, 3];
     commit(&mut step, &mut out, 1, bad, 0);
-    let mut unsealed = blind(b"y");
+    let mut unsealed = blind(b"y")?;
     let mut rs = ReadSet::new();
     rs.reset(0, 0, usize::MAX);
-    rs.push_list(b"z").expect("within the limit");
+    rs.push_list(b"z").context("within the limit")?;
     unsealed.read_set = rs;
     commit(&mut step, &mut out, 2, unsealed, 0);
     sync(&mut step, &mut out, 0);
@@ -454,50 +482,52 @@ fn test_a_malformed_record_and_an_unsealed_read_set_are_refused() {
             if e.code() == ErrorCode::Protocol && e.to_string().starts_with("a write-set record is malformed")
     ));
     assert_eq!(replies[1], Reply::new(2, Err(CommitError::Unsealed())));
+    Ok(())
 }
 
 #[test]
-fn test_exhausted_versions_stop_the_step() {
+fn test_exhausted_versions_stop_the_step() -> TestResult {
     let mut step = Step::new(unbounded(), u64::MAX - 1);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(b"a"), 0);
+    commit(&mut step, &mut out, 1, blind(b"a")?, 0);
     assert_eq!(
         out.replies(),
         &[Reply::new(1, Err(CommitError::Unavailable()))]
     );
     assert_eq!(out.append(), None);
     assert!(step.is_stopped());
+    Ok(())
 }
 
 /// A blind write of `key` read at u64::MAX − 5, the floor of a step opened there.
-fn late(key: &[u8]) -> TestProposal {
+fn late(key: &[u8]) -> TestResult<TestProposal> {
     proposal(u64::MAX - 5, &Reads::default(), &Writes::point(key))
 }
 
 /// A step after u64::MAX − 5: the first round takes u64::MAX − 3 and the second u64::MAX − 1, the largest even
 /// version, so the second round's next transaction finds none.
-fn nearly_exhausted() -> (Step, Out) {
+fn nearly_exhausted() -> TestResult<(Step, Out)> {
     let mut step = Step::new(unbounded(), u64::MAX - 5);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 0, late(b"first"), 0);
+    commit(&mut step, &mut out, 0, late(b"first")?, 0);
     assert_eq!(
         out.append().map(|(r, _)| r.first_version()),
         Some(u64::MAX - 3)
     );
-    (step, out)
+    Ok((step, out))
 }
 
 #[test]
-fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() {
-    let (mut step, mut out) = nearly_exhausted();
-    let a = late(b"a");
+fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() -> TestResult {
+    let (mut step, mut out) = nearly_exhausted()?;
+    let a = late(b"a")?;
     let record = a.record.clone();
     commit(&mut step, &mut out, 1, a, 0);
-    commit(&mut step, &mut out, 2, late(b"b"), 0);
+    commit(&mut step, &mut out, 2, late(b"b")?, 0);
     sync(&mut step, &mut out, 0);
     assert_eq!(out.replies(), &[Reply::new(0, Ok(u64::MAX - 3))]);
     // Transaction 1 takes the last version; 2 finds none and is refused unavailable in the round's body.
-    let (round, body) = out.append().expect("the second round");
+    let (round, body) = out.append().context("the second round")?;
     assert_eq!(round, RoundRecord::new(u64::MAX - 1, 2, 1));
     let mut expected = RoundBody::new(0, 0, 0, u64::MAX - 1);
     expected.commit(record);
@@ -505,7 +535,7 @@ fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() {
     assert_eq!(body, expected.body().as_slice());
     assert!(step.is_stopped());
     // Every later commit is refused at once.
-    commit(&mut step, &mut out, 3, late(b"c"), 0);
+    commit(&mut step, &mut out, 3, late(b"c")?, 0);
     assert_eq!(
         out.replies(),
         &[Reply::new(3, Err(CommitError::Unavailable()))]
@@ -520,12 +550,13 @@ fn test_versions_exhausted_inside_a_round_refuse_the_rest_and_stop_the_step() {
     );
     assert_eq!(applied_versions(&out), vec![u64::MAX - 1]);
     assert_eq!(step.watermark(), u64::MAX - 1);
+    Ok(())
 }
 
 #[test]
-fn test_versions_exhausted_at_a_registration_refuse_it_and_stop_the_step() {
-    let (mut step, mut out) = nearly_exhausted();
-    commit(&mut step, &mut out, 1, late(b"a"), 0);
+fn test_versions_exhausted_at_a_registration_refuse_it_and_stop_the_step() -> TestResult {
+    let (mut step, mut out) = nearly_exhausted()?;
+    commit(&mut step, &mut out, 1, late(b"a")?, 0);
     step.step(
         Input::Register {
             ticket: 2,
@@ -549,10 +580,11 @@ fn test_versions_exhausted_at_a_registration_refuse_it_and_stop_the_step() {
         ]
     );
     assert!(step.sessions().is_empty(), "no session numbered");
+    Ok(())
 }
 
 #[test]
-fn test_the_bounds_follow_the_power_loss_protection_flag() {
+fn test_the_bounds_follow_the_power_loss_protection_flag() -> TestResult {
     // The node takes the bounds from the log's configuration: 256 transactions a round with protection, 1,024
     // without (WalConfig's table).
     for (protection, held) in [(true, 256u32), (false, 1_024)] {
@@ -560,63 +592,73 @@ fn test_the_bounds_follow_the_power_loss_protection_flag() {
         let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
         let mut step = Step::new(bounds, 0);
         let mut out = Out::new();
-        commit(&mut step, &mut out, 0, blind(b"first"), 0);
+        commit(&mut step, &mut out, 0, blind(b"first")?, 0);
         for t in 1..=1_100u64 {
-            commit(&mut step, &mut out, t, blind(&t.to_be_bytes()), 0);
+            commit(&mut step, &mut out, t, blind(&t.to_be_bytes())?, 0);
         }
         sync(&mut step, &mut out, 0);
         assert_eq!(out.append().map(|(r, _)| r.transactions()), Some(held));
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_steady_state_reuses_the_output_s_buffers() {
+fn test_a_steady_state_reuses_the_output_s_buffers() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     let mut ticket = 0u64;
-    let mut round = |step: &mut Step, out: &mut Out| {
+    let mut round = |stepped: &mut Step, output: &mut Out| {
         for _ in 0..16 {
             ticket += 1;
-            commit(step, out, ticket, blind(&(ticket % 64).to_be_bytes()), 0);
+            commit(
+                stepped,
+                output,
+                ticket,
+                blind(&(ticket % 64).to_be_bytes())?,
+                0,
+            );
         }
-        sync(step, out, 0);
-        out.apply_mut().clear();
-        let watermark = step.watermark();
-        step.step(Input::OldestRead(watermark), 0, out);
+        sync(stepped, output, 0);
+        output.apply_mut().clear();
+        let watermark = stepped.watermark();
+        stepped.step(Input::OldestRead(watermark), 0, output);
+        Ok::<_, TestError>(())
     };
     for _ in 0..100 {
-        round(&mut step, &mut out);
+        round(&mut step, &mut out)?;
     }
     let warm = (out.capacity(), step.resolver().history().capacity());
     for _ in 0..100 {
-        round(&mut step, &mut out);
+        round(&mut step, &mut out)?;
     }
     assert_eq!((out.capacity(), step.resolver().history().capacity()), warm);
+    Ok(())
 }
 
 #[test]
-fn test_a_round_closed_by_a_sync_reads_the_clock_then() {
+fn test_a_round_closed_by_a_sync_reads_the_clock_then() -> TestResult {
     // The first round at 0 µs takes 2; the next, closed when its sync completes at 10 s, takes 20,000,000.
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(b"a"), 0);
-    commit(&mut step, &mut out, 2, blind(b"b"), 0);
+    commit(&mut step, &mut out, 1, blind(b"a")?, 0);
+    commit(&mut step, &mut out, 2, blind(b"b")?, 0);
     sync(&mut step, &mut out, 10_000_000);
     assert_eq!(
         out.append().map(|(r, _)| r.first_version()),
         Some(20_000_000)
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_malformed_record_is_refused_before_the_read_set_is_checked() {
+fn test_a_malformed_record_is_refused_before_the_read_set_is_checked() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
-    let mut p = blind(b"x");
+    let mut p = blind(b"x")?;
     p.record = vec![1, 2, 3];
     let mut rs = ReadSet::new();
     rs.reset(0, 0, usize::MAX);
-    rs.push_list(b"z").expect("within the limit");
+    rs.push_list(b"z").context("within the limit")?;
     p.read_set = rs;
     commit(&mut step, &mut out, 1, p, 0);
     sync(&mut step, &mut out, 0);
@@ -626,40 +668,41 @@ fn test_a_malformed_record_is_refused_before_the_read_set_is_checked() {
             ultragraphdb_transactions_commit::CommitErrorEnum::Malformed { .. }
         ))
     ));
+    Ok(())
 }
 
 /// A transaction that wrote into a range written above its read version, and read nothing there, aborts as a write into
 /// a dropped range; one that wrote outside it commits (7.7).
 #[test]
-fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() {
+fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() -> TestResult {
     let mut step = Step::new(unbounded(), 0);
     let mut out = Out::new();
     commit(
         &mut step,
         &mut out,
         1,
-        proposal(0, &Reads::default(), &Writes::range(b"p", Some(b"q"))),
+        proposal(0, &Reads::default(), &Writes::range(b"p", Some(b"q")))?,
         0,
     );
     commit(
         &mut step,
         &mut out,
         2,
-        proposal(0, &Reads::default(), &Writes::point(b"pa")),
+        proposal(0, &Reads::default(), &Writes::point(b"pa"))?,
         0,
     );
     commit(
         &mut step,
         &mut out,
         3,
-        proposal(0, &Reads::default(), &Writes::statement(b"pb", b"o")),
+        proposal(0, &Reads::default(), &Writes::statement(b"pb", b"o"))?,
         0,
     );
     commit(
         &mut step,
         &mut out,
         4,
-        proposal(0, &Reads::default(), &Writes::point(b"r")),
+        proposal(0, &Reads::default(), &Writes::point(b"r"))?,
         0,
     );
     sync(&mut step, &mut out, 0);
@@ -668,44 +711,44 @@ fn test_a_blind_write_into_a_range_dropped_after_its_read_aborts() {
         out.replies()
             .iter()
             .find(|r| r.ticket() == t)
-            .expect("decided")
-            .outcome()
-            .clone()
+            .context("decided")
+            .map(|r| r.outcome().clone())
     };
-    assert_eq!(outcome(2), Err(CommitError::Conflict(ConflictKind::Drop)));
-    assert_eq!(outcome(3), Err(CommitError::Conflict(ConflictKind::Drop)));
-    assert_eq!(outcome(4), Ok(4));
+    assert_eq!(outcome(2)?, Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(3)?, Err(CommitError::Conflict(ConflictKind::Drop)));
+    assert_eq!(outcome(4)?, Ok(4));
+    Ok(())
 }
 
 /// A blind write whose record is exactly `len` bytes, a multiple of 8 as every record is, padded by its commit record.
-fn sized(len: usize) -> TestProposal {
+fn sized(len: usize) -> TestResult<TestProposal> {
     let base = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), 0).len();
-    let mut p = blind(b"k");
+    let mut p = blind(b"k")?;
     p.record = crate::utils::proposal_double::record(0, 0, &Writes::point(b"k"), len - base);
     assert_eq!(
         p.record.len(),
         len,
         "a commit record of a multiple of 8 pads byte for byte"
     );
-    p
+    Ok(p)
 }
 
 #[test]
 fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_byte_more_is_refused()
- {
+-> TestResult {
     // The power-loss-protected drive's round of 262,144 bytes holds a record of 261,328 alone (RoundBounds' test).
     let config = WalConfig::new(0, true);
     let bounds = RoundBounds::new(config.round_bytes(), config.round_transactions());
     let mut step = Step::new(bounds, 0);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, sized(261_328), 0);
+    commit(&mut step, &mut out, 1, sized(261_328)?, 0);
     assert!(out.replies().is_empty(), "{:?}", out.replies());
     assert_eq!(
         out.append().map(|(r, _)| r),
         Some(RoundRecord::new(2, 1, 1))
     );
     // One byte more, no longer a record: the arrival check reads only the length.
-    let mut over = blind(b"k");
+    let mut over = blind(b"k")?;
     over.record = vec![0; 261_329];
     commit(&mut step, &mut out, 2, over, 0);
     assert_eq!(
@@ -714,4 +757,5 @@ fn test_on_a_protected_drive_a_record_at_the_largest_write_set_is_taken_and_one_
     );
     assert_eq!(step.waiting(), 0);
     assert_eq!(CommitError::TooLarge(261_329, 261_328).detail(), 261_328);
+    Ok(())
 }

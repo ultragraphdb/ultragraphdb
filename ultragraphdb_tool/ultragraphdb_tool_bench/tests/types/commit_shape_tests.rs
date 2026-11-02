@@ -6,52 +6,51 @@
 use oxrdf::vocab::xsd;
 use oxrdf::{NamedOrBlankNode, Term};
 use ultragraphdb_core_mapping::{Change, Declaration, PredicateKind};
+use ultragraphdb_tool_bdd::{Context, TestError, TestResult};
 use ultragraphdb_tool_bench::CommitShape;
 
 /// The predicate, subject and object of every insert of `changes`.
-fn inserts(changes: &[Change]) -> Vec<(String, NamedOrBlankNode, Term)> {
+fn inserts(changes: &[Change]) -> TestResult<Vec<(String, NamedOrBlankNode, Term)>> {
     changes
         .iter()
         .map(|c| {
-            let insert = if let Change::Insert {
+            if let Change::Insert {
                 subject,
                 predicate,
                 object,
                 ..
             } = c
             {
-                Some((
+                Ok((
                     predicate.as_str().to_string(),
                     subject.clone(),
                     object.clone(),
                 ))
             } else {
-                None
-            };
-            insert
-                .ok_or_else(|| format!("{c:?} is no insert"))
-                .expect("every change is an insert")
+                Err(TestError::new(format!(
+                    "{c:?} is no insert: every change is an insert"
+                )))
+            }
         })
         .collect()
 }
 
 #[test]
-fn test_the_declarations_are_the_dgraph_runs_ten_edge_types_and_the_hub_name() {
+fn test_the_declarations_are_the_dgraph_runs_ten_edge_types_and_the_hub_name() -> TestResult {
     let changeset = CommitShape::declarations(10);
     let declared: Vec<_> = changeset
         .changes()
         .iter()
         .map(|c| {
-            let declared = if let Change::Declare(Declaration::Predicate(p)) = c {
-                Some(p.clone())
+            if let Change::Declare(Declaration::Predicate(p)) = c {
+                Ok(p.clone())
             } else {
-                None
-            };
-            declared
-                .ok_or_else(|| format!("{c:?} is no predicate declaration"))
-                .expect("every change is a predicate declaration")
+                Err(TestError::new(format!(
+                    "{c:?} is no predicate declaration: every change is one"
+                )))
+            }
         })
-        .collect();
+        .collect::<TestResult<_>>()?;
     assert_eq!(declared.len(), 21);
     assert_eq!(declared[0].predicate(), &CommitShape::iri("rel_t0_org"));
     assert_eq!(declared[0].kind(), PredicateKind::Edge);
@@ -61,23 +60,25 @@ fn test_the_declarations_are_the_dgraph_runs_ten_edge_types_and_the_hub_name() {
     assert_eq!(declared[19].predicate(), &CommitShape::iri("rel_t9_w"));
     assert_eq!(declared[20].predicate(), &CommitShape::iri("name"));
     assert_eq!(declared[20].tokenizers(), ["exact"]);
+    Ok(())
 }
 
 #[test]
-fn test_the_hubs_carry_their_names() {
+fn test_the_hubs_carry_their_names() -> TestResult {
     let shape = CommitShape::new(1, 1_000, 10, 7);
-    let hubs = inserts(shape.hubs().changes());
+    let hubs = inserts(shape.hubs().changes())?;
     assert_eq!(hubs.len(), 1_000);
     assert_eq!(hubs[0].0, CommitShape::iri("name").as_str());
     assert_eq!(hubs[0].1, CommitShape::hub(0).into());
     assert_eq!(hubs[0].2.to_string(), "\"h0\"");
     assert_eq!(hubs[999].1, CommitShape::hub(999).into());
+    Ok(())
 }
 
 #[test]
-fn test_a_commit_writes_new_records_of_one_type_each_linked_to_a_hub_with_a_string() {
+fn test_a_commit_writes_new_records_of_one_type_each_linked_to_a_hub_with_a_string() -> TestResult {
     let mut shape = CommitShape::new(50, 1_000, 10, 7);
-    let commit = inserts(shape.next_commit().changes());
+    let commit = inserts(shape.next_commit().changes())?;
     assert_eq!(commit.len(), 100);
     let org = &commit[0].0;
     let ty = org
@@ -88,53 +89,65 @@ fn test_a_commit_writes_new_records_of_one_type_each_linked_to_a_hub_with_a_stri
         let (link, value) = (&pair[0], &pair[1]);
         assert_eq!(link.1, CommitShape::iri(&format!("r{}", i + 1)).into());
         assert_eq!(link.0, CommitShape::iri(&format!("rel_t{ty}_org")).as_str());
-        let hub = if let Term::NamedNode(hub) = &link.2 {
-            Some(hub)
-        } else {
-            None
+        let Term::NamedNode(hub) = &link.2 else {
+            return Err(TestError::new(format!(
+                "{} is no hub: a link's object is a hub",
+                link.2
+            )));
         };
-        let hub = hub
-            .ok_or_else(|| format!("{} is no hub", link.2))
-            .expect("a link's object is a hub");
         let n: u64 = hub
             .as_str()
             .trim_start_matches(CommitShape::iri("h").as_str())
             .parse()
-            .expect("a hub's number");
+            .context("a hub's number")?;
         assert!(n < 1_000);
         assert_eq!(value.1, link.1);
         assert_eq!(value.0, CommitShape::iri(&format!("rel_t{ty}_w")).as_str());
         assert_eq!(value.2.to_string(), "\"x\"");
     }
     // The next commit's records are new nodes.
-    let next = inserts(shape.next_commit().changes());
+    let next = inserts(shape.next_commit().changes())?;
     assert_eq!(next[0].1, CommitShape::iri("r51").into());
+    Ok(())
 }
 
 #[test]
-fn test_a_seed_replays_its_commits_and_the_types_vary() {
+fn test_a_seed_replays_its_commits_and_the_types_vary() -> TestResult {
     let mut a = CommitShape::new(1, 1_000, 10, 7);
     let mut b = CommitShape::new(1, 1_000, 10, 7);
-    let predicate = |s: &mut CommitShape| inserts(s.next_commit().changes())[0].0.clone();
-    let types: Vec<String> = (0..50).map(|_| predicate(&mut a)).collect();
-    let again: Vec<String> = (0..50).map(|_| predicate(&mut b)).collect();
+    let predicate = |s: &mut CommitShape| -> TestResult<String> {
+        Ok(inserts(s.next_commit().changes())?[0].0.clone())
+    };
+    let types: Vec<String> = (0..50)
+        .map(|_| predicate(&mut a))
+        .collect::<TestResult<_>>()?;
+    let again: Vec<String> = (0..50)
+        .map(|_| predicate(&mut b))
+        .collect::<TestResult<_>>()?;
     assert_eq!(types, again);
     let mut distinct = types.clone();
     distinct.sort();
     distinct.dedup();
     assert!(distinct.len() > 5, "{distinct:?}");
     let mut one = CommitShape::new(1, 10, 1, 7);
-    assert!((0..50).all(|_| predicate(&mut one) == CommitShape::iri("rel_t0_org").as_str()));
+    let ones: Vec<String> = (0..50)
+        .map(|_| predicate(&mut one))
+        .collect::<TestResult<_>>()?;
+    assert!(
+        ones.iter()
+            .all(|p| p == CommitShape::iri("rel_t0_org").as_str())
+    );
+    Ok(())
 }
 
 #[test]
-fn test_the_draws_are_marsaglias_xorshift64() {
+fn test_the_draws_are_marsaglias_xorshift64() -> TestResult {
     // Marsaglia, "Xorshift RNGs" (J. Stat. Soft. 8(14), 2003), xor64 with shifts 13, 7, 17 from
     // 88172645463325252 yields 8748534153485358512, then 3040900993826735515, then 3453997556048239312. The shape
     // mixes its seed with 0x9E3779B97F4A7C15, so the seed 88172645463325252 ^ 0x9E3779B97F4A7C15 =
     // 11461161000241530449 starts that stream; u64::MAX types and hubs leave each draw below them as it is.
     let mut shape = CommitShape::new(2, u64::MAX, u64::MAX, 11_461_161_000_241_530_449);
-    let commit = inserts(shape.next_commit().changes());
+    let commit = inserts(shape.next_commit().changes())?;
     assert_eq!(
         commit[0].0,
         CommitShape::iri("rel_t8748534153485358512_org").as_str()
@@ -147,24 +160,26 @@ fn test_the_draws_are_marsaglias_xorshift64() {
         commit[2].2,
         Term::from(CommitShape::hub(3_453_997_556_048_239_312))
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_seed_of_zero_draws_as_a_seed_of_one() {
+fn test_a_seed_of_zero_draws_as_a_seed_of_one() -> TestResult {
     let draws = |seed| {
         let mut shape = CommitShape::new(3, 1_000, 10, seed);
         (0..5)
             .map(|_| inserts(shape.next_commit().changes()))
-            .collect::<Vec<_>>()
+            .collect::<TestResult<Vec<_>>>()
     };
-    assert_eq!(draws(0), draws(1));
-    assert_ne!(draws(1), draws(2));
+    assert_eq!(draws(0)?, draws(1)?);
+    assert_ne!(draws(1)?, draws(2)?);
+    Ok(())
 }
 
 #[test]
-fn test_one_hub_takes_every_link_and_no_relations_write_nothing() {
+fn test_one_hub_takes_every_link_and_no_relations_write_nothing() -> TestResult {
     let mut one = CommitShape::new(4, 1, 10, 7);
-    let commit = inserts(one.next_commit().changes());
+    let commit = inserts(one.next_commit().changes())?;
     assert_eq!(commit.len(), 8);
     assert!(
         commit
@@ -175,20 +190,20 @@ fn test_one_hub_takes_every_link_and_no_relations_write_nothing() {
     assert_eq!(none.relations(), 0);
     assert!(none.next_commit().changes().is_empty());
     assert_eq!(one.relations(), 4);
+    Ok(())
 }
 
 #[test]
-fn test_no_types_declare_the_hub_name_alone() {
+fn test_no_types_declare_the_hub_name_alone() -> TestResult {
     let changeset = CommitShape::declarations(0);
-    let name = if let [Change::Declare(Declaration::Predicate(name))] = changeset.changes() {
-        Some(name)
-    } else {
-        None
+    let [Change::Declare(Declaration::Predicate(name))] = changeset.changes() else {
+        return Err(TestError::new(format!(
+            "{:?} is not the hub name's declaration alone",
+            changeset.changes()
+        )));
     };
-    let name = name
-        .ok_or_else(|| format!("{:?} is not the name alone", changeset.changes()))
-        .expect("the hub name's declaration alone");
     assert_eq!(name.predicate(), &CommitShape::iri("name"));
     assert_eq!(name.tokenizers(), ["exact"]);
     assert!(CommitShape::new(1, 0, 1, 7).hubs().changes().is_empty());
+    Ok(())
 }

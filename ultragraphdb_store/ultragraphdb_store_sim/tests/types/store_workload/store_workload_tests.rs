@@ -4,6 +4,7 @@
  */
 
 use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
 fn test_the_workload_has_an_apply_loop_and_its_readers() {
@@ -12,8 +13,8 @@ fn test_the_workload_has_an_apply_loop_and_its_readers() {
 }
 
 #[test]
-fn test_a_workload_without_readers_only_writes() {
-    let outcome = StoreWorkload::run(Seed::new(5), FaultConfig::none(), 200, 0).unwrap();
+fn test_a_workload_without_readers_only_writes() -> TestResult {
+    let outcome = StoreWorkload::run(Seed::new(5), FaultConfig::none(), 200, 0)?;
     let steps: Vec<&String> = outcome
         .trace()
         .iter()
@@ -31,6 +32,7 @@ fn test_a_workload_without_readers_only_writes() {
         );
     }
     assert!(outcome.trace().iter().any(|l| l.starts_with("Applied")));
+    Ok(())
 }
 
 /// Whether the trace line `line` is a record of the variant `kind`, and not of another whose name starts with it.
@@ -39,11 +41,11 @@ fn is_record(line: &str, kind: &str) -> bool {
 }
 
 #[test]
-fn test_a_run_writes_reads_and_replays() {
-    let first = StoreWorkload::run(Seed::new(11), FaultConfig::mixed(), 250, 2).unwrap();
-    let again = StoreWorkload::run(Seed::new(11), FaultConfig::mixed(), 250, 2).unwrap();
+fn test_a_run_writes_reads_and_replays() -> TestResult {
+    let first = StoreWorkload::run(Seed::new(11), FaultConfig::mixed(), 250, 2)?;
+    let again = StoreWorkload::run(Seed::new(11), FaultConfig::mixed(), 250, 2)?;
     assert_eq!(first, again);
-    let other = StoreWorkload::run(Seed::new(12), FaultConfig::mixed(), 250, 2).unwrap();
+    let other = StoreWorkload::run(Seed::new(12), FaultConfig::mixed(), 250, 2)?;
     assert_ne!(first.trace(), other.trace());
     let kinds = [
         "Applied",
@@ -62,12 +64,13 @@ fn test_a_run_writes_reads_and_replays() {
         "TemporaryDropped",
     ];
     let all: Vec<String> = (0..6)
-        .flat_map(|s| {
+        .map(|s| {
             StoreWorkload::run(Seed::new(s), FaultConfig::none(), 300, 2)
-                .unwrap()
-                .trace()
-                .to_vec()
+                .map(|run| run.trace().to_vec())
         })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .collect();
     for kind in kinds {
         assert!(
@@ -75,17 +78,19 @@ fn test_a_run_writes_reads_and_replays() {
             "no {kind} in six runs"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_mixed_faults_stop_rebuilds_and_fail_temporary_writes() {
+fn test_mixed_faults_stop_rebuilds_and_fail_temporary_writes() -> TestResult {
     let all: Vec<String> = (0..24)
-        .flat_map(|s| {
+        .map(|s| {
             StoreWorkload::run(Seed::new(s), FaultConfig::mixed(), 300, 2)
-                .unwrap()
-                .trace()
-                .to_vec()
+                .map(|run| run.trace().to_vec())
         })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .collect();
     for kind in ["RebuildInterrupted", "TemporaryFailed"] {
         assert!(
@@ -93,6 +98,7 @@ fn test_mixed_faults_stop_rebuilds_and_fail_temporary_writes() {
             "no {kind} in 24 runs"
         );
     }
+    Ok(())
 }
 
 /// The read a trace line records without its answer, the snapshot's id first, and whether the answer failed.
@@ -112,9 +118,8 @@ fn read_of(line: &str) -> Option<(&str, bool)> {
 /// A reader makes earlier reads again through its open snapshot, after other actors' steps, and makes a failed read
 /// again at each of its later steps: what the repeat invariant compares.
 #[test]
-fn test_readers_make_earlier_reads_again_through_their_snapshots() {
-    let trace = StoreWorkload::run(Seed::new(3), FaultConfig::none(), 300, 2)
-        .unwrap()
+fn test_readers_make_earlier_reads_again_through_their_snapshots() -> TestResult {
+    let trace = StoreWorkload::run(Seed::new(3), FaultConfig::none(), 300, 2)?
         .trace()
         .to_vec();
     let reads: Vec<&str> = trace
@@ -126,22 +131,26 @@ fn test_readers_make_earlier_reads_again_through_their_snapshots() {
     let again = reads.iter().filter(|r| !seen.insert(**r)).count();
     assert_eq!((reads.len(), again), (201, 56));
 
-    let trace: Vec<String> = (0..8)
-        .flat_map(|s| {
+    let mixed_trace: Vec<String> = (0..8)
+        .map(|s| {
             StoreWorkload::run(Seed::new(s), FaultConfig::mixed(), 300, 2)
-                .unwrap()
-                .trace()
-                .to_vec()
+                .map(|run| run.trace().to_vec())
         })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .collect();
-    let reads: Vec<(&str, bool)> = trace.iter().filter_map(|l| read_of(l)).collect();
-    let failed = reads.iter().filter(|(_, failed)| *failed).count();
-    let retried = reads
+    let mixed_reads: Vec<(&str, bool)> = mixed_trace.iter().filter_map(|l| read_of(l)).collect();
+    let failed = mixed_reads.iter().filter(|(_, failed)| *failed).count();
+    let retried = mixed_reads
         .iter()
         .enumerate()
-        .filter(|(at, (read, failed))| *failed && reads[at + 1..].iter().any(|(r, _)| r == read))
+        .filter(|(at, (read, read_failed))| {
+            *read_failed && mixed_reads[at + 1..].iter().any(|(r, _)| r == read)
+        })
         .count();
     assert_eq!((failed, retried), (28, 20));
+    Ok(())
 }
 
 /// A trace line with the versionless writes of the batch it records, if any, left out.
@@ -156,14 +165,15 @@ fn without_versionless(line: &str) -> String {
 /// reads draw from the versionless stream and the fault stream alone, so without faults a run with them is the run
 /// without them with its versionless reads added; only the versionless writes, drawn from the same stream, differ.
 #[test]
-fn test_versionless_reads_add_only_their_own_records() {
+fn test_versionless_reads_add_only_their_own_records() -> TestResult {
     let mut reads: Vec<String> = Vec::new();
     for seed in 0..4 {
-        let without = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2).unwrap();
-        let with = StoreWorkload::new(2)
-            .with_versionless_reads()
-            .run_on(Seed::new(seed), FaultConfig::none(), 300)
-            .unwrap();
+        let without = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2)?;
+        let with = StoreWorkload::new(2).with_versionless_reads().run_on(
+            Seed::new(seed),
+            FaultConfig::none(),
+            300,
+        )?;
         let (versionless, rest): (Vec<&String>, Vec<&String>) = with
             .trace()
             .iter()
@@ -199,15 +209,16 @@ fn test_versionless_reads_add_only_their_own_records() {
     for answer in ["result: Ok(Some(", "result: Ok(None)"] {
         assert!(reads.iter().any(|l| l.contains(answer)), "no {answer}");
     }
+    Ok(())
 }
 
 /// Commit batches write and remove keys without a version, laid out as the dictionary's: namespace 0, the IRI tag
 /// 0x01, then an id below 8, each holding a u64 big-endian; 17 bytes of key and 8 of value, by that layout.
 #[test]
-fn test_commit_batches_write_and_remove_dictionary_shaped_versionless_keys() {
+fn test_commit_batches_write_and_remove_dictionary_shaped_versionless_keys() -> TestResult {
     let runs: Vec<_> = (0..4)
-        .map(|seed| StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2).unwrap())
-        .collect();
+        .map(|seed| StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2))
+        .collect::<Result<_, _>>()?;
     let held: Vec<(&Vec<u8>, &Vec<u8>)> = runs
         .iter()
         .flat_map(|r| r.contents().versionless().iter())
@@ -234,6 +245,7 @@ fn test_commit_batches_write_and_remove_dictionary_shaped_versionless_keys() {
         applied.iter().any(|l| l.contains("value: None }")),
         "no batch removed a key without a version"
     );
+    Ok(())
 }
 
 /// The bytes of the Debug list `[1, 2, 3]` that starts right after `marker` in `line`.
@@ -273,10 +285,10 @@ fn entries_of(line: &str) -> Vec<(Vec<u8>, u64, Option<Vec<u8>>)> {
 /// catalog entry writes that entry again, at version 1 with meta 1 and the value `name`; by the catalog layout
 /// `[0x01][namespace u64][0x01][predicate u64]`, the namespace prefix is 9 bytes and an entry 18.
 #[test]
-fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() {
+fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() -> TestResult {
     let mut seen = std::collections::BTreeSet::new();
     for seed in 0..8 {
-        let run = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0).unwrap();
+        let run = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0)?;
         for line in run.trace().iter().filter(|l| is_record(l, "Dropped")) {
             let Some(prefix) = bytes_after(line, "prefixes: Some([[") else {
                 continue;
@@ -304,7 +316,8 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() {
                 );
                 assert!(line.contains("meta: 1,"), "{line}");
                 // The prefix's length, whether its namespace is other than 0, and its predicate byte.
-                seen.insert((prefix.len(), prefix[8] != 0, prefix[prefix.len() - 1]));
+                let _new: bool =
+                    seen.insert((prefix.len(), prefix[8] != 0, prefix[prefix.len() - 1]));
             }
         }
     }
@@ -319,15 +332,16 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() {
             .any(|(len, _, predicate)| *len == 18 && *predicate == 9),
         "no drop of predicate 9's entry in {seen:?}"
     );
+    Ok(())
 }
 
 /// A rollup writes a complete version above its key's newest deletion, so it never replaces a deletion and never
 /// lands at version 0; without faults, the deletions are the workload's own earlier writes in the trace.
 #[test]
-fn test_a_rollup_lands_above_the_newest_deletion_of_its_key() {
+fn test_a_rollup_lands_above_the_newest_deletion_of_its_key() -> TestResult {
     let mut rollups = 0;
     for seed in 0..8 {
-        let run = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0).unwrap();
+        let run = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0)?;
         let mut written: std::collections::BTreeMap<Vec<u8>, u64> = Default::default();
         for line in run.trace().iter().filter(|l| is_record(l, "Applied")) {
             for (key, version, value) in entries_of(line) {
@@ -346,18 +360,20 @@ fn test_a_rollup_lands_above_the_newest_deletion_of_its_key() {
         }
     }
     assert!(rollups > 0, "no rollup in eight runs");
+    Ok(())
 }
 
 /// The workload bans namespaces 1 and 5, its two besides the root, and never the root namespace 0.
 #[test]
-fn test_the_workload_never_bans_the_root_namespace() {
+fn test_the_workload_never_bans_the_root_namespace() -> TestResult {
     let banned: std::collections::BTreeSet<String> = (0..8)
-        .flat_map(|seed| {
+        .map(|seed| {
             StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 0)
-                .unwrap()
-                .trace()
-                .to_vec()
+                .map(|run| run.trace().to_vec())
         })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
         .filter(|l| is_record(l, "Banned"))
         .collect();
     assert_eq!(
@@ -367,4 +383,5 @@ fn test_the_workload_never_bans_the_root_namespace() {
             .map(String::from)
             .collect()
     );
+    Ok(())
 }

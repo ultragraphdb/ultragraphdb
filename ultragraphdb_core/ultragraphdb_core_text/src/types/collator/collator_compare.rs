@@ -64,9 +64,9 @@ impl Collator {
                 return res;
             }
             if !o.ignore[QUATERNARY] {
-                let res = compare_level(Iter::next_quaternary, ia, ib);
-                if res != Ordering::Equal {
-                    return res;
+                let quaternary = compare_level(Iter::next_quaternary, ia, ib);
+                if quaternary != Ordering::Equal {
+                    return quaternary;
                 }
             }
         }

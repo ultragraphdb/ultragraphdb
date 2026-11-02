@@ -13,11 +13,14 @@
 //! the test's thread records the `tracing` events the run emits, without timestamps, so a seed replays them too.
 //!
 //! ```
-//! use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload};
+//! use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload, Violation};
 //!
-//! let first = StoreWorkload::run(Seed::new(7), FaultConfig::mixed(), 200, 2).expect("no invariant broken");
-//! let again = StoreWorkload::run(Seed::new(7), FaultConfig::mixed(), 200, 2).expect("no invariant broken");
+//! # fn main() -> Result<(), Violation> {
+//! let first = StoreWorkload::run(Seed::new(7), FaultConfig::mixed(), 200, 2)?;
+//! let again = StoreWorkload::run(Seed::new(7), FaultConfig::mixed(), 200, 2)?;
 //! assert_eq!(first, again);
+//! # Ok(())
+//! # }
 //! ```
 
 mod errors;

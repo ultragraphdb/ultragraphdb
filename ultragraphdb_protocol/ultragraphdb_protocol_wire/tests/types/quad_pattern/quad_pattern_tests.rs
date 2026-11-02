@@ -8,6 +8,7 @@ use ultragraphdb_protocol_wire::{
     BodyBuilder, BodyView, ColumnType, PatternSlot, Prepare, PrepareView, QuadPattern, Read,
     ReadView, TermTable,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::golden_bodies::{
     body_data, frame_of, golden, put, reframe, section, with_section,
@@ -38,24 +39,25 @@ fn test_a_pattern_keeps_its_slots_and_counts_parameters() {
     );
 }
 
-fn read_with(slots: [(u32, u32); 4]) -> ProtocolErrorEnum {
-    let bytes = golden("read").bytes();
+fn read_with(slots: [(u32, u32); 4]) -> TestResult<ProtocolErrorEnum> {
+    let bytes = golden("read")?.bytes()?;
     let mut data = body_data(&bytes).to_vec();
     let (at, _) = section(&data, 0, 0);
     for (i, (kind, value)) in slots.iter().enumerate() {
         put(&mut data, at + 8 * i, (*kind).into(), 4);
         put(&mut data, at + 8 * i + 4, (*value).into(), 4);
     }
-    ReadView::from_frame(&frame_of(&reframe(&bytes, &data)))
-        .unwrap_err()
-        .0
+    Ok(ReadView::from_frame(&frame_of(&reframe(&bytes, &data))?)
+        .err()
+        .context("a refusal")?
+        .0)
 }
 
 #[test]
-fn test_slot_kinds_values_and_places_are_checked() {
+fn test_slot_kinds_values_and_places_are_checked() -> TestResult {
     // The golden Read's table holds two terms.
     assert_eq!(
-        read_with([(4, 0), (0, 0), (0, 0), (0, 0)]),
+        read_with([(4, 0), (0, 0), (0, 0), (0, 0)])?,
         ProtocolErrorEnum::FieldValue {
             command: 7,
             field: "slot kind",
@@ -63,7 +65,7 @@ fn test_slot_kinds_values_and_places_are_checked() {
         }
     );
     assert_eq!(
-        read_with([(0, 1), (0, 0), (0, 0), (0, 0)]),
+        read_with([(0, 1), (0, 0), (0, 0), (0, 0)])?,
         ProtocolErrorEnum::FieldValue {
             command: 7,
             field: "slot value",
@@ -71,7 +73,7 @@ fn test_slot_kinds_values_and_places_are_checked() {
         }
     );
     assert_eq!(
-        read_with([(0, 0), (1, 0), (0, 0), (0, 0)]),
+        read_with([(0, 0), (1, 0), (0, 0), (0, 0)])?,
         ProtocolErrorEnum::FieldValue {
             command: 7,
             field: "default graph",
@@ -79,7 +81,7 @@ fn test_slot_kinds_values_and_places_are_checked() {
         }
     );
     assert_eq!(
-        read_with([(0, 0), (3, 0), (0, 0), (0, 0)]),
+        read_with([(0, 0), (3, 0), (0, 0), (0, 0)])?,
         ProtocolErrorEnum::FieldValue {
             command: 7,
             field: "parameter slot",
@@ -87,7 +89,7 @@ fn test_slot_kinds_values_and_places_are_checked() {
         }
     );
     assert_eq!(
-        read_with([(0, 0), (2, 2), (0, 0), (0, 0)]),
+        read_with([(0, 0), (2, 2), (0, 0), (0, 0)])?,
         ProtocolErrorEnum::IndexOutOfRange {
             command: 7,
             section: 0,
@@ -96,11 +98,14 @@ fn test_slot_kinds_values_and_places_are_checked() {
             limit: 2
         }
     );
-    let short = with_section(&golden("read").bytes(), 4, 0, |pattern| {
+    let short = with_section(&golden("read")?.bytes()?, 4, 0, |pattern| {
         pattern.truncate(24)
     });
     assert_eq!(
-        ReadView::from_frame(&frame_of(&short)).unwrap_err().0,
+        ReadView::from_frame(&frame_of(&short)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::CountMismatch {
             command: 7,
             field: "pattern",
@@ -108,7 +113,11 @@ fn test_slot_kinds_values_and_places_are_checked() {
             expected: 32
         }
     );
-    // Terms bound in any order, the same term twice, read.
+    Ok(())
+}
+
+#[test]
+fn test_terms_bound_in_any_order_and_the_same_term_twice_read() -> TestResult {
     let mut terms = TermTable::new();
     let (a, b) = (terms.iri("a"), terms.iri("b"));
     let pattern = QuadPattern::new(
@@ -117,35 +126,39 @@ fn test_slot_kinds_values_and_places_are_checked() {
         PatternSlot::Bound(b),
         PatternSlot::Unbound,
     );
-    let bytes = Read::new(0, 0, terms, pattern, vec![])
-        .frame(golden("read").header())
-        .unwrap();
+    let bytes = Read::new(0, 0, terms, pattern, vec![]).frame(golden("read")?.header())?;
     assert_eq!(
-        *ReadView::from_frame(&frame_of(&bytes)).unwrap().pattern(),
+        *ReadView::from_frame(&frame_of(&bytes)?)?.pattern(),
         pattern
     );
+    Ok(())
+}
+
+/// The parameter count a Prepare of `?s <p> ?o` with `subject` and `object` reads as; the outer result fails the test
+/// when the frame cannot be built.
+fn prepare(
+    subject: PatternSlot,
+    object: PatternSlot,
+    types: Vec<ColumnType>,
+) -> TestResult<Result<usize, ProtocolErrorEnum>> {
+    let mut terms = TermTable::new();
+    let p = terms.iri("p");
+    let pattern = QuadPattern::new(PatternSlot::Unbound, subject, PatternSlot::Bound(p), object);
+    let bytes = Prepare::new(0, 0, 0, terms, pattern, types, Vec::new())
+        .frame(golden("prepare")?.header())?;
+    Ok(PrepareView::from_frame(&frame_of(&bytes)?)
+        .map(|v| v.pattern().parameters())
+        .map_err(|e| e.0))
 }
 
 #[test]
-fn test_parameters_are_numbered_in_order_of_appearance() {
-    let prepare = |subject: PatternSlot, object: PatternSlot, types: Vec<ColumnType>| {
-        let mut terms = TermTable::new();
-        let p = terms.iri("p");
-        let pattern =
-            QuadPattern::new(PatternSlot::Unbound, subject, PatternSlot::Bound(p), object);
-        let bytes = Prepare::new(0, 0, 0, terms, pattern, types, Vec::new())
-            .frame(golden("prepare").header())
-            .unwrap();
-        PrepareView::from_frame(&frame_of(&bytes))
-            .map(|v| v.pattern().parameters())
-            .map_err(|e| e.0)
-    };
+fn test_parameters_are_numbered_in_order_of_appearance() -> TestResult {
     assert_eq!(
         prepare(
             PatternSlot::Parameter(0),
             PatternSlot::Parameter(1),
             vec![ColumnType::Node, ColumnType::Term]
-        ),
+        )?,
         Ok(2)
     );
     assert_eq!(
@@ -153,8 +166,9 @@ fn test_parameters_are_numbered_in_order_of_appearance() {
             PatternSlot::Parameter(1),
             PatternSlot::Parameter(0),
             vec![ColumnType::Node, ColumnType::Term]
-        )
-        .unwrap_err(),
+        )?
+        .err()
+        .context("a refusal")?,
         ProtocolErrorEnum::FieldValue {
             command: 10,
             field: "parameter",
@@ -166,8 +180,9 @@ fn test_parameters_are_numbered_in_order_of_appearance() {
             PatternSlot::Parameter(0),
             PatternSlot::Parameter(0),
             vec![ColumnType::Node]
-        )
-        .unwrap_err(),
+        )?
+        .err()
+        .context("a refusal")?,
         ProtocolErrorEnum::FieldValue {
             command: 10,
             field: "parameter",
@@ -188,14 +203,17 @@ fn test_parameters_are_numbered_in_order_of_appearance() {
         ),
         vec![],
     )
-    .frame(golden("read").header())
-    .unwrap();
+    .frame(golden("read")?.header())?;
     assert_eq!(
-        ReadView::from_frame(&frame_of(&read)).unwrap_err().0,
+        ReadView::from_frame(&frame_of(&read)?)
+            .err()
+            .context("a refusal")?
+            .0,
         ProtocolErrorEnum::FieldValue {
             command: 7,
             field: "parameter slot",
             value: 1
         }
     );
+    Ok(())
 }

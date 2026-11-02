@@ -117,42 +117,52 @@ impl Header {
         self
     }
 
+    /// The frame's place among its sender's frames on the connection, from 1.
     pub fn sequence(&self) -> u128 {
         self.sequence
     }
 
+    /// The cluster the frame belongs to.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// The VSR view; 0 from a client.
     pub fn view(&self) -> u32 {
         self.view
     }
 
+    /// The sender's release.
     pub fn release(&self) -> u32 {
         self.release
     }
 
+    /// The protocol version.
     pub fn protocol(&self) -> u16 {
         self.protocol
     }
 
+    /// The frame's command.
     pub fn command(&self) -> Command {
         self.command
     }
 
+    /// The stream the frame belongs to; 0 for the connection.
     pub fn stream(&self) -> u64 {
         self.stream
     }
 
+    /// The sending replica; 0 from a client.
     pub fn replica(&self) -> u8 {
         self.replica
     }
 
+    /// The header's flags: bit 0 marks the stream's last frame.
     pub fn flags(&self) -> u8 {
         self.flags
     }
 
+    /// The command header's 128 bytes.
     pub fn command_header(&self) -> &[u8; COMMAND_HEADER_SIZE] {
         &self.command_header
     }

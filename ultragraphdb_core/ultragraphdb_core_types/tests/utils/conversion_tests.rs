@@ -12,6 +12,7 @@ use ultragraphdb_core_types::{
     DateTime, Geometry, Layout, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal,
     verify_password,
 };
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn bs_bool(b: bool) -> Vec<u8> {
     vec![u8::from(b)]
@@ -25,8 +26,8 @@ fn bs_f64(v: f64) -> Vec<u8> {
     v.to_bits().to_le_bytes().to_vec()
 }
 
-fn bs_time(t: DateTime) -> Vec<u8> {
-    t.marshal_binary().unwrap()
+fn bs_time(t: DateTime) -> TestResult<Vec<u8>> {
+    Ok(t.marshal_binary()?)
 }
 
 fn s(v: &str) -> Value {
@@ -57,26 +58,27 @@ fn test_same_conversion_string() {
 }
 
 #[test]
-fn test_same_conversion_date_time() {
+fn test_same_conversion_date_time() -> TestResult {
     for t in [date(2006, 1, 2, 15, 4, 5, 0), DateTime::zero()] {
         assert_eq!(
-            conv(TypeId::BINARY, bs_time(t), TypeId::DATETIME),
+            conv(TypeId::BINARY, bs_time(t)?, TypeId::DATETIME),
             ok(TypeId::DATETIME, Value::DateTime(t))
         );
     }
+    Ok(())
 }
 
 /// From type, from bytes (`None`: Go's nil value), to type, and the failure's substring or the expected value.
 type EdgeCase = (TypeId, Option<Vec<u8>>, TypeId, Result<Value, &'static str>);
 
 #[test]
-fn test_conversion_edge_cases() {
+fn test_conversion_edge_cases() -> TestResult {
     // (from type, from bytes or None, to type, failure substring or expected value)
     let cases = [
         binary_edge_cases(),
         scalar_edge_cases(),
-        datetime_edge_cases(),
-        datetime_number_edge_cases(),
+        datetime_edge_cases()?,
+        datetime_number_edge_cases()?,
     ]
     .concat();
     for (from, data, to, want) in cases {
@@ -87,7 +89,7 @@ fn test_conversion_edge_cases() {
         let out = convert(&input, to);
         match want {
             Err(failure) => {
-                let err = out.expect_err(failure).to_string();
+                let err = out.err().context(failure)?.to_string();
                 assert!(
                     err.contains(failure),
                     "{} to {}: {err} lacks {failure}",
@@ -95,9 +97,10 @@ fn test_conversion_edge_cases() {
                     to.name()
                 );
             }
-            Ok(v) => assert_eq!(out.unwrap(), Val::new(to, v)),
+            Ok(v) => assert_eq!(out?, Val::new(to, v)),
         }
     }
+    Ok(())
 }
 
 /// Conversions from binary.
@@ -215,9 +218,9 @@ fn scalar_edge_cases() -> Vec<EdgeCase> {
 }
 
 /// Conversions of datetime bytes to datetime, binary and string.
-fn datetime_edge_cases() -> Vec<EdgeCase> {
+fn datetime_edge_cases() -> TestResult<Vec<EdgeCase>> {
     let zero = DateTime::zero();
-    vec![
+    Ok(vec![
         (
             TypeId::DATETIME,
             Some(vec![]),
@@ -226,7 +229,7 @@ fn datetime_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::DATETIME,
             Ok(Value::DateTime(zero)),
         ),
@@ -238,9 +241,9 @@ fn datetime_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::BINARY,
-            Ok(Value::Bytes(bs_time(zero))),
+            Ok(Value::Bytes(bs_time(zero)?)),
         ),
         (
             TypeId::DATETIME,
@@ -250,17 +253,17 @@ fn datetime_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::STRING,
             Ok(s("0001-01-01T00:00:00Z")),
         ),
-    ]
+    ])
 }
 
 /// Conversions of datetime bytes to default, int and float.
-fn datetime_number_edge_cases() -> Vec<EdgeCase> {
+fn datetime_number_edge_cases() -> TestResult<Vec<EdgeCase>> {
     let zero = DateTime::zero();
-    vec![
+    Ok(vec![
         (
             TypeId::DATETIME,
             Some(vec![]),
@@ -269,7 +272,7 @@ fn datetime_number_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::DEFAULT,
             Ok(s("0001-01-01T00:00:00Z")),
         ),
@@ -281,7 +284,7 @@ fn datetime_number_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::INT,
             Ok(Value::Int(zero.unix())),
         ),
@@ -293,15 +296,15 @@ fn datetime_number_edge_cases() -> Vec<EdgeCase> {
         ),
         (
             TypeId::DATETIME,
-            Some(bs_time(zero)),
+            Some(bs_time(zero)?),
             TypeId::FLOAT,
             Ok(Value::Float(zero.unix_nano() as f64 / 1e9)),
         ),
-    ]
+    ])
 }
 
 #[test]
-fn test_convert_to_default() {
+fn test_convert_to_default() -> TestResult {
     let cases = [
         (TypeId::STRING, b"a".to_vec(), "a"),
         (TypeId::STRING, b"".to_vec(), ""),
@@ -311,12 +314,12 @@ fn test_convert_to_default() {
         (TypeId::FLOAT, bs_f64(-3.5), "-3.5"),
         (
             TypeId::DATETIME,
-            bs_time(date(2006, 1, 2, 15, 4, 5, 0)),
+            bs_time(date(2006, 1, 2, 15, 4, 5, 0))?,
             "2006-01-02T15:04:05Z",
         ),
         (
             TypeId::DATETIME,
-            bs_time(DateTime::zero()),
+            bs_time(DateTime::zero())?,
             "0001-01-01T00:00:00Z",
         ),
     ];
@@ -326,6 +329,7 @@ fn test_convert_to_default() {
             ok(TypeId::DEFAULT, s(want))
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -350,8 +354,8 @@ fn test_convert_from_default() {
 }
 
 #[test]
-fn test_convert_to_binary() {
-    let t = bs_time(date(2006, 1, 2, 15, 4, 5, 0));
+fn test_convert_to_binary() -> TestResult {
+    let t = bs_time(date(2006, 1, 2, 15, 4, 5, 0))?;
     let cases = [
         (TypeId::STRING, b"a".to_vec(), b"a".to_vec()),
         (TypeId::STRING, b"".to_vec(), b"".to_vec()),
@@ -367,10 +371,11 @@ fn test_convert_to_binary() {
             ok(TypeId::BINARY, Value::Bytes(want))
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_convert_from_binary() {
+fn test_convert_from_binary() -> TestResult {
     let cases = [
         (bs_bool(true), TypeId::BOOL, Value::Bool(true)),
         (bs_bool(false), TypeId::BOOL, Value::Bool(false)),
@@ -386,12 +391,12 @@ fn test_convert_from_binary() {
         (b"hello".to_vec(), TypeId::STRING, s("hello")),
         (Vec::new(), TypeId::STRING, s("")),
         (
-            bs_time(date(2016, 1, 1, 0, 0, 0, 0)),
+            bs_time(date(2016, 1, 1, 0, 0, 0, 0))?,
             TypeId::DATETIME,
             Value::DateTime(date(2016, 1, 1, 0, 0, 0, 0)),
         ),
         (
-            bs_time(DateTime::zero()),
+            bs_time(DateTime::zero())?,
             TypeId::DATETIME,
             Value::DateTime(DateTime::zero()),
         ),
@@ -404,6 +409,7 @@ fn test_convert_from_binary() {
     for (data, to, want) in cases {
         assert_eq!(conv(TypeId::BINARY, data, to), ok(to, want));
     }
+    Ok(())
 }
 
 #[test]
@@ -423,7 +429,7 @@ fn test_convert_string_to_date_time() {
 }
 
 #[test]
-fn test_convert_date_time_to_string() {
+fn test_convert_date_time_to_string() -> TestResult {
     let cases = [
         (date(2006, 1, 2, 15, 4, 5, 0), "2006-01-02T15:04:05Z"),
         (date(2006, 1, 2, 0, 0, 0, 0), "2006-01-02T00:00:00Z"),
@@ -431,10 +437,11 @@ fn test_convert_date_time_to_string() {
     ];
     for (t, want) in cases {
         assert_eq!(
-            conv(TypeId::DATETIME, bs_time(t), TypeId::STRING),
+            conv(TypeId::DATETIME, bs_time(t)?, TypeId::STRING),
             ok(TypeId::STRING, s(want))
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -479,7 +486,7 @@ fn test_convert_from_password() {
 }
 
 #[test]
-fn test_convert_to_password() {
+fn test_convert_to_password() -> TestResult {
     let cases: [(TypeId, Vec<u8>, Result<&str, &str>); 7] = [
         (TypeId::STRING, b"testing".to_vec(), Ok("$2a$10$")),
         (TypeId::PASSWORD, b"testing".to_vec(), Ok("testing")),
@@ -512,17 +519,18 @@ fn test_convert_to_password() {
             Err(e) => assert_eq!(out, Err(e.to_string())),
             Ok(w) if tid == TypeId::PASSWORD => assert_eq!(out, ok(TypeId::PASSWORD, s(w))),
             Ok(_) => {
-                let out = out.unwrap();
+                let out = out.context("out")?;
                 assert_eq!(out.tid(), TypeId::PASSWORD);
                 let hash = match out.value() {
                     Some(Value::Str(hash)) => Ok(hash),
                     other => Err(format!("{other:?}")),
                 }
-                .expect("no hash");
-                verify_password(&plain, hash).unwrap();
+                .context("no hash")?;
+                verify_password(&plain, hash)?;
             }
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -598,12 +606,13 @@ fn test_convert_string_to_bool() {
 }
 
 #[test]
-fn test_convert_date_time_to_bool() {
+fn test_convert_date_time_to_bool() -> TestResult {
     let now = DateTime::from_unix(1_700_000_000, 5);
     assert_eq!(
-        conv(TypeId::DATETIME, bs_time(now), TypeId::BOOL),
+        conv(TypeId::DATETIME, bs_time(now)?, TypeId::BOOL),
         Err("Cannot convert datetime to type bool".into())
     );
+    Ok(())
 }
 
 #[test]
@@ -625,7 +634,7 @@ fn test_convert_bool_to_int() {
 }
 
 #[test]
-fn test_truthy() {
+fn test_truthy() -> TestResult {
     let cases = [
         (TypeId::STRING, b"true".to_vec()),
         (TypeId::DEFAULT, b"true".to_vec()),
@@ -636,14 +645,17 @@ fn test_truthy() {
     ];
     for (tid, data) in cases {
         assert_eq!(
-            conv(tid, data, TypeId::BOOL).unwrap().value(),
+            conv(tid, data, TypeId::BOOL)
+                .context("conv(tid, data, TypeId::BOOL)")?
+                .value(),
             Some(&Value::Bool(true))
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_falsy() {
+fn test_falsy() -> TestResult {
     let cases = [
         (TypeId::STRING, b"false".to_vec()),
         (TypeId::DEFAULT, b"false".to_vec()),
@@ -653,10 +665,13 @@ fn test_falsy() {
     ];
     for (tid, data) in cases {
         assert_eq!(
-            conv(tid, data, TypeId::BOOL).unwrap().value(),
+            conv(tid, data, TypeId::BOOL)
+                .context("conv(tid, data, TypeId::BOOL)")?
+                .value(),
             Some(&Value::Bool(false))
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -909,33 +924,36 @@ fn test_convert_invalid_utf8_to_string_is_refused() {
 }
 
 #[test]
-fn test_marshal_binary() {
+fn test_marshal_binary() -> TestResult {
     use ultragraphdb_core_types::marshal_binary;
     assert_eq!(
-        marshal_binary(&Val::new(TypeId::INT, Value::Int(-2))).unwrap(),
+        marshal_binary(&Val::new(TypeId::INT, Value::Int(-2)))?,
         bs_i64(-2)
     );
     assert_eq!(
-        marshal_binary(&Val::new(TypeId::STRING, s("ab"))).unwrap(),
+        marshal_binary(&Val::new(TypeId::STRING, s("ab")))?,
         b"ab".to_vec()
     );
     // Go's ValueForType of binary holds a *[]byte, on which toBinary's assertion panics.
     assert_eq!(
         marshal_binary(&Val::nil(TypeId::GEO))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "interface conversion: interface {} is *[]uint8, not []uint8"
     );
     assert_eq!(
         marshal_binary(&Val::new(TypeId::INT, Value::Bool(true)))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "interface conversion: interface {} is bool, not int64"
     );
+    Ok(())
 }
 
 #[test]
-fn test_convert_date_time_to_float() {
+fn test_convert_date_time_to_float() -> TestResult {
     let cases = [
         (date(2009, 11, 10, 23, 0, 0, 0), 1257894000.0),
         (date(1969, 11, 10, 23, 0, 0, 0), -4410000.0),
@@ -946,10 +964,11 @@ fn test_convert_date_time_to_float() {
     ];
     for (t, want) in cases {
         assert_eq!(
-            conv(TypeId::DATETIME, bs_time(t), TypeId::FLOAT),
+            conv(TypeId::DATETIME, bs_time(t)?, TypeId::FLOAT),
             ok(TypeId::FLOAT, Value::Float(want))
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -966,7 +985,7 @@ fn test_convert_int_to_date_time() {
 }
 
 #[test]
-fn test_convert_date_time_to_int() {
+fn test_convert_date_time_to_int() -> TestResult {
     let cases = [
         (date(2009, 11, 10, 23, 0, 0, 0), 1257894000),
         (date(1969, 11, 10, 23, 0, 0, 0), -4410000),
@@ -975,14 +994,15 @@ fn test_convert_date_time_to_int() {
     ];
     for (t, want) in cases {
         assert_eq!(
-            conv(TypeId::DATETIME, bs_time(t), TypeId::INT),
+            conv(TypeId::DATETIME, bs_time(t)?, TypeId::INT),
             ok(TypeId::INT, Value::Int(want))
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_convert_to_string() {
+fn test_convert_to_string() -> TestResult {
     let cases = [
         (TypeId::FLOAT, bs_f64(13816.251), "13816.251"),
         (TypeId::INT, bs_i64(-1221), "-1221"),
@@ -991,20 +1011,23 @@ fn test_convert_to_string() {
         (TypeId::PASSWORD, b"password".to_vec(), "password"),
         (
             TypeId::DATETIME,
-            bs_time(date(2006, 1, 2, 15, 4, 5, 0)),
+            bs_time(date(2006, 1, 2, 15, 4, 5, 0))?,
             "2006-01-02T15:04:05Z",
         ),
     ];
     for (tid, data, want) in cases {
         assert_eq!(conv(tid, data, TypeId::STRING), ok(TypeId::STRING, s(want)));
     }
+    Ok(())
 }
 
 #[test]
-fn test_fixed_zone_round_trip() {
+fn test_fixed_zone_round_trip() -> TestResult {
     let t = DateTime::new(2018, 5, 30, 9, 30, 10, 0, Zone::Fixed(-6 * 3600));
-    let back = conv(TypeId::BINARY, bs_time(t), TypeId::DATETIME).unwrap();
+    let back = conv(TypeId::BINARY, bs_time(t)?, TypeId::DATETIME)
+        .context("conv(TypeId::BINARY, bs_time(t), TypeId::DATETIME)")?;
     assert_eq!(back.value(), Some(&Value::DateTime(t)));
+    Ok(())
 }
 
 // ---------- Golden conversion matrix ----------
@@ -1045,10 +1068,10 @@ struct ConvCase {
     out: Option<Rendered>,
 }
 
-fn unhex(s: &str) -> Vec<u8> {
+fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
@@ -1478,8 +1501,9 @@ fn not_utf8(to: i32) -> String {
     format!("Value is not valid UTF-8 for type {name}")
 }
 
+/// Whether the hex text decodes to UTF-8; text that is not hex does not, and fails the case where it is decoded.
 fn is_utf8(hex: &str) -> bool {
-    std::str::from_utf8(&unhex(hex)).is_ok()
+    unhex(hex).is_ok_and(|b| std::str::from_utf8(&b).is_ok())
 }
 
 /// How a golden case compares.
@@ -1548,7 +1572,7 @@ fn check_salted(
     }
     if c.from == TypeId::PASSWORD.enum_value() {
         // A password value converted to itself is the stored hash, unchanged.
-        return if h.as_bytes().get(..7) == Some(&unhex(&want.str)[..]) {
+        return if h.as_bytes().get(..7) == Some(&unhex(&want.str).map_err(|e| e.to_string())?[..]) {
             Ok(Outcome::Equal)
         } else {
             Err(format!("{ctx}: {h:?}"))
@@ -1581,8 +1605,8 @@ fn check_marshalled(
         } else {
             Err(format!(
                 "{ctx}: binary {:?} and string {:?}, listed {b:?} and {s:?}",
-                bin.map(|b| String::from_utf8_lossy(&b).into_owned()),
-                st.map(|b| String::from_utf8_lossy(&b).into_owned())
+                bin.map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+                st.map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
             ))
         };
     }
@@ -1592,7 +1616,8 @@ fn check_marshalled(
         ));
     }
     match &bin {
-        Ok(b) if want.bin_err.is_empty() && *b == unhex(&want.bin) => {}
+        Ok(b)
+            if want.bin_err.is_empty() && *b == unhex(&want.bin).map_err(|e| e.to_string())? => {}
         Err(e) if !want.bin_err.is_empty() && *e == want.bin_err => {}
         _ => {
             return Err(format!(
@@ -1602,7 +1627,11 @@ fn check_marshalled(
         }
     }
     match &st {
-        Ok(b) if want.str_err.is_empty() && *b == unhex(&want.str) => Ok(Outcome::Equal),
+        Ok(b)
+            if want.str_err.is_empty() && *b == unhex(&want.str).map_err(|e| e.to_string())? =>
+        {
+            Ok(Outcome::Equal)
+        }
         Err(e) if !want.str_err.is_empty() && *e == want.str_err => Ok(Outcome::Equal),
         Err(e) if want.str_err.is_empty() && !is_utf8(&want.str) && *e == not_utf8(9) => {
             Ok(Outcome::NotUtf8)
@@ -1610,16 +1639,16 @@ fn check_marshalled(
         _ => Err(format!(
             "{ctx}: string {:?}, Go {:?} / {}",
             st.as_ref().map(|b| String::from_utf8_lossy(b).into_owned()),
-            String::from_utf8_lossy(&unhex(&want.str)),
+            String::from_utf8_lossy(&unhex(&want.str).map_err(|e| e.to_string())?),
             want.str_err
         )),
     }
 }
 
 #[test]
-fn test_golden_conversion_matrix() {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/types_convert.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<ConvCase>(&path);
+fn test_golden_conversion_matrix() -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/types_convert.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<ConvCase>(&path)?;
     let mut failures = Vec::new();
     let (mut deviations, mut not_utf8_cases) = (0, 0);
     for c in golden.cases() {
@@ -1629,7 +1658,7 @@ fn test_golden_conversion_matrix() {
                 v.as_bytes().to_vec(),
             ),
             None => {
-                let b = unhex(&c.input);
+                let b = unhex(&c.input)?;
                 (Val::bytes(TypeId::new(c.from), b.clone()), b)
             }
         };
@@ -1686,47 +1715,52 @@ fn test_golden_conversion_matrix() {
         "every deviation names a golden case"
     );
     assert_eq!(not_utf8_cases, NOT_UTF8_CASES, "cases refused as not UTF-8");
+    Ok(())
 }
 
 #[test]
-fn test_marshal_json() {
+fn test_marshal_json() -> TestResult {
     use ultragraphdb_core_types::{BigFloat, marshal_json};
-    let j = |v: Val| String::from_utf8(marshal_json(&v).unwrap()).unwrap();
-    assert_eq!(j(Val::new(TypeId::INT, Value::Int(-3))), "-3");
-    assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(1e21))), "1e+21");
-    assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(0.5))), "0.5");
-    assert_eq!(j(Val::new(TypeId::BOOL, Value::Bool(true))), "true");
+    let j = |v: Val| -> TestResult<String> { Ok(String::from_utf8(marshal_json(&v)?)?) };
+    assert_eq!(j(Val::new(TypeId::INT, Value::Int(-3)))?, "-3");
+    assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(1e21)))?, "1e+21");
+    assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(0.5)))?, "0.5");
+    assert_eq!(j(Val::new(TypeId::BOOL, Value::Bool(true)))?, "true");
     assert_eq!(
-        j(Val::new(TypeId::STRING, Value::str("a<b\"\n"))),
+        j(Val::new(TypeId::STRING, Value::str("a<b\"\n")))?,
         r#""a\u003cb\"\n""#
     );
-    assert_eq!(j(Val::nil(TypeId::DEFAULT)), r#""""#);
+    assert_eq!(j(Val::nil(TypeId::DEFAULT))?, r#""""#);
     assert_eq!(
         j(Val::new(
             TypeId::DATETIME,
             Value::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0))
-        )),
+        ))?,
         r#""2006-01-02T15:04:05Z""#
     );
-    let b = BigFloat::unmarshal_text("1.5", 200).unwrap();
-    assert_eq!(j(Val::new(TypeId::BIGFLOAT, Value::BigFloat(b))), "1.5");
-    let p = Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
+    let b =
+        BigFloat::unmarshal_text("1.5", 200).context("BigFloat::unmarshal_text(\"1.5\", 200)")?;
+    assert_eq!(j(Val::new(TypeId::BIGFLOAT, Value::BigFloat(b)))?, "1.5");
+    let p = Geometry::point(Layout::XY, &[1.0, 2.0])?;
     assert_eq!(
-        j(Val::new(TypeId::GEO, Value::Geo(p))),
+        j(Val::new(TypeId::GEO, Value::Geo(p)))?,
         r#"{"type":"Point","coordinates":[1,2]}"#
     );
     assert_eq!(
         marshal_json(&Val::new(TypeId::FLOAT, Value::Float(f64::NAN)))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "json: unsupported value: NaN"
     );
     assert_eq!(
         marshal_json(&Val::nil(TypeId::UID))
-            .unwrap_err()
+            .err()
+            .context("expected an error")?
             .to_string(),
         "invalid type for MarshalJSON: 7"
     );
+    Ok(())
 }
 
 /// Go v25.5.0's `Val.MarshalJSON` of a nil value, as Go 1.27 answers `Val{Tid: id}.MarshalJSON()`. Deviation: Go
@@ -1779,8 +1813,8 @@ fn test_marshal_json_nil() {
         .into_iter()
         .filter_map(|(id, want)| {
             let got = marshal_json(&Val::nil(id))
-                .map(|b| String::from_utf8(b).unwrap())
-                .map_err(|e| e.to_string());
+                .map_err(|e| e.to_string())
+                .and_then(|b| String::from_utf8(b).map_err(|e| e.to_string()));
             let want = want.map(String::from).map_err(String::from);
             (got != want).then(|| format!("{id:?}: got {got:?}, Go {want:?}"))
         })
@@ -1791,7 +1825,7 @@ fn test_marshal_json_nil() {
 /// One value of each Go type the port's `Value` stands for, as Go's `Val.Value` holds it: `[]uint8`, `string`,
 /// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `big.Float` and
 /// `[]float32`.
-fn marshal_json_values() -> Vec<(&'static str, Value)> {
+fn marshal_json_values() -> TestResult<Vec<(&'static str, Value)>> {
     use ultragraphdb_core_types::BigFloat;
     let ring = || {
         vec![
@@ -1802,8 +1836,8 @@ fn marshal_json_values() -> Vec<(&'static str, Value)> {
         ]
     };
     let line = || vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-    let point = || Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap();
-    vec![
+    let point = Geometry::point(Layout::XY, &[1.0, 2.0])?;
+    Ok(vec![
         ("Bytes", Value::Bytes(b"ab".to_vec())),
         ("Str", Value::str("a")),
         ("Int", Value::Int(1)),
@@ -1813,38 +1847,41 @@ fn marshal_json_values() -> Vec<(&'static str, Value)> {
             "DateTime",
             Value::DateTime(DateTime::utc(2006, 1, 2, 15, 4, 5, 0)),
         ),
-        ("Point", Value::Geo(point())),
+        ("Point", Value::Geo(point.clone())),
         (
             "LineString",
-            Value::Geo(Geometry::line_string(Layout::XY, &line()).unwrap()),
+            Value::Geo(Geometry::line_string(Layout::XY, &line())?),
         ),
         (
             "Polygon",
-            Value::Geo(Geometry::polygon(Layout::XY, &[ring()]).unwrap()),
+            Value::Geo(Geometry::polygon(Layout::XY, &[ring()])?),
         ),
         (
             "MultiPoint",
-            Value::Geo(Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0])]).unwrap()),
+            Value::Geo(Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0])])?),
         ),
         (
             "MultiLineString",
-            Value::Geo(Geometry::multi_line_string(Layout::XY, &[line()]).unwrap()),
+            Value::Geo(Geometry::multi_line_string(Layout::XY, &[line()])?),
         ),
         (
             "MultiPolygon",
-            Value::Geo(Geometry::multi_polygon(Layout::XY, &[vec![ring()]]).unwrap()),
+            Value::Geo(Geometry::multi_polygon(Layout::XY, &[vec![ring()]])?),
         ),
         (
             "GeometryCollection",
-            Value::Geo(Geometry::collection(vec![point()])),
+            Value::Geo(Geometry::collection(vec![point])),
         ),
         ("Uid", Value::Uid(7)),
         (
             "BigFloat",
-            Value::BigFloat(BigFloat::unmarshal_text("1.5", 200).unwrap()),
+            Value::BigFloat(
+                BigFloat::unmarshal_text("1.5", 200)
+                    .context("BigFloat::unmarshal_text(\"1.5\", 200)")?,
+            ),
         ),
         ("VFloat", Value::VFloat(vec![1.0, 2.0])),
-    ]
+    ])
 }
 
 /// Go v25.5.0's `Val.MarshalJSON` of every type identifier over a value of each Go type the port's `Value` stands
@@ -1853,9 +1890,9 @@ fn marshal_json_values() -> Vec<(&'static str, Value)> {
 /// text. Binary, uid, object, vfloat and unknown types are Go's refusal whatever the value; a string or default
 /// asserts the value `Safe` returns, which is the value itself when it is not nil.
 #[test]
-fn test_marshal_json_mismatched_value() {
+fn test_marshal_json_mismatched_value() -> TestResult {
     use ultragraphdb_core_types::marshal_json;
-    let values = marshal_json_values();
+    let values = marshal_json_values()?;
     let cases: Vec<MismatchCase> = [
         mismatched_default_binary(),
         mismatched_int_float(),
@@ -1874,14 +1911,15 @@ fn test_marshal_json_mismatched_value() {
                 .zip(wants)
                 .filter_map(move |((kind, v), want)| {
                     let got = marshal_json(&Val::new(id, v.clone()))
-                        .map(|b| String::from_utf8(b).unwrap())
-                        .map_err(|e| e.to_string());
+                        .map_err(|e| e.to_string())
+                        .and_then(|b| String::from_utf8(b).map_err(|e| e.to_string()));
                     let want = want.map(String::from).map_err(String::from);
                     (got != want).then(|| format!("{id:?} of {kind}: got {got:?}, Go {want:?}"))
                 })
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 /// A type, and Go's MarshalJSON of each of `marshal_json_values` under it: the JSON or the error text.
@@ -2226,13 +2264,13 @@ fn mismatched_vfloat_unknown() -> Vec<MismatchCase> {
 /// go-geom's `geojson.Marshal`: the error names the first non-finite coordinate in output order, members of
 /// collections in order and nested collections depth first.
 #[test]
-fn test_marshal_json_geo_non_finite() {
+fn test_marshal_json_geo_non_finite() -> TestResult {
     use ultragraphdb_core_types::marshal_json;
     let cases: Vec<GeoCase> = [
-        non_finite_points_lines_and_polygons(),
-        non_finite_multis(),
-        non_finite_multipolygons_collections_and_measures(),
-        non_finite_wider_layouts_and_nesting(),
+        non_finite_points_lines_and_polygons()?,
+        non_finite_multis()?,
+        non_finite_multipolygons_collections_and_measures()?,
+        non_finite_wider_layouts_and_nesting()?,
     ]
     .concat();
     let failures: Vec<String> = cases
@@ -2245,6 +2283,7 @@ fn test_marshal_json_geo_non_finite() {
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 /// A case's name, a geometry with a non-finite coordinate, and the coordinate Go's error names.
@@ -2254,39 +2293,39 @@ const INF: f64 = f64::INFINITY;
 const NINF: f64 = f64::NEG_INFINITY;
 const NAN: f64 = f64::NAN;
 
-fn pt(x: f64, y: f64) -> Geometry {
-    Geometry::point(Layout::XY, &[x, y]).unwrap()
+fn pt(x: f64, y: f64) -> TestResult<Geometry> {
+    Ok(Geometry::point(Layout::XY, &[x, y])?)
 }
 
 fn line(c: &[[f64; 2]]) -> Vec<Vec<f64>> {
     c.iter().map(|c| c.to_vec()).collect()
 }
 
-fn non_finite_points_lines_and_polygons() -> Vec<GeoCase> {
-    vec![
-        ("point +Inf first", pt(INF, 1.0), "+Inf"),
-        ("point -Inf second", pt(1.0, NINF), "-Inf"),
-        ("point NaN second", pt(1.0, NAN), "NaN"),
-        ("point NaN then +Inf", pt(NAN, INF), "NaN"),
-        ("point -Inf then NaN", pt(NINF, NAN), "-Inf"),
+fn non_finite_points_lines_and_polygons() -> TestResult<Vec<GeoCase>> {
+    Ok(vec![
+        ("point +Inf first", pt(INF, 1.0)?, "+Inf"),
+        ("point -Inf second", pt(1.0, NINF)?, "-Inf"),
+        ("point NaN second", pt(1.0, NAN)?, "NaN"),
+        ("point NaN then +Inf", pt(NAN, INF)?, "NaN"),
+        ("point -Inf then NaN", pt(NINF, NAN)?, "-Inf"),
         (
             "point xyz +Inf third",
-            Geometry::point(Layout::XYZ, &[1.0, 2.0, INF]).unwrap(),
+            Geometry::point(Layout::XYZ, &[1.0, 2.0, INF])?,
             "+Inf",
         ),
         (
             "linestring +Inf in second coord",
-            Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [3.0, INF]])).unwrap(),
+            Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [3.0, INF]]))?,
             "+Inf",
         ),
         (
             "linestring -Inf first then NaN",
-            Geometry::line_string(Layout::XY, &line(&[[NINF, 2.0], [NAN, 3.0]])).unwrap(),
+            Geometry::line_string(Layout::XY, &line(&[[NINF, 2.0], [NAN, 3.0]]))?,
             "-Inf",
         ),
         (
             "linestring NaN first",
-            Geometry::line_string(Layout::XY, &line(&[[NAN, 2.0], [INF, 3.0]])).unwrap(),
+            Geometry::line_string(Layout::XY, &line(&[[NAN, 2.0], [INF, 3.0]]))?,
             "NaN",
         ),
         (
@@ -2294,8 +2333,7 @@ fn non_finite_points_lines_and_polygons() -> Vec<GeoCase> {
             Geometry::polygon(
                 Layout::XY,
                 &[line(&[[0.0, 0.0], [1.0, NAN], [INF, 0.0], [0.0, 0.0]])],
-            )
-            .unwrap(),
+            )?,
             "NaN",
         ),
         (
@@ -2306,20 +2344,19 @@ fn non_finite_points_lines_and_polygons() -> Vec<GeoCase> {
                     line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]]),
                     line(&[[0.0, 0.0], [NINF, 0.0], [0.0, NAN], [0.0, 0.0]]),
                 ],
-            )
-            .unwrap(),
+            )?,
             "-Inf",
         ),
         (
             "polygon +Inf first",
-            Geometry::polygon(Layout::XY, &[line(&[[INF, 0.0], [NINF, 0.0], [0.0, 0.0]])]).unwrap(),
+            Geometry::polygon(Layout::XY, &[line(&[[INF, 0.0], [NINF, 0.0], [0.0, 0.0]])])?,
             "+Inf",
         ),
-    ]
+    ])
 }
 
-fn non_finite_multis() -> Vec<GeoCase> {
-    vec![
+fn non_finite_multis() -> TestResult<Vec<GeoCase>> {
+    Ok(vec![
         (
             "multipoint NaN after empty",
             Geometry::multi_point(
@@ -2330,14 +2367,12 @@ fn non_finite_multis() -> Vec<GeoCase> {
                     Some(vec![NAN, 1.0]),
                     Some(vec![INF, 1.0]),
                 ],
-            )
-            .unwrap(),
+            )?,
             "NaN",
         ),
         (
             "multipoint -Inf first",
-            Geometry::multi_point(Layout::XY, &[Some(vec![NINF, 2.0]), Some(vec![NAN, 1.0])])
-                .unwrap(),
+            Geometry::multi_point(Layout::XY, &[Some(vec![NINF, 2.0]), Some(vec![NAN, 1.0])])?,
             "-Inf",
         ),
         (
@@ -2345,14 +2380,12 @@ fn non_finite_multis() -> Vec<GeoCase> {
             Geometry::multi_line_string(
                 Layout::XY,
                 &[line(&[[1.0, 2.0]]), line(&[[3.0, NINF], [NAN, 0.0]])],
-            )
-            .unwrap(),
+            )?,
             "-Inf",
         ),
         (
             "multilinestring +Inf first",
-            Geometry::multi_line_string(Layout::XY, &[line(&[[INF, 2.0]]), line(&[[3.0, NINF]])])
-                .unwrap(),
+            Geometry::multi_line_string(Layout::XY, &[line(&[[INF, 2.0]]), line(&[[3.0, NINF]])])?,
             "+Inf",
         ),
         (
@@ -2363,15 +2396,14 @@ fn non_finite_multis() -> Vec<GeoCase> {
                     vec![line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]])],
                     vec![line(&[[0.0, 0.0], [INF, NAN], [0.0, 0.0]])],
                 ],
-            )
-            .unwrap(),
+            )?,
             "+Inf",
         ),
-    ]
+    ])
 }
 
-fn non_finite_multipolygons_collections_and_measures() -> Vec<GeoCase> {
-    vec![
+fn non_finite_multipolygons_collections_and_measures() -> TestResult<Vec<GeoCase>> {
+    Ok(vec![
         (
             "multipolygon NaN first",
             Geometry::multi_polygon(
@@ -2380,8 +2412,7 @@ fn non_finite_multipolygons_collections_and_measures() -> Vec<GeoCase> {
                     vec![line(&[[NAN, 0.0], [1.0, 0.0], [0.0, 0.0]])],
                     vec![line(&[[0.0, 0.0], [INF, 0.0], [0.0, 0.0]])],
                 ],
-            )
-            .unwrap(),
+            )?,
             "NaN",
         ),
         (
@@ -2389,55 +2420,53 @@ fn non_finite_multipolygons_collections_and_measures() -> Vec<GeoCase> {
             Geometry::multi_polygon(
                 Layout::XY,
                 &[vec![], vec![line(&[[0.0, 0.0], [0.0, NINF], [0.0, 0.0]])]],
-            )
-            .unwrap(),
+            )?,
             "-Inf",
         ),
         (
             "collection -Inf in second member",
             Geometry::collection(vec![
-                pt(1.0, 2.0),
-                Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [NINF, 0.0]])).unwrap(),
-                pt(NAN, 0.0),
+                pt(1.0, 2.0)?,
+                Geometry::line_string(Layout::XY, &line(&[[1.0, 2.0], [NINF, 0.0]]))?,
+                pt(NAN, 0.0)?,
             ]),
             "-Inf",
         ),
         (
             "collection nested NaN before +Inf",
             Geometry::collection(vec![
-                Geometry::collection(vec![pt(1.0, 1.0)]),
-                Geometry::collection(vec![pt(NAN, 0.0)]),
-                pt(INF, 0.0),
+                Geometry::collection(vec![pt(1.0, 1.0)?]),
+                Geometry::collection(vec![pt(NAN, 0.0)?]),
+                pt(INF, 0.0)?,
             ]),
             "NaN",
         ),
         (
             "collection +Inf first member",
-            Geometry::collection(vec![pt(INF, 0.0), pt(NAN, 0.0)]),
+            Geometry::collection(vec![pt(INF, 0.0)?, pt(NAN, 0.0)?]),
             "+Inf",
         ),
         (
             "point xym NaN m",
-            Geometry::point(Layout::XYM, &[1.0, 2.0, NAN]).unwrap(),
+            Geometry::point(Layout::XYM, &[1.0, 2.0, NAN])?,
             "NaN",
         ),
         (
             "point xyzm -Inf m",
-            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, NINF]).unwrap(),
+            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, NINF])?,
             "-Inf",
         ),
-    ]
+    ])
 }
 
-fn non_finite_wider_layouts_and_nesting() -> Vec<GeoCase> {
-    vec![
+fn non_finite_wider_layouts_and_nesting() -> TestResult<Vec<GeoCase>> {
+    Ok(vec![
         (
             "linestring xyzm NaN z before +Inf m",
             Geometry::line_string(
                 Layout::XYZM,
                 &[vec![1.0, 2.0, 3.0, 4.0], vec![5.0, 6.0, NAN, INF]],
-            )
-            .unwrap(),
+            )?,
             "NaN",
         ),
         (
@@ -2445,8 +2474,7 @@ fn non_finite_wider_layouts_and_nesting() -> Vec<GeoCase> {
             Geometry::multi_point(
                 Layout::XYZ,
                 &[Some(vec![1.0, 2.0, 3.0]), Some(vec![4.0, 5.0, NAN])],
-            )
-            .unwrap(),
+            )?,
             "NaN",
         ),
         (
@@ -2458,24 +2486,20 @@ fn non_finite_wider_layouts_and_nesting() -> Vec<GeoCase> {
                     line(&[[5.0, 6.0]]),
                     line(&[[7.0, 8.0], [9.0, INF]]),
                 ],
-            )
-            .unwrap(),
+            )?,
             "+Inf",
         ),
         (
             "collection thrice nested -Inf in second ring before +Inf",
             Geometry::collection(vec![
-                Geometry::collection(vec![Geometry::collection(vec![
-                    Geometry::multi_polygon(
-                        Layout::XY,
-                        &[vec![
-                            line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]]),
-                            line(&[[0.0, 0.0], [0.0, NINF], [NAN, 0.0]]),
-                        ]],
-                    )
-                    .unwrap(),
-                ])]),
-                pt(INF, 0.0),
+                Geometry::collection(vec![Geometry::collection(vec![Geometry::multi_polygon(
+                    Layout::XY,
+                    &[vec![
+                        line(&[[0.0, 0.0], [1.0, 0.0], [0.0, 0.0]]),
+                        line(&[[0.0, 0.0], [0.0, NINF], [NAN, 0.0]]),
+                    ]],
+                )?])]),
+                pt(INF, 0.0)?,
             ]),
             "-Inf",
         ),
@@ -2484,12 +2508,12 @@ fn non_finite_wider_layouts_and_nesting() -> Vec<GeoCase> {
             Geometry::collection(vec![
                 Geometry::collection(vec![]),
                 Geometry::point_empty(Layout::XY),
-                Geometry::multi_point(Layout::XY, &[]).unwrap(),
-                pt(1.0, INF),
+                Geometry::multi_point(Layout::XY, &[])?,
+                pt(1.0, INF)?,
             ]),
             "+Inf",
         ),
-    ]
+    ])
 }
 
 /// Go v25.5.0's `ParseVFloat` on inputs at its edges: any run of closing brackets, blank lists, separators that
@@ -2545,17 +2569,17 @@ fn test_parse_vfloat() {
 /// Go v25.5.0's `Val.MarshalJSON`, as Go 1.27 writes it: `encoding/json`'s float layout and escapes, a time's
 /// RFC 3339 form and its range error, a bigfloat's `MarshalText`, and the type identifier of every type it refuses.
 #[test]
-fn test_marshal_json_go_texts() {
+fn test_marshal_json_go_texts() -> TestResult {
     use ultragraphdb_core_types::marshal_json;
     let json = |v: Val| {
         marshal_json(&v)
-            .map(|b| String::from_utf8(b).unwrap())
             .map_err(|e| e.to_string())
+            .and_then(|b| String::from_utf8(b).map_err(|e| e.to_string()))
     };
     let cases: Vec<TextCase> = [
         number_and_year_texts(),
         zone_and_string_texts(),
-        bool_bigfloat_and_refused_texts(),
+        bool_bigfloat_and_refused_texts()?,
     ]
     .concat();
     let failures: Vec<String> = cases
@@ -2567,6 +2591,7 @@ fn test_marshal_json_go_texts() {
         })
         .collect();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 /// A value and Go's MarshalJSON of it: the JSON or the error text.
@@ -2670,18 +2695,18 @@ fn zone_and_string_texts() -> Vec<TextCase> {
 }
 
 /// A bool, bigfloats, and the types MarshalJSON refuses.
-fn bool_bigfloat_and_refused_texts() -> Vec<TextCase> {
+fn bool_bigfloat_and_refused_texts() -> TestResult<Vec<TextCase>> {
     use ultragraphdb_core_types::BigFloat;
-    let big = |s: &str| {
-        Val::new(
+    let big = |s: &str| -> TestResult<Val> {
+        Ok(Val::new(
             TypeId::BIGFLOAT,
-            Value::BigFloat(BigFloat::unmarshal_text(s, 200).unwrap()),
-        )
+            Value::BigFloat(BigFloat::unmarshal_text(s, 200).context("a big float")?),
+        ))
     };
-    vec![
+    Ok(vec![
         (Val::new(TypeId::BOOL, Value::Bool(false)), Ok("false")),
-        (big("1e100"), Ok("1e+100")),
-        (big("-0.125"), Ok("-0.125")),
+        (big("1e100")?, Ok("1e+100")),
+        (big("-0.125")?, Ok("-0.125")),
         (
             Val::nil(TypeId::UID),
             Err("invalid type for MarshalJSON: 7"),
@@ -2702,5 +2727,5 @@ fn bool_bigfloat_and_refused_texts() -> Vec<TextCase> {
             Val::new(TypeId::BINARY, Value::Bytes(b"ab".to_vec())),
             Err("invalid type for MarshalJSON: 1"),
         ),
-    ]
+    ])
 }

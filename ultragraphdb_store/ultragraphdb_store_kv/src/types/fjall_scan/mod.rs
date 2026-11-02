@@ -90,15 +90,15 @@ impl FjallScan {
         if self.key_done || version > self.read_ts {
             return;
         }
-        let key = self.key.clone().unwrap_or_default();
+        let current = self.key.clone().unwrap_or_default();
         match decode_value(bytes) {
             Err(reason) => self
                 .pending
-                .push_back(Err(StoreError::Corrupted(key, reason))),
+                .push_back(Err(StoreError::Corrupted(current, reason))),
             Ok(v) if v.deletion => self.key_done = true,
             Ok(v) => {
                 self.pending.push_back(Ok(Item::new(
-                    key,
+                    current,
                     version,
                     v.meta,
                     v.discard,

@@ -80,7 +80,7 @@ impl Decoder {
     fn at<T>(&mut self, i: usize, f: impl FnOnce(&mut Self) -> T) -> T {
         self.path.push(i.to_string());
         let v = f(self);
-        self.path.pop();
+        let _left: Option<String> = self.path.pop();
         v
     }
 
@@ -193,7 +193,7 @@ impl Decoder {
             };
             self.path.push(field.into());
             self.error(val.kind(), go_type);
-            self.path.pop();
+            let _left: Option<String> = self.path.pop();
         }
     }
 
@@ -212,7 +212,7 @@ impl Decoder {
                     | JsonValue::Object(_)) => {
                         self.path.push("type".into());
                         self.error(other.kind(), "string");
-                        self.path.pop();
+                        let _left: Option<String> = self.path.pop();
                     }
                 },
                 "coordinates" => g.coordinates = (val != JsonValue::Null).then_some(val),
@@ -227,7 +227,7 @@ impl Decoder {
                         | JsonValue::String(_)
                         | JsonValue::Array(_)) => self.error(other.kind(), "geojson.CRS"),
                     }
-                    self.path.pop();
+                    let _left: Option<String> = self.path.pop();
                 }
                 _ => {}
             }
@@ -307,15 +307,15 @@ impl GeoJson {
         while let Some((members, done)) = stack.last_mut() {
             match members.next() {
                 Some(m) if m.kind == "GeometryCollection" => {
-                    let members = m.collection_members()?.into_iter();
-                    stack.push((members, Vec::new()));
+                    let nested = m.collection_members()?.into_iter();
+                    stack.push((nested, Vec::new()));
                 }
                 Some(m) => done.push(m.decode_one()?),
                 None => {
-                    let Some((_, done)) = stack.pop() else {
+                    let Some((_, decoded)) = stack.pop() else {
                         break;
                     };
-                    let g = Geometry::collection(done);
+                    let g = Geometry::collection(decoded);
                     match stack.last_mut() {
                         Some((_, parent)) => parent.push(g),
                         None => return Ok(g),
@@ -512,7 +512,8 @@ fn encode(out: &mut String, root: &Geometry) -> Option<()> {
                     break;
                 }
                 None => {
-                    stack.pop();
+                    let _closed: Option<std::iter::Enumerate<std::slice::Iter<'_, Geometry>>> =
+                        stack.pop();
                     out.push_str("]}");
                 }
             }

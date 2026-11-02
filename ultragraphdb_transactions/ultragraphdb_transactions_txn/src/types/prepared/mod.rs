@@ -82,7 +82,7 @@ impl Prepared {
         let (mut read_set, mut record) = buffers.into_parts();
         read_set.reset(namespace, executed.read_ts(), usize::MAX);
         read_set.seal();
-        WriteSetBuilder::new(&executed, session, request, &[])
+        let _record_len: usize = WriteSetBuilder::new(&executed, session, request, &[])
             .with_principal(principal)
             .write_into(&mut record, usize::MAX)?;
         Ok(Self::new(
@@ -115,7 +115,8 @@ impl Prepared {
         let (mut read_set, mut record) = buffers.into_parts();
         read_set.reset(executed.namespace(), executed.read_ts(), usize::MAX);
         read_set.seal();
-        WriteSetBuilder::new(&executed, 0, 0, &[]).write_into(&mut record, usize::MAX)?;
+        let _record_len: usize =
+            WriteSetBuilder::new(&executed, 0, 0, &[]).write_into(&mut record, usize::MAX)?;
         Ok(Self::new(
             executed,
             read_set,
@@ -180,7 +181,7 @@ impl Prepared {
             results,
         )?;
         let mut record = Vec::new();
-        WriteSetBuilder::new(
+        let _record_len: usize = WriteSetBuilder::new(
             &executed,
             self.rewrite.session,
             self.rewrite.request,
@@ -200,6 +201,7 @@ impl Prepared {
         self.record = operated.record;
     }
 
+    /// The namespace the transaction ran in.
     pub fn namespace(&self) -> u64 {
         self.executed.namespace()
     }
@@ -209,6 +211,7 @@ impl Prepared {
         self.executed.read_ts()
     }
 
+    /// The transaction's execution, which the commit step applies.
     pub fn executed(&self) -> &Executed {
         &self.executed
     }

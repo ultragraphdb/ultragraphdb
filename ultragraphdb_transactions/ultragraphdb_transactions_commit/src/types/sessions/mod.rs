@@ -69,7 +69,7 @@ impl Sessions {
     pub fn bounded(mut self, capacity: usize) -> Self {
         self.capacity = capacity.max(1);
         while self.table.len() > self.capacity {
-            self.evict_oldest();
+            let _evicted: Option<u64> = self.evict_oldest();
         }
         self
     }
@@ -173,7 +173,8 @@ impl Sessions {
         } else {
             None
         };
-        self.table
+        let _replaced: Option<Session> = self
+            .table
             .insert(session, Session::registered(session, principal));
         self.changed.push(session);
         self.index_changed = true;
@@ -187,7 +188,7 @@ impl Sessions {
             .iter()
             .min_by_key(|(number, entry)| (entry.pending, entry.touched, **number))
             .map(|(number, _)| *number)?;
-        self.table.remove(&oldest);
+        let _removed: Option<Session> = self.table.remove(&oldest);
         self.evicted.push(oldest);
         self.index_changed = true;
         Some(oldest)
@@ -205,6 +206,7 @@ impl Sessions {
         self.table.len()
     }
 
+    /// Whether no session is held.
     pub fn is_empty(&self) -> bool {
         self.table.is_empty()
     }

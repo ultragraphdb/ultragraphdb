@@ -28,14 +28,17 @@ pub struct Posting {
 }
 
 impl Posting {
+    /// The posting's UID: the referenced node's, or the one a value posting is ordered by.
     pub fn uid(&self) -> u64 {
         self.uid
     }
 
+    /// The value of a value posting; empty for a reference.
     pub fn value(&self) -> &[u8] {
         &self.value
     }
 
+    /// The kind of object the posting holds.
     pub fn posting_type(&self) -> PostingType {
         self.posting_type
     }
@@ -45,18 +48,22 @@ impl Posting {
         &self.lang_tag
     }
 
+    /// The posting's facets.
     pub fn facets(&self) -> &[Facet] {
         &self.facets
     }
 
+    /// The write's operation.
     pub fn op(&self) -> u32 {
         self.op
     }
 
+    /// The start timestamp of the transaction that wrote the posting.
     pub fn start_ts(&self) -> u64 {
         self.start_ts
     }
 
+    /// The commit timestamp of the transaction that wrote the posting.
     pub fn commit_ts(&self) -> u64 {
         self.commit_ts
     }
@@ -66,14 +73,17 @@ impl Posting {
         &self.statement_ids
     }
 
+    /// The posting with `uid` as its UID.
     pub fn with_uid(self, uid: u64) -> Self {
         Self { uid, ..self }
     }
 
+    /// The posting with `value` as its value.
     pub fn with_value(self, value: Vec<u8>) -> Self {
         Self { value, ..self }
     }
 
+    /// The posting with `posting_type` as its kind.
     pub fn with_posting_type(self, posting_type: PostingType) -> Self {
         Self {
             posting_type,
@@ -81,26 +91,32 @@ impl Posting {
         }
     }
 
+    /// The posting with `lang_tag` as its value's language.
     pub fn with_lang_tag(self, lang_tag: Vec<u8>) -> Self {
         Self { lang_tag, ..self }
     }
 
+    /// The posting with `facets` as its facets.
     pub fn with_facets(self, facets: Vec<Facet>) -> Self {
         Self { facets, ..self }
     }
 
+    /// The posting with `op` as its operation.
     pub fn with_op(self, op: u32) -> Self {
         Self { op, ..self }
     }
 
+    /// The posting with `start_ts` as its start timestamp.
     pub fn with_start_ts(self, start_ts: u64) -> Self {
         Self { start_ts, ..self }
     }
 
+    /// The posting with `commit_ts` as its commit timestamp.
     pub fn with_commit_ts(self, commit_ts: u64) -> Self {
         Self { commit_ts, ..self }
     }
 
+    /// The posting with `statement_ids` as its statements' IDs.
     pub fn with_statement_ids(self, statement_ids: Vec<u64>) -> Self {
         Self {
             statement_ids,
@@ -108,14 +124,17 @@ impl Posting {
         }
     }
 
+    /// Sets the write's operation to `op`.
     pub fn set_op(&mut self, op: u32) {
         self.op = op;
     }
 
+    /// Sets the start timestamp to `start_ts`.
     pub fn set_start_ts(&mut self, start_ts: u64) {
         self.start_ts = start_ts;
     }
 
+    /// Sets the commit timestamp to `commit_ts`.
     pub fn set_commit_ts(&mut self, commit_ts: u64) {
         self.commit_ts = commit_ts;
     }

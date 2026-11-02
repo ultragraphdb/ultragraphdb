@@ -242,7 +242,7 @@ fn norm(mut s: Vec<char>) -> Vec<char> {
             let mut j = 1;
             while j < s.len() {
                 if s[j] == ch && go_unicode::is_letter(ch) {
-                    s.remove(j);
+                    let _duplicate: char = s.remove(j);
                 } else {
                     ch = s[j];
                     j += 1;
@@ -257,17 +257,17 @@ fn norm(mut s: Vec<char>) -> Vec<char> {
     }
     if s.len() > 4 {
         if s[s.len() - 1] == 'r' {
-            s.pop();
+            let _last: Option<char> = s.pop();
         }
         if s[s.len() - 1] == 'e' {
-            s.pop();
+            let _last: Option<char> = s.pop();
         }
         if s[s.len() - 1] == 'e' {
-            s.pop();
+            let _last: Option<char> = s.pop();
         }
         let n = s.len();
         if s[n - 1] == s[n - 2] && go_unicode::is_letter(s[n - 1]) {
-            s.pop();
+            let _last: Option<char> = s.pop();
         }
     }
     s

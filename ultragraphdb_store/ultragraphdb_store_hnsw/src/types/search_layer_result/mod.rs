@@ -114,7 +114,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
     }
 
     pub fn add_to_visited(&mut self, n: PersistentHeapElement<T>) {
-        self.visited.insert(n.index());
+        let _first_visit: bool = self.visited.insert(n.index());
     }
 
     /// Adds the layer's visited count and counters to `r`'s: Dgraph's `updateFinalMetrics`.

@@ -9,22 +9,18 @@ use std::path::Path;
 use serde::de::DeserializeOwned;
 
 use crate::types::golden::Golden;
-use crate::utils::or_fail::or_fail;
+use crate::types::test_error::{TestError, TestResult};
 
 /// Loads a golden-vector file.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics when the file cannot be read, with `cannot read golden file <path>: <io error>`, and when its text is not a
-/// golden file of `T` cases, with `cannot parse golden file <path>: <serde_json error>`. A test fails on either, naming
-/// the file and the fault.
-pub fn load_golden<T: DeserializeOwned>(path: &Path) -> Golden<T> {
-    let text = or_fail(
-        fs::read_to_string(path)
-            .map_err(|e| format!("cannot read golden file {}: {e}", path.display())),
-    );
-    or_fail(
-        serde_json::from_str(&text)
-            .map_err(|e| format!("cannot parse golden file {}: {e}", path.display())),
-    )
+/// A [`TestError`] when the file cannot be read, `cannot read golden file <path>: <io error>`, and when its text is
+/// not a golden file of `T` cases, `cannot parse golden file <path>: <serde_json error>`. A test fails on either,
+/// naming the file and the fault.
+pub fn load_golden<T: DeserializeOwned>(path: &Path) -> TestResult<Golden<T>> {
+    let text = fs::read_to_string(path)
+        .map_err(|e| TestError::new(format!("cannot read golden file {}: {e}", path.display())))?;
+    serde_json::from_str(&text)
+        .map_err(|e| TestError::new(format!("cannot parse golden file {}: {e}", path.display())))
 }

@@ -19,38 +19,71 @@ const GEO: &str = "http://www.opengis.net/ont/geosparql#";
 /// tokenizers take. The codes are stored, so each keeps its code for good and a new datatype takes a new one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KnownDatatype {
+    /// `xsd:boolean`.
     Boolean,
+    /// `xsd:integer`.
     Integer,
+    /// `xsd:decimal`.
     Decimal,
+    /// `xsd:double`.
     Double,
+    /// `xsd:float`.
     Float,
+    /// `xsd:dateTime`.
     DateTime,
+    /// `xsd:time`.
     Time,
+    /// `xsd:date`.
     Date,
+    /// `xsd:gYearMonth`.
     GYearMonth,
+    /// `xsd:gYear`.
     GYear,
+    /// `xsd:gMonthDay`.
     GMonthDay,
+    /// `xsd:gDay`.
     GDay,
+    /// `xsd:gMonth`.
     GMonth,
+    /// `xsd:duration`.
     Duration,
+    /// `xsd:yearMonthDuration`.
     YearMonthDuration,
+    /// `xsd:dayTimeDuration`.
     DayTimeDuration,
+    /// `xsd:long`.
     Long,
+    /// `xsd:int`.
     Int,
+    /// `xsd:short`.
     Short,
+    /// `xsd:byte`.
     Byte,
+    /// `xsd:nonNegativeInteger`.
     NonNegativeInteger,
+    /// `xsd:positiveInteger`.
     PositiveInteger,
+    /// `xsd:nonPositiveInteger`.
     NonPositiveInteger,
+    /// `xsd:negativeInteger`.
     NegativeInteger,
+    /// `xsd:unsignedLong`.
     UnsignedLong,
+    /// `xsd:unsignedInt`.
     UnsignedInt,
+    /// `xsd:unsignedShort`.
     UnsignedShort,
+    /// `xsd:unsignedByte`.
     UnsignedByte,
+    /// `xsd:dateTimeStamp`.
     DateTimeStamp,
+    /// `geo:geoJSONLiteral`.
     GeoJsonLiteral,
+    /// `geo:wktLiteral`.
     WktLiteral,
+    /// `ugdb:float32vector`.
     Float32Vector,
+    /// `xsd:anyURI`.
     AnyUri,
 }
 
@@ -241,6 +274,7 @@ impl KnownDatatype {
         self.entry().1
     }
 
+    /// The datatype's IRI.
     pub fn iri(self) -> &'static str {
         self.entry().2
     }

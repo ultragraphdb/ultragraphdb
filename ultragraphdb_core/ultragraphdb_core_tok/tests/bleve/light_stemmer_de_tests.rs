@@ -7,9 +7,10 @@
 //! the corpus sentences and their plurals, by a Go program over bleve's filter. Umlauts fold, `ß` stays.
 
 use crate::bleve::check_stems;
+use ultragraphdb_tool_bdd::TestResult;
 
 #[test]
-fn test_german_light_stemmer() {
+fn test_german_light_stemmer() -> TestResult {
     check_stems(
         "stemmer_de_light",
         &[
@@ -29,5 +30,6 @@ fn test_german_light_stemmer() {
             ("kindes", "kind"),
         ],
         &[],
-    );
+    )?;
+    Ok(())
 }

@@ -25,7 +25,7 @@ impl Options {
 
     /// Dgraph's `SetOpt`: sets `which` to `value`.
     pub fn set_opt(&mut self, which: impl Into<String>, value: OptionValue) -> &mut Self {
-        self.0.insert(which.into(), value);
+        let _replaced: Option<OptionValue> = self.0.insert(which.into(), value);
         self
     }
 

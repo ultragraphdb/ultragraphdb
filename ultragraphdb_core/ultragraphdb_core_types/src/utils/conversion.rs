@@ -561,11 +561,11 @@ pub fn marshal_binary(v: &Val) -> Result<Vec<u8>, TypesError> {
 /// none, which [`Geometry::to_geojson`] refuses only for such a coordinate.
 fn first_non_finite(g: &Geometry) -> f64 {
     let mut stack = vec![g];
-    while let Some(g) = stack.pop() {
-        if let Some(f) = g.flat_coords().iter().find(|f| !f.is_finite()) {
+    while let Some(next) = stack.pop() {
+        if let Some(f) = next.flat_coords().iter().find(|f| !f.is_finite()) {
             return *f;
         }
-        stack.extend(g.geoms().iter().rev());
+        stack.extend(next.geoms().iter().rev());
     }
     f64::NAN
 }

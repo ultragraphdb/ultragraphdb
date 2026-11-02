@@ -7,6 +7,7 @@
  */
 
 use ultragraphdb_core_tok::{AnalysisToken, filter_stopwords, stop_words};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn stream(terms: &[&str]) -> Vec<AnalysisToken> {
     terms.iter().map(|t| AnalysisToken::of(*t)).collect()
@@ -63,7 +64,7 @@ fn test_filter_stopwords() {
 }
 
 #[test]
-fn test_stop_word_languages() {
+fn test_stop_word_languages() -> TestResult {
     // bleve v2.5.7's stop_<lang> token maps, as a Go program over its registry reads them: the size and the first
     // and last word in byte order.
     let langs: [(&str, usize, &str, &str); 28] = [
@@ -99,7 +100,7 @@ fn test_stop_word_languages() {
     for (lang, len, first, last) in langs {
         let words = stop_words(lang)
             .ok_or_else(|| format!("no stop words for {lang}"))
-            .expect("stop words for the language");
+            .context("stop words for the language")?;
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{lang} not sorted");
         assert_eq!(
             (words.len(), words.first(), words.last()),
@@ -110,4 +111,5 @@ fn test_stop_word_languages() {
     for lang in ["zh", "ja", "ko", "", "EN", "en-US"] {
         assert!(stop_words(lang).is_none(), "{lang:?}");
     }
+    Ok(())
 }

@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The unit tests of `ultragraphdb_store_apply`, mirroring `src/`: the changeset error, the applier, its executions,
+//! writes, drops, builds, replays and vector indexing, over the simulated store.
+
 #[cfg(test)]
 mod errors;
 #[cfg(test)]

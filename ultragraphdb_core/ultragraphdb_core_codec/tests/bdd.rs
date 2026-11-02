@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The codec's scenarios: packing UID lists, seeking through packs, and storing posting lists.
+
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -12,6 +14,7 @@ use ultragraphdb_core_codec::{
     Decoder, Facet, Posting, PostingList, PostingType, SeekPos, UidBlock, UidPack, decode, encode,
 };
 use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Debug, Clone, Deserialize)]
 struct GoldenBlock {
@@ -110,14 +113,14 @@ impl FromStr for Whence {
     }
 }
 
-fn pack_of(w: &Steps) -> &UidPack {
-    w.pack.as_ref().expect("the list was packed")
+fn pack_of(w: &Steps) -> TestResult<&UidPack> {
+    w.pack.as_ref().context("the list was packed")
 }
 
 #[given(expr = "the golden UID lists generated from Dgraph with block size {int}")]
-fn golden_lists(w: &mut Steps, block_size: usize) {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/codec_uidpack.json");
-    let golden = ultragraphdb_tool_bdd::load_golden::<PackCase>(&path);
+fn golden_lists(w: &mut Steps, block_size: usize) -> TestResult {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/codec_uidpack.json");
+    let golden = ultragraphdb_tool_bdd::load_golden::<PackCase>(&path)?;
     w.golden = golden
         .cases()
         .iter()
@@ -125,6 +128,7 @@ fn golden_lists(w: &mut Steps, block_size: usize) {
         .cloned()
         .collect();
     assert!(w.golden.len() > 300, "the golden file holds the lists");
+    Ok(())
 }
 
 #[when(expr = "each golden list is encoded with block size {int}")]
@@ -170,24 +174,27 @@ fn encode_list(w: &mut Steps, block_size: usize) {
 }
 
 #[then(expr = "the pack has {int} block(s)")]
-fn block_count(w: &mut Steps, n: usize) {
-    assert_eq!(pack_of(w).blocks().len(), n);
+fn block_count(w: &mut Steps, n: usize) -> TestResult {
+    assert_eq!(pack_of(w)?.blocks().len(), n);
+    Ok(())
 }
 
 #[then(expr = "the block bases are {string}")]
-fn block_bases(w: &mut Steps, want: Uids) {
+fn block_bases(w: &mut Steps, want: Uids) -> TestResult {
     let Uids(want) = want;
-    let bases: Vec<u64> = pack_of(w).blocks().iter().map(UidBlock::base).collect();
+    let bases: Vec<u64> = pack_of(w)?.blocks().iter().map(UidBlock::base).collect();
     assert_eq!(bases, want);
+    Ok(())
 }
 
 #[then(expr = "block {int} has base {int}, count {int} and deltas {string}")]
-fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: HexBytes) {
+fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: HexBytes) -> TestResult {
     let HexBytes(want) = deltas;
-    let block = &pack_of(w).blocks()[index - 1];
+    let block = &pack_of(w)?.blocks()[index - 1];
     assert_eq!(block.base(), base);
     assert_eq!(block.num_uids(), count);
-    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, block.deltas()).unwrap();
+    ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, block.deltas())?;
+    Ok(())
 }
 
 #[given("every sorted UID list of length 0 to 100, below 2^32 and across 2^32")]
@@ -232,22 +239,25 @@ fn stepped(w: &mut Steps, from: u64, to: u64, stride: usize, block_size: usize) 
 }
 
 #[when(expr = "the pack is decoded from {int}")]
-fn decode_from(w: &mut Steps, target: u64) {
-    w.result = decode(pack_of(w), target);
+fn decode_from(w: &mut Steps, target: u64) -> TestResult {
+    w.result = decode(pack_of(w)?, target);
+    Ok(())
 }
 
 #[when(expr = "a decoder seeks {int} with {word}")]
-fn seek(w: &mut Steps, target: u64, whence: Whence) {
+fn seek(w: &mut Steps, target: u64, whence: Whence) -> TestResult {
     let Whence(pos) = whence;
     w.seek = Some((target, pos));
-    w.result = Decoder::sought(pack_of(w), target, pos).uids().to_vec();
+    w.result = Decoder::sought(pack_of(w)?, target, pos).uids().to_vec();
+    Ok(())
 }
 
 #[when("the decoder moves to the next block")]
-fn next_block(w: &mut Steps) {
-    let (target, pos) = w.seek.expect("a decoder sought");
-    let mut decoder = Decoder::sought(pack_of(w), target, pos);
+fn next_block(w: &mut Steps) -> TestResult {
+    let (target, pos) = w.seek.context("a decoder sought")?;
+    let mut decoder = Decoder::sought(pack_of(w)?, target, pos);
     w.result = decoder.next_block().to_vec();
+    Ok(())
 }
 
 #[then(expr = "the result holds {int} UIDs from {int} to {int}")]
@@ -268,36 +278,43 @@ fn result_holds(w: &mut Steps, n: usize, first: u64, last: u64) {
 }
 
 #[when(expr = "a decoder seeks to block {int} and then to block {int} with {word}")]
-fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, whence: Whence) {
+fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, whence: Whence) -> TestResult {
     let Whence(pos) = whence;
-    let mut decoder = Decoder::new(pack_of(w));
-    decoder.seek_to_block(first, pos);
+    let mut decoder = Decoder::new(pack_of(w)?);
+    // The decoder holds the block of the first seek, which the second seek starts from.
+    let _first_block: &[u64] = decoder.seek_to_block(first, pos);
     w.result = decoder.seek_to_block(second, pos).to_vec();
+    Ok(())
 }
 
 #[given(expr = "a pack of the blocks {string}, an empty block of base {int}, and {string}")]
-fn pack_with_empty_block(w: &mut Steps, first: UidRange, base: u64, last: UidRange) {
+fn pack_with_empty_block(w: &mut Steps, first: UidRange, base: u64, last: UidRange) -> TestResult {
     let (UidRange(first), UidRange(last)) = (first, last);
     let mut blocks = encode(&first, 10)
-        .expect("the first block packs")
+        .context("the first block packs")?
         .blocks()
         .to_vec();
     blocks.push(UidBlock::new(base, Vec::new(), 0));
-    blocks.extend_from_slice(encode(&last, 10).expect("the last block packs").blocks());
+    blocks.extend_from_slice(encode(&last, 10).context("the last block packs")?.blocks());
     let pack = UidPack::new(10, blocks);
     w.uids = first.into_iter().chain(last).collect();
     w.pack = Some(pack);
+    Ok(())
 }
 
 #[when(expr = "a decoder seeks to block {int} with {word}")]
-fn seek_to_block_once(w: &mut Steps, target: u64, whence: Whence) {
+fn seek_to_block_once(w: &mut Steps, target: u64, whence: Whence) -> TestResult {
     let Whence(pos) = whence;
-    w.result = Decoder::new(pack_of(w)).seek_to_block(target, pos).to_vec();
+    w.result = Decoder::new(pack_of(w)?)
+        .seek_to_block(target, pos)
+        .to_vec();
+    Ok(())
 }
 
 #[when(expr = "a decoder seeks linearly to {int}")]
-fn linear_seek(w: &mut Steps, target: u64) {
-    w.result = Decoder::new(pack_of(w)).linear_seek(target).to_vec();
+fn linear_seek(w: &mut Steps, target: u64) -> TestResult {
+    w.result = Decoder::new(pack_of(w)?).linear_seek(target).to_vec();
+    Ok(())
 }
 
 #[then(expr = "the result is {string}")]
@@ -307,8 +324,8 @@ fn result_is(w: &mut Steps, want: Uids) {
 }
 
 #[given("a list with a UID pack, value postings with statement IDs and splits")]
-fn full_list(w: &mut Steps) {
-    let pack = encode(&[2, 3, 5, (1 << 32) + 7], 256).expect("the list packs");
+fn full_list(w: &mut Steps) -> TestResult {
+    let pack = encode(&[2, 3, 5, (1 << 32) + 7], 256).context("the list packs")?;
     w.plist = PostingList::default()
         .with_pack(pack)
         .with_commit_ts(9)
@@ -331,15 +348,17 @@ fn full_list(w: &mut Steps) {
                 .with_statement_ids(vec![42]),
         ])
         .with_splits(vec![1, 1 << 32]);
+    Ok(())
 }
 
 #[given(
     expr = "a list with a UID pack, value postings with statement IDs and splits, stored under the key {string}"
 )]
-fn stored_list(w: &mut Steps, key: String) {
-    full_list(w);
+fn stored_list(w: &mut Steps, key: String) -> TestResult {
+    full_list(w)?;
     w.key = key.into_bytes();
     w.stored = w.plist.encode();
+    Ok(())
 }
 
 #[when("the list is encoded and decoded")]
@@ -376,10 +395,11 @@ fn every_read_corrupted(w: &mut Steps, key: String) {
     }
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

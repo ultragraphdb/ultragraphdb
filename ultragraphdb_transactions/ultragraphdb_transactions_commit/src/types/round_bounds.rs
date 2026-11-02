@@ -34,10 +34,12 @@ impl RoundBounds {
         }
     }
 
+    /// The most bytes of frame a round takes.
     pub fn bytes(&self) -> u32 {
         self.bytes
     }
 
+    /// The most transactions a round takes.
     pub fn transactions(&self) -> u32 {
         self.transactions
     }

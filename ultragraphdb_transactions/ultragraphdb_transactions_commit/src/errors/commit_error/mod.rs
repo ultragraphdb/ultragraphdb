@@ -18,48 +18,90 @@ pub struct CommitError(pub CommitErrorEnum);
 pub enum CommitErrorEnum {
     /// A transaction committed above the read version wrote what this one read: `kind` names the kind of read, or
     /// [`ConflictKind::Drop`] when the write was a range. Retryable.
-    Conflict { kind: ConflictKind },
+    Conflict {
+        /// The kind of read the write overlapped.
+        kind: ConflictKind,
+    },
     /// The read version is below `floor`, the version the conflict history is pruned to. Retryable.
-    TooOld { read_version: u64, floor: u64 },
+    TooOld {
+        /// The transaction's read version.
+        read_version: u64,
+        /// The version the conflict history is pruned to.
+        floor: u64,
+    },
     /// The transaction's write-set record, `size` bytes as it arrived or as its commit-time operations left it, is over
     /// `limit`, the largest a round holds on its own ([`crate::RoundBounds::max_write_set`]), the Welcome's
     /// `max_write_set`.
-    TooLarge { size: usize, limit: usize },
+    TooLarge {
+        /// The record's size in bytes.
+        size: usize,
+        /// The largest record a round holds, in bytes.
+        limit: usize,
+    },
     /// The write-set record does not read as one: a worker built it wrongly.
-    Malformed { cause: ProtocolError },
+    Malformed {
+        /// Why the record did not read.
+        cause: ProtocolError,
+    },
     /// The read set was handed over unsealed, so its tables are not in the order validation walks them.
     Unsealed,
     /// The commit queue holds `limit` requests already. Retryable.
-    Busy { limit: usize },
+    Busy {
+        /// The commit queue's capacity, in requests.
+        limit: usize,
+    },
     /// The node refuses writes, after a failed log sync or once commit versions are exhausted, until it restarts.
     Unavailable,
     /// The commit names a session the session table does not hold: evicted, or never registered. The client registers
     /// a new session.
-    SessionEvicted { session: u64 },
+    SessionEvicted {
+        /// The session the table does not hold.
+        session: u64,
+    },
     /// The commit's request number is not one above its session's last committed one, nor that one: `expected` is.
-    RequestOutOfOrder { expected: u64 },
+    RequestOutOfOrder {
+        /// The request number the session takes.
+        expected: u64,
+    },
     /// The session already has a commit in flight; its reply comes first.
-    SessionBusy { session: u64 },
+    SessionBusy {
+        /// The session with a commit in flight.
+        session: u64,
+    },
     /// A retry of `request`, with no transaction open for it, that the session table does not hold: the request was not
     /// committed, and the client runs its transaction again. Retryable.
-    NotCommitted { request: u64 },
+    NotCommitted {
+        /// The request number retried.
+        request: u64,
+    },
     /// Session `session` belongs to another principal: only the principal that registered it commits through it or
     /// reads its stored reply.
-    PermissionDenied { session: u64 },
+    PermissionDenied {
+        /// The session another principal registered.
+        session: u64,
+    },
     /// A commit-time compare-and-set whose expected value was not held, or a counter add that could not add: the whole
     /// transaction is refused and wrote nothing; `found` is the value held, an N-Triples term, `None` when none is.
-    OperationFailed { found: Option<String> },
+    OperationFailed {
+        /// The value held, an N-Triples term; `None` when none is.
+        found: Option<String>,
+    },
     /// The catalog or the store refused a commit-time operation's write, as `reason` states; the transaction wrote
     /// nothing.
-    Refused { reason: String },
+    Refused {
+        /// Why the catalog or the store refused the write.
+        reason: String,
+    },
 }
 
 impl CommitError {
+    /// The [`CommitErrorEnum::Conflict`] reason.
     #[allow(non_snake_case)]
     pub fn Conflict(kind: ConflictKind) -> Self {
         Self(CommitErrorEnum::Conflict { kind })
     }
 
+    /// The [`CommitErrorEnum::TooOld`] reason.
     #[allow(non_snake_case)]
     pub fn TooOld(read_version: u64, floor: u64) -> Self {
         Self(CommitErrorEnum::TooOld {
@@ -68,61 +110,73 @@ impl CommitError {
         })
     }
 
+    /// The [`CommitErrorEnum::TooLarge`] reason.
     #[allow(non_snake_case)]
     pub fn TooLarge(size: usize, limit: usize) -> Self {
         Self(CommitErrorEnum::TooLarge { size, limit })
     }
 
+    /// The [`CommitErrorEnum::Malformed`] reason.
     #[allow(non_snake_case)]
     pub fn Malformed(cause: ProtocolError) -> Self {
         Self(CommitErrorEnum::Malformed { cause })
     }
 
+    /// The [`CommitErrorEnum::Unsealed`] reason.
     #[allow(non_snake_case)]
     pub fn Unsealed() -> Self {
         Self(CommitErrorEnum::Unsealed)
     }
 
+    /// The [`CommitErrorEnum::Unavailable`] reason.
     #[allow(non_snake_case)]
     pub fn Unavailable() -> Self {
         Self(CommitErrorEnum::Unavailable)
     }
 
+    /// The [`CommitErrorEnum::Busy`] reason.
     #[allow(non_snake_case)]
     pub fn Busy(limit: usize) -> Self {
         Self(CommitErrorEnum::Busy { limit })
     }
 
+    /// The [`CommitErrorEnum::SessionEvicted`] reason.
     #[allow(non_snake_case)]
     pub fn SessionEvicted(session: u64) -> Self {
         Self(CommitErrorEnum::SessionEvicted { session })
     }
 
+    /// The [`CommitErrorEnum::RequestOutOfOrder`] reason.
     #[allow(non_snake_case)]
     pub fn RequestOutOfOrder(expected: u64) -> Self {
         Self(CommitErrorEnum::RequestOutOfOrder { expected })
     }
 
+    /// The [`CommitErrorEnum::SessionBusy`] reason.
     #[allow(non_snake_case)]
     pub fn SessionBusy(session: u64) -> Self {
         Self(CommitErrorEnum::SessionBusy { session })
     }
 
+    /// The [`CommitErrorEnum::NotCommitted`] reason.
     #[allow(non_snake_case)]
     pub fn NotCommitted(request: u64) -> Self {
         Self(CommitErrorEnum::NotCommitted { request })
     }
 
+    /// The [`CommitErrorEnum::PermissionDenied`] reason.
     #[allow(non_snake_case)]
     pub fn PermissionDenied(session: u64) -> Self {
         Self(CommitErrorEnum::PermissionDenied { session })
     }
 
+    /// The [`CommitErrorEnum::OperationFailed`] reason.
     #[allow(non_snake_case)]
     pub fn OperationFailed(found: Option<String>) -> Self {
         Self(CommitErrorEnum::OperationFailed { found })
     }
 
+    /// The [`CommitErrorEnum::Refused`] reason.
     #[allow(non_snake_case)]
     pub fn Refused(reason: String) -> Self {
         Self(CommitErrorEnum::Refused { reason })

@@ -7,15 +7,16 @@
 //! printed by a Go program over the same geometries.
 
 use ultragraphdb_core_types::{Geometry, GeometryKind, Layout};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 fn hex(b: &[u8]) -> String {
     b.iter().map(|c| format!("{c:02x}")).collect()
 }
 
-fn unhex(s: &str) -> Vec<u8> {
+fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
@@ -29,66 +30,65 @@ const EMPTY_POINT: &str = "cannot encode empty Point in WKB";
 type MarshalCase = (Geometry, Result<&'static str, &'static str>, &'static str);
 
 /// Each geometry, its little-endian WKB (or go-geom's error) and its big-endian WKB.
-fn marshal_cases() -> Vec<MarshalCase> {
-    let mut cases = single_marshal_cases();
-    cases.extend(multi_marshal_cases());
-    cases
+fn marshal_cases() -> TestResult<Vec<MarshalCase>> {
+    let mut cases = single_marshal_cases()?;
+    cases.extend(multi_marshal_cases()?);
+    Ok(cases)
 }
 
 /// The point, line string and polygon cases.
-fn single_marshal_cases() -> Vec<MarshalCase> {
+fn single_marshal_cases() -> TestResult<Vec<MarshalCase>> {
     let square = ring(&[[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 0.0]]);
     let hole = ring(&[[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 1.0]]);
-    vec![
+    Ok(vec![
         (
-            Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap(),
+            Geometry::point(Layout::XY, &[1.0, 2.0])?,
             Ok("0101000000000000000000f03f0000000000000040"),
             "00000000013ff00000000000004000000000000000",
         ),
         (
-            Geometry::point(Layout::XYM, &[1.0, 2.0, 3.0]).unwrap(),
+            Geometry::point(Layout::XYM, &[1.0, 2.0, 3.0])?,
             Ok("01d1070000000000000000f03f00000000000000400000000000000840"),
             "00000007d13ff000000000000040000000000000004008000000000000",
         ),
         (
-            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, 4.0]).unwrap(),
+            Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, 4.0])?,
             Ok("01b90b0000000000000000f03f000000000000004000000000000008400000000000001040"),
             "0000000bb93ff0000000000000400000000000000040080000000000004010000000000000",
         ),
         (
-            Geometry::line_string(Layout::XY, &ring(&[[0.0, 0.0], [1.0, 1.0]])).unwrap(),
+            Geometry::line_string(Layout::XY, &ring(&[[0.0, 0.0], [1.0, 1.0]]))?,
             Ok(
                 "01020000000200000000000000000000000000000000000000000000000000f03f000000000000f03f",
             ),
             "000000000200000002000000000000000000000000000000003ff00000000000003ff0000000000000",
         ),
         (
-            Geometry::line_string(Layout::XY, &[]).unwrap(),
+            Geometry::line_string(Layout::XY, &[])?,
             Ok("010200000000000000"),
             "000000000200000000",
         ),
         (
-            Geometry::polygon(Layout::XY, &[square, hole]).unwrap(),
+            Geometry::polygon(Layout::XY, &[square, hole])?,
             Ok(
                 "010300000002000000040000000000000000000000000000000000000000000000000010400000000000000000000000000000104000000000000010400000000000000000000000000000000004000000000000000000f03f000000000000f03f0000000000000040000000000000f03f00000000000000400000000000000040000000000000f03f000000000000f03f",
             ),
             "0000000003000000020000000400000000000000000000000000000000401000000000000000000000000000004010000000000000401000000000000000000000000000000000000000000000000000043ff00000000000003ff000000000000040000000000000003ff0000000000000400000000000000040000000000000003ff00000000000003ff0000000000000",
         ),
-    ]
+    ])
 }
 
 /// The multi-geometry and collection cases, and the geometries go-geom refuses.
-fn multi_marshal_cases() -> Vec<MarshalCase> {
+fn multi_marshal_cases() -> TestResult<Vec<MarshalCase>> {
     let unit = ring(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]);
-    vec![
+    Ok(vec![
         (
-            Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0]), None]).unwrap(),
+            Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0]), None])?,
             Err(EMPTY_POINT),
             "",
         ),
         (
-            Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0]), Some(vec![3.0, 4.0])])
-                .unwrap(),
+            Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0]), Some(vec![3.0, 4.0])])?,
             Ok(
                 "0104000000020000000101000000000000000000f03f0000000000000040010100000000000000000008400000000000001040",
             ),
@@ -98,15 +98,14 @@ fn multi_marshal_cases() -> Vec<MarshalCase> {
             Geometry::multi_line_string(
                 Layout::XYZ,
                 &[vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]], vec![]],
-            )
-            .unwrap(),
+            )?,
             Ok(
                 "01ed0300000200000001ea03000002000000000000000000f03f0000000000000040000000000000084000000000000010400000000000001440000000000000184001ea03000000000000",
             ),
             "00000003ed0000000200000003ea000000023ff00000000000004000000000000000400800000000000040100000000000004014000000000000401800000000000000000003ea00000000",
         ),
         (
-            Geometry::multi_polygon(Layout::XY, &[vec![], vec![unit]]).unwrap(),
+            Geometry::multi_polygon(Layout::XY, &[vec![], vec![unit]])?,
             Ok(
                 "0106000000020000000103000000000000000103000000010000000400000000000000000000000000000000000000000000000000f03f0000000000000000000000000000f03f000000000000f03f00000000000000000000000000000000",
             ),
@@ -115,8 +114,8 @@ fn multi_marshal_cases() -> Vec<MarshalCase> {
         // A collection without a layout of its own takes its members' widest: XYZ and XYM widen to XYZM.
         (
             Geometry::collection(vec![
-                Geometry::point(Layout::XYZ, &[1.0, 2.0, 3.0]).unwrap(),
-                Geometry::point(Layout::XYM, &[4.0, 5.0, 6.0]).unwrap(),
+                Geometry::point(Layout::XYZ, &[1.0, 2.0, 3.0])?,
+                Geometry::point(Layout::XYM, &[4.0, 5.0, 6.0])?,
             ]),
             Ok(
                 "01bf0b00000200000001e9030000000000000000f03f0000000000000040000000000000084001d1070000000000000000104000000000000014400000000000001840",
@@ -134,7 +133,7 @@ fn multi_marshal_cases() -> Vec<MarshalCase> {
             "000000000700000001000000000700000000",
         ),
         (
-            Geometry::point(Layout::new(5), &[1.0, 2.0, 3.0, 4.0, 5.0]).unwrap(),
+            Geometry::point(Layout::new(5), &[1.0, 2.0, 3.0, 4.0, 5.0])?,
             Err("geom: unsupported layout Layout(5)"),
             "",
         ),
@@ -149,12 +148,12 @@ fn multi_marshal_cases() -> Vec<MarshalCase> {
             Err(EMPTY_POINT),
             "",
         ),
-    ]
+    ])
 }
 
 #[test]
-fn test_marshal_as_go_geom_writes_it() {
-    for (g, want, be) in marshal_cases() {
+fn test_marshal_as_go_geom_writes_it() -> TestResult {
+    for (g, want, be) in marshal_cases()? {
         let got = g.marshal_wkb();
         assert_eq!(
             got.as_deref().map(hex).map_err(|e| e.to_string()),
@@ -164,19 +163,20 @@ fn test_marshal_as_go_geom_writes_it() {
         if let Ok(le) = want {
             // Either byte order reads back to a geometry that writes the same bytes.
             for wkb in [le, be] {
-                let back = Geometry::unmarshal_wkb(&unhex(wkb)).unwrap();
+                let back = Geometry::unmarshal_wkb(&unhex(wkb)?)?;
                 assert_eq!(back.kind(), g.kind(), "{wkb}");
-                assert_eq!(hex(&back.marshal_wkb().unwrap()), le, "{wkb}");
+                assert_eq!(hex(&back.marshal_wkb()?), le, "{wkb}");
             }
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_unmarshal_as_go_geom_reads_it() {
+fn test_unmarshal_as_go_geom_reads_it() -> TestResult {
     for (input, want) in unmarshal_cases() {
-        let got = Geometry::unmarshal_wkb(&unhex(input))
-            .map(|g| (g.kind(), g.layout(), hex(&g.marshal_wkb().unwrap())))
+        let got = Geometry::unmarshal_wkb(&unhex(input)?)
+            .and_then(|g| Ok((g.kind(), g.layout(), hex(&g.marshal_wkb()?))))
             .map_err(|e| e.to_string());
         assert_eq!(
             got,
@@ -185,6 +185,7 @@ fn test_unmarshal_as_go_geom_reads_it() {
             "{input}"
         );
     }
+    Ok(())
 }
 
 /// A geometry's kind, layout and its little-endian WKB as go-geom writes it back.
@@ -263,7 +264,7 @@ fn unmarshal_cases() -> [(&'static str, Result<Decoded, &'static str>); 22] {
 }
 
 #[test]
-fn test_unmarshal_refuses_a_member_of_another_kind_or_layout() {
+fn test_unmarshal_refuses_a_member_of_another_kind_or_layout() -> TestResult {
     let cases = [
         (
             "010500000001000000010300000000000000",
@@ -280,11 +281,13 @@ fn test_unmarshal_refuses_a_member_of_another_kind_or_layout() {
     ];
     for (input, want) in cases {
         assert_eq!(
-            Geometry::unmarshal_wkb(&unhex(input))
-                .unwrap_err()
+            Geometry::unmarshal_wkb(&unhex(input)?)
+                .err()
+                .context("expected an error")?
                 .to_string(),
             want,
             "{input}"
         );
     }
+    Ok(())
 }

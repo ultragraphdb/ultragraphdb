@@ -64,7 +64,7 @@ impl RollupOutput {
     }
 
     pub(crate) fn insert_part(&mut self, start_uid: u64, part: PostingList) {
-        self.parts.insert(start_uid, part);
+        let _replaced: Option<PostingList> = self.parts.insert(start_uid, part);
     }
 
     /// The start uids of the parts, ascending: the parts are the record of the splits.
@@ -95,7 +95,7 @@ impl RollupOutput {
             if should_split(&list, max_list_size) {
                 let (starts, halves) = bin_split(start_uid, &list);
                 starts.into_iter().zip(halves).for_each(|(start, half)| {
-                    self.parts.insert(start, half);
+                    let _replaced: Option<PostingList> = self.parts.insert(start, half);
                 });
             }
         }

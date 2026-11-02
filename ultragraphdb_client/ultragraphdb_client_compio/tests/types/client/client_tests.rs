@@ -16,9 +16,10 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::utils::serve::{SimConnect, config, serve, serve_sim, server};
+use ultragraphdb_tool_bdd::{Context as _, TestError, TestResult};
 
-fn runtime() -> compio::runtime::Runtime {
-    compio::runtime::Runtime::new().expect("a runtime")
+fn runtime() -> TestResult<compio::runtime::Runtime> {
+    compio::runtime::Runtime::new().context("a runtime")
 }
 
 fn counter() -> Operation {
@@ -85,18 +86,17 @@ fn execute(id: u64, tx: &ultragraphdb_client_compio::Transaction) -> Execute {
 async fn conversation<C: Connect>(
     client: &mut Client<C, Anonymous>,
     scripted: &RefCell<TestServer>,
-) {
-    let session = client.register().await.expect("a session");
-    let tx = client.begin(0, false).await.expect("a transaction");
+) -> TestResult {
+    let session = client.register().await.context("a session")?;
+    let tx = client.begin(0, false).await.context("a transaction")?;
     client
         .write(&tx, &Write::new(TermTable::new(), Vec::new()))
-        .await
-        .unwrap();
-    client.operation(&tx, &counter()).await.unwrap();
-    let committed = client.commit(tx, session).await.expect("committed");
+        .await?;
+    client.operation(&tx, &counter()).await?;
+    let committed = client.commit(tx, session).await.context("committed")?;
     assert_eq!((committed.request(), committed.results().len()), (1, 1));
-    let reader = client.begin(0, true).await.unwrap();
-    let stream = client.read(&reader, &read(&reader)).await.unwrap();
+    let reader = client.begin(0, true).await?;
+    let stream = client.read(&reader, &read(&reader)).await?;
     let mut rows = Vec::new();
     while let Some(texts) = client
         .next_batch(&stream, |v| {
@@ -104,8 +104,7 @@ async fn conversation<C: Connect>(
                 .filter_map(|r| v.term(v.cell(0, r)?)?.text().map(str::to_string))
                 .collect::<Vec<_>>()
         })
-        .await
-        .unwrap()
+        .await?
     {
         rows.extend(texts);
     }
@@ -115,59 +114,64 @@ async fn conversation<C: Connect>(
         "three batches of two rows, under credit of one"
     );
     let prepare = prepare_name();
-    let statement = client.prepare(&prepare).await.unwrap();
+    let statement = client.prepare(&prepare).await?;
     scripted.borrow_mut().set_schema(7);
-    let tx = client.begin(0, true).await.unwrap();
+    let stale_tx = client.begin(0, true).await?;
     let stale = client
-        .execute(&tx, &execute(statement.id(), &tx))
+        .execute(&stale_tx, &execute(statement.id(), &stale_tx))
+        .await?;
+    let refused = client
+        .next_batch(&stale, |_| ())
         .await
-        .unwrap();
-    let refused = client.next_batch(&stale, |_| ()).await.unwrap_err();
+        .err()
+        .context("an error")?;
     assert!(refused.is_stale(), "{refused:?}");
-    let again = client.prepare(&prepare).await.unwrap();
+    let again = client.prepare(&prepare).await?;
     assert_eq!(again.schema(), 7);
-    let tx = client.begin(0, true).await.unwrap();
-    let stream = client
-        .execute(&tx, &execute(again.id(), &tx))
-        .await
-        .unwrap();
-    assert!(
-        client
-            .next_batch(&stream, |v| v.rows())
-            .await
-            .unwrap()
-            .is_some()
-    );
-    client.cancel(stream).await;
-    assert_eq!(client.describe(0).await.unwrap().read_version(), 1_000);
-    let tx = client.begin(0, false).await.unwrap();
-    client.abort(tx).await.unwrap();
+    let again_tx = client.begin(0, true).await?;
+    let executed = client
+        .execute(&again_tx, &execute(again.id(), &again_tx))
+        .await?;
+    assert!(client.next_batch(&executed, |v| v.rows()).await?.is_some());
+    client.cancel(executed).await;
+    assert_eq!(client.describe(0).await?.read_version(), 1_000);
+    let aborted = client.begin(0, false).await?;
+    client.abort(aborted).await?;
     assert_eq!(scripted.borrow().applied(), 1);
+    Ok(())
 }
 
 /// The Rust client: a lost reply retried through its session, applied once.
-async fn retried<C: Connect>(client: &mut Client<C, Anonymous>, scripted: &RefCell<TestServer>) {
-    let session = client.register().await.unwrap();
-    let tx = client.begin(0, false).await.unwrap();
+async fn retried<C: Connect>(
+    client: &mut Client<C, Anonymous>,
+    scripted: &RefCell<TestServer>,
+) -> TestResult {
+    let session = client.register().await?;
+    let tx = client.begin(0, false).await?;
     let first = tx;
     let committed = client
         .commit(tx, session)
         .await
-        .expect("committed through the retry");
+        .context("committed through the retry")?;
     assert_eq!(committed.request(), 1);
     assert_eq!(scripted.borrow().applied(), 1, "applied once");
-    let tx = client.begin(0, false).await.unwrap();
-    assert_eq!(client.commit(tx, session).await.unwrap().request(), 2);
-    let stale = client.commit(first, session).await.unwrap_err();
+    let second_tx = client.begin(0, false).await?;
+    assert_eq!(client.commit(second_tx, session).await?.request(), 2);
+    let stale = client
+        .commit(first, session)
+        .await
+        .err()
+        .context("an error")?;
     assert!(
         matches!(stale.0, ClientErrorEnum::StreamFinished { .. }),
         "the first connection's stream is gone: {stale:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_conversation_over_the_simulated_network() {
-    let rt = runtime();
+fn test_a_conversation_over_the_simulated_network() -> TestResult {
+    let rt = runtime()?;
     for faults in [
         NetworkFaults::none(),
         NetworkFaults::none()
@@ -180,15 +184,17 @@ fn test_a_conversation_over_the_simulated_network() {
         rt.block_on(async {
             let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
             let mut client = Client::new(connector, config(), Anonymous, 16);
-            conversation(&mut client, &scripted).await;
+            conversation(&mut client, &scripted).await?;
             client.close().await;
-        });
+            Ok::<(), TestError>(())
+        })?;
     }
+    Ok(())
 }
 
 #[test]
-fn test_a_lost_reply_is_retried_through_the_session_over_the_simulated_network() {
-    let rt = runtime();
+fn test_a_lost_reply_is_retried_through_the_session_over_the_simulated_network() -> TestResult {
+    let rt = runtime()?;
     let scripted = server();
     scripted.borrow_mut().drop_after_next_commit();
     scripted.borrow_mut().answer_busy_retries(1);
@@ -197,14 +203,16 @@ fn test_a_lost_reply_is_retried_through_the_session_over_the_simulated_network()
     rt.block_on(async {
         let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
         let mut client = Client::new(connector, config(), Anonymous, 16);
-        retried(&mut client, &scripted).await;
-    });
+        retried(&mut client, &scripted).await?;
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
 }
 
 /// Over TCP: the conversation, then a reply lost with its connection, retried through the session on a new one.
 #[test]
-fn test_the_client_runs_over_tcp_loopback() {
-    let rt = runtime();
+fn test_the_client_runs_over_tcp_loopback() -> TestResult {
+    let rt = runtime()?;
     for run_retry in [false, true] {
         let scripted = server();
         if run_retry {
@@ -213,8 +221,8 @@ fn test_the_client_runs_over_tcp_loopback() {
         rt.block_on(async {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .await
-                .expect("a loopback port");
-            let address = listener.local_addr().unwrap();
+                .context("a loopback port")?;
+            let address = listener.local_addr()?;
             let serving = Rc::clone(&scripted);
             let _server = compio::runtime::spawn(async move {
                 while let Ok((stream, _)) = listener.accept().await {
@@ -223,24 +231,26 @@ fn test_the_client_runs_over_tcp_loopback() {
             });
             let mut client = Client::new(TcpConnector::new(address), config(), Anonymous, 16);
             if run_retry {
-                retried(&mut client, &scripted).await;
+                retried(&mut client, &scripted).await?;
             } else {
-                conversation(&mut client, &scripted).await;
+                conversation(&mut client, &scripted).await?;
             }
             client.close().await;
-        });
+            Ok::<(), TestError>(())
+        })?;
     }
+    Ok(())
 }
 
 /// The shell tells the core the wall clock at each connect, so a credential's renewal falls due its margin before the
 /// expiry the server states.
 #[test]
 #[allow(clippy::disallowed_methods)]
-fn test_a_renewal_is_due_before_the_credentials_expiry() {
+fn test_a_renewal_is_due_before_the_credentials_expiry() -> TestResult {
     use std::time::Duration;
     use ultragraphdb_client_core::{TEST_NAME, TEST_PASSWORD, TEST_PRINCIPAL};
     use ultragraphdb_protocol_scram::{MECHANISM, ScramLogin, system_nonce};
-    let rt = runtime();
+    let rt = runtime()?;
     let life = Duration::from_secs(600);
     let scripted = Rc::new(RefCell::new(
         TestServer::new(
@@ -253,16 +263,18 @@ fn test_a_renewal_is_due_before_the_credentials_expiry() {
     let accepted = Rc::clone(&connector.accepted);
     rt.block_on(async {
         let _server = compio::runtime::spawn(serve_sim(Rc::clone(&scripted), accepted));
-        let login = ScramLogin::new(TEST_NAME, TEST_PASSWORD, system_nonce).unwrap();
+        let login = ScramLogin::new(TEST_NAME, TEST_PASSWORD, system_nonce)?;
         let mut client = Client::new(connector, config(), login, 8);
         let before = std::time::Instant::now();
-        client.connect().await.unwrap();
+        client.connect().await?;
         let after = std::time::Instant::now();
         assert_eq!(client.core().principal(), Some(TEST_PRINCIPAL));
-        let due = client.core().next_deadline().expect("the renewal");
+        let due = client.core().next_deadline().context("the renewal")?;
         assert!(
             due >= before + Duration::from_secs(530) && due <= after + Duration::from_secs(540),
             "60 s before the expiry"
         );
-    });
+        Ok::<(), TestError>(())
+    })?;
+    Ok(())
 }

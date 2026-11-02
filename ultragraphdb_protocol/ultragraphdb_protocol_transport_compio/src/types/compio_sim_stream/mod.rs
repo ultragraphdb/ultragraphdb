@@ -15,6 +15,7 @@ pub struct CompioSimStream {
 }
 
 impl CompioSimStream {
+    /// `stream` as a compio stream.
     pub fn new(stream: SimStream) -> Self {
         Self { stream }
     }

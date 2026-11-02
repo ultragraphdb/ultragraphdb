@@ -79,6 +79,7 @@ where
         }
     }
 
+    /// The request's read timestamp.
     pub fn read_ts(&self) -> u64 {
         self.read_ts
     }
@@ -121,7 +122,7 @@ where
     /// it, recording the statement and not the list, so that a commit changing other objects of the list does not
     /// conflict with the test. A list the request reads whole as well is recorded as read whole.
     pub fn get_tested(&mut self, key: &[u8], object: &[u8]) -> Result<&mut List, PostingError> {
-        self.tested.insert((key.to_vec(), object.to_vec()));
+        let _first_test: bool = self.tested.insert((key.to_vec(), object.to_vec()));
         self.fetch(key, false)
     }
 
@@ -145,21 +146,21 @@ where
         let range = Scan::range(start.clone(), end.clone());
         let mut keys = BTreeSet::new();
         for item in snapshot.scan(&range) {
-            keys.insert(item?.key().to_vec());
+            let _new_key: bool = keys.insert(item?.key().to_vec());
         }
         keys.extend(
             self.written_keys()
                 .filter(|k| range.selects(k))
                 .map(<[u8]>::to_vec),
         );
-        self.ranges.insert((start, end));
+        let _new_range: bool = self.ranges.insert((start, end));
         Ok(keys.into_iter().collect())
     }
 
     /// Records the range from `start`, inclusive, to `end`, exclusive, or to the last key when `end` is `None`, as
     /// scanned: what a scan the caller makes through the store itself, such as a skip scan, reports.
     pub fn record_range(&mut self, start: Vec<u8>, end: Option<Vec<u8>>) {
-        self.ranges.insert((start, end));
+        let _new_range: bool = self.ranges.insert((start, end));
     }
 
     /// The key ranges the request scanned, each from its start, inclusive, to its end, exclusive, or to the last key
@@ -177,7 +178,7 @@ where
     pub fn seed_deltas(&mut self, deltas: &[(Vec<u8>, PostingList)]) {
         let (read_ts, stacked) = (self.read_ts, &self.stacked);
         for (key, delta) in deltas {
-            self.held.entry(key.clone()).or_insert_with(|| {
+            let _held: &mut Held = self.held.entry(key.clone()).or_insert_with(|| {
                 let mut list = List::empty(key.clone()).with_scratch(read_ts, Some(delta.clone()));
                 list.mutation_mut().set_stacked(stacked.get(key));
                 Held {
@@ -259,12 +260,12 @@ where
         for (key, held) in std::mem::take(&mut other.held) {
             match self.held.entry(key) {
                 MapEntry::Vacant(vacant) => {
-                    vacant.insert(held);
+                    let _taken: &mut Held = vacant.insert(held);
                 }
                 MapEntry::Occupied(mut mine) => {
                     let whole = mine.get().whole || held.whole;
                     if mine.get().list.delta().is_none() && held.list.delta().is_some() {
-                        mine.insert(held);
+                        let _unwritten: Held = mine.insert(held);
                     }
                     mine.get_mut().whole = whole;
                 }

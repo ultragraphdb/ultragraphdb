@@ -15,52 +15,74 @@ pub struct TermError(pub TermErrorEnum);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TermErrorEnum {
     /// The bytes end before the encoding their tag announces does.
-    Truncated { bytes: Vec<u8> },
+    Truncated {
+        /// The bytes read.
+        bytes: Vec<u8>,
+    },
     /// The first byte is no tag an encoding begins with.
-    UnknownTag { tag: u8 },
+    UnknownTag {
+        /// The first byte.
+        tag: u8,
+    },
     /// A known-datatype code no datatype has.
-    UnknownDatatype { code: u8 },
+    UnknownDatatype {
+        /// The code read.
+        code: u8,
+    },
     /// An inline lexical form or language tag that is not UTF-8, or longer than an inline one may be.
     Malformed {
+        /// The bytes of the form or tag.
         bytes: Vec<u8>,
+        /// What is wrong with them.
         reason: &'static str,
     },
     /// A vector literal not in its canonical form, empty, longer than 65,535 elements, or with an element that is not
     /// finite.
     InvalidVector {
+        /// The vector's lexical form.
         lexical: String,
+        /// What is wrong with it.
         reason: &'static str,
     },
     /// An encoding of a UID where a literal was asked for.
-    NotALiteral { uid: u64 },
+    NotALiteral {
+        /// The UID encoded.
+        uid: u64,
+    },
 }
 
 impl TermError {
+    /// A [`TermErrorEnum::Truncated`] for `bytes`.
     #[allow(non_snake_case)]
     pub fn Truncated(bytes: Vec<u8>) -> Self {
         Self(TermErrorEnum::Truncated { bytes })
     }
 
+    /// A [`TermErrorEnum::UnknownTag`] for `tag`.
     #[allow(non_snake_case)]
     pub fn UnknownTag(tag: u8) -> Self {
         Self(TermErrorEnum::UnknownTag { tag })
     }
 
+    /// A [`TermErrorEnum::UnknownDatatype`] for `code`.
     #[allow(non_snake_case)]
     pub fn UnknownDatatype(code: u8) -> Self {
         Self(TermErrorEnum::UnknownDatatype { code })
     }
 
+    /// A [`TermErrorEnum::Malformed`] for `bytes`, saying why.
     #[allow(non_snake_case)]
     pub fn Malformed(bytes: Vec<u8>, reason: &'static str) -> Self {
         Self(TermErrorEnum::Malformed { bytes, reason })
     }
 
+    /// A [`TermErrorEnum::InvalidVector`] for `lexical`, saying why.
     #[allow(non_snake_case)]
     pub fn InvalidVector(lexical: String, reason: &'static str) -> Self {
         Self(TermErrorEnum::InvalidVector { lexical, reason })
     }
 
+    /// A [`TermErrorEnum::NotALiteral`] for `uid`.
     #[allow(non_snake_case)]
     pub fn NotALiteral(uid: u64) -> Self {
         Self(TermErrorEnum::NotALiteral { uid })

@@ -111,14 +111,17 @@ impl WalConfig {
         }
     }
 
+    /// The cluster every round's header names.
     pub fn cluster(&self) -> u64 {
         self.cluster
     }
 
+    /// Whether the drive protects its cache against power loss, which the defaults are tuned by.
     pub fn power_loss_protection(&self) -> bool {
         self.power_loss_protection
     }
 
+    /// A segment's length in 4,096-byte blocks.
     pub fn segment_blocks(&self) -> NonZeroU32 {
         self.segment_blocks
     }
@@ -128,14 +131,17 @@ impl WalConfig {
         u64::from(self.segment_blocks.get()) * BLOCK as u64
     }
 
+    /// The most segments the log keeps.
     pub fn capacity(&self) -> NonZeroU32 {
         self.capacity
     }
 
+    /// The most bytes of write-set records a round carries, for the commit step.
     pub fn round_bytes(&self) -> u32 {
         self.round_bytes
     }
 
+    /// The most transactions a round carries, for the commit step.
     pub fn round_transactions(&self) -> u32 {
         self.round_transactions
     }
@@ -145,6 +151,7 @@ impl WalConfig {
         self.release
     }
 
+    /// The bytes of rounds after which the commit step takes a checkpoint.
     pub fn checkpoint_bytes(&self) -> u64 {
         self.checkpoint_bytes
     }

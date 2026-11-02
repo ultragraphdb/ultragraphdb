@@ -8,6 +8,7 @@
 //! refused), one commit in flight per session, the table bounded with the oldest evicted.
 
 use ultragraphdb_protocol_wire::{BodyBuilder, ConflictKind, ErrorCode, RoundBody, WriteSetRecord};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 use ultragraphdb_transactions_commit::{
     CommitError, CommitRequest, CommitStep, Input, Reply, RoundBounds, StepOutput,
 };
@@ -49,7 +50,7 @@ fn registered() -> (Step, Out, u64) {
     (step, out, 102)
 }
 
-fn blind(session: u64, request: u64, key: &[u8]) -> TestProposal {
+fn blind(session: u64, request: u64, key: &[u8]) -> TestResult<TestProposal> {
     proposal_in(
         session,
         request,
@@ -60,10 +61,11 @@ fn blind(session: u64, request: u64, key: &[u8]) -> TestProposal {
 }
 
 #[test]
-fn test_a_registration_takes_a_version_which_numbers_the_session_and_its_record_is_logged() {
+fn test_a_registration_takes_a_version_which_numbers_the_session_and_its_record_is_logged()
+-> TestResult {
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(0, 0, b"a"));
+    commit(&mut step, &mut out, 1, blind(0, 0, b"a")?);
     step.step(
         Input::Register {
             ticket: 2,
@@ -72,16 +74,16 @@ fn test_a_registration_takes_a_version_which_numbers_the_session_and_its_record_
         0,
         &mut out,
     );
-    commit(&mut step, &mut out, 3, blind(0, 0, b"b"));
+    commit(&mut step, &mut out, 3, blind(0, 0, b"b")?);
     sync(&mut step, &mut out);
-    let (record, body) = out.append().expect("the second round");
+    let (record, body) = out.append().context("the second round")?;
     assert_eq!(record.transactions(), 2);
     assert_eq!(record.committed(), 2);
     assert_eq!(record.first_version(), 104);
     // The wire's own builder: the registration's record (session 104, request 0, no writes), then the commit's.
     let mut expected = RoundBody::new(0, 0, 0, 104);
     expected.commit(WriteSetRecord::new(0, 0, 104, 0).encode());
-    expected.commit(blind(0, 0, b"b").record);
+    expected.commit(blind(0, 0, b"b")?.record);
     assert_eq!(body, expected.body().as_slice());
     sync(&mut step, &mut out);
     assert_eq!(
@@ -90,18 +92,20 @@ fn test_a_registration_takes_a_version_which_numbers_the_session_and_its_record_
     );
     assert_eq!(step.sessions().len(), 1);
     assert_eq!(out.apply().len(), 1, "a registration applies nothing");
+    Ok(())
 }
 
 #[test]
-fn test_a_retry_of_the_last_committed_request_is_answered_with_its_version_and_commits_nothing() {
+fn test_a_retry_of_the_last_committed_request_is_answered_with_its_version_and_commits_nothing()
+-> TestResult {
     let (mut step, mut out, s) = registered();
-    commit(&mut step, &mut out, 1, blind(s, 1, b"k"));
+    commit(&mut step, &mut out, 1, blind(s, 1, b"k")?);
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(1, Ok(104))]);
     assert_eq!(step.sessions().last(s), Some((1, 104)));
     // The retry closes a round at once: answered there, released, and the round holds no decision for it.
     let entries = step.resolver().history().len();
-    commit(&mut step, &mut out, 2, blind(s, 1, b"k"));
+    commit(&mut step, &mut out, 2, blind(s, 1, b"k")?);
     assert_eq!(out.replies(), &[Reply::new(2, Ok(104))]);
     assert_eq!(out.released().len(), 1);
     assert_eq!(out.append().map(|(r, _)| r.transactions()), Some(0));
@@ -109,13 +113,14 @@ fn test_a_retry_of_the_last_committed_request_is_answered_with_its_version_and_c
     sync(&mut step, &mut out);
     assert!(out.apply().is_empty());
     assert_eq!(step.previous_version(), 104, "no version taken");
+    Ok(())
 }
 
 #[test]
-fn test_a_request_number_out_of_order_is_refused_naming_the_one_expected() {
+fn test_a_request_number_out_of_order_is_refused_naming_the_one_expected() -> TestResult {
     let (mut step, mut out, s) = registered();
-    commit(&mut step, &mut out, 1, blind(s, 0, b"a"));
-    commit(&mut step, &mut out, 2, blind(s, 2, b"b"));
+    commit(&mut step, &mut out, 1, blind(s, 0, b"a")?);
+    commit(&mut step, &mut out, 2, blind(s, 2, b"b")?);
     sync(&mut step, &mut out);
     sync(&mut step, &mut out);
     let refused = CommitError::RequestOutOfOrder(1);
@@ -127,28 +132,39 @@ fn test_a_request_number_out_of_order_is_refused_naming_the_one_expected() {
     assert_eq!(refused.code(), ErrorCode::RequestOutOfOrder);
     assert_eq!(refused.detail(), 1);
     assert!(!refused.is_retryable());
-    let (mut step, mut out, s) = registered();
-    commit(&mut step, &mut out, 1, blind(s, 1, b"a"));
-    sync(&mut step, &mut out);
-    commit(&mut step, &mut out, 2, blind(s, 3, b"b"));
-    sync(&mut step, &mut out);
+    let (mut fresh_step, mut fresh_out, fresh_session) = registered();
+    commit(
+        &mut fresh_step,
+        &mut fresh_out,
+        1,
+        blind(fresh_session, 1, b"a")?,
+    );
+    sync(&mut fresh_step, &mut fresh_out);
+    commit(
+        &mut fresh_step,
+        &mut fresh_out,
+        2,
+        blind(fresh_session, 3, b"b")?,
+    );
+    sync(&mut fresh_step, &mut fresh_out);
     assert_eq!(
-        out.replies(),
+        fresh_out.replies(),
         &[Reply::new(2, Err(CommitError::RequestOutOfOrder(2)))]
     );
+    Ok(())
 }
 
 #[test]
-fn test_a_session_has_at_most_one_commit_in_flight() {
+fn test_a_session_has_at_most_one_commit_in_flight() -> TestResult {
     let (mut step, mut out, s) = registered();
     // A round in flight, then two requests of the session in the next round: the second is busy.
-    commit(&mut step, &mut out, 1, blind(0, 0, b"x"));
-    commit(&mut step, &mut out, 2, blind(s, 1, b"a"));
-    commit(&mut step, &mut out, 3, blind(s, 2, b"b"));
+    commit(&mut step, &mut out, 1, blind(0, 0, b"x")?);
+    commit(&mut step, &mut out, 2, blind(s, 1, b"a")?);
+    commit(&mut step, &mut out, 3, blind(s, 2, b"b")?);
     sync(&mut step, &mut out);
     // Its retry, sent while the first is in flight, is decided in the round after, once the first is applied: it is
     // answered with the first's version.
-    commit(&mut step, &mut out, 4, blind(s, 1, b"a"));
+    commit(&mut step, &mut out, 4, blind(s, 1, b"a")?);
     sync(&mut step, &mut out);
     let busy = CommitError::SessionBusy(s);
     assert_eq!(
@@ -163,16 +179,17 @@ fn test_a_session_has_at_most_one_commit_in_flight() {
     assert_eq!(busy.detail(), s);
     sync(&mut step, &mut out);
     // Once applied, the next number commits.
-    commit(&mut step, &mut out, 5, blind(s, 2, b"b"));
+    commit(&mut step, &mut out, 5, blind(s, 2, b"b")?);
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(5, Ok(108))]);
+    Ok(())
 }
 
 #[test]
-fn test_an_aborted_request_does_not_advance_its_session() {
+fn test_an_aborted_request_does_not_advance_its_session() -> TestResult {
     let (mut step, mut out, s) = registered();
-    commit(&mut step, &mut out, 1, blind(0, 0, b"k"));
-    let reads_k = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"));
+    commit(&mut step, &mut out, 1, blind(0, 0, b"k")?);
+    let reads_k = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"))?;
     commit(&mut step, &mut out, 2, reads_k);
     sync(&mut step, &mut out);
     sync(&mut step, &mut out);
@@ -184,14 +201,15 @@ fn test_an_aborted_request_does_not_advance_its_session() {
         )]
     );
     assert_eq!(step.sessions().last(s), Some((0, 0)));
-    let retry = proposal_in(s, 1, 104, &Reads::list(b"k"), &Writes::point(b"x"));
+    let retry = proposal_in(s, 1, 104, &Reads::list(b"k"), &Writes::point(b"x"))?;
     commit(&mut step, &mut out, 3, retry);
     sync(&mut step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(3, Ok(106))]);
+    Ok(())
 }
 
 #[test]
-fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused() {
+fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused() -> TestResult {
     let mut step = Step::new(unbounded(), 100).with_sessions(2);
     let mut out = Out::new();
     for ticket in 1..=2 {
@@ -207,7 +225,7 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     }
     let (first, second) = (102, 104);
     // The first commits after the second registered, so the second is the oldest.
-    commit(&mut step, &mut out, 3, blind(first, 1, b"a"));
+    commit(&mut step, &mut out, 3, blind(first, 1, b"a")?);
     sync(&mut step, &mut out);
     step.step(
         Input::Register {
@@ -221,7 +239,7 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     assert_eq!(out.replies(), &[Reply::new(4, Ok(108))]);
     assert_eq!(step.sessions().len(), 2);
     assert_eq!(step.sessions().last(second), None, "evicted");
-    commit(&mut step, &mut out, 5, blind(second, 1, b"b"));
+    commit(&mut step, &mut out, 5, blind(second, 1, b"b")?);
     sync(&mut step, &mut out);
     let evicted = CommitError::SessionEvicted(second);
     assert_eq!(out.replies(), &[Reply::new(5, Err(evicted.clone()))]);
@@ -230,8 +248,8 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
     assert!(!evicted.is_retryable());
     assert!(evicted.to_string().contains("evicted"));
     // An unregistered session reads as evicted, and session 0 is no session.
-    commit(&mut step, &mut out, 6, blind(999, 1, b"c"));
-    commit(&mut step, &mut out, 7, blind(0, 0, b"d"));
+    commit(&mut step, &mut out, 6, blind(999, 1, b"c")?);
+    commit(&mut step, &mut out, 7, blind(0, 0, b"d")?);
     sync(&mut step, &mut out);
     let mut replies = out.replies().to_vec();
     sync(&mut step, &mut out);
@@ -243,14 +261,15 @@ fn test_a_full_table_evicts_the_oldest_session_whose_requests_are_then_refused()
             Reply::new(7, Ok(110))
         ]
     );
+    Ok(())
 }
 
 #[test]
 fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commits_under_their_tickets()
- {
+-> TestResult {
     let mut step = Step::new(unbounded(), 100);
     let mut out = Out::new();
-    commit(&mut step, &mut out, 1, blind(0, 0, b"x"));
+    commit(&mut step, &mut out, 1, blind(0, 0, b"x")?);
     step.step(
         Input::Register {
             ticket: 2,
@@ -259,7 +278,7 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
         0,
         &mut out,
     );
-    commit(&mut step, &mut out, 3, blind(0, 0, b"y"));
+    commit(&mut step, &mut out, 3, blind(0, 0, b"y")?);
     sync(&mut step, &mut out);
     step.step(Input::SyncFailed, 0, &mut out);
     assert_eq!(
@@ -284,10 +303,11 @@ fn test_a_failed_sync_answers_a_registration_unavailable_and_releases_the_commit
         out.replies(),
         &[Reply::new(4, Err(CommitError::Unavailable()))]
     );
+    Ok(())
 }
 
 #[test]
-fn test_the_session_errors_read_as_their_reasons() {
+fn test_the_session_errors_read_as_their_reasons() -> TestResult {
     assert!(
         CommitError::SessionBusy(5)
             .to_string()
@@ -299,33 +319,36 @@ fn test_the_session_errors_read_as_their_reasons() {
             .contains("8 is expected")
     );
     assert!(std::error::Error::source(&CommitError::SessionBusy(5)).is_none());
+    Ok(())
 }
 
 /// The session is checked before validation (the Lean model's order): a retry is answered with the stored reply even
 /// when its read set conflicts with a commit after the original, which it would otherwise abort on.
 #[test]
-fn test_a_retry_is_answered_before_its_reads_are_validated() {
+fn test_a_retry_is_answered_before_its_reads_are_validated() -> TestResult {
     let (mut step, mut out, s) = registered();
-    let original = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"));
+    let original = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"))?;
     commit(&mut step, &mut out, 1, original);
     sync(&mut step, &mut out);
-    commit(&mut step, &mut out, 2, blind(0, 0, b"k"));
+    commit(&mut step, &mut out, 2, blind(0, 0, b"k")?);
     sync(&mut step, &mut out);
     // The retry read `k` at 100, and `k` was written at 106 since.
-    let retry = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"));
+    let retry = proposal_in(s, 1, 100, &Reads::list(b"k"), &Writes::point(b"x"))?;
     commit(&mut step, &mut out, 3, retry);
     assert_eq!(out.replies(), &[Reply::new(3, Ok(104))]);
+    Ok(())
 }
 
 /// A registration whose round alone would exceed the bound is refused too large when it arrives, as a commit is; at
 /// the bound it registers. Without the refusal it was never taken, and every round closed empty.
 #[test]
-fn test_a_registration_no_round_holds_is_refused_too_large_and_one_that_fits_registers() {
+fn test_a_registration_no_round_holds_is_refused_too_large_and_one_that_fits_registers()
+-> TestResult {
     use crate::utils::frames::{largest_record, round_frame};
     let mut record = WriteSetRecord::new(0, 0, 102, 0);
     record.set_principal(7);
     let record = record.encode();
-    let alone = round_frame(std::slice::from_ref(&record)).expect("within the frame");
+    let alone = round_frame(std::slice::from_ref(&record)).context("within the frame")?;
     let register = |step: &mut Step, out: &mut Out| {
         step.step(
             Input::Register {
@@ -352,8 +375,9 @@ fn test_a_registration_no_round_holds_is_refused_too_large_and_one_that_fits_reg
     );
     assert_eq!(out.append(), None);
     assert_eq!(step.waiting(), 0);
-    let mut step = Step::new(RoundBounds::new(alone as u32, 16), 100);
-    register(&mut step, &mut out);
-    sync(&mut step, &mut out);
+    let mut alone_step = Step::new(RoundBounds::new(alone as u32, 16), 100);
+    register(&mut alone_step, &mut out);
+    sync(&mut alone_step, &mut out);
     assert_eq!(out.replies(), &[Reply::new(1, Ok(102))]);
+    Ok(())
 }

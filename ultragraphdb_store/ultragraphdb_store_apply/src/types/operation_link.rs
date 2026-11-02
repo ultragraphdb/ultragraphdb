@@ -33,10 +33,12 @@ impl OperationLink {
         }
     }
 
+    /// The predicate of the edge.
     pub fn predicate(&self) -> &NamedNode {
         &self.predicate
     }
 
+    /// The node at the edge's other end.
     pub fn other(&self) -> &NamedOrBlankNode {
         &self.other
     }

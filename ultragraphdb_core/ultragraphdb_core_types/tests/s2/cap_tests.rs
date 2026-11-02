@@ -10,6 +10,7 @@ use super::golden::{Checker, f, ids, load, pt};
 use core::f64::consts::PI;
 use serde::Deserialize;
 use ultragraphdb_core_types::{Angle, Cap, CellId, ChordAngle, LatLng, Point, R3Vector};
+use ultragraphdb_tool_bdd::TestResult;
 
 #[derive(Deserialize)]
 struct Case {
@@ -26,41 +27,42 @@ struct Case {
 }
 
 #[test]
-fn caps_match_go() {
-    let cases: Vec<Case> = load("caps.json");
+fn caps_match_go() -> TestResult {
+    let cases: Vec<Case> = load("caps.json")?;
     let mut c = Checker::new("caps");
     for (n, k) in cases.iter().enumerate() {
-        let cap = Cap::from_center_angle(pt(&k.center), Angle::from_radians(f(&k.angle)));
-        c.check(same_cap(cap, &k.cap), || format!("cap {n}: {cap:?}"));
+        let cap = Cap::from_center_angle(pt(&k.center)?, Angle::from_radians(f(&k.angle)?));
+        c.check(same_cap(cap, &k.cap)?, || format!("cap {n}: {cap:?}"));
         c.check(ids(&cap.cell_union_bound()) == k.cell_union_bound, || {
             format!("cap {n}: cell union bound")
         });
         let mut acc = cap;
         for (i, p) in k.points.iter().enumerate() {
-            let q = pt(p);
+            let q = pt(p)?;
             c.check(cap.contains_point(q) == k.contains_point[i], || {
                 format!("cap {n}: contains point {i}")
             });
             acc = acc.add_point(q);
-            c.check(same_cap(acc, &k.add_point[i]), || {
+            c.check(same_cap(acc, &k.add_point[i])?, || {
                 format!("cap {n}: add point {i}: {acc:?}")
             });
         }
         let other = Cap::from_center_chord_angle(
-            pt(&k.other.center),
-            ChordAngle::from_squared_length(f(&k.other.chord)),
+            pt(&k.other.center)?,
+            ChordAngle::from_squared_length(f(&k.other.chord)?),
         );
-        c.check(same_cap(other, &k.other), || {
+        c.check(same_cap(other, &k.other)?, || {
             format!("cap {n}: other {other:?}")
         });
-        c.check(same_cap(cap.add_cap(other), &k.add_cap), || {
+        c.check(same_cap(cap.add_cap(other), &k.add_cap)?, || {
             format!("cap {n}: add cap {:?}", cap.add_cap(other))
         });
-        c.check(same_cap(cap.complement(), &k.complement), || {
+        c.check(same_cap(cap.complement(), &k.complement)?, || {
             format!("cap {n}: complement {:?}", cap.complement())
         });
     }
     c.finish();
+    Ok(())
 }
 
 // The fixtures of golang/geo s2/cap_test.go (v0.0.0-20260427214057-41a1a8c7eb2a); the concave cap,

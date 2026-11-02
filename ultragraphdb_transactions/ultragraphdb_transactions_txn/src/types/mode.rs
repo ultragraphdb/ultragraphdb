@@ -6,6 +6,8 @@
 /// Whether a transaction writes: a read-only one is never validated and never aborts for a conflict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Mode {
+    /// Reads and writes, validated by the commit step.
     ReadWrite,
+    /// Reads only, at its read version, and commits on its worker.
     ReadOnly,
 }

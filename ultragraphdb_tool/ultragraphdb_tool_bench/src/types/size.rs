@@ -11,6 +11,7 @@ pub struct Size {
 }
 
 impl Size {
+    /// A size of `apparent` bytes held and `allocated` bytes allocated.
     pub fn new(apparent: u64, allocated: u64) -> Self {
         Self {
             apparent,
@@ -18,14 +19,17 @@ impl Size {
         }
     }
 
+    /// The bytes the files hold.
     pub fn apparent(&self) -> u64 {
         self.apparent
     }
 
+    /// The bytes allocated to the files, as `du` reports them.
     pub fn allocated(&self) -> u64 {
         self.allocated
     }
 
+    /// The sum of this size and `other`, each way.
     pub fn plus(self, other: Size) -> Size {
         Size::new(
             self.apparent + other.apparent,

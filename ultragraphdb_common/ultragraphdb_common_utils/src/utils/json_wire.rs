@@ -117,16 +117,16 @@ pub(crate) fn consume_string_resumable(b: &[u8], resume: usize) -> (usize, Optio
         if rn > 1 {
             n += rn;
         } else if c == b'\\' {
-            let resume = n;
+            let escape_start = n;
             let Some(&e) = b.get(n + 1) else {
-                return (resume, Some(ScanError::UnexpectedEof));
+                return (escape_start, Some(ScanError::UnexpectedEof));
             };
             match e {
                 b'/' | b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't' => n += 2,
                 b'u' => {
                     if b.len() < n + 6 {
                         if has_escaped_utf16_prefix(&b[n..], false) {
-                            return (resume, Some(ScanError::UnexpectedEof));
+                            return (escape_start, Some(ScanError::UnexpectedEof));
                         }
                         return (n, Some(ScanError::invalid_escape(&b[n..])));
                     }
@@ -165,9 +165,9 @@ fn is_surrogate(r: u32) -> bool {
 /// Go's `AppendUnquote` of a complete JSON string, its errors dropped as `UnquoteMayCopy` drops them: each byte
 /// that is not UTF-8 and each unpaired surrogate escape becomes U+FFFD.
 pub(crate) fn append_unquote(dst: &mut Vec<u8>, src: &[u8]) {
-    let push_rune = |dst: &mut Vec<u8>, r: u32| {
+    let push_rune = |out: &mut Vec<u8>, r: u32| {
         let c = char::from_u32(r).unwrap_or(char::REPLACEMENT_CHARACTER);
-        dst.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
+        out.extend_from_slice(c.encode_utf8(&mut [0; 4]).as_bytes());
     };
     if src.first() != Some(&b'"') {
         return;
@@ -203,11 +203,11 @@ pub(crate) fn append_unquote(dst: &mut Vec<u8>, src: &[u8]) {
                 b'r' => dst.push(b'\r'),
                 b't' => dst.push(b'\t'),
                 b'u' => {
-                    let Some((r, end)) = unquote_u_escape(src, n) else {
+                    let Some((rune, end)) = unquote_u_escape(src, n) else {
                         return;
                     };
                     n = end;
-                    push_rune(dst, r);
+                    push_rune(dst, rune);
                     i = n;
                     continue;
                 }
@@ -288,12 +288,12 @@ pub(crate) fn consume_number_resumable(
 
     // The required integer part, with an optional minus sign.
     if part == 0 {
-        let resume = n;
+        let start = n;
         if b.first() == Some(&b'-') {
             n += 1;
         }
         match b.get(n) {
-            None => return (resume, BeforeIntegerDigits, Some(ScanError::UnexpectedEof)),
+            None => return (start, BeforeIntegerDigits, Some(ScanError::UnexpectedEof)),
             Some(b'0') => {
                 n += 1;
                 state = BeforeFractionalDigits;
@@ -308,12 +308,12 @@ pub(crate) fn consume_number_resumable(
 
     // The optional fraction.
     if part <= 1 && b.get(n) == Some(&b'.') {
-        let resume = n;
+        let start = n;
         n += 1;
         match b.get(n) {
             None => {
                 return (
-                    resume,
+                    start,
                     BeforeFractionalDigits,
                     Some(ScanError::UnexpectedEof),
                 );
@@ -326,13 +326,13 @@ pub(crate) fn consume_number_resumable(
 
     // The optional exponent.
     if matches!(b.get(n), Some(b'e' | b'E')) {
-        let resume = n;
+        let start = n;
         n += 1;
         if matches!(b.get(n), Some(b'-' | b'+')) {
             n += 1;
         }
         match b.get(n) {
-            None => return (resume, BeforeExponentDigits, Some(ScanError::UnexpectedEof)),
+            None => return (start, BeforeExponentDigits, Some(ScanError::UnexpectedEof)),
             Some(c) if c.is_ascii_digit() => n = digits_from(n + 1),
             Some(_) => return (n, state, Some(expecting_digit(n))),
         }

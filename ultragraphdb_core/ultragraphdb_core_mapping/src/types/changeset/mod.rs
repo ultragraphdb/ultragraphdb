@@ -14,6 +14,7 @@ pub struct Changeset {
 }
 
 impl Changeset {
+    /// An empty changeset for `namespace`.
     pub fn new(namespace: u64) -> Self {
         Self {
             namespace,
@@ -21,27 +22,33 @@ impl Changeset {
         }
     }
 
+    /// Appends `change`.
     pub fn push(&mut self, change: Change) {
         self.changes.push(change);
     }
 
+    /// The changeset with `change` appended.
     pub fn with(mut self, change: Change) -> Self {
         self.changes.push(change);
         self
     }
 
+    /// The namespace the changes apply to.
     pub fn namespace(&self) -> u64 {
         self.namespace
     }
 
+    /// The changes, in order.
     pub fn changes(&self) -> &[Change] {
         &self.changes
     }
 
+    /// The changes, in order, consuming the changeset.
     pub fn into_changes(self) -> Vec<Change> {
         self.changes
     }
 
+    /// Whether it holds no change.
     pub fn is_empty(&self) -> bool {
         self.changes.is_empty()
     }

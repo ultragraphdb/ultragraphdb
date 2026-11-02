@@ -13,6 +13,7 @@ use std::io::Read;
 
 use ultragraphdb_common_utils::{JsonDecoder, JsonValue};
 use ultragraphdb_error_json::{JsonError, JsonErrorEnum};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 use crate::utils::go_json_tests::Want::Syntax;
 use crate::utils::go_json_tests::{VECTORS, Want, matches};
@@ -56,10 +57,10 @@ fn decode_matches_go() {
         let name = String::from_utf8_lossy(input);
         assert!(matches(&got, first), "{name:?}: {got:?}, want {first:?}");
         assert_eq!(dec.input_offset(), offset, "{name:?}");
-        let got = dec.decode();
+        let got_second = dec.decode();
         assert!(
-            matches(&got, second),
-            "{name:?}: second {got:?}, want {second:?}"
+            matches(&got_second, second),
+            "{name:?}: second {got_second:?}, want {second:?}"
         );
     }
 }
@@ -89,16 +90,16 @@ fn decode_one_byte_at_a_time_matches_go() {
         let got = dec.decode();
         assert!(matches(&got, first), "{name:?}: {got:?}, want {first:?}");
         assert_eq!(dec.input_offset(), offset, "{name:?}");
-        let got = dec.decode();
+        let got_second = dec.decode();
         assert!(
-            matches(&got, second),
-            "{name:?}: second {got:?}, want {second:?}"
+            matches(&got_second, second),
+            "{name:?}: second {got_second:?}, want {second:?}"
         );
     }
 }
 
 #[test]
-fn test_decoder() {
+fn test_decoder() -> TestResult {
     let stream = [
         "0.1",
         r#""hello""#,
@@ -127,22 +128,24 @@ fn test_decoder() {
             let v = dec
                 .decode()
                 .map_err(|e| format!("decode #{j}/{i}: {e}"))
-                .expect("decoding the stream");
+                .context("decoding the stream")?;
             assert_eq!(v.marshal(), *w, "#{j}/{i}");
         }
     }
+    Ok(())
 }
 
 #[test]
-fn test_decoder_buffered() {
+fn test_decoder_buffered() -> TestResult {
     let mut dec = JsonDecoder::new(r#"{"Name": "Gopher"} extra "#.as_bytes());
-    let v = dec.decode().unwrap();
+    let v = dec.decode()?;
     assert_eq!(v.marshal(), r#"{"Name":"Gopher"}"#);
     assert_eq!(dec.buffered(), b" extra ");
+    Ok(())
 }
 
 #[test]
-fn test_blocking() {
+fn test_blocking() -> TestResult {
     for (input, want) in [(r#"{"x": 1}"#, r#"{"x":1}"#), ("[1, 2, 3]", "[1,2,3]")] {
         // A read past what was written would block Go's pipe; here it fails.
         let mut dec = JsonDecoder::new(Once(Some(input.as_bytes().to_vec())));
@@ -151,16 +154,13 @@ fn test_blocking() {
             Ok(want.to_string()),
             "{input}"
         );
-        assert_eq!(
-            dec.input_offset(),
-            i64::try_from(input.len()).unwrap(),
-            "{input}"
-        );
+        assert_eq!(dec.input_offset(), i64::try_from(input.len())?, "{input}");
     }
+    Ok(())
 }
 
 #[test]
-fn test_decode_in_stream_errors() {
+fn test_decode_in_stream_errors() -> TestResult {
     for (input, msg, offset) in [
         (
             r#"{ "\a" }"#,
@@ -180,15 +180,16 @@ fn test_decode_in_stream_errors() {
     ] {
         let mut dec = JsonDecoder::new(input.as_bytes());
         assert_eq!(
-            dec.decode().unwrap_err(),
-            JsonError::Syntax(msg.to_string(), i64::try_from(offset).unwrap()),
+            dec.decode(),
+            Err(JsonError::Syntax(msg.to_string(), i64::try_from(offset)?)),
             "{input}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn test_unmarshal_error_after_multiple_json() {
+fn test_unmarshal_error_after_multiple_json() -> TestResult {
     for (input, msg, upto) in [
         (
             "1 false null :",
@@ -224,10 +225,11 @@ fn test_unmarshal_error_after_multiple_json() {
         };
         assert_eq!(
             err,
-            JsonError::Syntax(msg.to_string(), i64::try_from(upto.len()).unwrap()),
+            JsonError::Syntax(msg.to_string(), i64::try_from(upto.len())?),
             "{input}"
         );
     }
+    Ok(())
 }
 
 /// `TestUnmarshal` reads every syntax error through a Decoder as well; truncated input is `io.ErrUnexpectedEOF`
@@ -253,27 +255,29 @@ fn test_unmarshal_decoder_errors() {
 }
 
 #[test]
-fn a_syntax_error_is_returned_again() {
+fn a_syntax_error_is_returned_again() -> TestResult {
     let mut dec = JsonDecoder::new("1 x 2".as_bytes());
-    assert_eq!(dec.decode().unwrap(), JsonValue::Number("1".to_string()));
-    let err = dec.decode().unwrap_err();
-    assert_eq!(dec.decode().unwrap_err(), err);
+    assert_eq!(dec.decode(), Ok(JsonValue::Number("1".to_string())));
+    let first = dec.decode();
+    assert!(first.is_err(), "{first:?}");
+    assert_eq!(dec.decode(), first);
+    Ok(())
 }
 
 #[test]
 fn a_failing_reader_is_its_error() {
     let mut dec = JsonDecoder::new(Once(Some(b"[1,".to_vec())));
     assert_eq!(
-        dec.decode().unwrap_err().0,
-        JsonErrorEnum::Read("read past the value".to_string())
+        dec.decode().map_err(|e| e.0),
+        Err(JsonErrorEnum::Read("read past the value".to_string()))
     );
 }
 
 #[test]
-fn check_eof_refuses_anything_but_whitespace_after_the_value() {
-    let mut dec = JsonDecoder::new("{} \n".as_bytes());
-    dec.decode().unwrap();
-    assert_eq!(dec.check_eof(), Ok(()));
+fn check_eof_refuses_anything_but_whitespace_after_the_value() -> TestResult {
+    let mut whole = JsonDecoder::new("{} \n".as_bytes());
+    assert_eq!(whole.decode()?, JsonValue::Object(Vec::new()));
+    assert_eq!(whole.check_eof(), Ok(()));
     for (input, msg, offset) in [
         ("{} x", "invalid character 'x' after top-level value", 4),
         ("[1] [2]", "invalid character '[' after top-level value", 5),
@@ -285,23 +289,24 @@ fn check_eof_refuses_anything_but_whitespace_after_the_value() {
         ),
     ] {
         let mut dec = JsonDecoder::new(input.as_bytes());
-        dec.decode().unwrap();
+        let _value: JsonValue = dec.decode()?;
         assert_eq!(
             dec.check_eof(),
             Err(JsonError::Syntax(msg.to_string(), offset)),
             "{input}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn check_eof_names_a_character_the_buffer_cut_whole() {
+fn check_eof_names_a_character_the_buffer_cut_whole() -> TestResult {
     // The first read takes 64 bytes: the value ends at byte 63, and é's second byte is not read yet.
-    let input = format!(r#"{{"a":"{}"}}é"#, "x".repeat(55));
-    assert_eq!(input.find('é'), Some(63));
-    for input in [input.as_bytes(), b"{} \xc3"] {
+    let long = format!(r#"{{"a":"{}"}}é"#, "x".repeat(55));
+    assert_eq!(long.find('é'), Some(63));
+    for input in [long.as_bytes(), b"{} \xc3"] {
         let mut dec = JsonDecoder::new(input);
-        dec.decode().unwrap();
+        let _value: JsonValue = dec.decode()?;
         let want = if input.len() > 4 {
             JsonError::Syntax(
                 "invalid character 'é' after top-level value".to_string(),
@@ -316,14 +321,16 @@ fn check_eof_names_a_character_the_buffer_cut_whole() {
         };
         assert_eq!(dec.check_eof(), Err(want));
     }
+    Ok(())
 }
 
 #[test]
-fn a_long_value_spans_several_reads() {
+fn a_long_value_spans_several_reads() -> TestResult {
     let long = format!(r#"{{"{}":[{}1]}}"#, "k".repeat(5000), "1,".repeat(3000));
     let mut dec = JsonDecoder::new(OneByte(long.as_bytes()));
-    let v = dec.decode().unwrap();
+    let v = dec.decode()?;
     assert_eq!(v.marshal(), long);
-    assert_eq!(dec.input_offset(), i64::try_from(long.len()).unwrap());
-    assert_eq!(dec.decode().unwrap_err(), JsonError::Eof());
+    assert_eq!(dec.input_offset(), i64::try_from(long.len())?);
+    assert_eq!(dec.decode(), Err(JsonError::Eof()));
+    Ok(())
 }

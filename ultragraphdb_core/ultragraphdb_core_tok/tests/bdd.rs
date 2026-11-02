@@ -3,6 +3,8 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+//! The behaviour scenarios of `ultragraphdb_core_tok`, run by cucumber over the crate's `features/`.
+
 use cucumber::{World, then, when};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -11,6 +13,7 @@ use ultragraphdb_core_tok::{
     get_ngram_query_tokens, get_ngram_tokens, get_tokenizer, get_tokenizer_for_lang, lang_base,
 };
 use ultragraphdb_core_types::{TypeId, Val, Value, convert};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[derive(Debug, Default, World)]
 struct Steps {
@@ -40,17 +43,17 @@ struct TokensCase {
     fixed: Option<Vec<String>>,
 }
 
-fn golden() -> Vec<TokensCase> {
-    let path = ultragraphdb_tool_bdd::testdata_dir().join("golden/tok_tokens.json");
-    ultragraphdb_tool_bdd::load_golden::<TokensCase>(&path)
+fn golden() -> TestResult<Vec<TokensCase>> {
+    let path = ultragraphdb_tool_bdd::testdata_dir()?.join("golden/tok_tokens.json");
+    Ok(ultragraphdb_tool_bdd::load_golden::<TokensCase>(&path)?
         .cases()
-        .to_vec()
+        .to_vec())
 }
 
-fn unhex(s: &str) -> Vec<u8> {
+fn unhex(s: &str) -> TestResult<Vec<u8>> {
     (0..s.len())
         .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).context("a hex byte"))
         .collect()
 }
 
@@ -61,8 +64,8 @@ fn hex(b: &[u8]) -> String {
     b.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn untext(s: &str) -> String {
-    String::from_utf8(unhex(s)).unwrap()
+fn untext(s: &str) -> TestResult<String> {
+    Ok(String::from_utf8(unhex(s)?)?)
 }
 
 fn enc(id: u8, s: &[u8]) -> Vec<u8> {
@@ -71,26 +74,25 @@ fn enc(id: u8, s: &[u8]) -> Vec<u8> {
     v
 }
 
-fn value(c: &TokensCase) -> Value {
+fn value(c: &TokensCase) -> TestResult<Value> {
     let from_text = |to| {
         convert(
             &Val::new(TypeId::STRING, Value::Bytes(c.input.as_bytes().to_vec())),
             to,
-        )
-        .unwrap()
+        )?
         .into_value()
-        .unwrap()
+        .context("the converted value")
     };
-    match c.kind.as_str() {
-        "string" => Value::Str(untext(&c.input)),
-        "int" => Value::Int(c.input.parse().unwrap()),
-        "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16).unwrap())),
+    Ok(match c.kind.as_str() {
+        "string" => Value::Str(untext(&c.input)?),
+        "int" => Value::Int(c.input.parse()?),
+        "float" => Value::Float(f64::from_bits(u64::from_str_radix(&c.input, 16)?)),
         "bool" => Value::Bool(c.input == "true"),
         "vfloat" => Value::VFloat(vec![1.0, 2.0, 3.0]),
-        "bigfloat" => from_text(TypeId::BIGFLOAT),
-        "datetime" => from_text(TypeId::DATETIME),
-        _ => from_text(TypeId::GEO),
-    }
+        "bigfloat" => from_text(TypeId::BIGFLOAT)?,
+        "datetime" => from_text(TypeId::DATETIME)?,
+        _ => from_text(TypeId::GEO)?,
+    })
 }
 
 /// `tokens` of a hash or ngram case with each 33-byte digest reduced to its identifier byte, sorted again when
@@ -114,12 +116,22 @@ fn digests_masked(tokenizer: &str, sorted: bool, tokens: Vec<Vec<u8>>) -> Vec<Ve
 fn compare(c: &TokensCase) -> Result<(), String> {
     let got: Result<Vec<Vec<u8>>, String> = match c.via.as_str() {
         "build" => build_tokens(
-            &value(c),
-            &get_tokenizer_for_lang(&get_tokenizer(&c.tokenizer).unwrap(), &c.lang),
+            &value(c).map_err(|e| e.to_string())?,
+            &get_tokenizer_for_lang(
+                &get_tokenizer(&c.tokenizer)
+                    .ok_or_else(|| format!("no tokenizer {}", c.tokenizer))?,
+                &c.lang,
+            ),
         )
         .map_err(|e| e.to_string()),
-        "ngram" => Ok(get_ngram_tokens(untext(&c.input), &c.lang)),
-        _ => Ok(get_ngram_query_tokens(untext(&c.input), &c.lang)),
+        "ngram" => Ok(get_ngram_tokens(
+            untext(&c.input).map_err(|e| e.to_string())?,
+            &c.lang,
+        )),
+        _ => Ok(get_ngram_query_tokens(
+            untext(&c.input).map_err(|e| e.to_string())?,
+            &c.lang,
+        )),
     };
     let got = got.map(|mut t| {
         if c.sorted {
@@ -133,7 +145,8 @@ fn compare(c: &TokensCase) -> Result<(), String> {
             .unwrap_or(&c.tokens)
             .iter()
             .map(|t| unhex(t))
-            .collect())
+            .collect::<TestResult<_>>()
+            .map_err(|e| e.to_string())?)
     } else {
         Err(c.error.clone())
     };
@@ -160,12 +173,11 @@ fn compare_all(w: &mut Steps, cases: impl Iterator<Item = TokensCase>) {
     }
 }
 
-fn tokens_of(name: &str, lang: &str, s: &str) -> Vec<Vec<u8>> {
-    build_tokens(
+fn tokens_of(name: &str, lang: &str, s: &str) -> TestResult<Vec<Vec<u8>>> {
+    Ok(build_tokens(
         &Value::str(s),
-        &get_tokenizer_for_lang(&get_tokenizer(name).unwrap(), lang),
-    )
-    .unwrap()
+        &get_tokenizer_for_lang(&get_tokenizer(name).context("get_tokenizer(name)")?, lang),
+    )?)
 }
 
 fn no_mismatches(w: &mut Steps) {
@@ -180,8 +192,9 @@ fn no_mismatches(w: &mut Steps) {
 }
 
 #[when(expr = "each tokenizer tokenizes its golden inputs")]
-fn every_tokenizer(w: &mut Steps) {
-    compare_all(w, golden().into_iter());
+fn every_tokenizer(w: &mut Steps) -> TestResult {
+    compare_all(w, golden()?.into_iter());
+    Ok(())
 }
 
 #[then(expr = "every token, identifier byte included, equals Dgraph's")]
@@ -192,12 +205,18 @@ fn every_token_equal(w: &mut Steps) {
 }
 
 #[when(expr = "the ints MinInt64, -1, 0, 1 and MaxInt64 are tokenized")]
-fn ints_tokenized(w: &mut Steps) {
-    let int = get_tokenizer("int").unwrap();
+fn ints_tokenized(w: &mut Steps) -> TestResult {
+    let int = get_tokenizer("int").context("get_tokenizer(\"int\")")?;
     w.tokens = [i64::MIN, -1, 0, 1, i64::MAX]
         .iter()
-        .map(|i| build_tokens(&Value::Int(*i), &int).unwrap().remove(0))
-        .collect();
+        .map(|i| {
+            build_tokens(&Value::Int(*i), &int)?
+                .into_iter()
+                .next()
+                .context("the int's token")
+        })
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(expr = "the tokens' byte order is the values' order")]
@@ -206,34 +225,50 @@ fn ints_ordered(w: &mut Steps) {
 }
 
 #[when(expr = "the floats -2.7 and 2.7 are tokenized")]
-fn floats_tokenized(w: &mut Steps) {
-    let float = get_tokenizer("float").unwrap();
+fn floats_tokenized(w: &mut Steps) -> TestResult {
+    let float = get_tokenizer("float").context("get_tokenizer(\"float\")")?;
     w.tokens = [-2.7, 2.7]
         .iter()
-        .map(|f| float.tokens(&Value::Float(*f)).unwrap().remove(0))
-        .collect();
+        .map(|f| {
+            float
+                .tokens(&Value::Float(*f))?
+                .into_iter()
+                .next()
+                .context("the float's token")
+        })
+        .collect::<TestResult<_>>()?;
+    Ok(())
 }
 
 #[then(expr = "their tokens equal the int tokens of -2 and 2")]
-fn floats_truncated(w: &mut Steps) {
-    let int = get_tokenizer("int").unwrap();
+fn floats_truncated(w: &mut Steps) -> TestResult {
+    let int = get_tokenizer("int").context("get_tokenizer(\"int\")")?;
     let want: Vec<Vec<u8>> = [-2, 2]
         .iter()
-        .map(|i| int.tokens(&Value::Int(*i)).unwrap().remove(0))
-        .collect();
+        .map(|i| {
+            int.tokens(&Value::Int(*i))?
+                .into_iter()
+                .next()
+                .context("the int's token")
+        })
+        .collect::<TestResult<_>>()?;
     assert_eq!(w.tokens, want);
+    Ok(())
 }
 
 #[when(expr = "{string} is tokenized by the hour tokenizer")]
-fn hour_tokenized(w: &mut Steps, s: String) {
+fn hour_tokenized(w: &mut Steps, s: String) -> TestResult {
     let t = convert(
         &Val::new(TypeId::STRING, Value::Bytes(s.into_bytes())),
         TypeId::DATETIME,
-    )
-    .unwrap()
+    )?
     .into_value()
-    .unwrap();
-    w.tokens = build_tokens(&t, &get_tokenizer("hour").unwrap()).unwrap();
+    .context("the converted datetime")?;
+    w.tokens = build_tokens(
+        &t,
+        &get_tokenizer("hour").context("get_tokenizer(\"hour\")")?,
+    )?;
+    Ok(())
 }
 
 #[then(expr = "the token encodes year 2017, month 1, day 1 and hour 11")]
@@ -242,8 +277,9 @@ fn hour_fields(w: &mut Steps) {
 }
 
 #[when(expr = "{string} is tokenized by the term tokenizer")]
-fn term_tokenized(w: &mut Steps, s: &[String]) {
-    w.tokens = tokens_of("term", "", &s[0]);
+fn term_tokenized(w: &mut Steps, s: &[String]) -> TestResult {
+    w.tokens = tokens_of("term", "", &s[0])?;
+    Ok(())
 }
 
 #[then(expr = "the tokens are {string} and {string}, each prefixed with 0x01")]
@@ -256,8 +292,9 @@ fn term_tokens(w: &mut Steps, terms: &[String]) {
 }
 
 #[when(expr = "{string} is tokenized by the term tokenizer for {string}")]
-fn term_lang_tokenized(w: &mut Steps, s_and_lang: &[String]) {
-    w.tokens = tokens_of("term", &s_and_lang[1], &s_and_lang[0]);
+fn term_lang_tokenized(w: &mut Steps, s_and_lang: &[String]) -> TestResult {
+    w.tokens = tokens_of("term", &s_and_lang[1], &s_and_lang[0])?;
+    Ok(())
 }
 
 #[then(expr = "the tokens are {string} and {string}")]
@@ -269,14 +306,16 @@ fn tokens_are(w: &mut Steps, a: String, b: String) {
 }
 
 #[when(expr = "{string} is tokenized by the fulltext tokenizer for {string}")]
-fn fulltext_tokenized(w: &mut Steps, s_and_lang: &[String]) {
-    w.tokens = tokens_of("fulltext", &s_and_lang[1], &s_and_lang[0]);
+fn fulltext_tokenized(w: &mut Steps, s_and_lang: &[String]) -> TestResult {
+    w.tokens = tokens_of("fulltext", &s_and_lang[1], &s_and_lang[0])?;
+    Ok(())
 }
 
 #[when(expr = "{string} is tokenized by the trigram tokenizer")]
-fn trigram_tokenized(w: &mut Steps, s: String) {
-    w.tokens = tokens_of("trigram", "", &s);
+fn trigram_tokenized(w: &mut Steps, s: String) -> TestResult {
+    w.tokens = tokens_of("trigram", "", &s)?;
     w.texts = vec![s];
+    Ok(())
 }
 
 #[then(expr = "the result is Dgraph's 11 trigrams, sorted")]
@@ -309,21 +348,28 @@ fn byte_windows(w: &mut Steps, _shown: String) {
 }
 
 #[when(expr = "the golden Chinese sentence is tokenized by the fulltext tokenizer for {string}")]
-fn chinese_fulltext(w: &mut Steps, langs: &[String]) {
+fn chinese_fulltext(w: &mut Steps, langs: &[String]) -> TestResult {
     let lang = &langs[0];
     let hex: String = "他是一个薪水很高的商人"
         .bytes()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let cases: Vec<TokensCase> = golden()
+    let cases: Vec<TokensCase> = golden()?
         .into_iter()
         .filter(|c| {
             c.tokenizer == "fulltext" && c.lang == *lang && c.via == "build" && c.input == hex
         })
         .collect();
     assert_eq!(cases.len(), 1);
-    w.tokens = tokens_of("fulltext", lang, "他是一个薪水很高的商人");
-    w.groups = vec![cases[0].tokens.iter().map(|t| unhex(t)).collect()];
+    w.tokens = tokens_of("fulltext", lang, "他是一个薪水很高的商人")?;
+    w.groups = vec![
+        cases[0]
+            .tokens
+            .iter()
+            .map(|t| unhex(t))
+            .collect::<TestResult<_>>()?,
+    ];
+    Ok(())
 }
 
 #[then(expr = "the tokens equal Dgraph's bigrams")]
@@ -336,12 +382,12 @@ fn chinese_bigrams(w: &mut Steps) {
 }
 
 #[when(expr = "the golden sentences for every language with a stemmer are tokenized by fulltext")]
-fn stemmed_languages(w: &mut Steps) {
+fn stemmed_languages(w: &mut Steps) -> TestResult {
     const STEMMED: [&str; 21] = [
         "ar", "ckb", "da", "de", "en", "es", "fi", "fr", "hi", "hu", "it", "ja", "ko", "nl", "no",
         "pt", "ro", "ru", "sv", "tr", "zh",
     ];
-    let cases: Vec<TokensCase> = golden()
+    let cases: Vec<TokensCase> = golden()?
         .into_iter()
         .filter(|c| {
             c.tokenizer == "fulltext" && c.via == "build" && STEMMED.contains(&c.lang.as_str())
@@ -350,6 +396,7 @@ fn stemmed_languages(w: &mut Steps) {
     let langs: std::collections::BTreeSet<String> = cases.iter().map(|c| c.lang.clone()).collect();
     assert_eq!(langs.len(), STEMMED.len(), "{langs:?}");
     compare_all(w, cases.into_iter());
+    Ok(())
 }
 
 #[then(expr = "each language's tokens equal Dgraph's")]
@@ -407,7 +454,7 @@ fn reduced_to(w: &mut Steps, a: String, b: String, c: String, d: String, e: Stri
 #[when(
     expr = "the golden German strings are tokenized by the exact tokenizer with language {string}"
 )]
-fn german_exact(w: &mut Steps, langs: &[String]) {
+fn german_exact(w: &mut Steps, langs: &[String]) -> TestResult {
     let lang = &langs[0];
     const GERMAN: [&str; 19] = [
         "Äpfel", "Apfel", "apfel", "Zebra", "zebra", "Öl", "Ofen", "Straße", "Strasse", "Müller",
@@ -417,12 +464,13 @@ fn german_exact(w: &mut Steps, langs: &[String]) {
         .iter()
         .map(|s| s.bytes().map(|b| format!("{b:02x}")).collect())
         .collect();
-    let cases: Vec<TokensCase> = golden()
+    let cases: Vec<TokensCase> = golden()?
         .into_iter()
         .filter(|c| c.tokenizer == "exact" && c.lang == *lang && hexes.contains(&c.input))
         .collect();
     assert!(cases.len() >= GERMAN.len());
     compare_all(w, cases.into_iter());
+    Ok(())
 }
 
 #[then(expr = "the tokens equal Dgraph's, byte for byte")]
@@ -431,8 +479,8 @@ fn exact_equal(w: &mut Steps) {
 }
 
 #[when(expr = "the golden points and polygons are tokenized by the geo tokenizer")]
-fn geo_golden(w: &mut Steps) {
-    let cases: Vec<TokensCase> = golden()
+fn geo_golden(w: &mut Steps) -> TestResult {
+    let cases: Vec<TokensCase> = golden()?
         .into_iter()
         .filter(|c| c.tokenizer == "geo")
         .collect();
@@ -442,6 +490,7 @@ fn geo_golden(w: &mut Steps) {
             .any(|c| c.input.contains("Polygon") && c.error.is_empty())
     );
     compare_all(w, cases.into_iter());
+    Ok(())
 }
 
 #[then(expr = "the tokens, sorted, equal Dgraph's")]
@@ -450,8 +499,11 @@ fn geo_equal(w: &mut Steps) {
 }
 
 #[when(expr = "the geo tokenizer is checked against the bool type")]
-fn geo_vs_bool(w: &mut Steps) {
-    w.flag = get_tokenizer("geo").unwrap().is_valid_for(TypeId::BOOL);
+fn geo_vs_bool(w: &mut Steps) -> TestResult {
+    w.flag = get_tokenizer("geo")
+        .context("get_tokenizer(\"geo\")")?
+        .is_valid_for(TypeId::BOOL);
+    Ok(())
 }
 
 #[then(expr = "the registry reports it as not valid")]
@@ -460,10 +512,12 @@ fn not_valid(w: &mut Steps) {
 }
 
 #[when(expr = "the hnsw factory is given metric {string}")]
-fn hnsw_metric(w: &mut Steps, metric: String) {
+fn hnsw_metric(w: &mut Steps, metric: String) -> TestResult {
     w.error = get_factory_create_spec_from_spec("hnsw", &[("metric".into(), metric)])
-        .unwrap_err()
+        .err()
+        .context("expected an error")?
         .to_string();
+    Ok(())
 }
 
 #[then(expr = "the options are refused with {string}")]
@@ -472,13 +526,17 @@ fn refused_with(w: &mut Steps, msg: &[String]) {
 }
 
 #[when(expr = "{string} tagged {string} is tokenized for the ngram index and for an ngram query")]
-fn ngram_index_and_query(w: &mut Steps, s_and_lang: &[String]) {
+fn ngram_index_and_query(w: &mut Steps, s_and_lang: &[String]) -> TestResult {
     let (s, lang) = (&s_and_lang[0], &s_and_lang[1]);
-    let ngram = get_tokenizer_for_lang(&get_tokenizer("ngram").unwrap(), lang);
+    let ngram = get_tokenizer_for_lang(
+        &get_tokenizer("ngram").context("get_tokenizer(\"ngram\")")?,
+        lang,
+    );
     w.groups = vec![
-        build_tokens(&Value::str(s.as_str()), &ngram).unwrap(),
+        build_tokens(&Value::str(s.as_str()), &ngram)?,
         get_ngram_query_tokens(s, lang),
     ];
+    Ok(())
 }
 
 #[then(expr = "both yield the same stemmed shingles, starting with {string}")]
@@ -520,10 +578,11 @@ fn the_result(w: &mut Steps, want: String) {
     assert_eq!(w.texts, vec![want]);
 }
 
-fn main() {
+fn main() -> TestResult {
     futures::executor::block_on(
         Steps::cucumber()
             .fail_on_skipped()
-            .run_and_exit(ultragraphdb_tool_bdd::features_dir()),
+            .run_and_exit(ultragraphdb_tool_bdd::features_dir()?),
     );
+    Ok(())
 }

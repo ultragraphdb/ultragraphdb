@@ -15,6 +15,7 @@ pub struct RebuildRecord {
 }
 
 impl RebuildRecord {
+    /// The record of rebuild `id`, whose new indexes lie under `prefixes`.
     pub fn new(id: u64, prefixes: Vec<Vec<u8>>) -> Self {
         Self { id, prefixes }
     }
@@ -24,10 +25,12 @@ impl RebuildRecord {
         self.id
     }
 
+    /// The prefixes of the indexes the rebuild adds.
     pub fn prefixes(&self) -> &[Vec<u8>] {
         &self.prefixes
     }
 
+    /// The prefixes, taken out of the record.
     pub fn into_prefixes(self) -> Vec<Vec<u8>> {
         self.prefixes
     }

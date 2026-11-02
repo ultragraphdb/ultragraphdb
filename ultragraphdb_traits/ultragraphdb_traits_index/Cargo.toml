@@ -22,6 +22,9 @@ workspace = true
 ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_error_options = { workspace = true }
 
+[dev-dependencies]
+ultragraphdb_tool_bdd = { workspace = true }
+
 [[test]]
 name = "unit"
 path = "tests/mod.rs"

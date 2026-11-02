@@ -32,7 +32,7 @@ const EXPORT_TIMEOUT: Duration = Duration::from_secs(10);
 ///
 /// [`TelemetryErrorEnum::Filter`](crate::TelemetryErrorEnum::Filter) when the directive does not parse,
 /// [`Exporter`](crate::TelemetryErrorEnum::Exporter) when the endpoint is not an `http://` or `https://` URL the
-/// exporter takes, or an `https://` endpoint finds no trust store, and
+/// exporter takes, or an `https://` endpoint finds no trust store or a TLS configuration rustls refuses, and
 /// [`Installed`](crate::TelemetryErrorEnum::Installed) when a global subscriber or `log` logger is already set.
 /// Nothing is installed on any of them.
 pub fn init(config: &TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> {
@@ -45,7 +45,8 @@ pub fn init(config: &TelemetryConfig) -> Result<TelemetryGuard, TelemetryError> 
 }
 
 /// The OTLP/HTTP span exporter to `endpoint`, sending through [`OtlpHttpClient`]: plain for `http://`, verified
-/// against the image's trust store for `https://`, which is read here so a missing bundle fails at start.
+/// against the image's trust store for `https://`, which is read and configured here so a missing bundle fails at
+/// start.
 fn otlp_exporter(endpoint: &str) -> Result<opentelemetry_otlp::SpanExporter, TelemetryError> {
     let refused = |reason: String| TelemetryError::Exporter(endpoint.to_string(), reason);
     let scheme = endpoint
@@ -56,7 +57,7 @@ fn otlp_exporter(endpoint: &str) -> Result<opentelemetry_otlp::SpanExporter, Tel
         Some("http") => client,
         Some("https") => {
             let trust = TlsTrust::system().map_err(|e| refused(e.to_string()))?;
-            client.with_tls(TlsConnector::new(trust))
+            client.with_tls(TlsConnector::new(trust).map_err(|e| refused(e.to_string()))?)
         }
         _ => {
             return Err(refused(

@@ -20,26 +20,32 @@ pub struct AuthenticateView<'a> {
 }
 
 impl<'a> AuthenticateView<'a> {
+    /// The message's place in its exchange, from 0: the client's even, the server's odd.
     pub fn step(&self) -> u32 {
         self.step
     }
 
+    /// Whether this is the server's last message of the exchange.
     pub fn is_final(&self) -> bool {
         self.last
     }
 
+    /// The principal acted for; 0 without authentication.
     pub fn principal(&self) -> u64 {
         self.principal
     }
 
+    /// When the credential expires, in microseconds of Unix time; 0 for never.
     pub fn expires(&self) -> u64 {
         self.expires
     }
 
+    /// The SASL mechanism's name, in the client's first message; empty in every other.
     pub fn mechanism(&self) -> &'a str {
         self.mechanism
     }
 
+    /// The mechanism's message, its own bytes.
     pub fn message(&self) -> &'a [u8] {
         self.message
     }

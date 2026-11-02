@@ -70,6 +70,7 @@ impl List {
         Self::new(key, PostingList::default(), 0)
     }
 
+    /// The list's key.
     pub fn key(&self) -> &[u8] {
         &self.key
     }
@@ -99,6 +100,7 @@ impl List {
         self.plist.splits().to_vec()
     }
 
+    /// The mutable layer: the deltas above the immutable layer.
     pub fn mutation(&self) -> &MutableLayer {
         &self.mutation
     }

@@ -11,7 +11,7 @@
 use std::cell::Cell;
 use std::sync::Arc;
 
-use criterion::{Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{BenchmarkGroup, Criterion, Throughput, criterion_group, criterion_main};
 use ultragraphdb_store_kv::MokaListCache;
 use ultragraphdb_traits_store::ListCache;
 
@@ -33,30 +33,33 @@ fn list_cache(c: &mut Criterion) {
     cache.run_pending_tasks();
 
     let mut group = c.benchmark_group("kv_list_cache");
-    group.throughput(Throughput::Elements(1));
     let next = Cell::new(0u64);
-    group.bench_function("hit", |b| {
-        b.iter(|| {
-            let i = next.get();
-            next.set((i + 7_919) % ENTRIES);
-            cache.get(&key(i)).expect("a hit")
-        })
-    });
-    group.bench_function("miss", |b| {
-        b.iter(|| {
-            let i = next.get();
-            next.set((i + 7_919) % ENTRIES);
-            cache.get(&key(ENTRIES + i))
-        })
-    });
     let fresh = Cell::new(2 * ENTRIES);
-    group.bench_function("insert", |b| {
-        b.iter(|| {
-            let i = fresh.get();
-            fresh.set(i + 1);
-            cache.insert(key(i), value.clone())
+    let _measured: &mut BenchmarkGroup<'_, _> = group
+        .throughput(Throughput::Elements(1))
+        .bench_function("hit", |b| {
+            b.iter(|| {
+                let i = next.get();
+                next.set((i + 7_919) % ENTRIES);
+                let hit = cache.get(&key(i));
+                assert!(hit.is_some(), "a hit");
+                hit
+            })
         })
-    });
+        .bench_function("miss", |b| {
+            b.iter(|| {
+                let i = next.get();
+                next.set((i + 7_919) % ENTRIES);
+                cache.get(&key(ENTRIES + i))
+            })
+        })
+        .bench_function("insert", |b| {
+            b.iter(|| {
+                let i = fresh.get();
+                fresh.set(i + 1);
+                cache.insert(key(i), value.clone())
+            })
+        });
     group.finish();
 }
 

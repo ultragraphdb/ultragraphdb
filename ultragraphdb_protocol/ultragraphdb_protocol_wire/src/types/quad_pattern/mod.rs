@@ -24,6 +24,7 @@ pub struct QuadPattern {
 }
 
 impl QuadPattern {
+    /// The pattern of the `graph`, `subject`, `predicate` and `object` slots.
     pub fn new(
         graph: PatternSlot,
         subject: PatternSlot,
@@ -38,18 +39,22 @@ impl QuadPattern {
         }
     }
 
+    /// The graph's slot.
     pub fn graph(&self) -> PatternSlot {
         self.graph
     }
 
+    /// The subject's slot.
     pub fn subject(&self) -> PatternSlot {
         self.subject
     }
 
+    /// The predicate's slot.
     pub fn predicate(&self) -> PatternSlot {
         self.predicate
     }
 
+    /// The object's slot.
     pub fn object(&self) -> PatternSlot {
         self.object
     }

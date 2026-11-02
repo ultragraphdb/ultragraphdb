@@ -6,25 +6,27 @@
 use oxrdf::Literal;
 use ultragraphdb_core_keys::{CountDirection, DEFAULT_GRAPH, Keyspace, QuadKey, key_prefix};
 use ultragraphdb_core_terms::{EncodedTerm, TermError};
+use ultragraphdb_tool_bdd::TestResult;
 
-pub fn literal(lexical: &str) -> EncodedTerm {
-    EncodedTerm::literal(Literal::new_simple_literal(lexical).as_ref(), |_| {
-        Ok::<_, TermError>(1)
-    })
-    .unwrap()
-    .into_term()
+pub fn literal(lexical: &str) -> TestResult<EncodedTerm> {
+    Ok(
+        EncodedTerm::literal(Literal::new_simple_literal(lexical).as_ref(), |_| {
+            Ok::<_, TermError>(1)
+        })?
+        .into_term(),
+    )
 }
 
 /// One key of every keyspace, its objects a UID and a hashed literal.
-pub fn every_keyspace() -> Vec<QuadKey> {
-    let mut keys = data_keys();
+pub fn every_keyspace() -> TestResult<Vec<QuadKey>> {
+    let mut keys = data_keys()?;
     keys.extend(index_keys());
-    keys
+    Ok(keys)
 }
 
 /// Keys of the catalog and of the four keyspaces holding quads.
-fn data_keys() -> Vec<QuadKey> {
-    vec![
+fn data_keys() -> TestResult<Vec<QuadKey>> {
+    Ok(vec![
         QuadKey::Catalog {
             namespace: 4,
             kind: 2,
@@ -46,7 +48,7 @@ fn data_keys() -> Vec<QuadKey> {
             namespace: 4,
             graph: 3,
             predicate: 9,
-            object: literal("a string over fifteen bytes"),
+            object: literal("a string over fifteen bytes")?,
         },
         QuadKey::SubjectPredicates {
             namespace: 4,
@@ -56,9 +58,9 @@ fn data_keys() -> Vec<QuadKey> {
         QuadKey::ObjectPredicates {
             namespace: 4,
             graph: 3,
-            object: literal("short"),
+            object: literal("short")?,
         },
-    ]
+    ])
 }
 
 /// Keys of the index, statement and statistics keyspaces.
@@ -106,8 +108,8 @@ fn index_keys() -> Vec<QuadKey> {
 }
 
 #[test]
-fn test_every_keyspace_round_trips_and_reports_its_fields() {
-    for key in every_keyspace() {
+fn test_every_keyspace_round_trips_and_reports_its_fields() -> TestResult {
+    for key in every_keyspace()? {
         let bytes = key.to_bytes();
         assert_eq!(bytes[0], key.keyspace().byte());
         assert_eq!(
@@ -120,22 +122,24 @@ fn test_every_keyspace_round_trips_and_reports_its_fields() {
         assert_eq!(key.graph().is_none(), key.keyspace() == Keyspace::Catalog);
         assert_eq!(key.predicate().is_some(), key.keyspace().has_predicate());
     }
+    Ok(())
 }
 
 #[test]
-fn test_the_default_graph_is_zero_and_accepted() {
+fn test_the_default_graph_is_zero_and_accepted() -> TestResult {
     let key = QuadKey::Forward {
         namespace: 0,
         graph: DEFAULT_GRAPH,
         predicate: 1,
         subject: 1,
     };
-    assert_eq!(QuadKey::parse(&key.to_bytes()).unwrap().0.graph(), Some(0));
+    assert_eq!(QuadKey::parse(&key.to_bytes())?.0.graph(), Some(0));
+    Ok(())
 }
 
 #[test]
-fn test_a_prefix_covers_exactly_its_keys() {
-    for key in every_keyspace() {
+fn test_a_prefix_covers_exactly_its_keys() -> TestResult {
+    for key in every_keyspace()? {
         let bytes = key.to_bytes();
         let ks = key.keyspace();
         let prefixes = [
@@ -149,9 +153,10 @@ fn test_a_prefix_covers_exactly_its_keys() {
             assert!(!bytes.starts_with(&key_prefix(ks, false, 4, Some(graph + 1), None)));
         }
         if ks.is_list() {
-            let split = key.split_bytes(3).unwrap();
+            let split = key.split_bytes(3)?;
             assert!(split.starts_with(&key_prefix(ks, true, 4, key.graph(), key.predicate())));
             assert!(!split.starts_with(&key_prefix(ks, false, 4, None, None)));
         }
     }
+    Ok(())
 }

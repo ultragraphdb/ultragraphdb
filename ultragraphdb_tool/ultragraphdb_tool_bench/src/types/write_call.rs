@@ -15,6 +15,7 @@ pub struct WriteCall {
 }
 
 impl WriteCall {
+    /// A write call of the given time, entries, kind and write pressure after it.
     pub fn new(
         nanos: u64,
         entries: usize,
@@ -31,22 +32,27 @@ impl WriteCall {
         }
     }
 
+    /// The call's time in nanoseconds.
     pub fn nanos(&self) -> u64 {
         self.nanos
     }
 
+    /// The entries the call wrote.
     pub fn entries(&self) -> usize {
         self.entries
     }
 
+    /// Whether the call was a commit batch.
     pub fn commit(&self) -> bool {
         self.commit
     }
 
+    /// The data keyspace's level-0 tables after the call.
     pub fn l0_tables(&self) -> usize {
         self.l0_tables
     }
 
+    /// The data keyspace's sealed memtables after the call.
     pub fn sealed_memtables(&self) -> usize {
         self.sealed_memtables
     }

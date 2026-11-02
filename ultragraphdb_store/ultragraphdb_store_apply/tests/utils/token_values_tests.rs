@@ -14,6 +14,7 @@ use oxrdf::{BaseDirection, Literal, NamedNode};
 use ultragraphdb_core_tok::get_tokenizer;
 use ultragraphdb_core_types::Value;
 use ultragraphdb_store_apply::token_value;
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 const GEO_JSON: &str = "http://www.opengis.net/ont/geosparql#geoJSONLiteral";
 
@@ -26,18 +27,18 @@ fn value(literal: &Literal, tokenizer: &str) -> Option<Value> {
 }
 
 /// The tokens `tokenizer` makes of the value `token_value` gives `literal`.
-fn tokens(literal: &Literal, tokenizer: &str) -> Vec<Vec<u8>> {
+fn tokens(literal: &Literal, tokenizer: &str) -> TestResult<Vec<Vec<u8>>> {
     let v = value(literal, tokenizer)
         .ok_or_else(|| format!("{literal} has a {tokenizer} value"))
-        .expect("the literal has a token value");
+        .context("the literal has a token value")?;
     get_tokenizer(tokenizer)
-        .expect("a tokenizer")
+        .context("a tokenizer")?
         .tokens(&v)
-        .expect("the value tokenizes")
+        .context("the value tokenizes")
 }
 
 #[test]
-fn test_int_takes_the_integers_by_value_within_64_bits() {
+fn test_int_takes_the_integers_by_value_within_64_bits() -> TestResult {
     let cases = [
         (typed("042", xsd::INTEGER), Some(Value::Int(42))),
         (typed("+42", xsd::INTEGER), Some(Value::Int(42))),
@@ -69,17 +70,18 @@ fn test_int_takes_the_integers_by_value_within_64_bits() {
     }
     // encodeInt(42) and encodeInt(-1).
     assert_eq!(
-        tokens(&typed("042", xsd::INTEGER), "int"),
+        tokens(&typed("042", xsd::INTEGER), "int")?,
         vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 42]]
     );
     assert_eq!(
-        tokens(&typed("-1", xsd::INTEGER), "int"),
+        tokens(&typed("-1", xsd::INTEGER), "int")?,
         vec![vec![0, 255, 255, 255, 255, 255, 255, 255, 255]]
     );
+    Ok(())
 }
 
 #[test]
-fn test_float_takes_doubles_and_floats_each_at_its_precision() {
+fn test_float_takes_doubles_and_floats_each_at_its_precision() -> TestResult {
     // 42.5 is exact in binary; 4.25E1 is a non-canonical form of it.
     assert_eq!(
         value(&typed("4.25E1", xsd::DOUBLE), "float"),
@@ -110,13 +112,14 @@ fn test_float_takes_doubles_and_floats_each_at_its_precision() {
     assert_eq!(value(&typed("1", xsd::INTEGER), "float"), None);
     // The float token truncates to an integer: encodeInt(42).
     assert_eq!(
-        tokens(&typed("42.5", xsd::DOUBLE), "float"),
+        tokens(&typed("42.5", xsd::DOUBLE), "float")?,
         vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 42]]
     );
+    Ok(())
 }
 
 #[test]
-fn test_bool_takes_both_lexical_forms_of_each_value() {
+fn test_bool_takes_both_lexical_forms_of_each_value() -> TestResult {
     assert_eq!(
         value(&typed("true", xsd::BOOLEAN), "bool"),
         Some(Value::Bool(true))
@@ -137,67 +140,70 @@ fn test_bool_takes_both_lexical_forms_of_each_value() {
     assert_eq!(value(&Literal::new_simple_literal("true"), "bool"), None);
     // encodeInt(1) and encodeInt(0).
     assert_eq!(
-        tokens(&typed("1", xsd::BOOLEAN), "bool"),
+        tokens(&typed("1", xsd::BOOLEAN), "bool")?,
         vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 1]]
     );
     assert_eq!(
-        tokens(&typed("false", xsd::BOOLEAN), "bool"),
+        tokens(&typed("false", xsd::BOOLEAN), "bool")?,
         vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 0]]
     );
+    Ok(())
 }
 
 #[test]
-fn test_bigfloat_takes_decimals() {
+fn test_bigfloat_takes_decimals() -> TestResult {
     // 2.50 and 2.5 are one value; the bigfloat token is encodeInt of its integer part, 2.
     let two = vec![vec![1, 0, 0, 0, 0, 0, 0, 0, 2]];
-    assert_eq!(tokens(&typed("2.50", xsd::DECIMAL), "bigfloat"), two);
-    assert_eq!(tokens(&typed("2.5", xsd::DECIMAL), "bigfloat"), two);
+    assert_eq!(tokens(&typed("2.50", xsd::DECIMAL), "bigfloat")?, two);
+    assert_eq!(tokens(&typed("2.5", xsd::DECIMAL), "bigfloat")?, two);
     // 123456789: 0x075BCD15.
     assert_eq!(
-        tokens(&typed("123456789", xsd::DECIMAL), "bigfloat"),
+        tokens(&typed("123456789", xsd::DECIMAL), "bigfloat")?,
         vec![vec![1, 0, 0, 0, 0, 0x07, 0x5B, 0xCD, 0x15]]
     );
     assert_eq!(value(&typed("2,5", xsd::DECIMAL), "bigfloat"), None);
     assert_eq!(value(&typed("2.5", xsd::DOUBLE), "bigfloat"), None);
+    Ok(())
 }
 
 #[test]
-fn test_the_date_tokenizers_take_date_times_as_utc_and_dates_but_for_hour() {
+fn test_the_date_tokenizers_take_date_times_as_utc_and_dates_but_for_hour() -> TestResult {
     // 2020 = 0x07E4, May = 5, the 17th = 0x11, 13 h = 0x0D.
     let at = typed("2020-05-17T13:45:00Z", xsd::DATE_TIME);
-    assert_eq!(tokens(&at, "year"), vec![vec![0x07, 0xE4]]);
-    assert_eq!(tokens(&at, "month"), vec![vec![0x07, 0xE4, 0, 5]]);
-    assert_eq!(tokens(&at, "day"), vec![vec![0x07, 0xE4, 0, 5, 0, 0x11]]);
+    assert_eq!(tokens(&at, "year")?, vec![vec![0x07, 0xE4]]);
+    assert_eq!(tokens(&at, "month")?, vec![vec![0x07, 0xE4, 0, 5]]);
+    assert_eq!(tokens(&at, "day")?, vec![vec![0x07, 0xE4, 0, 5, 0, 0x11]]);
     assert_eq!(
-        tokens(&at, "hour"),
+        tokens(&at, "hour")?,
         vec![vec![0x07, 0xE4, 0, 5, 0, 0x11, 0, 0x0D]]
     );
     // No time zone: taken as UTC, so 13 h stays 13 h.
     let local = typed("2020-05-17T13:45:00", xsd::DATE_TIME);
     assert_eq!(
-        tokens(&local, "hour"),
+        tokens(&local, "hour")?,
         vec![vec![0x07, 0xE4, 0, 5, 0, 0x11, 0, 0x0D]]
     );
     // 23:30 at -02:00 is 01:30 UTC the next day, in the next year: 2021 = 0x07E5.
     let offset = typed("2020-12-31T23:30:00-02:00", xsd::DATE_TIME);
     assert_eq!(
-        tokens(&offset, "hour"),
+        tokens(&offset, "hour")?,
         vec![vec![0x07, 0xE5, 0, 1, 0, 1, 0, 1]]
     );
     let stamp = typed("2020-05-17T13:45:00Z", xsd::DATE_TIME_STAMP);
-    assert_eq!(tokens(&stamp, "year"), vec![vec![0x07, 0xE4]]);
+    assert_eq!(tokens(&stamp, "year")?, vec![vec![0x07, 0xE4]]);
     let date = typed("2020-05-17", xsd::DATE);
-    assert_eq!(tokens(&date, "day"), vec![vec![0x07, 0xE4, 0, 5, 0, 0x11]]);
+    assert_eq!(tokens(&date, "day")?, vec![vec![0x07, 0xE4, 0, 5, 0, 0x11]]);
     assert_eq!(value(&date, "hour"), None);
     assert_eq!(
         value(&typed("2020-13-01T00:00:00Z", xsd::DATE_TIME), "year"),
         None
     );
     assert_eq!(value(&typed("2020-05-17", xsd::STRING), "year"), None);
+    Ok(())
 }
 
 #[test]
-fn test_the_string_tokenizers_take_strings_and_language_strings_as_written() {
+fn test_the_string_tokenizers_take_strings_and_language_strings_as_written() -> TestResult {
     let plain = Literal::new_simple_literal("Big Apple");
     let tagged = Literal::new_language_tagged_literal_unchecked("Big Apple", "en");
     let directional = Literal::new_directional_language_tagged_literal_unchecked(
@@ -228,13 +234,13 @@ fn test_the_string_tokenizers_take_strings_and_language_strings_as_written() {
     );
     // The term tokenizer lowercases and splits at the space.
     assert_eq!(
-        tokens(&plain, "term"),
+        tokens(&plain, "term")?,
         vec![b"apple".to_vec(), b"big".to_vec()]
     );
     // The exact token is the string's bytes.
-    assert_eq!(tokens(&plain, "exact"), vec![b"Big Apple".to_vec()]);
+    assert_eq!(tokens(&plain, "exact")?, vec![b"Big Apple".to_vec()]);
     // SHA-256 of "abc", FIPS 180-2's test string: ba7816bf…f20015ad.
-    let abc = tokens(&Literal::new_simple_literal("abc"), "hash");
+    let abc = tokens(&Literal::new_simple_literal("abc"), "hash")?;
     assert_eq!(
         abc,
         vec![vec![
@@ -243,10 +249,11 @@ fn test_the_string_tokenizers_take_strings_and_language_strings_as_written() {
             0xf2, 0x00, 0x15, 0xad,
         ]]
     );
+    Ok(())
 }
 
 #[test]
-fn test_geo_takes_geojson_geometries() {
+fn test_geo_takes_geojson_geometries() -> TestResult {
     let geo = NamedNode::new_unchecked(GEO_JSON);
     let point = typed(
         r#"{"type": "Point", "coordinates": [8.63, 50.12]}"#,
@@ -257,28 +264,31 @@ fn test_geo_takes_geojson_geometries() {
     // MinCellLevel 5 to MaxCellLevel 16, each `p/` and the cell's token, then its level-16 cell as the cover, `c/`. A
     // cell token is the id's hex with trailing zeros cut (golang/geo's CellID.ToToken); a level-L id is 3 face bits, 2L
     // position bits, then a sentinel 1, so its token has ceil((4 + 2L) / 4) digits and its trailing zeros are 2(30 - L).
-    let cells: Vec<String> = tokens(&point, "geo")
+    let cells: Vec<String> = tokens(&point, "geo")?
         .into_iter()
-        .map(|t| String::from_utf8(t).expect("a geo token is text"))
-        .collect();
+        .map(|t| String::from_utf8(t).context("a geo token is text"))
+        .collect::<TestResult<_>>()?;
     assert_eq!(cells.len(), 13, "{cells:?}");
     let parents: Vec<&str> = cells.iter().filter_map(|t| t.strip_prefix("p/")).collect();
     let cover: Vec<&str> = cells.iter().filter_map(|t| t.strip_prefix("c/")).collect();
     assert_eq!((parents.len(), cover.len()), (12, 1), "{cells:?}");
-    let id = |t: &str| u64::from_str_radix(&format!("{t:0<16}"), 16).expect("a hex token");
-    let level = |id: u64| 30 - id.trailing_zeros() / 2;
-    let levels: std::collections::BTreeSet<u32> = parents.iter().map(|t| level(id(t))).collect();
+    let id = |t: &str| u64::from_str_radix(&format!("{t:0<16}"), 16).context("a hex token");
+    let level = |cell: u64| 30 - cell.trailing_zeros() / 2;
+    let levels: std::collections::BTreeSet<u32> = parents
+        .iter()
+        .map(|t| Ok(level(id(t)?)))
+        .collect::<TestResult<_>>()?;
     assert_eq!(levels, (5..=16).collect());
     for t in &parents {
-        assert_eq!(t.len(), (4 + 2 * level(id(t)) as usize).div_ceil(4), "{t}");
+        assert_eq!(t.len(), (4 + 2 * level(id(t)?) as usize).div_ceil(4), "{t}");
     }
-    let leaf = id(cover[0]);
+    let leaf = id(cover[0])?;
     assert_eq!(level(leaf), 16);
     assert!(parents.contains(&cover[0]));
     // Each parent is an ancestor of the cover's cell: its id is the cell's with the bits below its sentinel cleared and
     // the sentinel set.
     for t in &parents {
-        let p = id(t);
+        let p = id(t)?;
         let sentinel = p.isolate_lowest_one();
         assert_eq!((leaf & !(2 * sentinel - 1)) | sentinel, p, "{t}");
     }
@@ -295,6 +305,7 @@ fn test_geo_takes_geojson_geometries() {
         ),
         None
     );
+    Ok(())
 }
 
 #[test]
@@ -304,7 +315,7 @@ fn test_an_unknown_tokenizer_takes_nothing() {
 }
 
 #[test]
-fn test_a_date_with_a_time_zone_is_indexed_at_midnight_in_its_zone_taken_to_utc() {
+fn test_a_date_with_a_time_zone_is_indexed_at_midnight_in_its_zone_taken_to_utc() -> TestResult {
     // Each date is read as midnight in its own zone, then taken to UTC, as XSD casts a date to a date-time. Hand-derived:
     // midnight at +hh:mm is hh:mm before midnight UTC, the previous day; at -hh:mm it is hh:mm after, the same day.
     // Year 2020 = 0x07E4, 2021 = 0x07E5.
@@ -330,9 +341,14 @@ fn test_a_date_with_a_time_zone_is_indexed_at_midnight_in_its_zone_taken_to_utc(
     ];
     for (lexical, day) in cases {
         let date = typed(lexical, xsd::DATE);
-        assert_eq!(tokens(&date, "year"), vec![day[..2].to_vec()], "{lexical}");
-        assert_eq!(tokens(&date, "month"), vec![day[..4].to_vec()], "{lexical}");
-        assert_eq!(tokens(&date, "day"), vec![day.to_vec()], "{lexical}");
+        assert_eq!(tokens(&date, "year")?, vec![day[..2].to_vec()], "{lexical}");
+        assert_eq!(
+            tokens(&date, "month")?,
+            vec![day[..4].to_vec()],
+            "{lexical}"
+        );
+        assert_eq!(tokens(&date, "day")?, vec![day.to_vec()], "{lexical}");
         assert_eq!(value(&date, "hour"), None, "{lexical}");
     }
+    Ok(())
 }

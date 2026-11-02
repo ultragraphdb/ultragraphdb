@@ -22,6 +22,7 @@ pub struct StatementRecord {
 const FORMAT: u8 = 1;
 
 impl StatementRecord {
+    /// The record of the statement `subject` `predicate` `object` with `properties`.
     pub fn new(
         subject: u64,
         predicate: u64,
@@ -36,26 +37,32 @@ impl StatementRecord {
         }
     }
 
+    /// The statement's subject UID.
     pub fn subject(&self) -> u64 {
         self.subject
     }
 
+    /// The statement's predicate UID.
     pub fn predicate(&self) -> u64 {
         self.predicate
     }
 
+    /// The statement's object encoding.
     pub fn object(&self) -> &EncodedTerm {
         &self.object
     }
 
+    /// The statement's properties, each a predicate's UID and a value.
     pub fn properties(&self) -> &[(u64, EncodedTerm)] {
         &self.properties
     }
 
+    /// The statement's properties, to change.
     pub fn properties_mut(&mut self) -> &mut Vec<(u64, EncodedTerm)> {
         &mut self.properties
     }
 
+    /// The record in its stored format.
     pub fn encode(&self) -> Vec<u8> {
         let mut w = vec![FORMAT];
         w.extend_from_slice(&self.subject.to_be_bytes());

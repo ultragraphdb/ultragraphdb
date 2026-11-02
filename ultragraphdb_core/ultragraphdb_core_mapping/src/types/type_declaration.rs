@@ -15,6 +15,7 @@ pub struct TypeDeclaration {
 }
 
 impl TypeDeclaration {
+    /// The declaration of the entity type `iri`, with its parent and whether it is abstract.
     pub fn new(iri: NamedNode, parent: Option<NamedNode>, is_abstract: bool) -> Self {
         Self {
             iri,
@@ -23,14 +24,17 @@ impl TypeDeclaration {
         }
     }
 
+    /// The type's IRI.
     pub fn iri(&self) -> &NamedNode {
         &self.iri
     }
 
+    /// The parent type, when it has one.
     pub fn parent(&self) -> Option<&NamedNode> {
         self.parent.as_ref()
     }
 
+    /// Whether only its subtypes have instances.
     pub fn is_abstract(&self) -> bool {
         self.is_abstract
     }

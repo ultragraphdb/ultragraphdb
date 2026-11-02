@@ -8,9 +8,10 @@
  */
 
 use ultragraphdb_core_text::{Base, Confidence, LanguageErrorEnum, Tag};
+use ultragraphdb_tool_bdd::{Context, TestResult};
 
 #[test]
-fn errors() {
+fn errors() -> TestResult {
     let invalid = |s: &str| LanguageErrorEnum::Value(s.as_bytes().to_vec());
     let tests = [
         // invalid subtags.
@@ -25,9 +26,10 @@ fn errors() {
         ("noob", LanguageErrorEnum::Syntax),
     ];
     for (input, want) in tests {
-        let err = Tag::parse(input).unwrap_err();
+        let err = Tag::parse(input).err().context("expected an error")?;
         assert_eq!(err.0, want, "{input}");
     }
+    Ok(())
 }
 
 #[test]
@@ -49,20 +51,21 @@ fn base() {
 }
 
 #[test]
-fn is_root() {
+fn is_root() -> TestResult {
     for (input, root) in [
         ("und", true),
         ("und-u-co-phonebk", false),
         ("und-x-a", false),
         ("en", false),
     ] {
-        let tag = Tag::parse(input).unwrap();
+        let tag = Tag::parse(input)?;
         assert_eq!(tag == Tag::default(), root, "{input}");
     }
+    Ok(())
 }
 
 #[test]
-fn string() {
+fn string() -> TestResult {
     let tests = [
         ("und", "und"),
         ("en", "en"),
@@ -75,8 +78,9 @@ fn string() {
         ("x-a-b-c-d", "x-a-b-c-d"),
     ];
     for (input, want) in tests {
-        assert_eq!(Tag::parse(input).unwrap().to_string(), want, "{input}");
+        assert_eq!(Tag::parse(input)?.to_string(), want, "{input}");
     }
+    Ok(())
 }
 
 /// SplitMix64, so that a failing input reproduces.

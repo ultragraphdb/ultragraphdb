@@ -120,6 +120,7 @@ impl SimStore {
         }
     }
 
+    /// The store's simulated clock.
     pub fn clock(&self) -> &SimClock {
         &self.clock
     }

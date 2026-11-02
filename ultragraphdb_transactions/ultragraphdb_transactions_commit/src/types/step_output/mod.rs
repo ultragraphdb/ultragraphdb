@@ -45,6 +45,7 @@ impl<P> Default for StepOutput<P> {
 }
 
 impl<P> StepOutput<P> {
+    /// An empty output.
     pub fn new() -> Self {
         Self {
             append: None,

@@ -23,14 +23,17 @@ impl Committed {
         }
     }
 
+    /// The commit version.
     pub fn version(&self) -> u64 {
         self.version
     }
 
+    /// The request number of the session that committed.
     pub fn request(&self) -> u64 {
         self.request
     }
 
+    /// The results of the commit-time operations, in the order asked.
     pub fn results(&self) -> &[OperationResult] {
         &self.results
     }

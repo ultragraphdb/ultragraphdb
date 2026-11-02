@@ -26,53 +26,85 @@ pub enum PostingErrorEnum {
     /// The store refused or failed an operation, or a stored value is corrupted.
     Store(StoreError),
     /// A key of no list keyspace handed to the posting lists.
-    NotAList { key: Vec<u8> },
+    NotAList {
+        /// The key handed in.
+        key: Vec<u8>,
+    },
     /// A split part's key read as a posting list: Dgraph's `ErrInvalidKey`.
     InvalidKey,
     /// A read below the timestamp a list can answer: Dgraph's `ErrTsTooOld`.
     TsTooOld,
     /// A read below the list's complete version.
     ReadBelowMinTs {
+        /// The timestamp read at.
         read_ts: u64,
+        /// The list's complete version.
         min_ts: u64,
+        /// The list's key.
         key: Vec<u8>,
     },
     /// A delete-all marker below the list's complete version.
-    DeleteBelowMinTs { delete_below_ts: u64, min_ts: u64 },
+    DeleteBelowMinTs {
+        /// The marker's timestamp.
+        delete_below_ts: u64,
+        /// The list's complete version.
+        min_ts: u64,
+    },
     /// A schema or type entry read as a posting list.
-    SchemaPosting { key: Vec<u8> },
+    SchemaPosting {
+        /// The entry's key.
+        key: Vec<u8>,
+    },
     /// A version whose meta byte is none of Dgraph's posting kinds.
-    UnexpectedMeta { meta: u8, key: Vec<u8> },
+    UnexpectedMeta {
+        /// The meta byte read.
+        meta: u8,
+        /// The list's key.
+        key: Vec<u8>,
+    },
     /// A part a split list records is not in the store.
-    MissingPart { key: Vec<u8> },
+    MissingPart {
+        /// The missing part's key.
+        key: Vec<u8>,
+    },
     /// A rollup cancelled because rollups are paused: Dgraph's `ErrHighPriorityOp`.
     HighPriorityOp,
     /// A commit version of a round at or below the version before it: the watermark for the round's first, the
     /// round's previous version for the others.
-    StaleVersion { version: u64, after: u64 },
+    StaleVersion {
+        /// The stale commit version.
+        version: u64,
+        /// The version it should have followed.
+        after: u64,
+    },
 }
 
 impl PostingError {
+    /// The store's `error`.
     #[allow(non_snake_case)]
     pub fn Store(error: StoreError) -> Self {
         Self(PostingErrorEnum::Store(error))
     }
 
+    /// A `key` of no list keyspace.
     #[allow(non_snake_case)]
     pub fn NotAList(key: &[u8]) -> Self {
         Self(PostingErrorEnum::NotAList { key: key.to_vec() })
     }
 
+    /// A split part's key read as a posting list.
     #[allow(non_snake_case)]
     pub fn InvalidKey() -> Self {
         Self(PostingErrorEnum::InvalidKey)
     }
 
+    /// A read below the timestamp a list can answer.
     #[allow(non_snake_case)]
     pub fn TsTooOld() -> Self {
         Self(PostingErrorEnum::TsTooOld)
     }
 
+    /// A read at `read_ts` below `min_ts`, the complete version of the list at `key`.
     #[allow(non_snake_case)]
     pub fn ReadBelowMinTs(read_ts: u64, min_ts: u64, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::ReadBelowMinTs {
@@ -82,6 +114,7 @@ impl PostingError {
         })
     }
 
+    /// A delete-all marker at `delete_below_ts` below `min_ts`, the list's complete version.
     #[allow(non_snake_case)]
     pub fn DeleteBelowMinTs(delete_below_ts: u64, min_ts: u64) -> Self {
         Self(PostingErrorEnum::DeleteBelowMinTs {
@@ -90,26 +123,31 @@ impl PostingError {
         })
     }
 
+    /// A schema or type entry at `key` read as a posting list.
     #[allow(non_snake_case)]
     pub fn SchemaPosting(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::SchemaPosting { key })
     }
 
+    /// A version of the list at `key` whose meta byte `meta` is no posting kind.
     #[allow(non_snake_case)]
     pub fn UnexpectedMeta(meta: u8, key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::UnexpectedMeta { meta, key })
     }
 
+    /// A part at `key` a split list records and the store lacks.
     #[allow(non_snake_case)]
     pub fn MissingPart(key: Vec<u8>) -> Self {
         Self(PostingErrorEnum::MissingPart { key })
     }
 
+    /// A rollup cancelled because rollups are paused.
     #[allow(non_snake_case)]
     pub fn HighPriorityOp() -> Self {
         Self(PostingErrorEnum::HighPriorityOp)
     }
 
+    /// A commit `version` at or below `after`, the version before it.
     #[allow(non_snake_case)]
     pub fn StaleVersion(version: u64, after: u64) -> Self {
         Self(PostingErrorEnum::StaleVersion { version, after })

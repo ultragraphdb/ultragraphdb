@@ -14,10 +14,15 @@
 /// | 5 | All | every quad key, keeping the dictionary and writing the root namespace's initial catalog |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DropKind {
+    /// The predicate's keys and its catalog entry.
     Predicate,
+    /// Every key of the graph in the namespace.
     Graph,
+    /// The namespace's data, keeping its catalog.
     NamespaceData,
+    /// Everything in the namespace, writing its initial catalog.
     Namespace,
+    /// Every quad key, keeping the dictionary and writing the root namespace's initial catalog.
     All,
 }
 
@@ -31,6 +36,7 @@ impl DropKind {
         DropKind::All,
     ];
 
+    /// The kind's number, 1 to 5.
     pub fn number(self) -> u8 {
         DropKind::ALL
             .iter()
