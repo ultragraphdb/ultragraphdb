@@ -6,9 +6,8 @@
   `target/coverage/<crate>.lcov`, lists each uncovered line of the files named (or of the crate's `src/`), and exits 1
   when any is left. Tried on `ultragraphdb_error_log`: 8 tests, 0 uncovered lines.
 - The held-back lints (`indexing_slicing`, `arithmetic_side_effects`, `cast_possible_truncation`, `cast_sign_loss`)
-  stay out of this change (the user, 2026-11-02). `scripts/held_back_lints.sh`, written for the requirement before it
-  was dropped, denies them for the crates named; nothing in the change runs it, and it awaits the user's decision to
-  keep or remove.
+  stay out of this change (the user, 2026-11-02); the script written for the requirement before it was dropped was
+  removed at the user's request.
 - Phase 1 leaves bare `unimplemented!()` bodies: `clippy::unimplemented` warns by design, the warnings are ignored
   through the phase-2 run, and a warning left after phase 4 names an overlooked body (the user, 2026-11-02).
   `ULTRA_STYLE.md`'s lint table and its phase-1 paragraph now say so.

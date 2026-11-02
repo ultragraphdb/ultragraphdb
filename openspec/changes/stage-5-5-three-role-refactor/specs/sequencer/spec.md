@@ -2,7 +2,12 @@
 
 ### Requirement: The sequencer closes epochs at its own wall-clock time
 The sequencer SHALL close epochs in order, numbered from 1, each at least `epoch_ms_min` and at most `epoch_ms_max`
-after the previous close, both settings with no default the binary chooses silently. It SHALL close before
+after the previous close, both settings with no default the binary chooses silently. `epoch_ms_min` SHALL lie from 1
+to 1,000: from 1 ms, epoch numbers of 42 bits last over a century, and up to 1 s, a waiting read or a full partition
+waits at most that long for its requested close. `epoch_ms_max` SHALL lie from `epoch_ms_min` to 10,000: up to 10 s, a
+snapshot never lags the latest commit by more than the read-write transaction limit, and twice it stays within
+`close_request_ms`'s bound of 60,000 (commit-rounds). A value out of its bounds SHALL stop the frontend at start with
+exit code 78 and an error naming the setting and the bound. It SHALL close before
 `epoch_ms_max`, as soon as `epoch_ms_min` has passed, when the frontend hosting it asks because a snapshot read waits on
 the open epoch (quad-reads, "A read's transaction names its level"), or when a partition asks because its sequence would
 run out (commit-rounds, "Commit versions are built from the epoch"). Each close SHALL record the epoch number and the
@@ -13,6 +18,12 @@ with an error naming the limit.
 #### Scenario: Epochs close in order
 - **WHEN** the sequencer runs for 100 ms with `epoch_ms_min` 5 and `epoch_ms_max` 10 on a stepped clock
 - **THEN** it closes between 10 and 20 epochs, numbered consecutively from 1
+
+#### Scenario: Epoch lengths out of their bounds stop the start
+- **WHEN** the frontend starts once with `epoch_ms_min` 0, once with `epoch_ms_min` 1,001, once with `epoch_ms_min` 5
+  and `epoch_ms_max` 4, and once with `epoch_ms_max` 10,001
+- **THEN** each start exits with code 78 and an error naming the setting and its bound: 1, 1,000, `epoch_ms_min` and
+  10,000
 
 #### Scenario: A partition's request closes the epoch early
 - **WHEN** `epoch_ms_min` is 2 and `epoch_ms_max` 10, epoch 6 closed 1 ms ago, and a partition asks for a close

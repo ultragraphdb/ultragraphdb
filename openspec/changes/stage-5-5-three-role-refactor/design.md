@@ -50,8 +50,9 @@ Today:
 - UGS keys and declared types: stage 6. This stage knows the built-in `Resource` and `Statement` types only.
 - SPARQL, GQL and query planning: stage 7. Reads are quad patterns.
 - Prefix filters in lsm-tree (P19): only if stage 7 measures seeks binding.
-- TLS between roles, `SCRAM-SHA-256-PLUS`, `EXTERNAL` and `OAUTHBEARER` (`SECURITY.md`, *With TLS*): stage 8, with
-  certificates per role. This stage encrypts the client endpoint, the traffic that leaves the cluster.
+- TLS between roles, `SCRAM-SHA-256-PLUS`, `EXTERNAL` and `OAUTHBEARER` (`SECURITY.md`, *Where it is built*,
+  Stage 8): stage 8, with certificates per role. This stage encrypts the client endpoint, the traffic that leaves the
+  cluster.
 
 ## Decisions
 
@@ -255,7 +256,8 @@ the default-entry records, high-water marks, the placement map, principals, the 
 `snapshot_rounds` rounds and trims below the snapshot. Both run inside the frontend process with one replica; stage 8
 puts VSR behind the same interface.
 
-Epoch lengths are settings, `epoch_ms_min` and `epoch_ms_max`, required, with the `dev` profile's 2 and 10; the
+Epoch lengths are settings, `epoch_ms_min` (1 to 1,000) and `epoch_ms_max` (`epoch_ms_min` to 10,000), required, with
+the `dev` profile's 2 and 10; the
 sequencer closes at `epoch_ms_max` or sooner, never before `epoch_ms_min`: when a snapshot read waits on the open epoch,
 the frontend, which routes the read and hosts the sequencer, asks it for a close in process, and a partition whose
 sequence would run out asks with a role command. `close_request_ms` is refused at start below twice `epoch_ms_max`, so a
