@@ -696,7 +696,7 @@ fn decimal_past_its_payload(w: &mut Steps) {
 fn kept_by_its_lexical_form(w: &mut Steps) {
     let lexical = "0.1234567890123456789";
     let (encoding, text) = &w.terms[0];
-    // Tag 0x31, the code of xsd:decimal (3), then BLAKE2b-128 of the lexical form: 18 bytes.
+    // Tag 0x31, the code of xsd:decimal (3), then the 128-bit hash of the lexical form: 18 bytes.
     assert_eq!(encoding.len(), 18);
     assert_eq!(encoding[0], 0x31);
     assert_eq!(encoding[1], 3);

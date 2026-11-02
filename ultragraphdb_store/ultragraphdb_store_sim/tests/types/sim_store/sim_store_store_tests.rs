@@ -115,7 +115,11 @@ fn test_an_oversized_key_refuses_its_whole_batch() {
     let mut batch = WriteBatch::new();
     batch.push(put(b"fine", 1, b""));
     // 44,000 bytes of `0x00 0x01`: every zero byte a run of one, 66,010 bytes once encoded and versioned.
-    batch.push(put(&(0..44_000).map(|i| (i % 2) as u8).collect::<Vec<u8>>(), 1, b""));
+    batch.push(put(
+        &(0..44_000).map(|i| (i % 2) as u8).collect::<Vec<u8>>(),
+        1,
+        b"",
+    ));
     let err = s.apply(batch, PersistMode::Buffer).unwrap_err();
     assert!(
         err.to_string()

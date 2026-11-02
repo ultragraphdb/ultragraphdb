@@ -233,25 +233,24 @@ fn test_a_view_refuses_inline_text_that_is_not_utf8_wherever_it_is() {
 }
 
 #[test]
-fn test_the_fingerprint_is_farm_of_the_encoding_and_order_is_byte_order() {
-    // go-farm's `Fingerprint64` (github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da, the version
-    // tools/golden pins), run in Go 1.26 over each encoding's bytes.
+fn test_the_fingerprint_is_xxh3_of_the_encoding_and_order_is_byte_order() {
+    // XXH3-64 from Python's xxhash 3.6.0 (libxxhash 0.8.2) over each encoding's bytes, independently of the Rust code.
     for (term, fingerprint) in [
-        (EncodedTerm::uid(42), 4_713_283_499_854_590_304u64),
+        (EncodedTerm::uid(42), 5_096_793_477_454_505_956u64),
         (
             encode(&Literal::new_simple_literal("short")),
-            7_059_773_684_038_798_002,
+            4_658_978_779_619_232_382,
         ),
         (
             encode(&Literal::new_typed_literal("42", xsd::INTEGER)),
-            4_440_542_372_379_045_335,
+            13_403_847_476_459_031_323,
         ),
         (
             encode(&Literal::new_typed_literal(
                 "[1, 2]",
                 NamedNode::new_unchecked(FLOAT32_VECTOR),
             )),
-            1_901_963_319_438_007_192,
+            15_859_647_792_802_437_645,
         ),
     ] {
         assert_eq!(term.fingerprint(), fingerprint, "{term:?}");

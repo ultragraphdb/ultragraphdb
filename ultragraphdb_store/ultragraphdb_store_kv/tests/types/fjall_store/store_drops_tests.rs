@@ -218,7 +218,12 @@ fn test_a_drop_refuses_an_oversized_entry_and_drops_nothing() {
         StoreErrorEnum::KeyTooLarge {
             size: 66_010,
             limit: 65_535,
-            head: [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect(),
+            head: [0x00, 0xFE, 0x01]
+                .iter()
+                .copied()
+                .cycle()
+                .take(1024)
+                .collect(),
         }
     );
     assert_eq!(held(&s, b"\x00a1"), vec![(3, false)]);

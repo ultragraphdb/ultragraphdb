@@ -19,7 +19,12 @@ fn alternating(len: usize) -> Vec<u8> {
 
 /// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.
 fn dense_head() -> Vec<u8> {
-    [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect()
+    [0x00, 0xFE, 0x01]
+        .iter()
+        .copied()
+        .cycle()
+        .take(1024)
+        .collect()
 }
 
 #[test]
@@ -1095,7 +1100,11 @@ fn test_keys_with_zero_runs_about_the_code_boundaries_keep_byte_order() {
     );
     // A prefix ending in zero bytes selects exactly the keys beginning with it, and a drop of it removes only them.
     let prefix = [vec![1u8], vec![0; 126]].concat();
-    let under: Vec<Vec<u8>> = keys.iter().filter(|k| k.starts_with(&prefix)).cloned().collect();
+    let under: Vec<Vec<u8>> = keys
+        .iter()
+        .filter(|k| k.starts_with(&prefix))
+        .cloned()
+        .collect();
     let selected: Vec<Vec<u8>> = scanned(&s, &Scan::prefix(prefix.clone()), 2)
         .into_iter()
         .map(|(k, _)| k)
@@ -1106,6 +1115,9 @@ fn test_keys_with_zero_runs_about_the_code_boundaries_keep_byte_order() {
         .into_iter()
         .map(|(k, _)| k)
         .collect();
-    let kept: Vec<Vec<u8>> = keys.into_iter().filter(|k| !k.starts_with(&prefix)).collect();
+    let kept: Vec<Vec<u8>> = keys
+        .into_iter()
+        .filter(|k| !k.starts_with(&prefix))
+        .collect();
     assert_eq!(left, kept);
 }

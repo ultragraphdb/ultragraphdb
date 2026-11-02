@@ -9,7 +9,6 @@
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex};
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
 use ultragraphdb_core_codec::{Facet, Posting, PostingType};
 use ultragraphdb_core_keys::{DEFAULT_GRAPH, QuadKey};
 use ultragraphdb_error_store::StoreError;
@@ -19,6 +18,7 @@ use ultragraphdb_store_posting::{
 };
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimListCache, SimStore, Stream};
 use ultragraphdb_traits_store::{Entry, PersistMode, Store, WriteBatch};
+use xxhash_rust::xxh3::xxh3_64;
 
 pub type TestLists = Lists<SimStore, SimListCache<CachedList>>;
 
@@ -40,7 +40,7 @@ pub fn lists_over(store: SimStore, config: ListsConfig) -> TestLists {
 
 /// The UID the tests give the predicate `attr`: drawn from its name, never 0.
 pub fn predicate(attr: &str) -> u64 {
-    fingerprint64(attr.as_bytes()).max(1)
+    xxh3_64(attr.as_bytes()).max(1)
 }
 
 /// The forward key of `attr` for the subject `uid` in the default graph of the root namespace.
@@ -72,7 +72,7 @@ pub fn with_facet(posting: Posting, key: &str) -> Posting {
 /// A set of the value `value`, as a quad list holds a literal: its bytes, under their fingerprint.
 pub fn set_value(value: &str) -> Posting {
     Posting::default()
-        .with_uid(fingerprint64(value.as_bytes()))
+        .with_uid(xxh3_64(value.as_bytes()))
         .with_value(value.as_bytes().to_vec())
         .with_posting_type(PostingType::Value)
         .with_op(SET)

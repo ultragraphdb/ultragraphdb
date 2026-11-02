@@ -67,8 +67,7 @@ impl Store for FjallStore {
             fb.insert(&s.meta, APPLIED_KEY, ts.to_be_bytes().to_vec());
         }
         s.commit(fb)?;
-        s.term_cache
-            .invalidate(versionless.iter().map(|e| e.key()));
+        s.term_cache.invalidate(versionless.iter().map(|e| e.key()));
         if let Some(ts) = applied {
             s.applied_ts.store(ts, Ordering::Release);
         }

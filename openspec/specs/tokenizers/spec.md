@@ -66,14 +66,14 @@ SHALL produce bigrams for `zh`, `ja` and `ko`. Trigram SHALL emit three-byte win
 - **THEN** each language's tokens equal Dgraph's
 
 ### Requirement: Hash and ngram tokens
-The hash tokenizer SHALL emit the BLAKE2b-256 digest of the value. The ngram tokenizer SHALL emit shingles of up to four
-words after stop-word removal and stemming, replacing any shingle of 30 bytes or more with its BLAKE2b-256 digest; its
+The hash tokenizer SHALL emit the SHA-256 digest of the value. The ngram tokenizer SHALL emit shingles of up to four
+words after stop-word removal and stemming, replacing any shingle of 30 bytes or more with its SHA-256 digest; its
 query tokens SHALL be the shingles of three words, or of all words when there are fewer than three, hashed the same way.
 Ngram token order SHALL be unspecified, and comparisons SHALL sort them.
 
 #### Scenario: A long shingle is hashed
 - **WHEN** a sentence yielding a shingle of 30 or more bytes is tokenized by ngram
-- **THEN** that shingle appears as its BLAKE2b-256 digest and shorter shingles appear as text
+- **THEN** that shingle appears as its SHA-256 digest and shorter shingles appear as text
 
 #### Scenario: Short queries take one shingle
 - **WHEN** the two-word query `quick fox` is tokenized for ngram queries

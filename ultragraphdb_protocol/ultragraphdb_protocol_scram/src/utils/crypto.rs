@@ -27,10 +27,25 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-/// `SaltedPassword` (RFC 5802 §3): PBKDF2-HMAC-SHA256 of the prepared `password` over `salt` and `iterations`.
+/// `SaltedPassword` (RFC 5802 §3): `Hi` of the prepared `password` over `salt` and `iterations`, which RFC 5802 §2.2
+/// defines as PBKDF2-HMAC-SHA256's one block: `U1 = HMAC(password, salt ‖ INT(1))`, each `Ui = HMAC(password, Ui-1)`,
+/// all XORed together. The password is keyed once and the keyed state cloned per iteration.
 pub(crate) fn salted(password: &str, salt: &[u8], iterations: u32) -> [u8; 32] {
     let mut out = [0u8; 32];
-    pbkdf2::pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations, &mut out);
+    // As in `hmac`: HMAC takes a key of any length, so the zeros are never returned.
+    if let Ok(keyed) = <Hmac<Sha256> as KeyInit>::new_from_slice(password.as_bytes()) {
+        let mut mac = keyed.clone();
+        mac.update(salt);
+        mac.update(&1u32.to_be_bytes());
+        let mut u: [u8; 32] = mac.finalize().into_bytes().into();
+        out = u;
+        for _ in 1..iterations {
+            let mut mac = keyed.clone();
+            mac.update(&u);
+            u = mac.finalize().into_bytes().into();
+            out.iter_mut().zip(u).for_each(|(o, b)| *o ^= b);
+        }
+    }
     out
 }
 

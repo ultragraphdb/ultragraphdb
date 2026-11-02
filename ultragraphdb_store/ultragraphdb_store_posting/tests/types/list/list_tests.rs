@@ -11,7 +11,6 @@
 
 use std::ops::ControlFlow;
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
 use ultragraphdb_core_codec::{List as UidList, Posting, PostingList, PostingType, decode};
 use ultragraphdb_store_posting::{
     BIT_COMPLETE_POSTING, BIT_EMPTY_POSTING, List, ListOptions, MAX_LIST_SIZE, PostingError,
@@ -19,6 +18,7 @@ use ultragraphdb_store_posting::{
     unmarshal_delta,
 };
 use ultragraphdb_store_sim::SimStore;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::utils::helpers::{
     add, check_uids, del_uid, del_value, delete_all, key, new_store, read_back, roll_up, set_uid,
@@ -984,6 +984,6 @@ fn test_value_postings_are_kept_beside_the_uids() {
     assert_eq!(out.plist().postings()[0].posting_type(), PostingType::Value);
     assert_eq!(
         decode(out.plist().pack().unwrap(), 0),
-        vec![5, fingerprint64(b"v")]
+        vec![5, xxh3_64(b"v")]
     );
 }

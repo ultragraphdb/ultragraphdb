@@ -25,8 +25,8 @@ ultragraphdb_error_options = { workspace = true }
 ultragraphdb_traits_index = { workspace = true }
 ultragraphdb_core_types = { workspace = true }
 ultragraphdb_core_text = { workspace = true }
-blake2 = { workspace = true }
 rust-stemmers = { workspace = true }
+sha2 = { workspace = true }
 unicode-normalization = { workspace = true }
 tracing = { workspace = true }
 

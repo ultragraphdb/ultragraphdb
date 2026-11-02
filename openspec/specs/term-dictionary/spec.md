@@ -33,8 +33,8 @@ A literal SHALL be encoded as one tag byte and at most 32 bytes, with no allocat
   or duration type SHALL be encoded by value only when its lexical form is canonical, that is, equal to the canonical
   form of its value, and by datatype and lexical form otherwise;
 - a string, a language-tagged string with or without base direction, and any other typed literal SHALL keep its lexical
-  form, and language tag, inline when each is at most 15 bytes, and as a 128-bit BLAKE2b hash naming its dictionary
-  entry otherwise.
+  form, and language tag, inline when each is at most 15 bytes, and as a 128-bit hash, SHA-256 truncated to 16
+  bytes, naming its dictionary entry otherwise.
 
 Equal terms SHALL encode equally, unequal terms unequally, and decoding SHALL return the exact term.
 

@@ -11,8 +11,8 @@ mod big_float_arith;
 mod big_float_format;
 mod big_float_scan;
 
-use dashu_base::BitTest;
 use dashu_int::UBig;
+use dashu_int::ops::BitTest;
 
 /// Go's `big.MinExp` and `big.MaxExp`: the range of the exponent `e` of a value `0.m × 2^e`.
 const MIN_EXP: i64 = i32::MIN as i64;

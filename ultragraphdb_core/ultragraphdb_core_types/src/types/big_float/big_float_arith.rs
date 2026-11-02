@@ -9,8 +9,8 @@
 
 use std::cmp::Ordering;
 
-use dashu_base::{BitTest, DivRem, PowerOfTwo};
 use dashu_int::UBig;
+use dashu_int::ops::{BitTest, DivRem, PowerOfTwo};
 
 use crate::types::big_float::{BigFloat, Form};
 

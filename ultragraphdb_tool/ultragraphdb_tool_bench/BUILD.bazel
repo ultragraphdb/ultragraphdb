@@ -4,10 +4,10 @@
 #
 
 load("@crates//:defs.bzl", "aliases", "all_crate_deps", "lint_config")
+load("@rules_img//img:load.bzl", "image_load")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load("@rules_rust//rust:defs.bzl", "rust_doc")
-load("@rules_img//img:load.bzl", "image_load")
 load("//bazel:binary.bzl", "static_binary")
 load("//bazel/container:img.bzl", "glibc_multiarch_img", "scratch_multiarch_img", "sha256_tag")
 

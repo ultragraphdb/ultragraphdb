@@ -112,7 +112,7 @@ pub fn vector_encoding(v: &[f32]) -> Vec<u8> {
 /// The posting of the vector `encoding` in a forward list, with `op`.
 fn vector_posting(encoding: Vec<u8>, op: u32) -> Posting {
     Posting::default()
-        .with_uid(ultragraphdb_common_utils::go_farm::fingerprint64(&encoding))
+        .with_uid(xxhash_rust::xxh3::xxh3_64(&encoding))
         .with_value(encoding)
         .with_posting_type(PostingType::Value)
         .with_op(op)

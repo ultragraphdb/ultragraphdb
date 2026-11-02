@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Ported from Dgraph v25.5.0, tok/tok.go (each tokenizer's Tokens and NGramTokenizer.QueryTokens) and
- * tok/index_factory.go (tokensForExpectedVFloat). Changed for ultragraphdb: translated to Rust.
+ * tok/index_factory.go (tokensForExpectedVFloat). Changed for ultragraphdb: translated to Rust; hash tokens and long
+ * shingles are SHA-256 digests, where Dgraph takes BLAKE2b-256.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use std::collections::HashSet;
 
-use blake2::{Blake2b256, Digest};
+use sha2::{Digest, Sha256};
 use ultragraphdb_core_types::{DateTime, Value, index_geo_tokens};
 
 use crate::errors::tok_error::TokError;
@@ -21,7 +22,7 @@ use crate::utils::langbase::lang_base;
 use crate::utils::stemmers::filter_stemmers;
 use crate::utils::stopwords::filter_stopwords;
 
-/// Shingles of this many bytes or more are replaced by their BLAKE2b-256 digest.
+/// Shingles of this many bytes or more are replaced by their SHA-256 digest.
 const MAX_SHINGLE_LEN: usize = 30;
 
 impl Tokenizer {
@@ -102,7 +103,7 @@ impl Tokenizer {
                         "Hash tokenizer only supported for string types",
                     ));
                 };
-                Ok(vec![Blake2b256::digest(s.as_bytes()).to_vec()])
+                Ok(vec![Sha256::digest(s.as_bytes()).to_vec()])
             }
             Kind::FullText(lang) => {
                 let Some(tokens) = analyzed(lang, v) else {
@@ -203,7 +204,7 @@ fn analyzed(lang: &str, v: &Value) -> Option<Vec<AnalysisToken>> {
 }
 
 /// Dgraph's `generateNGrams`: the shingles of `terms` at the `(first word, words)` spans, each of 30 bytes or more
-/// as its BLAKE2b-256 digest, deduplicated and, in this port, sorted.
+/// as its SHA-256 digest, deduplicated and, in this port, sorted.
 fn shingles(terms: &[&str], spans: impl Iterator<Item = (usize, usize)>) -> Vec<Vec<u8>> {
     let mut set = HashSet::new();
     for (i, n) in spans {
@@ -211,7 +212,7 @@ fn shingles(terms: &[&str], spans: impl Iterator<Item = (usize, usize)>) -> Vec<
         if shingle.len() < MAX_SHINGLE_LEN {
             set.insert(shingle);
         } else {
-            set.insert(Blake2b256::digest(&shingle).to_vec());
+            set.insert(Sha256::digest(&shingle).to_vec());
         }
     }
     let mut out: Vec<Vec<u8>> = set.into_iter().collect();

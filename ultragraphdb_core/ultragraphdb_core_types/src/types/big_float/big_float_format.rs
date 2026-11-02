@@ -7,8 +7,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use dashu_base::BitTest;
 use dashu_int::UBig;
+use dashu_int::ops::BitTest;
 
 use crate::types::big_float::{BigFloat, Form};
 

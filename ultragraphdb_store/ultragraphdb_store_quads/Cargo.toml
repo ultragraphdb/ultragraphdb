@@ -20,7 +20,6 @@ workspace = true
 
 [dependencies]
 oxrdf = { workspace = true }
-ultragraphdb_common_utils = { workspace = true }
 ultragraphdb_core_codec = { workspace = true }
 ultragraphdb_core_catalog = { workspace = true }
 ultragraphdb_core_keys = { workspace = true }
@@ -29,6 +28,7 @@ ultragraphdb_core_terms = { workspace = true }
 ultragraphdb_error_store = { workspace = true }
 ultragraphdb_store_posting = { workspace = true }
 ultragraphdb_traits_store = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_store_sim = { workspace = true }

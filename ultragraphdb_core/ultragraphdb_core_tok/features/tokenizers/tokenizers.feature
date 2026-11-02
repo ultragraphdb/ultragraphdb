@@ -51,7 +51,7 @@ Feature: Tokenizers
 
   Scenario: A long shingle is hashed
     When a sentence yielding a shingle of 30 or more bytes is tokenized by ngram
-    Then that shingle appears as its BLAKE2b-256 digest and shorter shingles appear as text
+    Then that shingle appears as its SHA-256 digest and shorter shingles appear as text
 
   Scenario: Short queries take one shingle
     When the two-word query "quick fox" is tokenized for ngram queries

@@ -6,8 +6,8 @@
 # The golden frames of every command's body, laid out byte by byte from the layout tables of PROTOCOL.md (the
 # header's offsets, the section table, the string lists, the pattern slots, the change records, the key-value
 # entries, the term table), independently of the Rust code. Checksums with Python's xxhash 3.6.0 (libxxhash 0.8.2),
-# whose XXH3-64 group 2 cross-checked against xxHash v0.8.3's reference vectors; BLAKE2b-128 of a hashed lexical
-# form with hashlib.
+# whose XXH3-64 group 2 cross-checked against xxHash v0.8.3's reference vectors; SHA-256 truncated to 16 bytes of a
+# hashed lexical form with hashlib.
 #
 #   python3 -I generate_bodies.py <output directory>
 #
@@ -345,7 +345,7 @@ def uid(n, tag=0x01):
 
 
 LONG = "a long lexical form beyond fifteen"
-encodings = [uid(5), bytes([0x20, 2]) + b"Al", bytes([0x21]) + hashlib.blake2b(LONG.encode(), digest_size=16).digest(),
+encodings = [uid(5), bytes([0x20, 2]) + b"Al", bytes([0x21]) + hashlib.sha256(LONG.encode()).digest()[:16],
              uid(6, 0x02)]
 strings = Strings()
 texts = [(strings.intern(f"{EX}a"), ABSENT), (ABSENT, ABSENT), (strings.intern(LONG), ABSENT),

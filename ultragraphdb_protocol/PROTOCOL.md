@@ -863,8 +863,8 @@ encoding is at most 33.
 
 ### 10.1 Tags and lengths
 
-"Inline text" is a length byte `n` (0 to 15) then `n` bytes of UTF-8. "Hash" is 16 bytes of BLAKE2b with a 16-byte
-digest, unkeyed, of the text's UTF-8 bytes: the result batch's string list supplies the text it names. "UID" is a u64
+"Inline text" is a length byte `n` (0 to 15) then `n` bytes of UTF-8. "Hash" is the first 16 bytes of the SHA-256
+digest of the text's UTF-8 bytes: the result batch's string list supplies the text it names. "UID" is a u64
 **big-endian** naming an IRI, a blank node or a datatype in the store's dictionary.
 
 | Tag | Term | Payload after the tag | Length |

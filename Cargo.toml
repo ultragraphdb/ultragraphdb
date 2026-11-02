@@ -90,8 +90,6 @@ ultragraphdb_transactions_txn = { path = "ultragraphdb_transactions/ultragraphdb
 serde_json = "1.0"
 tokio = "1.54"
 bcrypt = "0.19"
-blake2 = "0.11"
-dashu-base = "0.6"
 dashu-int = "0.6"
 rust-stemmers = "1.2"
 serde = { version = "1.0", features = ["derive"] }
@@ -108,7 +106,6 @@ fjall = "3.1"
 moka = { version = "0.12", features = ["sync"] }
 sha2 = "0.11"
 hmac = "0.13"
-pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
 subtle = "2.6"
 base64 = "0.23"
 stringprep = "0.1"
@@ -116,9 +113,7 @@ getrandom = "0.4"
 futures = "0.3"
 compio = { version = "0.19", default-features = false, features = ["runtime", "io-uring", "fs", "net", "time"] }
 # The allocator of every shipped binary, set as its `#[global_allocator]`: musl's own allocator contends under threads,
-# measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). libmimalloc-sys compiles every unix
-# target with `-ftls-model=initial-exec` unless `local_dynamic_tls` is on, while upstream mimalloc uses local-dynamic for
-# a static musl build (issue #644); the wrong TLS model is invisible in a build on a Mac. Taken from scrith.
+# measured 31% fewer commits per second than glibc's on `wal_bench` (2026-11-01). 
 mimalloc = { version = "0.1", features = ["local_dynamic_tls"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rustix = { version = "1.1", default-features = false, features = ["fs"] }

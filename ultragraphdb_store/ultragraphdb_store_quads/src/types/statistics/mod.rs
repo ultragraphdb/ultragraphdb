@@ -7,7 +7,7 @@ mod statistics_codec;
 
 use std::collections::BTreeMap;
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
+use xxhash_rust::xxh3::xxh3_64;
 
 /// The registers of each distinct-count sketch: a HyperLogLog of 64, about 13 % standard error.
 pub const SKETCH_REGISTERS: usize = 64;
@@ -96,7 +96,7 @@ impl Statistics {
 
 /// Raises the register `value`'s hash selects to the position of the hash's first set bit after the index bits.
 fn observe(registers: &mut [u8; SKETCH_REGISTERS], value: &[u8]) {
-    let hash = fingerprint64(value);
+    let hash = xxh3_64(value);
     let index = (hash & (SKETCH_REGISTERS as u64 - 1)) as usize;
     let rank = ((hash >> 6) | (1 << 58)).trailing_zeros() as u8 + 1;
     registers[index] = registers[index].max(rank);

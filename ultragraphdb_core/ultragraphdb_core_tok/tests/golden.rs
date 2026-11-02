@@ -24,6 +24,32 @@ pub(crate) fn unhex(s: &str) -> Vec<u8> {
         .collect()
 }
 
+/// The length of a digest token: the identifier byte and 32 bytes of SHA-256. Every text shingle is shorter.
+const DIGEST_TOKEN: usize = 33;
+
+/// `tokens` of a hash or ngram case with each digest reduced to its identifier byte, sorted again when `sorted`.
+/// Dgraph's digests are BLAKE2b-256 and the port's SHA-256, so a golden case checks how many digests it holds and
+/// every other token byte for byte; the unit tests check the digests.
+pub(crate) fn digests_masked(tokenizer: &str, sorted: bool, tokens: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    if tokenizer != "hash" && tokenizer != "ngram" {
+        return tokens;
+    }
+    let mut masked: Vec<Vec<u8>> = tokens
+        .into_iter()
+        .map(|t| {
+            if t.len() == DIGEST_TOKEN {
+                t[..1].to_vec()
+            } else {
+                t
+            }
+        })
+        .collect();
+    if sorted {
+        masked.sort();
+    }
+    masked
+}
+
 /// The text of a hex string; the generator writes valid UTF-8 only, as every string value is.
 pub(crate) fn untext(s: &str) -> String {
     String::from_utf8(unhex(s)).expect("the golden text is UTF-8")

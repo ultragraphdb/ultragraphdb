@@ -3,9 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use blake2::{Blake2b256, Digest};
 use cucumber::{World, then, when};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use ultragraphdb_core_tok::{
     IDENT_NGRAM, IDENT_TERM, analyze, build_tokens, get_factory_create_spec_from_spec,
     get_ngram_query_tokens, get_ngram_tokens, get_tokenizer, get_tokenizer_for_lang, lang_base,
@@ -93,6 +93,23 @@ fn value(c: &TokensCase) -> Value {
     }
 }
 
+/// `tokens` of a hash or ngram case with each 33-byte digest reduced to its identifier byte, sorted again when
+/// `sorted`: Dgraph's digests are BLAKE2b-256 and the port's SHA-256, so a golden case checks how many digests it
+/// holds and every other token byte for byte.
+fn digests_masked(tokenizer: &str, sorted: bool, tokens: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    if tokenizer != "hash" && tokenizer != "ngram" {
+        return tokens;
+    }
+    let mut masked: Vec<Vec<u8>> = tokens
+        .into_iter()
+        .map(|t| if t.len() == 33 { t[..1].to_vec() } else { t })
+        .collect();
+    if sorted {
+        masked.sort();
+    }
+    masked
+}
+
 /// Compares a golden case with the port.
 fn compare(c: &TokensCase) -> Result<(), String> {
     let got: Result<Vec<Vec<u8>>, String> = match c.via.as_str() {
@@ -120,6 +137,9 @@ fn compare(c: &TokensCase) -> Result<(), String> {
     } else {
         Err(c.error.clone())
     };
+    let mask =
+        |t: Result<Vec<Vec<u8>>, String>| t.map(|t| digests_masked(&c.tokenizer, c.sorted, t));
+    let (got, want) = (mask(got), mask(want));
     if got == want {
         Ok(())
     } else {
@@ -342,22 +362,22 @@ fn long_shingle(w: &mut Steps) {
     w.texts = vec!["supercalifragilisticexpialidoci".to_string()];
 }
 
-#[then(expr = "that shingle appears as its BLAKE2b-256 digest and shorter shingles appear as text")]
+#[then(expr = "that shingle appears as its SHA-256 digest and shorter shingles appear as text")]
 fn shingle_hashed(w: &mut Steps) {
     let stem = &w.texts[0];
     let shingle = format!("{stem} fox");
     assert!(stem.len() >= 30 && shingle.len() >= 30);
-    // Dgraph's three tokens: the stem and the bigram as digests, "fox" as text.
+    // Three tokens: the stem and the bigram as digests, "fox" as text.
     let mut want = vec![
-        enc(IDENT_NGRAM, &Blake2b256::digest(stem.as_bytes())),
-        enc(IDENT_NGRAM, &Blake2b256::digest(shingle.as_bytes())),
+        enc(IDENT_NGRAM, &Sha256::digest(stem.as_bytes())),
+        enc(IDENT_NGRAM, &Sha256::digest(shingle.as_bytes())),
         enc(IDENT_NGRAM, b"fox"),
     ];
     want.sort();
     assert_eq!(w.tokens, want);
     assert_eq!(
-        hex(&w.tokens[0]),
-        "0f00d2dbb71439248c09fa1509c9bb01f3b5f627dbba86300532e80b61b8535226"
+        hex(&w.tokens[1]),
+        "0fe078b8fcecf16273fae00a06bf62f91ce1aea0590345b9d77a9ce61aafcbf825"
     );
 }
 

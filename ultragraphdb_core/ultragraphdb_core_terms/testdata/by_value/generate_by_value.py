@@ -6,8 +6,9 @@
 # The by-value golden vectors of PROTOCOL.md section 10.5, computed from the section's text alone, independently of
 # the Rust code and of oxsdatatypes: each payload laid out big-endian from the value's components, which are written
 # here by hand from the lexical form, timeOnTimeline by the section's formula with exact decimals, a double or float
-# packed by Python's struct, and BLAKE2b-128 by hashlib. A form that is not the section's canonical form, or whose
-# value its payload does not hold, is kept by its lexical form under tag 0x30 (up to 15 bytes) or 0x31.
+# packed by Python's struct, and SHA-256 truncated to 16 bytes by hashlib. A form that is not the section's
+# canonical form, or whose value its payload does not hold, is kept by its lexical form under tag 0x30 (up to 15
+# bytes) or 0x31.
 #
 #   python3 -I generate_by_value.py > by_value.tsv
 #
@@ -74,7 +75,7 @@ def kept(datatype, lexical):
     data = lexical.encode()
     if len(data) <= 15:
         return (datatype, lexical, bytes([0x30, code, len(data)]) + data)
-    return (datatype, lexical, bytes([0x31, code]) + hashlib.blake2b(data, digest_size=16).digest())
+    return (datatype, lexical, bytes([0x31, code]) + hashlib.sha256(data).digest()[:16])
 
 
 VECTORS = [

@@ -7,8 +7,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use blake2::{Blake2b256, Digest};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use ultragraphdb_core_tok::{
     IDENT_FULL_TEXT, IDENT_NGRAM, IDENT_TERM, TOKENIZER_NAMES, TokErrorEnum, Tokenizer,
     build_ngram_query_tokens, build_tokens, encode_geo_tokens, encode_regex_tokens,
@@ -17,7 +17,7 @@ use ultragraphdb_core_tok::{
 };
 use ultragraphdb_core_types::{BigFloat, DateTime, Geometry, Layout, TypeId, Val, Value, convert};
 
-use crate::golden::{LOWERCASE_DEVIATIONS, cases, unhex, untext};
+use crate::golden::{LOWERCASE_DEVIATIONS, cases, digests_masked, unhex, untext};
 
 fn enc(id: u8, s: &str) -> Vec<u8> {
     let mut v = vec![id];
@@ -480,14 +480,15 @@ fn test_ngram_tokenizer_long_token_hashing() {
     let long_words = "supercalifragilisticexpialidocious antidisestablishmentarianism \
                       pneumonoultramicroscopicsilicovolcanoconiosiss";
     let tokens = tokens_for_lang("ngram", "en", long_words);
-    // Dgraph's six tokens: every shingle of 30 bytes or more as its BLAKE2b-256 digest, the 25-byte stem
-    // "antidisestablishmentarian" as text.
+    // Six tokens: every shingle of 30 bytes or more as its SHA-256 digest, the 25-byte stem
+    // "antidisestablishmentarian" as text. Python's hashlib over the five shingles whose BLAKE2b-256 digests Dgraph
+    // emits for this input.
     let mut want: Vec<Vec<u8>> = [
-        "0f00d2dbb71439248c09fa1509c9bb01f3b5f627dbba86300532e80b61b8535226",
-        "0f1af1c83c671abc5fff1d7184dd4d71a477830dbf27abe555a05a494103a5bba5",
-        "0f620c55701c74e521d339005be167ece563490a72a96171175b08c0668aec8889",
-        "0f79ddacd65660729f2fdcac85de047f62fab2deead6ac9c42cc9edab14ebd80d7",
-        "0fa9e462d93dde25866ad87dd01c1818b42d1978df5bbe42ce2e02813c51ec5825",
+        "0fe078b8fcecf16273fae00a06bf62f91ce1aea0590345b9d77a9ce61aafcbf825",
+        "0f60306cd1b7ad985d05510d1da95ac0a55843e95976edf3bfa2d949c7a709333a",
+        "0ff2231b40349a2924aebb26eef2d13dfe0058df3e2effcae3424b24a2a5c49c23",
+        "0ff7a4ecfbd5cc434e5c17ab3c7b17fb56bd997ffac037475b50295ce1d633bb84",
+        "0fceab9eb4304bd761577b5364327460c7579c5359a6adce58b060a24a34049924",
     ]
     .iter()
     .map(|h| unhex(h))
@@ -503,7 +504,7 @@ fn test_ngram_tokenizer_long_token_hashing() {
     );
     let b30 = "b".repeat(30);
     let mut digest = vec![IDENT_NGRAM];
-    digest.extend_from_slice(&Blake2b256::digest(b30.as_bytes()));
+    digest.extend_from_slice(&Sha256::digest(b30.as_bytes()));
     assert_eq!(get_ngram_tokens(&b30, "en"), vec![digest]);
 }
 
@@ -769,7 +770,9 @@ fn test_tokens_golden() {
             (None, _) => Err(c.error.clone()),
             (Some(_), None) => panic!("{c:?}: a fixed result on a case no table names"),
         };
-        let got = port_tokens(c);
+        let mask =
+            |t: Result<Vec<Vec<u8>>, String>| t.map(|t| digests_masked(&c.tokenizer, c.sorted, t));
+        let (got, want) = (mask(port_tokens(c)), mask(want));
         if got != want {
             failures.push(format!(
                 "{} {:?} via {} of {} {:?}: want {want:?}, got {got:?}",

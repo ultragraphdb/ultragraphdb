@@ -11,8 +11,8 @@ http://www.w3.org/2001/XMLSchema#integer	-9223372036854775808	118000000000000000
 http://www.w3.org/2001/XMLSchema#integer	042	300203303432
 http://www.w3.org/2001/XMLSchema#integer	+5	3002022b35
 http://www.w3.org/2001/XMLSchema#integer	-0	3002022d30
-http://www.w3.org/2001/XMLSchema#integer	9223372036854775808	3102d73c268d3d2e288886d854c57579e6fb
-http://www.w3.org/2001/XMLSchema#integer	-9223372036854775809	3102ffd6446aff7b257a84db22b3aef743ad
+http://www.w3.org/2001/XMLSchema#integer	9223372036854775808	3102c5c29af0c2b1ba23907ca40686689919
+http://www.w3.org/2001/XMLSchema#integer	-9223372036854775809	3102a11b7b6918ba4e84f8e3ab75638e7325
 http://www.w3.org/2001/XMLSchema#decimal	0	1200000000000000000000000000000000
 http://www.w3.org/2001/XMLSchema#decimal	1.5	12000000000000000014d1120d7b160000
 http://www.w3.org/2001/XMLSchema#decimal	-0.25	12fffffffffffffffffc87d25316270000
@@ -24,7 +24,7 @@ http://www.w3.org/2001/XMLSchema#decimal	01.5	30030430312e35
 http://www.w3.org/2001/XMLSchema#decimal	3.0	300303332e30
 http://www.w3.org/2001/XMLSchema#decimal	-0	3003022d30
 http://www.w3.org/2001/XMLSchema#decimal	+1	3003022b31
-http://www.w3.org/2001/XMLSchema#decimal	0.1234567890123456789	3103ace0ab92460a4bfd7891babaa76194be
+http://www.w3.org/2001/XMLSchema#decimal	0.1234567890123456789	310317f039b71a4edc4dee9ebc1279d93300
 http://www.w3.org/2001/XMLSchema#double	1	133ff0000000000000
 http://www.w3.org/2001/XMLSchema#double	0.5	133fe0000000000000
 http://www.w3.org/2001/XMLSchema#double	-0	138000000000000000
@@ -53,10 +53,10 @@ http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00	1500000000ce908254
 http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00.5+05:30	1500000000ce907e22c1124f173c520000014a
 http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00+00:01	1500000000ce908250d5a9f8bccb9000000001
 http://www.w3.org/2001/XMLSchema#dateTime	-0001-03-01T00:00:00Z	15ffffffffffcff925b9a5e65e400000000000
-http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00+00:00	3106fd2642c617fd841d1bab4afc0d0ddda1
-http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00.0Z	3106443bddac67278d0442cd0f0391cc5dd4
-http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T24:00:00Z	3106923dcf5324f02e866e4ed75f34f3628f
-http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00-00:01	3106325e5be7a3a7ee99261c762fe2e22c28
+http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00+00:00	3106e736f2b7a1241667d32e3cfe33140263
+http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00.0Z	3106f16ad72be80eaf5ec71349beef951eec
+http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T24:00:00Z	3106f2e6e40eab49ed708814f1644d2ea1b8
+http://www.w3.org/2001/XMLSchema#dateTime	2026-10-26T12:00:00-00:01	3106eef885aab2596fc7582029a8c343ede0
 http://www.w3.org/2001/XMLSchema#time	12:00:00Z	1600000000c913a797cbab83ee810000000000
 http://www.w3.org/2001/XMLSchema#time	00:00:00	1600000000c9139e71eb3c975756000000ffff
 http://www.w3.org/2001/XMLSchema#time	12:34:56.789-08:00	1600000000c913ae22b6c06d3a4d888000fe20
@@ -67,8 +67,8 @@ http://www.w3.org/2001/XMLSchema#time	12:00:00-00:01	30070e31323a30303a30302d303
 http://www.w3.org/2001/XMLSchema#date	2026-10-26	1700000000ce90792e35e5de40dc000000ffff
 http://www.w3.org/2001/XMLSchema#date	2026-10-26Z	1700000000ce90792e35e5de40dc0000000000
 http://www.w3.org/2001/XMLSchema#date	2024-02-29-05:00	1700000000ce4b29f5357b2c98a7400000fed4
-http://www.w3.org/2001/XMLSchema#date	2026-10-26+00:00	31083fe654b5efdbe2f3e4155ee3d057df32
-http://www.w3.org/2001/XMLSchema#date	2026-10-26-00:01	3108ca9e913a12ff1f29faa4e4cbf056d863
+http://www.w3.org/2001/XMLSchema#date	2026-10-26+00:00	3108e26854476593f92558ac44abf8e5da0f
+http://www.w3.org/2001/XMLSchema#date	2026-10-26-00:01	3108fc1471029fe25fd2c6e74968a4756324
 http://www.w3.org/2001/XMLSchema#gYearMonth	2026-10	1800000000ce90d4a8fa3b1c288a000000ffff
 http://www.w3.org/2001/XMLSchema#gYearMonth	2026-10Z	1800000000ce90d4a8fa3b1c288a0000000000
 http://www.w3.org/2001/XMLSchema#gYearMonth	2026-10+00:00	30090d323032362d31302b30303a3030
@@ -97,7 +97,7 @@ http://www.w3.org/2001/XMLSchema#duration	PT0.5S	1d00000000000000000000000000000
 http://www.w3.org/2001/XMLSchema#duration	P1Y2M	1d000000000000000e00000000000000000000000000000000
 http://www.w3.org/2001/XMLSchema#duration	P1DT2H	1d000000000000000000000000000013d210f055f232800000
 http://www.w3.org/2001/XMLSchema#duration	P0D	300e03503044
-http://www.w3.org/2001/XMLSchema#duration	P1Y2M3DT4H5M6.0S	310e726c0c39bee5fb1e93f5763a74d9dc6a
+http://www.w3.org/2001/XMLSchema#duration	P1Y2M3DT4H5M6.0S	310ea419d4bad24ef3b1a7a93f28b05bfb0e
 http://www.w3.org/2001/XMLSchema#duration	P14M	300e045031344d
 http://www.w3.org/2001/XMLSchema#duration	PT26H	300e055054323648
 http://www.w3.org/2001/XMLSchema#yearMonthDuration	P1Y2M	1e000000000000000e

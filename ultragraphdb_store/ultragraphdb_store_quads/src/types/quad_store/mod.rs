@@ -7,10 +7,10 @@ mod quad_store_read;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
 use ultragraphdb_core_mapping::{CONTRACT_VERSION, ContractVersion, MappingError};
 use ultragraphdb_store_posting::{Batch, CachedList, Lists, Request};
 use ultragraphdb_traits_store::{ListCache, PersistMode, Scan, Store, StoreSnapshot, WriteBatch};
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::errors::quad_error::QuadError;
 use crate::types::leases::Leases;
@@ -56,7 +56,7 @@ where
         Ok(Self {
             lists,
             leases: Leases::new(),
-            fingerprint: fingerprint64,
+            fingerprint: xxh3_64,
         })
     }
 

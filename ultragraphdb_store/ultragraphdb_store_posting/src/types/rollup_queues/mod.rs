@@ -6,13 +6,13 @@
  * its deduplication). Changed for ultragraphdb: translated to Rust; the batch pools and channels are queues under
  * one lock; the time a key was last rolled up is the caller's clock in seconds, where Dgraph reads the wall clock,
  * and a key never rolled up is due, where Dgraph's check relies on Unix time being large; keys are deduplicated by
- * their 64-bit farm fingerprint, where Dgraph uses `z.MemHash`.
+ * their XXH3-64 hash, where Dgraph uses `z.MemHash`.
  * Copyright (c) 2026. Marvin Hansen.
  */
 
 use std::collections::{HashMap, VecDeque};
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
+use xxhash_rust::xxh3::xxh3_64;
 
 /// The keys a batch holds before it is handed to the worker.
 pub const ROLLUP_BATCH: usize = 16;
@@ -64,7 +64,7 @@ impl RollupQueues {
                 .retain(|_, at| now_secs.saturating_sub(*at) < ROLLUP_DEDUP_SECS);
             self.last_cleanup = now_secs;
         }
-        let hash = fingerprint64(key);
+        let hash = xxh3_64(key);
         let due = self
             .rolled
             .get(&hash)

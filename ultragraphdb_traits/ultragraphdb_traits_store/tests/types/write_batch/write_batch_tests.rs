@@ -15,7 +15,12 @@ fn alternating(len: usize) -> Vec<u8> {
 
 /// The first 1,024 stored bytes of such a key: `0x00 0xFE 0x01` repeated.
 fn dense_head() -> Vec<u8> {
-    [0x00, 0xFE, 0x01].iter().copied().cycle().take(1024).collect()
+    [0x00, 0xFE, 0x01]
+        .iter()
+        .copied()
+        .cycle()
+        .take(1024)
+        .collect()
 }
 
 #[test]

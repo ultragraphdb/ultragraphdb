@@ -19,10 +19,10 @@ autotests = false
 workspace = true
 
 [dependencies]
-blake2 = { workspace = true }
 oxrdf = { workspace = true }
 oxsdatatypes = { workspace = true }
-ultragraphdb_common_utils = { workspace = true }
+sha2 = { workspace = true }
+xxhash-rust = { workspace = true }
 
 [dev-dependencies]
 ultragraphdb_tool_bdd = { workspace = true }

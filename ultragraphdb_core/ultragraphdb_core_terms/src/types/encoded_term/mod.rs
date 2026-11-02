@@ -8,7 +8,7 @@ mod encoded_term_debug;
 mod encoded_term_encode;
 mod encoded_term_view;
 
-use ultragraphdb_common_utils::go_farm::fingerprint64;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::errors::term_error::TermError;
 use crate::types::known_datatype::KnownDatatype;
@@ -216,9 +216,9 @@ impl EncodedTerm {
         self.as_bytes()[0] == tag::VECTOR
     }
 
-    /// The posting fingerprint: go-farm's `Fingerprint64` of the encoding, which orders a list's literal postings.
+    /// The posting fingerprint: XXH3-64 of the encoding, which orders a list's literal postings.
     pub fn fingerprint(&self) -> u64 {
-        fingerprint64(self.as_bytes())
+        xxh3_64(self.as_bytes())
     }
 }
 

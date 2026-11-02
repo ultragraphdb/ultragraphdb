@@ -145,7 +145,10 @@ fn test_the_encoded_head_writes_a_long_run_as_its_codes() {
     let err = check_key_size(&key).unwrap_err();
     let (size, _, head) = too_large(&err);
     assert_eq!(size, 2 + 2 + 2 + 1 + 66_000 + 2 + 8);
-    assert_eq!(head[..10], [0x00, 0x80, 0x00, 0x80, 0x00, 0xCF, 0x01, 0x00, 0xFE, 0x01]);
+    assert_eq!(
+        head[..10],
+        [0x00, 0x80, 0x00, 0x80, 0x00, 0xCF, 0x01, 0x00, 0xFE, 0x01]
+    );
 }
 
 #[test]
