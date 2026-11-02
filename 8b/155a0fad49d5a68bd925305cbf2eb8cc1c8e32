@@ -1,0 +1,55 @@
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_0eef4b6c47413d 17-22,48-49,78-83,85-87,107-116,136-157,185-195,219-221,243,245,248-249
+openspec/changes/stage-5-5-three-role-refactor/proposal.md
+  s_6c9dcf457e80d9::t_c758ee858adf7d 18,24,27,36-38,41-47,65-69,74-75,81-84,90-91,94-96,105-110,113-117
+openspec/changes/stage-5-5-three-role-refactor/specs/client-endpoint/spec.md
+  s_6c9dcf457e80d9::t_008a8a9b300eb8 12-32
+openspec/changes/stage-5-5-three-role-refactor/specs/commit-rounds/spec.md
+  s_6c9dcf457e80d9::t_9073f904203997 11-16,18-20,23,27-32
+openspec/changes/stage-5-5-three-role-refactor/specs/metadata-group/spec.md
+  s_6c9dcf457e80d9::t_9e13e9ed34f725 88-101
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md
+  s_6c9dcf457e80d9::t_11e9d640aee5bf 49-50
+openspec/changes/stage-5-5-three-role-refactor/specs/role-binaries/spec.md
+  s_6c9dcf457e80d9::t_7e4747a7bcc86e 38-39,42-47,70-72,74,79-84,104-113,117-145
+openspec/changes/stage-5-5-three-role-refactor/specs/sequencer/spec.md
+  s_6c9dcf457e80d9::t_ed045f73037fb8 34-42,44-49
+openspec/changes/stage-5-5-three-role-refactor/specs/system-identity/spec.md
+  s_6c9dcf457e80d9::t_53a59add767170 32-34
+openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md
+  s_6c9dcf457e80d9::t_f4cdbc2c788e10 17-26,36-41
+openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md
+  s_6c9dcf457e80d9::t_31f3185dc054e4 22-87
+openspec/changes/stage-5-5-three-role-refactor/specs/transport-tls/spec.md
+  s_6c9dcf457e80d9::t_50d57eeac88a40 1-31
+openspec/changes/stage-5-5-three-role-refactor/specs/uid-lists/spec.md
+  s_6c9dcf457e80d9::t_c42246e7374e0a 50-76
+openspec/changes/stage-5-5-three-role-refactor/specs/ultra-style/spec.md
+  s_6c9dcf457e80d9::t_222aff489328b4 3-13,17-27,30-33,36-37,41-52
+openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md
+  s_6c9dcf457e80d9::t_fbdd41bcd82d9a 44-48,55-56,86-87
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_0369b00b401b7f 10-15,20-22,41,43,45,49,51-53,68,80,82-85,91,98-99,113,121-127
+"openspec/notes/UltraGraphDB Shard-per-Core Write Path.md"
+  s_6c9dcf457e80d9::t_4e552540457fd3 556-560
+openspec/notes/security.md
+  s_6c9dcf457e80d9::t_acda55a99c3c0a 113
+ultragraphdb_protocol/README.md
+  s_6c9dcf457e80d9::t_0fc1d590fce7ce 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8b155a0fad49d5a68bd925305cbf2eb8cc1c8e32",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
