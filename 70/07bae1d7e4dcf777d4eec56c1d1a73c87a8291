@@ -1,0 +1,19 @@
+ATTRIBUTION.md
+  s_1a37869c1d9e9e::t_34ca8762190179 1-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7007bae1d7e4dcf777d4eec56c1d1a73c87a8291",
+  "prompts": {},
+  "sessions": {
+    "s_1a37869c1d9e9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ab1d96d8b91f540c9",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
