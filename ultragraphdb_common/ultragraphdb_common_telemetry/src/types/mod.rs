@@ -4,5 +4,6 @@
  */
 
 pub mod log_format;
+pub mod plain_http_client;
 pub mod telemetry_config;
 pub mod telemetry_guard;

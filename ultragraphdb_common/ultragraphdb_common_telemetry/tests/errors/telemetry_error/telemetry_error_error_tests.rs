@@ -9,5 +9,5 @@ use ultragraphdb_common_telemetry::TelemetryError;
 
 #[test]
 fn test_is_a_std_error_without_a_source() {
-    assert!(TelemetryError::Runtime().source().is_none());
+    assert!(TelemetryError::Installed("set".into()).source().is_none());
 }

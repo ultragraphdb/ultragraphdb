@@ -6,8 +6,8 @@
 //! What a binary calls once at start to make the workspace's `tracing` events and spans visible: [`init`]
 //! installs the process's global subscriber from a [`TelemetryConfig`], with events written to stderr as plain
 //! text or JSON lines, filtered by an `RUST_LOG`-style directive the caller passes, and, when the config names an
-//! OTLP endpoint, spans exported over gRPC through a batch processor. The returned [`TelemetryGuard`] flushes the
-//! exporter and shuts it down when it is dropped.
+//! OTLP endpoint, spans exported over OTLP/HTTP through a batch processor by [`PlainHttpClient`], with no async
+//! runtime. The returned [`TelemetryGuard`] flushes the exporter and shuts it down when it is dropped.
 //!
 //! Library crates never call this crate: they emit events with `tracing` and leave the subscriber to the binary.
 //! [`subscriber`] builds what [`init`] installs over a writer and a span exporter of the caller's choosing, so a
@@ -24,10 +24,12 @@
 mod errors;
 mod telemetry;
 mod types;
+mod utils;
 
 pub use crate::errors::telemetry_error::{TelemetryError, TelemetryErrorEnum};
 pub use crate::telemetry::init::init;
 pub use crate::telemetry::subscriber::subscriber;
 pub use crate::types::log_format::LogFormat;
+pub use crate::types::plain_http_client::PlainHttpClient;
 pub use crate::types::telemetry_config::TelemetryConfig;
 pub use crate::types::telemetry_guard::TelemetryGuard;

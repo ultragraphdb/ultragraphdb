@@ -5,15 +5,18 @@
 
 use std::io;
 
+use std::time::Duration;
+
 use opentelemetry::trace::{SpanId, TraceId};
+use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::trace::SpanData;
 use serde_json::Value;
 use tracing::{debug, error, info, info_span, trace, warn};
 use ultragraphdb_common_telemetry::{
-    LogFormat, TelemetryConfig, TelemetryError, TelemetryErrorEnum, subscriber,
+    LogFormat, PlainHttpClient, TelemetryConfig, TelemetryError, TelemetryErrorEnum, subscriber,
 };
 
-use crate::test_support::{Buffer, Kept};
+use crate::test_support::{Buffer, Kept, serve_once};
 
 /// The events written while `f` runs under the subscriber of `filter` and `format`.
 fn logged(filter: &str, format: LogFormat, f: impl FnOnce()) -> String {
@@ -247,14 +250,10 @@ fn test_spans_below_the_filter_are_not_exported() {
 #[test]
 fn test_spans_of_the_exporter_stack_are_not_exported() {
     let spans = exported("trace", || {
-        info_span!(target: "h2", "h2").in_scope(|| {});
-        info_span!(target: "hyper", "hyper").in_scope(|| {});
-        info_span!(target: "hyper_util", "hyper_util").in_scope(|| {});
         info_span!(target: "opentelemetry", "opentelemetry").in_scope(|| {});
+        info_span!(target: "opentelemetry_http", "opentelemetry_http").in_scope(|| {});
         info_span!(target: "opentelemetry_otlp", "opentelemetry_otlp").in_scope(|| {});
         info_span!(target: "opentelemetry_sdk", "opentelemetry_sdk").in_scope(|| {});
-        info_span!(target: "tonic", "tonic").in_scope(|| {});
-        info_span!(target: "tower", "tower").in_scope(|| {});
         info_span!(target: "ultragraphdb_store_kv", "batch").in_scope(|| {});
     });
     let names: Vec<&str> = spans.iter().map(|s| s.name.as_ref()).collect();
@@ -284,4 +283,42 @@ fn test_dropping_the_guard_exports_while_the_subscriber_lives_on() {
         .collect();
     assert_eq!(names, ["kept"]);
     drop(dispatch);
+}
+
+#[test]
+fn test_spans_reach_a_collector_over_otlp_http_without_a_runtime() {
+    // The exporter init builds, posting protobuf through the plain client to a server standing in for a collector;
+    // the guard's drop flushes the batch on the processor's thread.
+    let (url, collector) = serve_once(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_endpoint(format!("{url}/v1/traces"))
+        .with_http_client(PlainHttpClient::new(Duration::from_secs(5)))
+        .build()
+        .expect("an exporter");
+    let (subscriber, guard) = subscriber(
+        &TelemetryConfig::new("info", LogFormat::Plain),
+        io::sink,
+        Some(exporter),
+    )
+    .expect("the filter parses");
+    tracing::subscriber::with_default(subscriber, || info_span!("apply_round").in_scope(|| {}));
+    drop(guard);
+    let request = collector.join().expect("the collector thread");
+    let end = request
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .expect("a request head");
+    let head = String::from_utf8_lossy(&request[..end]);
+    assert!(head.starts_with("POST /v1/traces HTTP/1.1\r\n"), "{head}");
+    assert!(
+        head.contains("content-type: application/x-protobuf"),
+        "{head}"
+    );
+    let body = &request[end + 4..];
+    assert!(
+        body.windows(b"apply_round".len())
+            .any(|w| w == b"apply_round"),
+        "the protobuf body carries the span's name"
+    );
 }

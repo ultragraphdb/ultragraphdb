@@ -27,7 +27,8 @@ impl TelemetryConfig {
         }
     }
 
-    /// The config with spans exported over OTLP gRPC to `endpoint`, e.g. `http://localhost:4317`.
+    /// The config with spans exported over OTLP/HTTP with protobuf to `endpoint`, the full URL taken as given, e.g.
+    /// `http://localhost:4318/v1/traces`.
     pub fn with_otlp_endpoint(self, endpoint: impl Into<String>) -> Self {
         Self {
             otlp_endpoint: Some(endpoint.into()),

@@ -14,7 +14,6 @@ fn test_constructors_build_their_variant() {
             reason: "bad".into()
         }
     );
-    assert_eq!(TelemetryError::Runtime().0, TelemetryErrorEnum::Runtime);
     assert_eq!(
         TelemetryError::Exporter("e".into(), "bad".into()).0,
         TelemetryErrorEnum::Exporter {

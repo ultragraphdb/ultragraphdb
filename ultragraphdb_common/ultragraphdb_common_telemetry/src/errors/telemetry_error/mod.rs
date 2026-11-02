@@ -18,9 +18,6 @@ pub enum TelemetryErrorEnum {
     /// The level filter is not a directive `tracing-subscriber`'s `EnvFilter` parses: the directive and the
     /// parser's reason.
     Filter { directive: String, reason: String },
-    /// An OTLP endpoint is set and the caller is not inside a multi-threaded Tokio runtime, which the gRPC exporter
-    /// runs its connection on while the batch processor's thread waits for it.
-    Runtime,
     /// The OTLP span exporter refused its configuration: the endpoint and the exporter's reason.
     Exporter { endpoint: String, reason: String },
     /// A global subscriber or `log` logger is already installed in this process: the installer's reason.
@@ -31,11 +28,6 @@ impl TelemetryError {
     #[allow(non_snake_case)]
     pub fn Filter(directive: String, reason: String) -> Self {
         Self(TelemetryErrorEnum::Filter { directive, reason })
-    }
-
-    #[allow(non_snake_case)]
-    pub fn Runtime() -> Self {
-        Self(TelemetryErrorEnum::Runtime)
     }
 
     #[allow(non_snake_case)]

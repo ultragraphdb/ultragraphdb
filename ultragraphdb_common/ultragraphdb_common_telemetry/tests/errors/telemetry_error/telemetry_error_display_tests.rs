@@ -12,10 +12,6 @@ fn test_display_names_the_input_and_the_reason() {
         "invalid log filter \"x=loud\": invalid level"
     );
     assert_eq!(
-        TelemetryError::Runtime().to_string(),
-        "an OTLP endpoint needs a multi-threaded Tokio runtime around the call to init"
-    );
-    assert_eq!(
         TelemetryError::Exporter("e".into(), "invalid uri".into()).to_string(),
         "invalid OTLP endpoint \"e\": invalid uri"
     );

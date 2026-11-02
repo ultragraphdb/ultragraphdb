@@ -4,4 +4,6 @@
  */
 
 #[cfg(test)]
+mod plain_http_client;
+#[cfg(test)]
 mod telemetry_config;

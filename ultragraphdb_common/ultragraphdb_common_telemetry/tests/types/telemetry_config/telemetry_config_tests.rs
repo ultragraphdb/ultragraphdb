@@ -15,9 +15,12 @@ fn test_new_exports_no_spans() {
 
 #[test]
 fn test_with_otlp_endpoint_keeps_the_rest() {
-    let config =
-        TelemetryConfig::new("warn", LogFormat::Json).with_otlp_endpoint("http://localhost:4317");
-    assert_eq!(config.otlp_endpoint(), Some("http://localhost:4317"));
+    let config = TelemetryConfig::new("warn", LogFormat::Json)
+        .with_otlp_endpoint("http://localhost:4318/v1/traces");
+    assert_eq!(
+        config.otlp_endpoint(),
+        Some("http://localhost:4318/v1/traces")
+    );
     assert_eq!(
         (config.filter(), config.format()),
         ("warn", LogFormat::Json)

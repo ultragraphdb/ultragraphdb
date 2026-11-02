@@ -100,7 +100,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "json", "env-filter"] }
 opentelemetry = { version = "0.33", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace"] }
-opentelemetry-otlp = { version = "0.33", default-features = false, features = ["grpc-tonic", "trace"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "trace"] }
+opentelemetry-http = { version = "0.33", default-features = false }
+async-trait = "0.1"
 tracing-opentelemetry = { version = "0.34", default-features = false }
 fjall = "3.1"
 moka = { version = "0.12", features = ["sync"] }

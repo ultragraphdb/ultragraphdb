@@ -17,40 +17,37 @@ fn test_init_refuses_without_installing_then_installs_once() {
         "invalid log filter \"ultragraphdb=loud\": error parsing level filter: expected one of \"off\", \"error\", \"warn\", \"info\", \"debug\", \"trace\", or a number 0-5"
     );
 
-    let endpoint =
-        TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint("http://127.0.0.1:4317");
-    let outside = init(&endpoint);
-    assert_eq!(outside.map(drop), Err(TelemetryError::Runtime()));
-
-    let current_thread = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .expect("a runtime");
-    let inside_current = current_thread.block_on(async { init(&endpoint) });
-    assert_eq!(inside_current.map(drop), Err(TelemetryError::Runtime()));
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(1)
-        .build()
-        .expect("a runtime");
-    runtime.block_on(async {
-        let bad = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint("not a uri");
+    for endpoint in ["https://127.0.0.1:4318/v1/traces", "127.0.0.1:4318", ""] {
+        let tls = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint(endpoint);
         assert_eq!(
-            init(&bad).map(drop),
+            init(&tls).map(drop),
             Err(TelemetryError::Exporter(
-                "not a uri".to_string(),
-                "invalid exporter configuration: endpoint: invalid endpoint 'https://not a uri': invalid URI: invalid uri character".to_string()
+                endpoint.to_string(),
+                "the exporter speaks plain HTTP; TLS is the collector's".to_string()
             ))
         );
+    }
 
-        // The exporter connects when it first exports; no span is created here, so nothing is sent.
-        let guard = init(&endpoint).expect("the first subscriber of the process");
-        let again = init(&TelemetryConfig::new("info", LogFormat::Plain));
-        assert_eq!(
-            again.map(drop),
-            Err(TelemetryError::Installed(
-                "a global default trace dispatcher has already been set".to_string()
-            ))
-        );
-        drop(guard);
-    });
+    let bad = TelemetryConfig::new("info", LogFormat::Json).with_otlp_endpoint("http://not a uri");
+    assert_eq!(
+        init(&bad).map(drop),
+        Err(TelemetryError::Exporter(
+            "http://not a uri".to_string(),
+            "invalid exporter configuration: endpoint: invalid endpoint 'http://not a uri': invalid uri character".to_string()
+        ))
+    );
+
+    // No async runtime around the call. The exporter connects when it first exports; no span is created here, so
+    // nothing is sent.
+    let endpoint = TelemetryConfig::new("info", LogFormat::Json)
+        .with_otlp_endpoint("http://127.0.0.1:4318/v1/traces");
+    let guard = init(&endpoint).expect("the first subscriber of the process");
+    let again = init(&TelemetryConfig::new("info", LogFormat::Plain));
+    assert_eq!(
+        again.map(drop),
+        Err(TelemetryError::Installed(
+            "a global default trace dispatcher has already been set".to_string()
+        ))
+    );
+    drop(guard);
 }

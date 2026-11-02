@@ -20,15 +20,11 @@ use crate::types::telemetry_guard::TelemetryGuard;
 
 /// The targets of the span exporter's own stack. Their spans are kept from the exporter, because exporting them
 /// creates more of them: at `trace`, every export would feed the next.
-const EXPORTER_STACK: [&str; 8] = [
-    "h2",
-    "hyper",
-    "hyper_util",
+const EXPORTER_STACK: [&str; 4] = [
     "opentelemetry",
+    "opentelemetry_http",
     "opentelemetry_otlp",
     "opentelemetry_sdk",
-    "tonic",
-    "tower",
 ];
 
 /// The subscriber [`init`](crate::init) installs, over `writer` and `exporter` rather than stderr and the
