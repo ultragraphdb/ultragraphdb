@@ -28,7 +28,7 @@ fn check(data: &[u8]) {
     let reserved = u32::from_be_bytes([0, bytes[13], bytes[14], bytes[15]]);
     let prefix = u16::from_be_bytes([bytes[0], bytes[1]]);
     let sequence = u64::from_be_bytes([
-        bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12],
+        bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
     ]);
     let expected = if reserved != 0 {
         Some(IdErrorEnum::ReservedBits { bits: reserved })
@@ -52,7 +52,7 @@ fn check(data: &[u8]) {
             assert_eq!(id.sequence().get(), sequence);
             assert_eq!(
                 id.bucket().get(),
-                u32::from_be_bytes([0, bytes[2], bytes[3], bytes[4]])
+                u32::from_be_bytes([0, bytes[10], bytes[11], bytes[12]])
             );
         }
         (Err(error), Some(variant)) => assert_eq!(error.0, variant),

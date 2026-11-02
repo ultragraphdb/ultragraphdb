@@ -72,12 +72,12 @@ fn an_id_is_built(w: &mut Steps) -> TestResult {
 }
 
 #[then(
-    "its 16 big-endian bytes are `00 03`, `AB CD EF`, `00 00 00 00 00 00 00 2A` and `00 00 00`, and unpacking returns type 3, bucket 0xAB_CDEF and sequence 42"
+    "its 16 big-endian bytes are `00 03`, `00 00 00 00 00 00 00 2A`, `AB CD EF` and `00 00 00`, and unpacking returns type 3, bucket 0xAB_CDEF and sequence 42"
 )]
 fn its_bytes_and_fields(w: &mut Steps) -> TestResult {
     let built = *w.ids.first().context("the built ID")?;
     let bytes = [
-        0x00, 0x03, 0xAB, 0xCD, 0xEF, 0, 0, 0, 0, 0, 0, 0, 0x2A, 0, 0, 0,
+        0x00, 0x03, 0, 0, 0, 0, 0, 0, 0, 0x2A, 0xAB, 0xCD, 0xEF, 0, 0, 0,
     ];
     assert_eq!(built.to_be_bytes(), bytes);
     let unpacked = SystemId::decode(&bytes)?;
@@ -115,7 +115,8 @@ fn zero_fields_decoded(w: &mut Steps) -> TestResult {
     let mut zero_prefix = id(3, 0xAB_CDEF, 42)?.to_be_bytes();
     zero_prefix[1] = 0;
     let mut zero_sequence = id(3, 0xAB_CDEF, 42)?.to_be_bytes();
-    zero_sequence[12] = 0;
+    // The sequence's low byte, the only nonzero one of bytes 2 to 9.
+    zero_sequence[9] = 0;
     w.refusals.push(SystemId::decode(&zero_prefix));
     w.refusals.push(SystemId::decode(&zero_sequence));
     Ok(())
@@ -155,7 +156,7 @@ fn ids_sorted_by_bytes(w: &mut Steps) -> TestResult {
     Ok(())
 }
 
-#[then("the order is (1, 3, 99), (1, 900, 7), (2, 9, 1)")]
+#[then("the order is (1, 900, 7), (1, 3, 99), (2, 9, 1): type first, then sequence")]
 fn the_sorted_order(w: &mut Steps) -> TestResult {
     let fields = w
         .sorted
@@ -169,7 +170,7 @@ fn the_sorted_order(w: &mut Steps) -> TestResult {
             ))
         })
         .collect::<TestResult<Vec<_>>>()?;
-    assert_eq!(fields, [(1, 3, 99), (1, 900, 7), (2, 9, 1)]);
+    assert_eq!(fields, [(1, 900, 7), (1, 3, 99), (2, 9, 1)]);
     Ok(())
 }
 

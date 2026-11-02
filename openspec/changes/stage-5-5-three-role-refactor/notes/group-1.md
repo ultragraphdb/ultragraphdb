@@ -214,3 +214,39 @@ The test of the 4 GiB refusal held a 4 GiB string in memory, which `make test`'s
 check moved into `CanonicalKey::length(len)`, which `CanonicalKey::iri` calls and a decoder can call before reading an
 IRI's bytes; both sides of the bound (`u32::MAX` accepted, `2^32` refused) are now tested on the length alone. The
 user approved the change, and asked that every test stay small and fast for parallel runs.
+
+## Field order: sequence above bucket (2026-11-02)
+
+The user approved a new field order. A `SystemId` is still 128 bits, big-endian; from the most significant bit it is
+now a 16-bit type prefix, a 64-bit sequence, a 24-bit bucket and 24 reserved bits (zero): bytes 0–1 type, 2–9
+sequence, 10–12 bucket, 13–15 reserved. IDs sort by type, then sequence, then bucket. The reason: adjacency lists hold
+IDs whose buckets are hashed, so random; with the bucket below the sequence, the IDs of a sorted list differ mostly in
+their sequences, and their LEB128 deltas shrink from about 11–12 bytes to about 7–8 per entry. The requirement is
+renamed "A system ID is 128 bits of type, sequence, bucket and reserved bits" in the spec; its pack scenario now
+expects `00 03`, `00 00 00 00 00 00 00 2A`, `AB CD EF`, `00 00 00`, and its sort scenario (1, 900, 7), (1, 3, 99),
+(2, 9, 1).
+
+- Tests first. The feature file's rule and both scenarios were copied from the edited spec, with their step bindings in
+  `tests/bdd.rs`. The unit tests' packed bytes and `u128` values, the zero-sequence byte (offset 9, was 12), the sort's
+  expected order and the order test (now `test_the_order_is_type_then_sequence_then_bucket`: each pair differs in the
+  field named while every field below it runs the other way, checked through `Ord`, the bytes and `to_u128`) were
+  rewritten by hand from the new layout. Eight of the nine `system_id_decode` seeds were re-packed; the ninth,
+  prefix 1 with every bucket and sequence bit set, has the same bytes in both layouts. The golden buckets are the
+  hash derivation alone, which names no ID layout, and are unchanged.
+- Against the old implementation under Bazel: unit 60 tests, 5 failed (`test_the_fields_pack_and_unpack`,
+  `test_the_largest_prefix_with_bucket_zero_and_sequence_one`, `test_a_zero_sequence_is_refused`,
+  `test_ids_of_one_type_sort_together`, `test_the_order_is_type_then_sequence_then_bucket`); BDD 9 scenarios, 3 failed
+  (The fields pack and unpack; A zero type prefix or sequence is refused; IDs of one type sort together), 3 of 18
+  steps. Every failure was an assertion on the layout or a decode that should have refused.
+- Implementation. `SystemId`'s fields are declared prefix, sequence, bucket, so the derived order stays the order of
+  the 16 big-endian bytes; `to_be_bytes` and `from_u128` destructure the new positions; the checks and their order
+  (reserved bits, prefix, sequence) are unchanged. Planting the old field order with the new bytes fails
+  `test_ids_of_one_type_sort_together` and `test_the_order_is_type_then_sequence_then_bucket`.
+- Under Bazel: unit 60 passed, BDD 9 scenarios (18 steps) passed. `scripts/coverage.sh ultragraphdb_core_ids`: 0
+  uncovered lines. `cargo fmt -p ultragraphdb_core_ids` changed nothing and `cargo clippy -p ultragraphdb_core_ids
+  --all-targets -- -Wclippy::all` reported nothing.
+- Fuzz: `system_id_decode` reads the sequence from bytes 2–9 and the bucket from 10–12.
+  `cargo +nightly fuzz build --fuzz-dir ultragraphdb_core_ids` built; the target replayed its seeds once (`-runs=0`,
+  10 inputs, no failure).
+- `SystemId::new` keeps its parameter order (prefix, bucket, sequence), the order the scenarios name the fields in;
+  only the bytes moved.

@@ -4,14 +4,14 @@
 Feature: System identity
   The 128-bit system ID, its bucket and the canonical key encoding
   (openspec/changes/stage-5-5-three-role-refactor/specs/system-identity/spec.md): the scenarios of the requirements
-  "A system ID is 128 bits of type, bucket, sequence and reserved bits", "The bucket comes from the namespace and the
+  "A system ID is 128 bits of type, sequence, bucket and reserved bits", "The bucket comes from the namespace and the
   key" and "Until UGS keys exist, an IRI is the key of the Resource type", verbatim.
 
-  Rule: A system ID is 128 bits of type, bucket, sequence and reserved bits
+  Rule: A system ID is 128 bits of type, sequence, bucket and reserved bits
 
     Scenario: The fields pack and unpack
       When an ID is built from type prefix 3, bucket 0xAB_CDEF and sequence 42
-      Then its 16 big-endian bytes are `00 03`, `AB CD EF`, `00 00 00 00 00 00 00 2A` and `00 00 00`, and unpacking returns type 3, bucket 0xAB_CDEF and sequence 42
+      Then its 16 big-endian bytes are `00 03`, `00 00 00 00 00 00 00 2A`, `AB CD EF` and `00 00 00`, and unpacking returns type 3, bucket 0xAB_CDEF and sequence 42
 
     Scenario: Nonzero reserved bits are refused
       When 16 bytes whose last byte is 0x01 are decoded as an ID
@@ -23,7 +23,7 @@ Feature: System identity
 
     Scenario: IDs of one type sort together
       When the IDs (type 2, bucket 9, sequence 1), (type 1, bucket 900, sequence 7) and (type 1, bucket 3, sequence 99) are sorted by their bytes
-      Then the order is (1, 3, 99), (1, 900, 7), (2, 9, 1)
+      Then the order is (1, 900, 7), (1, 3, 99), (2, 9, 1): type first, then sequence
 
   Rule: The bucket comes from the namespace and the key
 

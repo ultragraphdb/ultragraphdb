@@ -8,7 +8,7 @@ use ultragraphdb_core_ids::{
 };
 use ultragraphdb_tool_bdd::TestResult;
 
-// Expected bytes by hand from the layout: type prefix (2 bytes), bucket (3), sequence (8), reserved (3), big-endian.
+// Expected bytes by hand from the layout: type prefix (2 bytes), sequence (8), bucket (3), reserved (3), big-endian.
 
 fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
     Ok(SystemId::new(
@@ -20,29 +20,30 @@ fn id(prefix: u16, bucket: u32, sequence: u64) -> TestResult<SystemId> {
 
 /// The bytes of (3, 0xAB_CDEF, 42), the scenario "The fields pack and unpack".
 const PACKED: [u8; 16] = [
-    0x00, 0x03, 0xAB, 0xCD, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0x00, 0x00, 0x00,
+    0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A, 0xAB, 0xCD, 0xEF, 0x00, 0x00, 0x00,
 ];
+
+/// `PACKED` as an unsigned 128-bit value, its bytes read in order.
+const PACKED_U128: u128 = 0x0003_0000_0000_0000_002A_ABCD_EF00_0000;
 
 #[test]
 fn test_the_fields_pack_and_unpack() -> TestResult {
     let packed = id(3, 0xAB_CDEF, 42)?;
     assert_eq!(packed.to_be_bytes(), PACKED);
-    assert_eq!(packed.to_u128(), 0x0003_ABCD_EF00_0000_0000_0000_2A00_0000);
+    assert_eq!(packed.to_u128(), PACKED_U128);
     assert_eq!(packed.type_prefix().get(), 3);
     assert_eq!(packed.bucket().get(), 0xAB_CDEF);
     assert_eq!(packed.sequence().get(), 42);
     assert_eq!(SystemId::decode(&PACKED)?, packed);
-    assert_eq!(
-        SystemId::from_u128(0x0003_ABCD_EF00_0000_0000_0000_2A00_0000)?,
-        packed
-    );
+    assert_eq!(SystemId::from_u128(PACKED_U128)?, packed);
     Ok(())
 }
 
 #[test]
 fn test_the_largest_prefix_with_bucket_zero_and_sequence_one() -> TestResult {
     let packed = id(65_535, 0, 1)?;
-    let bytes = [0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0, 0, 0];
+    let bytes = [0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0x01, 0, 0, 0, 0, 0, 0];
+    assert_eq!(packed.to_u128(), 0xFFFF_0000_0000_0000_0001_0000_0000_0000);
     assert_eq!(packed.to_be_bytes(), bytes);
     assert_eq!(SystemId::decode(&bytes)?, packed);
     assert_eq!(
@@ -73,7 +74,7 @@ fn test_prefix_one_with_the_largest_bucket_and_sequence() -> TestResult {
 #[test]
 fn test_each_reserved_bit_set_alone_is_refused() {
     for bit in 0..24u32 {
-        let value = 0x0003_ABCD_EF00_0000_0000_0000_2A00_0000_u128 | (1u128 << bit);
+        let value = PACKED_U128 | (1u128 << bit);
         let expected = Err(IdError(IdErrorEnum::ReservedBits { bits: 1 << bit }));
         assert_eq!(SystemId::from_u128(value), expected, "bit {bit}");
         assert_eq!(
@@ -103,21 +104,22 @@ fn test_a_zero_type_prefix_is_refused() {
         Err(IdError(IdErrorEnum::ZeroTypePrefix))
     );
     assert_eq!(
-        SystemId::from_u128(0x0000_ABCD_EF00_0000_0000_0000_2A00_0000),
+        SystemId::from_u128(0x0000_0000_0000_0000_002A_ABCD_EF00_0000),
         Err(IdError(IdErrorEnum::ZeroTypePrefix))
     );
 }
 
 #[test]
 fn test_a_zero_sequence_is_refused() {
+    // The sequence's low byte, the only nonzero one of bytes 2 to 9; the bucket stays 0xAB_CDEF.
     let mut bytes = PACKED;
-    bytes[12] = 0;
+    bytes[9] = 0;
     assert_eq!(
         SystemId::decode(&bytes),
         Err(IdError(IdErrorEnum::ZeroSequence))
     );
     assert_eq!(
-        SystemId::from_u128(0x0003_ABCD_EF00_0000_0000_0000_0000_0000),
+        SystemId::from_u128(0x0003_0000_0000_0000_0000_ABCD_EF00_0000),
         Err(IdError(IdErrorEnum::ZeroSequence))
     );
 }
@@ -161,7 +163,7 @@ fn test_bytes_of_another_length_are_refused() {
 fn test_ids_of_one_type_sort_together() -> TestResult {
     let mut ids = [id(2, 9, 1)?, id(1, 900, 7)?, id(1, 3, 99)?];
     ids.sort();
-    assert_eq!(ids, [id(1, 3, 99)?, id(1, 900, 7)?, id(2, 9, 1)?]);
+    assert_eq!(ids, [id(1, 900, 7)?, id(1, 3, 99)?, id(2, 9, 1)?]);
     let mut bytes = [
         id(2, 9, 1)?.to_be_bytes(),
         id(1, 900, 7)?.to_be_bytes(),
@@ -171,8 +173,8 @@ fn test_ids_of_one_type_sort_together() -> TestResult {
     assert_eq!(
         bytes,
         [
-            id(1, 3, 99)?.to_be_bytes(),
             id(1, 900, 7)?.to_be_bytes(),
+            id(1, 3, 99)?.to_be_bytes(),
             id(2, 9, 1)?.to_be_bytes()
         ]
     );
@@ -180,11 +182,22 @@ fn test_ids_of_one_type_sort_together() -> TestResult {
 }
 
 #[test]
-fn test_the_order_is_type_then_bucket_then_sequence() -> TestResult {
-    assert!(id(1, 0xFF_FFFF, u64::MAX)? < id(2, 0, 1)?);
-    assert!(id(1, 5, u64::MAX)? < id(1, 6, 1)?);
-    assert!(id(1, 5, 1)? < id(1, 5, 2)?);
-    assert!(id(1, 5, 1 << 32)? > id(1, 5, 1 << 31)?);
+fn test_the_order_is_type_then_sequence_then_bucket() -> TestResult {
+    // Each pair differs in the field named, and every field below it runs the other way.
+    let pairs = [
+        // The type decides over the largest sequence and bucket.
+        (id(1, 0xFF_FFFF, u64::MAX)?, id(2, 0, 1)?),
+        // Within a type, the sequence decides over the bucket.
+        (id(1, 0xFF_FFFF, 5)?, id(1, 0, 6)?),
+        (id(1, 0xFF_FFFF, 1 << 31)?, id(1, 1, 1 << 32)?),
+        // Within a type and sequence, the bucket decides.
+        (id(1, 5, 7)?, id(1, 6, 7)?),
+    ];
+    for (lower, higher) in pairs {
+        assert!(lower < higher, "{lower:?} < {higher:?}");
+        assert!(lower.to_be_bytes() < higher.to_be_bytes(), "{lower:?}");
+        assert!(lower.to_u128() < higher.to_u128(), "{lower:?}");
+    }
     Ok(())
 }
 

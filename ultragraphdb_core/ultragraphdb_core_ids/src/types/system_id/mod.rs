@@ -12,15 +12,17 @@ use crate::types::sequence::Sequence;
 use crate::types::type_prefix::TypePrefix;
 
 /// The 128-bit system ID that names an entity or a statement inside the database, never outside it. From the most
-/// significant bit: a 16-bit type prefix (bits 127–112), a 24-bit bucket (111–88), a 64-bit sequence (87–24) and 24
+/// significant bit: a 16-bit type prefix (bits 127–112), a 64-bit sequence (111–48), a 24-bit bucket (47–24) and 24
 /// reserved bits (23–0), which are zero. It is stored as its 16 big-endian bytes and ordered as that unsigned value:
-/// by type, then bucket, then sequence. A zero prefix, a zero sequence and nonzero reserved bits are not
-/// representable; decoding refuses them.
+/// by type, then sequence, then bucket. The bucket's hashed bits sit below the sequence, so the IDs of a sorted list
+/// differ mostly in their sequences and their deltas stay small. A zero prefix, a zero sequence and nonzero reserved
+/// bits are not representable; decoding refuses them.
+// The fields are declared in the order of their bytes, so the derived order is the order of the 16 big-endian bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SystemId {
     prefix: TypePrefix,
-    bucket: Bucket,
     sequence: Sequence,
+    bucket: Bucket,
 }
 
 impl SystemId {
@@ -32,8 +34,8 @@ impl SystemId {
     pub fn new(prefix: TypePrefix, bucket: Bucket, sequence: Sequence) -> Self {
         Self {
             prefix,
-            bucket,
             sequence,
+            bucket,
         }
     }
 
@@ -80,11 +82,11 @@ impl SystemId {
     #[must_use]
     pub fn to_be_bytes(self) -> [u8; 16] {
         let [t0, t1] = self.prefix.get().to_be_bytes();
+        let [s0, s1, s2, s3, s4, s5, s6, s7] = self.sequence.get().to_be_bytes();
         let [b_top, b0, b1, b2] = self.bucket.get().to_be_bytes();
         debug_assert_eq!(b_top, 0, "a bucket holds 24 bits");
-        let [s0, s1, s2, s3, s4, s5, s6, s7] = self.sequence.get().to_be_bytes();
         // The reserved bits are zero.
-        [t0, t1, b0, b1, b2, s0, s1, s2, s3, s4, s5, s6, s7, 0, 0, 0]
+        [t0, t1, s0, s1, s2, s3, s4, s5, s6, s7, b0, b1, b2, 0, 0, 0]
     }
 
     /// The ID whose unsigned 128-bit value is `value`.
@@ -98,9 +100,6 @@ impl SystemId {
         let [
             t0,
             t1,
-            b0,
-            b1,
-            b2,
             s0,
             s1,
             s2,
@@ -109,6 +108,9 @@ impl SystemId {
             s5,
             s6,
             s7,
+            b0,
+            b1,
+            b2,
             r0,
             r1,
             r2,
