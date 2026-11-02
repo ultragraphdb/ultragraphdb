@@ -103,7 +103,8 @@ core too.
    about 40,000 relations per second for that predicate, whatever the cluster's size. Placement by the bucket of the
    subject's ID spreads a predicate across partitions. An edge's forward entry then lives with its subject and its
    reverse entry with its object, usually elsewhere; the reverse follows by change stream, the mechanism the
-   distribution note plans for tiles, needed from the first partitioned stage.
+   distribution note plans for tiles, needed from the first partitioned stage. *Superseded by P24 (2026-11-02): both
+   entries stay in the subject's partition, and the object's home keeps a referrer set naming where to look.*
 2. **The term dictionary is a partitioned unique index.** An IRI's uniqueness is checked by the partition owning its
    hash. Deriving an entity's bucket from the same hash, of its IRI or of its UGS `@key`, keeps creation and the check
    in one partition (P1).
@@ -120,7 +121,7 @@ core too.
 
 The three roles stay as they are. Stage 5.5 settles the identity (D1 revised by P7), the log format (P9, P10) and the
 metadata group (D4, more partitions to place); stage 8 builds the partitions, the reverse entries by change stream and
-the replica placement.
+the replica placement. *P24 (2026-11-02) replaces the reverse entries by change stream with referrer sets.*
 
 ### Large nodes
 
@@ -179,7 +180,7 @@ read speed; the tile stage's two-dimensional partitioning is the structural answ
 
 Twelve decisions the partitioned model needs before stage 5.5 specifies identity, the log and the metadata group.
 P1–P6 follow from the model, P7–P12 from scaling it to large nodes. Each states the trade-off, a recommendation and its
-consequences. The user adopted all twelve on 2026-11-01, as refined by P13–P20.
+consequences. The user adopted all twelve on 2026-11-01, as refined by P13–P20 and amended by P24.
 
 ### P1. Where an entity's bucket comes from
 
@@ -206,7 +207,12 @@ partition until the bucket moves.
   creating it.
 - Data without a schema hashes the IRI.
 - The mapping from an IRI to its ID never changes once written, since keys are immutable and IDs never reused, so any
-  partition caches another's dictionary entries without invalidation.
+  partition caches another's dictionary entries without invalidation. *Narrowed by P24 (2026-11-02): the ID-to-IRI
+  direction never changes, since IDs are never reused. In stage 5.5 an IRI-to-ID entry never changes either, since
+  deletes are by pattern and no entity is deleted, so the cache stays valid. From stage 6 an entity delete and a
+  re-created IRI change it, and the home's "deleted" answer and the delete's fence catch a stale entry; stage 8's
+  reclamation removes entries with no delete before them, and stage 8 specifies how a registration naming a reclaimed ID
+  is answered before it builds reclamation.*
 
 **Consequences.**
 
@@ -215,6 +221,9 @@ partition until the bucket moves.
 - The dictionary is keyed by the same hash, so a lookup of an IRI goes to one known partition, and a repeated lookup,
   such as a hub's, is answered by the asking core's cache.
 - Locality comes from `@colocate`, which the schema already declares, not from where a write arrives.
+
+*Amended by P24 (2026-11-02): a partition's first reference to an entity it does not own registers at the entity's
+home, which gets or creates its ID; the dictionary is naming state, and existence is read from committed data.*
 
 ### P2. How buckets are assigned to partitions
 
@@ -286,6 +295,9 @@ partition until the bucket moves.
   writes per type.
 - Snapshot reads of reverse entries wait for the change stream's watermark, as the epoch design provides.
 - The bulk loader becomes a stage-8 deliverable beside the partitions.
+
+*Amended by P24 (2026-11-02): an edge's reverse entry and the object's indexes stay in the subject's partition, with no
+change stream; blind writes across partitions are sequenced, with no validation exchange.*
 
 ### P4. How many cores a node gives to partitions
 
@@ -398,6 +410,8 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
   allocates from per (type, partition) blocks.
 - Leases are as many as types times partitions, each covering many creations.
 - 24 bits stay reserved, room for the tile coordinate D1 named as a candidate.
+
+*Field order revised by P24 rule 1 (2026-11-02): type, sequence, bucket, reserved.*
 
 ### P8. Where a partition's replicas run
 
@@ -529,6 +543,8 @@ does, so the steps are comparable. Stage 8 runs it on a 64-core bare-metal machi
 - An epoch closes on a node once its slowest partition has applied up to it, so one lagging partition delays the
   node's close; the agent reports which.
 
+*Amended by P24 (2026-11-02): no change streams run between partitions.*
+
 ## Decisions from the review before drafting
 
 A critical review of this note, `perf-optimization.md` and `review-stages-5.5-and-6.md` against the repository found
@@ -566,6 +582,9 @@ glibc, is D7 in the review note, adopted the same day.
   latest version, with no epoch wait.
 - Rollups write below deltas as before, at any free version below them.
 - The `transactions` and `commit-rounds` specs are restated with these versions in stage 5.5.
+
+*Revised by P24 rule 4 (2026-11-02): a partition stamps exactly one above its last delivered close and never advances on
+its own; when its sequence would run out, it asks the sequencer to close the epoch.*
 
 ### P14. Interactive transactions across partitions
 
@@ -674,6 +693,10 @@ glibc, is D7 in the review note, adopted the same day.
 - The 128-bit key format gives reverse keys a source-bucket-range part, using the split parts it already has.
 - The tile stage generalises the split to every list.
 
+*Superseded by P24 (2026-11-02): reverse entries stay with their subjects, so a hub's inbound entries are spread over
+its referrers' partitions by construction; reverse keys carry no source-bucket part and the placement map records no
+split nodes. `rdf:type` is still answered from type-prefix ranges.*
+
 ### P18. The log as the only synced stream (refines P9)
 
 **Trade-off.**
@@ -701,6 +724,11 @@ glibc, is D7 in the review note, adopted the same day.
 
 - P9's gain becomes one synced stream instead of two at once, and half the disk bytes only with the fork.
 - The rolling-upgrade rules check the derivation version and the catalog version on replay.
+
+*Amended by P24 (2026-11-02): the record also carries each transaction's registrations as a referrer (entity ID, bucket
+group, the reply's generation), entries copied in both directions among the new dictionary entries, drops as operations,
+deletes by pattern as their removals, session-table entries, index-build records, and the registrations a home accepts
+with the referrer-set members they add or renew.*
 
 ### P19. Reads of versioned keys (carries `perf-optimization.md` forward)
 
@@ -765,6 +793,9 @@ glibc, is D7 in the review note, adopted the same day.
   this note and specified in stage 8's change.
 - The development container's two storage groups of one replica (single-container note) arrive with stage 8.
 
+*Amended by P24 (2026-11-02): stage 5.5 also builds registration, referrer sets, fan-out reverse reads, the epoch
+inequality and the refusal of cross-partition deletes; neither stage builds change streams or split reverse parts.*
+
 ## Decisions taken before drafting
 
 The user took three more decisions on 2026-11-01, closing the last questions before stage 5.5's specifications.
@@ -774,7 +805,8 @@ The user took three more decisions on 2026-11-01, closing the last questions bef
 Every commit carries an epoch (P13), so something must advance epochs from the first stage that stamps them. The
 sequencer is built in stage 5.5, before anything uses an epoch, as a log-backed state machine with one replica like
 the metadata group (D4): it closes epochs at the sequencer's wall-clock time, records each close, and keeps the ordered
-log of multi-partition transactions. Partitions stamp their commits with the latest epoch it has closed. Stage 8
+log of multi-partition transactions. Partitions stamp their commits with one above the latest close delivered to them
+(P24 rule 4). Stage 8
 replicates it and executes cross-partition commits in its order (P3, P14); the distribution note's open questions on
 epoch length and on placing the sequencer beside the metadata group stay with stage 8's measurements.
 
@@ -798,3 +830,179 @@ generated vectors; its scenarios citing Dgraph's bytes are rewritten for the 128
 vectors generated from their own specifications. The other generators stay; `algo_setops` and the HNSW graph vectors
 also carry 64-bit IDs, and stage 5.5 retires whichever of them its formats invalidate.
 
+## The placement decision of 2026-11-02
+
+Two adversarial reviews of the amended P3 and P17, and a TRIZ/ARIZ analysis of what they kept failing on, led to one
+more decision. The user adopted it on 2026-11-02. It supersedes P17 and amends P1, P3, P7, P12, P13, P18, P20 and P21
+where those sections say so.
+
+### P24. One owner per fact
+
+**Root cause.** Placing data by vertex (P1's subject bucket, adopted to escape the hot-predicate ceiling of predicate
+placement) gives every edge, the unit of a graph write, two owners: the subject's partition holds its forward entry and
+the object's partition its reverse entry. The amended design compensated with a change stream of derived entries:
+receiver logs, seals, two watermarks, versions assigned by the receiver, caps on rollups, a stall policy and sequenced
+blind writes. After two reviews it still left nine questions open, and every one of its mechanisms repaired a
+consequence of the second owner.
+
+**The inversion.** Every fact stays with its writer. What moves toward the reader is a small, monotone where-to-look
+record: the set of partitions that may hold edges to an entity. A record that only grows needs no ordering against the
+facts it points at, only the guarantee that it grows before they are written.
+
+**The rules.**
+
+1. **Identity.** A system ID is, from the most significant bit, a 16-bit type prefix, a 64-bit sequence, a 24-bit bucket
+   and 24 reserved bits (field order type, sequence, bucket, approved 2026-11-02: the bucket's hashed bits sit below the
+   sequence, so a sorted list's deltas stay small). `Bucket::derive` hashes the namespace for the bucket's top 8 bits
+   and the declaring type's prefix with the canonical key for its low 16 (P15, P16). Sequences are leased per (type,
+   partition) and never reused (P7). An entity's home is the partition the placement map gives its bucket.
+2. **One owner.** A partition owns its home entities' state and every entry derived from the edges and values its own
+   subjects write: forward lists, subject-predicates lists, its local reverse index (an object to the partition's own
+   subjects), object-predicates entries, counts, value indexes and statistics, all written in one local commit, as the
+   single-node code of stage 4 writes them. An edge's forward and reverse entries are therefore always consistent. A
+   hub's inbound entries are spread over its referrers' partitions by construction, which is what P17's split sought,
+   so a reverse key carries no source-bucket part. Nothing is derived in one partition and applied in another: there is
+   no change stream, derived keyspace, seal, receiver-assigned version or rollup cap.
+3. **Registration is get-or-create.** Registration is per entity and referring bucket group: before a partition first
+   commits a reference to an entity `o` it does not own from a subject of bucket group `g`, it sends `o`'s home a
+   registration: the IRI's text for a new IRI or the ID of a known one, `g`, and the generation it last saw for `(o,
+   g)`. The home makes the registration durable in its log (its durability ticket; the VSR commit in stage 8) before it
+   replies with the ID and its last delivered epoch close. The home creates the IRI-to-ID entry if it is absent and adds
+   the bucket group to `o`'s referrer set `R(o)`. Registrations are idempotent, batched per home node within each write
+   request and issued while the transaction executes; concurrent registrants all receive the same ID and none aborts,
+   which replaces the term dictionary's rule that the second creator retries. The referrer keeps a registered mark and
+   the generation per `(o, g)`, in a marks keyspace of its own, and copies `o`'s dictionary entries in both directions
+   into its own dictionary at its first reference to `o`; P1's volatile IRI-to-ID cache stays. The dictionary is naming
+   state only: existence and type membership are read from committed data, never from a dictionary entry. A predicate or
+   graph IRI another partition owns is got or created at its home the same way before first use, joining no referrer
+   set, which concerns IRIs and blank nodes in the object position only.
+4. **The epoch inequality.** A registration's epoch is at most the commit epoch of every write referencing it, on every
+   write path; this is the lemma the rest rests on. A partition stamps its commits with exactly its last delivered close
+   plus one and never advances on its own: when its 22-bit sequence would run out, it asks the sequencer to close now
+   (`epoch_ms_min` still honoured) and waits, refusing with `Busy` once the request has gone unanswered for the setting
+   `close_request_ms`. A snapshot read waiting on the open epoch makes the frontend ask its sequencer for an early
+   close. A registration's reply carries the home's last delivered close `c`, and the registrant commits only after
+   close `c` has been delivered to it. A sequenced submission (stage 8) carries the largest reply epoch `c + 1` among
+   its registrations, and the sequencer places it at or above that epoch. This revises P13's local advance: a partition
+   stamps exactly one above its last delivered close, so it never stamps an epoch whose close has been delivered to it,
+   and it holds the catalog versions announced with that close (rule 11) when it stamps the epoch they take effect at.
+5. **Referrer set.** `R(o)`, kept at `o`'s home, is a monotone superset of the subject bucket groups holding edges to
+   `o`. A bucket group is 64 contiguous buckets, 2^10 groups per namespace run. Each member carries the epoch it was
+   added at and a generation, under MVCC. The home adds its own subjects' groups in the commit that first references
+   `o` from them. A registration naming the member's current generation, or naming any generation for a group not in
+   `R(o)`, adds or renews the member at one generation above the one named; a registration naming an older generation
+   is a repeat and is answered with the current one. Groups resolve to partitions through the placement map
+   at a read's epoch, so moves, splits and restores rewrite nothing.
+6. **Reads.** A forward read routes by bucket. A reverse read reads `R(o)` at epoch `e` at the home once the home has
+   closed `e`, then fans out, batched per node, to the member partitions, each answering from its local reverse index at
+   `e` once it has closed `e`; a large frontier uses a merge scan. A bound literal object, which has no home or referrer
+   set, index lookups and lookups by reverse count fan out the same way over the namespace's partitions, a reverse count
+   being the sum of the partitions' counts. A snapshot read is complete or it waits, never partial; a read reaching its
+   deadline fails with an error naming the lagging partition; in stage 8 followers serve reads. An opt-in inbound
+   summary cache at the home stays a later option, taken only if measurement asks for it; correctness never depends on
+   it.
+7. **Transactions.** A read-write transaction binds to the partition owning the first subject it reads or writes, or,
+   when its first operation names no subject, to the partition owning the namespace's whole run if one does, and reads
+   and writes only what that partition owns; registrations are idempotent pre-steps outside it. It makes a reverse or
+   fan-out read only when its partition owns the namespace's whole run, always so with one partition. Everything else is
+   cross-partition: a forward read of another partition's subject, a fan-out lookup or scan or a reverse read over a
+   namespace spread over several partitions, cascading the delete of inbound edges, multi-subject writes across
+   partitions, blind writes to other partitions (P3's blind multi-partition path, which becomes sequenced with no
+   validation exchange, at one epoch of latency), and a Drop whose namespace spans several partitions. Stage 5.5 refuses
+   it with `CrossPartition`; stage 8 sequences it. A `@unique` value, written by any write, plain writes included, stays
+   a sequenced claim at the owner of the value's bucket, computed from the predicate's ID and the value's encoding (P3);
+   with one partition it is local. A read-only transaction reads across partitions at its snapshot.
+8. **Deletes.** Stage 5.5's changesets delete by pattern, and a delete by pattern that reaches another partition's
+   state, a subject or inbound entries another partition owns, is cross-partition (rule 7) and refused. The entity
+   delete UGS brings in stage 6 writes a tombstone at the entity's home and, executed across partitions in stage 8, a
+   sequenced share at every member of `R(o)` that fences `o` locally; a later commit referencing `o` aborts with
+   `EntityDeleted`, a registration after the tombstone is answered "deleted", and re-creating the IRI allocates a new
+   ID.
+9. **Reclamation** (specified now, built in stage 8). A partition reports "no edges to `o` as of epoch `e`" with its
+   generation, in the same commit that clears its mark; the home removes the member only if the generation is
+   unchanged, as an MVCC write, and physical deletion waits for the history-retention horizon. The home's IRI-to-ID
+   entry is reclaimed once `R(o)` is empty below the horizon and `o` has no committed data. IDs are never reused.
+10. **Durability and restore.** A cluster restores at one closed epoch, since referrer sets and marks span partitions;
+    a single partition restores only from its replicas; a restored partition abandons its open sequence blocks, whose
+    sequences it may have issued after the restore point; a namespace drop is sequenced at an epoch, and namespace
+    numbers are never reused.
+11. **Catalog activation.** The metadata group commits a catalog version as pending; at its next close `c + 1` the
+    sequencer assigns every pending version the effective epoch `E = c + 2` in its own durable close record, which
+    announces it, and the group learns `E` from that close, so every partition holds the version before it can stamp `E`
+    (rule 4), and a frontend crash before the close leaves the version pending for the next one. This corrects a defect
+    the protocol review found: "at least one above the latest closed epoch" let a partition stamp the version's epoch
+    before the version reached it.
+
+**Alternatives considered.**
+
+- *The derived-stream design*, the amended P3 and P17: forward entries with the subject, reverse entries and the
+  object's indexes shipped by change stream to the object's partition. Rejected: each of its mechanisms exists to keep
+  a second owner of one fact in step, a snapshot read of reverse entries waits on the slowest stream feeding it, and
+  nine questions stayed open after two reviews.
+- *Partition-local handles with a derived entity key*: each partition names entities by handles of its own and derives
+  a global key, the key's hash, when facts cross. Rejected: an entity has one name per partition holding it, ID lists
+  from different partitions no longer merge by ID, a bucket move translates every handle it carries, and the derived
+  key brings back the collision check of a hash ID.
+- *Hash-derived IDs*, the whole ID a hash of type and key, so any partition computes it without asking the home.
+  Rejected: collisions must still be detected at the home, so the dictionary check stays; IDs lose creation order, so
+  packed lists' deltas grow to the hash's width; a blank node has no key; and reverse reads still need `R(o)` at the
+  home, so the round trip a registration costs is spent anyway.
+- *Global value indexes*, partitioned by the value's hash, so a lookup asks one partition. Rejected: a common value,
+  and every value of a low-cardinality predicate, puts its whole list on one partition, which recreates the
+  hot-predicate ceiling P1 escaped, and every indexed write becomes cross-partition. Value indexes stay with their
+  subjects and lookups fan out; a secondary `@unique` value alone stays a claim at its hash's owner, since uniqueness
+  cannot be checked locally.
+
+**Accepted costs.**
+
+- An inbound point read touches `min(d, partitions)` partitions for an in-degree `d` and needs one extra round, `R(o)`
+  at the home first: about 20× the store probes of one reverse list at in-degree 20.
+- A partition's first reference to an entity it does not own waits for one durable round at the entity's home. Later
+  references find the mark and wait for nothing; a hub's home answers at most 2^10 registrations per namespace run for
+  it over its life, one per bucket group, whatever the ingest.
+- Index lookups, reads of a bound literal object and lookups by reverse count ask every partition of the namespace; an
+  exact reverse count is the sum of the referrers' partition counts.
+- `R(o)` only grows until stage 8 builds reclamation; it is bounded by the 2^10 groups of a run.
+
+**What it amends.**
+
+- *P1, consequences:* a partition's first reference to an entity it does not own registers at the home; the IRI-to-ID
+  cache stays; the dictionary is naming state, and existence is read from committed data.
+- *P3:* an edge's reverse entry and the object's indexes stay in the subject's partition, with no change stream; the
+  blind multi-partition path becomes sequenced, with no validation exchange, at one epoch of latency; snapshot reads of
+  reverse entries wait for closed epochs, not for a stream's watermark.
+- *P7:* the field order is type, sequence, bucket, reserved.
+- *P12:* there are no change streams between partitions; the epoch agent and the batching of sequenced work stay.
+- *P18:* the log record carries each transaction's registrations as a referrer, entries copied in both directions,
+  drops as operations, deletes by pattern as their removals, session-table entries, index-build records and the
+  registrations a home accepts, each with its own commit version; a round holds one epoch.
+- *P13:* a partition stamps exactly its last delivered close plus one and asks the sequencer for a close when its
+  sequence would run out, in place of advancing on its own.
+- *P17:* superseded. No reverse list lives with its object, a hub's inbound entries are spread over its referrers'
+  partitions, reverse keys carry no source-bucket part, and the placement map records no split nodes. `rdf:type` is
+  still answered from type-prefix ranges.
+- *P20:* stage 5.5 builds registration, referrer sets, the local reverse index, fan-out reverse reads, the epoch
+  inequality, the refusal of cross-partition deletes by pattern and a Lean model of rules 4, 5, 6, 9 and 11, with
+  catalog announcements and tombstones; stage 6 brings
+  the entity delete and its tombstone; stage 8 builds the sequenced cross-partition work, the delete shares and
+  reclamation. Neither builds change streams or split reverse parts.
+- *P21:* a partition stamps one above the latest close delivered to it (rule 4).
+- The distribution note's lines on reverse entries following by change stream in the KV stage give way to this
+  section; its change streams for reverse tiles stay with the tile stage.
+
+**Consequences.**
+
+- The `partitions`, `term-dictionary`, `quad-reads`, `quad-storage`, `key-encoding`, `transactions`, `sequencer`,
+  `commit-rounds`, `metadata-group`, `schema-changes`, `wire-protocol` and `system-identity` specifications of stage
+  5.5 state these rules, with `changesets`, `mapping-contract`, `index-maintenance`, `schema-storage`, `uid-lists` and
+  `write-ahead-log`, and a Lean model of rules 4, 5, 6, 9 and 11 is proved before the partition code is written.
+- `wal_bench`'s N partitions (P5 step 1) exercise registration: a share of each partition's edges points at entities
+  other partitions own.
+- The protocol review's resolutions, each following from system IDs never leaving the database: a statement without a
+  statement ID is named to clients by its quad, unique among statements without IDs; a statement with one, because it
+  carries properties or repeats a quad as a parallel edge, is named by its reifier (the `mapping-contract` spec's
+  presentation of a statement ID), a skolem IRI minted as a blank node's, `…/.well-known/genid/{bucket}-{random}` with
+  the statement's bucket, and held in the dictionary as the reifier's name. A client addresses a statement's properties,
+  or one of several parallel edges, through that IRI, as RDF 1.2 reification does. A Commit result names the node an
+  operation found or created by its IRI or skolem IRI; a transaction names on Begin the level, session token and
+  deadline its reads share; a resume key carries its last row's terms as text, the pattern's hash and a checksum.

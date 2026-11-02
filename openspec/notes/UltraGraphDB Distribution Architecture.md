@@ -2,7 +2,7 @@
 
 Oct 31, 2026 · @Marvin Hansen
 
-UltraGraphDB is a distributed graph database with three node types (frontend, compute and storage) replicated with Viewstamped Replication (VSR). Its defining design choice is **schema-driven coordination avoidance**: the typed schema declares every invariant (keys, cardinalities, acyclicity, delete semantics), so the database decides per write whether cross-group coordination is needed at all. Most writes commit in a single replica group; the remainder is ordered Calvin-style; derived structures follow through ordered change streams; watermarks keep reads snapshot-consistent. The current stage stores data in the Dgraph-derived KV store on direct-attached NVMe. Tile storage, and the S3 mode built on it, come in a later stage. Storage nodes boot a minimal hardened Linux kernel.
+UltraGraphDB is a distributed graph database with three node types (frontend, compute and storage) replicated with Viewstamped Replication (VSR). Its defining design choice is **schema-driven coordination avoidance**: the typed schema declares every invariant (keys, cardinalities, acyclicity, delete semantics), so the database decides per write whether cross-group coordination is needed at all. Most writes commit in a single replica group; the remainder is ordered Calvin-style. In the current stage every fact is written by its owner in one local commit, snapshot reads wait for closed epochs, and reverse reads reach inbound edges through referrer sets (Shard-per-Core note, P24); derived structures follow through ordered change streams with tiles. The current stage stores data in the Dgraph-derived KV store on direct-attached NVMe. Tile storage, and the S3 mode built on it, come in a later stage. Storage nodes boot a minimal hardened Linux kernel.
 
 ## Cluster architecture
 
@@ -14,20 +14,20 @@ Three node types, each its own binary and OCI image under `ultragraphdb/` (decid
 | --- | --- | --- | --- |
 | Frontend | Metadata VSR group; binary-protocol endpoint; Bolt adapter; query planning, write classification and scheduling | Small but critical | Non-voting observer frontends for read concurrency |
 | Compute | Query execution, graph algorithms, cross-group joins, aggregation, result assembly; tile cache in S3 mode | Stateless apart from cache | Elastic add and remove |
-| Storage | VSR replica groups holding the write log and the KV store (tiles in a later stage); applies incoming change streams; runs only narrow kernels near the data (tile scans, frontier expansion with pushed-down filters, intersections) | Durable | Adding replica groups |
+| Storage | VSR replica groups holding the write log and the KV store (tiles in a later stage); applies incoming change streams in the tile stage; runs only narrow kernels near the data (tile scans, frontier expansion with pushed-down filters, intersections) | Durable | Adding replica groups |
 
 Storage nodes run only small, fixed kernels so the hardened storage image stays minimal; everything heavier runs on compute.
 
 ## Consistency and coordination avoidance
 
-The schema, not the developer, decides which writes need cross-group coordination. Everything else commits in a single replica group, and reads stay exact through ordered change streams and watermarks.
+The schema, not the developer, decides which writes need cross-group coordination. Everything else commits in a single replica group. In the current stage reads stay exact because each fact has one owner that writes it in one local commit, snapshot reads wait for closed epochs and reverse reads find inbound edges through referrer sets (P24); in the tile stage, ordered change streams and watermarks keep derived tiles exact.
 
 ### Where the cost actually is
 
 - **Within a replica group, VSR is cheap.** A commit waits for a majority, one round trip, and batching amortizes it across thousands of operations.
 - **Crossing groups is expensive.** Transactions touching several predicates, constraints such as unique keys, cardinalities and acyclicity, and consistent snapshots across groups all need agreement between groups. A naive design turns these into two-phase commit on top of consensus.
-- **Current stage: bucket placement, one partition per core.** A storage node gives its cores to partitions, each a replica group owning ranges of buckets, and an entity's facts live in its bucket's partition (`UltraGraphDB Shard-per-Core Write Path.md`, decided 2026-11-01). An edge's reverse entry follows by change stream to its object's partition, and a heavily referenced node's reverse list is split across a few partitions. Predicate sharding, Dgraph's layout, would bound a hot predicate to one core.
-- **Later stage: 2D tiling.** Tiles fix hubs but separate forward and reverse entries, so reverse tiles will then be maintained through change streams. The mechanisms below are designed for both stages.
+- **Current stage: bucket placement, one partition per core.** A storage node gives its cores to partitions, each a replica group owning ranges of buckets, and an entity's facts live in its bucket's partition (`UltraGraphDB Shard-per-Core Write Path.md`, decided 2026-11-01). Every fact stays with its writer: the subject's partition writes an edge's forward and reverse entries, its predicate lists and its indexes in one local commit, and the object's home keeps only a referrer set naming the bucket groups that may hold edges to it, which a reverse read consults before it fans out (Shard-per-Core note, P24, decided 2026-11-02). A hub's inbound entries are therefore spread over its referrers' partitions. Predicate sharding, Dgraph's layout, would bound a hot predicate to one core.
+- **Later stage: 2D tiling.** Tiles fix hubs but separate forward and reverse entries, so in the tile stage reverse tiles will be maintained through change streams. The change-stream mechanisms below belong to the tile stage; the rest are designed for both stages.
 
 ### Principle: coordinate only where an invariant could break
 
@@ -43,14 +43,14 @@ The classification is computed at schema compile time as a conflict graph over w
 
 | Write | Invariant at stake | Path |
 | --- | --- | --- |
-| Insert edge of an unconstrained relation | Referential integrity only | **Coordination-free:** commit in the predicate's group with its reverse entry (KV stage); reverse tiles follow by change stream (tile stage) |
+| Insert edge of an unconstrained relation | Referential integrity only | **Coordination-free:** commit in the subject's partition with its reverse entry (KV stage, P24); reverse tiles follow by change stream (tile stage) |
 | Create entity | ID uniqueness | **Coordination-free:** IDs from per-group ranges |
-| Update text, vector or statistics indexes | None (derived data) | **Coordination-free**, asynchronous |
+| Update text, vector or statistics indexes | None (derived data) | **Coordination-free:** text indexes and statistics are written in the subject's partition's local commit (KV stage, P24); the vector indexer alone runs asynchronously, outside the transaction |
 | Set a `@key` or `@unique` property | Uniqueness of a chosen value | **Segmented:** unique index partitioned by key hash; the owning group checks |
 | Insert edge into a cardinality-constrained role | Cardinality | **Segmented:** constrained-role edges stored in the constrained endpoint's group |
 | Change a bounded numeric value | Threshold | **Segmented via escrow:** each group holds a share of the bound |
 | Insert edge into an `@acyclic` relation | Acyclicity | **Segmented**: rank-based local checks, with each hierarchy colocated in one group; edges across hierarchies are **coordinated** |
-| Delete entity | Referential integrity | **Declared semantics:** cascade via change streams; restrict is **coordinated** |
+| Delete entity | Referential integrity | **KV stage:** stage 5.5 deletes by pattern only, refused with `CrossPartition` when a delete reaches another partition; from stage 6 an entity delete writes a tombstone at the home, and stage 8 sends sequenced shares fencing it at the members of its referrer set (**coordinated**, P24 rules 7–8). **Tile stage:** declared semantics, cascade via change streams; restrict is **coordinated** |
 
 ### Mechanisms
 
@@ -70,7 +70,7 @@ Queries are classified too, following *Keep CALM and CRDT On* (VLDB 2023), which
 
 | Level | Applies to | Guarantee |
 | --- | --- | --- |
-| Snapshot (default) | All queries | Waits for watermarks; exact, standards-conformant results |
+| Snapshot (default) | All queries | Waits for watermarks, which are closed epochs; exact, standards-conformant results |
 | Monotonic-fast (opt-in) | Monotonic queries only: existence, reachability, pattern matches | Answers immediately; every result was true at a recent closed epoch and stays true for append-only or immutable data; recent facts may be missing |
 
 Non-monotonic queries (`NOT EXISTS`, counts and aggregates, absence-sensitive optional matches) always run at snapshot level. Monotonic-fast suits agent retrieval, where missing a little recent context is acceptable. Over relations declared append-only in the schema it can never return a false fact; over mutable data the response is flagged, since a fact deleted after the replica's last closed epoch may still appear.
@@ -99,10 +99,10 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 **Responsibilities**
 
 - **Membership:** which nodes exist and which replica group each belongs to.
-- **Placement:** predicate-to-group assignment now, GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
+- **Placement:** bucket ranges per partition, namespace runs and bucket groups resolved at an epoch now (P1, P2, P24), GSL tile assignment later, constraint-locality rules, and changes during rebalancing.
 - **Sequencing:** the Calvin-style log that orders multi-group transactions.
 - **Snapshots:** consistent cross-group snapshot points (see below).
-- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: a 16-bit type prefix, a 24-bit bucket (8 bits hashed from the namespace, 16 from the key), a 64-bit sequence unique per type and 24 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16).
+- **ID ranges:** assigning bucket ranges to partitions and leasing sequence blocks per (type, partition). A system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type, a 24-bit bucket (8 bits hashed from the namespace, 16 from the key) and 24 reserved bits (decided 2026-11-01, Shard-per-Core note P7, P15, P16; field order type, sequence, bucket, reserved by P24 rule 1, 2026-11-02).
 - **Versions:** schema catalog, the write and query classification derived from it, the RDF/LPG mapping contract, and the finalized feature level.
 
 **Its home from stage 5.5 (decided 2026-11-01).** The metadata group's state machine is built in stage 5.5, log-backed like the commit step and with one replica, holding catalog versions, ID ranges and the placement map, with catalog contents opaque to it. UGS (stage 6) is built on it; stage 8 adds its replication.
@@ -110,7 +110,7 @@ Any cluster with more than one replica group needs agreement on placement, snaps
 **Keeping it small**
 
 - **Sequencer epochs** for snapshots instead of per-transaction timestamps, so no commit waits on the metadata group.
-- **Deterministic placement** derived from predicate or GSL coordinates, so lookups need no metadata and consensus is only needed when the mapping changes.
+- **Deterministic placement** derived from the bucket in every ID, and from GSL coordinates with tiles, so lookups need only the short placement map of bucket ranges, and consensus is only needed when the mapping changes.
 - **Sequences leased in blocks per (type, partition)** instead of an ID per round trip; a bucket moves between partitions without changing an ID.
 
 With these, only membership, the placement map and the schema, classification and feature versions need consensus.
@@ -122,8 +122,8 @@ Cross-group snapshots are defined by **sequencer epochs**. This was chosen over 
 **How it works**
 
 1. The sequencer, its own VSR group on the frontend nodes, closes an epoch every few milliseconds and broadcasts the boundary. The same log orders Calvin-style multi-group transactions. Each closed epoch records the sequencer's wall-clock time at its close, never below the previous epoch's, so `as of time t`, `now()` and transaction time resolve to an epoch; ordering never reads the clock.
-2. Every commit is stamped with an epoch: single-group commits with the group's current epoch, multi-group transactions with the epoch the sequencer placed them in. Change-stream entries carry their epoch.
-3. A group **closes** epoch *e* once it has applied all its own commits and all incoming stream entries stamped up to *e*, and records the operation number at that boundary.
+2. Every commit is stamped with an epoch: single-group commits with one above the latest close delivered to the partition (P24 rule 4), multi-group transactions with the epoch the sequencer placed them in. In the tile stage, change-stream entries carry their epoch.
+3. A partition **closes** epoch *e* once it has received *e*'s close and applied every round stamped at or below *e*, and records the operation number at that boundary; in the tile stage it also waits for every incoming stream entry stamped up to *e*.
 4. A cross-group snapshot is an epoch: the query reads epoch *e* in every group it touches once each has closed it. Watermarks are simply closed-epoch markers.
 
 **Design choices that minimize the costs**
@@ -132,7 +132,7 @@ Cross-group snapshots are defined by **sequencer epochs**. This was chosen over 
 | --- | --- |
 | Snapshots lag real time by up to one epoch | Short epochs in the low milliseconds, cheap because closing an epoch is a counter broadcast; queries confined to one group read its latest committed state with no epoch wait; monotonic-fast reads never wait |
 | Read-your-writes must wait for the write's epoch to close | Commits return a session token (group, operation number, epoch). Single-group reads use the operation number, so they never wait; multi-group reads can ask the sequencer to close the current epoch immediately, bounding the wait to about one round trip |
-| A causally later write in another group could receive an earlier epoch | **Epoch propagation rule:** requests and change streams carry the highest epoch the session or sender has seen, and a group never stamps below it. Epochs behave like logical clocks, so causally later writes never appear in earlier snapshots |
+| A causally later write in another group could receive an earlier epoch | **Epoch propagation rule:** requests (and, in the tile stage, change streams) carry the highest epoch the session or sender has seen. A partition stamps exactly one above the latest close delivered to it and never advances on its own, so it waits for the close below a carried epoch before it commits (P24). Epochs behave like logical clocks, so causally later writes never appear in earlier snapshots |
 | Sequencer unavailability stalls new snapshots | The sequencer is a VSR group and survives minority failures. During a view change, single-group writes and reads and monotonic-fast reads continue; multi-group snapshot reads may fall back to the latest closed epoch, with the staleness reported in the response |
 | One sequencer may saturate | Only epoch boundaries and multi-group transactions pass through it, all batched. If it saturates, sequencing is partitioned across several sequencers whose logs merge deterministically per epoch, as in Calvin's own design |
 | Epoch length is a trade-off | Adaptive within fixed bounds: shorter while sessions wait on read-your-writes, longer under heavy batch load |
@@ -294,7 +294,7 @@ Storage goes first because it holds durable formats; frontends go last so the pl
 
 Coordination avoidance moves correctness from runtime coordination into analysis and protocol design, so verification carries more weight than usual.
 
-- **Formal model first.** A Lean model of the epoch, change-stream, watermark and delete protocol (including the epoch propagation rule), and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
+- **Formal model first.** A Lean model of epochs, registration, referrer sets, reclamation and deletes (P24 rules 4, 5, 6, 9 and 11, stage 5.5's `lean/PlacementModel`, including the epoch propagation rule), of the change-stream and watermark protocol in the tile stage, and of the state-machine version switch, proved before implementation, in the repository's `lean/` project beside stage 5's round model (decided 2026-11-01). Cassandra's materialized views failed partly because their design was never extensively modeled or simulated.
 - **Classification soundness.** Property tests check, for every constraint the schema can express, that any write classified coordination-free or segmented preserves the invariant under all interleavings the simulator can generate.
 - **Deterministic simulation.** Fault injection, crash recovery, network partitions and mixed-version clusters, with results compared against a single-version, single-group reference run.
 - **Background verifier in production.** Continuous comparison of reverse entries against forward edges and of derived indexes against base data, with repair and alerting.

@@ -30,9 +30,10 @@ health and metrics; bounds; exit codes; the acceptance batteries against the bui
   Docker, bare metal later; CI builds, signs and publishes the OCI images with Bazel's `rules_img`, the server's glibc base built
   from Wolfi packages by `rules_apko` (D7).
 - Operator requirements the roles' specification states (from `openspec/notes/review-stages-5.5-and-6.md`):
-  - signals per role, exported through OTLP: the age of the latest closed epoch and its close latency, watermark lag
-    per group and per incoming change stream, the share of writes on the coordinated path, escrow-share exhaustion and
-    renegotiation, VSR view changes, the background verifier's repairs, the sequencer's queue depth;
+  - signals per role, exported through OTLP: the age of the latest closed epoch and its close latency, closed-epoch lag
+    per partition, registrations and their wait, the fan-out of reverse reads, the share of writes on the coordinated
+    path, escrow-share exhaustion and renegotiation, VSR view changes, the background verifier's repairs, the
+    sequencer's queue depth;
   - runbooks for losing a group's majority, losing the metadata group, and a group that cannot close an epoch;
   - a cluster backup as a snapshot of every group at one closed epoch with the metadata group's catalog at that epoch,
     addressed by keys so it restores under any placement;
@@ -53,9 +54,10 @@ The system ID, type prefixes and the state machine that hands both out, decided 
 (`openspec/notes/review-stages-5.5-and-6.md`, D1, D2, D4), to be written as a decision record and specified in stage
 5.5's change before anything builds on them.
 
-- The system ID is 128 bits: a 16-bit type prefix, a 24-bit bucket (8 bits from the namespace, 16 from the declaring
-  type and key), a 64-bit sequence unique per type and leased per (type, partition), and 24 reserved bits (D1 as
-  revised 2026-11-01; Shard-per-Core note, P7, P15, P16). A bucket is a virtual partition the placement map assigns to
+- The system ID is 128 bits: from the most significant bit, a 16-bit type prefix, a 64-bit sequence unique per type
+  and leased per (type, partition), a 24-bit bucket (8 bits from the namespace, 16 from the declaring type and key),
+  and 24 reserved bits (D1 as revised 2026-11-01; Shard-per-Core note, P7, P15, P16; field order by P24 rule 1,
+  2026-11-02). A bucket is a virtual partition the placement map assigns to
   a replica group, so rebalancing never changes an ID.
 - Type prefixes are allocated in declaration order and never renumbered; a supertype covers its descendants' prefix
   ranges.
@@ -157,8 +159,8 @@ transaction spanning groups is.
 - Source material: stage 5's archived `transactions` and `commit-rounds` specs and the commit step's code; task 12.6,
   read summaries' false-abort rates (D10).
 - Open:
-  - Do commit versions inside a group keep following the clock (`max(previous + 2, 2 × clock µs)`), with sequencer
-    epochs only across groups, or does the group's version become clock-free too?
+    - Answered (P13, revised by P24 rule 4, 2026-11-02): commit versions are clock-free inside a partition too, a 42-bit
+    epoch and a 22-bit sequence, stamped one above the latest close delivered to the partition.
   - Do interactive transactions, validated optimistically against their read sets, stay within one group, given that
     Calvin-style ordering needs a transaction's read and write sets before it is sequenced?
   - Answered (D3, 2026-11-01): strictly serializable within a group; serializable at a closed epoch across groups,
@@ -176,8 +178,10 @@ transaction spanning groups is.
 The vector indexer driven in commit order, its reconciliation after a restart, the vector dimension on the wire, a
 declaration contradicting its data.
 
-- Architecture: text, vector and statistics indexes are derived data, maintained coordination-free and asynchronously
-  (*Write classification*), through ordered change streams (*Mechanisms*).
+- Architecture: text indexes and statistics are derived data written in the subject's partition's local commit, with
+  the statement (*Write classification*; Shard-per-Core note, P24); only the vector indexer runs asynchronously,
+  outside the transaction (vector-index, "Vectors are indexed in commit order, outside the transaction"); ordered
+  change streams (*Mechanisms*) belong to the tile stage.
 - Source material: *The vector indexer under the pipeline*; tasks 10.0 (change record 8), 10.4 and 12.5's indexer lag;
   *The server*'s open question on the vector indexer.
 
@@ -194,8 +198,8 @@ ordered-log interface becoming the VSR log a replica group holds.
 ### 8. Verification beyond stage 5
 
 The simulation of a cluster from a seed, the white-box history checker, Elle through the client, kill tests on the
-binary (on Linux as well), the formal model of epochs, change streams, watermarks and deletes, and classification
-soundness.
+binary (on Linux as well), the formal model of epochs, registration, referrer sets and deletes (P24, begun by stage
+5.5's `lean/PlacementModel`), and classification soundness.
 
 - Architecture: *Verification strategy*.
 - Mixed-version clusters: how long a cluster may run two binary versions, and the simulator runs that test the "one

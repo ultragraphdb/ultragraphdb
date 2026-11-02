@@ -398,7 +398,8 @@ workspace = true`, with `too-many-lines-threshold = 70` in `clippy.toml`, run by
 | `clippy::all` | deny | 10 |
 | `clippy::allow_attributes`, `clippy::allow_attributes_without_reason` | deny | 10 |
 | `clippy::too_many_lines` | deny | 4 |
-| `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, `clippy::todo`, `clippy::unimplemented` | deny | 7 |
+| `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, `clippy::todo` | deny | 7 |
+| `clippy::unimplemented` | warn | 7 |
 | `clippy::indexing_slicing` | deny | 7 |
 | `clippy::arithmetic_side_effects` | deny in decoders and parsers: of wire, log and store bytes, of query text | 7 |
 | `clippy::let_underscore_must_use`, `clippy::let_underscore_untyped` | deny | 7 |
@@ -410,8 +411,9 @@ workspace = true`, with `too-many-lines-threshold = 70` in `clippy.toml`, run by
 | `clippy::rc_buffer`, `clippy::mutex_atomic`, `clippy::await_holding_lock`, `clippy::await_holding_refcell_ref` | deny | 9, concurrency |
 | `clippy::disallowed_methods` | deny | concurrency |
 
-Phase 1 of the test protocol lands a surface of `unimplemented!()` bodies; those carry
-`#[expect(clippy::unimplemented, reason = "phase 1 surface")]` until phase 4 replaces them.
+`clippy::unimplemented` warns because phase 1 of the test protocol lands a surface of
+`unimplemented!()` bodies: the surface compiles bare, its warnings are ignored through the phase-2 failing run, and once
+phase 4 has implemented the surface, a warning left names a body the implementation overlooked.
 
 A lint the existing crates do not meet yet stays in the table commented out, with its count of violations, and is
 uncommented once the crates comply; no crate adds a lint table of its own.

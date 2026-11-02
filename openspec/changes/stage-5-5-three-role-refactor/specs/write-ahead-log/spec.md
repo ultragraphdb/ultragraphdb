@@ -30,18 +30,59 @@ segment reuses before one is created; a trim SHALL never remove or zero a round 
 - **WHEN** rounds fill four segments and a checkpoint is taken at the end of the third
 - **THEN** the first three segments are kept as spares holding only zeros, and recovery replays from the checkpoint
 
+### Requirement: Recovery replays the log above the store
+On start, recovery SHALL read the store's applied log position, which every store batch records with its data, and
+apply every later round in order; applying a round SHALL be idempotent. A checkpoint SHALL record its position.
+Recovery SHALL refuse to start, naming both positions, when the store's applied position is below the checkpoint's;
+naming the position, when the store's applied position is above the log's tail; and when the log has a gap between the
+store's position and its tail.
+
+#### Scenario: Rounds lost from the store are replayed
+- **WHEN** rounds 1 to 10 are synced in the log, the store had applied up to round 7, and power is lost
+- **THEN** after recovery the store holds rounds 1 to 10
+
+#### Scenario: A store ahead of the log refuses to start
+- **WHEN** the store's applied position lies beyond the log's tail
+- **THEN** the node refuses to start, naming the position
+
+#### Scenario: A store behind its checkpoint refuses to start
+- **WHEN** a checkpoint at position 40 has trimmed the log, and the store reopened has applied position 30
+- **THEN** the node refuses to start, naming 30 and 40, and replays nothing
+
 ## ADDED Requirements
 
 ### Requirement: A round's record is logical
-A round's record SHALL hold, for each committed transaction, its resolved quads with their system IDs, the new
-dictionary entries the round creates, its commit version, the catalog version it was validated against and the version
-of the derivation that turns quads into keys. Replaying a record SHALL derive the same keys and values on every replica
-and in every version that reads it; a record naming a derivation version the reader does not know SHALL be refused,
-naming the version.
+A round's commits SHALL carry one epoch, since a round closes when a close is delivered (commit-rounds, "Catalog
+changes, drops and index builds are ordered in rounds"). A round's record SHALL hold, for each committed transaction,
+its resolved quads with their system IDs, its commit version, its drops as operations naming their target (a predicate,
+a graph, a namespace's data or everything), whose key removals replay derives, its deletes by pattern as their resolved
+removals, the session-table entry its commit writes (the session ID, the request number and the stored reply), and the
+registrations it relied on as a referrer, each the entity's ID, the bucket group and the generation the reply named; the
+new dictionary entries the round creates, a copied entry of another partition's entity in both directions counting as
+one; each registration the partition accepted as an entity's home, with its own commit version and the referrer-set
+member it adds or renews (term-dictionary, "A reference to another partition's entity registers at its home"); an index
+build's start and completion records (commit-rounds); the one catalog version the round was validated against; and the
+version of the derivation that turns quads into keys. Replaying a record SHALL derive the same keys and values on every
+replica and in every version that reads it; a record naming a derivation version the reader does not know SHALL be
+refused, naming the version.
 
 #### Scenario: Replay derives the same keys
-- **WHEN** a round is applied, the store is discarded, and the round's record is replayed into an empty store
-- **THEN** the store holds exactly the keys and values it held after the first apply
+- **WHEN** a round holding a first reference to an entity another partition owns, with its registration mark and the
+  copied ID-to-IRI entry, is applied, the store is discarded, and the round's record is replayed into an empty store
+- **THEN** the store holds exactly the keys and values it held after the first apply, the mark's generation and the
+  copied entry included
+
+#### Scenario: Replay rebuilds drops and the session table
+- **WHEN** a store holds `p`'s keys and statements a delete by pattern will remove, a round holding a drop of `p`, that
+  delete by pattern and a commit of session `s`'s request 7 is applied, the store is restored to its state before the
+  round, and the round's record is replayed onto it
+- **THEN** no key of `p` and none of the removed statements is held, and a retry of `s`'s request 7 returns its stored
+  reply without committing again
+
+#### Scenario: Replay derives a home's referrer-set deltas
+- **WHEN** a round holding only two registrations a home accepted is applied, the store is discarded, and the record is
+  replayed
+- **THEN** the referrer set holds both members, each at the commit version the record lists for its registration
 
 #### Scenario: An unknown derivation version is refused
 - **WHEN** a record names a derivation version above the reader's

@@ -10,6 +10,7 @@
 | 5. Transactions, WAL and the zero-copy binary protocol | ✅ |
 | 5.5. Refactor to prepare for the three-role cluster (frontend, compute, storage) | `in progress` |
 | 6. UGS: the full data definition and its implementation | `open` |
+| 6.5. Harden transactions  with chaos testing against multiple UGS schemata | `open` |
 | 7. Query core: SPARQL and GQL where they overlap | `open` |
 | 8. Basic three-role clustering in a single container, the base of the DeepBrain MVP | `open` |
 | 9. Full SPARQL and GQL conformance | `open` |

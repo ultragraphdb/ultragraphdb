@@ -2,10 +2,11 @@
 
 ### Requirement: Keys parse back into their parts
 Parsing a key SHALL return its keyspace, namespace and the fields its keyspace defines: graph, predicate, subject,
-object, tokenizer and token, direction and count, node, statement ID, or a reverse key's source-bucket part. Every ID in
-a key SHALL be a 128-bit system ID written as its 16 big-endian bytes. A key whose IDs, other than the default graph's,
-are invalid system IDs, or whose fields are shorter than their keyspace defines, SHALL be refused with an error naming
-the key's bytes.
+object, tokenizer and token, direction and count, node, statement ID, a mark key's entity and bucket group, or a
+referrer key's entity. A mark key SHALL be its keyspace byte, the namespace's 8 big-endian bytes, the entity's 16-byte
+ID and the bucket group as 3 big-endian bytes holding its 18 bits. Every ID in a key SHALL be a 128-bit system ID
+written as its 16 big-endian bytes. A key whose IDs, other than the default graph's, are invalid system IDs, or whose
+fields are shorter than their keyspace defines, SHALL be refused with an error naming the key's bytes.
 
 #### Scenario: A forward key round-trips
 - **WHEN** a forward key for namespace 133, the default graph, the predicate with ID (type 1, bucket 7, sequence 7) and
@@ -18,11 +19,17 @@ the key's bytes.
 
 #### Scenario: A literal object round-trips
 - **WHEN** a reverse key whose object is the encoding of `"Ann"@en` is built and parsed
-- **THEN** the parsed object decodes to `"Ann"@en`, and its source-bucket part is 0 of 1
+- **THEN** the parsed object decodes to `"Ann"@en`, and the key ends with the object's encoding
 
-#### Scenario: A reverse key keeps its part
-- **WHEN** a reverse key with source-bucket part 3 of 4 is built and parsed
-- **THEN** the parse returns part 3 of 4
+#### Scenario: A mark key round-trips and stays apart from object predicates
+- **WHEN** a mark key for namespace 7, the entity with ID (type 1, bucket 42, sequence 9) and bucket group 0x2_ABCD is
+  built and parsed, and the object-predicates keys of the graph with that same ID are scanned by prefix
+- **THEN** the parse returns the marks keyspace, namespace 7, that ID and group 0x2_ABCD from the bytes `02 AB CD`, and
+  the prefix scan returns no mark key
+
+#### Scenario: A referrer key round-trips
+- **WHEN** a referrer key for namespace 7 and the entity with ID (type 1, bucket 42, sequence 9) is built and parsed
+- **THEN** the parse returns the referrers keyspace, namespace 7 and that entity's ID
 
 ### Requirement: Split keys address the parts of a split posting list
 A split key SHALL be the base key with the split flag set in its keyspace byte and the part's start appended: an ID as

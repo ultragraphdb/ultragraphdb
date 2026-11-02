@@ -21,8 +21,9 @@ reasoning and its check against Dgraph's ACL are in `openspec/notes/security.md`
 
 | Boundary | Assumption | Consequence |
 |---|---|---|
-| The network, until TLS is configured | Trusted: no one reads or alters frames | Authentication protects the password, not the connection after it. Bearer tokens are accepted only over TLS |
-| The network, with TLS | Untrusted | TLS 1.3 protects every frame; channel binding ties SCRAM to the connection |
+| The client network, with the client endpoint set to `plaintext = true` | Trusted: no one reads or alters frames | Authentication protects the password, not the connection after it. Bearer tokens are accepted only over TLS |
+| The client network, with TLS | Untrusted | TLS 1.3 protects every frame; channel binding ties SCRAM to the connection |
+| The network between roles, until TLS between roles | Trusted: no one reads or alters frames | The role secret authenticates each role connection, not the frames after it |
 | The server's disk and configuration | Trusted | Verifiers, keys and the bootstrap credential are kept there; encryption at rest is outside this architecture |
 | An identity provider | Trusted for the identities it asserts, by its public keys | Its groups grant roles only through mappings an administrator writes |
 | The server's clock | Synchronised, within a token check's minute of leeway | A clock off by more refuses valid tokens or accepts expired ones |
@@ -33,19 +34,22 @@ A principal is an identity the server authenticates: a person, or a service.
 
 | Field | Meaning |
 |---|---|
-| `id` | u64, the commit version of the round that created it, unique and rising. 0 is the anonymous principal of a server running without authentication |
+| `id` | u64, unique and rising, assigned by the metadata group when it creates the principal. 0 is the anonymous principal of a server running without authentication |
 | `name` | UTF-8, unique in the cluster, prepared with SASLprep |
 | credentials | a SCRAM-SHA-256 verifier: salt, iteration count, `StoredKey`, `ServerKey` |
 | external identities | each an (issuer, subject) pair an identity provider asserts, unique in the cluster |
 | `enabled` | a disabled principal authenticates no more |
 | roles | the roles granted to it |
 
-Principals are cluster-wide. A tenant is a namespace, and a tenant's principals hold grants in their namespace only.
+Principals are cluster-wide and live in the metadata group, which every frontend authenticates against. A tenant is a
+namespace, and a tenant's principals hold grants in their namespace only.
 
-The **bootstrap administrator** is created with the cluster from a password the operator supplies in a secret file the
-configuration names, and holds `cluster_admin`. The server reads the file once, when it creates the cluster, and keeps
-only the verifier derived from it; the operator then removes the file. The server has no default credential: without
-the secret file, a server requiring authentication creates no cluster.
+The **bootstrap administrator** is the metadata group's first principal, created at the cluster's first start from a
+password the operator supplies in a secret file the configuration names, and holds `cluster_admin`. The frontend reads
+the file once, when it creates the cluster, and the metadata group keeps only the verifier derived from it; the
+operator then removes the file. The cluster has no default credential: without the secret file it creates no
+principal, and a cluster with no principal refuses every connection. Removing the last principal holding
+`cluster_admin` is refused.
 
 ## Authentication
 
@@ -135,6 +139,18 @@ A server configured to run without authentication says so in its Welcome (`auth`
 only and refuses to start on any other address, logs that it runs without authentication at every start, and acts for
 the anonymous principal, which holds every privilege. Tests, the simulator and development run this way.
 
+### Role connections
+
+The frontend, compute and storage authenticate each other with the cluster's **role secret**, which every role reads at
+start from the file its `[cluster] role_secret_file` setting names, a Kubernetes Secret on a cluster; a role whose file
+is missing, unreadable or empty refuses to start. A role connection runs `SCRAM-SHA-256` with the secret as its
+password before its first role command, and the accepting role verifies its peer locally, against a verifier it
+derives from the secret at start: the principals live in the frontend, which is itself a peer. The secret
+authenticates role connections alone; the client endpoint authenticates against the principals only, so the secret
+opens no client session. A role connection acts for no principal, and each role command acting for a client names the
+client's principal. Rotating the secret takes a rolling restart. In the development container each role's Unix socket
+belongs to user 65532 with mode 0600. `PROTOCOL.md` §11.12 gives the exchange's bytes.
+
 ## Authorization
 
 ### The model
@@ -198,9 +214,9 @@ knowing that.
 ### The security catalog and revocation
 
 Principals, their credentials and external identities, roles, grants, trusted issuers and their group mappings form the
-security catalog. It lives under the system prefix (`\xffultragraphdb/security/`), outside every namespace, so no
-namespace drop removes it. It changes only through proposals of the commit step, so each change is logged, replayed on
-recovery and replicated as every write is.
+security catalog. It lives in the metadata group, outside every namespace, so no namespace drop removes it. It changes
+only through the metadata group's commands, so each change is logged, replayed on recovery and replicated as the
+group's every command is.
 
 Every transaction reads the catalog's **security epoch**, and every security change writes it. A change therefore
 aborts every transaction that began before it and commits after it: from the change's commit version on, nothing
@@ -210,8 +226,10 @@ which commits nothing, keeps the access its Begin resolved until it ends; a revo
 
 ## Sessions, statements and the log
 
-- A session belongs to the principal that registered it. Only that principal commits through it or reads its stored
-  reply, so a guessed session number gives neither.
+- A session belongs to the principal that registered it: its identity is 128 random bits the frontend draws, which the
+  metadata group records with the principal. Only that principal commits through it or reads its stored reply, which
+  the frontend checks against the metadata group's registry before it routes a commit, so a guessed session identity
+  gives neither.
 - A prepared statement belongs to its connection, and so to the connection's principal.
 - The write-set record names the principal of each committed transaction, and the administrator of each security
   change, in `principal`. Replay does not authorize again: a record is in the log because it was authorized when it
@@ -226,7 +244,12 @@ changes are also in the write-ahead log, as every write is.
 
 ## Encryption
 
-- **TLS 1.3**, through rustls, protects client connections and the traffic between replicas.
+- **TLS 1.3**, through rustls, protects client connections and the traffic between roles and replicas.
+- The frontend's client endpoint speaks TLS 1.3 when its `[endpoint]` table names `tls_cert_file` and `tls_key_file`,
+  and clear text only when it sets `plaintext = true`; naming neither, or a certificate and `plaintext = true`, stops
+  the start with exit code 78, so clear text is always a visible choice. The `dev` profile sets `plaintext = true`. A
+  client configured with a trust source verifies the server's certificate for the host it dials before the protocol's
+  handshake begins.
 - A server configured for TLS speaks only TLS on its port, from the first byte; no clear-text connection upgrades to
   it, so no upgrade can be stripped.
 - Certificates authenticate the server to a client, a client to the server with `EXTERNAL`, and replicas to each other.
@@ -242,8 +265,11 @@ changes are also in the write-ahead log, as every write is.
 | Whether a connection authenticates, and the mechanisms | §5.2, Welcome: `auth`, sections 1 and 2 |
 | The exchange and its messages per mechanism | §5.3, Authenticate |
 | Authentication, re-authentication and their refusals | §11.1 |
+| TLS 1.3 on the client endpoint, from the first byte | §11.1 |
+| Role connections, the role secret, the endpoints and the commands each serves | §3, §11.12, §13 |
+| Verifying a principal's proof in the metadata group | §13.8, §13.9 |
 | Error codes 19 AuthenticationFailed, 20 Unauthenticated, 21 PermissionDenied with its action, 22 CredentialExpired | §9.4 |
-| A session's owner | §6.1, §11.5 |
+| A session's owner and its random identity | §6.1, §11.5 |
 | The Drop command and its privilege | §6.5 |
 | The authentication timeout | §11.1, §11.9 |
 | Absent reads and refusals | §11.10 |
@@ -256,9 +282,10 @@ changes are also in the write-ahead log, as every write is.
 | Stage | What |
 |---|---|
 | Stage 5, the protocol block | The bytes above in the wire, the transport and the Rust client: Authenticate and re-authentication, the error codes, `principal` in the write-set record and the session entry, a session's owner; `SCRAM-SHA-256` in the client and the client's test server |
-| Stage 5, the server | The server's exchange with `SCRAM-SHA-256`, the password rules, throttling, the authentication timeout and the audit of authentication; running without authentication on loopback only; the bootstrap administrator; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
-| Stage 7 | The security catalog: principals, external identities, roles, grants, trusted issuers and group mappings, the epoch; enforcement through the access value; Describe filtered; the administration commands and their audit |
-| With TLS | TLS 1.3; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates |
+| Stage 5.5, the frontend | The client endpoint: TLS 1.3 from the first byte with the server's certificate and key, or clear text with `plaintext = true`, and the client shells verifying the server's certificate; inside it, the exchange with `SCRAM-SHA-256` against the principals the metadata group holds, the password rules, failures answered alike and throttled, the authentication timeout and the audit of authentication; running without authentication on loopback only; principals and the bootstrap administrator in the metadata group; sessions registered there with their principal and checked before routing; the authorizer, holding every privilege for an authenticated principal and failing closed on what it does not know |
+| Stage 5.5, between roles | The role secret: `SCRAM-SHA-256` against it on every role connection, each role verifying its peer locally, refused on the client endpoint; Unix sockets of user 65532 with mode 0600 in the development container |
+| Stage 7 | The rest of the security catalog: external identities, roles, grants, trusted issuers and group mappings, the epoch; enforcement through the access value; Describe filtered; the administration commands and their audit |
+| Stage 8 | TLS between roles, with certificates per role; `SCRAM-SHA-256-PLUS`; `OAUTHBEARER` and single sign-on; `EXTERNAL`; replica certificates |
 
 ## Standards
 

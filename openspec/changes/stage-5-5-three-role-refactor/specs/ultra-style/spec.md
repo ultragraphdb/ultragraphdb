@@ -6,7 +6,8 @@ The Ultra lint set of `openspec/protocols/ULTRA_STYLE.md` SHALL be the workspace
 `too-many-lines-threshold = 70` in `clippy.toml`. Clippy SHALL run over the workspace through `make fix`, and
 formatting through `make format`; a crate conforms when both leave it unchanged and `make fix` reports no warning
 and no error for it. A lint SHALL be silenced only with `#[expect(lint, reason = "...")]` on the narrowest item, and
-only with the user's consent.
+only with the user's consent. `clippy::unimplemented` SHALL warn, not deny, so a phase-1 surface of bare
+`unimplemented!()` bodies compiles; once phase 4 is done, no such warning SHALL remain.
 
 #### Scenario: A crate fails on a new violation
 - **WHEN** a function of a crate grows to 71 lines, or an `unwrap` is added under its `src/`
@@ -15,16 +16,6 @@ only with the user's consent.
 #### Scenario: A stale exception surfaces
 - **WHEN** an `#[expect]` names a lint that no longer fires on its item
 - **THEN** `make fix` warns that the expectation is unfulfilled
-
-### Requirement: New crates meet the lints the table still holds back
-Every crate this change creates SHALL meet the lints the table holds commented out until the crates meet them:
-`indexing_slicing`, `arithmetic_side_effects`, `cast_possible_truncation` and `cast_sign_loss`. They SHALL be checked by
-`cargo clippy -p <crate> --all-targets` with each of them denied on the command line, and the table SHALL stay as it is.
-
-#### Scenario: A new decoder's unchecked arithmetic is found
-- **WHEN** a decoder in a crate this change creates adds two lengths with `+`
-- **THEN** the check with `arithmetic_side_effects` denied fails naming the line, and the code is rewritten with a
-  checked operation before the group closes
 
 ### Requirement: Every crate the change touches conforms before its behaviour changes
 A crate this change modifies SHALL first conform to the lint table and to the rules no lint checks, with its behaviour
@@ -38,8 +29,7 @@ with `#[expect]` or a comment beginning `Exception (Ultra rule N):`, and listed 
 
 #### Scenario: A new crate starts conformant
 - **WHEN** a crate created by this change is first built
-- **THEN** its manifest takes the workspace's lint table, and `make fix` and the check of the held-back lints report
-  nothing for it
+- **THEN** its manifest takes the workspace's lint table, and `make fix` reports nothing for it
 
 ### Requirement: Bazel is the test gate and coverage is measured per added crate
 Bazel SHALL be the one gate for tests: a group SHALL be done when `make test` passes. Every crate to which this change

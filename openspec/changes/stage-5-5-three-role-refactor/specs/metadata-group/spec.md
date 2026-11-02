@@ -16,14 +16,29 @@ state SHALL name the log position they read at.
 - **THEN** recovery loads the snapshot and replays exactly the 20 commands after it
 
 ### Requirement: Catalog versions take effect at an epoch boundary
-The metadata group SHALL hold each namespace's catalog as numbered versions whose contents it treats as opaque bytes.
-A new version SHALL name the epoch from which it applies, at least one above the latest closed epoch when it is
-committed, and every partition SHALL validate and apply a round against the version in effect at the round's epoch. A
-version whose predecessor is not the namespace's current version SHALL be refused, naming both.
+The metadata group SHALL hold each namespace's catalog as numbered versions whose contents it treats as opaque bytes. It
+SHALL commit a new version as pending; at its next close `c + 1` the sequencer SHALL assign it the effective epoch
+`c + 2` in the close's durable record and announce it with that close (sequencer, "Closes announce the catalog versions
+taking effect after them"), and the group SHALL learn the epoch from that close, so every partition holds the version
+before it can stamp its effective epoch. Every partition SHALL validate and apply a round against the version in effect
+at the round's epoch. The group SHALL retain every version a partition's untrimmed log may name, and a partition SHALL
+load those versions before it replays its log. A version whose predecessor is not the namespace's current version SHALL
+be refused, naming both. Beside the opaque versions, the group SHALL hold default-entry records keyed by (namespace,
+predicate), each the default entry a predicate's first write asks for (schema-storage, "Writes to an unknown predicate
+create its schema"): recording one SHALL find a record that exists, SHALL create no catalog version, which the
+predecessor check therefore ignores, and SHALL stale no prepared statement and abort no transaction.
 
 #### Scenario: A version applies from its epoch
-- **WHEN** catalog version 3 is committed with effect from epoch 40, and rounds of epochs 39 and 40 commit
-- **THEN** the round of epoch 39 is validated against version 2 and the round of epoch 40 against version 3
+- **WHEN** catalog version 3 is committed as pending while epoch 38 is the latest close, the sequencer closes epoch 39,
+  and rounds of epochs 39 and 40 commit
+- **THEN** version 3 takes effect at epoch 40, assigned and announced with the close of 39, and the round of epoch 39 is
+  validated against version 2 and the round of epoch 40 against version 3
+
+#### Scenario: A default entry is no catalog version
+- **WHEN** version 3 of `ns` is current, a first write of `score` records its default entry, and a client offers
+  version 4 built on version 3
+- **THEN** the default-entry record of (`ns`, `score`) is held, version 4 is accepted, and no prepared statement of
+  `ns` is stale
 
 #### Scenario: A stale version is refused
 - **WHEN** a client offers version 4 built on version 2 while version 3 is current
@@ -48,11 +63,12 @@ before it is answered, so no block is leased twice across a crash.
 
 ### Requirement: The placement map assigns bucket ranges to partitions
 The metadata group SHALL hold the placement map: every bucket assigned to exactly one partition as half-open ranges of
-bucket numbers, each namespace's run of 65,536 buckets (the buckets whose top 8 bits are its hash), the nodes whose
-reverse lists are split with the number of parts, and each partition's preferred leader. A change to the map SHALL keep
-every bucket assigned exactly once and SHALL be refused otherwise, naming the first bucket left unassigned or assigned
-twice. In this stage the map starts with all buckets of the namespaces that exist split evenly over the configured
-partitions, and no split nodes.
+bucket numbers, each namespace's run of 65,536 buckets (the buckets whose top 8 bits are its hash) and its 2^10 bucket
+groups of 64 buckets, and each partition's preferred leader. A change to the map SHALL keep every bucket assigned
+exactly once and SHALL be refused otherwise, naming the first bucket left unassigned or assigned twice. Each change
+SHALL name the epoch from which it applies, so a bucket, and a bucket group, resolves to the partitions the map gives
+it at any epoch a read names. In this stage the map starts with all buckets of the namespaces that exist split evenly
+over the configured partitions.
 
 #### Scenario: The initial map covers every bucket once
 - **WHEN** the map is initialised for one namespace and three partitions
@@ -66,6 +82,11 @@ partitions, and no split nodes.
 #### Scenario: A bucket's partition is found
 - **WHEN** partition 2 holds the range 21,846..43,691 and bucket 30,000 is looked up
 - **THEN** the lookup answers partition 2
+
+#### Scenario: A bucket group resolves at an epoch
+- **WHEN** a change moving buckets 21,888..21,952 from partition 2 to partition 3 applies from epoch 21, and the bucket
+  group holding those 64 buckets is resolved at epochs 20 and 21
+- **THEN** it resolves to partition 2 at epoch 20 and to partition 3 at epoch 21
 
 ### Requirement: Principals live in the metadata group
 The metadata group SHALL hold the cluster's principals: each a name and its SCRAM-SHA-256 credential (salt, iteration
@@ -88,9 +109,11 @@ administrator role SHALL be refused.
 
 ### Requirement: The metadata group registers sessions
 The metadata group SHALL record each session the frontend registers, its 128-bit identity and its principal, as one
-command, and SHALL answer a session's principal to the frontend's owner check. A registration SHALL be durable before
-it is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, and a
-session already registered SHALL be refused, naming it.
+command, and SHALL answer a session's principal to the frontend's owner check. A registration SHALL be durable before it
+is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, and SHALL
+be the only place a session is evicted; the sequencer SHALL carry each eviction to every partition with its next close,
+recorded in its durable close record, so each partition purges the session's entry from its table. A session already
+registered SHALL be refused, naming it.
 
 #### Scenario: A registered session survives a restart
 - **WHEN** a session is registered for `alice` and the group is killed and restarted
