@@ -1,0 +1,149 @@
+ultragraphdb_protocol/SECURITY.md
+  s_6c9dcf457e80d9::t_dec1a3920e0bdb 285-286,288
+  s_6c9dcf457e80d9::t_84fe8f5dfae90c 229-232
+  s_6c9dcf457e80d9::t_c4c64834ae42c0 268-270
+  s_6c9dcf457e80d9::t_05d53f6f0df347 217-219
+  s_6c9dcf457e80d9::t_db7aa5807417fc 247-252
+  s_6c9dcf457e80d9::t_60e38dac4c6346 37
+  s_6c9dcf457e80d9::t_9cf0fe95b582ae 287
+  s_6c9dcf457e80d9::t_11c03a5917155d 44-45,47-52
+  s_6c9dcf457e80d9::t_6fdcd58829d597 272
+  s_6c9dcf457e80d9::t_961a7e68f31530 142-153
+  s_6c9dcf457e80d9::t_14ede693e5c3fb 24-26
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-reads/spec.md
+  s_6c9dcf457e80d9::t_aaec800d5d1397 5-11,17-27,29,32-56,59-63,67-68,74-83,85-88,98-101,106-120
+  s_6c9dcf457e80d9::t_6a6e99bb54b2d2 4,121-122,125-126,129-148,150
+openspec/changes/stage-5-5-three-role-refactor/specs/partitions/spec.md
+  s_6c9dcf457e80d9::t_452d6292a42fa9 5-7,31-124,127-128,131-135,137-140,142-156
+  s_6c9dcf457e80d9::t_98fb514ccc7c3a 157-190,193-195,203-205,211-216
+scripts/held_back_lints.sh
+  s_6c9dcf457e80d9::t_757a77d9d278b1 1-40
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_1a7b2640f494a9 14-16
+  s_6c9dcf457e80d9::t_87cd33c7b9d3d9 24
+  s_6c9dcf457e80d9::t_a21665ca49c745 2-3
+  s_6c9dcf457e80d9::t_3690f6464ae90a 17-19,23,25-26,28,30-33,38,40,47-48,55-56,63,70-72,75-82,85-88,93-94,100-101,108-109,112,114-118,132,134
+openspec/changes/stage-5-5-three-role-refactor/specs/term-dictionary/spec.md
+  s_6c9dcf457e80d9::t_45ceab494dc9c9 10-49,54-57,66-75,80-84,95-160,162-163
+  s_6c9dcf457e80d9::t_90231b630a7a91 164-165
+openspec/changes/stage-5-5-three-role-refactor/specs/quad-storage/spec.md
+  s_6c9dcf457e80d9::t_36ae6ef5d03248 3-43
+  s_6c9dcf457e80d9::t_4529ac86615c26 44-84,89-90
+openspec/changes/stage-5-5-three-role-refactor/notes/group-0.md
+  s_6c9dcf457e80d9::t_f6134bf769d2fd 1-7,15-46
+  s_6c9dcf457e80d9::t_42e35b3138f985 8-14
+ultragraphdb_protocol/PROTOCOL.md
+  s_6c9dcf457e80d9::t_85de6cf1b8990b 1161-1162
+  s_6c9dcf457e80d9::t_eb93f8c22f81fa 72
+  s_6c9dcf457e80d9::t_057a442df17997 604
+  s_6c9dcf457e80d9::t_8a5a26759b0b58 920-924,929,933-934
+  s_6c9dcf457e80d9::t_31a542d702dfa6 150
+  s_6c9dcf457e80d9::t_b959af53e9cde9 201-224
+  s_6c9dcf457e80d9::t_b2b3c1caa8fd5f 896
+  s_6c9dcf457e80d9::t_d2f8b76b9c4db6 958-959
+  s_6c9dcf457e80d9::t_98baae0ce662f7 822-824
+  s_6c9dcf457e80d9::t_f9883b365c97e9 1751-1752
+  s_6c9dcf457e80d9::t_a15d85b9852186 579-580
+  s_6c9dcf457e80d9::t_2e6e6f69598c82 147
+  s_6c9dcf457e80d9::t_900d2446089785 185
+  s_6c9dcf457e80d9::t_45d11b3a2c1b10 567
+  s_6c9dcf457e80d9::t_60ef2f42612ffe 571-574,576-578,581,1516-1517,1564-1565,1577-1578,1592-1593,1667-1668,1690-1691,1710-1711,1734-1735,1755-1756,1774-1775,1802-1803
+  s_6c9dcf457e80d9::t_aadce76cdd66ac 26-27
+  s_6c9dcf457e80d9::t_402e7f1115bf6b 540-541,543-545,547
+  s_6c9dcf457e80d9::t_77073f840267bd 1250
+  s_6c9dcf457e80d9::t_f59d6f3479f591 975
+  s_6c9dcf457e80d9::t_5e55a19dff7872 638-639
+  s_6c9dcf457e80d9::t_82fc46e400e3db 4-5,7-8,11-12
+  s_6c9dcf457e80d9::t_a7d31cfc0cae7d 1101-1102
+  s_6c9dcf457e80d9::t_505ff85b7ff3e2 440-441,446-460,1543,1612,1623,1630,1636,1642,1831
+  s_6c9dcf457e80d9::t_e5a299db45d876 614-616
+  s_6c9dcf457e80d9::t_dfdb4d11e102bb 593
+  s_6c9dcf457e80d9::t_63f3c8ecba69b8 347
+  s_6c9dcf457e80d9::t_90f222abf722cd 882-884,887-888
+  s_6c9dcf457e80d9::t_12f2bdf32f679b 1084-1090
+  s_6c9dcf457e80d9::t_f65c5fbd862226 893-895
+  s_6c9dcf457e80d9::t_62d5d2a81dbd3d 623
+  s_6c9dcf457e80d9::t_d2e9909c241e0b 1768-1771
+  s_6c9dcf457e80d9::t_2d2d9b54de7628 36-41
+  s_6c9dcf457e80d9::t_9008b1d1839872 800-801
+  s_6c9dcf457e80d9::t_c53f3bd9340b8d 29-30
+  s_6c9dcf457e80d9::t_8d46d2807f48b1 551-556,563-565
+  s_6c9dcf457e80d9::t_aa3bafca776c53 461,594-595,605-608,1103-1107,1141,1151-1154,1163-1164,1180-1192,1194-1214,1216-1220,1251-1252,1276-1277,1290-1375,1378,1504-1515,1518-1542,1544-1563,1566-1576,1579-1591,1594-1611,1613-1622,1624-1629,1631-1635,1637-1641,1643-1666,1669-1689,1692-1709,1712-1733,1736-1750,1753-1754,1757-1767,1772-1773,1776-1801,1804-1830,1832-1842
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-changes/spec.md
+  s_6c9dcf457e80d9::t_1be0635a81d35d 129-134,137-139,141-144
+  s_6c9dcf457e80d9::t_f877f953fe65c5 1-125
+scripts/coverage.sh
+  s_6c9dcf457e80d9::t_8ea3b3940307f9 1-98
+openspec/changes/stage-5-5-three-role-refactor/design.md
+  s_6c9dcf457e80d9::t_ce2cd854ce9443 4-6,20-21,35-36,42-48,64-66,68,70,72,76-78,85-86,94-95,105-110,116-117,130-134,139-200,202,204-229,236-243,251-256,259-273,283-294,315-321,369-380
+openspec/changes/stage-5-5-three-role-refactor/notes/protocol-review.md
+  s_6c9dcf457e80d9::t_17b304d3fd8133 1-104
+openspec/changes/stage-5-5-three-role-refactor/proposal.md
+  s_6c9dcf457e80d9::t_f4ad9134aa7b38 9-10,15-21,24-34,36-43,51-52,57,74-76,83-85,88-89,93,96-97,99-101,103-105,107-127,129-130,134,138-139,148,150-151
+openspec/changes/stage-5-5-three-role-refactor/specs/catalog/spec.md
+  s_6c9dcf457e80d9::t_3aedcd45c3b73a 1-31
+openspec/changes/stage-5-5-three-role-refactor/specs/changesets/spec.md
+  s_6c9dcf457e80d9::t_3582fdb049cda8 1-38
+openspec/changes/stage-5-5-three-role-refactor/specs/commit-rounds/spec.md
+  s_6c9dcf457e80d9::t_7f6978cab62cb3 1-86,91,99-109,119,121-122,124-128
+openspec/changes/stage-5-5-three-role-refactor/specs/index-maintenance/spec.md
+  s_6c9dcf457e80d9::t_9ebf3526071dff 1-27
+openspec/changes/stage-5-5-three-role-refactor/specs/key-encoding/spec.md
+  s_6c9dcf457e80d9::t_e19747d0d3c619 5-9,22,24-32
+openspec/changes/stage-5-5-three-role-refactor/specs/mapping-contract/spec.md
+  s_6c9dcf457e80d9::t_ef53ebea7a3e42 1-21
+openspec/changes/stage-5-5-three-role-refactor/specs/metadata-group/spec.md
+  s_6c9dcf457e80d9::t_4ce48a9de31dd2 19-29,32-41,66-71,86-90,112-116
+openspec/changes/stage-5-5-three-role-refactor/specs/schema-storage/spec.md
+  s_6c9dcf457e80d9::t_fed8ceca1f1b5e 8-47,53-54
+openspec/changes/stage-5-5-three-role-refactor/specs/sequencer/spec.md
+  s_6c9dcf457e80d9::t_fa5a9a79a6606f 5-11,17-25,48-53,59-64,74-92,94-99,105-108
+openspec/changes/stage-5-5-three-role-refactor/specs/system-identity/spec.md
+  s_6c9dcf457e80d9::t_42d57e6d72898b 3,5,7-8,13,27,34-37,49-53,86-89,91-93,97-103,109-118
+openspec/changes/stage-5-5-three-role-refactor/specs/transaction-verification/spec.md
+  s_6c9dcf457e80d9::t_ad7f3186efcc7e 1-30
+openspec/changes/stage-5-5-three-role-refactor/specs/transactions/spec.md
+  s_6c9dcf457e80d9::t_cf245a39417747 3-35,38-39,46-100,103-107,119-131,144-150,170-173,189-256,262-263,272-276
+openspec/changes/stage-5-5-three-role-refactor/specs/uid-lists/spec.md
+  s_6c9dcf457e80d9::t_4468806f0143e6 15,27-28,78-112
+openspec/changes/stage-5-5-three-role-refactor/specs/ultra-style/spec.md
+  s_6c9dcf457e80d9::t_3cfeb1e4b35a1e 9-10,32
+openspec/changes/stage-5-5-three-role-refactor/specs/wire-protocol/spec.md
+  s_6c9dcf457e80d9::t_94d9e1af56ec00 3-15,21-25,64-118,123-128,134-138,143-151,154-155,158-162
+openspec/changes/stage-5-5-three-role-refactor/specs/write-ahead-log/spec.md
+  s_6c9dcf457e80d9::t_dd50f2f2545363 33-51,55-67,70-85
+"openspec/notes/UltraGraphDB Distribution Architecture.md"
+  s_6c9dcf457e80d9::t_e3142f5660607f 5,17,23,29-30,46,48,53,73,102,105,113,125-126,135,297
+"openspec/notes/UltraGraphDB Shard-per-Core Write Path.md"
+  s_6c9dcf457e80d9::t_e20ab5c749a4c2 106-107,124,183,210-215,225-227,299-301,414-415,546-547,586-588,696-699,728-732,796-798,808-809,833-1008
+openspec/notes/backlog.md
+  s_6c9dcf457e80d9::t_bb1d162dfe2b42 33-36,57-60,162-163,181-184,201-202
+openspec/protocols/ULTRA_STYLE.md
+  s_28a880a6e11067::t_eeee82a9f9a1ff 401-402,414-416
+ROADMAP.md
+  s_6c9dcf457e80d9::t_89089b754f6d2b 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c2c85a698848cb4eb6a7a94dc4e0ab2c0c1fd6b1",
+  "prompts": {},
+  "sessions": {
+    "s_28a880a6e11067": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a30ca6f0abacb47d9",
+        "model": "unknown"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    },
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
