@@ -1,0 +1,27 @@
+toml-test, the language-agnostic test suite for TOML parsers, vendored as data.
+
+Source:   https://github.com/toml-lang/toml-test
+Tag:      v1.6.0 (annotated tag object 65a4da1357c5b38235982f1320bc8173929d8d24)
+Commit:   369cc3ae275fd76b6e21780ebf87609e5b2a951a (2025-04-15 20:01:09 +0100)
+License:  MIT, Copyright (c) 2018 TOML authors; see COPYING beside this file.
+Fetched:  2026-11-02, by `git clone --depth 1 --branch v1.6.0` into an empty directory; nothing from it was executed.
+
+What is here, under the suite's own paths:
+
+- invalid/: every document the suite's TOML 1.0.0 list (tests/files-toml-1.0.0) names under invalid/, 371 files,
+  unchanged. Each must be refused.
+- valid/: the 38 documents of that list's 185 valid ones that use only the settings subset, each with the expected
+  JSON beside it, unchanged. Each must parse to the values its JSON states.
+
+A valid document was taken when both of its views stay inside the subset: its JSON holds only string, integer and bool
+values, at the root or one table deep, with no array; and every line of its text is blank, a comment, a bare
+`[table]` header, or a bare key `=` a basic string, a decimal integer or a boolean, with spaces and tabs where TOML
+allows them and an optional comment after. The 147 left out each use a feature outside the subset: dotted or quoted
+keys, literal or multi-line strings, floats, dates and times, arrays, inline tables, arrays of tables, or hexadecimal,
+octal and binary integers.
+
+The selection was made by a script independent of the parser. tests/utils/toml_test_suite.rs reads these files, for
+the unit tests in tests/types/toml_document/toml_document_suite_tests.rs and the settings-toml scenarios.
+
+fuzz_seeds/document/ beside this directory holds the 38 valid documents again, named by their path with `/` as `-`,
+as the fuzz target's seeds.

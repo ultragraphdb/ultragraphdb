@@ -2889,6 +2889,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_core_ids"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "serde",
+ "ultragraphdb_tool_bdd",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "ultragraphdb_core_keys"
 version = "0.1.0"
 dependencies = [
@@ -3232,6 +3243,16 @@ dependencies = [
  "ultragraphdb_store_sim",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_store",
+]
+
+[[package]]
+name = "ultragraphdb_tool_toml"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "serde_json",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]

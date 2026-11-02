@@ -1,0 +1,32 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_tool_toml, run by scripts/fuzz.sh; a member of the fuzz workspace in fuzz/.
+# Its target calls the crate's public parser and typed reads only.
+
+[package]
+name = "ultragraphdb_tool_toml_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_tool_toml = { workspace = true }
+
+# Any bytes as a settings file: never a panic; an accepted document reads back alike through its typed reads, and
+# written again as TOML of the subset it parses to the same tables, keys and values.
+[[bin]]
+name = "document"
+path = "fuzz_targets/document.rs"
+test = false
+doc = false
+bench = false
