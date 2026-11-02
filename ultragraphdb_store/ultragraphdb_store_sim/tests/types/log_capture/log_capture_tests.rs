@@ -79,13 +79,15 @@ fn run_events(seed: u64) -> Vec<String> {
     let capture = LogCapture::new();
     tracing::subscriber::with_default(capture.subscriber(), || {
         let mut simulation = Simulation::new(Seed::new(seed), FaultConfig::mixed());
-        let _ = simulation.run(60, 3, |ctx, event| {
+        let run = simulation.run(60, 3, |ctx, event| {
             match event {
                 Event::Step(actor) => tracing::info!(step = ctx.step(), actor, "stepped"),
                 Event::Recovered => tracing::warn!(step = ctx.step(), "recovered"),
             }
             Ok(())
         });
+        // Only the events the run emits matter here, not whether the model found a breach.
+        drop(run);
     });
     capture.events().iter().map(ToString::to_string).collect()
 }

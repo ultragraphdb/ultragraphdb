@@ -11,11 +11,12 @@ use crate::types::date_time::{DateTime, Zone};
 const SECONDS_PER_DAY: u64 = 86400;
 const MARCH_THRU_DECEMBER: u64 = 31 + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31;
 const ABSOLUTE_YEARS: u64 = 292277022400;
-const ABSOLUTE_TO_INTERNAL: i64 =
-    -(((ABSOLUTE_YEARS / 400 * 146097) + MARCH_THRU_DECEMBER) as i64 * SECONDS_PER_DAY as i64);
+const ABSOLUTE_TO_INTERNAL: i64 = -(((ABSOLUTE_YEARS / 400 * 146097) + MARCH_THRU_DECEMBER)
+    .cast_signed()
+    * SECONDS_PER_DAY.cast_signed());
 const INTERNAL_TO_ABSOLUTE: i64 = -ABSOLUTE_TO_INTERNAL;
 pub(crate) const UNIX_TO_INTERNAL: i64 =
-    (1969 * 365 + 1969 / 4 - 1969 / 100 + 1969 / 400) * SECONDS_PER_DAY as i64;
+    (1969 * 365 + 1969 / 4 - 1969 / 100 + 1969 / 400) * SECONDS_PER_DAY.cast_signed();
 pub(crate) const INTERNAL_TO_UNIX: i64 = -UNIX_TO_INTERNAL;
 pub(crate) const ABSOLUTE_TO_UNIX: i64 = ABSOLUTE_TO_INTERNAL + INTERNAL_TO_UNIX;
 const UNIX_TO_ABSOLUTE: i64 = UNIX_TO_INTERNAL + INTERNAL_TO_ABSOLUTE;
@@ -75,11 +76,15 @@ impl DateTime {
         let amonth = i64::from(md >> 16);
         let day = 1 + i64::from((md & 0xffff) / 2141);
         let jan_feb = i64::from(u64::from(ayday) >= MARCH_THRU_DECEMBER);
-        let year = (century.wrapping_mul(100).wrapping_sub(ABSOLUTE_YEARS) as i64)
+        // Go's int64(uint64): the wrapped difference read as two's complement.
+        let year = century
+            .wrapping_mul(100)
+            .wrapping_sub(ABSOLUTE_YEARS)
+            .cast_signed()
             + i64::from(cyear)
             + jan_feb;
         let month = amonth - jan_feb * 12;
-        let s = (abs % SECONDS_PER_DAY) as i64;
+        let s = (abs % SECONDS_PER_DAY).cast_signed();
         Civil {
             year,
             month,

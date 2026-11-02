@@ -14,7 +14,15 @@ use ultragraphdb_traits_store::{Entry, PersistMode, Scan, Store, StoreSnapshot, 
 fn test_reads_of_a_keys_versions_are_counted_and_those_that_found_none() {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-counted-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     let counts = Arc::new(ReadCounts::new());
     let store = TimedStore::new(
         FjallStore::open(&dir, Durability::Process).unwrap(),
@@ -62,5 +70,5 @@ fn test_reads_of_a_keys_versions_are_counted_and_those_that_found_none() {
     assert_eq!(counts.get(), (0, 0, 3, 1));
     drop(snapshot);
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }

@@ -15,7 +15,8 @@ fn test_seeds_without_faults() {
     let (mut reads, mut rollups) = (0, 0);
     for seed in 1..=20 {
         let (outcome, r, w) = PostingWorkload::run(Seed::new(seed), FaultConfig::none(), 400, 2)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         assert!(!outcome.contents().keys().is_empty());
         reads += r;
         rollups += w;
@@ -29,7 +30,8 @@ fn test_seeds_with_faults() {
     let mut reads = 0;
     for seed in 100..=139 {
         let (_, r, _) = PostingWorkload::run(Seed::new(seed), PostingWorkload::faults(), 400, 2)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         reads += r;
     }
     assert!(reads > 1000, "only {reads} reads compared");

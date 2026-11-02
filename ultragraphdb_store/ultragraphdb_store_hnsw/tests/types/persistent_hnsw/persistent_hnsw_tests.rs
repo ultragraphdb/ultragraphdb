@@ -44,7 +44,8 @@ fn test_race_create_or_replace() {
             s.spawn(|| {
                 for i in 0..10 {
                     let index = PersistentHnsw::<f64>::new(vkeys("a"), &o, 64)
-                        .unwrap_or_else(|e| panic!("case {i}: {e}"));
+                        .map_err(|e| format!("case {i}: {e}"))
+                        .expect("the case passes");
                     assert_eq!(
                         (
                             index.max_levels(),

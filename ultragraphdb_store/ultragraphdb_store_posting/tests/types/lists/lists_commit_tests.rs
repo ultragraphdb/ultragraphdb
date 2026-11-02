@@ -257,9 +257,12 @@ fn test_a_round_writes_each_transaction_at_its_version_in_one_buffered_batch() {
     let log = lists.store().take_log();
     let applied: Vec<_> = log
         .iter()
-        .filter_map(|r| match r {
-            OpRecord::Applied { mode, .. } => Some(*mode),
-            _ => None,
+        .filter_map(|r| {
+            if let OpRecord::Applied { mode, .. } = r {
+                Some(*mode)
+            } else {
+                None
+            }
         })
         .collect();
     assert_eq!(
@@ -382,6 +385,12 @@ fn test_a_round_writes_the_systems_entries_and_moves_past_its_last_version() {
         "the system's removal"
     );
     assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (6, 6));
+    assert_rounds_of_the_systems_entries_alone(&lists, &system);
+}
+
+/// Rounds of the system's entries alone over `lists`, its watermark at 6 and `system` written: above, at and below
+/// the watermark, and a round with nothing to write.
+fn assert_rounds_of_the_systems_entries_alone(lists: &TestLists, system: &[VersionlessEntry]) {
     // A round of the system's entries alone.
     lists
         .commit_round_with(
@@ -410,7 +419,7 @@ fn test_a_round_writes_the_systems_entries_and_moves_past_its_last_version() {
     assert_eq!((lists.applied_ts(), lists.store().applied_ts()), (8, 8));
     // Below the watermark it is refused naming both, and nothing is written.
     assert_eq!(
-        lists.commit_round_with(&[], &system, 6),
+        lists.commit_round_with(&[], system, 6),
         Err(PostingError::StaleVersion(6, 8))
     );
     assert_eq!(

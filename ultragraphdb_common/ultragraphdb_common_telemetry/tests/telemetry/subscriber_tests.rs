@@ -180,9 +180,10 @@ fn test_invalid_filters_are_refused_with_the_directive_and_the_parsers_reason() 
             io::sink,
             None::<Kept>,
         );
-        let Err(error) = result else {
-            panic!("{directive:?} does not parse");
-        };
+        let error = result
+            .err()
+            .ok_or_else(|| format!("{directive:?} does not parse"))
+            .expect("an invalid directive is refused");
         assert_eq!(
             error,
             TelemetryError::Filter(directive.to_string(), reason.to_string())
@@ -197,9 +198,7 @@ fn test_invalid_filter_is_refused() {
         io::sink,
         None::<Kept>,
     );
-    let Err(error) = result else {
-        panic!("the directive does not parse");
-    };
+    let error = result.err().expect("the directive does not parse");
     assert!(
         matches!(&error.0, TelemetryErrorEnum::Filter { directive, .. } if directive == "ultragraphdb=loud"),
         "{error}"

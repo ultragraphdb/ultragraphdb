@@ -7,18 +7,17 @@ mod model_reads;
 mod model_recovery;
 mod model_repeats;
 mod model_state;
+mod model_writes;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use ultragraphdb_traits_store::{PersistMode, WriteBatch};
+use ultragraphdb_traits_store::WriteBatch;
 
 use crate::types::breach::Breach;
 use crate::types::contents::Contents;
-use crate::types::drop_stage::DropStage;
 use crate::types::invariant::Invariant;
 use crate::types::op_record::OpRecord;
-use crate::types::rebuild_stage::RebuildStage;
 use crate::utils::hex::hex;
 
 use crate::types::store_model::model_recovery::partial_batch;
@@ -210,27 +209,10 @@ impl StoreModel {
 
     fn observe_one(&mut self, record: &OpRecord) -> Result<(), Breach> {
         match record {
-            OpRecord::Applied { batch, mode } => {
-                let op = self.batch_op(batch)?;
-                Arc::make_mut(&mut self.current).apply(&op);
-                self.recent.push(op.clone());
-                self.pending.push(op);
-                if *mode == PersistMode::Sync {
-                    self.sync_point();
-                }
-            }
+            OpRecord::Applied { batch, mode } => self.observe_applied(batch, *mode)?,
             OpRecord::Refused { .. } | OpRecord::Slowed { .. } => {}
-            OpRecord::BatchFailed { batch } => {
-                let in_flight = self.batch_op(batch)?;
-                self.status = Status::Poisoned { in_flight };
-            }
-            OpRecord::CrashedDuringBatch { batch } => {
-                let in_flight = Some(self.batch_op(batch)?);
-                self.status = Status::Down {
-                    power_loss: false,
-                    in_flight,
-                };
-            }
+            OpRecord::BatchFailed { batch } => self.observe_batch_failed(batch)?,
+            OpRecord::CrashedDuringBatch { batch } => self.observe_crashed_during_batch(batch)?,
             OpRecord::WriteWhileFailed { operation } => {
                 return Err(Breach::new(
                     Invariant::RecoveryAfterFailure,
@@ -240,154 +222,57 @@ impl StoreModel {
             OpRecord::Synced => self.sync_point(),
             OpRecord::Dropped {
                 prefixes, entries, ..
-            } => {
-                let op = ModelOp::Drop {
-                    prefixes: prefixes.clone(),
-                    entries: entries.clone(),
-                };
-                Arc::make_mut(&mut self.current).apply(&op);
-                self.drop_done(prefixes, entries);
-                self.sync_point();
-            }
+            } => self.observe_dropped(prefixes, entries),
             OpRecord::DropInterrupted {
                 prefixes,
                 entries,
                 stage,
                 power_loss,
                 ..
-            } => {
-                let op = ModelOp::Drop {
-                    prefixes: prefixes.clone(),
-                    entries: entries.clone(),
-                };
-                match stage {
-                    DropStage::Start => {}
-                    DropStage::RecordWritten => self.pending.push(op),
-                    _ => {
-                        Arc::make_mut(&mut self.current).apply(&op);
-                        self.drop_done(prefixes, entries);
-                        self.sync_point();
-                    }
-                }
-                self.status = Status::Down {
-                    power_loss: *power_loss,
-                    in_flight: None,
-                };
-            }
-            OpRecord::RebuildRecorded { record } => {
-                Arc::make_mut(&mut self.current).apply(&ModelOp::Record(record.clone()));
-                self.sync_point();
-            }
+            } => self.observe_drop_interrupted(prefixes, entries, *stage, *power_loss),
+            OpRecord::RebuildRecorded { record } => self.observe_rebuild_recorded(record),
             OpRecord::RebuildInterrupted {
                 record,
                 stage,
                 power_loss,
-            } => {
-                if *stage == RebuildStage::RecordWritten {
-                    let op = ModelOp::Record(record.clone());
-                    Arc::make_mut(&mut self.current).apply(&op);
-                    self.pending.push(op);
-                }
-                self.status = Status::Down {
-                    power_loss: *power_loss,
-                    in_flight: None,
-                };
-            }
+            } => self.observe_rebuild_interrupted(record, *stage, *power_loss),
             OpRecord::TemporaryCreated { temporary } => {
                 self.temporaries.insert(*temporary, ModelState::default());
             }
             OpRecord::TemporaryApplied { temporary, batch } => {
-                let Some(state) = self.temporaries.get_mut(temporary) else {
-                    return Err(Breach::new(
-                        Invariant::ContentsMatchModel,
-                        format!(
-                            "a batch was written to temporary keyspace {temporary}, which does not exist"
-                        ),
-                    ));
-                };
-                state.write_temporary(batch.entries());
+                self.observe_temporary_applied(*temporary, batch)?;
             }
             OpRecord::TemporaryRefused { .. } => {}
             OpRecord::TemporaryDropped { temporary } => {
                 self.temporaries.remove(temporary);
             }
-            OpRecord::TemporaryFailed { crashed, .. } => {
-                let in_flight = ModelOp::Batch {
-                    entries: Vec::new(),
-                    versionless: Vec::new(),
-                    applied_ts: None,
-                    removed_records: Vec::new(),
-                };
-                self.status = if *crashed {
-                    Status::Down {
-                        power_loss: false,
-                        in_flight: None,
-                    }
-                } else {
-                    Status::Poisoned { in_flight }
-                };
-            }
+            OpRecord::TemporaryFailed { crashed, .. } => self.observe_temporary_failed(*crashed),
             OpRecord::TemporarySnapshotOpened { id, temporary } => {
-                let state = self.temporaries.get(temporary).cloned().unwrap_or_default();
-                self.temporary_snapshots.insert(*id, Arc::new(state));
+                self.observe_temporary_snapshot(*id, *temporary);
             }
-            OpRecord::Banned { namespace } => {
-                Arc::make_mut(&mut self.current).banned.insert(*namespace);
-                self.sync_point();
-            }
-            OpRecord::DiscardSet { ts } => {
-                let current = Arc::make_mut(&mut self.current);
-                current.discard_ts = current.discard_ts.max(*ts);
-                self.sync_point();
-            }
-            OpRecord::HorizonSet { ts } => {
-                Arc::make_mut(&mut self.current).horizon = Some(*ts);
-                self.sync_point();
-            }
-            OpRecord::Compacted => {
-                let discard = self.discard_ts();
-                Arc::make_mut(&mut self.current).compact(discard);
-                self.sync_point();
-            }
-            OpRecord::Swept => {
-                let horizon = self.tombstone_horizon();
-                Arc::make_mut(&mut self.current).sweep(horizon);
-                self.sync_point();
-            }
-            OpRecord::Corrupted { key, .. } => {
-                self.tainted.insert(key.clone());
-                self.snapshots.values_mut().for_each(|(_, _, tainted)| {
-                    tainted.insert(key.clone());
-                });
-            }
+            OpRecord::Banned { namespace } => self.observe_banned(*namespace),
+            OpRecord::DiscardSet { ts } => self.observe_discard_set(*ts),
+            OpRecord::HorizonSet { ts } => self.observe_horizon_set(*ts),
+            OpRecord::Compacted => self.observe_compacted(),
+            OpRecord::Swept => self.observe_swept(),
+            OpRecord::Corrupted { key, .. } => self.observe_corrupted(key),
             OpRecord::Crashed | OpRecord::PowerLost => {
-                let lost = *record == OpRecord::PowerLost;
-                self.status = match std::mem::take(&mut self.status) {
-                    Status::Open => Status::Down {
-                        power_loss: lost,
-                        in_flight: None,
-                    },
-                    Status::Poisoned { in_flight } => Status::Down {
-                        power_loss: lost,
-                        in_flight: Some(in_flight),
-                    },
-                    Status::Down {
-                        power_loss,
-                        in_flight,
-                    } => Status::Down {
-                        power_loss: power_loss || lost,
-                        in_flight,
-                    },
-                };
+                self.observe_crash(*record == OpRecord::PowerLost);
             }
             OpRecord::Recovered => self.recovery = Some(self.outcomes()),
-            OpRecord::SnapshotOpened { .. }
-            | OpRecord::SnapshotRefused { .. }
-            | OpRecord::SnapshotClosed { .. }
-            | OpRecord::Read { .. }
-            | OpRecord::ReadVersionless { .. }
-            | OpRecord::ReadMany { .. }
-            | OpRecord::Scanned { .. } => self.observe_read(record)?,
+            OpRecord::SnapshotOpened { id, read_ts } => {
+                self.observe_snapshot_opened(*id, *read_ts)?
+            }
+            OpRecord::SnapshotRefused { read_ts, error } => {
+                self.observe_snapshot_refused(*read_ts, error)?;
+            }
+            OpRecord::SnapshotClosed { id } => self.observe_snapshot_closed(*id),
+            OpRecord::Read { id, key, result } => self.check_get(*id, key, result)?,
+            OpRecord::ReadVersionless { id, key, result } => {
+                self.check_versionless(*id, key, result)?;
+            }
+            OpRecord::ReadMany { id, keys, result } => self.check_read_many(*id, keys, result)?,
+            OpRecord::Scanned { id, scan, items } => self.check_scan(*id, scan, items)?,
         }
         self.observe_repeat(record)
     }

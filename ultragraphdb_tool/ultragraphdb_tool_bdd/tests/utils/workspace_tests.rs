@@ -59,7 +59,8 @@ fn dirs_in(set: &[(&str, &str)]) -> Option<(String, String)> {
             .lines()
             .find_map(|l| l.split_once(label).map(|(_, dir)| dir))
             .map(str::to_string)
-            .unwrap_or_else(|| panic!("no {label} in {stdout}"))
+            .ok_or_else(|| format!("no {label} in {stdout}"))
+            .expect("the child prints each dir")
     };
     Some((find("features_dir="), find("testdata_dir=")))
 }

@@ -11,18 +11,18 @@ use ultragraphdb_store_sim::{FaultConfig, Seed, StoreWorkload};
 #[test]
 fn test_the_fixed_seeds_break_no_invariant() {
     for seed in 0..48 {
-        if let Err(violation) = StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), 300, 2) {
-            panic!("{violation}");
-        }
+        StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), 300, 2)
+            .map_err(|violation| violation.to_string())
+            .expect("the seed breaks no invariant");
     }
 }
 
 #[test]
 fn test_the_fixed_seeds_break_no_invariant_without_faults() {
     for seed in 100..116 {
-        if let Err(violation) = StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 3) {
-            panic!("{violation}");
-        }
+        StoreWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 3)
+            .map_err(|violation| violation.to_string())
+            .expect("the seed breaks no invariant");
     }
 }
 
@@ -35,13 +35,11 @@ fn test_the_fixed_seeds_with_versionless_reads_break_no_invariant() {
         } else {
             FaultConfig::mixed()
         };
-        if let Err(violation) =
-            StoreWorkload::new(2)
-                .with_versionless_reads()
-                .run_on(Seed::new(seed), faults, 300)
-        {
-            panic!("{violation}");
-        }
+        StoreWorkload::new(2)
+            .with_versionless_reads()
+            .run_on(Seed::new(seed), faults, 300)
+            .map_err(|violation| violation.to_string())
+            .expect("the seed breaks no invariant");
     }
 }
 
@@ -60,10 +58,9 @@ fn test_the_seeds_the_fuzzer_found_break_no_invariant() {
         (2900, 1340),
     ];
     for (seed, steps) in found {
-        if let Err(violation) = StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), steps, 3)
-        {
-            panic!("{violation}");
-        }
+        StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), steps, 3)
+            .map_err(|violation| violation.to_string())
+            .expect("the seed breaks no invariant");
     }
 }
 
@@ -74,9 +71,8 @@ fn test_the_seeds_the_fuzzer_found_break_no_invariant() {
 #[test]
 fn test_the_seeds_that_reread_through_a_heal_break_no_invariant() {
     for (seed, steps) in [(584, 40), (1001, 110), (1853, 370)] {
-        if let Err(violation) = StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), steps, 3)
-        {
-            panic!("{violation}");
-        }
+        StoreWorkload::run(Seed::new(seed), FaultConfig::mixed(), steps, 3)
+            .map_err(|violation| violation.to_string())
+            .expect("the seed breaks no invariant");
     }
 }

@@ -58,10 +58,11 @@ impl<'a> BodyView<'a> for DropCommandView<'a> {
             Some(RequestTermView::Iri(iri)) => Some(iri),
             Some(other) => {
                 let found = match other {
+                    RequestTermView::Iri(_) => kind::IRI,
                     RequestTermView::BlankNode(_) => kind::BLANK_NODE,
                     RequestTermView::Literal { .. } => kind::LITERAL,
                     RequestTermView::LanguageLiteral { .. } => kind::LANGUAGE_LITERAL,
-                    _ => kind::TRIPLE,
+                    RequestTermView::Triple { .. } => kind::TRIPLE,
                 };
                 return Err(ProtocolError::FieldValue(
                     command,

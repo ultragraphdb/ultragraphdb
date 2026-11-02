@@ -133,14 +133,22 @@ pub struct Text {
 
 pub fn statement(text: &str) -> Text {
     let parts = split(text);
-    let node = |t: Term| match t {
-        Term::NamedNode(n) => NamedOrBlankNode::from(n),
-        Term::BlankNode(b) => NamedOrBlankNode::from(b),
-        other => panic!("{other} is no subject"),
+    let node = |t: Term| {
+        match t {
+            Term::NamedNode(n) => Ok(NamedOrBlankNode::from(n)),
+            Term::BlankNode(b) => Ok(NamedOrBlankNode::from(b)),
+            other @ (Term::Literal(_) | Term::Triple(_)) => Err(format!("{other} is no subject")),
+        }
+        .expect("a statement's subject is an IRI or a blank node")
     };
-    let named = |t: Term| match t {
-        Term::NamedNode(n) => n,
-        other => panic!("{other} is no IRI"),
+    let named = |t: Term| {
+        match t {
+            Term::NamedNode(n) => Ok(n),
+            other @ (Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_)) => {
+                Err(format!("{other} is no IRI"))
+            }
+        }
+        .expect("a statement's predicate is an IRI")
     };
     Text {
         subject: node(term(&parts[0])),
@@ -297,7 +305,8 @@ pub fn uid(a: &TestChangesets, name: &str) -> u64 {
     a.quads()
         .uid_of(NS, ex(name).as_str())
         .expect("the dictionary reads")
-        .unwrap_or_else(|| panic!("<{name}> has a UID"))
+        .ok_or_else(|| format!("<{name}> has a UID"))
+        .expect("the subject has a UID")
 }
 
 /// The graph UID of `<name>`, the default graph for `""`.
@@ -377,9 +386,13 @@ pub fn reverse(a: &TestChangesets, predicate: &str, object: &str) -> Vec<u64> {
 
 /// The value-index tokens of `literal` under `tokenizer`, computed as index maintenance computes them.
 pub fn tokens_of(tokenizer: &str, literal: &Term) -> Vec<(u8, Vec<u8>)> {
-    let Term::Literal(literal) = literal else {
-        panic!("{literal} is no literal")
-    };
+    let literal = match literal {
+        Term::Literal(literal) => Ok(literal),
+        other @ (Term::NamedNode(_) | Term::BlankNode(_) | Term::Triple(_)) => {
+            Err(format!("{other} is no literal"))
+        }
+    }
+    .expect("the term is a literal");
     let t = get_tokenizer(tokenizer).expect("a tokenizer");
     let t = get_tokenizer_for_lang(&t, literal.language().unwrap_or_default());
     let value = token_value(literal.as_ref(), tokenizer).expect("the tokenizer takes the literal");

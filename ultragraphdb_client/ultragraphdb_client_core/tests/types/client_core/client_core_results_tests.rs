@@ -14,25 +14,20 @@ use ultragraphdb_protocol_wire::{
     Welcome,
 };
 
-use crate::utils::harness::{CLUSTER, Harness, RELEASE, config, server};
+use crate::utils::harness::{
+    CLUSTER, Harness, RELEASE, begun, config, prepared, registered, server,
+};
 
 fn begin(h: &mut Harness) -> Transaction {
     let p = h.core.begin(0, true, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
-    tx
+    begun(h.settle(p))
 }
 
 fn begin_writing(h: &mut Harness) -> (Session, Transaction) {
     let p = h.core.register(h.now).unwrap();
-    let Ok(Reply::Registered(session)) = h.settle(p) else {
-        panic!("a session")
-    };
+    let session = registered(h.settle(p));
     let p = h.core.begin(0, false, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
+    let tx = begun(h.settle(p));
     (session, tx)
 }
 
@@ -60,29 +55,32 @@ fn drain(h: &mut Harness, stream: &ResultStream) -> Vec<Vec<String>> {
     let mut done = false;
     h.until(|h| {
         loop {
-            match h.core.next_batch(stream, h.now, |view| {
-                (0..view.rows())
-                    .map(|row| {
-                        let cell = view.cell(0, row).unwrap_or(ABSENT);
-                        assert_eq!(
-                            view.term_count(),
-                            1,
-                            "a repeated term is sent once per batch"
-                        );
-                        view.term(cell)
-                            .and_then(|t| t.text())
-                            .unwrap_or("")
-                            .to_string()
-                    })
-                    .collect::<Vec<_>>()
-            }) {
-                Ok(BatchPoll::Batch(rows)) => batches.push(rows),
-                Ok(BatchPoll::Done) => {
+            match h
+                .core
+                .next_batch(stream, h.now, |view| {
+                    (0..view.rows())
+                        .map(|row| {
+                            let cell = view.cell(0, row).unwrap_or(ABSENT);
+                            assert_eq!(
+                                view.term_count(),
+                                1,
+                                "a repeated term is sent once per batch"
+                            );
+                            view.term(cell)
+                                .and_then(|t| t.text())
+                                .unwrap_or("")
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .expect("a batch, the end or a wait")
+            {
+                BatchPoll::Batch(rows) => batches.push(rows),
+                BatchPoll::Done => {
                     done = true;
                     return true;
                 }
-                Ok(BatchPoll::Wait) => return false,
-                Err(e) => panic!("{e:?}"),
+                BatchPoll::Wait => return false,
             }
         }
     });
@@ -190,40 +188,42 @@ fn test_cancel_ends_the_stream_and_its_later_frames_are_dropped() {
     assert_eq!(drain(&mut h, &next).len(), 6, "the other stream continues");
 }
 
+/// A Prepare of the pattern `?s <http://ex.org/name> ?o` in the default graph, its subject a node parameter.
+fn prepare_name() -> Prepare {
+    let mut terms = TermTable::new();
+    let name = terms.iri("http://ex.org/name");
+    Prepare::new(
+        0,
+        0,
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::DefaultGraph,
+            PatternSlot::Parameter(0),
+            PatternSlot::Bound(name),
+            PatternSlot::Unbound,
+        ),
+        vec![ColumnType::Node],
+        Vec::new(),
+    )
+}
+
+/// An Execute of statement `id` in `tx`, its parameter `http://ex.org/a`.
+fn execute(id: u64, tx: &Transaction) -> Execute {
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    Execute::new(id, tx.stream(), 0, terms, vec![a], Vec::new())
+}
+
 #[test]
 fn test_a_stale_statement_is_refused_and_prepared_again() {
     let mut h = Harness::ready(server().with_results(1));
-    let prepare = || {
-        let mut terms = TermTable::new();
-        let name = terms.iri("http://ex.org/name");
-        Prepare::new(
-            0,
-            0,
-            0,
-            terms,
-            QuadPattern::new(
-                PatternSlot::DefaultGraph,
-                PatternSlot::Parameter(0),
-                PatternSlot::Bound(name),
-                PatternSlot::Unbound,
-            ),
-            vec![ColumnType::Node],
-            Vec::new(),
-        )
-    };
-    let execute = |id| {
-        let mut terms = TermTable::new();
-        let a = terms.iri("http://ex.org/a");
-        move |tx: &Transaction| Execute::new(id, tx.stream(), 0, terms.clone(), vec![a], Vec::new())
-    };
-    let p = h.core.prepare(&prepare(), h.now).unwrap();
-    let Ok(Reply::Prepared(statement)) = h.settle(p) else {
-        panic!()
-    };
+    let p = h.core.prepare(&prepare_name(), h.now).unwrap();
+    let statement = prepared(h.settle(p));
     let tx = begin(&mut h);
     let stream = h
         .core
-        .execute(&tx, &execute(statement.id())(&tx), h.now)
+        .execute(&tx, &execute(statement.id(), &tx), h.now)
         .unwrap();
     assert_eq!(drain(&mut h, &stream).len(), 1);
     h.server.set_schema(2);
@@ -232,7 +232,7 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
     let tx = begin(&mut h);
     let stale = h
         .core
-        .execute(&tx, &execute(statement.id())(&tx), h.now)
+        .execute(&tx, &execute(statement.id(), &tx), h.now)
         .unwrap();
     let mut refused = None;
     h.until(|h| {
@@ -267,15 +267,13 @@ fn test_a_stale_statement_is_refused_and_prepared_again() {
         1,
         "and its transaction goes on"
     );
-    let p = h.core.prepare(&prepare(), h.now).unwrap();
-    let Ok(Reply::Prepared(again)) = h.settle(p) else {
-        panic!()
-    };
+    let p = h.core.prepare(&prepare_name(), h.now).unwrap();
+    let again = prepared(h.settle(p));
     assert_eq!((again.id(), again.schema()), (2, 2));
     let tx = begin(&mut h);
     let stream = h
         .core
-        .execute(&tx, &execute(again.id())(&tx), h.now)
+        .execute(&tx, &execute(again.id(), &tx), h.now)
         .unwrap();
     assert_eq!(drain(&mut h, &stream).len(), 1);
 }
@@ -302,9 +300,7 @@ fn test_a_statement_does_not_outlive_its_connection() {
         Vec::new(),
     );
     let p = h.core.prepare(&prepare, h.now).unwrap();
-    let Ok(Reply::Prepared(statement)) = h.settle(p) else {
-        panic!("a statement")
-    };
+    let statement = prepared(h.settle(p));
     h.connect();
     h.until(|h| h.core.is_ready());
     let tx = begin(&mut h);
@@ -334,9 +330,7 @@ fn test_a_statement_does_not_outlive_its_connection() {
         "the new connection holds no statement"
     );
     let p = h.core.prepare(&prepare, h.now).unwrap();
-    let Ok(Reply::Prepared(again)) = h.settle(p) else {
-        panic!("a statement")
-    };
+    let again = prepared(h.settle(p));
     assert_eq!(again.id(), 1, "ids start again on the new connection");
 }
 
@@ -482,7 +476,7 @@ fn test_a_read_naming_another_transaction_is_refused() {
 fn test_the_clients_frames_are_numbered_from_one_on_each_connection() {
     let mut h = Harness::ready(server());
     let tx = begin(&mut h);
-    let _ = h.core.read(&tx, &read(&tx), h.now).unwrap();
+    let _stream: ResultStream = h.core.read(&tx, &read(&tx), h.now).unwrap();
     h.step();
     let numbers: Vec<u128> = h
         .server

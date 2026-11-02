@@ -881,7 +881,10 @@ fn test_split_length() {
     let store = new_store();
     let size = 100_000u64;
     let ol = recursively_split(&store, "split-length", size);
-    assert_eq!(ol.get_length(size + 10).expect("length"), size as i64);
+    assert_eq!(
+        ol.get_length(size + 10).expect("length"),
+        i64::try_from(size).unwrap()
+    );
 }
 
 #[test]

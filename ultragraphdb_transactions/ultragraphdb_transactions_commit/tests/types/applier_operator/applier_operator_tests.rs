@@ -55,9 +55,9 @@ fn test_the_overlay_lives_one_round_and_reads_the_unapplied_proposals() {
     let mut refused = begin(&applier);
     refused.operate(counter("word", 1), 0).unwrap();
     let refused = prepare(refused);
-    let Err(error) = operator.operate(&refused, std::iter::empty(), &mut results) else {
-        panic!("a string is no counter");
-    };
+    let error = operator
+        .operate(&refused, std::iter::empty(), &mut results)
+        .expect_err("a string is no counter");
     // The value found, as an N-Triples term: the plain literal "zero".
     assert_eq!(
         error.0,

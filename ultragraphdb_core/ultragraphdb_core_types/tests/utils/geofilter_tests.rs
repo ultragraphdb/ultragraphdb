@@ -26,9 +26,10 @@ fn query_tokens(
         TypeId::GEO,
     ) {
         Ok(v) => match v.into_value() {
-            Some(Value::Geo(g)) => g,
-            other => panic!("{other:?}"),
-        },
+            Some(Value::Geo(g)) => Ok(g),
+            other => Err(format!("{other:?}")),
+        }
+        .expect("converting to geo gives a geometry"),
         Err(e) => return Err(format!("Cannot decode given geoJson input: {e}")),
     };
     query_tokens_geo(qt, &g, max_distance).map_err(|e| e.to_string())
@@ -38,9 +39,10 @@ fn query_tokens(
 fn form_data(g: &Geometry) -> String {
     let src = Val::bytes(TypeId::GEO, g.marshal_wkb().unwrap());
     match convert(&src, TypeId::STRING).unwrap().into_value() {
-        Some(Value::Str(s)) => s,
-        other => panic!("{other:?}"),
+        Some(Value::Str(s)) => Ok(s),
+        other => Err(format!("{other:?}")),
     }
+    .expect("converting to string gives a string")
 }
 
 fn pt(x: f64, y: f64) -> Geometry {
@@ -95,7 +97,10 @@ fn test_query_tokens_polygon_error() {
 fn test_query_tokens_point() {
     let data = form_data(&pt(-122.082506, 37.4249518));
     let (toks, qd) = query_tokens(QueryType::Contains, &data, 0.0).unwrap();
-    assert_eq!(toks.len() as i64, MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1);
+    assert_eq!(
+        i64::try_from(toks.len()).expect("fits i64"),
+        MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1
+    );
     assert_eq!(qd.qtype(), QueryType::Contains);
     assert!(qd.loops().is_empty());
     assert!(qd.pt().is_some());

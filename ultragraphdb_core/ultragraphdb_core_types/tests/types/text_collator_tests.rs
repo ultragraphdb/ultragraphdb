@@ -27,7 +27,8 @@ fn test_text_collator_refuses_what_go_refuses() {
     for (lang, want) in cases {
         let c = TextCollator
             .language(lang)
-            .unwrap_or_else(|| panic!("{lang} is a tag Go accepts"));
+            .ok_or_else(|| format!("{lang} is a tag Go accepts"))
+            .expect("a tag Go accepts");
         let got = [("a", "B"), ("B", "a"), ("e", "é"), ("ä", "b")]
             .map(|(a, b)| TextCollator.compare(&c, a, b) as i8);
         assert_eq!(got, want, "{lang}");

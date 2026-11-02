@@ -19,7 +19,8 @@ pub(crate) fn frexp(f: f64) -> (f64, i64) {
     }
     let (f, mut exp) = normalize(f);
     let mut x = f.to_bits();
-    exp += ((x >> SHIFT) & MASK) as i64 - BIAS + 1;
+    // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+    exp += ((x >> SHIFT) & MASK).cast_signed() - BIAS + 1;
     x &= !(MASK << SHIFT);
     x |= ((-1 + BIAS) as u64) << SHIFT;
     (f64::from_bits(x), exp)

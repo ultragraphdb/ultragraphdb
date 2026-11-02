@@ -34,6 +34,7 @@ impl List {
         } else {
             requested
         };
+        let limit = usize::try_from(first).ok().filter(|&n| n > 0);
         let mut out = UidList::default();
         let intersect = opt.intersect_with();
 
@@ -76,7 +77,7 @@ impl List {
                     return Ok(ControlFlow::Break(()));
                 }
                 out.uids_mut().push(p.uid());
-                if first > 0 && out.uids().len() as i64 > first {
+                if limit.is_some_and(|n| out.uids().len() > n) {
                     return Ok(ControlFlow::Break(()));
                 }
             }
@@ -89,8 +90,8 @@ impl List {
             out = intersected;
         }
         // Only a positive count is applied here: a negative one is the query layer's, over the filtered result.
-        if first > 0 && out.uids().len() as i64 > first {
-            out.uids_mut().truncate(first as usize);
+        if let Some(n) = limit {
+            out.uids_mut().truncate(n);
         }
         Ok(out)
     }
@@ -111,7 +112,7 @@ impl List {
                 PPosting::Uid(u) if u == uid => return Ok(true),
                 PPosting::Found(p) if p.uid() == uid && is_reference(p) => return Ok(true),
                 PPosting::Found(p) if p.uid() == uid => pitr.next(),
-                _ => return Ok(false),
+                PPosting::Found(_) | PPosting::Uid(_) => return Ok(false),
             }
         }
         Ok(false)

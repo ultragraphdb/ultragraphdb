@@ -5,9 +5,9 @@
 
 use ultragraphdb_error_protocol::{ProtocolError, ProtocolErrorEnum};
 
-#[test]
-fn test_each_constructor_builds_its_variant_with_its_values() {
-    let cases = [
+/// The constructors of the frame's header, size and checksums, each with the variant it builds.
+fn header_cases() -> [(ProtocolError, ProtocolErrorEnum); 10] {
+    [
         (
             ProtocolError::ShortHeader(255),
             ProtocolErrorEnum::ShortHeader { len: 255 },
@@ -63,6 +63,12 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
                 computed: 6,
             },
         ),
+    ]
+}
+
+/// The constructors of a chunk, the frame's order and command, and a body's layout, each with the variant it builds.
+fn frame_cases() -> [(ProtocolError, ProtocolErrorEnum); 7] {
+    [
         (
             ProtocolError::Chunk(3, 12_032, 16_128),
             ProtocolErrorEnum::Chunk {
@@ -119,6 +125,12 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
                 offset: 41,
             },
         ),
+    ]
+}
+
+/// The constructors of a body's sections, entries, counts and text, each with the variant it builds.
+fn section_cases() -> [(ProtocolError, ProtocolErrorEnum); 6] {
+    [
         (
             ProtocolError::TrailingBytes(5, 40, 41),
             ProtocolErrorEnum::TrailingBytes {
@@ -172,6 +184,12 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
                 limit: 3,
             },
         ),
+    ]
+}
+
+/// The constructors of terms, field values and a round's records, each with the variant it builds.
+fn content_cases() -> [(ProtocolError, ProtocolErrorEnum); 5] {
+    [
         (
             ProtocolError::BadTerm(8, 3, 9),
             ProtocolErrorEnum::BadTerm {
@@ -217,7 +235,16 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
                 }),
             },
         ),
-    ];
+    ]
+}
+
+#[test]
+fn test_each_constructor_builds_its_variant_with_its_values() {
+    let cases = header_cases()
+        .into_iter()
+        .chain(frame_cases())
+        .chain(section_cases())
+        .chain(content_cases());
     for (error, want) in cases {
         assert_eq!(error.0, want);
     }

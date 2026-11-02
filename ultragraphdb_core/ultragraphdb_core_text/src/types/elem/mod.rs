@@ -136,7 +136,8 @@ impl Elem {
                 }
                 ((primary << (MAX_SECONDARY_COMPACT_BITS + 1)) + secondary) as u32 | CE_TYPE1
             } else {
-                let d = secondary - DEFAULT_SECONDARY + MAX_SECONDARY_DIFF_BITS as i32;
+                // A bit count, so the bits are the value.
+                let d = secondary - DEFAULT_SECONDARY + MAX_SECONDARY_DIFF_BITS.cast_signed();
                 if !(0..1 << MAX_SECONDARY_DIFF_BITS).contains(&d) {
                     return None;
                 }
@@ -177,18 +178,22 @@ impl Elem {
             }
             return i32::from(self.0 as u16);
         }
-        ((self.0 & PRIMARY_VALUE_MASK) >> PRIMARY_SHIFT) as i32
+        // Masked and shifted below 31 bits, so the bits are the value.
+        ((self.0 & PRIMARY_VALUE_MASK) >> PRIMARY_SHIFT).cast_signed()
     }
 
     pub(crate) fn secondary(self) -> i32 {
         match self.0 & CE_TYPE_MASK {
             CE_TYPE1 => i32::from(self.0 as u8),
-            CE_TYPE2 => MIN_COMPACT_SECONDARY + ((self.0 >> COMPACT_SECONDARY_SHIFT) & 0xF) as i32,
+            // Four and twelve bits below, so the bits are the value.
+            CE_TYPE2 => {
+                MIN_COMPACT_SECONDARY + ((self.0 >> COMPACT_SECONDARY_SHIFT) & 0xF).cast_signed()
+            }
             CE_TYPE3_OR4 => {
                 if self.0 < CE_TYPE4 {
                     return DEFAULT_SECONDARY;
                 }
-                ((self.0 >> 8) & 0xFFF) as i32
+                ((self.0 >> 8) & 0xFFF).cast_signed()
             }
             _ => 0, // ceTypeQ
         }
@@ -231,7 +236,8 @@ impl Elem {
     /// The quaternary weight if explicitly specified, zero for `IGNORE`, the largest one otherwise.
     pub(crate) fn quaternary(self) -> i32 {
         if self.0 & CE_TYPE_MASK == CE_TYPE_Q {
-            return ((self.0 & PRIMARY_VALUE_MASK) >> PRIMARY_SHIFT) as i32;
+            // Masked and shifted below 31 bits, so the bits are the value.
+            return ((self.0 & PRIMARY_VALUE_MASK) >> PRIMARY_SHIFT).cast_signed();
         } else if self.0 & CE_IGNORE_MASK == IGNORE.0 {
             return 0;
         }
@@ -263,17 +269,19 @@ impl Elem {
 /// The primary weight of a rune with no entry in the collation table. It preserves the relative order of
 /// https://unicode.org/reports/tr10/#Implicit_Weights with different values.
 pub(crate) fn implicit_primary(r: u32) -> i32 {
+    // A rune is at most 0x10FFFF, so the bits are the value.
+    let signed = r.cast_signed();
     if go_unicode::is_ideographic(r) {
         if (MIN_UNIFIED..=MAX_UNIFIED).contains(&r) {
             // The most common case for CJK.
-            return r as i32 + COMMON_UNIFIED_OFFSET;
+            return signed + COMMON_UNIFIED_OFFSET;
         }
         if (MIN_COMPATIBILITY..=MAX_COMPATIBILITY).contains(&r) {
             // This will typically not hit. The DUCET explicitly specifies mappings for all characters that do
             // not decompose.
-            return r as i32 + COMMON_UNIFIED_OFFSET;
+            return signed + COMMON_UNIFIED_OFFSET;
         }
-        return r as i32 + RARE_UNIFIED_OFFSET;
+        return signed + RARE_UNIFIED_OFFSET;
     }
-    r as i32 + OTHER_OFFSET
+    signed + OTHER_OFFSET
 }

@@ -78,7 +78,11 @@ impl<R: Read> JsonDecoder<R> {
                     {
                         JsonError::UnexpectedEof()
                     }
-                    _ => e,
+                    JsonErrorEnum::Eof
+                    | JsonErrorEnum::UnexpectedEof
+                    | JsonErrorEnum::Syntax { .. }
+                    | JsonErrorEnum::UnmarshalType { .. }
+                    | JsonErrorEnum::Read(_) => e,
                 };
                 self.err = Some(e.clone());
                 Err(e)
@@ -115,7 +119,8 @@ impl<R: Read> JsonDecoder<R> {
 
     /// Go's `Decoder.InputOffset`: the offset in the stream just after the last value decoded.
     pub fn input_offset(&self) -> i64 {
-        self.prev_end as i64
+        // A stream offset past i64::MAX cannot be reached; saturating keeps it from wrapping negative.
+        i64::try_from(self.prev_end).unwrap_or(i64::MAX)
     }
 
     /// The buffer from the absolute offset `pos`.

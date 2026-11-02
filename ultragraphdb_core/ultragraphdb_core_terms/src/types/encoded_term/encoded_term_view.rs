@@ -25,22 +25,8 @@ impl EncodedTerm {
         let bytes = self.as_bytes();
         let body = &bytes[1..];
         let inline = |at: usize| inline(bytes, at);
-        let hash = |at: usize| {
-            let mut raw = [0u8; 16];
-            raw.copy_from_slice(&body[at..at + 16]);
-            Hash128::from_bytes(raw)
-        };
-        let u64_at = |at: usize| {
-            let mut raw = [0u8; 8];
-            raw.copy_from_slice(&body[at..at + 8]);
-            u64::from_be_bytes(raw)
-        };
-        let direction = |set: usize| match set {
-            0 => None,
-            1 => Some(BaseDirection::Ltr),
-            _ => Some(BaseDirection::Rtl),
-        };
-        let set_of = |tags: [u8; 3]| tags.iter().position(|t| *t == bytes[0]);
+        let hash = |at: usize| hash_at(body, at);
+        let u64_at = |at: usize| u64::from_be_bytes(fixed::<8>(&body[at..]));
         let known =
             |code: u8| KnownDatatype::from_code(code).ok_or(TermError::UnknownDatatype(code));
         Ok(match bytes[0] {
@@ -84,31 +70,50 @@ impl EncodedTerm {
                 lexical: Text::Hashed(hash(8)),
             },
             tag::VECTOR => TermView::Vector(VectorView::new(&body[2..])),
-            t => {
-                if let Some(set) = set_of(tag::SMALL_LANG) {
-                    let (lexical, next) = inline(0)?;
-                    TermView::LangString {
-                        lexical: Text::Inline(lexical),
-                        language: Text::Inline(inline(next)?.0),
-                        direction: direction(set),
-                    }
-                } else if let Some(set) = set_of(tag::BIG_LANG) {
-                    TermView::LangString {
-                        lexical: Text::Hashed(hash(0)),
-                        language: Text::Inline(inline(16)?.0),
-                        direction: direction(set),
-                    }
-                } else if let Some(set) = set_of(tag::BIG_LANG_BIG_TAG) {
-                    TermView::LangString {
-                        lexical: Text::Hashed(hash(0)),
-                        language: Text::Hashed(hash(16)),
-                        direction: direction(set),
-                    }
-                } else {
-                    return Err(TermError::UnknownTag(t));
-                }
-            }
+            _ => lang_string(bytes)?,
         })
+    }
+}
+
+/// The 16-byte hash at `at` in `body`.
+fn hash_at(body: &[u8], at: usize) -> Hash128 {
+    Hash128::from_bytes(fixed::<16>(&body[at..]))
+}
+
+/// The base direction the tag set at `set` encodes: none, left to right, right to left.
+fn direction(set: usize) -> Option<BaseDirection> {
+    match set {
+        0 => None,
+        1 => Some(BaseDirection::Ltr),
+        _ => Some(BaseDirection::Rtl),
+    }
+}
+
+/// The language-tagged string `bytes` encodes, refused when its tag is no tag at all.
+fn lang_string(bytes: &[u8]) -> Result<TermView<'_>, TermError> {
+    let body = &bytes[1..];
+    let set_of = |tags: [u8; 3]| tags.iter().position(|t| *t == bytes[0]);
+    if let Some(set) = set_of(tag::SMALL_LANG) {
+        let (lexical, next) = inline(bytes, 0)?;
+        Ok(TermView::LangString {
+            lexical: Text::Inline(lexical),
+            language: Text::Inline(inline(bytes, next)?.0),
+            direction: direction(set),
+        })
+    } else if let Some(set) = set_of(tag::BIG_LANG) {
+        Ok(TermView::LangString {
+            lexical: Text::Hashed(hash_at(body, 0)),
+            language: Text::Inline(inline(bytes, 16)?.0),
+            direction: direction(set),
+        })
+    } else if let Some(set) = set_of(tag::BIG_LANG_BIG_TAG) {
+        Ok(TermView::LangString {
+            lexical: Text::Hashed(hash_at(body, 0)),
+            language: Text::Hashed(hash_at(body, 16)),
+            direction: direction(set),
+        })
+    } else {
+        Err(TermError::UnknownTag(bytes[0]))
     }
 }
 

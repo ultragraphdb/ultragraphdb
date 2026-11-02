@@ -126,7 +126,8 @@ fn test_decoder() {
         for (j, w) in want[..i].iter().enumerate() {
             let v = dec
                 .decode()
-                .unwrap_or_else(|e| panic!("decode #{j}/{i}: {e}"));
+                .map_err(|e| format!("decode #{j}/{i}: {e}"))
+                .expect("decoding the stream");
             assert_eq!(v.marshal(), *w, "#{j}/{i}");
         }
     }
@@ -150,7 +151,11 @@ fn test_blocking() {
             Ok(want.to_string()),
             "{input}"
         );
-        assert_eq!(dec.input_offset(), input.len() as i64, "{input}");
+        assert_eq!(
+            dec.input_offset(),
+            i64::try_from(input.len()).unwrap(),
+            "{input}"
+        );
     }
 }
 
@@ -176,7 +181,7 @@ fn test_decode_in_stream_errors() {
         let mut dec = JsonDecoder::new(input.as_bytes());
         assert_eq!(
             dec.decode().unwrap_err(),
-            JsonError::Syntax(msg.to_string(), offset as i64),
+            JsonError::Syntax(msg.to_string(), i64::try_from(offset).unwrap()),
             "{input}"
         );
     }
@@ -219,7 +224,7 @@ fn test_unmarshal_error_after_multiple_json() {
         };
         assert_eq!(
             err,
-            JsonError::Syntax(msg.to_string(), upto.len() as i64),
+            JsonError::Syntax(msg.to_string(), i64::try_from(upto.len()).unwrap()),
             "{input}"
         );
     }
@@ -319,6 +324,6 @@ fn a_long_value_spans_several_reads() {
     let mut dec = JsonDecoder::new(OneByte(long.as_bytes()));
     let v = dec.decode().unwrap();
     assert_eq!(v.marshal(), long);
-    assert_eq!(dec.input_offset(), long.len() as i64);
+    assert_eq!(dec.input_offset(), i64::try_from(long.len()).unwrap());
     assert_eq!(dec.decode().unwrap_err(), JsonError::Eof());
 }

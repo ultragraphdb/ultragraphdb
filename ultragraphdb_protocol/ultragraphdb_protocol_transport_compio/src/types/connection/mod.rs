@@ -121,7 +121,8 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
 
     /// Shuts down the connection's sending side; a failure changes nothing, since the connection is given up.
     pub async fn shutdown(&mut self) {
-        let _ = self.stream.shutdown().await;
+        // The connection is given up, so a failed shutdown is dropped.
+        drop(self.stream.shutdown().await);
     }
 
     /// The client's handshake, run through [`ClientHandshake`]: sends `hello` on stream 0 and reads the server's
@@ -156,7 +157,9 @@ impl<S: AsyncRead + AsyncWrite> Connection<S> {
                 self.write_frame(frame).await?;
             }
             (Some(frame), Err(_)) => {
-                let _ = self.write_frame(frame).await;
+                // The handshake failed already: its refusal is sent if the stream takes it, and the failure
+                // returned is the handshake's, so the write's own is dropped.
+                drop(self.write_frame(frame).await);
             }
             (None, _) => {}
         }

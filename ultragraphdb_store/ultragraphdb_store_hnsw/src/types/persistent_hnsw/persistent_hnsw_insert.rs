@@ -84,7 +84,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             entry = layer.best_neighbor()?.index();
         }
 
-        self.add_neighbors(tc, in_uuid, vec![Vec::new(); self.max_levels])?;
+        self.add_neighbors(tc, in_uuid, &vec![Vec::new(); self.max_levels])?;
         let mut outbound = vec![Vec::new(); self.max_levels];
         let mut inbound: BTreeMap<u64, Vec<Vec<u64>>> = BTreeMap::new();
         for (level, out) in outbound.iter_mut().enumerate().skip(in_level) {
@@ -108,9 +108,9 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                 out.push(nn.index());
             }
         }
-        edges.push(self.add_neighbors(tc, in_uuid, outbound)?);
+        edges.push(self.add_neighbors(tc, in_uuid, &outbound)?);
         for (nn_uid, inbound_edges) in inbound {
-            edges.push(self.add_neighbors(tc, nn_uid, inbound_edges)?);
+            edges.push(self.add_neighbors(tc, nn_uid, &inbound_edges)?);
         }
         Ok(edges)
     }
@@ -214,7 +214,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         &self,
         tc: &TxnCache<'_, X>,
         uuid: u64,
-        all_layer_neighbors: Vec<Vec<u64>>,
+        all_layer_neighbors: &[Vec<u64>],
     ) -> Result<KeyValue, HnswError> {
         let txn = tc.txn();
         let key = self.keys.neighbours(uuid);
@@ -229,7 +229,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         tc: &TxnCache<'_, X>,
         key: &[u8],
         uuid: u64,
-        all_layer_neighbors: Vec<Vec<u64>>,
+        all_layer_neighbors: &[Vec<u64>],
     ) -> Result<KeyValue, HnswError> {
         let txn = tc.txn();
         let cached = self.node_all_edges.borrow().get(&uuid).cloned();
@@ -237,8 +237,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
             Some(edges) => edges,
             None => match txn.get_with_lock_held(key) {
                 Ok(data) if !data.is_empty() => self.decode_edges(uuid, &data)?,
-                Ok(_) => all_layer_neighbors.clone(),
-                Err(e) if e.is_absence() => all_layer_neighbors.clone(),
+                Ok(_) => all_layer_neighbors.to_vec(),
+                Err(e) if e.is_absence() => all_layer_neighbors.to_vec(),
                 Err(e) => return Err(e),
             },
         };

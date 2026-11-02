@@ -10,7 +10,7 @@ impl Drop for TelemetryGuard {
         if let Some(provider) = self.provider.take() {
             // Shutting the provider down exports what its batch processor still queues, then shuts the exporter
             // down. A failure has nowhere to go: the subscriber that would report it is the one being torn down.
-            let _ = provider.shutdown();
+            drop(provider.shutdown());
         }
     }
 }

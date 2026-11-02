@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::utils::or_fail::or_fail;
 use crate::utils::workspace::testdata_dir;
 
 /// The minimized inputs that once made the fuzz target `target` fail, committed under the running test's crate's
@@ -29,19 +30,18 @@ pub fn fuzz_regressions_in(dir: &Path) -> Vec<(String, Vec<u8>)> {
     if !dir.is_dir() {
         return Vec::new();
     }
-    let entries = fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("cannot list fuzz regressions in {}: {e}", dir.display()));
+    let unlisted =
+        |e: std::io::Error| format!("cannot list fuzz regressions in {}: {e}", dir.display());
+    let entries = or_fail(fs::read_dir(dir).map_err(unlisted));
     let mut cases: Vec<(String, Vec<u8>)> = entries
-        .map(|entry| {
-            entry.unwrap_or_else(|e| {
-                panic!("cannot list fuzz regressions in {}: {e}", dir.display())
-            })
-        })
+        .map(|entry| or_fail(entry.map_err(unlisted)))
         .filter(|entry| entry.path().is_file())
         .map(|entry| {
             let path = entry.path();
-            let bytes = fs::read(&path)
-                .unwrap_or_else(|e| panic!("cannot read fuzz regression {}: {e}", path.display()));
+            let bytes = or_fail(
+                fs::read(&path)
+                    .map_err(|e| format!("cannot read fuzz regression {}: {e}", path.display())),
+            );
             (entry.file_name().to_string_lossy().into_owned(), bytes)
         })
         .collect();

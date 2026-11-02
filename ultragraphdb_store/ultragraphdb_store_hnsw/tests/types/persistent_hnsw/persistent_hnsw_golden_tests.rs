@@ -125,32 +125,7 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
                 let index = search_index.get_or_insert_with(|| {
                     PersistentHnsw::<T>::new(vkeys(&c.pred), &o, c.bits).unwrap()
                 });
-                let qc = QueryCache::new(&txn, 1);
-                let query = vector::<T>(op);
-                let result = match search {
-                    "search" => index.search(&qc, &query, op.k, accept_all::<T>),
-                    "search_options" => index.search_with_options(
-                        &qc,
-                        &query,
-                        op.k,
-                        &VectorIndexOptions::new(op.ef_override, op.threshold, accept_all::<T>),
-                    ),
-                    "search_uid" => index.search_with_uid(&qc, op.uid, op.k, accept_all::<T>),
-                    "search_uid_options" => index.search_with_uid_and_options(
-                        &qc,
-                        op.uid,
-                        op.k,
-                        &VectorIndexOptions::new(op.ef_override, op.threshold, accept_all::<T>),
-                    ),
-                    other => panic!("unknown op {other}"),
-                };
-                match result {
-                    Ok(uids) => {
-                        assert!(op.error.is_empty(), "{at}: Go failed with {}", op.error);
-                        assert_eq!(uids, op.result.clone().unwrap_or_default(), "{at}");
-                    }
-                    Err(e) => assert_eq!(e.to_string(), op.error, "{at}"),
-                }
+                run_search(index, &txn, op, search, &at);
                 searched += 1;
             }
         }
@@ -166,14 +141,52 @@ fn run<T: HnswFloat>(c: &GraphCase) -> bool {
         .contents
         .iter()
         .map(|(k, v)| {
-            let key =
-                translated(&unhex(k)).unwrap_or_else(|| panic!("{}: a Dgraph key {k}", c.name));
+            let key = translated(&unhex(k))
+                .ok_or_else(|| format!("{}: a Dgraph key {k}", c.name))
+                .expect("the Dgraph key translates");
             (hex(&key), v.clone())
         })
         .collect();
     assert_eq!(contents, expected, "{}: the store after the run", c.name);
     assert!(searched > 50, "{}", c.name);
     false
+}
+
+/// Runs `search`, the case's op `op`, through `index` over `txn`, and checks it against Go's result; `at` names the op.
+fn run_search<T: HnswFloat>(
+    index: &PersistentHnsw<T>,
+    txn: &MapTxn,
+    op: &GraphOp,
+    search: &str,
+    at: &str,
+) {
+    let qc = QueryCache::new(txn, 1);
+    let query = vector::<T>(op);
+    let result = match search {
+        "search" => Ok(index.search(&qc, &query, op.k, accept_all::<T>)),
+        "search_options" => Ok(index.search_with_options(
+            &qc,
+            &query,
+            op.k,
+            &VectorIndexOptions::new(op.ef_override, op.threshold, accept_all::<T>),
+        )),
+        "search_uid" => Ok(index.search_with_uid(&qc, op.uid, op.k, accept_all::<T>)),
+        "search_uid_options" => Ok(index.search_with_uid_and_options(
+            &qc,
+            op.uid,
+            op.k,
+            &VectorIndexOptions::new(op.ef_override, op.threshold, accept_all::<T>),
+        )),
+        other => Err(format!("unknown op {other}")),
+    }
+    .expect("the op is a known search");
+    match result {
+        Ok(uids) => {
+            assert!(op.error.is_empty(), "{at}: Go failed with {}", op.error);
+            assert_eq!(uids, op.result.clone().unwrap_or_default(), "{at}");
+        }
+        Err(e) => assert_eq!(e.to_string(), op.error, "{at}"),
+    }
 }
 
 /// The node Go's insert makes the entry point by wiping it, when the entry point lost its vector: the insert writes

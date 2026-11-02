@@ -11,23 +11,16 @@ use ultragraphdb_protocol_wire::WriteSetRecordView;
 use ultragraphdb_store_apply::{ChangesetError, ChangesetErrorEnum};
 use ultragraphdb_store_sim::Fault;
 use ultragraphdb_transactions_txn::{
-    Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
+    Commit, Mode, Transaction, TxnBuffers, TxnError, TxnErrorEnum, TxnLimits,
 };
 
 use crate::utils::fixture::{
     NS, SECOND, applier, begin, begin_with, changeset, commit, ex, held, insert, insert_literal,
-    objects,
+    objects, prepared,
 };
 
 fn literal(value: &str) -> Term {
     Literal::new_simple_literal(value).into()
-}
-
-fn prepared(commit: Result<Commit, TxnError>) -> Prepared {
-    match commit.expect("the commit") {
-        Commit::ReadWrite(prepared) => prepared,
-        Commit::ReadOnly(_) => panic!("a read-write transaction ends on its worker"),
-    }
 }
 
 #[test]

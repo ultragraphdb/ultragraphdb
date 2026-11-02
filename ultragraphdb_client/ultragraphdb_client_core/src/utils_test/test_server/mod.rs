@@ -239,7 +239,7 @@ impl TestServer {
                 self.transactions.remove(&stream);
             }
             Inbound::Closing { .. } => self.transactions.clear(),
-            _ => {}
+            Inbound::Handled | Inbound::Authenticated { .. } | Inbound::Cancelled { .. } => {}
         }
     }
 
@@ -277,6 +277,16 @@ impl TestServer {
 fn rule(error: ultragraphdb_protocol_transport::TransportError) -> ProtocolError {
     match error.0 {
         TransportErrorEnum::Protocol { error } => error,
-        _ => ProtocolError::ShortHeader(0),
+        TransportErrorEnum::Io { .. }
+        | TransportErrorEnum::Closed
+        | TransportErrorEnum::Truncated { .. }
+        | TransportErrorEnum::PoolExhausted { .. }
+        | TransportErrorEnum::StreamZero
+        | TransportErrorEnum::StreamOpen { .. }
+        | TransportErrorEnum::StreamLimit { .. }
+        | TransportErrorEnum::UnknownStream { .. }
+        | TransportErrorEnum::Refused { .. }
+        | TransportErrorEnum::UnexpectedCommand { .. }
+        | TransportErrorEnum::Authentication { .. } => ProtocolError::ShortHeader(0),
     }
 }

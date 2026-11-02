@@ -292,19 +292,19 @@ fn test_a_catalog_drop_writes_its_declaration_under_its_prefix() {
                 declaration.extend_from_slice(&7u64.to_be_bytes());
             }
             assert!(prefix.len() == 9 || prefix.len() == 18, "{line}");
-            match entries.as_slice() {
-                [] => {}
-                [(key, 1, Some(value))] => {
-                    assert_eq!(
-                        (key, value.as_slice()),
-                        (&declaration, &b"name"[..]),
-                        "{line}"
-                    );
-                    assert!(line.contains("meta: 1,"), "{line}");
-                    // The prefix's length, whether its namespace is other than 0, and its predicate byte.
-                    seen.insert((prefix.len(), prefix[8] != 0, prefix[prefix.len() - 1]));
-                }
-                other => panic!("{other:?} in {line}"),
+            assert!(
+                matches!(entries.as_slice(), [] | [(_, 1, Some(_))]),
+                "{entries:?} in {line}"
+            );
+            if let [(key, 1, Some(value))] = entries.as_slice() {
+                assert_eq!(
+                    (key, value.as_slice()),
+                    (&declaration, &b"name"[..]),
+                    "{line}"
+                );
+                assert!(line.contains("meta: 1,"), "{line}");
+                // The prefix's length, whether its namespace is other than 0, and its predicate byte.
+                seen.insert((prefix.len(), prefix[8] != 0, prefix[prefix.len() - 1]));
             }
         }
     }

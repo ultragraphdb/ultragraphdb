@@ -63,7 +63,10 @@ pub fn index_cells(g: &Geometry) -> Result<(Vec<CellId>, Vec<CellId>), TypesErro
             }
             Ok((get_parent_cells(&cover, MIN_CELL_LEVEL), cover))
         }
-        kind => Err(TypesError::geo(format!(
+        kind @ (GeometryKind::LineString
+        | GeometryKind::MultiPoint
+        | GeometryKind::MultiLineString
+        | GeometryKind::GeometryCollection) => Err(TypesError::geo(format!(
             "Cannot index geometry of type {}",
             kind.go_type()
         ))),

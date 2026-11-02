@@ -94,7 +94,33 @@ fn check_body(bytes: &[u8], round: &ScannedRound, checksum_body: u64) -> Result<
                 end,
             },
             // The table failed checksum_body, or the body's length has no table to fail.
-            _ => Damage::ChunkTable {
+            ProtocolErrorEnum::ShortHeader { .. }
+            | ProtocolErrorEnum::HeaderChecksum { .. }
+            | ProtocolErrorEnum::UnknownCommand { .. }
+            | ProtocolErrorEnum::ReservedNotZero { .. }
+            | ProtocolErrorEnum::WrongCluster { .. }
+            | ProtocolErrorEnum::SizeBelowHeader { .. }
+            | ProtocolErrorEnum::FrameTooLarge { .. }
+            | ProtocolErrorEnum::LengthMismatch { .. }
+            | ProtocolErrorEnum::BodyLength { .. }
+            | ProtocolErrorEnum::ChunkTable { .. }
+            | ProtocolErrorEnum::SequenceOrder { .. }
+            | ProtocolErrorEnum::WrongCommand { .. }
+            | ProtocolErrorEnum::BodyTooShort { .. }
+            | ProtocolErrorEnum::SectionOutOfBounds { .. }
+            | ProtocolErrorEnum::SectionOffset { .. }
+            | ProtocolErrorEnum::PaddingNotZero { .. }
+            | ProtocolErrorEnum::TrailingBytes { .. }
+            | ProtocolErrorEnum::SectionLength { .. }
+            | ProtocolErrorEnum::EntryOutOfBounds { .. }
+            | ProtocolErrorEnum::CountMismatch { .. }
+            | ProtocolErrorEnum::NotUtf8 { .. }
+            | ProtocolErrorEnum::IndexOutOfRange { .. }
+            | ProtocolErrorEnum::BadTerm { .. }
+            | ProtocolErrorEnum::FieldValue { .. }
+            | ProtocolErrorEnum::DuplicateTerm { .. }
+            | ProtocolErrorEnum::TermTooDeep { .. }
+            | ProtocolErrorEnum::Record { .. } => Damage::ChunkTable {
                 position: round.position(),
             },
         })

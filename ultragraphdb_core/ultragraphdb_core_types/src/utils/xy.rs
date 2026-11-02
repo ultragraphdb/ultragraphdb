@@ -7,6 +7,8 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
+use std::ops::ControlFlow;
+
 /// go-geom's `xy.IsPointInRing`: whether `p` lies in the interior or on the boundary of a ring of flat
 /// coordinates with the given stride.
 pub(crate) fn is_point_in_ring(stride: usize, p: [f64; 2], ring: &[f64]) -> bool {
@@ -75,21 +77,39 @@ impl RayCrossingCounter {
 
 /// go-geom's `robustdeterminate.SignOfDet2x2`: the exact sign of `x1*y2 - y1*x2`.
 fn sign_of_det2x2(x1: f64, y1: f64, x2: f64, y2: f64) -> i32 {
-    let (mut x1, mut y1, mut x2, mut y2) = (x1, y1, x2, y2);
+    if let Some(sign) = null_entry_sign(x1, y1, x2, y2) {
+        return sign;
+    }
+    let (sign, x1, y1, x2, y2) = order_by_y(x1, y1, x2, y2);
+    match order_by_x(sign, x1, x2) {
+        ControlFlow::Break(sign) => sign,
+        ControlFlow::Continue((sign, x1, x2)) => reduce(sign, x1, y1, x2, y2),
+    }
+}
+
+/// The sign where an entry is zero, which needs no arithmetic; `None` where every entry is nonzero.
+fn null_entry_sign(x1: f64, y1: f64, x2: f64, y2: f64) -> Option<i32> {
     if x1 == 0.0 || y2 == 0.0 {
         if y1 == 0.0 || x2 == 0.0 {
-            return 0;
+            return Some(0);
         } else if y1 > 0.0 {
-            return if x2 > 0.0 { -1 } else { 1 };
+            return Some(if x2 > 0.0 { -1 } else { 1 });
         }
-        return if x2 > 0.0 { 1 } else { -1 };
+        return Some(if x2 > 0.0 { 1 } else { -1 });
     }
     if y1 == 0.0 || x2 == 0.0 {
         if y2 > 0.0 {
-            return if x1 > 0.0 { 1 } else { -1 };
+            return Some(if x1 > 0.0 { 1 } else { -1 });
         }
-        return if x1 > 0.0 { -1 } else { 1 };
+        return Some(if x1 > 0.0 { -1 } else { 1 });
     }
+    None
+}
+
+/// Makes both y coordinates positive and swaps the rows so that y2 is the larger, with the sign that keeps the
+/// determinant's.
+fn order_by_y(x1: f64, y1: f64, x2: f64, y2: f64) -> (i32, f64, f64, f64, f64) {
+    let (mut x1, mut y1, mut x2, mut y2) = (x1, y1, x2, y2);
     let mut sign = 1;
     if 0.0 < y1 {
         if 0.0 < y2 {
@@ -137,26 +157,39 @@ fn sign_of_det2x2(x1: f64, y1: f64, x2: f64, y2: f64) -> i32 {
         y1 = -y2;
         y2 = swap;
     }
+    (sign, x1, y1, x2, y2)
+}
+
+/// Makes both x coordinates positive, or breaks with the sign where the x coordinates alone decide it.
+fn order_by_x(sign: i32, x1: f64, x2: f64) -> ControlFlow<i32, (i32, f64, f64)> {
+    let (mut sign, mut x1, mut x2) = (sign, x1, x2);
     if 0.0 < x1 {
         if 0.0 < x2 {
             if x1 > x2 {
-                return sign;
+                return ControlFlow::Break(sign);
             }
         } else {
-            return sign;
+            return ControlFlow::Break(sign);
         }
     } else {
         if 0.0 < x2 {
-            return -sign;
+            return ControlFlow::Break(-sign);
         }
         if x1 >= x2 {
             sign = -sign;
             x1 = -x1;
             x2 = -x2;
         } else {
-            return -sign;
+            return ControlFlow::Break(-sign);
         }
     }
+    ControlFlow::Continue((sign, x1, x2))
+}
+
+/// The sign of the determinant of rows with all entries positive, `x1 <= x2` and `y1 <= y2`, by repeated
+/// Euclidean reduction.
+fn reduce(sign: i32, x1: f64, y1: f64, x2: f64, y2: f64) -> i32 {
+    let (mut sign, mut x1, mut y1, mut x2, mut y2) = (sign, x1, y1, x2, y2);
     loop {
         let k = (x2 / x1).floor();
         x2 -= k * x1;

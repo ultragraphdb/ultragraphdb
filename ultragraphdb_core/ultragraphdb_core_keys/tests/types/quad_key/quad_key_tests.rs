@@ -17,6 +17,13 @@ pub fn literal(lexical: &str) -> EncodedTerm {
 
 /// One key of every keyspace, its objects a UID and a hashed literal.
 pub fn every_keyspace() -> Vec<QuadKey> {
+    let mut keys = data_keys();
+    keys.extend(index_keys());
+    keys
+}
+
+/// Keys of the catalog and of the four keyspaces holding quads.
+fn data_keys() -> Vec<QuadKey> {
     vec![
         QuadKey::Catalog {
             namespace: 4,
@@ -51,6 +58,12 @@ pub fn every_keyspace() -> Vec<QuadKey> {
             graph: 3,
             object: literal("short"),
         },
+    ]
+}
+
+/// Keys of the index, statement and statistics keyspaces.
+fn index_keys() -> Vec<QuadKey> {
+    vec![
         QuadKey::ValueIndex {
             namespace: 4,
             graph: 3,

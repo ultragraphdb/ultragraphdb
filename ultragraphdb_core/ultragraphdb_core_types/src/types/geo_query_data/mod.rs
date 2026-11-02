@@ -79,7 +79,10 @@ impl GeoQueryData {
                     Err(_) => false,
                 })
             }
-            _ => false,
+            GeometryKind::LineString
+            | GeometryKind::MultiPoint
+            | GeometryKind::MultiLineString
+            | GeometryKind::GeometryCollection => false,
         }
     }
 
@@ -104,7 +107,11 @@ impl GeoQueryData {
                 }
                 self.loops.iter().all(|l| multi_polygon_contains_loop(g, l))
             }
-            _ => false,
+            GeometryKind::Point
+            | GeometryKind::LineString
+            | GeometryKind::MultiPoint
+            | GeometryKind::MultiLineString
+            | GeometryKind::GeometryCollection => false,
         }
     }
 
@@ -130,7 +137,10 @@ impl GeoQueryData {
                 }
                 false
             }
-            _ => false,
+            GeometryKind::LineString
+            | GeometryKind::MultiPoint
+            | GeometryKind::MultiLineString
+            | GeometryKind::GeometryCollection => false,
         }
     }
 }

@@ -149,7 +149,23 @@ impl<L: Login> ClientCore<L> {
                 }
             }
             Command::Authenticate => self.authenticate(&view, now),
-            _ => Ok(()),
+            Command::Hello
+            | Command::Welcome
+            | Command::Register
+            | Command::Begin
+            | Command::Commit
+            | Command::Abort
+            | Command::Read
+            | Command::Write
+            | Command::Operation
+            | Command::Prepare
+            | Command::Execute
+            | Command::Describe
+            | Command::Result
+            | Command::Credit
+            | Command::Cancel
+            | Command::Round
+            | Command::Drop => Ok(()),
         }
     }
 
@@ -158,7 +174,7 @@ impl<L: Login> ClientCore<L> {
     fn authenticate(&mut self, view: &FrameView<'_>, now: Instant) -> Result<(), ClientError> {
         let welcome = match &self.link {
             Link::Authenticating(welcome, _) | Link::Up(welcome) => welcome.clone(),
-            _ => return Ok(()),
+            Link::Down | Link::Handshake(_) => return Ok(()),
         };
         let step = match (&mut self.link, self.renewal.as_mut()) {
             (Link::Authenticating(_, exchange), _) | (Link::Up(_), Some(exchange)) => {
@@ -200,7 +216,7 @@ impl<L: Login> ClientCore<L> {
 
     /// Gives the connection up for `error`, which the caller gets; requests waiting fail as lost, `error` their cause.
     fn fatal(&mut self, error: ClientError) -> Result<(), ClientError> {
-        self.lose(ClientError::ConnectionLost(Some(error.clone())));
+        self.lose(&ClientError::ConnectionLost(Some(error.clone())));
         Err(error)
     }
 
@@ -354,53 +370,8 @@ impl<L: Login> ClientCore<L> {
                     begin.read_only(),
                 )))
             }
-            Expect::Commit { session, request } => {
-                let commit = CommitView::from_frame(view).map_err(ClientError::Protocol)?;
-                if commit.session() != session {
-                    Err(ClientError::ReplyMismatch(
-                        "session",
-                        session,
-                        commit.session(),
-                    ))
-                } else if commit.request() != request {
-                    Err(ClientError::ReplyMismatch(
-                        "request",
-                        request,
-                        commit.request(),
-                    ))
-                } else {
-                    let results = (0..commit.result_count())
-                        .filter_map(|i| commit.result(i))
-                        .collect();
-                    Ok(Reply::Committed(Committed::new(
-                        commit.commit_version(),
-                        request,
-                        results,
-                    )))
-                }
-            }
-            Expect::Drop { session, request } => {
-                let drop = DropCommandView::from_frame(view).map_err(ClientError::Protocol)?;
-                if drop.session() != session {
-                    Err(ClientError::ReplyMismatch(
-                        "session",
-                        session,
-                        drop.session(),
-                    ))
-                } else if drop.request() != request {
-                    Err(ClientError::ReplyMismatch(
-                        "request",
-                        request,
-                        drop.request(),
-                    ))
-                } else {
-                    Ok(Reply::Dropped(Committed::new(
-                        drop.commit_version(),
-                        request,
-                        Vec::new(),
-                    )))
-                }
-            }
+            Expect::Commit { session, request } => committed(view, session, request)?,
+            Expect::Drop { session, request } => dropped(view, session, request)?,
             Expect::Prepare => {
                 let prepare = PrepareView::from_frame(view).map_err(ClientError::Protocol)?;
                 Ok(Reply::Prepared(Statement::new(
@@ -419,4 +390,65 @@ impl<L: Login> ClientCore<L> {
             }
         })
     }
+}
+
+/// A Commit's reply `view` to commit `request` of `session`; one naming another commit is
+/// [`ClientError::ReplyMismatch`], and one breaking a rule the caller's error.
+fn committed(
+    view: &FrameView<'_>,
+    session: u64,
+    request: u64,
+) -> Result<Result<Reply, ClientError>, ClientError> {
+    let commit = CommitView::from_frame(view).map_err(ClientError::Protocol)?;
+    Ok(if commit.session() != session {
+        Err(ClientError::ReplyMismatch(
+            "session",
+            session,
+            commit.session(),
+        ))
+    } else if commit.request() != request {
+        Err(ClientError::ReplyMismatch(
+            "request",
+            request,
+            commit.request(),
+        ))
+    } else {
+        let results = (0..commit.result_count())
+            .filter_map(|i| commit.result(i))
+            .collect();
+        Ok(Reply::Committed(Committed::new(
+            commit.commit_version(),
+            request,
+            results,
+        )))
+    })
+}
+
+/// A Drop's reply `view` to drop `request` of `session`; one naming another drop is [`ClientError::ReplyMismatch`],
+/// and one breaking a rule the caller's error.
+fn dropped(
+    view: &FrameView<'_>,
+    session: u64,
+    request: u64,
+) -> Result<Result<Reply, ClientError>, ClientError> {
+    let drop = DropCommandView::from_frame(view).map_err(ClientError::Protocol)?;
+    Ok(if drop.session() != session {
+        Err(ClientError::ReplyMismatch(
+            "session",
+            session,
+            drop.session(),
+        ))
+    } else if drop.request() != request {
+        Err(ClientError::ReplyMismatch(
+            "request",
+            request,
+            drop.request(),
+        ))
+    } else {
+        Ok(Reply::Dropped(Committed::new(
+            drop.commit_version(),
+            request,
+            Vec::new(),
+        )))
+    })
 }

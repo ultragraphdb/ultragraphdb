@@ -180,10 +180,11 @@ pub fn prepare(txn: Txn<'_>) -> Prepared {
 
 /// Ends a read-write `txn` as its proposal, request `request` of session `session`.
 pub fn prepare_in(txn: Txn<'_>, session: u64, request: u64) -> Prepared {
-    match txn.commit(session, request, &[], 0).expect("it prepares") {
-        Commit::ReadWrite(prepared) => prepared,
-        Commit::ReadOnly(_) => panic!("a read-write transaction prepares"),
-    }
+    let prepared = match txn.commit(session, request, &[], 0).expect("it prepares") {
+        Commit::ReadWrite(prepared) => Some(prepared),
+        Commit::ReadOnly(_) => None,
+    };
+    prepared.expect("a read-write transaction prepares")
 }
 
 /// What a fresh transaction reads of `<subject> <predicate>`: what the store holds at the watermark.

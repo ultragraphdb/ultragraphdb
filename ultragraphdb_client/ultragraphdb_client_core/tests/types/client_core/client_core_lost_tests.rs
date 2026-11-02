@@ -12,7 +12,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use ultragraphdb_client_core::{
-    BatchPoll, ClientConfig, ClientCore, ClientError, Pending, Reply, ResultStream, Transaction,
+    BatchPoll, ClientConfig, ClientCore, ClientError, Pending, ResultStream, Transaction,
 };
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Anonymous, BufferPool, Framer, TransportError};
@@ -24,7 +24,7 @@ use ultragraphdb_protocol_wire::{
 use crate::types::client_core::client_core_conformance_tests::{
     golden, numbered, restream, stream_of,
 };
-use crate::utils::harness::{CLUSTER, RELEASE, UNIX, frame_through, start};
+use crate::utils::harness::{CLUSTER, RELEASE, UNIX, begun, frame_through, start};
 
 /// `frame` without its last flag: bit 0 of the header's `flags`, byte 65, the checksum recomputed with xxhash-rust.
 fn not_last(frame: &[u8]) -> Vec<u8> {
@@ -88,14 +88,11 @@ impl Conn {
     fn begin(&mut self, read_only: bool) -> Transaction {
         let p = self.core.begin(0, read_only, start()).unwrap();
         let stream = self.stream();
-        let begun = Begin::new(0, 5, read_only)
+        let frame = Begin::new(0, 5, read_only)
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))
             .unwrap();
-        self.deliver(&begun).unwrap();
-        let Some(Ok(Reply::Begun(tx))) = self.core.take_reply(p) else {
-            panic!("begun")
-        };
-        tx
+        self.deliver(&frame).unwrap();
+        begun(self.core.take_reply(p).expect("an answer"))
     }
 
     fn read(&mut self, tx: &Transaction) -> ResultStream {
@@ -115,7 +112,7 @@ impl Conn {
                 start(),
             )
             .unwrap();
-        let _ = self.stream();
+        let _stream: u64 = self.stream();
         stream
     }
 
@@ -134,7 +131,7 @@ impl Conn {
     /// A Register waiting for its reply.
     fn register(&mut self) -> Pending {
         let p = self.core.register(start()).unwrap();
-        let _ = self.stream();
+        let _stream: u64 = self.stream();
         p
     }
 }

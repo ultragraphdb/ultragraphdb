@@ -65,6 +65,10 @@ pub(crate) struct ChangesetCore<S, C> {
 /// What a round's application gives: each execution's commit, and the record of the build it started.
 type RoundOutcome = (Vec<Applied>, Option<u64>);
 
+/// What settling a round's executions gives: the prefixes of the indexes it removes, the build it starts, and what
+/// each applied.
+type Settled = (Vec<PredicatePrefix>, Option<Rebuild>, Vec<Applied>);
+
 impl<S, C> ChangesetCore<S, C>
 where
     S: Store,
@@ -228,22 +232,7 @@ where
         through: u64,
     ) -> Result<RoundOutcome, ChangesetError> {
         let running = lock(&self.rebuild).clone();
-        let mut building = running.is_some();
-        for (_, executed) in &round {
-            if let Some(pending) = &executed.pending {
-                if building {
-                    return Err(ChangesetError::Rebuilding(pending.new.predicate().as_str()));
-                }
-                building = true;
-            }
-        }
-        let mut after = self.quads.lists().applied_ts();
-        for (version, _) in &round {
-            if *version <= after {
-                return Err(PostingError::StaleVersion(*version, after).into());
-            }
-            after = *version;
-        }
+        self.check_round(running.is_some(), &round)?;
         // The watermark ends at the round's last version, which a round ending in a build's end that wrote nothing,
         // an undo of a build a drop cancelled, reaches only so.
         let through = through.max(round.last().map_or(0, |(version, _)| *version));
@@ -281,6 +270,53 @@ where
                 .lists()
                 .commit_round_with(&writes, system, through)?;
         }
+        let (removals, started, applied) = self.settle_round(round)?;
+        self.drop_removed(&removals)?;
+        for &(version, namespace, target) in &drops {
+            self.drop_at(namespace, target, version)?;
+        }
+        for &(version, end) in &ends {
+            self.end_build(end, version)?;
+        }
+        if deferred {
+            self.quads.lists().commit_round_with(&[], system, through)?;
+        }
+        let started = match (started, record) {
+            (Some(rebuild), _) => Some(self.begin(rebuild)),
+            (None, Some(record)) => {
+                self.remove_record(record)?;
+                None
+            }
+            (None, None) => None,
+        };
+        Ok((applied, started))
+    }
+
+    /// Refuses `round` when it starts a build while one is `building` or another of its executions starts one, or
+    /// when its versions do not rise above the watermark.
+    fn check_round(&self, building: bool, round: &[(u64, Executed)]) -> Result<(), ChangesetError> {
+        let mut building = building;
+        for (_, executed) in round {
+            if let Some(pending) = &executed.pending {
+                if building {
+                    return Err(ChangesetError::Rebuilding(pending.new.predicate().as_str()));
+                }
+                building = true;
+            }
+        }
+        let mut after = self.quads.lists().applied_ts();
+        for (version, _) in round {
+            if *version <= after {
+                return Err(PostingError::StaleVersion(*version, after).into());
+            }
+            after = *version;
+        }
+        Ok(())
+    }
+
+    /// Settles each execution of `round` once its batch is written: its vectors queued, its catalog installed, and
+    /// what it applied; with the prefixes of the indexes the round removes and the build it starts.
+    fn settle_round(&self, round: Vec<(u64, Executed)>) -> Result<Settled, ChangesetError> {
         let mut removals: Vec<PredicatePrefix> = Vec::new();
         let mut started = None;
         let mut applied = Vec::with_capacity(round.len());
@@ -310,25 +346,7 @@ where
                 executed.reads,
             ));
         }
-        self.drop_removed(&removals)?;
-        for &(version, namespace, target) in &drops {
-            self.drop_at(namespace, target, version)?;
-        }
-        for &(version, end) in &ends {
-            self.end_build(end, version)?;
-        }
-        if deferred {
-            self.quads.lists().commit_round_with(&[], system, through)?;
-        }
-        let started = match (started, record) {
-            (Some(rebuild), _) => Some(self.begin(rebuild)),
-            (None, Some(record)) => {
-                self.remove_record(record)?;
-                None
-            }
-            (None, None) => None,
-        };
-        Ok((applied, started))
+        Ok((removals, started, applied))
     }
 }
 

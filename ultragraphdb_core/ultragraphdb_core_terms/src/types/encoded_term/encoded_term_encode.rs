@@ -183,7 +183,6 @@ const FEBRUARY_29: &str = "--02-29";
 const DAY: i128 = 86_400 * 1_000_000_000_000_000_000;
 
 fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
-    let encoded = |t: u8, bytes: &[u8]| Builder::new(t).push(bytes).build();
     let dated = matches!(
         datatype,
         KnownDatatype::DateTime
@@ -208,6 +207,11 @@ fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
             .to_be_bytes();
         return Some(encoded(tag::G_MONTH_DAY, &bytes));
     }
+    canonical_term(datatype, lexical)
+}
+
+/// The by-value term of `lexical` in its canonical form, `None` for a datatype not kept by value.
+fn canonical_term(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
     match datatype {
         KnownDatatype::Boolean => {
             canonical::<Boolean>(lexical).map(|v| encoded(tag::BOOLEAN, &[u8::from(bool::from(v))]))
@@ -255,6 +259,27 @@ fn by_value(datatype: KnownDatatype, lexical: &str) -> Option<EncodedTerm> {
             .map(|v| encoded(tag::YEAR_MONTH_DURATION, &v.to_be_bytes())),
         KnownDatatype::DayTimeDuration => canonical::<DayTimeDuration>(lexical)
             .map(|v| encoded(tag::DAY_TIME_DURATION, &v.to_be_bytes())),
-        _ => None,
+        KnownDatatype::Long
+        | KnownDatatype::Int
+        | KnownDatatype::Short
+        | KnownDatatype::Byte
+        | KnownDatatype::NonNegativeInteger
+        | KnownDatatype::PositiveInteger
+        | KnownDatatype::NonPositiveInteger
+        | KnownDatatype::NegativeInteger
+        | KnownDatatype::UnsignedLong
+        | KnownDatatype::UnsignedInt
+        | KnownDatatype::UnsignedShort
+        | KnownDatatype::UnsignedByte
+        | KnownDatatype::DateTimeStamp
+        | KnownDatatype::GeoJsonLiteral
+        | KnownDatatype::WktLiteral
+        | KnownDatatype::Float32Vector
+        | KnownDatatype::AnyUri => None,
     }
+}
+
+/// The term of tag `t` with payload `bytes`.
+fn encoded(t: u8, bytes: &[u8]) -> EncodedTerm {
+    Builder::new(t).push(bytes).build()
 }

@@ -142,7 +142,8 @@ impl<C: Connect, L: Login> Client<C, L> {
     /// Shuts the connection down, if any.
     async fn shut(&mut self) {
         if let Some(mut stream) = self.stream.take() {
-            let _ = stream.shutdown().await;
+            // The connection is given up, so a failed shutdown is dropped.
+            drop(stream.shutdown().await);
         }
     }
 

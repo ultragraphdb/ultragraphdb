@@ -13,14 +13,17 @@ use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use ultragraphdb_client_core::{
-    ClientConfig, ClientCore, ClientError, Pending, Reply, TEST_NAME, TEST_PASSWORD, TestServer,
+    ClientConfig, ClientCore, ClientError, Committed, Pending, Reply, Session, Statement,
+    TEST_NAME, TEST_PASSWORD, TestServer, Transaction,
 };
 use ultragraphdb_protocol_scram::{MECHANISM, ScramError, ScramLogin};
 use ultragraphdb_protocol_transport::{
     Anonymous, BufferPool, FrameStep, Framer, Login, NetworkFaults, ReceivedFrame, SimNetwork,
     SimStream, TransportError,
 };
-use ultragraphdb_protocol_wire::{HEADER_SIZE, Header, HeaderView, MAX_FRAME_SIZE, Welcome};
+use ultragraphdb_protocol_wire::{
+    Describe, HEADER_SIZE, Header, HeaderView, MAX_FRAME_SIZE, Welcome,
+};
 
 pub const CLUSTER: u64 = 0x0123_4567_89AB_CDEF;
 pub const RELEASE: u32 = 0x0005_0000;
@@ -294,7 +297,9 @@ impl<L: Login> Harness<L> {
             if let Some(welcome) = self.core.welcome() {
                 self.framer.set_protocol(welcome.protocol());
             }
-            let _ = self.core.receive(frame, self.now);
+            // A refusal gives the connection up, and the requests waiting on it fail with it as their cause, which
+            // is what the tests read.
+            drop(self.core.receive(frame, self.now));
             moved = true;
         }
         if self.server.is_closing() && self.core.is_connected() {
@@ -307,7 +312,10 @@ impl<L: Login> Harness<L> {
     /// Rounds until `done` holds: when nothing moves, time moves to the core's next deadline, or the server's when
     /// the core has none, and a core that has lost its connection is connected again.
     pub fn until(&mut self, mut done: impl FnMut(&mut Self) -> bool) {
-        for _ in 0..STEPS {
+        let mut steps = 0;
+        loop {
+            assert!(steps < STEPS, "not done after {STEPS} steps");
+            steps += 1;
             if done(self) {
                 return;
             }
@@ -316,22 +324,16 @@ impl<L: Login> Harness<L> {
                 continue;
             }
             if !self.step() {
-                match self.core.next_deadline().or(self.server.next_deadline()) {
-                    Some(deadline) => {
-                        self.now = self.now.max(deadline);
-                        self.server.handle_timeout(self.now);
-                        self.core.handle_timeout(self.now);
-                    }
-                    None => {
-                        if done(self) {
-                            return;
-                        }
-                        panic!("nothing moves and nothing is due");
-                    }
-                }
+                let Some(deadline) = self.core.next_deadline().or(self.server.next_deadline())
+                else {
+                    assert!(done(self), "nothing moves and nothing is due");
+                    return;
+                };
+                self.now = self.now.max(deadline);
+                self.server.handle_timeout(self.now);
+                self.core.handle_timeout(self.now);
             }
         }
-        panic!("not done after {STEPS} steps");
     }
 
     /// The answer of `pending`.
@@ -343,4 +345,82 @@ impl<L: Login> Harness<L> {
         });
         answer.expect("an answer")
     }
+}
+
+/// The session of a Register's `reply`.
+pub fn registered(reply: Result<Reply, ClientError>) -> Session {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Registered(session)) = reply {
+        Some(session)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Register's session")
+}
+
+/// The transaction of a Begin's `reply`.
+pub fn begun(reply: Result<Reply, ClientError>) -> Transaction {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Begun(tx)) = reply {
+        Some(tx)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Begin's transaction")
+}
+
+/// The answer of a Commit's `reply`.
+pub fn committed(reply: Result<Reply, ClientError>) -> Committed {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Committed(committed)) = reply {
+        Some(committed)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Commit's answer")
+}
+
+/// The answer of a Drop's `reply`.
+pub fn dropped(reply: Result<Reply, ClientError>) -> Committed {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Dropped(dropped)) = reply {
+        Some(dropped)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Drop's answer")
+}
+
+/// The statement of a Prepare's `reply`.
+pub fn prepared(reply: Result<Reply, ClientError>) -> Statement {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Prepared(statement)) = reply {
+        Some(statement)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Prepare's statement")
+}
+
+/// The answer of a Describe's `reply`.
+pub fn described(reply: Result<Reply, ClientError>) -> Describe {
+    let found = format!("{reply:?}");
+    let reply = reply.ok();
+    if let Some(Reply::Described(describe)) = reply {
+        Some(describe)
+    } else {
+        None
+    }
+    .ok_or(found)
+    .expect("a Describe's answer")
 }

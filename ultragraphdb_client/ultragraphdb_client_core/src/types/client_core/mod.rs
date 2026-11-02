@@ -104,7 +104,7 @@ impl<L: Login> ClientCore<L> {
     /// [`ClientCore::disconnected`] loses it.
     pub fn connect(&mut self, now: Instant, unix_micros: u64) -> Result<(), ClientError> {
         if !matches!(self.link, Link::Down) {
-            self.lose(ClientError::ConnectionLost(None));
+            self.lose(&ClientError::ConnectionLost(None));
         }
         let handshake = ClientHandshake::new(self.config.cluster(), self.config.hello());
         let hello = handshake.hello_frame().map_err(ClientError::Transport)?;
@@ -136,7 +136,7 @@ impl<L: Login> ClientCore<L> {
     pub fn welcome(&self) -> Option<&Welcome> {
         match &self.link {
             Link::Authenticating(welcome, _) | Link::Up(welcome) => Some(welcome),
-            _ => None,
+            Link::Down | Link::Handshake(_) => None,
         }
     }
 
@@ -175,7 +175,7 @@ impl<L: Login> ClientCore<L> {
     pub fn disconnected(&mut self, error: TransportError, now: Instant) {
         self.last_progress = Some(now);
         let cause = (error != TransportError::Closed()).then(|| ClientError::Transport(error));
-        self.lose(ClientError::ConnectionLost(cause));
+        self.lose(&ClientError::ConnectionLost(cause));
     }
 
     /// Whether the core waits for the server: a handshake, an Authenticate exchange, a request's reply, or a result's
@@ -234,7 +234,7 @@ impl<L: Login> ClientCore<L> {
                 .last_progress
                 .is_some_and(|at| now >= at + self.config.timeout())
         {
-            self.lose(ClientError::TimedOut());
+            self.lose(&ClientError::TimedOut());
         }
     }
 
@@ -250,7 +250,7 @@ impl<L: Login> ClientCore<L> {
                 self.renewal = Some(exchange);
                 self.last_progress = Some(now);
             }
-            Err(error) => self.lose(error),
+            Err(error) => self.lose(&error),
         }
     }
 
@@ -302,7 +302,7 @@ impl<L: Login> ClientCore<L> {
     /// ended fail with [`ClientError::ConnectionLost`], no cause, and a commit not yet answered is in doubt ([`ClientError::InDoubt`]), its
     /// session resolved before it commits again.
     pub fn close(&mut self) {
-        self.lose(ClientError::ConnectionLost(None));
+        self.lose(&ClientError::ConnectionLost(None));
         for pending in self.pending.values_mut().filter(|p| p.outcome.is_none()) {
             if let Some((session, request)) = pending.commit() {
                 pending.outcome = Some(Err(ClientError::InDoubt(session, request)));
@@ -344,7 +344,7 @@ impl<L: Login> ClientCore<L> {
     /// busy answer's delay, keeps its attempts. A read whose last frame had arrived is kept, to be read to its end; any
     /// other read is cut short and answers `reason`, its transaction aborted with its connection (`PROTOCOL.md`
     /// §11.4), so nothing of it is retried.
-    fn lose(&mut self, reason: ClientError) {
+    fn lose(&mut self, reason: &ClientError) {
         self.link = Link::Down;
         self.renewal = None;
         self.principal = None;

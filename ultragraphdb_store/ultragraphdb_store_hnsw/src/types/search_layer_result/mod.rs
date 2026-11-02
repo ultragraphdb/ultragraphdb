@@ -62,7 +62,7 @@ impl<T: HnswFloat> SearchLayerResult<T> {
     pub fn add_path_node(
         &mut self,
         n: PersistentHeapElement<T>,
-        sim: &SimilarityType,
+        sim: SimilarityType,
         max_results: usize,
     ) -> Result<(), HnswError> {
         sim.insort_heap(&mut self.neighbors, n);
@@ -79,7 +79,9 @@ impl<T: HnswFloat> SearchLayerResult<T> {
 
     /// The neighbours the filter keeps, which may be negative once filtered elements were truncated away.
     pub fn num_neighbors(&self) -> i64 {
-        self.neighbors.len() as i64 - self.filtered as i64
+        // A vector's length fits in `i64`; were it not to, the count saturates rather than wraps.
+        let saturating = |n: usize| i64::try_from(n).unwrap_or(i64::MAX);
+        saturating(self.neighbors.len()) - saturating(self.filtered)
     }
 
     pub fn mark_first_distance_computation(&mut self) {

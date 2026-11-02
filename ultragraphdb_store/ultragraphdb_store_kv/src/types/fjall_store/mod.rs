@@ -242,7 +242,7 @@ impl FjallStore {
     ) -> Result<(), StoreError> {
         let _writer = lock(&self.shared.writer);
         self.shared.run_drop(
-            DropRecord {
+            &DropRecord {
                 ts,
                 prefixes: Some(prefixes.to_vec()),
                 entries,
@@ -295,7 +295,17 @@ impl Shared {
         }
         match error {
             fjall::Error::Poisoned => StoreError::Poisoned(),
-            other => StoreError::WriteFailed(other.to_string()),
+            other @ (fjall::Error::Storage(_)
+            | fjall::Error::Io(_)
+            | fjall::Error::JournalRecovery(_)
+            | fjall::Error::InvalidVersion(_)
+            | fjall::Error::Decompress(_)
+            | fjall::Error::InvalidTrailer
+            | fjall::Error::InvalidTag(_)
+            | fjall::Error::KeyspaceDeleted
+            | fjall::Error::Locked
+            | fjall::Error::Unrecoverable
+            | _) => StoreError::WriteFailed(other.to_string()),
         }
     }
 
@@ -329,7 +339,8 @@ impl Shared {
     pub fn periodic_sync(&self) {
         let _writer = lock(&self.writer);
         if self.refuse_if_poisoned().is_ok() {
-            let _ = self.sync();
+            // A failed sync poisons the store and is logged by `failed`; the next write is refused.
+            drop(self.sync());
         }
     }
 

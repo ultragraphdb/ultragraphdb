@@ -160,188 +160,14 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
     let from_id = from.tid();
     let ok = |v: Value| Ok(Val::new(to_id, v));
     match from_id {
-        TypeId::BINARY => match to_id {
-            TypeId::BINARY => ok(Value::Bytes(data.clone())),
-            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
-            TypeId::INT => ok(Value::Int(le_i64(data)?)),
-            TypeId::FLOAT => ok(Value::Float(le_f64(data)?)),
-            TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
-            TypeId::BOOL => match data.first() {
-                None | Some(0) => ok(Value::Bool(false)),
-                Some(1) => ok(Value::Bool(true)),
-                Some(b) => Err(TypesError::conversion(format!(
-                    "invalid value for bool {b}"
-                ))),
-            },
-            TypeId::DATETIME => ok(Value::DateTime(DateTime::unmarshal_binary(data)?)),
-            TypeId::GEO => ok(Value::Geo(Geometry::unmarshal_wkb(data)?)),
-            TypeId::PASSWORD => ok(Value::Str(utf8(data, "password")?)),
-            TypeId::VFLOAT => {
-                if data.len() % 4 != 0 {
-                    return Err(TypesError::conversion(format!(
-                        "invalid data for vector of floats: {}",
-                        go_fmt::byte_slice(data)
-                    )));
-                }
-                ok(Value::VFloat(bytes_as_float_array(data)))
-            }
-            _ => Err(cant_convert(from_id, to_id)),
-        },
-        TypeId::STRING | TypeId::DEFAULT => match to_id {
-            TypeId::BINARY => ok(Value::Bytes(data.clone())),
-            TypeId::INT => ok(Value::Int(go_strconv::parse_int(data, 10)?)),
-            TypeId::FLOAT => {
-                let f = go_strconv::parse_float(data, 64)?;
-                if f.is_nan() {
-                    return Err(TypesError::conversion("Got invalid value: NaN"));
-                }
-                ok(Value::Float(f))
-            }
-            TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
-            TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
-            TypeId::BOOL => ok(Value::Bool(go_strconv::parse_bool(data)?)),
-            TypeId::DATETIME => ok(Value::DateTime(parse_time(data)?)),
-            TypeId::GEO => {
-                let text: Vec<u8> = data
-                    .iter()
-                    .map(|&c| if c == b'\'' { b'"' } else { c })
-                    .collect();
-                match Geometry::from_geojson(&text) {
-                    Ok(Some(g)) => ok(Value::Geo(g)),
-                    Ok(None) => Ok(Val::nil(to_id)),
-                    Err(e) => Err(e.wrap(&format!(
-                        "Error while unmarshalling: [{}] as geojson",
-                        lossy(data)
-                    ))),
-                }
-            }
-            TypeId::PASSWORD => ok(Value::Str(encrypt(data)?)),
-            TypeId::VFLOAT => ok(Value::VFloat(parse_vfloat(data)?)),
-            _ => Err(cant_convert(from_id, to_id)),
-        },
-        TypeId::INT => {
-            let vc = le_i64(data)?;
-            match to_id {
-                TypeId::INT => ok(Value::Int(vc)),
-                TypeId::BINARY => ok(Value::Bytes(vc.to_le_bytes().to_vec())),
-                TypeId::FLOAT => ok(Value::Float(vc as f64)),
-                TypeId::BIGFLOAT => {
-                    ok(Value::BigFloat(BigFloat::from_i64(vc, BIG_FLOAT_PRECISION)))
-                }
-                TypeId::BOOL => ok(Value::Bool(vc != 0)),
-                TypeId::STRING | TypeId::DEFAULT => ok(Value::str(vc.to_string())),
-                TypeId::DATETIME => ok(Value::DateTime(DateTime::from_unix(vc, 0))),
-                TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::BIGFLOAT => {
-            let t = parse_big_float(data)?;
-            match to_id {
-                TypeId::BIGFLOAT => ok(Value::BigFloat(t)),
-                TypeId::FLOAT => ok(Value::Float(t.to_f64())),
-                TypeId::BINARY => ok(Value::Bytes(t.marshal_text().into_bytes())),
-                TypeId::INT => ok(Value::Int(t.to_i64())),
-                TypeId::BOOL => ok(Value::Bool(!t.is_zero())),
-                TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10))),
-                TypeId::DATETIME => {
-                    if !big_float_in_int64(&t) {
-                        return Err(float_out_of_range());
-                    }
-                    ok(Value::DateTime(date_time_from_float_secs(
-                        t.to_i64(),
-                        t.to_f64(),
-                    )))
-                }
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::FLOAT => {
-            let vc = le_f64(data)?;
-            match to_id {
-                TypeId::FLOAT => ok(Value::Float(vc)),
-                TypeId::BIGFLOAT => ok(Value::BigFloat(big_float_from_f64(
-                    vc,
-                    BIG_FLOAT_PRECISION,
-                )?)),
-                TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
-                TypeId::INT => {
-                    // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10).
-                    if !in_int64(vc) {
-                        return Err(float_out_of_range());
-                    }
-                    ok(Value::Int(vc as i64))
-                }
-                TypeId::BOOL => ok(Value::Bool(vc != 0.0)),
-                TypeId::STRING | TypeId::DEFAULT => {
-                    ok(Value::str(go_strconv::format_float(vc, b'G', 64)))
-                }
-                TypeId::DATETIME => {
-                    if !in_int64(vc) {
-                        return Err(float_out_of_range());
-                    }
-                    ok(Value::DateTime(date_time_from_float_secs(vc as i64, vc)))
-                }
-                TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::BOOL => {
-            if data.is_empty() || data[0] > 1 {
-                return Err(TypesError::conversion(format!(
-                    "invalid value for bool {}",
-                    go_fmt::byte_slice(data)
-                )));
-            }
-            let vc = data[0] == 1;
-            match to_id {
-                TypeId::BOOL => ok(Value::Bool(vc)),
-                TypeId::BINARY => ok(Value::Bytes(vec![u8::from(vc)])),
-                TypeId::INT => ok(Value::Int(i64::from(vc))),
-                TypeId::FLOAT => ok(Value::Float(if vc { 1.0 } else { 0.0 })),
-                TypeId::VFLOAT => ok(Value::VFloat(vec![if vc { 1.0 } else { 0.0 }])),
-                TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(
-                    i64::from(vc),
-                    BIG_FLOAT_PRECISION,
-                ))),
-                TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_bool(vc))),
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::DATETIME => {
-            let t = DateTime::unmarshal_binary(data)?;
-            match to_id {
-                TypeId::DATETIME => ok(Value::DateTime(t)),
-                TypeId::BINARY => ok(Value::Bytes(t.marshal_binary()?)),
-                TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.marshal_text()?)),
-                TypeId::INT => ok(Value::Int(t.unix())),
-                TypeId::FLOAT => ok(Value::Float(
-                    t.unix_nano() as f64 / NANO_SECONDS_IN_SEC as f64,
-                )),
-                TypeId::BIGFLOAT => {
-                    let x = big_float_from_f64(NANO_SECONDS_IN_SEC as f64, 53)?;
-                    let y = big_float_from_f64(t.unix_nano() as f64, 53)?;
-                    // x is 1e9, so the quotient is never NaN.
-                    let q = y.quo(&x, 53).ok_or_else(|| {
-                        TypesError::big_float("division of zero by zero or infinity by infinity")
-                    })?;
-                    ok(Value::BigFloat(q))
-                }
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::GEO => {
-            let g = Geometry::unmarshal_wkb(data)?;
-            match to_id {
-                TypeId::GEO => ok(Value::Geo(g)),
-                TypeId::BINARY => ok(Value::Bytes(g.marshal_wkb()?)),
-                TypeId::STRING | TypeId::DEFAULT => match g.to_geojson() {
-                    Some(s) => ok(Value::str(s.replace('"', "'"))),
-                    None => Ok(Val::nil(to_id)),
-                },
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
+        TypeId::BINARY => convert_binary(data, from_id, to_id),
+        TypeId::STRING | TypeId::DEFAULT => convert_string(data, from_id, to_id),
+        TypeId::INT => convert_int(data, from_id, to_id),
+        TypeId::BIGFLOAT => convert_big_float(data, from_id, to_id),
+        TypeId::FLOAT => convert_float(data, from_id, to_id),
+        TypeId::BOOL => convert_bool(data, from_id, to_id),
+        TypeId::DATETIME => convert_date_time(data, from_id, to_id),
+        TypeId::GEO => convert_geo(data, from_id, to_id),
         TypeId::PASSWORD => match to_id {
             TypeId::BINARY => ok(Value::Bytes(data.clone())),
             TypeId::STRING => ok(Value::Str(utf8(data, "string")?)),
@@ -355,6 +181,212 @@ pub fn convert(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 data,
             )))),
             _ => Err(cant_convert(from_id, to_id)),
+        },
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a binary value.
+fn convert_binary(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    match to_id {
+        TypeId::BINARY => ok(Value::Bytes(data.to_vec())),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
+        TypeId::INT => ok(Value::Int(le_i64(data)?)),
+        TypeId::FLOAT => ok(Value::Float(le_f64(data)?)),
+        TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
+        TypeId::BOOL => match data.first() {
+            None | Some(0) => ok(Value::Bool(false)),
+            Some(1) => ok(Value::Bool(true)),
+            Some(b) => Err(TypesError::conversion(format!(
+                "invalid value for bool {b}"
+            ))),
+        },
+        TypeId::DATETIME => ok(Value::DateTime(DateTime::unmarshal_binary(data)?)),
+        TypeId::GEO => ok(Value::Geo(Geometry::unmarshal_wkb(data)?)),
+        TypeId::PASSWORD => ok(Value::Str(utf8(data, "password")?)),
+        TypeId::VFLOAT => {
+            if !data.len().is_multiple_of(4) {
+                return Err(TypesError::conversion(format!(
+                    "invalid data for vector of floats: {}",
+                    go_fmt::byte_slice(data)
+                )));
+            }
+            ok(Value::VFloat(bytes_as_float_array(data)))
+        }
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a string value.
+fn convert_string(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    match to_id {
+        TypeId::BINARY => ok(Value::Bytes(data.to_vec())),
+        TypeId::INT => ok(Value::Int(go_strconv::parse_int(data, 10)?)),
+        TypeId::FLOAT => {
+            let f = go_strconv::parse_float(data, 64)?;
+            if f.is_nan() {
+                return Err(TypesError::conversion("Got invalid value: NaN"));
+            }
+            ok(Value::Float(f))
+        }
+        TypeId::BIGFLOAT => ok(Value::BigFloat(parse_big_float(data)?)),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::Str(utf8(data, "string")?)),
+        TypeId::BOOL => ok(Value::Bool(go_strconv::parse_bool(data)?)),
+        TypeId::DATETIME => ok(Value::DateTime(parse_time(data)?)),
+        TypeId::GEO => {
+            let text: Vec<u8> = data
+                .iter()
+                .map(|&c| if c == b'\'' { b'"' } else { c })
+                .collect();
+            match Geometry::from_geojson(&text) {
+                Ok(Some(g)) => ok(Value::Geo(g)),
+                Ok(None) => Ok(Val::nil(to_id)),
+                Err(e) => Err(e.wrap(&format!(
+                    "Error while unmarshalling: [{}] as geojson",
+                    lossy(data)
+                ))),
+            }
+        }
+        TypeId::PASSWORD => ok(Value::Str(encrypt(data)?)),
+        TypeId::VFLOAT => ok(Value::VFloat(parse_vfloat(data)?)),
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from an int value.
+fn convert_int(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let vc = le_i64(data)?;
+    match to_id {
+        TypeId::INT => ok(Value::Int(vc)),
+        TypeId::BINARY => ok(Value::Bytes(vc.to_le_bytes().to_vec())),
+        TypeId::FLOAT => ok(Value::Float(vc as f64)),
+        TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(vc, BIG_FLOAT_PRECISION))),
+        TypeId::BOOL => ok(Value::Bool(vc != 0)),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(vc.to_string())),
+        TypeId::DATETIME => ok(Value::DateTime(DateTime::from_unix(vc, 0))),
+        TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a bigfloat value.
+fn convert_big_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let t = parse_big_float(data)?;
+    match to_id {
+        TypeId::BIGFLOAT => ok(Value::BigFloat(t)),
+        TypeId::FLOAT => ok(Value::Float(t.to_f64())),
+        TypeId::BINARY => ok(Value::Bytes(t.marshal_text().into_bytes())),
+        TypeId::INT => ok(Value::Int(t.to_i64())),
+        TypeId::BOOL => ok(Value::Bool(!t.is_zero())),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.text_g(10))),
+        TypeId::DATETIME => {
+            if !big_float_in_int64(&t) {
+                return Err(float_out_of_range());
+            }
+            ok(Value::DateTime(date_time_from_float_secs(
+                t.to_i64(),
+                t.to_f64(),
+            )))
+        }
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a float value.
+fn convert_float(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let vc = le_f64(data)?;
+    match to_id {
+        TypeId::FLOAT => ok(Value::Float(vc)),
+        TypeId::BIGFLOAT => ok(Value::BigFloat(big_float_from_f64(
+            vc,
+            BIG_FLOAT_PRECISION,
+        )?)),
+        TypeId::BINARY => ok(Value::Bytes(vc.to_bits().to_le_bytes().to_vec())),
+        TypeId::INT => {
+            // Dgraph's guard lets 2^63 through, which its platforms convert differently (ledger 10).
+            if !in_int64(vc) {
+                return Err(float_out_of_range());
+            }
+            ok(Value::Int(vc as i64))
+        }
+        TypeId::BOOL => ok(Value::Bool(vc != 0.0)),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_float(vc, b'G', 64))),
+        TypeId::DATETIME => {
+            if !in_int64(vc) {
+                return Err(float_out_of_range());
+            }
+            ok(Value::DateTime(date_time_from_float_secs(vc as i64, vc)))
+        }
+        TypeId::VFLOAT => ok(Value::VFloat(vec![vc as f32])),
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a bool value.
+fn convert_bool(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    if data.is_empty() || data[0] > 1 {
+        return Err(TypesError::conversion(format!(
+            "invalid value for bool {}",
+            go_fmt::byte_slice(data)
+        )));
+    }
+    let vc = data[0] == 1;
+    match to_id {
+        TypeId::BOOL => ok(Value::Bool(vc)),
+        TypeId::BINARY => ok(Value::Bytes(vec![u8::from(vc)])),
+        TypeId::INT => ok(Value::Int(i64::from(vc))),
+        TypeId::FLOAT => ok(Value::Float(if vc { 1.0 } else { 0.0 })),
+        TypeId::VFLOAT => ok(Value::VFloat(vec![if vc { 1.0 } else { 0.0 }])),
+        TypeId::BIGFLOAT => ok(Value::BigFloat(BigFloat::from_i64(
+            i64::from(vc),
+            BIG_FLOAT_PRECISION,
+        ))),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(go_strconv::format_bool(vc))),
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a datetime value.
+fn convert_date_time(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let t = DateTime::unmarshal_binary(data)?;
+    match to_id {
+        TypeId::DATETIME => ok(Value::DateTime(t)),
+        TypeId::BINARY => ok(Value::Bytes(t.marshal_binary()?)),
+        TypeId::STRING | TypeId::DEFAULT => ok(Value::str(t.marshal_text()?)),
+        TypeId::INT => ok(Value::Int(t.unix())),
+        TypeId::FLOAT => ok(Value::Float(
+            t.unix_nano() as f64 / NANO_SECONDS_IN_SEC as f64,
+        )),
+        TypeId::BIGFLOAT => {
+            let x = big_float_from_f64(NANO_SECONDS_IN_SEC as f64, 53)?;
+            let y = big_float_from_f64(t.unix_nano() as f64, 53)?;
+            // x is 1e9, so the quotient is never NaN.
+            let q = y.quo(&x, 53).ok_or_else(|| {
+                TypesError::big_float("division of zero by zero or infinity by infinity")
+            })?;
+            ok(Value::BigFloat(q))
+        }
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`convert`] from a geo value.
+fn convert_geo(data: &[u8], from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let g = Geometry::unmarshal_wkb(data)?;
+    match to_id {
+        TypeId::GEO => ok(Value::Geo(g)),
+        TypeId::BINARY => ok(Value::Bytes(g.marshal_wkb()?)),
+        TypeId::STRING | TypeId::DEFAULT => match g.to_geojson() {
+            Some(s) => ok(Value::str(s.replace('"', "'"))),
+            None => Ok(Val::nil(to_id)),
         },
         _ => Err(cant_convert(from_id, to_id)),
     }
@@ -398,6 +430,42 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }
+        TypeId::PASSWORD => {
+            let Value::Str(vc) = val else {
+                return Err(assertion(val, "string"));
+            };
+            match to_id {
+                TypeId::STRING => ok(Value::Str(vc.clone())),
+                TypeId::BINARY => ok(Value::Bytes(vc.as_bytes().to_vec())),
+                _ => Err(cant_convert(from_id, to_id)),
+            }
+        }
+        TypeId::VFLOAT => {
+            let Value::VFloat(vc) = val else {
+                return Err(assertion(val, "[]float32"));
+            };
+            match to_id {
+                TypeId::BINARY => ok(Value::Bytes(float_array_as_bytes(vc))),
+                TypeId::STRING => ok(Value::str(float_array_as_string(vc))),
+                _ => Err(cant_convert(from_id, to_id)),
+            }
+        }
+        TypeId::INT
+        | TypeId::FLOAT
+        | TypeId::BIGFLOAT
+        | TypeId::BOOL
+        | TypeId::DATETIME
+        | TypeId::GEO => marshal_encoded(val, from_id, to_id),
+        _ => Err(cant_convert(from_id, to_id)),
+    }
+}
+
+/// [`marshal`] of a value whose binary form is an encoding of its own: an int, float, bigfloat, bool, datetime
+/// or geo value.
+fn marshal_encoded(val: &Value, from_id: TypeId, to_id: TypeId) -> Result<Val, TypesError> {
+    let ok = |v: Value| Ok(Val::new(to_id, v));
+    let is_str = to_id == TypeId::STRING || to_id == TypeId::DEFAULT;
+    match from_id {
         TypeId::INT => {
             let Value::Int(vc) = val else {
                 return Err(assertion(val, "int64"));
@@ -459,26 +527,6 @@ pub fn marshal(from: &Val, to_id: TypeId) -> Result<Val, TypesError> {
                     Some(s) => ok(Value::str(s.replace('"', "'"))),
                     None => Ok(value_for_type(to_id)),
                 },
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::PASSWORD => {
-            let Value::Str(vc) = val else {
-                return Err(assertion(val, "string"));
-            };
-            match to_id {
-                TypeId::STRING => ok(Value::Str(vc.clone())),
-                TypeId::BINARY => ok(Value::Bytes(vc.as_bytes().to_vec())),
-                _ => Err(cant_convert(from_id, to_id)),
-            }
-        }
-        TypeId::VFLOAT => {
-            let Value::VFloat(vc) = val else {
-                return Err(assertion(val, "[]float32"));
-            };
-            match to_id {
-                TypeId::BINARY => ok(Value::Bytes(float_array_as_bytes(vc))),
-                TypeId::STRING => ok(Value::str(float_array_as_string(vc))),
                 _ => Err(cant_convert(from_id, to_id)),
             }
         }

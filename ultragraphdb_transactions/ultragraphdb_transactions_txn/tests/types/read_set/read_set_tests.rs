@@ -233,6 +233,59 @@ struct Model {
     bytes: usize,
 }
 
+impl Model {
+    /// Records the read a push of `kind` made: a list, a statement, a bounded range, an absence or an open range.
+    fn record(&mut self, kind: u64, a: Vec<u8>, b: Vec<u8>) {
+        match kind {
+            0 => {
+                self.lists.insert(a);
+            }
+            1 => {
+                self.statements.insert((a, b));
+            }
+            2 => {
+                self.ranges.insert((a, End::Bounded(b)));
+            }
+            3 => {
+                self.absent.insert(a);
+            }
+            _ => {
+                self.ranges.insert((a, End::Open));
+            }
+        }
+    }
+}
+
+/// Asserts the sealed read set `r` of namespace `ns` holds what `model` does, in order, and the namespace's catalog.
+fn assert_sealed_agrees(r: &ReadSet, model: &Model, ns: u64, seed: u64) {
+    assert_eq!(
+        lists(r),
+        model.lists.iter().cloned().collect::<Vec<_>>(),
+        "seed {seed}"
+    );
+    assert_eq!(
+        statements(r),
+        model.statements.iter().cloned().collect::<Vec<_>>()
+    );
+    assert_eq!(absent(r), model.absent.iter().cloned().collect::<Vec<_>>());
+    let expected: Vec<_> = model
+        .ranges
+        .iter()
+        .map(|(s, e)| {
+            (
+                s.clone(),
+                match e {
+                    End::Bounded(e) => Some(e.clone()),
+                    End::Open => None,
+                },
+            )
+        })
+        .collect();
+    assert_eq!(ranges(r), expected, "seed {seed}");
+    let (start, end) = catalog_of(ns);
+    assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
+}
+
 #[test]
 fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
     let mut r = ReadSet::with_capacity(64, 4);
@@ -270,53 +323,12 @@ fn test_the_sealed_read_set_agrees_with_a_set_model_over_random_pushes() {
             } else {
                 assert_eq!(result, Ok(()), "seed {seed}");
                 model.bytes += cost;
-                match kind {
-                    0 => {
-                        model.lists.insert(a);
-                    }
-                    1 => {
-                        model.statements.insert((a, b));
-                    }
-                    2 => {
-                        model.ranges.insert((a, End::Bounded(b)));
-                    }
-                    3 => {
-                        model.absent.insert(a);
-                    }
-                    _ => {
-                        model.ranges.insert((a, End::Open));
-                    }
-                }
+                model.record(kind, a, b);
             }
             assert_eq!(r.bytes(), model.bytes, "seed {seed}");
         }
         r.seal();
-        assert_eq!(
-            lists(&r),
-            model.lists.iter().cloned().collect::<Vec<_>>(),
-            "seed {seed}"
-        );
-        assert_eq!(
-            statements(&r),
-            model.statements.iter().cloned().collect::<Vec<_>>()
-        );
-        assert_eq!(absent(&r), model.absent.iter().cloned().collect::<Vec<_>>());
-        let expected: Vec<_> = model
-            .ranges
-            .iter()
-            .map(|(s, e)| {
-                (
-                    s.clone(),
-                    match e {
-                        End::Bounded(e) => Some(e.clone()),
-                        End::Open => None,
-                    },
-                )
-            })
-            .collect();
-        assert_eq!(ranges(&r), expected, "seed {seed}");
-        let (start, end) = catalog_of(ns);
-        assert_eq!(r.catalog(), (start.as_slice(), Some(end.as_slice())));
+        assert_sealed_agrees(&r, &model, ns, seed);
     }
 }
 

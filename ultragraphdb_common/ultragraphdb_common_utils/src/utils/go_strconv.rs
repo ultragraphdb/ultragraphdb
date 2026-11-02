@@ -106,7 +106,8 @@ fn parse_int_as(func: &'static str, s: &[u8], base: u32) -> Result<i64, NumError
     Ok(if neg {
         0i64.wrapping_sub_unsigned(un)
     } else {
-        un as i64
+        // Below 1 << 63 here, so the bits are the value.
+        un.cast_signed()
     })
 }
 
@@ -206,7 +207,6 @@ struct ReadFloat {
 
 /// Go's `readFloat`: the syntax of a decimal or hexadecimal float, its leading mantissa digits and exponent.
 fn read_float(s: &[u8]) -> Option<ReadFloat> {
-    let mut underscores = false;
     let mut i = 0;
     let mut neg = false;
     if i >= s.len() {
@@ -221,7 +221,7 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         _ => {}
     }
     let mut base: u64 = 10;
-    let mut max_mant_digits = 19;
+    let mut max_mant_digits: i64 = 19;
     let mut exp_char = b'e';
     let mut hex = false;
     if i + 2 < s.len() && s[i] == b'0' && s[i + 1].eq_ignore_ascii_case(&b'x') {
@@ -231,56 +231,17 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         exp_char = b'p';
         hex = true;
     }
-    let mut sawdot = false;
-    let mut sawdigits = false;
-    let mut nd: i64 = 0;
-    let mut nd_mant: i64 = 0;
-    let mut dp: i64 = 0;
-    let mut mantissa: u64 = 0;
-    let mut trunc = false;
-    while i < s.len() {
-        let c = s[i];
-        let lc = c.to_ascii_lowercase();
-        if c == b'_' {
-            underscores = true;
-        } else if c == b'.' {
-            if sawdot {
-                break;
-            }
-            sawdot = true;
-            dp = nd;
-        } else if c.is_ascii_digit() {
-            sawdigits = true;
-            if c == b'0' && nd == 0 {
-                dp -= 1;
-                i += 1;
-                continue;
-            }
-            nd += 1;
-            if nd_mant < max_mant_digits {
-                mantissa = mantissa
-                    .wrapping_mul(base)
-                    .wrapping_add(u64::from(c - b'0'));
-                nd_mant += 1;
-            } else if c != b'0' {
-                trunc = true;
-            }
-        } else if base == 16 && (b'a'..=b'f').contains(&lc) {
-            sawdigits = true;
-            nd += 1;
-            if nd_mant < max_mant_digits {
-                mantissa = mantissa
-                    .wrapping_mul(16)
-                    .wrapping_add(u64::from(lc - b'a' + 10));
-                nd_mant += 1;
-            } else {
-                trunc = true;
-            }
-        } else {
-            break;
-        }
-        i += 1;
-    }
+    let Mantissa {
+        mantissa,
+        nd,
+        mut nd_mant,
+        mut dp,
+        sawdot,
+        sawdigits,
+        trunc,
+        mut underscores,
+        mut i,
+    } = read_mantissa(s, i, base, max_mant_digits);
     if !sawdigits {
         return None;
     }
@@ -292,32 +253,9 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         nd_mant *= 4;
     }
     if i < s.len() && s[i].to_ascii_lowercase() == exp_char {
-        i += 1;
-        if i >= s.len() {
-            return None;
-        }
-        let mut esign = 1;
-        match s[i] {
-            b'+' => i += 1,
-            b'-' => {
-                i += 1;
-                esign = -1;
-            }
-            _ => {}
-        }
-        if i >= s.len() || !s[i].is_ascii_digit() {
-            return None;
-        }
-        let mut e: i64 = 0;
-        while i < s.len() && (s[i].is_ascii_digit() || s[i] == b'_') {
-            if s[i] == b'_' {
-                underscores = true;
-            } else if e < 10000 {
-                e = e * 10 + i64::from(s[i] - b'0');
-            }
-            i += 1;
-        }
-        dp += e * esign;
+        let (e, end) = read_exponent(s, i + 1, &mut underscores)?;
+        dp += e;
+        i = end;
     } else if base == 16 {
         return None;
     }
@@ -333,6 +271,112 @@ fn read_float(s: &[u8]) -> Option<ReadFloat> {
         hex,
         n: i,
     })
+}
+
+/// The mantissa `readFloat` reads after the sign and base prefix: its leading digits, its digit counts, its
+/// decimal point, and where it ends.
+struct Mantissa {
+    mantissa: u64,
+    nd: i64,
+    nd_mant: i64,
+    dp: i64,
+    sawdot: bool,
+    sawdigits: bool,
+    trunc: bool,
+    underscores: bool,
+    i: usize,
+}
+
+/// `readFloat`'s digit loop, from `i`: digits of `base`, one dot and underscores, up to the first other byte.
+fn read_mantissa(s: &[u8], mut i: usize, base: u64, max_mant_digits: i64) -> Mantissa {
+    let mut m = Mantissa {
+        mantissa: 0,
+        nd: 0,
+        nd_mant: 0,
+        dp: 0,
+        sawdot: false,
+        sawdigits: false,
+        trunc: false,
+        underscores: false,
+        i,
+    };
+    while i < s.len() {
+        let c = s[i];
+        let lc = c.to_ascii_lowercase();
+        if c == b'_' {
+            m.underscores = true;
+        } else if c == b'.' {
+            if m.sawdot {
+                break;
+            }
+            m.sawdot = true;
+            m.dp = m.nd;
+        } else if c.is_ascii_digit() {
+            m.sawdigits = true;
+            if c == b'0' && m.nd == 0 {
+                m.dp -= 1;
+                i += 1;
+                continue;
+            }
+            m.nd += 1;
+            if m.nd_mant < max_mant_digits {
+                m.mantissa = m
+                    .mantissa
+                    .wrapping_mul(base)
+                    .wrapping_add(u64::from(c - b'0'));
+                m.nd_mant += 1;
+            } else if c != b'0' {
+                m.trunc = true;
+            }
+        } else if base == 16 && (b'a'..=b'f').contains(&lc) {
+            m.sawdigits = true;
+            m.nd += 1;
+            if m.nd_mant < max_mant_digits {
+                m.mantissa = m
+                    .mantissa
+                    .wrapping_mul(16)
+                    .wrapping_add(u64::from(lc - b'a' + 10));
+                m.nd_mant += 1;
+            } else {
+                m.trunc = true;
+            }
+        } else {
+            break;
+        }
+        i += 1;
+    }
+    m.i = i;
+    m
+}
+
+/// `readFloat`'s exponent, from `i` just past the exponent character: its signed value, digits past 10000 ignored,
+/// and where it ends; `None` without a digit. An underscore sets `underscores`.
+fn read_exponent(s: &[u8], mut i: usize, underscores: &mut bool) -> Option<(i64, usize)> {
+    if i >= s.len() {
+        return None;
+    }
+    let mut esign = 1;
+    match s[i] {
+        b'+' => i += 1,
+        b'-' => {
+            i += 1;
+            esign = -1;
+        }
+        _ => {}
+    }
+    if i >= s.len() || !s[i].is_ascii_digit() {
+        return None;
+    }
+    let mut e: i64 = 0;
+    while i < s.len() && (s[i].is_ascii_digit() || s[i] == b'_') {
+        if s[i] == b'_' {
+            *underscores = true;
+        } else if e < 10000 {
+            e = e * 10 + i64::from(s[i] - b'0');
+        }
+        i += 1;
+    }
+    Some((e * esign, i))
 }
 
 /// Go's `underscoreOK`: underscores only between digits, or between a base prefix and a digit.
@@ -480,7 +524,8 @@ fn shortest_digits(f: f64, bits: u32) -> (Vec<u8>, i64) {
 /// The exact decimal digits of a positive finite float and their decimal point.
 fn exact_digits(v: f64) -> (Vec<u8>, i64) {
     let b = v.to_bits();
-    let biased = ((b >> 52) & 0x7ff) as i64;
+    // Eleven bits, so the value is the bits.
+    let biased = ((b >> 52) & 0x7ff).cast_signed();
     let frac = b & ((1 << 52) - 1);
     let (m, e) = if biased == 0 {
         (frac, -1074)
@@ -495,7 +540,11 @@ fn exact_digits(v: f64) -> (Vec<u8>, i64) {
     };
     let s = n.to_string();
     let t = s.trim_end_matches('0');
-    (t.as_bytes().to_vec(), s.len() as i64 + exp10)
+    // A string's length is below isize::MAX, so it converts; saturating keeps it from wrapping.
+    (
+        t.as_bytes().to_vec(),
+        i64::try_from(s.len()).unwrap_or(i64::MAX) + exp10,
+    )
 }
 
 /// Digits rounded half to even to `n` digits, trailing zeros trimmed.
@@ -560,7 +609,8 @@ pub fn format_float(f: f64, fmt: u8, bit_size: u32) -> String {
     } else {
         shortest_digits(f, bits)
     };
-    let nd = d.len() as i64;
+    // At most 767 digits, so it converts; saturating keeps it from wrapping.
+    let nd = i64::try_from(d.len()).unwrap_or(i64::MAX);
     let mut out = String::new();
     match fmt {
         b'e' | b'E' => fmt_e(&mut out, neg, &d, dp, nd - 1, fmt),
@@ -597,7 +647,8 @@ fn fmt_e(out: &mut String, neg: bool, d: &[u8], dp: i64, prec: i64, fmt: u8) {
             d[i..m].iter().for_each(|&c| out.push(c as char));
             i = m;
         }
-        while i as i64 <= prec {
+        // `prec` is positive here.
+        while i <= prec as usize {
             out.push('0');
             i += 1;
         }

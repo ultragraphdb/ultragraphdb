@@ -932,11 +932,13 @@ fn refused_after_drop(w: &mut Steps) {
 fn workload(w: &mut Steps) {
     for seed in 1..=10 {
         let (_, reads, _) = PostingWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         w.uids.push(reads as u64);
         let (_, reads, _) =
             PostingWorkload::run(Seed::new(seed), PostingWorkload::faults(), 300, 2)
-                .unwrap_or_else(|v| panic!("{v}"));
+                .map_err(|v| v.to_string())
+                .expect("the workload breaks no invariant");
         w.second.push(reads as u64);
     }
 }

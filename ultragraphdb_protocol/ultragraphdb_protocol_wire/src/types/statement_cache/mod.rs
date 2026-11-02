@@ -137,7 +137,10 @@ impl StatementCache {
             .zip(QuadPattern::slot_types())
             .filter_map(|(slot, slot_type)| match slot {
                 PatternSlot::Parameter(n) if slot_type == ColumnType::Node => Some(n as usize),
-                _ => None,
+                PatternSlot::Parameter(_)
+                | PatternSlot::Unbound
+                | PatternSlot::DefaultGraph
+                | PatternSlot::Bound(_) => None,
             });
         for n in node_parameters {
             let node = parameters
@@ -163,7 +166,9 @@ impl StatementCache {
             PatternSlot::Parameter(n) => bound
                 .get(n as usize)
                 .map_or(PatternSlot::Unbound, |index| PatternSlot::Bound(*index)),
-            other => other,
+            other @ (PatternSlot::Unbound | PatternSlot::DefaultGraph | PatternSlot::Bound(_)) => {
+                other
+            }
         };
         let pattern = QuadPattern::new(
             bind(p.graph()),

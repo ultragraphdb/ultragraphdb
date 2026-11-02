@@ -10,7 +10,8 @@ impl Drop for Syncer {
     fn drop(&mut self) {
         drop(self.stop.take());
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            // A panic of the sync thread was reported where it happened; the store is closing either way.
+            drop(handle.join());
         }
     }
 }

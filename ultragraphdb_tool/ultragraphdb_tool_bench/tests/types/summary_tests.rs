@@ -77,8 +77,9 @@ fn test_tied_samples_keep_their_value_and_count() {
 #[test]
 fn test_the_samples_are_left_sorted() {
     let mut values = [3, 1, 2];
-    let _ = Summary::of(&mut values);
+    let summary = Summary::of(&mut values);
     assert_eq!(values, [1, 2, 3]);
+    assert_eq!(summary.count(), 3);
 }
 
 #[test]

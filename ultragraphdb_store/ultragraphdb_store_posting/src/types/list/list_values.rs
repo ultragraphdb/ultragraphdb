@@ -37,7 +37,7 @@ impl List {
         Ok(match pitr.posting() {
             PPosting::Found(p) if p.uid() == uid => Some(p.clone()),
             PPosting::Uid(u) if u == uid => Some(uid_posting(uid)),
-            _ => None,
+            PPosting::Found(_) | PPosting::Uid(_) => None,
         })
     }
 
@@ -46,7 +46,8 @@ impl List {
     pub fn get_length(&self, read_ts: u64) -> Result<i64, PostingError> {
         let mut length = self.mutation.list_len(read_ts);
         if self.mutation.populate_delete_all(read_ts) == 0 {
-            length += self.immutable_layer_len()? as i64;
+            // A layer longer than `i64::MAX` cannot be stored; the length saturates rather than wraps.
+            length += i64::try_from(self.immutable_layer_len()?).unwrap_or(i64::MAX);
         }
         Ok(length)
     }

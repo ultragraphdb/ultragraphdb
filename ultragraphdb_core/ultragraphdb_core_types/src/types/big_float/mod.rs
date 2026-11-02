@@ -18,6 +18,11 @@ use dashu_int::ops::BitTest;
 const MIN_EXP: i64 = i32::MIN as i64;
 const MAX_EXP: i64 = i32::MAX as i64;
 
+/// Go's `int` of a length or a bit count: either is at most `isize::MAX`, so the saturation never fires.
+fn go_int(n: usize) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
 /// The value of a [`BigFloat`]: zero, infinity, or `mant × 2^exp` with `mant` odd.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Form {
@@ -84,7 +89,8 @@ impl BigFloat {
             });
         }
         let bits = v.to_bits();
-        let biased = ((bits >> 52) & 0x7ff) as i64;
+        // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+        let biased = ((bits >> 52) & 0x7ff).cast_signed();
         let frac = bits & ((1 << 52) - 1);
         let (mant, exp) = if biased == 0 {
             (frac, -1074)
@@ -133,7 +139,7 @@ impl BigFloat {
             self.form = Form::Zero;
             return;
         }
-        let n = mant.bit_len() as i64;
+        let n = go_int(mant.bit_len());
         let go_exp = n + exp;
         if go_exp < MIN_EXP {
             self.form = Form::Zero;
@@ -150,10 +156,10 @@ impl BigFloat {
             let rbit = r > 0 && m.bit(r - 1);
             let sbit = sticky || (r > 1 && (m.trailing_zeros().unwrap_or(0) < r - 1));
             m >>= r;
-            e += r as i64;
+            e += go_int(r);
             if rbit && (sbit || m.bit(0)) {
                 m += UBig::ONE;
-                if m.bit_len() as i64 > p {
+                if go_int(m.bit_len()) > p {
                     if go_exp >= MAX_EXP {
                         self.form = Form::Inf;
                         return;
@@ -165,15 +171,15 @@ impl BigFloat {
         }
         let tz = m.trailing_zeros().unwrap_or(0);
         m >>= tz;
-        e += tz as i64;
+        e += go_int(tz);
         self.form = Form::Finite { mant: m, exp: e };
     }
 
     /// The exponent of Go's representation `0.m × 2^e`.
     pub(crate) fn go_exp(&self) -> i64 {
         match &self.form {
-            Form::Finite { mant, exp } => mant.bit_len() as i64 + exp,
-            _ => 0,
+            Form::Finite { mant, exp } => go_int(mant.bit_len()) + exp,
+            Form::Zero | Form::Inf => 0,
         }
     }
 }

@@ -34,8 +34,37 @@ fn tagged(lexical: &str, language: &str, direction: Option<Direction>) -> Reques
     }
 }
 
+/// The golden Write's term indices, by the names generate_bodies.py gives them.
+struct GoldenTerms {
+    a: u32,
+    knows: u32,
+    b: u32,
+    g: u32,
+    b1: u32,
+    nick: u32,
+    x_en: u32,
+    c: u32,
+    since: u32,
+    year: u32,
+    weight: u32,
+    half: u32,
+    says: u32,
+    triple: u32,
+    label: u32,
+    plain: u32,
+    rtl: u32,
+}
+
 /// The golden Write, its terms interned in generate_bodies.py's order of first use.
 pub fn golden_write() -> Write {
+    let (table, terms) = golden_terms();
+    let mut changes = golden_statements(&terms);
+    changes.extend(golden_declarations());
+    Write::new(table, changes)
+}
+
+/// The golden Write's term table, interned in generate_bodies.py's order of first use, and its indices.
+fn golden_terms() -> (TermTable, GoldenTerms) {
     let mut t = TermTable::new();
     let mut add = |term: RequestTerm| t.intern(term).unwrap();
     let a = add(RequestTerm::Iri(ex("a")));
@@ -59,23 +88,49 @@ pub fn golden_write() -> Write {
     let label = add(RequestTerm::Iri(ex("label")));
     let plain = add(literal("plain", None));
     let rtl = add(tagged("مرحبا", "ar", Some(Direction::Rtl)));
-    let changes = vec![
+    (
+        t,
+        GoldenTerms {
+            a,
+            knows,
+            b,
+            g,
+            b1,
+            nick,
+            x_en,
+            c,
+            since,
+            year,
+            weight,
+            half,
+            says,
+            triple,
+            label,
+            plain,
+            rtl,
+        },
+    )
+}
+
+/// The golden Write's statement changes, over its terms `t`.
+fn golden_statements(t: &GoldenTerms) -> Vec<WriteChange> {
+    vec![
         WriteChange::Insert {
             graph: None,
-            subject: a,
-            predicate: knows,
-            object: b,
+            subject: t.a,
+            predicate: t.knows,
+            object: t.b,
         },
         WriteChange::Delete {
-            graph: Some(g),
-            subject: b1,
-            predicate: nick,
-            object: x_en,
+            graph: Some(t.g),
+            subject: t.b1,
+            predicate: t.nick,
+            object: t.x_en,
         },
         WriteChange::DeletePattern {
             graph: None,
-            subject: a,
-            predicate: nick,
+            subject: t.a,
+            predicate: t.nick,
         },
         WriteChange::DeleteStatement {
             graph: None,
@@ -83,44 +138,50 @@ pub fn golden_write() -> Write {
         },
         WriteChange::InsertEdge {
             graph: None,
-            subject: a,
-            predicate: knows,
-            object: c,
-            properties: vec![(since, year)],
+            subject: t.a,
+            predicate: t.knows,
+            object: t.c,
+            properties: vec![(t.since, t.year)],
         },
         WriteChange::SetProperty {
             statement: StatementTarget::Id { graph: None, id: 9 },
-            predicate: weight,
-            value: half,
+            predicate: t.weight,
+            value: t.half,
         },
         WriteChange::DeleteProperty {
             statement: StatementTarget::Triple {
                 graph: None,
-                subject: a,
-                predicate: knows,
-                object: b,
+                subject: t.a,
+                predicate: t.knows,
+                object: t.b,
             },
-            predicate: since,
+            predicate: t.since,
             value: None,
         },
         WriteChange::Insert {
             graph: None,
-            subject: a,
-            predicate: says,
-            object: triple,
+            subject: t.a,
+            predicate: t.says,
+            object: t.triple,
         },
         WriteChange::Insert {
             graph: None,
-            subject: a,
-            predicate: label,
-            object: plain,
+            subject: t.a,
+            predicate: t.label,
+            object: t.plain,
         },
         WriteChange::Insert {
             graph: None,
-            subject: a,
-            predicate: label,
-            object: rtl,
+            subject: t.a,
+            predicate: t.label,
+            object: t.rtl,
         },
+    ]
+}
+
+/// The golden Write's declarations.
+fn golden_declarations() -> Vec<WriteChange> {
+    vec![
         WriteChange::Declare(Declared::Predicate(
             DeclaredPredicate::new(ex("name"))
                 .with_kind(DeclaredKind::Property)
@@ -151,8 +212,7 @@ pub fn golden_write() -> Write {
             ex("Employment"),
             vec![ex("employee"), ex("employer")],
         ))),
-    ];
-    Write::new(t, changes)
+    ]
 }
 
 #[test]

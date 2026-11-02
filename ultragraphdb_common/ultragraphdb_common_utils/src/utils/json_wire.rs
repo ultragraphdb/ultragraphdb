@@ -203,24 +203,10 @@ pub(crate) fn append_unquote(dst: &mut Vec<u8>, src: &[u8]) {
                 b'r' => dst.push(b'\r'),
                 b't' => dst.push(b'\t'),
                 b'u' => {
-                    let Some(v1) = src.get(n + 2..n + 6).and_then(parse_hex_u16) else {
+                    let Some((r, end)) = unquote_u_escape(src, n) else {
                         return;
                     };
-                    n += 6;
-                    let mut r = v1;
-                    if is_surrogate(v1) {
-                        // A replacement unless a low surrogate escape follows.
-                        r = go_utf8::RUNE_ERROR;
-                        if let (Some(b"\\u"), Some(v2)) = (
-                            src.get(n..n + 2),
-                            src.get(n + 2..n + 6).and_then(parse_hex_u16),
-                        ) && (0xD800..0xDC00).contains(&v1)
-                            && (0xDC00..0xE000).contains(&v2)
-                        {
-                            r = 0x10000 + ((v1 - 0xD800) << 10) + (v2 - 0xDC00);
-                            n += 6;
-                        }
-                    }
+                    n = end;
                     push_rune(dst, r);
                     i = n;
                     continue;
@@ -241,6 +227,28 @@ pub(crate) fn append_unquote(dst: &mut Vec<u8>, src: &[u8]) {
         i = n;
     }
     dst.extend_from_slice(&src[i..n.min(src.len())]);
+}
+
+/// The rune of the `\u` escape at `src[n..]` and where it ends: a surrogate pair's rune when a low surrogate escape
+/// follows a high one, U+FFFD for any other surrogate; `None` when its four hex digits are missing.
+fn unquote_u_escape(src: &[u8], mut n: usize) -> Option<(u32, usize)> {
+    let v1 = src.get(n + 2..n + 6).and_then(parse_hex_u16)?;
+    n += 6;
+    let mut r = v1;
+    if is_surrogate(v1) {
+        // A replacement unless a low surrogate escape follows.
+        r = go_utf8::RUNE_ERROR;
+        if let (Some(b"\\u"), Some(v2)) = (
+            src.get(n..n + 2),
+            src.get(n + 2..n + 6).and_then(parse_hex_u16),
+        ) && (0xD800..0xDC00).contains(&v1)
+            && (0xDC00..0xE000).contains(&v2)
+        {
+            r = 0x10000 + ((v1 - 0xD800) << 10) + (v2 - 0xDC00);
+            n += 6;
+        }
+    }
+    Some((r, n))
 }
 
 /// The states of a number Go's `ConsumeNumberResumable` resumes from.
@@ -272,32 +280,11 @@ pub(crate) fn consume_number_resumable(
     };
     let expecting_digit =
         |i: usize| ScanError::invalid_character(&b[i..], "in number (expecting digit)");
-    let mut n = resume;
-    let mut state = state;
     // Jump to the part of the number to continue with.
-    let mut part = 0;
-    if state > Init {
-        if matches!(
-            state,
-            WithinIntegerDigits | WithinFractionalDigits | WithinExponentDigits
-        ) {
-            n = digits_from(n);
-            if n >= b.len() {
-                return (n, state, None);
-            }
-            state = match state {
-                WithinIntegerDigits => BeforeFractionalDigits,
-                WithinFractionalDigits => BeforeExponentDigits,
-                _ => return (n, state, None),
-            };
-        }
-        part = match state {
-            BeforeIntegerDigits => 0,
-            BeforeFractionalDigits => 1,
-            BeforeExponentDigits => 2,
-            _ => return (n, state, None),
-        };
-    }
+    let (mut n, mut state, part) = match resume_number(b, resume, state) {
+        Ok(at) => at,
+        Err((n, state)) => return (n, state, None),
+    };
 
     // The required integer part, with an optional minus sign.
     if part == 0 {
@@ -352,4 +339,46 @@ pub(crate) fn consume_number_resumable(
         state = WithinExponentDigits;
     }
     (n, state, None)
+}
+
+/// Where [`consume_number_resumable`] continues a number left at `n` in `state`: the offset, the state and the part
+/// to go on with, 0 the integer, 1 the fraction, 2 the exponent; or, as the error, the offset and state the number
+/// stops at without an error.
+fn resume_number(
+    b: &[u8],
+    mut n: usize,
+    mut state: NumberState,
+) -> Result<(usize, NumberState, u8), (usize, NumberState)> {
+    use NumberState::*;
+    if state == Init {
+        return Ok((n, state, 0));
+    }
+    if matches!(
+        state,
+        WithinIntegerDigits | WithinFractionalDigits | WithinExponentDigits
+    ) {
+        while b.get(n).is_some_and(u8::is_ascii_digit) {
+            n += 1;
+        }
+        if n >= b.len() {
+            return Err((n, state));
+        }
+        state = match state {
+            WithinIntegerDigits => BeforeFractionalDigits,
+            WithinFractionalDigits => BeforeExponentDigits,
+            Init
+            | BeforeIntegerDigits
+            | BeforeFractionalDigits
+            | BeforeExponentDigits
+            | WithinExponentDigits => return Err((n, state)),
+        };
+    }
+    match state {
+        BeforeIntegerDigits => Ok((n, state, 0)),
+        BeforeFractionalDigits => Ok((n, state, 1)),
+        BeforeExponentDigits => Ok((n, state, 2)),
+        Init | WithinIntegerDigits | WithinFractionalDigits | WithinExponentDigits => {
+            Err((n, state))
+        }
+    }
 }

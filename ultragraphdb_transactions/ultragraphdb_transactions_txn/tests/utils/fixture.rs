@@ -13,7 +13,9 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use ultragraphdb_store_sim::{
     FaultConfig, Seed, SimClock, SimListCache, SimStore, SteppedExecutor, Stream,
 };
-use ultragraphdb_transactions_txn::{Mode, Transaction, TxnBuffers, TxnError, TxnLimits};
+use ultragraphdb_transactions_txn::{
+    Commit, Mode, Prepared, Transaction, TxnBuffers, TxnError, TxnLimits,
+};
 
 pub type Applier = ChangesetApplier<SimStore, SimListCache<CachedList>, SteppedExecutor>;
 pub type Txn<'a> = Transaction<'a, SimStore, SimListCache<CachedList>>;
@@ -139,4 +141,13 @@ impl Rng {
         let len = self.below(max_len + 1);
         (0..len).map(|_| b'a' + self.below(3) as u8).collect()
     }
+}
+
+/// The proposal a read-write transaction's commit hands the commit step.
+pub fn prepared(commit: Result<Commit, TxnError>) -> Prepared {
+    let proposal = match commit.expect("the commit") {
+        Commit::ReadWrite(prepared) => Some(prepared),
+        Commit::ReadOnly(_) => None,
+    };
+    proposal.expect("a read-write transaction ends on its worker")
 }

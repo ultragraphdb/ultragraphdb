@@ -32,8 +32,9 @@ const TEMPORARY_KEYS: u32 = 1_000;
 
 fn say(line: &str) {
     let mut out = std::io::stdout().lock();
-    let _ = writeln!(out, "{line}");
-    let _ = out.flush();
+    // The test reading the lines may have stopped; the writer goes on until it is killed.
+    drop(writeln!(out, "{line}"));
+    drop(out.flush());
 }
 
 /// Announces `name` and, when it is the stage to stop at, waits to be killed there.

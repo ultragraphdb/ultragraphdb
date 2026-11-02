@@ -42,59 +42,15 @@ impl<'a> BodyView<'a> for ResultView<'a> {
             ));
         }
         let strings = StringList::read(command, (4, 5), sections.get(4), sections.get(5))?;
-        let cells = u32s(command, 0, sections.get(0))?;
-        let expected = u64::from(columns) * u64::from(rows);
-        if cells.len() as u64 != expected {
-            return Err(ProtocolError::CountMismatch(
-                command,
-                "cells",
-                cells.len() as u64,
-                expected,
-            ));
-        }
-        let limit = as_u32(terms);
-        if let Some((at, cell)) = cells
-            .iter()
-            .enumerate()
-            .find(|(_, cell)| **cell != ABSENT && **cell >= limit)
-        {
-            return Err(ProtocolError::IndexOutOfRange(command, 0, at, *cell, limit));
-        }
+        check_cells(
+            command,
+            sections.get(0),
+            u64::from(columns) * u64::from(rows),
+            as_u32(terms),
+        )?;
         let encodings = sections.get(2);
-        if terms == 0 && !encodings.is_empty() {
-            return Err(ProtocolError::CountMismatch(
-                command,
-                "term encodings",
-                encodings.len() as u64,
-                0,
-            ));
-        }
-        for (at, start) in offsets.iter().enumerate() {
-            let start = *start as usize;
-            let end = offsets
-                .get(at + 1)
-                .map_or(encodings.len(), |end| *end as usize);
-            let whole = (at > 0 || start == 0)
-                && encodings.get(start..end).is_some_and(result_encoding_whole);
-            if !whole {
-                return Err(ProtocolError::BadTerm(command, 2, at));
-            }
-        }
-        let string_limit = as_u32(strings.len());
-        let texts_read = u32s(command, 3, texts)?;
-        if let Some((at, index)) = texts_read
-            .iter()
-            .enumerate()
-            .find(|(_, i)| **i != ABSENT && **i >= string_limit)
-        {
-            return Err(ProtocolError::IndexOutOfRange(
-                command,
-                3,
-                at,
-                *index,
-                string_limit,
-            ));
-        }
+        check_encodings(command, &offsets, encodings)?;
+        check_texts(command, texts, as_u32(strings.len()))?;
         let statement_ids = sections.get(7);
         let per_rows = 8 * u64::from(rows);
         if !statement_ids.is_empty() && statement_ids.len() as u64 != per_rows {
@@ -158,4 +114,73 @@ impl<'a> BodyView<'a> for ResultView<'a> {
         }
         Ok(batch)
     }
+}
+
+/// Refused unless the cells number `expected` and each is absent or below `limit`, the term count.
+fn check_cells(
+    command: u16,
+    section: &[u8],
+    expected: u64,
+    limit: u32,
+) -> Result<(), ProtocolError> {
+    let cells = u32s(command, 0, section)?;
+    if cells.len() as u64 != expected {
+        return Err(ProtocolError::CountMismatch(
+            command,
+            "cells",
+            cells.len() as u64,
+            expected,
+        ));
+    }
+    if let Some((at, cell)) = cells
+        .iter()
+        .enumerate()
+        .find(|(_, cell)| **cell != ABSENT && **cell >= limit)
+    {
+        return Err(ProtocolError::IndexOutOfRange(command, 0, at, *cell, limit));
+    }
+    Ok(())
+}
+
+/// Refused unless every term's encoding, from its offset to the next, is one whole encoding, the first at 0.
+fn check_encodings(command: u16, offsets: &[u32], encodings: &[u8]) -> Result<(), ProtocolError> {
+    if offsets.is_empty() && !encodings.is_empty() {
+        return Err(ProtocolError::CountMismatch(
+            command,
+            "term encodings",
+            encodings.len() as u64,
+            0,
+        ));
+    }
+    for (at, start) in offsets.iter().enumerate() {
+        let start = *start as usize;
+        let end = offsets
+            .get(at + 1)
+            .map_or(encodings.len(), |end| *end as usize);
+        let whole =
+            (at > 0 || start == 0) && encodings.get(start..end).is_some_and(result_encoding_whole);
+        if !whole {
+            return Err(ProtocolError::BadTerm(command, 2, at));
+        }
+    }
+    Ok(())
+}
+
+/// Refused unless every term text is absent or below `string_limit`, the string count.
+fn check_texts(command: u16, texts: &[u8], string_limit: u32) -> Result<(), ProtocolError> {
+    let texts_read = u32s(command, 3, texts)?;
+    if let Some((at, index)) = texts_read
+        .iter()
+        .enumerate()
+        .find(|(_, i)| **i != ABSENT && **i >= string_limit)
+    {
+        return Err(ProtocolError::IndexOutOfRange(
+            command,
+            3,
+            at,
+            *index,
+            string_limit,
+        ));
+    }
+    Ok(())
 }

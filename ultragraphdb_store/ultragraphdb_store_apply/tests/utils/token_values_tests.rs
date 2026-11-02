@@ -27,8 +27,9 @@ fn value(literal: &Literal, tokenizer: &str) -> Option<Value> {
 
 /// The tokens `tokenizer` makes of the value `token_value` gives `literal`.
 fn tokens(literal: &Literal, tokenizer: &str) -> Vec<Vec<u8>> {
-    let v =
-        value(literal, tokenizer).unwrap_or_else(|| panic!("{literal} has a {tokenizer} value"));
+    let v = value(literal, tokenizer)
+        .ok_or_else(|| format!("{literal} has a {tokenizer} value"))
+        .expect("the literal has a token value");
     get_tokenizer(tokenizer)
         .expect("a tokenizer")
         .tokens(&v)

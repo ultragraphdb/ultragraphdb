@@ -198,10 +198,11 @@ fn build_in(
         0,
     )
     .expect("declared");
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(0, 0, &[], 0) else {
-        panic!("a read-write commit");
+    let prepared = match txn.commit(0, 0, &[], 0) {
+        Ok(Commit::ReadWrite(prepared)) => Some(prepared),
+        Ok(Commit::ReadOnly(_)) | Err(_) => None,
     };
-    prepared
+    prepared.expect("a read-write commit")
 }
 
 /// Two declarations starting index builds in different namespaces conflict on no key, and one build runs at a time:

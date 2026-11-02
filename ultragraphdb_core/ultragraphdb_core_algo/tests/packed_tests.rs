@@ -520,6 +520,55 @@ fn plain_op(packed: &str) -> Option<&'static str> {
     }
 }
 
+/// The golden result a packed operation's result `r` in `case` is checked against, and whether it is one of the
+/// `DEVIATIONS`: the plain operation's result, which Dgraph's packed one equals unless it is a deviation; with no
+/// plain result, Dgraph's packed one, whose nil pack the port's `actual_is_none` matches.
+fn packed_want<'a>(
+    case: &'a AlgoCase,
+    r: &'a OpResult,
+    actual_is_none: bool,
+) -> (&'a Vec<u64>, bool) {
+    let plain_name = plain_op(&r.op).expect("a packed operation has a plain one");
+    let plain = case.results.iter().find(|p| p.op == plain_name);
+    let deviation = DEVIATIONS
+        .iter()
+        .find(|&&(name, op, _, _)| name == case.name && op == r.op);
+    match plain {
+        Some(plain) => {
+            assert!(!plain.panics, "{} {}: Dgraph panicked", case.name, plain.op);
+            if let Some(&(_, _, entry, expected)) = deviation {
+                assert_eq!(expected, plain.op, "{} {}", case.name, r.op);
+                assert_ne!(
+                    r.out, plain.out,
+                    "{} {}: Dgraph's packed result is listed under entry {entry} but equals the plain one",
+                    case.name, r.op
+                );
+            } else {
+                assert_eq!(
+                    r.out, plain.out,
+                    "{} {}: Dgraph's packed result differs from the plain one and is not a deviation",
+                    case.name, r.op
+                );
+            }
+            (&plain.out, deviation.is_some())
+        }
+        None => {
+            assert!(
+                case.lists.is_empty() && deviation.is_none(),
+                "{} {}: no plain result",
+                case.name,
+                r.op
+            );
+            assert_eq!(
+                r.out_nil, actual_is_none,
+                "{} {}: nil pack",
+                case.name, r.op
+            );
+            (&r.out, false)
+        }
+    }
+}
+
 /// The packed operations' results equal the plain operations' golden results in the same case, which hold duplicates,
 /// lists across 2^32 and the inputs where Dgraph's DifferencePacked and IntersectSortedPacked drop or keep UIDs. Dgraph's
 /// own packed result equals its plain one in every case but the `DEVIATIONS`; with no lists there is no plain result,
@@ -559,48 +608,8 @@ fn packed_operations_match_golden() {
                 _ => continue,
             };
             assert!(!r.panics, "{} {}: Dgraph panicked", case.name, r.op);
-            let plain_name = plain_op(&r.op).expect("a packed operation has a plain one");
-            let plain = case.results.iter().find(|p| p.op == plain_name);
-            let deviation = DEVIATIONS
-                .iter()
-                .find(|&&(name, op, _, _)| name == case.name && op == r.op);
-            let want = match plain {
-                Some(plain) => {
-                    assert!(!plain.panics, "{} {}: Dgraph panicked", case.name, plain.op);
-                    if let Some(&(_, _, entry, expected)) = deviation {
-                        assert_eq!(expected, plain.op, "{} {}", case.name, r.op);
-                        assert_ne!(
-                            r.out, plain.out,
-                            "{} {}: Dgraph's packed result is listed under entry {entry} but equals the plain one",
-                            case.name, r.op
-                        );
-                        deviations_seen += 1;
-                    } else {
-                        assert_eq!(
-                            r.out, plain.out,
-                            "{} {}: Dgraph's packed result differs from the plain one and is not a deviation",
-                            case.name, r.op
-                        );
-                    }
-                    &plain.out
-                }
-                None => {
-                    assert!(
-                        case.lists.is_empty() && deviation.is_none(),
-                        "{} {}: no plain result",
-                        case.name,
-                        r.op
-                    );
-                    assert_eq!(
-                        r.out_nil,
-                        actual.is_none(),
-                        "{} {}: nil pack",
-                        case.name,
-                        r.op
-                    );
-                    &r.out
-                }
-            };
+            let (want, deviation) = packed_want(case, r, actual.is_none());
+            deviations_seen += usize::from(deviation);
             // An encoder that was given no UID returns no pack, so an empty result is no pack.
             assert_eq!(
                 want.is_empty(),

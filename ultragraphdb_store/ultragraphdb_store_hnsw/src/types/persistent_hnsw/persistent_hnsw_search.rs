@@ -39,7 +39,8 @@ impl<T: HnswFloat> PersistentHnsw<T> {
         filter: SearchFilter<T>,
     ) -> Result<SearchLayerResult<T>, HnswError> {
         let sim = self.sim_type;
-        let expected = expected_neighbors as i64;
+        // A count beyond `i64::MAX` is no count a search keeps; it saturates rather than wraps.
+        let expected = i64::try_from(expected_neighbors).unwrap_or(i64::MAX);
         let mut r = SearchLayerResult::new(level);
         let best_dist = sim.distance_score(start_vec, query)?;
         r.mark_first_distance_computation();
@@ -84,7 +85,7 @@ impl<T: HnswFloat> PersistentHnsw<T> {
                         candidates.pop_last();
                     }
                     candidates.push(curr_element);
-                    r.add_path_node(curr_element, &sim, expected_neighbors)?;
+                    r.add_path_node(curr_element, sim, expected_neighbors)?;
                     improved = true;
                 }
             }

@@ -302,10 +302,11 @@ pub fn index_value<S: Store>(
     let mut request = lists.request(read_ts);
     let txn = ViTxn::new(&mut request);
     match Txn::get(&txn, key) {
-        Ok(v) => Some(v),
-        Err(e) if e.is_absence() => None,
-        Err(e) => panic!("{e}"),
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.is_absence() => Ok(None),
+        Err(e) => Err(e.to_string()),
     }
+    .expect("the read finds a value or nothing")
 }
 
 // The doubles of Dgraph's tests.
@@ -326,9 +327,9 @@ impl Default for TsDbs {
 
 impl TsDbs {
     /// Sets `key` to `value` at every timestamp.
-    pub fn set_all(&self, key: &[u8], value: Vec<u8>) {
+    pub fn set_all(&self, key: &[u8], value: &[u8]) {
         self.dbs.borrow_mut().iter_mut().for_each(|db| {
-            db.insert(key.to_vec(), value.clone());
+            db.insert(key.to_vec(), value.to_vec());
         });
     }
 

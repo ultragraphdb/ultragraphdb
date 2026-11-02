@@ -24,7 +24,7 @@ use crate::types::dir_sizes::DirSizes;
 use crate::types::rollup_args::RollupArgs;
 use crate::types::wall_clock::WallClock;
 use crate::utils::proc_stats::{process_cpu_secs, rss_kib};
-use crate::utils::setup::{BenchApplier, open_applier, opt_json, prepare, size_json};
+use crate::utils::setup::{BenchApplier, files_json, open_applier, opt_json, prepare};
 
 /// The commits of one loading batch: few, since a batch's cost grows with the square of its requests (each request
 /// clones the batch's stacked layers, `Batch::request`).
@@ -38,6 +38,15 @@ struct Versions {
     at_or_below: u64,
 }
 
+/// The compaction: its discard timestamp, the reverse and forward versions before and after, its time and CPU time.
+struct Compaction {
+    discard: u64,
+    before: (Versions, Versions),
+    after: (Versions, Versions),
+    seconds: Duration,
+    cpu: Option<f64>,
+}
+
 /// Runs the rollup measurement of `args` and returns its report, one JSON line.
 ///
 /// # Errors
@@ -49,13 +58,7 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
     prepare(&a, &shape, 1)?;
     let lists = a.quads().lists();
     let data_path = lists.store().inner().data_path().to_path_buf();
-    let uid_of = |iri: &str| {
-        a.quads()
-            .uid_of(0, iri)
-            .map_err(ultragraphdb_store_apply::ChangesetError::from)?
-            .ok_or_else(|| BenchError::Usage(format!("{iri} has no UID")))
-    };
-    let predicate = uid_of(CommitShape::iri("rel_t0_org").as_str())?;
+    let predicate = uid_of(&a, CommitShape::iri("rel_t0_org").as_str())?;
     let prefix = |keyspace| key_prefix(keyspace, false, 0, Some(DEFAULT_GRAPH), Some(predicate));
     let (reverse, forward) = (prefix(Keyspace::Reverse), prefix(Keyspace::Forward));
 
@@ -67,45 +70,17 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
 
     let start = clock.elapsed();
     let cpu = process_cpu_secs();
-    let mut rolled = 0u64;
-    for hub in 0..args.hubs() {
-        let key = QuadKey::Reverse {
-            namespace: 0,
-            graph: DEFAULT_GRAPH,
-            predicate,
-            object: EncodedTerm::uid(uid_of(CommitShape::hub(hub).as_str())?),
-        }
-        .to_bytes();
-        if lists.rollup_key(&key)? {
-            rolled += 1;
-        }
-    }
+    let rolled = roll_up_hubs(&a, args.hubs(), predicate)?;
     let rollup = clock.elapsed() - start;
     let rollup_cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
     lists.sync()?;
     let rolled_sizes = DirSizes::of(args.dir(), &data_path)?;
 
-    // A rollup writes one above the newest commit it folds, so at most one above the watermark: a discard timestamp
-    // there lies at or above every rollup the run wrote.
-    let discard = lists.applied_ts() + 1;
-    lists.set_discard_ts(discard)?;
-    let store = lists.store();
-    let before = (
-        count(store, &reverse, discard)?,
-        count(store, &forward, discard)?,
-    );
-    let start = clock.elapsed();
-    let cpu = process_cpu_secs();
-    store.compact()?;
-    let compaction = clock.elapsed() - start;
-    let compaction_cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
-    let after = (
-        count(store, &reverse, discard)?,
-        count(store, &forward, discard)?,
-    );
+    let c = compact(&a, &reverse, &forward, &clock)?;
     let compacted = DirSizes::of(args.dir(), &data_path)?;
     let (rss, rss_peak) = rss_kib();
-    let _ = store.take_calls();
+    // The write calls the run recorded are not reported.
+    drop(lists.store().take_calls());
     drop(a);
     let closed = DirSizes::of(args.dir(), &data_path)?;
 
@@ -115,9 +90,7 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
             "{{\"run\":\"rollup\",\"hubs\":{},\"versions_target\":{},\"relations_per_commit\":{},",
             "\"load\":{{\"commits\":{},\"relations\":{},\"seconds\":{:.2},\"commits_per_s\":{:.0}}},",
             "\"rollup\":{{\"keys\":{},\"seconds\":{:.2},\"keys_per_s\":{:.0},\"deltas_per_s\":{:.0},\"cpu_s\":{}}},",
-            "\"discard_ts\":{},",
-            "\"reverse_before\":{},\"reverse_after\":{},\"forward_before\":{},\"forward_after\":{},",
-            "\"compaction\":{{\"seconds\":{:.2},\"cpu_s\":{},\"reverse_collected\":{},\"forward_collected\":{}}},",
+            "{},",
             "\"files_loaded\":{},\"files_rolled_up\":{},\"files_compacted\":{},\"files_closed\":{},",
             "\"du_bytes_per_relation_closed\":{:.1},\"rss_kib\":{},\"rss_peak_kib\":{}}}"
         ),
@@ -131,17 +104,9 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
         rolled,
         rollup.as_secs_f64(),
         rolled as f64 / rollup.as_secs_f64(),
-        before.0.at_or_below.saturating_sub(before.0.keys) as f64 / rollup.as_secs_f64(),
+        c.before.0.at_or_below.saturating_sub(c.before.0.keys) as f64 / rollup.as_secs_f64(),
         opt_json(rollup_cpu.map(|c| format!("{c:.2}"))),
-        discard,
-        versions_json(before.0),
-        versions_json(after.0),
-        versions_json(before.1),
-        versions_json(after.1),
-        compaction.as_secs_f64(),
-        opt_json(compaction_cpu.map(|c| format!("{c:.2}"))),
-        before.0.above + before.0.at_or_below - after.0.above - after.0.at_or_below,
-        before.1.above + before.1.at_or_below - after.1.above - after.1.at_or_below,
+        compaction_json(&c),
         files_json(loaded),
         files_json(rolled_sizes),
         files_json(compacted),
@@ -150,6 +115,91 @@ pub fn run_rollup(args: &RollupArgs) -> Result<String, BenchError> {
         opt_json(rss),
         opt_json(rss_peak),
     ))
+}
+
+/// The UID of `iri` in the root namespace.
+fn uid_of(a: &Arc<BenchApplier>, iri: &str) -> Result<u64, BenchError> {
+    a.quads()
+        .uid_of(0, iri)
+        .map_err(ultragraphdb_store_apply::ChangesetError::from)?
+        .ok_or_else(|| BenchError::Usage(format!("{iri} has no UID")))
+}
+
+/// Rolls up the reverse list of `predicate` of each of `hubs` hubs; how many it rolled up.
+fn roll_up_hubs(a: &Arc<BenchApplier>, hubs: u64, predicate: u64) -> Result<u64, BenchError> {
+    let mut rolled = 0u64;
+    for hub in 0..hubs {
+        let object = uid_of(a, CommitShape::hub(hub).as_str())?;
+        let key = QuadKey::Reverse {
+            namespace: 0,
+            graph: DEFAULT_GRAPH,
+            predicate,
+            object: EncodedTerm::uid(object),
+        }
+        .to_bytes();
+        if a.quads().lists().rollup_key(&key)? {
+            rolled += 1;
+        }
+    }
+    Ok(rolled)
+}
+
+/// Sets the discard timestamp above every rollup the run wrote and compacts the store, counting the versions under
+/// `reverse` and `forward` before and after.
+fn compact(
+    a: &Arc<BenchApplier>,
+    reverse: &[u8],
+    forward: &[u8],
+    clock: &WallClock,
+) -> Result<Compaction, BenchError> {
+    let lists = a.quads().lists();
+    // A rollup writes one above the newest commit it folds, so at most one above the watermark: a discard timestamp
+    // there lies at or above every rollup the run wrote.
+    let discard = lists.applied_ts() + 1;
+    lists.set_discard_ts(discard)?;
+    let store = lists.store();
+    let before = (
+        count(store, reverse, discard)?,
+        count(store, forward, discard)?,
+    );
+    let start = clock.elapsed();
+    let cpu = process_cpu_secs();
+    store.compact()?;
+    let seconds = clock.elapsed() - start;
+    let cpu = process_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+    let after = (
+        count(store, reverse, discard)?,
+        count(store, forward, discard)?,
+    );
+    Ok(Compaction {
+        discard,
+        before,
+        after,
+        seconds,
+        cpu,
+    })
+}
+
+/// The compaction's fields of the report: the discard timestamp, the versions before and after, and the compaction's
+/// time and what it collected.
+fn compaction_json(c: &Compaction) -> String {
+    let (before, after) = (c.before, c.after);
+    format!(
+        concat!(
+            "\"discard_ts\":{},",
+            "\"reverse_before\":{},\"reverse_after\":{},\"forward_before\":{},\"forward_after\":{},",
+            "\"compaction\":{{\"seconds\":{:.2},\"cpu_s\":{},\"reverse_collected\":{},\"forward_collected\":{}}}"
+        ),
+        c.discard,
+        versions_json(before.0),
+        versions_json(after.0),
+        versions_json(before.1),
+        versions_json(after.1),
+        c.seconds.as_secs_f64(),
+        opt_json(c.cpu.map(|c| format!("{c:.2}"))),
+        before.0.above + before.0.at_or_below - after.0.above - after.0.at_or_below,
+        before.1.above + before.1.at_or_below - after.1.above - after.1.at_or_below,
+    )
 }
 
 /// Applies `commits` commits of `shape`, `LOAD_BATCH` to a batch, as fast as the apply step goes; its time.
@@ -169,7 +219,7 @@ fn load(
         }
         left -= n;
         // The rollups this load queues are not run; the measurement runs them itself.
-        let _ = a.quads().lists().store().take_calls();
+        drop(a.quads().lists().store().take_calls());
     }
     Ok(clock.elapsed() - start)
 }
@@ -198,15 +248,5 @@ fn versions_json(v: Versions) -> String {
     format!(
         "{{\"keys\":{},\"versions_above_discard\":{},\"versions_at_or_below_discard\":{}}}",
         v.keys, v.above, v.at_or_below
-    )
-}
-
-fn files_json(s: DirSizes) -> String {
-    format!(
-        "{{\"data\":{},\"journal\":{},\"metadata\":{},\"total\":{}}}",
-        size_json(s.data()),
-        size_json(s.journal()),
-        size_json(s.metadata()),
-        size_json(s.total())
     )
 }

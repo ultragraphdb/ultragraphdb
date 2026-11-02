@@ -6,7 +6,7 @@
 //! A session's entry in the keyspace without versions: its key under the system prefix, its bytes byte for byte, its
 //! owner among them, and every malformed entry refused as corrupted, naming its key.
 
-use ultragraphdb_error_store::StoreErrorEnum;
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_transactions_commit::SessionEntry;
 
@@ -64,16 +64,16 @@ fn test_an_entry_is_its_request_version_owner_count_padding_and_results() {
 
 /// The reason a malformed `bytes` is refused with, its key named.
 fn refusal(bytes: &[u8]) -> String {
-    match SessionEntry::decode(b"key", bytes) {
-        Err(error) => match error.0 {
-            StoreErrorEnum::Corrupted { key, reason } => {
-                assert_eq!(key, b"key");
-                reason
-            }
-            other => panic!("not corrupted: {other:?}"),
-        },
-        Ok(entry) => panic!("accepted: {entry:?}"),
-    }
+    let decoded = SessionEntry::decode(b"key", bytes);
+    let reason = if let Err(StoreError(StoreErrorEnum::Corrupted { key, reason })) = &decoded {
+        assert_eq!(key, b"key");
+        Some(reason.clone())
+    } else {
+        None
+    };
+    reason
+        .ok_or_else(|| format!("not refused as corrupted: {decoded:?}"))
+        .expect("refused as corrupted")
 }
 
 #[test]

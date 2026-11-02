@@ -15,7 +15,7 @@ use ultragraphdb_core_types::{DateTime, Value, index_geo_tokens};
 
 use crate::errors::tok_error::TokError;
 use crate::types::analysis_token::AnalysisToken;
-use crate::types::tokenizer::{Kind, Tokenizer};
+use crate::types::tokenizer::{ExactLang, Kind, Tokenizer};
 use crate::utils::bleve::{analyze, remove_duplicates, unique_terms};
 use crate::utils::ident::IDENT_DELIMITER;
 use crate::utils::langbase::lang_base;
@@ -35,68 +35,39 @@ impl Tokenizer {
     /// A string value is valid UTF-8; the exact, hash, trigram and sha256 tokenizers read its bytes, as Dgraph's do.
     pub fn tokens(&self, v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
         match self.kind() {
-            Kind::BigFloat => match v {
-                Value::BigFloat(b) => Ok(vec![encode_int(b.to_i64())]),
-                _ => Err(wrong(v, "big.Float")),
-            },
-            Kind::Geo => match v {
-                Value::Geo(g) => Ok(index_geo_tokens(g)?
-                    .into_iter()
-                    .map(String::into_bytes)
-                    .collect()),
-                // geom.T is an interface: Go's assertion names the first method the value lacks.
-                _ => Err(TokError::wrong_value(format!(
-                    "interface conversion: {} is not geom.T: missing method Bounds",
-                    v.go_type()
-                ))),
-            },
-            Kind::Int => match v {
-                Value::Int(i) => Ok(vec![encode_int(*i)]),
-                _ => Err(wrong(v, "int64")),
-            },
+            Kind::BigFloat => {
+                let Value::BigFloat(b) = v else {
+                    return Err(wrong(v, "big.Float"));
+                };
+                Ok(vec![encode_int(b.to_i64())])
+            }
+            Kind::Geo => geo_tokens(v),
+            Kind::Int => {
+                let Value::Int(i) = v else {
+                    return Err(wrong(v, "int64"));
+                };
+                Ok(vec![encode_int(*i)])
+            }
             // Go's int64(float64) on arm64 and Rust's `as` both saturate, and take NaN to 0.
-            Kind::Float => match v {
-                Value::Float(f) => Ok(vec![encode_int(*f as i64)]),
-                _ => Err(wrong(v, "float64")),
-            },
+            Kind::Float => {
+                let Value::Float(f) = v else {
+                    return Err(wrong(v, "float64"));
+                };
+                Ok(vec![encode_int(*f as i64)])
+            }
             Kind::Year => date_token(v, 1),
             Kind::Month => date_token(v, 2),
             Kind::Day => date_token(v, 3),
             Kind::Hour => date_token(v, 4),
             Kind::Term(lang) => Ok(term_tokens(lang, v)),
-            Kind::Exact(lang) => {
-                let Value::Str(s) = v else {
-                    return Err(TokError::wrong_value(
-                        "Exact indices only supported for string types",
-                    ));
+            Kind::Exact(lang) => exact_tokens(lang.as_deref(), v),
+            Kind::Bool => {
+                let Value::Bool(b) = v else {
+                    return Err(wrong(v, "bool"));
                 };
-                let Some(l) = lang else {
-                    return Ok(vec![s.as_bytes().to_vec()]);
-                };
-                let key = l.collator.key_bytes(s.as_bytes());
-                let mut term = Vec::with_capacity(l.lang_base.len() + 2 + key.len());
-                term.extend_from_slice(l.lang_base.as_bytes());
-                term.push(IDENT_DELIMITER);
-                term.extend_from_slice(&key);
-                Ok(vec![term])
+                Ok(vec![encode_int(i64::from(*b))])
             }
-            Kind::Bool => match v {
-                Value::Bool(b) => Ok(vec![encode_int(i64::from(*b))]),
-                _ => Err(wrong(v, "bool")),
-            },
-            Kind::Trigram => {
-                let Value::Str(s) = v else {
-                    return Err(TokError::wrong_value(
-                        "Trigram indices only supported for string types",
-                    ));
-                };
-                if s.len() < 3 {
-                    return Ok(Vec::new());
-                }
-                Ok(remove_duplicates(
-                    s.as_bytes().windows(3).map(<[u8]>::to_vec).collect(),
-                ))
-            }
+            Kind::Trigram => trigram_tokens(v),
             Kind::Hash => {
                 let Value::Str(s) = v else {
                     return Err(TokError::wrong_value(
@@ -112,22 +83,78 @@ impl Tokenizer {
                 Ok(unique_terms(tokens))
             }
             Kind::NGram(lang) => Ok(ngram_tokens(lang, v)),
-            Kind::Sha256 => match v {
-                // The first 64 characters hold a query's SHA-256 in hex.
-                Value::Str(s) if s.len() >= 64 => Ok(vec![s.as_bytes()[..64].to_vec()]),
-                _ => Ok(Vec::new()),
-            },
+            // The first 64 characters hold a query's SHA-256 in hex.
+            Kind::Sha256 => Ok(
+                if let Value::Str(s) = v
+                    && s.len() >= 64
+                {
+                    vec![s.as_bytes()[..64].to_vec()]
+                } else {
+                    Vec::new()
+                },
+            ),
             // A vector predicate takes one mutation at a time; its one token says so.
             Kind::Factory(_) => Ok(vec![b"float".to_vec()]),
         }
     }
 }
 
+/// The geo tokenizer: the value's S2 cell tokens, in cell order.
+fn geo_tokens(v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
+    let Value::Geo(g) = v else {
+        // geom.T is an interface: Go's assertion names the first method the value lacks.
+        return Err(TokError::wrong_value(format!(
+            "interface conversion: {} is not geom.T: missing method Bounds",
+            v.go_type()
+        )));
+    };
+    Ok(index_geo_tokens(g)?
+        .into_iter()
+        .map(String::into_bytes)
+        .collect())
+}
+
+/// The exact tokenizer: the string's bytes, or with a language its base, the delimiter and its collation key.
+fn exact_tokens(lang: Option<&ExactLang>, v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
+    let Value::Str(s) = v else {
+        return Err(TokError::wrong_value(
+            "Exact indices only supported for string types",
+        ));
+    };
+    let Some(l) = lang else {
+        return Ok(vec![s.as_bytes().to_vec()]);
+    };
+    let key = l.collator.key_bytes(s.as_bytes());
+    let mut term = Vec::with_capacity(l.lang_base.len() + 2 + key.len());
+    term.extend_from_slice(l.lang_base.as_bytes());
+    term.push(IDENT_DELIMITER);
+    term.extend_from_slice(&key);
+    Ok(vec![term])
+}
+
+/// The trigram tokenizer: every three-byte window of the string, deduplicated.
+fn trigram_tokens(v: &Value) -> Result<Vec<Vec<u8>>, TokError> {
+    let Value::Str(s) = v else {
+        return Err(TokError::wrong_value(
+            "Trigram indices only supported for string types",
+        ));
+    };
+    if s.len() < 3 {
+        return Ok(Vec::new());
+    }
+    Ok(remove_duplicates(
+        s.as_bytes().windows(3).map(<[u8]>::to_vec).collect(),
+    ))
+}
+
 /// The text of a string value, `None` for the empty string and any other type.
 fn text(v: &Value) -> Option<&str> {
-    match v {
-        Value::Str(s) if !s.is_empty() => Some(s),
-        _ => None,
+    if let Value::Str(s) = v
+        && !s.is_empty()
+    {
+        Some(s)
+    } else {
+        None
     }
 }
 

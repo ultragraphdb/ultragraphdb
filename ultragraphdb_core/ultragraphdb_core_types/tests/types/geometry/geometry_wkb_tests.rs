@@ -25,11 +25,20 @@ fn ring(points: &[[f64; 2]]) -> Vec<Vec<f64>> {
 
 const EMPTY_POINT: &str = "cannot encode empty Point in WKB";
 
+/// A geometry, its little-endian WKB (or go-geom's error) and its big-endian WKB.
+type MarshalCase = (Geometry, Result<&'static str, &'static str>, &'static str);
+
 /// Each geometry, its little-endian WKB (or go-geom's error) and its big-endian WKB.
-fn marshal_cases() -> Vec<(Geometry, Result<&'static str, &'static str>, &'static str)> {
+fn marshal_cases() -> Vec<MarshalCase> {
+    let mut cases = single_marshal_cases();
+    cases.extend(multi_marshal_cases());
+    cases
+}
+
+/// The point, line string and polygon cases.
+fn single_marshal_cases() -> Vec<MarshalCase> {
     let square = ring(&[[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 0.0]]);
     let hole = ring(&[[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 1.0]]);
-    let unit = ring(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]);
     vec![
         (
             Geometry::point(Layout::XY, &[1.0, 2.0]).unwrap(),
@@ -65,6 +74,13 @@ fn marshal_cases() -> Vec<(Geometry, Result<&'static str, &'static str>, &'stati
             ),
             "0000000003000000020000000400000000000000000000000000000000401000000000000000000000000000004010000000000000401000000000000000000000000000000000000000000000000000043ff00000000000003ff000000000000040000000000000003ff0000000000000400000000000000040000000000000003ff00000000000003ff0000000000000",
         ),
+    ]
+}
+
+/// The multi-geometry and collection cases, and the geometries go-geom refuses.
+fn multi_marshal_cases() -> Vec<MarshalCase> {
+    let unit = ring(&[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]);
+    vec![
         (
             Geometry::multi_point(Layout::XY, &[Some(vec![1.0, 2.0]), None]).unwrap(),
             Err(EMPTY_POINT),
@@ -158,9 +174,25 @@ fn test_marshal_as_go_geom_writes_it() {
 
 #[test]
 fn test_unmarshal_as_go_geom_reads_it() {
-    // Each input and go-geom's result written back as little-endian WKB, or its error.
-    type Decoded = (GeometryKind, Layout, &'static str);
-    let cases: [(&str, Result<Decoded, &str>); 22] = [
+    for (input, want) in unmarshal_cases() {
+        let got = Geometry::unmarshal_wkb(&unhex(input))
+            .map(|g| (g.kind(), g.layout(), hex(&g.marshal_wkb().unwrap())))
+            .map_err(|e| e.to_string());
+        assert_eq!(
+            got,
+            want.map(|(k, l, h)| (k, l, h.to_string()))
+                .map_err(str::to_string),
+            "{input}"
+        );
+    }
+}
+
+/// A geometry's kind, layout and its little-endian WKB as go-geom writes it back.
+type Decoded = (GeometryKind, Layout, &'static str);
+
+/// Each input and go-geom's result written back as little-endian WKB, or its error.
+fn unmarshal_cases() -> [(&'static str, Result<Decoded, &'static str>); 22] {
+    [
         (
             "01e9030000000000000000f03f00000000000000400000000000000840",
             Ok((
@@ -227,18 +259,7 @@ fn test_unmarshal_as_go_geom_reads_it() {
             "010400000001000000010200000000000000",
             Err("wkb: got *geom.LineString, want *geom.Point"),
         ),
-    ];
-    for (input, want) in cases {
-        let got = Geometry::unmarshal_wkb(&unhex(input))
-            .map(|g| (g.kind(), g.layout(), hex(&g.marshal_wkb().unwrap())))
-            .map_err(|e| e.to_string());
-        assert_eq!(
-            got,
-            want.map(|(k, l, h)| (k, l, h.to_string()))
-                .map_err(str::to_string),
-            "{input}"
-        );
-    }
+    ]
 }
 
 #[test]

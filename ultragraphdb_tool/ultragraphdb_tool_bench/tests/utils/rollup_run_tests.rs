@@ -11,16 +11,28 @@ use ultragraphdb_tool_bench::{BenchErrorEnum, RollupArgs, run_rollup};
 fn fresh(name: &str) -> PathBuf {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-rollup-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     dir
 }
 
 fn u(v: &Value) -> u64 {
-    v.as_u64().unwrap_or_else(|| panic!("{v} is no count"))
+    v.as_u64()
+        .ok_or_else(|| format!("{v} is no count"))
+        .expect("a count")
 }
 
 fn f(v: &Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("{v} is no number"))
+    v.as_f64()
+        .ok_or_else(|| format!("{v} is no number"))
+        .expect("a number")
 }
 
 fn versions(keys: u64, above: u64, at_or_below: u64) -> Value {
@@ -35,7 +47,7 @@ fn versions(keys: u64, above: u64, at_or_below: u64) -> Value {
 fn test_a_rollup_run_reports_the_versions_its_rollups_and_compaction_leave() {
     let dir = fresh("small");
     let report = run_rollup(&RollupArgs::new(dir.clone(), 2, 3, 2)).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
     assert!(!report.contains('\n'), "one line: {report}");
     let r: Value = serde_json::from_str(&report).expect("the report is one JSON object");
     assert_eq!(r["run"], "rollup");
@@ -124,5 +136,5 @@ fn test_a_rollup_run_refuses_a_directory_that_exists() {
         matches!(&error.0, BenchErrorEnum::Usage(reason) if *reason == expected),
         "{error}"
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }

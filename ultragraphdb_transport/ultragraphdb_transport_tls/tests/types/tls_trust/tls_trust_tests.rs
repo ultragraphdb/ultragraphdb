@@ -104,13 +104,15 @@ fn test_the_system_bundle_is_the_file_ssl_cert_file_names() {
 fn path_of(result: Result<TlsTrust, ultragraphdb_transport_tls::TlsError>) -> String {
     match result {
         Ok(trust) => trust.source().to_string(),
-        Err(error) => match error.0 {
-            TlsErrorEnum::TrustStoreUnreadable { path, .. } => path,
-            TlsErrorEnum::TrustStoreEmpty(source) => source,
-            TlsErrorEnum::InvalidServerName(_) | TlsErrorEnum::HandshakeFailed { .. } => {
-                panic!("a trust store fails only on its source: {error:?}")
-            }
-        },
+        Err(error) => {
+            let path = match &error.0 {
+                TlsErrorEnum::TrustStoreUnreadable { path, .. } => Some(path.clone()),
+                TlsErrorEnum::TrustStoreEmpty(source) => Some(source.clone()),
+                TlsErrorEnum::InvalidServerName(_) | TlsErrorEnum::HandshakeFailed { .. } => None,
+            };
+            path.ok_or_else(|| format!("a trust store fails only on its source: {error:?}"))
+                .expect("a trust store's failure names its source")
+        }
     }
 }
 

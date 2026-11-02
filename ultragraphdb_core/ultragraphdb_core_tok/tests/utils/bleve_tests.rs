@@ -59,18 +59,22 @@ pub(crate) fn check_streams(name: &str, run: impl Fn(&str) -> Vec<AnalysisToken>
     for c in &cases {
         let input = untext(&c.input);
         let deviation = LOWERCASE_DEVIATIONS.iter().find(|(i, _)| *i == input);
-        let want = match (&c.fixed, deviation) {
-            (Some(fixed), Some(_)) => {
-                deviating += 1;
-                assert_ne!(
-                    decoded(fixed),
-                    decoded(&c.tokens),
-                    "{input:?}: Dgraph differs"
-                );
-                decoded(fixed)
-            }
-            (None, None) => decoded(&c.tokens),
-            (fixed, _) => panic!("{input:?}: fixed {fixed:?}, listed {deviation:?}"),
+        assert_eq!(
+            c.fixed.is_some(),
+            deviation.is_some(),
+            "{input:?}: fixed {:?}, listed {deviation:?}",
+            c.fixed
+        );
+        let want = if let Some(fixed) = &c.fixed {
+            deviating += 1;
+            assert_ne!(
+                decoded(fixed),
+                decoded(&c.tokens),
+                "{input:?}: Dgraph differs"
+            );
+            decoded(fixed)
+        } else {
+            decoded(&c.tokens)
         };
         let got = stream(&run(&input));
         if got != want {

@@ -45,7 +45,9 @@ pub fn property_graph_view<'a>(
                         values.push(literal.clone());
                         values.sort_by_key(Literal::to_string);
                     }
-                    _ => *value = PgValue::Scalar(literal.clone()),
+                    PgValue::List(_) | PgValue::Scalar(_) => {
+                        *value = PgValue::Scalar(literal.clone());
+                    }
                 }
             }
             (object, _) => {
@@ -129,6 +131,6 @@ fn node_of(object: &Term) -> Option<NamedOrBlankNode> {
     match object {
         Term::NamedNode(n) => Some(n.clone().into()),
         Term::BlankNode(b) => Some(b.clone().into()),
-        _ => None,
+        Term::Literal(_) | Term::Triple(_) => None,
     }
 }

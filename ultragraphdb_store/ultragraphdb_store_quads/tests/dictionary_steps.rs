@@ -39,9 +39,14 @@ fn term(text: &str) -> Term {
 fn statement(text: &str) -> Quad {
     let (s, rest) = text.split_once(' ').expect("a subject");
     let (p, o) = rest.split_once(' ').expect("a predicate");
-    let named = |t: Term| match t {
-        Term::NamedNode(n) => n,
-        other => panic!("{other} is no IRI"),
+    let named = |t: Term| {
+        match t {
+            Term::NamedNode(n) => Ok(n),
+            other @ (Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_)) => {
+                Err(format!("{other} is no IRI"))
+            }
+        }
+        .expect("a statement's subject and predicate are IRIs")
     };
     Quad::new(
         named(term(s)),
@@ -77,8 +82,9 @@ fn pass(w: &mut Steps) -> u64 {
 }
 
 #[given(regex = r"^(`.+`) (?:is|are) held$")]
-fn held(w: &mut Steps, statements: String) {
-    let quads: Vec<Quad> = quoted(&statements).iter().map(|t| statement(t)).collect();
+fn held(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
+    let quads: Vec<Quad> = quoted(statements).iter().map(|t| statement(t)).collect();
     write(store(w), 0, &quads);
 }
 
@@ -88,26 +94,29 @@ fn shapes_current(w: &mut Steps) {
 }
 
 #[given(regex = r"^`(.+)` is held and the shapes are current$")]
-fn held_and_current(w: &mut Steps, text: String) {
-    write(store(w), 0, &[statement(&text)]);
+fn held_and_current(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    write(store(w), 0, &[statement(text)]);
     pass(w);
 }
 
 #[given(
     regex = r"^`(\w+)` is declared a single-valued property of `(\w+)` with datatype `xsd:string`$"
 )]
-fn declared(w: &mut Steps, predicate: String, domain: String) {
-    let declaration = PredicateDeclaration::new(ex(&predicate))
+fn declared(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let domain = &args[1];
+    let declaration = PredicateDeclaration::new(ex(predicate))
         .with_kind(PredicateKind::Property)
         .with_cardinality(Cardinality::Single)
         .with_datatype(xsd::STRING.into_owned())
-        .with_domains(vec![ex(&domain)]);
+        .with_domains(vec![ex(domain)]);
     let store = store(w);
     // One write assigns the predicate its UID and commits the declaration under it.
     let mut write = insert_write(store, 0, &[]);
     let (terms, q) = write.terms();
     let p = terms
-        .iri(q.store(), q.leases(), ex(&predicate).as_str())
+        .iri(q.store(), q.leases(), ex(predicate).as_str())
         .expect("a UID");
     write.request().add_entry(Catalog::entry(
         0,
@@ -121,19 +130,21 @@ fn declared(w: &mut Steps, predicate: String, domain: String) {
 }
 
 #[when(regex = r"^`(.+)` is written and the next pass completes$")]
-fn written_then_pass(w: &mut Steps, text: String) {
-    write(store(w), 0, &[statement(&text)]);
+fn written_then_pass(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    write(store(w), 0, &[statement(text)]);
     let ts = pass(w);
     w.ts.push(ts);
 }
 
 #[when(regex = r"^`(.+)` is written while a pass over the snapshot before it runs$")]
-fn written_during_pass(w: &mut Steps, text: String) {
+fn written_during_pass(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let d = dictionary(w);
     let store = store(w);
     let before = store.lists().applied_ts();
     let during = d.run_pass(store, before).expect("the pass completes");
-    let write = insert_write(store, 0, &[statement(&text)]);
+    let write = insert_write(store, 0, &[statement(text)]);
     let (request, terms) = write.finish();
     let read_nothing = request.read_keys().next().is_none();
     let mut batch = store.lists().batch();
@@ -148,52 +159,62 @@ fn written_during_pass(w: &mut Steps, text: String) {
 }
 
 #[then(regex = r"^the dictionary lists the label `(\w+)`$")]
-fn lists_label(w: &mut Steps, label: String) {
-    assert!(describe(w).labels().contains(ex(&label).as_str()));
+fn lists_label(w: &mut Steps, args: &[String]) {
+    let label = &args[0];
+    assert!(describe(w).labels().contains(ex(label).as_str()));
 }
 
 #[then(
     regex = r"^the dictionary lists the property `(\w+)` of `(\w+)` with datatype `xsd:string`$"
 )]
-fn lists_property(w: &mut Steps, property: String, label: String) {
+fn lists_property(w: &mut Steps, args: &[String]) {
+    let property = &args[0];
+    let label = &args[1];
     let d = describe(w);
-    assert!(d.property_keys().contains(ex(&property).as_str()));
-    let shape = &d.shapes()[ex(&label).as_str()].properties()[ex(&property).as_str()];
+    assert!(d.property_keys().contains(ex(property).as_str()));
+    let shape = &d.shapes()[ex(label).as_str()].properties()[ex(property).as_str()];
     assert_eq!(shape.kinds(), &[xsd::STRING.as_str().to_string()].into());
 }
 
 #[then(regex = r"^the dictionary lists the relationship type `(\w+)` from `(\w+)` to `(\w+)`$")]
-fn lists_relationship(w: &mut Steps, relationship: String, from: String, to: String) {
+fn lists_relationship(w: &mut Steps, args: &[String]) {
+    let relationship = &args[0];
+    let from = &args[1];
+    let to = &args[2];
     let d = describe(w);
-    assert!(d.relationship_types().contains(ex(&relationship).as_str()));
-    let targets = &d.shapes()[ex(&from).as_str()].relationships()[ex(&relationship).as_str()];
-    assert_eq!(targets, &[ex(&to).as_str().to_string()].into());
+    assert!(d.relationship_types().contains(ex(relationship).as_str()));
+    let targets = &d.shapes()[ex(from).as_str()].relationships()[ex(relationship).as_str()];
+    assert_eq!(targets, &[ex(to).as_str().to_string()].into());
 }
 
 #[then(
     regex = r"^the dictionary reports `(\w+)` on `(\w+)`, single-valued, of datatype `xsd:string`$"
 )]
-fn reports_declared(w: &mut Steps, property: String, label: String) {
+fn reports_declared(w: &mut Steps, args: &[String]) {
+    let property = &args[0];
+    let label = &args[1];
     let d = describe(w);
-    assert!(d.labels().contains(ex(&label).as_str()));
-    let shape = &d.shapes()[ex(&label).as_str()].properties()[ex(&property).as_str()];
+    assert!(d.labels().contains(ex(label).as_str()));
+    let shape = &d.shapes()[ex(label).as_str()].properties()[ex(property).as_str()];
     assert_eq!(shape.cardinality(), Cardinality::Single);
     assert_eq!(shape.kinds(), &[xsd::STRING.as_str().to_string()].into());
     assert!(
         d.predicates()
             .iter()
-            .any(|p| p.predicate() == &ex(&property))
+            .any(|p| p.predicate() == &ex(property))
     );
 }
 
 #[then(regex = r"^the dictionary lists `(\w+)` on `(\w+)`, with the pass's snapshot timestamp$")]
-fn lists_after_pass(w: &mut Steps, property: String, label: String) {
+fn lists_after_pass(w: &mut Steps, args: &[String]) {
+    let property = &args[0];
+    let label = &args[1];
     let ts = *w.ts.last().expect("a pass");
     let d = describe(w);
     assert!(
-        d.shapes()[ex(&label).as_str()]
+        d.shapes()[ex(label).as_str()]
             .properties()
-            .contains_key(ex(&property).as_str())
+            .contains_key(ex(property).as_str())
     );
     assert_eq!(d.shapes_ts(), Some(ts));
 }

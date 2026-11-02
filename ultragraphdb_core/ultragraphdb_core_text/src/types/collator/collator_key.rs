@@ -113,7 +113,8 @@ fn append_primary(key: &mut Vec<u8>, p: i32) {
 /// Applies the handling of variables to the weights.
 pub(crate) fn process_weights(vw: AlternateHandling, top: u32, wa: &mut [Elem]) {
     let mut ignore = false;
-    let vtop = top as i32;
+    // A primary weight, which takes fewer than 31 bits, so the bits are the value.
+    let vtop = top.cast_signed();
     match vw {
         AlternateHandling::Shifted | AlternateHandling::ShiftTrimmed => {
             for e in wa.iter_mut() {

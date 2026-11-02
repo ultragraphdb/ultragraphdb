@@ -203,10 +203,15 @@ impl Conversation {
         let received = match ready(self.server.read_frame(&self.pool)) {
             Ok(received) => received,
             Err(refusal) => {
-                let TransportErrorEnum::Protocol { error } = refusal.0 else {
-                    panic!("{refusal:?}");
+                let protocol = if let TransportErrorEnum::Protocol { error } = &refusal.0 {
+                    Some(error)
+                } else {
+                    None
                 };
-                return self.connection.refuse_connection(&error);
+                let error = protocol
+                    .ok_or_else(|| format!("{refusal:?}"))
+                    .expect("the framer refuses by a protocol rule");
+                return self.connection.refuse_connection(error);
             }
         };
         let inbound = self.connection.receive(&received, self.now);

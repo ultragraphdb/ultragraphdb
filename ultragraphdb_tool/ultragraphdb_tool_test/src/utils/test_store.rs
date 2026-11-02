@@ -24,7 +24,8 @@ impl TestDir {
         let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = root.join(format!("kv-{name}-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory an earlier run left behind, which is usually absent.
+        drop(std::fs::remove_dir_all(&dir));
         Self(dir)
     }
 
@@ -39,7 +40,8 @@ impl TestDir {
 
 impl Drop for TestDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&self.0));
     }
 }
 

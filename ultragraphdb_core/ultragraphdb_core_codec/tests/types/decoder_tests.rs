@@ -32,11 +32,13 @@ fn golden_cases() -> Vec<SeekCase> {
 }
 
 fn whence(name: &str) -> SeekPos {
-    match name {
-        "start" => SeekPos::Start,
-        "current" => SeekPos::Current,
-        other => panic!("unknown whence {other:?}"),
-    }
+    let pos = match name {
+        "start" => Some(SeekPos::Start),
+        "current" => Some(SeekPos::Current),
+        _ => None,
+    };
+    pos.ok_or_else(|| format!("unknown whence {name:?}"))
+        .expect("a whence the golden file names")
 }
 
 fn pack(case: &SeekCase) -> UidPack {

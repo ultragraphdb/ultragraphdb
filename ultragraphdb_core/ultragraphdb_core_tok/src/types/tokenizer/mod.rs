@@ -99,7 +99,13 @@ impl Tokenizer {
             Kind::Year | Kind::Month | Kind::Day | Kind::Hour => "datetime",
             Kind::Bool => "bool",
             Kind::Factory(_) => "float32vector",
-            _ => "string",
+            Kind::Term(_)
+            | Kind::Exact(_)
+            | Kind::Trigram
+            | Kind::Hash
+            | Kind::FullText(_)
+            | Kind::NGram(_)
+            | Kind::Sha256 => "string",
         }
     }
 
@@ -113,7 +119,13 @@ impl Tokenizer {
             Kind::Year | Kind::Month | Kind::Day | Kind::Hour => TypeId::DATETIME,
             Kind::Bool => TypeId::BOOL,
             Kind::Factory(_) => TypeId::VFLOAT,
-            _ => TypeId::STRING,
+            Kind::Term(_)
+            | Kind::Exact(_)
+            | Kind::Trigram
+            | Kind::Hash
+            | Kind::FullText(_)
+            | Kind::NGram(_)
+            | Kind::Sha256 => TypeId::STRING,
         }
     }
 
@@ -181,7 +193,22 @@ impl Tokenizer {
                 p.push(IDENT_DELIMITER);
                 Some(p)
             }
-            _ => None,
+            Kind::BigFloat
+            | Kind::Geo
+            | Kind::Int
+            | Kind::Float
+            | Kind::Year
+            | Kind::Month
+            | Kind::Day
+            | Kind::Hour
+            | Kind::Term(_)
+            | Kind::Bool
+            | Kind::Trigram
+            | Kind::Hash
+            | Kind::FullText(_)
+            | Kind::NGram(_)
+            | Kind::Sha256
+            | Kind::Factory(_) => None,
         }
     }
 
@@ -189,7 +216,22 @@ impl Tokenizer {
     pub fn index_factory(&self) -> Option<&VectorIndexFactory> {
         match &self.0 {
             Kind::Factory(f) => Some(f),
-            _ => None,
+            Kind::BigFloat
+            | Kind::Geo
+            | Kind::Int
+            | Kind::Float
+            | Kind::Year
+            | Kind::Month
+            | Kind::Day
+            | Kind::Hour
+            | Kind::Term(_)
+            | Kind::Exact(_)
+            | Kind::Bool
+            | Kind::Trigram
+            | Kind::Hash
+            | Kind::FullText(_)
+            | Kind::NGram(_)
+            | Kind::Sha256 => None,
         }
     }
 }

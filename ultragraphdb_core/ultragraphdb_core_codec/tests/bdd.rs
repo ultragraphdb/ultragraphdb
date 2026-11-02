@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::ParseIntError;
+use std::str::FromStr;
+
 use cucumber::{World, given, then, when};
 use serde::Deserialize;
 use ultragraphdb_core_codec::{
@@ -46,21 +49,64 @@ struct Steps {
     decoded: Vec<Result<PostingList, StoreError>>,
 }
 
-fn parse_uids(text: &str) -> Vec<u64> {
-    text.split(',')
-        .map(|s| s.trim().parse().expect("a UID"))
-        .collect()
+/// A UID list a step names, `1, 2, 3`.
+struct Uids(Vec<u64>);
+
+impl FromStr for Uids {
+    type Err = ParseIntError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.split(',')
+            .map(|s| s.trim().parse())
+            .collect::<Result<_, _>>()
+            .map(Uids)
+    }
+}
+
+/// An inclusive UID range a step names, `1-10`.
+struct UidRange(Vec<u64>);
+
+impl FromStr for UidRange {
+    type Err = String;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let (from, to) = text.split_once('-').ok_or("a range")?;
+        let uid = |s: &str| s.parse::<u64>().map_err(|e| format!("a UID: {e}"));
+        Ok(UidRange((uid(from)?..=uid(to)?).collect()))
+    }
+}
+
+/// Bytes a step names in hex, `0a ff`.
+struct HexBytes(Vec<u8>);
+
+impl FromStr for HexBytes {
+    type Err = ParseIntError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.split_whitespace()
+            .map(|b| u8::from_str_radix(b, 16))
+            .collect::<Result<_, _>>()
+            .map(HexBytes)
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn whence(name: &str) -> SeekPos {
-    match name {
-        "SeekStart" => SeekPos::Start,
-        "SeekCurrent" => SeekPos::Current,
-        other => panic!("unknown seek position {other}"),
+/// A seek position a step names, Go's `SeekStart` or `SeekCurrent`.
+#[derive(Clone, Copy)]
+struct Whence(SeekPos);
+
+impl FromStr for Whence {
+    type Err = String;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        match name {
+            "SeekStart" => Ok(Whence(SeekPos::Start)),
+            "SeekCurrent" => Ok(Whence(SeekPos::Current)),
+            other => Err(format!("unknown seek position {other}")),
+        }
     }
 }
 
@@ -114,8 +160,8 @@ fn golden_equal(w: &mut Steps) {
 }
 
 #[given(expr = "the UID list {string}")]
-fn uid_list(w: &mut Steps, text: String) {
-    w.uids = parse_uids(&text);
+fn uid_list(w: &mut Steps, uids: Uids) {
+    w.uids = uids.0;
 }
 
 #[when(expr = "the list is encoded with block size {int}")]
@@ -129,20 +175,18 @@ fn block_count(w: &mut Steps, n: usize) {
 }
 
 #[then(expr = "the block bases are {string}")]
-fn block_bases(w: &mut Steps, text: String) {
+fn block_bases(w: &mut Steps, want: Uids) {
+    let Uids(want) = want;
     let bases: Vec<u64> = pack_of(w).blocks().iter().map(UidBlock::base).collect();
-    assert_eq!(bases, parse_uids(&text));
+    assert_eq!(bases, want);
 }
 
 #[then(expr = "block {int} has base {int}, count {int} and deltas {string}")]
-fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: String) {
+fn block_is(w: &mut Steps, index: usize, base: u64, count: u32, deltas: HexBytes) {
+    let HexBytes(want) = deltas;
     let block = &pack_of(w).blocks()[index - 1];
     assert_eq!(block.base(), base);
     assert_eq!(block.num_uids(), count);
-    let want: Vec<u8> = deltas
-        .split_whitespace()
-        .map(|b| u8::from_str_radix(b, 16).expect("a hex byte"))
-        .collect();
     ultragraphdb_tool_bdd::compare_bytes(&format!("block {index}"), &want, block.deltas()).unwrap();
 }
 
@@ -193,8 +237,8 @@ fn decode_from(w: &mut Steps, target: u64) {
 }
 
 #[when(expr = "a decoder seeks {int} with {word}")]
-fn seek(w: &mut Steps, target: u64, name: String) {
-    let pos = whence(&name);
+fn seek(w: &mut Steps, target: u64, whence: Whence) {
+    let Whence(pos) = whence;
     w.seek = Some((target, pos));
     w.result = Decoder::sought(pack_of(w), target, pos).uids().to_vec();
 }
@@ -224,20 +268,16 @@ fn result_holds(w: &mut Steps, n: usize, first: u64, last: u64) {
 }
 
 #[when(expr = "a decoder seeks to block {int} and then to block {int} with {word}")]
-fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, name: String) {
-    let pos = whence(&name);
+fn seek_to_block_twice(w: &mut Steps, first: u64, second: u64, whence: Whence) {
+    let Whence(pos) = whence;
     let mut decoder = Decoder::new(pack_of(w));
     decoder.seek_to_block(first, pos);
     w.result = decoder.seek_to_block(second, pos).to_vec();
 }
 
 #[given(expr = "a pack of the blocks {string}, an empty block of base {int}, and {string}")]
-fn pack_with_empty_block(w: &mut Steps, first: String, base: u64, last: String) {
-    let range = |text: &str| -> Vec<u64> {
-        let (from, to) = text.split_once('-').expect("a range");
-        (from.parse().expect("a UID")..=to.parse().expect("a UID")).collect()
-    };
-    let (first, last) = (range(&first), range(&last));
+fn pack_with_empty_block(w: &mut Steps, first: UidRange, base: u64, last: UidRange) {
+    let (UidRange(first), UidRange(last)) = (first, last);
     let mut blocks = encode(&first, 10)
         .expect("the first block packs")
         .blocks()
@@ -250,8 +290,8 @@ fn pack_with_empty_block(w: &mut Steps, first: String, base: u64, last: String) 
 }
 
 #[when(expr = "a decoder seeks to block {int} with {word}")]
-fn seek_to_block_once(w: &mut Steps, target: u64, name: String) {
-    let pos = whence(&name);
+fn seek_to_block_once(w: &mut Steps, target: u64, whence: Whence) {
+    let Whence(pos) = whence;
     w.result = Decoder::new(pack_of(w)).seek_to_block(target, pos).to_vec();
 }
 
@@ -261,8 +301,9 @@ fn linear_seek(w: &mut Steps, target: u64) {
 }
 
 #[then(expr = "the result is {string}")]
-fn result_is(w: &mut Steps, text: String) {
-    assert_eq!(w.result, parse_uids(&text));
+fn result_is(w: &mut Steps, want: Uids) {
+    let Uids(want) = want;
+    assert_eq!(w.result, want);
 }
 
 #[given("a list with a UID pack, value postings with statement IDs and splits")]
@@ -325,10 +366,11 @@ fn flip_each_byte(w: &mut Steps) {
 
 #[then(expr = "every read fails with a corruption error naming the key {string}")]
 fn every_read_corrupted(w: &mut Steps, key: String) {
+    let key = key.into_bytes();
     assert_eq!(w.decoded.len(), w.stored.len());
     for (at, result) in w.decoded.iter().enumerate() {
         assert!(
-            matches!(result, Err(StoreError(StoreErrorEnum::Corrupted { key: k, .. })) if *k == key.as_bytes()),
+            matches!(result, Err(StoreError(StoreErrorEnum::Corrupted { key: k, .. })) if *k == key),
             "byte {at}: {result:?}"
         );
     }

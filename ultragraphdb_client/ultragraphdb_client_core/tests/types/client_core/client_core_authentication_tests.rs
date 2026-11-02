@@ -16,7 +16,8 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::utils::harness::{
-    CLUSTER, Harness, TestLogin, UNIX, config, login, nonce, received, scram_welcome, start,
+    CLUSTER, Harness, TestLogin, UNIX, begun, committed, config, login, nonce, received,
+    registered, scram_welcome, start,
 };
 
 /// The test server asking for SCRAM-SHA-256.
@@ -66,7 +67,7 @@ fn test_requests_wait_for_the_final_authenticate() {
     let now = start();
     let mut core = ClientCore::new(config(), login());
     core.connect(now, UNIX).unwrap();
-    let _ = core.transmit();
+    let _hello: Option<Vec<u8>> = core.transmit();
     core.receive(received(&pool, &welcome_frame()).unwrap(), now)
         .unwrap();
     assert!(!core.is_ready(), "authenticating");
@@ -110,7 +111,7 @@ fn test_a_login_speaking_no_offered_mechanism_gives_the_connection_up() {
     let now = start();
     let mut core = ClientCore::new(config(), Anonymous);
     core.connect(now, UNIX).unwrap();
-    let _ = core.transmit();
+    let _hello: Option<Vec<u8>> = core.transmit();
     let refused = core
         .receive(received(&pool, &welcome_frame()).unwrap(), now)
         .unwrap_err();
@@ -150,9 +151,7 @@ fn test_a_credential_is_renewed_before_it_expires_while_a_read_streams() {
     let first = UNIX + life.as_micros() as u64;
     assert_eq!(h.core.expires(), Some(first));
     let p = h.core.begin(0, true, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
+    let tx = begun(h.settle(p));
     let stream = h.core.read(&tx, &read(tx.stream()), h.now).unwrap();
     h.until(|h| h.server.received().len() >= 5);
     while h.step() {}
@@ -175,11 +174,14 @@ fn test_a_credential_is_renewed_before_it_expires_while_a_read_streams() {
     let mut batches = 0;
     h.until(|h| {
         loop {
-            match h.core.next_batch(&stream, h.now, |_| ()) {
-                Ok(BatchPoll::Batch(())) => batches += 1,
-                Ok(BatchPoll::Done) => return true,
-                Ok(BatchPoll::Wait) => return false,
-                Err(e) => panic!("{e:?}"),
+            match h
+                .core
+                .next_batch(&stream, h.now, |_| ())
+                .expect("a batch, the end or a wait")
+            {
+                BatchPoll::Batch(()) => batches += 1,
+                BatchPoll::Done => return true,
+                BatchPoll::Wait => return false,
             }
         }
     });
@@ -356,18 +358,12 @@ fn test_a_server_that_does_not_prove_itself_gives_the_connection_up() {
 fn test_a_commit_lost_with_its_connection_is_retried_once_the_next_one_authenticated() {
     let mut h = Harness::authenticated(scram_server());
     let p = h.core.register(h.now).unwrap();
-    let Ok(Reply::Registered(session)) = h.settle(p) else {
-        panic!("a session")
-    };
+    let session = registered(h.settle(p));
     let p = h.core.begin(0, false, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
+    let tx = begun(h.settle(p));
     h.server.drop_after_next_commit();
     let p = h.core.commit(tx, session, h.now).unwrap();
-    let Ok(Reply::Committed(committed)) = h.settle(p) else {
-        panic!("committed through the retry")
-    };
+    let committed = committed(h.settle(p));
     assert_eq!(committed.request(), 1);
     assert_eq!(h.server.applied(), 1);
     assert_eq!(h.connections, 2);

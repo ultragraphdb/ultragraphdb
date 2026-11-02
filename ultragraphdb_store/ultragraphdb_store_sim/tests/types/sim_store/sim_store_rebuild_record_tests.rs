@@ -239,12 +239,14 @@ fn test_drawn_rebuild_faults_stop_rebuilds() {
     ] {
         let stopped = (0..32).any(|seed| {
             let s = SimStore::new(Seed::new(seed), faults, SimClock::new());
-            let _ = s.write_rebuild_record(&record(4));
+            // Any step may be where the fault stops the rebuild; the log says which, so the answers are not read.
+            drop(s.write_rebuild_record(&record(4)));
             if !s.needs_recovery() {
-                let _ = s
-                    .create_temporary()
-                    .and_then(|t| s.apply_temporary(&t, WriteBatch::new()));
-                let _ = s.apply(swap(4, 5), PersistMode::Buffer);
+                drop(
+                    s.create_temporary()
+                        .and_then(|t| s.apply_temporary(&t, WriteBatch::new())),
+                );
+                drop(s.apply(swap(4, 5), PersistMode::Buffer));
             }
             s.take_log().iter().any(|r| {
                 matches!(r, OpRecord::RebuildInterrupted { power_loss: p, .. } if *p == power_loss)

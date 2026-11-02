@@ -201,25 +201,34 @@ fn s1_interval_contains() {
 #[test]
 fn s1_interval_operations() {
     let t = fixtures();
-    let quad12eps = ep(t.quad12.lo(), t.mid23.hi());
-    let quad2hi = ep(t.mid23.lo(), t.quad12.hi());
-    let quad412eps = ep(t.mid34.lo(), t.quad12.hi());
-    let quadeps12 = ep(t.mid41.lo(), t.quad12.hi());
-    let quad1lo = ep(t.quad12.lo(), t.mid41.hi());
-    let quad2lo = ep(t.quad23.lo(), t.mid12.hi());
-    let quad3hi = ep(t.mid34.lo(), t.quad23.hi());
-    let quadeps23 = ep(t.mid12.lo(), t.quad23.hi());
-    let quad23eps = ep(t.quad23.lo(), t.mid34.hi());
-    let quadeps123 = ep(t.mid41.lo(), t.quad23.hi());
+    let tests = [
+        point_operations(&t),
+        quadrant_operations(&t),
+        mid_operations(&t),
+    ]
+    .concat();
+    for (n, (x, y, contains, intersects, union, intersection)) in tests.into_iter().enumerate() {
+        assert_eq!(
+            x.contains_interval(y),
+            contains,
+            "{n}: {x:?} contains {y:?}"
+        );
+        assert_eq!(x.intersects(y), intersects, "{n}: {x:?} intersects {y:?}");
+        assert_eq!(x.union(y), union, "{n}: {x:?} ∪ {y:?}");
+        assert_eq!(x.intersection(y), intersection, "{n}: {x:?} ∩ {y:?}");
+    }
+}
+
+/// One TestIntervalOperations case: x, y, x contains y, x intersects y, their union and intersection.
+type OpCase = (S1Interval, S1Interval, bool, bool, S1Interval, S1Interval);
+
+/// The cases whose x is empty, full, zero or π/2.
+fn point_operations(t: &Fixtures) -> Vec<OpCase> {
     let (empty, full, zero, pi2, pi, mipi, mipi2) =
         (t.empty, t.full, t.zero, t.pi2, t.pi, t.mipi, t.mipi2);
-    let (quad1, quad2, quad3, quad4) = (t.quad1, t.quad2, t.quad3, t.quad4);
-    let (quad12, quad23, quad34, quad123, quad234) =
-        (t.quad12, t.quad23, t.quad34, t.quad123, t.quad234);
-    let (mid12, mid23, mid34, mid41) = (t.mid12, t.mid23, t.mid34, t.mid41);
-
-    // (x, y, x contains y, x intersects y, union, intersection)
-    let tests = [
+    let (quad1, quad2, quad4) = (t.quad1, t.quad2, t.quad4);
+    let (quad12, quad23, quad123) = (t.quad12, t.quad23, t.quad123);
+    vec![
         (empty, empty, true, false, empty, empty),
         (empty, full, false, false, full, empty),
         (empty, zero, false, false, zero, empty),
@@ -250,6 +259,17 @@ fn s1_interval_operations() {
         (pi2, mipi2, false, false, quad23, empty),
         (pi2, quad12, false, true, quad12, pi2),
         (pi2, quad23, false, true, quad23, pi2),
+    ]
+}
+
+/// The cases whose x is π, -π or a quadrant, against the standard intervals.
+fn quadrant_operations(t: &Fixtures) -> Vec<OpCase> {
+    let (empty, full, zero, pi2, pi, mipi, mipi2) =
+        (t.empty, t.full, t.zero, t.pi2, t.pi, t.mipi, t.mipi2);
+    let (quad1, quad2, quad3) = (t.quad1, t.quad2, t.quad3);
+    let (quad12, quad23, quad34, quad123, quad234) =
+        (t.quad12, t.quad23, t.quad34, t.quad123, t.quad234);
+    vec![
         (pi, empty, true, false, pi, empty),
         (pi, full, false, true, full, pi),
         (pi, zero, false, false, ep(PI, 0.0), empty),
@@ -291,6 +311,24 @@ fn s1_interval_operations() {
         (quad2, mipi, true, true, quad2, mipi),
         (quad3, pi, true, true, quad3, pi),
         (quad3, mipi, true, true, quad3, mipi),
+    ]
+}
+
+/// The cases pairing a quadrant pair with the small intervals around the quadrant boundaries.
+fn mid_operations(t: &Fixtures) -> Vec<OpCase> {
+    let quad12eps = ep(t.quad12.lo(), t.mid23.hi());
+    let quad2hi = ep(t.mid23.lo(), t.quad12.hi());
+    let quad412eps = ep(t.mid34.lo(), t.quad12.hi());
+    let quadeps12 = ep(t.mid41.lo(), t.quad12.hi());
+    let quad1lo = ep(t.quad12.lo(), t.mid41.hi());
+    let quad2lo = ep(t.quad23.lo(), t.mid12.hi());
+    let quad3hi = ep(t.mid34.lo(), t.quad23.hi());
+    let quadeps23 = ep(t.mid12.lo(), t.quad23.hi());
+    let quad23eps = ep(t.quad23.lo(), t.mid34.hi());
+    let quadeps123 = ep(t.mid41.lo(), t.quad23.hi());
+    let (empty, quad12, quad23) = (t.empty, t.quad12, t.quad23);
+    let (mid12, mid23, mid34, mid41) = (t.mid12, t.mid23, t.mid34, t.mid41);
+    vec![
         (quad12, mid12, true, true, quad12, mid12),
         (mid12, quad12, false, true, quad12, mid12),
         (quad12, mid23, false, true, quad12eps, quad2hi),
@@ -309,17 +347,7 @@ fn s1_interval_operations() {
         (mid34, quad23, false, true, quad23eps, quad3hi),
         (quad23, mid41, false, false, quadeps123, empty),
         (mid41, quad23, false, false, quadeps123, empty),
-    ];
-    for (n, (x, y, contains, intersects, union, intersection)) in tests.into_iter().enumerate() {
-        assert_eq!(
-            x.contains_interval(y),
-            contains,
-            "{n}: {x:?} contains {y:?}"
-        );
-        assert_eq!(x.intersects(y), intersects, "{n}: {x:?} intersects {y:?}");
-        assert_eq!(x.union(y), union, "{n}: {x:?} ∪ {y:?}");
-        assert_eq!(x.intersection(y), intersection, "{n}: {x:?} ∩ {y:?}");
-    }
+    ]
 }
 
 // Ported from golang/geo s1/interval_test.go, TestAddPoint.

@@ -40,7 +40,8 @@ fn test_the_scheduler_picks_every_actor_and_the_executor() {
             let pick: usize = l
                 .strip_prefix(&format!("step {i} picks "))
                 .and_then(|p| p.parse().ok())
-                .unwrap_or_else(|| panic!("{l}"));
+                .ok_or_else(|| l.to_string())
+                .expect("each step line names its pick");
             assert!(pick <= 3, "{l}");
             pick == 3
         })
@@ -89,7 +90,8 @@ fn test_a_broken_invariant_before_the_first_step_stops_the_run_at_step_0() {
     below.push(Entry::put(b"k".to_vec(), 4, 0, vec![]));
     let store = sim.context().store().clone();
     store.apply(deletion, PersistMode::Buffer).unwrap();
-    let _ = store.apply(below, PersistMode::Buffer);
+    // The store takes or refuses the write below the deletion; the model, reading its log, finds the breach.
+    drop(store.apply(below, PersistMode::Buffer));
     let mut called = false;
     let violation = sim
         .run(10, 1, |_, _| {

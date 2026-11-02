@@ -45,6 +45,6 @@ impl Catalog {
 pub fn datatype_of(object: TermRef<'_>) -> Option<&str> {
     match object {
         TermRef::Literal(l) => Some(l.datatype().as_str()),
-        _ => None,
+        TermRef::NamedNode(_) | TermRef::BlankNode(_) | TermRef::Triple(_) => None,
     }
 }

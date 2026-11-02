@@ -240,7 +240,11 @@ impl Geometry {
                 self.endss.push(g.ends.iter().map(|e| e + offset).collect());
                 self.flat_coords.extend_from_slice(&g.flat_coords);
             }
-            _ => {
+            GeometryKind::Point
+            | GeometryKind::LineString
+            | GeometryKind::Polygon
+            | GeometryKind::MultiPoint
+            | GeometryKind::MultiLineString => {
                 if g.layout != self.layout {
                     return Err(layout_error(g.layout, self.layout));
                 }
@@ -308,7 +312,12 @@ impl Geometry {
             match g.kind {
                 GeometryKind::GeometryCollection => stack.extend(&g.geoms),
                 _ if !g.flat_coords.is_empty() => return false,
-                _ => {}
+                GeometryKind::Point
+                | GeometryKind::LineString
+                | GeometryKind::Polygon
+                | GeometryKind::MultiPoint
+                | GeometryKind::MultiLineString
+                | GeometryKind::MultiPolygon => {}
             }
         }
         true

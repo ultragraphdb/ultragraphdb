@@ -322,84 +322,8 @@ fn parse_extension(scan: &mut Scanner) -> usize {
     let (start, mut end) = (scan.start, scan.end);
     match scan.token()[0] {
         b'u' => {
-            let attr_start = end;
-            scan.scan();
-            let mut last: Vec<u8> = Vec::new();
-            while scan.token_len() > 2 {
-                if scan.token() >= last.as_slice() {
-                    // Attributes are unsorted. Start over from scratch.
-                    let p = attr_start + 1;
-                    scan.next = p;
-                    let mut attrs: Vec<Vec<u8>> = Vec::new();
-                    scan.scan();
-                    while scan.token_len() > 2 {
-                        attrs.push(scan.token().to_vec());
-                        end = scan.end;
-                        scan.scan();
-                    }
-                    attrs.sort_by(|a, b| a[..3].cmp(&b[..3]));
-                    scan.copy_at(p, &attrs.join(&b'-'));
-                    break;
-                }
-                last = scan.token().to_vec();
-                end = scan.end;
-                scan.scan();
-            }
-            // Scan key-type sequences. A key is of length 2 and may be followed by 0 or more "type" subtags from 3
-            // to the maximum of 8 letters.
-            let attr_end = end;
-            let mut last: Vec<u8> = Vec::new();
-            while scan.token_len() == 2 {
-                let key = scan.token().to_vec();
-                end = scan.end;
-                scan.scan();
-                while end < scan.end && scan.token_len() > 2 {
-                    end = scan.end;
-                    scan.scan();
-                }
-                if key.as_slice() <= last.as_slice() || scan.err.is_some() {
-                    // We have an invalid key or the keys are not sorted. Start scanning keys from scratch and
-                    // reorder.
-                    let p = attr_end + 1;
-                    scan.next = p;
-                    let mut keys: Vec<Vec<u8>> = Vec::new();
-                    scan.scan();
-                    while scan.token_len() == 2 {
-                        let key_start = scan.start;
-                        end = scan.end;
-                        scan.scan();
-                        while end < scan.end && scan.token_len() > 2 {
-                            end = scan.end;
-                            scan.scan();
-                        }
-                        keys.push(scan.b()[key_start..end].to_vec());
-                    }
-                    keys.sort_by(|a, b| a[..2].cmp(&b[..2]));
-                    if !keys.is_empty() {
-                        let mut k = 0;
-                        for i in 1..keys.len() {
-                            if keys[k][..2] != keys[i][..2] {
-                                k += 1;
-                                keys[k] = keys[i].clone();
-                            } else if keys[k] != keys[i] {
-                                scan.set_error(Some(LanguageError::new(
-                                    LanguageErrorEnum::DuplicateKey,
-                                )));
-                            }
-                        }
-                        keys.truncate(k + 1);
-                    }
-                    let reordered = keys.join(&b'-');
-                    let e = p + reordered.len();
-                    if e < end {
-                        scan.delete_range(e, end);
-                        end = e;
-                    }
-                    scan.copy_at(p, &reordered);
-                    break;
-                }
-                last = key;
-            }
+            end = parse_u_attributes(scan, end);
+            end = parse_u_keys(scan, end);
         }
         b't' => {
             scan.scan();
@@ -419,6 +343,93 @@ fn parse_extension(scan: &mut Scanner) -> usize {
         _ => {
             end = scan.accept_min_size(2);
         }
+    }
+    end
+}
+
+/// The attributes of a `u` extension whose singleton ends at `end`, sorted in place; the position of their end.
+fn parse_u_attributes(scan: &mut Scanner, mut end: usize) -> usize {
+    let attr_start = end;
+    scan.scan();
+    let mut last: Vec<u8> = Vec::new();
+    while scan.token_len() > 2 {
+        if scan.token() >= last.as_slice() {
+            // Attributes are unsorted. Start over from scratch.
+            let p = attr_start + 1;
+            scan.next = p;
+            let mut attrs: Vec<Vec<u8>> = Vec::new();
+            scan.scan();
+            while scan.token_len() > 2 {
+                attrs.push(scan.token().to_vec());
+                end = scan.end;
+                scan.scan();
+            }
+            attrs.sort_by(|a, b| a[..3].cmp(&b[..3]));
+            scan.copy_at(p, &attrs.join(&b'-'));
+            break;
+        }
+        last = scan.token().to_vec();
+        end = scan.end;
+        scan.scan();
+    }
+    end
+}
+
+/// The key-type sequences of a `u` extension after its attributes, which end at `end`, sorted and deduplicated in
+/// place; the position of their end.
+fn parse_u_keys(scan: &mut Scanner, mut end: usize) -> usize {
+    // Scan key-type sequences. A key is of length 2 and may be followed by 0 or more "type" subtags from 3
+    // to the maximum of 8 letters.
+    let attr_end = end;
+    let mut last: Vec<u8> = Vec::new();
+    while scan.token_len() == 2 {
+        let key = scan.token().to_vec();
+        end = scan.end;
+        scan.scan();
+        while end < scan.end && scan.token_len() > 2 {
+            end = scan.end;
+            scan.scan();
+        }
+        if key.as_slice() <= last.as_slice() || scan.err.is_some() {
+            // We have an invalid key or the keys are not sorted. Start scanning keys from scratch and
+            // reorder.
+            let p = attr_end + 1;
+            scan.next = p;
+            let mut keys: Vec<Vec<u8>> = Vec::new();
+            scan.scan();
+            while scan.token_len() == 2 {
+                let key_start = scan.start;
+                end = scan.end;
+                scan.scan();
+                while end < scan.end && scan.token_len() > 2 {
+                    end = scan.end;
+                    scan.scan();
+                }
+                keys.push(scan.b()[key_start..end].to_vec());
+            }
+            keys.sort_by(|a, b| a[..2].cmp(&b[..2]));
+            if !keys.is_empty() {
+                let mut k = 0;
+                for i in 1..keys.len() {
+                    if keys[k][..2] != keys[i][..2] {
+                        k += 1;
+                        keys[k] = keys[i].clone();
+                    } else if keys[k] != keys[i] {
+                        scan.set_error(Some(LanguageError::new(LanguageErrorEnum::DuplicateKey)));
+                    }
+                }
+                keys.truncate(k + 1);
+            }
+            let reordered = keys.join(&b'-');
+            let e = p + reordered.len();
+            if e < end {
+                scan.delete_range(e, end);
+                end = e;
+            }
+            scan.copy_at(p, &reordered);
+            break;
+        }
+        last = key;
     }
     end
 }

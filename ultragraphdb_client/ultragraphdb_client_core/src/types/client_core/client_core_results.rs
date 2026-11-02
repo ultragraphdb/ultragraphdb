@@ -111,7 +111,7 @@ impl<L: Login> ClientCore<L> {
             }
             Arrived::Broken(error) => {
                 self.streams.remove(&id);
-                self.lose(ClientError::ConnectionLost(Some(error.clone())));
+                self.lose(&ClientError::ConnectionLost(Some(error.clone())));
                 Err(error)
             }
         }

@@ -11,10 +11,15 @@ fn args(line: &str) -> Vec<String> {
 
 /// The reason a refused run gives.
 fn refused(line: &str) -> String {
-    match PipelineArgs::parse(&args(line)).unwrap_err().0 {
-        BenchErrorEnum::Usage(reason) => reason,
-        other => panic!("a usage error, not {other:?}"),
-    }
+    let error = PipelineArgs::parse(&args(line)).unwrap_err().0;
+    let reason = if let BenchErrorEnum::Usage(reason) = &error {
+        Some(reason.clone())
+    } else {
+        None
+    };
+    reason
+        .ok_or_else(|| format!("a usage error, not {error:?}"))
+        .expect("a usage error")
 }
 
 #[test]

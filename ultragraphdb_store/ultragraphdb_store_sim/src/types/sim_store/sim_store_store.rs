@@ -153,7 +153,7 @@ impl Store for SimStore {
     }
 
     fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
-        lock(self.shared()).drop_temporary(temporary)
+        lock(self.shared()).drop_temporary(&temporary)
     }
 
     fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {

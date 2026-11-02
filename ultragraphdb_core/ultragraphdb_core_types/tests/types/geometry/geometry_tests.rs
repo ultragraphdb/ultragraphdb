@@ -21,9 +21,11 @@ fn test_parse() {
         let g = convert(&Val::bytes(TypeId::STRING, v.as_bytes()), TypeId::GEO).unwrap();
         let text = marshal(&g, TypeId::STRING).unwrap();
         assert_eq!(text.value(), Some(&Value::str(v)));
-        let Some(Value::Bytes(wkb)) = marshal(&g, TypeId::BINARY).unwrap().into_value() else {
-            panic!()
-        };
+        let wkb = match marshal(&g, TypeId::BINARY).unwrap().into_value() {
+            Some(Value::Bytes(wkb)) => Ok(wkb),
+            other => Err(format!("{other:?}")),
+        }
+        .expect("marshalling to binary gives bytes");
         let back = convert(&Val::bytes(TypeId::GEO, wkb), TypeId::GEO).unwrap();
         assert_eq!(back, g);
     }
@@ -159,7 +161,11 @@ fn test_flat_representation_and_accessors() {
             .unwrap()
             .is_empty()
     );
+    multi_polygon_accessors();
+}
 
+/// A multi-polygon's flat ends, polygon count and polygons, the empty ones included.
+fn multi_polygon_accessors() {
     let unit = vec![vec![0.0, 0.0], vec![1.0, 0.0], vec![0.0, 0.0]];
     let mp =
         Geometry::multi_polygon(Layout::XY, &[vec![unit.clone()], vec![], vec![unit]]).unwrap();

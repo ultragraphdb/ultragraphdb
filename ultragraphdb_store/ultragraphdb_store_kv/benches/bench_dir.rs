@@ -29,7 +29,8 @@ impl BenchStore {
             "ultragraphdb-kv-bench-{name}-{}-{n}",
             std::process::id()
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory an earlier run left behind, which is usually absent.
+        drop(std::fs::remove_dir_all(&dir));
         let store = FjallStore::open(&dir, durability).expect("the bench store opens");
         Self { store, dir }
     }
@@ -41,7 +42,8 @@ impl BenchStore {
 
 impl Drop for BenchStore {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        // A directory left behind in the temporary directory is litter, not a failure of the bench.
+        drop(std::fs::remove_dir_all(&self.dir));
     }
 }
 

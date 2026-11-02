@@ -84,6 +84,8 @@ fn key(
 ) -> String {
     match graph {
         GraphName::DefaultGraph => format!("{subject} {predicate} {object}"),
-        named => format!("{subject} {predicate} {object} {named}"),
+        GraphName::NamedNode(_) | GraphName::BlankNode(_) => {
+            format!("{subject} {predicate} {object} {graph}")
+        }
     }
 }

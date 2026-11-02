@@ -76,11 +76,13 @@ fn test_a_backup_of_uids_or_of_uid_bytes_reads_the_same_list() {
 fn test_uid_bytes_that_end_inside_a_varint_are_refused() {
     // Deviation: Dgraph's loop never ends on a truncated uvarint; the port refuses it as a corrupted value.
     let truncated = BackupPostingList::default().with_uid_bytes(vec![0x01, 0x80]);
-    match from_backup_posting_list(&truncated) {
+    let key = match from_backup_posting_list(&truncated) {
         Err(PostingError(PostingErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted {
             key,
             ..
-        })))) => assert!(key.is_empty(), "a backup's list names no key"),
-        other => panic!("not refused: {other:?}"),
+        })))) => Ok(key),
+        other => Err(format!("not refused: {other:?}")),
     }
+    .expect("the truncated uid bytes are refused as corrupted");
+    assert!(key.is_empty(), "a backup's list names no key");
 }

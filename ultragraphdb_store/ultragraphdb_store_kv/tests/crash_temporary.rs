@@ -34,6 +34,7 @@ fn test_a_temporary_keyspace_left_by_a_kill_is_dropped_at_open() {
             0,
             "{stage}: the open dropped it"
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

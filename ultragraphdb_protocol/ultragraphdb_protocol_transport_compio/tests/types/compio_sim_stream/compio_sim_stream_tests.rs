@@ -38,10 +38,12 @@ fn test_a_read_waits_for_the_peer_to_write() {
     assert!(matches!(read.as_mut().poll(&mut cx), Poll::Pending));
     let compio::BufResult(written, _) = ready(client.write(b"hi".to_vec()));
     assert_eq!(written.unwrap(), 2);
-    match read.as_mut().poll(&mut cx) {
-        Poll::Ready(compio::BufResult(n, buf)) => {
-            assert_eq!((n.unwrap(), buf), (2, b"hi".to_vec()))
-        }
-        Poll::Pending => panic!("the read is ready once the peer wrote"),
+    let polled = read.as_mut().poll(&mut cx);
+    assert!(
+        matches!(polled, Poll::Ready(_)),
+        "the read is ready once the peer wrote"
+    );
+    if let Poll::Ready(compio::BufResult(n, buf)) = polled {
+        assert_eq!((n.unwrap(), buf), (2, b"hi".to_vec()));
     }
 }

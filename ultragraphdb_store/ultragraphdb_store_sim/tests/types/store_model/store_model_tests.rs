@@ -45,9 +45,10 @@ fn test_a_store_that_kept_its_contract_passes() {
         )
         .unwrap();
         let snapshot = s.snapshot(2).unwrap();
-        let _ = snapshot.get(b"a");
-        let _ = snapshot.get_many(&[b"a", b"b"]);
-        let _ = snapshot
+        // The log records each read, which the model checks, whatever it answers.
+        drop(snapshot.get(b"a"));
+        drop(snapshot.get_many(&[b"a", b"b"]));
+        let _scanned: usize = snapshot
             .scan(&Scan::prefix(Vec::new()).all_versions())
             .count();
         drop(snapshot);
@@ -556,7 +557,8 @@ fn test_a_recovery_accepts_every_outcome_its_failure_allows() {
         model.observe(&log).unwrap();
         model
             .check(&holding(three[..survivors].to_vec()))
-            .unwrap_or_else(|b| panic!("{survivors} survivors: {b}"));
+            .map_err(|b| format!("{survivors} survivors: {b}"))
+            .expect("the contents match a model");
     }
 }
 
@@ -620,16 +622,7 @@ fn test_a_snapshot_refused_without_cause_breaks_its_invariant() {
 /// is not checked.
 #[test]
 fn test_reads_fail_only_as_the_faults_allow() {
-    let mut model = StoreModel::new();
-    model
-        .observe(&[
-            OpRecord::Applied {
-                batch: batch(vec![put(b"a", 1), put(b"b", 2)], None),
-                mode: PersistMode::Buffer,
-            },
-            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
-        ])
-        .unwrap();
+    let mut model = snapshot_of_a_and_b();
     let a = Item::new(b"a".to_vec(), 1, 0x04, false, vec![1]);
     let read = |key: &[u8], result| OpRecord::Read {
         id: 0,
@@ -653,27 +646,7 @@ fn test_reads_fail_only_as_the_faults_allow() {
             },
         ])
         .expect("right items and drawn failures");
-    let wrong = [
-        (
-            read(b"a", Err(StoreError::Unsupported("reads"))),
-            "a read of 61 failed with The store does not support reads",
-        ),
-        (
-            OpRecord::ReadMany {
-                id: 0,
-                keys: vec![b"a".to_vec(), b"b".to_vec()],
-                result: Err(StoreError::Corrupted(b"b".to_vec(), "x".into())),
-            },
-            "a read of 61, 62 failed with Corrupted value of key 62: x",
-        ),
-    ];
-    for (record, detail) in wrong {
-        let breach = model.clone().observe(&[record]).unwrap_err();
-        assert_eq!(
-            (breach.invariant(), breach.detail()),
-            (Invariant::ReadsAtOrBelowTimestamp, detail)
-        );
-    }
+    assert_wrong_failures_break_reads(&model);
     // The version at 2 is above the snapshot's timestamp.
     let above = Item::new(b"b".to_vec(), 2, 0x04, false, vec![2]);
     let breach = model
@@ -714,6 +687,51 @@ fn test_reads_fail_only_as_the_faults_allow() {
             read(b"b", Ok(Some(above))),
         ])
         .expect("tainted keys and unknown snapshots are not compared");
+}
+
+/// A model holding `a` at 1 and `b` at 2, with snapshot 0 open at 1.
+fn snapshot_of_a_and_b() -> StoreModel {
+    let mut model = StoreModel::new();
+    model
+        .observe(&[
+            OpRecord::Applied {
+                batch: batch(vec![put(b"a", 1), put(b"b", 2)], None),
+                mode: PersistMode::Buffer,
+            },
+            OpRecord::SnapshotOpened { id: 0, read_ts: 1 },
+        ])
+        .unwrap();
+    model
+}
+
+/// Checks that a failure the faults do not allow breaks the read invariant, through snapshot 0 of `model`.
+fn assert_wrong_failures_break_reads(model: &StoreModel) {
+    let read = |key: &[u8], result| OpRecord::Read {
+        id: 0,
+        key: key.to_vec(),
+        result,
+    };
+    let wrong = [
+        (
+            read(b"a", Err(StoreError::Unsupported("reads"))),
+            "a read of 61 failed with The store does not support reads",
+        ),
+        (
+            OpRecord::ReadMany {
+                id: 0,
+                keys: vec![b"a".to_vec(), b"b".to_vec()],
+                result: Err(StoreError::Corrupted(b"b".to_vec(), "x".into())),
+            },
+            "a read of 61, 62 failed with Corrupted value of key 62: x",
+        ),
+    ];
+    for (record, detail) in wrong {
+        let breach = model.clone().observe(&[record]).unwrap_err();
+        assert_eq!(
+            (breach.invariant(), breach.detail()),
+            (Invariant::ReadsAtOrBelowTimestamp, detail)
+        );
+    }
 }
 
 /// A temporary keyspace's snapshot reads every version written to it, and a batch to a keyspace that does not exist
@@ -929,7 +947,8 @@ fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction()
             .apply(batch(vec![schema()], Some(1)), PersistMode::Sync)
             .unwrap();
         store.inject(Fault::PowerLossDuringNextDrop(DropStage::RecordWritten));
-        let _ = store.drop_prefixes(2, &[b"\x01".to_vec()], vec![schema()]);
+        // The power loss stops the drop; the model reads what it did from the log.
+        drop(store.drop_prefixes(2, &[b"\x01".to_vec()], vec![schema()]));
         checked(&store, &mut model);
         store.recover();
         checked(&store, &mut model);
@@ -963,10 +982,12 @@ fn test_a_recovery_the_contents_cannot_decide_is_decided_by_a_later_compaction()
         store.compact().unwrap();
         model
             .observe(&store.take_log())
-            .unwrap_or_else(|b| panic!("seed {seed}: {b}"));
+            .map_err(|b| format!("seed {seed}: {b}"))
+            .expect("the contents match a model");
         model
             .check(&store.contents())
-            .unwrap_or_else(|b| panic!("seed {seed}: {b}"));
+            .map_err(|b| format!("seed {seed}: {b}"))
+            .expect("the contents match a model");
         kept.insert(versions(&store.contents(), &key));
     }
     assert_eq!(
@@ -1189,6 +1210,40 @@ fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
             scan(vec![Err(failed(b""))]),
         ])
         .expect("the same answers, and failures the faults drew");
+    assert_changed_answers_break_repeats(&model, &a1, &flipped);
+    // A corruption of `b` lets every read covering it answer anew; a snapshot opened later has answers of its own,
+    // and a closed snapshot's reads are compared with nothing.
+    model
+        .observe(&[
+            truncated(b"b", 1),
+            read(b"b", Err(undecodable(b"b"))),
+            scan(vec![Ok(a1.clone()), Ok(flipped.clone())]),
+            OpRecord::SnapshotOpened { id: 1, read_ts: 1 },
+            OpRecord::Read {
+                id: 1,
+                key: b"b".to_vec(),
+                result: Ok(Some(flipped.clone())),
+            },
+            OpRecord::SnapshotClosed { id: 0 },
+            read(b"b", Ok(Some(flipped))),
+        ])
+        .expect("answers a corruption, another snapshot or a close set free");
+}
+
+/// Checks that a read through snapshot 0 of `model` answering otherwise than it first did, with `a1` and `flipped`
+/// held for `a` and `b`, breaks the repeat invariant.
+fn assert_changed_answers_break_repeats(model: &StoreModel, a1: &Item, flipped: &Item) {
+    let failed = |key: &[u8]| StoreError::ReadFailed(key.to_vec(), "x".into());
+    let read = |key: &[u8], result| OpRecord::Read {
+        id: 0,
+        key: key.to_vec(),
+        result,
+    };
+    let scan = |items| OpRecord::Scanned {
+        id: 0,
+        scan: Scan::prefix(Vec::new()),
+        items,
+    };
     let wrong = [
         (
             read(b"b", Err(undecodable(b"b"))),
@@ -1221,23 +1276,6 @@ fn test_a_repeated_read_differs_only_by_a_failure_or_a_new_corruption() {
             (Invariant::SnapshotReadsRepeat, detail)
         );
     }
-    // A corruption of `b` lets every read covering it answer anew; a snapshot opened later has answers of its own,
-    // and a closed snapshot's reads are compared with nothing.
-    model
-        .observe(&[
-            truncated(b"b", 1),
-            read(b"b", Err(undecodable(b"b"))),
-            scan(vec![Ok(a1.clone()), Ok(flipped.clone())]),
-            OpRecord::SnapshotOpened { id: 1, read_ts: 1 },
-            OpRecord::Read {
-                id: 1,
-                key: b"b".to_vec(),
-                result: Ok(Some(flipped.clone())),
-            },
-            OpRecord::SnapshotClosed { id: 0 },
-            read(b"b", Ok(Some(flipped))),
-        ])
-        .expect("answers a corruption, another snapshot or a close set free");
 }
 
 /// A key a many-key read names twice is read twice in one call, and a corruption drawn at the second read is logged
@@ -1392,7 +1430,8 @@ fn test_a_store_matching_more_than_16_models_breaks_the_contents_invariant() {
         model.observe(&[failed(), OpRecord::Recovered]).unwrap();
         model
             .check(&contents)
-            .unwrap_or_else(|b| panic!("{} models after {n} failures: {b}", n + 1));
+            .map_err(|b| format!("{} models after {n} failures: {b}", n + 1))
+            .expect("the contents match a model");
     }
     model.observe(&[failed(), OpRecord::Recovered]).unwrap();
     let breach = model.check(&contents).unwrap_err();
@@ -1424,7 +1463,8 @@ fn test_a_crash_and_a_power_loss_together_are_a_power_loss() {
         model.observe(&[OpRecord::Recovered]).unwrap();
         model
             .check(&Contents::default())
-            .unwrap_or_else(|b| panic!("{faults:?}: {b}"));
+            .map_err(|b| format!("{faults:?}: {b}"))
+            .expect("the contents match a model");
     }
 }
 

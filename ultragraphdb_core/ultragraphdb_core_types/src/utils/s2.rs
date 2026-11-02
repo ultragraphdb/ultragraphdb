@@ -96,7 +96,11 @@ fn validate(g: Geometry) -> Result<Geometry, TypesError> {
             (0..g.num_polygons()).try_for_each(|i| closed(&g.polygon_at(i)))?
         }
         GeometryKind::Polygon => closed(&g)?,
-        _ => {}
+        GeometryKind::Point
+        | GeometryKind::LineString
+        | GeometryKind::MultiPoint
+        | GeometryKind::MultiLineString
+        | GeometryKind::GeometryCollection => {}
     }
     Ok(g)
 }

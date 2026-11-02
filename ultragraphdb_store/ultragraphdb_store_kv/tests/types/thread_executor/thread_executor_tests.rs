@@ -36,7 +36,7 @@ fn test_a_panicking_task_panics_the_call_with_its_payload_once_every_task_finish
             .map(|panics| {
                 move || {
                     if panics {
-                        panic!("boom");
+                        std::panic::resume_unwind(Box::new("boom"));
                     }
                     std::thread::sleep(Duration::from_millis(20));
                     finished.fetch_add(1, Ordering::SeqCst);

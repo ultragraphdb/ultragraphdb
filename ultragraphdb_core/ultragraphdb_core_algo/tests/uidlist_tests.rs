@@ -530,7 +530,7 @@ fn run_plain(case: &AlgoCase, r: &OpResult) -> Option<(Vec<u64>, usize, usize)> 
         "merge_sorted_more_mem" => out = merge_sorted_more_mem(&refs).into_uids(),
         "intersect_sorted" => out = intersect_sorted(&refs).into_uids(),
         "index_of" => {
-            let index = index_of(refs[0], r.arg).map_or(-1, |i| i as i64);
+            let index = index_of(refs[0], r.arg).map_or(-1, |i| i64::try_from(i).unwrap());
             assert_eq!(r.index, index, "{} index_of {}", case.name, r.arg);
         }
         _ => return None,

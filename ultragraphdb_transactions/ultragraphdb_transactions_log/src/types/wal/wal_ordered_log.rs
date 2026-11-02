@@ -50,7 +50,33 @@ impl<S: DurableStorage> Wal<S> {
                     start,
                     end,
                 ),
-                _ => corrupt(),
+                ProtocolErrorEnum::ShortHeader { .. }
+                | ProtocolErrorEnum::HeaderChecksum { .. }
+                | ProtocolErrorEnum::UnknownCommand { .. }
+                | ProtocolErrorEnum::ReservedNotZero { .. }
+                | ProtocolErrorEnum::WrongCluster { .. }
+                | ProtocolErrorEnum::SizeBelowHeader { .. }
+                | ProtocolErrorEnum::FrameTooLarge { .. }
+                | ProtocolErrorEnum::LengthMismatch { .. }
+                | ProtocolErrorEnum::BodyLength { .. }
+                | ProtocolErrorEnum::ChunkTable { .. }
+                | ProtocolErrorEnum::SequenceOrder { .. }
+                | ProtocolErrorEnum::WrongCommand { .. }
+                | ProtocolErrorEnum::BodyTooShort { .. }
+                | ProtocolErrorEnum::SectionOutOfBounds { .. }
+                | ProtocolErrorEnum::SectionOffset { .. }
+                | ProtocolErrorEnum::PaddingNotZero { .. }
+                | ProtocolErrorEnum::TrailingBytes { .. }
+                | ProtocolErrorEnum::SectionLength { .. }
+                | ProtocolErrorEnum::EntryOutOfBounds { .. }
+                | ProtocolErrorEnum::CountMismatch { .. }
+                | ProtocolErrorEnum::NotUtf8 { .. }
+                | ProtocolErrorEnum::IndexOutOfRange { .. }
+                | ProtocolErrorEnum::BadTerm { .. }
+                | ProtocolErrorEnum::FieldValue { .. }
+                | ProtocolErrorEnum::DuplicateTerm { .. }
+                | ProtocolErrorEnum::TermTooDeep { .. }
+                | ProtocolErrorEnum::Record { .. } => corrupt(),
             },
         )?;
         if view.header().checksum() != entry.checksum {

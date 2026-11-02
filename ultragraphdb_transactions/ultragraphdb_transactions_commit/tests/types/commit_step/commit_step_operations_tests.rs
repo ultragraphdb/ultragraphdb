@@ -349,7 +349,7 @@ fn test_a_step_without_an_operator_refuses_operations() {
     let staged = ();
     assert!(<NoOperations as Operator<OpProposal>>::staged_record(&none, &staged).is_empty());
     <NoOperations as Operator<OpProposal>>::begin_round(&mut none);
-    let _ = read_set(0, 0, &Reads::default());
+    let _read_set: ReadSet = read_set(0, 0, &Reads::default());
 }
 
 /// A retry of a request whose operations ran is answered with its results as the commit was, from the table, whose
@@ -490,52 +490,11 @@ fn test_an_operation_whose_record_fits_no_round_is_refused_too_large_and_the_que
 #[test]
 fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_byte_more_is_refused()
 {
-    use crate::utils::frames::{largest_record, round_frame};
-    // The largest padding whose record a round of 4,096 bytes holds alone, by the wire's builder.
-    let fits = |padding: usize| {
-        round_frame(&[staged(&Script {
-            key: b"node".to_vec(),
-            padding,
-            ..Script::default()
-        })])
-        .is_some_and(|f| f <= 4_096)
-    };
-    let padding = (0..4_096)
-        .rev()
-        .find(|p| fits(*p))
-        .expect("some record fits");
-    assert!(!fits(padding + 1));
-    let small = || plain(0, &Reads::default(), &Writes::point(b"a"));
-    let run = |padding: usize| {
-        let mut script = Script {
-            key: b"node".to_vec(),
-            padding,
-            ..Script::default()
-        };
-        let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
-        let mut out = Out::new();
-        let mut replies = Vec::new();
-        let mut rounds = Vec::new();
-        commit(&mut step, &mut out, 1, small(), &mut script);
-        rounds.extend(out.append().map(|(r, _)| r));
-        commit(&mut step, &mut out, 2, small(), &mut script);
-        commit(
-            &mut step,
-            &mut out,
-            3,
-            asking(&Writes::point(b"b")),
-            &mut script,
-        );
-        for _ in 0..3 {
-            sync(&mut step, &mut out, &mut script);
-            replies.extend(out.replies().iter().cloned());
-            rounds.extend(out.append().map(|(r, _)| r));
-        }
-        (replies, rounds, staged(&script).len())
-    };
+    use crate::utils::frames::largest_record;
+    let padding = largest_fitting_padding();
     use ultragraphdb_transactions_commit::RoundRecord;
     // At the capacity: 1 alone at 2; 2 at 4 with the operation deferred; the operation alone at 6.
-    let (replies, rounds, _) = run(padding);
+    let (replies, rounds, _) = run_with_padding(padding);
     assert_eq!(
         rounds,
         vec![
@@ -553,7 +512,7 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
         ]
     );
     // One byte more: refused in the round it is decided in, beside 2.
-    let (replies, rounds, size) = run(padding + 1);
+    let (replies, rounds, size) = run_with_padding(padding + 1);
     assert_eq!(
         rounds,
         vec![RoundRecord::new(2, 1, 1), RoundRecord::new(4, 2, 1)]
@@ -566,4 +525,60 @@ fn test_an_operation_record_that_just_fits_a_fresh_round_waits_for_it_and_one_by
             Reply::new(3, Err(CommitError::TooLarge(size, largest_record(4_096))))
         ]
     );
+}
+
+/// The largest padding whose operation record a round of 4,096 bytes holds alone, by the wire's builder.
+fn largest_fitting_padding() -> usize {
+    use crate::utils::frames::round_frame;
+    let fits = |padding: usize| {
+        round_frame(&[staged(&Script {
+            key: b"node".to_vec(),
+            padding,
+            ..Script::default()
+        })])
+        .is_some_and(|f| f <= 4_096)
+    };
+    let padding = (0..4_096)
+        .rev()
+        .find(|p| fits(*p))
+        .expect("some record fits");
+    assert!(!fits(padding + 1));
+    padding
+}
+
+/// Two plain commits and one asking an operation of record padded by `padding`, in rounds of 4,096 bytes: the replies,
+/// the rounds appended and the operation record's size.
+fn run_with_padding(
+    padding: usize,
+) -> (
+    Vec<Reply>,
+    Vec<ultragraphdb_transactions_commit::RoundRecord>,
+    usize,
+) {
+    let small = || plain(0, &Reads::default(), &Writes::point(b"a"));
+    let mut script = Script {
+        key: b"node".to_vec(),
+        padding,
+        ..Script::default()
+    };
+    let mut step = Step::new(RoundBounds::new(4_096, 16), 0);
+    let mut out = Out::new();
+    let mut replies = Vec::new();
+    let mut rounds = Vec::new();
+    commit(&mut step, &mut out, 1, small(), &mut script);
+    rounds.extend(out.append().map(|(r, _)| r));
+    commit(&mut step, &mut out, 2, small(), &mut script);
+    commit(
+        &mut step,
+        &mut out,
+        3,
+        asking(&Writes::point(b"b")),
+        &mut script,
+    );
+    for _ in 0..3 {
+        sync(&mut step, &mut out, &mut script);
+        replies.extend(out.replies().iter().cloned());
+        rounds.extend(out.append().map(|(r, _)| r));
+    }
+    (replies, rounds, staged(&script).len())
 }

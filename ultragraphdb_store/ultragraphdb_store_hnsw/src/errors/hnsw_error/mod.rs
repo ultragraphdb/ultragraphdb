@@ -162,7 +162,19 @@ impl HnswError {
             HnswErrorEnum::NilVector(Some(cause)) | HnswErrorEnum::EmptyTree(Some(cause)) => {
                 cause.is_fetching_posting_list()
             }
-            _ => false,
+            HnswErrorEnum::Posting(_)
+            | HnswErrorEnum::Options(_)
+            | HnswErrorEnum::NoValue
+            | HnswErrorEnum::KeyNotFound
+            | HnswErrorEnum::NilVector(_)
+            | HnswErrorEnum::EmptyTree(_)
+            | HnswErrorEnum::DifferentLengths(_)
+            | HnswErrorEnum::CannotCast(_)
+            | HnswErrorEnum::UintSlice(_)
+            | HnswErrorEnum::FloatBits { .. }
+            | HnswErrorEnum::InvalidParameter { .. }
+            | HnswErrorEnum::LevelMissing { .. }
+            | HnswErrorEnum::NoNeighbour => false,
         }
     }
 

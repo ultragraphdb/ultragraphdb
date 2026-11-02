@@ -6,8 +6,8 @@
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_transport::{Outbound, TransportError};
 use ultragraphdb_protocol_wire::{
-    BodyBuilder, Command, Commit, ErrorCode, ErrorReply, FLAG_LAST, FrameView, Header, HeaderView,
-    MAX_FRAME_SIZE, ResultBatch,
+    BodyBuilder, Command, Commit, FLAG_LAST, FrameView, Header, HeaderView, MAX_FRAME_SIZE,
+    ResultBatch,
 };
 
 const CLUSTER: u64 = 1;
@@ -214,7 +214,6 @@ fn test_a_cancelled_stream_sends_nothing_more() {
         rest.iter().map(|(s, _)| *s).collect::<Vec<_>>(),
         vec![2, 2, 2]
     );
-    let _ = ErrorReply::new(ErrorCode::Busy, "");
 }
 
 #[test]

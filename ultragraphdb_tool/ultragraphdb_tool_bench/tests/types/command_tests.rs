@@ -4,18 +4,33 @@
  */
 
 use ultragraphdb_store_kv::Durability;
-use ultragraphdb_tool_bench::{BenchErrorEnum, Command};
+use ultragraphdb_tool_bench::{ApplyArgs, BenchErrorEnum, Command, RollupArgs};
 
 fn args(line: &str) -> Vec<String> {
     line.split_whitespace().map(str::to_string).collect()
 }
 
+/// The apply run `line` parses to.
+fn apply(line: &str) -> ApplyArgs {
+    match Command::parse(&args(line)).unwrap() {
+        Command::Apply(a) => Some(a),
+        Command::Rollup(_) => None,
+    }
+    .expect("an apply run")
+}
+
+/// The rollup run `line` parses to.
+fn rollup(line: &str) -> RollupArgs {
+    match Command::parse(&args(line)).unwrap() {
+        Command::Rollup(r) => Some(r),
+        Command::Apply(_) => None,
+    }
+    .expect("a rollup run")
+}
+
 #[test]
 fn test_an_apply_run_takes_its_rate_and_shape_with_defaults() {
-    let Command::Apply(a) = Command::parse(&args("apply --dir /data/s --rate 14500")).unwrap()
-    else {
-        panic!("an apply run");
-    };
+    let a = apply("apply --dir /data/s --rate 14500");
     assert_eq!(a.dir().to_str(), Some("/data/s"));
     assert_eq!(a.rate(), 14_500);
     assert_eq!(a.relations(), 1);
@@ -24,12 +39,9 @@ fn test_an_apply_run_takes_its_rate_and_shape_with_defaults() {
     assert!(a.rollups());
     assert_eq!(a.cache_mb(), 128);
     assert_eq!(a.max_batch(), None);
-    let Command::Apply(b) = Command::parse(&args(
+    let b = apply(
         "apply --dir d --rate 50000 --relations 50 --seconds 5 --durability filesystem --rollups off --cache-mb 512",
-    ))
-    .unwrap() else {
-        panic!("an apply run");
-    };
+    );
     assert_eq!(
         (
             b.rate(),
@@ -41,21 +53,13 @@ fn test_an_apply_run_takes_its_rate_and_shape_with_defaults() {
         ),
         (50_000, 50, 5, Durability::Filesystem, false, 512)
     );
-    let Command::Apply(c) =
-        Command::parse(&args("apply --dir d --rate 5 --max-batch 256")).unwrap()
-    else {
-        panic!("an apply run");
-    };
+    let c = apply("apply --dir d --rate 5 --max-batch 256");
     assert_eq!(c.max_batch(), Some(256));
 }
 
 #[test]
 fn test_a_rollup_run_takes_its_predicate_size() {
-    let Command::Rollup(r) =
-        Command::parse(&args("rollup --dir d --hubs 7 --versions 3 --relations 2")).unwrap()
-    else {
-        panic!("a rollup run");
-    };
+    let r = rollup("rollup --dir d --hubs 7 --versions 3 --relations 2");
     assert_eq!((r.hubs(), r.versions(), r.relations()), (7, 3, 2));
     assert_eq!(r.dir().to_str(), Some("d"));
 }
@@ -63,21 +67,14 @@ fn test_a_rollup_run_takes_its_predicate_size() {
 #[test]
 fn test_a_rollup_run_defaults_to_the_dgraph_runs_predicate() {
     // The defaults the usage names: 10,000 hubs, 1,000 versions, 50 relations a commit.
-    let Command::Rollup(r) = Command::parse(&args("rollup --dir d")).unwrap() else {
-        panic!("a rollup run");
-    };
+    let r = rollup("rollup --dir d");
     assert_eq!((r.hubs(), r.versions(), r.relations()), (10_000, 1_000, 50));
 }
 
 #[test]
 fn test_each_lower_bound_is_accepted() {
     // A rate of 0 offers nothing; a cache of 0 MiB holds nothing; every other count is at least 1.
-    let Command::Apply(a) = Command::parse(&args(
-        "apply --dir d --rate 0 --relations 1 --seconds 1 --cache-mb 0 --max-batch 1",
-    ))
-    .unwrap() else {
-        panic!("an apply run");
-    };
+    let a = apply("apply --dir d --rate 0 --relations 1 --seconds 1 --cache-mb 0 --max-batch 1");
     assert_eq!(
         (
             a.rate(),
@@ -88,21 +85,13 @@ fn test_each_lower_bound_is_accepted() {
         ),
         (0, 1, 1, 0, Some(1))
     );
-    let Command::Rollup(r) =
-        Command::parse(&args("rollup --dir d --hubs 1 --versions 1 --relations 1")).unwrap()
-    else {
-        panic!("a rollup run");
-    };
+    let r = rollup("rollup --dir d --hubs 1 --versions 1 --relations 1");
     assert_eq!((r.hubs(), r.versions(), r.relations()), (1, 1, 1));
 }
 
 #[test]
 fn test_the_largest_number_is_accepted_and_one_past_it_refused() {
-    let Command::Apply(a) =
-        Command::parse(&args("apply --dir d --rate 18446744073709551615")).unwrap()
-    else {
-        panic!("an apply run");
-    };
+    let a = apply("apply --dir d --rate 18446744073709551615");
     assert_eq!(a.rate(), u64::MAX);
     assert_eq!(
         Command::parse(&args("apply --dir d --rate 18446744073709551616"))
@@ -114,64 +103,43 @@ fn test_the_largest_number_is_accepted_and_one_past_it_refused() {
 
 #[test]
 fn test_a_repeated_flag_takes_its_last_value() {
-    let Command::Apply(a) =
-        Command::parse(&args("apply --dir a --rate 5 --rate 7 --dir b")).unwrap()
-    else {
-        panic!("an apply run");
-    };
+    let a = apply("apply --dir a --rate 5 --rate 7 --dir b");
     assert_eq!((a.rate(), a.dir().to_str()), (7, Some("b")));
 }
 
 #[test]
 fn test_the_flags_and_values_are_given_explicitly() {
-    let Command::Apply(on) = Command::parse(&args(
-        "apply --dir d --rate 5 --durability process --rollups on",
-    ))
-    .unwrap() else {
-        panic!("an apply run");
-    };
+    let on = apply("apply --dir d --rate 5 --durability process --rollups on");
     assert_eq!((on.durability(), on.rollups()), (Durability::Process, true));
 }
 
 #[test]
 fn test_what_cannot_run_is_refused_with_the_reason() {
     let refused = |line: &str| Command::parse(&args(line)).unwrap_err().to_string();
-    assert_eq!(
-        refused(""),
-        "usage: store_bench apply|rollup --dir <path> [options]"
-    );
-    assert_eq!(refused("load --dir d"), "usage: unknown run load");
-    assert_eq!(refused("apply --rate 5"), "usage: --dir is required");
-    assert_eq!(refused("apply --dir d"), "usage: --rate is required");
-    assert_eq!(
-        refused("apply --dir d --rate x"),
-        "usage: --rate takes a number, not x"
-    );
-    assert_eq!(
-        refused("apply --dir d --rate 5 --relations 0"),
-        "usage: --relations must be at least 1"
-    );
-    assert_eq!(
-        refused("apply --dir d --rate 5 --durability disk"),
-        "usage: --durability is process or filesystem, not disk"
-    );
-    assert_eq!(
-        refused("apply --dir d --rate 5 --rollups maybe"),
-        "usage: --rollups is on or off, not maybe"
-    );
-    assert_eq!(
-        refused("apply --dir d --rate 5 --colour red"),
-        "usage: unknown flag --colour"
-    );
-    assert_eq!(
-        refused("apply --dir d --rate"),
-        "usage: --rate takes a value"
-    );
-    assert_eq!(
-        refused("rollup --dir d --hubs 0"),
-        "usage: --hubs must be at least 1"
-    );
     for (line, reason) in [
+        ("", "store_bench apply|rollup --dir <path> [options]"),
+        ("load --dir d", "unknown run load"),
+        ("apply --rate 5", "--dir is required"),
+        ("apply --dir d", "--rate is required"),
+        ("apply --dir d --rate x", "--rate takes a number, not x"),
+        (
+            "apply --dir d --rate 5 --relations 0",
+            "--relations must be at least 1",
+        ),
+        (
+            "apply --dir d --rate 5 --durability disk",
+            "--durability is process or filesystem, not disk",
+        ),
+        (
+            "apply --dir d --rate 5 --rollups maybe",
+            "--rollups is on or off, not maybe",
+        ),
+        (
+            "apply --dir d --rate 5 --colour red",
+            "unknown flag --colour",
+        ),
+        ("apply --dir d --rate", "--rate takes a value"),
+        ("rollup --dir d --hubs 0", "--hubs must be at least 1"),
         ("--dir d", "unknown run --dir"),
         ("Apply --dir d --rate 5", "unknown run Apply"),
         (

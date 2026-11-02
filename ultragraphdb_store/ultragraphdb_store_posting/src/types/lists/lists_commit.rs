@@ -169,35 +169,7 @@ where
             state.epoch
         };
         let advance_epoch = round.iter().any(|(_, writes)| writes.advances_epoch());
-        let mut store_batch = WriteBatch::new();
-        for (version, writes) in round {
-            for (key, delta) in writes.deltas() {
-                store_batch.push(Entry::put(
-                    key.clone(),
-                    *version,
-                    BIT_DELTA_POSTING,
-                    marshal(delta),
-                ));
-            }
-            for entry in writes.entries() {
-                store_batch.push(at_version(entry, *version));
-            }
-            for entry in writes.versioned_entries() {
-                store_batch.push(entry.clone());
-            }
-            for id in writes.removed_records() {
-                store_batch.remove_rebuild_record(*id);
-            }
-            for entry in writes.versionless() {
-                put_versionless(&mut store_batch, entry);
-            }
-        }
-        for entry in system {
-            put_versionless(&mut store_batch, entry);
-        }
-        store_batch.set_applied_ts(last);
-
-        if let Err(error) = self.store.apply(store_batch, persist) {
+        if let Err(error) = self.store.apply(round_batch(round, system, last), persist) {
             tracing::error!(first_commit_ts = first, last_commit_ts = last, %error, "commit batch failed; the store must be reopened");
             self.fail_writes(Some(first));
             return Err(error.into());
@@ -255,6 +227,38 @@ where
 /// The smallest even version above `version`, saturating at `u64::MAX`, which a round then refuses as stale.
 fn next_even(version: u64) -> u64 {
     (version | 1).saturating_add(1)
+}
+
+/// The store batch of `round` and `system`, recording `last` as applied.
+fn round_batch(round: &[(u64, &Writes)], system: &[VersionlessEntry], last: u64) -> WriteBatch {
+    let mut store_batch = WriteBatch::new();
+    for (version, writes) in round {
+        for (key, delta) in writes.deltas() {
+            store_batch.push(Entry::put(
+                key.clone(),
+                *version,
+                BIT_DELTA_POSTING,
+                marshal(delta),
+            ));
+        }
+        for entry in writes.entries() {
+            store_batch.push(at_version(entry, *version));
+        }
+        for entry in writes.versioned_entries() {
+            store_batch.push(entry.clone());
+        }
+        for id in writes.removed_records() {
+            store_batch.remove_rebuild_record(*id);
+        }
+        for entry in writes.versionless() {
+            put_versionless(&mut store_batch, entry);
+        }
+    }
+    for entry in system {
+        put_versionless(&mut store_batch, entry);
+    }
+    store_batch.set_applied_ts(last);
+    store_batch
 }
 
 /// `entry` written at `version`.

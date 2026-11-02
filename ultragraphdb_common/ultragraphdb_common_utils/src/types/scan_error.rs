@@ -91,7 +91,8 @@ impl ScanError {
     /// `transformSyntacticError`. Invalid text moves the offset past it and a structural error past one byte; the
     /// input's end is `unexpected end of JSON input`; v2's wording becomes v1's.
     pub(crate) fn at(self, offset: usize) -> JsonError {
-        let offset = offset as i64;
+        // An offset into a buffer is below isize::MAX, so it converts; saturating keeps it from wrapping.
+        let offset = i64::try_from(offset).unwrap_or(i64::MAX);
         match self {
             ScanError::UnexpectedEof => {
                 JsonError::Syntax("unexpected end of JSON input".to_string(), offset)
@@ -121,7 +122,7 @@ impl ScanError {
                 ]
                 .iter()
                 .fold(msg, |m, (from, to)| m.replace(from, to));
-                JsonError::Syntax(msg, offset + what.len() as i64)
+                JsonError::Syntax(msg, offset + i64::try_from(what.len()).unwrap_or(i64::MAX))
             }
         }
     }

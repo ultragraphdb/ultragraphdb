@@ -408,7 +408,9 @@ fn the_fuzz_seeds_are_valid_lists() {
     let seeds = ultragraphdb_tool_bdd::fuzz_regressions_in(&dir);
     assert_eq!(seeds.len(), 4, "the four golden encodings");
     for (name, bytes) in seeds {
-        let plist = PostingList::decode(KEY, &bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let plist = PostingList::decode(KEY, &bytes)
+            .map_err(|e| format!("{name}: {e}"))
+            .expect("a fuzz seed decodes");
         assert_eq!(plist.encode(), bytes, "{name}");
     }
 }

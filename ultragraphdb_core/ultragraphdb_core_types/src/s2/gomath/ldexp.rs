@@ -21,7 +21,8 @@ pub(crate) fn ldexp(frac: f64, exp: i64) -> f64 {
     // Wrapping, as Go's int arithmetic does for an exponent near its limits.
     let mut exp = exp.wrapping_add(e);
     let mut x = frac.to_bits();
-    exp = exp.wrapping_add(((x >> SHIFT) & MASK) as i64 - BIAS);
+    // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+    exp = exp.wrapping_add(((x >> SHIFT) & MASK).cast_signed() - BIAS);
     if exp < -1075 {
         return 0f64.copysign(frac); // underflow
     }

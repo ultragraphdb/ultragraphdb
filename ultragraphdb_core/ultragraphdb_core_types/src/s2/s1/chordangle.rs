@@ -82,7 +82,7 @@ impl ChordAngle {
     }
 
     /// Reports whether this ChordAngle is one of the special cases.
-    pub(crate) fn is_special(&self) -> bool {
+    pub(crate) fn is_special(self) -> bool {
         self.0 < 0.0 || self.is_infinity()
     }
 

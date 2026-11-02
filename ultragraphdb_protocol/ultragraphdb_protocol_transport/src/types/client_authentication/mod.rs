@@ -88,7 +88,23 @@ impl<M: ClientMechanism> ClientAuthentication<M> {
                     step, "", answer,
                 )))
             }
-            other => Err(TransportError::UnexpectedCommand(
+            other @ (Command::Hello
+            | Command::Welcome
+            | Command::Register
+            | Command::Begin
+            | Command::Commit
+            | Command::Abort
+            | Command::Read
+            | Command::Write
+            | Command::Operation
+            | Command::Prepare
+            | Command::Execute
+            | Command::Describe
+            | Command::Result
+            | Command::Credit
+            | Command::Cancel
+            | Command::Round
+            | Command::Drop) => Err(TransportError::UnexpectedCommand(
                 Command::Authenticate.number(),
                 other.number(),
             )),

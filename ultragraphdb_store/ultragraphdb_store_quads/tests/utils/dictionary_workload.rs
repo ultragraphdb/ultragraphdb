@@ -116,7 +116,12 @@ impl DictionaryWorkload {
             QuadErrorEnum::Store(e) => fault(&e.0),
             QuadErrorEnum::Posting(p) => matches!(&p.0, PostingErrorEnum::Store(e) if fault(&e.0)),
             QuadErrorEnum::Aborted => true,
-            _ => false,
+            QuadErrorEnum::Term(_)
+            | QuadErrorEnum::Key(_)
+            | QuadErrorEnum::Mapping(_)
+            | QuadErrorEnum::Catalog(_)
+            | QuadErrorEnum::Corrupted { .. }
+            | QuadErrorEnum::UidsExhausted { .. } => false,
         };
         if injected || ctx.store().needs_recovery() {
             Ok(())
@@ -185,7 +190,9 @@ impl DictionaryWorkload {
                 let subject: NamedOrBlankNode = match self.term(ctx) {
                     Term::NamedNode(n) => n.into(),
                     Term::BlankNode(b) => b.into(),
-                    _ => NamedNode::new_unchecked("http://ex.org/s0").into(),
+                    Term::Literal(_) | Term::Triple(_) => {
+                        NamedNode::new_unchecked("http://ex.org/s0").into()
+                    }
                 };
                 let quad = Quad::new(
                     subject,
@@ -263,7 +270,14 @@ impl DictionaryWorkload {
                         return dictionary_miss(e);
                     }
                 }
-                _ => {}
+                QuadKey::Catalog { .. }
+                | QuadKey::SubjectPredicates { .. }
+                | QuadKey::ObjectPredicates { .. }
+                | QuadKey::ValueIndex { .. }
+                | QuadKey::CountIndex { .. }
+                | QuadKey::VectorIndex { .. }
+                | QuadKey::Statement { .. }
+                | QuadKey::Statistics { .. } => {}
             }
             for uid in uids {
                 match quads.iri_of(0, uid) {
@@ -293,6 +307,13 @@ impl DictionaryWorkload {
 fn dictionary_miss(e: QuadError) -> Result<Option<(&'static str, String)>, QuadError> {
     match e.0 {
         QuadErrorEnum::Corrupted { .. } => Ok(Some((DICTIONARY_COMPLETE, e.to_string()))),
-        _ => Err(e),
+        QuadErrorEnum::Store(_)
+        | QuadErrorEnum::Posting(_)
+        | QuadErrorEnum::Term(_)
+        | QuadErrorEnum::Key(_)
+        | QuadErrorEnum::Mapping(_)
+        | QuadErrorEnum::Catalog(_)
+        | QuadErrorEnum::Aborted
+        | QuadErrorEnum::UidsExhausted { .. } => Err(e),
     }
 }

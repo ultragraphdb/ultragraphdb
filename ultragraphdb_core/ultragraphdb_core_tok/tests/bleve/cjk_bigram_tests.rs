@@ -26,9 +26,12 @@ fn double(term: &str, start: usize, end: usize) -> AnalysisToken {
     tok(term, start, end, TokenType::Double)
 }
 
-#[test]
-fn test_cjk_bigram_filter() {
-    let tests: Vec<(&str, Vec<AnalysisToken>, Vec<AnalysisToken>)> = vec![
+/// A case's name, its input stream and the filter's output.
+type Case = (&'static str, Vec<AnalysisToken>, Vec<AnalysisToken>);
+
+/// bleve's table, with `outputUnigram` off.
+fn bleve_cases() -> Vec<Case> {
+    vec![
         (
             "non-adjacent terms are not combined",
             vec![ideo("こ", 0, 3), ideo("ん", 5, 8)],
@@ -86,7 +89,12 @@ fn test_cjk_bigram_filter() {
                 double("イン", 12, 18),
             ],
         ),
-        // The edges, beyond bleve's table.
+    ]
+}
+
+/// The edges, beyond bleve's table.
+fn edge_cases() -> Vec<Case> {
+    vec![
         ("an empty stream", vec![], vec![]),
         (
             "a lone rune is a unigram",
@@ -119,7 +127,12 @@ fn test_cjk_bigram_filter() {
             vec![ideo("𠀀", 0, 4), ideo("字", 4, 7)],
             vec![double("𠀀字", 0, 7)],
         ),
-    ];
+    ]
+}
+
+#[test]
+fn test_cjk_bigram_filter() {
+    let tests = bleve_cases().into_iter().chain(edge_cases());
     let cjk = Stemmer::named("cjk_bigram").unwrap();
     for (name, input, output) in tests {
         assert_eq!(cjk.filter(input), output, "{name}");

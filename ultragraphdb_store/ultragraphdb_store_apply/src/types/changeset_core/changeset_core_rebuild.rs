@@ -205,17 +205,6 @@ where
         let store = lists.store();
         let temp = &*temporary.insert(store.create_temporary()?);
         let mut buffer = BuildBuffer::new(temp, start_ts);
-        let fp = self.quads.fingerprint();
-        let count_key = |graph, direction, count: usize| {
-            QuadKey::CountIndex {
-                namespace: ns,
-                graph,
-                predicate,
-                direction,
-                count: u32::try_from(count).unwrap_or(u32::MAX),
-            }
-            .to_bytes()
-        };
         let forward = PredicatePrefix::new(Keyspace::Forward, false, ns, predicate, Vec::new());
         let reverse = PredicatePrefix::new(Keyspace::Reverse, false, ns, predicate, Vec::new());
         for graph in forward.graphs(&snapshot)? {
@@ -224,47 +213,11 @@ where
                 let Ok((QuadKey::Forward { subject, .. }, None)) = QuadKey::parse(&key) else {
                     continue;
                 };
-                let objects = self.quads.objects(&key, start_ts)?;
-                for (object, _) in objects.iter().filter(|(o, _)| o.as_uid().is_none()) {
-                    if plan.build_tokenizers.is_empty() {
-                        break;
-                    }
-                    let Term::Literal(literal) = self.quads.term_of(ns, object)? else {
-                        continue;
-                    };
-                    for (tokenizer, token) in
-                        literal_tokens(&plan.build_tokenizers, literal.as_ref())?
-                    {
-                        let key = QuadKey::ValueIndex {
-                            namespace: ns,
-                            graph,
-                            predicate,
-                            tokenizer,
-                            token,
-                        }
-                        .to_bytes();
-                        buffer.add_posting(key, ref_posting(subject));
-                    }
-                }
-                if plan.build_count && !objects.is_empty() {
-                    let key = count_key(graph, CountDirection::Forward, objects.len());
-                    buffer.add_posting(key, ref_posting(subject));
-                }
+                self.build_from_forward(rebuild, graph, &key, subject, &mut buffer)?;
                 buffer.maybe_flush(store)?;
             }
             if plan.build_count {
-                for item in snapshot.scan(&Scan::prefix(reverse.in_graph(graph))) {
-                    let key = item?.key().to_vec();
-                    let Ok((QuadKey::Reverse { object, .. }, None)) = QuadKey::parse(&key) else {
-                        continue;
-                    };
-                    let subjects = self.quads.objects(&key, start_ts)?.len();
-                    if subjects > 0 {
-                        let key = count_key(graph, CountDirection::Reverse, subjects);
-                        buffer.add_posting(key, object_posting(&object, SET, &[], fp));
-                    }
-                    buffer.maybe_flush(store)?;
-                }
+                self.build_reverse_counts(rebuild, &snapshot, &reverse, graph, &mut buffer)?;
             }
         }
         buffer.flush(store)?;
@@ -282,6 +235,71 @@ where
             "indexes built into the temporary keyspace"
         );
         Ok(vectors)
+    }
+
+    /// Adds to `buffer` what `rebuild` builds from the forward list `key` of `subject` in `graph`: the value-index
+    /// tokens of the literals it holds, and its forward count.
+    fn build_from_forward(
+        &self,
+        rebuild: &Rebuild,
+        graph: u64,
+        key: &[u8],
+        subject: u64,
+        buffer: &mut BuildBuffer<'_>,
+    ) -> Result<(), ChangesetError> {
+        let (plan, ns, predicate) = (&rebuild.plan, rebuild.namespace, rebuild.predicate);
+        let objects = self.quads.objects(key, rebuild.start_ts)?;
+        for (object, _) in objects.iter().filter(|(o, _)| o.as_uid().is_none()) {
+            if plan.build_tokenizers.is_empty() {
+                break;
+            }
+            let Term::Literal(literal) = self.quads.term_of(ns, object)? else {
+                continue;
+            };
+            for (tokenizer, token) in literal_tokens(&plan.build_tokenizers, literal.as_ref())? {
+                let key = QuadKey::ValueIndex {
+                    namespace: ns,
+                    graph,
+                    predicate,
+                    tokenizer,
+                    token,
+                }
+                .to_bytes();
+                buffer.add_posting(key, ref_posting(subject));
+            }
+        }
+        if plan.build_count && !objects.is_empty() {
+            let key = count_key(rebuild, graph, CountDirection::Forward, objects.len());
+            buffer.add_posting(key, ref_posting(subject));
+        }
+        Ok(())
+    }
+
+    /// Adds to `buffer` the reverse counts `rebuild` builds from the reverse lists under `reverse` in `graph`, read
+    /// through `snapshot`.
+    fn build_reverse_counts(
+        &self,
+        rebuild: &Rebuild,
+        snapshot: &S::Snapshot,
+        reverse: &PredicatePrefix,
+        graph: u64,
+        buffer: &mut BuildBuffer<'_>,
+    ) -> Result<(), ChangesetError> {
+        let store = self.quads.lists().store();
+        let fp = self.quads.fingerprint();
+        for item in snapshot.scan(&Scan::prefix(reverse.in_graph(graph))) {
+            let key = item?.key().to_vec();
+            let Ok((QuadKey::Reverse { object, .. }, None)) = QuadKey::parse(&key) else {
+                continue;
+            };
+            let subjects = self.quads.objects(&key, rebuild.start_ts)?.len();
+            if subjects > 0 {
+                let key = count_key(rebuild, graph, CountDirection::Reverse, subjects);
+                buffer.add_posting(key, object_posting(&object, SET, &[], fp));
+            }
+            buffer.maybe_flush(store)?;
+        }
+        Ok(())
     }
 
     /// The vector index `rebuild` builds, one per graph holding its predicate: every node's vector inserted in key
@@ -357,7 +375,7 @@ where
         &self,
         record: u64,
         temporary: Option<&Temporary>,
-        mut vectors: BuiltVectors,
+        vectors: BuiltVectors,
         at: Option<u64>,
     ) -> Result<u64, ChangesetError> {
         let Some(rebuild) = self.current(record) else {
@@ -394,37 +412,9 @@ where
                 request.add_entry_at_version(Entry::deletion(key, start_ts));
             }
         }
-        let mut removed: Vec<PredicatePrefix> = plan
-            .remove_tokenizers
-            .iter()
-            .flat_map(|t| tokenizer_prefixes(ns, predicate, t))
-            .collect();
-        if plan.remove_count {
-            removed.extend(count_prefixes(ns, predicate));
-        }
-        if plan.remove_vector {
-            removed.extend(vector_prefixes(ns, predicate));
-        }
-        if let Some(spec) = rebuild.new.vector_index().filter(|_| plan.build_vector) {
-            let name = rebuild.new.predicate().as_str();
-            for (graph, node) in &rebuild.touched {
-                let keys = VectorKeys::new(name, ns, *graph, predicate);
-                let index = hnsw(spec, keys.clone())?;
-                let values = vectors.remove(graph).unwrap_or_default();
-                let txn = OverlayTxn::new(&self.quads, keys, latest, values);
-                self.insert_built(&index, &txn, *node, true)?;
-                vectors.insert(*graph, txn.into_values());
-            }
-            let mut written: BTreeSet<Vec<u8>> = BTreeSet::new();
-            for (key, value) in vectors.into_values().flatten() {
-                request.get(&key)?.add_posting(index_posting(value), false);
-                written.insert(key);
-            }
-            for key in keys_under(&snapshot, &vector_prefixes(ns, predicate))? {
-                if !written.contains(&key) {
-                    request.add_entry(Entry::deletion(key, 0));
-                }
-            }
+        let removed = removed_prefixes(&rebuild);
+        if plan.build_vector {
+            self.swap_vectors(&rebuild, vectors, &snapshot, &mut request, latest)?;
         }
         let declaration = Declaration::Predicate(rebuild.new.clone());
         request.add_entry(Catalog::entry(ns, predicate, &declaration, 0));
@@ -438,6 +428,43 @@ where
         self.remove_record(record)?;
         tracing::info!(record, ts, "indexes built and swapped in");
         Ok(ts)
+    }
+
+    /// Writes to `request` the vector index `rebuild` built, `vectors`, with the nodes the writes during the build
+    /// touched inserted at `latest`, and deletes each of the predicate's vector-index keys `snapshot` holds that it
+    /// does not write.
+    fn swap_vectors(
+        &self,
+        rebuild: &Rebuild,
+        mut vectors: BuiltVectors,
+        snapshot: &S::Snapshot,
+        request: &mut Request<'_, S, C>,
+        latest: u64,
+    ) -> Result<(), ChangesetError> {
+        let Some(spec) = rebuild.new.vector_index() else {
+            return Ok(());
+        };
+        let (ns, predicate) = (rebuild.namespace, rebuild.predicate);
+        let name = rebuild.new.predicate().as_str();
+        for (graph, node) in &rebuild.touched {
+            let keys = VectorKeys::new(name, ns, *graph, predicate);
+            let index = hnsw(spec, keys.clone())?;
+            let values = vectors.remove(graph).unwrap_or_default();
+            let txn = OverlayTxn::new(&self.quads, keys, latest, values);
+            self.insert_built(&index, &txn, *node, true)?;
+            vectors.insert(*graph, txn.into_values());
+        }
+        let mut written: BTreeSet<Vec<u8>> = BTreeSet::new();
+        for (key, value) in vectors.into_values().flatten() {
+            request.get(&key)?.add_posting(index_posting(value), false);
+            written.insert(key);
+        }
+        for key in keys_under(snapshot, &vector_prefixes(ns, predicate))? {
+            if !written.contains(&key) {
+                request.add_entry(Entry::deletion(key, 0));
+            }
+        }
+        Ok(())
     }
 
     /// Undoes the change of record `record` after its build failed, under the apply lock the caller holds: writes the
@@ -520,7 +547,22 @@ fn store_failed(error: &ChangesetError) -> bool {
     match &error.0 {
         ChangesetErrorEnum::Store(e) => failed(e),
         ChangesetErrorEnum::Posting(PostingError(PostingErrorEnum::Store(e))) => failed(e),
-        _ => false,
+        ChangesetErrorEnum::Catalog(_)
+        | ChangesetErrorEnum::Mapping(_)
+        | ChangesetErrorEnum::Quad(_)
+        | ChangesetErrorEnum::Posting(_)
+        | ChangesetErrorEnum::Tok(_)
+        | ChangesetErrorEnum::Hnsw(_)
+        | ChangesetErrorEnum::Literal { .. }
+        | ChangesetErrorEnum::Unique { .. }
+        | ChangesetErrorEnum::Contradicted { .. }
+        | ChangesetErrorEnum::Rebuilding { .. }
+        | ChangesetErrorEnum::VectorOption { .. }
+        | ChangesetErrorEnum::Dimension { .. }
+        | ChangesetErrorEnum::NoDimension { .. }
+        | ChangesetErrorEnum::NoVectorIndex { .. }
+        | ChangesetErrorEnum::OperationFailed { .. }
+        | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }
 
@@ -570,4 +612,33 @@ fn complete_entries(
         return Ok(Vec::new());
     };
     out.entries(key, &old_splits, start_ts)
+}
+
+/// The count-index key of `count` lists in `direction` of the predicate `rebuild` builds, in `graph`.
+fn count_key(rebuild: &Rebuild, graph: u64, direction: CountDirection, count: usize) -> Vec<u8> {
+    QuadKey::CountIndex {
+        namespace: rebuild.namespace,
+        graph,
+        predicate: rebuild.predicate,
+        direction,
+        count: u32::try_from(count).unwrap_or(u32::MAX),
+    }
+    .to_bytes()
+}
+
+/// The prefixes of the indexes the change of `rebuild` removes.
+fn removed_prefixes(rebuild: &Rebuild) -> Vec<PredicatePrefix> {
+    let (plan, ns, predicate) = (&rebuild.plan, rebuild.namespace, rebuild.predicate);
+    let mut removed: Vec<PredicatePrefix> = plan
+        .remove_tokenizers
+        .iter()
+        .flat_map(|t| tokenizer_prefixes(ns, predicate, t))
+        .collect();
+    if plan.remove_count {
+        removed.extend(count_prefixes(ns, predicate));
+    }
+    if plan.remove_vector {
+        removed.extend(vector_prefixes(ns, predicate));
+    }
+    removed
 }

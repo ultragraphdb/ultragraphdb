@@ -34,7 +34,8 @@ fn options(mode: OpenMode, aligned: bool) -> OpenOptions {
     if aligned {
         options.custom_flags(O_DIRECT);
     }
-    let _ = aligned;
+    // Off those targets `aligned` selects nothing; binding it keeps it used there.
+    let _aligned_elsewhere: bool = aligned;
     options
 }
 

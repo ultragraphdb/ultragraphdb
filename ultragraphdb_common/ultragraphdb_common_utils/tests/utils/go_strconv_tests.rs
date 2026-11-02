@@ -305,172 +305,174 @@ fn test_parse_and_format_bool() {
     assert_eq!(go_strconv::format_bool(false), "false");
 }
 
+/// `ParseFloat(s, 64)` and `ParseFloat(s, 32)` of each input, as Go gives them.
+const PARSE_FLOAT_CASES: [TwoWays<f64>; 33] = [
+    (
+        b"1.5",
+        Ok(f64::from_bits(0x3ff8000000000000)),
+        Ok(f64::from_bits(0x3ff8000000000000)),
+    ),
+    (
+        b"-2.5e3",
+        Ok(f64::from_bits(0xc0a3880000000000)),
+        Ok(f64::from_bits(0xc0a3880000000000)),
+    ),
+    (
+        b"1e400",
+        Err("strconv.ParseFloat: parsing \"1e400\": value out of range"),
+        Err("strconv.ParseFloat: parsing \"1e400\": value out of range"),
+    ),
+    (
+        b"1e39",
+        Ok(f64::from_bits(0x48078287f49c4a1d)),
+        Err("strconv.ParseFloat: parsing \"1e39\": value out of range"),
+    ),
+    (
+        b"0x1p-2",
+        Ok(f64::from_bits(0x3fd0000000000000)),
+        Ok(f64::from_bits(0x3fd0000000000000)),
+    ),
+    (
+        b"0x1.8p1",
+        Ok(f64::from_bits(0x4008000000000000)),
+        Ok(f64::from_bits(0x4008000000000000)),
+    ),
+    (
+        b"0X1P+3",
+        Ok(f64::from_bits(0x4020000000000000)),
+        Ok(f64::from_bits(0x4020000000000000)),
+    ),
+    (
+        b"0x1p",
+        Err("strconv.ParseFloat: parsing \"0x1p\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"0x1p\": invalid syntax"),
+    ),
+    (
+        b"1_000.5",
+        Ok(f64::from_bits(0x408f440000000000)),
+        Ok(f64::from_bits(0x408f440000000000)),
+    ),
+    (
+        b"1__0",
+        Err("strconv.ParseFloat: parsing \"1__0\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"1__0\": invalid syntax"),
+    ),
+    (
+        b"inf",
+        Ok(f64::from_bits(0x7ff0000000000000)),
+        Ok(f64::from_bits(0x7ff0000000000000)),
+    ),
+    (
+        b"+Inf",
+        Ok(f64::from_bits(0x7ff0000000000000)),
+        Ok(f64::from_bits(0x7ff0000000000000)),
+    ),
+    (
+        b"-infinity",
+        Ok(f64::from_bits(0xfff0000000000000)),
+        Ok(f64::from_bits(0xfff0000000000000)),
+    ),
+    (
+        b"nan",
+        Ok(f64::from_bits(0x7ff8000000000001)),
+        Ok(f64::from_bits(0x7ff8000000000000)),
+    ),
+    (
+        b"NaN",
+        Ok(f64::from_bits(0x7ff8000000000001)),
+        Ok(f64::from_bits(0x7ff8000000000000)),
+    ),
+    (
+        b"+nan",
+        Err("strconv.ParseFloat: parsing \"+nan\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"+nan\": invalid syntax"),
+    ),
+    (
+        b"infx",
+        Err("strconv.ParseFloat: parsing \"infx\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"infx\": invalid syntax"),
+    ),
+    (
+        b".5",
+        Ok(f64::from_bits(0x3fe0000000000000)),
+        Ok(f64::from_bits(0x3fe0000000000000)),
+    ),
+    (
+        b"5.",
+        Ok(f64::from_bits(0x4014000000000000)),
+        Ok(f64::from_bits(0x4014000000000000)),
+    ),
+    (
+        b".",
+        Err("strconv.ParseFloat: parsing \".\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \".\": invalid syntax"),
+    ),
+    (
+        b"1e",
+        Err("strconv.ParseFloat: parsing \"1e\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"1e\": invalid syntax"),
+    ),
+    (
+        b"1e+",
+        Err("strconv.ParseFloat: parsing \"1e+\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"1e+\": invalid syntax"),
+    ),
+    (
+        b"x",
+        Err("strconv.ParseFloat: parsing \"x\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"x\": invalid syntax"),
+    ),
+    (
+        b"",
+        Err("strconv.ParseFloat: parsing \"\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"\": invalid syntax"),
+    ),
+    (
+        b"4.9e-324",
+        Ok(f64::from_bits(0x1)),
+        Ok(f64::from_bits(0x0)),
+    ),
+    (b"1e-400", Ok(f64::from_bits(0x0)), Ok(f64::from_bits(0x0))),
+    (
+        b"0.1",
+        Ok(f64::from_bits(0x3fb999999999999a)),
+        Ok(f64::from_bits(0x3fb99999a0000000)),
+    ),
+    (
+        b"3.4028235e38",
+        Ok(f64::from_bits(0x47efffffe54daff8)),
+        Ok(f64::from_bits(0x47efffffe0000000)),
+    ),
+    (
+        b"3.4028236e38",
+        Ok(f64::from_bits(0x47effffff514a7bc)),
+        Err("strconv.ParseFloat: parsing \"3.4028236e38\": value out of range"),
+    ),
+    (
+        b"123456789012345678901234567890",
+        Ok(f64::from_bits(0x45f8ee90ff6c373e)),
+        Ok(f64::from_bits(0x45f8ee9100000000)),
+    ),
+    (
+        b"0x1.fffffffffffff8p1023",
+        Err("strconv.ParseFloat: parsing \"0x1.fffffffffffff8p1023\": value out of range"),
+        Err("strconv.ParseFloat: parsing \"0x1.fffffffffffff8p1023\": value out of range"),
+    ),
+    (
+        b"0x1p1024",
+        Err("strconv.ParseFloat: parsing \"0x1p1024\": value out of range"),
+        Err("strconv.ParseFloat: parsing \"0x1p1024\": value out of range"),
+    ),
+    (
+        b"\xff",
+        Err("strconv.ParseFloat: parsing \"\\xff\": invalid syntax"),
+        Err("strconv.ParseFloat: parsing \"\\xff\": invalid syntax"),
+    ),
+];
+
 #[test]
 fn test_parse_float_64_and_32() {
-    let cases: [TwoWays<f64>; 33] = [
-        (
-            b"1.5",
-            Ok(f64::from_bits(0x3ff8000000000000)),
-            Ok(f64::from_bits(0x3ff8000000000000)),
-        ),
-        (
-            b"-2.5e3",
-            Ok(f64::from_bits(0xc0a3880000000000)),
-            Ok(f64::from_bits(0xc0a3880000000000)),
-        ),
-        (
-            b"1e400",
-            Err("strconv.ParseFloat: parsing \"1e400\": value out of range"),
-            Err("strconv.ParseFloat: parsing \"1e400\": value out of range"),
-        ),
-        (
-            b"1e39",
-            Ok(f64::from_bits(0x48078287f49c4a1d)),
-            Err("strconv.ParseFloat: parsing \"1e39\": value out of range"),
-        ),
-        (
-            b"0x1p-2",
-            Ok(f64::from_bits(0x3fd0000000000000)),
-            Ok(f64::from_bits(0x3fd0000000000000)),
-        ),
-        (
-            b"0x1.8p1",
-            Ok(f64::from_bits(0x4008000000000000)),
-            Ok(f64::from_bits(0x4008000000000000)),
-        ),
-        (
-            b"0X1P+3",
-            Ok(f64::from_bits(0x4020000000000000)),
-            Ok(f64::from_bits(0x4020000000000000)),
-        ),
-        (
-            b"0x1p",
-            Err("strconv.ParseFloat: parsing \"0x1p\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"0x1p\": invalid syntax"),
-        ),
-        (
-            b"1_000.5",
-            Ok(f64::from_bits(0x408f440000000000)),
-            Ok(f64::from_bits(0x408f440000000000)),
-        ),
-        (
-            b"1__0",
-            Err("strconv.ParseFloat: parsing \"1__0\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"1__0\": invalid syntax"),
-        ),
-        (
-            b"inf",
-            Ok(f64::from_bits(0x7ff0000000000000)),
-            Ok(f64::from_bits(0x7ff0000000000000)),
-        ),
-        (
-            b"+Inf",
-            Ok(f64::from_bits(0x7ff0000000000000)),
-            Ok(f64::from_bits(0x7ff0000000000000)),
-        ),
-        (
-            b"-infinity",
-            Ok(f64::from_bits(0xfff0000000000000)),
-            Ok(f64::from_bits(0xfff0000000000000)),
-        ),
-        (
-            b"nan",
-            Ok(f64::from_bits(0x7ff8000000000001)),
-            Ok(f64::from_bits(0x7ff8000000000000)),
-        ),
-        (
-            b"NaN",
-            Ok(f64::from_bits(0x7ff8000000000001)),
-            Ok(f64::from_bits(0x7ff8000000000000)),
-        ),
-        (
-            b"+nan",
-            Err("strconv.ParseFloat: parsing \"+nan\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"+nan\": invalid syntax"),
-        ),
-        (
-            b"infx",
-            Err("strconv.ParseFloat: parsing \"infx\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"infx\": invalid syntax"),
-        ),
-        (
-            b".5",
-            Ok(f64::from_bits(0x3fe0000000000000)),
-            Ok(f64::from_bits(0x3fe0000000000000)),
-        ),
-        (
-            b"5.",
-            Ok(f64::from_bits(0x4014000000000000)),
-            Ok(f64::from_bits(0x4014000000000000)),
-        ),
-        (
-            b".",
-            Err("strconv.ParseFloat: parsing \".\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \".\": invalid syntax"),
-        ),
-        (
-            b"1e",
-            Err("strconv.ParseFloat: parsing \"1e\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"1e\": invalid syntax"),
-        ),
-        (
-            b"1e+",
-            Err("strconv.ParseFloat: parsing \"1e+\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"1e+\": invalid syntax"),
-        ),
-        (
-            b"x",
-            Err("strconv.ParseFloat: parsing \"x\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"x\": invalid syntax"),
-        ),
-        (
-            b"",
-            Err("strconv.ParseFloat: parsing \"\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"\": invalid syntax"),
-        ),
-        (
-            b"4.9e-324",
-            Ok(f64::from_bits(0x1)),
-            Ok(f64::from_bits(0x0)),
-        ),
-        (b"1e-400", Ok(f64::from_bits(0x0)), Ok(f64::from_bits(0x0))),
-        (
-            b"0.1",
-            Ok(f64::from_bits(0x3fb999999999999a)),
-            Ok(f64::from_bits(0x3fb99999a0000000)),
-        ),
-        (
-            b"3.4028235e38",
-            Ok(f64::from_bits(0x47efffffe54daff8)),
-            Ok(f64::from_bits(0x47efffffe0000000)),
-        ),
-        (
-            b"3.4028236e38",
-            Ok(f64::from_bits(0x47effffff514a7bc)),
-            Err("strconv.ParseFloat: parsing \"3.4028236e38\": value out of range"),
-        ),
-        (
-            b"123456789012345678901234567890",
-            Ok(f64::from_bits(0x45f8ee90ff6c373e)),
-            Ok(f64::from_bits(0x45f8ee9100000000)),
-        ),
-        (
-            b"0x1.fffffffffffff8p1023",
-            Err("strconv.ParseFloat: parsing \"0x1.fffffffffffff8p1023\": value out of range"),
-            Err("strconv.ParseFloat: parsing \"0x1.fffffffffffff8p1023\": value out of range"),
-        ),
-        (
-            b"0x1p1024",
-            Err("strconv.ParseFloat: parsing \"0x1p1024\": value out of range"),
-            Err("strconv.ParseFloat: parsing \"0x1p1024\": value out of range"),
-        ),
-        (
-            b"\xff",
-            Err("strconv.ParseFloat: parsing \"\\xff\": invalid syntax"),
-            Err("strconv.ParseFloat: parsing \"\\xff\": invalid syntax"),
-        ),
-    ];
-    for (s, f64_want, f32_want) in cases {
+    for (s, f64_want, f32_want) in PARSE_FLOAT_CASES {
         for (bits, want) in [(64, f64_want), (32, f32_want)] {
             // Bits, not values: Go's NaN is math.NaN(), 0x7ff8000000000001, and float32's widens without payload.
             let got = text(go_strconv::parse_float(s, bits)).map(f64::to_bits);
@@ -480,93 +482,104 @@ fn test_parse_float_64_and_32() {
     }
 }
 
+const FLOAT_SYNTAX: &str = "invalid syntax";
+const FLOAT_RANGE: &str = "value out of range";
+/// An input, then `ParseFloat(s, 64)` and `ParseFloat(s, 32)` as bits or as the error's reason.
+type Bits = (
+    &'static str,
+    Result<u64, &'static str>,
+    Result<u64, &'static str>,
+);
+
+const PARSE_FLOAT_BOUNDARY_CASES: [Bits; 37] = [
+    ("-0", Ok(0x8000000000000000), Ok(0x8000000000000000)),
+    ("+0", Ok(0x0), Ok(0x0)),
+    ("+.5", Ok(0x3fe0000000000000), Ok(0x3fe0000000000000)),
+    ("Infinity", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
+    ("INFINITY", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
+    ("infinit", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+    ("-infinityx", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+    ("0x1p-1074", Ok(0x1), Ok(0x0)),
+    ("0x1p-1075", Ok(0x0), Ok(0x0)),
+    ("0x1.8p-1074", Ok(0x2), Ok(0x0)),
+    ("0x3p-1076", Ok(0x1), Ok(0x0)),
+    (
+        "0x1.fffffffffffff7p1023",
+        Ok(0x7fefffffffffffff),
+        Err(FLOAT_RANGE),
+    ),
+    (
+        "0x1.00000000000008p0",
+        Ok(0x3ff0000000000000),
+        Ok(0x3ff0000000000000),
+    ),
+    (
+        "0x1.000000000000081p0",
+        Ok(0x3ff0000000000001),
+        Ok(0x3ff0000000000000),
+    ),
+    (
+        "0x1.00000000000018p0",
+        Ok(0x3ff0000000000002),
+        Ok(0x3ff0000000000000),
+    ),
+    (
+        "0x123456789abcdef01p0",
+        Ok(0x43f23456789abcdf),
+        Ok(0x43f2345680000000),
+    ),
+    ("0x_1p0", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
+    ("0x1_p0", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+    ("0x.8p1", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
+    ("0x1.p1", Ok(0x4000000000000000), Ok(0x4000000000000000)),
+    ("0xp1", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+    ("0x", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+    ("1e10000000", Err(FLOAT_RANGE), Err(FLOAT_RANGE)),
+    ("1e-10000000", Ok(0x0), Ok(0x0)),
+    ("2.4703282292062327e-324", Ok(0x0), Ok(0x0)),
+    ("2.4703282292062328e-324", Ok(0x1), Ok(0x0)),
+    (
+        "1.7976931348623158e308",
+        Ok(0x7fefffffffffffff),
+        Err(FLOAT_RANGE),
+    ),
+    ("1.7976931348623159e308", Err(FLOAT_RANGE), Err(FLOAT_RANGE)),
+    (
+        "3.4028235677973366e38",
+        Ok(0x47effffff0000000),
+        Ok(0x47efffffe0000000),
+    ),
+    (
+        "3.4028235677973367e38",
+        Ok(0x47effffff0000000),
+        Err(FLOAT_RANGE),
+    ),
+    ("7.006492321624085e-46", Ok(0x3690000000000000), Ok(0x0)),
+    (
+        "7.006492321624086e-46",
+        Ok(0x3690000000000000),
+        Ok(0x36a0000000000000),
+    ),
+    ("0x1.ffffffp127", Ok(0x47effffff0000000), Err(FLOAT_RANGE)),
+    ("0x1p-150", Ok(0x3690000000000000), Ok(0x0)),
+    (
+        "0x1.000002p-150",
+        Ok(0x3690000020000000),
+        Ok(0x36a0000000000000),
+    ),
+    (
+        "1_0.5_5e1_0",
+        Ok(0x4238904a3f000000),
+        Ok(0x4238904a40000000),
+    ),
+    ("1e+-1", Err(FLOAT_SYNTAX), Err(FLOAT_SYNTAX)),
+];
+
 /// Go 1.27's `ParseFloat(s, 64)` and `ParseFloat(s, 32)` as bits: signed zeros, the special values' spellings,
 /// hexadecimal rounding half to even into subnormals and at the top of the range, decimal halfway points.
 #[test]
 fn test_parse_float_rounding_and_range_boundaries() {
-    const SYNTAX: &str = "invalid syntax";
-    const RANGE: &str = "value out of range";
-    type Bits = (
-        &'static str,
-        Result<u64, &'static str>,
-        Result<u64, &'static str>,
-    );
-    let cases: [Bits; 37] = [
-        ("-0", Ok(0x8000000000000000), Ok(0x8000000000000000)),
-        ("+0", Ok(0x0), Ok(0x0)),
-        ("+.5", Ok(0x3fe0000000000000), Ok(0x3fe0000000000000)),
-        ("Infinity", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
-        ("INFINITY", Ok(0x7ff0000000000000), Ok(0x7ff0000000000000)),
-        ("infinit", Err(SYNTAX), Err(SYNTAX)),
-        ("-infinityx", Err(SYNTAX), Err(SYNTAX)),
-        ("0x1p-1074", Ok(0x1), Ok(0x0)),
-        ("0x1p-1075", Ok(0x0), Ok(0x0)),
-        ("0x1.8p-1074", Ok(0x2), Ok(0x0)),
-        ("0x3p-1076", Ok(0x1), Ok(0x0)),
-        (
-            "0x1.fffffffffffff7p1023",
-            Ok(0x7fefffffffffffff),
-            Err(RANGE),
-        ),
-        (
-            "0x1.00000000000008p0",
-            Ok(0x3ff0000000000000),
-            Ok(0x3ff0000000000000),
-        ),
-        (
-            "0x1.000000000000081p0",
-            Ok(0x3ff0000000000001),
-            Ok(0x3ff0000000000000),
-        ),
-        (
-            "0x1.00000000000018p0",
-            Ok(0x3ff0000000000002),
-            Ok(0x3ff0000000000000),
-        ),
-        (
-            "0x123456789abcdef01p0",
-            Ok(0x43f23456789abcdf),
-            Ok(0x43f2345680000000),
-        ),
-        ("0x_1p0", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
-        ("0x1_p0", Err(SYNTAX), Err(SYNTAX)),
-        ("0x.8p1", Ok(0x3ff0000000000000), Ok(0x3ff0000000000000)),
-        ("0x1.p1", Ok(0x4000000000000000), Ok(0x4000000000000000)),
-        ("0xp1", Err(SYNTAX), Err(SYNTAX)),
-        ("0x", Err(SYNTAX), Err(SYNTAX)),
-        ("1e10000000", Err(RANGE), Err(RANGE)),
-        ("1e-10000000", Ok(0x0), Ok(0x0)),
-        ("2.4703282292062327e-324", Ok(0x0), Ok(0x0)),
-        ("2.4703282292062328e-324", Ok(0x1), Ok(0x0)),
-        ("1.7976931348623158e308", Ok(0x7fefffffffffffff), Err(RANGE)),
-        ("1.7976931348623159e308", Err(RANGE), Err(RANGE)),
-        (
-            "3.4028235677973366e38",
-            Ok(0x47effffff0000000),
-            Ok(0x47efffffe0000000),
-        ),
-        ("3.4028235677973367e38", Ok(0x47effffff0000000), Err(RANGE)),
-        ("7.006492321624085e-46", Ok(0x3690000000000000), Ok(0x0)),
-        (
-            "7.006492321624086e-46",
-            Ok(0x3690000000000000),
-            Ok(0x36a0000000000000),
-        ),
-        ("0x1.ffffffp127", Ok(0x47effffff0000000), Err(RANGE)),
-        ("0x1p-150", Ok(0x3690000000000000), Ok(0x0)),
-        (
-            "0x1.000002p-150",
-            Ok(0x3690000020000000),
-            Ok(0x36a0000000000000),
-        ),
-        (
-            "1_0.5_5e1_0",
-            Ok(0x4238904a3f000000),
-            Ok(0x4238904a40000000),
-        ),
-        ("1e+-1", Err(SYNTAX), Err(SYNTAX)),
-    ];
-    for (s, f64_want, f32_want) in cases {
+    for (s, f64_want, f32_want) in PARSE_FLOAT_BOUNDARY_CASES {
         for (bits, want) in [(64, f64_want), (32, f32_want)] {
             let want = want.map_err(|e| format!("strconv.ParseFloat: parsing {s:?}: {e}"));
             let got = text(go_strconv::parse_float(s, bits)).map(f64::to_bits);
@@ -615,149 +628,150 @@ fn test_parse_float_go_1_27_exponent_cutoffs() {
     }
 }
 
+/// f, then FormatFloat(f, 'e'|'E'|'f'|'g'|'G', -1, 64) and FormatFloat(f, 'g', -1, 32).
+const FORMAT_FLOAT_SHORTEST_CASES: [(f64, &str, &str, &str, &str, &str, &str); 17] = [
+    (f64::from_bits(0x0), "0e+00", "0E+00", "0", "0", "0", "0"),
+    (f64::from_bits(0x0), "0e+00", "0E+00", "0", "0", "0", "0"),
+    (
+        f64::from_bits(0x3ff0000000000000),
+        "1e+00",
+        "1E+00",
+        "1",
+        "1",
+        "1",
+        "1",
+    ),
+    (
+        f64::from_bits(0xbff0000000000000),
+        "-1e+00",
+        "-1E+00",
+        "-1",
+        "-1",
+        "-1",
+        "-1",
+    ),
+    (
+        f64::from_bits(0x3fb999999999999a),
+        "1e-01",
+        "1E-01",
+        "0.1",
+        "0.1",
+        "0.1",
+        "0.1",
+    ),
+    (
+        f64::from_bits(0x444b1ae4d6e2ef50),
+        "1e+21",
+        "1E+21",
+        "1000000000000000000000",
+        "1e+21",
+        "1E+21",
+        "1e+21",
+    ),
+    (
+        f64::from_bits(0x4415af1d78b58c40),
+        "1e+20",
+        "1E+20",
+        "100000000000000000000",
+        "1e+20",
+        "1E+20",
+        "1e+20",
+    ),
+    (
+        f64::from_bits(0x419d6f3454000000),
+        "1.23456789e+08",
+        "1.23456789E+08",
+        "123456789",
+        "1.23456789e+08",
+        "1.23456789E+08",
+        "1.2345679e+08",
+    ),
+    (
+        f64::from_bits(0x3e8421f5f40d8376),
+        "1.5e-07",
+        "1.5E-07",
+        "0.00000015",
+        "1.5e-07",
+        "1.5E-07",
+        "1.5e-07",
+    ),
+    (
+        f64::from_bits(0x3f1a36e2eb1c432d),
+        "1e-04",
+        "1E-04",
+        "0.0001",
+        "0.0001",
+        "0.0001",
+        "0.0001",
+    ),
+    (
+        f64::from_bits(0x3ee4f8b588e368f1),
+        "1e-05",
+        "1E-05",
+        "0.00001",
+        "1e-05",
+        "1E-05",
+        "1e-05",
+    ),
+    (
+        f64::from_bits(0x1),
+        "5e-324",
+        "5E-324",
+        "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005",
+        "5e-324",
+        "5E-324",
+        "0",
+    ),
+    (
+        f64::from_bits(0x7fefffffffffffff),
+        "1.7976931348623157e+308",
+        "1.7976931348623157E+308",
+        "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "1.7976931348623157e+308",
+        "1.7976931348623157E+308",
+        "+Inf",
+    ),
+    (
+        f64::from_bits(0x4004000000000000),
+        "2.5e+00",
+        "2.5E+00",
+        "2.5",
+        "2.5",
+        "2.5",
+        "2.5",
+    ),
+    (
+        f64::from_bits(0x4059000000000000),
+        "1e+02",
+        "1E+02",
+        "100",
+        "100",
+        "100",
+        "100",
+    ),
+    (
+        f64::from_bits(0x412e848000000000),
+        "1e+06",
+        "1E+06",
+        "1000000",
+        "1e+06",
+        "1E+06",
+        "1e+06",
+    ),
+    (
+        f64::from_bits(0x40fe240c9fbe76c9),
+        "1.23456789e+05",
+        "1.23456789E+05",
+        "123456.789",
+        "123456.789",
+        "123456.789",
+        "123456.79",
+    ),
+];
+
 #[test]
 fn test_format_float_shortest() {
-    // f, then FormatFloat(f, 'e'|'E'|'f'|'g'|'G', -1, 64) and FormatFloat(f, 'g', -1, 32).
-    let cases: [(f64, &str, &str, &str, &str, &str, &str); 17] = [
-        (f64::from_bits(0x0), "0e+00", "0E+00", "0", "0", "0", "0"),
-        (f64::from_bits(0x0), "0e+00", "0E+00", "0", "0", "0", "0"),
-        (
-            f64::from_bits(0x3ff0000000000000),
-            "1e+00",
-            "1E+00",
-            "1",
-            "1",
-            "1",
-            "1",
-        ),
-        (
-            f64::from_bits(0xbff0000000000000),
-            "-1e+00",
-            "-1E+00",
-            "-1",
-            "-1",
-            "-1",
-            "-1",
-        ),
-        (
-            f64::from_bits(0x3fb999999999999a),
-            "1e-01",
-            "1E-01",
-            "0.1",
-            "0.1",
-            "0.1",
-            "0.1",
-        ),
-        (
-            f64::from_bits(0x444b1ae4d6e2ef50),
-            "1e+21",
-            "1E+21",
-            "1000000000000000000000",
-            "1e+21",
-            "1E+21",
-            "1e+21",
-        ),
-        (
-            f64::from_bits(0x4415af1d78b58c40),
-            "1e+20",
-            "1E+20",
-            "100000000000000000000",
-            "1e+20",
-            "1E+20",
-            "1e+20",
-        ),
-        (
-            f64::from_bits(0x419d6f3454000000),
-            "1.23456789e+08",
-            "1.23456789E+08",
-            "123456789",
-            "1.23456789e+08",
-            "1.23456789E+08",
-            "1.2345679e+08",
-        ),
-        (
-            f64::from_bits(0x3e8421f5f40d8376),
-            "1.5e-07",
-            "1.5E-07",
-            "0.00000015",
-            "1.5e-07",
-            "1.5E-07",
-            "1.5e-07",
-        ),
-        (
-            f64::from_bits(0x3f1a36e2eb1c432d),
-            "1e-04",
-            "1E-04",
-            "0.0001",
-            "0.0001",
-            "0.0001",
-            "0.0001",
-        ),
-        (
-            f64::from_bits(0x3ee4f8b588e368f1),
-            "1e-05",
-            "1E-05",
-            "0.00001",
-            "1e-05",
-            "1E-05",
-            "1e-05",
-        ),
-        (
-            f64::from_bits(0x1),
-            "5e-324",
-            "5E-324",
-            "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005",
-            "5e-324",
-            "5E-324",
-            "0",
-        ),
-        (
-            f64::from_bits(0x7fefffffffffffff),
-            "1.7976931348623157e+308",
-            "1.7976931348623157E+308",
-            "179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "1.7976931348623157e+308",
-            "1.7976931348623157E+308",
-            "+Inf",
-        ),
-        (
-            f64::from_bits(0x4004000000000000),
-            "2.5e+00",
-            "2.5E+00",
-            "2.5",
-            "2.5",
-            "2.5",
-            "2.5",
-        ),
-        (
-            f64::from_bits(0x4059000000000000),
-            "1e+02",
-            "1E+02",
-            "100",
-            "100",
-            "100",
-            "100",
-        ),
-        (
-            f64::from_bits(0x412e848000000000),
-            "1e+06",
-            "1E+06",
-            "1000000",
-            "1e+06",
-            "1E+06",
-            "1e+06",
-        ),
-        (
-            f64::from_bits(0x40fe240c9fbe76c9),
-            "1.23456789e+05",
-            "1.23456789E+05",
-            "123456.789",
-            "123456.789",
-            "123456.789",
-            "123456.79",
-        ),
-    ];
-    for (f, e, ue, fx, g, ug, g32) in cases {
+    for (f, e, ue, fx, g, ug, g32) in FORMAT_FLOAT_SHORTEST_CASES {
         assert_eq!(go_strconv::format_float(f, b'e', 64), e);
         assert_eq!(go_strconv::format_float(f, b'E', 64), ue);
         assert_eq!(go_strconv::format_float(f, b'f', 64), fx);

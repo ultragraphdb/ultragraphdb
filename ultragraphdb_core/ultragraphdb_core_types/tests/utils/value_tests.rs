@@ -156,16 +156,24 @@ fn test_golden_type_for_value() {
     for c in golden.cases() {
         let (tid, v) = type_for_value(c.input.as_bytes());
         assert_eq!(tid.enum_value(), c.tid, "{}", c.input);
+        assert_eq!(
+            c.out.is_some(),
+            v.is_some(),
+            "{}: want value {}, got {v:?}",
+            c.input,
+            c.out.is_some()
+        );
         match (&c.out, v) {
-            (None, None) => {}
+            (None, _) | (_, None) => {}
             (Some(want), Some(v)) => {
                 let bin = marshal(&Val::new(tid, v), TypeId::BINARY).unwrap();
-                let Some(Value::Bytes(b)) = bin.value() else {
-                    panic!("{}", c.input)
-                };
+                let b = match bin.value() {
+                    Some(Value::Bytes(b)) => Ok(b),
+                    other => Err(format!("{}: {other:?}", c.input)),
+                }
+                .expect("marshalling to binary gives bytes");
                 assert_eq!(hex(b), want.bin, "{}", c.input);
             }
-            (want, got) => panic!("{}: want value {}, got {got:?}", c.input, want.is_some()),
         }
     }
 }

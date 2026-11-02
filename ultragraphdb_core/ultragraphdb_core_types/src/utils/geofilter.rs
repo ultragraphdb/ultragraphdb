@@ -31,35 +31,7 @@ pub fn query_tokens_geo(
     g: &Geometry,
     max_distance: f64,
 ) -> Result<(Vec<String>, GeoQueryData), TypesError> {
-    let mut loops: Vec<Loop> = Vec::new();
-    let mut pt: Option<Point> = None;
-    match g.kind() {
-        GeometryKind::Point => {
-            let p = point_from_coord(g.coords())?;
-            pt = Some(p);
-            if qt == QueryType::Near {
-                // A distance of NaN or infinity passes Go's check and panics in its exact predicates.
-                if max_distance <= 0.0 || !max_distance.is_finite() {
-                    return Err(TypesError::geo(
-                        "Invalid max distance specified for a near query",
-                    ));
-                }
-                loops.push(Loop::regular(p, earth_angle(max_distance), 100));
-            }
-        }
-        GeometryKind::Polygon => loops.push(loop_from_polygon(g)?),
-        GeometryKind::MultiPolygon => {
-            for i in 0..g.num_polygons() {
-                loops.push(loop_from_polygon(&g.polygon_at(i))?);
-            }
-        }
-        kind => {
-            return Err(TypesError::geo(format!(
-                "Cannot query using a geometry of type {}",
-                kind.go_type()
-            )));
-        }
-    }
+    let (loops, pt) = query_loops(qt, g, max_distance)?;
     let (parents, cover) = if qt == QueryType::Near {
         if loops.is_empty() {
             return Err(TypesError::geo(
@@ -104,4 +76,46 @@ pub fn query_tokens_geo(
             ))
         }
     }
+}
+
+/// The loops a geo query on a point, polygon or multipolygon tests, and the point a point query names; a near
+/// query's loop is the circle of `max_distance` metres around its point.
+fn query_loops(
+    qt: QueryType,
+    g: &Geometry,
+    max_distance: f64,
+) -> Result<(Vec<Loop>, Option<Point>), TypesError> {
+    let mut loops: Vec<Loop> = Vec::new();
+    let mut pt: Option<Point> = None;
+    match g.kind() {
+        GeometryKind::Point => {
+            let p = point_from_coord(g.coords())?;
+            pt = Some(p);
+            if qt == QueryType::Near {
+                // A distance of NaN or infinity passes Go's check and panics in its exact predicates.
+                if max_distance <= 0.0 || !max_distance.is_finite() {
+                    return Err(TypesError::geo(
+                        "Invalid max distance specified for a near query",
+                    ));
+                }
+                loops.push(Loop::regular(p, earth_angle(max_distance), 100));
+            }
+        }
+        GeometryKind::Polygon => loops.push(loop_from_polygon(g)?),
+        GeometryKind::MultiPolygon => {
+            for i in 0..g.num_polygons() {
+                loops.push(loop_from_polygon(&g.polygon_at(i))?);
+            }
+        }
+        kind @ (GeometryKind::LineString
+        | GeometryKind::MultiPoint
+        | GeometryKind::MultiLineString
+        | GeometryKind::GeometryCollection) => {
+            return Err(TypesError::geo(format!(
+                "Cannot query using a geometry of type {}",
+                kind.go_type()
+            )));
+        }
+    }
+    Ok((loops, pt))
 }

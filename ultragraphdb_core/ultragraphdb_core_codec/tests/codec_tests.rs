@@ -46,14 +46,16 @@ fn get_uids(rng: &mut Rng, size: u64) -> Vec<u64> {
 }
 
 fn read_uvarint(buf: &[u8]) -> (u64, usize) {
-    let mut x = 0u64;
-    for (i, &b) in buf.iter().enumerate() {
-        x |= u64::from(b & 0x7f) << (7 * i);
-        if b < 0x80 {
-            return (x, i + 1);
-        }
-    }
-    panic!("truncated varint");
+    let n = buf
+        .iter()
+        .position(|&b| b < 0x80)
+        .expect("the varint is not truncated")
+        + 1;
+    let x = buf[..n]
+        .iter()
+        .enumerate()
+        .fold(0u64, |x, (i, &b)| x | u64::from(b & 0x7f) << (7 * i));
+    (x, n)
 }
 
 #[test]

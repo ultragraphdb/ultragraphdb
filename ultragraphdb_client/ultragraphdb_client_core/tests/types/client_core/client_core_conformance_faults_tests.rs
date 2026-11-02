@@ -32,7 +32,10 @@ use ultragraphdb_protocol_wire::{
 use crate::types::client_core::client_core_conformance_tests::{
     golden, numbered, restream, stream_of, view,
 };
-use crate::utils::harness::{CLUSTER, RELEASE, frame_through, start};
+use crate::utils::harness::{
+    CLUSTER, RELEASE, begun, committed, described, dropped, frame_through, prepared, registered,
+    start,
+};
 
 /// A stream no request opens: a frame on it is late and dropped once taken, so it shows only whether the frame before
 /// it was taken at its place.
@@ -233,10 +236,7 @@ impl<L: Login> Peer<L> {
             .frame(Header::new(CLUSTER, Command::Begin).with_stream(stream))
             .unwrap();
         self.direct(&frame);
-        let Some(Ok(Reply::Begun(tx))) = self.core.take_reply(p) else {
-            panic!("begun")
-        };
-        tx
+        begun(self.core.take_reply(p).expect("an answer"))
     }
 
     /// `frame`, the golden frame moved to the stream it answers, crosses a link of `faults` seeded `seed`, behind it
@@ -344,22 +344,23 @@ struct Case {
     check: fn(&mut Peer<Anonymous>, &Wait),
 }
 
-fn reply(peer: &mut Peer<Anonymous>, wait: &Wait) -> Reply {
-    let Wait::Reply { pending, .. } = wait else {
-        panic!("a reply")
-    };
-    peer.core
-        .take_reply(*pending)
-        .expect("answered")
-        .expect("a value")
+/// The request `wait` waits for, a reply's.
+fn pending(wait: &Wait) -> Pending {
+    if let Wait::Reply { pending, .. } = wait {
+        Some(*pending)
+    } else {
+        None
+    }
+    .expect("a reply")
+}
+
+fn reply(peer: &mut Peer<Anonymous>, wait: &Wait) -> Result<Reply, ClientError> {
+    peer.core.take_reply(pending(wait)).expect("answered")
 }
 
 fn refusal(peer: &mut Peer<Anonymous>, wait: &Wait) -> ClientErrorEnum {
-    let Wait::Reply { pending, .. } = wait else {
-        panic!("a reply")
-    };
     peer.core
-        .take_reply(*pending)
+        .take_reply(pending(wait))
         .expect("answered")
         .expect_err("a refusal")
         .0
@@ -380,6 +381,14 @@ fn commit(peer: &mut Peer<Anonymous>) -> (Wait, u64) {
 
 /// Every golden reply, its values from `generate_bodies.py`'s comments and constants.
 fn cases() -> Vec<Case> {
+    [session_cases(), commit_cases(), drop_and_result_cases()]
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// The golden replies of a session, a transaction, a statement and a description.
+fn session_cases() -> Vec<Case> {
     vec![
         Case {
             name: "register",
@@ -390,9 +399,7 @@ fn cases() -> Vec<Case> {
             },
             // Register: the session assigned, 0x1122_3344_5566_7788.
             check: |peer, wait| {
-                let Reply::Registered(session) = reply(peer, wait) else {
-                    panic!("registered")
-                };
+                let session = registered(reply(peer, wait));
                 assert_eq!(session.number(), 0x1122_3344_5566_7788);
             },
         },
@@ -405,9 +412,7 @@ fn cases() -> Vec<Case> {
             },
             // Begin: namespace 3, read version 0xAB_CDEF_0002, read-only.
             check: |peer, wait| {
-                let Reply::Begun(tx) = reply(peer, wait) else {
-                    panic!("begun")
-                };
+                let tx = begun(reply(peer, wait));
                 assert_eq!(
                     (tx.namespace(), tx.read_version(), tx.read_only()),
                     (3, 0xAB_CDEF_0002, true)
@@ -428,9 +433,7 @@ fn cases() -> Vec<Case> {
             },
             // Prepare's reply: statement 1, its schema version 0x5C4E_3A2B_1D0F_7E6A, one Term column.
             check: |peer, wait| {
-                let Reply::Prepared(statement) = reply(peer, wait) else {
-                    panic!("prepared")
-                };
+                let statement = prepared(reply(peer, wait));
                 assert_eq!(
                     (statement.id(), statement.schema(), statement.result_types()),
                     (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
@@ -446,9 +449,7 @@ fn cases() -> Vec<Case> {
             },
             // Describe's reply: read version 42, the description the wire's own view reads from the golden bytes.
             check: |peer, wait| {
-                let Reply::Described(describe) = reply(peer, wait) else {
-                    panic!("described")
-                };
+                let describe = described(reply(peer, wait));
                 let g = golden("describe_reply");
                 let expected = view::<DescribeView>(
                     &FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap(),
@@ -456,14 +457,18 @@ fn cases() -> Vec<Case> {
                 assert_eq!((describe.read_version(), &describe), (42, &expected));
             },
         },
+    ]
+}
+
+/// The golden replies of a commit: its answer and its refusals.
+fn commit_cases() -> Vec<Case> {
+    vec![
         Case {
             name: "commit",
             setup: commit,
             // Commit: version 1,000, request 7, results (0x10, created) and (0x20, found).
             check: |peer, wait| {
-                let Reply::Committed(committed) = reply(peer, wait) else {
-                    panic!("committed")
-                };
+                let committed = committed(reply(peer, wait));
                 assert_eq!((committed.version(), committed.request()), (1_000, 7));
                 assert_eq!(
                     committed.results(),
@@ -510,6 +515,12 @@ fn cases() -> Vec<Case> {
                 );
             },
         },
+    ]
+}
+
+/// The golden replies of a drop and a read's result.
+fn drop_and_result_cases() -> Vec<Case> {
+    vec![
         Case {
             name: "drop_reply",
             setup: |peer| {
@@ -523,9 +534,7 @@ fn cases() -> Vec<Case> {
             },
             // Drop's reply: session 9's request 8, the drop's commit version 2002.
             check: |peer, wait| {
-                let Reply::Dropped(dropped) = reply(peer, wait) else {
-                    panic!("dropped")
-                };
+                let dropped = dropped(reply(peer, wait));
                 assert_eq!((dropped.version(), dropped.request()), (2_002, 8));
             },
         },
@@ -555,19 +564,22 @@ fn cases() -> Vec<Case> {
             // Result: two columns of three rows, column 0 terms 0, 0, 3, column 1 terms 1, 2 and unbound; resume key
             // "rk"; flagged last.
             check: |peer, wait| {
-                let Wait::Batch(stream) = wait else {
-                    panic!("a batch")
-                };
-                let Ok(BatchPoll::Batch((columns, rows, cells, resume))) =
-                    peer.core.next_batch(stream, peer.now, |v| {
-                        let cells: Vec<Option<u32>> = (0..2)
-                            .flat_map(|col| (0..3).map(move |row| (col, row)))
-                            .map(|(col, row)| v.cell(col, row))
-                            .collect();
-                        (v.columns(), v.rows(), cells, v.resume().to_vec())
-                    })
-                else {
-                    panic!("a batch")
+                let stream = if let Wait::Batch(stream) = wait {
+                    Some(stream)
+                } else {
+                    None
+                }
+                .expect("a batch");
+                let polled = peer.core.next_batch(stream, peer.now, |v| {
+                    let cells: Vec<Option<u32>> = (0..2)
+                        .flat_map(|col| (0..3).map(move |row| (col, row)))
+                        .map(|(col, row)| v.cell(col, row))
+                        .collect();
+                    (v.columns(), v.rows(), cells, v.resume().to_vec())
+                });
+                assert!(matches!(polled, Ok(BatchPoll::Batch(_))), "a batch");
+                let Ok(BatchPoll::Batch((columns, rows, cells, resume))) = polled else {
+                    return;
                 };
                 assert_eq!((columns, rows, resume), (2, 3, b"rk".to_vec()));
                 assert_eq!(
@@ -729,7 +741,7 @@ fn test_the_golden_authenticate_exchange_under_every_fault() {
 fn test_the_drop_the_client_sends_is_its_golden_frame() {
     let mut peer = Peer::welcomed();
     let session = peer.core.resume_session(9, 8);
-    let _ = peer
+    let _pending: Pending = peer
         .core
         .drop_command(DropCommand::graph(3, "http://ex.org/g"), session, peer.now)
         .unwrap();

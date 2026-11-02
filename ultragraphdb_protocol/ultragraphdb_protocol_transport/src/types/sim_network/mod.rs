@@ -61,9 +61,10 @@ impl NetworkState {
         let Some(state) = self.links.get_mut(link) else {
             return;
         };
-        for _ in 0..copies {
+        for _ in 1..copies {
             state.in_flight.push_back((due, message.clone()));
         }
+        state.in_flight.push_back((due, message));
         if let Some(reader) = state.reader.take() {
             reader.wake();
         }

@@ -9,7 +9,8 @@
 
 use serde::Deserialize;
 use ultragraphdb_core_types::{
-    DateTime, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal, verify_password,
+    DateTime, Geometry, Layout, TypeId, Val, Value, Zone, convert, float_array_as_bytes, marshal,
+    verify_password,
 };
 
 fn bs_bool(b: bool) -> Vec<u8> {
@@ -71,8 +72,37 @@ type EdgeCase = (TypeId, Option<Vec<u8>>, TypeId, Result<Value, &'static str>);
 #[test]
 fn test_conversion_edge_cases() {
     // (from type, from bytes or None, to type, failure substring or expected value)
-    let zero = DateTime::zero();
-    let cases: Vec<EdgeCase> = vec![
+    let cases = [
+        binary_edge_cases(),
+        scalar_edge_cases(),
+        datetime_edge_cases(),
+        datetime_number_edge_cases(),
+    ]
+    .concat();
+    for (from, data, to, want) in cases {
+        let input = match data {
+            Some(d) => Val::bytes(from, d),
+            None => Val::nil(from),
+        };
+        let out = convert(&input, to);
+        match want {
+            Err(failure) => {
+                let err = out.expect_err(failure).to_string();
+                assert!(
+                    err.contains(failure),
+                    "{} to {}: {err} lacks {failure}",
+                    from.name(),
+                    to.name()
+                );
+            }
+            Ok(v) => assert_eq!(out.unwrap(), Val::new(to, v)),
+        }
+    }
+}
+
+/// Conversions from binary.
+fn binary_edge_cases() -> Vec<EdgeCase> {
+    vec![
         (
             TypeId::BINARY,
             None,
@@ -115,6 +145,12 @@ fn test_conversion_edge_cases() {
             TypeId::DATETIME,
             Err("Time.UnmarshalBinary:"),
         ),
+    ]
+}
+
+/// Conversions from string, int, float and bool.
+fn scalar_edge_cases() -> Vec<EdgeCase> {
+    vec![
         (
             TypeId::STRING,
             Some(vec![]),
@@ -175,6 +211,13 @@ fn test_conversion_edge_cases() {
             TypeId::DEFAULT,
             Err("invalid value for bool"),
         ),
+    ]
+}
+
+/// Conversions of datetime bytes to datetime, binary and string.
+fn datetime_edge_cases() -> Vec<EdgeCase> {
+    let zero = DateTime::zero();
+    vec![
         (
             TypeId::DATETIME,
             Some(vec![]),
@@ -211,6 +254,13 @@ fn test_conversion_edge_cases() {
             TypeId::STRING,
             Ok(s("0001-01-01T00:00:00Z")),
         ),
+    ]
+}
+
+/// Conversions of datetime bytes to default, int and float.
+fn datetime_number_edge_cases() -> Vec<EdgeCase> {
+    let zero = DateTime::zero();
+    vec![
         (
             TypeId::DATETIME,
             Some(vec![]),
@@ -247,26 +297,7 @@ fn test_conversion_edge_cases() {
             TypeId::FLOAT,
             Ok(Value::Float(zero.unix_nano() as f64 / 1e9)),
         ),
-    ];
-    for (from, data, to, want) in cases {
-        let input = match data {
-            Some(d) => Val::bytes(from, d),
-            None => Val::nil(from),
-        };
-        let out = convert(&input, to);
-        match want {
-            Err(failure) => {
-                let err = out.expect_err(failure).to_string();
-                assert!(
-                    err.contains(failure),
-                    "{} to {}: {err} lacks {failure}",
-                    from.name(),
-                    to.name()
-                );
-            }
-            Ok(v) => assert_eq!(out.unwrap(), Val::new(to, v)),
-        }
-    }
+    ]
 }
 
 #[test]
@@ -483,9 +514,11 @@ fn test_convert_to_password() {
             Ok(_) => {
                 let out = out.unwrap();
                 assert_eq!(out.tid(), TypeId::PASSWORD);
-                let Some(Value::Str(hash)) = out.value() else {
-                    panic!("no hash")
-                };
+                let hash = match out.value() {
+                    Some(Value::Str(hash)) => Ok(hash),
+                    other => Err(format!("{other:?}")),
+                }
+                .expect("no hash");
                 verify_password(&plain, hash).unwrap();
             }
         }
@@ -1030,8 +1063,10 @@ fn variant_of(go_type: &str) -> &'static str {
         "big.Float" | "*big.Float" => "BigFloat",
         "[]float32" => "VFloat",
         "<nil>" => "nil",
-        t if t.starts_with("*geom.") => "Geo",
-        t => panic!("unexpected Go type {t}"),
+        t => {
+            assert!(t.starts_with("*geom."), "unexpected Go type {t}");
+            "Geo"
+        }
     }
 }
 
@@ -1056,7 +1091,7 @@ fn marshal_bytes(v: &Val, to: TypeId) -> Result<Vec<u8>, String> {
         Some(Value::Bytes(b)) => Ok(b),
         Some(Value::Str(s)) => Ok(s.into_bytes()),
         None => Err("<nil>".into()),
-        Some(other) => panic!("marshal gave {other:?}"),
+        Some(other) => Err(format!("marshal gave {other:?}")),
     }
 }
 
@@ -1492,24 +1527,45 @@ fn check_rendered(
         ));
     }
     if want.salted {
-        let Some(Value::Str(h)) = out.value() else {
-            return Err(format!("{ctx}: no hash"));
-        };
-        if !h.starts_with("$2a$") {
-            return Err(format!("{ctx}: hash {h:?}"));
-        }
-        if c.from == TypeId::PASSWORD.enum_value() {
-            // A password value converted to itself is the stored hash, unchanged.
-            return if h.as_bytes().get(..7) == Some(&unhex(&want.str)[..]) {
-                Ok(Outcome::Equal)
-            } else {
-                Err(format!("{ctx}: {h:?}"))
-            };
-        }
-        return verify_password(input_plain, h)
-            .map(|()| Outcome::Equal)
-            .map_err(|e| format!("{ctx}: {e}"));
+        return check_salted(c, input_plain, out, want, &ctx);
     }
+    check_marshalled(out, want, deviation, &ctx)
+}
+
+/// A salted password: Go's hash prefix, and the stored hash unchanged or a hash of the input.
+fn check_salted(
+    c: &ConvCase,
+    input_plain: &[u8],
+    out: &Val,
+    want: &Rendered,
+    ctx: &str,
+) -> Result<Outcome, String> {
+    let Some(Value::Str(h)) = out.value() else {
+        return Err(format!("{ctx}: no hash"));
+    };
+    if !h.starts_with("$2a$") {
+        return Err(format!("{ctx}: hash {h:?}"));
+    }
+    if c.from == TypeId::PASSWORD.enum_value() {
+        // A password value converted to itself is the stored hash, unchanged.
+        return if h.as_bytes().get(..7) == Some(&unhex(&want.str)[..]) {
+            Ok(Outcome::Equal)
+        } else {
+            Err(format!("{ctx}: {h:?}"))
+        };
+    }
+    verify_password(input_plain, h)
+        .map(|()| Outcome::Equal)
+        .map_err(|e| format!("{ctx}: {e}"))
+}
+
+/// The value's binary and string forms against Go's, or the deviation listed where Go panics.
+fn check_marshalled(
+    out: &Val,
+    want: &Rendered,
+    deviation: Option<&Expected>,
+    ctx: &str,
+) -> Result<Outcome, String> {
     let bin = marshal_bytes(out, TypeId::BINARY);
     let st = marshal_bytes(out, TypeId::STRING);
     if !want.panic.is_empty() {
@@ -1634,7 +1690,7 @@ fn test_golden_conversion_matrix() {
 
 #[test]
 fn test_marshal_json() {
-    use ultragraphdb_core_types::{BigFloat, Geometry, Layout, marshal_json};
+    use ultragraphdb_core_types::{BigFloat, marshal_json};
     let j = |v: Val| String::from_utf8(marshal_json(&v).unwrap()).unwrap();
     assert_eq!(j(Val::new(TypeId::INT, Value::Int(-3))), "-3");
     assert_eq!(j(Val::new(TypeId::FLOAT, Value::Float(1e21))), "1e+21");
@@ -1736,7 +1792,7 @@ fn test_marshal_json_nil() {
 /// `int64`, `float64`, `bool`, `time.Time`, a pointer to each of go-geom's geometry types, `uint64`, `big.Float` and
 /// `[]float32`.
 fn marshal_json_values() -> Vec<(&'static str, Value)> {
-    use ultragraphdb_core_types::{BigFloat, Geometry, Layout};
+    use ultragraphdb_core_types::BigFloat;
     let ring = || {
         vec![
             vec![0.0, 0.0],
@@ -1800,7 +1856,39 @@ fn marshal_json_values() -> Vec<(&'static str, Value)> {
 fn test_marshal_json_mismatched_value() {
     use ultragraphdb_core_types::marshal_json;
     let values = marshal_json_values();
-    let cases: [(TypeId, [Result<&str, &str>; 16]); 14] = [
+    let cases: Vec<MismatchCase> = [
+        mismatched_default_binary(),
+        mismatched_int_float(),
+        mismatched_bool_datetime(),
+        mismatched_geo_uid(),
+        mismatched_password_string(),
+        mismatched_object_bigfloat(),
+        mismatched_vfloat_unknown(),
+    ]
+    .concat();
+    let failures: Vec<String> = cases
+        .into_iter()
+        .flat_map(|(id, wants)| {
+            values
+                .iter()
+                .zip(wants)
+                .filter_map(move |((kind, v), want)| {
+                    let got = marshal_json(&Val::new(id, v.clone()))
+                        .map(|b| String::from_utf8(b).unwrap())
+                        .map_err(|e| e.to_string());
+                    let want = want.map(String::from).map_err(String::from);
+                    (got != want).then(|| format!("{id:?} of {kind}: got {got:?}, Go {want:?}"))
+                })
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A type, and Go's MarshalJSON of each of `marshal_json_values` under it: the JSON or the error text.
+type MismatchCase = (TypeId, [Result<&'static str, &'static str>; 16]);
+
+fn mismatched_default_binary() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::DEFAULT,
             [
@@ -1843,6 +1931,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("invalid type for MarshalJSON: 1"),
             ],
         ),
+    ]
+}
+
+fn mismatched_int_float() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::INT,
             [
@@ -1885,6 +1978,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("interface conversion: interface {} is []float32, not float64"),
             ],
         ),
+    ]
+}
+
+fn mismatched_bool_datetime() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::BOOL,
             [
@@ -1929,6 +2027,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("interface conversion: interface {} is []float32, not time.Time"),
             ],
         ),
+    ]
+}
+
+fn mismatched_geo_uid() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::GEO,
             [
@@ -1973,6 +2076,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("invalid type for MarshalJSON: 7"),
             ],
         ),
+    ]
+}
+
+fn mismatched_password_string() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::PASSWORD,
             [
@@ -2015,6 +2123,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("interface conversion: interface {} is []float32, not string"),
             ],
         ),
+    ]
+}
+
+fn mismatched_object_bigfloat() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::OBJECT,
             [
@@ -2059,6 +2172,11 @@ fn test_marshal_json_mismatched_value() {
                 Err("interface conversion: interface {} is []float32, not big.Float"),
             ],
         ),
+    ]
+}
+
+fn mismatched_vfloat_unknown() -> Vec<MismatchCase> {
+    vec![
         (
             TypeId::VFLOAT,
             [
@@ -2101,23 +2219,7 @@ fn test_marshal_json_mismatched_value() {
                 Err("invalid type for MarshalJSON: 13"),
             ],
         ),
-    ];
-    let failures: Vec<String> = cases
-        .into_iter()
-        .flat_map(|(id, wants)| {
-            values
-                .iter()
-                .zip(wants)
-                .filter_map(move |((kind, v), want)| {
-                    let got = marshal_json(&Val::new(id, v.clone()))
-                        .map(|b| String::from_utf8(b).unwrap())
-                        .map_err(|e| e.to_string());
-                    let want = want.map(String::from).map_err(String::from);
-                    (got != want).then(|| format!("{id:?} of {kind}: got {got:?}, Go {want:?}"))
-                })
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    ]
 }
 
 /// Go v25.5.0's `Val.MarshalJSON` of a geometry with a non-finite coordinate, as Go 1.27 answers it through
@@ -2125,13 +2227,43 @@ fn test_marshal_json_mismatched_value() {
 /// collections in order and nested collections depth first.
 #[test]
 fn test_marshal_json_geo_non_finite() {
-    use ultragraphdb_core_types::{Geometry, Layout, marshal_json};
-    const INF: f64 = f64::INFINITY;
-    const NINF: f64 = f64::NEG_INFINITY;
-    const NAN: f64 = f64::NAN;
-    let pt = |x: f64, y: f64| Geometry::point(Layout::XY, &[x, y]).unwrap();
-    let line = |c: &[[f64; 2]]| c.iter().map(|c| c.to_vec()).collect::<Vec<_>>();
-    let cases: Vec<(&str, Geometry, &str)> = vec![
+    use ultragraphdb_core_types::marshal_json;
+    let cases: Vec<GeoCase> = [
+        non_finite_points_lines_and_polygons(),
+        non_finite_multis(),
+        non_finite_multipolygons_collections_and_measures(),
+        non_finite_wider_layouts_and_nesting(),
+    ]
+    .concat();
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(name, g, what)| {
+            let got =
+                marshal_json(&Val::new(TypeId::GEO, Value::Geo(g))).map_err(|e| e.to_string());
+            let want = Err(format!("json: unsupported value: {what}"));
+            (got != want).then(|| format!("{name}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A case's name, a geometry with a non-finite coordinate, and the coordinate Go's error names.
+type GeoCase = (&'static str, Geometry, &'static str);
+
+const INF: f64 = f64::INFINITY;
+const NINF: f64 = f64::NEG_INFINITY;
+const NAN: f64 = f64::NAN;
+
+fn pt(x: f64, y: f64) -> Geometry {
+    Geometry::point(Layout::XY, &[x, y]).unwrap()
+}
+
+fn line(c: &[[f64; 2]]) -> Vec<Vec<f64>> {
+    c.iter().map(|c| c.to_vec()).collect()
+}
+
+fn non_finite_points_lines_and_polygons() -> Vec<GeoCase> {
+    vec![
         ("point +Inf first", pt(INF, 1.0), "+Inf"),
         ("point -Inf second", pt(1.0, NINF), "-Inf"),
         ("point NaN second", pt(1.0, NAN), "NaN"),
@@ -2183,6 +2315,11 @@ fn test_marshal_json_geo_non_finite() {
             Geometry::polygon(Layout::XY, &[line(&[[INF, 0.0], [NINF, 0.0], [0.0, 0.0]])]).unwrap(),
             "+Inf",
         ),
+    ]
+}
+
+fn non_finite_multis() -> Vec<GeoCase> {
+    vec![
         (
             "multipoint NaN after empty",
             Geometry::multi_point(
@@ -2230,6 +2367,11 @@ fn test_marshal_json_geo_non_finite() {
             .unwrap(),
             "+Inf",
         ),
+    ]
+}
+
+fn non_finite_multipolygons_collections_and_measures() -> Vec<GeoCase> {
+    vec![
         (
             "multipolygon NaN first",
             Geometry::multi_polygon(
@@ -2284,6 +2426,11 @@ fn test_marshal_json_geo_non_finite() {
             Geometry::point(Layout::XYZM, &[1.0, 2.0, 3.0, NINF]).unwrap(),
             "-Inf",
         ),
+    ]
+}
+
+fn non_finite_wider_layouts_and_nesting() -> Vec<GeoCase> {
+    vec![
         (
             "linestring xyzm NaN z before +Inf m",
             Geometry::line_string(
@@ -2342,17 +2489,7 @@ fn test_marshal_json_geo_non_finite() {
             ]),
             "+Inf",
         ),
-    ];
-    let failures: Vec<String> = cases
-        .into_iter()
-        .filter_map(|(name, g, what)| {
-            let got =
-                marshal_json(&Val::new(TypeId::GEO, Value::Geo(g))).map_err(|e| e.to_string());
-            let want = Err(format!("json: unsupported value: {what}"));
-            (got != want).then(|| format!("{name}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    ]
 }
 
 /// Go v25.5.0's `ParseVFloat` on inputs at its edges: any run of closing brackets, blank lists, separators that
@@ -2387,14 +2524,20 @@ fn test_parse_vfloat() {
     ];
     let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
     for (input, want) in cases {
-        match (parse_vfloat(input), want) {
+        let got = parse_vfloat(input);
+        assert_eq!(
+            got.is_ok(),
+            want.is_some(),
+            "{input:?}: got {got:?}, Go {want:?}"
+        );
+        match (got, want) {
             (Ok(got), Some(want)) => assert_eq!(bits(&got), bits(want), "{input:?}"),
-            (Err(e), None) => assert_eq!(
+            (Err(e), _) => assert_eq!(
                 e.to_string(),
                 format!("cannot convert {} to vfloat", input.trim()),
                 "{input:?}"
             ),
-            (got, want) => panic!("{input:?}: got {got:?}, Go {want:?}"),
+            (Ok(_), None) => {}
         }
     }
 }
@@ -2403,22 +2546,38 @@ fn test_parse_vfloat() {
 /// RFC 3339 form and its range error, a bigfloat's `MarshalText`, and the type identifier of every type it refuses.
 #[test]
 fn test_marshal_json_go_texts() {
-    use ultragraphdb_core_types::{BigFloat, marshal_json};
+    use ultragraphdb_core_types::marshal_json;
     let json = |v: Val| {
         marshal_json(&v)
             .map(|b| String::from_utf8(b).unwrap())
             .map_err(|e| e.to_string())
     };
+    let cases: Vec<TextCase> = [
+        number_and_year_texts(),
+        zone_and_string_texts(),
+        bool_bigfloat_and_refused_texts(),
+    ]
+    .concat();
+    let failures: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(v, want)| {
+            let got = json(v.clone());
+            let want = want.map(String::from).map_err(String::from);
+            (got != want).then(|| format!("{v:?}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A value and Go's MarshalJSON of it: the JSON or the error text.
+type TextCase = (Val, Result<&'static str, &'static str>);
+
+/// Ints, floats and the years outside of RFC 3339's range.
+fn number_and_year_texts() -> Vec<TextCase> {
     let float = |f: f64| Val::new(TypeId::FLOAT, Value::Float(f));
-    let big = |s: &str| {
-        Val::new(
-            TypeId::BIGFLOAT,
-            Value::BigFloat(BigFloat::unmarshal_text(s, 200).unwrap()),
-        )
-    };
     let year_range =
         "json: error calling MarshalJSON for type *time.Time: year outside of range [0,9999]";
-    let cases: Vec<(Val, Result<&str, &str>)> = vec![
+    vec![
         (
             Val::new(TypeId::INT, Value::Int(i64::MIN)),
             Ok("-9223372036854775808"),
@@ -2450,6 +2609,12 @@ fn test_marshal_json_go_texts() {
             ),
             Err(year_range),
         ),
+    ]
+}
+
+/// Times in a zone, and strings with the characters Go escapes.
+fn zone_and_string_texts() -> Vec<TextCase> {
+    vec![
         (
             Val::new(
                 TypeId::DATETIME,
@@ -2501,6 +2666,19 @@ fn test_marshal_json_go_texts() {
             ),
             Ok(r#""2018-01-01T00:00:00+00:00""#),
         ),
+    ]
+}
+
+/// A bool, bigfloats, and the types MarshalJSON refuses.
+fn bool_bigfloat_and_refused_texts() -> Vec<TextCase> {
+    use ultragraphdb_core_types::BigFloat;
+    let big = |s: &str| {
+        Val::new(
+            TypeId::BIGFLOAT,
+            Value::BigFloat(BigFloat::unmarshal_text(s, 200).unwrap()),
+        )
+    };
+    vec![
         (Val::new(TypeId::BOOL, Value::Bool(false)), Ok("false")),
         (big("1e100"), Ok("1e+100")),
         (big("-0.125"), Ok("-0.125")),
@@ -2524,14 +2702,5 @@ fn test_marshal_json_go_texts() {
             Val::new(TypeId::BINARY, Value::Bytes(b"ab".to_vec())),
             Err("invalid type for MarshalJSON: 1"),
         ),
-    ];
-    let failures: Vec<String> = cases
-        .into_iter()
-        .filter_map(|(v, want)| {
-            let got = json(v.clone());
-            let want = want.map(String::from).map_err(String::from);
-            (got != want).then(|| format!("{v:?}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    ]
 }

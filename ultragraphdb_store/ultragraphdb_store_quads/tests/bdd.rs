@@ -99,9 +99,10 @@ fn two_creators(w: &mut Steps) {
 }
 
 #[then(expr = "the first commits, the second fails with {string}, and <new> has one UID")]
-fn second_retries(w: &mut Steps, text: String) {
+fn second_retries(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     assert!(w.results[0].is_ok());
-    assert_eq!(w.results[1].as_ref().unwrap_err().to_string(), text);
+    assert_eq!(w.results[1].as_ref().unwrap_err().to_string(), *text);
     let store = w.store.as_ref().unwrap();
     let held = uid(store, 0, &ex("new"));
     let retry = insert_write(store, 0, &[quad("new", "q", ex("y"))]);
@@ -452,11 +453,14 @@ fn fresh_unread(w: &mut Steps) {
         _ => false,
     };
     for record in &w.log {
-        let keys: Vec<&[u8]> = match record {
-            OpRecord::Read { key, .. } => vec![key],
-            OpRecord::ReadMany { keys, .. } => keys.iter().map(Vec::as_slice).collect(),
-            OpRecord::Scanned { scan, .. } => vec![scan.start()],
-            _ => vec![],
+        let keys: Vec<&[u8]> = if let OpRecord::Read { key, .. } = record {
+            vec![key]
+        } else if let OpRecord::ReadMany { keys, .. } = record {
+            keys.iter().map(Vec::as_slice).collect()
+        } else if let OpRecord::Scanned { scan, .. } = record {
+            vec![scan.start()]
+        } else {
+            vec![]
         };
         assert!(!keys.iter().any(|k| names_new(k)), "read {record:?}");
     }
@@ -495,7 +499,8 @@ fn dictionary_workload(w: &mut Steps) {
             crate::utils::dictionary_workload::DictionaryWorkload::faults(),
             150,
         )
-        .unwrap_or_else(|v| panic!("{v}"));
+        .map_err(|v| v.to_string())
+        .expect("the workload breaks no invariant");
         w.uids.push(checked as u64);
     }
 }

@@ -182,7 +182,6 @@ impl<'e> WriteSetBuilder<'e> {
     /// gives none.
     fn visit(&self, section: usize, f: &mut impl FnMut(&[u8], Value<'_>)) {
         let writes = self.executed.writes();
-        let empty = Value::Bytes(&[]);
         let entry_value = |e: &'e ultragraphdb_traits_store::Entry| {
             e.value().map_or(Value::Removal, Value::Bytes)
         };
@@ -217,43 +216,51 @@ impl<'e> WriteSetBuilder<'e> {
                     f(e.key(), entry_value(e));
                 }
             }
-            6 => {
-                for (key, delta) in writes.deltas() {
-                    if !self.by_objects(key, delta) {
-                        f(key, empty);
-                    }
-                }
-                // A predicate's implicit default entry is an insert-if-absent on its catalog key, no catalog change.
-                let defaults = self.executed.defaults();
-                for e in writes.entries() {
-                    if defaults
-                        .binary_search_by(|k| k.as_slice().cmp(e.key()))
-                        .is_err()
-                    {
-                        f(e.key(), empty);
-                    }
-                }
-                for e in writes.versionless() {
-                    f(e.key(), empty);
-                }
-            }
-            7 => {
-                for (key, delta) in writes.deltas() {
-                    if self.by_objects(key, delta) {
-                        for p in delta.postings() {
-                            if let Ok(object) = posting_object(key, p) {
-                                f(key, Value::Bytes(object.as_bytes()));
-                            }
-                        }
-                    }
-                }
-            }
+            6 => self.visit_conflict_points(f),
+            7 => self.visit_conflict_statements(f),
             8 => {
                 for (start, end) in self.executed.drop_ranges() {
                     f(start, Value::Bytes(end));
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Calls `f` with every conflict point of section 6, an empty value each.
+    fn visit_conflict_points(&self, f: &mut impl FnMut(&[u8], Value<'_>)) {
+        let writes = self.executed.writes();
+        let empty = Value::Bytes(&[]);
+        for (key, delta) in writes.deltas() {
+            if !self.by_objects(key, delta) {
+                f(key, empty);
+            }
+        }
+        // A predicate's implicit default entry is an insert-if-absent on its catalog key, no catalog change.
+        let defaults = self.executed.defaults();
+        for e in writes.entries() {
+            if defaults
+                .binary_search_by(|k| k.as_slice().cmp(e.key()))
+                .is_err()
+            {
+                f(e.key(), empty);
+            }
+        }
+        for e in writes.versionless() {
+            f(e.key(), empty);
+        }
+    }
+
+    /// Calls `f` with every conflict statement of section 7: a list key and an object it changed.
+    fn visit_conflict_statements(&self, f: &mut impl FnMut(&[u8], Value<'_>)) {
+        for (key, delta) in self.executed.writes().deltas() {
+            if self.by_objects(key, delta) {
+                for p in delta.postings() {
+                    if let Ok(object) = posting_object(key, p) {
+                        f(key, Value::Bytes(object.as_bytes()));
+                    }
+                }
+            }
         }
     }
 
@@ -346,7 +353,7 @@ impl<'e> WriteSetBuilder<'e> {
 fn write_entry(out: &mut Vec<u8>, key: &[u8], value: Value<'_>) {
     let value_len = match value {
         Value::Removal => ABSENT,
-        v => v.len() as u32,
+        v @ (Value::Bytes(_) | Value::Delta(_)) => v.len() as u32,
     };
     out.extend_from_slice(&(key.len() as u32).to_le_bytes());
     out.extend_from_slice(&value_len.to_le_bytes());

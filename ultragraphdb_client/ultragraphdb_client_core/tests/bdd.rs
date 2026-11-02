@@ -28,7 +28,10 @@ mod utils {
     pub mod harness;
 }
 
-use crate::utils::harness::{CLUSTER, Harness, RELEASE, config, scram_welcome, server};
+use crate::utils::harness::{
+    CLUSTER, Harness, RELEASE, begun, committed, config, prepared, registered, scram_welcome,
+    server,
+};
 
 #[derive(Default, World)]
 struct Steps {
@@ -52,18 +55,12 @@ impl std::fmt::Debug for Steps {
 
 fn begin(h: &mut Harness, read_only: bool) -> Transaction {
     let p = h.core.begin(0, read_only, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
-    tx
+    begun(h.settle(p))
 }
 
 fn session(h: &mut Harness) -> Session {
     let p = h.core.register(h.now).unwrap();
-    let Ok(Reply::Registered(session)) = h.settle(p) else {
-        panic!("a session")
-    };
-    session
+    registered(h.settle(p))
 }
 
 /// A read of `tx`, naming it.
@@ -115,9 +112,7 @@ fn lost_reply(w: &mut Steps) {
     let tx = begin(&mut h, false);
     h.server.drop_after_next_commit();
     let p = h.core.commit(tx, session, h.now).unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("the reply")
-    };
+    let c = committed(h.settle(p));
     w.outcome = vec![c.request(), h.server.applied(), u64::from(h.connections)];
     let retried: Vec<(u64, u64)> = h
         .server
@@ -184,9 +179,8 @@ fn two_then_wait(w: &mut Steps) {
         vec![2, 2],
         "two frames per grant: the second grant went with the read that found none"
     );
-    let (Some(h), Some(stream)) = (w.harness.as_mut(), w.stream.as_ref()) else {
-        panic!()
-    };
+    let h = w.harness.as_mut().expect("a harness");
+    let stream = w.stream.as_ref().expect("a stream");
     assert_eq!(rest(h, stream), 6);
 }
 
@@ -214,9 +208,11 @@ fn cancel(w: &mut Steps) {
 
 #[then("no further frame of that stream arrives, and other streams continue")]
 fn cancelled(w: &mut Steps) {
-    let (Some(h), Some(sa), Some(sb)) = (w.harness.as_mut(), w.stream, w.other) else {
-        panic!()
-    };
+    let h = w.harness.as_mut().expect("a harness");
+    let (sa, sb) = (
+        w.stream.expect("a stream"),
+        w.other.expect("another stream"),
+    );
     assert_eq!(rest(h, &sb), 6);
     assert_eq!(
         h.core.next_batch(&sa, h.now, |_| ()).unwrap_err().0,
@@ -248,9 +244,7 @@ fn stale(w: &mut Steps) {
         Vec::new(),
     );
     let p = h.core.prepare(&prepare, h.now).unwrap();
-    let Ok(Reply::Prepared(statement)) = h.settle(p) else {
-        panic!()
-    };
+    let statement = prepared(h.settle(p));
     h.server.set_schema(2);
     let tx = begin(&mut h, true);
     let mut terms = TermTable::new();
@@ -303,14 +297,16 @@ fn repeated(w: &mut Steps) {
         .unwrap();
     let frame = h.numbered(&frame);
     h.deliver(&frame).unwrap();
-    let Ok(BatchPoll::Batch((rows, terms, same))) = h.core.next_batch(&stream, h.now, |v| {
+    let polled = h.core.next_batch(&stream, h.now, |v| {
         let same = (0..v.rows()).all(|r| {
             v.cell(0, r).and_then(|c| v.term(c)).and_then(|t| t.text())
                 == Some("http://ex.org/same")
         });
         (v.rows(), v.term_count(), same)
-    }) else {
-        panic!("the batch")
+    });
+    assert!(matches!(polled, Ok(BatchPoll::Batch(_))), "the batch");
+    let Ok(BatchPoll::Batch((rows, terms, same))) = polled else {
+        return;
     };
     assert!(same && rows == 1_000);
     w.terms = terms;
@@ -405,16 +401,13 @@ fn repeated_frame(w: &mut Steps) {
     let tx = begin(&mut h, false);
     let p = h.core.commit(tx, session, h.now).unwrap();
     h.send_twice();
-    let answer = h.settle(p);
-    w.outcome = match answer {
-        Ok(Reply::Committed(c)) => vec![
-            c.request(),
-            h.server.applied(),
-            u64::from(h.connections),
-            commits(&h).len() as u64,
-        ],
-        other => panic!("{other:?}"),
-    };
+    let c = committed(h.settle(p));
+    w.outcome = vec![
+        c.request(),
+        h.server.applied(),
+        u64::from(h.connections),
+        commits(&h).len() as u64,
+    ];
 }
 
 #[then(
@@ -447,9 +440,9 @@ fn two_reads(w: &mut Steps) {
 )]
 fn both_streamed(w: &mut Steps) {
     assert_eq!(w.outcome, vec![4, 4]);
-    let (Some(h), Some(tx), Some(session)) = (w.harness.as_mut(), w.transaction, w.session) else {
-        panic!()
-    };
+    let h = w.harness.as_mut().expect("a harness");
+    let tx = w.transaction.expect("a transaction");
+    let session = w.session.expect("a session");
     let stream = tx.stream();
     let p = h.core.commit(tx, session, h.now).unwrap();
     assert!(matches!(h.settle(p), Ok(Reply::Committed(_))));
@@ -487,9 +480,8 @@ fn cancel_a_read(w: &mut Steps) {
 #[then("no further frame of the read arrives, and the commit succeeds")]
 fn read_cancelled(w: &mut Steps) {
     assert_eq!(w.refusal, Some(true), "the commit succeeds");
-    let (Some(h), Some(stream)) = (w.harness.as_mut(), w.stream) else {
-        panic!()
-    };
+    let h = w.harness.as_mut().expect("a harness");
+    let stream = w.stream.expect("a stream");
     assert_eq!(
         h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
         ClientErrorEnum::StreamFinished {
@@ -513,9 +505,8 @@ fn commit_with_a_read_open(w: &mut Steps) {
 #[then("the read's stream sends no further frame, and the commit's reply arrives")]
 fn read_ended(w: &mut Steps) {
     assert_eq!(w.refusal, Some(true), "the commit's reply arrived");
-    let (Some(h), Some(stream)) = (w.harness.as_mut(), w.stream) else {
-        panic!()
-    };
+    let h = w.harness.as_mut().expect("a harness");
+    let stream = w.stream.expect("a stream");
     assert_eq!(
         h.core.next_batch(&stream, h.now, |_| ()).unwrap_err().0,
         ClientErrorEnum::StreamFinished {
@@ -555,9 +546,7 @@ fn renewal(w: &mut Steps) {
     );
     let first = h.core.expires();
     let p = h.core.begin(0, true, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!()
-    };
+    let tx = begun(h.settle(p));
     let stream = h.core.read(&tx, &read(&tx), h.now).unwrap();
     h.until(|h| h.server.received().len() >= 5);
     while h.step() {}

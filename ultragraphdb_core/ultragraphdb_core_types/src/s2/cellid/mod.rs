@@ -135,18 +135,18 @@ impl CellId {
 
     /// Returns the cell at the level immediately above ci.
     /// If ci is already a face cell, the result is undefined.
-    pub(crate) fn immediate_parent(&self) -> CellId {
+    pub(crate) fn immediate_parent(self) -> CellId {
         let nlsb = self.lsb() << 2;
         CellId((self.0 & nlsb.wrapping_neg()) | nlsb)
     }
 
     /// Returns whether this is a top-level (face) cell.
-    pub(crate) fn is_face(&self) -> bool {
+    pub(crate) fn is_face(self) -> bool {
         self.0 & (lsb_for_level(0) - 1) == 0
     }
 
     /// Returns the least significant bit that is set.
-    pub(crate) fn lsb(&self) -> u64 {
+    pub(crate) fn lsb(self) -> u64 {
         self.0 & self.0.wrapping_neg()
     }
 
@@ -306,8 +306,8 @@ impl CellId {
     /// It returns limit if no such cell exists. This method can be used to generate a small set
     /// of CellIDs that covers a given range (a tiling). This method works with any valid
     /// CellIDs, the sentinel and the zero id.
-    pub(crate) fn max_tile(&self, limit: CellId) -> CellId {
-        let mut ci = *self;
+    pub(crate) fn max_tile(self, limit: CellId) -> CellId {
+        let mut ci = self;
         let start = ci.range_min();
         if start >= limit.range_min() {
             return limit;
@@ -344,7 +344,7 @@ impl CellId {
     /// the Hilbert curve position corresponding at their center, it turns out that the cell
     /// returned by FaceIJ is always one of two leaf cells closest to the center of the cell
     /// (unless the given cell is a leaf cell itself).
-    pub(crate) fn face_ij_orientation(&self) -> (usize, i64, i64, usize) {
+    pub(crate) fn face_ij_orientation(self) -> (usize, i64, i64, usize) {
         let f = self.face();
         let mut orientation = f & SWAP_MASK;
         let mut nbits = MAX_LEVEL as u32 - 7 * LOOKUP_BITS; // first iteration
@@ -363,8 +363,10 @@ impl CellId {
             orientation +=
                 (((self.0 >> (k * 2 * LOOKUP_BITS + 1)) as usize) & ((1 << (2 * nbits)) - 1)) << 2;
             orientation = LOOKUP_IJ[orientation];
-            i += ((orientation >> (LOOKUP_BITS + 2)) as i64) << (k * LOOKUP_BITS);
-            j += (((orientation >> 2) & ((1 << LOOKUP_BITS) - 1)) as i64) << (k * LOOKUP_BITS);
+            // Both fields are LOOKUP_BITS wide, so neither conversion can fail.
+            i += i64::try_from(orientation >> (LOOKUP_BITS + 2)).unwrap_or(0) << (k * LOOKUP_BITS);
+            j += i64::try_from((orientation >> 2) & ((1 << LOOKUP_BITS) - 1)).unwrap_or(0)
+                << (k * LOOKUP_BITS);
             orientation &= SWAP_MASK | INVERT_MASK;
             nbits = LOOKUP_BITS; // following iterations
         }
@@ -384,11 +386,11 @@ impl CellId {
     }
 
     /// Returns the Face/Si/Ti coordinates of the center of the cell.
-    pub(crate) fn face_si_ti(&self) -> (usize, u32, u32) {
+    pub(crate) fn face_si_ti(self) -> (usize, u32, u32) {
         let (face, i, j, _) = self.face_ij_orientation();
         let delta: i64 = if self.is_leaf() {
             1
-        } else if (i ^ ((self.0 >> 2) as i64)) & 1 != 0 {
+        } else if (i ^ (self.0 >> 2).cast_signed()) & 1 != 0 {
             2
         } else {
             0
@@ -398,7 +400,7 @@ impl CellId {
 
     /// Returns an unnormalized r3 vector from the origin through the center of the s2 cell on
     /// the sphere.
-    pub(crate) fn raw_point(&self) -> R3Vector {
+    pub(crate) fn raw_point(self) -> R3Vector {
         let (face, si, ti) = self.face_si_ti();
         // Go's constant 0.5 / MaxSize is 2^-31.
         const HALF_OVER_MAX_SIZE: f64 = 0.5 / MAX_SIZE as f64;
@@ -420,7 +422,8 @@ pub(crate) fn lsb_for_level(level: i64) -> u64 {
 
 /// Returns the edge length of this CellID in (i,j)-space, Go's 0 for a level below -33 or above 30.
 pub(crate) fn size_ij(level: i64) -> i64 {
-    go_shl(MAX_LEVEL.wrapping_sub(level)) as i64
+    // Go's int64(1 << n): the shift reaches at most bit 63, which Go reads as negative.
+    go_shl(MAX_LEVEL.wrapping_sub(level)).cast_signed()
 }
 
 /// Go's `1 << uint64(n)`: 0 for a count of 64 or more, a negative count among them.

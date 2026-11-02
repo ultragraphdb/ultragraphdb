@@ -212,9 +212,11 @@ fn test_a_property_gives_a_held_statement_an_id_and_a_record() {
     assert_eq!(record.subject(), uid(&a, "a"));
     assert_eq!(record.predicate(), uid(&a, "knows"));
     assert_eq!(record.object(), &EncodedTerm::uid(uid(&a, "b")));
-    let [(property, value)] = record.properties() else {
-        panic!("one property: {:?}", record.properties())
-    };
+    let (property, value) = match record.properties() {
+        [one] => Ok(one),
+        more => Err(format!("one property: {more:?}")),
+    }
+    .expect("the record holds one property");
     assert_eq!(*property, uid(&a, "since"));
     assert_eq!(a.quads().term_of(NS, value).unwrap(), term("2020"));
 }

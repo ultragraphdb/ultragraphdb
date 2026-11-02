@@ -94,7 +94,10 @@ impl Decoder {
                     0.0
                 }
             },
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::String(_)
+            | JsonValue::Array(_)
+            | JsonValue::Object(_)) => {
                 self.error(other.kind(), "float64");
                 0.0
             }
@@ -112,7 +115,10 @@ impl Decoder {
                     .map(|(i, x)| self.at(i, |d| d.float(x)))
                     .collect(),
             ),
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Object(_)) => {
                 self.error(other.kind(), "geom.Coord");
                 None
             }
@@ -127,7 +133,10 @@ impl Decoder {
                 .enumerate()
                 .map(|(i, x)| self.at(i, |d| d.coord(x)))
                 .collect(),
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Object(_)) => {
                 self.error(other.kind(), "[]geom.Coord");
                 Vec::new()
             }
@@ -142,7 +151,10 @@ impl Decoder {
                 .enumerate()
                 .map(|(i, x)| self.at(i, |d| d.coords1(x)))
                 .collect(),
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Object(_)) => {
                 self.error(other.kind(), "[][]geom.Coord");
                 Vec::new()
             }
@@ -157,7 +169,10 @@ impl Decoder {
                 .enumerate()
                 .map(|(i, x)| self.at(i, |d| d.coords2(x)))
                 .collect(),
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Object(_)) => {
                 self.error(other.kind(), "[][][]geom.Coord");
                 Vec::new()
             }
@@ -191,7 +206,10 @@ impl Decoder {
                 "type" => match &val {
                     JsonValue::String(s) => g.kind = s.clone(),
                     JsonValue::Null => {}
-                    other => {
+                    other @ (JsonValue::Bool(_)
+                    | JsonValue::Number(_)
+                    | JsonValue::Array(_)
+                    | JsonValue::Object(_)) => {
                         self.path.push("type".into());
                         self.error(other.kind(), "string");
                         self.path.pop();
@@ -204,7 +222,10 @@ impl Decoder {
                     match &val {
                         JsonValue::Null => {}
                         JsonValue::Object(crs) => self.crs(crs),
-                        other => self.error(other.kind(), "geojson.CRS"),
+                        other @ (JsonValue::Bool(_)
+                        | JsonValue::Number(_)
+                        | JsonValue::String(_)
+                        | JsonValue::Array(_)) => self.error(other.kind(), "geojson.CRS"),
                     }
                     self.path.pop();
                 }
@@ -259,7 +280,10 @@ impl GeoJson {
         let members = match v {
             JsonValue::Null => return Ok(None),
             JsonValue::Object(m) => m.clone(),
-            other => {
+            other @ (JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Array(_)) => {
                 return Err(TypesError::geo(type_error(
                     other.kind(),
                     "geojson.Geometry",
@@ -312,32 +336,7 @@ impl GeoJson {
             _ => Decoder::new("", "[][][]geom.Coord"),
         };
         let Some(c) = &self.coordinates else {
-            return match kind {
-                "Point" => Ok(Geometry::point_empty(Layout::NO_LAYOUT)),
-                "LineString" => Ok(Geometry::empty_multi(
-                    GeometryKind::LineString,
-                    Layout::NO_LAYOUT,
-                )),
-                "Polygon" => Ok(Geometry::empty_multi(
-                    GeometryKind::Polygon,
-                    Layout::NO_LAYOUT,
-                )),
-                "MultiPoint" => Ok(Geometry::empty_multi(
-                    GeometryKind::MultiPoint,
-                    Layout::NO_LAYOUT,
-                )),
-                "MultiLineString" => Ok(Geometry::empty_multi(
-                    GeometryKind::MultiLineString,
-                    Layout::NO_LAYOUT,
-                )),
-                "MultiPolygon" => Ok(Geometry::empty_multi(
-                    GeometryKind::MultiPolygon,
-                    Layout::NO_LAYOUT,
-                )),
-                _ => Err(TypesError::geo(format!(
-                    "geojson: unsupported type: {kind}"
-                ))),
-            };
+            return decode_empty(kind);
         };
         match kind {
             "Point" => {
@@ -391,7 +390,11 @@ impl GeoJson {
         };
         let items = match &mut geometries {
             JsonValue::Array(items) => std::mem::take(items),
-            other => {
+            other @ (JsonValue::Null
+            | JsonValue::Bool(_)
+            | JsonValue::Number(_)
+            | JsonValue::String(_)
+            | JsonValue::Object(_)) => {
                 return Err(TypesError::geo(type_error(
                     other.kind(),
                     "[]geojson.Geometry",
@@ -404,7 +407,10 @@ impl GeoJson {
             let g = d.at(i, |d| match &mut item {
                 JsonValue::Object(m) => d.geometry(std::mem::take(m)),
                 JsonValue::Null => GeoJson::default(),
-                other => {
+                other @ (JsonValue::Bool(_)
+                | JsonValue::Number(_)
+                | JsonValue::String(_)
+                | JsonValue::Array(_)) => {
                     d.error(other.kind(), "geojson.Geometry");
                     GeoJson::default()
                 }
@@ -543,7 +549,7 @@ fn encode_coordinates(out: &mut String, g: &Geometry) -> Option<()> {
             }
             out.push(']');
         }
-        _ => {
+        GeometryKind::MultiPolygon | GeometryKind::GeometryCollection => {
             out.push('[');
             for i in 0..g.num_polygons() {
                 if i > 0 {
@@ -556,4 +562,34 @@ fn encode_coordinates(out: &mut String, g: &Geometry) -> Option<()> {
         }
     }
     Some(())
+}
+
+/// [`GeoJson::decode_one`] of a geometry without coordinates: Go's empty geometry of its type.
+fn decode_empty(kind: &str) -> Result<Geometry, TypesError> {
+    match kind {
+        "Point" => Ok(Geometry::point_empty(Layout::NO_LAYOUT)),
+        "LineString" => Ok(Geometry::empty_multi(
+            GeometryKind::LineString,
+            Layout::NO_LAYOUT,
+        )),
+        "Polygon" => Ok(Geometry::empty_multi(
+            GeometryKind::Polygon,
+            Layout::NO_LAYOUT,
+        )),
+        "MultiPoint" => Ok(Geometry::empty_multi(
+            GeometryKind::MultiPoint,
+            Layout::NO_LAYOUT,
+        )),
+        "MultiLineString" => Ok(Geometry::empty_multi(
+            GeometryKind::MultiLineString,
+            Layout::NO_LAYOUT,
+        )),
+        "MultiPolygon" => Ok(Geometry::empty_multi(
+            GeometryKind::MultiPolygon,
+            Layout::NO_LAYOUT,
+        )),
+        _ => Err(TypesError::geo(format!(
+            "geojson: unsupported type: {kind}"
+        ))),
+    }
 }

@@ -57,9 +57,10 @@ fn binary_of(v: &Val) -> Result<Vec<u8>, String> {
 
 fn text_of(v: &Val) -> String {
     match marshal(v, TypeId::STRING).unwrap().into_value() {
-        Some(Value::Str(s)) => s,
-        other => panic!("{other:?}"),
+        Some(Value::Str(s)) => Ok(s),
+        other => Err(format!("{other:?}")),
     }
+    .expect("marshalling to string gives a string")
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -205,8 +206,7 @@ fn decoded_match(w: &mut Steps) {
 // ---------- Conversions ----------
 
 #[when(expr = "the float {word} is converted to int")]
-fn float_to_int(w: &mut Steps, f: String) {
-    let f: f64 = f.parse().unwrap();
+fn float_to_int(w: &mut Steps, f: f64) {
     let v = Val::bytes(TypeId::FLOAT, f.to_bits().to_le_bytes().to_vec());
     w.error = convert(&v, TypeId::INT).unwrap_err().to_string();
 }
@@ -238,9 +238,9 @@ fn each_conversion_fails(w: &mut Steps, msg: String) {
 }
 
 #[when(expr = "the binary value with the bytes {string} is converted to string")]
-fn invalid_binary_to_string(w: &mut Steps, bytes: String) {
+fn invalid_binary_to_string(w: &mut Steps, bytes: &[String]) {
     w.error = outcome(convert(
-        &Val::bytes(TypeId::BINARY, unhex(&bytes)),
+        &Val::bytes(TypeId::BINARY, unhex(&bytes[0])),
         TypeId::STRING,
     ));
 }
@@ -259,8 +259,8 @@ fn string_to_float(w: &mut Steps, s: String) {
 }
 
 #[then(expr = "conversion fails with {string}")]
-fn conversion_fails(w: &mut Steps, msg: String) {
-    assert_eq!(w.error, msg);
+fn conversion_fails(w: &mut Steps, msg: &[String]) {
+    assert_eq!(msg, [w.error.as_str()]);
 }
 
 #[when(expr = "the bytes [], [0], [1] and [2] are converted to bool")]
@@ -292,8 +292,8 @@ fn float_to_string(w: &mut Steps) {
 }
 
 #[then(expr = "the result is {string}")]
-fn text_is(w: &mut Steps, s: String) {
-    assert_eq!(w.text, s);
+fn text_is(w: &mut Steps, s: &[String]) {
+    assert_eq!(s, [w.text.as_str()]);
 }
 
 // ---------- Big floats ----------
@@ -347,8 +347,8 @@ fn format_pow2(w: &mut Steps) {
 }
 
 #[then(expr = "the text is {string}")]
-fn the_text_is(w: &mut Steps, s: String) {
-    assert_eq!(w.text, s);
+fn the_text_is(w: &mut Steps, s: &[String]) {
+    assert_eq!(s, [w.text.as_str()]);
 }
 
 #[when(expr = "{string}, {string}, {string} and {string} are parsed as bigfloat")]
@@ -368,12 +368,15 @@ fn parse_big_floats(w: &mut Steps, a: String, b: String, c: String, d: String) {
 }
 
 #[then(expr = "the first three give {string}, {string} and {string}, and {string} is refused")]
-fn big_float_syntax(w: &mut Steps, a: String, b: String, c: String, refused: String) {
-    assert_eq!(&w.texts[..3], &[Ok(a), Ok(b), Ok(c)]);
+fn big_float_syntax(w: &mut Steps, words: &[String]) {
+    let (texts, refused) = words.split_at(3);
+    let want: Vec<Result<String, String>> = texts.iter().cloned().map(Ok).collect();
+    assert_eq!(&w.texts[..3], want.as_slice());
     assert_eq!(
         w.texts[3],
         Err(format!(
-            "math/big: cannot unmarshal \"{refused}\" into a *big.Float (number has no digits)"
+            "math/big: cannot unmarshal \"{}\" into a *big.Float (number has no digits)",
+            refused[0]
         ))
     );
 }
@@ -402,9 +405,9 @@ fn parse_one(w: &mut Steps, s: String) {
 }
 
 #[then(expr = "parsing fails with {string}")]
-fn parsing_fails(w: &mut Steps, msg: String) {
+fn parsing_fails(w: &mut Steps, msg: &[String]) {
     // Dgraph's ParseTime returns Go's time.ParseError for the RFC 3339 layout.
-    assert_eq!(w.error, format!("parsing time {:?}: {msg}", w.text));
+    assert_eq!(w.error, format!("parsing time {:?}: {}", w.text, msg[0]));
 }
 
 // ---------- Inference ----------
@@ -538,16 +541,17 @@ fn german_strings(w: &mut Steps) {
 }
 
 #[when(expr = "the golden German strings are sorted with language {string}")]
-fn sort_german(w: &mut Steps, lang: String) {
+fn sort_german(w: &mut Steps, langs: &[String]) {
+    let lang = &langs[0];
     let c = &w.golden_lang[0];
-    assert_eq!(c.lang, lang);
+    assert_eq!(&c.lang, lang);
     let mut rows: Vec<Vec<Val>> = c
         .input
         .iter()
         .map(|s| vec![Val::new(TypeId::STRING, Value::str(s))])
         .collect();
     let mut uids: Vec<u64> = (1..=rows.len() as u64).map(|i| i * 100).collect();
-    sort(&mut rows, &mut uids, &[false], &lang, &TextCollator).unwrap();
+    sort(&mut rows, &mut uids, &[false], lang, &TextCollator).unwrap();
     w.sorted = rows.iter().map(|r| text_of(&r[0])).collect();
 }
 

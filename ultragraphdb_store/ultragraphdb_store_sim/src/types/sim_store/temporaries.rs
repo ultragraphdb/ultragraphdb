@@ -116,7 +116,7 @@ impl Inner {
     }
 
     /// Drops `temporary` and what it holds.
-    pub fn drop_temporary(&mut self, temporary: Temporary) -> Result<(), StoreError> {
+    pub fn drop_temporary(&mut self, temporary: &Temporary) -> Result<(), StoreError> {
         self.refuse_unless_open("drop_temporary")?;
         self.maybe_slow();
         let id = temporary.id();

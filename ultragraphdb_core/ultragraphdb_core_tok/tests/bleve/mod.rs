@@ -50,7 +50,9 @@ pub(crate) const EDGE_INPUTS: [&str; 24] = [
 /// stems to its entry in `changed`, or stays as it is; and a 300-letter term stays as it is. The expected values are
 /// bleve v2.5.7's, from its tests or from running its filter.
 pub(crate) fn check_stems(name: &str, cases: &[(&str, &str)], changed: &[(&str, &str)]) {
-    let s = Stemmer::named(name).unwrap_or_else(|| panic!("no stemmer {name}"));
+    let s = Stemmer::named(name)
+        .ok_or_else(|| format!("no stemmer {name}"))
+        .expect("a stemmer of that name");
     let mut failures = Vec::new();
     for &(input, want) in cases {
         if s.stem(input) != want {

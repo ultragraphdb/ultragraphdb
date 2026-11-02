@@ -53,13 +53,22 @@ fn test_each_exchange_takes_the_next_nonce() {
         },
         SECRET,
     );
-    let mut first = || match authenticator
-        .start("SCRAM-SHA-256")
+    let mut first = || {
+        let step = authenticator
+            .start("SCRAM-SHA-256")
+            .unwrap()
+            .step(CLIENT_FIRST);
+        let message = if let Ok(MechanismStep::Continue(message)) = &step {
+            Some(message.clone())
+        } else {
+            None
+        };
+        String::from_utf8(
+            message
+                .ok_or_else(|| format!("{step:?}"))
+                .expect("the client's first message continues the exchange"),
+        )
         .unwrap()
-        .step(CLIENT_FIRST)
-    {
-        Ok(MechanismStep::Continue(message)) => String::from_utf8(message).unwrap(),
-        other => panic!("{other:?}"),
     };
     let one = first();
     let two = first();

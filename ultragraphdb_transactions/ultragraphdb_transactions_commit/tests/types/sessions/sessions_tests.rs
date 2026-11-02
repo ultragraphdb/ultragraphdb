@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_error_store::StoreErrorEnum;
+use ultragraphdb_error_store::{StoreError, StoreErrorEnum};
 use ultragraphdb_protocol_wire::OperationResult;
 use ultragraphdb_store_sim::{FaultConfig, Seed, SimClock, SimStore};
 use ultragraphdb_traits_store::{PersistMode, Store, VersionlessEntry, WriteBatch};
@@ -75,7 +75,7 @@ fn drained(table: &mut Sessions) -> Vec<VersionlessEntry> {
     entries
 }
 
-fn put(session: u64, entry: SessionEntry) -> VersionlessEntry {
+fn put(session: u64, entry: &SessionEntry) -> VersionlessEntry {
     VersionlessEntry::put(SessionEntry::key(session), entry.encode())
 }
 
@@ -95,8 +95,8 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
     assert_eq!(
         drained(&mut table),
         vec![
-            put(10, SessionEntry::new(0, 0, 0, Vec::new())),
-            put(12, SessionEntry::new(0, 0, 0, Vec::new())),
+            put(10, &SessionEntry::new(0, 0, 0, Vec::new())),
+            put(12, &SessionEntry::new(0, 0, 0, Vec::new())),
             index(&[10, 12]),
         ],
         "each session's entry in order, then the index"
@@ -105,7 +105,7 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
     table.committed(10, 1, 20, results.clone());
     assert_eq!(
         drained(&mut table),
-        vec![put(10, SessionEntry::new(1, 20, 0, results.clone()))],
+        vec![put(10, &SessionEntry::new(1, 20, 0, results.clone()))],
         "a commit leaves the index alone"
     );
     // 12 is the oldest: evicted, its entry removed.
@@ -113,7 +113,7 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
     assert_eq!(
         drained(&mut table),
         vec![
-            put(14, SessionEntry::new(0, 0, 0, Vec::new())),
+            put(14, &SessionEntry::new(0, 0, 0, Vec::new())),
             VersionlessEntry::removal(SessionEntry::key(12)),
             index(&[10, 14]),
         ]
@@ -124,7 +124,7 @@ fn test_the_table_hands_out_each_change_once_as_store_entries() {
     assert_eq!(
         drained(&mut table),
         vec![
-            put(18, SessionEntry::new(0, 0, 0, Vec::new())),
+            put(18, &SessionEntry::new(0, 0, 0, Vec::new())),
             VersionlessEntry::removal(SessionEntry::key(14)),
             VersionlessEntry::removal(SessionEntry::key(16)),
             index(&[10, 18]),
@@ -189,13 +189,15 @@ fn test_a_table_loads_as_its_entries_left_it() {
 
 /// The reason `store` is refused with, and the key it names.
 fn refusal(store: &SimStore) -> (Vec<u8>, String) {
-    match Sessions::load(store).map(|t| t.len()) {
-        Err(error) => match error.0 {
-            StoreErrorEnum::Corrupted { key, reason } => (key, reason),
-            other => panic!("not corrupted: {other:?}"),
-        },
-        Ok(len) => panic!("loaded {len} sessions"),
-    }
+    let loaded = Sessions::load(store).map(|t| t.len());
+    let refused = if let Err(StoreError(StoreErrorEnum::Corrupted { key, reason })) = &loaded {
+        Some((key.clone(), reason.clone()))
+    } else {
+        None
+    };
+    refused
+        .ok_or_else(|| format!("not refused as corrupted, sessions loaded: {loaded:?}"))
+        .expect("refused as corrupted")
 }
 
 #[test]
@@ -224,7 +226,7 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
         &repeated,
         &[
             index(&[10, 10]),
-            put(10, SessionEntry::new(0, 0, 0, Vec::new())),
+            put(10, &SessionEntry::new(0, 0, 0, Vec::new())),
         ],
     );
     assert_eq!(refusal(&repeated).0, SessionEntry::INDEX_KEY);
@@ -246,7 +248,7 @@ fn test_a_malformed_table_is_refused_as_corrupted() {
         &early,
         &[
             index(&[10]),
-            put(10, SessionEntry::new(1, 10, 0, Vec::new())),
+            put(10, &SessionEntry::new(1, 10, 0, Vec::new())),
         ],
     );
     assert!(refusal(&early).1.contains("registration"));

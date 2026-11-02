@@ -279,10 +279,12 @@ fn test_a_golden_run_on_fjall_equals_gos() {
     let root =
         std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, std::path::PathBuf::from);
     let dir = root.join(format!("hnsw-golden-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory an earlier run left behind, which is usually absent.
+    drop(std::fs::remove_dir_all(&dir));
     let golden = graph_golden();
     let c = golden.cases().iter().find(|c| c.name == "cosine").unwrap();
     let store = FjallStore::open(&dir, Durability::Process).expect("the store opens");
     replay(c, &lists_over(store));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory left behind is litter in the temporary directory, not a failure of the test.
+    drop(std::fs::remove_dir_all(&dir));
 }

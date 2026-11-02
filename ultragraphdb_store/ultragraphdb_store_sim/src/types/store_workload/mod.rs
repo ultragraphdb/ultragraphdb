@@ -146,7 +146,7 @@ impl StoreWorkload {
     fn write(&mut self, ctx: &mut SimContext) {
         let store = ctx.store().clone();
         let choice = ctx.rng().below(110);
-        let _ = match choice {
+        let written = match choice {
             0..55 => {
                 let (batch, mode) = self.commit_batch(ctx);
                 store.apply(batch, mode)
@@ -197,6 +197,8 @@ impl StoreWorkload {
             }
             _ => self.temporary_step(ctx),
         };
+        // The store logs the outcome, which the model checks; the step ends whatever it was.
+        drop(written);
     }
 
     /// One operation on the temporary keyspace: creates one when there is none, else writes a batch of one to four
@@ -348,11 +350,13 @@ impl StoreWorkload {
                 .get_or_insert_with(|| ctx.seed().stream(Stream::Versionless));
             if versionless.chance(VERSIONLESS_READ) {
                 let key = versionless_key(versionless);
-                let _ = if versionless.chance(300) {
+                let answer = if versionless.chance(300) {
                     store.get_versionless(&key)
                 } else {
                     snapshot.get_versionless(&key)
                 };
+                // The store logs the answer, which the model checks.
+                drop(answer);
             }
         }
         made.iter_mut()

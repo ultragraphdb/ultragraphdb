@@ -62,7 +62,8 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(server: &RefCell<TestServe
             }
         }
         if server.borrow().dropped() || server.borrow().is_closing() {
-            let _ = stream.shutdown().await;
+            // The server closes the connection; a failed shutdown leaves it closing all the same.
+            drop(stream.shutdown().await);
             return;
         }
         let Ok(mut buffer) = pool.acquire() else {

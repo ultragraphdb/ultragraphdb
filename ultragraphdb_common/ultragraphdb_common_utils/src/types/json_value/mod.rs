@@ -114,11 +114,9 @@ impl JsonValue {
                     JsonValue::Bool(false)
                 }
                 _ => {
-                    let (n, _, _) =
-                        json_wire::consume_number_resumable(&b[i..], 0, NumberState::Init);
-                    let text = String::from_utf8_lossy(&b[i..i + n]).into_owned();
-                    i += n.max(1);
-                    JsonValue::Number(text)
+                    let (value, n) = number_at(&b[i..]);
+                    i += n;
+                    value
                 }
             };
             match open.last_mut() {
@@ -130,4 +128,11 @@ impl JsonValue {
             }
         }
     }
+}
+
+/// The number `b` starts with and the bytes it takes, at least one.
+fn number_at(b: &[u8]) -> (JsonValue, usize) {
+    let (n, _, _) = json_wire::consume_number_resumable(b, 0, NumberState::Init);
+    let text = String::from_utf8_lossy(&b[..n]).into_owned();
+    (JsonValue::Number(text), n.max(1))
 }

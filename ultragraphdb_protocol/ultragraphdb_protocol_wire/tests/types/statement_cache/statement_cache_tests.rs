@@ -182,7 +182,7 @@ fn test_a_triple_term_parameter_brings_its_parts() {
         .unwrap()
         .statement();
     let mut terms = TermTable::new();
-    let (filler, a, k, b) = (
+    let (_filler, a, k, b) = (
         terms.iri("filler"),
         terms.iri("a"),
         terms.iri("k"),
@@ -195,7 +195,6 @@ fn test_a_triple_term_parameter_brings_its_parts() {
             object: b,
         })
         .unwrap();
-    let _ = filler;
     let execute = Execute::new(id, 5, 0, terms, vec![triple], Vec::new())
         .frame(golden("execute").header())
         .unwrap();

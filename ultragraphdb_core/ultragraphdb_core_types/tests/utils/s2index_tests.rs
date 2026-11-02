@@ -30,7 +30,10 @@ fn point() -> Geometry {
 #[test]
 fn test_index_cells_point() {
     let (parents, cover) = index_cells(&point()).unwrap();
-    assert_eq!(parents.len() as i64, MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1);
+    assert_eq!(
+        i64::try_from(parents.len()).expect("fits i64"),
+        MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1
+    );
     assert_eq!(parents[0].level(), MIN_CELL_LEVEL);
     assert_eq!(parents[0].to_token(), "808c");
     let last = parents[parents.len() - 1];
@@ -47,7 +50,7 @@ fn test_index_cells_point() {
 #[test]
 fn test_index_cells_polygon() {
     let (parents, cover) = index_cells(&load_polygon("zip.json")).unwrap();
-    assert!(cover.len() as i64 <= MAX_CELLS);
+    assert!(i64::try_from(cover.len()).expect("fits i64") <= MAX_CELLS);
     for c in &cover {
         assert!((MIN_CELL_LEVEL..=MAX_CELL_LEVEL).contains(&c.level()));
         assert!(parents.contains(c));
@@ -79,15 +82,19 @@ fn test_index_cells_polygon_error() {
 fn round_trip(g: &Geometry) -> Geometry {
     let src = Val::bytes(TypeId::BINARY, g.marshal_wkb().unwrap());
     match convert(&src, TypeId::GEO).unwrap().into_value() {
-        Some(Value::Geo(g)) => g,
-        other => panic!("{other:?}"),
+        Some(Value::Geo(g)) => Ok(g),
+        other => Err(format!("{other:?}")),
     }
+    .expect("converting to geo gives a geometry")
 }
 
 #[test]
 fn test_key_generator_point() {
     let keys = index_geo_tokens(&round_trip(&point())).unwrap();
-    assert_eq!(keys.len() as i64, MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1 + 1);
+    assert_eq!(
+        i64::try_from(keys.len()).expect("fits i64"),
+        MAX_CELL_LEVEL - MIN_CELL_LEVEL + 1 + 1
+    );
 }
 
 #[test]

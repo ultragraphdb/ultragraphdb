@@ -7,7 +7,7 @@
  * Copyright (c) 2026. Marvin Hansen.
  */
 
-use ultragraphdb_core_text::{Confidence, LanguageErrorEnum, Tag};
+use ultragraphdb_core_text::{Base, Confidence, LanguageErrorEnum, Tag};
 
 #[test]
 fn errors() {
@@ -128,9 +128,11 @@ fn parsing_and_collating_arbitrary_tags_does_not_panic() {
             .map(|_| PIECES[(rng.next() % PIECES.len() as u64) as usize])
             .collect();
         if let Ok(tag) = Tag::parse(&s) {
-            let _ = tag.base();
-            let _ = tag.to_string();
-            let _ = ultragraphdb_core_text::Collator::new(&tag);
+            // Reaching each value without a panic is the test; the values themselves are not checked.
+            let _base: (Base, Confidence) = tag.base();
+            let _text: String = tag.to_string();
+            let _collator: ultragraphdb_core_text::Collator =
+                ultragraphdb_core_text::Collator::new(&tag);
         }
     }
 }

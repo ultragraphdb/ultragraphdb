@@ -28,7 +28,7 @@ impl Shared {
     /// stage reported to `observe` as it is reached.
     pub fn run_drop(
         &self,
-        record: DropRecord,
+        record: &DropRecord,
         observe: &mut impl FnMut(DropStage),
     ) -> Result<(), StoreError> {
         self.refuse_if_poisoned()?;
@@ -39,7 +39,7 @@ impl Shared {
         batch.insert(&self.meta, DROP_KEY, record.encode());
         self.commit(batch)?;
         observe(DropStage::RecordSynced);
-        self.finish_drop(&record, observe)?;
+        self.finish_drop(record, observe)?;
         tracing::info!(
             ts = record.ts,
             prefixes = record.prefixes.as_ref().map(Vec::len),

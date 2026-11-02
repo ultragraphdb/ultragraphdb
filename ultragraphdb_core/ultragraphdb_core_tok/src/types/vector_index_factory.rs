@@ -69,15 +69,11 @@ impl VectorIndexFactory {
             }
         }
         if let Some(v) = o.get_interface_opt(METRIC_OPT) {
-            let name = match v {
-                OptionValue::Metric(m) => m.name(),
-                other => {
-                    error!(
-                        value_type = other.go_type(),
-                        "cannot cast to SimilarityType"
-                    );
-                    ""
-                }
+            let name = if let OptionValue::Metric(m) = v {
+                m.name()
+            } else {
+                error!(value_type = v.go_type(), "cannot cast to SimilarityType");
+                ""
             };
             sb.push_str(&format!("\"{METRIC_OPT}\":\"{name}\","));
         }

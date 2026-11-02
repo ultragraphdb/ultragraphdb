@@ -32,7 +32,9 @@ use crate::types::summary::Summary;
 use crate::types::wall_clock::WallClock;
 use crate::types::write_call::WriteCall;
 use crate::utils::proc_stats::{process_cpu_secs, rss_kib, thread_cpu_secs};
-use crate::utils::setup::{BenchApplier, open_applier, opt_json, prepare, size_json};
+use crate::utils::setup::{
+    BenchApplier, files_json, open_applier, opt_json, prepare, summary_json,
+};
 
 const HUBS: u64 = 1_000;
 const TYPES: u64 = 10;
@@ -42,6 +44,9 @@ const READY_BYTES: usize = 64 << 20;
 /// `worker/server_state.go:34`): the source waits while this many commits are released and not yet applied, as a
 /// Dgraph client waits on the limiter, so an apply step never holds more.
 const PENDING_PROPOSALS: u64 = 256;
+
+/// What the source thread reports: the commits it released, the times it waited on the pending limit, its CPU time.
+type SourceFigures = (u64, u64, Option<f64>);
 
 /// What one apply-step batch took.
 struct BatchStat {
@@ -59,11 +64,12 @@ struct BatchStat {
 /// The store's or the applier's error, which ends the run.
 pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let a = open_applier(args.dir(), args.durability(), args.cache_mb())?;
-    let mut shape = CommitShape::new(args.relations(), HUBS, TYPES, 1);
+    let shape = CommitShape::new(args.relations(), HUBS, TYPES, 1);
     prepare(&a, &shape, TYPES)?;
     let lists = a.quads().lists();
     let data_path = lists.store().inner().data_path().to_path_buf();
-    let _ = lists.store().take_calls();
+    // The applier's commit calls at open and at the declarations are not the run's.
+    drop(lists.store().take_calls());
     let reads_start = lists.store().reads().get();
     // The applier's own write calls at open and at the declarations are not the run's rollups.
     let rollup_calls_start = lists.store().other_calls();
@@ -76,63 +82,10 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
     let rollups = args
         .rollups()
         .then(|| spawn_rollups(&a, clock, stop.clone()));
-    let (tx, rx) = mpsc::channel::<Changeset>();
-    let (source_done, source_result) = mpsc::channel::<(u64, u64, Option<f64>)>();
-    {
-        let (rate, seconds, applied) = (args.rate(), args.seconds(), applied.clone());
-        a.executor().spawn(move || {
-            let mut pacer = Pacer::new(rate);
-            let (mut waits, mut sent, mut owed) = (0u64, 0u64, 0u64);
-            let end = Duration::from_secs(seconds);
-            let cpu = thread_cpu_secs();
-            'run: while clock.elapsed() < end {
-                owed += pacer.take_due(&clock);
-                // Commits due while the limit held them back go out as soon as it allows, one at a time.
-                while owed > 0 && clock.elapsed() < end {
-                    if sent - applied.load(Ordering::Acquire) >= PENDING_PROPOSALS {
-                        waits += 1;
-                        std::thread::sleep(Duration::from_micros(100));
-                        owed += pacer.take_due(&clock);
-                        continue;
-                    }
-                    if tx.send(shape.next_commit()).is_err() {
-                        break 'run;
-                    }
-                    sent += 1;
-                    owed -= 1;
-                }
-                let next = pacer.next_due();
-                let now = clock.elapsed();
-                if next > now {
-                    std::thread::sleep((next - now).min(Duration::from_millis(1)));
-                }
-            }
-            let cpu = thread_cpu_secs().zip(cpu).map(|(b, a)| b - a);
-            let _ = source_done.send((sent, waits, cpu));
-        });
-    }
+    let (rx, source_result) = spawn_source(&a, args, shape, clock, applied.clone());
 
     let apply_cpu = thread_cpu_secs();
-    let mut stats = Vec::new();
-    let mut errors = 0u64;
-    while let Ok(first) = rx.recv() {
-        let mut commits = vec![first];
-        let mut bytes = encoded_size(&commits[0]);
-        let cap = args.max_batch().unwrap_or(usize::MAX);
-        while bytes < READY_BYTES && commits.len() < cap {
-            match rx.try_recv() {
-                Ok(m) => {
-                    bytes += encoded_size(&m);
-                    commits.push(m);
-                }
-                Err(_) => break,
-            }
-        }
-        let (stat, failed) = apply_step(&a, &clock, &commits)?;
-        errors += failed;
-        applied.fetch_add(stat.commits, Ordering::Release);
-        stats.push(stat);
-    }
+    let (stats, errors) = apply_batches(&a, args, &clock, &rx, &applied)?;
     let elapsed = clock.elapsed();
     let apply_cpu = thread_cpu_secs().zip(apply_cpu).map(|(b, a)| b - a);
     stop.store(true, Ordering::Release);
@@ -175,6 +128,87 @@ pub fn run_apply(args: &ApplyArgs) -> Result<String, BenchError> {
         rss_peak,
         sizes,
     ))
+}
+
+/// The source thread: releases `shape`'s commits at the run's rate for its seconds, at most [`PENDING_PROPOSALS`]
+/// beyond those `applied`, then closes the channel. Returns the commits' receiver and the receiver of the commits it
+/// released, the times it waited on the limit and its CPU time.
+fn spawn_source(
+    a: &Arc<BenchApplier>,
+    args: &ApplyArgs,
+    mut shape: CommitShape,
+    clock: WallClock,
+    applied: Arc<AtomicU64>,
+) -> (mpsc::Receiver<Changeset>, mpsc::Receiver<SourceFigures>) {
+    let (tx, rx) = mpsc::channel::<Changeset>();
+    let (source_done, source_result) = mpsc::channel::<SourceFigures>();
+    let (rate, seconds) = (args.rate(), args.seconds());
+    a.executor().spawn(move || {
+        let mut pacer = Pacer::new(rate);
+        let (mut waits, mut sent, mut owed) = (0u64, 0u64, 0u64);
+        let end = Duration::from_secs(seconds);
+        let cpu = thread_cpu_secs();
+        'run: while clock.elapsed() < end {
+            owed += pacer.take_due(&clock);
+            // Commits due while the limit held them back go out as soon as it allows, one at a time.
+            while owed > 0 && clock.elapsed() < end {
+                if sent - applied.load(Ordering::Acquire) >= PENDING_PROPOSALS {
+                    waits += 1;
+                    std::thread::sleep(Duration::from_micros(100));
+                    owed += pacer.take_due(&clock);
+                    continue;
+                }
+                if tx.send(shape.next_commit()).is_err() {
+                    break 'run;
+                }
+                sent += 1;
+                owed -= 1;
+            }
+            let next = pacer.next_due();
+            let now = clock.elapsed();
+            if next > now {
+                std::thread::sleep((next - now).min(Duration::from_millis(1)));
+            }
+        }
+        let cpu = thread_cpu_secs().zip(cpu).map(|(b, a)| b - a);
+        // The run stops listening only when it ended on an error of its own, which it returns; the figures are
+        // nobody's then.
+        source_done.send((sent, waits, cpu)).unwrap_or_default();
+    });
+    (rx, source_result)
+}
+
+/// The apply thread: takes everything waiting in one receive, up to a Raft `Ready`'s bytes and the run's batch cap,
+/// and applies it as one apply step, until the source closes the channel. Returns each step's figures and how many
+/// commits failed.
+fn apply_batches(
+    a: &Arc<BenchApplier>,
+    args: &ApplyArgs,
+    clock: &WallClock,
+    rx: &mpsc::Receiver<Changeset>,
+    applied: &AtomicU64,
+) -> Result<(Vec<BatchStat>, u64), BenchError> {
+    let mut stats = Vec::new();
+    let mut errors = 0u64;
+    while let Ok(first) = rx.recv() {
+        let mut commits = vec![first];
+        let mut bytes = encoded_size(&commits[0]);
+        let cap = args.max_batch().unwrap_or(usize::MAX);
+        while bytes < READY_BYTES && commits.len() < cap {
+            match rx.try_recv() {
+                Ok(m) => {
+                    bytes += encoded_size(&m);
+                    commits.push(m);
+                }
+                Err(_) => break,
+            }
+        }
+        let (stat, failed) = apply_step(a, clock, &commits)?;
+        errors += failed;
+        applied.fetch_add(stat.commits, Ordering::Release);
+        stats.push(stat);
+    }
+    Ok((stats, errors))
 }
 
 /// Applies `commits` as one apply step: each a round of one of the changeset applier, as no commit step orders them
@@ -232,7 +266,10 @@ fn spawn_rollups(
             }
         };
         let cpu = thread_cpu_secs().zip(cpu).map(|(b, a)| b - a);
-        let _ = done.send(outcome.map(|()| (rolled, cpu)));
+        // The run stops listening only when it ended on an error of its own, which it returns; the outcome is
+        // nobody's then.
+        done.send(outcome.map(|()| (rolled, cpu)))
+            .unwrap_or_default();
     });
     result
 }
@@ -248,7 +285,13 @@ fn encoded_size(c: &Changeset) -> usize {
                 object,
                 ..
             } => subject.to_string().len() + predicate.as_str().len() + object.to_string().len(),
-            _ => 24,
+            Change::InsertEdge { .. }
+            | Change::Delete { .. }
+            | Change::DeleteStatement { .. }
+            | Change::DeletePattern { .. }
+            | Change::SetProperty { .. }
+            | Change::DeleteProperty { .. }
+            | Change::Declare(_) => 24,
         })
         .sum()
 }
@@ -277,33 +320,11 @@ fn report(
     let relations = applied * args.relations() as u64;
     let lists_read: u64 = stats.iter().map(|s| s.lists_read).sum();
     let mut sizes_of: Vec<u64> = stats.iter().map(|s| s.commits).collect();
-    let batch_size = Summary::of(&mut sizes_of);
     let mut us: Vec<u64> = stats.iter().map(|s| s.nanos / 1_000).collect();
-    let latency = Summary::of(&mut us);
     let mut write_us: Vec<u64> = stats.iter().map(|s| s.write_nanos / 1_000).collect();
-    let write = Summary::of(&mut write_us);
-    let calls: Vec<&WriteCall> = stats.iter().flat_map(|s| s.write_calls.iter()).collect();
     let batch_nanos: u64 = stats.iter().map(|s| s.nanos).sum();
     let write_nanos: u64 = stats.iter().map(|s| s.write_nanos).sum();
-    // The unstalled baseline: the median time per entry of the commit write calls under no stall pressure.
-    let mut per_entry: Vec<u64> = calls
-        .iter()
-        .filter(|c| !c.under_pressure() && c.entries() > 0)
-        .map(|c| c.nanos() / c.entries() as u64)
-        .collect();
-    let baseline = Summary::of(&mut per_entry).p50();
-    let pressured: Vec<&&WriteCall> = calls.iter().filter(|c| c.under_pressure()).collect();
-    let excess_nanos: u64 = pressured
-        .iter()
-        .map(|c| c.nanos().saturating_sub(baseline * c.entries() as u64))
-        .sum();
-    let max_l0 = calls.iter().map(|c| c.l0_tables()).max().unwrap_or(0);
-    let max_sealed = calls
-        .iter()
-        .map(|c| c.sealed_memtables())
-        .max()
-        .unwrap_or(0);
-    let total = sizes.total().allocated();
+    let cpu_json = |c: Option<f64>| opt_json(c.map(|c| format!("{c:.2}")));
     format!(
         concat!(
             "{{\"run\":\"apply\",\"offered_commits_per_s\":{},\"relations_per_commit\":{},\"durability\":\"{:?}\",",
@@ -311,15 +332,12 @@ fn report(
             "\"achieved_commits_per_s\":{:.0},\"achieved_relations_per_s\":{:.0},\"lists_read_per_relation\":{:.2},",
             "\"cache_lookups\":{},\"cache_hits\":{},\"cache_hit_share\":{:.3},\"store_list_reads\":{},\"store_reads_found_nothing\":{},",
             "\"source_waits_on_pending_limit\":{},",
-            "\"batches\":{},\"batch_commits\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
-            "\"batch_apply_us\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
-            "\"batch_write_call_us\":{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}},",
-            "\"write_call_share\":{:.3},\"apply_busy_share\":{:.3},",
-            "\"write_baseline_ns_per_entry\":{},\"pressured_write_calls\":{},\"stall_excess_ms\":{:.1},",
-            "\"max_l0_tables\":{},\"max_sealed_memtables\":{},\"rollup_keys\":{},\"rollup_write_calls\":{},\"rollup_write_call_s\":{:.2},",
+            "\"batches\":{},\"batch_commits\":{},\"batch_apply_us\":{},\"batch_write_call_us\":{},",
+            "\"write_call_share\":{:.3},\"apply_busy_share\":{:.3},{},",
+            "\"rollup_keys\":{},\"rollup_write_calls\":{},\"rollup_write_call_s\":{:.2},",
             "\"cpu_s\":{},\"cpu_cores\":{},\"apply_thread_cpu_s\":{},\"source_thread_cpu_s\":{},",
             "\"rollup_thread_cpu_s\":{},\"rss_kib\":{},\"rss_peak_kib\":{},",
-            "\"files\":{{\"data\":{},\"journal\":{},\"metadata\":{},\"total\":{}}},\"du_bytes_per_relation\":{:.1}}}"
+            "\"files\":{},\"du_bytes_per_relation\":{:.1}}}"
         ),
         args.rate(),
         args.relations(),
@@ -340,40 +358,59 @@ fn report(
         reads.3,
         waits,
         stats.len(),
-        batch_size.p50(),
-        batch_size.p99(),
-        batch_size.max(),
-        batch_size.mean(),
-        latency.p50(),
-        latency.p99(),
-        latency.max(),
-        latency.mean(),
-        write.p50(),
-        write.p99(),
-        write.max(),
-        write.mean(),
+        summary_json(Summary::of(&mut sizes_of)),
+        summary_json(Summary::of(&mut us)),
+        summary_json(Summary::of(&mut write_us)),
         write_nanos as f64 / batch_nanos.max(1) as f64,
         batch_nanos as f64 / 1e9 / secs,
+        stall_json(stats),
+        rolled,
+        rollup_calls.0,
+        rollup_calls.1 as f64 / 1e9,
+        cpu_json(cpu),
+        opt_json(cpu.map(|c| format!("{:.2}", c / secs))),
+        cpu_json(apply_cpu),
+        cpu_json(source_cpu),
+        cpu_json(rollup_cpu),
+        opt_json(rss),
+        opt_json(rss_peak),
+        files_json(sizes),
+        sizes.total().allocated() as f64 / relations.max(1) as f64,
+    )
+}
+
+/// The commit write calls' stalls as JSON fields: the unstalled baseline, the median time per entry of the calls
+/// under no stall pressure; the calls under pressure and the time they took beyond the baseline; and the most level-0
+/// tables and sealed memtables a call saw.
+fn stall_json(stats: &[BatchStat]) -> String {
+    let calls: Vec<&WriteCall> = stats.iter().flat_map(|s| s.write_calls.iter()).collect();
+    let mut per_entry: Vec<u64> = calls
+        .iter()
+        .filter(|c| !c.under_pressure() && c.entries() > 0)
+        .map(|c| c.nanos() / c.entries() as u64)
+        .collect();
+    let baseline = Summary::of(&mut per_entry).p50();
+    let pressured: Vec<&&WriteCall> = calls.iter().filter(|c| c.under_pressure()).collect();
+    let excess_nanos: u64 = pressured
+        .iter()
+        .map(|c| c.nanos().saturating_sub(baseline * c.entries() as u64))
+        .sum();
+    let max_l0 = calls.iter().map(|c| c.l0_tables()).max().unwrap_or(0);
+    let max_sealed = calls
+        .iter()
+        .map(|c| c.sealed_memtables())
+        .max()
+        .unwrap_or(0);
+    format!(
+        concat!(
+            "\"write_baseline_ns_per_entry\":{},\"pressured_write_calls\":{},\"stall_excess_ms\":{:.1},",
+            "\"max_l0_tables\":{},\"max_sealed_memtables\":{}"
+        ),
         baseline,
         pressured.len(),
         excess_nanos as f64 / 1e6,
         max_l0,
         max_sealed,
-        rolled,
-        rollup_calls.0,
-        rollup_calls.1 as f64 / 1e9,
-        opt_json(cpu.map(|c| format!("{c:.2}"))),
-        opt_json(cpu.map(|c| format!("{:.2}", c / secs))),
-        opt_json(apply_cpu.map(|c| format!("{c:.2}"))),
-        opt_json(source_cpu.map(|c| format!("{c:.2}"))),
-        opt_json(rollup_cpu.map(|c| format!("{c:.2}"))),
-        opt_json(rss),
-        opt_json(rss_peak),
-        size_json(sizes.data()),
-        size_json(sizes.journal()),
-        size_json(sizes.metadata()),
-        size_json(sizes.total()),
-        total as f64 / relations.max(1) as f64,
     )
 }
 
@@ -403,19 +440,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_the_report_states_each_figure_of_the_run() {
-        let args = ApplyArgs::new(
-            PathBuf::from("d"),
-            100,
-            2,
-            10,
-            Durability::Process,
-            true,
-            128,
-            Some(4),
-        );
-        let stats = [
+    /// The batches of the full report: two unpressured calls, two pressured, and a call of no entries.
+    fn three_batches() -> [BatchStat; 3] {
+        [
             // Two unpressured calls: 1,000,000 ns over 10 entries and 600,000 over 3, 100,000 and 200,000 ns each.
             batch(
                 2,
@@ -443,7 +470,22 @@ mod tests {
                     WriteCall::new(0, 0, true, 0, 0),
                 ],
             ),
-        ];
+        ]
+    }
+
+    #[test]
+    fn test_the_report_states_each_figure_of_the_run() {
+        let args = ApplyArgs::new(
+            PathBuf::from("d"),
+            100,
+            2,
+            10,
+            Durability::Process,
+            true,
+            128,
+            Some(4),
+        );
+        let stats = three_batches();
         let line = report(
             &args,
             &stats,

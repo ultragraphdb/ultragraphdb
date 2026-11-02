@@ -16,7 +16,15 @@ use ultragraphdb_traits_store::{
 fn test_commit_write_calls_are_recorded_and_the_others_counted() {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-timed-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     let store = TimedStore::new(
         FjallStore::open(&dir, Durability::Process).unwrap(),
         Arc::new(ReadCounts::new()),
@@ -41,14 +49,22 @@ fn test_commit_write_calls_are_recorded_and_the_others_counted() {
     assert_eq!(store.get_at(b"a", 9).unwrap().map(|i| i.version()), Some(4));
     assert_eq!(store.inner().applied_ts(), 3);
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }
 
 /// A fresh store in its own directory under the test's temporary root.
 fn open(name: &str) -> (TimedStore, PathBuf) {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-timed-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     let store = TimedStore::new(
         FjallStore::open(&dir, Durability::Process).unwrap(),
         Arc::new(ReadCounts::new()),
@@ -136,7 +152,7 @@ fn test_the_store_calls_reach_the_store_beneath() {
     assert_eq!(versions(&store, b"a"), Vec::<u64>::new());
     assert_eq!(versions(&store, b"t"), [1]);
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }
 
 #[test]
@@ -158,5 +174,5 @@ fn test_temporaries_and_rebuild_records_reach_the_store_beneath() {
     store.write_rebuild_record(&record).unwrap();
     assert_eq!(store.rebuild_records().unwrap(), [record]);
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }

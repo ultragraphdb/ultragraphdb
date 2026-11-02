@@ -26,7 +26,8 @@ impl ExactFloat {
         }
         let bits = x.to_bits();
         let negative = bits >> 63 != 0;
-        let biased = ((bits >> 52) & 0x7ff) as i64;
+        // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+        let biased = ((bits >> 52) & 0x7ff).cast_signed();
         let fraction = bits & ((1u64 << 52) - 1);
         let (m, e) = if biased == 0 {
             (fraction, -1074)

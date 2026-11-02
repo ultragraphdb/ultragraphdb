@@ -414,6 +414,61 @@ impl Run<'_> {
     }
 }
 
+impl Record {
+    /// Refused unless the kind is known (a declaration when `declarations_only`, none before `last_kind`), and the
+    /// flags, zero bytes and `extra` are as the kind defines.
+    fn check_fields(
+        self,
+        command: u16,
+        declarations_only: bool,
+        last_kind: u8,
+    ) -> Result<(), ProtocolError> {
+        let known = if declarations_only {
+            (PREDICATE..=RELATION).contains(&self.kind)
+        } else {
+            (INSERT..=RELATION).contains(&self.kind)
+        };
+        if !known {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "change kind",
+                self.kind.into(),
+            ));
+        }
+        if declarations_only && self.kind < last_kind {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "declaration order",
+                self.kind.into(),
+            ));
+        }
+        let flags_invalid = self.flags & !allowed_flags(self.kind) != 0
+            || (self.kind == PREDICATE && self.flags & 0b11 == 0b11);
+        if flags_invalid {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "flags",
+                self.flags.into(),
+            ));
+        }
+        if self.zero != 0 {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "change record",
+                self.zero.into(),
+            ));
+        }
+        if self.extra != 0 && !(declarations_only && self.kind == ENTITY_TYPE) {
+            return Err(ProtocolError::FieldValue(
+                command,
+                "extra",
+                self.extra.into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// The records of a body checked: whole records, kinds known (only declarations when `declarations_only`, in the
 /// order predicates, entity types, relations), flags and zero bytes as the kind defines, args contiguous and consumed
 /// exactly, each term index below `terms` and each name index in `names`. `sections` are the records' and the args'.
@@ -433,41 +488,8 @@ pub(crate) fn check_records(
         let Some(r) = record_at(records, index) else {
             break;
         };
-        let known = if declarations_only {
-            (PREDICATE..=RELATION).contains(&r.kind)
-        } else {
-            (INSERT..=RELATION).contains(&r.kind)
-        };
-        if !known {
-            return Err(ProtocolError::FieldValue(
-                command,
-                "change kind",
-                r.kind.into(),
-            ));
-        }
-        if declarations_only && r.kind < last_kind {
-            return Err(ProtocolError::FieldValue(
-                command,
-                "declaration order",
-                r.kind.into(),
-            ));
-        }
+        r.check_fields(command, declarations_only, last_kind)?;
         last_kind = r.kind;
-        let flags_invalid = r.flags & !allowed_flags(r.kind) != 0
-            || (r.kind == PREDICATE && r.flags & 0b11 == 0b11);
-        if flags_invalid {
-            return Err(ProtocolError::FieldValue(command, "flags", r.flags.into()));
-        }
-        if r.zero != 0 {
-            return Err(ProtocolError::FieldValue(
-                command,
-                "change record",
-                r.zero.into(),
-            ));
-        }
-        if r.extra != 0 && !(declarations_only && r.kind == ENTITY_TYPE) {
-            return Err(ProtocolError::FieldValue(command, "extra", r.extra.into()));
-        }
         if r.start as usize != next {
             return Err(ProtocolError::FieldValue(
                 command,
@@ -554,37 +576,43 @@ pub(crate) fn decode_change(
             subject: arg(1)?,
             predicate: arg(2)?,
         },
-        SET_PROPERTY | DELETE_PROPERTY => {
-            let by_triple = r.flags & BY_TRIPLE != 0;
-            let target = if by_triple {
-                StatementTarget::Triple {
-                    graph: graph()?,
-                    subject: arg(1)?,
-                    predicate: arg(2)?,
-                    object: arg(3)?,
-                }
-            } else {
-                StatementTarget::Id {
-                    graph: graph()?,
-                    id: id(1)?,
-                }
-            };
-            let at = if by_triple { 4 } else { 3 };
-            if r.kind == SET_PROPERTY {
-                WriteChange::SetProperty {
-                    statement: target,
-                    predicate: arg(at)?,
-                    value: arg(at + 1)?,
-                }
-            } else {
-                WriteChange::DeleteProperty {
-                    statement: target,
-                    predicate: arg(at)?,
-                    value: arg(at + 1).filter(|v| *v != ABSENT),
-                }
-            }
-        }
+        SET_PROPERTY | DELETE_PROPERTY => decode_property(r, a)?,
         _ => WriteChange::Declare(decode_declaration(records, index, args, names)?.0),
+    })
+}
+
+/// Checked record `r`, a property set or delete, over its args `a`.
+fn decode_property(r: Record, a: &[u32]) -> Option<WriteChange> {
+    let arg = |i: usize| a.get(i).copied();
+    let graph = || arg(0).map(|g| (g != ABSENT).then_some(g));
+    let id = |i: usize| Some(u64::from(arg(i)?) | (u64::from(arg(i + 1)?) << 32));
+    let by_triple = r.flags & BY_TRIPLE != 0;
+    let target = if by_triple {
+        StatementTarget::Triple {
+            graph: graph()?,
+            subject: arg(1)?,
+            predicate: arg(2)?,
+            object: arg(3)?,
+        }
+    } else {
+        StatementTarget::Id {
+            graph: graph()?,
+            id: id(1)?,
+        }
+    };
+    let at = if by_triple { 4 } else { 3 };
+    Some(if r.kind == SET_PROPERTY {
+        WriteChange::SetProperty {
+            statement: target,
+            predicate: arg(at)?,
+            value: arg(at + 1)?,
+        }
+    } else {
+        WriteChange::DeleteProperty {
+            statement: target,
+            predicate: arg(at)?,
+            value: arg(at + 1).filter(|v| *v != ABSENT),
+        }
     })
 }
 

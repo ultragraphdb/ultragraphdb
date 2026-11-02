@@ -242,21 +242,22 @@ fn hour_fields(w: &mut Steps) {
 }
 
 #[when(expr = "{string} is tokenized by the term tokenizer")]
-fn term_tokenized(w: &mut Steps, s: String) {
-    w.tokens = tokens_of("term", "", &s);
+fn term_tokenized(w: &mut Steps, s: &[String]) {
+    w.tokens = tokens_of("term", "", &s[0]);
 }
 
 #[then(expr = "the tokens are {string} and {string}, each prefixed with 0x01")]
-fn term_tokens(w: &mut Steps, a: String, b: String) {
-    assert_eq!(
-        w.tokens,
-        vec![enc(IDENT_TERM, a.as_bytes()), enc(IDENT_TERM, b.as_bytes())]
-    );
+fn term_tokens(w: &mut Steps, terms: &[String]) {
+    let want: Vec<Vec<u8>> = terms
+        .iter()
+        .map(|t| enc(IDENT_TERM, t.as_bytes()))
+        .collect();
+    assert_eq!(w.tokens, want);
 }
 
 #[when(expr = "{string} is tokenized by the term tokenizer for {string}")]
-fn term_lang_tokenized(w: &mut Steps, s: String, lang: String) {
-    w.tokens = tokens_of("term", &lang, &s);
+fn term_lang_tokenized(w: &mut Steps, s_and_lang: &[String]) {
+    w.tokens = tokens_of("term", &s_and_lang[1], &s_and_lang[0]);
 }
 
 #[then(expr = "the tokens are {string} and {string}")]
@@ -268,14 +269,14 @@ fn tokens_are(w: &mut Steps, a: String, b: String) {
 }
 
 #[when(expr = "{string} is tokenized by the fulltext tokenizer for {string}")]
-fn fulltext_tokenized(w: &mut Steps, s: String, lang: String) {
-    w.tokens = tokens_of("fulltext", &lang, &s);
+fn fulltext_tokenized(w: &mut Steps, s_and_lang: &[String]) {
+    w.tokens = tokens_of("fulltext", &s_and_lang[1], &s_and_lang[0]);
 }
 
 #[when(expr = "{string} is tokenized by the trigram tokenizer")]
 fn trigram_tokenized(w: &mut Steps, s: String) {
-    w.texts = vec![s.clone()];
     w.tokens = tokens_of("trigram", "", &s);
+    w.texts = vec![s];
 }
 
 #[then(expr = "the result is Dgraph's 11 trigrams, sorted")]
@@ -308,7 +309,8 @@ fn byte_windows(w: &mut Steps, _shown: String) {
 }
 
 #[when(expr = "the golden Chinese sentence is tokenized by the fulltext tokenizer for {string}")]
-fn chinese_fulltext(w: &mut Steps, lang: String) {
+fn chinese_fulltext(w: &mut Steps, langs: &[String]) {
+    let lang = &langs[0];
     let hex: String = "他是一个薪水很高的商人"
         .bytes()
         .map(|b| format!("{b:02x}"))
@@ -316,11 +318,11 @@ fn chinese_fulltext(w: &mut Steps, lang: String) {
     let cases: Vec<TokensCase> = golden()
         .into_iter()
         .filter(|c| {
-            c.tokenizer == "fulltext" && c.lang == lang && c.via == "build" && c.input == hex
+            c.tokenizer == "fulltext" && c.lang == *lang && c.via == "build" && c.input == hex
         })
         .collect();
     assert_eq!(cases.len(), 1);
-    w.tokens = tokens_of("fulltext", &lang, "他是一个薪水很高的商人");
+    w.tokens = tokens_of("fulltext", lang, "他是一个薪水很高的商人");
     w.groups = vec![cases[0].tokens.iter().map(|t| unhex(t)).collect()];
 }
 
@@ -383,8 +385,8 @@ fn shingle_hashed(w: &mut Steps) {
 
 #[when(expr = "the two-word query {string} is tokenized for ngram queries")]
 fn short_query(w: &mut Steps, q: String) {
-    w.texts = vec![q.clone()];
     w.tokens = get_ngram_query_tokens(&q, "en");
+    w.texts = vec![q];
 }
 
 #[then(expr = "the query tokens are the one shingle of both words")]
@@ -405,7 +407,8 @@ fn reduced_to(w: &mut Steps, a: String, b: String, c: String, d: String, e: Stri
 #[when(
     expr = "the golden German strings are tokenized by the exact tokenizer with language {string}"
 )]
-fn german_exact(w: &mut Steps, lang: String) {
+fn german_exact(w: &mut Steps, langs: &[String]) {
+    let lang = &langs[0];
     const GERMAN: [&str; 19] = [
         "Äpfel", "Apfel", "apfel", "Zebra", "zebra", "Öl", "Ofen", "Straße", "Strasse", "Müller",
         "Mueller", "Muller", "ß", "", "a b", "Ärger", "Arzt", "über", "Ufer",
@@ -416,7 +419,7 @@ fn german_exact(w: &mut Steps, lang: String) {
         .collect();
     let cases: Vec<TokensCase> = golden()
         .into_iter()
-        .filter(|c| c.tokenizer == "exact" && c.lang == lang && hexes.contains(&c.input))
+        .filter(|c| c.tokenizer == "exact" && c.lang == *lang && hexes.contains(&c.input))
         .collect();
     assert!(cases.len() >= GERMAN.len());
     compare_all(w, cases.into_iter());
@@ -464,21 +467,23 @@ fn hnsw_metric(w: &mut Steps, metric: String) {
 }
 
 #[then(expr = "the options are refused with {string}")]
-fn refused_with(w: &mut Steps, msg: String) {
-    assert_eq!(w.error, msg);
+fn refused_with(w: &mut Steps, msg: &[String]) {
+    assert_eq!(msg, [w.error.as_str()]);
 }
 
 #[when(expr = "{string} tagged {string} is tokenized for the ngram index and for an ngram query")]
-fn ngram_index_and_query(w: &mut Steps, s: String, lang: String) {
-    let ngram = get_tokenizer_for_lang(&get_tokenizer("ngram").unwrap(), &lang);
+fn ngram_index_and_query(w: &mut Steps, s_and_lang: &[String]) {
+    let (s, lang) = (&s_and_lang[0], &s_and_lang[1]);
+    let ngram = get_tokenizer_for_lang(&get_tokenizer("ngram").unwrap(), lang);
     w.groups = vec![
         build_tokens(&Value::str(s.as_str()), &ngram).unwrap(),
-        get_ngram_query_tokens(&s, &lang),
+        get_ngram_query_tokens(s, lang),
     ];
 }
 
 #[then(expr = "both yield the same stemmed shingles, starting with {string}")]
-fn same_shingles(w: &mut Steps, stem: String) {
+fn same_shingles(w: &mut Steps, stems: &[String]) {
+    let stem = &stems[0];
     let (index, query) = (&w.groups[0], &w.groups[1]);
     // Go's GetNGramTokens and GetNGramQueryTokens for "de": "und" is a stop word, the rest stemmed.
     let shingle = format!("{stem} auffassung");
@@ -498,13 +503,16 @@ fn same_shingles(w: &mut Steps, stem: String) {
 }
 
 #[then(expr = "the token is the term {string}")]
-fn the_term(w: &mut Steps, term: String) {
-    assert_eq!(w.tokens, vec![enc(IDENT_TERM, term.as_bytes())]);
+fn the_term(w: &mut Steps, term: &[String]) {
+    assert_eq!(w.tokens, vec![enc(IDENT_TERM, term[0].as_bytes())]);
 }
 
 #[when(expr = "{string} is lowercased")]
-fn lowercased(w: &mut Steps, s: String) {
-    w.texts = analyze(&s).iter().map(|t| t.term().to_string()).collect();
+fn lowercased(w: &mut Steps, s: &[String]) {
+    w.texts = analyze(&s[0])
+        .iter()
+        .map(|t| t.term().to_string())
+        .collect();
 }
 
 #[then(expr = "the result is {string}")]

@@ -61,7 +61,8 @@ fn sift_down<D: SortData>(data: &mut D, lo: usize, hi: usize, first: usize) {
 fn heap_sort<D: SortData>(data: &mut D, a: usize, b: usize) {
     let first = a;
     let hi = b - a;
-    for i in (0..=(hi as isize - 1) / 2).rev() {
+    // Go's int arithmetic on an index, which is at most isize::MAX.
+    for i in (0..=(hi.cast_signed() - 1) / 2).rev() {
         if i >= 0 {
             sift_down(data, i as usize, hi, first);
         }
@@ -126,7 +127,8 @@ fn pdqsort<D: SortData>(data: &mut D, a: usize, b: usize, limit: usize) {
 
 fn partition<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> (usize, bool) {
     data.swap(a, pivot);
-    let (mut i, mut j) = (a as isize + 1, b as isize - 1);
+    // Go's int arithmetic on indices, which are at most isize::MAX.
+    let (mut i, mut j) = (a.cast_signed() + 1, b.cast_signed() - 1);
     while i <= j && data.less(i as usize, a) {
         i += 1;
     }
@@ -160,7 +162,8 @@ fn partition<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> (us
 
 fn partition_equal<D: SortData>(data: &mut D, a: usize, b: usize, pivot: usize) -> usize {
     data.swap(a, pivot);
-    let (mut i, mut j) = (a as isize + 1, b as isize - 1);
+    // Go's int arithmetic on indices, which are at most isize::MAX.
+    let (mut i, mut j) = (a.cast_signed() + 1, b.cast_signed() - 1);
     loop {
         while i <= j && !data.less(a, i as usize) {
             i += 1;

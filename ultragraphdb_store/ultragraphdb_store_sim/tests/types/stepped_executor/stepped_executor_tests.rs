@@ -115,7 +115,7 @@ fn test_run_all_of_no_tasks_returns_nothing() {
 fn test_run_all_draws_from_the_stream_steps_draw_from() {
     // The two share one stream: after run_all has drawn for its tasks, stepping continues from where it stopped.
     let e = executor(4);
-    let _ = e.run_all(vec![|| 0, || 1, || 2]);
+    let _ran: Vec<u8> = e.run_all(vec![|| 0, || 1, || 2]);
     let mut rng = Seed::new(4).stream(Stream::Executor);
     (0..3).rev().for_each(|len| {
         rng.index(len + 1);

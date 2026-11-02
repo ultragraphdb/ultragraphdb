@@ -28,6 +28,7 @@ struct Found {
 }
 
 /// What a scanner action decided about the token it matched.
+#[derive(Clone, Copy)]
 enum Finish {
     Number,
     Word,
@@ -70,13 +71,11 @@ pub(crate) fn word_segments(input: &str) -> (Vec<(&str, SegmentType)>, Option<&'
 
 /// segment's `segmentWords(data, 1, true, nil, nil)`: the first segment of `data`.
 fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
-    let pe = data.len() as isize;
+    let pe = isize::try_from(data.len()).expect("a slice holds at most isize::MAX bytes");
     let eof = pe;
     let mut cs = S_START;
     let mut p: isize = 0;
-    let mut act = 0;
-    let mut start_pos: isize = 0;
-    let mut end_pos: isize = 0;
+    let mut registers = Registers::default();
 
     let mut label = if p == pe {
         Label::TestEof
@@ -92,123 +91,20 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
                     label = Label::TestEof;
                     continue;
                 };
-                let mut keys = S_KEY_OFFSETS[cs] as isize;
-                let mut trans = S_INDEX_OFFSETS[cs] as isize;
-                let mut matched = false;
-
-                let klen = S_SINGLE_LENGTHS[cs] as isize;
-                if klen > 0 {
-                    let mut lower = keys;
-                    let mut upper = keys + klen - 1;
-                    while upper >= lower {
-                        let mid = lower + ((upper - lower) >> 1);
-                        let k = S_TRANS_KEYS[mid as usize];
-                        if c < k {
-                            upper = mid - 1;
-                        } else if c > k {
-                            lower = mid + 1;
-                        } else {
-                            trans += mid - keys;
-                            matched = true;
-                            break;
-                        }
-                    }
-                    if !matched {
-                        keys += klen;
-                        trans += klen;
-                    }
-                }
-                if !matched {
-                    let klen = S_RANGE_LENGTHS[cs] as isize;
-                    if klen > 0 {
-                        let mut lower = keys;
-                        let mut upper = keys + (klen << 1) - 2;
-                        while upper >= lower {
-                            let mid = lower + (((upper - lower) >> 1) & !1);
-                            if c < S_TRANS_KEYS[mid as usize] {
-                                upper = mid - 2;
-                            } else if c > S_TRANS_KEYS[mid as usize + 1] {
-                                lower = mid + 2;
-                            } else {
-                                trans += (mid - keys) >> 1;
-                                matched = true;
-                                break;
-                            }
-                        }
-                    }
-                    if !matched {
-                        trans += klen;
-                    }
-                }
-                label = Label::EofTrans(S_INDICIES[trans as usize] as usize);
+                label = Label::EofTrans(transition(cs, c));
             }
             Label::EofTrans(trans) => {
                 cs = S_TRANS_TARGS[trans] as usize;
                 // The generated actions also keep the scanner's token end (te) and move p back to it before a
                 // finish action; every finish action returns here, as one token is wanted and atEOF is set, so
                 // those registers are never read again and are left out.
-                let finish = match S_TRANS_ACTIONS[trans] {
-                    0 => None,
-                    10 | 18 => {
-                        end_pos = p;
-                        None
-                    }
-                    34 | 4 => Some(Finish::Number),
-                    37 | 12 => Some(Finish::Hangul),
-                    35 | 7 => Some(Finish::Word),
-                    39 | 38 | 40 | 17 | 15 | 19 => Some(Finish::Ideo),
-                    41 | 32 | 36 | 31 | 21 | 8 | 1 => Some(Finish::None),
-                    3 => match act {
-                        1 => Some(Finish::Number),
-                        2 => Some(Finish::Hangul),
-                        3 | 5 => Some(Finish::Ideo),
-                        4 => Some(Finish::Word),
-                        7 | 12 | 13 => Some(Finish::None),
-                        _ => None,
-                    },
-                    28 => {
-                        start_pos = p;
-                        end_pos = p;
-                        None
-                    }
-                    33 | 13 => {
-                        end_pos = p;
-                        Some(Finish::None)
-                    }
-                    26 | 27 => {
-                        start_pos = p;
-                        end_pos = p;
-                        Some(Finish::None)
-                    }
-                    a @ (5 | 11 | 16 | 6 | 14 | 20 | 9 | 2) => {
-                        end_pos = p;
-                        act = match a {
-                            5 => 1,
-                            11 => 2,
-                            16 => 3,
-                            6 => 4,
-                            14 => 5,
-                            20 => 7,
-                            9 => 12,
-                            _ => 13,
-                        };
-                        None
-                    }
-                    a @ (29 | 30 | 25) => {
-                        start_pos = p;
-                        end_pos = p;
-                        act = match a {
-                            29 => 1,
-                            30 => 4,
-                            _ => 13,
-                        };
-                        None
-                    }
-                    // Go's switch has no default: a code it does not name does nothing.
-                    _ => None,
-                };
-                if let Some(finish) = finish {
-                    return Ok(Some(finish_token(data, finish, start_pos, end_pos)));
+                if let Some(finish) = registers.act(S_TRANS_ACTIONS[trans], p) {
+                    return Ok(Some(finish_token(
+                        data,
+                        finish,
+                        registers.start_pos,
+                        registers.end_pos,
+                    )));
                 }
                 label = Label::Again;
             }
@@ -236,6 +132,134 @@ fn segment_words(data: &[u8]) -> Result<Option<Found>, &'static str> {
         return Err(PARSE_ERROR);
     }
     Ok(None)
+}
+
+/// The transition of state `cs` on the byte `c`: the state's single keys are searched first, then its ranges, and
+/// past both the state's default transition is taken.
+fn transition(cs: usize, c: u8) -> usize {
+    let mut keys = i64::from(S_KEY_OFFSETS[cs]);
+    let mut trans = i64::from(S_INDEX_OFFSETS[cs]);
+    let mut matched = false;
+
+    let klen = i64::from(S_SINGLE_LENGTHS[cs]);
+    if klen > 0 {
+        let mut lower = keys;
+        let mut upper = keys + klen - 1;
+        while upper >= lower {
+            let mid = lower + ((upper - lower) >> 1);
+            let k = S_TRANS_KEYS[mid as usize];
+            if c < k {
+                upper = mid - 1;
+            } else if c > k {
+                lower = mid + 1;
+            } else {
+                trans += mid - keys;
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            keys += klen;
+            trans += klen;
+        }
+    }
+    if !matched {
+        let klen = i64::from(S_RANGE_LENGTHS[cs]);
+        if klen > 0 {
+            let mut lower = keys;
+            let mut upper = keys + (klen << 1) - 2;
+            while upper >= lower {
+                let mid = lower + (((upper - lower) >> 1) & !1);
+                if c < S_TRANS_KEYS[mid as usize] {
+                    upper = mid - 2;
+                } else if c > S_TRANS_KEYS[mid as usize + 1] {
+                    lower = mid + 2;
+                } else {
+                    trans += (mid - keys) >> 1;
+                    matched = true;
+                    break;
+                }
+            }
+        }
+        if !matched {
+            trans += klen;
+        }
+    }
+    S_INDICIES[trans as usize] as usize
+}
+
+/// The registers the scanner's actions write: the token's start and end, and the action of the longest match.
+#[derive(Default)]
+struct Registers {
+    act: i32,
+    start_pos: isize,
+    end_pos: isize,
+}
+
+impl Registers {
+    /// Runs the actions of code `code` at `p`, and the finish they decide on, if any.
+    fn act(&mut self, code: u8, p: isize) -> Option<Finish> {
+        match code {
+            0 => None,
+            10 | 18 => {
+                self.end_pos = p;
+                None
+            }
+            34 | 4 => Some(Finish::Number),
+            37 | 12 => Some(Finish::Hangul),
+            35 | 7 => Some(Finish::Word),
+            39 | 38 | 40 | 17 | 15 | 19 => Some(Finish::Ideo),
+            41 | 32 | 36 | 31 | 21 | 8 | 1 => Some(Finish::None),
+            3 => match self.act {
+                1 => Some(Finish::Number),
+                2 => Some(Finish::Hangul),
+                3 | 5 => Some(Finish::Ideo),
+                4 => Some(Finish::Word),
+                7 | 12 | 13 => Some(Finish::None),
+                _ => None,
+            },
+            28 => {
+                self.start_pos = p;
+                self.end_pos = p;
+                None
+            }
+            33 | 13 => {
+                self.end_pos = p;
+                Some(Finish::None)
+            }
+            26 | 27 => {
+                self.start_pos = p;
+                self.end_pos = p;
+                Some(Finish::None)
+            }
+            a @ (5 | 11 | 16 | 6 | 14 | 20 | 9 | 2) => {
+                self.end_pos = p;
+                self.act = match a {
+                    5 => 1,
+                    11 => 2,
+                    16 => 3,
+                    6 => 4,
+                    14 => 5,
+                    20 => 7,
+                    9 => 12,
+                    _ => 13,
+                };
+                None
+            }
+            a @ (29 | 30 | 25) => {
+                self.start_pos = p;
+                self.end_pos = p;
+                self.act = match a {
+                    29 => 1,
+                    30 => 4,
+                    _ => 13,
+                };
+                None
+            }
+            // Go's switch has no default: a code it does not name does nothing.
+            _ => None,
+        }
+    }
 }
 
 /// The finish actions of segment_words.rl with `atEOF` set and one token wanted: the token.

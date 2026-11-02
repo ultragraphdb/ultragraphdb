@@ -174,14 +174,7 @@ fn rect_bounder_expand_for_subregions() {
         (-FRAC_PI_2 + 1e-11, -PI + 1e-4, FRAC_PI_2, 0.0, true),
     ];
     for (x_lat, x_lng, y_lat, y_lng, want_full) in tests {
-        let input = Rect::from_lat_lng(LatLng::new(
-            Angle::from_radians(x_lat),
-            Angle::from_radians(x_lng),
-        ))
-        .add_point(LatLng::new(
-            Angle::from_radians(y_lat),
-            Angle::from_radians(y_lng),
-        ));
+        let input = rect_through(x_lat, x_lng, y_lat, y_lng);
         let got = expand_for_subregions(input);
         let tag = format!("({x_lat}, {x_lng}, {y_lat}, {y_lng})");
         assert!(
@@ -190,7 +183,23 @@ fn rect_bounder_expand_for_subregions() {
         );
         assert_eq!(got.is_full(), want_full, "{tag} is_full");
     }
+    expand_for_subregions_gives_rects();
+}
 
+/// The rect from (x_lat, x_lng) to (y_lat, y_lng), in radians.
+fn rect_through(x_lat: f64, x_lng: f64, y_lat: f64, y_lng: f64) -> Rect {
+    Rect::from_lat_lng(LatLng::new(
+        Angle::from_radians(x_lat),
+        Angle::from_radians(x_lng),
+    ))
+    .add_point(LatLng::new(
+        Angle::from_radians(y_lat),
+        Angle::from_radians(y_lng),
+    ))
+}
+
+/// TestRectBounderExpandForSubregions' cases with an expected bound.
+fn expand_for_subregions_gives_rects() {
     let rect_tests = [
         (
             1.5,
@@ -232,14 +241,7 @@ fn rect_bounder_expand_for_subregions() {
         ),
     ];
     for (x_lat, x_lng, y_lat, y_lng, want) in rect_tests {
-        let input = Rect::from_lat_lng(LatLng::new(
-            Angle::from_radians(x_lat),
-            Angle::from_radians(x_lng),
-        ))
-        .add_point(LatLng::new(
-            Angle::from_radians(y_lat),
-            Angle::from_radians(y_lng),
-        ));
+        let input = rect_through(x_lat, x_lng, y_lat, y_lng);
         let got = expand_for_subregions(input);
         assert!(
             approx(got, want, RECT_ERROR_LAT, RECT_ERROR_LNG),

@@ -197,128 +197,130 @@ fn cut(s: &mut Vec<char>, n: usize) {
     s.truncate(s.len() - n);
 }
 
+/// Step 2's rules, each a suffix and its edit, tried in order.
+const STEP2_RULES: &[Rule] = &[
+    Rule {
+        suffix: "ational",
+        edit: |s| {
+            let n = s.len();
+            s[n - 5] = 'e';
+            cut(s, 4)
+        },
+    },
+    Rule {
+        suffix: "tional",
+        edit: |s| cut(s, 2),
+    },
+    Rule {
+        suffix: "enci",
+        edit: |s| {
+            let n = s.len();
+            s[n - 1] = 'e'
+        },
+    },
+    Rule {
+        suffix: "anci",
+        edit: |s| {
+            let n = s.len();
+            s[n - 1] = 'e'
+        },
+    },
+    Rule {
+        suffix: "izer",
+        edit: |s| cut(s, 1),
+    },
+    Rule {
+        suffix: "bli",
+        edit: |s| {
+            let n = s.len();
+            s[n - 1] = 'e'
+        },
+    },
+    Rule {
+        suffix: "alli",
+        edit: |s| cut(s, 2),
+    },
+    Rule {
+        suffix: "entli",
+        edit: |s| cut(s, 2),
+    },
+    Rule {
+        suffix: "eli",
+        edit: |s| cut(s, 2),
+    },
+    Rule {
+        suffix: "ousli",
+        edit: |s| cut(s, 2),
+    },
+    Rule {
+        suffix: "ization",
+        edit: |s| {
+            let n = s.len();
+            s[n - 5] = 'e';
+            cut(s, 4)
+        },
+    },
+    Rule {
+        suffix: "ation",
+        edit: |s| {
+            let n = s.len();
+            s[n - 3] = 'e';
+            cut(s, 2)
+        },
+    },
+    Rule {
+        suffix: "ator",
+        edit: |s| {
+            let n = s.len();
+            s[n - 2] = 'e';
+            cut(s, 1)
+        },
+    },
+    Rule {
+        suffix: "alism",
+        edit: |s| cut(s, 3),
+    },
+    Rule {
+        suffix: "iveness",
+        edit: |s| cut(s, 4),
+    },
+    Rule {
+        suffix: "fulness",
+        edit: |s| cut(s, 4),
+    },
+    Rule {
+        suffix: "ousness",
+        edit: |s| cut(s, 4),
+    },
+    Rule {
+        suffix: "aliti",
+        edit: |s| cut(s, 3),
+    },
+    Rule {
+        suffix: "iviti",
+        edit: |s| {
+            let n = s.len();
+            s[n - 3] = 'e';
+            cut(s, 2)
+        },
+    },
+    Rule {
+        suffix: "biliti",
+        edit: |s| {
+            let n = s.len();
+            s[n - 5] = 'l';
+            s[n - 4] = 'e';
+            cut(s, 3)
+        },
+    },
+    Rule {
+        suffix: "logi",
+        edit: |s| cut(s, 1),
+    },
+];
+
 fn step2(s: Vec<char>) -> Vec<char> {
-    const RULES: &[Rule] = &[
-        Rule {
-            suffix: "ational",
-            edit: |s| {
-                let n = s.len();
-                s[n - 5] = 'e';
-                cut(s, 4)
-            },
-        },
-        Rule {
-            suffix: "tional",
-            edit: |s| cut(s, 2),
-        },
-        Rule {
-            suffix: "enci",
-            edit: |s| {
-                let n = s.len();
-                s[n - 1] = 'e'
-            },
-        },
-        Rule {
-            suffix: "anci",
-            edit: |s| {
-                let n = s.len();
-                s[n - 1] = 'e'
-            },
-        },
-        Rule {
-            suffix: "izer",
-            edit: |s| cut(s, 1),
-        },
-        Rule {
-            suffix: "bli",
-            edit: |s| {
-                let n = s.len();
-                s[n - 1] = 'e'
-            },
-        },
-        Rule {
-            suffix: "alli",
-            edit: |s| cut(s, 2),
-        },
-        Rule {
-            suffix: "entli",
-            edit: |s| cut(s, 2),
-        },
-        Rule {
-            suffix: "eli",
-            edit: |s| cut(s, 2),
-        },
-        Rule {
-            suffix: "ousli",
-            edit: |s| cut(s, 2),
-        },
-        Rule {
-            suffix: "ization",
-            edit: |s| {
-                let n = s.len();
-                s[n - 5] = 'e';
-                cut(s, 4)
-            },
-        },
-        Rule {
-            suffix: "ation",
-            edit: |s| {
-                let n = s.len();
-                s[n - 3] = 'e';
-                cut(s, 2)
-            },
-        },
-        Rule {
-            suffix: "ator",
-            edit: |s| {
-                let n = s.len();
-                s[n - 2] = 'e';
-                cut(s, 1)
-            },
-        },
-        Rule {
-            suffix: "alism",
-            edit: |s| cut(s, 3),
-        },
-        Rule {
-            suffix: "iveness",
-            edit: |s| cut(s, 4),
-        },
-        Rule {
-            suffix: "fulness",
-            edit: |s| cut(s, 4),
-        },
-        Rule {
-            suffix: "ousness",
-            edit: |s| cut(s, 4),
-        },
-        Rule {
-            suffix: "aliti",
-            edit: |s| cut(s, 3),
-        },
-        Rule {
-            suffix: "iviti",
-            edit: |s| {
-                let n = s.len();
-                s[n - 3] = 'e';
-                cut(s, 2)
-            },
-        },
-        Rule {
-            suffix: "biliti",
-            edit: |s| {
-                let n = s.len();
-                s[n - 5] = 'l';
-                s[n - 4] = 'e';
-                cut(s, 3)
-            },
-        },
-        Rule {
-            suffix: "logi",
-            edit: |s| cut(s, 1),
-        },
-    ];
-    apply(s, RULES, |m| m > 0)
+    apply(s, STEP2_RULES, |m| m > 0)
 }
 
 fn step3(s: Vec<char>) -> Vec<char> {

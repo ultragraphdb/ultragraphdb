@@ -147,7 +147,8 @@ impl TempDir {
         let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = root.join(format!("wal-{name}-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left by an earlier run is cleared; none is the usual case.
+        let _cleared: std::io::Result<()> = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the temporary directory is created");
         Self(dir)
     }
@@ -159,6 +160,7 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        // Best effort: a directory not removed is left to the test runner's temporary root.
+        let _removed: std::io::Result<()> = std::fs::remove_dir_all(&self.0);
     }
 }

@@ -208,19 +208,7 @@ fn read_one(r: &mut Reader<'_>) -> Result<Read, TypesError> {
             )))
         }
         code @ (4..=6) => {
-            let (kind, member, want) = match code {
-                4 => (GeometryKind::MultiPoint, GeometryKind::Point, "*geom.Point"),
-                5 => (
-                    GeometryKind::MultiLineString,
-                    GeometryKind::LineString,
-                    "*geom.LineString",
-                ),
-                _ => (
-                    GeometryKind::MultiPolygon,
-                    GeometryKind::Polygon,
-                    "*geom.Polygon",
-                ),
-            };
+            let (kind, member, want) = multi_kinds(code);
             Ok(Read::Open(Open {
                 left: r.read_u32(big)?,
                 g: Geometry::empty_multi(kind, layout),
@@ -235,6 +223,23 @@ fn read_one(r: &mut Reader<'_>) -> Result<Read, TypesError> {
             layout,
         })),
         _ => Err(TypesError::geo(format!("wkb: unsupported type: {t}"))),
+    }
+}
+
+/// The kind of a multi-geometry of type code 4, 5 or 6, its members' kind and Go's name of that kind.
+fn multi_kinds(code: u32) -> (GeometryKind, GeometryKind, &'static str) {
+    match code {
+        4 => (GeometryKind::MultiPoint, GeometryKind::Point, "*geom.Point"),
+        5 => (
+            GeometryKind::MultiLineString,
+            GeometryKind::LineString,
+            "*geom.LineString",
+        ),
+        _ => (
+            GeometryKind::MultiPolygon,
+            GeometryKind::Polygon,
+            "*geom.Polygon",
+        ),
     }
 }
 
@@ -273,7 +278,12 @@ fn write(out: &mut Vec<u8>, root: &Geometry) -> Result<(), TypesError> {
         .iter()
         .map(|(g, _)| match g.kind() {
             GeometryKind::GeometryCollection => (g.layout, true),
-            _ => (g.layout, g.flat_coords().is_empty()),
+            GeometryKind::Point
+            | GeometryKind::LineString
+            | GeometryKind::Polygon
+            | GeometryKind::MultiPoint
+            | GeometryKind::MultiLineString
+            | GeometryKind::MultiPolygon => (g.layout, g.flat_coords().is_empty()),
         })
         .collect();
     for i in (0..nodes.len()).rev() {
@@ -292,6 +302,29 @@ fn write(out: &mut Vec<u8>, root: &Geometry) -> Result<(), TypesError> {
         .try_for_each(|((g, _), (layout, empty))| write_one(out, g, layout, empty))
 }
 
+/// The part of a type code that names `layout`; no layout only for an empty collection.
+fn layout_code(g: &Geometry, layout: Layout, empty: bool) -> Result<u32, TypesError> {
+    match layout {
+        Layout::NO_LAYOUT => {
+            if g.kind() != GeometryKind::GeometryCollection || !empty {
+                return Err(TypesError::geo(format!(
+                    "geom: unsupported layout {}",
+                    layout.name()
+                )));
+            }
+            Ok(0)
+        }
+        Layout::XY => Ok(0),
+        Layout::XYZ => Ok(1000),
+        Layout::XYM => Ok(2000),
+        Layout::XYZM => Ok(3000),
+        _ => Err(TypesError::geo(format!(
+            "geom: unsupported layout {}",
+            layout.name()
+        ))),
+    }
+}
+
 /// Writes one geometry of `layout`, its own or for a collection without one its members' widest, and `empty`
 /// whether it holds no coordinates; a collection's header and member count alone. The members of a multi-geometry
 /// are points, lines or polygons, which hold no members of their own.
@@ -302,28 +335,7 @@ fn write_one(
     empty: bool,
 ) -> Result<(), TypesError> {
     out.push(1);
-    let mut code = kind_code(g.kind());
-    match layout {
-        Layout::NO_LAYOUT => {
-            if g.kind() != GeometryKind::GeometryCollection || !empty {
-                return Err(TypesError::geo(format!(
-                    "geom: unsupported layout {}",
-                    layout.name()
-                )));
-            }
-        }
-        Layout::XY => {}
-        Layout::XYZ => code += 1000,
-        Layout::XYM => code += 2000,
-        Layout::XYZM => code += 3000,
-        _ => {
-            return Err(TypesError::geo(format!(
-                "geom: unsupported layout {}",
-                layout.name()
-            )));
-        }
-    }
-    put_u32(out, code);
+    put_u32(out, kind_code(g.kind()) + layout_code(g, layout, empty)?);
     let stride = layout.stride();
     match g.kind() {
         GeometryKind::Point => {

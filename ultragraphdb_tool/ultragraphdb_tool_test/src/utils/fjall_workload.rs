@@ -13,12 +13,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use ultragraphdb_error_store::StoreError;
 use ultragraphdb_store_kv::{FjallSnapshot, FjallStore};
 use ultragraphdb_store_sim::{
     Contents, Event, FaultConfig, OpRecord, Seed, SimContext, Simulation, StoreModel,
     StoreWorkload, Stream,
 };
-use ultragraphdb_traits_store::{Store, StoreSnapshot, Temporary};
+use ultragraphdb_traits_store::{
+    Entry, Item, PersistMode, Scan, Store, StoreSnapshot, Temporary, WriteBatch,
+};
 
 use crate::utils::test_store::TestDir;
 
@@ -76,221 +79,235 @@ impl Mirror {
     /// what fjall answered.
     fn replay(&mut self, record: &OpRecord) -> Result<OpRecord, String> {
         self.replayed += 1;
-        let same = |what: &str, fjall: String, sim: String| {
-            if fjall == sim {
-                Ok(())
-            } else {
-                Err(format!(
-                    "{what}: fjall answered {fjall} where the simulated store answered {sim}"
-                ))
+        match record {
+            OpRecord::Read { id, key, result } => return self.replay_read(*id, key, result),
+            OpRecord::ReadVersionless { id, key, result } => {
+                return self.replay_versionless_read(*id, key, result);
             }
-        };
-        let fjall = match record {
+            OpRecord::ReadMany { id, keys, result } => {
+                return self.replay_read_many(*id, keys, result);
+            }
+            OpRecord::Scanned { id, scan, items } => return self.replay_scan(*id, scan, items),
             OpRecord::Applied { batch, mode } => {
                 let result = self.store().apply(batch.clone(), *mode);
-                same("a batch", format!("{result:?}"), "Ok(())".into())?;
-                record.clone()
+                same("a batch", &format!("{result:?}"), "Ok(())")?;
             }
-            OpRecord::Refused { batch, error } => {
-                let result = self.store().apply(
-                    batch.clone(),
-                    ultragraphdb_traits_store::PersistMode::Buffer,
-                );
-                same(
-                    "a refused batch",
-                    format!("{result:?}"),
-                    format!("{:?}", Err::<(), _>(error.clone())),
-                )?;
-                record.clone()
-            }
-            OpRecord::Synced => {
-                self.store().sync().map_err(|e| e.to_string())?;
-                record.clone()
-            }
+            OpRecord::Refused { batch, error } => self.replay_refused(batch, error)?,
+            OpRecord::Synced => done(self.store().sync())?,
             OpRecord::Dropped {
                 ts,
                 prefixes,
                 entries,
-            } => {
-                match prefixes {
-                    Some(prefixes) => {
-                        self.store()
-                            .drop_prefixes(*ts, prefixes, entries.clone())
-                            .map_err(|e| e.to_string())?;
-                        self.fenced += entries.len();
-                    }
-                    None => {
-                        self.store()
-                            .drop_all(entries.clone())
-                            .map_err(|e| e.to_string())?;
-                    }
-                }
-                record.clone()
+            } => self.replay_drop(*ts, prefixes.as_deref(), entries)?,
+            OpRecord::Banned { namespace } => done(self.store().ban_namespace(*namespace))?,
+            OpRecord::DiscardSet { ts } => done(self.store().set_discard_ts(*ts))?,
+            OpRecord::HorizonSet { ts } => done(self.store().set_tombstone_horizon(*ts))?,
+            OpRecord::Compacted => done(self.store().compact())?,
+            OpRecord::Swept => done(self.store().sweep_deletions())?,
+            OpRecord::RebuildRecorded { record: written } => {
+                done(self.store().write_rebuild_record(written))?;
             }
-            OpRecord::Banned { namespace } => {
-                self.store()
-                    .ban_namespace(*namespace)
-                    .map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::DiscardSet { ts } => {
-                self.store()
-                    .set_discard_ts(*ts)
-                    .map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::HorizonSet { ts } => {
-                self.store()
-                    .set_tombstone_horizon(*ts)
-                    .map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::Compacted => {
-                self.store().compact().map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::Swept => {
-                self.store().sweep_deletions().map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::SnapshotOpened { id, read_ts } => {
-                let snapshot = self
-                    .store()
-                    .snapshot(*read_ts)
-                    .map_err(|e| format!("a snapshot at {read_ts}: {e}"))?;
-                self.snapshots.insert(*id, snapshot);
-                record.clone()
-            }
+            OpRecord::SnapshotOpened { id, read_ts } => self.replay_snapshot(*id, *read_ts)?,
             OpRecord::SnapshotRefused { read_ts, error } => {
-                let result = self.store().snapshot(*read_ts).map(|_| ());
-                same(
-                    "a refused snapshot",
-                    format!("{result:?}"),
-                    format!("{:?}", Err::<(), _>(error.clone())),
-                )?;
-                record.clone()
+                self.replay_refused_snapshot(*read_ts, error)?;
             }
             OpRecord::SnapshotClosed { id } => {
                 self.snapshots.remove(id);
-                record.clone()
             }
-            OpRecord::Read { id, key, result } => {
-                let got = self.snapshot(*id).get(key);
-                same("a read", format!("{got:?}"), format!("{result:?}"))?;
-                OpRecord::Read {
-                    id: *id,
-                    key: key.clone(),
-                    result: got,
-                }
-            }
-            OpRecord::ReadVersionless { id, key, result } => {
-                let got = match id {
-                    Some(id) => self.snapshot(*id).get_versionless(key),
-                    None => self.store().get_versionless(key),
-                };
-                same(
-                    "a versionless read",
-                    format!("{got:?}"),
-                    format!("{result:?}"),
-                )?;
-                self.versionless_reads.0 += 1;
-                self.versionless_reads.1 += usize::from(matches!(got, Ok(Some(_))));
-                OpRecord::ReadVersionless {
-                    id: *id,
-                    key: key.clone(),
-                    result: got,
-                }
-            }
-            OpRecord::ReadMany { id, keys, result } => {
-                let got = self.snapshot(*id).get_many(keys);
-                same(
-                    "a read of many keys",
-                    format!("{got:?}"),
-                    format!("{result:?}"),
-                )?;
-                OpRecord::ReadMany {
-                    id: *id,
-                    keys: keys.clone(),
-                    result: got,
-                }
-            }
-            OpRecord::Scanned { id, scan, items } => {
-                let got: Vec<_> = self.snapshot(*id).scan(scan).collect();
-                same(
-                    &format!("a scan of {scan:?}"),
-                    format!("{got:?}"),
-                    format!("{items:?}"),
-                )?;
-                OpRecord::Scanned {
-                    id: *id,
-                    scan: scan.clone(),
-                    items: got,
-                }
-            }
-            OpRecord::RebuildRecorded { record: written } => {
-                self.store()
-                    .write_rebuild_record(written)
-                    .map_err(|e| e.to_string())?;
-                record.clone()
-            }
-            OpRecord::TemporaryCreated { temporary } => {
-                let created = self.store().create_temporary().map_err(|e| e.to_string())?;
-                self.temporaries.insert(*temporary, created);
-                record.clone()
-            }
+            OpRecord::TemporaryCreated { temporary } => self.replay_create_temporary(*temporary)?,
             OpRecord::TemporaryApplied { temporary, batch } => {
-                let result = self
-                    .store()
-                    .apply_temporary(self.temporary(*temporary), batch.clone());
-                same("a temporary batch", format!("{result:?}"), "Ok(())".into())?;
-                record.clone()
+                self.replay_temporary_batch(*temporary, batch, None)?;
             }
             OpRecord::TemporaryRefused {
                 temporary,
                 batch,
                 error,
-            } => {
-                let result = self
-                    .store()
-                    .apply_temporary(self.temporary(*temporary), batch.clone());
-                same(
-                    "a refused temporary batch",
-                    format!("{result:?}"),
-                    format!("{:?}", Err::<(), _>(error.clone())),
-                )?;
-                record.clone()
-            }
+            } => self.replay_temporary_batch(*temporary, batch, Some(error))?,
             OpRecord::TemporarySnapshotOpened { id, temporary } => {
-                let snapshot = self
-                    .store()
-                    .temporary_snapshot(self.temporary(*temporary))
-                    .map_err(|e| format!("a temporary snapshot: {e}"))?;
-                self.snapshots.insert(*id, snapshot);
-                record.clone()
+                self.replay_temporary_snapshot(*id, *temporary)?;
             }
-            OpRecord::TemporaryDropped { temporary } => {
-                let dropped = self
-                    .temporaries
-                    .remove(temporary)
-                    .expect("the temporary keyspace exists");
-                self.store()
-                    .drop_temporary(dropped)
-                    .map_err(|e| e.to_string())?;
-                record.clone()
+            OpRecord::TemporaryDropped { temporary } => self.replay_drop_temporary(*temporary)?,
+            OpRecord::Crashed => self.crash(),
+            OpRecord::Recovered => self.store = Some(self.dir.open()),
+            OpRecord::BatchFailed { .. }
+            | OpRecord::CrashedDuringBatch { .. }
+            | OpRecord::WriteWhileFailed { .. }
+            | OpRecord::DropInterrupted { .. }
+            | OpRecord::RebuildInterrupted { .. }
+            | OpRecord::TemporaryFailed { .. }
+            | OpRecord::Corrupted { .. }
+            | OpRecord::Slowed { .. }
+            | OpRecord::PowerLost => {
+                return Err(format!("the fjall store cannot replay {record:?}"));
             }
-            OpRecord::Crashed => {
-                self.temporaries.clear();
-                self.snapshots.clear();
-                self.store = None;
-                record.clone()
+        }
+        Ok(record.clone())
+    }
+
+    /// The crash between steps, replayed as a close: what the process held is gone.
+    fn crash(&mut self) {
+        self.temporaries.clear();
+        self.snapshots.clear();
+        self.store = None;
+    }
+
+    fn replay_refused_snapshot(&self, read_ts: u64, error: &StoreError) -> Result<(), String> {
+        let result = self.store().snapshot(read_ts).map(|_| ());
+        same(
+            "a refused snapshot",
+            &format!("{result:?}"),
+            &refusal(error),
+        )
+    }
+
+    fn replay_refused(&self, batch: &WriteBatch, error: &StoreError) -> Result<(), String> {
+        let result = self.store().apply(batch.clone(), PersistMode::Buffer);
+        same("a refused batch", &format!("{result:?}"), &refusal(error))
+    }
+
+    fn replay_drop(
+        &mut self,
+        ts: u64,
+        prefixes: Option<&[Vec<u8>]>,
+        entries: &[Entry],
+    ) -> Result<(), String> {
+        match prefixes {
+            Some(prefixes) => {
+                done(self.store().drop_prefixes(ts, prefixes, entries.to_vec()))?;
+                self.fenced += entries.len();
             }
-            OpRecord::Recovered => {
-                self.store = Some(self.dir.open());
-                record.clone()
-            }
-            other => return Err(format!("the fjall store cannot replay {other:?}")),
+            None => done(self.store().drop_all(entries.to_vec()))?,
+        }
+        Ok(())
+    }
+
+    fn replay_snapshot(&mut self, id: u64, read_ts: u64) -> Result<(), String> {
+        let snapshot = self
+            .store()
+            .snapshot(read_ts)
+            .map_err(|e| format!("a snapshot at {read_ts}: {e}"))?;
+        self.snapshots.insert(id, snapshot);
+        Ok(())
+    }
+
+    fn replay_read(
+        &self,
+        id: u64,
+        key: &[u8],
+        result: &Result<Option<Item>, StoreError>,
+    ) -> Result<OpRecord, String> {
+        let got = self.snapshot(id).get(key);
+        same("a read", &format!("{got:?}"), &format!("{result:?}"))?;
+        Ok(OpRecord::Read {
+            id,
+            key: key.to_vec(),
+            result: got,
+        })
+    }
+
+    fn replay_versionless_read(
+        &mut self,
+        id: Option<u64>,
+        key: &[u8],
+        result: &Result<Option<Vec<u8>>, StoreError>,
+    ) -> Result<OpRecord, String> {
+        let got = match id {
+            Some(id) => self.snapshot(id).get_versionless(key),
+            None => self.store().get_versionless(key),
         };
-        Ok(fjall)
+        same(
+            "a versionless read",
+            &format!("{got:?}"),
+            &format!("{result:?}"),
+        )?;
+        self.versionless_reads.0 += 1;
+        self.versionless_reads.1 += usize::from(matches!(got, Ok(Some(_))));
+        Ok(OpRecord::ReadVersionless {
+            id,
+            key: key.to_vec(),
+            result: got,
+        })
+    }
+
+    fn replay_read_many(
+        &self,
+        id: u64,
+        keys: &[Vec<u8>],
+        result: &Result<Vec<Option<Item>>, StoreError>,
+    ) -> Result<OpRecord, String> {
+        let got = self.snapshot(id).get_many(keys);
+        same(
+            "a read of many keys",
+            &format!("{got:?}"),
+            &format!("{result:?}"),
+        )?;
+        Ok(OpRecord::ReadMany {
+            id,
+            keys: keys.to_vec(),
+            result: got,
+        })
+    }
+
+    fn replay_scan(
+        &self,
+        id: u64,
+        scan: &Scan,
+        items: &[Result<Item, StoreError>],
+    ) -> Result<OpRecord, String> {
+        let got: Vec<_> = self.snapshot(id).scan(scan).collect();
+        same(
+            &format!("a scan of {scan:?}"),
+            &format!("{got:?}"),
+            &format!("{items:?}"),
+        )?;
+        Ok(OpRecord::Scanned {
+            id,
+            scan: scan.clone(),
+            items: got,
+        })
+    }
+
+    fn replay_create_temporary(&mut self, temporary: u64) -> Result<(), String> {
+        let created = self.store().create_temporary().map_err(|e| e.to_string())?;
+        self.temporaries.insert(temporary, created);
+        Ok(())
+    }
+
+    /// A batch to temporary keyspace `temporary`, which the simulated store refused with `refused` if it names one.
+    fn replay_temporary_batch(
+        &self,
+        temporary: u64,
+        batch: &WriteBatch,
+        refused: Option<&StoreError>,
+    ) -> Result<(), String> {
+        let result = self
+            .store()
+            .apply_temporary(self.temporary(temporary), batch.clone());
+        match refused {
+            None => same("a temporary batch", &format!("{result:?}"), "Ok(())"),
+            Some(error) => same(
+                "a refused temporary batch",
+                &format!("{result:?}"),
+                &refusal(error),
+            ),
+        }
+    }
+
+    fn replay_temporary_snapshot(&mut self, id: u64, temporary: u64) -> Result<(), String> {
+        let snapshot = self
+            .store()
+            .temporary_snapshot(self.temporary(temporary))
+            .map_err(|e| format!("a temporary snapshot: {e}"))?;
+        self.snapshots.insert(id, snapshot);
+        Ok(())
+    }
+
+    fn replay_drop_temporary(&mut self, temporary: u64) -> Result<(), String> {
+        let dropped = self
+            .temporaries
+            .remove(&temporary)
+            .expect("the temporary keyspace exists");
+        done(self.store().drop_temporary(dropped))
     }
 
     /// Compares what fjall holds with what the simulated store holds, version for version.
@@ -298,38 +315,8 @@ impl Mirror {
         let Some(store) = self.store.as_ref() else {
             return Ok(());
         };
-        let wanted: Vec<Version> = sim
-            .keys()
-            .iter()
-            .flat_map(|(key, versions)| {
-                versions.iter().map(|v| {
-                    (
-                        key.clone(),
-                        v.version(),
-                        v.meta(),
-                        v.discard(),
-                        v.is_deletion(),
-                        v.value().to_vec(),
-                    )
-                })
-            })
-            .collect();
-        let held: Vec<Version> = store
-            .dump()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|e| {
-                let value = e.value().unwrap_or_default().to_vec();
-                (
-                    e.key().to_vec(),
-                    e.version(),
-                    e.meta(),
-                    e.discard(),
-                    e.is_deletion(),
-                    value,
-                )
-            })
-            .collect();
+        let wanted = sim_versions(sim);
+        let held = fjall_versions(store)?;
         if held != wanted {
             let wanted_set: BTreeSet<&Version> = wanted.iter().collect();
             let held_set: BTreeSet<&Version> = held.iter().collect();
@@ -347,41 +334,110 @@ impl Mirror {
                  {versionless:?}"
             ));
         }
-        let meta = |s: &dyn Fn() -> (u64, u64, u64)| s();
-        let fjall = meta(&|| {
-            (
-                store.applied_ts(),
-                store.discard_ts(),
-                store.tombstone_horizon(),
-            )
-        });
-        let simulated = meta(&|| {
-            (
-                sim_store.applied_ts(),
-                sim_store.discard_ts(),
-                sim_store.tombstone_horizon(),
-            )
-        });
-        if fjall != simulated {
-            return Err(format!(
-                "fjall's applied, discard and horizon {fjall:?} where the simulated store's are {simulated:?}"
-            ));
-        }
-        let records: BTreeMap<u64, Vec<Vec<u8>>> = store
-            .rebuild_records()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|r| (r.id(), r.into_prefixes()))
-            .collect();
-        if &records != sim.rebuild_records() {
-            return Err(format!(
-                "fjall holds the rebuild records {:?} where the simulated store holds {:?}",
-                records.keys().collect::<Vec<_>>(),
-                sim.rebuild_records().keys().collect::<Vec<_>>()
-            ));
-        }
-        Ok(())
+        compare_metadata(store, sim, sim_store)
     }
+}
+
+/// Whether fjall answered `what` as the simulated store did.
+fn same(what: &str, fjall: &str, sim: &str) -> Result<(), String> {
+    if fjall == sim {
+        Ok(())
+    } else {
+        Err(format!(
+            "{what}: fjall answered {fjall} where the simulated store answered {sim}"
+        ))
+    }
+}
+
+/// How a refusal with `error` prints, to compare with fjall's answer.
+fn refusal(error: &StoreError) -> String {
+    format!("{:?}", Err::<(), _>(error.clone()))
+}
+
+/// The outcome of an operation fjall must perform.
+fn done(result: Result<(), StoreError>) -> Result<(), String> {
+    result.map_err(|e| e.to_string())
+}
+
+/// Every version the simulated store holds, in order.
+fn sim_versions(sim: &Contents) -> Vec<Version> {
+    sim.keys()
+        .iter()
+        .flat_map(|(key, versions)| {
+            versions.iter().map(|v| {
+                (
+                    key.clone(),
+                    v.version(),
+                    v.meta(),
+                    v.discard(),
+                    v.is_deletion(),
+                    v.value().to_vec(),
+                )
+            })
+        })
+        .collect()
+}
+
+/// Every version fjall holds, in order.
+fn fjall_versions(store: &FjallStore) -> Result<Vec<Version>, String> {
+    Ok(store
+        .dump()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|e| {
+            let value = e.value().unwrap_or_default().to_vec();
+            (
+                e.key().to_vec(),
+                e.version(),
+                e.meta(),
+                e.discard(),
+                e.is_deletion(),
+                value,
+            )
+        })
+        .collect())
+}
+
+/// Compares fjall's applied, discard and horizon timestamps and its rebuild records with the simulated store's.
+fn compare_metadata(
+    store: &FjallStore,
+    sim: &Contents,
+    sim_store: &impl Store,
+) -> Result<(), String> {
+    let meta = |s: &dyn Fn() -> (u64, u64, u64)| s();
+    let fjall = meta(&|| {
+        (
+            store.applied_ts(),
+            store.discard_ts(),
+            store.tombstone_horizon(),
+        )
+    });
+    let simulated = meta(&|| {
+        (
+            sim_store.applied_ts(),
+            sim_store.discard_ts(),
+            sim_store.tombstone_horizon(),
+        )
+    });
+    if fjall != simulated {
+        return Err(format!(
+            "fjall's applied, discard and horizon {fjall:?} where the simulated store's are {simulated:?}"
+        ));
+    }
+    let records: BTreeMap<u64, Vec<Vec<u8>>> = store
+        .rebuild_records()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|r| (r.id(), r.into_prefixes()))
+        .collect();
+    if &records != sim.rebuild_records() {
+        return Err(format!(
+            "fjall holds the rebuild records {:?} where the simulated store holds {:?}",
+            records.keys().collect::<Vec<_>>(),
+            sim.rebuild_records().keys().collect::<Vec<_>>()
+        ));
+    }
+    Ok(())
 }
 
 /// What a run on both stores did.

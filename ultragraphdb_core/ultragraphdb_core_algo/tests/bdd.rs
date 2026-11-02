@@ -3,6 +3,9 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
+use std::num::ParseIntError;
+use std::str::FromStr;
+
 use cucumber::{World, given, then, when};
 use ultragraphdb_core_algo::{
     difference_packed, intersect_compressed_with, intersect_sorted_packed, intersect_with,
@@ -25,10 +28,18 @@ struct Steps {
     result: Vec<u64>,
 }
 
-fn parse_uids(text: &str) -> Vec<u64> {
-    text.split(',')
-        .map(|s| s.trim().parse().expect("a UID"))
-        .collect()
+/// A UID list a step names, `1, 2, 3`.
+struct Uids(Vec<u64>);
+
+impl FromStr for Uids {
+    type Err = ParseIntError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        text.split(',')
+            .map(|s| s.trim().parse())
+            .collect::<Result<_, _>>()
+            .map(Uids)
+    }
 }
 
 fn decoded(pack: Option<UidPack>) -> Vec<u64> {
@@ -89,8 +100,8 @@ fn intersections_agree(w: &mut Steps) {
 }
 
 #[given(expr = "the UID lists {string}, {string} and {string}")]
-fn three_lists(w: &mut Steps, a: String, b: String, c: String) {
-    w.lists = vec![parse_uids(&a), parse_uids(&b), parse_uids(&c)];
+fn three_lists(w: &mut Steps, a: Uids, b: Uids, c: Uids) {
+    w.lists = vec![a.0, b.0, c.0];
 }
 
 #[when("they are merged as plain lists and as packed lists")]
@@ -105,8 +116,8 @@ fn merge(w: &mut Steps) {
 }
 
 #[then(expr = "both results are {string}")]
-fn merged_are(w: &mut Steps, text: String) {
-    let want = parse_uids(&text);
+fn merged_are(w: &mut Steps, want: Uids) {
+    let Uids(want) = want;
     assert_eq!(w.merged, vec![want.clone(), want]);
 }
 
@@ -139,29 +150,33 @@ fn intersect_packed(w: &mut Steps) {
 #[when(
     expr = "the UIDs {int} to {int} packed in blocks of {int} have the UIDs {string} subtracted"
 )]
-fn subtract_from_range(w: &mut Steps, first: u64, last: u64, block_size: usize, v: String) {
+fn subtract_from_range(w: &mut Steps, first: u64, last: u64, block_size: usize, v: Uids) {
+    let Uids(v) = v;
     let u = encode(&(first..=last).collect::<Vec<_>>(), block_size);
-    let v = encode(&parse_uids(&v), block_size);
+    let v = encode(&v, block_size);
     w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
 }
 
 #[when(expr = "the UIDs {string} have the UIDs {string} packed in blocks of {int} subtracted")]
-fn subtract_packed(w: &mut Steps, u: String, v: String, block_size: usize) {
-    let u = encode(&parse_uids(&u), block_size);
-    let v = encode(&parse_uids(&v), block_size);
+fn subtract_packed(w: &mut Steps, u: Uids, v: Uids, block_size: usize) {
+    let (Uids(u), Uids(v)) = (u, v);
+    let u = encode(&u, block_size);
+    let v = encode(&v, block_size);
     w.result = decoded(difference_packed(u.as_ref(), v.as_ref()));
 }
 
 #[when(expr = "the UIDs {string} have an empty pack of block size {int} subtracted")]
-fn subtract_empty_pack(w: &mut Steps, u: String, block_size: u32) {
-    let u = encode(&parse_uids(&u), BLOCK_SIZE);
+fn subtract_empty_pack(w: &mut Steps, u: Uids, block_size: u32) {
+    let Uids(u) = u;
+    let u = encode(&u, BLOCK_SIZE);
     let v = UidPack::new(block_size, Vec::new());
     w.result = decoded(difference_packed(u.as_ref(), Some(&v)));
 }
 
 #[then(expr = "the result is {string}")]
-fn result_is(w: &mut Steps, text: String) {
-    assert_eq!(w.result, parse_uids(&text));
+fn result_is(w: &mut Steps, want: Uids) {
+    let Uids(want) = want;
+    assert_eq!(w.result, want);
 }
 
 #[then(expr = "the result is the UIDs {int} to {int}")]

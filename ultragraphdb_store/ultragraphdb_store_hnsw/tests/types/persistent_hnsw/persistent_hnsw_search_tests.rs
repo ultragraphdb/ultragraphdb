@@ -48,7 +48,7 @@ fn test_basic_search_persistent_flat_storage() {
             (11, 15, 123, [0.824, 0.319, 0.111]),
             (20, 37, 1, [0.3, 0.5, 0.7]),
         ] {
-            dbs.set_all(&key("0-a", uid), float64_array_as_bytes(&vec));
+            dbs.set_all(&key("0-a", uid), &float64_array_as_bytes(&vec));
             let txn = InMemTxn::new(&dbs, start, commit);
             index(metric, "5")
                 .insert(&TxnCache::new(&txn, start), uid, &vec, &mut || {
@@ -85,7 +85,7 @@ fn test_search_returns_correct_order_for_all_metrics() {
             (1, 20, [0.9, 0.1, 0.0]),
             (2, 30, [0.1, 0.9, 0.0]),
         ] {
-            dbs.set_all(&key(&pred, uid), float64_array_as_bytes(&vec));
+            dbs.set_all(&key(&pred, uid), &float64_array_as_bytes(&vec));
             let txn = InMemTxn::new(&dbs, start, start + 1);
             PersistentHnsw::<f64>::new(vkeys(&pred), &o, 64)
                 .unwrap()
@@ -748,7 +748,11 @@ fn test_a_search_refuses_what_does_not_decode() {
         e,
         HnswError::corrupted(&key("0-a", 2), "a vector of 12 bytes")
     );
+    assert_a_failed_scan_is_no_empty_index();
+}
 
+/// A scan for an entry point that fails is the read's failure, not an empty index.
+fn assert_a_failed_scan_is_no_empty_index() {
     let e = index("euclidean", "2")
         .search(
             &FailingFind(MapTxn::default()),

@@ -399,9 +399,12 @@ fn test_a_poisoned_store_refuses_every_write_until_recovered() {
     let refused: Vec<&'static str> = s
         .take_log()
         .iter()
-        .filter_map(|r| match r {
-            OpRecord::WriteWhileFailed { operation } => Some(*operation),
-            _ => None,
+        .filter_map(|r| {
+            if let OpRecord::WriteWhileFailed { operation } = r {
+                Some(*operation)
+            } else {
+                None
+            }
         })
         .collect();
     assert_eq!(

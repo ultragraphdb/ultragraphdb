@@ -61,20 +61,22 @@ fn golden_cases() -> Vec<PackCase> {
 fn encoding_matches_golden_packs() {
     for case in golden_cases() {
         let actual = encode(&case.uids, case.block_size);
-        match (&case.pack, actual) {
-            (None, None) => {}
-            (Some(want), Some(got)) => {
-                let want = to_pack(want);
-                assert_eq!(want.block_size(), got.block_size(), "{}", case.name);
-                assert_eq!(want.blocks().len(), got.blocks().len(), "{}", case.name);
-                for (i, (a, b)) in want.blocks().iter().zip(got.blocks()).enumerate() {
-                    assert_eq!(a.base(), b.base(), "{} block {i}", case.name);
-                    assert_eq!(a.num_uids(), b.num_uids(), "{} block {i}", case.name);
-                    compare_bytes(&format!("{} block {i}", case.name), a.deltas(), b.deltas())
-                        .unwrap();
-                }
+        assert_eq!(
+            case.pack.is_some(),
+            actual.is_some(),
+            "{}: Dgraph packed {:?}, the port {actual:?}",
+            case.name,
+            case.pack
+        );
+        if let (Some(want), Some(got)) = (&case.pack, actual) {
+            let want = to_pack(want);
+            assert_eq!(want.block_size(), got.block_size(), "{}", case.name);
+            assert_eq!(want.blocks().len(), got.blocks().len(), "{}", case.name);
+            for (i, (a, b)) in want.blocks().iter().zip(got.blocks()).enumerate() {
+                assert_eq!(a.base(), b.base(), "{} block {i}", case.name);
+                assert_eq!(a.num_uids(), b.num_uids(), "{} block {i}", case.name);
+                compare_bytes(&format!("{} block {i}", case.name), a.deltas(), b.deltas()).unwrap();
             }
-            (want, got) => panic!("{}: Dgraph packed {want:?}, the port {got:?}", case.name),
         }
     }
 }

@@ -25,7 +25,7 @@ impl BodyBuilder for ErrorReply {
         let mut terms = TermTable::new();
         if let Some(value) = &self.value {
             // A value the table refuses is no value; ErrorReply::with_value states which terms a table holds.
-            let _ = terms.intern(value.clone());
+            let _index: Option<u32> = terms.intern(value.clone()).ok();
         }
         let (records, text) = terms.sections();
         write_sections(&[], &[self.message.as_bytes(), &records, &text])

@@ -24,7 +24,8 @@ pub(crate) fn trig_reduce(x: f64) -> (u64, f64) {
     }
     // Extract out the integer and exponent such that, x = ix * 2 ** exp.
     let mut ix = x.to_bits();
-    let exp = ((ix >> SHIFT) & MASK) as i64 - BIAS - i64::from(SHIFT);
+    // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+    let exp = ((ix >> SHIFT) & MASK).cast_signed() - BIAS - i64::from(SHIFT);
     ix &= !(MASK << SHIFT);
     ix |= 1 << SHIFT;
     // Use the exponent to extract the 3 appropriate uint64 digits from mPi4,

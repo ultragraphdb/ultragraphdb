@@ -13,16 +13,16 @@ use ultragraphdb_store_posting::{
 const KEY: &[u8] = b"\x00key";
 
 fn refused(result: Result<PostingList, PostingError>) -> String {
-    match result {
+    let (key, reason) = match result {
         Err(PostingError(PostingErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted {
             key,
             reason,
-        })))) => {
-            assert_eq!(key, KEY);
-            reason
-        }
-        other => panic!("not refused as corrupted: {other:?}"),
+        })))) => Ok((key, reason)),
+        other => Err(format!("not refused as corrupted: {other:?}")),
     }
+    .expect("the list is refused as corrupted");
+    assert_eq!(key, KEY);
+    reason
 }
 
 fn value_posting(uid: u64) -> Posting {
@@ -292,13 +292,15 @@ fn test_literals_sharing_a_fingerprint_sort_by_encoding_in_a_quad_list_alone() {
         shared(vec![literal(b"b"), literal(b"a")]),
         shared(vec![literal(b"a"), literal(b"a")]),
     ] {
-        match unmarshal_complete(&key, &marshal(&unsorted)) {
+        let reason = match unmarshal_complete(&key, &marshal(&unsorted)) {
             Err(PostingError(PostingErrorEnum::Store(StoreError(StoreErrorEnum::Corrupted {
                 reason,
                 ..
-            })))) => assert_eq!(reason, "the postings of a list are not sorted by uid"),
-            other => panic!("not refused: {other:?}"),
+            })))) => Ok(reason),
+            other => Err(format!("not refused: {other:?}")),
         }
+        .expect("the unsorted list is refused as corrupted");
+        assert_eq!(reason, "the postings of a list are not sorted by uid");
     }
     // A key that does not compare values holds one posting per uid.
     assert_eq!(

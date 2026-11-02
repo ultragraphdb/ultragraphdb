@@ -9,7 +9,19 @@ impl std::error::Error for CommitError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
             CommitErrorEnum::Malformed { cause } => Some(cause),
-            _ => None,
+            CommitErrorEnum::Conflict { .. }
+            | CommitErrorEnum::TooOld { .. }
+            | CommitErrorEnum::TooLarge { .. }
+            | CommitErrorEnum::Unsealed
+            | CommitErrorEnum::Busy { .. }
+            | CommitErrorEnum::Unavailable
+            | CommitErrorEnum::SessionEvicted { .. }
+            | CommitErrorEnum::RequestOutOfOrder { .. }
+            | CommitErrorEnum::SessionBusy { .. }
+            | CommitErrorEnum::NotCommitted { .. }
+            | CommitErrorEnum::PermissionDenied { .. }
+            | CommitErrorEnum::OperationFailed { .. }
+            | CommitErrorEnum::Refused { .. } => None,
         }
     }
 }

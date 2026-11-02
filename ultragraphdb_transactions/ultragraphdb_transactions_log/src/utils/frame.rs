@@ -38,7 +38,35 @@ pub fn encode_round(
         .map_err(|refusal| match refusal.0 {
             ProtocolErrorEnum::FrameTooLarge { size, limit } => LogError::TooLarge(size, limit),
             // encode_frame refuses a frame for its size alone.
-            _ => LogError::TooLarge(HEADER_SIZE + round.body().len(), 0),
+            ProtocolErrorEnum::ShortHeader { .. }
+            | ProtocolErrorEnum::HeaderChecksum { .. }
+            | ProtocolErrorEnum::UnknownCommand { .. }
+            | ProtocolErrorEnum::ReservedNotZero { .. }
+            | ProtocolErrorEnum::WrongCluster { .. }
+            | ProtocolErrorEnum::SizeBelowHeader { .. }
+            | ProtocolErrorEnum::LengthMismatch { .. }
+            | ProtocolErrorEnum::BodyLength { .. }
+            | ProtocolErrorEnum::ChunkTable { .. }
+            | ProtocolErrorEnum::Chunk { .. }
+            | ProtocolErrorEnum::SequenceOrder { .. }
+            | ProtocolErrorEnum::WrongCommand { .. }
+            | ProtocolErrorEnum::BodyTooShort { .. }
+            | ProtocolErrorEnum::SectionOutOfBounds { .. }
+            | ProtocolErrorEnum::SectionOffset { .. }
+            | ProtocolErrorEnum::PaddingNotZero { .. }
+            | ProtocolErrorEnum::TrailingBytes { .. }
+            | ProtocolErrorEnum::SectionLength { .. }
+            | ProtocolErrorEnum::EntryOutOfBounds { .. }
+            | ProtocolErrorEnum::CountMismatch { .. }
+            | ProtocolErrorEnum::NotUtf8 { .. }
+            | ProtocolErrorEnum::IndexOutOfRange { .. }
+            | ProtocolErrorEnum::BadTerm { .. }
+            | ProtocolErrorEnum::FieldValue { .. }
+            | ProtocolErrorEnum::DuplicateTerm { .. }
+            | ProtocolErrorEnum::TermTooDeep { .. }
+            | ProtocolErrorEnum::Record { .. } => {
+                LogError::TooLarge(HEADER_SIZE + round.body().len(), 0)
+            }
         })?;
     let mut bytes = AlignedBuf::zeroed(padded(frame.len() as u64) as usize);
     bytes

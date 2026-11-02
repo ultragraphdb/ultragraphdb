@@ -33,7 +33,8 @@ fn writer() -> PathBuf {
 pub fn fresh_dir(name: &str) -> PathBuf {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("kv-crash-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory an earlier run left behind, which is usually absent.
+    drop(std::fs::remove_dir_all(&dir));
     dir
 }
 

@@ -199,7 +199,7 @@ impl ShapeIndex {
                 // index entries for the cells we are skipping over.
                 self.skip_cell_range(face_id.range_min(), shrunk_id.range_min(), face_edges, t);
                 pcell = PaddedCell::from_cell_id(shrunk_id, CELL_PADDING);
-                self.update_edges(&pcell, clipped_edges, face_edges, t);
+                self.update_edges(&pcell, &clipped_edges, face_edges, t);
                 self.skip_cell_range(
                     shrunk_id.range_max().next(),
                     face_id.range_max().next(),
@@ -211,7 +211,7 @@ impl ShapeIndex {
         }
 
         // Otherwise (no edges, or no shrinking is possible), subdivide normally.
-        self.update_edges(&pcell, clipped_edges, face_edges, t);
+        self.update_edges(&pcell, &clipped_edges, face_edges, t);
     }
 
     /// Skips over the cells in the given range, creating index cells if we are currently in
@@ -234,7 +234,7 @@ impl ShapeIndex {
         for &cell in skipped.iter() {
             self.update_edges(
                 &PaddedCell::from_cell_id(cell, CELL_PADDING),
-                Vec::new(),
+                &[],
                 face_edges,
                 t,
             );
@@ -246,7 +246,7 @@ impl ShapeIndex {
     fn update_edges(
         &mut self,
         pcell: &PaddedCell,
-        edges: Vec<ClippedEdge>,
+        edges: &[ClippedEdge],
         face_edges: &[FaceEdge],
         t: &mut Tracker,
     ) {
@@ -254,7 +254,7 @@ impl ShapeIndex {
 
         // makeIndexCell checks if the number of edges is small enough, and creates
         // an index cell if possible (returning true when it does so).
-        if self.make_index_cell(pcell, &edges, face_edges, t) {
+        if self.make_index_cell(pcell, edges, face_edges, t) {
             return;
         }
 
@@ -269,7 +269,7 @@ impl ShapeIndex {
         // Build up a vector edges to be passed to each child cell. The (i,j)
         // directions are left (i=0), right (i=1), lower (j=0), and upper (j=1).
         // Note that the vast majority of edges are propagated to a single child.
-        for edge in &edges {
+        for edge in edges {
             if edge.bound.x.hi <= middle.x.lo {
                 // Edge is entirely contained in the two left children.
                 let (a, b) = clip_v_axis(*edge, middle.y, face_edges);
@@ -326,7 +326,7 @@ impl ShapeIndex {
             if !child_edges[i][j].is_empty() || !t.shape_ids.is_empty() {
                 let child = PaddedCell::from_parent_ij(pcell, i, j);
                 let ce = core::mem::take(&mut child_edges[i][j]);
-                self.update_edges(&child, ce, face_edges, t);
+                self.update_edges(&child, &ce, face_edges, t);
             }
         }
     }
@@ -347,17 +347,9 @@ impl ShapeIndex {
             return true;
         }
 
-        // Count the number of edges that have not reached their maximum level yet.
-        // Return false if there are too many such edges.
-        let mut count = 0;
-        for ce in edges {
-            if p.level() < face_edges[ce.face_edge].max_level {
-                count += 1;
-            }
-
-            if count > MAX_EDGES_PER_CELL {
-                return false;
-            }
+        // Return false if too many edges have not reached their maximum level yet.
+        if too_many_edges(p, edges, face_edges) {
+            return false;
         }
 
         // We update the InteriorTracker as follows. For every Cell in the index
@@ -451,6 +443,22 @@ impl ShapeIndex {
         }
         true
     }
+}
+
+/// Counts the edges that have not reached their maximum level yet, and reports whether there
+/// are more than MAX_EDGES_PER_CELL of them.
+fn too_many_edges(p: &PaddedCell, edges: &[ClippedEdge], face_edges: &[FaceEdge]) -> bool {
+    let mut count = 0;
+    for ce in edges {
+        if p.level() < face_edges[ce.face_edge].max_level {
+            count += 1;
+        }
+
+        if count > MAX_EDGES_PER_CELL {
+            return true;
+        }
+    }
+    false
 }
 
 /// Adds the given faceEdge into the collection of all edges.

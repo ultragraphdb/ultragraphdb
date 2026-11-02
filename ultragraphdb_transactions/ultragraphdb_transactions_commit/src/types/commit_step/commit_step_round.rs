@@ -118,60 +118,14 @@ impl<P: Proposal> CommitStep<P> {
                         count += 1;
                         padded += align8(proposal.record().len());
                     }
-                    match decided {
-                        Decided::Admitted(version, results) => {
-                            if let Some(results) = results {
-                                self.results.push((ticket, results));
-                            }
-                            self.building |= proposal.starts_build();
-                            let ends = proposal.ends_build();
-                            if ends {
-                                self.building = false;
-                                while let Some(set_aside) = self.deferred.pop_back() {
-                                    self.waiting.push_front(set_aside);
-                                }
-                            }
-                            let drop = proposal.is_drop() || ends;
-                            self.sources.push(Source::Txn(self.admitted.len()));
-                            self.admitted.push((version, proposal));
-                            self.decided.push((ticket, Ok(version)));
-                            if drop {
-                                break;
-                            }
-                        }
-                        Decided::Deferred => {
-                            self.waiting
-                                .push_front(Waiting::Commit(CommitRequest::new(ticket, proposal)));
-                            break;
-                        }
-                        Decided::Retry(version, results) => {
-                            out.replies
-                                .push(Reply::new(ticket, Ok(version)).with_results(results));
-                            out.released.push((ticket, proposal));
-                        }
-                        Decided::Refused(refusal) => {
-                            self.decided.push((ticket, Err(refusal)));
-                            out.released.push((ticket, proposal));
-                        }
+                    if !self.record_decision(ticket, proposal, decided, out) {
+                        break;
                     }
                 }
                 Some(Waiting::Register { ticket, principal }) => {
                     count += 1;
                     padded += align8(len);
-                    match self.sequencer.take() {
-                        Some(session) => {
-                            self.sources
-                                .push(Source::Registration(self.registrations.len()));
-                            self.registrations
-                                .push(registration_record(session, principal));
-                            self.updates.push(Update::Registered { session, principal });
-                            self.decided.push((ticket, Ok(session)));
-                        }
-                        None => {
-                            self.stopped = true;
-                            self.decided.push((ticket, Err(CommitError::Unavailable())));
-                        }
-                    }
+                    self.admit_registration(ticket, principal);
                 }
                 None => break,
             }
@@ -180,6 +134,71 @@ impl<P: Proposal> CommitStep<P> {
         self.write_body(&mut out.body);
         out.append = Some(record);
         self.in_flight = Some(record);
+    }
+
+    /// Records how the round decided the transaction of `ticket`: admitted into the round, set back to wait for the
+    /// next, or released with its reply. `false` when the round takes nothing after it.
+    fn record_decision(
+        &mut self,
+        ticket: u64,
+        proposal: P,
+        decided: Decided,
+        out: &mut StepOutput<P>,
+    ) -> bool {
+        match decided {
+            Decided::Admitted(version, results) => {
+                if let Some(results) = results {
+                    self.results.push((ticket, results));
+                }
+                self.building |= proposal.starts_build();
+                let ends = proposal.ends_build();
+                if ends {
+                    self.building = false;
+                    while let Some(set_aside) = self.deferred.pop_back() {
+                        self.waiting.push_front(set_aside);
+                    }
+                }
+                let drop = proposal.is_drop() || ends;
+                self.sources.push(Source::Txn(self.admitted.len()));
+                self.admitted.push((version, proposal));
+                self.decided.push((ticket, Ok(version)));
+                !drop
+            }
+            Decided::Deferred => {
+                self.waiting
+                    .push_front(Waiting::Commit(CommitRequest::new(ticket, proposal)));
+                false
+            }
+            Decided::Retry(version, results) => {
+                out.replies
+                    .push(Reply::new(ticket, Ok(version)).with_results(results));
+                out.released.push((ticket, proposal));
+                true
+            }
+            Decided::Refused(refusal) => {
+                self.decided.push((ticket, Err(refusal)));
+                out.released.push((ticket, proposal));
+                true
+            }
+        }
+    }
+
+    /// Registers the session `ticket` asked for under `principal`, or refuses it unavailable when no number is left.
+    fn admit_registration(&mut self, ticket: u64, principal: u64) {
+        match self.sequencer.take() {
+            Some(session) => {
+                self.sources
+                    .push(Source::Registration(self.registrations.len()));
+                self.registrations
+                    .push(registration_record(session, principal));
+                self.updates.push(Update::Registered { session, principal });
+                self.decided.push((ticket, Ok(session)));
+            }
+            None => {
+                self.stopped = true;
+                self.decided.push((ticket, Err(CommitError::Unavailable())));
+            }
+        }
     }
 
     /// Decides one transaction of the round, in the Lean model's order: a record that reads, then its session, then

@@ -120,7 +120,7 @@ impl Store for FjallStore {
     }
 
     fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
-        self.shared.drop_temporary(temporary)
+        self.shared.drop_temporary(&temporary)
     }
 
     fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
@@ -143,7 +143,7 @@ impl Store for FjallStore {
     fn drop_all(&self, entries: Vec<Entry>) -> Result<(), StoreError> {
         let _writer = lock(&self.shared.writer);
         self.shared.run_drop(
-            DropRecord {
+            &DropRecord {
                 ts: 0,
                 prefixes: None,
                 entries,

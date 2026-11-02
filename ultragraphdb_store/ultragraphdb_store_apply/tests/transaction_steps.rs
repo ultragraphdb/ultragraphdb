@@ -130,7 +130,9 @@ fn insert_into(w: &mut Write<'_>, text: &str) {
         .expect("the object resolves");
     let kind = match &t.object {
         oxrdf::Term::Literal(literal) => literal.datatype().as_str().to_string(),
-        _ => "iri".to_string(),
+        oxrdf::Term::NamedNode(_) | oxrdf::Term::BlankNode(_) | oxrdf::Term::Triple(_) => {
+            "iri".to_string()
+        }
     };
     if w.holds(DEFAULT_GRAPH, subject, predicate, &object)
         .expect("the test reads")
@@ -171,11 +173,13 @@ fn decide(a: &TestChangesets, writes: Vec<Write<'_>>) -> Vec<bool> {
 }
 
 #[when(regex = r"^two transactions concurrently insert `([^`]+)` and `([^`]+)`$")]
-fn two_inserts(w: &mut Steps, first: String, second: String) {
+fn two_inserts(w: &mut Steps, args: &[String]) {
+    let first = &args[0];
+    let second = &args[1];
     let a = cs(w);
     write(&a, &["<a> <knows> <z>", "<b> <p> <c>"]);
     let ts = a.quads().lists().applied_ts();
-    let writes = vec![inserting(&a, ts, &first), inserting(&a, ts, &second)];
+    let writes = vec![inserting(&a, ts, first), inserting(&a, ts, second)];
     w.flags = decide(&a, writes);
 }
 
@@ -193,16 +197,14 @@ fn two_same_inserts(w: &mut Steps, text: String) {
 #[when(
     regex = r"^a transaction scans the `int` index of `(\w+)` for values from (\d+) to (\d+) and writes `([^`]+)`, and a transaction inserting `([^`]+)` commits after its read version$"
 )]
-fn scan_and_insert(
-    w: &mut Steps,
-    predicate: String,
-    low: i64,
-    high: i64,
-    own: String,
-    other: String,
-) {
+fn scan_and_insert(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let low: i64 = args[1].parse().expect("the step names a number");
+    let high: i64 = args[2].parse().expect("the step names a number");
+    let own = &args[3];
+    let other = &args[4];
     let a = cs(w);
-    declare(&a, &predicate, "with an `int` index");
+    declare(&a, predicate, "with an `int` index");
     write(&a, &[format!("<b> <{predicate}> 20")]);
     let ts = a.quads().lists().applied_ts();
     let key = |value: i64| {
@@ -210,7 +212,7 @@ fn scan_and_insert(
         QuadKey::ValueIndex {
             namespace: NS,
             graph: DEFAULT_GRAPH,
-            predicate: uid(&a, &predicate),
+            predicate: uid(&a, predicate),
             tokenizer,
             token,
         }
@@ -223,11 +225,11 @@ fn scan_and_insert(
         .request()
         .scan(key(low), Some(end))
         .expect("the index scans");
-    insert_into(&mut scanning, &own);
+    insert_into(&mut scanning, own);
     let read = read_of(&mut scanning);
 
     let before = a.quads().store().contents();
-    apply(&a, vec![insert(&other)]).expect("the insert commits");
+    apply(&a, vec![insert(other)]).expect("the insert commits");
     let after = a.quads().store().contents();
     let written = Written {
         keys: after
@@ -248,14 +250,17 @@ fn scan_and_insert(
         commit(&a, scanning);
     }
     w.flags = vec![commits];
-    w.names = vec![own];
+    w.names = vec![own.clone()];
 }
 
 #[then(regex = r"^both commit, and `(\w+)` knows `(\w+)` and `(\w+)`$")]
-fn both_commit(w: &mut Steps, subject: String, first: String, second: String) {
+fn both_commit(w: &mut Steps, args: &[String]) {
+    let subject = &args[0];
+    let first = &args[1];
+    let second = &args[2];
     assert_eq!(w.flags, vec![true, true]);
     let a = cs(w);
-    let held = objects(&a, &subject, "knows");
+    let held = objects(&a, subject, "knows");
     for o in [first, second] {
         assert!(held.contains(&term(&format!("<{o}>"))), "{o} in {held:?}");
     }

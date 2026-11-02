@@ -109,23 +109,25 @@ fn test_tok_error_constructors() {
     }
 
     let line = Geometry::line_string(Layout::XY, &[vec![0.0, 0.0], vec![1.0, 1.0]]).unwrap();
-    let TokErrorEnum::Geo(types) = build_tokens(&Value::Geo(line), &get_tokenizer("geo").unwrap())
-        .unwrap_err()
-        .0
-    else {
-        panic!("a geo error");
-    };
+    let error = build_tokens(&Value::Geo(line), &get_tokenizer("geo").unwrap()).unwrap_err();
+    let types = if let TokErrorEnum::Geo(types) = error.0 {
+        Some(types)
+    } else {
+        None
+    }
+    .expect("a geo error");
     for e in [TokError::Geo(types.clone()), TokError::from(types.clone())] {
         assert_eq!(e.0, TokErrorEnum::Geo(types.clone()));
         assert_eq!(e.to_string(), types.to_string());
     }
-    let TokErrorEnum::Options(options) =
-        get_factory_create_spec_from_spec("hnsw", &options(&[("efSearch", "x")]))
-            .unwrap_err()
-            .0
-    else {
-        panic!("an options error");
-    };
+    let error =
+        get_factory_create_spec_from_spec("hnsw", &options(&[("efSearch", "x")])).unwrap_err();
+    let options = if let TokErrorEnum::Options(options) = error.0 {
+        Some(options)
+    } else {
+        None
+    }
+    .expect("an options error");
     for e in [
         TokError::Options(options.clone()),
         TokError::from(options.clone()),

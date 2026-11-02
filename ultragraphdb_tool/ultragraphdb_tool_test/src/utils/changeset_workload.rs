@@ -159,7 +159,7 @@ impl ChangesetWorkload {
         } else {
             let result = match event {
                 Event::Step(0) => self.write(ctx),
-                _ => self.administer(ctx),
+                Event::Step(_) | Event::Recovered => self.administer(ctx),
             };
             self.tolerate(ctx, result)?;
             if let Some(detail) = self.disagreement.take() {
@@ -231,30 +231,10 @@ impl ChangesetWorkload {
         let subject = Self::subject(ctx);
         let same = |c: Change| Some((c.clone(), c));
         Ok(match ctx.rng().below(14) {
-            0..2 => same(Change::Insert {
-                graph,
-                subject,
-                predicate: ex("name"),
-                object: Self::literal(ctx),
-            }),
-            2 => same(Change::Delete {
-                graph,
-                subject,
-                predicate: ex("name"),
-                object: Self::literal(ctx),
-            }),
-            3..5 => same(Change::Insert {
-                graph,
-                subject,
-                predicate: ex("tags"),
-                object: Self::literal(ctx),
-            }),
-            5 => same(Change::Delete {
-                graph,
-                subject,
-                predicate: ex("tags"),
-                object: Self::literal(ctx),
-            }),
+            0..2 => same(insert_triple(subject, "name", Self::literal(ctx))),
+            2 => same(delete_triple(subject, "name", Self::literal(ctx))),
+            3..5 => same(insert_triple(subject, "tags", Self::literal(ctx))),
+            5 => same(delete_triple(subject, "tags", Self::literal(ctx))),
             6 => {
                 let predicate = ex(["name", "tags", "friend", "knows"][ctx.rng().index(4)]);
                 same(Change::DeletePattern {
@@ -263,34 +243,9 @@ impl ChangesetWorkload {
                     predicate,
                 })
             }
-            7..9 => same(Change::Insert {
-                graph,
-                subject,
-                predicate: ex("friend"),
-                object: Self::subject(ctx).into(),
-            }),
-            9 => same(Change::Delete {
-                graph,
-                subject,
-                predicate: ex("friend"),
-                object: Self::subject(ctx).into(),
-            }),
-            10 | 11 => {
-                let properties = match ctx.rng().below(3) {
-                    0 => Vec::new(),
-                    year => vec![(
-                        ex("since"),
-                        Literal::new_typed_literal(format!("20{year}0"), xsd::INTEGER).into(),
-                    )],
-                };
-                same(Change::InsertEdge {
-                    graph,
-                    subject,
-                    predicate: ex("knows"),
-                    object: Self::subject(ctx).into(),
-                    properties,
-                })
-            }
+            7..9 => same(insert_triple(subject, "friend", Self::subject(ctx).into())),
+            9 => same(delete_triple(subject, "friend", Self::subject(ctx).into())),
+            10 | 11 => same(Self::knows_edge(ctx, subject)),
             12 => same(Change::SetProperty {
                 statement: StatementRef::Triple {
                     graph,
@@ -304,6 +259,24 @@ impl ChangesetWorkload {
             }),
             _ => self.delete_statement(ctx, a)?,
         })
+    }
+
+    /// An insert of a `knows` edge from `subject`, with a `since` property or none.
+    fn knows_edge(ctx: &mut SimContext, subject: NamedOrBlankNode) -> Change {
+        let properties = match ctx.rng().below(3) {
+            0 => Vec::new(),
+            year => vec![(
+                ex("since"),
+                Literal::new_typed_literal(format!("20{year}0"), xsd::INTEGER).into(),
+            )],
+        };
+        Change::InsertEdge {
+            graph: GraphName::DefaultGraph,
+            subject,
+            predicate: ex("knows"),
+            object: Self::subject(ctx).into(),
+            properties,
+        }
     }
 
     /// A delete of one statement with an ID, the store's and the model's of the same triple and properties.
@@ -463,7 +436,9 @@ fn statistics_disagree(
             graph, predicate, ..
         } = key
         {
-            *held.entry((*graph, *predicate)).or_default() += objects.len() as i64;
+            // A list's length fits in `i64`; were it not to, the count saturates rather than wraps.
+            *held.entry((*graph, *predicate)).or_default() +=
+                i64::try_from(objects.len()).unwrap_or(i64::MAX);
         }
     }
     for key in live_keys(a, Keyspace::Statistics)? {
@@ -506,7 +481,12 @@ fn injected(error: &ChangesetError) -> bool {
         QuadErrorEnum::Catalog(c) => {
             matches!(&c.0, ultragraphdb_core_catalog::CatalogErrorEnum::Store(s) if store(s))
         }
-        _ => false,
+        QuadErrorEnum::Term(_)
+        | QuadErrorEnum::Key(_)
+        | QuadErrorEnum::Mapping(_)
+        | QuadErrorEnum::Corrupted { .. }
+        | QuadErrorEnum::Aborted
+        | QuadErrorEnum::UidsExhausted { .. } => false,
     };
     match &error.0 {
         ChangesetErrorEnum::Store(s) => store(s),
@@ -515,7 +495,19 @@ fn injected(error: &ChangesetError) -> bool {
         ChangesetErrorEnum::Catalog(c) => {
             matches!(&c.0, ultragraphdb_core_catalog::CatalogErrorEnum::Store(s) if store(s))
         }
-        _ => false,
+        ChangesetErrorEnum::Mapping(_)
+        | ChangesetErrorEnum::Tok(_)
+        | ChangesetErrorEnum::Hnsw(_)
+        | ChangesetErrorEnum::Literal { .. }
+        | ChangesetErrorEnum::Unique { .. }
+        | ChangesetErrorEnum::Contradicted { .. }
+        | ChangesetErrorEnum::Rebuilding { .. }
+        | ChangesetErrorEnum::VectorOption { .. }
+        | ChangesetErrorEnum::Dimension { .. }
+        | ChangesetErrorEnum::NoDimension { .. }
+        | ChangesetErrorEnum::NoVectorIndex { .. }
+        | ChangesetErrorEnum::OperationFailed { .. }
+        | ChangesetErrorEnum::NotUnique { .. } => false,
     }
 }
 
@@ -600,18 +592,18 @@ fn statements_of(
         let predicate_iri = NamedNode::new_unchecked(q.iri_of(NS, predicate)?.0);
         for (object, ids) in objects {
             let object_term = q.term_of(NS, &object)?;
+            let held = |properties: &[(NamedNode, Term)], with_id: bool| {
+                held_of(
+                    &graph_name,
+                    &subject_term,
+                    &predicate_iri,
+                    &object_term,
+                    properties,
+                    with_id,
+                )
+            };
             if ids.is_empty() {
-                out.push((
-                    held_of(
-                        &graph_name,
-                        &subject_term,
-                        &predicate_iri,
-                        &object_term,
-                        &[],
-                        false,
-                    ),
-                    None,
-                ));
+                out.push((held(&[], false), None));
             }
             for id in ids {
                 let record = q.statement(NS, graph, id, ts)?.ok_or_else(|| {
@@ -636,15 +628,7 @@ fn statements_of(
                         ))
                     })
                     .collect::<Result<Vec<_>, QuadError>>()?;
-                let held = held_of(
-                    &graph_name,
-                    &subject_term,
-                    &predicate_iri,
-                    &object_term,
-                    &properties,
-                    true,
-                );
-                out.push((held, Some(id)));
+                out.push((held(&properties, true), Some(id)));
             }
         }
     }
@@ -671,17 +655,22 @@ fn orphan_record(
     Ok(None)
 }
 
-/// What an index holds that the statements do not produce, or lacks.
-fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>, ChangesetError> {
+/// The indexes the statements of the default graph produce, by the list each names.
+#[derive(Default)]
+struct DataIndexes {
+    /// Each declared tokenizer's token of each literal, to its subjects.
+    tokens: BTreeMap<(u64, u8, Vec<u8>), BTreeSet<u64>>,
+    reverse: BTreeMap<(u64, EncodedTerm), BTreeSet<u64>>,
+    subject_predicates: BTreeMap<u64, BTreeSet<u64>>,
+    object_predicates: BTreeMap<EncodedTerm, BTreeSet<u64>>,
+    forward_counts: BTreeMap<(u64, u32), BTreeSet<u64>>,
+}
+
+/// The indexes `forward`, the store's forward lists, produce in the default graph.
+fn data_indexes(a: &SimChangesets, forward: &Lists) -> Result<DataIndexes, ChangesetError> {
     let q = a.quads();
-    let uid = |name: &str| q.uid_of(NS, ex(name).as_str());
     let catalog = a.catalog(NS)?;
-    // Value indexes: each declared tokenizer's token of each literal, to its subjects.
-    let mut tokens: BTreeMap<(u64, u8, Vec<u8>), BTreeSet<u64>> = BTreeMap::new();
-    let mut reverse: BTreeMap<(u64, EncodedTerm), BTreeSet<u64>> = BTreeMap::new();
-    let mut subject_predicates: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
-    let mut object_predicates: BTreeMap<EncodedTerm, BTreeSet<u64>> = BTreeMap::new();
-    let mut forward_counts: BTreeMap<(u64, u32), BTreeSet<u64>> = BTreeMap::new();
+    let mut data = DataIndexes::default();
     for (key, objects) in forward {
         let QuadKey::Forward {
             predicate,
@@ -696,23 +685,23 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
             continue;
         }
         let declaration = catalog.predicate(*predicate);
-        subject_predicates
+        data.subject_predicates
             .entry(*subject)
             .or_default()
             .insert(*predicate);
         if declaration.is_some_and(PredicateDeclaration::count_index) {
             let count = u32::try_from(objects.len()).unwrap_or(u32::MAX);
-            forward_counts
+            data.forward_counts
                 .entry((*predicate, count))
                 .or_default()
                 .insert(*subject);
         }
         for (object, _) in objects {
-            reverse
+            data.reverse
                 .entry((*predicate, object.clone()))
                 .or_default()
                 .insert(*subject);
-            object_predicates
+            data.object_predicates
                 .entry(object.clone())
                 .or_default()
                 .insert(*predicate);
@@ -728,7 +717,7 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
                 };
                 let t = get_tokenizer_for_lang(&t, literal.language().unwrap_or_default());
                 for token in t.tokens(&value)? {
-                    tokens
+                    data.tokens
                         .entry((*predicate, t.identifier(), token))
                         .or_default()
                         .insert(*subject);
@@ -736,71 +725,117 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
             }
         }
     }
-    let uids = |objects: &[(EncodedTerm, Vec<u64>)]| -> BTreeSet<u64> {
-        objects.iter().filter_map(|(o, _)| o.as_uid()).collect()
-    };
+    Ok(data)
+}
+
+/// The uids among `objects`.
+fn object_uids(objects: &[(EncodedTerm, Vec<u64>)]) -> BTreeSet<u64> {
+    objects.iter().filter_map(|(o, _)| o.as_uid()).collect()
+}
+
+/// What an index holds that the statements do not produce, or lacks.
+fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>, ChangesetError> {
+    let data = data_indexes(a, forward)?;
     let actual_tokens: BTreeMap<(u64, u8, Vec<u8>), BTreeSet<u64>> =
         lists_of(a, Keyspace::ValueIndex)?
             .into_iter()
-            .filter_map(|(k, o)| match k {
-                QuadKey::ValueIndex {
+            .filter_map(|(k, o)| {
+                if let QuadKey::ValueIndex {
                     predicate,
                     tokenizer,
                     token,
                     ..
-                } => Some(((predicate, tokenizer, token), uids(&o))),
-                _ => None,
+                } = k
+                {
+                    Some(((predicate, tokenizer, token), object_uids(&o)))
+                } else {
+                    None
+                }
             })
             .collect();
-    if actual_tokens != tokens {
+    if actual_tokens != data.tokens {
         return Ok(Some(format!(
-            "value index {actual_tokens:?}, data {tokens:?}"
+            "value index {actual_tokens:?}, data {:?}",
+            data.tokens
         )));
     }
     let actual_reverse: BTreeMap<(u64, EncodedTerm), BTreeSet<u64>> =
         lists_of(a, Keyspace::Reverse)?
             .into_iter()
-            .filter_map(|(k, o)| match k {
-                QuadKey::Reverse {
+            .filter_map(|(k, o)| {
+                if let QuadKey::Reverse {
                     predicate, object, ..
-                } => Some(((predicate, object), uids(&o))),
-                _ => None,
+                } = k
+                {
+                    Some(((predicate, object), object_uids(&o)))
+                } else {
+                    None
+                }
             })
             .collect();
-    if actual_reverse != reverse {
+    if actual_reverse != data.reverse {
         return Ok(Some(format!(
-            "reverse {actual_reverse:?}, data {reverse:?}"
+            "reverse {actual_reverse:?}, data {:?}",
+            data.reverse
         )));
     }
+    if let Some(detail) = predicate_lists_disagree(a, &data)? {
+        return Ok(Some(detail));
+    }
+    counts_disagree(a, &data)
+}
+
+/// What the subject and object predicate lists hold that `data` does not, or lack.
+fn predicate_lists_disagree(
+    a: &SimChangesets,
+    data: &DataIndexes,
+) -> Result<Option<String>, ChangesetError> {
     let actual_subject_predicates: BTreeMap<u64, BTreeSet<u64>> =
         lists_of(a, Keyspace::SubjectPredicates)?
             .into_iter()
-            .filter_map(|(k, o)| match k {
-                QuadKey::SubjectPredicates { subject, .. } => Some((subject, uids(&o))),
-                _ => None,
+            .filter_map(|(k, o)| {
+                if let QuadKey::SubjectPredicates { subject, .. } = k {
+                    Some((subject, object_uids(&o)))
+                } else {
+                    None
+                }
             })
             .collect();
-    if actual_subject_predicates != subject_predicates {
+    if actual_subject_predicates != data.subject_predicates {
         return Ok(Some(format!(
-            "subject predicates {actual_subject_predicates:?}, data {subject_predicates:?}"
+            "subject predicates {actual_subject_predicates:?}, data {:?}",
+            data.subject_predicates
         )));
     }
     let actual_object_predicates: BTreeMap<EncodedTerm, BTreeSet<u64>> =
         lists_of(a, Keyspace::ObjectPredicates)?
             .into_iter()
-            .filter_map(|(k, o)| match k {
-                QuadKey::ObjectPredicates { object, .. } => Some((object, uids(&o))),
-                _ => None,
+            .filter_map(|(k, o)| {
+                if let QuadKey::ObjectPredicates { object, .. } = k {
+                    Some((object, object_uids(&o)))
+                } else {
+                    None
+                }
             })
             .collect();
-    if actual_object_predicates != object_predicates {
+    if actual_object_predicates != data.object_predicates {
         return Ok(Some(format!(
-            "object predicates {actual_object_predicates:?}, data {object_predicates:?}"
+            "object predicates {actual_object_predicates:?}, data {:?}",
+            data.object_predicates
         )));
     }
+    Ok(None)
+}
+
+/// What the count index holds that `data` does not produce, or lacks: forward counts of the predicates declaring a
+/// count index, and reverse counts of `friend`.
+fn counts_disagree(
+    a: &SimChangesets,
+    data: &DataIndexes,
+) -> Result<Option<String>, ChangesetError> {
     let mut reverse_counts: BTreeMap<(u64, u32), BTreeSet<EncodedTerm>> = BTreeMap::new();
-    if let Some(friend) = uid("friend")? {
-        for ((predicate, object), subjects) in &reverse {
+    if let Some(friend) = a.quads().uid_of(NS, ex("friend").as_str())? {
+        for ((predicate, object), subjects) in &data.reverse {
             if *predicate == friend {
                 let count = u32::try_from(subjects.len()).unwrap_or(u32::MAX);
                 reverse_counts
@@ -822,7 +857,7 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
         {
             match direction {
                 CountDirection::Forward => {
-                    actual_forward_counts.insert((predicate, count), uids(&o));
+                    actual_forward_counts.insert((predicate, count), object_uids(&o));
                 }
                 CountDirection::Reverse => {
                     actual_reverse_counts
@@ -831,10 +866,31 @@ fn indexes_disagree(a: &SimChangesets, forward: &Lists) -> Result<Option<String>
             }
         }
     }
-    if actual_forward_counts != forward_counts || actual_reverse_counts != reverse_counts {
+    let forward_counts = &data.forward_counts;
+    if actual_forward_counts != *forward_counts || actual_reverse_counts != reverse_counts {
         return Ok(Some(format!(
             "counts {actual_forward_counts:?} {actual_reverse_counts:?}, data {forward_counts:?} {reverse_counts:?}"
         )));
     }
     Ok(None)
+}
+
+/// An insert of the triple of `subject`, `predicate` and `object` in the default graph.
+fn insert_triple(subject: NamedOrBlankNode, predicate: &str, object: Term) -> Change {
+    Change::Insert {
+        graph: GraphName::DefaultGraph,
+        subject,
+        predicate: ex(predicate),
+        object,
+    }
+}
+
+/// A delete of the triple of `subject`, `predicate` and `object` in the default graph.
+fn delete_triple(subject: NamedOrBlankNode, predicate: &str, object: Term) -> Change {
+    Change::Delete {
+        graph: GraphName::DefaultGraph,
+        subject,
+        predicate: ex(predicate),
+        object,
+    }
 }

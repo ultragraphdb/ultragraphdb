@@ -55,12 +55,16 @@ fn test_hnsw_options_golden() {
             match ao.get_parsed_option(k, v) {
                 Ok(val) => {
                     assert_eq!(val.go_type(), p.typ, "{k}={v}");
+                    // The golden options are ints and metrics only.
                     let shown = match &val {
-                        OptionValue::Int(i) => i.to_string(),
-                        OptionValue::Metric(m) => m.name().to_string(),
-                        other => panic!("{other:?}"),
+                        OptionValue::Int(i) => Some(i.to_string()),
+                        OptionValue::Metric(m) => Some(m.name().to_string()),
+                        OptionValue::Uint(_)
+                        | OptionValue::Float(_)
+                        | OptionValue::Bool(_)
+                        | OptionValue::Str(_) => None,
                     };
-                    assert_eq!(shown, p.value, "{k}={v}");
+                    assert_eq!(shown.as_deref(), Some(p.value.as_str()), "{k}={v}: {val:?}");
                 }
                 Err(e) => assert_eq!(e.to_string(), p.error, "{k}={v}"),
             }

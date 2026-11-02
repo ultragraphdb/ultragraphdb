@@ -28,10 +28,11 @@ struct BigFloatCase {
 
 fn str_of(v: Val) -> String {
     match v.into_value() {
-        Some(Value::Str(s)) => s,
-        Some(Value::Bytes(b)) => String::from_utf8(b).unwrap(),
-        other => panic!("{other:?}"),
+        Some(Value::Str(s)) => Ok(s),
+        Some(Value::Bytes(b)) => Ok(String::from_utf8(b).unwrap()),
+        other => Err(format!("{other:?}")),
     }
+    .expect("a string or bytes value")
 }
 
 #[test]
@@ -55,9 +56,10 @@ fn test_golden_big_floats() {
                 continue;
             }
             Ok(v) => match v.into_value() {
-                Some(Value::BigFloat(b)) => b,
-                other => panic!("{other:?}"),
-            },
+                Some(Value::BigFloat(b)) => Ok(b),
+                other => Err(format!("{other:?}")),
+            }
+            .expect("converting to bigfloat gives a bigfloat"),
         };
         if got.text_p() != c.p || got.prec() != BIG_FLOAT_PRECISION {
             e.1.push(format!(
@@ -435,21 +437,26 @@ fn test_go_float_float64() {
     ];
     for (s, want) in cases {
         for (text, want) in [(s.to_string(), want), (format!("-{s}"), -want)] {
-            let x = BigFloat::unmarshal_text(&text, 1000).unwrap();
-            let got = x.to_f64();
-            assert_eq!(
-                got.to_bits(),
-                want.to_bits(),
-                "{text}: {got:e}, want {want:e}"
-            );
-            // SetFloat64(f).Float64() is f.
-            assert_eq!(
-                BigFloat::from_f64(got, 0).unwrap().to_f64().to_bits(),
-                got.to_bits(),
-                "{text}"
-            );
+            check_float64(&text, want);
         }
     }
+}
+
+/// `text` parsed at 1000 bits gives `want` as an f64, and that f64 survives SetFloat64.
+fn check_float64(text: &str, want: f64) {
+    let x = BigFloat::unmarshal_text(text, 1000).unwrap();
+    let got = x.to_f64();
+    assert_eq!(
+        got.to_bits(),
+        want.to_bits(),
+        "{text}: {got:e}, want {want:e}"
+    );
+    // SetFloat64(f).Float64() is f.
+    assert_eq!(
+        BigFloat::from_f64(got, 0).unwrap().to_f64().to_bits(),
+        got.to_bits(),
+        "{text}"
+    );
 }
 
 #[test]

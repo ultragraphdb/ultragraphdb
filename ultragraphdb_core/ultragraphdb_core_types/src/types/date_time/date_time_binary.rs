@@ -72,7 +72,8 @@ impl DateTime {
                 .expect("bytes 13 to 15 of 15 or more"),
         )) * 60;
         if version == VERSION_V2 {
-            offset += i32::from(data[15] as i8);
+            // Go's int8(b): the byte read as two's complement.
+            offset += i32::from(data[15].cast_signed());
         }
         let zone = if offset == -60 {
             Zone::Utc
@@ -84,7 +85,8 @@ impl DateTime {
         // clock's bits 30 to 62, after its wall epoch of 1885, instead of the stored seconds.
         let wall = i64::from(nsec) as u64;
         let sec = if nsec < 0 {
-            WALL_TO_INTERNAL + ((wall << 1) >> 31) as i64
+            // The shifted wall bits are 33 wide, so reading them as signed keeps their value.
+            WALL_TO_INTERNAL + ((wall << 1) >> 31).cast_signed()
         } else {
             sec
         };

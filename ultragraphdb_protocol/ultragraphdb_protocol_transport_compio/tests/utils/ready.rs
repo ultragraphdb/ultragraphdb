@@ -23,10 +23,15 @@ const POLLS: usize = 10_000;
 pub fn ready<F: Future>(future: F) -> F::Output {
     let mut future = pin!(future);
     let mut cx = Context::from_waker(Waker::noop());
-    for _ in 0..POLLS {
+    let mut polls = 0;
+    loop {
         if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
             return output;
         }
+        polls += 1;
+        assert!(
+            polls < POLLS,
+            "the future is still pending after {POLLS} polls: it waits for bytes that never arrive"
+        );
     }
-    panic!("the future is still pending after {POLLS} polls: it waits for bytes that never arrive");
 }

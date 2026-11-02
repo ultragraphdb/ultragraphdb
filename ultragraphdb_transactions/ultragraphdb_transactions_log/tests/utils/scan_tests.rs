@@ -350,7 +350,7 @@ fn test_a_fresh_logs_first_round_with_another_parent_diverges() {
     // A fresh log's checkpoint is position 0 with checksum 0, so its round 1 must name parent 0.
     let frames = chain(1, 1, 1, 0xBEEF, ONE_BLOCK);
     let error = scan_segment(&segment(4, &frames), &start()).expect_err("diverged");
-    assert_eq!(diverged(error), ("the first round's parent", 0, 0xBEEF));
+    assert_eq!(diverged(&error), ("the first round's parent", 0, 0xBEEF));
 }
 
 #[test]
@@ -437,15 +437,20 @@ fn test_the_first_kept_segment_may_start_below_the_checkpoint() {
     assert_eq!(positions(&scan), [8, 9]);
 }
 
-fn diverged(error: LogError) -> (&'static str, u64, u64) {
-    match error.0 {
-        LogErrorEnum::Diverged {
-            what,
-            expected,
-            found,
-        } => (what, expected, found),
-        other => panic!("not diverged: {other:?}"),
-    }
+fn diverged(error: &LogError) -> (&'static str, u64, u64) {
+    let found = if let LogErrorEnum::Diverged {
+        what,
+        expected,
+        found,
+    } = error.0
+    {
+        Some((what, expected, found))
+    } else {
+        None
+    };
+    found
+        .ok_or_else(|| format!("not diverged: {error:?}"))
+        .expect("a divergence")
 }
 
 #[test]
@@ -460,17 +465,17 @@ fn test_rounds_contradicting_the_checkpoint_diverge() {
     )
     .expect_err("diverged");
     assert_eq!(
-        diverged(error),
+        diverged(&error),
         ("the checkpoint's checksum", 0x1234, at_seven)
     );
     // The segment starts past the round after the checkpoint: rounds 5 to 9 with the checkpoint at 3.
     let error = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(3), 0))
         .expect_err("diverged");
-    assert_eq!(diverged(error), ("the first round's position", 4, 5));
+    assert_eq!(diverged(&error), ("the first round's position", 4, 5));
     // The round after the checkpoint names another parent than the checkpoint's checksum.
     let error = scan_segment(&bytes, &ScanStart::new(CLUSTER, 1, Position::new(4), 0x99))
         .expect_err("diverged");
-    assert_eq!(diverged(error), ("the first round's parent", 0x99, 0x55));
+    assert_eq!(diverged(&error), ("the first round's parent", 0x99, 0x55));
 }
 
 #[test]
@@ -590,7 +595,7 @@ fn test_a_checkpoint_at_the_last_position_has_no_round_after_it() {
     )
     .expect_err("diverged");
     assert_eq!(
-        diverged(error),
+        diverged(&error),
         ("the checkpoint's checksum", last ^ 1, last)
     );
 }

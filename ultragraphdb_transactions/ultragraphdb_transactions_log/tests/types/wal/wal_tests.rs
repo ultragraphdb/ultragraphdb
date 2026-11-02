@@ -14,8 +14,8 @@ use tracing_subscriber::layer::{Context, SubscriberExt};
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
 use ultragraphdb_traits_log::{OrderedLog, Position};
 use ultragraphdb_transactions_log::{
-    Damage, DurableStorage, FaultMode, SimStorage, StorageOperation, Superblock, SuperblockRead,
-    Truncation, Wal,
+    Damage, DurableStorage, FaultMode, Recovery, SimStorage, StorageOperation, Superblock,
+    SuperblockRead, Truncation, Wal,
 };
 
 use crate::utils::helpers::{
@@ -25,20 +25,13 @@ use crate::utils::helpers::{
 
 /// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
 fn assert_io(error: &LogError, operation: &str) {
-    match &error.0 {
-        LogErrorEnum::Io {
-            operation: named,
-            kind,
-            ..
-        } => {
-            assert_eq!(
-                (*named, *kind),
-                (operation, std::io::ErrorKind::Other),
-                "{error:?}"
-            );
-        }
-        other => panic!("not an I/O error of {operation}: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &error.0,
+            LogErrorEnum::Io { operation: named, kind: std::io::ErrorKind::Other, .. } if *named == operation
+        ),
+        "not an I/O error of {operation}: {error:?}"
+    );
 }
 
 fn writes_in(storage: &SimStorage, from: usize) -> usize {
@@ -140,7 +133,8 @@ fn test_segments_without_a_superblock_are_refused_not_overwritten() {
     append_synced(&mut wal, 1, 6, ONE_BLOCK);
     drop(wal);
     for copy in ['a', 'b'] {
-        let _ = block_on(storage.remove_file(&superblock(copy)));
+        // A copy never written has nothing to remove.
+        let _removed: std::io::Result<()> = block_on(storage.remove_file(&superblock(copy)));
     }
     let before = storage.trace().len();
     assert_eq!(
@@ -799,7 +793,7 @@ fn test_a_crash_after_any_step_of_taking_a_spare_loses_no_acknowledged_round() {
             if power {
                 storage.power_loss();
             }
-            let _ = recovers_cleanly(
+            let _recovered: Position = recovers_cleanly(
                 &storage,
                 &checksums,
                 &format!("step {step}, power loss {power}"),
@@ -1055,47 +1049,7 @@ fn run_seed(seed: u64) -> (usize, usize) {
                 }
             };
             let mut log = log;
-            let lost: Vec<u64> = acknowledged
-                .range(recovery.committed().get() + 1..)
-                .map(|(p, _)| *p)
-                .collect();
-            if let Some(first) = lost.first() {
-                // Each lost round was acknowledged, so each was torn silently; the report names the first of them,
-                // and the log now ends before it.
-                let silent = storage
-                    .injected()
-                    .iter()
-                    .filter(|(_, op, mode)| {
-                        *mode == FaultMode::SilentTornWrite && *op == StorageOperation::Write
-                    })
-                    .count();
-                assert!(
-                    lost.len() <= silent,
-                    "seed {seed}: acknowledged rounds {lost:?} lost to {silent} silent tears"
-                );
-                assert_eq!(
-                    recovery.truncation().map(|t| t.position().get()),
-                    Some(*first),
-                    "seed {seed}: the first lost round is named"
-                );
-            }
-            acknowledged.retain(|p, _| *p <= recovery.committed().get());
-            let from = recovery.checkpoint().get() + 1;
-            // Faults are off: a read of what the recovery found fails only if the log is wrong.
-            let rounds = block_on(log.read(Position::new(from), u32::MAX))
-                .unwrap_or_else(|e| panic!("seed {seed}: the recovered rounds read back: {e:?}"));
-            for round in &rounds {
-                if let Some(checksum) = acknowledged.get(&round.position().get()) {
-                    assert_eq!(*checksum, round.checksum(), "seed {seed}");
-                }
-            }
-            let readable: Vec<u64> = rounds.iter().map(|r| r.position().get()).collect();
-            let expected: Vec<u64> = acknowledged.range(from..).map(|(p, _)| *p).collect();
-            assert!(
-                expected.iter().all(|p| readable.contains(p)),
-                "seed {seed}: {expected:?} in {readable:?}"
-            );
-            let _ = log.next_event();
+            check_recovery(&storage, seed, &mut acknowledged, &recovery, &mut log);
             wal = Some(log);
             continue;
         };
@@ -1112,38 +1066,117 @@ fn run_seed(seed: u64) -> (usize, usize) {
                 wal = None;
                 storage.power_loss();
             }
-            _ => {
-                let position = log.tail().0.get() + 1;
-                let len = [10, ONE_BLOCK, TWO_BLOCKS][draws.next(3) as usize];
-                match append(log, position, len) {
-                    Ok(_) => {}
-                    Err(LogError(LogErrorEnum::Busy { .. })) => {
-                        let committed = log.committed();
-                        if block_on(log.trim_through(committed, 0)).is_err() {
-                            wal = None;
-                        }
-                        storage.fail_randomly(0);
-                        continue;
-                    }
-                    Err(other) => panic!("seed {seed}: {other:?}"),
-                }
-                match block_on(log.sync()) {
-                    Ok(committed) => {
-                        assert_eq!(committed.get(), position);
-                        acknowledged.insert(position, log.tail().1);
-                    }
-                    Err(_) => {
-                        wal = None;
-                        if draws.next(2) == 0 {
-                            storage.power_loss();
-                        }
+            _ => match append_and_sync(log, &mut draws, seed, &mut acknowledged) {
+                AfterAppend::Kept => {}
+                AfterAppend::Dropped { power_loss } => {
+                    wal = None;
+                    if power_loss {
+                        storage.power_loss();
                     }
                 }
-            }
+            },
         }
         storage.fail_randomly(0);
     }
     tally(&storage)
+}
+
+/// Checks a recovery of `log` against the rounds `acknowledged`: each lost round was torn silently and the first is
+/// named, and every acknowledged round above the checkpoint reads back with its checksum. Forgets the lost rounds.
+fn check_recovery(
+    storage: &SimStorage,
+    seed: u64,
+    acknowledged: &mut BTreeMap<u64, u64>,
+    recovery: &Recovery,
+    log: &mut Wal<SimStorage>,
+) {
+    let lost: Vec<u64> = acknowledged
+        .range(recovery.committed().get() + 1..)
+        .map(|(p, _)| *p)
+        .collect();
+    if let Some(first) = lost.first() {
+        // Each lost round was acknowledged, so each was torn silently; the report names the first of them,
+        // and the log now ends before it.
+        let silent = storage
+            .injected()
+            .iter()
+            .filter(|(_, op, mode)| {
+                *mode == FaultMode::SilentTornWrite && *op == StorageOperation::Write
+            })
+            .count();
+        assert!(
+            lost.len() <= silent,
+            "seed {seed}: acknowledged rounds {lost:?} lost to {silent} silent tears"
+        );
+        assert_eq!(
+            recovery.truncation().map(|t| t.position().get()),
+            Some(*first),
+            "seed {seed}: the first lost round is named"
+        );
+    }
+    acknowledged.retain(|p, _| *p <= recovery.committed().get());
+    let from = recovery.checkpoint().get() + 1;
+    // Faults are off: a read of what the recovery found fails only if the log is wrong.
+    let rounds = block_on(log.read(Position::new(from), u32::MAX))
+        .map_err(|e| format!("seed {seed}: the recovered rounds read back: {e:?}"))
+        .expect("the recovered rounds read back");
+    for round in &rounds {
+        if let Some(checksum) = acknowledged.get(&round.position().get()) {
+            assert_eq!(*checksum, round.checksum(), "seed {seed}");
+        }
+    }
+    let readable: Vec<u64> = rounds.iter().map(|r| r.position().get()).collect();
+    let expected: Vec<u64> = acknowledged.range(from..).map(|(p, _)| *p).collect();
+    assert!(
+        expected.iter().all(|p| readable.contains(p)),
+        "seed {seed}: {expected:?} in {readable:?}"
+    );
+    assert!(
+        log.next_event().is_none(),
+        "seed {seed}: one node has no events"
+    );
+}
+
+/// What became of the log after [`append_and_sync`].
+enum AfterAppend {
+    /// The log is kept open.
+    Kept,
+    /// The log failed and is dropped, the power lost after it when `power_loss`.
+    Dropped { power_loss: bool },
+}
+
+/// Appends the next round to `log` and syncs it, recording it acknowledged once synced. A busy log is trimmed
+/// through its committed position instead.
+fn append_and_sync(
+    log: &mut Wal<SimStorage>,
+    draws: &mut Draws,
+    seed: u64,
+    acknowledged: &mut BTreeMap<u64, u64>,
+) -> AfterAppend {
+    let position = log.tail().0.get() + 1;
+    let len = [10, ONE_BLOCK, TWO_BLOCKS][draws.next(3) as usize];
+    let appended = append(log, position, len);
+    assert!(
+        matches!(appended, Ok(_) | Err(LogError(LogErrorEnum::Busy { .. }))),
+        "seed {seed}: {appended:?}"
+    );
+    if appended.is_err() {
+        let committed = log.committed();
+        return match block_on(log.trim_through(committed, 0)) {
+            Ok(_) => AfterAppend::Kept,
+            Err(_) => AfterAppend::Dropped { power_loss: false },
+        };
+    }
+    match block_on(log.sync()) {
+        Ok(committed) => {
+            assert_eq!(committed.get(), position);
+            acknowledged.insert(position, log.tail().1);
+            AfterAppend::Kept
+        }
+        Err(_) => AfterAppend::Dropped {
+            power_loss: draws.next(2) == 0,
+        },
+    }
 }
 
 #[test]

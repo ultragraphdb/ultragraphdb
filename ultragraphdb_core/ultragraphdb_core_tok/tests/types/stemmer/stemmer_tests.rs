@@ -21,7 +21,9 @@ fn test_stemmers_golden() {
     assert_eq!(cases.len(), 18);
     let mut failures = Vec::new();
     for c in &cases {
-        let s = Stemmer::named(&c.filter).unwrap_or_else(|| panic!("no stemmer {}", c.filter));
+        let s = Stemmer::named(&c.filter)
+            .ok_or_else(|| format!("no stemmer {}", c.filter))
+            .expect("a stemmer");
         assert_eq!(s.name(), c.filter);
         let bad: Vec<String> = c
             .words
@@ -75,7 +77,9 @@ fn test_stemmer_for_lang() {
         ("zh", "cjk_bigram"),
     ];
     for (lang, name) in lang_stemmers {
-        let s = Stemmer::for_lang(lang).unwrap_or_else(|| panic!("no stemmer for {lang}"));
+        let s = Stemmer::for_lang(lang)
+            .ok_or_else(|| format!("no stemmer for {lang}"))
+            .expect("a stemmer");
         assert_eq!(s.name(), name, "{lang}");
         assert_eq!(Stemmer::named(name), Some(s), "{name}");
     }

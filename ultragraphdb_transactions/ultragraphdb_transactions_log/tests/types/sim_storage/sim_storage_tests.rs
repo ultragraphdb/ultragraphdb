@@ -118,13 +118,13 @@ fn test_the_trace_records_each_operation_and_its_path() {
     write(&mut file, 0, b"x").expect("written");
     block_on(file.sync()).expect("synced");
     block_on(storage.sync_directory(Path::new("/d"))).expect("synced");
-    let _ = block_on(file.read_at(0, 1)).expect("read");
-    let _ = block_on(file.length()).expect("length");
+    let _read: AlignedBuf = block_on(file.read_at(0, 1)).expect("read");
+    let _length: u64 = block_on(file.length()).expect("length");
     block_on(file.preallocate(4_096)).expect("preallocated");
     block_on(file.truncate(1)).expect("cut");
     block_on(storage.rename(&path("f"), &path("g"))).expect("renamed");
-    let _ = block_on(storage.list(Path::new("/d"))).expect("listed");
-    let _ = block_on(storage.open(&path("g"), OpenMode::Read)).expect("opened");
+    let _listed: Vec<String> = block_on(storage.list(Path::new("/d"))).expect("listed");
+    let _opened: SimFile = block_on(storage.open(&path("g"), OpenMode::Read)).expect("opened");
     block_on(storage.remove_file(&path("g"))).expect("removed");
     let f = path("f");
     let d = PathBuf::from("/d");
@@ -307,7 +307,8 @@ fn test_a_random_tear_reported_with_an_error_is_whole_or_short() {
     let mut file = create(&storage, "f");
     storage.fail_randomly(2);
     for i in 0..400 {
-        let _ = write(&mut file, i * 8, b"12345678");
+        // Writes fail at random by design; the faults injected are checked below.
+        let _written: std::io::Result<()> = write(&mut file, i * 8, b"12345678");
     }
     let injected = storage.injected();
     for mode in [FaultMode::TornWrite, FaultMode::ShortTornWrite] {
@@ -518,7 +519,7 @@ fn test_a_directory_is_not_a_file() {
 }
 
 fn create_and_rename_over_a_directory(storage: &SimStorage) {
-    let _ = create(storage, "f");
+    let _created: SimFile = create(storage, "f");
     block_on(storage.create_directory(&path("sub"))).expect("created");
     let over = block_on(storage.rename(&path("f"), &path("sub"))).expect_err("a directory");
     assert_eq!(over.kind(), ErrorKind::IsADirectory);
@@ -545,7 +546,8 @@ fn test_random_fault_modes_are_splitmix64_draws_from_the_seed() {
     let storage = storage(11);
     storage.fail_randomly(1);
     for _ in 0..12 {
-        let _ = block_on(storage.list(Path::new("/d")));
+        // Every listing is faulted; only the modes drawn are under test.
+        let _listed: std::io::Result<Vec<String>> = block_on(storage.list(Path::new("/d")));
     }
     let modes: Vec<FaultMode> = storage.injected().iter().map(|(_, _, m)| *m).collect();
     assert_eq!(

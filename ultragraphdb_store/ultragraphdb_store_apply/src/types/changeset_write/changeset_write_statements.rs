@@ -95,7 +95,7 @@ where
             let iri = self.decode(&EncodedTerm::uid(predicate))?;
             let declaration = match &iri {
                 Term::NamedNode(n) => self.behaviour(predicate, n.as_ref()),
-                _ => return Ok(()),
+                Term::BlankNode(_) | Term::Literal(_) | Term::Triple(_) => return Ok(()),
             };
             self.remove(graph, subject, predicate, &declaration, &object)?;
         } else {
@@ -183,7 +183,10 @@ where
             } => {
                 let text = match graph {
                     oxrdf::GraphName::DefaultGraph => format!("{subject} {predicate} {object}"),
-                    named => format!("{subject} {predicate} {object} {named}"),
+                    named @ oxrdf::GraphName::NamedNode(_)
+                    | named @ oxrdf::GraphName::BlankNode(_) => {
+                        format!("{subject} {predicate} {object} {named}")
+                    }
                 };
                 let r = self
                     .find(

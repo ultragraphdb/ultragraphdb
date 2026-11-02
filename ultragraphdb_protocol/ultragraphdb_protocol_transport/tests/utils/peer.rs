@@ -38,12 +38,12 @@ impl Peer {
         let header = Header::new(CLUSTER, Command::Abort)
             .with_sequence(self.sequence)
             .with_stream(stream);
-        self.raw(body.frame(header).unwrap())
+        self.raw(&body.frame(header).unwrap())
     }
 
     /// `frame`, as built, as the server reads it.
-    pub fn raw(&mut self, frame: Vec<u8>) -> ReceivedFrame {
-        feed(&mut self.framer, &self.pool, &frame, &mut 0, 1 << 20).unwrap()
+    pub fn raw(&mut self, frame: &[u8]) -> ReceivedFrame {
+        feed(&mut self.framer, &self.pool, frame, &mut 0, 1 << 20).unwrap()
     }
 
     /// The sequence the client's next frame takes.

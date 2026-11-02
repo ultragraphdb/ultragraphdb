@@ -47,7 +47,8 @@ fn test_a_kill_during_a_batch_leaves_it_whole_or_absent() {
             "round {round}: the applied timestamp names the last batch held"
         );
         drop(store);
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
     println!("{in_flight} of 6 kills landed while a batch was written");
 }
@@ -68,6 +69,7 @@ fn test_the_writer_announces_each_stage_it_reaches() {
             .collect();
         let expected: Vec<String> = stages.iter().map(|s| format!("stage {s}")).collect();
         assert_eq!(announced, expected, "{mode}");
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

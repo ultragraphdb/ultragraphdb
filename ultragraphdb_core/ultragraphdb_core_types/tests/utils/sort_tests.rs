@@ -15,12 +15,13 @@ use ultragraphdb_core_types::{
 fn to_string(values: &[Vec<Val>]) -> Vec<String> {
     values
         .iter()
-        .map(
-            |v| match marshal(&v[0], TypeId::STRING).unwrap().into_value() {
-                Some(Value::Str(s)) => s,
-                other => panic!("{other:?}"),
-            },
-        )
+        .map(|v| {
+            match marshal(&v[0], TypeId::STRING).unwrap().into_value() {
+                Some(Value::Str(s)) => Ok(s),
+                other => Err(format!("{other:?}")),
+            }
+            .expect("marshalling to string gives a string")
+        })
         .collect()
 }
 
@@ -50,9 +51,12 @@ fn test_quick_select() {
         .collect();
     let mut ul = get_uid_list(n);
     sort_top_n(&mut list, &mut ul, &[false], "", k, &TextCollator).unwrap();
-    let int = |v: &Val| match v.value() {
-        Some(Value::Int(i)) => *i,
-        _ => panic!(),
+    let int = |v: &Val| {
+        match v.value() {
+            Some(Value::Int(i)) => Ok(*i),
+            other => Err(format!("{other:?}")),
+        }
+        .expect("an int value")
     };
     for i in 0..k {
         for j in k..n {
@@ -69,7 +73,7 @@ fn test_quick_select() {
             seed = seed
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
-            ((seed >> 33) % 100000) as i64
+            i64::try_from((seed >> 33) % 100000).expect("below 100000")
         })
         .collect();
     for (row, uid) in list.iter().zip(&ul) {
@@ -97,10 +101,13 @@ fn int_rows(input: &[Option<i64>]) -> (Vec<Vec<Val>>, Vec<u64>) {
 /// The rows' values after a sort, `None` a nil value.
 fn int_values(rows: &[Vec<Val>]) -> Vec<Option<i64>> {
     rows.iter()
-        .map(|r| match r[0].value() {
-            Some(Value::Int(i)) => Some(*i),
-            None => None,
-            other => panic!("{other:?}"),
+        .map(|r| {
+            match r[0].value() {
+                Some(Value::Int(i)) => Ok(Some(*i)),
+                None => Ok(None),
+                other => Err(format!("{other:?}")),
+            }
+            .expect("an int or nil value")
         })
         .collect()
 }
@@ -244,9 +251,17 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
     .into_iter()
     .map(Some)
     .collect();
-    let some = |v: &[i64]| v.iter().copied().map(Some).collect::<Vec<_>>();
+    top_n_ascending_leaves_the_rest_selected(&input);
+    top_n_descending_leaves_the_rest_selected(&input);
+}
+
+fn some(v: &[i64]) -> Vec<Option<i64>> {
+    v.iter().copied().map(Some).collect()
+}
+
+fn top_n_ascending_leaves_the_rest_selected(input: &[Option<i64>]) {
     assert_top_n(
-        &input,
+        input,
         false,
         &[0, 1, 3, 4],
         &[
@@ -259,7 +274,7 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
         ]),
     );
     assert_top_n(
-        &input,
+        input,
         false,
         &[10],
         &[
@@ -276,7 +291,7 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
         27, 28, 29, 30,
     ]);
     assert_top_n(
-        &input,
+        input,
         false,
         &[29],
         &[
@@ -286,7 +301,7 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
         &sorted,
     );
     assert_top_n(
-        &input,
+        input,
         false,
         &[30, 31, usize::MAX],
         &[
@@ -295,8 +310,11 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
         ],
         &sorted,
     );
+}
+
+fn top_n_descending_leaves_the_rest_selected(input: &[Option<i64>]) {
     assert_top_n(
-        &input,
+        input,
         true,
         &[3],
         &[
@@ -309,7 +327,7 @@ fn test_sort_top_n_leaves_the_rest_selected_not_sorted() {
         ]),
     );
     assert_top_n(
-        &input,
+        input,
         true,
         &[30, 31, usize::MAX],
         &[
@@ -623,9 +641,12 @@ fn test_golden_language_sort_orders() {
         sort(&mut rows, &mut uids, &[false], &c.lang, &TextCollator).unwrap();
         let out: Vec<Vec<u8>> = rows
             .iter()
-            .map(|r| match r[0].value() {
-                Some(Value::Str(s)) => s.as_bytes().to_vec(),
-                other => panic!("{other:?}"),
+            .map(|r| {
+                match r[0].value() {
+                    Some(Value::Str(s)) => Ok(s.as_bytes().to_vec()),
+                    other => Err(format!("{other:?}")),
+                }
+                .expect("a string value")
             })
             .collect();
         let want: Vec<Vec<u8>> = c.out_hex.iter().map(|s| unhex(s)).collect();

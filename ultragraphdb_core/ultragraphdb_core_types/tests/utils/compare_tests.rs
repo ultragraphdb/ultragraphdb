@@ -37,7 +37,20 @@ fn year(y: i64) -> Val {
 /// through `Equal` but not `Less`; values of different types never compare.
 #[test]
 fn test_compare_vals() {
-    let cases: Vec<(&str, Val, Val, [bool; 5])> = vec![
+    for (name, a, b, want) in number_and_string_cases()
+        .into_iter()
+        .chain(bool_uid_datetime_and_mixed_cases())
+    {
+        let got = ["ge", "gt", "le", "lt", "eq"].map(|op| compare_vals(op, &a, &b).unwrap());
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+/// A case's name, its two values, and `ge`, `gt`, `le`, `lt` and `eq` of them.
+type CompareCase = (&'static str, Val, Val, [bool; 5]);
+
+fn number_and_string_cases() -> Vec<CompareCase> {
+    vec![
         ("3 3", int(3), int(3), [true, false, true, false, true]),
         ("2 3", int(2), int(3), [false, false, true, true, false]),
         ("4 3", int(4), int(3), [true, true, false, false, false]),
@@ -89,6 +102,11 @@ fn test_compare_vals() {
             string(""),
             [true, false, true, false, true],
         ),
+    ]
+}
+
+fn bool_uid_datetime_and_mixed_cases() -> Vec<CompareCase> {
+    vec![
         (
             "true true",
             boolean(true),
@@ -127,11 +145,7 @@ fn test_compare_vals() {
             int(1),
             [false, false, false, false, false],
         ),
-    ];
-    for (name, a, b, want) in cases {
-        let got = ["ge", "gt", "le", "lt", "eq"].map(|op| compare_vals(op, &a, &b).unwrap());
-        assert_eq!(got, want, "{name}");
-    }
+    ]
 }
 
 /// Dgraph's `CompareBetween`, as Go v25.5.0 answers it: both ends inclusive, an inverted range holds nothing.

@@ -28,7 +28,31 @@ fn cut(mut s: Vec<char>, n: usize) -> Vec<char> {
     s
 }
 
-fn stem_runes(mut s: Vec<char>) -> Vec<char> {
+/// Where a stage of the stemmer leaves a word: stemmed, to be normalised, or passed on with the length the next
+/// stage reads, which a stage updates only where bleve does.
+enum Step {
+    Stemmed(Vec<char>),
+    Next(Vec<char>, usize),
+}
+
+fn stem_runes(s: Vec<char>) -> Vec<char> {
+    let (s, l) = plural(s);
+    let (s, l) = match agents(s, l) {
+        Step::Stemmed(s) => return norm(s),
+        Step::Next(s, l) => (s, l),
+    };
+    let (s, l) = match feminines(s, l) {
+        Step::Stemmed(s) => return norm(s),
+        Step::Next(s, l) => (s, l),
+    };
+    match adjectives(s, l) {
+        Step::Stemmed(s) => norm(s),
+        Step::Next(s, l) => nouns(s, l),
+    }
+}
+
+/// The plural and `-aux` endings removed, and the length the stages read.
+fn plural(mut s: Vec<char>) -> (Vec<char>, usize) {
     let mut l = s.len();
     if l > 5 && s[l - 1] == 'x' {
         if s[l - 3] == 'a' && s[l - 2] == 'u' && s[l - 4] != 'e' {
@@ -45,15 +69,20 @@ fn stem_runes(mut s: Vec<char>) -> Vec<char> {
         s.truncate(l - 1);
         l = s.len();
     }
+    (s, l)
+}
+
+/// The `-issement`, `-issant`, `-ement`, `-ficatrice`, `-ficateur`, `-catrice` and `-cateur` endings.
+fn agents(mut s: Vec<char>, l: usize) -> Step {
     if l > 9 && ends_with(&s, "issement") {
         s = cut(s, 6);
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 8 && ends_with(&s, "issant") {
         s = cut(s, 4);
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 6 && ends_with(&s, "ement") {
         s = cut(s, 4);
@@ -61,26 +90,26 @@ fn stem_runes(mut s: Vec<char>) -> Vec<char> {
             s = cut(s, 1);
             set(&mut s, 1, 'f');
         }
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 11 && ends_with(&s, "ficatrice") {
         s = cut(s, 5);
         set(&mut s, 2, 'e');
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 10 && ends_with(&s, "ficateur") {
         s = cut(s, 4);
         set(&mut s, 2, 'e');
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 9 && ends_with(&s, "catrice") {
         s = cut(s, 3);
         set(&mut s, 4, 'q');
         set(&mut s, 3, 'u');
         set(&mut s, 2, 'e');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 8 && ends_with(&s, "cateur") {
         s = cut(s, 2);
@@ -88,19 +117,24 @@ fn stem_runes(mut s: Vec<char>) -> Vec<char> {
         set(&mut s, 3, 'u');
         set(&mut s, 2, 'e');
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
+    Step::Next(s, l)
+}
+
+/// The `-atrice`, `-ateur`, `-trice`, `-ième`, `-teuse`, `-teur` and `-euse` endings.
+fn feminines(mut s: Vec<char>, mut l: usize) -> Step {
     if l > 8 && ends_with(&s, "atrice") {
         s = cut(s, 4);
         set(&mut s, 2, 'e');
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 7 && ends_with(&s, "ateur") {
         s = cut(s, 3);
         set(&mut s, 2, 'e');
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 6 && ends_with(&s, "trice") {
         s = cut(s, 1);
@@ -110,41 +144,46 @@ fn stem_runes(mut s: Vec<char>) -> Vec<char> {
         set(&mut s, 1, 'r');
     }
     if l > 5 && ends_with(&s, "ième") {
-        return norm(cut(s, 4));
+        return Step::Stemmed(cut(s, 4));
     }
     if l > 7 && ends_with(&s, "teuse") {
         s = cut(s, 2);
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 6 && ends_with(&s, "teur") {
         s = cut(s, 1);
         set(&mut s, 1, 'r');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 5 && ends_with(&s, "euse") {
-        return norm(cut(s, 2));
+        return Step::Stemmed(cut(s, 2));
     }
+    Step::Next(s, l)
+}
+
+/// The `-ère`, `-ive`, `-folle`, `-molle`, `-nnelle`, `-nnel`, `-ète` and `-ique` endings.
+fn adjectives(mut s: Vec<char>, mut l: usize) -> Step {
     if l > 8 && ends_with(&s, "ère") {
         s = cut(s, 1);
         set(&mut s, 2, 'e');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 7 && ends_with(&s, "ive") {
         s = cut(s, 1);
         set(&mut s, 1, 'f');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 4 && (ends_with(&s, "folle") || ends_with(&s, "molle")) {
         s = cut(s, 2);
         set(&mut s, 1, 'u');
-        return norm(s);
+        return Step::Stemmed(s);
     }
     if l > 9 && ends_with(&s, "nnelle") {
-        return norm(cut(s, 5));
+        return Step::Stemmed(cut(s, 5));
     }
     if l > 9 && ends_with(&s, "nnel") {
-        return norm(cut(s, 3));
+        return Step::Stemmed(cut(s, 3));
     }
     if l > 4 && ends_with(&s, "ète") {
         s = cut(s, 1);
@@ -155,6 +194,11 @@ fn stem_runes(mut s: Vec<char>) -> Vec<char> {
         s = cut(s, 4);
         l = s.len();
     }
+    Step::Next(s, l)
+}
+
+/// The `-esse`, `-inage`, `-isation`, `-isateur`, `-ation` and `-ition` endings, and the word normalised.
+fn nouns(mut s: Vec<char>, l: usize) -> Vec<char> {
     if l > 8 && ends_with(&s, "esse") {
         return norm(cut(s, 3));
     }

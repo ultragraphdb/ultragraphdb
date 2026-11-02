@@ -30,7 +30,9 @@ pub fn golden(name: &str) -> Vec<u8> {
     let path = root
         .join("ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden/bodies")
         .join(format!("{name}.frame"));
-    fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    fs::read(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))
+        .expect("reading the golden frame")
 }
 
 /// The header's checksum over bytes 8 to 256, recomputed with xxhash-rust directly (`PROTOCOL.md` §2.2).
@@ -264,7 +266,8 @@ pub async fn serve_golden<S: AsyncRead + AsyncWrite + Unpin>(
             return;
         }
         if step.close {
-            let _ = stream.shutdown().await;
+            // The script closes the connection; a failed shutdown leaves it closing all the same.
+            drop(stream.shutdown().await);
             return;
         }
     }

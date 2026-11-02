@@ -28,9 +28,13 @@ fn check_valid(data: &[u8]) -> Result<(usize, usize), JsonError> {
         // Nothing but whitespace: the input ended where a value should start.
         JsonErrorEnum::Eof => JsonError::Syntax(
             "unexpected end of JSON input".to_string(),
-            data.len() as i64,
+            // A slice's length is below isize::MAX, so it converts; saturating keeps it from wrapping.
+            i64::try_from(data.len()).unwrap_or(i64::MAX),
         ),
-        _ => e,
+        JsonErrorEnum::UnexpectedEof
+        | JsonErrorEnum::Syntax { .. }
+        | JsonErrorEnum::UnmarshalType { .. }
+        | JsonErrorEnum::Read(_) => e,
     })?;
     d.check_eof()?;
     Ok(range)

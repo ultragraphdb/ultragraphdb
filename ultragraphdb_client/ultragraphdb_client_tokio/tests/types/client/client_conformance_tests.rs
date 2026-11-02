@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use tokio::task::LocalSet;
 use ultragraphdb_client_tokio::{
-    Anonymous, Client, ClientConfig, ClientError, ClientErrorEnum, Login, ResultStream,
+    Anonymous, Client, ClientConfig, ClientError, ClientErrorEnum, Login, ResultStream, Session,
+    Transaction,
 };
 use ultragraphdb_error_protocol::ProtocolError;
 use ultragraphdb_protocol_scram::{ScramError, ScramLogin};
@@ -148,6 +149,15 @@ fn conversation_script(golden_server: &mut Golden) {
 /// Every golden request and reply in one conversation, its values from `generate_bodies.py`'s comments.
 async fn conversation(mut client: Client<SimConnect, Anonymous>) {
     client.connect().await.expect("connected");
+    golden_catalog(&mut client).await;
+    let writer = golden_reads(&mut client).await;
+    let nine = golden_commit(&mut client, writer).await;
+    golden_refusals_and_drop(&mut client, nine).await;
+    client.close().await;
+}
+
+/// The Welcome, a session registered, a statement prepared and the data dictionary, read as their golden values.
+async fn golden_catalog(client: &mut Client<SimConnect, Anonymous>) {
     // The golden Welcome: protocol 1, max_frame at its floor of 524,288, 64 streams, initial credit 4.
     let w = client.core().welcome().expect("welcomed");
     assert_eq!(
@@ -183,6 +193,10 @@ async fn conversation(mut client: Client<SimConnect, Anonymous>) {
             &decoded("describe_reply", |f| DescribeView::from_frame(f)?.to_body())
         )
     );
+}
+
+/// A writer begun, then a reader on stream 5, whose reads and execution stream the golden Results; the writer.
+async fn golden_reads(client: &mut Client<SimConnect, Anonymous>) -> Transaction {
     let writer = client.begin(0, false).await.unwrap();
     // Begin: namespace 3, read version 0xAB_CDEF_0002, read-only, on stream 5, which the golden Read and Execute name.
     let reader = client.begin(0, true).await.unwrap();
@@ -235,6 +249,11 @@ async fn conversation(mut client: Client<SimConnect, Anonymous>) {
         client.next_batch(&executed, result_values).await.unwrap(),
         None
     );
+    writer
+}
+
+/// The writer's changes and its commit through session 9, then a transaction aborted; session 9.
+async fn golden_commit(client: &mut Client<SimConnect, Anonymous>, writer: Transaction) -> Session {
     client
         .write(
             &writer,
@@ -264,6 +283,11 @@ async fn conversation(mut client: Client<SimConnect, Anonymous>) {
     );
     let aborted = client.begin(0, false).await.unwrap();
     client.abort(aborted).await.unwrap();
+    nine
+}
+
+/// The two golden refusals of a commit, and a drop through session 9, `nine`.
+async fn golden_refusals_and_drop(client: &mut Client<SimConnect, Anonymous>, nine: Session) {
     // Error: a conflict on a scanned range, detail 3; and a failed compare-and-set, the value found "done".
     let tx = client.begin(0, false).await.unwrap();
     let session = client.resume_session(104, 1);
@@ -298,7 +322,6 @@ async fn conversation(mut client: Client<SimConnect, Anonymous>) {
         .await
         .unwrap();
     assert_eq!((dropped.version(), dropped.request()), (2_002, 8));
-    client.close().await;
 }
 
 /// The requests the client writes in the conversation, golden byte for byte but for stream and sequence, in order.
@@ -425,6 +448,26 @@ enum Damage {
     Framer(TransportError),
     Rule(ProtocolError),
     Passes,
+}
+
+impl Damage {
+    /// The framer's refusal; `None` for any other damage.
+    fn framer(self) -> Option<TransportError> {
+        if let Damage::Framer(refusal) = self {
+            Some(refusal)
+        } else {
+            None
+        }
+    }
+
+    /// The rule refusing the frame; `None` for any other damage.
+    fn rule(self) -> Option<ProtocolError> {
+        if let Damage::Rule(rule) = self {
+            Some(rule)
+        } else {
+            None
+        }
+    }
 }
 
 fn damage(bad: &[u8]) -> Damage {
@@ -705,9 +748,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() {
         let stream = cut_read(&mut client, &script, header).await;
         let mut bad = numbered(&restream(&not_last(&result), 2), 4);
         bad[10] ^= 1 << 2;
-        let Damage::Framer(refusal) = damage(&bad) else {
-            panic!("the framer refuses the header")
-        };
+        let refusal = damage(&bad).framer().expect("refused by the framer");
         assert_eq!(
             client.next_batch(&stream, result_values).await.unwrap(),
             Some(golden_result())
@@ -724,9 +765,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() {
         let stream = cut_read(&mut client, &script, body).await;
         let mut bad = numbered(&restream(&not_last(&result), 2), 4);
         bad[400] ^= 1;
-        let Damage::Rule(rule) = damage(&bad) else {
-            panic!("a rule refuses the body")
-        };
+        let rule = damage(&bad).rule().expect("a rule refuses the body");
         assert_eq!(
             client.next_batch(&stream, result_values).await.unwrap(),
             Some(golden_result())
@@ -742,9 +781,7 @@ fn test_a_read_cut_short_through_the_shell_fails_as_lost_with_its_cause() {
             .push(Step::any().reply(golden("describe_reply")).damaged(400));
         let mut bad = numbered(&restream(&golden("describe_reply"), 1), 2);
         bad[400] ^= 1;
-        let Damage::Rule(rule) = damage(&bad) else {
-            panic!("a rule refuses the body")
-        };
+        let rule = damage(&bad).rule().expect("a rule refuses the body");
         assert_eq!(
             client.register().await.unwrap_err(),
             ClientError::ConnectionLost(Some(ClientError::Protocol(rule)))

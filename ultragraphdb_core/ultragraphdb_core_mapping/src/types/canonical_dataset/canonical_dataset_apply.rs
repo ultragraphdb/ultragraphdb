@@ -60,25 +60,7 @@ impl CanonicalDataset {
             } => {
                 refuse_triple_term(object)?;
                 self.replace_single(graph, subject, predicate, object, cardinality);
-                let mut next_id = self.next_id;
-                let mut allocate = || {
-                    next_id += 1;
-                    StatementId::new(next_id)
-                };
-                let held = self.held(graph, subject, predicate, object);
-                let repeats = !held.records.is_empty();
-                if repeats {
-                    held.records
-                        .iter_mut()
-                        .filter(|r| r.id.is_none())
-                        .for_each(|r| r.id = Some(allocate()));
-                }
-                let id = (repeats || !properties.is_empty()).then(&mut allocate);
-                held.records.push(Record {
-                    id,
-                    properties: properties.clone(),
-                });
-                self.next_id = next_id;
+                self.push_edge(graph, subject, predicate, object, properties);
             }
             Change::Delete {
                 graph,
@@ -105,19 +87,7 @@ impl CanonicalDataset {
                 statement,
                 predicate,
                 value,
-            } => {
-                let mut next_id = self.next_id;
-                let record = self.record(statement)?;
-                if record.id.is_none() {
-                    next_id += 1;
-                    record.id = Some(StatementId::new(next_id));
-                }
-                let property = (predicate.clone(), value.clone());
-                if !record.properties.contains(&property) {
-                    record.properties.push(property);
-                }
-                self.next_id = next_id;
-            }
+            } => self.set_property(statement, predicate, value)?,
             Change::DeleteProperty {
                 statement,
                 predicate,
@@ -130,6 +100,58 @@ impl CanonicalDataset {
             }
             Change::Declare(_) => {}
         }
+        Ok(())
+    }
+
+    /// Adds a statement of the triple with `properties`: every statement of a triple held more than once, and one
+    /// with properties, takes an ID.
+    fn push_edge(
+        &mut self,
+        graph: &GraphName,
+        subject: &NamedOrBlankNode,
+        predicate: &NamedNode,
+        object: &Term,
+        properties: &[(NamedNode, Term)],
+    ) {
+        let mut next_id = self.next_id;
+        let mut allocate = || {
+            next_id += 1;
+            StatementId::new(next_id)
+        };
+        let held = self.held(graph, subject, predicate, object);
+        let repeats = !held.records.is_empty();
+        if repeats {
+            held.records
+                .iter_mut()
+                .filter(|r| r.id.is_none())
+                .for_each(|r| r.id = Some(allocate()));
+        }
+        let id = (repeats || !properties.is_empty()).then(&mut allocate);
+        held.records.push(Record {
+            id,
+            properties: properties.to_vec(),
+        });
+        self.next_id = next_id;
+    }
+
+    /// Gives the statement `statement` names the property, and an ID when it has none.
+    fn set_property(
+        &mut self,
+        statement: &StatementRef,
+        predicate: &NamedNode,
+        value: &Term,
+    ) -> Result<(), MappingError> {
+        let mut next_id = self.next_id;
+        let record = self.record(statement)?;
+        if record.id.is_none() {
+            next_id += 1;
+            record.id = Some(StatementId::new(next_id));
+        }
+        let property = (predicate.clone(), value.clone());
+        if !record.properties.contains(&property) {
+            record.properties.push(property);
+        }
+        self.next_id = next_id;
         Ok(())
     }
 
@@ -212,6 +234,6 @@ impl CanonicalDataset {
 fn refuse_triple_term(object: &Term) -> Result<(), MappingError> {
     match object {
         Term::Triple(t) => Err(MappingError::UnsupportedObject(t.to_string())),
-        _ => Ok(()),
+        Term::NamedNode(_) | Term::BlankNode(_) | Term::Literal(_) => Ok(()),
     }
 }

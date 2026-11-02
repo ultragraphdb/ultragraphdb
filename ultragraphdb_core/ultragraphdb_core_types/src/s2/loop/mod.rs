@@ -446,12 +446,12 @@ impl Loop {
         if !a_clipped.edges.is_empty() {
             let center = it.center();
             let mut crosser = EdgeCrosser::new(center, p);
-            let mut ai_prev: i64 = -2;
+            let mut ai_prev: Option<usize> = None;
             for &ai in &a_clipped.edges {
-                if ai as i64 != ai_prev + 1 {
+                if ai_prev.map(|prev| prev + 1) != Some(ai) {
                     crosser.restart_at(self.vertex(ai));
                 }
-                ai_prev = ai as i64;
+                ai_prev = Some(ai);
                 inside = inside != crosser.edge_or_vertex_chain_crossing(self.vertex(ai + 1));
             }
         }

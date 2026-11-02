@@ -9,6 +9,7 @@ use std::path::Path;
 use serde::de::DeserializeOwned;
 
 use crate::types::golden::Golden;
+use crate::utils::or_fail::or_fail;
 
 /// Loads a golden-vector file.
 ///
@@ -18,8 +19,12 @@ use crate::types::golden::Golden;
 /// golden file of `T` cases, with `cannot parse golden file <path>: <serde_json error>`. A test fails on either, naming
 /// the file and the fault.
 pub fn load_golden<T: DeserializeOwned>(path: &Path) -> Golden<T> {
-    let text = fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("cannot read golden file {}: {e}", path.display()));
-    serde_json::from_str(&text)
-        .unwrap_or_else(|e| panic!("cannot parse golden file {}: {e}", path.display()))
+    let text = or_fail(
+        fs::read_to_string(path)
+            .map_err(|e| format!("cannot read golden file {}: {e}", path.display())),
+    );
+    or_fail(
+        serde_json::from_str(&text)
+            .map_err(|e| format!("cannot parse golden file {}: {e}", path.display())),
+    )
 }

@@ -108,14 +108,13 @@ fn test_a_copy_that_does_not_verify_is_unreadable_whatever_the_other_holds() {
 
 /// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
 fn assert_io(error: &LogError, operation: &str) {
-    match &error.0 {
-        LogErrorEnum::Io {
-            operation: named,
-            kind,
-            ..
-        } => assert_eq!((*named, *kind), (operation, ErrorKind::Other), "{error:?}"),
-        other => panic!("not an I/O error of {operation}: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &error.0,
+            LogErrorEnum::Io { operation: named, kind: ErrorKind::Other, .. } if *named == operation
+        ),
+        "not an I/O error of {operation}: {error:?}"
+    );
 }
 
 #[test]

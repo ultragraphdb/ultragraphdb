@@ -23,20 +23,13 @@ use crate::utils::helpers::{
 
 /// Asserts `error` is the storage's failure of `operation`, as the simulated storage reports an injected fault.
 fn assert_io(error: &LogError, operation: &str) {
-    match &error.0 {
-        LogErrorEnum::Io {
-            operation: named,
-            kind,
-            ..
-        } => {
-            assert_eq!(
-                (*named, *kind),
-                (operation, std::io::ErrorKind::Other),
-                "{error:?}"
-            );
-        }
-        other => panic!("not an I/O error of {operation}: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &error.0,
+            LogErrorEnum::Io { operation: named, kind: std::io::ErrorKind::Other, .. } if *named == operation
+        ),
+        "not an I/O error of {operation}: {error:?}"
+    );
 }
 
 fn fresh() -> (SimStorage, Wal<SimStorage>) {
@@ -418,10 +411,13 @@ fn test_trim_through_records_the_checkpoint_and_removes_whole_segments() {
         "the removals are durable"
     );
     assert!(storage.contents(&segment(2)).is_some());
-    let SuperblockRead::Present(record) =
-        block_on(Superblock::read(&storage, &dir())).expect("read")
-    else {
-        panic!("a superblock");
+    let read = block_on(Superblock::read(&storage, &dir())).expect("read");
+    assert!(
+        matches!(read, SuperblockRead::Present(_)),
+        "a superblock: {read:?}"
+    );
+    let SuperblockRead::Present(record) = read else {
+        return;
     };
     assert_eq!(record.checkpoint(), Position::new(8));
     assert_eq!(record.checkpoint_checksum(), checksums[7]);

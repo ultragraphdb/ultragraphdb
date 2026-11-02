@@ -5,6 +5,7 @@
 
 //! Dgraph's `ShardedMap` (types/sharded_map.go).
 
+use std::cell::Cell;
 use ultragraphdb_core_types::{NUM_SHARDS, ShardedMap, TypeId, Val, Value};
 
 fn int(i: i64) -> Val {
@@ -13,9 +14,10 @@ fn int(i: i64) -> Val {
 
 fn sum(x: &Val, y: &Val) -> Val {
     match (x.value(), y.value()) {
-        (Some(Value::Int(p)), Some(Value::Int(q))) => int(p * 1000 + q),
-        _ => panic!("{x:?} {y:?}"),
+        (Some(Value::Int(p)), Some(Value::Int(q))) => Ok(int(p * 1000 + q)),
+        _ => Err(format!("{x:?} {y:?}")),
     }
+    .expect("two int values")
 }
 
 #[test]
@@ -84,11 +86,17 @@ fn test_merge() {
     assert_eq!((b.len(), b.get(1)), (3, Some(&int(10))));
     // Merging an empty map changes nothing; merging into an empty map copies.
     let before = a.clone();
-    a.merge(&ShardedMap::new(), |_, _| panic!("no key in both"));
+    let aggregated = Cell::new(false);
+    let no_key_in_both = |x: &Val, _: &Val| {
+        aggregated.set(true);
+        x.clone()
+    };
+    a.merge(&ShardedMap::new(), no_key_in_both);
     assert_eq!(a, before);
     let mut c = ShardedMap::new();
-    c.merge(&b, |_, _| panic!("no key in both"));
+    c.merge(&b, no_key_in_both);
     assert_eq!(c, b);
+    assert!(!aggregated.get(), "no key in both");
 }
 
 #[test]
@@ -96,12 +104,12 @@ fn test_iterate_goes_shard_by_shard_and_stops_at_the_first_error() {
     let mut m = ShardedMap::new();
     // One key in each of shards 29, 0 and 1.
     for k in [29, 30, 1] {
-        m.set(k, int(k as i64));
+        m.set(k, int(i64::try_from(k).expect("a small key")));
     }
     let mut seen = Vec::new();
     assert_eq!(
         m.iterate(|k, v| -> Result<(), ()> {
-            assert_eq!(v, &int(k as i64));
+            assert_eq!(v, &int(i64::try_from(k).expect("a small key")));
             seen.push(k);
             Ok(())
         }),

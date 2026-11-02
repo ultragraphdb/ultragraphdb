@@ -57,7 +57,7 @@ pub(crate) fn is_held(a: &TestChangesets, text: &str) -> bool {
     let t = statement(text);
     let graph = match &t.graph {
         GraphName::NamedNode(n) => n.as_str().trim_start_matches("http://ex.org/").to_string(),
-        _ => String::new(),
+        GraphName::BlankNode(_) | GraphName::DefaultGraph => String::new(),
     };
     let known = |iri: &str| {
         a.quads()
@@ -83,25 +83,29 @@ pub(crate) fn is_held(a: &TestChangesets, text: &str) -> bool {
 /// integer, a `term` token of a word, an `exact` token of a string.
 fn named_token(tokenizer: &str, item: &str) -> (u8, Vec<u8>) {
     match tokenizer {
-        "int" => int_token(item.parse().expect("an integer")),
-        "term" => term_token(item),
-        "exact" => exact_token(item),
-        other => panic!("no written-out token of the {other} tokenizer"),
+        "int" => Ok(int_token(item.parse().expect("an integer"))),
+        "term" => Ok(term_token(item)),
+        "exact" => Ok(exact_token(item)),
+        other => Err(format!("no written-out token of the {other} tokenizer")),
     }
+    .expect("the tokenizer's token is written out")
 }
 
 // Givens.
 
 #[given(regex = r"^`(\w+)` is declared (.+)$")]
-fn declared(w: &mut Steps, predicate: String, phrase: String) {
+fn declared(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let phrase = &args[1];
     let a = cs(w);
-    crate::utils::changesets::declare(&a, &predicate, &phrase);
+    crate::utils::changesets::declare(&a, predicate, phrase);
 }
 
 #[given(regex = r"^(`.+`) (?:is|are) held$")]
-fn held(w: &mut Steps, statements: String) {
+fn held(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
     let a = cs(w);
-    for text in quoted(&statements) {
+    for text in quoted(statements) {
         apply(&a, vec![insert(&text)]).expect("the statement is written");
     }
 }
@@ -118,35 +122,41 @@ fn constant_fingerprint(w: &mut Steps) {
 }
 
 #[given(regex = r"^`(.+)` is held with the property `(\S+) (.+)`$")]
-fn held_with_property(w: &mut Steps, text: String, property: String, value: String) {
+fn held_with_property(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    let property = &args[1];
+    let value = &args[2];
     let a = cs(w);
     let property = property.trim_start_matches('<').trim_end_matches('>');
-    apply(&a, vec![insert_edge(&text, &[(property, &value)])]).expect("the statement is written");
+    apply(&a, vec![insert_edge(text, &[(property, value)])]).expect("the statement is written");
 }
 
 // Writes.
 
 #[when(regex = r"^(`[^`]+`(?:(?:, | and |, and )`[^`]+`)*) (?:is|are) written$")]
-fn written(w: &mut Steps, statements: String) {
+fn written(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
     let a = cs(w);
-    for text in quoted(&statements) {
+    for text in quoted(statements) {
         let result = apply(&a, vec![insert(&text)]);
         w.results.push(result);
     }
 }
 
 #[when(regex = r"^(`.+`) (?:is|are) written in one changeset$")]
-fn written_together(w: &mut Steps, statements: String) {
+fn written_together(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
     let a = cs(w);
-    let changes = quoted(&statements).iter().map(|t| insert(t)).collect();
+    let changes = quoted(statements).iter().map(|t| insert(t)).collect();
     let result = apply(&a, changes);
     w.results.push(result);
 }
 
 #[when(regex = r"^`(.+)` is written again$")]
-fn written_again(w: &mut Steps, text: String) {
+fn written_again(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let a = cs(w);
-    let t = statement(&text);
+    let t = statement(text);
     let (subject, object) = (t.subject.to_string(), t.object.to_string());
     let name = |s: &str| {
         s.trim_start_matches("<http://ex.org/")
@@ -155,7 +165,7 @@ fn written_again(w: &mut Steps, text: String) {
     };
     w.names = vec![name(&subject), name(&object), name(t.predicate.as_str())];
     w.counts = count_snapshot(&a, &w.names);
-    let result = apply(&a, vec![insert(&text)]);
+    let result = apply(&a, vec![insert(text)]);
     w.results.push(result);
 }
 
@@ -184,25 +194,31 @@ fn flip(d: CountDirection) -> CountDirection {
 }
 
 #[when(regex = r"^(`.+`) (?:is|are) deleted$")]
-fn deleted(w: &mut Steps, statements: String) {
+fn deleted(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
     let a = cs(w);
-    for text in quoted(&statements) {
+    for text in quoted(statements) {
         let result = apply(&a, vec![delete(&text)]);
         w.results.push(result);
     }
 }
 
 #[when(regex = r"^the pattern `(\w+)`, `(\w+)` is deleted$")]
-fn pattern_deleted(w: &mut Steps, subject: String, predicate: String) {
+fn pattern_deleted(w: &mut Steps, args: &[String]) {
+    let subject = &args[0];
+    let predicate = &args[1];
     let a = cs(w);
-    let result = apply(&a, vec![delete_pattern(&subject, &predicate)]);
+    let result = apply(&a, vec![delete_pattern(subject, predicate)]);
     w.results.push(result);
 }
 
 #[when(regex = r"^`(.+)` gains the property `(\S+) (.+)`$")]
-fn gains_property(w: &mut Steps, text: String, property: String, value: String) {
+fn gains_property(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    let property = &args[1];
+    let value = &args[2];
     let a = cs(w);
-    let t = statement(&text);
+    let t = statement(text);
     let change = Change::SetProperty {
         statement: StatementRef::Triple {
             graph: t.graph,
@@ -211,16 +227,17 @@ fn gains_property(w: &mut Steps, text: String, property: String, value: String) 
             object: t.object,
         },
         predicate: ex(property.trim_start_matches('<').trim_end_matches('>')),
-        value: term(&value),
+        value: term(value),
     };
     let result = apply(&a, vec![change]);
     w.results.push(result);
 }
 
 #[when(regex = r"^the statement of `(.+)` is deleted by its ID$")]
-fn statement_deleted(w: &mut Steps, text: String) {
+fn statement_deleted(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let a = cs(w);
-    let t = statement(&text);
+    let t = statement(text);
     let name = |s: String| {
         s.trim_start_matches("<http://ex.org/")
             .trim_end_matches('>')
@@ -285,47 +302,57 @@ fn concurrent(w: &mut Steps, first: String, second: String) {
 // Outcomes.
 
 #[then(regex = r"^`(\w+)`'s `(\w+)` objects are (.+)$")]
-fn objects_are(w: &mut Steps, subject: String, predicate: String, terms: String) {
+fn objects_are(w: &mut Steps, args: &[String]) {
+    let subject = &args[0];
+    let predicate = &args[1];
+    let terms = &args[2];
     let a = cs(w);
-    let held: BTreeSet<String> = objects(&a, &subject, &predicate)
+    let held: BTreeSet<String> = objects(&a, subject, predicate)
         .iter()
         .map(Term::to_string)
         .collect();
-    let expected: BTreeSet<String> = quoted(&terms).iter().map(|t| term(t).to_string()).collect();
+    let expected: BTreeSet<String> = quoted(terms).iter().map(|t| term(t).to_string()).collect();
     assert_eq!(held, expected);
 }
 
 #[then(regex = r#"^after `(.+)` is deleted, `(\w+)`'s `(\w+)` objects are (.+)$"#)]
-fn after_delete(w: &mut Steps, text: String, subject: String, predicate: String, terms: String) {
+fn after_delete(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let a = cs(w);
-    apply(&a, vec![delete(&text)]).expect("the delete applies");
-    objects_are(w, subject, predicate, terms);
+    apply(&a, vec![delete(text)]).expect("the delete applies");
+    // The subject, predicate and terms, as `objects_are` reads them.
+    objects_are(w, &args[1..]);
 }
 
 #[then(regex = r"^`(\w+)` holds no `(\w+)`$")]
-fn holds_none(w: &mut Steps, subject: String, predicate: String) {
+fn holds_none(w: &mut Steps, args: &[String]) {
+    let subject = &args[0];
+    let predicate = &args[1];
     let a = cs(w);
-    assert!(objects(&a, &subject, &predicate).is_empty());
+    assert!(objects(&a, subject, predicate).is_empty());
 }
 
 #[then(regex = r"^(`.+`) (?:is|are) held$")]
-fn are_held(w: &mut Steps, statements: String) {
+fn are_held(w: &mut Steps, args: &[String]) {
+    let statements = &args[0];
     let a = cs(w);
-    for text in quoted(&statements) {
+    for text in quoted(statements) {
         assert!(is_held(&a, &text), "{text} is held");
     }
 }
 
 #[then(regex = r"^`(.+)` is not held$")]
-fn not_held(w: &mut Steps, text: String) {
+fn not_held(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let a = cs(w);
-    assert!(!is_held(&a, &text), "{text} is not held");
+    assert!(!is_held(&a, text), "{text} is not held");
 }
 
 #[then(regex = r"^the write fails with an error naming ((?:`[^`]+`(?:, | and )?)+)$")]
-fn fails_naming(w: &mut Steps, names: String) {
+fn fails_naming(w: &mut Steps, args: &[String]) {
+    let names = &args[0];
     let error = last(w).as_ref().expect_err("the write fails").to_string();
-    for name in quoted(&names) {
+    for name in quoted(names) {
         let shown = if name.chars().all(|c| c.is_alphanumeric()) {
             format!("<{}>", ex(&name).as_str())
         } else {
@@ -352,40 +379,42 @@ fn both_commit(w: &mut Steps) {
 }
 
 #[then(regex = r"^the reverse list of `(\w+)` for `(\w+)` (holds|does not hold) `(\w+)`$")]
-fn reverse_list(w: &mut Steps, predicate: String, object: String, holds: String, subject: String) {
+fn reverse_list(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let object = &args[1];
+    let holds = &args[2];
+    let subject = &args[3];
     let a = cs(w);
-    let listed = reverse(&a, &predicate, &object).contains(&uid(&a, &subject));
+    let listed = reverse(&a, predicate, object).contains(&uid(&a, subject));
     assert_eq!(listed, holds == "holds");
 }
 
 #[then(regex = r"^the `(\w+)` index of `(\w+)` (lists|does not list) (.+) under (.+)$")]
-fn index_lists(
-    w: &mut Steps,
-    tokenizer: String,
-    predicate: String,
-    lists: String,
-    subjects: String,
-    under: String,
-) {
+fn index_lists(w: &mut Steps, args: &[String]) {
+    let tokenizer = &args[0];
+    let predicate = &args[1];
+    let lists = &args[2];
+    let subjects = &args[3];
+    let under = &args[4];
     let a = cs(w);
     let tokens: Vec<(u8, Vec<u8>)> = match under.strip_prefix("the tokens of ") {
-        Some(literal) => tokens_of(&tokenizer, &term(&quoted(literal)[0])),
-        None => quoted(&under)
+        Some(literal) => tokens_of(tokenizer, &term(&quoted(literal)[0])),
+        None => quoted(under)
             .iter()
-            .map(|item| named_token(&tokenizer, item))
+            .map(|item| named_token(tokenizer, item))
             .collect(),
     };
     assert!(!tokens.is_empty());
-    for subject in quoted(&subjects) {
+    for subject in quoted(subjects) {
         for token in &tokens {
-            let listed = indexed(&a, &predicate, token).contains(&uid(&a, &subject));
+            let listed = indexed(&a, predicate, token).contains(&uid(&a, &subject));
             assert_eq!(listed, lists == "lists", "{subject} under {token:?}");
         }
         // Under a literal's tokens, exactly those: the subject holds that one literal, so no other value-index key of
         // the predicate lists it. The tokens themselves are pinned by hand in the unit tests.
         if lists == "lists" && under.starts_with("the tokens of ") {
             assert_eq!(
-                index_keys_holding(&a, &predicate, uid(&a, &subject)).len(),
+                index_keys_holding(&a, predicate, uid(&a, &subject)).len(),
                 tokens.len(),
                 "{subject}"
             );
@@ -394,18 +423,24 @@ fn index_lists(
 }
 
 #[then(regex = r"^a range read of the `int` index of `(\w+)` over (\d+) to (\d+) returns `(\w+)`$")]
-fn range_read(w: &mut Steps, predicate: String, low: i64, high: i64, subject: String) {
+fn range_read(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let low: i64 = args[1].parse().expect("the step names a number");
+    let high: i64 = args[2].parse().expect("the step names a number");
+    let subject = &args[3];
     let a = cs(w);
     let found: BTreeSet<u64> = (low..=high)
-        .flat_map(|v| indexed(&a, &predicate, &int_token(v)))
+        .flat_map(|v| indexed(&a, predicate, &int_token(v)))
         .collect();
-    assert_eq!(found, BTreeSet::from([uid(&a, &subject)]));
+    assert_eq!(found, BTreeSet::from([uid(&a, subject)]));
 }
 
 #[then(regex = r"^no value-index key of `(\w+)` holds `(\w+)`$")]
-fn no_index_key(w: &mut Steps, predicate: String, subject: String) {
+fn no_index_key(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let subject = &args[1];
     let a = cs(w);
-    assert!(index_keys_holding(&a, &predicate, uid(&a, &subject)).is_empty());
+    assert!(index_keys_holding(&a, predicate, uid(&a, subject)).is_empty());
 }
 
 fn direction(text: &str) -> CountDirection {
@@ -419,9 +454,14 @@ fn direction(text: &str) -> CountDirection {
 #[then(
     regex = r"^`(\w+)` is listed under (forward|reverse) count (\d+) of `(\w+)` and not under (\d+)$"
 )]
-fn listed_under(w: &mut Steps, node: String, dir: String, count: u32, predicate: String, not: u32) {
+fn listed_under(w: &mut Steps, args: &[String]) {
+    let node = &args[0];
+    let dir = &args[1];
+    let count: u32 = args[2].parse().expect("the step names a number");
+    let predicate = &args[3];
+    let not: u32 = args[4].parse().expect("the step names a number");
     let a = cs(w);
-    let counts = counts_of(&a, &predicate, direction(&dir), uid(&a, &node));
+    let counts = counts_of(&a, predicate, direction(dir), uid(&a, node));
     assert!(
         counts.contains(&count) && !counts.contains(&not),
         "{counts:?}"
@@ -429,10 +469,13 @@ fn listed_under(w: &mut Steps, node: String, dir: String, count: u32, predicate:
 }
 
 #[then(regex = r"^`(\w+)` is listed under no (forward|reverse) count key of `(\w+)`$")]
-fn listed_nowhere(w: &mut Steps, node: String, dir: String, predicate: String) {
+fn listed_nowhere(w: &mut Steps, args: &[String]) {
+    let node = &args[0];
+    let dir = &args[1];
+    let predicate = &args[2];
     let a = cs(w);
     assert_eq!(
-        counts_of(&a, &predicate, direction(&dir), uid(&a, &node)),
+        counts_of(&a, predicate, direction(dir), uid(&a, node)),
         Vec::<u32>::new()
     );
 }
@@ -469,7 +512,7 @@ fn reads_subject_list_only(w: &mut Steps) {
             .all(|r| r.keyspace() == Keyspace::Forward && r.predicate() == Some(tag)),
         "{read:?}"
     );
-    writes_insert_regions(w, "tag".to_string());
+    writes_insert_regions(w, &["tag".to_string()]);
 }
 
 #[when("`<a> <tag> \"x\"` is written and `a` is new to the store")]
@@ -503,9 +546,10 @@ fn reads_nothing(w: &mut Steps) {
 }
 
 #[then(regex = r"^the write reads the forward list of `(\w+)`$")]
-fn reads_forward(w: &mut Steps, predicate: String) {
+fn reads_forward(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
     let a = cs(w);
-    let p = uid(&a, &predicate);
+    let p = uid(&a, predicate);
     assert!(
         applied(w)
             .read()
@@ -527,9 +571,10 @@ fn wrote(w: &Steps, keyspace: Keyspace, predicate: Option<u64>) -> bool {
 #[then(
     regex = r"^the write writes the forward, reverse, predicate-list, index and statistics regions of `(\w+)`$"
 )]
-fn writes_insert_regions(w: &mut Steps, predicate: String) {
+fn writes_insert_regions(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
     let a = cs(w);
-    let p = Some(uid(&a, &predicate));
+    let p = Some(uid(&a, predicate));
     for (keyspace, predicate) in [
         (Keyspace::Forward, p),
         (Keyspace::Reverse, p),
@@ -543,9 +588,10 @@ fn writes_insert_regions(w: &mut Steps, predicate: String) {
 }
 
 #[then(regex = r"^the write writes the forward and reverse regions of `(\w+)`$")]
-fn writes_forward_reverse(w: &mut Steps, predicate: String) {
+fn writes_forward_reverse(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
     let a = cs(w);
-    let p = Some(uid(&a, &predicate));
+    let p = Some(uid(&a, predicate));
     assert!(wrote(w, Keyspace::Forward, p) && wrote(w, Keyspace::Reverse, p));
 }
 
@@ -559,24 +605,25 @@ fn writes_predicate_lists(w: &mut Steps) {
 #[when(
     regex = r"^a changeset inserting `(.+)` is executed and `(\w+)` holds other objects of `(\w+)`$"
 )]
-fn insert_beside_others(w: &mut Steps, text: String, subject: String, predicate: String) {
+fn insert_beside_others(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    let subject = &args[1];
+    let predicate = &args[2];
     let a = cs(w);
     crate::utils::changesets::write(&a, &[format!("<{subject}> <{predicate}> <other>")]);
-    let result = apply(&a, vec![insert(&text)]);
+    let result = apply(&a, vec![insert(text)]);
     w.results.push(result);
 }
 
 #[then(
     regex = r"^its read set holds the statement `(\w+)`, `(\w+)`, `(\w+)`, not the whole list of `(\w+)` of `(\w+)`$"
 )]
-fn read_set_holds_statement(
-    w: &mut Steps,
-    subject: String,
-    predicate: String,
-    object: String,
-    list_predicate: String,
-    list_subject: String,
-) {
+fn read_set_holds_statement(w: &mut Steps, args: &[String]) {
+    let subject = &args[0];
+    let predicate = &args[1];
+    let object = &args[2];
+    let list_predicate = &args[3];
+    let list_subject = &args[4];
     let a = cs(w);
     let reads = applied(w).reads();
     let key = |p: &str, s: &str| {
@@ -589,8 +636,8 @@ fn read_set_holds_statement(
         .to_bytes()
     };
     let tested = (
-        key(&predicate, &subject),
-        EncodedTerm::uid(uid(&a, &object)).as_bytes().to_vec(),
+        key(predicate, subject),
+        EncodedTerm::uid(uid(&a, object)).as_bytes().to_vec(),
     );
     assert!(
         reads.statements().contains(&tested),
@@ -598,7 +645,7 @@ fn read_set_holds_statement(
         reads.statements()
     );
     assert!(
-        !reads.lists().contains(&key(&list_predicate, &list_subject)),
+        !reads.lists().contains(&key(list_predicate, list_subject)),
         "{:?}",
         reads.lists()
     );
@@ -607,7 +654,8 @@ fn read_set_holds_statement(
 #[when(
     regex = r"^a transaction creates `<(\w+)>` and commits, and no other transaction created `<\w+>` meanwhile$"
 )]
-fn creates_and_commits(w: &mut Steps, name: String) {
+fn creates_and_commits(w: &mut Steps, args: &[String]) {
+    let name = &args[0];
     let a = cs(w);
     let executed = a
         .execute(&changeset(vec![insert(&format!("<{name}> <p> <q>"))]))
@@ -615,10 +663,10 @@ fn creates_and_commits(w: &mut Steps, name: String) {
     let provisional = executed
         .terms()
         .created()
-        .find(|(iri, _)| *iri == ex(&name).as_str())
+        .find(|(iri, _)| *iri == ex(name).as_str())
         .map(|(_, uid)| uid)
         .expect("the transaction creates the IRI");
-    assert_eq!(a.quads().uid_of(NS, ex(&name).as_str()).unwrap(), None);
+    assert_eq!(a.quads().uid_of(NS, ex(name).as_str()).unwrap(), None);
     let version = a.quads().lists().next_version();
     let applied = a
         .apply_round(vec![(version, executed)])
@@ -628,9 +676,10 @@ fn creates_and_commits(w: &mut Steps, name: String) {
 }
 
 #[then(regex = r"^`<(\w+)>` holds the UID the transaction gave it$")]
-fn holds_given_uid(w: &mut Steps, name: String) {
+fn holds_given_uid(w: &mut Steps, args: &[String]) {
+    let name = &args[0];
     let a = cs(w);
-    assert_eq!(Some(uid(&a, &name)), w.statement);
+    assert_eq!(Some(uid(&a, name)), w.statement);
 }
 
 #[then("both stores hold the same keys, versions and values")]
@@ -643,44 +692,50 @@ fn same_bytes(w: &mut Steps) {
 }
 
 #[then(regex = r"^the catalog holds `(\w+)` with the default entry$")]
-fn catalog_default(w: &mut Steps, predicate: String) {
+fn catalog_default(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
     let a = cs(w);
     a.forget_catalogs();
     let catalog = a.catalog(NS).expect("the catalog loads");
     assert_eq!(
-        catalog.predicate(uid(&a, &predicate)),
-        Some(&PredicateDeclaration::new(ex(&predicate)))
+        catalog.predicate(uid(&a, predicate)),
+        Some(&PredicateDeclaration::new(ex(predicate)))
     );
 }
 
 #[then(regex = r"^the catalog does not hold `(\w+)`$")]
-fn catalog_lacks(w: &mut Steps, predicate: String) {
+fn catalog_lacks(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
     let a = cs(w);
     a.forget_catalogs();
     let catalog = a.catalog(NS).expect("the catalog loads");
     let declared = a
         .quads()
-        .uid_of(NS, ex(&predicate).as_str())
+        .uid_of(NS, ex(predicate).as_str())
         .expect("the dictionary reads")
         .and_then(|p| catalog.predicate(p).cloned());
     assert_eq!(declared, None);
 }
 
 #[then(regex = r"^the forward posting of `(.+)` carries one statement ID$")]
-fn carries_id(w: &mut Steps, text: String) {
+fn carries_id(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let a = cs(w);
     let held = postings(&a, "a", "knows");
     let object = EncodedTerm::uid(uid(&a, "b"));
-    let ids = &held.iter().find(|(o, _)| *o == object).expect(&text).1;
+    let ids = &held.iter().find(|(o, _)| *o == object).expect(text).1;
     assert_eq!(ids.len(), 1);
     w.statement = Some(ids[0]);
 }
 
 #[then(regex = r"^the record of that ID holds `(.+)` and the property `(\S+) (.+)`$")]
-fn record_holds(w: &mut Steps, text: String, property: String, value: String) {
+fn record_holds(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    let property = &args[1];
+    let value = &args[2];
     let a = cs(w);
     let record = stored_record(&a, w.statement.expect("a statement ID")).expect("a record");
-    let t = statement(&text);
+    let t = statement(text);
     let name = |s: String| {
         s.trim_start_matches("<http://ex.org/")
             .trim_end_matches('>')
@@ -692,16 +747,18 @@ fn record_holds(w: &mut Steps, text: String, property: String, value: String) {
         record.object(),
         &EncodedTerm::uid(uid(&a, &name(t.object.to_string())))
     );
-    let [(p, v)] = record.properties() else {
-        panic!("one property: {:?}", record.properties())
-    };
+    let (p, v) = match record.properties() {
+        [one] => Ok(one),
+        more => Err(format!("one property: {more:?}")),
+    }
+    .expect("the record holds one property");
     assert_eq!(
         *p,
         uid(&a, property.trim_start_matches('<').trim_end_matches('>'))
     );
     assert_eq!(
         a.quads().term_of(NS, v).expect("the value decodes"),
-        term(&value)
+        term(value)
     );
 }
 

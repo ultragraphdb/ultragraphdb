@@ -438,9 +438,12 @@ fn test_drawn_faults_follow_the_configuration() {
     let log = s.take_log();
     let slowed: Vec<u64> = log
         .iter()
-        .filter_map(|r| match r {
-            OpRecord::Slowed { nanos } => Some(*nanos),
-            _ => None,
+        .filter_map(|r| {
+            if let OpRecord::Slowed { nanos } = r {
+                Some(*nanos)
+            } else {
+                None
+            }
         })
         .collect();
     assert_eq!(slowed.len(), 4, "every operation is slow: {log:?}");

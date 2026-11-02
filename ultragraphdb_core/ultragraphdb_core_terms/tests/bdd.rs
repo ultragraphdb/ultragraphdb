@@ -22,7 +22,10 @@ struct Steps {
 }
 
 fn no_uid(_: NamedNodeRef<'_>) -> Result<u64, TermError> {
-    panic!("a known datatype needs no UID")
+    Err(TermError::Malformed(
+        Vec::new(),
+        "a known datatype needs no UID",
+    ))
 }
 
 impl Steps {
@@ -41,14 +44,19 @@ impl Steps {
             .view()
             .expect("views")
             .to_literal(
-                |_| -> Result<NamedNode, TermError> { panic!("a known datatype needs no IRI") },
+                |_| {
+                    Err(TermError::Malformed(
+                        Vec::new(),
+                        "a known datatype needs no IRI",
+                    ))
+                },
                 |h| Ok(self.dictionary[&h].clone()),
             )
             .expect("decodes")
     }
 }
 
-fn vector(lexical: &str) -> Literal {
+fn vector(lexical: impl Into<String>) -> Literal {
     Literal::new_typed_literal(lexical, NamedNode::new_unchecked(FLOAT32_VECTOR))
 }
 
@@ -103,26 +111,27 @@ fn encode_french(w: &mut Steps, lexical: String) {
 }
 
 #[then(expr = "its encoding holds {word} and {word} inline, and decodes to {string}@fr")]
-fn french_inline(w: &mut Steps, lexical: String, language: String, decoded: String) {
+fn french_inline(w: &mut Steps, parts: &[String]) {
+    let (lexical, language, decoded) = (&parts[0], &parts[1], &parts[2]);
     assert_eq!(
         w.encoded[0].view(),
         Ok(TermView::LangString {
-            lexical: Text::Inline(&lexical),
-            language: Text::Inline(&language),
+            lexical: Text::Inline(lexical),
+            language: Text::Inline(language),
             direction: None,
         })
     );
     assert!(w.dictionary.is_empty());
     assert_eq!(
         w.decode(0),
-        Literal::new_language_tagged_literal(decoded, "fr").unwrap()
+        Literal::new_language_tagged_literal(decoded.as_str(), "fr").unwrap()
     );
 }
 
 #[when("a 768-element ugdb:float32vector literal is written")]
 fn encode_large_vector(w: &mut Steps) {
     let elements: Vec<String> = (0..768).map(|i| format!("{}", i as f32 / 8.0)).collect();
-    w.encode(vector(&format!("[{}]", elements.join(", "))));
+    w.encode(vector(format!("[{}]", elements.join(", "))));
 }
 
 #[then(
@@ -139,12 +148,12 @@ fn large_vector_by_value(w: &mut Steps) {
 
 #[when(expr = "{string}^^ugdb:float32vector is written and read back")]
 fn round_trip_vector(w: &mut Steps, lexical: String) {
-    w.encode(vector(&lexical));
+    w.encode(vector(lexical));
 }
 
 #[then(expr = "the read returns {string}^^ugdb:float32vector")]
 fn vector_read_back(w: &mut Steps, lexical: String) {
-    assert_eq!(w.decode(0), vector(&lexical));
+    assert_eq!(w.decode(0), vector(lexical));
 }
 
 fn main() {

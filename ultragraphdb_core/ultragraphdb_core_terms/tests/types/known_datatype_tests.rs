@@ -73,7 +73,9 @@ const SECTION_10_4: [(u8, &str); 33] = [
 #[test]
 fn test_each_code_names_the_datatype_section_10_4_gives_it() {
     for (code, iri) in SECTION_10_4 {
-        let datatype = KnownDatatype::from_code(code).unwrap_or_else(|| panic!("code {code}"));
+        let datatype = KnownDatatype::from_code(code)
+            .ok_or_else(|| format!("code {code}"))
+            .expect("a code of section 10.4");
         assert_eq!(datatype.iri(), iri, "code {code}");
         assert_eq!(KnownDatatype::from_iri(iri), Some(datatype), "{iri}");
         assert_eq!(datatype.code(), code, "{iri}");
@@ -86,7 +88,9 @@ fn test_each_code_names_the_datatype_section_10_4_gives_it() {
 fn test_exactly_codes_1_to_16_are_encoded_by_value() {
     // Section 10.4: "codes 1 to 16 are also the by-value datatypes"; 16 and 17 are the threshold and one past it.
     for (code, iri) in SECTION_10_4 {
-        let datatype = KnownDatatype::from_code(code).unwrap_or_else(|| panic!("code {code}"));
+        let datatype = KnownDatatype::from_code(code)
+            .ok_or_else(|| format!("code {code}"))
+            .expect("a code of section 10.4");
         assert_eq!(datatype.by_value(), code <= 16, "{iri}");
     }
     assert!(KnownDatatype::Boolean.by_value() && !KnownDatatype::Long.by_value());

@@ -18,5 +18,6 @@ pub(crate) fn ilogb(x: f64) -> i64 {
         return i64::from(i32::MAX);
     }
     let (x, exp) = normalize(x);
-    ((x.to_bits() >> SHIFT) & MASK) as i64 - BIAS + exp
+    // The masked exponent field is 11 bits wide, so reading it as signed keeps its value.
+    ((x.to_bits() >> SHIFT) & MASK).cast_signed() - BIAS + exp
 }

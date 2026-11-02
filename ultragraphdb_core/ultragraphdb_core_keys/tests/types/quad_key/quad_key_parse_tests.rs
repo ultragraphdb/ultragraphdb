@@ -17,10 +17,12 @@ fn test_every_proper_prefix_of_every_key_is_refused_unless_a_shorter_token_makes
         for whole in std::iter::once(bytes).chain(splits) {
             for end in 0..whole.len() {
                 let prefix = &whole[..end];
-                match std::panic::catch_unwind(|| QuadKey::parse(prefix)).expect("no panic") {
-                    Err(_) => {}
-                    Ok((QuadKey::ValueIndex { .. }, _)) if end >= 26 => {}
-                    Ok(parsed) => panic!("{prefix:?} of {key:?} parsed as {parsed:?}"),
+                let result = std::panic::catch_unwind(|| QuadKey::parse(prefix)).expect("no panic");
+                if let Ok(parsed) = result {
+                    assert!(
+                        matches!(parsed, (QuadKey::ValueIndex { .. }, _) if end >= 26),
+                        "{prefix:?} of {key:?} parsed as {parsed:?}"
+                    );
                 }
             }
         }

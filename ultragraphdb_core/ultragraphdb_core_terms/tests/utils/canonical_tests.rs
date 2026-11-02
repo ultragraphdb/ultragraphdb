@@ -13,9 +13,10 @@ fn by_value(lexical: &str) -> Option<i64> {
     let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))
         .unwrap()
         .into_term();
-    match term.view().unwrap() {
-        TermView::Integer(v) => Some(i64::from(v)),
-        _ => None,
+    if let TermView::Integer(v) = term.view().unwrap() {
+        Some(i64::from(v))
+    } else {
+        None
     }
 }
 

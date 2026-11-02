@@ -30,7 +30,7 @@ fn test_each_exchange_is_a_fresh_client_with_the_next_nonce() {
         first,
         {
             let mut expected = ScramClient::new("user", "pencil", "nonce1").unwrap();
-            let _ = expected.first_message();
+            assert_eq!(expected.first_message().unwrap(), b"n,,n=user,r=nonce1");
             expected
         },
         "the client of the login's name, password and nonce"

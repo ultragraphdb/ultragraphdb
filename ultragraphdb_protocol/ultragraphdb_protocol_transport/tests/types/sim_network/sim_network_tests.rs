@@ -20,8 +20,13 @@ fn read(stream: &SimStream, room: usize) -> Poll<Option<Vec<u8>>> {
 fn drain(stream: &mut SimStream) -> Vec<Vec<u8>> {
     let mut chunks = Vec::new();
     while stream.pending() > 0 {
-        let Poll::Ready(Some(buf)) = read(stream, 1 << 16) else {
-            panic!("arrived bytes are ready");
+        let chunk = read(stream, 1 << 16);
+        assert!(
+            matches!(chunk, Poll::Ready(Some(_))),
+            "arrived bytes are ready: {chunk:?}"
+        );
+        let Poll::Ready(Some(buf)) = chunk else {
+            break;
         };
         chunks.push(buf);
     }

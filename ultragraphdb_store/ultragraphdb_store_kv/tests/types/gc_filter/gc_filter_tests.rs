@@ -23,7 +23,7 @@ fn verdicts(filter: &mut GcFilter, items: &[(&[u8], u64, u8)]) -> Vec<&'static s
                 Verdict::Keep => "keep",
                 Verdict::Remove => "remove",
                 Verdict::Destroy => "destroy",
-                _ => "other",
+                Verdict::RemoveWeak | Verdict::ReplaceValue(_) | _ => "other",
             },
         )
         .collect()

@@ -40,7 +40,7 @@ impl Angle {
     }
 
     /// Reports whether this angle is infinite.
-    pub(crate) fn is_inf(&self) -> bool {
+    pub(crate) fn is_inf(self) -> bool {
         self.0.is_infinite()
     }
 

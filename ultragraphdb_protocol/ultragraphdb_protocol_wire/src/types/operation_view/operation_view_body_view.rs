@@ -26,7 +26,8 @@ impl<'a> BodyView<'a> for OperationView<'a> {
         let header = expect_command(frame, Self::COMMAND)?;
         header.unused_zero(&[(0, 1), (8, 24)])?;
         let kind = header.u8_at(0);
-        let delta = header.u64_at(8) as i64;
+        // The delta is an i64 carried in the u64 field's bits, two's complement.
+        let delta = header.u64_at(8).cast_signed();
         let properties = header.u32_at(16);
         let links = header.u32_at(20);
         if !(1..=4).contains(&kind) {

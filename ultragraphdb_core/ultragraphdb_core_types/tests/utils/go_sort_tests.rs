@@ -29,11 +29,13 @@ struct SortOrderCase {
 /// The value a golden key stands for: an int, half the key as a float, or its decimal text; `None` a nil value.
 fn val(tid: &str, key: Option<i64>) -> Val {
     let t = match tid {
-        "int" => TypeId::INT,
-        "float" => TypeId::FLOAT,
-        "string" => TypeId::STRING,
-        other => panic!("golden tid {other:?}"),
-    };
+        "int" => Some(TypeId::INT),
+        "float" => Some(TypeId::FLOAT),
+        "string" => Some(TypeId::STRING),
+        _ => None,
+    }
+    .ok_or_else(|| format!("golden tid {tid:?}"))
+    .expect("a golden tid");
     match key {
         None => Val::nil(t),
         Some(k) => Val::new(
@@ -68,11 +70,13 @@ fn test_golden_sort_order_of_ties() {
             "sort" => {
                 assert!(c.keys.iter().all(Option::is_some), "{}", c.name);
                 assert!(!c.desc, "{}", c.name);
-                "int"
+                Some("int")
             }
-            "types" => c.tid.as_str(),
-            other => panic!("golden layer {other:?}"),
-        };
+            "types" => Some(c.tid.as_str()),
+            _ => None,
+        }
+        .ok_or_else(|| format!("golden layer {:?}", c.layer))
+        .expect("a golden layer");
         let mut rows: Vec<Vec<Val>> = c.keys.iter().map(|k| vec![val(tid, *k)]).collect();
         let mut uids: Vec<u64> = (0..c.keys.len() as u64).collect();
         sort(&mut rows, &mut uids, &[c.desc], "", &TextCollator).unwrap();

@@ -116,6 +116,25 @@ where
 fn elements(encoding: &[u8]) -> Option<Vec<u8>> {
     match EncodedTerm::from_bytes(encoding).ok()?.view().ok()? {
         TermView::Vector(v) => Some(v.as_bytes().to_vec()),
-        _ => None,
+        TermView::Uid(_)
+        | TermView::Boolean(_)
+        | TermView::Integer(_)
+        | TermView::Decimal(_)
+        | TermView::Double(_)
+        | TermView::Float(_)
+        | TermView::DateTime(_)
+        | TermView::Time(_)
+        | TermView::Date(_)
+        | TermView::GYearMonth(_)
+        | TermView::GYear(_)
+        | TermView::GMonthDay(_)
+        | TermView::GDay(_)
+        | TermView::GMonth(_)
+        | TermView::Duration(_)
+        | TermView::YearMonthDuration(_)
+        | TermView::DayTimeDuration(_)
+        | TermView::String(_)
+        | TermView::LangString { .. }
+        | TermView::Typed { .. } => None,
     }
 }

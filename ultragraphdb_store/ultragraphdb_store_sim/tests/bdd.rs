@@ -71,8 +71,14 @@ fn run_twice(w: &mut Steps) {
 
 #[then("both runs perform the same operations, inject the same faults and end in the same state")]
 fn runs_equal(w: &mut Steps) {
-    let first = w.runs[0].as_ref().unwrap_or_else(|v| panic!("{v}"));
-    let second = w.runs[1].as_ref().unwrap_or_else(|v| panic!("{v}"));
+    let first = w.runs[0]
+        .as_ref()
+        .map_err(|v| v.to_string())
+        .expect("the first run breaks no invariant");
+    let second = w.runs[1]
+        .as_ref()
+        .map_err(|v| v.to_string())
+        .expect("the second run breaks no invariant");
     assert_eq!(first.trace(), second.trace());
     assert_eq!(first.contents(), second.contents());
     let faults = [
@@ -318,7 +324,8 @@ fn broken_run(w: &mut Steps) {
                 2 => Entry::put(b"\x00key".to_vec(), 5, 0x08, b"v".to_vec()),
                 n => Entry::put(b"\x00other".to_vec(), 10 + n, 0x04, b"v".to_vec()),
             });
-            let _ = ctx.store().apply(batch, PersistMode::Buffer);
+            // The model, reading the log, finds the write below the deletion whatever the store answered.
+            drop(ctx.store().apply(batch, PersistMode::Buffer));
         }
         Ok(())
     }));

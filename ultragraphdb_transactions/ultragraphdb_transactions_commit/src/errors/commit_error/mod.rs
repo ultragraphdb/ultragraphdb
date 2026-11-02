@@ -133,7 +133,19 @@ impl CommitError {
     pub fn found(&self) -> Option<&str> {
         match &self.0 {
             CommitErrorEnum::OperationFailed { found } => found.as_deref(),
-            _ => None,
+            CommitErrorEnum::Conflict { .. }
+            | CommitErrorEnum::TooOld { .. }
+            | CommitErrorEnum::TooLarge { .. }
+            | CommitErrorEnum::Malformed { .. }
+            | CommitErrorEnum::Unsealed
+            | CommitErrorEnum::Busy { .. }
+            | CommitErrorEnum::Unavailable
+            | CommitErrorEnum::SessionEvicted { .. }
+            | CommitErrorEnum::RequestOutOfOrder { .. }
+            | CommitErrorEnum::SessionBusy { .. }
+            | CommitErrorEnum::NotCommitted { .. }
+            | CommitErrorEnum::PermissionDenied { .. }
+            | CommitErrorEnum::Refused { .. } => None,
         }
     }
 
@@ -168,7 +180,13 @@ impl CommitError {
             CommitErrorEnum::RequestOutOfOrder { expected } => expected,
             CommitErrorEnum::NotCommitted { request } => request,
             CommitErrorEnum::PermissionDenied { .. } => Action::Write.number(),
-            _ => 0,
+            CommitErrorEnum::TooOld { .. }
+            | CommitErrorEnum::Malformed { .. }
+            | CommitErrorEnum::Unsealed
+            | CommitErrorEnum::Busy { .. }
+            | CommitErrorEnum::Unavailable
+            | CommitErrorEnum::OperationFailed { .. }
+            | CommitErrorEnum::Refused { .. } => 0,
         }
     }
 

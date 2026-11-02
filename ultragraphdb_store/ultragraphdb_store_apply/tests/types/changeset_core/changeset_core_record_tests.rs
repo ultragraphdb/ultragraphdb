@@ -25,7 +25,10 @@ fn restarted(a: TestChangesets) -> TestChangesets {
     let store = a.quads().store().clone();
     store.crash();
     store.recover();
-    changesets_over(store)
+    let restarted = changesets_over(store);
+    // The applier the crash ended goes once the restarted one is open, as it always did.
+    drop(a);
+    restarted
 }
 
 /// `name` indexed by `term` holding `"big apple"` for `a`; `exact` added while `b` writes `"red pear"`, the build

@@ -664,7 +664,7 @@ fn test_a_new_request_on_an_open_stream_closes_before_its_body_is_read() {
     peer.skip();
     Header::stamp_sequence(&mut bad, 6).unwrap();
     assert_eq!(
-        connection.receive(&peer.raw(bad), now),
+        connection.receive(&peer.raw(&bad), now),
         Inbound::Closing {
             code: Some(ErrorCode::Protocol)
         }
@@ -1032,7 +1032,7 @@ fn test_a_read_breaking_its_bodys_rule_on_a_new_stream_is_refused_on_it() {
     peer.skip();
     Header::stamp_sequence(&mut bad, 5).unwrap();
     assert_eq!(
-        connection.receive(&peer.raw(bad), now),
+        connection.receive(&peer.raw(&bad), now),
         Inbound::Refused {
             stream: 3,
             code: ErrorCode::Protocol

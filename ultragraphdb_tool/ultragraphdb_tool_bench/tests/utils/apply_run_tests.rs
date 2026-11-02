@@ -3,39 +3,58 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use ultragraphdb_tool_bench::{BenchErrorEnum, Command, run_apply};
+use ultragraphdb_tool_bench::{ApplyArgs, BenchErrorEnum, Command, run_apply};
 
 fn fresh(name: &str) -> PathBuf {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-apply-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     dir
+}
+
+/// The apply run of `flags` in `dir`.
+fn apply_args(dir: &Path, flags: &str) -> ApplyArgs {
+    let line = format!("apply --dir {} {flags}", dir.display());
+    let args: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+    match Command::parse(&args).unwrap() {
+        Command::Apply(a) => Some(a),
+        Command::Rollup(_) => None,
+    }
+    .expect("an apply run")
 }
 
 /// The report of an apply run of `flags` in a fresh directory, parsed.
 fn report(name: &str, flags: &str) -> Value {
     let dir = fresh(name);
-    let line = format!("apply --dir {} {flags}", dir.display());
-    let args: Vec<String> = line.split_whitespace().map(str::to_string).collect();
-    let Command::Apply(a) = Command::parse(&args).unwrap() else {
-        panic!("an apply run");
-    };
+    let a = apply_args(&dir, flags);
     let report = run_apply(&a).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
     eprintln!("{report}");
     assert!(!report.contains('\n'), "one line: {report}");
     serde_json::from_str(&report).expect("the report is one JSON object")
 }
 
 fn u(v: &Value) -> u64 {
-    v.as_u64().unwrap_or_else(|| panic!("{v} is no count"))
+    v.as_u64()
+        .ok_or_else(|| format!("{v} is no count"))
+        .expect("a count")
 }
 
 fn f(v: &Value) -> f64 {
-    v.as_f64().unwrap_or_else(|| panic!("{v} is no number"))
+    v.as_f64()
+        .ok_or_else(|| format!("{v} is no number"))
+        .expect("a number")
 }
 
 /// A summary's p50 <= p99 <= max and mean <= max: what nearest-rank percentiles of any samples satisfy.
@@ -106,6 +125,12 @@ fn check_run(r: &Value, relations: u64) {
     assert_eq!(f(&r["stall_excess_ms"]), 0.0);
     assert!(u(&r["max_l0_tables"]) < 20 && u(&r["max_sealed_memtables"]) < 4);
     assert!(u(&r["write_baseline_ns_per_entry"]) > 0);
+    check_machine_fields(r, applied * relations);
+}
+
+/// The CPU and memory fields, numbers on Linux alone, and the files, their total the sum of their kinds and its du
+/// bytes per relation of the `relations` written.
+fn check_machine_fields(r: &Value, relations: u64) {
     // /proc exists on Linux alone; elsewhere the CPU and memory fields are null.
     for field in [
         "cpu_s",
@@ -132,7 +157,7 @@ fn check_run(r: &Value, relations: u64) {
         assert_eq!(u(&files["total"][measure]), sum, "{measure}");
     }
     let per_relation = f(&r["du_bytes_per_relation"]);
-    let expected = u(&files["total"]["du_bytes"]) as f64 / (applied * relations) as f64;
+    let expected = u(&files["total"]["du_bytes"]) as f64 / relations as f64;
     assert!(
         (per_relation - expected).abs() <= 0.05,
         "{per_relation} {expected}"
@@ -183,13 +208,7 @@ fn test_an_apply_run_with_rollups_reports_their_keys_and_write_calls() {
 fn test_an_apply_run_refuses_a_directory_that_exists() {
     let dir = fresh("exists");
     std::fs::create_dir_all(&dir).unwrap();
-    let args: Vec<String> = format!("apply --dir {} --rate 10", dir.display())
-        .split_whitespace()
-        .map(str::to_string)
-        .collect();
-    let Command::Apply(a) = Command::parse(&args).unwrap() else {
-        panic!("an apply run");
-    };
+    let a = apply_args(&dir, "--rate 10");
     let error = run_apply(&a).unwrap_err();
     let expected = format!(
         "{} exists; every run takes a fresh directory",
@@ -203,5 +222,5 @@ fn test_an_apply_run_refuses_a_directory_that_exists() {
         std::fs::read_dir(&dir).unwrap().next().is_none(),
         "nothing written"
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }

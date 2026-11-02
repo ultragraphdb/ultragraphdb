@@ -72,7 +72,9 @@ impl DateTime {
         let (min, sec) = norm(min, sec, 60);
         let (hour, min) = norm(hour, min, 60);
         let (day, hour) = norm(day, hour, 24);
-        let mut unix = (date_to_abs_days(year, month as u32, day) as i64)
+        // Go's int64(uint64): the day count read as two's complement.
+        let mut unix = date_to_abs_days(year, month as u32, day)
+            .cast_signed()
             .wrapping_mul(86400)
             .wrapping_add(hour * 3600 + min * 60 + sec)
             .wrapping_add(ABSOLUTE_TO_UNIX);

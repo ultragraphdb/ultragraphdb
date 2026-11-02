@@ -22,7 +22,8 @@ fn test_seeds_without_faults() {
     let (mut inserts, mut searches) = (0, 0);
     for seed in 1..=12 {
         let (outcome, i, s) = HnswWorkload::run(Seed::new(seed), FaultConfig::none(), 300, 2)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         assert!(!outcome.contents().keys().is_empty());
         inserts += i;
         searches += s;
@@ -36,7 +37,8 @@ fn test_seeds_with_faults() {
     let (mut inserts, mut searches) = (0, 0);
     for seed in 100..=129 {
         let (_, i, s) = HnswWorkload::run(Seed::new(seed), HnswWorkload::faults(), 300, 2)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         inserts += i;
         searches += s;
     }
@@ -69,7 +71,8 @@ fn test_the_workload_rules_hold_on_fjall() {
     let root =
         std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, std::path::PathBuf::from);
     let dir = root.join(format!("hnsw-workload-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory an earlier run left behind, which is usually absent.
+    drop(std::fs::remove_dir_all(&dir));
     let lists = lists_over(FjallStore::open(&dir, Durability::Process).expect("the store opens"));
     let p = pred("emb");
     let o = opts(&[
@@ -115,5 +118,6 @@ fn test_the_workload_rules_hold_on_fjall() {
         assert!(scores.windows(2).all(|w| w[0] <= w[1]), "{scores:?}");
     }
     drop(lists);
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory left behind is litter in the temporary directory, not a failure of the test.
+    drop(std::fs::remove_dir_all(&dir));
 }

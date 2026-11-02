@@ -114,7 +114,11 @@ impl Outbound {
     fn stamped(&mut self, mut frame: Vec<u8>) -> Vec<u8> {
         self.sequence = self.sequence.saturating_add(1);
         // push and push_connection proved the header present, so the stamp holds.
-        let _ = Header::stamp_sequence(&mut frame, self.sequence);
+        let stamped = Header::stamp_sequence(&mut frame, self.sequence);
+        debug_assert!(
+            stamped.is_ok(),
+            "a queued frame holds a header: {stamped:?}"
+        );
         frame
     }
 

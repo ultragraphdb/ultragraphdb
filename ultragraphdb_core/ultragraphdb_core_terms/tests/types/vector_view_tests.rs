@@ -13,9 +13,13 @@ fn test_a_view_reads_the_elements_in_place() {
     let term = EncodedTerm::literal(literal.as_ref(), |_| Ok::<_, TermError>(0))
         .unwrap()
         .into_term();
-    let TermView::Vector(view) = term.view().unwrap() else {
-        panic!("a vector");
-    };
+    let view = term.view().unwrap();
+    let view = if let TermView::Vector(v) = view {
+        Some(v)
+    } else {
+        None
+    }
+    .expect("a vector");
     assert_eq!((view.len(), view.is_empty()), (3, false));
     assert_eq!(view.iter().collect::<Vec<_>>(), vec![1.0, -2.5, 3.0]);
     // IEEE 754 binary32, little-endian (PROTOCOL.md section 10.1): 1 is 0x3F800000, -2.5 0xC0200000, 3 0x40400000.

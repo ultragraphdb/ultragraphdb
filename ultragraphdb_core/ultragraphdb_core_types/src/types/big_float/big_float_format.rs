@@ -10,7 +10,7 @@
 use dashu_int::UBig;
 use dashu_int::ops::BitTest;
 
-use crate::types::big_float::{BigFloat, Form};
+use crate::types::big_float::{BigFloat, Form, go_int};
 
 /// Go's `decimal`: digits without trailing zeros and the decimal point position (value = 0.mant × 10^exp).
 struct Decimal {
@@ -31,14 +31,14 @@ impl Decimal {
             (m << shift as usize, 0)
         } else {
             let tz = m.trailing_zeros().unwrap_or(0).min((-shift) as usize);
-            let (m, shift) = (m >> tz, shift + tz as i64);
+            let (m, shift) = (m >> tz, shift + go_int(tz));
             (m * UBig::from(5u8).pow((-shift) as usize), shift)
         };
         let s = n.to_string();
         let digits = s.trim_end_matches('0');
         Decimal {
             mant: digits.as_bytes().to_vec(),
-            exp: s.len() as i64 + exp10,
+            exp: go_int(s.len()) + exp10,
         }
     }
 
@@ -124,7 +124,7 @@ impl BigFloat {
         let mut prec = prec;
         if shortest {
             self.round_shortest(&mut d, &mant, exp);
-            prec = d.mant.len() as i64;
+            prec = go_int(d.mant.len());
         } else {
             if prec == 0 {
                 prec = 1;
@@ -132,21 +132,21 @@ impl BigFloat {
             d.round(prec);
         }
         let mut eprec = prec;
-        if eprec > d.mant.len() as i64 && d.mant.len() as i64 >= d.exp {
-            eprec = d.mant.len() as i64;
+        if eprec > go_int(d.mant.len()) && go_int(d.mant.len()) >= d.exp {
+            eprec = go_int(d.mant.len());
         }
         if shortest {
             eprec = 6;
         }
         let e = d.exp - 1;
         if e < -4 || e >= eprec {
-            if prec > d.mant.len() as i64 {
-                prec = d.mant.len() as i64;
+            if prec > go_int(d.mant.len()) {
+                prec = go_int(d.mant.len());
             }
             fmt_e(&mut buf, prec - 1, &d);
         } else {
             if prec > d.exp {
-                prec = d.mant.len() as i64;
+                prec = go_int(d.mant.len());
             }
             fmt_f(&mut buf, (prec - d.exp).max(0), &d);
         }
@@ -158,7 +158,7 @@ impl BigFloat {
         if d.mant.is_empty() {
             return;
         }
-        let s = m.bit_len() as i64 - (i64::from(self.prec) + 1);
+        let s = go_int(m.bit_len()) - (i64::from(self.prec) + 1);
         let (mant, exp) = if s < 0 {
             (m << (-s) as usize, exp + s)
         } else {
@@ -180,7 +180,7 @@ impl BigFloat {
                     || i + 1 < upper.mant.len()
                     || i >= upper.mant.len() && m < b'9');
             if okdown && okup {
-                d.round(i as i64 + 1);
+                d.round(go_int(i) + 1);
                 return;
             } else if okdown {
                 d.round_down(i + 1);
@@ -239,7 +239,7 @@ fn fmt_e(buf: &mut String, prec: i64, d: &Decimal) {
             d.mant[i..m].iter().for_each(|&c| buf.push(c as char));
             i = m;
         }
-        while i as i64 <= prec {
+        while go_int(i) <= prec {
             buf.push('0');
             i += 1;
         }

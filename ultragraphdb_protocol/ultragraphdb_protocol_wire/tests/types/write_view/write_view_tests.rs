@@ -49,6 +49,15 @@ fn test_the_golden_write_reads_its_changes_and_terms() {
     assert_eq!(view.to_body().unwrap(), golden_write());
 }
 
+/// The refusal of a Write's field `field` holding `value`.
+fn field_value(field: &'static str, value: u64) -> ProtocolErrorEnum {
+    ProtocolErrorEnum::FieldValue {
+        command: 8,
+        field,
+        value,
+    }
+}
+
 #[test]
 fn test_records_are_whole_known_and_zero_where_unused() {
     assert_eq!(
@@ -60,71 +69,21 @@ fn test_records_are_whole_known_and_zero_where_unused() {
             unit: 16
         }
     );
-    assert_eq!(
-        refused(0, |r| r[0] = 11),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "change kind",
-            value: 11
-        }
-    );
-    assert_eq!(
-        refused(0, |r| r[0] = 0),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "change kind",
-            value: 0
-        }
-    );
+    assert_eq!(refused(0, |r| r[0] = 11), field_value("change kind", 11));
+    assert_eq!(refused(0, |r| r[0] = 0), field_value("change kind", 0));
     // Insert takes no flags; DeleteProperty only bit 0; a predicate declaration's kind bits only 0 to 2.
-    assert_eq!(
-        refused(0, |r| r[1] = 1),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "flags",
-            value: 1
-        }
-    );
-    assert_eq!(
-        refused(0, |r| r[16 * 6 + 1] = 3),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "flags",
-            value: 3
-        }
-    );
+    assert_eq!(refused(0, |r| r[1] = 1), field_value("flags", 1));
+    assert_eq!(refused(0, |r| r[16 * 6 + 1] = 3), field_value("flags", 3));
     assert_eq!(
         refused(0, |r| r[16 * 10 + 1] = 3 | 4),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "flags",
-            value: 7
-        }
+        field_value("flags", 7)
     );
     assert_eq!(
         refused(0, |r| r[16 * 10 + 1] = 64 | 1),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "flags",
-            value: 65
-        }
+        field_value("flags", 65)
     );
-    assert_eq!(
-        refused(0, |r| r[2] = 1),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "change record",
-            value: 1
-        }
-    );
-    assert_eq!(
-        refused(0, |r| r[16 * 12 + 12] = 1),
-        ProtocolErrorEnum::FieldValue {
-            command: 8,
-            field: "extra",
-            value: 1
-        }
-    );
+    assert_eq!(refused(0, |r| r[2] = 1), field_value("change record", 1));
+    assert_eq!(refused(0, |r| r[16 * 12 + 12] = 1), field_value("extra", 1));
 }
 
 #[test]

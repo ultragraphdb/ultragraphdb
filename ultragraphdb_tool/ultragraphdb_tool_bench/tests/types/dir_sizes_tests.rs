@@ -10,7 +10,15 @@ use ultragraphdb_tool_bench::DirSizes;
 fn fresh(name: &str) -> PathBuf {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("bench-sizes-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A previous run's directory, if one is left.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "cannot clear {}: {e}",
+            dir.display()
+        );
+    }
     dir
 }
 
@@ -56,7 +64,7 @@ fn test_the_sizes_split_data_journal_and_metadata() {
         sizes.total().allocated(),
         sizes.data().allocated() + sizes.journal().allocated() + sizes.metadata().allocated()
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }
 
 #[test]
@@ -74,5 +82,5 @@ fn test_an_empty_directory_has_no_size() {
         DirSizes::of(&dir, &dir.join("data")).unwrap(),
         DirSizes::default()
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("removing the test's directory");
 }

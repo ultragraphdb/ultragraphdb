@@ -94,9 +94,13 @@ fn read_only_ends(w: &mut Steps) {
     w.read = objects(&mut txn, "a", "name", 0).expect("the first read");
     commit(&applier, vec![insert_literal("a", "name", "B")]);
     w.later = objects(&mut txn, "a", "name", SECOND).expect("the read after the commit");
-    match txn.commit(0, 0, &[], 2 * SECOND) {
-        Ok(Commit::ReadOnly(_)) => w.ended = true,
-        Ok(Commit::ReadWrite(_)) => panic!("a read-only transaction goes to the commit step"),
+    let committed = txn.commit(0, 0, &[], 2 * SECOND);
+    assert!(
+        !matches!(committed, Ok(Commit::ReadWrite(_))),
+        "a read-only transaction goes to the commit step"
+    );
+    match committed {
+        Ok(_) => w.ended = true,
         Err(e) => w.errors.push(e),
     }
 }

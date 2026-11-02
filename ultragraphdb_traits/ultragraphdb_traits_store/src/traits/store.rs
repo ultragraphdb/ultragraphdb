@@ -126,20 +126,20 @@ pub trait Store {
     /// the versionless writes themselves are ignored, as are the applied timestamp and the removed rebuild records; no
     /// entry is dropped for a banned namespace. A failed write poisons the store as a failed batch does.
     fn apply_temporary(&self, temporary: &Temporary, batch: WriteBatch) -> Result<(), StoreError> {
-        let _ = (temporary, batch);
+        let _unsupported: (&Temporary, WriteBatch) = (temporary, batch);
         Err(StoreError::Unsupported("temporary keyspaces"))
     }
 
     /// A snapshot of `temporary` reading every version it holds, as a snapshot of the data at `u64::MAX` reads; it
     /// holds no discard timestamp back.
     fn temporary_snapshot(&self, temporary: &Temporary) -> Result<Self::Snapshot, StoreError> {
-        let _ = temporary;
+        let _unsupported: &Temporary = temporary;
         Err(StoreError::Unsupported("temporary keyspaces"))
     }
 
     /// Drops `temporary` and everything it holds.
     fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
-        let _ = temporary;
+        let _unsupported: Temporary = temporary;
         Err(StoreError::Unsupported("temporary keyspaces"))
     }
 
@@ -147,7 +147,7 @@ pub trait Store {
     /// replaced. A batch removes it ([`WriteBatch::remove_rebuild_record`]), and dropping everything removes every
     /// record.
     fn write_rebuild_record(&self, record: &RebuildRecord) -> Result<(), StoreError> {
-        let _ = record;
+        let _unsupported: &RebuildRecord = record;
         Err(StoreError::Unsupported("rebuild records"))
     }
 

@@ -130,7 +130,7 @@ fn test_every_bit_flip_of_every_body_reads_or_is_refused_without_a_panic() {
             let mut flipped = data.clone();
             flipped[bit / 8] ^= 1 << (bit % 8);
             // A flip may give another valid body, a term's text changed; it must never panic.
-            let _ = view_any(&reframe(&bytes, &flipped));
+            let _read_or_refused: Result<(), ProtocolError> = view_any(&reframe(&bytes, &flipped));
         }
     }
 }
@@ -141,7 +141,7 @@ fn test_every_bit_flip_of_every_command_header_reads_or_is_refused_without_a_pan
         let bytes = body.bytes();
         for bit in 0..128 * 8 {
             let flipped = with_command_header(&bytes, |h| h[bit / 8] ^= 1 << (bit % 8));
-            let _ = view_any(&flipped);
+            let _read_or_refused: Result<(), ProtocolError> = view_any(&flipped);
         }
     }
 }
@@ -164,7 +164,10 @@ fn test_each_unused_command_header_byte_must_be_zero() {
     }
 }
 
-fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
+/// A layout case: its name, the body data, and the refusal it gets.
+type LayoutCase = (String, Vec<u8>, ProtocolErrorEnum);
+
+fn layout_cases(body: GoldenBody) -> Vec<LayoutCase> {
     let bytes = body.bytes();
     let data = body_data(&bytes).to_vec();
     let n = sections_of(body.command);
@@ -185,6 +188,14 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
     if n == 0 {
         return cases;
     }
+    bounds_cases(command, n, &data, &mut cases);
+    order_cases(command, n, &data, &mut cases);
+    gap_cases(command, n, &data, &mut cases);
+    cases
+}
+
+/// The cases of a table or a section outside the body of `data`, `command`'s, of `n` sections.
+fn bounds_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
     // A body shorter than its section table.
     cases.push((
         "shorter than the table".to_string(),
@@ -196,7 +207,7 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
         },
     ));
     // Section 0's offset past the body.
-    let mut past = data.clone();
+    let mut past = data.to_vec();
     let past_at = (data.len() + 8) as u32;
     put(&mut past, 0, past_at.into(), 4);
     cases.push((
@@ -206,13 +217,13 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
             command,
             section: 0,
             offset: past_at,
-            len: section(&data, 0, 0).1 as u32,
+            len: section(data, 0, 0).1 as u32,
             body: data.len(),
         },
     ));
     // A length past the body.
-    let mut long = data.clone();
-    let (offset, len) = section(&data, 0, n - 1);
+    let mut long = data.to_vec();
+    let (offset, _) = section(data, 0, n - 1);
     put(
         &mut long,
         8 * (n - 1) + 4,
@@ -230,11 +241,14 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
             body: data.len(),
         },
     ));
-    let _ = len;
+}
+
+/// The cases of sections misaligned, overlapping or out of order in `data`, `command`'s, of `n` sections.
+fn order_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
     // Misaligned: section 0 one byte later, its length one shorter so it stays inside.
-    let (offset0, len0) = section(&data, 0, 0);
+    let (offset0, len0) = section(data, 0, 0);
     if len0 > 0 {
-        let mut misaligned = data.clone();
+        let mut misaligned = data.to_vec();
         put(&mut misaligned, 0, (offset0 + 1) as u64, 4);
         put(&mut misaligned, 4, (len0 - 1) as u64, 4);
         cases.push((
@@ -250,8 +264,8 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
     }
     // Overlapping and out of order: section 1 placed at section 0's offset; sections 0 and 1 swapped.
     if n >= 2 && len0 > 0 {
-        let (offset1, len1) = section(&data, 0, 1);
-        let mut overlapping = data.clone();
+        let (offset1, len1) = section(data, 0, 1);
+        let mut overlapping = data.to_vec();
         put(&mut overlapping, 8, offset0 as u64, 4);
         put(&mut overlapping, 12, len1.min(len0) as u64, 4);
         let expected1 = (offset0 + len0).div_ceil(8) * 8;
@@ -266,7 +280,7 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
             },
         ));
         if len1 > 0 {
-            let mut swapped = data.clone();
+            let mut swapped = data.to_vec();
             put(&mut swapped, 0, offset1 as u64, 4);
             put(&mut swapped, 4, len1 as u64, 4);
             put(&mut swapped, 8, offset0 as u64, 4);
@@ -283,8 +297,12 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
             ));
         }
     }
+}
+
+/// The cases of a gap or nonzero padding between sections of `data`, `command`'s, of `n` sections.
+fn gap_cases(command: u16, n: usize, data: &[u8], cases: &mut Vec<LayoutCase>) {
     // A gap: eight zero bytes before the last section, its offset moved past them.
-    let (last_offset, _) = section(&data, 0, n - 1);
+    let (last_offset, _) = section(data, 0, n - 1);
     let mut gapped = data[..last_offset].to_vec();
     gapped.extend_from_slice(&[0; 8]);
     gapped.extend_from_slice(&data[last_offset..]);
@@ -301,12 +319,12 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
     ));
     // Padding: the first padding byte between two sections set.
     let padding = (1..n).find_map(|i| {
-        let (o, l) = section(&data, 0, i - 1);
-        let next = section(&data, 0, i).0;
+        let (o, l) = section(data, 0, i - 1);
+        let next = section(data, 0, i).0;
         (o + l < next).then_some(o + l)
     });
     if let Some(at) = padding {
-        let mut padded = data.clone();
+        let mut padded = data.to_vec();
         padded[at] = 1;
         cases.push((
             "nonzero padding".to_string(),
@@ -317,7 +335,6 @@ fn layout_cases(body: GoldenBody) -> Vec<(String, Vec<u8>, ProtocolErrorEnum)> {
             },
         ));
     }
-    cases
 }
 
 #[test]
@@ -378,7 +395,8 @@ fn test_a_frame_relabelled_as_every_other_command_never_panics() {
     for body in BODIES {
         let bytes = body.bytes();
         for command in 1..=19u16 {
-            let _ = view_any(&with_command(&bytes, command));
+            let _read_or_refused: Result<(), ProtocolError> =
+                view_any(&with_command(&bytes, command));
         }
     }
     // A body of no sections relabelled as Read, whose zero command header is valid, is too short for its table.

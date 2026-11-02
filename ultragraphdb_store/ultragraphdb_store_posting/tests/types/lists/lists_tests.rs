@@ -56,7 +56,7 @@ fn test_a_read_moves_no_version() {
     let lists = new_lists();
     let ts = commit_edges(&lists, &key("read", 1), &[set_uid(1)]);
     assert!(lists.try_gate(ts).unwrap());
-    let _ = lists.read(&key("read", 1), ts).unwrap();
+    let _read: ultragraphdb_store_posting::List = lists.read(&key("read", 1), ts).unwrap();
     let _open = lists.request(ts);
     assert_eq!((lists.applied_ts(), lists.next_version()), (ts, ts + 2));
 }
@@ -95,9 +95,12 @@ fn test_commits_are_written_in_the_configured_persist_mode_and_rollups_buffered(
     use ultragraphdb_store_sim::OpRecord;
     let modes = |log: Vec<OpRecord>| -> Vec<PersistMode> {
         log.into_iter()
-            .filter_map(|r| match r {
-                OpRecord::Applied { mode, .. } => Some(mode),
-                _ => None,
+            .filter_map(|r| {
+                if let OpRecord::Applied { mode, .. } = r {
+                    Some(mode)
+                } else {
+                    None
+                }
             })
             .collect()
     };

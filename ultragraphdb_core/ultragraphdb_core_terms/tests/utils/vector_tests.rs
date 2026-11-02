@@ -96,12 +96,10 @@ fn test_a_vector_holds_at_most_65535_elements() {
     // PROTOCOL.md section 10.1: the dimension is a u16, 1 to 65,535.
     let too_long = format!("[{}]", vec!["1"; 65_536].join(", "));
     let error = parse_vector(&too_long).unwrap_err();
-    let TermErrorEnum::InvalidVector { lexical, reason } = &error.0 else {
-        panic!("{error}");
-    };
-    assert_eq!(
-        (lexical == &too_long, *reason),
-        (true, "more than 65,535 elements")
+    assert!(
+        matches!(&error.0, TermErrorEnum::InvalidVector { lexical, reason }
+            if lexical == &too_long && *reason == "more than 65,535 elements"),
+        "{error}"
     );
     let longest = format!("[{}]", vec!["1"; 65_535].join(", "));
     assert_eq!(parse_vector(&longest).unwrap().len(), 65_535);

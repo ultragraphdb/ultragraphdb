@@ -10,7 +10,7 @@
 use dashu_int::UBig;
 use dashu_int::ops::BitTest;
 
-use crate::types::big_float::{BigFloat, Form, MAX_EXP, MIN_EXP};
+use crate::types::big_float::{BigFloat, Form, MAX_EXP, MIN_EXP, go_int};
 use ultragraphdb_common_utils::go_strconv;
 
 const ERR_NO_DIGITS: &str = "number has no digits";
@@ -78,13 +78,7 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
             }
             prev = b'_';
         } else {
-            let d1 = match c {
-                b'0'..=b'9' => u32::from(c - b'0'),
-                b'a'..=b'z' => u32::from(c - b'a') + 10,
-                b'A'..=b'Z' => u32::from(c - b'A') + 10,
-                _ => u32::MAX,
-            };
-            if d1 >= b {
+            if digit_value(c) >= b {
                 r.unread();
                 break;
             }
@@ -111,6 +105,16 @@ fn scan_mantissa(r: &mut Scanner<'_>) -> Result<(UBig, u32, i64), &'static str> 
         count = dp - count;
     }
     Ok((mant, b, count))
+}
+
+/// The value of a digit in bases up to 36, `u32::MAX` for a byte that is no digit.
+fn digit_value(c: u8) -> u32 {
+    match c {
+        b'0'..=b'9' => u32::from(c - b'0'),
+        b'a'..=b'z' => u32::from(c - b'a') + 10,
+        b'A'..=b'Z' => u32::from(c - b'A') + 10,
+        _ => u32::MAX,
+    }
 }
 
 /// Go's `scanExponent(r, true, true)`: the exponent and its base, 10 for `e`/`E`, 2 for `p`/`P`.
@@ -230,7 +234,7 @@ impl BigFloat {
             exp5 = exp5.checked_add(exp).ok_or(OVERFLOW)?;
         }
         exp2 = exp2.checked_add(exp).ok_or(OVERFLOW)?;
-        let go_exp = (mant.bit_len() as i64).checked_add(exp2).ok_or(OVERFLOW)?;
+        let go_exp = go_int(mant.bit_len()).checked_add(exp2).ok_or(OVERFLOW)?;
         if !(MIN_EXP..=MAX_EXP).contains(&go_exp) {
             return Err(OVERFLOW.into());
         }

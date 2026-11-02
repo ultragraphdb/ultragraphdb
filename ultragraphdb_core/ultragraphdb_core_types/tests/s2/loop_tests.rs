@@ -17,7 +17,9 @@ use super::golden::{
     vertex_hash,
 };
 use serde::Deserialize;
-use ultragraphdb_core_types::{Angle, Cell, LatLng, Loop, Point, R3Vector, RegionCoverer};
+use ultragraphdb_core_types::{
+    Angle, Cell, CellUnion, LatLng, Loop, Point, R3Vector, RegionCoverer,
+};
 
 #[derive(Deserialize, Clone, Copy)]
 pub struct Config {
@@ -149,98 +151,116 @@ fn run(file: &'static str) {
     let mut c = Checker::new(file);
     for k in &cases {
         let tag = &k.spec.name;
-        let (mut l, reversed, mut inverted) = match &k.spec.ring {
-            Some(ring) => {
-                let ring: Vec<[f64; 2]> = ring.iter().map(|p| [f(&p[0]), f(&p[1])]).collect();
-                dgraph_loop(&ring)
-            }
-            None => {
-                let center = pt(k.spec.center.as_ref().expect("regular loop center"));
-                let radius =
-                    Angle::from_radians(f(k.spec.radius.as_ref().expect("regular loop radius")));
-                (
-                    Loop::regular(
-                        center,
-                        radius,
-                        k.spec.num_vertices_in.expect("regular loop vertices"),
-                    ),
-                    false,
-                    false,
-                )
-            }
-        };
-        if k.spec.poison_cover == Some(true) {
-            k.coverings[0].config.coverer().covering(&l);
-            l.invert();
-            inverted = !inverted;
-        }
+        let (l, reversed, inverted) = case_loop(k);
         c.check(reversed == k.reversed && inverted == k.inverted, || {
             format!("{tag}: reversed {reversed} inverted {inverted}")
         });
-        c.check(
-            l.num_vertices() == k.num_vertices && l.num_edges() == k.num_edges,
-            || format!("{tag}: vertex/edge count"),
-        );
-        c.check(vertex_hash(l.vertices()) == k.vertex_hash, || {
-            format!("{tag}: vertex hash")
-        });
-        c.check(same_point(l.vertex(0), &k.vertex0), || {
-            format!("{tag}: vertex 0 {:?}", l.vertex(0))
-        });
-        c.check(l.contains_origin() == k.origin_inside, || {
-            format!("{tag}: origin inside")
-        });
-        c.check(same_rect(l.rect_bound(), &k.rect_bound), || {
-            format!(
-                "{tag}: rect bound {:?} want {:?}",
-                l.rect_bound(),
-                k.rect_bound
-            )
-        });
-        c.check(same_cap(l.cap_bound(), &k.cap_bound), || {
-            format!("{tag}: cap bound {:?}", l.cap_bound())
-        });
-        let deg = l.cap_bound().radius().degrees();
-        c.check(same(deg, f(&k.cap_radius_deg)), || {
-            format!(
-                "{tag}: cap radius degrees {} want {}",
-                hx(deg),
-                k.cap_radius_deg
-            )
-        });
-        let points: Vec<Point> = k.points.iter().map(pt).collect();
-        for (i, p) in points.iter().enumerate() {
-            let got = l.contains_point(*p);
-            c.check(got == k.contains_stale[i], || {
-                format!("{tag}: contains_point (index not built) {i} {p:?} = {got}")
-            });
-        }
-        c.check(ids(&l.cell_union_bound()) == k.cell_union_bound, || {
-            format!("{tag}: cell union bound")
-        });
-        for cov in &k.coverings {
-            let got = cov.config.coverer().covering(&l);
-            check_covering(&mut c, tag, got.as_slice(), cov);
-        }
-        for (i, id) in k.probe_cells.iter().enumerate() {
-            let cl = Cell::from_cell_id(cell(id));
-            let cc = l.contains_cell(&cl);
-            c.check(cc == k.contains_cell[i], || {
-                format!("{tag}: contains_cell({id}) = {cc}")
-            });
-            let ic = l.intersects_cell(&cl);
-            c.check(ic == k.intersects_cell[i], || {
-                format!("{tag}: intersects_cell({id}) = {ic}")
-            });
-        }
-        for (i, p) in points.iter().enumerate() {
-            let got = l.contains_point(*p);
-            c.check(got == k.contains_fresh[i], || {
-                format!("{tag}: contains_point (index built) {i} {p:?} = {got}")
-            });
-        }
+        check_loop_shape(&mut c, k, &l);
+        check_loop_queries(&mut c, k, &l);
     }
     c.finish();
+}
+
+/// The case's loop, whether its ring was reversed, and whether it was inverted.
+fn case_loop(k: &Case) -> (Loop, bool, bool) {
+    let (mut l, reversed, mut inverted) = match &k.spec.ring {
+        Some(ring) => {
+            let ring: Vec<[f64; 2]> = ring.iter().map(|p| [f(&p[0]), f(&p[1])]).collect();
+            dgraph_loop(&ring)
+        }
+        None => {
+            let center = pt(k.spec.center.as_ref().expect("regular loop center"));
+            let radius =
+                Angle::from_radians(f(k.spec.radius.as_ref().expect("regular loop radius")));
+            (
+                Loop::regular(
+                    center,
+                    radius,
+                    k.spec.num_vertices_in.expect("regular loop vertices"),
+                ),
+                false,
+                false,
+            )
+        }
+    };
+    if k.spec.poison_cover == Some(true) {
+        k.coverings[0].config.coverer().covering(&l);
+        l.invert();
+        inverted = !inverted;
+    }
+    (l, reversed, inverted)
+}
+
+/// The loop's vertices and bounds.
+fn check_loop_shape(c: &mut Checker, k: &Case, l: &Loop) {
+    let tag = &k.spec.name;
+    c.check(
+        l.num_vertices() == k.num_vertices && l.num_edges() == k.num_edges,
+        || format!("{tag}: vertex/edge count"),
+    );
+    c.check(vertex_hash(l.vertices()) == k.vertex_hash, || {
+        format!("{tag}: vertex hash")
+    });
+    c.check(same_point(l.vertex(0), &k.vertex0), || {
+        format!("{tag}: vertex 0 {:?}", l.vertex(0))
+    });
+    c.check(l.contains_origin() == k.origin_inside, || {
+        format!("{tag}: origin inside")
+    });
+    c.check(same_rect(l.rect_bound(), &k.rect_bound), || {
+        format!(
+            "{tag}: rect bound {:?} want {:?}",
+            l.rect_bound(),
+            k.rect_bound
+        )
+    });
+    c.check(same_cap(l.cap_bound(), &k.cap_bound), || {
+        format!("{tag}: cap bound {:?}", l.cap_bound())
+    });
+    let deg = l.cap_bound().radius().degrees();
+    c.check(same(deg, f(&k.cap_radius_deg)), || {
+        format!(
+            "{tag}: cap radius degrees {} want {}",
+            hx(deg),
+            k.cap_radius_deg
+        )
+    });
+}
+
+/// The loop's answers to points, cells and coverings, before and after its index is built.
+fn check_loop_queries(c: &mut Checker, k: &Case, l: &Loop) {
+    let tag = &k.spec.name;
+    let points: Vec<Point> = k.points.iter().map(pt).collect();
+    for (i, p) in points.iter().enumerate() {
+        let got = l.contains_point(*p);
+        c.check(got == k.contains_stale[i], || {
+            format!("{tag}: contains_point (index not built) {i} {p:?} = {got}")
+        });
+    }
+    c.check(ids(&l.cell_union_bound()) == k.cell_union_bound, || {
+        format!("{tag}: cell union bound")
+    });
+    for cov in &k.coverings {
+        let got = cov.config.coverer().covering(l);
+        check_covering(c, tag, got.as_slice(), cov);
+    }
+    for (i, id) in k.probe_cells.iter().enumerate() {
+        let cl = Cell::from_cell_id(cell(id));
+        let cc = l.contains_cell(&cl);
+        c.check(cc == k.contains_cell[i], || {
+            format!("{tag}: contains_cell({id}) = {cc}")
+        });
+        let ic = l.intersects_cell(&cl);
+        c.check(ic == k.intersects_cell[i], || {
+            format!("{tag}: intersects_cell({id}) = {ic}")
+        });
+    }
+    for (i, p) in points.iter().enumerate() {
+        let got = l.contains_point(*p);
+        c.check(got == k.contains_fresh[i], || {
+            format!("{tag}: contains_point (index built) {i} {p:?} = {got}")
+        });
+    }
 }
 
 #[test]
@@ -365,36 +385,41 @@ fn loop_contains_point() {
     // This code checks each cell vertex is contained by exactly one of
     // the adjacent cells.
     for level in 0..3 {
-        // set of unique points across all loops at this level.
-        let mut points = std::collections::BTreeSet::new();
-        let mut loops = Vec::new();
-        let end = ultragraphdb_core_types::CellId::from_face(5).child_end_at_level(level);
-        let mut id = ultragraphdb_core_types::CellId::from_face(0).child_begin_at_level(level);
-        while id != end {
-            let cl = Cell::from_cell_id(id);
-            let mut vertices = Vec::new();
-            let c = cl.center();
-            points.insert((c.x().to_bits(), c.y().to_bits(), c.z().to_bits()));
-            for k in 0..4 {
-                let v = cl.vertex(k).unwrap();
-                vertices.push(v);
-                points.insert((v.x().to_bits(), v.y().to_bits(), v.z().to_bits()));
-            }
-            loops.push(Loop::from_points(vertices));
-            id = id.next();
+        check_cell_points_contained_once(level);
+    }
+}
+
+/// Each cell vertex and center at `level` is contained by exactly one of the cells' loops.
+fn check_cell_points_contained_once(level: i64) {
+    // set of unique points across all loops at this level.
+    let mut points = std::collections::BTreeSet::new();
+    let mut loops = Vec::new();
+    let end = ultragraphdb_core_types::CellId::from_face(5).child_end_at_level(level);
+    let mut id = ultragraphdb_core_types::CellId::from_face(0).child_begin_at_level(level);
+    while id != end {
+        let cl = Cell::from_cell_id(id);
+        let mut vertices = Vec::new();
+        let c = cl.center();
+        points.insert((c.x().to_bits(), c.y().to_bits(), c.z().to_bits()));
+        for k in 0..4 {
+            let v = cl.vertex(k).unwrap();
+            vertices.push(v);
+            points.insert((v.x().to_bits(), v.y().to_bits(), v.z().to_bits()));
         }
-        for (x, y, z) in points {
-            let q = Point::from_vector(R3Vector::new(
-                f64::from_bits(x),
-                f64::from_bits(y),
-                f64::from_bits(z),
-            ));
-            let count = loops.iter().filter(|l| l.contains_point(q)).count();
-            assert_eq!(
-                count, 1,
-                "point {q:?} should only be contained by one loop at level {level}, got {count}"
-            );
-        }
+        loops.push(Loop::from_points(vertices));
+        id = id.next();
+    }
+    for (x, y, z) in points {
+        let q = Point::from_vector(R3Vector::new(
+            f64::from_bits(x),
+            f64::from_bits(y),
+            f64::from_bits(z),
+        ));
+        let count = loops.iter().filter(|l| l.contains_point(q)).count();
+        assert_eq!(
+            count, 1,
+            "point {q:?} should only be contained by one loop at level {level}, got {count}"
+        );
     }
 }
 
@@ -509,7 +534,8 @@ fn a_loop_of_no_points_is_the_empty_loop() {
     let p = Point::from_lat_lng(LatLng::from_degrees(1.0, 2.0));
     let q = Point::from_lat_lng(LatLng::from_degrees(3.0, 4.0));
     let l = Loop::from_points(vec![p, nan, q]);
-    let _ = l.contains_point(p);
+    // The answer is not Go's (Go has none); only that it comes back is asserted.
+    let _contains: bool = l.contains_point(p);
 }
 
 // golang/geo's standard test loops (s2/loop_test.go).
@@ -952,8 +978,8 @@ fn indexed_loop_with_non_finite_vertices_answers() {
     let l = Loop::from_points(v);
     assert_eq!(l.num_vertices(), 40);
     let p = Point::from_lat_lng(LatLng::from_degrees(10.0, 20.0));
-    let _ = l.contains_point(p);
+    let _contains: bool = l.contains_point(p);
     let cl = Cell::from_point(p);
-    let _ = (l.contains_cell(&cl), l.intersects_cell(&cl));
-    let _ = RegionCoverer::new(5, 16, 0, 18).covering(&l);
+    let _cell: (bool, bool) = (l.contains_cell(&cl), l.intersects_cell(&cl));
+    let _covering: CellUnion = RegionCoverer::new(5, 16, 0, 18).covering(&l);
 }

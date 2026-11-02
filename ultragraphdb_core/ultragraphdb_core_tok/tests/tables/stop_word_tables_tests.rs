@@ -42,7 +42,9 @@ pub(crate) const GO_STOP_WORDS: [(&str, usize, usize, &str, &str); 28] = [
 #[test]
 fn test_stop_word_tables_match_bleve() {
     for (lang, count, bytes, first, last) in GO_STOP_WORDS {
-        let words = stop_words(lang).unwrap_or_else(|| panic!("no stop words for {lang}"));
+        let words = stop_words(lang)
+            .ok_or_else(|| format!("no stop words for {lang}"))
+            .expect("stop words for the language");
         assert_eq!(words.len(), count, "{lang}: count");
         assert_eq!(
             words.iter().map(|w| w.len()).sum::<usize>(),

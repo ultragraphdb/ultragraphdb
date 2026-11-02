@@ -91,8 +91,9 @@ impl PaddedCell {
         };
 
         let ij_size = size_ij(p.level);
-        p.i_lo = parent.i_lo + i as i64 * ij_size;
-        p.j_lo = parent.j_lo + j as i64 * ij_size;
+        // i and j are child indices, 0 or 1, so neither conversion can fail.
+        p.i_lo = parent.i_lo + i64::try_from(i).unwrap_or(0) * ij_size;
+        p.j_lo = parent.j_lo + i64::try_from(j).unwrap_or(0) * ij_size;
 
         // For each child, one corner of the bound is taken directly from the parent
         // while the diagonally opposite corner is taken from middle().

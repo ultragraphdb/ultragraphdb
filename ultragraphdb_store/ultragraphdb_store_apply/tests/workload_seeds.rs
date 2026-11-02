@@ -14,7 +14,8 @@ fn test_seeds_without_faults_agree_with_the_model() {
     let (mut writes, mut refusals, mut compared) = (0, 0, 0);
     for seed in 1..=12 {
         let (_, w) = ChangesetWorkload::run(Seed::new(seed), FaultConfig::none(), 300)
-            .unwrap_or_else(|v| panic!("{v}"));
+            .map_err(|v| v.to_string())
+            .expect("the workload breaks no invariant");
         writes += w.writes;
         refusals += w.refusals;
         compared += w.compared;

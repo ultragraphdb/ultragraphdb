@@ -76,11 +76,13 @@ impl FullTag {
         }
         let mut b = self.gen_core_bytes();
         if !extra.is_empty() {
-            let diff = b.len() as isize - self.p_variant as isize;
+            // The variants move to the core's end and the extensions with them, as Go's int arithmetic moves them.
+            let core_len = b.len();
             b.push(b'-');
             b.extend_from_slice(extra.as_bytes());
-            self.p_variant = (self.p_variant as isize + diff) as u8;
-            self.p_ext = (self.p_ext as isize + diff) as u16;
+            self.p_ext = (usize::from(self.p_ext) + core_len)
+                .wrapping_sub(usize::from(self.p_variant)) as u16;
+            self.p_variant = core_len as u8;
         } else {
             self.p_variant = b.len() as u8;
             self.p_ext = b.len() as u16;

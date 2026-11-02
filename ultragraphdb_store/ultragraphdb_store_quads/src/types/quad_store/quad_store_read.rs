@@ -105,7 +105,14 @@ where
             .map(|(object, _)| {
                 self.term_of(namespace, object).map_err(|e| match e.0 {
                     QuadErrorEnum::Corrupted { reason, .. } => QuadError::Corrupted(key, reason),
-                    _ => e,
+                    QuadErrorEnum::Store(_)
+                    | QuadErrorEnum::Posting(_)
+                    | QuadErrorEnum::Term(_)
+                    | QuadErrorEnum::Key(_)
+                    | QuadErrorEnum::Mapping(_)
+                    | QuadErrorEnum::Catalog(_)
+                    | QuadErrorEnum::Aborted
+                    | QuadErrorEnum::UidsExhausted { .. } => e,
                 })
             })
             .collect()

@@ -25,6 +25,7 @@ fn test_a_rebuild_record_survives_a_kill() {
         let expected = if stage == "start" { vec![] } else { vec![7] };
         assert_eq!(ids, expected, "{stage}");
         drop(store);
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

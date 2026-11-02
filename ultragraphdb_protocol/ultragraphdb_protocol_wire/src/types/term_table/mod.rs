@@ -106,7 +106,10 @@ impl TermTable {
                 }
                 deepest + 1
             }
-            _ => 0,
+            RequestTerm::Iri(_)
+            | RequestTerm::BlankNode(_)
+            | RequestTerm::Literal { .. }
+            | RequestTerm::LanguageLiteral { .. } => 0,
         };
         Ok(self.insert(term, depth))
     }
@@ -159,7 +162,10 @@ impl TermTable {
                 predicate: self.import(from, predicate)?,
                 object: self.import(from, object)?,
             },
-            other => other.to_term(),
+            other @ (RequestTermView::Iri(_)
+            | RequestTermView::BlankNode(_)
+            | RequestTermView::Literal { .. }
+            | RequestTermView::LanguageLiteral { .. }) => other.to_term(),
         };
         self.intern(term).ok()
     }

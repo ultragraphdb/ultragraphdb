@@ -8,9 +8,11 @@
 //! of every golden reply refused with the connection's rule.
 
 use std::fs;
+use std::time::Instant;
 
 use ultragraphdb_client_core::{
     BatchPoll, ClientConfig, ClientCore, ClientError, ClientErrorEnum, Pending, Reply,
+    ResultStream, Transaction,
 };
 use ultragraphdb_protocol_transport::{
     Anonymous, BufferPool, Framer, ReceivedFrame, TransportError, TransportErrorEnum,
@@ -21,7 +23,10 @@ use ultragraphdb_protocol_wire::{
     TermTable, WriteView,
 };
 
-use crate::utils::harness::{CLUSTER, Harness, UNIX, frame_through, server, start};
+use crate::utils::harness::{
+    CLUSTER, Harness, UNIX, begun, committed, described, frame_through, prepared, registered,
+    server, start,
+};
 
 /// Golden frame `name`, read from the wire crate's `testdata/golden/bodies/`.
 pub fn golden(name: &str) -> Vec<u8> {
@@ -31,7 +36,9 @@ pub fn golden(name: &str) -> Vec<u8> {
     let path = root
         .join("ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden/bodies")
         .join(format!("{name}.frame"));
-    fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    fs::read(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))
+        .expect("reading the golden frame")
 }
 
 /// `frame` moved to `stream`: the header's stream rewritten and its checksum recomputed with xxhash-rust directly.
@@ -87,13 +94,9 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         assert!(matches!(h.settle(p), Ok(Reply::Registered(_))));
     }
     let p = h.core.begin(0, true, h.now).unwrap();
-    let Ok(Reply::Begun(reader)) = h.settle(p) else {
-        panic!()
-    };
+    let reader = begun(h.settle(p));
     let p = h.core.begin(0, false, h.now).unwrap();
-    let Ok(Reply::Begun(writer)) = h.settle(p) else {
-        panic!()
-    };
+    let writer = begun(h.settle(p));
     let mut sent = Vec::new();
     let mut check = |h: &mut Harness, name: &str, stream: u64| {
         while h.step() {}
@@ -134,6 +137,12 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
     check(&mut h, "credit", stream.stream());
     h.core.cancel(stream);
     check(&mut h, "cancel", stream.stream());
+    prepare_describe_execute(&mut h, &reader);
+    assert_eq!(sent.len(), 8);
+}
+
+/// The Prepare, the Describe and an Execute of `reader`, each sent as its golden frame.
+fn prepare_describe_execute(h: &mut Harness, reader: &Transaction) {
     let g = golden("prepare");
     let p = h
         .core
@@ -148,13 +157,13 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         .map(|f| h.server.receive(&f, h.now))
         .is_some()
     {}
-    let prepared = last(&h);
+    let prepared = last(h);
     assert_eq!(
         prepared,
         resequence(&restream(&g, stream_of(&prepared)), &prepared),
         "prepare"
     );
-    let _ = h.settle(p);
+    let _prepared: Result<Reply, ClientError> = h.settle(p);
     let p = h.core.describe(0, h.now).unwrap();
     while h
         .core
@@ -162,7 +171,7 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         .map(|f| h.server.receive(&f, h.now))
         .is_some()
     {}
-    let described = last(&h);
+    let described = last(h);
     assert_eq!(
         described,
         resequence(
@@ -171,12 +180,12 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         ),
         "describe"
     );
-    let _ = h.settle(p);
+    let _described: Result<Reply, ClientError> = h.settle(p);
     let g = golden("execute");
-    let _ = h
+    let _stream: ResultStream = h
         .core
         .execute(
-            &reader,
+            reader,
             &view::<ExecuteView>(&FrameView::validate(&g, CLUSTER, MAX_FRAME_SIZE).unwrap()),
             h.now,
         )
@@ -187,13 +196,12 @@ fn test_every_request_the_client_sends_is_its_golden_frame() {
         .map(|f| h.server.receive(&f, h.now))
         .is_some()
     {}
-    let executed = last(&h);
+    let executed = last(h);
     assert_eq!(
         executed,
         resequence(&restream(&g, stream_of(&executed)), &executed),
         "execute"
     );
-    assert_eq!(sent.len(), 8);
 }
 
 /// A ready core of the golden frames' cluster and release, with no server, and its connection's framer: frames are
@@ -263,14 +271,10 @@ fn test_every_golden_reply_is_read_as_its_values() {
         d.core.take_reply(p).expect("an answer")
     };
     let p = d.core.register(now).unwrap();
-    let Ok(Reply::Registered(session)) = answer(&mut d, p, "register", 1) else {
-        panic!()
-    };
+    let session = registered(answer(&mut d, p, "register", 1));
     assert_eq!(session.number(), 0x1122_3344_5566_7788);
     let p = d.core.begin(0, true, now).unwrap();
-    let Ok(Reply::Begun(tx)) = answer(&mut d, p, "begin", 2) else {
-        panic!()
-    };
+    let tx = begun(answer(&mut d, p, "begin", 2));
     assert_eq!(
         (tx.namespace(), tx.read_version(), tx.read_only()),
         (3, 0xAB_CDEF_0002, true)
@@ -284,21 +288,39 @@ fn test_every_golden_reply_is_read_as_its_values() {
             now,
         )
         .unwrap();
-    let Ok(Reply::Prepared(statement)) = answer(&mut d, p, "prepare_reply", 3) else {
-        panic!()
-    };
+    let statement = prepared(answer(&mut d, p, "prepare_reply", 3));
     assert_eq!(
         (statement.id(), statement.schema(), statement.result_types()),
         (1, 0x5C4E_3A2B_1D0F_7E6A, &[ColumnType::Term][..])
     );
     let p = d.core.describe(0, now).unwrap();
-    let Ok(Reply::Described(describe)) = answer(&mut d, p, "describe_reply", 4) else {
-        panic!()
-    };
+    let describe = described(answer(&mut d, p, "describe_reply", 4));
     let reply = golden("describe_reply");
     let expected =
         view::<DescribeView>(&FrameView::validate(&reply, CLUSTER, MAX_FRAME_SIZE).unwrap());
     assert_eq!((describe.read_version(), &describe), (42, &expected));
+}
+
+/// A transaction begun on `stream` of `d`, its golden Begin reply of namespace 0 and read version 5 delivered.
+fn begin_direct(
+    d: &mut Direct,
+    pool: &BufferPool,
+    now: Instant,
+    stream: u64,
+    read_only: bool,
+) -> Transaction {
+    let p = d.core.begin(0, read_only, now).unwrap();
+    let frame = ultragraphdb_protocol_wire::BodyBuilder::frame(
+        &ultragraphdb_protocol_wire::Begin::new(0, 5, read_only),
+        ultragraphdb_protocol_wire::Header::new(
+            CLUSTER,
+            ultragraphdb_protocol_wire::Command::Begin,
+        )
+        .with_stream(stream),
+    )
+    .unwrap();
+    d.deliver(pool, &frame).unwrap();
+    begun(d.core.take_reply(p).expect("an answer"))
 }
 
 #[test]
@@ -306,30 +328,11 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
     let pool = BufferPool::new(8, 1 << 20);
     let now = start();
     let mut d = Direct::new(&pool);
-    let begin = |d: &mut Direct, stream: u64, read_only: bool| {
-        let p = d.core.begin(0, read_only, now).unwrap();
-        let frame = ultragraphdb_protocol_wire::BodyBuilder::frame(
-            &ultragraphdb_protocol_wire::Begin::new(0, 5, read_only),
-            ultragraphdb_protocol_wire::Header::new(
-                CLUSTER,
-                ultragraphdb_protocol_wire::Command::Begin,
-            )
-            .with_stream(stream),
-        )
-        .unwrap();
-        d.deliver(&pool, &frame).unwrap();
-        let Some(Ok(Reply::Begun(tx))) = d.core.take_reply(p) else {
-            panic!()
-        };
-        tx
-    };
     let session = d.core.resume_session(9, 7);
-    let tx = begin(&mut d, 1, false);
+    let tx = begin_direct(&mut d, &pool, now, 1, false);
     let p = d.core.commit(tx, session, now).unwrap();
     d.deliver(&pool, &restream(&golden("commit"), 1)).unwrap();
-    let Some(Ok(Reply::Committed(committed))) = d.core.take_reply(p) else {
-        panic!()
-    };
+    let committed = committed(d.core.take_reply(p).expect("an answer"));
     assert_eq!((committed.version(), committed.request()), (1_000, 7));
     assert_eq!(
         committed.results(),
@@ -339,7 +342,13 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
         ]
     );
     assert_eq!(d.core.next_request(session), Some(8));
-    let reader = begin(&mut d, 2, true);
+    golden_result_is_read(&mut d, &pool, now);
+    golden_errors_are_read(&mut d, &pool, now);
+}
+
+/// The golden Result, on the third stream of `d`, read as its values.
+fn golden_result_is_read(d: &mut Direct, pool: &BufferPool, now: Instant) {
+    let reader = begin_direct(d, pool, now, 2, true);
     let mut terms = TermTable::new();
     let a = terms.iri("http://ex.org/a");
     let read = Read::new(
@@ -356,17 +365,17 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
     );
     let stream = d.core.read(&reader, &read, now).unwrap();
     assert_eq!(stream.stream(), 3, "a stream of its own");
-    d.deliver(&pool, &restream(&golden("result"), 3)).unwrap();
-    let Ok(BatchPoll::Batch((columns, rows, cells, resume))) =
-        d.core.next_batch(&stream, now, |v| {
-            let cells: Vec<Option<u32>> = (0..2)
-                .flat_map(|col| (0..3).map(move |row| (col, row)))
-                .map(|(col, row)| v.cell(col, row))
-                .collect();
-            (v.columns(), v.rows(), cells, v.resume().to_vec())
-        })
-    else {
-        panic!()
+    d.deliver(pool, &restream(&golden("result"), 3)).unwrap();
+    let polled = d.core.next_batch(&stream, now, |v| {
+        let cells: Vec<Option<u32>> = (0..2)
+            .flat_map(|col| (0..3).map(move |row| (col, row)))
+            .map(|(col, row)| v.cell(col, row))
+            .collect();
+        (v.columns(), v.rows(), cells, v.resume().to_vec())
+    });
+    assert!(matches!(polled, Ok(BatchPoll::Batch(_))), "a batch");
+    let Ok(BatchPoll::Batch((columns, rows, cells, resume))) = polled else {
+        return;
     };
     assert_eq!((columns, rows, resume), (2, 3, b"rk".to_vec()));
     assert_eq!(
@@ -377,6 +386,10 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
         matches!(d.core.next_batch(&stream, now, |_| ()), Ok(BatchPoll::Done)),
         "the golden Result is flagged last"
     );
+}
+
+/// The golden Errors, on the fourth and fifth streams of `d`, read as their refusals.
+fn golden_errors_are_read(d: &mut Direct, pool: &BufferPool, now: Instant) {
     for (name, stream, code, detail, value) in [
         ("error", 4, ErrorCode::Conflict, 3, None),
         (
@@ -390,10 +403,10 @@ fn test_golden_commits_results_and_errors_are_read_as_their_values() {
             }),
         ),
     ] {
-        let tx = begin(&mut d, stream, false);
+        let tx = begin_direct(d, pool, now, stream, false);
         let session = d.core.resume_session(100 + stream, 1);
         let p = d.core.commit(tx, session, now).unwrap();
-        d.deliver(&pool, &restream(&golden(name), stream)).unwrap();
+        d.deliver(pool, &restream(&golden(name), stream)).unwrap();
         let error = d.core.take_reply(p).unwrap().unwrap_err();
         assert!(
             matches!(&error.0, ClientErrorEnum::Refused { code: c, detail: d, value: v, .. } if *c == code && *d == detail && *v == value),
@@ -472,20 +485,26 @@ fn test_every_damaged_golden_reply_is_refused_with_the_connections_rule() {
                 }
             }
         }
-        for len in 0..good.len() {
-            let mut d = Direct::new(&pool);
-            // Nothing read is a close between frames; a cut header is short of its 256 bytes, a cut body of the
-            // frame's size.
-            let expected = match len {
-                0 => TransportError::Closed(),
-                len if len < 256 => TransportError::Truncated(len, 256),
-                len => TransportError::Truncated(len, good.len()),
-            };
-            match d.frame(&pool, &good[..len]) {
-                Err(error) => assert_eq!(error, expected, "{name} cut at {len}"),
-                Ok(_) => panic!("{name} cut at {len} read whole"),
-            }
-        }
+        truncations_are_refused(&pool, name, &good);
     }
     assert!(cases > 2_000, "{cases}");
+}
+
+/// Every truncation of golden reply `good`, named `name`, refused by the framer.
+fn truncations_are_refused(pool: &BufferPool, name: &str, good: &[u8]) {
+    for len in 0..good.len() {
+        let mut d = Direct::new(pool);
+        // Nothing read is a close between frames; a cut header is short of its 256 bytes, a cut body of the
+        // frame's size.
+        let expected = match len {
+            0 => TransportError::Closed(),
+            len if len < 256 => TransportError::Truncated(len, 256),
+            len => TransportError::Truncated(len, good.len()),
+        };
+        assert_eq!(
+            d.frame(pool, &good[..len]).err(),
+            Some(expected),
+            "{name} cut at {len}"
+        );
+    }
 }

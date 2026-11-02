@@ -90,53 +90,7 @@ pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Declaration, CatalogError> {
         ));
     }
     let declaration = match r.u8()? {
-        PREDICATE => {
-            let mut p = PredicateDeclaration::new(r.iri()?);
-            p = p.with_kind(match r.u8()? {
-                0 => PredicateKind::Edge,
-                1 => PredicateKind::Property,
-                2 => PredicateKind::Either,
-                other => {
-                    return Err(CatalogError::Corrupted(
-                        key,
-                        format!("unknown predicate kind {other}"),
-                    ));
-                }
-            });
-            p = p.with_cardinality(match r.u8()? {
-                0 => Cardinality::Single,
-                1 => Cardinality::Multi,
-                other => {
-                    return Err(CatalogError::Corrupted(
-                        key,
-                        format!("unknown cardinality {other}"),
-                    ));
-                }
-            });
-            if let Some(datatype) = r.optional()? {
-                p = p.with_datatype(NamedNode::new_unchecked(datatype));
-            }
-            p = p.with_unique(r.flag()?);
-            let tokenizers = (0..r.count()?)
-                .map(|_| r.string())
-                .collect::<Result<_, _>>()?;
-            p = p.with_tokenizers(tokenizers);
-            p = p.with_count_index(r.flag()?);
-            if r.flag()? {
-                let factory = r.string()?;
-                let dimension = NonZeroU16::new(r.u16()?);
-                let options = (0..r.count()?)
-                    .map(|_| Ok((r.string()?, r.string()?)))
-                    .collect::<Result<_, CatalogError>>()?;
-                let spec = VectorIndexSpec::new(factory, options);
-                p = p.with_vector_index(match dimension {
-                    Some(d) => spec.with_dimension(d),
-                    None => spec,
-                });
-            }
-            let domains = (0..r.count()?).map(|_| r.iri()).collect::<Result<_, _>>()?;
-            Declaration::Predicate(p.with_domains(domains))
-        }
+        PREDICATE => Declaration::Predicate(predicate(&mut r)?),
         ENTITY_TYPE => {
             let iri = r.iri()?;
             let parent = r.optional()?.map(NamedNode::new_unchecked);
@@ -158,6 +112,55 @@ pub fn decode(key: &[u8], bytes: &[u8]) -> Result<Declaration, CatalogError> {
         return Err(CatalogError::Corrupted(key, "bytes follow the declaration"));
     }
     Ok(declaration)
+}
+
+/// A predicate's declaration, read after its entry kind.
+fn predicate(r: &mut Reader<'_>) -> Result<PredicateDeclaration, CatalogError> {
+    let mut p = PredicateDeclaration::new(r.iri()?);
+    p = p.with_kind(match r.u8()? {
+        0 => PredicateKind::Edge,
+        1 => PredicateKind::Property,
+        2 => PredicateKind::Either,
+        other => {
+            return Err(CatalogError::Corrupted(
+                r.key,
+                format!("unknown predicate kind {other}"),
+            ));
+        }
+    });
+    p = p.with_cardinality(match r.u8()? {
+        0 => Cardinality::Single,
+        1 => Cardinality::Multi,
+        other => {
+            return Err(CatalogError::Corrupted(
+                r.key,
+                format!("unknown cardinality {other}"),
+            ));
+        }
+    });
+    if let Some(datatype) = r.optional()? {
+        p = p.with_datatype(NamedNode::new_unchecked(datatype));
+    }
+    p = p.with_unique(r.flag()?);
+    let tokenizers = (0..r.count()?)
+        .map(|_| r.string())
+        .collect::<Result<_, _>>()?;
+    p = p.with_tokenizers(tokenizers);
+    p = p.with_count_index(r.flag()?);
+    if r.flag()? {
+        let factory = r.string()?;
+        let dimension = NonZeroU16::new(r.u16()?);
+        let options = (0..r.count()?)
+            .map(|_| Ok((r.string()?, r.string()?)))
+            .collect::<Result<_, CatalogError>>()?;
+        let spec = VectorIndexSpec::new(factory, options);
+        p = p.with_vector_index(match dimension {
+            Some(d) => spec.with_dimension(d),
+            None => spec,
+        });
+    }
+    let domains = (0..r.count()?).map(|_| r.iri()).collect::<Result<_, _>>()?;
+    Ok(p.with_domains(domains))
 }
 
 fn string(w: &mut Vec<u8>, s: &str) {

@@ -10,22 +10,18 @@ use ultragraphdb_protocol_wire::{
 };
 
 use crate::types::client_core::client_core_tests::counter;
-use crate::utils::harness::{CLUSTER, Harness, config, server};
+use crate::utils::harness::{
+    CLUSTER, Harness, begun, committed, config, dropped, registered, server,
+};
 
 fn session(h: &mut Harness) -> Session {
     let p = h.core.register(h.now).unwrap();
-    let Ok(Reply::Registered(session)) = h.settle(p) else {
-        panic!("a session")
-    };
-    session
+    registered(h.settle(p))
 }
 
 fn begin(h: &mut Harness) -> Transaction {
     let p = h.core.begin(0, false, h.now).unwrap();
-    let Ok(Reply::Begun(tx)) = h.settle(p) else {
-        panic!("a transaction")
-    };
-    tx
+    begun(h.settle(p))
 }
 
 /// Every Commit frame the server received: its session and request.
@@ -62,9 +58,7 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() {
         h.core.commit(second, s, h.now).unwrap_err().0,
         ClientErrorEnum::SessionBusy { session: 9 }
     );
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("committed")
-    };
+    let c = committed(h.settle(p));
     assert_eq!((c.version(), c.request(), c.results().len()), (1_000, 1, 2));
     assert_eq!(c.results()[1].uid(), 101);
     assert_eq!(h.core.next_request(s), Some(2));
@@ -73,9 +67,7 @@ fn test_a_commit_answers_its_version_and_results_and_advances_the_session() {
         h.core.commit(t, s, h.now)
     }
     .unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!()
-    };
+    let c = committed(h.settle(p));
     assert_eq!((c.version(), c.request()), (1_002, 2));
     assert_eq!(h.server.applied(), 2);
     assert_eq!(commits(&h), vec![(9, 1), (9, 2)]);
@@ -89,9 +81,7 @@ fn test_a_lost_reply_is_retried_through_the_session_and_applied_once() {
     let tx = begin(&mut h);
     h.server.drop_after_next_commit();
     let p = h.core.commit(tx, s, h.now).unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("committed")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(h.server.applied(), 1, "applied once");
     assert_eq!(h.connections, 2, "the client reconnected");
     assert_eq!(
@@ -127,9 +117,7 @@ fn test_a_busy_session_is_asked_again_until_the_commit_is_answered() {
         h.core.commit(t, s, h.now)
     }
     .unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("committed")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(c.request(), 1);
     assert_eq!(h.server.applied(), 1);
     assert_eq!(
@@ -189,9 +177,7 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
         }
     );
     let p = h.core.resolve(s, h.now).unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("resolved from the record")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(c.request(), 1);
     assert_eq!(h.core.next_request(s), Some(2));
     assert_eq!(h.server.applied(), 1);
@@ -200,7 +186,7 @@ fn test_retries_are_bounded_and_leave_the_session_in_doubt_until_resolved() {
 #[test]
 fn test_a_refused_commit_is_not_retried_and_keeps_its_request_number() {
     let mut h = Harness::ready(server());
-    let _ = session(&mut h);
+    let _session: Session = session(&mut h);
     let resumed = h.core.resume_session(9, 5);
     let p = {
         let t = begin(&mut h);
@@ -270,9 +256,7 @@ fn test_a_retry_refused_as_not_committed_keeps_the_request_and_the_rerun_commits
     );
     let tx = begin(&mut h);
     let p = h.core.commit(tx, s, h.now).unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("the rerun commits")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(c.request(), 1);
     assert_eq!(h.server.applied(), 1, "committed once");
     assert_eq!(
@@ -341,9 +325,7 @@ fn test_a_drop_through_a_session_is_answered_with_its_commit_version() {
         .core
         .drop_command(DropCommand::graph(0, "http://ex.org/g"), s, h.now)
         .unwrap();
-    let Ok(Reply::Dropped(dropped)) = h.settle(p) else {
-        panic!("dropped")
-    };
+    let dropped = dropped(h.settle(p));
     assert_eq!((dropped.version(), dropped.request()), (1_000, 1));
     assert!(dropped.results().is_empty());
     assert_eq!(h.core.next_request(s), Some(2));
@@ -366,9 +348,7 @@ fn test_a_lost_drop_reply_is_retried_through_the_session_and_applied_once() {
             h.now,
         )
         .unwrap();
-    let Ok(Reply::Dropped(dropped)) = h.settle(p) else {
-        panic!("dropped through the retry")
-    };
+    let dropped = dropped(h.settle(p));
     assert_eq!(dropped.request(), 1);
     assert_eq!(h.server.applied(), 1, "applied once");
     assert_eq!(h.connections, 2);
@@ -524,9 +504,7 @@ fn test_busy_answers_past_the_attempts_leave_the_commit_in_doubt() {
         }
     );
     let p = h.core.resolve(s, h.now).unwrap();
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("resolved from the record")
-    };
+    let c = committed(h.settle(p));
     assert_eq!((c.version(), c.request()), (1_000, 1));
     assert_eq!(h.core.next_request(s), Some(2));
 }
@@ -612,9 +590,7 @@ fn test_a_commit_unanswered_at_close_is_in_doubt_until_resolved() {
     // Resolved before a connection, it is sent once one is ready.
     let p = h.core.resolve(s, h.now).unwrap();
     assert!(h.core.needs_connection());
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("resolved from the record")
-    };
+    let c = committed(h.settle(p));
     assert_eq!((c.version(), c.request()), (1_000, 1));
     assert_eq!(h.server.applied(), 1);
     assert_eq!(h.core.next_request(s), Some(2));
@@ -660,7 +636,7 @@ fn test_a_transaction_awaiting_its_commit_takes_no_other_request() {
 fn test_a_refused_drop_keeps_its_request_number() {
     use ultragraphdb_protocol_wire::DropCommand;
     let mut h = Harness::ready(server());
-    let _ = session(&mut h);
+    let _session: Session = session(&mut h);
     let resumed = h.core.resume_session(9, 5);
     let p = h
         .core
@@ -716,9 +692,7 @@ fn test_a_drop_before_a_connection_is_refused_as_not_connected() {
         .core
         .drop_command(ultragraphdb_protocol_wire::DropCommand::all(), s, h.now)
         .unwrap();
-    let Ok(Reply::Dropped(dropped)) = h.settle(p) else {
-        panic!("dropped")
-    };
+    let dropped = dropped(h.settle(p));
     assert_eq!(dropped.request(), 1);
 }
 
@@ -753,9 +727,7 @@ fn test_a_loss_in_the_retrys_handshake_consumes_no_attempt() {
         h.core.needs_connection(),
         "the retry waits for the next connection"
     );
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("the retry on the third connection is answered from the record")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(c.request(), 1);
     assert_eq!(commits(&h), vec![(9, 1); 2]);
     assert_eq!(h.server.applied(), 1);
@@ -825,9 +797,7 @@ fn test_a_loss_during_a_busy_answers_delay_consumes_no_attempt() {
     while h.step() {}
     assert_eq!(h.core.take_reply(p), None, "waiting out the delay");
     h.core.disconnected(TransportError::Closed(), h.now);
-    let Ok(Reply::Committed(c)) = h.settle(p) else {
-        panic!("the third attempt is answered from the record")
-    };
+    let c = committed(h.settle(p));
     assert_eq!(c.request(), 1);
     assert_eq!(commits(&h), vec![(9, 1); 3]);
     assert_eq!(h.server.applied(), 1);

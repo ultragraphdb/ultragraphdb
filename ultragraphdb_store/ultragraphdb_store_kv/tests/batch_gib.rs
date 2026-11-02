@@ -21,7 +21,8 @@ fn key(i: u32) -> Vec<u8> {
 fn test_a_batch_of_one_gib_is_written_whole() {
     let root = std::env::var_os("TEST_TMPDIR").map_or_else(std::env::temp_dir, PathBuf::from);
     let dir = root.join(format!("kv-gib-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory an earlier run left behind, which is usually absent.
+    drop(std::fs::remove_dir_all(&dir));
     let store = FjallStore::open(&dir, Durability::Process).expect("opens");
     let mut batch = WriteBatch::new();
     (0..VALUES).for_each(|i| {
@@ -69,6 +70,7 @@ fn test_a_batch_of_one_gib_is_written_whole() {
     let store = FjallStore::open(&dir, Durability::Process).expect("reopens");
     check(&store);
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory left behind is litter in the temporary directory, not a failure of the test.
+    drop(std::fs::remove_dir_all(&dir));
     println!("wrote and read back {VALUES} values of {VALUE_SIZE} bytes in one batch");
 }

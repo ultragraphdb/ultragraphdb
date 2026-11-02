@@ -17,8 +17,10 @@ use ultragraphdb_store_posting::{CachedList, Lists, ListsConfig};
 use crate::errors::bench_error::BenchError;
 use crate::types::commit_shape::CommitShape;
 use crate::types::counting_cache::CountingCache;
+use crate::types::dir_sizes::DirSizes;
 use crate::types::read_counts::ReadCounts;
 use crate::types::size::Size;
+use crate::types::summary::Summary;
 use crate::types::timed_store::TimedStore;
 
 /// The applier both runs drive.
@@ -81,6 +83,28 @@ pub fn size_json(size: Size) -> String {
         "{{\"du_bytes\":{},\"apparent_bytes\":{}}}",
         size.allocated(),
         size.apparent()
+    )
+}
+
+/// A directory's sizes as JSON: its data, journal and metadata files and their total, each as [`size_json`].
+pub fn files_json(s: DirSizes) -> String {
+    format!(
+        "{{\"data\":{},\"journal\":{},\"metadata\":{},\"total\":{}}}",
+        size_json(s.data()),
+        size_json(s.journal()),
+        size_json(s.metadata()),
+        size_json(s.total())
+    )
+}
+
+/// A summary as JSON: its nearest-rank median and 99th percentile, its maximum and its mean to a tenth.
+pub fn summary_json(s: Summary) -> String {
+    format!(
+        "{{\"p50\":{},\"p99\":{},\"max\":{},\"mean\":{:.1}}}",
+        s.p50(),
+        s.p99(),
+        s.max(),
+        s.mean()
     )
 }
 

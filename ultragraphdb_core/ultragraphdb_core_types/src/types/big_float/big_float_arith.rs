@@ -12,7 +12,7 @@ use std::cmp::Ordering;
 use dashu_int::UBig;
 use dashu_int::ops::{BitTest, DivRem, PowerOfTwo};
 
-use crate::types::big_float::{BigFloat, Form};
+use crate::types::big_float::{BigFloat, Form, go_int};
 
 impl BigFloat {
     /// Go's `z.SetPrec(prec).Mul(x, y)`: the product rounded to `prec` bits. `None` for zero times infinity, where
@@ -46,15 +46,15 @@ impl BigFloat {
         Some(match (&self.form, &y.form) {
             (Form::Finite { mant: a, exp: ea }, Form::Finite { mant: b, exp: eb }) => {
                 // Shift the dividend so the quotient has at least prec + 2 bits; the remainder is the sticky bit.
-                let shift =
-                    (i64::from(prec) + 2 + b.bit_len() as i64 - a.bit_len() as i64).max(0) as usize;
+                let shift = (i64::from(prec) + 2 + go_int(b.bit_len()) - go_int(a.bit_len())).max(0)
+                    as usize;
                 let (q, r) = (a << shift).div_rem(b);
                 let mut z = BigFloat {
                     prec,
                     neg,
                     form: Form::Zero,
                 };
-                z.set_rounded(q, ea - eb - shift as i64, r != UBig::ZERO);
+                z.set_rounded(q, ea - eb - go_int(shift), r != UBig::ZERO);
                 z
             }
             (Form::Zero, Form::Zero) | (Form::Inf, Form::Inf) => return None,
@@ -126,7 +126,7 @@ impl BigFloat {
         }
         let (m, me) = match r.form {
             Form::Finite { mant, exp } => (mant, exp),
-            _ => return sign * f64::INFINITY,
+            Form::Zero | Form::Inf => return sign * f64::INFINITY,
         };
         let m = u64::try_from(&m).expect("r is rounded to p <= 53 bits above");
         let n = 64 - i64::from(m.leading_zeros());
@@ -162,8 +162,8 @@ impl BigFloat {
                     } else {
                         mant >> (-*exp) as usize
                     };
-                    let i = u64::try_from(&i).expect("a value of go_exp <= 63, checked above, fits")
-                        as i64;
+                    let i =
+                        i64::try_from(&i).expect("a value of go_exp <= 63, checked above, fits");
                     return if self.neg { -i } else { i };
                 }
                 if self.neg { i64::MIN } else { i64::MAX }
@@ -174,7 +174,7 @@ impl BigFloat {
 
 /// The order of the magnitudes `a × 2^ea` and `b × 2^eb` of two finite values.
 fn cmp_abs(a: &UBig, ea: i64, b: &UBig, eb: i64) -> Ordering {
-    let (ga, gb) = (a.bit_len() as i64 + ea, b.bit_len() as i64 + eb);
+    let (ga, gb) = (go_int(a.bit_len()) + ea, go_int(b.bit_len()) + eb);
     if ga != gb {
         return ga.cmp(&gb);
     }

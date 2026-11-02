@@ -32,7 +32,8 @@ impl OperationResult {
 
     /// A counter add's new value: the `uid` field read as an i64.
     pub fn counter_value(&self) -> i64 {
-        self.uid as i64
+        // The wire carries the i64 in the u64 field's bits, two's complement.
+        self.uid.cast_signed()
     }
 
     pub fn created(&self) -> bool {

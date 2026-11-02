@@ -19,7 +19,8 @@ pub fn load<T: DeserializeOwned>(name: &str) -> T {
     let path = ultragraphdb_tool_bdd::testdata_dir().join(format!("golden/types_s2_{stem}.json"));
     let golden = ultragraphdb_tool_bdd::load_golden::<serde_json::Value>(&path);
     serde_json::from_value(golden.cases()[0].clone())
-        .unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
+        .map_err(|e| format!("parsing {}: {e}", path.display()))
+        .expect("parsing the golden vectors")
 }
 
 pub fn f(s: &str) -> f64 {
@@ -131,15 +132,14 @@ impl Checker {
             "{}: no golden cases were checked",
             self.name
         );
-        if !self.failures.is_empty() {
-            let sample: Vec<&String> = self.failures.iter().take(25).collect();
-            panic!(
-                "{}: {} of {} checks differ from Go:\n{:#?}",
-                self.name,
-                self.failures.len(),
-                self.checks,
-                sample
-            );
-        }
+        let sample: Vec<&String> = self.failures.iter().take(25).collect();
+        assert!(
+            self.failures.is_empty(),
+            "{}: {} of {} checks differ from Go:\n{:#?}",
+            self.name,
+            self.failures.len(),
+            self.checks,
+            sample
+        );
     }
 }

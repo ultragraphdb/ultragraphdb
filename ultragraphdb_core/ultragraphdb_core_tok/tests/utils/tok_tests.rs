@@ -31,7 +31,9 @@ fn ngrams(shingles: &[&str]) -> Vec<Vec<u8>> {
 }
 
 fn tokenizer(name: &str) -> Tokenizer {
-    get_tokenizer(name).unwrap_or_else(|| panic!("no tokenizer {name}"))
+    get_tokenizer(name)
+        .ok_or_else(|| format!("no tokenizer {name}"))
+        .expect("a registered tokenizer")
 }
 
 fn tokens_for_lang(name: &str, lang: &str, s: &str) -> Vec<Vec<u8>> {
@@ -57,16 +59,19 @@ fn check_sorted_and_unique(tokens: &[Vec<u8>]) {
 }
 
 fn time(s: &str) -> DateTime {
-    match convert(
+    let value = convert(
         &Val::new(TypeId::STRING, Value::Bytes(s.as_bytes().to_vec())),
         TypeId::DATETIME,
     )
     .unwrap()
-    .into_value()
-    {
-        Some(Value::DateTime(t)) => t,
-        other => panic!("{other:?}"),
-    }
+    .into_value();
+    let time = if let Some(Value::DateTime(t)) = &value {
+        Some(*t)
+    } else {
+        None
+    };
+    time.ok_or_else(|| format!("{value:?}"))
+        .expect("a datetime value")
 }
 
 #[test]
@@ -405,8 +410,9 @@ fn test_ngram_tokenizer_long_text() {
         } else {
             expected_tokens.first().cloned()
         };
-        let expected =
-            expected.unwrap_or_else(|| panic!("Should find a token for phrase: {phrase}"));
+        let expected = expected
+            .ok_or_else(|| format!("Should find a token for phrase: {phrase}"))
+            .expect("a token for the phrase");
         assert!(
             tokens.contains(&expected),
             "Should contain token for phrase: {phrase}"
@@ -752,6 +758,10 @@ fn test_tokens_golden() {
     let mut deviating = (Vec::new(), Vec::new());
     for c in &cases {
         let decoded = |t: &[String]| t.iter().map(|t| unhex(t)).collect::<Vec<_>>();
+        assert!(
+            c.fixed.is_none() || deviation(c).is_some(),
+            "{c:?}: a fixed result on a case no table names"
+        );
         let want: Result<Vec<Vec<u8>>, String> = match (&c.fixed, deviation(c)) {
             (Some(fixed), Some(ledger)) => {
                 assert_ne!(fixed, &c.tokens, "{c:?}: Dgraph differs");
@@ -768,7 +778,7 @@ fn test_tokens_golden() {
             }
             (None, _) if c.error.is_empty() => Ok(decoded(&c.tokens)),
             (None, _) => Err(c.error.clone()),
-            (Some(_), None) => panic!("{c:?}: a fixed result on a case no table names"),
+            (Some(_), None) => Err(format!("{c:?}: a fixed result on a case no table names")),
         };
         let mask =
             |t: Result<Vec<Vec<u8>>, String>| t.map(|t| digests_masked(&c.tokenizer, c.sorted, t));
@@ -866,12 +876,8 @@ fn values_of_every_type() -> Vec<(&'static str, Value)> {
     ]
 }
 
-/// Every tokenizer given a value of every type, as Dgraph v25.5.0 answers (a Go program over `tok.BuildTokens`,
-/// recovering its panics): the typed tokenizers panic on Go's type assertion, which the port returns as
-/// [`TokErrorEnum::WrongValue`] with the panic's text; exact, trigram and hash return their errors; term, fulltext,
-/// ngram and sha256 take any value; hnsw ignores it.
-#[test]
-fn test_tokens_of_values_of_every_type() {
+/// Each typed tokenizer's token of its own type's value, and Go's assertion text for every other type.
+fn assert_typed_tokens_of_every_type() {
     let int1 = b"\x01\x00\x00\x00\x00\x00\x00\x00\x01";
     // The token each typed tokenizer gives its own type's value of `values_of_every_type`, the epoch for datetime.
     let typed: [(&str, &str, Vec<u8>); 8] = [
@@ -906,6 +912,10 @@ fn test_tokens_of_values_of_every_type() {
             }
         }
     }
+}
+
+/// The geo tokenizer's tokens of a point, and Go's assertion text for every other type.
+fn assert_geo_tokens_of_every_type() {
     // geom.T is an interface, whose failed assertion Go words by the first method the value lacks.
     for (go, v) in values_of_every_type() {
         let got = build_tokens(&v, &tokenizer("geo"));
@@ -938,6 +948,16 @@ fn test_tokens_of_values_of_every_type() {
             );
         }
     }
+}
+
+/// Every tokenizer given a value of every type, as Dgraph v25.5.0 answers (a Go program over `tok.BuildTokens`,
+/// recovering its panics): the typed tokenizers panic on Go's type assertion, which the port returns as
+/// [`TokErrorEnum::WrongValue`] with the panic's text; exact, trigram and hash return their errors; term, fulltext,
+/// ngram and sha256 take any value; hnsw ignores it.
+#[test]
+fn test_tokens_of_values_of_every_type() {
+    assert_typed_tokens_of_every_type();
+    assert_geo_tokens_of_every_type();
     let refused = [
         ("exact", "Exact indices only supported for string types"),
         ("trigram", "Trigram indices only supported for string types"),

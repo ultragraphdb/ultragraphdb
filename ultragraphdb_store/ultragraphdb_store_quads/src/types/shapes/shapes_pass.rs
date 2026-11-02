@@ -21,6 +21,12 @@ use crate::types::shapes::Shapes;
 /// The kinds of each predicate a label's nodes hold, and the most objects one node holds of it.
 type Observed = BTreeMap<String, (BTreeSet<String>, usize)>;
 
+/// Each typed subject's labels, by its graph and subject.
+type Typed = BTreeMap<(u64, u64), Vec<String>>;
+
+/// The labels of the objects of each predicate a label's nodes hold, by label and predicate.
+type Related = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
+
 impl Shapes {
     /// The shapes of `namespace` at `read_ts`: each subject's labels from its `rdf:type` statements, joined with its
     /// subject-predicate list, and for each IRI object the labels of the object in the same graph.
@@ -40,88 +46,11 @@ impl Shapes {
         let Some(rdf_type) = quads.uid_of(namespace, rdf::TYPE.as_str())? else {
             return Ok(shapes);
         };
+        // Held to the end of the pass, so that what it reads stays at `read_ts`.
         let snapshot = quads.store().snapshot(read_ts)?;
-        let mut typed: BTreeMap<(u64, u64), Vec<String>> = BTreeMap::new();
-        for item in snapshot.scan(&Scan::prefix(key_prefix(
-            Keyspace::Forward,
-            false,
-            namespace,
-            None,
-            None,
-        ))) {
-            let key = item?.key().to_vec();
-            if let (
-                QuadKey::Forward {
-                    graph,
-                    predicate,
-                    subject,
-                    ..
-                },
-                _,
-            ) = QuadKey::parse(&key)?
-                && predicate == rdf_type
-            {
-                let labels = quads
-                    .objects(&key, read_ts)?
-                    .iter()
-                    .filter_map(|(o, _)| o.as_uid())
-                    .map(|u| quads.iri_of(namespace, u).map(|(iri, _)| iri))
-                    .collect::<Result<Vec<_>, _>>()?;
-                if !labels.is_empty() {
-                    typed.insert((graph, subject), labels);
-                }
-            }
-        }
-        let mut properties: BTreeMap<String, Observed> = BTreeMap::new();
-        let mut relationships: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> =
-            BTreeMap::new();
-        for ((graph, subject), labels) in &typed {
-            let predicates = QuadKey::SubjectPredicates {
-                namespace,
-                graph: *graph,
-                subject: *subject,
-            }
-            .to_bytes();
-            for (p, _) in quads.objects(&predicates, read_ts)? {
-                let Some(predicate) = p.as_uid().filter(|p| *p != rdf_type) else {
-                    continue;
-                };
-                let name = quads.iri_of(namespace, predicate)?.0;
-                let forward = QuadKey::Forward {
-                    namespace,
-                    graph: *graph,
-                    predicate,
-                    subject: *subject,
-                }
-                .to_bytes();
-                let objects = quads.objects(&forward, read_ts)?;
-                let mut kinds = BTreeSet::new();
-                let mut targets = BTreeSet::new();
-                for (object, _) in &objects {
-                    kinds.insert(kind(quads, namespace, object)?);
-                    if let Some(uid) = object.as_uid() {
-                        targets.extend(typed.get(&(*graph, uid)).into_iter().flatten().cloned());
-                    }
-                }
-                for label in labels {
-                    let entry = properties
-                        .entry(label.clone())
-                        .or_default()
-                        .entry(name.clone())
-                        .or_default();
-                    entry.0.extend(kinds.iter().cloned());
-                    entry.1 = entry.1.max(objects.len());
-                    if !targets.is_empty() {
-                        relationships
-                            .entry(label.clone())
-                            .or_default()
-                            .entry(name.clone())
-                            .or_default()
-                            .extend(targets.iter().cloned());
-                    }
-                }
-            }
-        }
+        let typed = typed_subjects(quads, &snapshot, namespace, read_ts, rdf_type)?;
+        let (properties, relationships) =
+            observe_predicates(quads, namespace, read_ts, rdf_type, &typed)?;
         for label in typed.values().flatten() {
             let shape = shapes.labels.entry(label.clone()).or_default();
             for (name, (kinds, most)) in properties.get(label).into_iter().flatten() {
@@ -140,6 +69,118 @@ impl Shapes {
         }
         Ok(shapes)
     }
+}
+
+/// The labels of each subject of `namespace` at `read_ts` from its `rdf_type` statements, by graph and subject, its
+/// forward lists found through `snapshot`.
+fn typed_subjects<S, C>(
+    quads: &QuadStore<S, C>,
+    snapshot: &S::Snapshot,
+    namespace: u64,
+    read_ts: u64,
+    rdf_type: u64,
+) -> Result<Typed, QuadError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    let mut typed = Typed::new();
+    for item in snapshot.scan(&Scan::prefix(key_prefix(
+        Keyspace::Forward,
+        false,
+        namespace,
+        None,
+        None,
+    ))) {
+        let key = item?.key().to_vec();
+        if let (
+            QuadKey::Forward {
+                graph,
+                predicate,
+                subject,
+                ..
+            },
+            _,
+        ) = QuadKey::parse(&key)?
+            && predicate == rdf_type
+        {
+            let labels = quads
+                .objects(&key, read_ts)?
+                .iter()
+                .filter_map(|(o, _)| o.as_uid())
+                .map(|u| quads.iri_of(namespace, u).map(|(iri, _)| iri))
+                .collect::<Result<Vec<_>, _>>()?;
+            if !labels.is_empty() {
+                typed.insert((graph, subject), labels);
+            }
+        }
+    }
+    Ok(typed)
+}
+
+/// What the `typed` subjects' predicates other than `rdf_type` hold at `read_ts`, by label: each one's kinds and most
+/// objects, and the labels of its IRI objects in the same graph.
+fn observe_predicates<S, C>(
+    quads: &QuadStore<S, C>,
+    namespace: u64,
+    read_ts: u64,
+    rdf_type: u64,
+    typed: &Typed,
+) -> Result<(BTreeMap<String, Observed>, Related), QuadError>
+where
+    S: Store,
+    C: ListCache<Value = CachedList>,
+{
+    let mut properties: BTreeMap<String, Observed> = BTreeMap::new();
+    let mut relationships = Related::new();
+    for ((graph, subject), labels) in typed {
+        let predicates = QuadKey::SubjectPredicates {
+            namespace,
+            graph: *graph,
+            subject: *subject,
+        }
+        .to_bytes();
+        for (p, _) in quads.objects(&predicates, read_ts)? {
+            let Some(predicate) = p.as_uid().filter(|p| *p != rdf_type) else {
+                continue;
+            };
+            let name = quads.iri_of(namespace, predicate)?.0;
+            let forward = QuadKey::Forward {
+                namespace,
+                graph: *graph,
+                predicate,
+                subject: *subject,
+            }
+            .to_bytes();
+            let objects = quads.objects(&forward, read_ts)?;
+            let mut kinds = BTreeSet::new();
+            let mut targets = BTreeSet::new();
+            for (object, _) in &objects {
+                kinds.insert(kind(quads, namespace, object)?);
+                if let Some(uid) = object.as_uid() {
+                    targets.extend(typed.get(&(*graph, uid)).into_iter().flatten().cloned());
+                }
+            }
+            for label in labels {
+                let entry = properties
+                    .entry(label.clone())
+                    .or_default()
+                    .entry(name.clone())
+                    .or_default();
+                entry.0.extend(kinds.iter().cloned());
+                entry.1 = entry.1.max(objects.len());
+                if !targets.is_empty() {
+                    relationships
+                        .entry(label.clone())
+                        .or_default()
+                        .entry(name.clone())
+                        .or_default()
+                        .extend(targets.iter().cloned());
+                }
+            }
+        }
+    }
+    Ok((properties, relationships))
 }
 
 /// The statistics kind of a stored object: `iri`, `blank` or its datatype IRI.

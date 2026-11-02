@@ -194,10 +194,13 @@ fn test_a_vectors_dimension_is_little_endian() {
     let bytes = [&[0x40, 0x02, 0x01][..], &[0u8; 4 * 258]].concat();
     let (term, rest) = EncodedTerm::read(&bytes).unwrap();
     assert_eq!((term.as_bytes().len(), rest.len()), (3 + 4 * 258, 0));
-    let TermView::Vector(view) = term.view().unwrap() else {
-        panic!("a vector");
+    let view = term.view().unwrap();
+    let len = if let TermView::Vector(v) = &view {
+        Some(v.len())
+    } else {
+        None
     };
-    assert_eq!(view.len(), 258);
+    assert_eq!(len, Some(258), "{view:?}");
     // The widest vector, 65,535 elements: 0xFFFF.
     let widest = [&[0x40, 0xFF, 0xFF][..], &vec![0u8; 4 * 65_535]].concat();
     assert_eq!(EncodedTerm::check(&widest), Ok(()));
@@ -462,7 +465,8 @@ fn test_the_encoded_term_fuzz_regressions_replay_without_a_panic() {
         if EncodedTerm::check(data).is_ok() {
             let term = EncodedTerm::from_bytes(data).expect(name);
             let view = term.view().expect(name);
-            let _ = view.to_literal(
+            // A literal or an error, either of which passes: the replay asks only that nothing panics.
+            let _literal: Result<Literal, TermError> = view.to_literal(
                 |uid| Err::<_, TermError>(TermError::NotALiteral(uid)),
                 |_| Ok("the text the hash names".to_string()),
             );

@@ -41,7 +41,8 @@ impl Drop for Steps {
     fn drop(&mut self) {
         self.store = None;
         if let Some(dir) = &self.dir {
-            let _ = std::fs::remove_dir_all(dir);
+            // A directory left behind is litter in the temporary directory, not a failure of the test.
+            drop(std::fs::remove_dir_all(dir));
         }
     }
 }
@@ -192,31 +193,33 @@ fn ab_first(w: &mut Steps) {
     );
 }
 
-fn oversized(w: &mut Steps, key: Vec<u8>) {
+fn oversized(w: &mut Steps, key: &[u8]) {
     let mut batch = WriteBatch::new();
     batch.push(put(b"fine", 1, b""));
-    batch.push(put(&key, 1, b""));
+    batch.push(put(key, 1, b""));
     w.error = w.open().apply(batch, PersistMode::Buffer).err();
 }
 
 #[when("a batch writes a key whose user key is 65,001 bytes long")]
 fn user_key_too_long(w: &mut Steps) {
-    oversized(w, vec![1; 65_001]);
+    oversized(w, &[1; 65_001]);
 }
 
 #[when(
     "a batch writes a key whose user key is 44,000 bytes of 0x00 0x01, 66,010 bytes once encoded and versioned"
 )]
 fn stored_key_too_long(w: &mut Steps) {
-    oversized(w, (0..44_000).map(|i| (i % 2) as u8).collect());
+    let key: Vec<u8> = (0..44_000).map(|i| (i % 2) as u8).collect();
+    oversized(w, &key);
 }
 
 #[then(
     regex = r#"^the batch fails with an error beginning "(.+)", and none of its keys is found$"#
 )]
-fn refused(w: &mut Steps, text: String) {
+fn refused(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
     let error = w.error.take().expect("the batch failed").to_string();
-    assert!(error.starts_with(&text), "{error}");
+    assert!(error.starts_with(text.as_str()), "{error}");
     assert_eq!(w.open().get_at(b"fine", 1).unwrap(), None);
     assert!(!w.open().is_poisoned());
 }
@@ -252,8 +255,9 @@ fn too_old(w: &mut Steps) {
 }
 
 #[then(regex = r#"^the read fails with "(.+)"$"#)]
-fn read_fails(w: &mut Steps, text: String) {
-    assert_eq!(w.read.take().unwrap().unwrap_err().to_string(), text);
+fn read_fails(w: &mut Steps, args: &[String]) {
+    let text = &args[0];
+    assert_eq!(w.read.take().unwrap().unwrap_err().to_string(), *text);
 }
 
 #[when("a scan is open and a batch writes keys inside its range")]
@@ -392,7 +396,8 @@ fn killed_during_batch(w: &mut Steps) {
         w.outcomes
             .push(format!("{counts:?} applied {}", store.applied_ts()));
         drop(store);
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
 
@@ -427,7 +432,8 @@ fn killed_during_mixed_batch(w: &mut Steps) {
         let versionless = versionless_counts(&store, started + 1);
         w.outcomes.push(format!("{versioned:?} {versionless:?}"));
         drop(store);
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
 
@@ -595,7 +601,8 @@ fn killed_during_drop(w: &mut Steps) {
             left > 0 && left < DROPPED_KEYS
         ));
         drop(store);
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
 }
 
@@ -808,7 +815,9 @@ fn deletion_alone(w: &mut Steps) {
     let mut filter = GcFilter::new(6, true);
     w.verdict = Some(match filter.verdict(&stored, &[0x00, 0x02]) {
         Verdict::Keep => "keep",
-        _ => "collect",
+        Verdict::Remove | Verdict::RemoveWeak | Verdict::ReplaceValue(_) | Verdict::Destroy | _ => {
+            "collect"
+        }
     });
 }
 

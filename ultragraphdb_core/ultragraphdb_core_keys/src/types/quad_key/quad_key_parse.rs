@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
  */
 
-use ultragraphdb_core_terms::EncodedTerm;
+use ultragraphdb_core_terms::{EncodedTerm, TermErrorEnum};
 
 use crate::errors::quad_key_error::QuadKeyError;
 use crate::types::count_direction::CountDirection;
@@ -61,10 +61,12 @@ impl<'a> Reader<'a> {
             return Err(QuadKeyError::Truncated(self.key));
         }
         let (term, after) = EncodedTerm::read(rest).map_err(|e| match e.0 {
-            ultragraphdb_core_terms::TermErrorEnum::Truncated { .. } => {
-                QuadKeyError::Truncated(self.key)
-            }
-            _ => QuadKeyError::BadObject(self.key, e),
+            TermErrorEnum::Truncated { .. } => QuadKeyError::Truncated(self.key),
+            TermErrorEnum::UnknownTag { .. }
+            | TermErrorEnum::UnknownDatatype { .. }
+            | TermErrorEnum::Malformed { .. }
+            | TermErrorEnum::InvalidVector { .. }
+            | TermErrorEnum::NotALiteral { .. } => QuadKeyError::BadObject(self.key, e),
         })?;
         if term.is_vector() {
             return Err(QuadKeyError::VectorObject(self.key));
@@ -80,6 +82,76 @@ impl<'a> Reader<'a> {
         let rest = self.key[self.at..self.end].to_vec();
         self.at = self.end;
         rest
+    }
+
+    /// The fields after the namespace of a key of `keyspace`.
+    fn fields(&mut self, keyspace: Keyspace, namespace: u64) -> Result<QuadKey, QuadKeyError> {
+        Ok(match keyspace {
+            Keyspace::Catalog => QuadKey::Catalog {
+                namespace,
+                kind: self.u8()?,
+                uid: self.uid("uid")?,
+            },
+            Keyspace::Forward => QuadKey::Forward {
+                namespace,
+                graph: self.u64()?,
+                predicate: self.uid("predicate")?,
+                subject: self.uid("subject")?,
+            },
+            Keyspace::Reverse => QuadKey::Reverse {
+                namespace,
+                graph: self.u64()?,
+                predicate: self.uid("predicate")?,
+                object: self.object()?,
+            },
+            Keyspace::SubjectPredicates => QuadKey::SubjectPredicates {
+                namespace,
+                graph: self.u64()?,
+                subject: self.uid("subject")?,
+            },
+            Keyspace::ObjectPredicates => QuadKey::ObjectPredicates {
+                namespace,
+                graph: self.u64()?,
+                object: self.object()?,
+            },
+            Keyspace::ValueIndex => QuadKey::ValueIndex {
+                namespace,
+                graph: self.u64()?,
+                predicate: self.uid("predicate")?,
+                tokenizer: self.u8()?,
+                token: self.rest(),
+            },
+            Keyspace::CountIndex => {
+                let graph = self.u64()?;
+                let predicate = self.uid("predicate")?;
+                let direction = CountDirection::from_byte(self.u8()?)
+                    .ok_or_else(|| QuadKeyError::UnknownDirection(self.key))?;
+                QuadKey::CountIndex {
+                    namespace,
+                    graph,
+                    predicate,
+                    direction,
+                    count: self.u32()?,
+                }
+            }
+            Keyspace::VectorIndex => QuadKey::VectorIndex {
+                namespace,
+                graph: self.u64()?,
+                predicate: self.uid("predicate")?,
+                list: self.u8()?,
+                node: self.uid("node")?,
+            },
+            Keyspace::Statements => QuadKey::Statement {
+                namespace,
+                graph: self.u64()?,
+                statement: self.uid("statement ID")?,
+            },
+            Keyspace::Statistics => QuadKey::Statistics {
+                namespace,
+                graph: self.u64()?,
+                predicate: self.uid("predicate")?,
+            },
+        })
     }
 
     fn done(&self) -> Result<(), QuadKeyError> {
@@ -116,72 +188,7 @@ impl QuadKey {
         };
         let mut r = Reader { key, at: 1, end };
         let namespace = r.u64()?;
-        let parsed = match keyspace {
-            Keyspace::Catalog => QuadKey::Catalog {
-                namespace,
-                kind: r.u8()?,
-                uid: r.uid("uid")?,
-            },
-            Keyspace::Forward => QuadKey::Forward {
-                namespace,
-                graph: r.u64()?,
-                predicate: r.uid("predicate")?,
-                subject: r.uid("subject")?,
-            },
-            Keyspace::Reverse => QuadKey::Reverse {
-                namespace,
-                graph: r.u64()?,
-                predicate: r.uid("predicate")?,
-                object: r.object()?,
-            },
-            Keyspace::SubjectPredicates => QuadKey::SubjectPredicates {
-                namespace,
-                graph: r.u64()?,
-                subject: r.uid("subject")?,
-            },
-            Keyspace::ObjectPredicates => QuadKey::ObjectPredicates {
-                namespace,
-                graph: r.u64()?,
-                object: r.object()?,
-            },
-            Keyspace::ValueIndex => QuadKey::ValueIndex {
-                namespace,
-                graph: r.u64()?,
-                predicate: r.uid("predicate")?,
-                tokenizer: r.u8()?,
-                token: r.rest(),
-            },
-            Keyspace::CountIndex => {
-                let graph = r.u64()?;
-                let predicate = r.uid("predicate")?;
-                let direction = CountDirection::from_byte(r.u8()?)
-                    .ok_or_else(|| QuadKeyError::UnknownDirection(key))?;
-                QuadKey::CountIndex {
-                    namespace,
-                    graph,
-                    predicate,
-                    direction,
-                    count: r.u32()?,
-                }
-            }
-            Keyspace::VectorIndex => QuadKey::VectorIndex {
-                namespace,
-                graph: r.u64()?,
-                predicate: r.uid("predicate")?,
-                list: r.u8()?,
-                node: r.uid("node")?,
-            },
-            Keyspace::Statements => QuadKey::Statement {
-                namespace,
-                graph: r.u64()?,
-                statement: r.uid("statement ID")?,
-            },
-            Keyspace::Statistics => QuadKey::Statistics {
-                namespace,
-                graph: r.u64()?,
-                predicate: r.uid("predicate")?,
-            },
-        };
+        let parsed = r.fields(keyspace, namespace)?;
         r.done()?;
         Ok((parsed, start))
     }

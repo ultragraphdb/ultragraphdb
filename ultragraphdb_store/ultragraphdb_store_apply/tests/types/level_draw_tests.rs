@@ -78,7 +78,7 @@ fn test_a_node_s_draws_depend_on_each_of_the_four_and_on_nothing_else() {
     };
     let base = first(3, 1, 5, 7);
     // The same node draws the same, however many other nodes drew before it.
-    let _ = (0..10).map(|u| first(3, 1, 5, u)).collect::<Vec<_>>();
+    let _others: Vec<(f64, f64)> = (0..10).map(|u| first(3, 1, 5, u)).collect();
     assert_eq!(first(3, 1, 5, 7), base);
     for other in [
         first(4, 1, 5, 7),

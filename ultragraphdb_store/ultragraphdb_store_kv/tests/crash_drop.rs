@@ -59,7 +59,8 @@ fn test_a_kill_during_a_drop_is_finished_at_open() {
             !raw_drop_state(&dir).0,
             "{stage}: the finished drop deleted its record"
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        // A directory left behind is litter in the temporary directory, not a failure of the test.
+        drop(std::fs::remove_dir_all(&dir));
     }
     assert_eq!(
         interrupted, 5,

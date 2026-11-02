@@ -7,10 +7,9 @@ use std::io::ErrorKind;
 
 use ultragraphdb_error_log::{LogError, LogErrorEnum};
 
-#[test]
-fn test_each_constructor_builds_its_variant_with_its_values() {
-    // Every value distinct, so a constructor that swaps two fields is caught.
-    let cases = [
+/// The constructors of the log's state and its positions, each with the variant it builds.
+fn position_cases() -> [(LogError, LogErrorEnum); 8] {
+    [
         (LogError::NotPrimary(), LogErrorEnum::NotPrimary),
         (LogError::Busy(8), LogErrorEnum::Busy { segments: 8 }),
         (LogError::Sealed(9), LogErrorEnum::Sealed { position: 9 }),
@@ -44,6 +43,12 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
                 limit: 1_048_576,
             },
         ),
+    ]
+}
+
+/// The constructors of corruption, divergence and failure, each with the variant it builds.
+fn fault_cases() -> [(LogError, LogErrorEnum); 6] {
+    [
         (
             LogError::Corrupt(2, 3, 4_096),
             LogErrorEnum::Corrupt {
@@ -84,8 +89,13 @@ fn test_each_constructor_builds_its_variant_with_its_values() {
             },
         ),
         (LogError::Poisoned(), LogErrorEnum::Poisoned),
-    ];
-    for (built, expected) in cases {
+    ]
+}
+
+#[test]
+fn test_each_constructor_builds_its_variant_with_its_values() {
+    // Every value distinct, so a constructor that swaps two fields is caught.
+    for (built, expected) in position_cases().into_iter().chain(fault_cases()) {
         assert_eq!(built.0, expected);
     }
 }

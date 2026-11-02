@@ -12,13 +12,18 @@ impl Drop for JsonValue {
         let mut stack: Vec<JsonValue> = match self {
             JsonValue::Array(items) => std::mem::take(items),
             JsonValue::Object(members) => members.drain(..).map(|(_, v)| v).collect(),
-            _ => return,
+            JsonValue::Null | JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {
+                return;
+            }
         };
         while let Some(mut v) = stack.pop() {
             match &mut v {
                 JsonValue::Array(items) => stack.append(items),
                 JsonValue::Object(members) => stack.extend(members.drain(..).map(|(_, v)| v)),
-                _ => {}
+                JsonValue::Null
+                | JsonValue::Bool(_)
+                | JsonValue::Number(_)
+                | JsonValue::String(_) => {}
             }
         }
     }

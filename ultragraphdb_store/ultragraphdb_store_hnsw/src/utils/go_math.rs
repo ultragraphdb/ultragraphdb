@@ -61,7 +61,8 @@ fn frexp(f: f64) -> (f64, i64) {
     }
     let (f, mut exp) = normalize(f);
     let mut x = f.to_bits();
-    exp += ((x >> SHIFT) & MASK) as i64 - BIAS + 1;
+    // The exponent field is masked to 11 bits, so reading it as signed is its value.
+    exp += ((x >> SHIFT) & MASK).cast_signed() - BIAS + 1;
     x &= !(MASK << SHIFT);
     x |= ((-1 + BIAS) as u64) << SHIFT;
     (f64::from_bits(x), exp)
@@ -75,7 +76,8 @@ fn ldexp(frac: f64, exp: i64) -> f64 {
     let (frac, e) = normalize(frac);
     let mut exp = exp + e;
     let mut x = frac.to_bits();
-    exp += ((x >> SHIFT) & MASK) as i64 - BIAS;
+    // The exponent field is masked to 11 bits, so reading it as signed is its value.
+    exp += ((x >> SHIFT) & MASK).cast_signed() - BIAS;
     if exp < -1075 {
         return 0.0f64.copysign(frac);
     }

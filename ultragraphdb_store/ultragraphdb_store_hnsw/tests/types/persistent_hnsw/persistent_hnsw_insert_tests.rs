@@ -47,7 +47,7 @@ fn insert_at(
     vec: &[f64],
     rng: &mut SimRng,
 ) -> Result<Vec<KeyValue>, HnswError> {
-    dbs.set_all(&key(PRED, uid), float64_array_as_bytes(vec));
+    dbs.set_all(&key(PRED, uid), &float64_array_as_bytes(vec));
     let txn = InMemTxn::new(dbs, start_ts, commit_ts);
     flat_ph().insert(&TxnCache::new(&txn, start_ts), uid, vec, &mut || draw(rng))
 }
@@ -291,6 +291,48 @@ fn test_a_failed_vector_read_is_an_error() {
 /// leaves a valid encoding decodes and is not detected.
 #[test]
 fn test_corrupted_index_values_are_refused() {
+    assert_decoders_refuse_corruptions();
+    assert_inserts_read_corruptions_as_the_stores();
+    let txn = MapTxn::default();
+    txn.db
+        .borrow_mut()
+        .insert(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
+    flat_ph()
+        .insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.5)
+        .unwrap();
+    txn.db
+        .borrow_mut()
+        .insert(key(&format!("{PRED}{VEC_DEAD}"), 1), b"[x]".to_vec());
+    txn.db
+        .borrow_mut()
+        .insert(key(PRED, 6), float64_array_as_bytes(&[1.0, 1.0]));
+    let e = flat_ph()
+        .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
+        .unwrap_err();
+    assert_eq!(e.0, HnswErrorEnum::UintSlice("[x]".into()));
+    let short = encode_uint64_matrix(&[vec![]]);
+    txn.db
+        .borrow_mut()
+        .insert(key(&format!("{PRED}{VEC_KEYWORD}"), 3), short);
+    txn.db
+        .borrow_mut()
+        .remove(&key(&format!("{PRED}{VEC_DEAD}"), 1));
+    let e = flat_ph()
+        .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
+        .unwrap_err();
+    assert_eq!(
+        e.0,
+        HnswErrorEnum::LevelMissing {
+            uid: 3,
+            level: 1,
+            levels: 1
+        },
+        "where Dgraph panics"
+    );
+}
+
+/// The decoders' refusals of a neighbour matrix, an entry point and a vector that do not fill their bytes.
+fn assert_decoders_refuse_corruptions() {
     let lists = encode_uint64_matrix(&[vec![1, 2], vec![3]]);
     assert_eq!(
         decode_uint64_matrix(&lists[..lists.len() - 1]),
@@ -340,8 +382,10 @@ fn test_corrupted_index_values_are_refused() {
     assert_eq!(bytes_to_uint64(&[0; 9]), None);
     assert_eq!(bytes_as_float_array::<f32>(&[0; 6]), None);
     assert_eq!(bytes_as_float_array::<f64>(&[0; 12]), None);
+}
 
-    // Read through an insert, each is the store's corruption naming its key.
+/// A corrupted entry point or vector, read through an insert, is the store's corruption naming its key.
+fn assert_inserts_read_corruptions_as_the_stores() {
     for (attr, uid, value) in [
         (format!("{PRED}{VEC_ENTRY}"), 1, vec![1u8, 2, 3]),
         (PRED.to_string(), 3, vec![0u8; 12]),
@@ -367,42 +411,6 @@ fn test_corrupted_index_values_are_refused() {
             "{e}"
         );
     }
-    let txn = MapTxn::default();
-    txn.db
-        .borrow_mut()
-        .insert(key(PRED, 3), float64_array_as_bytes(&[0.0, 1.0]));
-    flat_ph()
-        .insert(&TxnCache::new(&txn, 1), 3, &[0.0, 1.0], &mut || 0.5)
-        .unwrap();
-    txn.db
-        .borrow_mut()
-        .insert(key(&format!("{PRED}{VEC_DEAD}"), 1), b"[x]".to_vec());
-    txn.db
-        .borrow_mut()
-        .insert(key(PRED, 6), float64_array_as_bytes(&[1.0, 1.0]));
-    let e = flat_ph()
-        .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
-        .unwrap_err();
-    assert_eq!(e.0, HnswErrorEnum::UintSlice("[x]".into()));
-    let short = encode_uint64_matrix(&[vec![]]);
-    txn.db
-        .borrow_mut()
-        .insert(key(&format!("{PRED}{VEC_KEYWORD}"), 3), short);
-    txn.db
-        .borrow_mut()
-        .remove(&key(&format!("{PRED}{VEC_DEAD}"), 1));
-    let e = flat_ph()
-        .insert(&TxnCache::new(&txn, 1), 6, &[1.0, 1.0], &mut || 0.5)
-        .unwrap_err();
-    assert_eq!(
-        e.0,
-        HnswErrorEnum::LevelMissing {
-            uid: 3,
-            level: 1,
-            levels: 1
-        },
-        "where Dgraph panics"
-    );
 }
 
 /// Deviation (ledger 45): when the entry point has lost its vector, Dgraph makes the first node in key order holding

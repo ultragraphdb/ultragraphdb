@@ -26,7 +26,7 @@ use ultragraphdb_store_kv::Durability;
 use ultragraphdb_traits_log::OrderedLog;
 use ultragraphdb_transactions_commit::{Pipeline, RoundBounds};
 use ultragraphdb_transactions_log::{CompioStorage, Wal, WalConfig};
-use ultragraphdb_transactions_txn::{Commit, Mode, Transaction, TxnLimits};
+use ultragraphdb_transactions_txn::{Commit, Mode, Prepared, Transaction, TxnBuffers, TxnLimits};
 
 use crate::errors::bench_error::BenchError;
 use crate::traits::clock::Clock;
@@ -143,39 +143,11 @@ async fn commit_loop(
                 Err(_) => break,
             }
         }
-        loop {
-            match rx.try_recv() {
-                Ok(changeset) => waiting.push(changeset),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    open = false;
-                    break;
-                }
-            }
-        }
+        open = take_waiting(&rx, &mut waiting) && open;
         for changeset in waiting.drain(..) {
             let now = micros(&clock);
             let buffers = pipeline.buffers_mut().pop().unwrap_or_default();
-            let mut txn = Transaction::begin(
-                a,
-                NAMESPACE,
-                Mode::ReadWrite,
-                0,
-                now,
-                TxnLimits::default(),
-                buffers,
-            )
-            .map_err(|e| BenchError::Commit(e.to_string()))?;
-            txn.write(&changeset, now)
-                .map_err(|e| BenchError::Commit(e.to_string()))?;
-            let Commit::ReadWrite(prepared) = txn
-                .commit(0, 0, &[], now)
-                .map_err(|e| BenchError::Commit(e.to_string()))?
-            else {
-                return Err(BenchError::Commit(
-                    "a read-write transaction ended read-only".to_string(),
-                ));
-            };
+            let prepared = prepare_commit(a, &changeset, buffers, now)?;
             pipeline
                 .commit(ticket, prepared, now)
                 .map_err(|e| BenchError::Commit(e.to_string()))?;
@@ -201,6 +173,47 @@ async fn commit_loop(
     }
     let elapsed = clock.elapsed();
     Ok((counts, pipeline.log().committed().get(), elapsed))
+}
+
+/// Moves every commit waiting in `rx` to `waiting`; whether the source is still open.
+fn take_waiting(rx: &mpsc::Receiver<Changeset>, waiting: &mut Vec<Changeset>) -> bool {
+    loop {
+        match rx.try_recv() {
+            Ok(changeset) => waiting.push(changeset),
+            Err(TryRecvError::Empty) => return true,
+            Err(TryRecvError::Disconnected) => return false,
+        }
+    }
+}
+
+/// Runs `changeset` as a read-write transaction at the visibility watermark, on `buffers`, and returns its proposal.
+fn prepare_commit(
+    a: &BenchApplier,
+    changeset: &Changeset,
+    buffers: TxnBuffers,
+    now: u64,
+) -> Result<Prepared, BenchError> {
+    let mut txn = Transaction::begin(
+        a,
+        NAMESPACE,
+        Mode::ReadWrite,
+        0,
+        now,
+        TxnLimits::default(),
+        buffers,
+    )
+    .map_err(|e| BenchError::Commit(e.to_string()))?;
+    txn.write(changeset, now)
+        .map_err(|e| BenchError::Commit(e.to_string()))?;
+    let Commit::ReadWrite(prepared) = txn
+        .commit(0, 0, &[], now)
+        .map_err(|e| BenchError::Commit(e.to_string()))?
+    else {
+        return Err(BenchError::Commit(
+            "a read-write transaction ended read-only".to_string(),
+        ));
+    };
+    Ok(prepared)
 }
 
 /// The source: releases `shape`'s commits at `rate` for `seconds`, at most [`PENDING_PROPOSALS`] beyond those

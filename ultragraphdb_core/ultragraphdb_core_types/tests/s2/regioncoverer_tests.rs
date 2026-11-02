@@ -106,7 +106,7 @@ fn check_covering<R: Region>(rc: &RegionCoverer, r: &R, covering: &CellUnion) {
             .entry(ci.parent(rc.min_level()))
             .or_insert(0) += 1;
     }
-    if covering.len() as i64 > rc.max_cells() {
+    if i64::try_from(covering.len()).expect("fits i64") > rc.max_cells() {
         // If the covering has more than the requested number of cells, then check
         // that the cell count cannot be reduced by using the parent of some cell.
         for (ci, count) in min_level_cells {

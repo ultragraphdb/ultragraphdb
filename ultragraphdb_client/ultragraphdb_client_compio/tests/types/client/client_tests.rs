@@ -53,6 +53,33 @@ fn read(tx: &ultragraphdb_client_compio::Transaction) -> Read {
     )
 }
 
+/// A Prepare of the pattern `?s <http://ex.org/name> ?o` in the default graph, its subject a node parameter.
+fn prepare_name() -> Prepare {
+    let mut terms = TermTable::new();
+    let name = terms.iri("http://ex.org/name");
+    Prepare::new(
+        0,
+        0,
+        0,
+        terms,
+        QuadPattern::new(
+            PatternSlot::DefaultGraph,
+            PatternSlot::Parameter(0),
+            PatternSlot::Bound(name),
+            PatternSlot::Unbound,
+        ),
+        vec![ColumnType::Node],
+        Vec::new(),
+    )
+}
+
+/// An Execute of statement `id` in `tx`, its parameter `http://ex.org/a`.
+fn execute(id: u64, tx: &ultragraphdb_client_compio::Transaction) -> Execute {
+    let mut terms = TermTable::new();
+    let a = terms.iri("http://ex.org/a");
+    Execute::new(id, tx.stream(), 0, terms, vec![a], Vec::new())
+}
+
 /// A whole conversation: a session, a transaction with an operation committed, a read streamed under credit, a
 /// statement prepared, executed, refused as stale and prepared again, a description, an abort.
 async fn conversation<C: Connect>(
@@ -87,34 +114,12 @@ async fn conversation<C: Connect>(
         vec!["http://ex.org/same".to_string(); 6],
         "three batches of two rows, under credit of one"
     );
-    let mut terms = TermTable::new();
-    let name = terms.iri("http://ex.org/name");
-    let prepare = Prepare::new(
-        0,
-        0,
-        0,
-        terms,
-        QuadPattern::new(
-            PatternSlot::DefaultGraph,
-            PatternSlot::Parameter(0),
-            PatternSlot::Bound(name),
-            PatternSlot::Unbound,
-        ),
-        vec![ColumnType::Node],
-        Vec::new(),
-    );
+    let prepare = prepare_name();
     let statement = client.prepare(&prepare).await.unwrap();
-    let execute = |id| {
-        let mut terms = TermTable::new();
-        let a = terms.iri("http://ex.org/a");
-        move |tx: &ultragraphdb_client_compio::Transaction| {
-            Execute::new(id, tx.stream(), 0, terms.clone(), vec![a], Vec::new())
-        }
-    };
     scripted.borrow_mut().set_schema(7);
     let tx = client.begin(0, true).await.unwrap();
     let stale = client
-        .execute(&tx, &execute(statement.id())(&tx))
+        .execute(&tx, &execute(statement.id(), &tx))
         .await
         .unwrap();
     let refused = client.next_batch(&stale, |_| ()).await.unwrap_err();
@@ -123,7 +128,7 @@ async fn conversation<C: Connect>(
     assert_eq!(again.schema(), 7);
     let tx = client.begin(0, true).await.unwrap();
     let stream = client
-        .execute(&tx, &execute(again.id())(&tx))
+        .execute(&tx, &execute(again.id(), &tx))
         .await
         .unwrap();
     assert!(

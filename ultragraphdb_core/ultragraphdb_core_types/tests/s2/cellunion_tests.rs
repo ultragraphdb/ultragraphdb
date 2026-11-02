@@ -131,150 +131,163 @@ fn c(id: u64) -> CellId {
 // Ported from golang/geo s2/cellunion_test.go, TestCellUnion.
 #[test]
 fn cell_union_contains_and_intersects() {
-    let nyc = c(0x89c25c0000000000);
-    let tests = [
-        // Single cell around NYC, and some simple nearby probes
-        UnionCase {
-            cells: vec![nyc],
-            contained: vec![nyc.child_begin(), nyc.child_begin_at_level(28)],
-            overlaps: vec![nyc.parent(nyc.level() - 1), CellId::from_face(nyc.face())],
-            disjoint: vec![
-                nyc.next(),                          // Cell next to this one at same level
-                nyc.next().child_begin_at_level(28), // Cell next to this one at deep level
-                c(0x89c2700000000000),               // Big(er) neighbor cell
-                c(0x89e9000000000000),               // Very big next door cell.
-                c(0x89c1000000000000),               // Very big cell, smaller value than probe
-            ],
-        },
-        // NYC and SFO:
-        UnionCase {
-            cells: [
-                0x89c25b0000000000, // NYC
-                0x89c2590000000000, // NYC
-                0x89c2f70000000000, // NYC
-                0x89c2f50000000000, // NYC
-                0x8085870000000000, // SFO
-                0x8085810000000000, // SFO
-                0x808f7d0000000000, // SFO
-                0x808f7f0000000000, // SFO
-            ]
-            .map(c)
-            .to_vec(),
-            contained: [
-                0x808f7ef300000000, // SFO
-                0x808f7e5cf0000000, // SFO
-                0x808587f000000000, // SFO
-                0x89c25ac000000000, // NYC
-                0x89c259a400000000, // NYC
-                0x89c258fa10000000, // NYC
-                0x89c258f174007000, // NYC
-            ]
-            .map(c)
-            .to_vec(),
-            overlaps: [
-                0x808c000000000000, // Big SFO
-                0x89c4000000000000, // Big NYC
-            ]
-            .map(c)
-            .to_vec(),
-            disjoint: [
-                0x89c15a4fcb1bb000, // outside NYC
-                0x89c15a4e4aa95000, // outside NYC
-                0x8094000000000000, // outside SFO (big)
-                0x8096f10000000000, // outside SFO (smaller)
-                0x87c0000000000000, // Midwest very big
-            ]
-            .map(c)
-            .to_vec(),
-        },
-        // CellUnion with cells at many levels:
-        UnionCase {
-            cells: [
-                0x8100000000000000, // starting around california
-                0x8740000000000000, // adjacent cells at increasing
-                0x8790000000000000, // levels, moving eastward.
-                0x87f4000000000000,
-                0x87f9000000000000, // going down across the midwest
-                0x87ff400000000000,
-                0x87ff900000000000,
-                0x87fff40000000000,
-                0x87fff90000000000,
-                0x87ffff4000000000,
-                0x87ffff9000000000,
-                0x87fffff400000000,
-                0x87fffff900000000,
-                0x87ffffff40000000,
-                0x87ffffff90000000,
-                0x87fffffff4000000,
-                0x87fffffff9000000,
-                0x87ffffffff400000, // to a very small cell in Wisconsin
-            ]
-            .map(c)
-            .to_vec(),
-            contained: [
-                0x808f400000000000,
-                0x80eb118b00000000,
-                0x8136a7a11d000000,
-                0x8136a7a11dac0000,
-                0x876c7c0000000000,
-                0x87f96d0000000000,
-                0x87ffffffff400000,
-            ]
-            .map(c)
-            .to_vec(),
-            overlaps: vec![
-                c(0x8100000000000000).parent(c(0x8100000000000000).level() - 1),
-                c(0x8740000000000000).parent(c(0x8740000000000000).level() - 1),
-            ],
-            disjoint: [
-                0x52aaaaaaab300000,
-                0x52aaaaaaacd00000,
-                0x87fffffffa100000,
-                0x87ffffffed500000,
-                0x87ffffffa0100000,
-                0x87fffffed5540000,
-                0x87fffffed6240000,
-                0x52aaaacccb340000,
-                0x87a0000400000000,
-                0x87a000001f000000,
-                0x87a0000029d00000,
-                0x9500000000000000,
-            ]
-            .map(c)
-            .to_vec(),
-        },
-    ];
+    let tests = [nyc_case(), nyc_and_sfo_case(), many_levels_case()];
     for test in tests {
-        let mut u = CellUnion::new(test.cells.clone());
-        u.normalize();
-        // Ensure self-containment tests are correct.
-        for id in test.cells.iter().chain(&test.contained) {
-            assert!(u.intersects_cell_id(*id), "{u:?} should intersect {id:?}");
-            assert!(u.contains_cell_id(*id), "{u:?} should contain {id:?}");
-            let cl = Cell::from_cell_id(*id);
-            assert!(u.intersects_cell(&cl) && u.contains_cell(&cl), "{id:?}");
-            assert!(
-                u.contains_point(id.point()),
-                "{u:?} should contain the center of {id:?}"
-            );
-        }
-        // Make sure the CellUnion intersect these cells but do not contain.
-        for id in &test.overlaps {
-            assert!(u.intersects_cell_id(*id), "{u:?} should intersect {id:?}");
-            assert!(!u.contains_cell_id(*id), "{u:?} should not contain {id:?}");
-        }
-        // Negative cases make sure the CellUnion neither contain nor intersect these cells
-        for id in &test.disjoint {
-            assert!(
-                !u.intersects_cell_id(*id),
-                "{u:?} should not intersect {id:?}"
-            );
-            assert!(!u.contains_cell_id(*id), "{u:?} should not contain {id:?}");
-            assert!(
-                !u.contains_point(id.point()),
-                "{u:?} should not contain the center of {id:?}"
-            );
-        }
+        check_union_case(&test);
+    }
+}
+
+/// Checks a normalized union against its contained, overlapping and disjoint probes.
+fn check_union_case(test: &UnionCase) {
+    let mut u = CellUnion::new(test.cells.clone());
+    u.normalize();
+    // Ensure self-containment tests are correct.
+    for id in test.cells.iter().chain(&test.contained) {
+        assert!(u.intersects_cell_id(*id), "{u:?} should intersect {id:?}");
+        assert!(u.contains_cell_id(*id), "{u:?} should contain {id:?}");
+        let cl = Cell::from_cell_id(*id);
+        assert!(u.intersects_cell(&cl) && u.contains_cell(&cl), "{id:?}");
+        assert!(
+            u.contains_point(id.point()),
+            "{u:?} should contain the center of {id:?}"
+        );
+    }
+    // Make sure the CellUnion intersect these cells but do not contain.
+    for id in &test.overlaps {
+        assert!(u.intersects_cell_id(*id), "{u:?} should intersect {id:?}");
+        assert!(!u.contains_cell_id(*id), "{u:?} should not contain {id:?}");
+    }
+    // Negative cases make sure the CellUnion neither contain nor intersect these cells
+    for id in &test.disjoint {
+        assert!(
+            !u.intersects_cell_id(*id),
+            "{u:?} should not intersect {id:?}"
+        );
+        assert!(!u.contains_cell_id(*id), "{u:?} should not contain {id:?}");
+        assert!(
+            !u.contains_point(id.point()),
+            "{u:?} should not contain the center of {id:?}"
+        );
+    }
+}
+
+// Single cell around NYC, and some simple nearby probes
+fn nyc_case() -> UnionCase {
+    let nyc = c(0x89c25c0000000000);
+    UnionCase {
+        cells: vec![nyc],
+        contained: vec![nyc.child_begin(), nyc.child_begin_at_level(28)],
+        overlaps: vec![nyc.parent(nyc.level() - 1), CellId::from_face(nyc.face())],
+        disjoint: vec![
+            nyc.next(),                          // Cell next to this one at same level
+            nyc.next().child_begin_at_level(28), // Cell next to this one at deep level
+            c(0x89c2700000000000),               // Big(er) neighbor cell
+            c(0x89e9000000000000),               // Very big next door cell.
+            c(0x89c1000000000000),               // Very big cell, smaller value than probe
+        ],
+    }
+}
+
+// NYC and SFO:
+fn nyc_and_sfo_case() -> UnionCase {
+    UnionCase {
+        cells: [
+            0x89c25b0000000000, // NYC
+            0x89c2590000000000, // NYC
+            0x89c2f70000000000, // NYC
+            0x89c2f50000000000, // NYC
+            0x8085870000000000, // SFO
+            0x8085810000000000, // SFO
+            0x808f7d0000000000, // SFO
+            0x808f7f0000000000, // SFO
+        ]
+        .map(c)
+        .to_vec(),
+        contained: [
+            0x808f7ef300000000, // SFO
+            0x808f7e5cf0000000, // SFO
+            0x808587f000000000, // SFO
+            0x89c25ac000000000, // NYC
+            0x89c259a400000000, // NYC
+            0x89c258fa10000000, // NYC
+            0x89c258f174007000, // NYC
+        ]
+        .map(c)
+        .to_vec(),
+        overlaps: [
+            0x808c000000000000, // Big SFO
+            0x89c4000000000000, // Big NYC
+        ]
+        .map(c)
+        .to_vec(),
+        disjoint: [
+            0x89c15a4fcb1bb000, // outside NYC
+            0x89c15a4e4aa95000, // outside NYC
+            0x8094000000000000, // outside SFO (big)
+            0x8096f10000000000, // outside SFO (smaller)
+            0x87c0000000000000, // Midwest very big
+        ]
+        .map(c)
+        .to_vec(),
+    }
+}
+
+// CellUnion with cells at many levels:
+fn many_levels_case() -> UnionCase {
+    UnionCase {
+        cells: [
+            0x8100000000000000, // starting around california
+            0x8740000000000000, // adjacent cells at increasing
+            0x8790000000000000, // levels, moving eastward.
+            0x87f4000000000000,
+            0x87f9000000000000, // going down across the midwest
+            0x87ff400000000000,
+            0x87ff900000000000,
+            0x87fff40000000000,
+            0x87fff90000000000,
+            0x87ffff4000000000,
+            0x87ffff9000000000,
+            0x87fffff400000000,
+            0x87fffff900000000,
+            0x87ffffff40000000,
+            0x87ffffff90000000,
+            0x87fffffff4000000,
+            0x87fffffff9000000,
+            0x87ffffffff400000, // to a very small cell in Wisconsin
+        ]
+        .map(c)
+        .to_vec(),
+        contained: [
+            0x808f400000000000,
+            0x80eb118b00000000,
+            0x8136a7a11d000000,
+            0x8136a7a11dac0000,
+            0x876c7c0000000000,
+            0x87f96d0000000000,
+            0x87ffffffff400000,
+        ]
+        .map(c)
+        .to_vec(),
+        overlaps: vec![
+            c(0x8100000000000000).parent(c(0x8100000000000000).level() - 1),
+            c(0x8740000000000000).parent(c(0x8740000000000000).level() - 1),
+        ],
+        disjoint: [
+            0x52aaaaaaab300000,
+            0x52aaaaaaacd00000,
+            0x87fffffffa100000,
+            0x87ffffffed500000,
+            0x87ffffffa0100000,
+            0x87fffffed5540000,
+            0x87fffffed6240000,
+            0x52aaaacccb340000,
+            0x87a0000400000000,
+            0x87a000001f000000,
+            0x87a0000029d00000,
+            0x9500000000000000,
+        ]
+        .map(c)
+        .to_vec(),
     }
 }
 

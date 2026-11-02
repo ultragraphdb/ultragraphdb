@@ -110,7 +110,7 @@ fn test_a_drop_of_everything_at_the_next_version_holds_reads_above_the_watermark
     assert_eq!(lists.applied_ts(), ts);
 }
 
-fn write_failed(error: PostingError) -> bool {
+fn write_failed(error: &PostingError) -> bool {
     matches!(
         error.0,
         PostingErrorEnum::Store(StoreError(StoreErrorEnum::WriteFailed(_)))
@@ -145,7 +145,7 @@ fn test_a_failed_drop_advances_the_epoch_and_stops_writes() {
         lists
             .store()
             .inject(Fault::CrashDuringNextDrop(DropStage::Start));
-        assert!(write_failed(drop(&lists, &k).unwrap_err()), "{name}");
+        assert!(write_failed(&drop(&lists, &k).unwrap_err()), "{name}");
         assert_eq!(lists.epoch(), epoch + 1, "{name}");
         let poisoned = Err(PostingError::Store(StoreError::Poisoned()));
         assert_eq!(drop(&lists, &k), poisoned, "{name}: a later drop");

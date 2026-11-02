@@ -262,7 +262,14 @@ where
         let (terms, quads) = self.write.terms();
         terms.find(quads.store(), term).map_err(|e| match e.0 {
             QuadErrorEnum::Term(t) => ChangesetError::Literal(predicate.as_str(), t),
-            _ => e.into(),
+            QuadErrorEnum::Store(_)
+            | QuadErrorEnum::Posting(_)
+            | QuadErrorEnum::Key(_)
+            | QuadErrorEnum::Mapping(_)
+            | QuadErrorEnum::Catalog(_)
+            | QuadErrorEnum::Corrupted { .. }
+            | QuadErrorEnum::Aborted
+            | QuadErrorEnum::UidsExhausted { .. } => e.into(),
         })
     }
 
@@ -278,7 +285,14 @@ where
             .term(quads.store(), quads.leases(), term)
             .map_err(|e| match e.0 {
                 QuadErrorEnum::Term(t) => ChangesetError::Literal(predicate.as_str(), t),
-                _ => e.into(),
+                QuadErrorEnum::Store(_)
+                | QuadErrorEnum::Posting(_)
+                | QuadErrorEnum::Key(_)
+                | QuadErrorEnum::Mapping(_)
+                | QuadErrorEnum::Catalog(_)
+                | QuadErrorEnum::Corrupted { .. }
+                | QuadErrorEnum::Aborted
+                | QuadErrorEnum::UidsExhausted { .. } => e.into(),
             })
     }
 

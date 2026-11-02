@@ -8,7 +8,7 @@ use ultragraphdb_protocol_transport::{Anonymous, NetworkFaults};
 use ultragraphdb_protocol_wire::TermTable;
 
 use crate::types::client_core::client_core_tests::counter;
-use crate::utils::harness::{Harness, config, server};
+use crate::utils::harness::{Harness, committed, config, server};
 
 /// Transactions until `commits` are acknowledged, each retried by the application on whatever failed but an
 /// acknowledged commit: every acknowledged commit is applied once, whatever the network did.
@@ -64,7 +64,7 @@ fn workload(faults: NetworkFaults, seed: u64, commits: u64) -> (u64, u64) {
                 }
             }
             Err(_) => {}
-            Ok(other) => panic!("{other:?}"),
+            Ok(reply) => acknowledged.push(committed(Ok(reply)).request()),
         }
     }
     let mut distinct = acknowledged.clone();

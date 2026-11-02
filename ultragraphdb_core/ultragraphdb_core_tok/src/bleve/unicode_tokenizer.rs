@@ -31,6 +31,6 @@ fn convert_type(t: SegmentType) -> TokenType {
     match t {
         SegmentType::Ideo | SegmentType::Kana => TokenType::Ideographic,
         SegmentType::Number => TokenType::Numeric,
-        _ => TokenType::AlphaNumeric,
+        SegmentType::Letter | SegmentType::None => TokenType::AlphaNumeric,
     }
 }

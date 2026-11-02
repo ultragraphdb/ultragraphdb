@@ -7,8 +7,8 @@ use ultragraphdb_core_terms::EncodedTerm;
 use ultragraphdb_protocol_transport::ReceivedFrame;
 use ultragraphdb_protocol_wire::{
     Begin, BeginView, BodyBuilder, BodyView, Command, CommitView, Describe, DropCommandView,
-    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, Header, PatternSlot, Prepare, PrepareView,
-    QuadPattern, Register, ResultBatch, ResultTerm, Welcome,
+    ErrorCode, ErrorReply, ExecuteView, FLAG_LAST, FrameView, Header, PatternSlot, Prepare,
+    PrepareView, QuadPattern, Register, ResultBatch, ResultTerm, Welcome,
 };
 
 use crate::utils_test::session_record::SessionRecord;
@@ -35,7 +35,8 @@ impl TestServer {
             return;
         };
         if let Some(connection) = self.connection.as_mut() {
-            let _ = connection.outbound().push(stream, frame);
+            // A stream already ended, as a cancel ends it, takes no reply.
+            drop(connection.outbound().push(stream, frame));
         }
     }
 
@@ -76,30 +77,7 @@ impl TestServer {
                     self.execute(stream, execute.statement());
                 }
             }
-            Command::Prepare => {
-                if let Ok(body) = PrepareView::from_frame(&view).and_then(|p| p.to_body()) {
-                    let id = self.statements.len() as u64 + 1;
-                    self.statements.insert(id, self.schema);
-                    let types = body
-                        .pattern()
-                        .slots()
-                        .iter()
-                        .zip(QuadPattern::slot_types())
-                        .filter(|(slot, _)| **slot == PatternSlot::Unbound)
-                        .map(|(_, kind)| kind)
-                        .collect();
-                    let reply = Prepare::new(
-                        body.namespace(),
-                        id,
-                        self.schema,
-                        body.terms().clone(),
-                        *body.pattern(),
-                        body.parameter_types().to_vec(),
-                        types,
-                    );
-                    self.reply(stream, &reply, FLAG_LAST);
-                }
-            }
+            Command::Prepare => self.prepare(stream, &view),
             Command::Describe => {
                 let answer = Describe::new(0, self.version);
                 self.reply(stream, &answer, FLAG_LAST);
@@ -117,7 +95,42 @@ impl TestServer {
             Command::Abort => {
                 self.transactions.remove(&stream);
             }
-            _ => {}
+            Command::Hello
+            | Command::Welcome
+            | Command::Write
+            | Command::Result
+            | Command::Credit
+            | Command::Cancel
+            | Command::Error
+            | Command::Round
+            | Command::Authenticate => {}
+        }
+    }
+
+    /// A Prepare `view` on `stream`, answered with the next statement id, prepared against the current schema id,
+    /// its result types those of the pattern's unbound slots.
+    fn prepare(&mut self, stream: u64, view: &FrameView<'_>) {
+        if let Ok(body) = PrepareView::from_frame(view).and_then(|p| p.to_body()) {
+            let id = self.statements.len() as u64 + 1;
+            self.statements.insert(id, self.schema);
+            let types = body
+                .pattern()
+                .slots()
+                .iter()
+                .zip(QuadPattern::slot_types())
+                .filter(|(slot, _)| **slot == PatternSlot::Unbound)
+                .map(|(_, kind)| kind)
+                .collect();
+            let reply = Prepare::new(
+                body.namespace(),
+                id,
+                self.schema,
+                body.terms().clone(),
+                *body.pattern(),
+                body.parameter_types().to_vec(),
+                types,
+            );
+            self.reply(stream, &reply, FLAG_LAST);
         }
     }
 
@@ -146,8 +159,12 @@ impl TestServer {
         }
         for i in 0..results {
             let mut batch = ResultBatch::new(1).with_resume(vec![i as u8]);
-            let _ = batch.push_row(&[Some(&term)]);
-            let _ = batch.push_row(&[Some(&term)]);
+            batch
+                .push_row(&[Some(&term)])
+                .expect("a row of one cell fits a batch of one column");
+            batch
+                .push_row(&[Some(&term)])
+                .expect("a row of one cell fits a batch of one column");
             let flags = if i + 1 == results { FLAG_LAST } else { 0 };
             self.reply(stream, &batch, flags);
         }

@@ -106,22 +106,32 @@ fn test_each_by_value_datatype_encodes_canonical_forms_by_value_and_keeps_the_ot
         for lexical_form in samples {
             let literal = Literal::new_typed_literal(lexical_form, datatype);
             let (term, _) = round_trip(&literal);
-            match term.view().unwrap() {
-                TermView::Typed {
-                    datatype: Datatype::Known(k),
-                    lexical,
-                } => {
-                    assert_eq!(k.iri(), datatype.as_str());
-                    match lexical {
-                        Text::Inline(l) => assert_eq!(l, lexical_form),
-                        Text::Hashed(h) => assert!(
-                            lexical_form.len() > 15 && h == Hash128::of(lexical_form.as_bytes())
-                        ),
+            let view = term.view().unwrap();
+            assert!(
+                !matches!(
+                    view,
+                    TermView::Typed {
+                        datatype: Datatype::Uid(_),
+                        ..
                     }
-                    kept += 1;
+                ),
+                "{literal} is named by a UID"
+            );
+            if let TermView::Typed {
+                datatype: Datatype::Known(k),
+                lexical,
+            } = view
+            {
+                assert_eq!(k.iri(), datatype.as_str());
+                match lexical {
+                    Text::Inline(l) => assert_eq!(l, lexical_form),
+                    Text::Hashed(h) => assert!(
+                        lexical_form.len() > 15 && h == Hash128::of(lexical_form.as_bytes())
+                    ),
                 }
-                TermView::Typed { .. } => panic!("{literal} is named by a UID"),
-                _ => by_value += 1,
+                kept += 1;
+            } else {
+                by_value += 1;
             }
         }
         assert!(
@@ -226,13 +236,18 @@ fn test_language_strings_take_inline_hashed_and_both_hashed_forms_in_each_direct
         ];
         for (literal, lexical_inline, language_inline) in cases {
             let (term, _) = round_trip(&literal);
+            let view = term.view().unwrap();
+            assert!(
+                matches!(view, TermView::LangString { .. }),
+                "{literal} is no language string: {view:?}"
+            );
             let TermView::LangString {
                 lexical,
                 language,
                 direction: d,
-            } = term.view().unwrap()
+            } = view
             else {
-                panic!("{literal} is no language string");
+                continue;
             };
             assert_eq!(
                 matches!(lexical, Text::Inline(_)),
@@ -302,8 +317,8 @@ fn test_a_known_datatype_takes_no_uid() {
             },
         ),
     ] {
-        let encoded = EncodedTerm::literal(literal.as_ref(), |_| -> Result<u64, TermError> {
-            panic!("no UID is needed")
+        let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
+            Err(TermError::Malformed(Vec::new(), "no UID is needed"))
         })
         .unwrap();
         assert_eq!(encoded.term().view(), Ok(expected), "{literal}");
@@ -368,21 +383,23 @@ const TAG16: [u8; 16] = [
 /// A literal, its encoding, and the strings the encoding names by hash.
 type KeptForm = (Literal, Vec<u8>, Vec<(Hash128, String)>);
 
-#[test]
-fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
-    // PROTOCOL.md section 10.1, written byte by byte: the tag, then each part in order; a UID big-endian, an inline
-    // part its length then its bytes, a hash 16 bytes; and the strings the encoding names.
-    const FOX_TEXT: &str = "the quick brown fox";
-    const TAG_TEXT: &str = "zh-hant-tw-x-abcdefgh";
-    let other = NamedNode::new_unchecked("http://example.org/other");
-    let uid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-    let lang = |lexical: &str, language: &str, direction: Option<BaseDirection>| match direction {
+const FOX_TEXT: &str = "the quick brown fox";
+const TAG_TEXT: &str = "zh-hant-tw-x-abcdefgh";
+
+/// The language-tagged literal, with its base direction when it has one.
+fn lang(lexical: &str, language: &str, direction: Option<BaseDirection>) -> Literal {
+    match direction {
         None => Literal::new_language_tagged_literal(lexical, language).unwrap(),
         Some(d) => Literal::new_directional_language_tagged_literal(lexical, language, d).unwrap(),
-    };
-    let fifteen_b = "b".repeat(15);
+    }
+}
+
+/// The kept forms of simple and typed literals and a vector's by-value form, byte by byte.
+fn plain_and_typed_forms() -> Vec<KeptForm> {
+    let other = NamedNode::new_unchecked("http://example.org/other");
+    let uid = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
     let fifteen_x = "x".repeat(15);
-    let mut cases: Vec<KeptForm> = vec![
+    vec![
         (
             Literal::new_simple_literal("short"),
             [&[0x20, 5][..], b"short"].concat(),
@@ -430,6 +447,13 @@ fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
             ],
             vec![],
         ),
+    ]
+}
+
+/// The kept forms of language-tagged literals, byte by byte, in each direction.
+fn language_forms() -> Vec<KeptForm> {
+    let fifteen_b = "b".repeat(15);
+    let mut cases: Vec<KeptForm> = vec![
         // A 15-byte tag is the longest held inline; a 16-byte one hashes the lexical form too.
         (
             lang("chat", "de-de-x-abcdefg", None),
@@ -481,7 +505,14 @@ fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
             ],
         ));
     }
-    for (literal, bytes, strings) in cases {
+    cases
+}
+
+#[test]
+fn test_each_kept_form_lays_out_its_bytes_as_section_10_1_gives_them() {
+    // PROTOCOL.md section 10.1, written byte by byte: the tag, then each part in order; a UID big-endian, an inline
+    // part its length then its bytes, a hash 16 bytes; and the strings the encoding names.
+    for (literal, bytes, strings) in plain_and_typed_forms().into_iter().chain(language_forms()) {
         let encoded = EncodedTerm::literal(literal.as_ref(), other_uid).expect("encodes");
         assert_eq!(encoded.term().as_bytes(), bytes.as_slice(), "{literal}");
         // The strings it names, in any order: the writer enters each in the dictionary.
@@ -500,10 +531,13 @@ fn test_a_vector_is_encoded_by_value_and_a_non_canonical_one_is_refused() {
     let vector = |l: &str| Literal::new_typed_literal(l, NamedNode::new_unchecked(FLOAT32_VECTOR));
     let (term, _) = round_trip(&vector("[0.5, -1, 2.25]"));
     assert!(term.is_vector());
-    let TermView::Vector(elements) = term.view().unwrap() else {
-        panic!("a vector");
+    let view = term.view().unwrap();
+    let elements = if let TermView::Vector(elements) = &view {
+        Some(elements.iter().collect::<Vec<_>>())
+    } else {
+        None
     };
-    assert_eq!(elements.iter().collect::<Vec<_>>(), vec![0.5, -1.0, 2.25]);
+    assert_eq!(elements, Some(vec![0.5, -1.0, 2.25]), "{view:?}");
     for (bad, reason) in [
         ("[0.50, -1]", "not in canonical form"),
         ("[0.5,-1]", "an element is no 32-bit float"),
@@ -524,7 +558,8 @@ fn by_value_vectors() -> Vec<(String, String, Vec<u8>)> {
         .join("by_value")
         .join("by_value.tsv");
     let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))
+        .expect("the by-value vectors are readable");
     text.lines()
         .map(|line| {
             let mut fields = line.split('\t');

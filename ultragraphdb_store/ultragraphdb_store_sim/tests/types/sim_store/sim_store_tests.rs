@@ -54,7 +54,8 @@ fn test_the_log_records_operations_in_order() {
     let s = store();
     s.sync().unwrap();
     let snapshot = s.snapshot(0).unwrap();
-    let _ = snapshot.get(b"k");
+    // The log records the read whatever it answers.
+    drop(snapshot.get(b"k"));
     drop(snapshot);
     s.crash();
     s.recover();
@@ -106,49 +107,56 @@ fn test_the_log_records_each_operation_with_its_answer() {
     s.power_loss();
     assert_eq!(s.snapshot(9).err(), Some(StoreError::Poisoned()));
     s.recover();
-    assert_eq!(
-        s.take_log(),
-        [
-            OpRecord::Applied {
-                batch: batch(b"k", 1),
-                mode: PersistMode::Buffer
-            },
-            OpRecord::Refused {
-                batch: big,
-                error: too_large
-            },
-            OpRecord::Banned { namespace: 7 },
-            OpRecord::DiscardSet { ts: 2 },
-            OpRecord::HorizonSet { ts: 1 },
-            OpRecord::SnapshotRefused {
-                read_ts: 1,
-                error: StoreError::TsTooOld()
-            },
-            OpRecord::Compacted,
-            OpRecord::Swept,
-            OpRecord::Corrupted {
-                key: b"k".to_vec(),
-                version: 1,
-                corruption: Corruption::Truncate
-            },
-            OpRecord::RebuildRecorded { record },
-            OpRecord::Dropped {
-                ts: 5,
-                prefixes: Some(vec![b"\x02".to_vec()]),
-                entries: Vec::new()
-            },
-            OpRecord::BatchFailed {
-                batch: batch(b"m", 3)
-            },
-            OpRecord::WriteWhileFailed { operation: "sync" },
-            OpRecord::PowerLost,
-            OpRecord::SnapshotRefused {
-                read_ts: 9,
-                error: StoreError::Poisoned()
-            },
-            OpRecord::Recovered,
-        ]
-    );
+    assert_eq!(s.take_log(), each_operation_logged(big, too_large, record));
+}
+
+/// The log of `test_the_log_records_each_operation_with_its_answer`, given the batch refused as too large, its
+/// refusal and the rebuild record written.
+fn each_operation_logged(
+    big: WriteBatch,
+    too_large: StoreError,
+    record: RebuildRecord,
+) -> Vec<OpRecord> {
+    vec![
+        OpRecord::Applied {
+            batch: batch(b"k", 1),
+            mode: PersistMode::Buffer,
+        },
+        OpRecord::Refused {
+            batch: big,
+            error: too_large,
+        },
+        OpRecord::Banned { namespace: 7 },
+        OpRecord::DiscardSet { ts: 2 },
+        OpRecord::HorizonSet { ts: 1 },
+        OpRecord::SnapshotRefused {
+            read_ts: 1,
+            error: StoreError::TsTooOld(),
+        },
+        OpRecord::Compacted,
+        OpRecord::Swept,
+        OpRecord::Corrupted {
+            key: b"k".to_vec(),
+            version: 1,
+            corruption: Corruption::Truncate,
+        },
+        OpRecord::RebuildRecorded { record },
+        OpRecord::Dropped {
+            ts: 5,
+            prefixes: Some(vec![b"\x02".to_vec()]),
+            entries: Vec::new(),
+        },
+        OpRecord::BatchFailed {
+            batch: batch(b"m", 3),
+        },
+        OpRecord::WriteWhileFailed { operation: "sync" },
+        OpRecord::PowerLost,
+        OpRecord::SnapshotRefused {
+            read_ts: 9,
+            error: StoreError::Poisoned(),
+        },
+        OpRecord::Recovered,
+    ]
 }
 
 #[test]

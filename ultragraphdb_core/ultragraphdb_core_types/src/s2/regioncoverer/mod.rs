@@ -352,7 +352,7 @@ impl<'r, R: Region> Coverer<'r, R> {
             // Subdividing of the candidate with one child does no harm in this case.
             if cand.cell.level() < self.min_level
                 || cand.num_children == 1
-                || self.result.len() as i64 + self.pq.len() as i64 + cand.num_children
+                || len_i64(self.result.len()) + len_i64(self.pq.len()) + cand.num_children
                     <= self.max_cells
             {
                 for child in core::mem::take(&mut cand.children) {
@@ -410,11 +410,11 @@ impl<'r, R: Region> Coverer<'r, R> {
         // RegionCoverer to compute a new covering. (This avoids possible O(n^2)
         // behavior of the simpler algorithm below.)
         // Saturating where Go's int64 arithmetic wraps on a max cells near its limits.
-        let excess = (covering.len() as i64).saturating_sub(self.max_cells);
+        let excess = len_i64(covering.len()).saturating_sub(self.max_cells);
         if excess <= 0 || self.is_canonical(covering) {
             return;
         }
-        if excess.saturating_mul(covering.len() as i64) > 10000 {
+        if excess.saturating_mul(len_i64(covering.len())) > 10000 {
             let rc = RegionCoverer::default();
             *covering = rc.covering(&covering.clone());
             return;
@@ -422,8 +422,8 @@ impl<'r, R: Region> Coverer<'r, R> {
 
         // If there are still too many cells, then repeatedly replace two adjacent
         // cells in CellID order by their lowest common ancestor.
-        while covering.len() as i64 > self.max_cells {
-            let mut best_index: i64 = -1;
+        while len_i64(covering.len()) > self.max_cells {
+            let mut best_index: Option<usize> = None;
             let mut best_level: i64 = -1;
             let v = covering.as_slice();
             for i in 0..v.len().saturating_sub(1) {
@@ -433,16 +433,19 @@ impl<'r, R: Region> Coverer<'r, R> {
                 let level = self.adjust_level(level);
                 if level > best_level {
                     best_level = level;
-                    best_index = i as i64;
+                    best_index = Some(i);
                 }
             }
 
             if best_level < self.min_level {
                 break;
             }
+            let Some(best_index) = best_index else {
+                break;
+            };
 
             // Replace all cells contained by the new ancestor cell.
-            let mut id = covering.as_slice()[best_index as usize].parent(best_level);
+            let mut id = covering.as_slice()[best_index].parent(best_level);
             replace_cells_with_ancestor(covering, id);
 
             // Now repeatedly check whether all children of the parent cell are
@@ -465,7 +468,7 @@ impl<'r, R: Region> Coverer<'r, R> {
         } else {
             self.max_level
         };
-        let too_many_cells = covering.len() as i64 > self.max_cells;
+        let too_many_cells = len_i64(covering.len()) > self.max_cells;
         let mut same_parent_count = 1;
 
         let mut prev_id = CellId(0);
@@ -542,4 +545,9 @@ fn replace_cells_with_ancestor(covering: &mut CellUnion, id: CellId) {
     let begin = v.partition_point(|&c| c <= id.range_min());
     let end = v.partition_point(|&c| c <= id.range_max());
     v.splice(begin..end, [id]);
+}
+
+/// Go's `int` length of a collection: a length is at most `isize::MAX`, so the saturation never fires.
+fn len_i64(len: usize) -> i64 {
+    i64::try_from(len).unwrap_or(i64::MAX)
 }

@@ -26,7 +26,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.register(now())?;
         match self.settle(pending).await? {
             Reply::Registered(session) => Ok(session),
-            _ => Err(mismatch()),
+            Reply::Begun(_)
+            | Reply::Committed(_)
+            | Reply::Dropped(_)
+            | Reply::Prepared(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -45,7 +49,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.begin(namespace, read_only, now())?;
         match self.settle(pending).await? {
             Reply::Begun(transaction) => Ok(transaction),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Committed(_)
+            | Reply::Dropped(_)
+            | Reply::Prepared(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -88,7 +96,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.commit(transaction, session, now())?;
         match self.settle(pending).await? {
             Reply::Committed(committed) => Ok(committed),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Begun(_)
+            | Reply::Dropped(_)
+            | Reply::Prepared(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -103,7 +115,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.drop_command(command, session, now())?;
         match self.settle(pending).await? {
             Reply::Dropped(dropped) => Ok(dropped),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Begun(_)
+            | Reply::Committed(_)
+            | Reply::Prepared(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -113,7 +129,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.resolve(session, now())?;
         match self.settle(pending).await? {
             Reply::Committed(committed) => Ok(committed),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Begun(_)
+            | Reply::Dropped(_)
+            | Reply::Prepared(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -123,7 +143,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.prepare(prepare, now())?;
         match self.settle(pending).await? {
             Reply::Prepared(statement) => Ok(statement),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Begun(_)
+            | Reply::Committed(_)
+            | Reply::Dropped(_)
+            | Reply::Described(_) => Err(mismatch()),
         }
     }
 
@@ -133,7 +157,11 @@ impl<C: Connect, L: Login> Client<C, L> {
         let pending = self.core.describe(namespace, now())?;
         match self.settle(pending).await? {
             Reply::Described(describe) => Ok(describe),
-            _ => Err(mismatch()),
+            Reply::Registered(_)
+            | Reply::Begun(_)
+            | Reply::Committed(_)
+            | Reply::Dropped(_)
+            | Reply::Prepared(_) => Err(mismatch()),
         }
     }
 

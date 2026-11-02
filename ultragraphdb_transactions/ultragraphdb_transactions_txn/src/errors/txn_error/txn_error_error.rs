@@ -9,7 +9,13 @@ impl std::error::Error for TxnError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
             TxnErrorEnum::Changeset(e) => Some(e),
-            _ => None,
+            TxnErrorEnum::ReadAboveWatermark { .. }
+            | TxnErrorEnum::PastLimit { .. }
+            | TxnErrorEnum::WriteSetTooLarge { .. }
+            | TxnErrorEnum::ReadSetTooLarge { .. }
+            | TxnErrorEnum::ReadOnly
+            | TxnErrorEnum::Namespace { .. }
+            | TxnErrorEnum::Ended => None,
         }
     }
 }

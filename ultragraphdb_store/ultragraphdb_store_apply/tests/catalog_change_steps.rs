@@ -45,10 +45,11 @@ fn has_index_keys(a: &TestChangesets, predicate: &str, tokenizer: &str) -> bool 
 /// string, or the `term` token of a lowercase word, written out independently of the tokenizer.
 fn listed(a: &TestChangesets, predicate: &str, tokenizer: &str, text: &str) -> Vec<u64> {
     let token = match tokenizer {
-        "exact" => exact_token(text),
-        "term" => term_token(text),
-        other => panic!("no written-out token of the {other} tokenizer"),
-    };
+        "exact" => Ok(exact_token(text)),
+        "term" => Ok(term_token(text)),
+        other => Err(format!("no written-out token of the {other} tokenizer")),
+    }
+    .expect("the tokenizer's token is written out");
     indexed(a, predicate, &token)
 }
 
@@ -245,7 +246,10 @@ fn friend_gained_and_lost(w: &mut Steps) {
 #[then(
     regex = r"^the change fails with an error naming (`\w+`) and (`\w+`)(?:, and `(\w+)` stays multi-valued)?$"
 )]
-fn change_fails(w: &mut Steps, predicate: String, subject: String, multi: String) {
+fn change_fails(w: &mut Steps, args: &[String]) {
+    let predicate = &args[0];
+    let subject = &args[1];
+    let multi = &args[2];
     let refused = last(w).as_ref().expect_err("the change fails");
     let error = refused.to_string();
     for name in [&predicate, &subject] {
@@ -268,7 +272,7 @@ fn change_fails(w: &mut Steps, predicate: String, subject: String, multi: String
     if !multi.is_empty() {
         let a = cs(w);
         let catalog = a.catalog(NS).expect("the catalog");
-        let declared = catalog.predicate(uid(&a, &multi));
+        let declared = catalog.predicate(uid(&a, multi));
         assert!(declared.is_none_or(|d| d.cardinality() == Cardinality::Multi));
     }
 }

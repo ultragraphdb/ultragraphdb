@@ -22,6 +22,15 @@ impl Run {
     /// two, the ranges of both, and nothing at or below `floor`.
     pub fn merge(&mut self, a: &Run, b: &Run, floor: u64) {
         self.clear();
+        self.merge_points(a, b, floor);
+        self.merge_statements(a, b, floor);
+        self.merge_ranges(a, b, floor);
+        self.bound_ranges();
+    }
+
+    /// Adds the keys of `a` and `b` in key order, each once with the newer of its two versions, none at or below
+    /// `floor`.
+    fn merge_points(&mut self, a: &Run, b: &Run, floor: u64) {
         let (mut i, mut j) = (0, 0);
         loop {
             let (point, arena) = match (a.points.get(i), b.points.get(j)) {
@@ -67,6 +76,11 @@ impl Run {
             });
             self.newest = self.newest.max(whole).max(touched);
         }
+    }
+
+    /// Adds the statements of `a` and `b` in order, each once with the newer of its two versions, none at or below
+    /// `floor`.
+    fn merge_statements(&mut self, a: &Run, b: &Run, floor: u64) {
         let (mut i, mut j) = (0, 0);
         loop {
             let (statement, arena) = match (a.statements.get(i), b.statements.get(j)) {
@@ -111,6 +125,10 @@ impl Run {
             });
             self.newest = self.newest.max(statement.version);
         }
+    }
+
+    /// Adds the ranges of `a`, then those of `b`, none at or below `floor`.
+    fn merge_ranges(&mut self, a: &Run, b: &Run, floor: u64) {
         for (run, range) in a
             .ranges
             .iter()
@@ -129,6 +147,5 @@ impl Run {
             });
             self.newest = self.newest.max(range.version);
         }
-        self.bound_ranges();
     }
 }

@@ -4,9 +4,9 @@
  */
 
 use ultragraphdb_protocol_wire::WriteSetRecordView;
-use ultragraphdb_transactions_txn::{Commit, Mode};
+use ultragraphdb_transactions_txn::Mode;
 
-use crate::utils::fixture::{NS, applier, begin, changeset, insert};
+use crate::utils::fixture::{NS, applier, begin, changeset, insert, prepared};
 
 #[test]
 fn test_its_parts_are_the_execution_and_the_buffers() {
@@ -14,9 +14,7 @@ fn test_its_parts_are_the_execution_and_the_buffers() {
     let mut txn = begin(&applier, Mode::ReadWrite);
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
         .unwrap();
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(1, 2, &[], 0) else {
-        panic!("a read-write commit");
-    };
+    let prepared = prepared(txn.commit(1, 2, &[], 0));
     let record_len = prepared.record().len();
     let view = WriteSetRecordView::new(prepared.record()).expect("the wire reads the record");
     assert_eq!(
@@ -51,9 +49,7 @@ fn test_operations_run_on_top_of_the_transaction_and_its_record_is_written_again
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
         .unwrap();
     txn.operate(counter(4), 0).unwrap();
-    let Ok(Commit::ReadWrite(mut prepared)) = txn.commit(3, 9, b"note", 0) else {
-        panic!("a read-write commit");
-    };
+    let mut prepared = prepared(txn.commit(3, 9, b"note", 0));
     assert!(prepared.has_operations());
     assert_eq!(prepared.operations(), &[counter(4)]);
     let before = prepared.record().to_vec();
@@ -99,9 +95,7 @@ fn test_a_transaction_without_operations_asks_none() {
     let mut txn = begin(&applier, Mode::ReadWrite);
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
         .unwrap();
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(0, 0, b"note", 0) else {
-        panic!("a read-write commit");
-    };
+    let prepared = prepared(txn.commit(0, 0, b"note", 0));
     assert!(!prepared.has_operations());
     assert!(prepared.operations().is_empty());
 }
@@ -159,9 +153,7 @@ fn test_a_transaction_names_its_principal_in_its_record() {
     let mut txn = txn;
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
         .unwrap();
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(1, 2, &[], 0) else {
-        panic!("a read-write commit");
-    };
+    let prepared = prepared(txn.commit(1, 2, &[], 0));
     assert_eq!(
         WriteSetRecordView::new(prepared.record())
             .unwrap()
@@ -181,9 +173,7 @@ fn test_a_drop_names_its_session_request_and_principal() {
     let mut txn = begin(&applier, Mode::ReadWrite);
     txn.write(&changeset(vec![insert("a", "knows", "b")]), 0)
         .unwrap();
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(0, 0, &[], 0) else {
-        panic!("a read-write commit");
-    };
+    let prepared = prepared(txn.commit(0, 0, &[], 0));
     let (executed, _) = prepared.into_parts();
     let version = applier.quads().lists().next_version();
     applier.apply_round(vec![(version, executed)]).unwrap();
@@ -209,9 +199,7 @@ fn test_a_record_written_again_keeps_its_principal() {
     let applier = applier();
     let mut txn = begin(&applier, Mode::ReadWrite).with_principal(7);
     txn.operate(counter(4), 0).unwrap();
-    let Ok(Commit::ReadWrite(prepared)) = txn.commit(3, 9, b"note", 0) else {
-        panic!("a read-write commit");
-    };
+    let prepared = prepared(txn.commit(3, 9, b"note", 0));
     let overlay = applier.quads().lists().batch();
     let mut results = Vec::new();
     let operated = prepared
@@ -240,10 +228,7 @@ fn test_a_declaration_indexing_a_predicate_with_data_starts_a_build() {
     let prepare = |changes| {
         let mut txn = begin(&applier, Mode::ReadWrite);
         txn.write(&changeset(changes), 0).unwrap();
-        let Ok(Commit::ReadWrite(prepared)) = txn.commit(1, 1, &[], 0) else {
-            panic!("a read-write commit");
-        };
-        prepared
+        prepared(txn.commit(1, 1, &[], 0))
     };
     let declared = prepare(vec![declare]);
     assert!(declared.starts_build());

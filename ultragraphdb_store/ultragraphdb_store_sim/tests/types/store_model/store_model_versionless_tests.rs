@@ -100,7 +100,24 @@ fn test_a_versionless_read_answers_as_the_state_it_reads() {
             read(Some(9), b"k", Ok(Some(b"9".to_vec()))),
         ])
         .expect("each read answers as its state");
-    let wrong = [
+    for (record, detail) in wrong_versionless_reads() {
+        breaks_read(&model, record, detail);
+    }
+    // A closed snapshot's id names no state any more.
+    model
+        .observe(&[
+            OpRecord::SnapshotClosed { id: 0 },
+            OpRecord::SnapshotClosed { id: 1 },
+            read(Some(0), b"k", Ok(Some(b"7".to_vec()))),
+            read(Some(1), b"k", Ok(Some(b"7".to_vec()))),
+        ])
+        .expect("closed snapshots are not checked");
+}
+
+/// The reads of `test_a_versionless_read_answers_as_the_state_it_reads` that answer otherwise than the state they
+/// read, with the breach each makes.
+fn wrong_versionless_reads() -> [(OpRecord, &'static str); 7] {
+    [
         (
             read(Some(0), b"k", Ok(Some(b"2".to_vec()))),
             "a versionless read of key 6b returned Ok(Some([50])) where Some([49]) was expected",
@@ -132,21 +149,9 @@ fn test_a_versionless_read_answers_as_the_state_it_reads() {
                 Err(StoreError::Corrupted(b"k".to_vec(), "x".into())),
             ),
             "a versionless read of key 6b returned Err(StoreError(Corrupted { key: [107], reason: \"x\" })) \
-             where Some([49]) was expected",
+         where Some([49]) was expected",
         ),
-    ];
-    for (record, detail) in wrong {
-        breaks_read(&model, record, detail);
-    }
-    // A closed snapshot's id names no state any more.
-    model
-        .observe(&[
-            OpRecord::SnapshotClosed { id: 0 },
-            OpRecord::SnapshotClosed { id: 1 },
-            read(Some(0), b"k", Ok(Some(b"7".to_vec()))),
-            read(Some(1), b"k", Ok(Some(b"7".to_vec()))),
-        ])
-        .expect("closed snapshots are not checked");
+    ]
 }
 
 /// A removal leaves its key without a value, a removal of a key without one changes nothing, an empty value is a
@@ -358,7 +363,8 @@ fn test_a_power_loss_keeps_versionless_writes_with_their_batch() {
     for survivors in 0..=3 {
         lost()
             .check(&holding(three[..survivors].to_vec()))
-            .unwrap_or_else(|b| panic!("{survivors} survivors: {b}"));
+            .map_err(|b| format!("{survivors} survivors: {b}"))
+            .expect("the contents match a model");
     }
     // Batch 2's versionless write survived without its entry, and the other way round.
     let apart = [

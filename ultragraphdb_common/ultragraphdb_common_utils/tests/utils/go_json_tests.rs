@@ -227,102 +227,104 @@ fn test_indent_errors() {
         };
         assert_eq!(
             go_json::unmarshal(input.as_bytes()).unwrap_err(),
-            JsonError::Syntax(msg.to_string(), offset as i64),
+            JsonError::Syntax(msg.to_string(), i64::try_from(offset).unwrap()),
             "{input}"
         );
     }
 }
 
 /// `TestUnmarshal`'s cases into an interface, and the syntax errors it checks with `checkValid`.
+const UNMARSHAL_CASES: &[(&str, Want)] = &[
+    ("2", Ok("2")),
+    ("null", Ok("null")),
+    (
+        r#"{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}"#,
+        Ok(r#"{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}"#),
+    ),
+    (r#""a\u1234""#, Ok("\"a\u{1234}\"")),
+    (r#""http:\/\/""#, Ok(r#""http://""#)),
+    (r#""g-clef: \uD834\uDD1E""#, Ok("\"g-clef: \u{1D11E}\"")),
+    (
+        r#""invalid: \uD834x\uDD1E""#,
+        Ok("\"invalid: \u{FFFD}x\u{FFFD}\""),
+    ),
+    ("", Syntax("unexpected end of JSON input", 0)),
+    (" \n\r\t", Syntax("unexpected end of JSON input", 4)),
+    ("[2, 3", Syntax("unexpected end of JSON input", 5)),
+    (
+        r#"{"X": "foo", "Y"}"#,
+        Syntax("invalid character '}' after object key", 17),
+    ),
+    (
+        "[1, 2, 3+]",
+        Syntax("invalid character '+' after array element", 9),
+    ),
+    (
+        r#"{"X":12x}"#,
+        Syntax("invalid character 'x' after object key:value pair", 8),
+    ),
+    (
+        r#"{"F3": -}"#,
+        Syntax("invalid character '}' in numeric literal", 9),
+    ),
+    (
+        "\x01 42",
+        Syntax(
+            "invalid character '\\x01' looking for beginning of value",
+            1,
+        ),
+    ),
+    (
+        " 42 \x01",
+        Syntax("invalid character '\\x01' after top-level value", 5),
+    ),
+    (
+        "\x01 true",
+        Syntax(
+            "invalid character '\\x01' looking for beginning of value",
+            1,
+        ),
+    ),
+    (
+        " false \x01",
+        Syntax("invalid character '\\x01' after top-level value", 8),
+    ),
+    (
+        "\x01 1.2",
+        Syntax(
+            "invalid character '\\x01' looking for beginning of value",
+            1,
+        ),
+    ),
+    (
+        " 3.4 \x01",
+        Syntax("invalid character '\\x01' after top-level value", 6),
+    ),
+    (
+        "\x01 \"string\"",
+        Syntax(
+            "invalid character '\\x01' looking for beginning of value",
+            1,
+        ),
+    ),
+    (
+        " \"string\" \x01",
+        Syntax("invalid character '\\x01' after top-level value", 11),
+    ),
+    (
+        "invalid",
+        Syntax("invalid character 'i' looking for beginning of value", 1),
+    ),
+    (
+        "[1,2,true,4,5}",
+        Syntax("invalid character '}' after array element", 14),
+    ),
+];
+
+/// [`UNMARSHAL_CASES`], each decoded.
 #[test]
 fn test_unmarshal() {
-    let cases: &[(&str, Want)] = &[
-        ("2", Ok("2")),
-        ("null", Ok("null")),
-        (
-            r#"{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}"#,
-            Ok(r#"{"k1":1,"k2":"s","k3":[1,2.0,3e-3],"k4":{"kk1":"s","kk2":2}}"#),
-        ),
-        (r#""a\u1234""#, Ok("\"a\u{1234}\"")),
-        (r#""http:\/\/""#, Ok(r#""http://""#)),
-        (r#""g-clef: \uD834\uDD1E""#, Ok("\"g-clef: \u{1D11E}\"")),
-        (
-            r#""invalid: \uD834x\uDD1E""#,
-            Ok("\"invalid: \u{FFFD}x\u{FFFD}\""),
-        ),
-        ("", Syntax("unexpected end of JSON input", 0)),
-        (" \n\r\t", Syntax("unexpected end of JSON input", 4)),
-        ("[2, 3", Syntax("unexpected end of JSON input", 5)),
-        (
-            r#"{"X": "foo", "Y"}"#,
-            Syntax("invalid character '}' after object key", 17),
-        ),
-        (
-            "[1, 2, 3+]",
-            Syntax("invalid character '+' after array element", 9),
-        ),
-        (
-            r#"{"X":12x}"#,
-            Syntax("invalid character 'x' after object key:value pair", 8),
-        ),
-        (
-            r#"{"F3": -}"#,
-            Syntax("invalid character '}' in numeric literal", 9),
-        ),
-        (
-            "\x01 42",
-            Syntax(
-                "invalid character '\\x01' looking for beginning of value",
-                1,
-            ),
-        ),
-        (
-            " 42 \x01",
-            Syntax("invalid character '\\x01' after top-level value", 5),
-        ),
-        (
-            "\x01 true",
-            Syntax(
-                "invalid character '\\x01' looking for beginning of value",
-                1,
-            ),
-        ),
-        (
-            " false \x01",
-            Syntax("invalid character '\\x01' after top-level value", 8),
-        ),
-        (
-            "\x01 1.2",
-            Syntax(
-                "invalid character '\\x01' looking for beginning of value",
-                1,
-            ),
-        ),
-        (
-            " 3.4 \x01",
-            Syntax("invalid character '\\x01' after top-level value", 6),
-        ),
-        (
-            "\x01 \"string\"",
-            Syntax(
-                "invalid character '\\x01' looking for beginning of value",
-                1,
-            ),
-        ),
-        (
-            " \"string\" \x01",
-            Syntax("invalid character '\\x01' after top-level value", 11),
-        ),
-        (
-            "invalid",
-            Syntax("invalid character 'i' looking for beginning of value", 1),
-        ),
-        (
-            "[1,2,true,4,5}",
-            Syntax("invalid character '}' after array element", 14),
-        ),
-    ];
-    for &(input, want) in cases {
+    for &(input, want) in UNMARSHAL_CASES {
         let got = go_json::unmarshal(input.as_bytes());
         assert!(matches(&got, want), "{input:?}: {got:?}, want {want:?}");
     }

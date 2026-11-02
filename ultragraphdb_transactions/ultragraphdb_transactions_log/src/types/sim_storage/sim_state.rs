@@ -97,7 +97,12 @@ impl SimState {
         components
             .map(|component| match component {
                 Component::Normal(name) => Ok(name.to_string_lossy().into_owned()),
-                _ => Err(error(io::ErrorKind::InvalidInput, "not a plain path")),
+                Component::Prefix(_)
+                | Component::RootDir
+                | Component::CurDir
+                | Component::ParentDir => {
+                    Err(error(io::ErrorKind::InvalidInput, "not a plain path"))
+                }
             })
             .collect()
     }

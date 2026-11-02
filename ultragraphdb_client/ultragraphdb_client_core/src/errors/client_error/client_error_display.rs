@@ -19,9 +19,7 @@ impl fmt::Display for ClientError {
                 detail,
                 message,
                 ..
-            } => {
-                write!(f, "refused ({code:?}, detail {detail}): {message}")
-            }
+            } => write!(f, "refused ({code:?}, detail {detail}): {message}"),
             ClientErrorEnum::Closed { code, message } => {
                 write!(f, "the server closed the connection ({code:?}): {message}")
             }
@@ -38,12 +36,10 @@ impl fmt::Display for ClientError {
                 field,
                 expected,
                 found,
-            } => {
-                write!(
-                    f,
-                    "a reply names {field} {found} where {expected} was asked"
-                )
-            }
+            } => write!(
+                f,
+                "a reply names {field} {found} where {expected} was asked"
+            ),
             ClientErrorEnum::RetriesExhausted {
                 session,
                 request,
@@ -73,12 +69,10 @@ impl fmt::Display for ClientError {
             ClientErrorEnum::StreamBusy { stream } => {
                 write!(f, "stream {stream} still waits for its answer")
             }
-            ClientErrorEnum::StreamLimit { limit } => {
-                write!(
-                    f,
-                    "the connection holds {limit} streams, as many as allowed"
-                )
-            }
+            ClientErrorEnum::StreamLimit { limit } => write!(
+                f,
+                "the connection holds {limit} streams, as many as allowed"
+            ),
             ClientErrorEnum::TransactionMismatch { stream, named } => write!(
                 f,
                 "a request names the transaction of stream {named}, asked of stream {stream}'s"

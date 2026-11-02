@@ -156,7 +156,9 @@ impl GoldenFrame {
         let path = ultragraphdb_tool_bdd::testdata_dir()
             .join("golden")
             .join(format!("{}.frame", self.name));
-        fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        fs::read(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))
+            .expect("reading the golden frame")
     }
 
     /// The body's bytes before its table.

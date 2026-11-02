@@ -28,7 +28,8 @@ impl TempFile {
 
 impl Drop for TempFile {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        // Removal is best effort: a drop must not panic, and a leftover file is harmless.
+        let _removed: std::io::Result<()> = fs::remove_file(&self.0);
     }
 }
 

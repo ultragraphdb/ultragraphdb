@@ -729,9 +729,14 @@ fn test_empty_keys_and_keys_of_zero_and_code_bytes_keep_byte_order() {
             );
         }
     }
-    let keys = |scan: Scan| -> Vec<Vec<u8>> {
-        scanned(&s, &scan, 2).into_iter().map(|(k, _)| k).collect()
-    };
+    assert_scans_keep_byte_order(&s);
+}
+
+/// Checks the scans of prefixes, keys, ranges and seeks over the keys of
+/// `test_empty_keys_and_keys_of_zero_and_code_bytes_keep_byte_order` held by `s`.
+fn assert_scans_keep_byte_order(s: &FjallStore) {
+    let keys =
+        |scan: Scan| -> Vec<Vec<u8>> { scanned(s, &scan, 2).into_iter().map(|(k, _)| k).collect() };
     assert_eq!(
         keys(Scan::prefix(vec![0x00])),
         vec![b"\x00".to_vec(), b"\x00\x00".to_vec(), b"\x00\x01".to_vec()],

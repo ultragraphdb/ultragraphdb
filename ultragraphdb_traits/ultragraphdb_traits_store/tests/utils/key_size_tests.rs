@@ -10,10 +10,14 @@ use ultragraphdb_traits_store::{
 
 /// The parts of a `KeyTooLarge` refusal, or a failure naming the error that came instead.
 fn too_large(err: &StoreError) -> (usize, usize, &[u8]) {
-    match &err.0 {
-        StoreErrorEnum::KeyTooLarge { size, limit, head } => (*size, *limit, head.as_slice()),
-        other => panic!("expected KeyTooLarge, got {other:?}"),
-    }
+    let parts = if let StoreErrorEnum::KeyTooLarge { size, limit, head } = &err.0 {
+        Some((*size, *limit, head.as_slice()))
+    } else {
+        None
+    };
+    parts
+        .ok_or_else(|| format!("expected KeyTooLarge, got {:?}", err.0))
+        .expect("a KeyTooLarge refusal")
 }
 
 #[test]

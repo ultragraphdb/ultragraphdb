@@ -13,7 +13,7 @@ use ultragraphdb_error_options::OptionsError;
 use crate::types::option_value::OptionValue;
 
 /// The option's text did not parse, with Go's `strconv` message.
-fn parse_error(e: impl ToString) -> OptionsError {
+fn parse_error(e: &impl ToString) -> OptionsError {
     OptionsError::Parse(e.to_string())
 }
 
@@ -21,14 +21,14 @@ fn parse_error(e: impl ToString) -> OptionsError {
 pub fn int_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
     go_strconv::atoi(v)
         .map(OptionValue::Int)
-        .map_err(parse_error)
+        .map_err(|e| parse_error(&e))
 }
 
 /// Dgraph's `UintOptParser`: Go's `strconv.ParseUint(v, 10, 64)`.
 pub fn uint_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
     go_strconv::parse_uint(v, 10)
         .map(OptionValue::Uint)
-        .map_err(parse_error)
+        .map_err(|e| parse_error(&e))
 }
 
 /// Dgraph's `StringOptParser`: the text as it is.
@@ -40,7 +40,7 @@ pub fn string_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
 pub fn float64_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
     go_strconv::parse_float(v, 64)
         .map(OptionValue::Float)
-        .map_err(parse_error)
+        .map_err(|e| parse_error(&e))
 }
 
 /// Dgraph's `Float32OptParser`: Go's `strconv.ParseFloat(v, 32)`, which still returns a float64, rounded to float32
@@ -48,5 +48,5 @@ pub fn float64_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
 pub fn float32_opt_parser(v: &str) -> Result<OptionValue, OptionsError> {
     go_strconv::parse_float(v, 32)
         .map(OptionValue::Float)
-        .map_err(parse_error)
+        .map_err(|e| parse_error(&e))
 }

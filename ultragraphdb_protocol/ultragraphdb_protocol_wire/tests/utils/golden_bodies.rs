@@ -105,7 +105,8 @@ pub fn golden(name: &str) -> GoldenBody {
     *BODIES
         .iter()
         .find(|b| b.name == name)
-        .unwrap_or_else(|| panic!("no golden frame {name}"))
+        .ok_or_else(|| format!("no golden frame {name}"))
+        .expect("a golden frame of the name")
 }
 
 impl GoldenBody {
@@ -119,7 +120,9 @@ impl GoldenBody {
             .join("golden")
             .join("bodies")
             .join(format!("{}.frame", self.name));
-        fs::read(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+        fs::read(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))
+            .expect("reading the golden frame")
     }
 
     /// The header a builder is given to rebuild the frame: the golden fields but the command and command header,

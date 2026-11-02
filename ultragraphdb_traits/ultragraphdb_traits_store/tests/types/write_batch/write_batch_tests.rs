@@ -159,13 +159,14 @@ fn test_check_key_sizes_refuses_the_first_oversized_key() {
     batch.push(Entry::put(alternating(44_000), 1, 0, vec![]));
     batch.push(Entry::deletion(vec![1; MAX_USER_KEY_SIZE + 1], 1));
     let err = batch.check_key_sizes().unwrap_err();
-    match err.0 {
-        StoreErrorEnum::KeyTooLarge { size, limit, head } => {
-            assert_eq!((size, limit), (66_010, MAX_STORED_KEY_SIZE));
-            assert_eq!(head, dense_head());
+    assert_eq!(
+        err.0,
+        StoreErrorEnum::KeyTooLarge {
+            size: 66_010,
+            limit: MAX_STORED_KEY_SIZE,
+            head: dense_head(),
         }
-        other => panic!("expected KeyTooLarge, got {other:?}"),
-    }
+    );
 }
 
 #[test]

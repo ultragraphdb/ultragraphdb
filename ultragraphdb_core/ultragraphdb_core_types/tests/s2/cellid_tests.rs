@@ -114,168 +114,187 @@ fn cell_ids_match_go() {
     let g: Golden = load("cellid.json");
     let mut c = Checker::new("cellid");
     for k in &g.cells {
-        let id = cell(&k.id);
-        let t = &k.id;
-        c.check(id.to_token() == k.token, || {
-            format!("{t} token {} want {}", id.to_token(), k.token)
-        });
-        c.check(hex(CellId::from_token(&k.token)) == k.from_token, || {
-            format!("{t} from_token")
-        });
-        c.check(
-            id.level() == k.level
-                && id.face() == k.face
-                && id.is_leaf() == k.is_leaf
-                && id.is_valid() == k.valid,
-            || format!("{t} level/face/leaf/valid"),
-        );
-        let parents: Vec<String> = (0..=id.level()).map(|l| hex(id.parent(l))).collect();
-        c.check(parents == k.parents, || format!("{t} parents"));
-        c.check(
-            hex(id.range_min()) == k.range_min && hex(id.range_max()) == k.range_max,
-            || format!("{t} range"),
-        );
-        c.check(hex(id.next()) == k.next && hex(id.prev()) == k.prev, || {
-            format!("{t} next/prev")
-        });
-        if let Some(ch) = &k.children {
-            c.check(&ids(&id.children()) == ch, || format!("{t} children"));
-            c.check(
-                hex(id.child_begin()) == k.child_begin && hex(id.child_end()) == k.child_end,
-                || format!("{t} child begin/end"),
-            );
-            let begins: Vec<String> = (id.level()..=(id.level() + 3).min(MAX_LEVEL))
-                .map(|l| hex(id.child_begin_at_level(l)))
-                .collect();
-            let ends: Vec<String> = (id.level()..=(id.level() + 3).min(MAX_LEVEL))
-                .map(|l| hex(id.child_end_at_level(l)))
-                .collect();
-            c.check(
-                Some(&begins) == k.child_begin_at.as_ref()
-                    && Some(&ends) == k.child_end_at.as_ref(),
-                || format!("{t} child at level"),
-            );
-        }
-        c.check(same_point(id.point(), &k.point), || {
-            format!("{t} point {:?} want {:?}", id.point(), k.point)
-        });
-        let ll = id.lat_lng();
-        c.check(
-            same(ll.lat().radians(), f(&k.latlng[0])) && same(ll.lng().radians(), f(&k.latlng[1])),
-            || format!("{t} latlng"),
-        );
-        if let Some(n) = &k.vertex_neighbors {
-            c.check(&ids(&id.vertex_neighbors(id.level() - 1)) == n, || {
-                format!("{t} vertex neighbors")
-            });
-        }
-        let cl = Cell::from_cell_id(id);
-        let uv = cl.bound_uv();
-        c.check(
-            same(uv.x().lo(), f(&k.bound_uv[0]))
-                && same(uv.x().hi(), f(&k.bound_uv[1]))
-                && same(uv.y().lo(), f(&k.bound_uv[2]))
-                && same(uv.y().hi(), f(&k.bound_uv[3])),
-            || format!("{t} bound uv"),
-        );
-        c.check(same_point(cl.center(), &k.center), || {
-            format!("{t} cell center")
-        });
-        for (i, v) in k.vertices.iter().enumerate() {
-            c.check(same_point(cl.vertex(i).unwrap(), v), || {
-                format!("{t} vertex {i}")
-            });
-        }
-        c.check(same_rect(cl.rect_bound(), &k.rect_bound), || {
-            format!(
-                "{t} rect bound {:?} want {:?}",
-                cl.rect_bound(),
-                k.rect_bound
-            )
-        });
-        c.check(same_cap(cl.cap_bound(), &k.cap_bound), || {
-            format!("{t} cap bound {:?}", cl.cap_bound())
-        });
-        for (p, want) in k.probes.iter().zip(&k.probe_in) {
-            let got = cl.contains_point(super::golden::pt(p));
-            c.check(got == *want, || {
-                format!("{t} contains_point({p:?}) = {got}")
-            });
-        }
+        check_cell_id(&mut c, k);
+        check_cell(&mut c, k);
     }
     for k in &g.pairs {
-        let (a, b) = (cell(&k.a), cell(&k.b));
-        c.check(
-            a.contains(b) == k.contains && a.intersects(b) == k.intersects,
-            || format!("{} {} contains/intersects", k.a, k.b),
-        );
-        let common = a.common_ancestor_level(b);
-        let want = if k.common_ok {
-            Some(k.common_level)
-        } else {
-            None
-        };
-        c.check(common == want, || {
-            format!("{} {} common ancestor {common:?} want {want:?}", k.a, k.b)
-        });
+        check_pair(&mut c, k);
     }
     for k in &g.tokens {
-        let got = hex(CellId::from_token(&k.token));
-        c.check(got == k.id, || {
-            format!("from_token({:?}) = {got} want {}", k.token, k.id)
-        });
+        check_token(&mut c, k);
     }
     for k in &g.unions {
-        let mut u =
-            ultragraphdb_core_types::CellUnion::new(k.input.iter().map(|s| cell(s)).collect());
-        u.normalize();
-        c.check(ids(u.as_slice()) == k.normalized, || {
-            format!("normalize {:?}", k.input)
-        });
-        let mut d = u.clone();
-        d.denormalize(k.min_level, k.level_mod);
-        let tok: Vec<String> = d.iter().map(|c| c.to_token()).collect();
-        c.check(
-            d.len() == k.denormalized_count
-                && super::golden::tokens_hash(&tok) == k.denormalized_hash,
-            || {
-                format!(
-                    "denormalize({}, {}) of {:?}",
-                    k.min_level, k.level_mod, k.normalized
-                )
-            },
-        );
-        if let Some(den) = &k.denormalized {
-            c.check(&ids(d.as_slice()) == den, || "denormalized ids".to_string());
-        }
-        for ((p, ci), ii) in k.probes.iter().zip(&k.contains_id).zip(&k.intersects_id) {
-            let id = cell(p);
-            c.check(
-                u.contains_cell_id(id) == *ci && u.intersects_cell_id(id) == *ii,
-                || format!("union probe {p}"),
-            );
-        }
-        c.check(same_cap(u.cap_bound(), &k.cap_bound), || {
-            format!("union cap bound {:?}", u.cap_bound())
-        });
-        c.check(same_rect(u.rect_bound(), &k.rect_bound), || {
-            format!("union rect bound {:?}", u.rect_bound())
-        });
-        for (ci, want) in u.iter().zip(k.from_range.iter().flatten()) {
-            let r = ultragraphdb_core_types::CellUnion::from_range(
-                ci.range_min(),
-                ci.range_max().next(),
-            );
-            c.check(&ids(r.as_slice()) == want, || {
-                format!("from_range of {:016x}", ci.id())
-            });
-        }
-        for cov in &k.coverings {
-            let got = cov.config.coverer().covering(&u);
-            super::loop_tests::check_covering(&mut c, "cell union region", got.as_slice(), cov);
-        }
+        check_union(&mut c, k);
     }
     c.finish();
+}
+
+/// A cell id's arithmetic, tokens, hierarchy and position.
+fn check_cell_id(c: &mut Checker, k: &CellCase) {
+    let id = cell(&k.id);
+    let t = &k.id;
+    c.check(id.to_token() == k.token, || {
+        format!("{t} token {} want {}", id.to_token(), k.token)
+    });
+    c.check(hex(CellId::from_token(&k.token)) == k.from_token, || {
+        format!("{t} from_token")
+    });
+    c.check(
+        id.level() == k.level
+            && id.face() == k.face
+            && id.is_leaf() == k.is_leaf
+            && id.is_valid() == k.valid,
+        || format!("{t} level/face/leaf/valid"),
+    );
+    let parents: Vec<String> = (0..=id.level()).map(|l| hex(id.parent(l))).collect();
+    c.check(parents == k.parents, || format!("{t} parents"));
+    c.check(
+        hex(id.range_min()) == k.range_min && hex(id.range_max()) == k.range_max,
+        || format!("{t} range"),
+    );
+    c.check(hex(id.next()) == k.next && hex(id.prev()) == k.prev, || {
+        format!("{t} next/prev")
+    });
+    if let Some(ch) = &k.children {
+        c.check(&ids(&id.children()) == ch, || format!("{t} children"));
+        c.check(
+            hex(id.child_begin()) == k.child_begin && hex(id.child_end()) == k.child_end,
+            || format!("{t} child begin/end"),
+        );
+        let begins: Vec<String> = (id.level()..=(id.level() + 3).min(MAX_LEVEL))
+            .map(|l| hex(id.child_begin_at_level(l)))
+            .collect();
+        let ends: Vec<String> = (id.level()..=(id.level() + 3).min(MAX_LEVEL))
+            .map(|l| hex(id.child_end_at_level(l)))
+            .collect();
+        c.check(
+            Some(&begins) == k.child_begin_at.as_ref() && Some(&ends) == k.child_end_at.as_ref(),
+            || format!("{t} child at level"),
+        );
+    }
+    c.check(same_point(id.point(), &k.point), || {
+        format!("{t} point {:?} want {:?}", id.point(), k.point)
+    });
+    let ll = id.lat_lng();
+    c.check(
+        same(ll.lat().radians(), f(&k.latlng[0])) && same(ll.lng().radians(), f(&k.latlng[1])),
+        || format!("{t} latlng"),
+    );
+    if let Some(n) = &k.vertex_neighbors {
+        c.check(&ids(&id.vertex_neighbors(id.level() - 1)) == n, || {
+            format!("{t} vertex neighbors")
+        });
+    }
+}
+
+/// The geometry of the cell a cell id names.
+fn check_cell(c: &mut Checker, k: &CellCase) {
+    let id = cell(&k.id);
+    let t = &k.id;
+    let cl = Cell::from_cell_id(id);
+    let uv = cl.bound_uv();
+    c.check(
+        same(uv.x().lo(), f(&k.bound_uv[0]))
+            && same(uv.x().hi(), f(&k.bound_uv[1]))
+            && same(uv.y().lo(), f(&k.bound_uv[2]))
+            && same(uv.y().hi(), f(&k.bound_uv[3])),
+        || format!("{t} bound uv"),
+    );
+    c.check(same_point(cl.center(), &k.center), || {
+        format!("{t} cell center")
+    });
+    for (i, v) in k.vertices.iter().enumerate() {
+        c.check(same_point(cl.vertex(i).unwrap(), v), || {
+            format!("{t} vertex {i}")
+        });
+    }
+    c.check(same_rect(cl.rect_bound(), &k.rect_bound), || {
+        format!(
+            "{t} rect bound {:?} want {:?}",
+            cl.rect_bound(),
+            k.rect_bound
+        )
+    });
+    c.check(same_cap(cl.cap_bound(), &k.cap_bound), || {
+        format!("{t} cap bound {:?}", cl.cap_bound())
+    });
+    for (p, want) in k.probes.iter().zip(&k.probe_in) {
+        let got = cl.contains_point(super::golden::pt(p));
+        c.check(got == *want, || {
+            format!("{t} contains_point({p:?}) = {got}")
+        });
+    }
+}
+
+fn check_pair(c: &mut Checker, k: &PairCase) {
+    let (a, b) = (cell(&k.a), cell(&k.b));
+    c.check(
+        a.contains(b) == k.contains && a.intersects(b) == k.intersects,
+        || format!("{} {} contains/intersects", k.a, k.b),
+    );
+    let common = a.common_ancestor_level(b);
+    let want = if k.common_ok {
+        Some(k.common_level)
+    } else {
+        None
+    };
+    c.check(common == want, || {
+        format!("{} {} common ancestor {common:?} want {want:?}", k.a, k.b)
+    });
+}
+
+fn check_token(c: &mut Checker, k: &TokenCase) {
+    let got = hex(CellId::from_token(&k.token));
+    c.check(got == k.id, || {
+        format!("from_token({:?}) = {got} want {}", k.token, k.id)
+    });
+}
+
+fn check_union(c: &mut Checker, k: &UnionCase) {
+    let mut u = ultragraphdb_core_types::CellUnion::new(k.input.iter().map(|s| cell(s)).collect());
+    u.normalize();
+    c.check(ids(u.as_slice()) == k.normalized, || {
+        format!("normalize {:?}", k.input)
+    });
+    let mut d = u.clone();
+    d.denormalize(k.min_level, k.level_mod);
+    let tok: Vec<String> = d.iter().map(|c| c.to_token()).collect();
+    c.check(
+        d.len() == k.denormalized_count && super::golden::tokens_hash(&tok) == k.denormalized_hash,
+        || {
+            format!(
+                "denormalize({}, {}) of {:?}",
+                k.min_level, k.level_mod, k.normalized
+            )
+        },
+    );
+    if let Some(den) = &k.denormalized {
+        c.check(&ids(d.as_slice()) == den, || "denormalized ids".to_string());
+    }
+    for ((p, ci), ii) in k.probes.iter().zip(&k.contains_id).zip(&k.intersects_id) {
+        let id = cell(p);
+        c.check(
+            u.contains_cell_id(id) == *ci && u.intersects_cell_id(id) == *ii,
+            || format!("union probe {p}"),
+        );
+    }
+    c.check(same_cap(u.cap_bound(), &k.cap_bound), || {
+        format!("union cap bound {:?}", u.cap_bound())
+    });
+    c.check(same_rect(u.rect_bound(), &k.rect_bound), || {
+        format!("union rect bound {:?}", u.rect_bound())
+    });
+    for (ci, want) in u.iter().zip(k.from_range.iter().flatten()) {
+        let r =
+            ultragraphdb_core_types::CellUnion::from_range(ci.range_min(), ci.range_max().next());
+        c.check(&ids(r.as_slice()) == want, || {
+            format!("from_range of {:016x}", ci.id())
+        });
+    }
+    for cov in &k.coverings {
+        let got = cov.config.coverer().covering(&u);
+        super::loop_tests::check_covering(c, "cell union region", got.as_slice(), cov);
+    }
 }
 
 // Ported from golang/geo s2/cellid_test.go, TestCellIDFromFace.

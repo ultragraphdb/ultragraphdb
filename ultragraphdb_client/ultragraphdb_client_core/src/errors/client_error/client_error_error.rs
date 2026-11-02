@@ -10,7 +10,26 @@ impl std::error::Error for ClientError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match &self.0 {
             ClientErrorEnum::ConnectionLost { cause: Some(cause) } => Some(cause.as_ref()),
-            _ => None,
+            ClientErrorEnum::ConnectionLost { cause: None }
+            | ClientErrorEnum::Transport { .. }
+            | ClientErrorEnum::Protocol { .. }
+            | ClientErrorEnum::Refused { .. }
+            | ClientErrorEnum::Closed { .. }
+            | ClientErrorEnum::TimedOut
+            | ClientErrorEnum::NotConnected
+            | ClientErrorEnum::Request { .. }
+            | ClientErrorEnum::ReplyMismatch { .. }
+            | ClientErrorEnum::RetriesExhausted { .. }
+            | ClientErrorEnum::OutcomeUnknown { .. }
+            | ClientErrorEnum::InDoubt { .. }
+            | ClientErrorEnum::NotInDoubt { .. }
+            | ClientErrorEnum::SessionBusy { .. }
+            | ClientErrorEnum::UnknownSession { .. }
+            | ClientErrorEnum::ReadOnly { .. }
+            | ClientErrorEnum::StreamFinished { .. }
+            | ClientErrorEnum::StreamBusy { .. }
+            | ClientErrorEnum::StreamLimit { .. }
+            | ClientErrorEnum::TransactionMismatch { .. } => None,
         }
     }
 }

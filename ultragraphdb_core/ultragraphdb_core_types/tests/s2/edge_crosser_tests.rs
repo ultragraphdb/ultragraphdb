@@ -140,10 +140,53 @@ fn test_crossing(
 // Ported from golang/geo s2/edge_crosser_test.go, TestEdgeCrosserCrossings.
 #[test]
 fn edge_crosser_crossings() {
-    let na1 = ultragraphdb_core_types::go_nextafter(1.0, 0.0);
-    let na2 = ultragraphdb_core_types::go_nextafter(1.0, 2.0);
-    let v = |x: f64, y: f64, z: f64| R3Vector::new(x, y, z);
-    let tests = [
+    let tests = regular_crossings().into_iter().chain(barely_crossings());
+    for (msg, a, b, c, d, robust, edge_or_vertex) in tests {
+        // just normalize them once
+        let a = Point::from_vector(a.normalize());
+        let b = Point::from_vector(b.normalize());
+        let c = Point::from_vector(c.normalize());
+        let d = Point::from_vector(d.normalize());
+        test_crossing(msg, a, b, c, d, robust, edge_or_vertex);
+        test_crossing(msg, b, a, c, d, robust, edge_or_vertex);
+        test_crossing(msg, a, b, d, c, robust, edge_or_vertex);
+        test_crossing(msg, b, a, d, c, robust, edge_or_vertex);
+
+        // test degenerate cases
+        test_crossing(msg, a, a, c, d, Crossing::DoNotCross, false);
+        test_crossing(msg, a, b, c, c, Crossing::DoNotCross, false);
+        test_crossing(msg, a, a, c, c, Crossing::DoNotCross, false);
+
+        test_crossing(msg, a, b, a, b, Crossing::MaybeCross, true);
+        test_crossing(
+            msg,
+            c,
+            d,
+            a,
+            b,
+            robust,
+            edge_or_vertex != (robust == Crossing::MaybeCross),
+        );
+    }
+}
+
+/// An edge pair's name, its vertices ab and cd, the robust crossing and the edge-or-vertex answer.
+type CrossingCase = (
+    &'static str,
+    R3Vector,
+    R3Vector,
+    R3Vector,
+    R3Vector,
+    Crossing,
+    bool,
+);
+
+fn v(x: f64, y: f64, z: f64) -> R3Vector {
+    R3Vector::new(x, y, z)
+}
+
+fn regular_crossings() -> [CrossingCase; 7] {
+    [
         (
             "two regular edges that cross",
             v(1.0, 2.0, 1.0),
@@ -207,6 +250,13 @@ fn edge_crosser_crossings() {
             Crossing::MaybeCross,
             false,
         ),
+    ]
+}
+
+fn barely_crossings() -> [CrossingCase; 6] {
+    let na1 = ultragraphdb_core_types::go_nextafter(1.0, 0.0);
+    let na2 = ultragraphdb_core_types::go_nextafter(1.0, 2.0);
+    [
         (
             "two edges that barely cross near the middle of one edge",
             v(1.0, 1.0, 1.0),
@@ -261,32 +311,5 @@ fn edge_crosser_crossings() {
             Crossing::DoNotCross,
             false,
         ),
-    ];
-    for (msg, a, b, c, d, robust, edge_or_vertex) in tests {
-        // just normalize them once
-        let a = Point::from_vector(a.normalize());
-        let b = Point::from_vector(b.normalize());
-        let c = Point::from_vector(c.normalize());
-        let d = Point::from_vector(d.normalize());
-        test_crossing(msg, a, b, c, d, robust, edge_or_vertex);
-        test_crossing(msg, b, a, c, d, robust, edge_or_vertex);
-        test_crossing(msg, a, b, d, c, robust, edge_or_vertex);
-        test_crossing(msg, b, a, d, c, robust, edge_or_vertex);
-
-        // test degenerate cases
-        test_crossing(msg, a, a, c, d, Crossing::DoNotCross, false);
-        test_crossing(msg, a, b, c, c, Crossing::DoNotCross, false);
-        test_crossing(msg, a, a, c, c, Crossing::DoNotCross, false);
-
-        test_crossing(msg, a, b, a, b, Crossing::MaybeCross, true);
-        test_crossing(
-            msg,
-            c,
-            d,
-            a,
-            b,
-            robust,
-            edge_or_vertex != (robust == Crossing::MaybeCross),
-        );
-    }
+    ]
 }

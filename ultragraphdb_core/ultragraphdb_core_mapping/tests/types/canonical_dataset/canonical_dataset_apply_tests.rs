@@ -68,7 +68,9 @@ fn held(d: &CanonicalDataset) -> Vec<(String, Option<u64>)> {
             };
             let graph = match s.graph() {
                 GraphName::DefaultGraph => String::new(),
-                g => format!(" {}", local(&g.to_string())),
+                g @ (GraphName::NamedNode(_) | GraphName::BlankNode(_)) => {
+                    format!(" {}", local(&g.to_string()))
+                }
             };
             (
                 format!(
@@ -477,8 +479,8 @@ fn test_a_single_valued_write_replaces_only_its_subjects_object_in_its_graph() {
     assert_eq!(d.triple_count(), 5);
 }
 
-#[test]
-fn test_a_refused_change_leaves_nothing_of_its_changeset() {
+/// A dataset holding `a knows b` as two statements.
+fn held_twice() -> CanonicalDataset {
     let mut d = CanonicalDataset::new();
     apply(
         &mut d,
@@ -488,6 +490,39 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() {
         ],
     )
     .unwrap();
+    d
+}
+
+/// A triple term is refused, as an insert's object and as an edge's, named as oxrdf writes the triple.
+fn assert_triple_terms_refused(d: &mut CanonicalDataset) {
+    let triple = Triple::new(node("a"), iri("p"), iri("b"));
+    let refused = MappingError::UnsupportedObject(triple.to_string());
+    let error = apply(
+        d,
+        vec![insert("a", "says", Term::Triple(Box::new(triple.clone())))],
+    )
+    .unwrap_err();
+    assert_eq!(error, refused);
+    let error = apply(
+        d,
+        vec![
+            edge("x", "p", "y", vec![w(1)]),
+            Change::InsertEdge {
+                graph: G,
+                subject: node("a"),
+                predicate: iri("says"),
+                object: Term::Triple(Box::new(triple)),
+                properties: vec![],
+            },
+        ],
+    )
+    .unwrap_err();
+    assert_eq!(error, refused);
+}
+
+#[test]
+fn test_a_refused_change_leaves_nothing_of_its_changeset() {
+    let mut d = held_twice();
     let before = d.clone();
     let ambiguous = StatementRef::Triple {
         graph: G,
@@ -554,30 +589,7 @@ fn test_a_refused_change_leaves_nothing_of_its_changeset() {
         )
     );
     assert_eq!(d, before);
-    // A triple term, as an insert's object and as an edge's, named as oxrdf writes the triple.
-    let triple = Triple::new(node("a"), iri("p"), iri("b"));
-    let refused = MappingError::UnsupportedObject(triple.to_string());
-    let error = apply(
-        &mut d,
-        vec![insert("a", "says", Term::Triple(Box::new(triple.clone())))],
-    )
-    .unwrap_err();
-    assert_eq!(error, refused);
-    let error = apply(
-        &mut d,
-        vec![
-            edge("x", "p", "y", vec![w(1)]),
-            Change::InsertEdge {
-                graph: G,
-                subject: node("a"),
-                predicate: iri("says"),
-                object: Term::Triple(Box::new(triple)),
-                properties: vec![],
-            },
-        ],
-    )
-    .unwrap_err();
-    assert_eq!(error, refused);
+    assert_triple_terms_refused(&mut d);
     assert_eq!(d, before, "no statement and no ID of a refused changeset");
 }
 

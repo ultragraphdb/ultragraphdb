@@ -82,6 +82,13 @@ fn refusal(error: TxnError) -> CommitError {
         TxnErrorEnum::Changeset(ChangesetError(ChangesetErrorEnum::OperationFailed { found })) => {
             CommitError::OperationFailed(found)
         }
-        _ => CommitError::Refused(error.to_string()),
+        TxnErrorEnum::ReadAboveWatermark { .. }
+        | TxnErrorEnum::PastLimit { .. }
+        | TxnErrorEnum::WriteSetTooLarge { .. }
+        | TxnErrorEnum::ReadSetTooLarge { .. }
+        | TxnErrorEnum::ReadOnly
+        | TxnErrorEnum::Namespace { .. }
+        | TxnErrorEnum::Ended
+        | TxnErrorEnum::Changeset(_) => CommitError::Refused(error.to_string()),
     }
 }

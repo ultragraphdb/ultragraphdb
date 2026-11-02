@@ -114,19 +114,7 @@ impl StoreModel {
             OpRecord::SnapshotClosed { id } => {
                 self.answers.remove(id);
             }
-            OpRecord::Corrupted { key, version, .. } => {
-                // Only a snapshot of the data at or above the version reads it: a temporary keyspace's bytes are
-                // never corrupted, and a snapshot below the version never reaches it.
-                let reaches = |id: &u64| {
-                    self.snapshots
-                        .get(id)
-                        .is_some_and(|(read_ts, ..)| version <= read_ts)
-                };
-                self.answers
-                    .iter_mut()
-                    .filter(|(id, _)| reaches(id))
-                    .for_each(|(_, a)| a.forget(key));
-            }
+            OpRecord::Corrupted { key, version, .. } => self.forget_corrupted(key, *version),
             OpRecord::Read { id, key, result } => {
                 if let Some(answers) = self.answers.get_mut(id)
                     && !result.as_ref().is_err_and(injected)
@@ -135,38 +123,96 @@ impl StoreModel {
                     answers.hold_point(key, result.clone());
                 }
             }
-            OpRecord::ReadMany { id, keys, result } => {
-                if let Some(answers) = self.answers.get_mut(id) {
-                    // Compared with the answers held before the call, not with each other: a key named twice is read
-                    // twice, and a corruption drawn at its second read is logged before the call. The last read of a
-                    // key follows every corruption drawn during the call, so it is the answer held.
-                    let read: Vec<(&[u8], PointAnswer)> = match result {
-                        Ok(items) => keys
-                            .iter()
-                            .zip(items)
-                            .map(|(key, item)| (key.as_slice(), Ok(item.clone())))
-                            .collect(),
-                        Err(error) => match &error.0 {
-                            StoreErrorEnum::Corrupted { key, .. } => {
-                                vec![(key.as_slice(), Err(error.clone()))]
-                            }
-                            _ => Vec::new(),
-                        },
-                    };
-                    read.iter()
-                        .try_for_each(|(key, answer)| answers.compare_point(*id, key, answer))?;
-                    read.into_iter()
-                        .rev()
-                        .for_each(|(key, answer)| answers.hold_point(key, answer));
-                }
-            }
+            OpRecord::ReadMany { id, keys, result } => self.repeat_read_many(*id, keys, result)?,
             OpRecord::Scanned { id, scan, items } => {
                 if let Some(answers) = self.answers.get_mut(id) {
                     answers.scan(*id, scan, items)?;
                 }
             }
-            _ => {}
+            OpRecord::Applied { .. }
+            | OpRecord::Refused { .. }
+            | OpRecord::BatchFailed { .. }
+            | OpRecord::CrashedDuringBatch { .. }
+            | OpRecord::WriteWhileFailed { .. }
+            | OpRecord::Synced
+            | OpRecord::Dropped { .. }
+            | OpRecord::DropInterrupted { .. }
+            | OpRecord::RebuildRecorded { .. }
+            | OpRecord::RebuildInterrupted { .. }
+            | OpRecord::TemporaryCreated { .. }
+            | OpRecord::TemporaryApplied { .. }
+            | OpRecord::TemporaryRefused { .. }
+            | OpRecord::TemporaryFailed { .. }
+            | OpRecord::TemporaryDropped { .. }
+            | OpRecord::Banned { .. }
+            | OpRecord::DiscardSet { .. }
+            | OpRecord::HorizonSet { .. }
+            | OpRecord::Compacted
+            | OpRecord::Swept
+            | OpRecord::SnapshotRefused { .. }
+            | OpRecord::ReadVersionless { .. }
+            | OpRecord::Slowed { .. }
+            | OpRecord::Crashed
+            | OpRecord::PowerLost
+            | OpRecord::Recovered => {}
         }
+        Ok(())
+    }
+
+    /// Forgets the answers covering `key` in the snapshots a corruption of it at `version` reaches.
+    fn forget_corrupted(&mut self, key: &[u8], version: u64) {
+        // Only a snapshot of the data at or above the version reads it: a temporary keyspace's bytes are never
+        // corrupted, and a snapshot below the version never reaches it.
+        let reaches = |id: &u64| {
+            self.snapshots
+                .get(id)
+                .is_some_and(|(read_ts, ..)| version <= *read_ts)
+        };
+        self.answers
+            .iter_mut()
+            .filter(|(id, _)| reaches(id))
+            .for_each(|(_, a)| a.forget(key));
+    }
+
+    /// Checks a read of `keys` through snapshot `id` against the answers it holds, and keeps its own.
+    fn repeat_read_many(
+        &mut self,
+        id: u64,
+        keys: &[Vec<u8>],
+        result: &Result<Vec<Option<Item>>, StoreError>,
+    ) -> Result<(), Breach> {
+        let Some(answers) = self.answers.get_mut(&id) else {
+            return Ok(());
+        };
+        // Compared with the answers held before the call, not with each other: a key named twice is read twice,
+        // and a corruption drawn at its second read is logged before the call. The last read of a key follows every
+        // corruption drawn during the call, so it is the answer held.
+        let read: Vec<(&[u8], PointAnswer)> = match result {
+            Ok(items) => keys
+                .iter()
+                .zip(items)
+                .map(|(key, item)| (key.as_slice(), Ok(item.clone())))
+                .collect(),
+            Err(error) => match &error.0 {
+                StoreErrorEnum::Corrupted { key, .. } => {
+                    vec![(key.as_slice(), Err(error.clone()))]
+                }
+                StoreErrorEnum::TsTooOld
+                | StoreErrorEnum::KeyTooLarge { .. }
+                | StoreErrorEnum::ReadFailed { .. }
+                | StoreErrorEnum::WriteFailed(_)
+                | StoreErrorEnum::Poisoned
+                | StoreErrorEnum::OpenFailed(_)
+                | StoreErrorEnum::Unsupported(_)
+                | StoreErrorEnum::UnknownTemporary(_)
+                | StoreErrorEnum::EmptyKey => Vec::new(),
+            },
+        };
+        read.iter()
+            .try_for_each(|(key, answer)| answers.compare_point(id, key, answer))?;
+        read.into_iter()
+            .rev()
+            .for_each(|(key, answer)| answers.hold_point(key, answer));
         Ok(())
     }
 }

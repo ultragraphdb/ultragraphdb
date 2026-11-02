@@ -6,4 +6,5 @@
 pub mod compare;
 pub mod fuzz_regressions;
 pub mod golden_io;
+pub mod or_fail;
 pub mod workspace;

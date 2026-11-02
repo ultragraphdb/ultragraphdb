@@ -24,7 +24,11 @@ impl OptionType for i64 {
     fn from_option(v: &OptionValue) -> Option<Self> {
         match v {
             OptionValue::Int(i) => Some(*i),
-            _ => None,
+            OptionValue::Uint(_)
+            | OptionValue::Float(_)
+            | OptionValue::Bool(_)
+            | OptionValue::Str(_)
+            | OptionValue::Metric(_) => None,
         }
     }
 }
@@ -35,7 +39,11 @@ impl OptionType for u64 {
     fn from_option(v: &OptionValue) -> Option<Self> {
         match v {
             OptionValue::Uint(i) => Some(*i),
-            _ => None,
+            OptionValue::Int(_)
+            | OptionValue::Float(_)
+            | OptionValue::Bool(_)
+            | OptionValue::Str(_)
+            | OptionValue::Metric(_) => None,
         }
     }
 }
@@ -46,7 +54,11 @@ impl OptionType for f64 {
     fn from_option(v: &OptionValue) -> Option<Self> {
         match v {
             OptionValue::Float(f) => Some(*f),
-            _ => None,
+            OptionValue::Int(_)
+            | OptionValue::Uint(_)
+            | OptionValue::Bool(_)
+            | OptionValue::Str(_)
+            | OptionValue::Metric(_) => None,
         }
     }
 }
@@ -57,7 +69,11 @@ impl OptionType for bool {
     fn from_option(v: &OptionValue) -> Option<Self> {
         match v {
             OptionValue::Bool(b) => Some(*b),
-            _ => None,
+            OptionValue::Int(_)
+            | OptionValue::Uint(_)
+            | OptionValue::Float(_)
+            | OptionValue::Str(_)
+            | OptionValue::Metric(_) => None,
         }
     }
 }
@@ -68,7 +84,11 @@ impl OptionType for String {
     fn from_option(v: &OptionValue) -> Option<Self> {
         match v {
             OptionValue::Str(s) => Some(s.clone()),
-            _ => None,
+            OptionValue::Int(_)
+            | OptionValue::Uint(_)
+            | OptionValue::Float(_)
+            | OptionValue::Bool(_)
+            | OptionValue::Metric(_) => None,
         }
     }
 }

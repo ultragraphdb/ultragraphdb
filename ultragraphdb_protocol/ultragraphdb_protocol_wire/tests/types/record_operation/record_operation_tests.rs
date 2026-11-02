@@ -121,6 +121,10 @@ fn test_a_malformed_operation_is_refused() {
             offset: offset + 7
         }
     );
+}
+
+#[test]
+fn test_an_operation_section_of_the_wrong_length_is_refused() {
     // A section of 8 bytes: the table's last entry names it, the bytes follow.
     let mut short = WriteSetRecord::new(0, 1, 2, 3).encode();
     let at = 40 + 8 * 10;

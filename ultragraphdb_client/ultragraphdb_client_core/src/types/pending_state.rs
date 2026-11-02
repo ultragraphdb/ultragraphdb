@@ -57,7 +57,7 @@ impl PendingState {
             Expect::Commit { session, request } | Expect::Drop { session, request } => {
                 Some((session, request))
             }
-            _ => None,
+            Expect::Register | Expect::Begin | Expect::Prepare | Expect::Describe => None,
         }
     }
 

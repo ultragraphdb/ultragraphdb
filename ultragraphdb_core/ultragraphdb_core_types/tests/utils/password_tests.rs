@@ -109,9 +109,31 @@ fn test_verify_password() {
 /// `strconv.Atoi` and range-checked, the salt is base64-decoded, and bytes past the 60th are ignored.
 #[test]
 fn test_verify_password_malformed_hashes() {
-    const GOOD: &str = "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC";
+    let cases: Vec<(String, String)> = malformed_hashes()
+        .into_iter()
+        .map(|(h, w)| (h, w.to_string()))
+        .chain(malformed_salts())
+        .collect();
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|(hash, want)| {
+            let got = verify_password("123456", hash)
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_default();
+            (got != *want).then(|| format!("{hash}: got {got:?}, Go {want:?}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A bcrypt hash of "123456".
+const GOOD: &str = "$2a$10$LMGgvb5dOq4/YrWXjAy6W.tBfFQC4QDNFAuOCWGRk3f/Z1TMXswaC";
+
+/// Hashes of "123456" malformed outside the salt, and Go's error text for each, empty where Go accepts it.
+fn malformed_hashes() -> Vec<(String, &'static str)> {
     let rest = &GOOD[7..];
-    let cases: Vec<(String, &str)> = vec![
+    vec![
         (GOOD.into(), ""),
         (format!("$2b$10${rest}"), ""),
         (format!("$2y$10${rest}"), ""),
@@ -165,7 +187,11 @@ fn test_verify_password_malformed_hashes() {
             format!("$2a$+1${rest}"),
             "crypto/bcrypt: cost 1 is outside allowed inclusive range 4..31",
         ),
-    ];
+    ]
+}
+
+/// Hashes of "123456" with a malformed salt, and Go's error text for each.
+fn malformed_salts() -> Vec<(String, String)> {
     // Go's base64 decoder on the salt, which x/crypto pads with "==": misplaced padding, line breaks it skips and
     // bytes outside the alphabet.
     let (salt, hash) = (&GOOD[7..29], &GOOD[29..]);
@@ -185,22 +211,7 @@ fn test_verify_password_malformed_hashes() {
         ),
         (format!("{}\u{e9}", &salt[..20]), corrupt(20)),
     ];
-    let cases: Vec<(String, String)> = cases
-        .into_iter()
-        .map(|(h, w)| (h, w.to_string()))
-        .chain(salts.into_iter().map(|(s, w)| (salted(s), w)))
-        .collect();
-    let failures: Vec<String> = cases
-        .iter()
-        .filter_map(|(hash, want)| {
-            let got = verify_password("123456", hash)
-                .err()
-                .map(|e| e.to_string())
-                .unwrap_or_default();
-            (got != *want).then(|| format!("{hash}: got {got:?}, Go {want:?}"))
-        })
-        .collect();
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    salts.into_iter().map(|(s, w)| (salted(s), w)).collect()
 }
 
 /// Deviation: x/crypto v0.56.0 accepts this hash, whose salt holds four line breaks and decodes to 13 bytes, because

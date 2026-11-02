@@ -97,7 +97,9 @@ fn test_stop_word_languages() {
         ("tr", 209, "acaba", "şöyle"),
     ];
     for (lang, len, first, last) in langs {
-        let words = stop_words(lang).unwrap_or_else(|| panic!("no stop words for {lang}"));
+        let words = stop_words(lang)
+            .ok_or_else(|| format!("no stop words for {lang}"))
+            .expect("stop words for the language");
         assert!(words.windows(2).all(|w| w[0] < w[1]), "{lang} not sorted");
         assert_eq!(
             (words.len(), words.first(), words.last()),

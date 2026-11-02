@@ -281,11 +281,27 @@ fn rect_cap_bound() {
 // Ported from golang/geo s2/rect_test.go, TestRectIntervalOps.
 #[test]
 fn rect_interval_ops() {
+    for (a, b, contains, intersects, union, intersection) in interval_op_cases() {
+        assert_eq!(a.contains(b), contains, "{a:?} contains {b:?}");
+        assert_eq!(a.intersects(b), intersects, "{a:?} intersects {b:?}");
+        assert_eq!(a.union(b) == a, contains, "{a:?} ∪ {b:?} == {a:?}");
+        assert_eq!(
+            a.intersection(b).is_empty(),
+            !intersects,
+            "{a:?} ∩ {b:?} empty"
+        );
+        assert_eq!(a.union(b), union, "{a:?} ∪ {b:?}");
+        assert_eq!(a.intersection(b), intersection, "{a:?} ∩ {b:?}");
+    }
+}
+
+/// TestRectIntervalOps' rects a and b, whether a contains and intersects b, their union and intersection.
+fn interval_op_cases() -> [(Rect, Rect, bool, bool, Rect, Rect); 10] {
     let r = deg(0.0, -180.0, 90.0, 0.0);
     let mid = deg(45.0, -90.0, 45.0, -90.0);
     let r180 = deg(0.0, -180.0, 0.0, -180.0);
     let north_pole = deg(90.0, 0.0, 90.0, 0.0);
-    let tests = [
+    [
         (r, mid, true, true, r, mid),
         (r, r180, true, true, r, r180),
         (r, north_pole, true, true, r, north_pole),
@@ -346,19 +362,7 @@ fn rect_interval_ops() {
             deg(0.0, 0.0, 42.0, 60.0),
             Rect::empty(),
         ),
-    ];
-    for (a, b, contains, intersects, union, intersection) in tests {
-        assert_eq!(a.contains(b), contains, "{a:?} contains {b:?}");
-        assert_eq!(a.intersects(b), intersects, "{a:?} intersects {b:?}");
-        assert_eq!(a.union(b) == a, contains, "{a:?} ∪ {b:?} == {a:?}");
-        assert_eq!(
-            a.intersection(b).is_empty(),
-            !intersects,
-            "{a:?} ∩ {b:?} empty"
-        );
-        assert_eq!(a.union(b), union, "{a:?} ∪ {b:?}");
-        assert_eq!(a.intersection(b), intersection, "{a:?} ∩ {b:?}");
-    }
+    ]
 }
 
 // Ported from golang/geo s2/rect_test.go, TestRectContainsPoint.

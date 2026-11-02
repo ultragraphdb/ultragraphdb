@@ -60,7 +60,15 @@ fn scratch_dir(name: &str) -> PathBuf {
         "ugdb_fuzz_regressions_{name}_{}",
         std::process::id()
     ));
-    let _ = fs::remove_dir_all(&dir);
+    // A previous run's directory is cleared; there is none on a first run.
+    if let Err(e) = fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "{}: {e}",
+            dir.display()
+        );
+    }
     fs::create_dir_all(&dir).unwrap();
     dir
 }

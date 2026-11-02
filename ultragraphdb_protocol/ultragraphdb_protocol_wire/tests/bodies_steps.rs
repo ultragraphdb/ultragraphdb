@@ -333,12 +333,13 @@ fn truncate_all(w: &mut Steps) {
     for body in BODIES {
         let bytes = body.bytes();
         for len in 0..bytes.len() {
-            let outcome = catch_unwind(AssertUnwindSafe(|| view_any(&bytes[..len])));
-            match outcome {
-                Ok(Err(refusal)) => w.refusals.push(refusal),
-                Ok(Ok(())) => panic!("{} truncated at {len} was accepted", body.name),
-                Err(_) => panic!("{} truncated at {len} panicked", body.name),
-            }
+            let refusal = catch_unwind(AssertUnwindSafe(|| view_any(&bytes[..len])))
+                .map_err(|_| format!("{} truncated at {len} panicked", body.name))
+                .expect("a truncated frame does not panic")
+                .err()
+                .ok_or_else(|| format!("{} truncated at {len} was accepted", body.name))
+                .expect("a truncated frame is refused");
+            w.refusals.push(refusal);
             w.truncations += 1;
         }
     }
@@ -392,11 +393,21 @@ fn read_binds_iri(w: &mut Steps) {
 fn iri_read(w: &mut Steps) {
     let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = ReadView::from_frame(&frame).unwrap();
-    let PatternSlot::Bound(index) = view.pattern().subject() else {
-        panic!("the subject is bound");
+    let subject = view.pattern().subject();
+    assert!(
+        matches!(subject, PatternSlot::Bound(_)),
+        "the subject is bound: {subject:?}"
+    );
+    let PatternSlot::Bound(index) = subject else {
+        return;
     };
-    let Some(RequestTermView::Iri(text)) = view.terms().get(index) else {
-        panic!("the subject is an IRI");
+    let term = view.terms().get(index);
+    assert!(
+        matches!(term, Some(RequestTermView::Iri(_))),
+        "the subject is an IRI: {term:?}"
+    );
+    let Some(RequestTermView::Iri(text)) = term else {
+        return;
     };
     assert_eq!(text, "http://ex.org/a");
     // In place: the text lies inside the frame's bytes.
@@ -425,8 +436,13 @@ fn write_blank(w: &mut Steps) {
 fn blank_read(w: &mut Steps) {
     let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = WriteView::from_frame(&frame).unwrap();
-    let Some(WriteChange::Insert { subject, .. }) = view.change(0) else {
-        panic!("an insert");
+    let change = view.change(0);
+    assert!(
+        matches!(change, Some(WriteChange::Insert { .. })),
+        "an insert: {change:?}"
+    );
+    let Some(WriteChange::Insert { subject, .. }) = change else {
+        return;
     };
     assert_eq!(
         view.terms().get(subject),
@@ -483,8 +499,13 @@ fn operation_tagged(w: &mut Steps) {
 fn tagged_read(w: &mut Steps) {
     let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = OperationView::from_frame(&frame).unwrap();
-    let CommitOperation::InsertIfAbsent { value, .. } = view.operation() else {
-        panic!("an insert-if-absent");
+    let operation = view.operation();
+    assert!(
+        matches!(operation, CommitOperation::InsertIfAbsent { .. }),
+        "an insert-if-absent: {operation:?}"
+    );
+    let CommitOperation::InsertIfAbsent { value, .. } = operation else {
+        return;
     };
     assert_eq!(
         view.terms().get(value),
@@ -527,25 +548,36 @@ fn write_triple(w: &mut Steps) {
 fn triple_read(w: &mut Steps) {
     let frame = FrameView::validate(&w.bytes, CLUSTER, MAX_FRAME_SIZE).unwrap();
     let view = WriteView::from_frame(&frame).unwrap();
-    let Some(WriteChange::Insert { object, .. }) = view.change(0) else {
-        panic!("an insert");
+    let change = view.change(0);
+    assert!(
+        matches!(change, Some(WriteChange::Insert { .. })),
+        "an insert: {change:?}"
+    );
+    let Some(WriteChange::Insert { object, .. }) = change else {
+        return;
     };
+    let term = view.terms().get(object);
+    assert!(
+        matches!(term, Some(RequestTermView::Triple { .. })),
+        "a triple term: {term:?}"
+    );
     let Some(RequestTermView::Triple {
         subject,
         predicate,
         object: o,
-    }) = view.terms().get(object)
+    }) = term
     else {
-        panic!("a triple term");
+        return;
     };
     assert!(subject < object && predicate < object && o < object);
-    let text = |i| match view.terms().get(i) {
-        Some(RequestTermView::Iri(t)) => t,
-        other => panic!("an IRI, not {other:?}"),
-    };
+    let text = |i| view.terms().get(i);
     assert_eq!(
         [text(subject), text(predicate), text(o)],
-        ["http://ex.org/a", "http://ex.org/knows", "http://ex.org/b"]
+        [
+            Some(RequestTermView::Iri("http://ex.org/a")),
+            Some(RequestTermView::Iri("http://ex.org/knows")),
+            Some(RequestTermView::Iri("http://ex.org/b")),
+        ]
     );
 }
 
@@ -559,7 +591,7 @@ fn record(kind: u8, fields: [u32; 4]) -> Vec<u8> {
 }
 
 /// The golden Execute around a term table of `records` over the text `a`, binding entry 0.
-fn execute_with(records: Vec<Vec<u8>>) -> Vec<u8> {
+fn execute_with(records: &[Vec<u8>]) -> Vec<u8> {
     let body = crate::utils::golden_bodies::join_sections(
         &[],
         &[
@@ -575,7 +607,7 @@ fn execute_with(records: Vec<Vec<u8>>) -> Vec<u8> {
 #[when("a triple term's entry names an entry at or after its own index")]
 fn forward_index(w: &mut Steps) {
     // Entry 1 names entry 2, which does not precede it.
-    w.bytes = execute_with(vec![record(1, [0, 1, 1, 0]), record(5, [0, 0, 2, 0])]);
+    w.bytes = execute_with(&[record(1, [0, 1, 1, 0]), record(5, [0, 0, 2, 0])]);
     w.refusals = view_any(&w.bytes).err().into_iter().collect();
 }
 
@@ -604,7 +636,7 @@ fn too_deep(w: &mut Steps) {
     for k in 0..33u32 {
         records.push(record(5, [k, 0, 0, 0]));
     }
-    w.bytes = execute_with(records);
+    w.bytes = execute_with(&records);
     w.refusals = view_any(&w.bytes).err().into_iter().collect();
 }
 
@@ -667,11 +699,13 @@ fn refused_not_a_node(w: &mut Steps) {
 fn decimal_past_its_payload(w: &mut Steps) {
     let lexical = "0.1234567890123456789";
     let literal = oxrdf::Literal::new_typed_literal(lexical, oxrdf::vocab::xsd::DECIMAL);
-    let encoded =
-        EncodedTerm::literal::<ultragraphdb_core_terms::TermError>(literal.as_ref(), |_| {
-            panic!("a known datatype takes no UID")
-        })
-        .expect("the literal encodes");
+    let encoded = EncodedTerm::literal(literal.as_ref(), |_| {
+        Err(ultragraphdb_core_terms::TermError::Malformed(
+            Vec::new(),
+            "a known datatype takes no UID",
+        ))
+    })
+    .expect("the literal encodes");
     let text = encoded.strings().next().map(|(_, text)| text.to_string());
     let term = ResultTerm::new(encoded.term().clone());
     let term = match &text {

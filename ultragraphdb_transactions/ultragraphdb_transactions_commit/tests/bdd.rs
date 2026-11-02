@@ -323,9 +323,12 @@ fn pruned_above(w: &mut Steps) {
 #[then("the commit fails with a retryable too-old error")]
 fn too_old(w: &mut Steps) {
     let reply = w.replies.iter().find(|r| r.ticket() == 3).expect("decided");
-    let Err(error) = reply.outcome() else {
-        panic!("the old transaction commits: {reply:?}");
-    };
+    let error = reply
+        .outcome()
+        .as_ref()
+        .err()
+        .ok_or_else(|| format!("the old transaction commits: {reply:?}"))
+        .expect("refused");
     // It read at the set-up's version; two commits moved the watermark, and the floor with it, 4 above.
     assert_eq!(error, &CommitError::TooOld(w.version, w.version + 4));
     assert!(error.is_retryable());
@@ -784,9 +787,12 @@ async fn evicted(w: &mut Steps) {
 #[then("the request is refused with an error saying the session was evicted")]
 fn told_evicted(w: &mut Steps) {
     assert_eq!(w.replies.len(), 1);
-    let Err(error) = w.replies[0].outcome() else {
-        panic!("committed: {:?}", w.replies);
-    };
+    let error = w.replies[0]
+        .outcome()
+        .as_ref()
+        .err()
+        .ok_or_else(|| format!("committed: {:?}", w.replies))
+        .expect("refused");
     // The oldest, registered first at base + 2, evicted by the second at base + 4 from a table of one.
     assert_eq!(error, &CommitError::SessionEvicted(w.version + 2));
     assert!(error.to_string().contains("evicted"));
@@ -838,9 +844,10 @@ fn too_large(w: &mut Steps) {
     "the commit fails with a too-large error that is not marked retryable, and nothing it wrote is held"
 )]
 fn too_large_refused(w: &mut Steps) {
-    let Some(error) = &w.refusal else {
-        panic!("the transaction prepared");
-    };
+    let error = w
+        .refusal
+        .as_ref()
+        .expect("the transaction is refused, not prepared");
     assert!(
         matches!(error.0, TxnErrorEnum::WriteSetTooLarge { .. }),
         "{error:?}"
@@ -1244,9 +1251,12 @@ async fn failed_cas(w: &mut Steps) {
     "the transaction is refused reporting `\"done\"`, `status` of `a` stays `\"done\"`, and `<a> <seen> true` is not held"
 )]
 fn cas_refused(w: &mut Steps) {
-    let Err(error) = w.replies[0].outcome() else {
-        panic!("committed: {:?}", w.replies);
-    };
+    let error = w.replies[0]
+        .outcome()
+        .as_ref()
+        .err()
+        .ok_or_else(|| format!("committed: {:?}", w.replies))
+        .expect("refused");
     assert_eq!(
         error,
         &CommitError::OperationFailed(Some("\"done\"".to_string()))
@@ -1433,7 +1443,9 @@ async fn power_at_any_step(w: &mut Steps) {
             }
             storage.fail_at(storage.trace().len() + step, mode);
             append_round(&mut pipe, &applier, 5);
-            let _ = pipe.sync(0).await;
+            // The sync faults at the step; whether it fails or not, recovery is what is checked.
+            let _synced: Result<(), ultragraphdb_transactions_commit::PipelineError> =
+                pipe.sync(0).await;
             drop(pipe);
             drop(applier);
             let (applier, replayed) = restart(&storage, &store).await;
@@ -1540,7 +1552,8 @@ fn six_then_seven(w: &mut Steps) {
         .iter()
         .map(|r| {
             let version = *r.outcome().as_ref().expect("committed");
-            (version, r.results()[0].uid() as i64)
+            // A counter's value travels as its two's-complement bits.
+            (version, r.results()[0].uid().cast_signed())
         })
         .collect();
     answered.sort();
@@ -1587,9 +1600,12 @@ async fn never_committed(w: &mut Steps) {
 
 #[then("the request is refused as not committed, `detail` 8, and nothing is committed")]
 fn not_committed(w: &mut Steps) {
-    let Err(error) = w.replies[0].outcome() else {
-        panic!("answered: {:?}", w.replies);
-    };
+    let error = w.replies[0]
+        .outcome()
+        .as_ref()
+        .err()
+        .ok_or_else(|| format!("answered: {:?}", w.replies))
+        .expect("refused");
     assert_eq!(error, &CommitError::NotCommitted(8));
     assert_eq!(error.detail(), 8);
     assert!(error.is_retryable());
@@ -1627,9 +1643,12 @@ async fn bobs_commit(w: &mut Steps) {
     "the commit is refused with code 21, `detail` 2, nothing is committed, and `alice`'s next request through the session is served"
 )]
 fn bob_refused(w: &mut Steps) {
-    let Err(error) = w.replies[0].outcome() else {
-        panic!("committed: {:?}", w.replies);
-    };
+    let error = w.replies[0]
+        .outcome()
+        .as_ref()
+        .err()
+        .ok_or_else(|| format!("committed: {:?}", w.replies))
+        .expect("refused");
     assert_eq!(
         error.code(),
         ultragraphdb_protocol_wire::ErrorCode::PermissionDenied
@@ -1664,9 +1683,10 @@ fn past_the_bound(w: &mut Steps) {
     "the commit fails with a too-large error that is not marked retryable, its `detail` the bound, and nothing it wrote is held"
 )]
 fn past_the_bound_refused(w: &mut Steps) {
-    let Some(error) = &w.refusal else {
-        panic!("the transaction prepared");
-    };
+    let error = w
+        .refusal
+        .as_ref()
+        .expect("the transaction is refused, not prepared");
     assert!(
         matches!(
             error.0,
@@ -1913,7 +1933,7 @@ async fn write_into_dropped_graph(w: &mut Steps) {
     let (_storage, log) = open_wal().await;
     let mut pipe: Pipe<'_> = Pipeline::new(&applier, log, unbounded()).expect("it opens");
     let mut txn = begin(&applier);
-    let _ = held_in(&applier, "g", "a");
+    let _read: Vec<Term> = held_in(&applier, "g", "a");
     let g = ex("g");
     pipe.commit(
         1,

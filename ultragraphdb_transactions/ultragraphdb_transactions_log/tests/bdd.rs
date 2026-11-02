@@ -111,11 +111,14 @@ fn power_at_every_step(w: &mut Steps) {
             let mut store: Vec<u64> = (1..=4).collect();
             append(&mut wal, 5, ONE_BLOCK).expect("staged");
             storage.fail_at(storage.trace().len() + step, mode);
-            match block_on(wal.sync()) {
-                Ok(committed) => store.extend(5..=committed.get()),
-                // Every step faulted fails the sync with the storage's error.
-                Err(LogError(LogErrorEnum::Io { .. })) => {}
-                Err(other) => panic!("step {step} {mode:?}: {other:?}"),
+            let synced = block_on(wal.sync());
+            // Every step faulted fails the sync with the storage's error.
+            assert!(
+                matches!(synced, Ok(_) | Err(LogError(LogErrorEnum::Io { .. }))),
+                "step {step} {mode:?}: {synced:?}"
+            );
+            if let Ok(committed) = synced {
+                store.extend(5..=committed.get());
             }
             drop(wal);
             storage.power_loss();

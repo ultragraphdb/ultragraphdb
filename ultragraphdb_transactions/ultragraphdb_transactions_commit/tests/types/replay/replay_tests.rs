@@ -205,17 +205,35 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
     pipe.poll_builds(0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     assert!(!original.rebuilding());
-    // A build cancelled by a drop: its swap discarded.
+    commit_a_build_a_drop_cancels(&mut pipe, &original);
+    let applied = original.quads().lists().applied_ts();
+    let mut log = pipe.into_log();
+    let replica = applier_over(sim_store());
+    let replayed = replay(&replica, &mut log, 1).unwrap();
+    assert_eq!(replica.quads().lists().applied_ts(), applied);
+    // Nine rounds, each committing: the insert, the registration, the session's commit, the declaration of `name`, its
+    // swap, the insert of `c`, the declaration of `label`, the drop and the cancelled build's end.
+    assert_eq!(replayed.rounds(), 9);
+    assert_replica_matches(&replica, &original);
+    // The session table, with the stored reply.
+    let table = Sessions::load(replica.quads().store()).unwrap();
+    assert_eq!(table.last(session), Some((1, committed)));
+    let _: Option<Term> = None;
+}
+
+/// Commits an insert of `c` and a declaration indexing `label`, whose build a drop of `label` then cancels: the build's
+/// swap is discarded.
+fn commit_a_build_a_drop_cancels(pipe: &mut Pipe<'_>, original: &Applier) {
     commit(
-        &mut pipe,
-        &original,
+        pipe,
+        original,
         5,
         vec![insert_literal("c", "label", "pear tree")],
     );
-    commit(&mut pipe, &original, 6, vec![term_index("label")]);
+    commit(pipe, original, 6, vec![term_index("label")]);
     original.executor().run_until_idle();
     let drop = Prepared::drop(
-        &original,
+        original,
         NS,
         ultragraphdb_store_apply::DropRequest::Predicate(ex("label").as_ref()),
         0,
@@ -229,37 +247,30 @@ fn test_every_kind_of_round_replays_into_an_empty_store() {
     pipe.poll_builds(0).unwrap();
     block_on(pipe.sync(0)).unwrap();
     assert!(!original.rebuilding());
-    let applied = original.quads().lists().applied_ts();
-    let mut log = pipe.into_log();
-    let replica = applier_over(sim_store());
-    let replayed = replay(&replica, &mut log, 1).unwrap();
-    assert_eq!(replica.quads().lists().applied_ts(), applied);
-    // Nine rounds, each committing: the insert, the registration, the session's commit, the declaration of `name`, its
-    // swap, the insert of `c`, the declaration of `label`, the drop and the cancelled build's end.
-    assert_eq!(replayed.rounds(), 9);
-    assert_eq!(held(&replica, "s", "knows"), held(&original, "s", "knows"));
+}
+
+/// Asserts `replica` holds what `original` does: the session's statement, `name`'s index built again and its
+/// declaration, and nothing of the dropped `label`.
+fn assert_replica_matches(replica: &Applier, original: &Applier) {
+    assert_eq!(held(replica, "s", "knows"), held(original, "s", "knows"));
     assert_eq!(
-        indexed(&replica, "name", "apple"),
-        vec![uid_of(&replica, "a")]
+        indexed(replica, "name", "apple"),
+        vec![uid_of(replica, "a")]
     );
     assert_eq!(
-        indexed(&replica, "name", "apple"),
-        indexed(&original, "name", "apple")
+        indexed(replica, "name", "apple"),
+        indexed(original, "name", "apple")
     );
     let name = |a: &Applier| a.catalog(NS).unwrap().predicate(uid_of(a, "name")).cloned();
-    assert_eq!(name(&replica), name(&original));
-    assert!(held(&replica, "c", "label").is_empty(), "dropped");
+    assert_eq!(name(replica), name(original));
+    assert!(held(replica, "c", "label").is_empty(), "dropped");
     assert!(
         replica
             .catalog(NS)
             .unwrap()
-            .predicate(uid_of(&replica, "label"))
+            .predicate(uid_of(replica, "label"))
             .is_none()
     );
-    // The session table, with the stored reply.
-    let table = Sessions::load(replica.quads().store()).unwrap();
-    assert_eq!(table.last(session), Some((1, committed)));
-    let _: Option<Term> = None;
 }
 
 /// The keys `applier`'s store holds, every keyspace's, versions apart: what two stores compare by.
@@ -280,7 +291,6 @@ fn keys(applier: &Applier) -> Vec<Vec<u8>> {
 #[test]
 fn test_every_kind_of_drop_and_a_sessions_owner_replay() {
     use ultragraphdb_store_apply::DropRequest;
-    use ultragraphdb_transactions_commit::CommitError;
     let graph = ex("g");
     let requests = [
         DropRequest::Graph(oxrdf::GraphNameRef::NamedNode(graph.as_ref())),
@@ -307,25 +317,7 @@ fn test_every_kind_of_drop_and_a_sessions_owner_replay() {
             ],
         );
         // A statement of another namespace, through the log too: only a drop of every namespace removes it.
-        let mut other = ultragraphdb_transactions_txn::Transaction::begin(
-            &original,
-            NS + 1,
-            ultragraphdb_transactions_txn::Mode::ReadWrite,
-            0,
-            0,
-            Default::default(),
-            Default::default(),
-        )
-        .unwrap();
-        other
-            .write(
-                &ultragraphdb_core_mapping::Changeset::new(NS + 1).with(insert("x", "knows", "y")),
-                0,
-            )
-            .unwrap();
-        pipe.commit(9, prepare(other), 0).unwrap();
-        block_on(pipe.sync(0)).unwrap();
-        pipe.replies_mut().clear();
+        commit_in_another_namespace(&mut pipe, &original);
         pipe.register(2, 7, 0).unwrap();
         block_on(pipe.sync(0)).unwrap();
         let session = pipe.replies_mut().pop().unwrap().outcome().clone().unwrap();
@@ -345,23 +337,52 @@ fn test_every_kind_of_drop_and_a_sessions_owner_replay() {
         replay(&replica, &mut log, 1).unwrap();
         assert_eq!(replica.quads().lists().applied_ts(), version, "drop {k}");
         assert_eq!(keys(&replica), keys(&original), "drop {k}");
-        let table = Sessions::load(replica.quads().store()).unwrap();
-        assert_eq!(
-            table.last(session),
-            Some((1, version)),
-            "drop {k}: its reply"
-        );
-        assert_eq!(
-            table.check(session, 2, 8),
-            Err(CommitError::PermissionDenied(session)),
-            "drop {k}: the session's owner replayed"
-        );
-        assert_eq!(
-            table.check(session, 2, 7),
-            Ok(None),
-            "drop {k}: and its owner served"
-        );
+        assert_session_replayed(&replica, session, version, k);
     }
+}
+
+/// Commits `<x> <knows> <y>` in the namespace after the tests', through the log, its reply cleared.
+fn commit_in_another_namespace(pipe: &mut Pipe<'_>, original: &Applier) {
+    let mut other = ultragraphdb_transactions_txn::Transaction::begin(
+        original,
+        NS + 1,
+        ultragraphdb_transactions_txn::Mode::ReadWrite,
+        0,
+        0,
+        Default::default(),
+        Default::default(),
+    )
+    .unwrap();
+    other
+        .write(
+            &ultragraphdb_core_mapping::Changeset::new(NS + 1).with(insert("x", "knows", "y")),
+            0,
+        )
+        .unwrap();
+    pipe.commit(9, prepare(other), 0).unwrap();
+    block_on(pipe.sync(0)).unwrap();
+    pipe.replies_mut().clear();
+}
+
+/// Asserts the session table `replica` replayed holds `session`'s reply of request 1 at `version`, and its owner, 7.
+fn assert_session_replayed(replica: &Applier, session: u64, version: u64, k: usize) {
+    use ultragraphdb_transactions_commit::CommitError;
+    let table = Sessions::load(replica.quads().store()).unwrap();
+    assert_eq!(
+        table.last(session),
+        Some((1, version)),
+        "drop {k}: its reply"
+    );
+    assert_eq!(
+        table.check(session, 2, 8),
+        Err(CommitError::PermissionDenied(session)),
+        "drop {k}: the session's owner replayed"
+    );
+    assert_eq!(
+        table.check(session, 2, 7),
+        Ok(None),
+        "drop {k}: and its owner served"
+    );
 }
 
 /// A store below the last commit version the log's checkpoint covers refuses to start, naming both versions, and

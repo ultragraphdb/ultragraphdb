@@ -120,7 +120,9 @@ fn golden_round() -> Vec<u8> {
     let path = root.join(
         "ultragraphdb_protocol/ultragraphdb_protocol_wire/testdata/golden/bodies/round.frame",
     );
-    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    std::fs::read(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))
+        .expect("the round frame is read")
 }
 
 /// A round the log writes is the protocol's Round frame byte for byte: its header numbered by its position and naming

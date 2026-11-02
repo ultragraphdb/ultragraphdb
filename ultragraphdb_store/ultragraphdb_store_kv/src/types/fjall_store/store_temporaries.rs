@@ -99,7 +99,7 @@ impl Shared {
         ))
     }
 
-    pub fn drop_temporary(&self, temporary: Temporary) -> Result<(), StoreError> {
+    pub fn drop_temporary(&self, temporary: &Temporary) -> Result<(), StoreError> {
         self.refuse_if_poisoned()?;
         let keyspace = lock(&self.temporaries)
             .remove(&temporary.id())

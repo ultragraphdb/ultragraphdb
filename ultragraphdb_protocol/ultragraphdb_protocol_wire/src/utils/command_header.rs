@@ -15,25 +15,25 @@ use crate::utils::le::bytes_at;
 pub(crate) struct CommandHeader<'a>(pub(crate) &'a [u8; COMMAND_HEADER_SIZE]);
 
 impl CommandHeader<'_> {
-    pub(crate) fn u8_at(&self, at: usize) -> u8 {
+    pub(crate) fn u8_at(self, at: usize) -> u8 {
         self.0.get(at).copied().unwrap_or(0)
     }
 
-    pub(crate) fn u16_at(&self, at: usize) -> u16 {
+    pub(crate) fn u16_at(self, at: usize) -> u16 {
         bytes_at(self.0, at).map_or(0, u16::from_le_bytes)
     }
 
-    pub(crate) fn u32_at(&self, at: usize) -> u32 {
+    pub(crate) fn u32_at(self, at: usize) -> u32 {
         bytes_at(self.0, at).map_or(0, u32::from_le_bytes)
     }
 
-    pub(crate) fn u64_at(&self, at: usize) -> u64 {
+    pub(crate) fn u64_at(self, at: usize) -> u64 {
         bytes_at(self.0, at).map_or(0, u64::from_le_bytes)
     }
 
     /// Refused as [`ProtocolError::ReservedNotZero`], naming the header offset (128 + its offset here), at the first
     /// nonzero byte outside `used`, each a field's start and end.
-    pub(crate) fn unused_zero(&self, used: &[(usize, usize)]) -> Result<(), ProtocolError> {
+    pub(crate) fn unused_zero(self, used: &[(usize, usize)]) -> Result<(), ProtocolError> {
         match self.0.iter().enumerate().find(|(at, byte)| {
             **byte != 0 && !used.iter().any(|(start, end)| (*start..*end).contains(at))
         }) {

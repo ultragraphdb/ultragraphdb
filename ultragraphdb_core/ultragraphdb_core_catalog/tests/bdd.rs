@@ -122,7 +122,15 @@ fn fjall_dir() -> std::path::PathBuf {
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ));
-    let _ = std::fs::remove_dir_all(&dir);
+    // A directory left by an earlier run of this process id is cleared; there is none on a first run.
+    if let Err(e) = std::fs::remove_dir_all(&dir) {
+        assert_eq!(
+            e.kind(),
+            std::io::ErrorKind::NotFound,
+            "{}: {e}",
+            dir.display()
+        );
+    }
     dir
 }
 
@@ -160,7 +168,7 @@ fn catalog_restart(w: &mut Steps) {
     let loaded = Catalog::load(&store.snapshot(u64::MAX).unwrap(), 3).unwrap();
     w.catalogs = Some((catalog, loaded));
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("the store's directory is removed");
 }
 
 #[then("the loaded catalog equals the catalog before closing")]
@@ -185,7 +193,7 @@ fn removal_restart(w: &mut Steps) {
     let loaded = Catalog::load(&store.snapshot(u64::MAX).unwrap(), 0).unwrap();
     w.catalogs = Some((catalog, loaded));
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::remove_dir_all(&dir).expect("the store's directory is removed");
 }
 
 #[then("the loaded catalog does not declare the predicate")]

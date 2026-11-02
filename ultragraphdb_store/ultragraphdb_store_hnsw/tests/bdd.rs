@@ -308,10 +308,11 @@ fn empty_searched(w: &mut Steps) {
     let reported = search(&lists, &p, &opts(&[]), &[0.1f32, 0.2], 3, None);
     // The caller, Dgraph's similar_to, takes the empty-index result for no neighbours.
     let neighbours = match &reported {
-        Err(e) if e.is_empty_index() => Vec::new(),
-        Err(e) => panic!("{e}"),
-        Ok(uids) => uids.clone(),
-    };
+        Err(e) if e.is_empty_index() => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
+        Ok(uids) => Ok(uids.clone()),
+    }
+    .expect("the search finds neighbours or the empty index");
     w.empty = Some((reported, neighbours));
 }
 

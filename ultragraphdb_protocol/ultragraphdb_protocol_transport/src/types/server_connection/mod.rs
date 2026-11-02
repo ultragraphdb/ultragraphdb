@@ -104,15 +104,13 @@ impl<A: Authenticator> ServerConnection<A> {
         }
         let stream = view.header().stream();
         if stream == 0 {
-            return match view.command() {
-                Command::Authenticate if self.server.authenticates() => {
-                    self.authenticate(&view, now)
-                }
-                _ => self.close(
-                    ErrorCode::Protocol,
-                    &TransportError::StreamZero().to_string(),
-                ),
-            };
+            if view.command() == Command::Authenticate && self.server.authenticates() {
+                return self.authenticate(&view, now);
+            }
+            return self.close(
+                ErrorCode::Protocol,
+                &TransportError::StreamZero().to_string(),
+            );
         }
         if self.phase == Phase::Authenticating {
             return self.close(
@@ -138,11 +136,15 @@ impl<A: Authenticator> ServerConnection<A> {
         let Ok(frame) = error.frame(header) else {
             return;
         };
-        if self.outbound.is_open(stream) {
-            let _ = self.outbound.push(stream, frame);
+        let queued = if self.outbound.is_open(stream) {
+            self.outbound.push(stream, frame)
         } else {
-            let _ = self.outbound.push_connection(frame);
-        }
+            self.outbound.push_connection(frame)
+        };
+        debug_assert!(
+            queued.is_ok(),
+            "a built frame holds a header and its stream is open: {queued:?}"
+        );
     }
 
     /// The frames the connection sends, every one stamped with its sequence as it leaves; the session queues its
@@ -222,7 +224,8 @@ impl<A: Authenticator> ServerConnection<A> {
             .receive(frame)
             .into_parts();
         if let Some(answer) = answer {
-            let _ = self.outbound.push_connection(answer);
+            let queued = self.outbound.push_connection(answer);
+            debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
         }
         match outcome {
             Ok(welcome) => {
@@ -241,7 +244,17 @@ impl<A: Authenticator> ServerConnection<A> {
                 self.phase = Phase::Closing;
                 let code = match error.0 {
                     TransportErrorEnum::Refused { code, .. } => code,
-                    _ => ErrorCode::Protocol,
+                    TransportErrorEnum::Protocol { .. }
+                    | TransportErrorEnum::Io { .. }
+                    | TransportErrorEnum::Closed
+                    | TransportErrorEnum::Truncated { .. }
+                    | TransportErrorEnum::PoolExhausted { .. }
+                    | TransportErrorEnum::StreamZero
+                    | TransportErrorEnum::StreamOpen { .. }
+                    | TransportErrorEnum::StreamLimit { .. }
+                    | TransportErrorEnum::UnknownStream { .. }
+                    | TransportErrorEnum::UnexpectedCommand { .. }
+                    | TransportErrorEnum::Authentication { .. } => ErrorCode::Protocol,
                 };
                 Inbound::Closing { code: Some(code) }
             }
@@ -273,7 +286,7 @@ impl<A: Authenticator> ServerConnection<A> {
         match mechanism.step(message.message()) {
             Err(_) => self.close(ErrorCode::AuthenticationFailed, AUTHENTICATION_FAILED),
             Ok(MechanismStep::Continue(reply)) => {
-                self.send_authenticate(Authenticate::new(reply_step, "", reply));
+                self.send_authenticate(&Authenticate::new(reply_step, "", reply));
                 self.exchange = Some((mechanism, reply_step.saturating_add(1)));
                 Inbound::Handled
             }
@@ -283,7 +296,7 @@ impl<A: Authenticator> ServerConnection<A> {
                     return self.close(ErrorCode::AuthenticationFailed, AUTHENTICATION_FAILED);
                 }
                 self.send_authenticate(
-                    Authenticate::new(reply_step, "", reply)
+                    &Authenticate::new(reply_step, "", reply)
                         .with_final(principal, credential.expires()),
                 );
                 self.principal = Some(principal);
@@ -294,9 +307,10 @@ impl<A: Authenticator> ServerConnection<A> {
         }
     }
 
-    fn send_authenticate(&mut self, message: Authenticate) {
+    fn send_authenticate(&mut self, message: &Authenticate) {
         if let Ok(frame) = message.frame(Header::new(self.cluster, Command::Authenticate)) {
-            let _ = self.outbound.push_connection(frame);
+            let queued = self.outbound.push_connection(frame);
+            debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
         }
     }
 
@@ -307,13 +321,7 @@ impl<A: Authenticator> ServerConnection<A> {
         let transaction = self.outbound.is_transaction(stream);
         let request = Inbound::Request { stream, command };
         match command {
-            Command::Credit => {
-                match CreditView::from_frame(view) {
-                    Ok(credit) => self.outbound.grant(stream, credit.frames()),
-                    Err(rule) => return self.refuse_rule(stream, &rule),
-                }
-                Inbound::Handled
-            }
+            Command::Credit => self.credit(stream, view),
             Command::Cancel => {
                 if !open {
                     return Inbound::Handled;
@@ -346,20 +354,7 @@ impl<A: Authenticator> ServerConnection<A> {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
-            Command::Read | Command::Execute => {
-                let named = if command == Command::Read {
-                    ReadView::from_frame(view).map(|read| read.transaction())
-                } else {
-                    ExecuteView::from_frame(view).map(|execute| execute.transaction())
-                };
-                match named {
-                    Ok(of) => {
-                        let opened = self.outbound.open_read(stream, of);
-                        self.open(stream, opened, request)
-                    }
-                    Err(rule) => self.refuse_rule(stream, &rule),
-                }
-            }
+            Command::Read | Command::Execute => self.read(stream, view, request),
             Command::Write | Command::Operation | Command::Abort if transaction => {
                 if command == Command::Abort {
                     self.outbound.cancel(stream);
@@ -380,11 +375,42 @@ impl<A: Authenticator> ServerConnection<A> {
                 let opened = self.outbound.open(stream);
                 self.open(stream, opened, request)
             }
-            other => self.close(
+            other @ (Command::Hello
+            | Command::Welcome
+            | Command::Result
+            | Command::Error
+            | Command::Round
+            | Command::Authenticate) => self.close(
                 ErrorCode::Protocol,
                 &TransportError::UnexpectedCommand(Command::Begin.number(), other.number())
                     .to_string(),
             ),
+        }
+    }
+
+    /// A Credit on `stream`: its frames granted, or the frame refused on the stream by a body's rule.
+    fn credit(&mut self, stream: u64, view: &FrameView<'_>) -> Inbound {
+        match CreditView::from_frame(view) {
+            Ok(credit) => self.outbound.grant(stream, credit.frames()),
+            Err(rule) => return self.refuse_rule(stream, &rule),
+        }
+        Inbound::Handled
+    }
+
+    /// `request`, a Read or an Execute on `stream`, once its stream opened for the transaction it names; refused on
+    /// the stream by a body's rule.
+    fn read(&mut self, stream: u64, view: &FrameView<'_>, request: Inbound) -> Inbound {
+        let named = if view.command() == Command::Read {
+            ReadView::from_frame(view).map(|read| read.transaction())
+        } else {
+            ExecuteView::from_frame(view).map(|execute| execute.transaction())
+        };
+        match named {
+            Ok(of) => {
+                let opened = self.outbound.open_read(stream, of);
+                self.open(stream, opened, request)
+            }
+            Err(rule) => self.refuse_rule(stream, &rule),
         }
     }
 
@@ -415,7 +441,18 @@ impl<A: Authenticator> ServerConnection<A> {
                     ErrorCode::Protocol,
                     &format!("no transaction is open on stream {transaction}"),
                 ),
-                _ => self.close(ErrorCode::Protocol, &error.to_string()),
+                TransportErrorEnum::Protocol { .. }
+                | TransportErrorEnum::Io { .. }
+                | TransportErrorEnum::Closed
+                | TransportErrorEnum::Truncated { .. }
+                | TransportErrorEnum::PoolExhausted { .. }
+                | TransportErrorEnum::StreamZero
+                | TransportErrorEnum::StreamOpen { .. }
+                | TransportErrorEnum::Refused { .. }
+                | TransportErrorEnum::UnexpectedCommand { .. }
+                | TransportErrorEnum::Authentication { .. } => {
+                    self.close(ErrorCode::Protocol, &error.to_string())
+                }
             },
         }
     }
@@ -437,7 +474,8 @@ impl<A: Authenticator> ServerConnection<A> {
     fn close(&mut self, code: ErrorCode, message: &str) -> Inbound {
         let header = Header::new(self.cluster, Command::Error).with_flags(FLAG_LAST);
         if let Ok(frame) = ErrorReply::new(code, message).frame(header) {
-            let _ = self.outbound.push_connection(frame);
+            let queued = self.outbound.push_connection(frame);
+            debug_assert!(queued.is_ok(), "a built frame holds a header: {queued:?}");
         }
         self.phase = Phase::Closing;
         self.exchange = None;

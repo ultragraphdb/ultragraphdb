@@ -141,7 +141,8 @@ fn atoi(s: &[u8]) -> Option<i64> {
             return None;
         }
     }
-    let x = x as i64;
+    // Go's int64(uint64): 1<<63, the one value past i64::MAX, reads as i64::MIN, which negates to itself.
+    let x = x.cast_signed();
     Some(if neg { x.wrapping_neg() } else { x })
 }
 
@@ -235,12 +236,7 @@ fn parse_time_zone(value: &[u8]) -> Option<usize> {
 pub(crate) fn parse(layout_in: &str, value_in: &[u8]) -> Result<DateTime, TypesError> {
     let mut layout = layout_in;
     let mut value = value_in;
-    let mut range_err = "";
-    let (mut year, mut month, mut day) = (0i64, -1i64, -1i64);
-    let (mut hour, mut min, mut sec, mut nsec) = (0i64, 0i64, 0i64, 0i64);
-    let mut utc = false;
-    let mut zone_offset: Option<i32> = None;
-    let mut zone_name: &[u8] = b"";
+    let mut fields = Fields::new();
     loop {
         let (prefix, std, suffix) = next_std_chunk(layout);
         value = skip(value, prefix).map_err(|v| parse_error(layout_in, value_in, prefix, v, ""))?;
@@ -258,203 +254,247 @@ pub(crate) fn parse(layout_in: &str, value_in: &[u8]) -> Result<DateTime, TypesE
         };
         layout = suffix;
         let hold = value;
-        let mut ok = true;
-        match std {
-            Std::LongYear => {
-                if value.len() < 4 || !is_digit(value, 0) {
-                    ok = false;
-                } else {
-                    let p = &value[..4];
-                    value = &value[4..];
-                    match atoi(p) {
-                        Some(y) => year = y,
-                        None => ok = false,
-                    }
-                }
-            }
-            Std::ZeroMonth => match getnum(value, true) {
-                Some((m, rest)) => {
-                    month = m;
-                    value = rest;
-                    if !(1..=12).contains(&month) {
-                        range_err = "month";
-                    }
-                }
-                None => ok = false,
-            },
-            Std::ZeroDay => match getnum(value, true) {
-                Some((d, rest)) => {
-                    day = d;
-                    value = rest;
-                }
-                None => ok = false,
-            },
-            Std::Hour => match getnum(value, false) {
-                Some((h, rest)) => {
-                    hour = h;
-                    value = rest;
-                    if !(0..24).contains(&hour) {
-                        range_err = "hour";
-                    }
-                }
-                None => ok = false,
-            },
-            Std::ZeroMinute => match getnum(value, true) {
-                Some((m, rest)) => {
-                    min = m;
-                    value = rest;
-                    if !(0..60).contains(&min) {
-                        range_err = "minute";
-                    }
-                }
-                None => ok = false,
-            },
-            Std::ZeroSecond => match getnum(value, true) {
-                Some((s, rest)) => {
-                    sec = s;
-                    value = rest;
-                    if !(0..60).contains(&sec) {
-                        range_err = "second";
-                    } else {
-                        let b = value;
-                        // A fractional second in the input although the layout has none.
-                        if b.len() >= 2 && (b[0] == b'.' || b[0] == b',') && is_digit(b, 1) {
-                            let n = 2 + b[2..].iter().take_while(|c| c.is_ascii_digit()).count();
-                            match parse_nanoseconds(value, n) {
-                                Ok((ns, rerr)) => {
-                                    nsec = ns;
-                                    range_err = rerr;
-                                }
-                                Err(()) => ok = false,
-                            }
-                            value = &value[n..];
-                        }
-                    }
-                }
-                None => ok = false,
-            },
-            Std::Iso8601ColonTz | Std::NumTz => {
-                if std == Std::Iso8601ColonTz && value.first() == Some(&b'Z') {
-                    value = &value[1..];
-                    utc = true;
-                } else {
-                    let b = value;
-                    let parts = if std == Std::Iso8601ColonTz {
-                        if b.len() < 6 || b[3] != b':' {
-                            None
-                        } else {
-                            let p = (&value[0..1], &value[1..3], &value[4..6]);
-                            value = &value[6..];
-                            Some(p)
-                        }
-                    } else if b.len() < 5 {
-                        None
-                    } else {
-                        let p = (&value[0..1], &value[1..3], &value[3..5]);
-                        value = &value[5..];
-                        Some(p)
-                    };
-                    match parts {
-                        None => ok = false,
-                        Some((sign, hh, mm)) => match (getnum(hh, true), getnum(mm, true)) {
-                            (Some((hr, _)), Some((mi, _))) => {
-                                if hr > 24 {
-                                    range_err = "time zone offset hour";
-                                }
-                                if mi > 60 {
-                                    range_err = "time zone offset minute";
-                                }
-                                let off = ((hr * 60 + mi) * 60) as i32;
-                                match sign {
-                                    b"+" => zone_offset = Some(off),
-                                    b"-" => zone_offset = Some(-off),
-                                    _ => ok = false,
-                                }
-                            }
-                            _ => ok = false,
-                        },
-                    }
-                }
-            }
-            Std::Tz => {
-                if value.len() >= 3 && &value[..3] == b"UTC" {
-                    utc = true;
-                    value = &value[3..];
-                } else {
-                    match parse_time_zone(value) {
-                        Some(n) => {
-                            zone_name = &value[..n];
-                            value = &value[n..];
-                        }
-                        None => ok = false,
-                    }
-                }
-            }
-        }
-        if !range_err.is_empty() {
+        let ok;
+        (value, ok) = fields.parse_std(std, value);
+        if !fields.range_err.is_empty() {
             return Err(parse_error(
                 layout_in,
                 value_in,
                 stdstr,
                 value,
-                &format!(": {range_err} out of range"),
+                &format!(": {} out of range", fields.range_err),
             ));
         }
         if !ok {
             return Err(parse_error(layout_in, value_in, stdstr, hold, ""));
         }
     }
-    if month < 0 {
-        month = 1;
+    fields.finish(layout_in, value_in, value)
+}
+
+/// The values Go's `parse` collects from a value's layout elements, and the first element out of range.
+struct Fields<'a> {
+    year: i64,
+    month: i64,
+    day: i64,
+    hour: i64,
+    min: i64,
+    sec: i64,
+    nsec: i64,
+    utc: bool,
+    zone_offset: Option<i32>,
+    zone_name: &'a [u8],
+    range_err: &'static str,
+}
+
+impl<'a> Fields<'a> {
+    fn new() -> Self {
+        Fields {
+            year: 0,
+            month: -1,
+            day: -1,
+            hour: 0,
+            min: 0,
+            sec: 0,
+            nsec: 0,
+            utc: false,
+            zone_offset: None,
+            zone_name: b"",
+            range_err: "",
+        }
     }
-    if day < 0 {
-        day = 1;
+
+    /// Parses one layout element from the start of `value`: the rest of the value, and whether the element parsed.
+    fn parse_std(&mut self, std: Std, value: &'a [u8]) -> (&'a [u8], bool) {
+        match std {
+            Std::LongYear => {
+                if value.len() < 4 || !is_digit(value, 0) {
+                    return (value, false);
+                }
+                let (p, rest) = value.split_at(4);
+                match atoi(p) {
+                    Some(y) => {
+                        self.year = y;
+                        (rest, true)
+                    }
+                    None => (rest, false),
+                }
+            }
+            Std::ZeroMonth => match getnum(value, true) {
+                Some((m, rest)) => {
+                    self.month = m;
+                    if !(1..=12).contains(&m) {
+                        self.range_err = "month";
+                    }
+                    (rest, true)
+                }
+                None => (value, false),
+            },
+            Std::ZeroDay => match getnum(value, true) {
+                Some((d, rest)) => {
+                    self.day = d;
+                    (rest, true)
+                }
+                None => (value, false),
+            },
+            Std::Hour => match getnum(value, false) {
+                Some((h, rest)) => {
+                    self.hour = h;
+                    if !(0..24).contains(&h) {
+                        self.range_err = "hour";
+                    }
+                    (rest, true)
+                }
+                None => (value, false),
+            },
+            Std::ZeroMinute => match getnum(value, true) {
+                Some((m, rest)) => {
+                    self.min = m;
+                    if !(0..60).contains(&m) {
+                        self.range_err = "minute";
+                    }
+                    (rest, true)
+                }
+                None => (value, false),
+            },
+            Std::ZeroSecond => self.parse_second(value),
+            Std::Iso8601ColonTz | Std::NumTz => self.parse_num_tz(std, value),
+            Std::Tz => self.parse_tz(value),
+        }
     }
-    if day < 1 || day > days_in(month, year) {
-        return Err(parse_error(
-            layout_in,
-            value_in,
-            "",
-            value,
-            ": day out of range",
-        ));
+
+    /// The `05` element, and a fractional second following it although the layout has none.
+    fn parse_second(&mut self, input: &'a [u8]) -> (&'a [u8], bool) {
+        let Some((s, mut value)) = getnum(input, true) else {
+            return (input, false);
+        };
+        self.sec = s;
+        if !(0..60).contains(&s) {
+            self.range_err = "second";
+            return (value, true);
+        }
+        let b = value;
+        let mut ok = true;
+        // A fractional second in the input although the layout has none.
+        if b.len() >= 2 && (b[0] == b'.' || b[0] == b',') && is_digit(b, 1) {
+            let n = 2 + b[2..].iter().take_while(|c| c.is_ascii_digit()).count();
+            match parse_nanoseconds(value, n) {
+                Ok((ns, rerr)) => {
+                    self.nsec = ns;
+                    self.range_err = rerr;
+                }
+                Err(()) => ok = false,
+            }
+            value = &value[n..];
+        }
+        (value, ok)
     }
-    if utc {
-        return Ok(DateTime::new(
-            year,
+
+    /// The `Z07:00` and `-0700` elements.
+    fn parse_num_tz(&mut self, std: Std, input: &'a [u8]) -> (&'a [u8], bool) {
+        if std == Std::Iso8601ColonTz && input.first() == Some(&b'Z') {
+            self.utc = true;
+            return (&input[1..], true);
+        }
+        let b = input;
+        let (parts, value) = if std == Std::Iso8601ColonTz {
+            if b.len() < 6 || b[3] != b':' {
+                (None, input)
+            } else {
+                (
+                    Some((&input[0..1], &input[1..3], &input[4..6])),
+                    &input[6..],
+                )
+            }
+        } else if b.len() < 5 {
+            (None, input)
+        } else {
+            (
+                Some((&input[0..1], &input[1..3], &input[3..5])),
+                &input[5..],
+            )
+        };
+        let Some((sign, hh, mm)) = parts else {
+            return (value, false);
+        };
+        let (Some((hr, _)), Some((mi, _))) = (getnum(hh, true), getnum(mm, true)) else {
+            return (value, false);
+        };
+        if hr > 24 {
+            self.range_err = "time zone offset hour";
+        }
+        if mi > 60 {
+            self.range_err = "time zone offset minute";
+        }
+        let off = ((hr * 60 + mi) * 60) as i32;
+        match sign {
+            b"+" => self.zone_offset = Some(off),
+            b"-" => self.zone_offset = Some(-off),
+            _ => return (value, false),
+        }
+        (value, true)
+    }
+
+    /// The `MST` element: `UTC` or a zone abbreviation.
+    fn parse_tz(&mut self, value: &'a [u8]) -> (&'a [u8], bool) {
+        if value.len() >= 3 && &value[..3] == b"UTC" {
+            self.utc = true;
+            return (&value[3..], true);
+        }
+        match parse_time_zone(value) {
+            Some(n) => {
+                self.zone_name = &value[..n];
+                (&value[n..], true)
+            }
+            None => (value, false),
+        }
+    }
+
+    /// The time the fields name, with defaults for a missing month and day and the zone the value gave.
+    fn finish(
+        self,
+        layout_in: &str,
+        value_in: &[u8],
+        value: &[u8],
+    ) -> Result<DateTime, TypesError> {
+        let month = if self.month < 0 { 1 } else { self.month };
+        let day = if self.day < 0 { 1 } else { self.day };
+        if day < 1 || day > days_in(month, self.year) {
+            return Err(parse_error(
+                layout_in,
+                value_in,
+                "",
+                value,
+                ": day out of range",
+            ));
+        }
+        let t = DateTime::new(
+            self.year,
             month,
             day,
-            hour,
-            min,
-            sec,
-            nsec,
+            self.hour,
+            self.min,
+            self.sec,
+            self.nsec,
             Zone::Utc,
-        ));
-    }
-    if let Some(offset) = zone_offset {
-        let t = DateTime::new(year, month, day, hour, min, sec, nsec, Zone::Utc);
-        return Ok(DateTime::from_unix_zone(
-            t.unix() - i64::from(offset),
-            t.nanosecond(),
-            Zone::Fixed(offset),
-        ));
-    }
-    if !zone_name.is_empty() {
-        let mut offset = 0;
-        if zone_name.len() > 3 && &zone_name[..3] == b"GMT" {
-            offset = atoi(&zone_name[3..]).unwrap_or(0) as i32 * 3600;
+        );
+        if self.utc {
+            return Ok(t);
         }
-        let t = DateTime::new(year, month, day, hour, min, sec, nsec, Zone::Utc);
-        return Ok(t.with_zone(Zone::Fixed(offset)));
+        if let Some(offset) = self.zone_offset {
+            return Ok(DateTime::from_unix_zone(
+                t.unix() - i64::from(offset),
+                t.nanosecond(),
+                Zone::Fixed(offset),
+            ));
+        }
+        if !self.zone_name.is_empty() {
+            let mut offset = 0;
+            if self.zone_name.len() > 3 && &self.zone_name[..3] == b"GMT" {
+                offset = atoi(&self.zone_name[3..]).unwrap_or(0) as i32 * 3600;
+            }
+            return Ok(t.with_zone(Zone::Fixed(offset)));
+        }
+        Ok(t)
     }
-    Ok(DateTime::new(
-        year,
-        month,
-        day,
-        hour,
-        min,
-        sec,
-        nsec,
-        Zone::Utc,
-    ))
 }

@@ -100,7 +100,9 @@ fn test_a_narrowing_the_data_meets_is_applied() {
         ("knows", "an edge"),
         ("age", "with datatype `xsd:integer`"),
     ] {
-        declared(&a, predicate, phrase).unwrap_or_else(|e| panic!("{predicate} {phrase}: {e}"));
+        declared(&a, predicate, phrase)
+            .map_err(|e| format!("{predicate} {phrase}: {e}"))
+            .expect("the phrase is declared");
         assert_eq!(
             declared_now(&a, predicate),
             Some(declaration(predicate, phrase))

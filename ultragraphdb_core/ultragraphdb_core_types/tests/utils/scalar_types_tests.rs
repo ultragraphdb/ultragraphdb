@@ -141,14 +141,14 @@ fn test_value_for_type() {
     }
     let big = value_for_type(TypeId::BIGFLOAT);
     assert_eq!(big.tid(), TypeId::BIGFLOAT);
-    match big.value() {
-        Some(Value::BigFloat(b)) => {
-            assert!(b.is_zero() && !b.is_neg());
-            assert_eq!(b.prec(), 200);
-            assert_eq!(BIG_FLOAT_PRECISION, 200);
-        }
-        other => panic!("{other:?}"),
+    let b = match big.value() {
+        Some(Value::BigFloat(b)) => Ok(b),
+        other => Err(format!("{other:?}")),
     }
+    .expect("a bigfloat value");
+    assert!(b.is_zero() && !b.is_neg());
+    assert_eq!(b.prec(), 200);
+    assert_eq!(BIG_FLOAT_PRECISION, 200);
     for tid in [TypeId::OBJECT, TypeId::UNDEFINED, TypeId::new(99)] {
         let val = value_for_type(tid);
         assert_eq!(val.tid(), TypeId::DEFAULT, "{tid:?}");
@@ -240,7 +240,9 @@ fn test_golden_parse_time() {
             assert_eq!(got.unwrap_err().to_string(), c.err, "{}", c.input);
             continue;
         }
-        let t = got.unwrap_or_else(|e| panic!("{}: {e}", c.input));
+        let t = got
+            .map_err(|e| format!("{}: {e}", c.input))
+            .expect("parsing a golden time");
         let bin = t
             .marshal_binary()
             .map(|b| hex(&b))

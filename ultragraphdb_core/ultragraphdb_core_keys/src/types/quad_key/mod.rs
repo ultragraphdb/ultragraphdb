@@ -141,7 +141,10 @@ impl QuadKey {
             | QuadKey::CountIndex { predicate, .. }
             | QuadKey::VectorIndex { predicate, .. }
             | QuadKey::Statistics { predicate, .. } => Some(*predicate),
-            _ => None,
+            QuadKey::Catalog { .. }
+            | QuadKey::SubjectPredicates { .. }
+            | QuadKey::ObjectPredicates { .. }
+            | QuadKey::Statement { .. } => None,
         }
     }
 
@@ -161,36 +164,35 @@ impl QuadKey {
         let mut key = Vec::with_capacity(48);
         key.push(self.keyspace().byte());
         key.extend_from_slice(&self.namespace().to_be_bytes());
-        let u64s = |key: &mut Vec<u8>, values: &[u64]| {
-            values
-                .iter()
-                .for_each(|v| key.extend_from_slice(&v.to_be_bytes()));
-        };
+        self.push_rest(&mut key);
+        key
+    }
+
+    /// Appends the key's bytes after its keyspace and namespace.
+    fn push_rest(&self, key: &mut Vec<u8>) {
         match self {
             QuadKey::Catalog { kind, uid, .. } => {
                 key.push(*kind);
-                u64s(&mut key, &[*uid]);
+                u64s(key, &[*uid]);
             }
             QuadKey::Forward {
                 graph,
                 predicate,
                 subject,
                 ..
-            } => u64s(&mut key, &[*graph, *predicate, *subject]),
+            } => u64s(key, &[*graph, *predicate, *subject]),
             QuadKey::Reverse {
                 graph,
                 predicate,
                 object,
                 ..
             } => {
-                u64s(&mut key, &[*graph, *predicate]);
+                u64s(key, &[*graph, *predicate]);
                 key.extend_from_slice(object.as_bytes());
             }
-            QuadKey::SubjectPredicates { graph, subject, .. } => {
-                u64s(&mut key, &[*graph, *subject])
-            }
+            QuadKey::SubjectPredicates { graph, subject, .. } => u64s(key, &[*graph, *subject]),
             QuadKey::ObjectPredicates { graph, object, .. } => {
-                u64s(&mut key, &[*graph]);
+                u64s(key, &[*graph]);
                 key.extend_from_slice(object.as_bytes());
             }
             QuadKey::ValueIndex {
@@ -200,7 +202,7 @@ impl QuadKey {
                 token,
                 ..
             } => {
-                u64s(&mut key, &[*graph, *predicate]);
+                u64s(key, &[*graph, *predicate]);
                 key.push(*tokenizer);
                 key.extend_from_slice(token);
             }
@@ -211,7 +213,7 @@ impl QuadKey {
                 count,
                 ..
             } => {
-                u64s(&mut key, &[*graph, *predicate]);
+                u64s(key, &[*graph, *predicate]);
                 key.push(direction.byte());
                 key.extend_from_slice(&count.to_be_bytes());
             }
@@ -222,19 +224,25 @@ impl QuadKey {
                 node,
                 ..
             } => {
-                u64s(&mut key, &[*graph, *predicate]);
+                u64s(key, &[*graph, *predicate]);
                 key.push(*list);
-                u64s(&mut key, &[*node]);
+                u64s(key, &[*node]);
             }
             QuadKey::Statement {
                 graph, statement, ..
-            } => u64s(&mut key, &[*graph, *statement]),
+            } => u64s(key, &[*graph, *statement]),
             QuadKey::Statistics {
                 graph, predicate, ..
-            } => u64s(&mut key, &[*graph, *predicate]),
+            } => u64s(key, &[*graph, *predicate]),
         }
-        key
     }
+}
+
+/// Appends each of `values`, big-endian.
+fn u64s(key: &mut Vec<u8>, values: &[u64]) {
+    values
+        .iter()
+        .for_each(|v| key.extend_from_slice(&v.to_be_bytes()));
 }
 
 /// The prefix every key of `keyspace` in `namespace` begins with, narrowed to a graph and, when the keyspace's keys

@@ -219,7 +219,10 @@ fn test_a_close_between_frames_is_closed_and_inside_one_is_truncated() {
         TransportError::Truncated(frame.len() - 1, frame.len())
     );
     let mut framer = Framer::new(CLUSTER, MAX_FRAME_SIZE);
-    let _ = feed(&mut framer, &pool, &frame[..HEADER_SIZE], &mut 0, 1 << 20);
+    assert_eq!(
+        feed(&mut framer, &pool, &frame[..HEADER_SIZE], &mut 0, 1 << 20).unwrap_err(),
+        TransportError::Truncated(HEADER_SIZE, frame.len())
+    );
     assert!(framer.between_frames(), "a close resets the framer");
 }
 

@@ -77,17 +77,32 @@ fn parse_reverse_literal(w: &mut Steps) {
 
 #[then("the parsed object decodes to \"Ann\"@en")]
 fn reverse_object_decodes(w: &mut Steps) {
-    let Some(Ok((QuadKey::Reverse { object, .. }, None))) = w.quad.take() else {
-        panic!("a reverse key");
+    let quad = w.quad.take();
+    let object = if let Some(Ok((QuadKey::Reverse { object, .. }, None))) = &quad {
+        Some(object)
+    } else {
+        None
     };
+    let object = object
+        .ok_or_else(|| format!("a reverse key, not {quad:?}"))
+        .expect("the key parses as a reverse key");
+    // The literal is inline: neither lookup may be asked.
     let literal = object
         .view()
         .unwrap()
         .to_literal(
-            |_| -> Result<oxrdf::NamedNode, ultragraphdb_core_terms::TermError> {
-                panic!("no UID")
+            |_| {
+                Err(ultragraphdb_core_terms::TermError::Malformed(
+                    Vec::new(),
+                    "no UID lookup",
+                ))
             },
-            |_| panic!("no hash"),
+            |_| {
+                Err(ultragraphdb_core_terms::TermError::Malformed(
+                    Vec::new(),
+                    "no hash lookup",
+                ))
+            },
         )
         .unwrap();
     assert_eq!(
@@ -156,16 +171,13 @@ fn parse_prefixes(w: &mut Steps) {
 fn prefixes_fail(w: &mut Steps) {
     assert!(w.prefix_results.len() > 100);
     for (prefix, result) in &w.prefix_results {
-        match result {
-            Err(_) => {}
-            // A value-index key with a shorter token is itself a valid key: its token, the last field, may be empty.
-            Ok((QuadKey::ValueIndex { token, .. }, None)) => {
-                assert!(
-                    prefix.len() >= 26 && b"abc".starts_with(token),
-                    "{prefix:?}"
-                )
-            }
-            Ok(other) => panic!("prefix {prefix:?} parsed as {other:?}"),
+        // A value-index key with a shorter token is itself a valid key: its token, the last field, may be empty.
+        if let Ok(parsed) = result {
+            assert!(
+                matches!(parsed, (QuadKey::ValueIndex { token, .. }, None)
+                    if prefix.len() >= 26 && b"abc".starts_with(token)),
+                "prefix {prefix:?} parsed as {parsed:?}"
+            );
         }
     }
 }

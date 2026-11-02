@@ -19,7 +19,8 @@ fn test_the_store_workload_survives_crashes_on_fjall() {
                 300,
                 2,
             )
-            .unwrap_or_else(|e| panic!("{e}"))
+            .map_err(|e| e.to_string())
+            .expect("the workload breaks no invariant")
         })
         .collect();
     let recoveries: usize = runs.iter().map(|r| r.recoveries()).sum();

@@ -138,38 +138,37 @@ criterion = { version = "0.8", default-features = false }
 # It is Ultra Style's lint set (openspec/protocols/ULTRA_STYLE.md, "The lint set"). A lint the crates do not meet yet
 # stays here commented out, with its count of violations on 2026-11-02.
 all = { level = "deny", priority = -1 }
-# Rule 10.
-#allow_attributes = "deny"                  # 326
-#allow_attributes_without_reason = "deny"   # 299
-# Rule 4, with too-many-lines-threshold = 70 in clippy.toml.
-#too_many_lines = "deny"                    # 122
-# Rule 7.
-#unwrap_used = "deny"                       # 4366
-#expect_used = "deny"                       # 1543
-#panic = "deny"                             # 282
-todo = "deny"
-unimplemented = "deny"
-#indexing_slicing = "deny"                  # 1018
-#arithmetic_side_effects = "deny"           # 1778; Ultra asks it in decoders and parsers
-#let_underscore_must_use = "deny"           # 95
-#let_underscore_untyped = "deny"            # 136
-# Types.
-#cast_possible_truncation = "deny"          # 355
-#cast_sign_loss = "deny"                    # 118
-#cast_possible_wrap = "deny"                # 106
-cast_lossless = "deny"
-#wildcard_enum_match_arm = "deny"           # 157
 # Rule 2.
 infinite_iter = "deny"
 maybe_infinite_iter = "deny"
 # Rule 6.
 #shadow_unrelated = "deny"                  # 647
+# Rule 7.
+#unwrap_used = "deny"                       # 4366
+#expect_used = "deny"                       # 1543
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+#indexing_slicing = "deny"                  # 1018
+#arithmetic_side_effects = "deny"           # 1778; Ultra asks it in decoders and parsers
+let_underscore_must_use = "deny"
+let_underscore_untyped = "deny"
+# Types.
+#cast_possible_truncation = "deny"          # 355
+#cast_sign_loss = "deny"                    # 118
+cast_possible_wrap = "deny"
+cast_lossless = "deny"
+wildcard_enum_match_arm = "deny"
 # Rule 9.
 large_types_passed_by_value = "deny"
-#trivially_copy_pass_by_ref = "deny"        # 15; each fix changes a public signature
-#needless_pass_by_value = "deny"            # 120
+trivially_copy_pass_by_ref = "deny"
+needless_pass_by_value = "deny"
 rc_buffer = "deny"
 mutex_atomic = "deny"
+# Rule 10.
+#allow_attributes = "deny"                  # 326
+#allow_attributes_without_reason = "deny"   # 299
+too_many_lines = "deny"                     # Rule 4, with too-many-lines-threshold = 70 in clippy.toml.
 # Concurrency.
 await_holding_lock = "deny"
 await_holding_refcell_ref = "deny"

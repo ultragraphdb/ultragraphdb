@@ -202,8 +202,8 @@ fn test_a_read_of_a_waiting_stream_takes_what_arrives_later() {
 }
 
 fn handshake(
-    hello: Hello,
-    welcome: Welcome,
+    hello: &Hello,
+    welcome: &Welcome,
 ) -> (
     Result<Welcome, TransportError>,
     Result<Welcome, TransportError>,
@@ -211,8 +211,8 @@ fn handshake(
     let pool = BufferPool::new(4, MAX_FRAME_SIZE);
     let (_n, mut client, mut server) = pair(NetworkFaults::none().with_split(300_000));
     ready(futures::future::join(
-        client.hello(&pool, &hello),
-        server.welcome(&pool, &welcome),
+        client.hello(&pool, hello),
+        server.welcome(&pool, welcome),
     ))
 }
 
@@ -222,21 +222,18 @@ fn test_a_handshake_agrees_on_the_highest_protocol_both_speak() {
         .with_max_frame(1 << 20)
         .with_max_streams(16)
         .with_initial_credit(4);
-    let (client, server) = handshake(
-        Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"),
-        welcome.clone(),
-    );
+    let (client, server) = handshake(&Hello::new(1, 3, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
     assert_eq!(client.unwrap(), welcome);
     assert_eq!(server.unwrap(), welcome);
-    let (client, _) = handshake(Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), welcome);
+    let (client, _) = handshake(&Hello::new(1, 1, 5, MAX_FRAME_SIZE as u32, "c"), &welcome);
     assert_eq!(client.unwrap().protocol(), 1);
 }
 
 #[test]
 fn test_a_hello_above_the_server_is_refused_on_both_sides() {
     let (client, server) = handshake(
-        Hello::new(3, 4, 5, MAX_FRAME_SIZE as u32, "c"),
-        Welcome::new(2, 9, "s")
+        &Hello::new(3, 4, 5, MAX_FRAME_SIZE as u32, "c"),
+        &Welcome::new(2, 9, "s")
             .with_max_frame(1 << 20)
             .with_max_streams(16)
             .with_initial_credit(4),

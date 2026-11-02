@@ -87,7 +87,7 @@ fn latlng_point_and_cell_match_go() {
             format!("{tag} face/level {} {}", id.face(), id.level())
         });
         for (l, (t, lv)) in k.tokens.iter().zip(&k.levels).enumerate() {
-            let parent = id.parent(l as i64);
+            let parent = id.parent(i64::try_from(l).expect("fits i64"));
             c.check(&parent.to_token() == t && parent.level() == *lv, || {
                 format!(
                     "{tag} parent({l}) {} level {} want {t} {lv}",

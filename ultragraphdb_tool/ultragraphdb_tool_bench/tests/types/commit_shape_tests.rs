@@ -12,18 +12,25 @@ use ultragraphdb_tool_bench::CommitShape;
 fn inserts(changes: &[Change]) -> Vec<(String, NamedOrBlankNode, Term)> {
     changes
         .iter()
-        .map(|c| match c {
-            Change::Insert {
+        .map(|c| {
+            let insert = if let Change::Insert {
                 subject,
                 predicate,
                 object,
                 ..
-            } => (
-                predicate.as_str().to_string(),
-                subject.clone(),
-                object.clone(),
-            ),
-            other => panic!("{other:?} is no insert"),
+            } = c
+            {
+                Some((
+                    predicate.as_str().to_string(),
+                    subject.clone(),
+                    object.clone(),
+                ))
+            } else {
+                None
+            };
+            insert
+                .ok_or_else(|| format!("{c:?} is no insert"))
+                .expect("every change is an insert")
         })
         .collect()
 }
@@ -34,9 +41,15 @@ fn test_the_declarations_are_the_dgraph_runs_ten_edge_types_and_the_hub_name() {
     let declared: Vec<_> = changeset
         .changes()
         .iter()
-        .map(|c| match c {
-            Change::Declare(Declaration::Predicate(p)) => p.clone(),
-            other => panic!("{other:?} is no predicate declaration"),
+        .map(|c| {
+            let declared = if let Change::Declare(Declaration::Predicate(p)) = c {
+                Some(p.clone())
+            } else {
+                None
+            };
+            declared
+                .ok_or_else(|| format!("{c:?} is no predicate declaration"))
+                .expect("every change is a predicate declaration")
         })
         .collect();
     assert_eq!(declared.len(), 21);
@@ -75,9 +88,14 @@ fn test_a_commit_writes_new_records_of_one_type_each_linked_to_a_hub_with_a_stri
         let (link, value) = (&pair[0], &pair[1]);
         assert_eq!(link.1, CommitShape::iri(&format!("r{}", i + 1)).into());
         assert_eq!(link.0, CommitShape::iri(&format!("rel_t{ty}_org")).as_str());
-        let Term::NamedNode(hub) = &link.2 else {
-            panic!("{} is no hub", link.2)
+        let hub = if let Term::NamedNode(hub) = &link.2 {
+            Some(hub)
+        } else {
+            None
         };
+        let hub = hub
+            .ok_or_else(|| format!("{} is no hub", link.2))
+            .expect("a link's object is a hub");
         let n: u64 = hub
             .as_str()
             .trim_start_matches(CommitShape::iri("h").as_str())
@@ -162,9 +180,14 @@ fn test_one_hub_takes_every_link_and_no_relations_write_nothing() {
 #[test]
 fn test_no_types_declare_the_hub_name_alone() {
     let changeset = CommitShape::declarations(0);
-    let [Change::Declare(Declaration::Predicate(name))] = changeset.changes() else {
-        panic!("{:?} is not the name alone", changeset.changes());
+    let name = if let [Change::Declare(Declaration::Predicate(name))] = changeset.changes() {
+        Some(name)
+    } else {
+        None
     };
+    let name = name
+        .ok_or_else(|| format!("{:?} is not the name alone", changeset.changes()))
+        .expect("the hub name's declaration alone");
     assert_eq!(name.predicate(), &CommitShape::iri("name"));
     assert_eq!(name.tokenizers(), ["exact"]);
     assert!(CommitShape::new(1, 0, 1, 7).hubs().changes().is_empty());
