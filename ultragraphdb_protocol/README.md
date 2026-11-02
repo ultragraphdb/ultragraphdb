@@ -60,4 +60,4 @@ applications.
 - **Deterministic tests.** Tests run the machines synchronously and the shells over a seeded simulated network, so a
   failure replays exactly.
 - **Native clients later.** A client in another language implements the same bytes from the specification, which
-  states every layout in its own words, independent of this Rust code. See `openspec/notes/native-clients.md`.
+  states every layout in its own words, independent of this Rust code. See `../openspec/notes/archive/native-clients.md`.

@@ -47,3 +47,30 @@ Seeking a decoder SHALL return the IDs of the target's block at or after the tar
   5,005 and a decoder is sought to sequence 5,005
 - **THEN** decoding returns the 500 IDs from sequence 5,010 on, and the seek returns the rest of the target's block from
   sequence 5,010
+
+### Requirement: Decoders seek without panicking or hanging
+A decoder SHALL exist only once positioned by a seek, and SHALL take any 128-bit value as a target, valid as a system
+ID or not. Seeking to a block SHALL return the whole block holding the target, untruncated, or nothing when no ID lies
+at or after it: past the last ID, backwards into an earlier block, onto an empty block, and to `u128::MAX`.
+`linear_seek(u128::MAX)` SHALL return the last block.
+
+#### Scenario: Intersecting from past a pack's last ID returns nothing
+- **WHEN** the IDs of type 1, bucket 0 and sequences 1 to 100, packed in blocks of 10, are intersected with sequences 1
+  to 11 after sequence 200
+- **THEN** the result is empty and nothing panics
+
+#### Scenario: A backward seek returns the target's block
+- **WHEN** a decoder over sequences 1 to 40 of type 1, bucket 0, in blocks of 10, seeks to sequence 35 and then to 5
+- **THEN** the second seek returns the block of sequences 1 to 10
+
+#### Scenario: An empty block contributes nothing to a seek
+- **WHEN** a pack holds a block whose ID count is 0 and a seek targets it
+- **THEN** the seek moves on to the next block and nothing panics
+
+#### Scenario: A seek to the largest target finds nothing past the end
+- **WHEN** a decoder over sequences 1 to 3 of type 1, bucket 0, in blocks of 2, seeks to `u128::MAX`
+- **THEN** the seek returns nothing and nothing panics
+
+#### Scenario: A linear seek to the largest target stays on the last block
+- **WHEN** a decoder over sequences 1 to 3 of type 1, bucket 0, in blocks of 2, is linearly sought to `u128::MAX`
+- **THEN** it returns the block holding sequence 3

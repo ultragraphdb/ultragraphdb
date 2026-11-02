@@ -110,7 +110,7 @@ CWE-1188).
 | `EXTERNAL` | nothing: the TLS client certificate names the principal | the certificate subjects that name each principal | with TLS, for replicas and services |
 
 Every primitive these need is in every target language's standard or common libraries (SHA-256, HMAC, PBKDF2, the
-signature verifications of RS256, ES256 and EdDSA, JWT), as the protocol's wire choices must be (`native-clients.md`);
+signature verifications of RS256, ES256 and EdDSA, JWT), as the protocol's wire choices must be (`archive/native-clients.md`);
 in Rust they are RustCrypto's pure-Rust crates, the server verifying signatures and never making one.
 
 A token is checked as RFC 8725 sets out: `iss` one of the trusted issuers; the algorithm the one that issuer's entry

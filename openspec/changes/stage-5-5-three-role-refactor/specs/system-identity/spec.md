@@ -29,8 +29,9 @@ refused as invalid wherever it is decoded.
 An entity's bucket SHALL be fixed when the entity is created and SHALL be computed, never chosen: its top 8 bits SHALL
 be the top 8 bits of XXH3-64 (seed 0) of the namespace as 8 big-endian bytes, and its low 16 bits SHALL be the top 16
 bits of XXH3-64 (seed 0) of the declaring type's prefix as 2 big-endian bytes followed by the key's canonical encoding.
-A statement SHALL take the bucket of its subject. The same namespace, type and key SHALL always give the same bucket on
-every node and in every version that reads it.
+A statement SHALL take the bucket of its subject. A blank node, which has no key, SHALL take the bucket its skolem IRI
+states (term-dictionary, "IRIs and blank nodes get system IDs"). The same namespace, type and key SHALL always give the
+same bucket on every node and in every version that reads it.
 
 #### Scenario: The bucket matches the XXH3 reference
 - **WHEN** the bucket of the IRI `http://ex.org/a` in namespace 0 is computed

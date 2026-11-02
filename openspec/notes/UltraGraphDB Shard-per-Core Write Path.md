@@ -553,9 +553,11 @@ glibc, is D7 in the review note, adopted the same day.
 
 - A version is 64 bits: a 42-bit epoch and a 22-bit sequence within it, even as stage 5 keeps versions. At epochs of
   1 ms and longer, 42 bits last over a century; 22 bits allow two million commits per partition per epoch.
-- A partition stamps its commits with the highest epoch it has seen, as the propagation rule states. A partition whose
-  sequence runs out in an open epoch advances its epoch on its own, as a logical clock may; the sequencer only closes
-  epochs.
+- A partition stamps its commits with its open epoch: one above the latest close delivered to it, or its own epoch
+  when it has advanced further, so no commit is stamped with a closed epoch and a snapshot at a closed epoch never
+  changes. A partition whose sequence runs out in its open epoch advances its epoch on its own, as a logical clock may;
+  the sequencer only closes epochs. A partition has closed an epoch once it holds that epoch's close and has applied
+  every round stamped at or below it, and a snapshot read waits for that in every partition it asks.
 - `as of time t` maps to an epoch by the wall-clock time recorded at its close, as the distribution note states.
 
 **Consequences.**

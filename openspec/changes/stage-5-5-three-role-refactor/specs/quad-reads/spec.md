@@ -46,7 +46,8 @@ used with another pattern SHALL be refused. A read matching nothing SHALL return
 
 ### Requirement: A read names its level
 A read SHALL name its level: the latest state of one partition, a snapshot at a closed epoch (the default), or
-monotonic-fast. A snapshot read SHALL wait until every partition it asks has closed the epoch and SHALL read at it; a
+monotonic-fast. A snapshot read SHALL wait until every partition it asks has closed the epoch (sequencer, "Partitions learn each
+closed epoch and stamp the open one") and SHALL read at it; a
 read carrying a session token SHALL read at an epoch at or above the token's; a latest-state read SHALL be refused when
 its pattern reaches more than one partition. Quad-pattern reads are monotonic, so a monotonic-fast read SHALL answer from
 the partitions' latest closed epochs without waiting.

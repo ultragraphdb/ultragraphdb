@@ -14,7 +14,12 @@ Today:
 - The catalog lives in each namespace's catalog keys (`ultragraphdb_core_catalog`, `ultragraphdb_store_quads`).
 - Stage 5 built the wire protocol, its transport, SCRAM, sessions, the commit step, the WAL and the Rust client, and no
   server: nothing answers a client.
-- No crate has adopted the Ultra lint set; `clippy.toml` sets no line threshold.
+- The Ultra lint set is the workspace's one lint table, `[workspace.lints]` in the root `Cargo.toml`, with
+  `too-many-lines-threshold = 70` in `clippy.toml`; four lints stay commented out until the crates meet them
+  (`indexing_slicing`, `arithmetic_side_effects`, `cast_possible_truncation`, `cast_sign_loss`).
+- `ultragraphdb_transport_tls` verifies a server for a client over a blocking `std::net` socket; nothing accepts TLS.
+- Skolem IRIs name a blank node by its UID, `…/.well-known/genid/{uid}` (`ultragraphdb_core_mapping`'s `Names`,
+  `ultragraphdb_store_quads`' `WriteTerms`).
 - The zero-run stored key and the dictionary cache are in `ultragraphdb_store_kv`; the Wolfi glibc base and
   `glibc_multiarch_img` exist (`bazel/oci_images/glibc_base`, `bazel/container/img.bzl`).
 
@@ -40,6 +45,8 @@ Today:
 - UGS keys and declared types: stage 6. This stage knows the built-in `Resource` and `Statement` types only.
 - SPARQL, GQL and query planning: stage 7. Reads are quad patterns.
 - Prefix filters in lsm-tree (P19): only if stage 7 measures seeks binding.
+- TLS between roles, `SCRAM-SHA-256-PLUS`, `EXTERNAL` and `OAUTHBEARER` (`SECURITY.md`, *With TLS*): stage 8, with
+  certificates per role. This stage encrypts the client endpoint, the traffic that leaves the cluster.
 
 ## Decisions
 
@@ -68,16 +75,16 @@ error type, `FooError(pub FooErrorEnum)`, each converting from `InvariantError`.
 
 ### Ultra Style first, then behaviour
 
-Each crate the change touches is lifted in a commit of its own before its behaviour changes: its manifest declares the
-Ultra lint set (`ULTRA_STYLE.md`, *The lint set*) in place of `workspace = true` alone, with the workspace's
-`unsafe_code = "forbid"` repeated; Clippy runs with `-D warnings`; the review of the rules no lint checks (1, 2, 3, 5, 8,
-9) is recorded in the group's notes. The suite passes before and after with the same count under Cargo and Bazel.
-`clippy.toml` gains `too-many-lines-threshold = 70`. Bazel reads the same `[lints]` through `lint_config()`, so the two
-builds lint alike. New crates start with the set.
+The lint table already holds every crate, so a lift is the part no lint checks: each crate the change touches is
+reviewed against the rules no lint checks (1, 2, 3, 5, 8, 9) and brought into line in a commit of its own before its
+behaviour changes, the review recorded in the group's notes and the suite passing under Bazel before and after with the
+same count. Clippy runs through `make fix` and formatting through `make format`; Bazel does not run Clippy. Every crate
+the change creates also meets the four held-back lints, checked by `cargo clippy -p <crate> --all-targets` with each
+denied on the command line, so the global table stays as it is until the existing crates meet them too.
 
-*Alternative considered:* adopting the set workspace-wide at once. Rejected: the 42 existing crates would fail together
-and the change would fix lints in crates it does not otherwise touch. Lifting per touched crate keeps every diff
-attributable, as `ULTRA_STYLE.md` intends ("the existing crates adopt it over time, as they are changed").
+Bazel is the one test gate (`make test`). Cargo runs three things: `make format`, `make fix`, and coverage, measured by
+`cargo llvm-cov -p <crate> --lcov` for every crate the change adds files to, with every added line covered
+(`tdd-protocol.md`, phase 4).
 
 ### Test-first, with the scenarios as Gherkin
 
@@ -96,6 +103,16 @@ LEB128 bytes, a plain reference model for the placement map's checks. The runs o
 big-endian. `TypePrefix(NonZeroU16)`, `Sequence(NonZeroU64)` and `Bucket(u32)` checked below 2^24 make the invalid IDs
 of the spec unrepresentable once decoded. Built-in prefixes: 1 `Resource`, 2 `Statement`; the metadata group allocates
 declared prefixes from 3 in declaration order (D2) from stage 6. The default graph keeps its own key encoding (no ID).
+
+A blank node has no key, so its partition draws its bucket, from those it owns in the namespace's run, and 104 random
+bits from its injected random source, and writes both into the skolem IRI, `…/.well-known/genid/{bucket}-{random}`. The
+bucket rule reads a blank node's bucket back from that IRI, and the IRI shows nothing of the ID but its bucket, 8 hashed
+bits of the namespace and 16 the partition drew. `PROTOCOL.md` already accepts an IRI under the skolem base only when
+the dictionary holds it as a blank node's, so a forged genid is refused. This is the interim name until D6's handles.
+
+*Alternative considered:* keeping the ID in the skolem IRI. Rejected: it shows each type's sequence, which reveals how
+many entities a type holds and in what order they came, and it ties every IRI a client holds to the placement that
+stage 8's splits change.
 
 The bucket is two XXH3-64 hashes (`xxhash-rust`, already pinned): the namespace's 8 big-endian bytes for the top 8 bits,
 the declaring type's 2-byte prefix plus the canonical key for the low 16. The canonical IRI key is its length as a u32
@@ -116,8 +133,28 @@ bans by namespace are prefix operations today, and 8 hashed bits identify no nam
 ### Versions and epochs
 
 `Version(u64)` = epoch << 22 | sequence, sequences even. The commit step's `Sequencer` gives way to an epoch stamp: the
-highest epoch the partition has been delivered, advanced locally by one when the sequence runs out (P13). A session
-token is (partition, log position, epoch). The rollup's rule is unchanged: it writes below the deltas it folds.
+partition's open epoch, the larger of one above the latest close delivered to it and its own epoch, which it advances
+by one when the sequence runs out (P13). A commit is therefore never stamped with a closed epoch, and a snapshot read at
+an epoch cannot change after it answers. A partition has closed an epoch once it holds that epoch's close and has
+applied every round stamped at or below it; a snapshot read waits for exactly that in every partition it asks. A
+session token is (partition, log position, epoch). The rollup's rule is unchanged: it writes below the deltas it folds.
+
+*Alternative considered:* answering `Busy` when an epoch's sequence runs out, in place of the local advance. Rejected:
+`epoch_ms_max` is a setting, and at one hour an epoch fills at about 580 commits per second.
+
+### Sessions across partitions
+
+A session's identity is 128 random bits the frontend draws; the metadata group records it with its principal, one
+command per session, and the frontend checks every commit's principal against that registry before routing. The client
+numbers its commits from one counter per session, because it cannot know which partition a commit reaches. Each
+partition keeps its own bounded session table, recording a session at its first commit there with the last request
+number and stored reply; it refuses a number below its last and accepts the gaps the session's commits elsewhere leave.
+A retry the frontend cannot route — after a reconnect, the open transaction gone — is asked of every partition, which is
+rare and bounded by the partition count.
+
+*Alternatives considered:* a strict +1 counter per (session, partition), which the client cannot compute and which only
+the frontend's memory could keep; and one session table in the metadata group, which would put every commit through
+one state machine, the serial point shard-per-core removes.
 
 ### The sequencer and the metadata group
 
@@ -145,9 +182,17 @@ A transaction binds to the partition of its first key; the first key outside it 
 
 Roles talk the binary protocol through the existing transport, with role commands in the new range 512–767 (the
 replica range 256–511 stays reserved for stage 8's VSR). `PROTOCOL.md` is extended first, before any code, as the
-repository's rule asks (strengthen the protocol before implementing). Role connections authenticate with a role
-credential the operator supplies, verified by the frontend's metadata group. The transport's compio shell gains the
-Unix-domain-socket carrier, chosen by the address scheme.
+repository's rule asks (strengthen the protocol before implementing). Role connections authenticate with SCRAM-SHA-256
+against the cluster's role secret, read by every role from the file `[cluster] role_secret_file` names: each role
+verifies its peer locally, since the principals live in the frontend, which is itself a peer, and the secret is refused
+on the client endpoint. Rotating it takes a rolling restart. The transport's compio shell gains the Unix-domain-socket
+carrier, chosen by the address scheme; in the development container each socket belongs to user 65532 with mode 0600.
+
+The client endpoint speaks TLS 1.3 from the first byte when `[endpoint]` names `tls_cert_file` and `tls_key_file`, and
+clear text only when it sets `plaintext = true`, which the `dev` profile does; naming neither stops the start, so clear
+text is always a visible choice. `ultragraphdb_transport_tls` gains `TlsAcceptor` and a session with no I/O of its own,
+rustls's connection driven by bytes in and bytes out, so the blocking socket, the compio transport and the tokio client
+shell drive the same code.
 
 The frontend endpoint takes stage 5's server source material from backlog items 2 and 3: connections bound per core,
 the handshake, SCRAM against the metadata group's principals, sessions, routing by bucket, statement caches, the
@@ -171,7 +216,9 @@ profiles are TOML files shipped in the images. `/health` and `/ready` are served
 only, bounded request size) on the observability port, written in-house: two fixed answers do not earn an HTTP
 library. The supervisor spawns the role binaries with
 `std::process::Command`, waits on readiness over each role's `/ready`, forwards signals, and exits with the first
-failing role's code.
+failing role's code. Exit codes follow `sysexits`: 0 clean, 69 a lost dependency, 70 an invariant violation, 74 a failed
+store or log, 78 configuration; a role a signal killed is reported as 128 plus the signal, as a shell does. Table and
+setting names use `a`–`z`, `0`–`9` and `_` alone, so each maps to one `ULTRAGRAPHDB_<TABLE>_<KEY>` variable and back.
 
 Each role image is `glibc_multiarch_img` of its binary; the development image layers the four binaries on the same base
 through a variant of the macro taking several binaries. The seccomp profile, Docker's default plus the three io_uring
@@ -193,13 +240,13 @@ system calls, ships beside the images in `bazel/oci_images/seccomp/`.
 - [Scope: identity, versions, the log record, two state machines, partitions, three roles and the client in one change]
   → Groups ordered so each lands green on its own: formats first, state machines second, partitions third, roles last;
   the gate (`make test`) runs after every group.
-- [Lifting 23 existing crates into the Ultra lint set costs time and touches code unrelated to behaviour] → Each lift is
+- [Lifting 26 existing crates into Ultra Style costs time and touches code unrelated to behaviour] → Each lift is
   its own commit with an unchanged suite; a lint that misreads code is answered by rewriting the code, an irreducible
-  exception by `#[expect]` with its reason, listed in the group's notes.
+  exception by `#[expect]` with its reason and the user's consent, listed in the group's notes.
 - [128-bit IDs grow keys and lists] → The zero-run stored key absorbs their zero bytes; LEB128 deltas over 104 bits keep
   lists compact; `wal_bench` measures bytes per relation against stage 5's figures in the final group.
-- [Epoch versions depend on a reachable sequencer] → A partition keeps stamping its last delivered epoch while the
-  sequencer is away and advances locally when its sequence runs out; reads at a snapshot wait, within their deadline.
+- [Epoch versions depend on a reachable sequencer] → A partition keeps stamping its open epoch while the sequencer is
+  away and advances locally when its sequence runs out; reads at a snapshot wait, within their deadline.
 - [The in-house TOML subset and HTTP responder are code to maintain] → Both are bounded, single-pass, fuzzed decoders
   of untrusted bytes with targets in phase 5; the subset is pinned against the toml-test suite, and anything it does
   not support is refused by name, never misread.

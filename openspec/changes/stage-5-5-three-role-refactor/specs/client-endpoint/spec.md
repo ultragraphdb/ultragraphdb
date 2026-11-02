@@ -9,6 +9,27 @@ connection's streams, prepared statements and pending requests, answering past a
 - **WHEN** the frontend allows 2 connections and a third client connects
 - **THEN** the third connection is refused with the limit error, and the first two keep working
 
+### Requirement: The client endpoint speaks TLS 1.3 when configured
+The frontend's client endpoint SHALL speak TLS 1.3 from the first byte when its `[endpoint]` table names
+`tls_cert_file` and `tls_key_file`, through `ultragraphdb_transport_tls`' acceptor (transport-tls), and clear text only
+when it sets `plaintext = true`; naming neither, or both a certificate and `plaintext = true`, SHALL stop the start
+with code 78. The `dev` profile SHALL set `plaintext = true`. The client shells SHALL connect with TLS when their
+configuration names a trust source, verifying the server's certificate for the host they dial before the handshake of
+the wire protocol begins. Inside TLS, authentication SHALL be SCRAM-SHA-256 as on a clear-text connection.
+
+#### Scenario: A TLS client reaches the endpoint
+- **WHEN** the frontend holds the test CA's certificate for `localhost` and a client trusting the CA connects and
+  authenticates
+- **THEN** the TLS handshake, the wire handshake and SCRAM complete, and a write and a read succeed
+
+#### Scenario: A clear-text client is refused by a TLS endpoint
+- **WHEN** a client without TLS sends the wire protocol's first frame to an endpoint configured for TLS
+- **THEN** the connection fails as a TLS handshake failure, and no frame of the wire protocol is read
+
+#### Scenario: An endpoint with no TLS decision does not start
+- **WHEN** the frontend starts with neither a certificate nor `plaintext = true` in its `[endpoint]` table
+- **THEN** it exits with code 78 and an error naming `tls_cert_file`, `tls_key_file` and `plaintext`
+
 ### Requirement: Connections authenticate against the metadata group's principals
 A connection SHALL authenticate with SCRAM-SHA-256 against a principal the metadata group holds before any data
 request, and every request SHALL run with that principal's rights. A failed authentication SHALL be answered with the

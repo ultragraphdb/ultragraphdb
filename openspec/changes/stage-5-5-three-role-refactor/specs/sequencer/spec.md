@@ -31,14 +31,22 @@ close SHALL be refused with an error naming the time and the first close's time.
 - **WHEN** the first close was at 1,000 µs and the time 500 µs is mapped
 - **THEN** the mapping fails with an error naming 500 µs and 1,000 µs
 
-### Requirement: Partitions learn each closed epoch and never stamp below it
-The sequencer SHALL deliver every close, in order, to every partition subscribed to it, and a partition SHALL stamp its
-commits with the highest epoch delivered to it; a partition SHALL never stamp a commit below an epoch it has seen. A
-partition that reconnects SHALL receive the closes it missed, from its last delivered epoch.
+### Requirement: Partitions learn each closed epoch and stamp the open one
+The sequencer SHALL deliver every close, in order, to every partition subscribed to it. A partition SHALL stamp its
+commits with its open epoch: one above the latest close delivered to it, or its own epoch when it has advanced further
+on its own (commit-rounds), so no commit is ever stamped with an epoch already closed. A partition SHALL have closed an
+epoch once it has received that epoch's close and applied every round stamped at or below it; a snapshot read at an
+epoch waits for exactly that (quad-reads). A partition that reconnects SHALL receive the closes it missed, from its last
+delivered epoch.
 
-#### Scenario: A partition stamps the latest delivered epoch
+#### Scenario: A partition stamps the open epoch
 - **WHEN** epochs 1 to 7 are delivered to a partition and it commits a transaction
-- **THEN** the commit's version carries epoch 7
+- **THEN** the commit's version carries epoch 8
+
+#### Scenario: A partition closes an epoch once its rounds are applied
+- **WHEN** a partition holds an unapplied round of epoch 8 and the close of epoch 8 is delivered
+- **THEN** the partition reports epoch 8 closed only after that round is applied, and a snapshot read at epoch 8 waits
+  until then
 
 #### Scenario: A reconnecting partition catches up
 - **WHEN** a partition loses its connection after epoch 3 and reconnects after epoch 9 closed

@@ -7,18 +7,19 @@ constructed through the public API, each expected value from a source independen
 against defects planted in a throwaway implementation; (4) the implementation, judged by the audited suite alone;
 (5) a group that decodes bytes from a client, a peer or the disk writes its fuzz targets and seeds and builds them,
 while the runs of `scripts/mutants.sh` and `scripts/fuzz.sh` happen once, in group 12. Before any of its crates'
-behaviour changes, a group lifts each existing crate it touches into `openspec/protocols/ULTRA_STYLE.md`: the Ultra
-lint set in the crate's manifest, zero warnings under Clippy with `-D warnings`, the rules no lint checks reviewed and
-recorded, the suite unchanged and green with the same count under Cargo and Bazel, all in a commit of its own; every
-crate this change creates starts with the lint set. A group is done when its suites pass under Cargo and Bazel with
-equal counts and `make test` passes; the user commits after each group. Removing files waits for the user's approval
+behaviour changes, a group lifts each existing crate it touches into `openspec/protocols/ULTRA_STYLE.md`: `make format`
+and `make fix` leaving it unchanged and reporting nothing, the rules no lint checks reviewed and recorded, the suite
+unchanged and green with the same count under Bazel, all in a commit of its own; every crate this change creates
+conforms from its first commit and also passes `cargo clippy -p <crate> --all-targets` with `indexing_slicing`,
+`arithmetic_side_effects`, `cast_possible_truncation` and `cast_sign_loss` denied. A lint is silenced only with the
+user's consent. Bazel is the test gate: a group is done when `make test` passes; the user commits after each group. Removing files waits for the user's approval
 at the task that removes them.
 
 ## 0. Workspace and protocol
 
-- [ ] 0.1 `clippy.toml`: `too-many-lines-threshold = 70`; record the Ultra lint set's manifest block once in `ULTRA_STYLE.md` for crates to copy, with `unsafe_code = "forbid"` repeated
-- [ ] 0.2 Create the folders `ultragraphdb_cluster/`, `ultragraphdb_roles/` and the crates of the design's table with the repository's layout, headers, the Ultra lint set and Bazel targets, hermetic and sandboxed, each with an empty `features/` folder its `bdd` target reads
-- [ ] 0.3 `PROTOCOL.md` first: the role-command range 512–767 and its commands, the session token in a commit reply, a read's level and token, result batches naming IRIs by text, the client's automatic credit and in-doubt rules; the replica range 256–511 kept for stage 8
+- [ ] 0.1 `scripts/coverage.sh`: `cargo llvm-cov -p <crate> --lcov` for the crates named, reporting the uncovered lines of the files the change adds; `scripts/held_back_lints.sh`: `cargo clippy -p <crate> --all-targets` with the four held-back lints denied
+- [ ] 0.2 Create the folders `ultragraphdb_cluster/`, `ultragraphdb_roles/` and the crates of the design's table with the repository's layout, headers, `[lints] workspace = true` and Bazel targets, hermetic and sandboxed, each with an empty `features/` folder its `bdd` target reads
+- [ ] 0.3 `PROTOCOL.md` first: the role-command range 512–767 and its commands, role authentication with the role secret, the session token in a commit reply, a read's level and token, sessions with one counter checked per partition and the in-doubt resend, the cross-partition abort in the error table, result batches naming IRIs by text, skolem IRIs as `…/.well-known/genid/{bucket}-{random}` (§4.4, §10.2 and the result-batch rows), TLS 1.3 from the first byte on the client endpoint, the client's automatic credit and in-doubt rules; the replica range 256–511 kept for stage 8; `SECURITY.md`'s *Where it is built* updated with what stage 5.5 builds
 - [ ] 0.4 Record the decisions taken in drafting (design, *Decisions taken in drafting*) in the client's and endpoint's notes for the user's review before groups 9 and 10 begin
 
 ## 1. The system ID → `ultragraphdb_error_ids`, `ultragraphdb_core_ids`
@@ -37,19 +38,19 @@ at the task that removes them.
 - [ ] 2.5 Phase 4: the keys, the packed list, its decoder and seeks, the set operations, the posting format
 - [ ] 2.6 Phase 5: fuzz targets for the key parser, the packed list's decoder and the posting format v2, seeded with the golden values
 
-## 3. Dictionary, statements and vectors → `ultragraphdb_core_terms`, `ultragraphdb_store_quads`, `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`
+## 3. Dictionary, statements and vectors → `ultragraphdb_core_terms`, `ultragraphdb_core_mapping`, `ultragraphdb_store_quads`, `ultragraphdb_store_posting`, `ultragraphdb_store_apply`, `ultragraphdb_store_hnsw`, `ultragraphdb_traits_index`
 
-- [ ] 3.1 Ultra Style lift of `core_terms`, `store_quads`, `store_posting`, `store_apply` and `store_hnsw`, each in its own commit
+- [ ] 3.1 Ultra Style lift of `core_terms`, `core_mapping`, `store_quads`, `store_posting`, `store_apply`, `store_hnsw` and `traits_index`, each in its own commit
 - [ ] 3.2 Scenarios: term-dictionary ("IRIs and blank nodes get system IDs", "Concurrent creation of one IRI yields one ID"), quad-storage ("Statement IDs"), vector-index ("HNSW vectors live in posting lists")
-- [ ] 3.3 Phases 1–3: IDs from computed buckets and leased sequence blocks (a block source trait the metadata group implements in group 6 and a test double behind `test-utils`); statement IDs of the `Statement` type in the subject's bucket; HNSW over `SystemId`, the dead list as hexadecimal strings
+- [ ] 3.3 Phases 1–3: IDs from computed buckets and leased sequence blocks (a block source trait the metadata group implements in group 6 and a test double behind `test-utils`); skolem IRIs `…/.well-known/genid/{bucket}-{random}` drawn from an injected random source in `WriteTerms` and `Names`, with no UID in them, redrawn on a collision; statement IDs of the `Statement` type in the subject's bucket; HNSW and the vector-search signatures of `traits_index` over `SystemId`, the dead list as hexadecimal strings
 - [ ] 3.4 Phase 4: the dictionary, statements and HNSW on 128-bit IDs; every suite of the store crates green on the new types
 - [ ] 3.5 Phase 5: fuzz target for the HNSW lists' decoders on 128-bit IDs
 
-## 4. Versions and the logical log → `ultragraphdb_traits_log`, `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn`, `ultragraphdb_store_kv`
+## 4. Versions and the logical log → `ultragraphdb_traits_log`, `ultragraphdb_transactions_log`, `ultragraphdb_transactions_commit`, `ultragraphdb_transactions_txn`, `ultragraphdb_store_kv`, `ultragraphdb_store_sim`
 
-- [ ] 4.1 Ultra Style lift of `traits_log`, `transactions_log`, `transactions_commit`, `transactions_txn` and `store_kv`, each in its own commit
-- [ ] 4.2 Scenarios: commit-rounds ("Commit versions are built from the epoch"), write-ahead-log ("The ordered-log interface", "Checkpoints trim the log", "A round's record is logical", "The log is the only synced stream"), transactions ("Transactions are strictly serializable", "Interactive transactions", "Commits answer a session token")
-- [ ] 4.3 Phases 1–3: the epoch stamp replacing the clock sequencer; durability tickets on `append`; the logical record (resolved quads, new dictionary entries, version, catalog version, derivation version) and its derivation into keys; fjall with manual journal persistence and the store's explicit sync at checkpoints; session tokens in commit replies
+- [ ] 4.1 Ultra Style lift of `traits_log`, `transactions_log`, `transactions_commit`, `transactions_txn`, `store_kv` and `store_sim`, each in its own commit
+- [ ] 4.2 Scenarios: commit-rounds ("Commit versions are built from the epoch"), write-ahead-log ("The ordered-log interface", "Checkpoints trim the log", "A round's record is logical", "The log is the only synced stream"), transactions ("Transactions are strictly serializable", "Interactive transactions", "Exactly-once commits through sessions", "Aborts name their reason", "Commits answer a session token")
+- [ ] 4.3 Phases 1–3: the epoch stamp replacing the clock sequencer, stamping the open epoch (one above the latest delivered close, or the partition's own after a local advance); a partition's closed epoch once its rounds at or below it are applied; the session table per partition, one counter per session with gaps accepted; the cross-partition abort reason, not retryable; the simulator's workload without catalog keys; durability tickets on `append`; the logical record (resolved quads, new dictionary entries, version, catalog version, derivation version) and its derivation into keys; fjall with manual journal persistence and the store's explicit sync at checkpoints; session tokens in commit replies
 - [ ] 4.4 Phase 4: the commit step, the WAL and the transaction on the new versions and record; replay derives the keys a first apply wrote, checked differentially against the stage-5 apply path on the simulator's workload
 - [ ] 4.5 Phase 5: fuzz targets for the logical record's decoder and the WAL scan on the new record, seeded from the suite's records
 
@@ -64,7 +65,7 @@ at the task that removes them.
 
 - [ ] 6.1 Ultra Style lift of `core_catalog`
 - [ ] 6.2 Scenarios: metadata-group (all requirements), schema-storage ("The schema persists in the metadata group"), schema-changes ("A schema change takes effect at an epoch boundary")
-- [ ] 6.3 Phases 1–3: the metadata group's state machine: catalog versions with their effective epochs, block leases from per-type high-water marks, the placement map, principals with SCRAM credentials and the bootstrap from a secret file, snapshots and trimming; the catalog's loading from the group in place of catalog keys
+- [ ] 6.3 Phases 1–3: the metadata group's state machine: catalog versions with their effective epochs, block leases from per-type high-water marks, the placement map, principals with SCRAM credentials and the bootstrap from a secret file, the session registry with its principals and bound, snapshots and trimming; the catalog's loading from the group in place of catalog keys
 - [ ] 6.4 Phase 4: the group, its recovery from snapshot and log, the block source of group 3 implemented by it; schema changes switching at their epoch in the simulator over two partitions
 - [ ] 6.5 Phase 5: fuzz targets for the group's command records and snapshots
 
@@ -76,26 +77,26 @@ at the task that removes them.
 - [ ] 7.4 Phase 4: partitions in one process, each on its own compio runtime; the simulator's workload over two partitions under every fault class
 - [ ] 7.5 `wal_bench`: N partitions in one process, one seeded generator each, per-partition and total relations, bytes and syncs per second
 
-## 8. Protocol and transport → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_transport_compio`
+## 8. Protocol and transport → `ultragraphdb_protocol_wire`, `ultragraphdb_protocol_transport`, `ultragraphdb_protocol_transport_compio`, `ultragraphdb_transport_tls`
 
-- [ ] 8.1 Ultra Style lift of `protocol_wire`, `protocol_transport` and `protocol_transport_compio`, each in its own commit
-- [ ] 8.2 Scenarios: wire-protocol ("Requests name terms by their text", "Roles exchange role commands", "Reads carry their level and session token")
-- [ ] 8.3 Phases 1–3: the role commands' bodies, views and builders in the 512–767 range, refused on client connections; the session token and read level in their bodies; result batches naming IRIs by text through the dictionary; the Unix-domain-socket carrier chosen by the address scheme; the conformance suite extended with the new frames, valid and malformed
-- [ ] 8.4 Phase 4: the bodies and the carrier
+- [ ] 8.1 Ultra Style lift of `protocol_wire`, `protocol_transport`, `protocol_transport_compio` and `transport_tls`, each in its own commit
+- [ ] 8.2 Scenarios: wire-protocol ("Requests name terms by their text", "Roles exchange role commands", "Reads carry their level and session token"), transport-tls (all requirements)
+- [ ] 8.3 Phases 1–3: the role commands' bodies, views and builders in the 512–767 range, refused on client connections; the session token and read level in their bodies; result batches naming IRIs by text through the dictionary; the Unix-domain-socket carrier chosen by the address scheme; `TlsAcceptor` (TLS 1.3 only, `CertificateUnreadable`, `CertificateEmpty`, `KeyMismatch`) and the TLS session without I/O, driven by the blocking socket and the compio carrier, against `TestPki`; the conformance suite extended with the new frames, valid and malformed
+- [ ] 8.4 Phase 4: the bodies, the carrier, the acceptor and the TLS session
 - [ ] 8.5 Phase 5: fuzz targets for every new body's decoder, one structure-aware through `arbitrary`
 
 ## 9. The roles → `ultragraphdb_roles_storage`, `ultragraphdb_roles_compute`, `ultragraphdb_roles_frontend`
 
 - [ ] 9.1 Scenarios: client-endpoint (all requirements), quad-reads (all requirements)
-- [ ] 9.2 Phases 1–3: storage's host (role commands, epoch delivery, block leases, the read kernel's service); compute's reads (fan-out by bound subject, merge in key order, access paths, resume keys as checksummed tokens, levels and tokens); the frontend's endpoint (connection and per-connection bounds, SCRAM against the metadata group, sessions, routing with one resend on a stale map, statement caches, the error table with `CrossPartition` and `Unavailable`, vector-index declarations refused); the metadata group and sequencer hosted
+- [ ] 9.2 Phases 1–3: storage's host (role commands, epoch delivery, block leases, the read kernel's service); compute's reads (fan-out by bound subject, merge in key order, access paths, resume keys as checksummed tokens, levels and tokens); the frontend's endpoint (connection and per-connection bounds, TLS 1.3 or `plaintext = true` as configured, SCRAM against the metadata group, sessions registered in the metadata group with their principal and checked before routing, a retry it cannot route asked of every partition, routing with one resend on a stale map, statement caches, the error table with the cross-partition abort and `Unavailable`; role connections authenticated with the role secret, verified locally, vector-index declarations refused); the metadata group and sequencer hosted
 - [ ] 9.3 Phase 4: the three role crates against each other in one test process over the in-memory transport of `test-utils`, then over Unix sockets
 - [ ] 9.4 Phase 5: fuzz target for the resume token's decoder
 
 ## 10. The client against the cluster → `ultragraphdb_client_core`, `ultragraphdb_client_tokio`, `ultragraphdb_client_compio`
 
 - [ ] 10.1 Ultra Style lift of `client_core`, `client_tokio` and `client_compio`, each in its own commit
-- [ ] 10.2 Scenarios: wire-protocol ("The client's credit is automatic", "A commit in flight is in doubt once sent"), transactions ("Commits answer a session token") from the client's side, quad-reads ("A read names its level")
-- [ ] 10.3 Phases 1–3: session tokens kept per session and sent with reads; read levels; the shells without `grant`, the core's grant taking `NonZeroU32`; `ConnectionLost` before a commit's frame is sent and `InDoubt` after, `RetriesExhausted` folded into `InDoubt`
+- [ ] 10.2 Scenarios: wire-protocol ("The client's credit is automatic", "A commit in flight is in doubt once sent"), transactions ("Exactly-once commits through sessions", "Commits answer a session token") from the client's side, quad-reads ("A read names its level"), client-endpoint ("The client endpoint speaks TLS 1.3 when configured") from the client's side
+- [ ] 10.3 Phases 1–3: one request counter per session; session tokens kept per session and sent with reads; TLS in the tokio and compio shells through the TLS session, verifying the server against a `TlsTrust`; read levels; the shells without `grant`, the core's grant taking `NonZeroU32`; `ConnectionLost` before a commit's frame is sent and `InDoubt` after, `RetriesExhausted` folded into `InDoubt`
 - [ ] 10.4 Phase 4: the client against the frontend; the client's conformance suite against the role binaries of group 11
 
 ## 10b. The TOML subset → `ultragraphdb_error_toml`, `ultragraphdb_tool_toml`
@@ -109,7 +110,7 @@ at the task that removes them.
 ## 11. Binaries, supervisor and images → `ultragraphdb_error_role`, `ultragraphdb/*`
 
 - [ ] 11.1 Scenarios: role-binaries (all requirements)
-- [ ] 11.2 Phases 1–3: settings from a standard TOML file through `ultragraphdb_tool_toml`, every key taken or refused, overridden by `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, with every setting's bound checked; the profiles as TOML files; `/health` and `/ready` from the in-house HTTP/1.1 responder; start, readiness and the shutdown order; exit codes; the io_uring probe and fallback; the supervisor's start order, signal forwarding and exit code
+- [ ] 11.2 Phases 1–3: settings from a standard TOML file through `ultragraphdb_tool_toml`, every key taken or refused, names of `a`–`z`, `0`–`9` and `_` alone, overridden by `ULTRAGRAPHDB_<TABLE>_<KEY>` variables, with every setting's bound checked; the role secret read from `[cluster] role_secret_file`; the client endpoint's certificate and key files or `plaintext = true`; the profiles as TOML files; `/health` and `/ready` from the in-house HTTP/1.1 responder; start, readiness and the shutdown order; the `sysexits` codes 0, 69, 70, 74 and 78, and 128 plus the signal for a killed role; Unix sockets owned by 65532 with mode 0600; the io_uring probe and fallback; the supervisor's start order, signal forwarding and exit code
 - [ ] 11.3 Phase 4: the four binaries; the dependency check that the frontend links no storage engine
 - [ ] 11.4 Images: `glibc_multiarch_img` for each role; the development image layering the four binaries; the seccomp profile in `bazel/oci_images/seccomp/`; load targets; the role-binaries scenarios run against the images in Docker, under the default seccomp profile and the shipped one
 - [ ] 11.5 Phase 5: fuzz target for the HTTP request parser
@@ -117,9 +118,10 @@ at the task that removes them.
 ## 12. Final verification and documentation
 
 - [ ] 12.1 `scripts/mutants.sh` over every crate the change added or edited; every survivor killed or recorded in `.cargo/mutants.toml` with its measurement
-- [ ] 12.2 `scripts/fuzz.sh` over every target the change added, its report recorded, every regression case replayed under Cargo and Bazel; the fuzzers audited by planting two or three decoder defects each
-- [ ] 12.3 Ultra Style conformance: every touched and created crate builds with zero warnings under the lint set; the review of the unlinted rules, each crate's exceptions and their reasons listed in the change's notes
-- [ ] 12.4 Measurements on the VM disk: `wal_bench` with one partition against stage 5's figures (relations per second, bytes per relation with 128-bit IDs), and with 1 to 12 partitions in one process against the side-by-side table of the Shard-per-Core note
-- [ ] 12.5 The development container end to end: the supervisor's image started, a client writing and reading through it, killed and restarted with every acknowledged commit held
-- [ ] 12.6 Documentation: `AGENTS.md` (crates, dependencies, layers), `ROADMAP.md` (stage 5.5's row), the Shard-per-Core note and the backlog closed with what this change built
-- [ ] 12.7 `make test` green; the final test counts recorded
+- [ ] 12.2 `scripts/fuzz.sh` over every target the change added, its report recorded, every regression case replayed under Bazel; the fuzzers audited by planting two or three decoder defects each
+- [ ] 12.3 Ultra Style conformance: `make format` and `make fix` leave every touched and created crate unchanged and report nothing; `scripts/held_back_lints.sh` passes for every created crate; the review of the unlinted rules, each crate's exceptions and their reasons listed in the change's notes
+- [ ] 12.4 Coverage: `scripts/coverage.sh` over every crate the change adds files to; every added line covered, or listed with its reason in the change's notes
+- [ ] 12.5 Measurements on the VM disk: `wal_bench` with one partition against stage 5's figures (relations per second, bytes per relation with 128-bit IDs), and with 1 to 12 partitions in one process against the side-by-side table of the Shard-per-Core note
+- [ ] 12.6 The development container end to end: the supervisor's image started, a client writing and reading through it, killed and restarted with every acknowledged commit held
+- [ ] 12.7 Documentation: `AGENTS.md` (crates, dependencies, layers), `ROADMAP.md` (stage 5.5's row), the Shard-per-Core note and the backlog closed with what this change built
+- [ ] 12.8 `make test` green; the final test counts recorded

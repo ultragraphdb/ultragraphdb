@@ -85,3 +85,17 @@ administrator role SHALL be refused.
 #### Scenario: The last administrator stays
 - **WHEN** the only principal with the administrator role is removed
 - **THEN** the removal is refused with an error naming it
+
+### Requirement: The metadata group registers sessions
+The metadata group SHALL record each session the frontend registers, its 128-bit identity and its principal, as one
+command, and SHALL answer a session's principal to the frontend's owner check. A registration SHALL be durable before
+it is answered. The registry SHALL hold at most `sessions_max` sessions, evicting the least recently registered, and a
+session already registered SHALL be refused, naming it.
+
+#### Scenario: A registered session survives a restart
+- **WHEN** a session is registered for `alice` and the group is killed and restarted
+- **THEN** the session's principal is still `alice`
+
+#### Scenario: A full registry evicts the oldest session
+- **WHEN** the registry holds `sessions_max` sessions and one more is registered
+- **THEN** the least recently registered session is evicted, and a commit through it is refused as evicted

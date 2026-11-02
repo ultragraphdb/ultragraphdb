@@ -41,14 +41,19 @@ name IRIs by their text through the batch's dictionary: no system ID crosses to 
 - **WHEN** a read returns rows whose subjects are `http://ex.org/a` and `http://ex.org/b`
 - **THEN** the batch's dictionary holds both IRIs' texts and the rows name them by dictionary index, with no system ID
 
+#### Scenario: A result names a blank node by its opaque skolem IRI
+- **WHEN** a read returns a row whose subject is a blank node
+- **THEN** the batch names it, tagged as a blank node, by its skolem IRI `…/.well-known/genid/{bucket}-{random}`, whose
+  text holds no type prefix and no sequence of its system ID
+
 ## ADDED Requirements
 
 ### Requirement: Roles exchange role commands
 Roles SHALL exchange role commands in the same frames as clients, in a command range clients may not send: routing a
 write or a read to a partition, delivering epoch closes, leasing a sequence block, reading the placement map and a
 catalog version, and verifying a principal's proof. A role command arriving on a client connection SHALL be refused
-with a protocol error naming the command, and a role connection SHALL authenticate with the cluster's role credential
-before its first role command.
+with a protocol error naming the command, and a role connection SHALL authenticate with the cluster's role secret
+(role-binaries, "Roles authenticate each other with the cluster's role secret") before its first role command.
 
 #### Scenario: A client may not send a role command
 - **WHEN** a client connection sends a block-lease command
@@ -78,7 +83,8 @@ manual grant; the core SHALL grant no credit of zero frames, refused on the wire
 ### Requirement: A commit in flight is in doubt once sent
 When a connection is lost or closed with a commit in flight, the client SHALL answer `ConnectionLost` if the commit's
 frame was never sent on any connection, and `InDoubt` if it was sent, on any attempt; an exhausted retry SHALL answer
-`InDoubt`, and the session SHALL resolve an in-doubt commit through the log.
+`InDoubt`, and the session SHALL resolve an in-doubt commit by resending it with the same request number, which the
+partitions' session tables answer (transactions, "Exactly-once commits through sessions").
 
 #### Scenario: An unsent commit is lost, a sent one in doubt
 - **WHEN** the connection closes once with a commit queued and unsent, and once with a commit sent and unanswered
