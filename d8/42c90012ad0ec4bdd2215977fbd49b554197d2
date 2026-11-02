@@ -1,0 +1,23 @@
+ultragraphdb_protocol/ultragraphdb_protocol_transport_compio/src/types/connection/mod.rs
+  s_cbffd219ee18ae::t_5282db3d9312d8 82-83
+ultragraphdb_core/ultragraphdb_core_types/src/types/civil_time.rs
+  s_cbffd219ee18ae::t_84cdb5e32867e2 7-8
+ultragraphdb_core/ultragraphdb_core_types/src/types/date_time/date_time_calendar.rs
+  s_cbffd219ee18ae::t_07e9f22e9c8f21 9,56-58,80,87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d842c90012ad0ec4bdd2215977fbd49b554197d2",
+  "prompts": {},
+  "sessions": {
+    "s_cbffd219ee18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "890f65f9-c249-45a3-8923-6f7c9f809591",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
