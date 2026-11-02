@@ -1,0 +1,153 @@
+ultragraphdb_transport/ultragraphdb_transport_tls/src/types/tls_connector/mod.rs
+  s_cbffd219ee18ae::t_1d862f62c853d4 1-9,11-22,24-28,37,49-51,53,55-66,83-84
+  s_cbffd219ee18ae::t_c215d1f6a9e4e4 10,29-35,38-48,54,67-82
+  s_cbffd219ee18ae::t_9455aaab29ebe7 23
+  s_cbffd219ee18ae::t_d9dbcdee2a30f0 36
+  s_cbffd219ee18ae::t_9116a0d469a3b6 52
+openspec/changes/transport-tls/notes/phases.md
+  s_cbffd219ee18ae::t_4a112996ce0910 1-54
+  s_cbffd219ee18ae::t_ffa1945250fcbf 55-111
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/test_pki.rs
+  s_cbffd219ee18ae::t_d2cd46d4d842e6 14,21-22,26,32-36,57,63-64,66,75,82-86,89
+  s_cbffd219ee18ae::t_5b5c8ec9775c01 1-13,15-20,23-25,27-31,37-56,58-62,65,67-74,76-81,87-88,90-98
+  s_cbffd219ee18ae::t_b1cc84a8bd0c65 99-138
+ultragraphdb_transport/ultragraphdb_transport_tls/src/types/tls_trust/mod.rs
+  s_cbffd219ee18ae::t_649d2be59f9fd4 1-5,7-9,12-27,29-39,41-42,45-48,54,56-62,66-67,69-70,75-79,99-101,103,105-107,109,111-113,115,117-120,122-123
+  s_cbffd219ee18ae::t_c2cf303f040dba 6,10-11,40,50-53,63-65,71-74,80-98,104,110,116,121
+  s_cbffd219ee18ae::t_d719d5d12ad004 28
+  s_cbffd219ee18ae::t_258b66af1a6caf 43-44
+  s_cbffd219ee18ae::t_7df835ad62931b 49
+  s_cbffd219ee18ae::t_378d08546201a3 55
+  s_cbffd219ee18ae::t_37888d6344f7ab 68
+  s_cbffd219ee18ae::t_a7cbcb90c8bf21 102
+  s_cbffd219ee18ae::t_3b0b1ffd76a6a1 108
+  s_cbffd219ee18ae::t_3785ddf9ef0262 114
+Cargo.toml
+  s_cbffd219ee18ae::t_7162a4a72706c3 18
+  s_cbffd219ee18ae::t_dfd092be605ffc 124-127
+  s_cbffd219ee18ae::t_f39dedaf9e2160 87-88
+  s_cbffd219ee18ae::t_b60d5807abd64d 128-130
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/bdd.rs
+  s_cbffd219ee18ae::t_6261d89f1bef54 1-165
+  s_cbffd219ee18ae::t_694ee12cd9543e 166-172
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/tls_trust/tls_trust_tests.rs
+  s_cbffd219ee18ae::t_9005058a3ecdcf 8-19,23,29-33,40,42-43,47-54,56-58,60-66,73-75,80-102,104-123
+  s_cbffd219ee18ae::t_b863f54fd8c619 1-7,20-22,24-28,34-39,41,44-46,55,59,67-72,76-79,103,124
+  s_cbffd219ee18ae::t_7f966e274cb0fa 125-135
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/tls_connector/tls_connector_tests.rs
+  s_cbffd219ee18ae::t_57dc31ea0a1733 13-15,19,26-27,30,35-36,38-39,53,55,57-60,69,71,73-75,85-87,89-91,99-122,124-130,136-137
+  s_cbffd219ee18ae::t_de642a7d4555b6 1-12,16-18,20-25,28-29,31-34,37,40-52,54,56,61-68,70,72,76-84,88,92-98,123,131-135,138
+  s_cbffd219ee18ae::t_80b752a5deda07 139-171
+clippy.toml
+  s_cbffd219ee18ae::t_6e7f829ce302e1 25-28
+.cargo/mutants.toml
+  s_cbffd219ee18ae::t_1289387585bc22 237-250
+AGENTS.md
+  s_cbffd219ee18ae::t_0aac1d6b00e69b 143,177-178,219,226-227
+Cargo.lock
+  s_cbffd219ee18ae::t_ade07a03f6be30 65,76,91-129,166-174,422,454,470,500,520,551,739,781-806,890,1043-1053,1513-1518,1527,1553-1562,1580,1589-1614,1641-1649,1839-1848,1898,1918-1923,2025-2038,2097-2110,2136-2144,2155-2189,2367,2448-2458,2519,2529,2581-2610,2649,2834,3321-3333,3379-3384,3542,3566-3574,3584-3647,3660-3677,3684-3693,3714,3755
+MODULE.bazel.lock
+  s_cbffd219ee18ae::t_382b4a3f8546e7 559-561,573,653-654,656,798,806,810,812-813,819,839,858,891,907,911,913,915,981-982,984,1097,1099
+openspec/changes/transport-tls/proposal.md
+  s_cbffd219ee18ae::t_c3922ff8b991fc 1-24
+openspec/changes/transport-tls/specs/transport-tls/spec.md
+  s_cbffd219ee18ae::t_c04feae73349d0 1-37
+openspec/changes/transport-tls/tasks.md
+  s_cbffd219ee18ae::t_d89e7c8766b7e5 1-17
+openspec/specs/telemetry/spec.md
+  s_cbffd219ee18ae::t_8928b6c33de1ad 19-20
+ultragraphdb_common/ultragraphdb_common_telemetry/BUILD.bazel
+  s_cbffd219ee18ae::t_2580b78f7a6bed 51-53
+ultragraphdb_common/ultragraphdb_common_telemetry/Cargo.toml
+  s_cbffd219ee18ae::t_cce812d9da7e3c 23,35
+ultragraphdb_common/ultragraphdb_common_telemetry/src/lib.rs
+  s_cbffd219ee18ae::t_b286bdb42dce6c 9,33
+ultragraphdb_common/ultragraphdb_common_telemetry/src/telemetry/init.rs
+  s_cbffd219ee18ae::t_80eb8fb4af08d3 10,14,23-25,33-36,46-47,50-65,69
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/connection_read.rs
+  s_cbffd219ee18ae::t_cc1606e38f9667 1-17
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/connection_write.rs
+  s_cbffd219ee18ae::t_5e45b24d03f726 1-24
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/connection/mod.rs
+  s_cbffd219ee18ae::t_a96d3d2d4fd59d 1-31
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/mod.rs
+  s_cbffd219ee18ae::t_58a27f33ab0dab 6,8
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/otlp_http_client/mod.rs
+  s_cbffd219ee18ae::t_79677e4a89cf9a 6,10-18,20,23-24,26-34,41-45
+ultragraphdb_common/ultragraphdb_common_telemetry/src/types/otlp_http_client/otlp_http_client_http_client.rs
+  s_cbffd219ee18ae::t_d26eede53705bb 9,13,15
+ultragraphdb_common/ultragraphdb_common_telemetry/src/utils/http1.rs
+  s_cbffd219ee18ae::t_bcb0c184766eca 6-8,10,15-17,25-26,30,34-39,41,43-60,83,92-95,121-124,128-135
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/telemetry/init_tests.rs
+  s_cbffd219ee18ae::t_4dc1118b8c3d69 20-21,23,26,31-42
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/telemetry/subscriber_tests.rs
+  s_cbffd219ee18ae::t_2cdb586c060be9 16,18,20,292-310,314
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/test_support.rs
+  s_cbffd219ee18ae::t_e78c76d971d31c 10,53-69,73,75-79,81-87,89-90,101,107
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/types/mod.rs
+  s_cbffd219ee18ae::t_b4d8fc4f23ff01 7
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/types/otlp_http_client/mod.rs
+  s_cbffd219ee18ae::t_9c1b86fc0a3f60 7,9
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/types/otlp_http_client/otlp_http_client_http_client_tests.rs
+  s_cbffd219ee18ae::t_a26dcdb4435641 12-13,15,31,139-195,197-198,201,241
+ultragraphdb_common/ultragraphdb_common_telemetry/tests/types/otlp_http_client/otlp_http_client_tests.rs
+  s_cbffd219ee18ae::t_3fb964d1ec7741 8,12
+ultragraphdb_transport/ultragraphdb_transport_tls/BUILD.bazel
+  s_cbffd219ee18ae::t_627373cbc3462d 1-78
+ultragraphdb_transport/ultragraphdb_transport_tls/Cargo.toml
+  s_cbffd219ee18ae::t_0c50e8bf1e7cc0 1-80
+ultragraphdb_transport/ultragraphdb_transport_tls/features/transport_tls/transport_tls.feature
+  s_cbffd219ee18ae::t_a52e09a7f9cb1d 1-30
+ultragraphdb_transport/ultragraphdb_transport_tls/src/errors/mod.rs
+  s_cbffd219ee18ae::t_70e2028ba452b9 1-6
+ultragraphdb_transport/ultragraphdb_transport_tls/src/errors/tls_error/tls_error_error.rs
+  s_cbffd219ee18ae::t_537915d24d91eb 1-8
+ultragraphdb_transport/ultragraphdb_transport_tls/src/lib.rs
+  s_cbffd219ee18ae::t_0de83c90e808e8 1-24
+ultragraphdb_transport/ultragraphdb_transport_tls/src/types/mod.rs
+  s_cbffd219ee18ae::t_4e0eea162cfd1e 1-7
+ultragraphdb_transport/ultragraphdb_transport_tls/src/utils_test/mod.rs
+  s_cbffd219ee18ae::t_ebb49cff3c5c63 1-6
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/errors/mod.rs
+  s_cbffd219ee18ae::t_7205fbb1380450 1-7
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/errors/tls_error/mod.rs
+  s_cbffd219ee18ae::t_87ec75fa42cecd 1-11
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/errors/tls_error/tls_error_display_tests.rs
+  s_cbffd219ee18ae::t_74dcbca3500527 1-26
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/errors/tls_error/tls_error_error_tests.rs
+  s_cbffd219ee18ae::t_af7b790c42a47d 1-13
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/errors/tls_error/tls_error_tests.rs
+  s_cbffd219ee18ae::t_0c689e45de4bbc 1-32
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/mod.rs
+  s_cbffd219ee18ae::t_04f9dbc741270b 1-13
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/mod.rs
+  s_cbffd219ee18ae::t_7c4780c4da645c 1-9
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/tls_connector/mod.rs
+  s_cbffd219ee18ae::t_ffbe66311e7e2e 1-7
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/types/tls_trust/mod.rs
+  s_cbffd219ee18ae::t_d56d153f22a461 1-7
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/utils_test/mod.rs
+  s_cbffd219ee18ae::t_4b327a05b98f61 1-7
+ultragraphdb_transport/ultragraphdb_transport_tls/tests/utils_test/test_pki_tests.rs
+  s_cbffd219ee18ae::t_98a325661f8e64 1-21
+ultragraphdb_transport/ultragraphdb_transport_tls/src/errors/tls_error/mod.rs
+  s_cbffd219ee18ae::t_ae9ed130def9c2 1-62
+ultragraphdb_transport/ultragraphdb_transport_tls/src/errors/tls_error/tls_error_display.rs
+  s_cbffd219ee18ae::t_1124512dcb50ef 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e6fd30aebdfe8aeae0609e52ab5a7dffd0747a8",
+  "prompts": {},
+  "sessions": {
+    "s_cbffd219ee18ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "890f65f9-c249-45a3-8923-6f7c9f809591",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
