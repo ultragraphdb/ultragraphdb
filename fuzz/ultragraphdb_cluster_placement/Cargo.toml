@@ -1,0 +1,34 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_cluster_placement, run by scripts/fuzz.sh; a member of the fuzz workspace in
+# fuzz/. Its target calls the crate's public decoder only.
+
+[package]
+name = "ultragraphdb_cluster_placement_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_cluster_placement = { workspace = true }
+ultragraphdb_core_ids = { workspace = true }
+ultragraphdb_error_cluster = { workspace = true }
+
+# Any bytes as a stored placement map: decoded or refused as malformed, never a panic; an accepted map encodes back to
+# its bytes and assigns every bucket once at every epoch it holds.
+[[bin]]
+name = "placement_decode"
+path = "fuzz_targets/placement_decode.rs"
+test = false
+doc = false
+bench = false

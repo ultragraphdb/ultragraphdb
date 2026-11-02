@@ -54,3 +54,11 @@ fn test_no_epoch_follows_the_last() {
         }))
     );
 }
+
+#[test]
+fn test_zero_is_the_epoch_before_the_first() -> TestResult {
+    assert_eq!(Epoch::ZERO.get(), 0);
+    assert_eq!(Epoch::ZERO, Epoch::new(0)?);
+    assert_eq!(Epoch::ZERO.next()?.get(), 1);
+    Ok(())
+}

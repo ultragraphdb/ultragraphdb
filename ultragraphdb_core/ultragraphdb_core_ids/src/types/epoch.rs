@@ -11,6 +11,9 @@ use crate::errors::id_error::IdError;
 pub struct Epoch(u64);
 
 impl Epoch {
+    /// Epoch 0, before the first close: no commit is stamped with it.
+    pub const ZERO: Self = Self(0);
+
     /// The largest epoch, 2^42 − 1.
     pub const MAX: Self = Self((1 << 42) - 1);
 

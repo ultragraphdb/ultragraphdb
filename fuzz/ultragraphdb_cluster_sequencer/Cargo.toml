@@ -1,0 +1,33 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+# The cargo-fuzz package of ultragraphdb_cluster_sequencer, run by scripts/fuzz.sh; a member of the fuzz workspace in
+# fuzz/. Its target calls the crate's public decoder only.
+
+[package]
+name = "ultragraphdb_cluster_sequencer_fuzz"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[package.metadata]
+cargo-fuzz = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libfuzzer-sys = { workspace = true }
+ultragraphdb_cluster_sequencer = { workspace = true }
+ultragraphdb_error_cluster = { workspace = true }
+
+# Any bytes as a round of the sequencer's log: decoded as a close or a multi-partition transaction or refused with a
+# typed error, never a panic; an accepted record encodes back to its bytes.
+[[bin]]
+name = "record_decode"
+path = "fuzz_targets/record_decode.rs"
+test = false
+doc = false
+bench = false

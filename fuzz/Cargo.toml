@@ -22,10 +22,13 @@ publish = false
 # Internal crates: the fuzzed crates and the errors their decoders return
 # ==============
 ultragraphdb_client_core = { path = "../ultragraphdb_client/ultragraphdb_client_core" }
+ultragraphdb_cluster_placement = { path = "../ultragraphdb_cluster/ultragraphdb_cluster_placement" }
+ultragraphdb_cluster_sequencer = { path = "../ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ultragraphdb_common_telemetry = { path = "../ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_core_codec = { path = "../ultragraphdb_core/ultragraphdb_core_codec" }
 ultragraphdb_core_ids = { path = "../ultragraphdb_core/ultragraphdb_core_ids" }
 ultragraphdb_core_terms = { path = "../ultragraphdb_core/ultragraphdb_core_terms" }
+ultragraphdb_error_cluster = { path = "../ultragraphdb_error/ultragraphdb_error_cluster" }
 ultragraphdb_error_log = { path = "../ultragraphdb_error/ultragraphdb_error_log" }
 ultragraphdb_error_protocol = { path = "../ultragraphdb_error/ultragraphdb_error_protocol" }
 ultragraphdb_error_store = { path = "../ultragraphdb_error/ultragraphdb_error_store" }

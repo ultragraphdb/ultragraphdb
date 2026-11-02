@@ -2815,6 +2815,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ultragraphdb_cluster_placement"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_error_cluster",
+ "ultragraphdb_tool_bdd",
+]
+
+[[package]]
+name = "ultragraphdb_cluster_sequencer"
+version = "0.1.0"
+dependencies = [
+ "cucumber",
+ "futures",
+ "ultragraphdb_cluster_placement",
+ "ultragraphdb_core_ids",
+ "ultragraphdb_error_cluster",
+ "ultragraphdb_error_invariant",
+ "ultragraphdb_error_log",
+ "ultragraphdb_tool_bdd",
+ "ultragraphdb_traits_log",
+ "ultragraphdb_transactions_log",
+]
+
+[[package]]
 name = "ultragraphdb_common_telemetry"
 version = "0.1.0"
 dependencies = [
@@ -2856,6 +2883,7 @@ dependencies = [
  "futures",
  "serde",
  "ultragraphdb_core_codec",
+ "ultragraphdb_core_ids",
  "ultragraphdb_tool_bdd",
 ]
 
@@ -2883,6 +2911,7 @@ dependencies = [
  "cucumber",
  "futures",
  "serde",
+ "ultragraphdb_core_ids",
  "ultragraphdb_error_store",
  "ultragraphdb_tool_bdd",
  "xxhash-rust",
@@ -2906,6 +2935,7 @@ dependencies = [
  "cucumber",
  "futures",
  "oxrdf",
+ "ultragraphdb_core_ids",
  "ultragraphdb_core_terms",
  "ultragraphdb_tool_bdd",
 ]
@@ -2979,6 +3009,15 @@ dependencies = [
  "ultragraphdb_error_num",
  "ultragraphdb_tool_bdd",
  "ultragraphdb_traits_collator",
+]
+
+[[package]]
+name = "ultragraphdb_error_cluster"
+version = "0.1.0"
+dependencies = [
+ "ultragraphdb_error_invariant",
+ "ultragraphdb_error_log",
+ "ultragraphdb_tool_bdd",
 ]
 
 [[package]]

@@ -7,6 +7,7 @@
 resolver = "2"
 members = [
     "ultragraphdb_client/*",
+    "ultragraphdb_cluster/*",
     "ultragraphdb_common/*",
     "ultragraphdb_core/*",
     "ultragraphdb_error/*",
@@ -17,7 +18,8 @@ members = [
     "ultragraphdb_transactions/*",
     "ultragraphdb_transport/*",
 ]
-# The cargo-fuzz packages are a workspace of their own (fuzz/Cargo.toml): nightly-only, and libfuzzer-sys builds C++.
+# The cargo-fuzz packages are a workspace of their own (fuzz/Cargo.toml):
+# nightly-only, and libfuzzer-sys builds C++.
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -37,6 +39,9 @@ publish = false
 ultragraphdb_client_core = { path = "ultragraphdb_client/ultragraphdb_client_core" }
 ultragraphdb_client_compio = { path = "ultragraphdb_client/ultragraphdb_client_compio" }
 ultragraphdb_client_tokio = { path = "ultragraphdb_client/ultragraphdb_client_tokio" }
+## Cluster
+ultragraphdb_cluster_placement = { path = "ultragraphdb_cluster/ultragraphdb_cluster_placement" }
+ultragraphdb_cluster_sequencer = { path = "ultragraphdb_cluster/ultragraphdb_cluster_sequencer" }
 ## Common
 ultragraphdb_common_telemetry = { path = "ultragraphdb_common/ultragraphdb_common_telemetry" }
 ultragraphdb_common_utils = { path = "ultragraphdb_common/ultragraphdb_common_utils" }
@@ -53,6 +58,7 @@ ultragraphdb_core_text = { path = "ultragraphdb_core/ultragraphdb_core_text" }
 ultragraphdb_core_tok = { path = "ultragraphdb_core/ultragraphdb_core_tok" }
 ultragraphdb_core_types = { path = "ultragraphdb_core/ultragraphdb_core_types" }
 ## Error
+ultragraphdb_error_cluster = { path = "ultragraphdb_error/ultragraphdb_error_cluster" }
 ultragraphdb_error_json = { path = "ultragraphdb_error/ultragraphdb_error_json" }
 ultragraphdb_error_log = { path = "ultragraphdb_error/ultragraphdb_error_log" }
 ultragraphdb_error_invariant = { path = "ultragraphdb_error/ultragraphdb_error_invariant" }

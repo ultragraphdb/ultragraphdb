@@ -4,7 +4,7 @@
  */
 
 use crate::errors::id_error::IdError;
-use xxhash_rust::xxh3::{Xxh3Default, xxh3_64};
+use xxhash_rust::xxh3::Xxh3Default;
 
 use crate::types::canonical_key::CanonicalKey;
 use crate::types::namespace::Namespace;
@@ -45,7 +45,7 @@ impl Bucket {
     /// namespace, type and key give the same bucket on every node and in every version.
     #[must_use]
     pub fn derive(namespace: Namespace, prefix: TypePrefix, key: &CanonicalKey<'_>) -> Self {
-        let [namespace_top, ..] = xxh3_64(&namespace.get().to_be_bytes()).to_be_bytes();
+        let namespace_top = namespace.bucket_bits();
         // Streamed, so no buffer holds the prefix and the key together; XXH3's streaming digest equals its one-shot
         // hash of the concatenated bytes.
         let mut hasher = Xxh3Default::new();
