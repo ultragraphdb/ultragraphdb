@@ -1,0 +1,47 @@
+openspec/changes/stage-5-5-three-role-refactor/specs/metadata-group/spec.md
+  s_6c9dcf457e80d9::t_04e31e9bdc21b5 111-113,127-130,134-135
+openspec/changes/stage-5-5-three-role-refactor/tasks.md
+  s_6c9dcf457e80d9::t_2f6381be9d3dee 113
+ultragraphdb_client/ultragraphdb_client_compio/src/types/client/mod.rs
+  s_6c9dcf457e80d9::t_6bd583d88775df 129-130,142-146
+ultragraphdb_client/ultragraphdb_client_compio/tests/types/client/client_shell_tests.rs
+  s_6c9dcf457e80d9::t_b99c8bc6e2dd77 264-327
+ultragraphdb_client/ultragraphdb_client_core/src/types/client_core/mod.rs
+  s_6c9dcf457e80d9::t_d4884def878790 68-69,96,115,158-164,400
+ultragraphdb_client/ultragraphdb_client_core/tests/types/client_core/client_core_commit_tests.rs
+  s_6c9dcf457e80d9::t_91eb71d18c6dfa 794,796,1074-1077
+ultragraphdb_client/ultragraphdb_client_tokio/src/types/client/mod.rs
+  s_6c9dcf457e80d9::t_8ad6b03b93c823 174-175,187-191
+ultragraphdb_client/ultragraphdb_client_tokio/tests/types/client/client_shell_tests.rs
+  s_6c9dcf457e80d9::t_1559504270cbb4 355-416
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/features/metadata_group/metadata_group.feature
+  s_6c9dcf457e80d9::t_68367f5a415482 88-91
+ultragraphdb_cluster/ultragraphdb_cluster_metadata/tests/bdd.rs
+  s_6c9dcf457e80d9::t_c213e65b5cb382 761-810
+ultragraphdb_store/ultragraphdb_store_apply/tests/workload_faults.rs
+  s_6c9dcf457e80d9::t_ddf2ce23f6d82b 24-27,29,36
+ultragraphdb_store/ultragraphdb_store_sim/tests/types/sim_store/sim_store_faults_tests.rs
+  s_6c9dcf457e80d9::t_5bac2970f3eab2 15,287-348
+ultragraphdb_tool/ultragraphdb_tool_test/src/utils/changeset_workload.rs
+  s_6c9dcf457e80d9::t_bdb1e8a7732d16 153,264-267
+ultragraphdb_store/ultragraphdb_store_sim/src/types/sim_store/fault_injector.rs
+  s_6c9dcf457e80d9::t_ff2ff5dae5d6c6 29-30,39,43-46,114-116,121-123
+ultragraphdb_store/ultragraphdb_store_sim/src/types/sim_store/mod.rs
+  s_6c9dcf457e80d9::t_ab72dd7d144f18 134-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5af53da66de9f0fccd6fe40ceb28964c9609e7c8",
+  "prompts": {},
+  "sessions": {
+    "s_6c9dcf457e80d9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9e223492-f4c5-4f68-93b3-4ec87d773715",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Marvin Hansen <marvin.hansen@gmail.com>"
+    }
+  }
+}
