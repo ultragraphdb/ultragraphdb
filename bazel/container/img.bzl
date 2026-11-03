@@ -4,8 +4,8 @@ load("@rules_img//img:image.bzl", "image_index", "image_manifest")
 load("@rules_img//img:layer.bzl", "image_layer")
 
 # Scratch plus CA certificates: a static binary carries no trust store, and TLS without one fails
-# at the first connection. Pinned by index digest in MODULE.bazel.
-SCRATCH_BASE = "@rust_scratch"
+# at the first connection. Built from source, its CA bundle pinned by SHA-256 in MODULE.bazel.
+SCRATCH_BASE = "//bazel/oci_images/scrach_base:scratch_base"
 
 # glibc, its loader, libgcc and CA certificates from Wolfi, built by rules_apko from a lock file (D7).
 GLIBC_BASE = "//bazel/oci_images/glibc_base:glibc_base_index"
@@ -45,11 +45,14 @@ def scratch_multiarch_img(name, binary, **kwargs):
         srcs = {entrypoint_path: binary},
     )
 
+    # Manual: the base holds Linux images only, so the manifest builds through the index's platform
+    # transition, never on its own for the host.
     image_manifest(
         name = name + "_manifest",
         base = SCRATCH_BASE,
         entrypoint = [entrypoint_path],
         layers = [name + "_layer"],
+        tags = ["manual"],
     )
 
     image_index(

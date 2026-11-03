@@ -1,0 +1,31 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Checks the Bazel formatting `make format` writes, over the same files. buildifier is pinned to the release
+# `make format` runs locally, so the two agree on what formatted means.
+
+name: Bazel Fmt
+
+on: [ pull_request ]
+
+permissions:
+  contents: read
+
+env:
+  BUILDIFIER_VERSION: v8.5.1
+
+jobs:
+  buildifier:
+    name: buildifier
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install buildifier
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/buildifier" \
+            "https://github.com/bazelbuild/buildtools/releases/download/${BUILDIFIER_VERSION}/buildifier-linux-amd64"
+          chmod +x "$RUNNER_TEMP/buildifier"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: buildifier -mode=check -r MODULE.bazel BUILD.bazel ultragraphdb_*/

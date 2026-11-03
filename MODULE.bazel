@@ -117,6 +117,17 @@ pull(
     tag = "scratch-1.99.0",
 )
 
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+# Mozilla's CA bundle as curl publishes it, the trust store of //bazel/oci_images/scrach_base. Dated and pinned by its
+# SHA-256, which curl publishes beside it; update both together.
+http_file(
+    name = "mozilla_cacert",
+    downloaded_file_path = "ca-certificates.crt",
+    sha256 = "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe",
+    urls = ["https://curl.se/ca/cacert-2026-10-20.pem"],
+)
+
 ###############################################################################
 # rules_apko: https://github.com/chainguard-dev/rules_apko
 # The glibc runtime base of the server image (D7), built from Wolfi packages and pinned by

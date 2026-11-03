@@ -1,0 +1,25 @@
+#
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026. Marvin Hansen. All Rights Reserved.
+#
+
+# Scans Cargo.lock against the RustSec advisory database as `make check` does, a warning (unmaintained, yanked) failing
+# the job as a vulnerability does.
+
+name: Audit
+
+on: [ pull_request ]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings

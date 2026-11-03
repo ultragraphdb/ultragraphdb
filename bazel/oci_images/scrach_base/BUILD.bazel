@@ -1,0 +1,64 @@
+load("@rules_img//img:image.bzl", "image_index", "image_manifest")
+load("@rules_img//img:layer.bzl", "file_metadata", "image_layer")
+load("@rules_img//img:push.bzl", "image_push")
+load("//bazel/container:img.bzl", "MUSL_PLATFORMS")
+
+# The scratch base of every scratch_multiarch_img: scratch, the unprivileged user nobody and the CA bundle, one layer
+# each, for amd64 and arm64.
+
+# Owned by root and readable by all, as Docker's COPY leaves them.
+ROOT_READABLE = file_metadata(
+    gid = 0,
+    mode = "0644",
+    uid = 0,
+)
+
+image_layer(
+    name = "user_layer",
+    srcs = {
+        "/etc/group": ":group",
+        "/etc/passwd": ":passwd",
+    },
+    default_metadata = ROOT_READABLE,
+)
+
+# Mozilla's bundle from curl, pinned in MODULE.bazel.
+image_layer(
+    name = "cacert_layer",
+    srcs = {
+        "/etc/ssl/certs/ca-certificates.crt": "@mozilla_cacert//file",
+    },
+    default_metadata = ROOT_READABLE,
+)
+
+# No base: the manifest starts from scratch. Manual, as it builds through the index's platform transition. Runs as
+# nobody, which images built on it inherit.
+image_manifest(
+    name = "scratch_base_manifest",
+    layers = [
+        ":user_layer",
+        ":cacert_layer",
+    ],
+    tags = ["manual"],
+    user = "65534",
+)
+
+# The image to push. Its files are the same on both architectures; the platforms set each manifest's os and arch.
+image_index(
+    name = "scratch_base",
+    manifests = [":scratch_base_manifest"],
+    platforms = MUSL_PLATFORMS,
+    visibility = ["//visibility:public"],
+)
+
+# `bazel run` pushes both tags from the one index, so they name the same digest, as the README asks.
+image_push(
+    name = "push",
+    image = ":scratch_base",
+    registry = "index.docker.io",
+    repository = "hansenmarvin/rust-scratch",
+    tag_list = [
+        "scratch-1.99.1",  # match the current Rust version.
+        "latest",
+    ],
+)
